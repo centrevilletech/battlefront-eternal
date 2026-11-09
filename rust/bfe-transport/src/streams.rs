@@ -6,16 +6,23 @@ use crate::{Error,Result,codec::{Ranges,Reader,Writer},layout::limits as lim};
 pub struct Span{pub offset:u64,pub length:usize,pub retransmit:bool}
 // Absolute offsets wrap only at the physical copy. Acknowledgements and
 // peer-visible stream offsets retain their full monotonically increasing value.
-fn put_ring(ring:&mut[u8],offset:u64,bytes:&[u8]){
-    let at=offset as usize%ring.len();let first=bytes.len().min(ring.len()-at);
-    ring[at..at+first].copy_from_slice(&bytes[..first]);ring[..bytes.len()-first].copy_from_slice(&bytes[first..]);
+// Growing `ring.len()` lazily within the pre-reserved `MAX_STREAM_BUFFER` capacity
+// avoids faulting unused physical pages into RSS while keeping steady-state writes allocation-free.
+fn put_ring(ring:&mut Vec<u8>,offset:u64,bytes:&[u8]){
+    let at=offset as usize%lim::MAX_STREAM_BUFFER;let first=bytes.len().min(lim::MAX_STREAM_BUFFER-at);
+    let end1=at+first;if ring.len()<end1{ring.resize(end1,0);}
+    ring[at..end1].copy_from_slice(&bytes[..first]);
+    let second=bytes.len()-first;
+    if second>0{if ring.len()<second{ring.resize(second,0);}ring[..second].copy_from_slice(&bytes[first..]);}
 }
 // Fixed-capacity send ring tracking written, sent, acknowledged, and lost byte ranges.
 pub struct SendStream{bytes:Vec<u8>,pub written:u64,pub sent:u64,pub base:u64,acked:Ranges,lost:Ranges,pub lost_bytes:usize}
 impl Default for SendStream{fn default()->Self{Self::new()}}
 impl SendStream{
-    pub fn new()->Self{Self{bytes:vec![0;lim::MAX_STREAM_BUFFER],written:0,sent:0,base:0,acked:Ranges::new(lim::MAX_SENT_PACKETS*2),lost:Ranges::new(lim::MAX_SENT_PACKETS*2),lost_bytes:0}}
+    pub fn new()->Self{Self{bytes:Vec::with_capacity(lim::MAX_STREAM_BUFFER),written:0,sent:0,base:0,acked:Ranges::new(lim::MAX_SENT_PACKETS*2),lost:Ranges::new(lim::MAX_SENT_PACKETS*2),lost_bytes:0}}
     pub fn pending(&self)->usize{(self.written-self.sent)as usize+self.lost_bytes}
+    // Releases the stream ring once the owning connection has closed and entered draining.
+    pub(crate) fn release_closed_buffers(&mut self){self.bytes=Vec::new();self.lost_bytes=0;}
     // Prefix and payload are admitted together. A full stream cannot retain
     // half a message whose remaining bytes could never be acknowledged.
     pub fn write(&mut self,bytes:&[u8],text:bool)->Result<()>{
@@ -40,7 +47,7 @@ impl SendStream{
     // from released space would disclose a newer message under an old offset.
     pub fn copy(&self,span:Span,out:&mut Writer<'_>)->Result<()>{
         if span.offset<self.base||span.offset+span.length as u64>self.written{return Err(Error("invalid stream span"));}
-        let at=span.offset as usize%self.bytes.len();let first=span.length.min(self.bytes.len()-at);
+        let at=span.offset as usize%lim::MAX_STREAM_BUFFER;let first=span.length.min(lim::MAX_STREAM_BUFFER-at);
         out.span(&self.bytes[at..at+first])?;out.span(&self.bytes[..span.length-first])
     }
     // A contiguous acknowledged prefix releases physical storage. Sparse
@@ -67,7 +74,7 @@ impl SendStream{
 // Incremental parser for varint-length + kind framed messages on an ordered stream.
 struct Message{header:[u8;9],header_len:usize,bytes:Vec<u8>,used:usize,need:Option<usize>,text:bool}
 impl Message{
-    fn new()->Self{Self{header:[0;9],header_len:0,bytes:vec![0;lim::MAX_MESSAGE],used:0,need:None,text:false}}
+    fn new()->Self{Self{header:[0;9],header_len:0,bytes:Vec::with_capacity(lim::MAX_MESSAGE),used:0,need:None,text:false}}
     // Header bytes may themselves cross packets and ring boundaries. Hold
     // at most nine before a checked message length selects the payload bank.
     fn feed(&mut self,mut bytes:&[u8],deliver:&mut impl FnMut(bool,&[u8]))->Result<()>{
@@ -77,7 +84,8 @@ impl Message{
                 let header=(1usize<<(self.header[0]>>6))+1;if self.header_len<header{continue;}
                 let mut r=Reader::new(&self.header[..self.header_len]);let n=r.varint()?;let kind=r.byte()?;
                 if n>lim::MAX_MESSAGE as u64||kind>1{return Err(Error("invalid stream message"));}
-                self.need=Some(n as usize);self.text=kind!=0;self.used=0;self.header_len=0;
+                let need=n as usize;if self.bytes.len()<need{self.bytes.resize(need,0);}
+                self.need=Some(need);self.text=kind!=0;self.used=0;self.header_len=0;
                 if n==0{deliver(self.text,&[]);self.need=None;}continue;
             }
             let Some(need)=self.need else{return Err(Error("stream message length field missing"));};
@@ -91,7 +99,9 @@ impl Message{
 pub struct ReceiveStream{bytes:Vec<u8>,pub offset:u64,runs:Ranges,parts:Vec<[u64;2]>,part_count:usize,message:Message}
 impl Default for ReceiveStream{fn default()->Self{Self::new()}}
 impl ReceiveStream{
-    pub fn new()->Self{Self{bytes:vec![0;lim::MAX_STREAM_BUFFER],offset:0,runs:Ranges::new(lim::MAX_STREAM_SEGMENTS),parts:vec![[0;2];lim::MAX_STREAM_PARTS],part_count:0,message:Message::new()}}
+    pub fn new()->Self{Self{bytes:Vec::with_capacity(lim::MAX_STREAM_BUFFER),offset:0,runs:Ranges::new(lim::MAX_STREAM_SEGMENTS),parts:vec![[0;2];lim::MAX_STREAM_PARTS],part_count:0,message:Message::new()}}
+    // Releases the reassembly ring and message assembly bank once closed.
+    pub(crate) fn release_closed_buffers(&mut self){self.bytes=Vec::new();self.parts=Vec::new();self.part_count=0;self.message.bytes=Vec::new();}
     // Physical piece count bounds scattered overlap work separately from
     // merged runs. In-order messages never consume this reservation.
     fn store_piece(&mut self,a:u64,b:u64,start:u64,bytes:&[u8])->Result<()>{
@@ -126,7 +136,7 @@ impl ReceiveStream{
         self.message.feed(bytes,deliver)?;self.offset=end;
         while let Some([a,b])=self.runs.first(){
             if a>self.offset{break;}
-            if b>self.offset{let at=self.offset as usize%self.bytes.len();let count=(b-self.offset)as usize;let first=count.min(self.bytes.len()-at);
+            if b>self.offset{let at=self.offset as usize%lim::MAX_STREAM_BUFFER;let count=(b-self.offset)as usize;let first=count.min(lim::MAX_STREAM_BUFFER-at);
                 self.message.feed(&self.bytes[at..at+first],deliver)?;self.message.feed(&self.bytes[..count-first],deliver)?;self.offset=b;
             }
             self.runs.trim(self.offset);

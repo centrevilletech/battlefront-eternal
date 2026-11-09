@@ -337,7 +337,7 @@ pub fn build_with_facts(cx: &mut super::Cx, facts: &Facts, factions: &[f64], mob
 pub fn session_with_facts(cx: &mut super::Cx, facts: &Facts, factions: &[f64]) -> Result<super::Calls, AdmitError> {
     let mut call = super::Call { row: vec![0.0; F4RosterSetup::WORDS], ..Default::default() };
     let battle = cx.battle;
-    let input = roster(battle, factions, facts.character, None, &mut |text| cx.intern(&mut call, text))?;
+    let input = roster(battle, factions, facts.character, cx.army_size, &mut |text| cx.intern(&mut call, text))?;
     input.put(&mut call.row, &mut call.heap);
     Ok(vec![(Stage::Session, "f4_connections_init", super::Call { args: vec![connections(facts.characters.len())? as f64], ..Default::default() }),
         (Stage::Session, "f4_roster_init", call)])

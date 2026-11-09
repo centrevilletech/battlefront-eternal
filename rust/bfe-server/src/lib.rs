@@ -14,7 +14,7 @@
 //! - [`operator`]: bundled `rusqlite` `operator.sqlite` store (`bans`, `scores`, `audit`) and loopback `/admin` + `/healthz` HTTP server (`src/operator.js`).
 //! - [`udp_peer`]: server-side `BFE-UDP/1` peer state, `BNI1`/`BNA1` framing, `120 ms`/`50 ms` congestion hysteresis, and `StateBudget` (`src/udp-peer.js`).
 //! - [`udp_server`]: dual-stack `BFE-UDP/1` game port listener, handshake admission, and per-prefix limits (`src/udp-server.js`).
-//! - [`world_worker`]: native `bfe_sim::abi::context::Context` world host (`Context::world_admit`, `world_step`, `world_publish_into`) and `BNI1`/`BNA1`/`BNS1`/`BNO1` wire codecs (`src/world-worker.js`).
+//! - [`world_worker`]: native `bfe_sim::abi::context::Context` world host (`Context::world_admit`, `world_host_start`, `world_host_client`, `world_host_client_leave`, `world_tick`, `world_publish_into`) and `BNI1`/`BNA1`/`BNS1`/`BNO1` wire codecs (`src/world-worker.js`).
 
 pub mod bans;
 pub mod browser_info;

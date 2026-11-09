@@ -128,6 +128,19 @@ impl Capture {
             remote_order: Vec::with_capacity(setup.remote_capacity as usize),
             max_entities: setup.entity_capacity as usize, max_seats: setup.seat_capacity as usize })
     }
+    // EntityEdges.advance resolves protocol class/post ids before delivering
+    // native spawn commands. Reuse the source's authoritative registry maps.
+    #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+    pub(crate) fn edge_name(&self, id: f64, class: bool) -> Option<crate::store::StrId> {
+        if !id.is_finite() || id <= 0. || id.fract() != 0. {
+            return None;
+        }
+        let table = if class { &self.classes } else { &self.posts };
+        table
+            .iter()
+            .position(|&value| f64::from(value) == id)
+            .map(|slot| crate::store::StrId(slot as u32))
+    }
     pub(crate) fn class_id(&self, name: crate::store::StrId) -> f64 { self.classes.get(name.0 as usize).copied().unwrap_or(0) as f64 }
     pub(crate) fn weapon_name_id(&self, name: crate::store::StrId) -> f64 { self.weapon_names.get(name.0 as usize).copied().unwrap_or(0) as f64 }
     pub(crate) fn transport_post_id(&self, index: f64) -> Option<f64> {

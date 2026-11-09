@@ -29,16 +29,18 @@ mod after;
 pub mod battles; // matrix-b
 mod before;
 mod capture;
+mod content;
+pub use content::{content_tables, content_tables_from_registry};
 mod drain;
 mod edges;
+pub mod journal;
+pub mod mount; // matrix-b
 mod pads; // matrix-b
 #[cfg(test)]
 mod presentation_fault; // matrix-b
-mod vehicle_input; // matrix-b
-pub mod journal;
-pub mod mount; // matrix-b
 pub mod random; // matrix-b
-pub mod recon; // matrix-b
+pub mod recon;
+mod vehicle_input; // matrix-b // matrix-b
 
 pub use capture::Capture;
 
@@ -74,8 +76,8 @@ struct Client {
 
 /// The authority host's state between ticks, owned by the Context.
 pub struct Authority {
-    pad_owners: pads::Owners, // matrix-b
-    vehicle_input: vehicle_input::Policy, // matrix-b
+    pad_owners: pads::Owners,              // matrix-b
+    vehicle_input: vehicle_input::Policy,  // matrix-b
     recon_definitions: recon::Definitions, // matrix-b
     /// Whether `world_host_start` took the admission's flags and lives.
     started: bool,
@@ -117,6 +119,7 @@ pub struct Authority {
     /// The players the last tick changed (`native.changed()`), for the
     /// caller's own mirrors (a mailbox's synchronize, a roster).
     views: Vec<PlayerView>,
+    edge_actions: gen::PlayerActions,
     args: Arguments,
 }
 
@@ -144,6 +147,14 @@ impl Default for Authority {
             clients: Vec::new(),
             presses: Vec::new(),
             views: Vec::new(),
+            edge_actions: gen::PlayerActions {
+                entry: gen::IaEntry {
+                    actions: Vec::with_capacity(1),
+                    ..Default::default()
+                },
+                human: Vec::with_capacity(1),
+                ..Default::default()
+            },
             args: Arguments {
                 words: Vec::with_capacity(512),
                 heap: Vec::with_capacity(256),
@@ -187,8 +198,8 @@ impl Authority {
         if !self.started {
             self.start(context, None, Content::default())?;
         }
-        let (tick, dt) = (input.tick, input.dt);
-        self.advance_edges(context, tick)?;
+        let (tick, dt, at) = (input.tick, input.dt, input.at);
+        self.advance_edges(context, tick, at)?;
         self.before_step(context, tick, dt)?;
         let output = context
             .world_step(input)
@@ -222,6 +233,17 @@ impl Context {
             .map_err(Error::host)
     }
 
+    /// Admission can extend definition tables when a network class is prepared.
+    /// Refresh names without resetting the authority's flags, journal or clients.
+    pub fn world_host_content(&self, explosions: Vec<u32>, content: Content) -> Result<(), Error> {
+        self.host(|host| {
+            if let Some(capture) = &mut host.capture {
+                capture.explosions = explosions;
+            }
+            host.content = content;
+        })
+    }
+
     /// The fleet's flight assists (`vehicles.flightAssists = aiDifficulty
     /// !== 'hard'`): on by default, as at the default difficulty.
     pub fn world_host_flight_assists(&self, on: bool) -> Result<(), Error> {
@@ -234,6 +256,15 @@ impl Context {
     pub fn world_host_client(&self, player: u32, edges: u32) -> Result<(), Error> {
         self.host(|host| host.add_client(self, player, edges))?
             .map_err(Error::host)
+    }
+
+    /// A network client leaves the authority (`snapshot-host.js` `removeClient`):
+    /// drops every client entry bound to `edges` so `advance_edges` and
+    /// `consumed_edges` stop driving that edge runtime.
+    pub fn world_host_client_leave(&self, edges: u32) -> Result<(), Error> {
+        self.host(|host| {
+            host.clients.retain(|c| c.edges != edges);
+        })
     }
 
     /// The SimEvents journal, read-only (`worldState`'s events).
@@ -373,4 +404,70 @@ fn unit_generation(units: &[(u32, u32, gen::Unit)], slot: u32) -> u32 {
 fn intern(context: &Context, text: &str) -> Result<StrId, String> {
     let units: Vec<u16> = text.encode_utf16().collect();
     context.intern(&units).map_err(|e| e.message().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gen::{InputMailboxSetup, PlayerSetup};
+    use crate::world::admit::{Call, Returned};
+
+    #[test]
+    fn world_host_client_leave_removes_joined_edge_runtime() {
+        let context = Context::new();
+        context.players_init().expect("players_init");
+        let setup = InputMailboxSetup {
+            epoch: 1.0,
+            capacity: 256.0,
+            codes: Vec::new(),
+        };
+        let mut call = Call::default();
+        call.row.resize(InputMailboxSetup::WORDS, 0.0);
+        setup.put(&mut call.row, &mut call.heap);
+        let mailbox = match context
+            .invoke_export("input_mailbox_create", &call)
+            .expect("input_mailbox_create")
+        {
+            Returned::Scalar(id) => id as u32,
+            other => panic!("unexpected input_mailbox_create return: {other:?}"),
+        };
+        assert_ne!(mailbox, 0);
+        let player = context
+            .players_create(&PlayerSetup {
+                mailbox,
+                reliable_fire: true,
+                separate_actions: true,
+                ordinal: 1.0,
+                team: 1.0,
+                ..Default::default()
+            })
+            .expect("players_create");
+        assert_ne!(player, 0);
+        let edges = match context
+            .invoke_export("wire_edges_create", &Call::default())
+            .expect("wire_edges_create")
+        {
+            Returned::Scalar(id) => id as u32,
+            other => panic!("unexpected wire_edges_create return: {other:?}"),
+        };
+        assert_ne!(edges, 0);
+
+        context
+            .world_host_client(player, edges)
+            .expect("world_host_client");
+        assert_eq!(context.host(|h| h.clients.len()).unwrap(), 1);
+        assert_eq!(context.host(|h| h.clients[0].edges).unwrap(), edges);
+
+        // Leaving with an unrelated edge handle keeps the joined client.
+        context
+            .world_host_client_leave(edges + 1)
+            .expect("world_host_client_leave other");
+        assert_eq!(context.host(|h| h.clients.len()).unwrap(), 1);
+
+        // Leaving with the client's edge handle removes it from the host.
+        context
+            .world_host_client_leave(edges)
+            .expect("world_host_client_leave matching");
+        assert_eq!(context.host(|h| h.clients.len()).unwrap(), 0);
+    }
 }

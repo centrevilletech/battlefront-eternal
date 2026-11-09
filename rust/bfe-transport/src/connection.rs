@@ -85,6 +85,19 @@ impl Connection{
             loss_bucket_total: [0; LOSS_BUCKETS],
             stats:Stats::default()}
     }
+    // Releases the ~12 MiB of preallocated stream, fragment, and state rings once a
+    // connection transitions to `closed` so draining sessions retain only the keys and
+    // packet counter needed to re-echo a local `CLOSE` frame.
+    pub(crate) fn release_closed_buffers(&mut self){
+        self.sent.fill(Meta::default());
+        self.floor=self.number;
+        self.reliable=0;
+        self.stream_flight=0;
+        for s in &mut self.tx{s.release_closed_buffers();}
+        for s in &mut self.rx{s.release_closed_buffers();}
+        self.state.release_closed_buffers();
+        self.fragments.release_closed_buffers();
+    }
     // Replaceable state evicts older state. A reliable byte-budget violation
     // instead closes explicitly; silently losing an ordered byte is invalid.
     pub fn queue(&mut self,lane:Lane,text:bool,bytes:&[u8])->Result<bool>{
@@ -208,7 +221,7 @@ impl Connection{
                 f::PATH_CHALLENGE=>{let bytes=r.span(8)?;if !answered{answered=true;self.answer(bytes,path,now,sink)?;}elicit=2;},
                 f::PATH_RESPONSE=>{let bytes=r.span(8)?;if self.challenge.is_some_and(|c|c.path==path&&c.bytes==bytes){self.path=path;self.challenge=None;}},
                 f::CLOSE=>{let code=r.varint()?;let n=r.varint()?;let bytes=r.wide_span(n)?;let mut reason=[0;200];let length=bytes.len().min(reason.len());reason[..length].copy_from_slice(&bytes[..length]);
-                    self.closed=Some(Closed{code,reason,length,remote:true});self.close_at=now;return Ok(true);},
+                    self.closed=Some(Closed{code,reason,length,remote:true});self.close_at=now;self.release_closed_buffers();return Ok(true);},
                 _=>return Err(Error("unknown frame")),
             }
             if self.closed.is_some(){return Ok(probing);}
@@ -319,7 +332,7 @@ impl Connection{
     // Reliable congestion limits never hold a replaceable state datagram.
     pub fn flush(&mut self,now:f64,sink:&mut impl Sink)->Result<()>{
         if self.closed.is_some(){return Ok(());}
-        if let Some(info)=self.pending_close.take(){let mut bytes=[0;PLAIN];let mut w=Writer::new(&mut bytes);Self::write_close(info,&mut w)?;let n=w.at;self.emit(&bytes[..n],Meta::default(),self.path,now,sink)?;self.closed=Some(info);self.close_at=now;return Ok(());}
+        if let Some(info)=self.pending_close.take(){let mut bytes=[0;PLAIN];let mut w=Writer::new(&mut bytes);Self::write_close(info,&mut w)?;let n=w.at;self.emit(&bytes[..n],Meta::default(),self.path,now,sink)?;self.closed=Some(info);self.close_at=now;self.release_closed_buffers();return Ok(());}
         for guard in 0..256{
             let mut bytes=[0;PLAIN];let mut w=Writer::new(&mut bytes);let mut meta=Meta::default();let ack=guard==0&&!self.received.is_empty()&&(self.ack_needed||now-self.largest_at<2000.);
             if ack{self.ack_frame(now,&mut w)?;}

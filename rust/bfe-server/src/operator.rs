@@ -14,6 +14,20 @@
 //! - Restricts `<directory>/operator.sqlite` and `<directory>/operator-token` to mode `0600` on
 //!   Unix (`chmodSync(..., 0o600)` in `src/operator.js`) and binds the HTTP control listener
 //!   exclusively to loopback (`127.0.0.1:<port>`).
+//!
+//! Operator HTTP & SQLite durability invariants (`operator.rs` <-> `src/operator.js` & `src/main.js`):
+//! - `operator.sqlite` uses `PRAGMA journal_mode = WAL` and `PRAGMA busy_timeout = 5000` via bundled
+//!   `rusqlite` (`features = ["bundled"]`), with zero `unsafe` blocks and zero `libloading`/`dlopen`.
+//! - Table schemas (`bans`, `scores`, `audit`) match `src/operator.js` column-for-column (`id TEXT PRIMARY KEY`,
+//!   `reason TEXT NOT NULL`, `created_at INTEGER NOT NULL`, `expires_at INTEGER`, `name TEXT NOT NULL`,
+//!   `kills INTEGER NOT NULL`, `deaths INTEGER NOT NULL`, `points INTEGER NOT NULL`, `matches INTEGER NOT NULL`,
+//!   `updated_at INTEGER NOT NULL`, `action TEXT NOT NULL`, `target TEXT`, `detail TEXT NOT NULL`,
+//!   `at INTEGER NOT NULL`), preserving existing operator databases across Node <-> Rust upgrades.
+//! - `operator-token` is generated with 32 cryptographic random bytes (64 hex chars), written with
+//!   `0o600` Unix permissions (`fs::Permissions::from_mode(0o600)`), and verified in constant time
+//!   (`check_auth` XOR accumulator over `Authorization: Bearer <token>`).
+//! - Request bodies on `POST /admin` are capped at `4096` bytes (`MAX_OPERATOR_BODY = 4096`), and
+//!   responses always include `Cache-Control: no-store`.
 
 use crate::identity::{is_hex_64, write_mode_600};
 use bfe_transport::crypto::random;
@@ -656,7 +670,10 @@ pub fn execute_admin_command(
         .unwrap_or_default();
     match action {
         "status" => Ok(json!({
+            // A successful operator request is independent of world readiness.
+            "ok": true,
             "status": control.status(),
+            "multiplayerReady": control.multiplayer_ready(),
             "tick": control.tick(),
             "pid": std::process::id(),
             "startedAt": control.started_at(),

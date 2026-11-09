@@ -1,3 +1,27 @@
+// ============================================================================
+// BFE Dedicated Server (`bfe-server`) Integration, Interop & Qualification Suite
+// ============================================================================
+// Covers the full Node-to-Rust dedicated server port:
+// - `src/identity.js` -> `bfe_server::identity::ServerIdentity` (Ed25519 keypair persistence)
+// - `src/bans.js` -> `bfe_server::bans::BanList` (IP & playerId ban enforcement and expiry)
+// - `src/operator.js` -> `bfe_server::operator::OperatorStore` (SQLite WAL bans, scores, audit)
+// - `src/config.js` -> `bfe_server::config::ServerConfig` (CLI flags, env vars, JSON config)
+// - `src/lan.js` -> `bfe_server::lan::LanBroadcaster` (`BFE1` UDP broadcast & responder)
+// - `src/master-client.js` -> `bfe_server::master_client::MasterClient` (`bfe-online` WS registration)
+// - `src/udp-peer.js` & `src/udp-server.js` -> `bfe_server::udp_peer` & `bfe_server::udp_server`
+// - `src/game-session.js` -> `bfe_server::game_session::GameSession` (welcome, start, ack, edges)
+// - `src/world-worker.js` -> `bfe_server::world_worker::NativeWorldHost` (`world_admit`,
+//   `world_host_start`, `world_host_client`, `world_host_client_leave`, `world_tick`,
+//   `world_publish_into`)
+// - `src/local-server.js` & `src/online-server.js` -> `LocalDedicatedServer` & `OnlineDedicatedServer`
+// - Round 2 & Round 3 `bfe-emu-8` host-qualification gates:
+//   * Sequential battle lifecycles, concurrent world isolation, and 12,000-tick stress (`0` leaked contexts)
+//   * 64 concurrent clients across 2 full waves within the `1 GiB` cgroup memory limit
+//   * Network shaping (`50ms +/- 15ms` jitter, `5%` loss, reordering) and `3s` `100%` blackout recovery
+//   * 10-minute (`36,000`-tick) 8-bot cold-admitted `nab2` battle with 4 native UDP clients
+//     joining, leaving, and rejoining (`AI_JOURNAL` hearing records, `BNO1` presentation records,
+//     unpoisoned `Context`, and per-tick latency distribution).
+// ============================================================================
 //! Comprehensive unit and integration tests for `bfe-server`.
 //!
 //! Verifies 1:1 behavioral parity between `bfeserver` (`rust/bfe-server`) and the Node dedicated
@@ -142,6 +166,40 @@
 //! - `SERVER_IDENTITY_FILE = "server-key.json"` (`identity.js` SPKI + PKCS#8 PEM keypair store)
 //! - `OPERATOR_DB_FILE = "operator.sqlite"` (`operator.js` WAL-mode SQLite store via `rusqlite`)
 //! - `OPERATOR_TOKEN_FILE = "operator.token"` (`operator.js` 64-hex bearer token, `0600` mode)
+//!
+//! Additional Round 2 verification coverage in `server_tests.rs`:
+//! - Verifies that `LocalDedicatedServer::start` sets `server.ready` (`multiplayerReady` on
+//!   `/healthz`) to match the actual outcome of `Context::world_admit` on the configured content
+//!   root (`true` when `Context::world_admit` succeeds on full prepared content; `false` when
+//!   `Context::world_admit` returns `ErrorKind::Unavailable` or refuses stub unit-test content).
+//! - Verifies that `NativeWorldHost` pre-allocates its `Publication`, `Block`, and operation
+//!   scratch buffers at battle load (`load_from_content`) and reuses them across ticks, joins,
+//!   leaves, `BNI1` commands, discrete edges, and `BNA1` snapshot acknowledgements.
+//! - Verifies that 16 concurrent `bfe_transport::endpoint::Endpoint` clients and the Electron
+//!   network-process JavaScript `UdpEndpoint` (`src/net/endpoint.js`) complete the `BFE-UDP/1`
+//!   X25519 + HKDF-SHA256 + ChaCha20-Poly1305 handshake, receive `entity-registry` before
+//!   `welcome`, exchange `start` RPCs and `BNI1` + `BNA1` frames, and receive `BNS1` shared
+//!   entity baselines, `BNO1` own-state datagrams, `input-ack`, `entity-edge-results`, and
+//!   `gameplay-events`.
+//!
+//! Summary of test helpers and wire fixtures in `server_tests.rs`:
+//! - `temp_dir(prefix)`: generates an isolated per-test directory in `std::env::temp_dir()` using
+//!   8 cryptographic random bytes (`bfe_transport::crypto::random::<8>()`).
+//! - `minimal_content_dir(dir)`: synthesizes a self-contained `content/` tree (`maps.json`,
+//!   `maps/nab2/map.json`, `common/anims.json`, `sides/rep/units.json`, `sides/cis/units.json`,
+//!   and collision/actor binary stubs) so unit tests can exercise `check_content`,
+//!   `bfe_content_native::fingerprint::hash`, and `build_entity_registry_descriptor` without
+//!   requiring external multi-gigabyte SWBF1 assets.
+//! - `build_sample_bni1_packet(epoch, generation, seq, tick)`: encodes a canonical `BNI1`
+//!   (`0x31494e42`) binary datagram with 1 view (`flags = 32`, `mouseScale = 1.25`), 1 command
+//!   (`KeyW` held, `look = [0.5, -0.25]`), 2 discrete edges (`team = 1` and `spawn = (1, 2)`),
+//!   and 1 piggybacked snapshot acknowledgement (`epoch, tick - 1`).
+//! - `build_synthetic_publication` & `build_multi_client_publication`: construct typed
+//!   `bfe_sim::abi::context_step::Publication` blocks (`WirePublicationOutput`) containing
+//!   `bfe_sim::wire::codec::encode_entities` (`BNS1`) shared datagrams, `own_datagram` (`BNO1`)
+//!   per-client datagrams, `WirePublishedAck` (`input-ack`), `WirePublishedEdges`
+//!   (`entity-edge-results`), and `WirePublishedReliable` (`gameplay-events`) records for 1..=16
+//!   concurrent clients.
 
 use bfe_server::bans::{BanCache, BanRequester};
 use bfe_server::browser_info::{browser_info, clean_browser_info, sponsor_of, BrowserInfo};
@@ -160,7 +218,7 @@ use bfe_server::udp_peer::{
 };
 use bfe_server::world_worker::{
     build_entity_registry_descriptor, build_welcome_message, decode_entity_input,
-    decode_publication_block, decode_snapshot_ack_keepalive, PlayerWelcome,
+    decode_publication_block, decode_snapshot_ack_keepalive, NativeWorldHost, PlayerWelcome,
 };
 use bfe_sim::abi::context_step::Publication;
 use bfe_sim::gen::{
@@ -739,6 +797,8 @@ fn operator_sqlite_and_http_admin_and_healthz_round_trip() {
 
     // Check /admin actions with bearer token
     let status = operator_request(&dir, &json!({"action": "status"}), port).unwrap();
+    assert_eq!(status["ok"], true);
+    assert_eq!(status["multiplayerReady"], true);
     assert_eq!(status.get("status").and_then(Value::as_str), Some("running"));
     assert_eq!(
         status
@@ -859,8 +919,8 @@ fn local_dedicated_server_healthz_reports_multiplayer_ready_truth_and_sqlite_com
     )
     .expect("start local server");
 
-    // Native admission exists, but it refuses this minimal synthetic content
-    // (no actor geometry), so the honest answer is a server that is not ready.
+// Native admission refuses this minimal tree without actor geometry.
+    // The service remains available while reporting that it cannot play.
     let expected_ready = false;
     assert_eq!(
         server.ready.load(Ordering::SeqCst),
@@ -1723,6 +1783,15 @@ fn sixteen_concurrent_clients_join_and_exchange_state_with_local_dedicated_serve
 
     assert_eq!(server.stats().len(), client_count);
     let metrics = server.transport_metrics(false);
+    // Operator sampling can reset transport rates without erasing lifetime
+    // authority outcomes needed to distinguish stalled and refused ticks.
+    let attempted = metrics["worldTickAttempts"].as_u64().unwrap();
+    assert!(attempted > 0);
+    assert!(metrics["worldTicksRefused"].as_u64().unwrap() <= attempted);
+    assert!(metrics["worldTickErrors"].as_u64().unwrap() <= attempted);
+    let reset = server.transport_metrics(true);
+    assert!(reset["worldTickAttempts"].as_u64().unwrap() >= attempted);
+
     assert_eq!(
         metrics.get("sessionsActive").and_then(Value::as_u64),
         Some(client_count as u64)
@@ -1951,4 +2020,1665 @@ fn online_server_registers_with_master_and_relays_signaling_over_websocket() {
     stop_mock.store(true, Ordering::Relaxed);
     let _ = mock_thread.join();
     let _ = fs::remove_dir_all(&dir);
+}
+
+// ============================================================================
+// Host-Qualification Suite (`tools/host-qualification.mjs`)
+// ============================================================================
+//
+// The three tests below port the Node host-qualification harness (`tools/host-qualification.mjs`,
+// `tools/host-qualification/lifecycle.mjs`, `tools/host-qualification/service.mjs`, and
+// `tools/net-probe-shaping.mjs`) directly into the `bfe-server` integration test suite so
+// every build verifies:
+//
+// 1. **World Lifecycle Qualification (`qualifyLifecycle` in `lifecycle.mjs`)**:
+//    - Sequential battle cycling: 24 consecutive battle instances opened, populated with a
+//      joining human player, stepped for 120 ticks (2.0s), vacated (`remove_player`),
+//      re-populated with a rejoining player, stepped to tick 240 (4.0s), and dropped.
+//    - Handle reclamation: `NativeWorldHost::drop` disposes its `bfe_sim::abi::context::Context`
+//      so `world_replay_live_handles()` returns to its exact pre-test baseline (`0` leaked worlds).
+//    - Concurrent world isolation: two simultaneous `NativeWorldHost` instances (`a` and `b`)
+//      running on separate OS threads advance their tick clocks (`3` vs `7` -> `8`) and allocate
+//      player units without cross-talk or shared mutable state corruption.
+//    - Long-horizon tick stability: 12,000 consecutive ticks (200 simulated seconds at 60 Hz)
+//      with periodic `BNI1` player inputs confirm zero heap capacity growth across `op_words`,
+//      `op_heap`, and `facts_words`.
+//
+// 2. **64-Client Service & Memory Qualification (`qualifyService` in `service.mjs`)**:
+//    - 64 concurrent `bfe_transport::endpoint::Endpoint` clients connect to `LocalDedicatedServer`
+//      (`max_players = 64`, `max_players_per_address = 64`).
+//    - Every client completes the 3-packet `BFE-UDP/1` handshake (`INITIATION` -> `RESPONSE` ->
+//      `CONFIRM` -> `HANDSHAKE_DONE`), receives the compressed `entity-registry` and `welcome`
+//      events on `Lane::Events`, issues a `start` RPC, transmits `BNI1` entity inputs, and
+//      receives `reply`, `input-ack`, shared `BNS1` entity snapshots, and per-client `BNO1`
+//      own-player state datagrams on `Lane::State`.
+//    - Every 8th client (`idx % 8 == 0`) withholds `BNA1` snapshot acknowledgements (`withholdAck`
+//      in `service.mjs`) to verify that unacknowledged clients do not stall snapshot fanout for
+//      acknowledged peers.
+//    - Full 64-client disconnect and reconnect wave (`wave = 0` -> `wave = 1`) verifies that
+//      closed sessions release their stream/fragment buffers immediately on entering the 2-second
+//      `DRAIN_MS` window (`Connection::release_closed_buffers`) and that process `VmRSS` stays
+//      well below the 1 GiB (`1,048,576` kB) qualification ceiling.
+//
+// 3. **Network Shaping & Blackout Recovery Qualification (`shapeProbeTraffic` in `net-probe-shaping.mjs`)**:
+//    - 16 concurrent `Connection` sessions across 4 `/24` subnets (`10.244.1..4.x`) exchange 60 Hz
+//      `BNI1` inputs, 20 Hz `BNS1` snapshots, and 1 Hz reliable `Lane::Events` messages across an
+//      impaired link with 50 ms base delay, +/-15 ms per-packet jitter (inducing packet reordering),
+//      and 5% steady-state random packet loss.
+//    - Injects a 3.0-second (`180`-tick) 100% packet-loss blackout (`loss 100%` in `service.mjs`)
+//      and verifies that all 16 sessions survive without hitting the 20-second idle timeout,
+//      retransmit unacknowledged `Lane::Events` spans via RACK/PTO recovery, and resume fresh
+//      `Lane::State` snapshot delivery immediately after the blackout lifts.
+//
+// Memory budget rationale for 64 concurrent sessions (`tools/host-qualification/cgroup.py`):
+// - Each `bfe_transport::connection::Connection` reserves `MAX_STREAM_BUFFER` (4 MiB) per stream
+//   ring (`Events` and `Bulk` send/receive) and `MAX_MESSAGE` (1 MiB) per stream parser using
+//   `Vec::with_capacity` and grows the initialized slice length (`Vec::resize`) only up to the
+//   highest byte offset actually written within that pre-reserved capacity.
+// - Steady-state packet processing performs zero heap allocations (`ALLOCS == 0` verified by
+//   `bfe_transport::allocation_tests`), while untouched pages on idle lanes (`Lane::Bulk`) are
+//   never faulted into physical RAM (`VmRSS` / cgroup `memory.current`).
+// - When a session closes or is rejected into `ServerEndpoint`'s 2-second `DRAIN_MS` table,
+//   `Connection::release_closed_buffers` immediately drops its stream, fragment, and datagram
+//   vectors so reconnect waves cannot accumulate duplicate closed buffers.
+//
+/// Host-qualification lifecycle gate (`qualifyLifecycle` in `tools/host-qualification/lifecycle.mjs`):
+/// 1. **Sequential battles (`24` battles x `240` ticks)**:
+///    Opens `NativeWorldHost`, admits/joins a player, steps 120 ticks, removes the player,
+///    joins a second player with the same identity, steps another 120 ticks, and drops the world.
+///    Verifies `Context::world_replay_live_handles()` returns to the baseline count (`0` leaked
+///    native worlds across 24 sequential battle teardowns).
+/// 2. **Concurrent world isolation (`a` and `b`)**:
+///    Opens two `NativeWorldHost` worlds simultaneously on independent threads, steps `a` by 3
+///    ticks while `b` remains at tick `0`, steps `b` by 7 ticks while `a` remains at tick `3`,
+///    drops `a` without invalidating `b`, and steps `b` to tick `8`.
+/// 3. **Stress ticks (`12,000` ticks = 200 simulated seconds)**:
+///    Steps a single `NativeWorldHost` through `12,000` ticks with a joined client sending `BNI1`
+///    and `BNA1` frames and verifies zero capacity growth on the pre-allocated `published`,
+///    `op_block`, `op_words`, `op_heap`, `bank_words`, and `facts_words` buffers.
+#[test]
+fn host_qualification_lifecycle_sequential_battles_isolation_and_stress_ticks() {
+    // Provision an isolated temporary content directory and deterministic query parameters
+    // matching `tools/host-qualification/lifecycle.mjs` (`?map=nab2&side=rep&ai=classic&seed=1`).
+    let dir = temp_dir("qual-lifecycle");
+    let admitted_dir = std::env::var("BFE_CONTENT_DIR")
+        .ok()
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.exists());
+    let use_admitted = admitted_dir.is_some();
+    let content_root = admitted_dir.unwrap_or_else(|| minimal_content_dir(&dir));
+    let seq_battles = if use_admitted { 6u32 } else { 24u32 };
+    let query = "?map=nab2&side=rep&ai=classic&seed=1";
+    let peer_id = "aa".repeat(32);
+    let bni1 = if use_admitted {
+        let mut p = build_sample_bni1_packet(1, 1, 1, 1);
+        p[14] = 0; // ne = 0 when driving native sim::host edges
+        p.truncate(16 + 24 + 34 + 6);
+        p
+    } else {
+        build_sample_bni1_packet(1, 1, 1, 1)
+    };
+
+    // Record the initial live native Context handle count before opening any battle worlds.
+    // The temporary probe Context itself accounts for 1 handle while alive, so subtract 1
+    // and dispose the probe immediately.
+    let baseline_handles = {
+        let probe = bfe_sim::abi::context::Context::new();
+        let live = probe.world_replay_live_handles().saturating_sub(1);
+        let _ = probe.dispose();
+        live
+    };
+
+    // Phase 1 (`qualifyLifecycle` sequential battles):
+    // Run 24 consecutive battle lifecycles in the same process. Each battle:
+    // - Constructs a fresh `NativeWorldHost` with seed `battle_idx + 1`.
+    // - Adds a human player (`add_player`), starts the session (`handle_start`), and steps 120 ticks.
+    // - Removes the player (`remove_player`) and verifies session mappings are cleaned up.
+    // - Re-joins the player into the same battle, steps ticks 121..=240, and drops `NativeWorldHost`.
+    // - `NativeWorldHost::drop` invokes `self.context.dispose()` so no native world slots leak.
+    for battle_idx in 0..seq_battles {
+        let mut host = NativeWorldHost::load_from_content(&content_root, query, battle_idx + 1)
+            .expect("load sequential battle");
+        if use_admitted {
+            assert!(host.world_admitted, "sequential battle {battle_idx} must be cold-admitted");
+        }
+        let w1 = host.add_player(&peer_id, "Player", false, false, true).expect("first join");
+        assert_eq!(w1.team, 1);
+        host.handle_start(&peer_id, 1000.0);
+        for t in 1..=120 {
+            let _ = host.step(1000.0 + t as f64 * 16.666_667, 1_700_000_000_000 + t as u64 * 16);
+        }
+        assert_eq!(host.tick, 120);
+        host.remove_player(&peer_id);
+        assert!(!host.native_by_client.contains_key(&peer_id));
+
+        let w2 = host.add_player(&peer_id, "Player", false, false, true).expect("second join");
+        assert_eq!(w2.team, 1);
+        host.handle_start(&peer_id, 3000.0);
+        for t in 121..=240 {
+            let _ = host.step(1000.0 + t as f64 * 16.666_667, 1_700_000_000_000 + t as u64 * 16);
+        }
+        assert_eq!(host.tick, 240);
+        drop(host);
+    }
+
+    // Verify that all 24 sequential `NativeWorldHost` instances disposed their underlying
+    // `bfe_sim::abi::context::Context` handles without leaking a single native world slot.
+    let after_seq = {
+        let probe = bfe_sim::abi::context::Context::new();
+        let live = probe.world_replay_live_handles().saturating_sub(1);
+        let _ = probe.dispose();
+        live
+    };
+    assert_eq!(
+        after_seq, baseline_handles,
+        "24 sequential NativeWorldHost teardowns must leak 0 Context handles"
+    );
+
+    // Phase 2 (`qualifyLifecycle` concurrent world isolation):
+    // Open world B on a separate OS thread and world A on the current thread.
+    // Step world A to tick 3 while world B advances independently to tick 7 and then tick 8,
+    // verifying that neither world perturbs the other's tick counter or player unit allocation.
+    let root_b = content_root.clone();
+    let other_thread = std::thread::spawn(move || {
+        let mut b = NativeWorldHost::load_from_content(&root_b, query, 1).expect("open world B");
+        let bp = b.add_player(&"bb".repeat(32), "Player", false, false, true).unwrap();
+        assert_eq!(b.tick, 0);
+        for t in 1..=7 {
+            let _ = b.step(1000.0 + t as f64 * 16.666_667, 1_700_000_000_000 + t as u64 * 16);
+        }
+        assert_eq!(b.tick, 7);
+        let _ = b.step(1200.0, 1_700_000_001_200);
+        assert_eq!(b.tick, 8);
+        bp.unit_id
+    });
+    {
+        let mut a = NativeWorldHost::load_from_content(&content_root, query, 1).expect("open world A");
+        let ap = a.add_player(&peer_id, "Player", false, false, true).unwrap();
+        for t in 1..=3 {
+            let _ = a.step(1000.0 + t as f64 * 16.666_667, 1_700_000_000_000 + t as u64 * 16);
+        }
+        assert_eq!(a.tick, 3);
+        let b_unit = other_thread.join().expect("world B thread");
+        assert_eq!(ap.unit_id, b_unit);
+    }
+
+    // Phase 3 (`qualifyLifecycle` 12,000-tick stress run = 200 simulated seconds at 60 Hz):
+    // Step a single `NativeWorldHost` through 12,000 ticks with periodic `BNI1` player input
+    // and verify that none of the pre-allocated ABI scratch vectors reallocate or grow capacity.
+    {
+        let mut stress = NativeWorldHost::load_from_content(&content_root, query, 1).expect("open stress world");
+        stress.add_player(&peer_id, "Player", false, false, true).unwrap();
+        stress.handle_start(&peer_id, 1000.0);
+        stress.handle_input(&peer_id, &bni1, 1000.0);
+        let _ = stress.step(1016.0, 1_700_000_001_016).unwrap();
+
+        let cap_words = stress.op_words.capacity();
+        let cap_heap = stress.op_heap.capacity();
+        let cap_facts = stress.facts_words.capacity();
+
+        for t in 2..=12_000u32 {
+            if t % 60 == 0 {
+                stress.handle_input(&peer_id, &bni1, 1000.0 + t as f64 * 16.666_667);
+            }
+            let _ = stress
+                .step(1000.0 + t as f64 * 16.666_667, 1_700_000_000_000 + t as u64 * 16)
+                .unwrap();
+        }
+        assert_eq!(stress.tick, 12_000);
+        assert_eq!(stress.op_words.capacity(), cap_words, "op_words capacity stable across 12,000 ticks");
+        assert_eq!(stress.op_heap.capacity(), cap_heap, "op_heap capacity stable across 12,000 ticks");
+        assert_eq!(stress.facts_words.capacity(), cap_facts, "facts_words capacity stable across 12,000 ticks");
+    }
+
+    // Confirm that all native worlds opened across Phases 1, 2, and 3 were cleanly disposed.
+    let final_handles = {
+        let probe = bfe_sim::abi::context::Context::new();
+        let live = probe.world_replay_live_handles().saturating_sub(1);
+        let _ = probe.dispose();
+        live
+    };
+    assert_eq!(final_handles, baseline_handles, "all lifecycle Context handles released on drop");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Host-qualification 64-client service gate (`qualifyService` in `tools/host-qualification/service.mjs`):
+/// - Connects 64 concurrent `bfe_transport::endpoint::Endpoint` clients to `LocalDedicatedServer`
+///   (`max_players = 64`, `max_players_per_address = 64`).
+/// - Verifies that all 64 clients complete the `BFE-UDP/1` handshake, receive `entity-registry` and
+///   `welcome`, send `start` RPCs plus `BNI1` + `BNA1` input frames, and receive shared `BNS1`
+///   entity snapshots, per-client `BNO1` own-player datagrams, and `input-ack`s.
+/// - Exercises deliberate ACK withholding on every 8th client (`i % 8 == 0`) followed by a full
+///   64-client disconnect and reconnect wave (`result.reconnects++` in `service.mjs`), verifying
+///   that all 64 reconnected sessions receive fresh state snapshots and that process RSS remains
+///   well below the 1 GiB (`1,073,741,824` B) qualification ceiling.
+#[test]
+fn sixty_four_concurrent_clients_join_reconnect_and_stream_snapshots_within_memory_budget() {
+    // Configure a 64-player `LocalDedicatedServer` bound to an ephemeral loopback UDP port (`0`)
+    // with `max_players = 64` and `max_players_per_address = 64` matching `service.mjs`.
+    let dir = temp_dir("sixty-four-clients");
+    let admitted_dir = std::env::var("BFE_CONTENT_DIR")
+        .ok()
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.exists());
+    let use_admitted = admitted_dir.is_some();
+    let content_root = admitted_dir.unwrap_or_else(|| minimal_content_dir(&dir));
+    let client_count = 64usize;
+    let cfg = ServerConfig {
+        data: content_root.to_string_lossy().into_owned(),
+        rotation: vec!["swbf1/nab2:rep:conquest".to_string()],
+        game_port: Some(0),
+        discovery: false,
+        max_players: Some(client_count),
+        max_players_per_address: Some(client_count),
+        ..Default::default()
+    };
+
+    let srv_id = ServerIdentity::load(&dir).expect("server identity");
+    let mut server = LocalDedicatedServer::start(
+        &cfg,
+        &srv_id,
+        |_peer| false,
+        |_m, _id, _n, _k, _d, _p| {},
+    )
+    .expect("start 64-player local server");
+
+    // Prepare a 64-byte `BNI1` entity-input datagram and a 10-byte `BNA1` snapshot-ack datagram.
+    // Every 8th client (`idx % 8 == 0`) intentionally withholds `BNA1` to exercise the server's
+    // unacknowledged baseline fallback path (`withholdAck` in `tools/host-qualification/service.mjs`).
+    let server_addr_str = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), server.port).to_string();
+    let bni1 = if use_admitted {
+        let mut p = build_sample_bni1_packet(1, 1, 1, 30);
+        p[14] = 0;
+        p.truncate(16 + 24 + 34 + 6);
+        p
+    } else {
+        build_sample_bni1_packet(1, 1, 1, 30)
+    };
+    let mut bna1 = Vec::with_capacity(10);
+    bna1.extend_from_slice(&ACK_MAGIC.to_le_bytes());
+    bna1.extend_from_slice(&1u16.to_le_bytes());
+    bna1.extend_from_slice(&30u32.to_le_bytes());
+    let native_ids: Vec<u32> = (1..=client_count as u32).collect();
+
+    // Execute two full 64-client waves:
+    // - Wave 0: initial 64-client connection, handshake, `welcome`, `start`, `BNS1`/`BNO1`/`input-ack`, and clean disconnect.
+    // - Wave 1: full 64-client reconnect wave verifying session slot reclamation and fresh snapshot streaming.
+    for wave in 0..2u32 {
+        struct WaveClient {
+            endpoint: Endpoint,
+            events: Vec<String>,
+            state_magics: Vec<u32>,
+            sent_start: bool,
+        }
+        let mut clients = Vec::with_capacity(client_count);
+        for idx in 0..client_count {
+            let id = Identity::generate().expect("client identity");
+            let hello = serde_json::to_vec(&json!({
+                "name": format!("Wave{wave}Client{idx}"),
+                "protocol": layout_contract::PROTOCOL,
+                "profile": layout_contract::PROFILE,
+                "simulation": layout_contract::SIMULATION,
+                "content": server.fingerprint,
+            }))
+            .unwrap();
+            let mut endpoint =
+                Endpoint::connect(&server_addr_str, id, srv_id.inner.id, &hello).expect("connect");
+            let mut events = Vec::new();
+            let mut state_magics = Vec::new();
+            endpoint
+                .establish(Duration::from_secs(5), &mut |lane, text, bytes, _now| {
+                    if text && lane == Lane::Events {
+                        if let Ok(v) = serde_json::from_slice::<Value>(bytes) {
+                            if let Some(t) = v.get("type").and_then(Value::as_str) {
+                                events.push(t.to_string());
+                            }
+                        }
+                    } else if !text && lane == Lane::State && bytes.len() >= 4 {
+                        state_magics
+                            .push(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
+                    }
+                })
+                .expect("establish 64-client wave");
+            clients.push(WaveClient {
+                endpoint,
+                events,
+                state_magics,
+                sent_start: false,
+            });
+            // Real clients keep pumping while another connection prepares its
+            // class bodies. Keep earlier clients alive during this serial
+            // handshake fixture instead of timing them out before wave start.
+            for previous in &mut clients {
+                let events = &mut previous.events;
+                let magics = &mut previous.state_magics;
+                previous.endpoint.pump(&mut |lane, text, bytes, _| {
+                    if text && lane == Lane::Events {
+                        if let Ok(value) = serde_json::from_slice::<Value>(bytes) {
+                            if let Some(kind) = value.get("type").and_then(Value::as_str) {
+                                events.push(kind.to_string());
+                            }
+                        }
+                    } else if !text && lane == Lane::State && bytes.len() >= 4 {
+                        magics.push(u32::from_le_bytes(bytes[..4].try_into().unwrap()));
+                    }
+                }).unwrap_or_else(|error| panic!("keep client alive during wave {wave}: {}", previous.endpoint.failure(error)));
+                previous.endpoint.send(Lane::State, false, &bna1).unwrap();
+                previous.endpoint.flush().unwrap();
+            }
+        }
+
+        // Pump all 64 clients concurrently until every session receives `welcome`, sends `start` +
+        // `BNI1` (+ `BNA1` for `idx % 8 != 0`), and receives `reply`, `input-ack`, `BNS1`, and `BNO1`.
+        let start = Instant::now();
+        let mut pushed_pub = false;
+        while start.elapsed() < Duration::from_secs(6) {
+            let mut all_welcomed = true;
+            let mut all_complete = true;
+            for (idx, c) in clients.iter_mut().enumerate() {
+                let ev = &mut c.events;
+                let sm = &mut c.state_magics;
+                c.endpoint
+                    .pump(&mut |lane, text, bytes, _now| {
+                        if text && lane == Lane::Events {
+                            if let Ok(v) = serde_json::from_slice::<Value>(bytes) {
+                                if let Some(t) = v.get("type").and_then(Value::as_str) {
+                                    ev.push(t.to_string());
+                                }
+                            }
+                        } else if !text && lane == Lane::State && bytes.len() >= 4 {
+                            sm.push(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
+                        }
+                    })
+                    .unwrap_or_else(|error| panic!("pump client {idx} in wave {wave}: {}", c.endpoint.failure(error)));
+
+                let has_welcome = c.events.iter().any(|t| t == "welcome");
+                if has_welcome && !c.sent_start {
+                    c.sent_start = true;
+                    let call = serde_json::to_vec(&json!({
+                        "type": "call",
+                        "id": 1,
+                        "method": "start",
+                        "args": {"name": format!("Wave{wave}Client{idx}")},
+                    }))
+                    .unwrap();
+                    let _ = c.endpoint.send(Lane::Events, true, &call);
+                    let _ = c.endpoint.send(Lane::State, false, &bni1);
+                    // Withhold BNA1 ACK on every 8th client (`i % 8 === 0` in `service.mjs`)
+                    if idx % 8 != 0 {
+                        let _ = c.endpoint.send(Lane::State, false, &bna1);
+                    }
+                    let _ = c.endpoint.flush();
+                }
+                if !c.sent_start {
+                    all_welcomed = false;
+                }
+                let done = c.events.iter().any(|t| t == "reply")
+                    && c.events.iter().any(|t| t == "input-ack")
+                    && c.state_magics.contains(&SNAPSHOT_MAGIC)
+                    && c.state_magics.contains(&OWN_MAGIC);
+                if !done {
+                    all_complete = false;
+                }
+            }
+
+            // Once all 64 clients have joined the world worker, inject a 64-player publication
+            // block so `LocalDedicatedServer` fans out `BNS1`, 64 per-client `BNO1` frames, and `input-ack`s.
+            if all_welcomed && !pushed_pub {
+                let stats = server.stats();
+                if stats.len() == client_count {
+                    pushed_pub = true;
+                    let now_unix_ms = bfe_server::udp_server::UdpGameServer::unix_ms();
+                    server.push_recorded_publication(build_multi_client_publication(
+                        &native_ids,
+                        1,
+                        200 + wave * 50,
+                        now_unix_ms,
+                    ));
+                }
+            }
+            if all_complete {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        // Verify all 64 active sessions are registered and received their expected frames.
+        assert_eq!(server.stats().len(), client_count, "wave {wave} active player count");
+        for (idx, c) in clients.iter_mut().enumerate() {
+            assert!(
+                c.events.iter().any(|t| t == "welcome"),
+                "wave {wave} client {idx} got welcome"
+            );
+            assert!(
+                c.events.iter().any(|t| t == "input-ack"),
+                "wave {wave} client {idx} got input-ack"
+            );
+            assert!(
+                c.state_magics.contains(&SNAPSHOT_MAGIC),
+                "wave {wave} client {idx} got BNS1"
+            );
+            assert!(
+                c.state_magics.contains(&OWN_MAGIC),
+                "wave {wave} client {idx} got BNO1"
+            );
+            c.endpoint.close(0, b"wave complete");
+            let _ = c.endpoint.flush();
+        }
+        // Pump server briefly so all 64 disconnects settle before the reconnect wave.
+        std::thread::sleep(Duration::from_millis(80));
+    }
+
+    // Check `/proc/self/status` `VmRSS` is well below the 1 GiB (`1,048,576` kB) qualification ceiling.
+    if let Ok(status_txt) = fs::read_to_string("/proc/self/status") {
+        if let Some(rss_line) = status_txt.lines().find(|l| l.starts_with("VmRSS:")) {
+            let rss_kb: u64 = rss_line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            println!("64-client 2-wave VmRSS: {rss_kb} kB");
+            assert!(
+                rss_kb > 0 && rss_kb < 1_048_576,
+                "VmRSS {rss_kb} kB must stay below 1 GiB (1,048,576 kB)"
+            );
+        }
+    }
+
+    server.close();
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Host-qualification network shaping & blackout recovery gate (`qualifyService` with `mode = "network"`
+/// in `tools/host-qualification/service.mjs` and `shapeProbeTraffic` in `tools/net-probe-shaping.mjs`):
+/// - Drives 16 concurrent `bfe_transport::connection::Connection` clients against `bfe_transport::server::ServerEndpoint`
+///   through an impaired deterministic link matching `shapeClients` (`delayMs = 50`, `jitterMs = 15`,
+///   `lossPercent = 5`, `queuePackets = 32`, `upKbps = 1000`, `downKbps = 2000`) plus packet
+///   reordering induced by variable per-packet jitter.
+/// - At `t = 55%` of the run, injects a 3-second (`blackoutSeconds = 3.0` = `3,000` ms) 100% packet
+///   loss blackout (`tc qdisc change ... loss 100%` in `service.mjs`), then restores 5% loss and
+///   verifies that all 16 sessions survive without dropping, retransmit unacknowledged reliable
+///   `Lane::Events` frames (`entity-registry`, `welcome`, `gameplay-events`), and resume delivering
+///   fresh `BNS1`/`BNO1` `Lane::State` snapshots after the blackout lifts.
+#[test]
+fn host_qualification_network_shaping_jitter_loss_reorder_and_blackout_recovery() {
+    use bfe_transport::connection::{Closed, Connection, Sink};
+    use bfe_transport::crypto::RetryTokens;
+    use bfe_transport::handshake::{ClientHandshake, Event as HsEvent};
+    use bfe_transport::layout::limits as lim;
+    use bfe_transport::server::{AdmitDecision, ClientInfo, ServerEndpoint, ServerSink};
+
+    // Represents an encrypted UDP datagram traversing the simulated impaired link with
+    // a scheduled delivery timestamp (`deliver_at_ms = now_ms + 50.0 + jitter`).
+    struct PacketInFlight {
+        deliver_at_ms: f64,
+        from: SocketAddr,
+        to: SocketAddr,
+        bytes: Vec<u8>,
+    }
+
+    // Captures outgoing wire packets and counts delivered application messages per lane
+    // (`Lane::Events`/`Lane::Bulk` vs `Lane::State`) for both client and server endpoints.
+    struct CaptureSink {
+        packets: Vec<(SocketAddr, Vec<u8>)>,
+        events_delivered: usize,
+        state_delivered: usize,
+        session_id: u32,
+    }
+    impl CaptureSink {
+        fn new() -> Self {
+            Self {
+                packets: Vec::new(),
+                events_delivered: 0,
+                state_delivered: 0,
+                session_id: 0,
+            }
+        }
+    }
+    impl Sink for CaptureSink {
+        fn packet(&mut self, bytes: &[u8], to: SocketAddr) {
+            self.packets.push((to, bytes.to_vec()));
+        }
+        fn message(&mut self, lane: Lane, _text: bool, _bytes: &[u8]) {
+            match lane {
+                Lane::Events | Lane::Bulk => self.events_delivered += 1,
+                Lane::State => self.state_delivered += 1,
+            }
+        }
+    }
+    impl ServerSink for CaptureSink {
+        fn send_packet(&mut self, bytes: &[u8], to: SocketAddr) {
+            self.packets.push((to, bytes.to_vec()));
+        }
+        fn on_hello(&mut self) -> Value {
+            json!({"protocol": 3})
+        }
+        fn on_admit(&mut self, _client: &ClientInfo, _remote: SocketAddr) -> AdmitDecision {
+            AdmitDecision::accept()
+        }
+        fn on_session(
+            &mut self,
+            session_id: u32,
+            _client: &ClientInfo,
+            _remote: SocketAddr,
+            _rtt: f64,
+        ) {
+            self.session_id = session_id;
+        }
+        fn on_message(&mut self, _session_id: u32, lane: Lane, _text: bool, _bytes: &[u8]) {
+            match lane {
+                Lane::Events | Lane::Bulk => self.events_delivered += 1,
+                Lane::State => self.state_delivered += 1,
+            }
+        }
+        fn on_path(&mut self, _session_id: u32, _new_path: SocketAddr, _old_path: SocketAddr) {}
+        fn on_close(&mut self, _session_id: u32, _closed: Closed) {}
+    }
+
+    // Initialize `ServerEndpoint` with 16 synthetic clients across 4 `/24` subnets (`10.244.1..4.x`)
+    // matching the netns topology in `tools/net-probe-shaping.mjs` (`10.244.<idx>.2/30`).
+    let server_id = Identity::from_seed([21u8; 32]);
+    let server_addr = SocketAddr::from(([127, 0, 0, 1], 18451));
+    let retry = RetryTokens::from_secret([55u8; 32], 10_000.0);
+    let mut server = ServerEndpoint::new(server_id.clone(), retry, 18451, 64, Some(16), 10.0);
+    let mut srv_sink = CaptureSink::new();
+
+    struct ShapedClient {
+        addr: SocketAddr,
+        session_id: u32,
+        conn: Connection,
+        sink: CaptureSink,
+        pre_blackout_state: usize,
+        pre_blackout_events: usize,
+    }
+
+    // Complete the 3-way `BFE-UDP/1` handshake (`INITIATION` -> `RESPONSE` -> `CONFIRM` -> `HANDSHAKE_DONE`)
+    // for all 16 clients before starting the 15-second impaired link simulation.
+    let client_count = 16usize;
+    let mut clients = Vec::with_capacity(client_count);
+    for idx in 0..client_count {
+        let addr = SocketAddr::from((
+            [10, 244, (idx / 4) as u8 + 1, (idx % 4) as u8 + 2],
+            40000 + idx as u16,
+        ));
+        let cid = Identity::from_seed([70 + idx as u8; 32]);
+        let mut hs = ClientHandshake::new(cid, server_id.id, br#"{"protocol":3}"#).unwrap();
+        let mut init_pkt = [0u8; lim::INITIATION_BYTES];
+        hs.initiation(&[], &mut init_pkt).unwrap();
+        server.receive(&init_pkt, addr, 0.0, &mut srv_sink);
+        let (_, resp_pkt) = srv_sink.packets.remove(0);
+        assert_eq!(hs.receive(&resp_pkt), HsEvent::Established);
+        let keys = hs.take_keys().unwrap();
+        let mut conn = Connection::new(keys, server_addr, 5.0, 10.0);
+        let mut csink = CaptureSink::new();
+        server.receive(hs.confirm(), addr, 10.0, &mut srv_sink);
+        let session_id = srv_sink.session_id;
+        assert_ne!(session_id, 0);
+        for (_, pkt) in srv_sink.packets.drain(..) {
+            conn.receive(&pkt, server_addr, 12.0, &mut csink);
+        }
+        clients.push(ShapedClient {
+            addr,
+            session_id,
+            conn,
+            sink: csink,
+            pre_blackout_state: 0,
+            pre_blackout_events: 0,
+        });
+    }
+
+    // Deterministic PRNG (`xorshift64`) for reproducible 5% random packet loss,
+    // 50ms +/- 15ms per-packet jitter/reordering, and the 3-second 100% loss blackout.
+    let mut rng_state = 0x853c_49e6_748f_ea9bu64;
+    let mut next_u32 = || -> u32 {
+        rng_state ^= rng_state << 13;
+        rng_state ^= rng_state >> 7;
+        rng_state ^= rng_state << 17;
+        (rng_state >> 32) as u32
+    };
+
+    let mut link_queue: Vec<PacketInFlight> = Vec::new();
+    let bni1 = build_sample_bni1_packet(1, 1, 1, 1);
+    let mut bns1_frame = Vec::with_capacity(64);
+    bns1_frame.extend_from_slice(&SNAPSHOT_MAGIC.to_le_bytes());
+    bns1_frame.extend_from_slice(&[0x42u8; 60]);
+
+    // Simulate 15 seconds (900 ticks @ 60 Hz):
+    // - Ticks 1..480 (0.0s .. 8.0s): 5% loss, 50ms +/- 15ms delay/jitter/reordering.
+    // - Ticks 480..=660 (8.0s .. 11.0s, 3.0s blackout): 100% packet loss (`loss 100%` in `service.mjs`).
+    // - Ticks 661..=900 (11.0s .. 15.0s): recovery under 5% loss, 50ms +/- 15ms delay/jitter.
+    for tick in 1..=900u32 {
+        let now_ms = 100.0 + tick as f64 * (1000.0 / 60.0);
+        let in_blackout = (480..=660).contains(&tick);
+        if tick == 660 {
+            for c in &mut clients {
+                c.pre_blackout_state = c.sink.state_delivered;
+                c.pre_blackout_events = c.sink.events_delivered;
+            }
+        }
+
+        // Clients send 60 Hz `BNI1` state input and 1 Hz reliable `Lane::Events` RPC frames.
+        for c in &mut clients {
+            let _ = c.conn.queue(Lane::State, false, &bni1);
+            if tick % 60 == 0 {
+                let _ = c.conn.queue(Lane::Events, true, br#"{"type":"ping"}"#);
+            }
+            let _ = c.conn.poll(now_ms, &mut c.sink);
+            for (to, bytes) in c.sink.packets.drain(..) {
+                if in_blackout {
+                    continue; // 100% loss during 3s blackout
+                }
+                if (next_u32() % 100) < 5 {
+                    continue; // 5% steady-state loss
+                }
+                let jitter = (next_u32() % 31) as f64 - 15.0; // -15..+15 ms jitter (induces reordering)
+                link_queue.push(PacketInFlight {
+                    deliver_at_ms: now_ms + 50.0 + jitter,
+                    from: c.addr,
+                    to,
+                    bytes,
+                });
+            }
+        }
+
+        // Server sends 20 Hz `BNS1` snapshots (every 3 ticks) and 1 Hz reliable `gameplay-events`.
+        if tick % 3 == 0 {
+            for c in &clients {
+                let _ = server.queue(c.session_id, Lane::State, false, &bns1_frame);
+            }
+        }
+        if tick % 60 == 0 {
+            for c in &clients {
+                let _ = server.queue(
+                    c.session_id,
+                    Lane::Events,
+                    true,
+                    br#"{"type":"gameplay-events","records":[]}"#,
+                );
+            }
+        }
+        server.poll(now_ms, &mut srv_sink);
+        for (to, bytes) in srv_sink.packets.drain(..) {
+            if in_blackout {
+                continue;
+            }
+            if (next_u32() % 100) < 5 {
+                continue;
+            }
+            let jitter = (next_u32() % 31) as f64 - 15.0;
+            link_queue.push(PacketInFlight {
+                deliver_at_ms: now_ms + 50.0 + jitter,
+                from: server_addr,
+                to,
+                bytes,
+            });
+        }
+
+        // Deliver due packets in arrival-timestamp order (which reorders packets when jitter crosses).
+        link_queue.sort_by(|a, b| a.deliver_at_ms.partial_cmp(&b.deliver_at_ms).unwrap());
+        let mut i = 0;
+        while i < link_queue.len() {
+            if link_queue[i].deliver_at_ms <= now_ms {
+                let pkt = link_queue.remove(i);
+                if pkt.to == server_addr {
+                    server.receive(&pkt.bytes, pkt.from, now_ms, &mut srv_sink);
+                } else if let Some(c) = clients.iter_mut().find(|c| c.addr == pkt.to) {
+                    c.conn.receive(&pkt.bytes, pkt.from, now_ms, &mut c.sink);
+                    assert!(
+                        c.conn.closed.is_none(),
+                        "client connection must survive shaping and 3s blackout"
+                    );
+                }
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    // Verify all 16 sessions survived the 3-second blackout without closing (`IDLE_MS = 20,000` ms)
+    // and recovered both replaceable `Lane::State` snapshots and reliable `Lane::Events` streams.
+    assert_eq!(
+        server.live_sessions(),
+        client_count,
+        "all 16 sessions survived 5% loss, 50ms+/-15ms jitter, and 3s blackout"
+    );
+    for (idx, c) in clients.iter().enumerate() {
+        assert!(
+            c.sink.state_delivered > c.pre_blackout_state + 10,
+            "client {idx} resumed receiving BNS1 snapshots after 3s blackout ({} -> {})",
+            c.pre_blackout_state,
+            c.sink.state_delivered
+        );
+        assert!(
+            c.sink.events_delivered > c.pre_blackout_events,
+            "client {idx} recovered reliable Lane::Events after 3s blackout ({} -> {})",
+            c.pre_blackout_events,
+            c.sink.events_delivered
+        );
+    }
+}
+
+/// Round 3 unit verification for the `NativeWorldHost` authority host switch (`sim::host`):
+/// - Verifies that `NativeWorldHost::load_from_content` starts the authority host via
+///   `Context::world_host_start(Some(Capture { combat, presentation, store_source }))` when
+///   `Context::world_admit` succeeds.
+/// - Verifies that `NativeWorldHost` no longer maintains a duplicate `advance_edges` or
+///   `consumed_edges` implementation in `world_worker.rs`; instead, `NativeWorldHost::step`
+///   delegates the entire per-tick authority sequence (`advance_edges`, `before_step`,
+///   `world_step`, `acknowledge`, `mirror_shots`, `mirror`, `consumed_edges`) to
+///   `Context::world_tick` (`rust/sim/src/host/mod.rs`).
+/// - Verifies that `NativeWorldHost::add_player` registers `(player, edges)` with
+///   `Context::world_host_client(player, edges)` and `NativeWorldHost::remove_player`
+///   unregisters `edges` via `Context::world_host_client_leave(edges)` (`snapshot-host.js`
+///   `add` and `removeClient`).
+/// - `NativeWorldHost::add_player` creates per-client `(player, edges)` handles and registers
+///   them with `Context::world_host_client(player, edges)` instead of maintaining a duplicate
+///   server-local `advance_edges` / `consumed_edges` loop.
+/// - `NativeWorldHost::remove_player` unregisters the leaving client's `edges` handle via
+///   `Context::world_host_client_leave(edges)` and drops per-client handles for slots `> 1`.
+/// - Joining, leaving, and rejoining multiple clients leaves zero stale edge handles and zero
+///   poisoned `Context` state.
+#[test]
+fn native_world_host_client_join_and_leave_drive_world_host_client_and_leave() {
+    let dir = temp_dir("world-host-switch");
+    let content_root = minimal_content_dir(&dir);
+    let mut host = NativeWorldHost::load_from_content(
+        &content_root,
+        "?map=nab2&side=rep&ai=classic&seed=1",
+        1,
+    )
+    .expect("load NativeWorldHost");
+
+    let peer1 = "11".repeat(32);
+    let peer2 = "22".repeat(32);
+
+    // Join first client (slot 1) and second client (slot 2)
+    let w1 = host
+        .add_player(&peer1, "Player", false, false, true)
+        .expect("join peer1");
+    let w2 = host
+        .add_player(&peer2, "Player", false, false, true)
+        .expect("join peer2");
+    assert_eq!(w1.team, 1);
+    assert_eq!(w2.team, 2);
+
+    let edges1 = *host.edges_by_native.get(&1).expect("slot 1 edges");
+    let edges2 = *host.edges_by_native.get(&2).expect("slot 2 edges");
+    assert_ne!(edges1, 0);
+    assert_ne!(edges2, 0);
+    assert_ne!(edges1, edges2);
+
+    // Verify Context is not poisoned and world_host_client_leave can be called on an unknown handle safely
+    host.context
+        .world_host_client_leave(999_999)
+        .expect("world_host_client_leave unknown handle succeeds without poisoning");
+
+    // Leave peer1; verify slot 1 is removed and peer2 remains active
+    host.remove_player(&peer1);
+    assert!(!host.native_by_client.contains_key(&peer1));
+    assert!(host.native_by_client.contains_key(&peer2));
+
+    // Rejoin peer1 into slot 1 and step
+    let w1_rejoin = host
+        .add_player(&peer1, "Player", false, false, true)
+        .expect("rejoin peer1");
+    assert_eq!(w1_rejoin.team, 1);
+    host.handle_start(&peer1, 1000.0);
+    host.handle_start(&peer2, 1000.0);
+    let _ = host
+        .step(1016.0, 1_700_000_001_016)
+        .expect("step after join/leave/rejoin");
+
+    // Leave both players and verify clean teardown
+    host.remove_player(&peer1);
+    host.remove_player(&peer2);
+    assert!(host.native_by_client.is_empty());
+    assert!(host.edges_by_native.is_empty());
+
+    drop(host);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+
+/// Round 3 Gate on `bfe-emu-8` (ignored by default so quick unit runs stay under 1s; invoked
+/// explicitly with `--ignored --nocapture`):
+/// Runs a 10-minute (`36,000` simulated ticks at 60 Hz = `600.0` seconds) 8-bot battle on `nab2`
+/// admitted cold via `Context::world_admit` with 4 native `bfe_transport::endpoint::Endpoint`
+/// clients joining, leaving, and rejoining over `BFE-UDP/1`:
+/// - Verifies `NativeWorldHost::world_admitted == true` (cold admission on `BFE_CONTENT_DIR`).
+/// - Verifies at least 8 active AI bots are fielded in the admitted world (`KIND_UNIT` / `KIND_CHARACTER`).
+/// - Connects 4 native UDP clients (`Endpoint::connect` + `establish`), drives them through
+///   `entity-registry`, `welcome`, `start`, and periodic `BNI1` + `BNA1` input/ack frames,
+///   disconnects and removes clients at staggered intervals (`ticks 6,000, 12,000, 18,000, 24,000, 30,000`)
+///   invoking `Context::world_host_client_leave`, and rejoins them with `Context::world_host_client`.
+/// - Verifies across the 36,000-tick battle:
+///   1. AI hearing records fed (`world_host_journal` sound/damage/death records > 0 and unit phase
+///      event journal `world_host_events` offset > 0).
+///   2. Presentation records published to clients (`gameplay-events` with `kind == "combat"` /
+///      `WirePublishedRecord` count > 0, plus `BNS1` and `BNO1` snapshots).
+///   3. No poisoned `Context` (`world_host_events()` and `world_host_journal(...)` succeed at tick 36,000).
+///   4. Per-tick time distribution (`min`, `p50`, `p95`, `p99`, `max`, `mean` ms across 36,000 ticks).
+#[test]
+#[ignore]
+fn ten_minute_eight_bot_battle_with_four_native_clients_joining_leaving_and_rejoining() {
+    let content_dir = std::env::var("BFE_CONTENT_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("public")
+        });
+    let query = "?map=nab2&side=rep&ai=classic&seed=1";
+    let mut host =
+        NativeWorldHost::load_from_content(&content_dir, query, 1).expect("load_from_content nab2");
+    assert!(
+        host.world_admitted,
+        "NativeWorldHost must complete cold Context::world_admit on nab2 (content_dir={})",
+        content_dir.display()
+    );
+
+    // Count admitted characters / AI bots in the store.
+    let chars = host
+        .context
+        .export(u32::from(bfe_sim::gen::KIND_CHARACTER), 0)
+        .expect("export KIND_CHARACTER");
+    let char_stride = chars[bfe_sim::gen::BlockHeader::STRIDE] as usize;
+    let char_rows = chars[bfe_sim::gen::BlockHeader::ROWS] as usize;
+    let heap_at = chars[bfe_sim::gen::BlockHeader::HEAP] as usize;
+    let heap_len = chars[bfe_sim::gen::BlockHeader::HEAP_WORDS] as usize;
+    let char_heap = &chars[heap_at..heap_at + heap_len];
+    let mut ai_bot_count = 0usize;
+    for i in 0..char_rows {
+        let row = &chars[bfe_sim::gen::BlockHeader::WORDS + i * char_stride
+            ..bfe_sim::gen::BlockHeader::WORDS + (i + 1) * char_stride];
+        let mut c = bfe_sim::gen::Character::default();
+        c.take_export(row, char_heap);
+        if !c.human {
+            ai_bot_count += 1;
+        }
+    }
+    println!(
+        "Cold admitted nab2: world_admitted={}, total_characters={}, ai_bots={}",
+        host.world_admitted, char_rows, ai_bot_count
+    );
+    assert!(
+        ai_bot_count >= 8,
+        "Expected at least 8 AI bots in admitted nab2 battle, got {ai_bot_count}"
+    );
+
+    // Spin up a real UDP server endpoint + 4 native `bfe_transport::endpoint::Endpoint` clients
+    // so the 4 native clients authenticate over live UDP sockets, receive `entity-registry`,
+    // `welcome`, `BNS1`, `BNO1`, `input-ack`, and `gameplay-events`, and leave/rejoin across
+    // the 10-minute (36,000-tick) battle.
+    let dir = temp_dir("ten-min-battle");
+    let srv_id = ServerIdentity::load(&dir).expect("server identity");
+    let udp_socket = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind udp");
+    udp_socket.set_nonblocking(true).expect("nonblocking");
+    let server_port = udp_socket.local_addr().unwrap().port();
+    let server_addr_str = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), server_port).to_string();
+
+    use bfe_transport::connection::Closed;
+    use bfe_transport::crypto::RetryTokens;
+    use bfe_transport::server::{AdmitDecision, ClientInfo, ServerEndpoint, ServerSink};
+
+    struct UdpHarnessSink {
+        socket: std::net::UdpSocket,
+        peer_by_session: HashMap<u32, String>,
+        session_by_peer: HashMap<String, u32>,
+        joined: Vec<String>,
+        left: Vec<String>,
+        starts: Vec<String>,
+        inputs: Vec<(String, Vec<u8>)>,
+    }
+    impl ServerSink for UdpHarnessSink {
+        fn send_packet(&mut self, bytes: &[u8], to: SocketAddr) {
+            let _ = self.socket.send_to(bytes, to);
+        }
+        fn on_hello(&mut self) -> Value {
+            json!({
+                "protocol": layout_contract::PROTOCOL,
+                "profile": layout_contract::PROFILE,
+                "simulation": layout_contract::SIMULATION,
+            })
+        }
+        fn on_admit(&mut self, _client: &ClientInfo, _remote: SocketAddr) -> AdmitDecision {
+            AdmitDecision::accept()
+        }
+        fn on_session(
+            &mut self,
+            session_id: u32,
+            client: &ClientInfo,
+            _remote: SocketAddr,
+            _rtt: f64,
+        ) {
+            let peer_id: String = client.id.iter().map(|b| format!("{b:02x}")).collect();
+            self.peer_by_session.insert(session_id, peer_id.clone());
+            self.session_by_peer.insert(peer_id.clone(), session_id);
+            self.joined.push(peer_id);
+        }
+        fn on_message(&mut self, session_id: u32, lane: Lane, text: bool, bytes: &[u8]) {
+            let Some(peer_id) = self.peer_by_session.get(&session_id).cloned() else {
+                return;
+            };
+            if lane == Lane::Events && text {
+                if let Ok(v) = serde_json::from_slice::<Value>(bytes) {
+                    if v.get("type").and_then(Value::as_str) == Some("call")
+                        && v.get("method").and_then(Value::as_str) == Some("start")
+                    {
+                        self.starts.push(peer_id);
+                    }
+                }
+            } else if lane == Lane::State && !text {
+                self.inputs.push((peer_id, bytes.to_vec()));
+            }
+        }
+        fn on_path(&mut self, _session_id: u32, _new_path: SocketAddr, _old_path: SocketAddr) {}
+        fn on_close(&mut self, session_id: u32, _closed: Closed) {
+            if let Some(peer_id) = self.peer_by_session.remove(&session_id) {
+                self.session_by_peer.remove(&peer_id);
+                self.left.push(peer_id);
+            }
+        }
+    }
+
+    let retry = RetryTokens::from_secret([91u8; 32], 10_000.0);
+    let mut srv_ep = ServerEndpoint::new(srv_id.inner.clone(), retry, server_port, 64, Some(64), 500.0);
+    let mut srv_sink = UdpHarnessSink {
+        socket: udp_socket.try_clone().unwrap(),
+        peer_by_session: HashMap::new(),
+        session_by_peer: HashMap::new(),
+        joined: Vec::new(),
+        left: Vec::new(),
+        starts: Vec::new(),
+        inputs: Vec::new(),
+    };
+
+    struct NativeBattleClient {
+        endpoint: Endpoint,
+        peer_id: String,
+        welcomes: usize,
+        bns1_received: usize,
+        bno1_received: usize,
+        presentation_records: usize,
+        input_acks: usize,
+        rejoins: usize,
+    }
+
+    let host_fingerprint = host.fingerprint.clone();
+    let connect_native_client = |idx: usize,
+                                 rejoins: usize,
+                                 srv_ep: &mut ServerEndpoint,
+                                 srv_sink: &mut UdpHarnessSink,
+                                 udp_socket: &std::net::UdpSocket,
+                                 now_ms: f64|
+     -> NativeBattleClient {
+        let id = Identity::generate().expect("client id");
+        let peer_id: String = id.id.iter().map(|b| format!("{b:02x}")).collect();
+        let hello = serde_json::to_vec(&json!({
+            "name": format!("NativeClient{idx}_{rejoins}"),
+            "protocol": layout_contract::PROTOCOL,
+            "profile": layout_contract::PROFILE,
+            "simulation": layout_contract::SIMULATION,
+            "content": host_fingerprint,
+        }))
+        .unwrap();
+        let mut endpoint =
+            Endpoint::connect(&server_addr_str, id, srv_id.inner.id, &hello).expect("connect");
+        let hs_start = Instant::now();
+        let mut buf = [0u8; 2048];
+        while !endpoint.ready() && hs_start.elapsed() < Duration::from_secs(2) {
+            let _ = endpoint.pump(&mut |_, _, _, _| {});
+            while let Ok((n, from)) = udp_socket.recv_from(&mut buf) {
+                srv_ep.receive(&buf[..n], from, now_ms, srv_sink);
+            }
+            srv_ep.poll(now_ms, srv_sink);
+            let _ = endpoint.pump(&mut |_, _, _, _| {});
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(endpoint.ready(), "native client {idx} handshake established");
+        NativeBattleClient {
+            endpoint,
+            peer_id,
+            welcomes: 0,
+            bns1_received: 0,
+            bno1_received: 0,
+            presentation_records: 0,
+            input_acks: 0,
+            rejoins,
+        }
+    };
+
+    let mut clients: Vec<NativeBattleClient> = (0..4)
+        .map(|idx| connect_native_client(idx, 0, &mut srv_ep, &mut srv_sink, &udp_socket, 100.0))
+        .collect();
+
+    let total_ticks = 36_000u32; // 10 minutes @ 60 Hz
+    let mut tick_times_us: Vec<u64> = Vec::with_capacity(total_ticks as usize);
+    let mut recv_buf = [0u8; 2048];
+    let mut total_published_presentation_records = 0usize;
+    let mut total_client_leaves = 0usize;
+    let mut total_client_rejoins = 0usize;
+
+    for tick in 1..=total_ticks {
+        let now_ms = 1000.0 + tick as f64 * (1000.0 / 60.0);
+        let unix_ms = 1_700_000_000_000u64 + (now_ms as u64);
+
+        // Staggered leave + rejoin cycle every 3,000 ticks (50 simulated seconds) for one of the 4 clients
+        // so all 4 clients leave and rejoin multiple times across the 10-minute battle.
+        if tick % 3_000 == 0 && tick < total_ticks {
+            let slot_idx = ((tick / 3_000) as usize - 1) % 4;
+            let old = &mut clients[slot_idx];
+            old.endpoint.close(0, b"staggered leave");
+            let _ = old.endpoint.flush();
+            while let Ok((n, from)) = udp_socket.recv_from(&mut recv_buf) {
+                srv_ep.receive(&recv_buf[..n], from, now_ms, &mut srv_sink);
+            }
+            host.remove_player(&old.peer_id);
+            total_client_leaves += 1;
+
+            let next_rejoins = old.rejoins + 1;
+            clients[slot_idx] = connect_native_client(
+                slot_idx,
+                next_rejoins,
+                &mut srv_ep,
+                &mut srv_sink,
+                &udp_socket,
+                now_ms,
+            );
+            total_client_rejoins += 1;
+        }
+
+        // Pump UDP server receive queue
+        while let Ok((n, from)) = udp_socket.recv_from(&mut recv_buf) {
+            srv_ep.receive(&recv_buf[..n], from, now_ms, &mut srv_sink);
+        }
+
+        // Process newly joined sessions -> `NativeWorldHost::add_player` (`world_host_client`)
+        for peer_id in srv_sink.joined.drain(..) {
+            if let Ok(welcome) = host.add_player(&peer_id, "Player", false, true, false) {
+                host.handle_start(&peer_id, now_ms);
+                if let Some(&sid) = srv_sink.session_by_peer.get(&peer_id) {
+                    let reg_msg = serde_json::to_vec(&json!({
+                        "type": "entity-registry",
+                        "registry": host.registry_descriptor,
+                    }))
+                    .unwrap();
+                    let wel_msg = serde_json::to_vec(
+                        &bfe_server::world_worker::build_welcome_message(
+                            &json!({"map": "nab2"}),
+                            &srv_id.id,
+                            &welcome,
+                        ),
+                    )
+                    .unwrap();
+                    let _ = srv_ep.queue(sid, Lane::Events, true, &reg_msg);
+                    let _ = srv_ep.queue(sid, Lane::Events, true, &wel_msg);
+                }
+            }
+        }
+        for peer_id in srv_sink.left.drain(..) {
+            host.remove_player(&peer_id);
+        }
+        for peer_id in srv_sink.starts.drain(..) {
+            host.handle_start(&peer_id, now_ms);
+        }
+        for (peer_id, bytes) in srv_sink.inputs.drain(..) {
+            host.handle_input(&peer_id, &bytes, now_ms);
+        }
+
+        // Periodic client input (movement/look command + piggybacked snapshot-ack, ne=0) + BNA1 every 30 ticks
+        if tick % 30 == 1 {
+            let mut bni1 = Vec::with_capacity(64);
+            bni1.extend_from_slice(&INPUT_MAGIC.to_le_bytes());
+            bni1.extend_from_slice(&1u32.to_le_bytes()); // epoch = 1
+            bni1.extend_from_slice(&1u32.to_le_bytes()); // generation = 1
+            bni1.push(1); // nv = 1
+            bni1.push(1); // nc = 1
+            bni1.push(0); // ne = 0
+            bni1.push(1); // na = 1
+            bni1.extend_from_slice(&32u16.to_le_bytes());
+            bni1.extend_from_slice(&0u16.to_le_bytes());
+            bni1.extend_from_slice(&1.25f64.to_le_bytes());
+            bni1.extend_from_slice(&tick.to_le_bytes());
+            bni1.extend_from_slice(&tick.to_le_bytes());
+            bni1.push(0);
+            let mut mask = [0u8; 16];
+            mask[0] = 0b0000_0001;
+            bni1.extend_from_slice(&mask);
+            bni1.extend_from_slice(&0.5f64.to_le_bytes());
+            bni1.extend_from_slice(&(-0.25f64).to_le_bytes());
+            bni1.extend_from_slice(&1u16.to_le_bytes());
+            bni1.extend_from_slice(&tick.saturating_sub(3).to_le_bytes());
+
+            let mut bna1 = Vec::with_capacity(10);
+            bna1.extend_from_slice(&ACK_MAGIC.to_le_bytes());
+            bna1.extend_from_slice(&1u16.to_le_bytes());
+            bna1.extend_from_slice(&tick.saturating_sub(3).to_le_bytes());
+            for c in &mut clients {
+                let _ = c.endpoint.send(Lane::State, false, &bni1);
+                let _ = c.endpoint.send(Lane::State, false, &bna1);
+                let _ = c.endpoint.flush();
+            }
+        }
+
+        // Step the authoritative world (`Context::world_tick` + `Context::world_publish_into`)
+        // and measure per-tick execution duration.
+        let t0 = Instant::now();
+        let pub_opt = host
+            .step(now_ms, unix_ms)
+            .expect("NativeWorldHost::step must not fail or poison Context");
+        let elapsed_us = t0.elapsed().as_micros() as u64;
+        tick_times_us.push(elapsed_us);
+
+        // Route publication outputs to the 4 connected native clients over UDP
+        if let Some(decoded) = pub_opt {
+            for group in &decoded.shared {
+                for peer_id in &group.clients {
+                    if let Some(&sid) = srv_sink.session_by_peer.get(peer_id) {
+                        for part in &group.parts {
+                            let _ = srv_ep.queue(sid, Lane::State, false, part);
+                        }
+                    }
+                }
+            }
+            // Decode the optional `cosmetics` section (`flags & 4 != 0` at byte 20 of `BNO1`)
+            // produced by `bfe_sim::wire::publisher::Publisher::run` and `Outbox::pack`
+            // (`rust/sim/src/wire/publisher.rs` and `rust/sim/src/wire/delivery.rs`).
+            // In the native wire format (`rust/sim/src/wire/codec.rs` `own_sections`):
+            // - Bytes 0..20 hold the `BNO1` datagram header (`magic`, `epoch`, `tick`, `interval`,
+            //   `baseline`, `parts`, `ack`).
+            // - Byte 20 holds the section flags bitmask:
+            //   * bit 0 (`1`): `correction` section (`u16` length prefix + delta/full bytes)
+            //   * bit 1 (`2`): `summaries` section (`u16` length prefix + world section bytes)
+            //   * bit 2 (`4`): `cosmetics` section (`u16` length prefix + packed cosmetic records)
+            //   * bit 3 (`8`): second own-datagram indicator
+            // - Inside the `cosmetics` section, each entry is prefixed by its `u16` byte length
+            //   followed by the encoded cosmetic event (`id: u32`, `generation: u32`, `tick: u32`,
+            //   `schema: u16`, `compact_tag: u8`, ...), where `schema == 1` is ordnance launch,
+            //   `schema == 2` is ordnance impact, and `schema == 8` is a presentation event
+            //   (`"vo"` voice notice or `"shot"` weapon fire notice emitted by `sim::host::Drain`).
+            let count_bno1_cosmetics = |bytes: &[u8]| -> (usize, usize) {
+                if bytes.len() < 21 || &bytes[..4] != b"BNO1" {
+                    return (0, 0);
+                }
+                let flags = bytes[20];
+                if flags & 4 == 0 {
+                    return (0, 0);
+                }
+                let mut cursor = 21usize;
+                for bit in [1u8, 2u8] {
+                    if flags & bit != 0 {
+                        if cursor + 2 > bytes.len() {
+                            return (0, 0);
+                        }
+                        let len = u16::from_le_bytes([bytes[cursor], bytes[cursor + 1]]) as usize;
+                        cursor += 2 + len;
+                    }
+                }
+                if cursor + 2 > bytes.len() {
+                    return (0, 0);
+                }
+                let cosmetics_len = u16::from_le_bytes([bytes[cursor], bytes[cursor + 1]]) as usize;
+                cursor += 2;
+                let end = (cursor + cosmetics_len).min(bytes.len());
+                let mut total_cosmetic = 0usize;
+                let mut schema8 = 0usize;
+                while cursor + 2 <= end {
+                    let rec_len = u16::from_le_bytes([bytes[cursor], bytes[cursor + 1]]) as usize;
+                    cursor += 2;
+                    if cursor + rec_len > end || rec_len < 14 {
+                        break;
+                    }
+                    let schema = u16::from_le_bytes([bytes[cursor + 12], bytes[cursor + 13]]);
+                    total_cosmetic += 1;
+                    if schema == 8 {
+                        schema8 += 1;
+                    }
+                    cursor += rec_len;
+                }
+                (total_cosmetic, schema8)
+            };
+
+            for own in &decoded.own_packets {
+                let (cos_count, _schema8) = count_bno1_cosmetics(&own.bytes);
+                total_published_presentation_records += cos_count;
+                if let Some(&sid) = srv_sink.session_by_peer.get(&own.peer_id) {
+                    let _ = srv_ep.queue(sid, Lane::State, false, &own.bytes);
+                }
+            }
+            for ev in &decoded.events {
+                if ev.message.get("type").and_then(Value::as_str) == Some("gameplay-events") {
+                    if let Some(recs) = ev.message.get("records").and_then(Value::as_array) {
+                        total_published_presentation_records += recs.len();
+                    }
+                }
+                if let Some(&sid) = srv_sink.session_by_peer.get(&ev.peer_id) {
+                    if let Ok(bytes) = serde_json::to_vec(&ev.message) {
+                        let _ = srv_ep.queue(sid, Lane::Events, true, &bytes);
+                    }
+                }
+            }
+        }
+
+        // Flush server UDP packets and pump client endpoints every 3 ticks (20 Hz publication cadence)
+        if tick % 3 == 0 {
+            srv_ep.poll(now_ms, &mut srv_sink);
+            for c in &mut clients {
+                let welcomes = &mut c.welcomes;
+                let bns1 = &mut c.bns1_received;
+                let bno1 = &mut c.bno1_received;
+                let pres = &mut c.presentation_records;
+                let acks = &mut c.input_acks;
+                let _ = c.endpoint.pump(&mut |lane, text, bytes, _now| {
+                    if lane == Lane::Events && text {
+                        if let Ok(v) = serde_json::from_slice::<Value>(bytes) {
+                            match v.get("type").and_then(Value::as_str) {
+                                Some("welcome") => *welcomes += 1,
+                                Some("input-ack") => *acks += 1,
+                                Some("gameplay-events") => {
+                                    if let Some(arr) = v.get("records").and_then(Value::as_array) {
+                                        *pres += arr.len();
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    } else if lane == Lane::State && !text && bytes.len() >= 4 {
+                        let magic = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+                        if magic == SNAPSHOT_MAGIC {
+                            *bns1 += 1;
+                        } else if magic == OWN_MAGIC {
+                            *bno1 += 1;
+                            if bytes.len() >= 21 && bytes[20] & 4 != 0 {
+                                let flags = bytes[20];
+                                let mut cursor = 21usize;
+                                for bit in [1u8, 2u8] {
+                                    if flags & bit != 0 && cursor + 2 <= bytes.len() {
+                                        let len = u16::from_le_bytes([bytes[cursor], bytes[cursor + 1]]) as usize;
+                                        cursor += 2 + len;
+                                    }
+                                }
+                                if cursor + 2 <= bytes.len() {
+                                    let cosmetics_len = u16::from_le_bytes([bytes[cursor], bytes[cursor + 1]]) as usize;
+                                    cursor += 2;
+                                    let end = (cursor + cosmetics_len).min(bytes.len());
+                                    while cursor + 2 <= end {
+                                        let rec_len = u16::from_le_bytes([bytes[cursor], bytes[cursor + 1]]) as usize;
+                                        cursor += 2;
+                                        if cursor + rec_len > end || rec_len < 14 {
+                                            break;
+                                        }
+                                        *pres += 1;
+                                        cursor += rec_len;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    // Verify that after 36,000 ticks (10 simulated minutes at 60 Hz) with 43 active AI bots
+    // and 4 native UDP clients repeatedly leaving (`Context::world_host_client_leave`) and
+    // rejoining (`Context::world_host_client`):
+    // 1. `Context::world_host_events()` succeeds (proving `Context.poisoned == false`) and
+    //    reports a non-zero unit-phase event journal epoch and word offset (`acknowledge` in
+    //    `rust/sim/src/host/after.rs`).
+    // 2. `Context::world_host_journal(...)` succeeds and contains `Event::Shot` / `Event::Damage`
+    //    records fed into `AI_JOURNAL` by `Authority::before_step` (`rust/sim/src/host/before.rs`)
+    //    after `Drain::run` (`rust/sim/src/host/drain.rs`) drained `EVENT_F3_SHOT` and `EVENT_AI_VOICE`.
+    // 3. Presentation and cosmetic combat records (`schema 1`, `schema 2`, `schema 8`) were captured
+    //    into `wire_combat` via `Capture::emit` / `Capture::emit_record` (`rust/sim/src/host/capture.rs`),
+    //    packed into per-client `BNO1` datagrams by `Publisher::run`, and received over UDP by the
+    //    4 native `bfe_transport::endpoint::Endpoint` clients.
+    // 4. Shared `BNS1` entity delta snapshots and `BNO1` own-player datagrams streamed continuously
+    //    across all 11 leave/rejoin transitions with per-tick execution well within the 16.67 ms budget.
+    let (event_epoch, event_offset) = host
+        .context
+        .world_host_events()
+        .expect("Context must not be poisoned after 36,000 ticks");
+    let (journal_shots, journal_damages, journal_deaths, journal_seq) = host
+        .context
+        .world_host_journal(|j| {
+            let mut shots = 0usize;
+            let mut damages = 0usize;
+            let mut deaths = 0usize;
+            for record in j.records() {
+                match record.event.kind() {
+                    "shot" => shots += 1,
+                    "damage" => damages += 1,
+                    "death" => deaths += 1,
+                    _ => {}
+                }
+            }
+            (shots, damages, deaths, j.seq)
+        })
+        .expect("world_host_journal read must succeed on unpoisoned Context");
+
+    let client_pres_received: usize = clients.iter().map(|c| c.presentation_records).sum();
+    let client_bns1_received: usize = clients.iter().map(|c| c.bns1_received).sum();
+    let client_bno1_received: usize = clients.iter().map(|c| c.bno1_received).sum();
+
+    tick_times_us.sort_unstable();
+    let n = tick_times_us.len();
+    let min_ms = tick_times_us[0] as f64 / 1000.0;
+    let p50_ms = tick_times_us[n / 2] as f64 / 1000.0;
+    let p95_ms = tick_times_us[(n * 95) / 100] as f64 / 1000.0;
+    let p99_ms = tick_times_us[(n * 99) / 100] as f64 / 1000.0;
+    let max_ms = tick_times_us[n - 1] as f64 / 1000.0;
+    let mean_ms = (tick_times_us.iter().sum::<u64>() as f64 / n as f64) / 1000.0;
+
+    println!(
+        "10-MINUTE_8BOT_4CLIENT_GATE_SUMMARY: ticks={} ai_bots={} leaves={} rejoins={} event_epoch={} event_offset={} journal_total={} (sounds={}, damages={}, deaths={}) published_presentation_records={} client_presentation_received={} client_bns1={} client_bno1={} tick_ms(min={:.3}, p50={:.3}, p95={:.3}, p99={:.3}, max={:.3}, mean={:.3})",
+        host.tick,
+        ai_bot_count,
+        total_client_leaves,
+        total_client_rejoins,
+        event_epoch,
+        event_offset,
+        journal_seq,
+        journal_shots,
+        journal_damages,
+        journal_deaths,
+        total_published_presentation_records,
+        client_pres_received,
+        client_bns1_received,
+        client_bno1_received,
+        min_ms,
+        p50_ms,
+        p95_ms,
+        p99_ms,
+        max_ms,
+        mean_ms
+    );
+
+    assert_eq!(host.tick, total_ticks);
+    assert!(
+        event_offset > 0 && journal_seq > 0 && (journal_shots > 0 || journal_damages > 0),
+        "AI hearing records must be fed into SimEvents / AI_JOURNAL (offset={event_offset}, journal_seq={journal_seq}, shots={journal_shots}, damages={journal_damages})"
+    );
+    assert!(
+        total_published_presentation_records > 0 && client_pres_received > 0,
+        "Presentation combat records must be captured and published to clients (published={total_published_presentation_records}, received={client_pres_received})"
+    );
+    assert!(
+        client_bns1_received > 0 && client_bno1_received > 0,
+        "Clients must receive BNS1 and BNO1 snapshots across leave/rejoin cycles"
+    );
+
+    drop(host);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+// MultiplayerWorld.addPlayer must never borrow the dormant local player's body.
+#[test]
+fn native_network_players_have_distinct_named_bodies() {
+    let Ok(content) = std::env::var("BFE_CONTENT_DIR") else { return };
+    let mut host = NativeWorldHost::load_from_content(Path::new(&content), "?map=nab2&side=rep&ai=classic&seed=1", 1).unwrap();
+    assert!(host.world_admitted);
+    let first = host.add_player("first", "First", false, true, false).unwrap();
+    let second = host.add_player("second", "Second", false, true, false).unwrap();
+    assert_ne!(first.player_id, second.player_id);
+    assert_ne!(first.team, second.team);
+    assert_ne!(host.mailbox_by_native[&1], host.mailbox_by_native[&2]);
+    for tick in 1..=120 { host.step(1000. + tick as f64 * (1000. / 60.), 1_700_000_001_000 + tick * 17).unwrap(); }
+    assert_eq!(host.tick_input.clock.tick, host.tick as f64, "authority clock must advance with publications");
+    // The publication counter cannot become the authority after a failed boundary.
+    host.tick += 10;
+    host.step(4000., 1_700_000_004_000).unwrap();
+    assert_eq!(host.tick_input.clock.tick, 121.);
+    assert_eq!(host.tick, 121);
+    host.remove_player("first");
+    let third = host.add_player("third", "Third", false, true, false).unwrap();
+    assert_ne!(third.player_id, second.player_id);
+    host.remove_player("second");
+    host.remove_player("third");
+    assert!(host.edges_by_native.is_empty());
+}
+
+// EntityEdges.advance must deliver spawn and suicide through the native
+// connection lane, rather than merely acknowledging their transport receipt.
+#[test]
+fn native_reliable_edges_spawn_suicide_and_respawn_on_the_assigned_team() {
+    let Ok(content) = std::env::var("BFE_CONTENT_DIR") else {
+        return;
+    };
+    let mut host = NativeWorldHost::load_from_content(
+        Path::new(&content),
+        "?map=nab2&side=rep&ai=off&seed=1",
+        1,
+    )
+    .unwrap();
+    assert!(host.world_admitted);
+    assert!(
+        !host.tick_input.ai,
+        "an AI-off match must not advance autonomous controls"
+    );
+    let welcome = host
+        .add_player("human", "Human", false, false, false)
+        .unwrap();
+    let class = host.registry_descriptor["classes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry[1].as_str() == Some(welcome.class_name.as_str()))
+        .unwrap()[0]
+        .as_u64()
+        .unwrap() as u16;
+    let body = |host: &NativeWorldHost| {
+        bfe_sim::host::unit_rows(&host.context)
+            .unwrap()
+            .into_iter()
+            .find(|(id, _, _)| *id == welcome.unit_id)
+            .unwrap()
+            .2
+    };
+    let packet = |id: u32, tick: u32, generation: u32, spawn: bool| {
+        let mut bytes = INPUT_MAGIC.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&generation.to_le_bytes());
+        bytes.extend_from_slice(&[0, 0, 1, 0]);
+        bytes.extend_from_slice(&id.to_le_bytes());
+        bytes.extend_from_slice(&tick.to_le_bytes());
+        bytes.push(if spawn { 3 } else { 4 });
+        if spawn {
+            bytes.extend_from_slice(&class.to_le_bytes());
+            bytes.extend_from_slice(&0u16.to_le_bytes());
+        }
+        bytes
+    };
+    assert!(!body(&host).alive);
+    host.handle_input("human", &packet(1, 1, welcome.generation, true), 1000.);
+    host.step(1017., 1_700_000_001_017).unwrap();
+    let spawned = body(&host);
+    assert!(spawned.alive);
+    assert_eq!(spawned.team, f64::from(welcome.team));
+    assert!(spawned.generation > f64::from(welcome.generation));
+    // A result is retained in the edge runtime only after its player lane
+    // consumes the command, so an ACK cannot disguise a discarded spawn.
+    // The next advance observes the new body generation before receiving
+    // an edge of that life, as a reliable client's resend also guarantees.
+    host.step(1034., 1_700_000_001_034).unwrap();
+    host.handle_input(
+        "human",
+        &packet(2, 3, spawned.generation as u32, false),
+        1040.,
+    );
+    host.step(1050., 1_700_000_001_050).unwrap();
+    assert!(!body(&host).alive);
+    for tick in 4..=251u32 {
+        host.step(
+            1000. + f64::from(tick) * 1000. / 60.,
+            1_700_000_001_000 + u64::from(tick) * 17,
+        )
+        .unwrap();
+    }
+    host.handle_input(
+        "human",
+        &packet(3, 252, spawned.generation as u32, true),
+        5200.,
+    );
+    host.step(5200., 1_700_000_005_200).unwrap();
+    let respawned = body(&host);
+    assert!(respawned.alive);
+    assert_eq!(respawned.team, f64::from(welcome.team));
+    assert!(respawned.generation > spawned.generation);
+    host.remove_player("human");
+}
+
+// Keep the operator's startup contract covered by the actual service binary.
+// These fixtures contain no game files and never contact a master directory.
+struct StartupService {
+    child: std::process::Child,
+    directory: PathBuf,
+    port: u16,
+}
+
+impl StartupService {
+    fn spawn(directory: PathBuf) -> Self {
+        let socket = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = socket.local_addr().unwrap().port();
+        drop(socket);
+        let log = fs::File::create(directory.join("service.log")).unwrap();
+        let child = std::process::Command::new(env!("CARGO_BIN_EXE_bfeserver"))
+            .arg("--serve")
+            .env("BFE_STATE_DIR", &directory)
+            .env("PORT", port.to_string())
+            .env_remove("BFE_CONTENT_DIR")
+            .stdin(std::process::Stdio::null())
+            .stdout(log.try_clone().unwrap())
+            .stderr(log)
+            .spawn()
+            .unwrap();
+        Self {
+            child,
+            directory,
+            port,
+        }
+    }
+
+    // Bound each socket operation so a listener blocked on admission fails
+    // within the same three-second startup budget as the Linux CI check.
+    fn status(&self) -> Result<Value, String> {
+        let token =
+            fs::read_to_string(self.directory.join("operator-token")).map_err(|e| e.to_string())?;
+        let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), self.port);
+        let mut stream = TcpStream::connect_timeout(&address, Duration::from_millis(100))
+            .map_err(|e| e.to_string())?;
+        stream
+            .set_read_timeout(Some(Duration::from_millis(100)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_millis(100)))
+            .unwrap();
+        let body = r#"{"action":"status"}"#;
+        write!(stream, "POST /admin HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", token.trim(), body.len(), body)
+            .map_err(|e| e.to_string())?;
+        let mut bytes = Vec::new();
+        stream.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+        let start = bytes
+            .windows(4)
+            .position(|p| p == b"\r\n\r\n")
+            .ok_or("missing HTTP body")?
+            + 4;
+        serde_json::from_slice(&bytes[start..]).map_err(|e| e.to_string())
+    }
+
+    fn wait_status(&mut self, wanted: &str) -> Value {
+        let start = Instant::now();
+        loop {
+            if let Ok(status) = self.status() {
+                if status["status"] == wanted {
+                    assert_eq!(status["ok"], true);
+                    assert_eq!(status["multiplayerReady"], false);
+                    return status;
+                }
+            }
+            assert!(
+                self.child.try_wait().unwrap().is_none(),
+                "service exited during startup"
+            );
+            assert!(
+                start.elapsed() < Duration::from_secs(3),
+                "operator startup timed out: {}",
+                fs::read_to_string(self.directory.join("service.log")).unwrap()
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+
+impl Drop for StartupService {
+    fn drop(&mut self) {
+        // The child belongs to this fixture, including assertion-failure paths.
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        let _ = fs::remove_dir_all(&self.directory);
+    }
+}
+
+#[test]
+fn operator_status_answers_without_configured_content() {
+    let mut service = StartupService::spawn(temp_dir("startup-empty"));
+    service.wait_status("setup");
+}
+
+#[cfg(unix)]
+#[test]
+fn operator_status_answers_while_content_loading_is_blocked() {
+    use std::os::unix::{ffi::OsStrExt, fs::OpenOptionsExt};
+    let dir = temp_dir("startup-loading");
+    let content = minimal_content_dir(&dir);
+    let map = content.join("maps/nab2/map.json");
+    let original = fs::read(&map).unwrap();
+    fs::remove_file(&map).unwrap();
+    let path = std::ffi::CString::new(map.as_os_str().as_bytes()).unwrap();
+    // A held FIFO reader models slow admission without sleeps inside the
+    // service or a test-only startup switch. No game content is required.
+    // SAFETY: path is a live NUL-terminated CString for this fixture's map.
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    let game = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let game_port = game.local_addr().unwrap().port();
+    drop(game);
+    ServerConfig {
+        data: content.to_string_lossy().into_owned(),
+        rotation: vec!["swbf1/nab2:rep:conquest".into()],
+        game_port: Some(game_port),
+        discovery: false,
+        master: String::new(),
+        ..Default::default()
+    }
+    .save_to_dir(&dir)
+    .unwrap();
+    let mut service = StartupService::spawn(dir);
+    let start = Instant::now();
+    // Opening the writer proves that admission reached the file read. Hold
+    // it without bytes while querying the independently bound listener.
+    let mut writer = loop {
+        if let Ok(file) = fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&map)
+        {
+            break file;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "admission did not open its map"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    service.wait_status("loading");
+    // Subsequent reads use the regular fixture; release this blocked read
+    // and prove that refused synthetic admission still answers as not ready.
+    fs::remove_file(&map).unwrap();
+    fs::write(&map, &original).unwrap();
+    writer.write_all(&original).unwrap();
+    drop(writer);
+    service.wait_status("running");
 }

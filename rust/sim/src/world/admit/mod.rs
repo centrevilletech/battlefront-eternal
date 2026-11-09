@@ -12,6 +12,8 @@
 //! tests. None of them calls back into a host; an owner the path cannot yet
 //! build answers `AdmitError::Unavailable` naming its stage, never a partial
 //! world presented as whole.
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+pub mod network;
 pub mod banks;
 pub mod bodies;
 pub mod dispatch;

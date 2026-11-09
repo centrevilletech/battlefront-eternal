@@ -35,8 +35,6 @@ mod json;
 mod observe;
 #[path = "world-hash-native/published.rs"]
 mod published;
-#[path = "world-hash-native/registry.rs"]
-mod registry;
 
 use std::env;
 use std::fs;
@@ -189,7 +187,7 @@ fn run_battle(args: &Args, battle: usize) -> Result<(), String> { // matrix-b
     );
     let admitted = admission::Admitted { handles };
     let mut host = host::Host::new(context, admitted, args.options.seed)?;
-    let (explosions, content) = registry::content_tables(
+    let (explosions, content) = bfe_sim::host::content_tables(
         &host.context,
         &args.content,
         &args.options,

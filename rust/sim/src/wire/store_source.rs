@@ -575,3 +575,13 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn wire_store_world_input(source: *mut Source) -> *mut f64 { wire_store_world_input_in(crate::abi::facade::world(), source as usize).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
 }
+
+// SnapshotHost.addClient updates only connection bindings; immutable protocol
+// maps stay shared across every peer and every publication.
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+pub(crate) fn network_peer(w: &mut crate::world::owner::World, source: u32, peer: u32, value: Option<crate::gen::WireStorePeer>) {
+    let source = w.wire.as_deref_mut().unwrap().sources.get_mut(source as usize).unwrap();
+    source.peers.retain(|p| p.id != peer);
+    if let Some(value) = value { source.peers.push(value); }
+    source.eligibility_key = None;
+}

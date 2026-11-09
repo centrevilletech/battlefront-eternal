@@ -18,6 +18,18 @@
 //! is `true` (which requires `NativeWorldHost::world_admitted == true`, i.e. `Context::world_admit`
 //! has admitted a real world). If the server is in `"setup"` mode or `Context::world_admit` returned
 //! `Unavailable`, `/healthz` reports `multiplayerReady: false`.
+//!
+//! CLI subcommands, flags, and signal handling (`main.rs` <-> `src/main.js` & `src/health-check.js`):
+//! - `bfeserver` (or `bfeserver serve --data <dir> --port <port> ...`):
+//!   Loads `config.json` and `identity.json`, opens `operator.sqlite` (`rusqlite` bundled), starts
+//!   `LocalDedicatedServer` (and `OnlineServer` when `--online` / `config.online` is enabled with
+//!   `--accept-online-notice`), starts `OperatorHttpServer` on `localhost:18453`, and installs
+//!   `SIGINT` / `SIGTERM` handlers (`libc::signal`) for clean shutdown and master unregistration.
+//! - `bfeserver healthz` / `bfeserver --health-check`:
+//!   Probes `http://localhost:<operator_port>/healthz` (`check_healthz` in `health_check.rs`) and
+//!   exits `0` only when `status == "running"` and `multiplayerReady == true`.
+//! - `bfeserver status | stop | restart | stats | metrics | reset-metrics | ban | unban | kick | message`:
+//!   Sends an authenticated `POST /admin` request via `operator_request` using `operator-token`.
 
 use std::fs;
 use std::io::{self, BufRead, Write};
@@ -418,14 +430,16 @@ fn menu(directory: &Path, operator_port: u16) {
 /// 2. Load or generate the persistent Ed25519 `ServerIdentity` (`identity.js`) in `<dir>/server-key.json`.
 /// 3. Open `<dir>/operator.sqlite` via `OperatorStore::open` (`operator.js`) and ensure
 ///    `<dir>/operator.token` exists with `0600` permissions.
-/// 4. Start `LocalDedicatedServer` (`local-server.js`). Note that `LocalDedicatedServer.ready`
+/// 4. Bind the loopback operator HTTP listener before any world admission,
+///    so status requests answer even while content loading is blocked.
+/// 5. Start `LocalDedicatedServer` (`local-server.js`). Note that `LocalDedicatedServer.ready`
 ///    (exposed as `multiplayerReady` on `/healthz`) is `true` ONLY when `NativeWorldHost` admitted
 ///    the world via `Context::world_admit`.
-/// 5. If `visibility == "public"` and `master` is configured, start `OnlineServer` (`online-server.js`)
+/// 6. If `visibility == "public"` and `master` is configured, start `OnlineServer` (`online-server.js`)
 ///    to register with the master directory, refresh the Ed25519-signed global ban list (`bans.js`),
 ///    discover STUN reflexive addresses, and relay WebRTC/UDP hole-punch signaling over WebSocket.
-/// 6. Start `OperatorHttpServer` (`operator.js`) on `127.0.0.1:<operator_port>` and block until
-///    `SIGINT`, `SIGTERM`, or an operator `stop` command sets `SHUTDOWN_REQUESTED`.
+/// 7. Wait until `SIGINT`, `SIGTERM`, or an operator `stop` command sets
+///    `SHUTDOWN_REQUESTED`. World readiness never gates the operator listener.
 fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
     // SAFETY: `handle_signal` is an `extern "C"` function that only performs an atomic store to
     // `SHUTDOWN_REQUESTED`, which is async-signal-safe under POSIX for `SIGINT` and `SIGTERM`.
@@ -591,7 +605,7 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
 /// `packages/bfe-server/src/main.js`.
 ///
 /// Supported flags (matching `main.js`):
-/// - `--health-check` / `--healthz`: probes `http://127.0.0.1:<operator_port>/healthz` (`health-check.js`)
+/// - `--health-check` / `--healthz`: probes `http://localhost:<operator_port>/healthz` (`health-check.js`)
 /// - `--serve` / `--headless`: skips the interactive TUI and launches `serve()` directly
 /// - `--dir <path>` / `--state-dir <path>`: overrides `BFE_SERVER_DIR` state directory
 /// - `--operator-port <port>`: overrides `BFE_OPERATOR_PORT` (default `19421`)

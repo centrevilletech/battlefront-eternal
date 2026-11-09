@@ -68,6 +68,130 @@ fn unit_generation(context: &Context, unit: Option<u32>) -> Result<f64, String> 
     Err(format!("a client's unit (slot {slot}) is not in the store"))
 }
 
+/// EntityEdges.advance's world.fire/world.actions boundary. The argument
+/// buffers are retained by Authority; an empty tick allocates no command.
+#[allow(clippy::too_many_arguments)]
+fn dispatch(
+    context: &Context,
+    player: u32,
+    edge: &gen::WeEdge,
+    id: f64,
+    fire: bool,
+    tick: f64,
+    at: f64,
+    source: Option<u32>,
+    actions: &mut gen::PlayerActions,
+) -> Result<bool, String> {
+    use gen::{HsCommand, HsCommandKind, IaHuman, IfEdge, PlayerFire};
+    let named = |name: StrId, text: &str| {
+        context
+            .world(|w| {
+                w.sim
+                    .strings
+                    .units(name)
+                    .iter()
+                    .copied()
+                    .eq(text.encode_utf16())
+            })
+            .map_err(|e| e.message().to_string())
+    };
+    if fire {
+        let secondary = edge
+            .button
+            .map(|button| named(button, "fireSecondary"))
+            .transpose()?
+            .unwrap_or(false);
+        return context
+            .players_fire(
+                player,
+                &PlayerFire {
+                    edge: IfEdge {
+                        id,
+                        external_id: Some(edge.id),
+                        tick: edge.tick,
+                        generation: edge.generation,
+                        button: f64::from(u8::from(secondary)),
+                        pressed: edge.pressed.unwrap_or(false),
+                        aim_yaw: edge.aim_yaw,
+                        aim_pitch: edge.aim_pitch,
+                        view_tick: edge.view_tick,
+                    },
+                    epoch_one: edge.epoch == 1.,
+                    pressed_valid: edge.pressed.is_some(),
+                    tick,
+                    at,
+                },
+            )
+            .map(|accepted| accepted != 0)
+            .map_err(|e| e.message().to_string());
+    }
+    actions.entry.id = id;
+    actions.entry.tick = tick;
+    actions.entry.generation = edge.generation;
+    actions.entry.actions.clear();
+    actions.human.clear();
+    actions.same_epoch = edge.epoch == 1.;
+    actions.payload_valid = true;
+    actions.human_valid = true;
+    actions.tick = tick;
+    actions.at = at;
+    if named(edge.kind, "action")? {
+        let Some(action) = edge.action else {
+            return Ok(false);
+        };
+        actions.entry.actions.push(action);
+    } else {
+        let mut command = HsCommand::default();
+        if named(edge.kind, "spawn")? {
+            // classId is required; postId zero means the ordinary automatic
+            // post choice. Unknown ids reject without becoming a pending edge.
+            let names = context
+                .world(|w| {
+                    let capture = &w.wire.as_deref()?.sources.get(source? as usize)?.capture;
+                    let class = capture.edge_name(edge.class_id?, true)?;
+                    if w.sim.strings.units(class).len() > 64 {
+                        return None;
+                    }
+                    let post = match edge.post_id.filter(|&id| id != 0.) {
+                        Some(id) => {
+                            let post = capture.edge_name(id, false)?;
+                            if w.sim.strings.units(post).len() > 64 {
+                                return None;
+                            }
+                            Some(post)
+                        }
+                        None => None,
+                    };
+                    Some((class, post))
+                })
+                .map_err(|e| e.message().to_string())?;
+            let Some((class, post)) = names else {
+                return Ok(false);
+            };
+            command.kind = HsCommandKind::Spawn;
+            command.class_name = Some(class);
+            command.post = post;
+        } else if named(edge.kind, "team")? {
+            command.kind = HsCommandKind::Team;
+            command.team = edge.team.unwrap_or(f64::NAN);
+        } else if named(edge.kind, "suicide")? {
+            command.kind = HsCommandKind::Suicide;
+        } else if named(edge.kind, "cancel")? {
+            command.kind = HsCommandKind::Cancel;
+        } else {
+            return Ok(false);
+        }
+        actions.human.push(IaHuman {
+            command,
+            valid: true,
+        });
+    }
+    context
+        .players_actions(player, actions)
+        .map(|answer| answer.is_some_and(|value| value.accepted))
+        .map_err(|e| e.message().to_string())
+}
+
 impl Authority {
     /// `WireEntityEdges.run(op, args)` for one client; its remembered
     /// generation follows every result.
@@ -123,15 +247,18 @@ impl Authority {
         Ok(())
     }
 
-    /// `host.advanceEdges()` for every client. A taken edge would be
-    /// dispatched to the player's fire or actions lane (`EntityEdges.advance`);
-    /// that dispatch is not native yet, so a window holding one fails the
-    /// tick instead of dropping the client's input.
-    pub(super) fn advance_edges(&mut self, context: &Context, tick: f64) -> Result<(), String> {
+    /// EntityEdges.advance translates external ids to monotonic player-lane
+    /// ids, delivers the command, then retains its consumption translation.
+    pub(super) fn advance_edges(
+        &mut self,
+        context: &Context,
+        tick: f64,
+        at: f64,
+    ) -> Result<(), String> {
         for index in 0..self.clients.len() {
             let unit_generation = unit_generation(context, self.clients[index].unit)?;
+            let player = self.clients[index].player;
             if unit_generation != self.clients[index].generation {
-                let player = self.clients[index].player;
                 let mut reset = call(0.0);
                 reset.epoch = 1.0;
                 reset.generation = unit_generation;
@@ -142,8 +269,36 @@ impl Authority {
             let mut advance = call(2.0);
             advance.tick = tick;
             let out = self.edges_run(context, index, &advance)?;
-            if !out.edges.is_empty() {
-                return Err("entity input edge dispatch is not native yet".into());
+            for edge in out.edges {
+                // prepare owns expiry, kind validation and serial reservation.
+                // SnapshotHost reads the lanes for each edge, after earlier
+                // deliveries may have advanced their received counters.
+                let mut prepare = call(3.0);
+                prepare.tick = tick;
+                prepare.action_received = lanes(context, player, 0, false)?.actions_received;
+                prepare.fire_received = lanes(context, player, 1, false)?.fire_received;
+                prepare.edge = Some(edge.clone());
+                let prepared = self.edges_run(context, index, &prepare)?;
+                if !prepared.accepted {
+                    continue;
+                }
+                let accepted = dispatch(
+                    context,
+                    player,
+                    &edge,
+                    prepared.id,
+                    prepared.fire,
+                    tick,
+                    at,
+                    self.capture.as_ref().map(|c| c.store_source),
+                    &mut self.edge_actions,
+                )?;
+                let mut finish = call(4.0);
+                finish.fire = prepared.fire;
+                finish.id = prepared.id;
+                finish.external_id = edge.id;
+                finish.accepted = accepted;
+                self.edges_run(context, index, &finish)?;
             }
         }
         Ok(())

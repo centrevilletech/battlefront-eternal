@@ -1,7 +1,7 @@
 //! What the host's records name from the battle's content that the
 //! recorded admission cannot give it: the ordnance definitions' classes (a
 //! grenade record's `def`) and the combat registry ids of the explosions.
-//! The page's capture named an explosion by the page's capture named an explosion by
+//! The page's capture named an explosion by
 //! `registry.combat.definitionId(def)`, the id of the definition object
 //! (src/runtime/network-combat-registry.js), and the store source's tables
 //! carry the ordnance and item definitions' ids but no explosion's. An
@@ -13,16 +13,16 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use super::Content as HostContent;
+use crate::abi::context::Context;
+use crate::abi::context_step::ExplosionOwner;
+use crate::world::admit::Options;
 use bfe_content::battle::{Battle, Loader};
 use bfe_content::content::Content;
 use bfe_content::defs::identity;
 use bfe_content::files::DirFiles;
 use bfe_content::registry::{combat_registry, registry_content};
 use bfe_content::value::Value;
-use bfe_sim::abi::context::Context;
-use bfe_sim::abi::context_step::ExplosionOwner;
-use bfe_sim::host::Content as HostContent;
-use bfe_sim::world::admit::Options;
 
 /// world-hash.mjs's page query for the row's options.
 fn query(options: &Options) -> String {
@@ -68,6 +68,17 @@ pub fn content_tables(
     // One tree for the walk and the lookups: the registry names objects.
     let tree = registry_content(&content);
     let registry = combat_registry(&tree)?;
+    content_tables_from_registry(context, store_source, &tree, &registry)
+}
+
+/// The same cold resolution over retained registry objects. A dedicated host
+/// can refresh definitions after joins without reloading map geometry.
+pub fn content_tables_from_registry(
+    context: &Context,
+    store_source: u32,
+    tree: &Value,
+    registry: &[(String, Value)],
+) -> Result<(Vec<u32>, HostContent), String> {
     // `ids`: the registry's WeakMap from a definition object to its id.
     let ids: HashMap<usize, u32> = registry
         .iter()

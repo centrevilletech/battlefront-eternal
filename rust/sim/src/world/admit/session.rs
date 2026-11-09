@@ -468,10 +468,11 @@ pub fn add_player(world: &mut World, cx: &mut Cx, bindings: &PlayerBindings, at:
     let mut calls = Calls::new();
     let mut mirror = F3Change { vector: bindings.command_vector, on_shield: bindings.on_shield, ..Default::default() };
     perform(world, cx, &mut calls, "players_init", scalar(&[]), |world| { crate::players::module::players_init_in(world); Ok(()) })?;
-    // createNetworkRemotes(1) changes only owner capacity; its immutable
+    // createNetworkRemotes(maxPlayers) changes only owner capacity; its immutable
     // class content was registered earlier by the unit/recon owner.
-    perform(world, cx, &mut calls, "f3_recon_owners", scalar(&[1.0]), |world| {
-        crate::recon::module::f3_recon_owners_in(world, 1); Ok(())
+    let capacity = cx.connection_capacity;
+    perform(world, cx, &mut calls, "f3_recon_owners", scalar(&[capacity as f64]), |world| {
+        crate::recon::module::f3_recon_owners_in(world, capacity); Ok(())
     })?;
     // parkViewpoint clears human/body and human-spawn flags natively. Keep
     // the previous position/yaw: LocalServer places the new connection there.

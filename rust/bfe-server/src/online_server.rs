@@ -32,6 +32,22 @@
 //!      query's `match` token (used by clients following a map rotation).
 //!    - Rate-limits `offer` signals to at most 1 per second per peer and `maxPlayers * 2` active
 //!      offers within a 10-second window.
+//!
+//! Online server lifecycle and NAT traversal details (`online_server.rs` <-> `src/online-server.js`):
+//! - Periodic maintenance intervals:
+//!   - `HEARTBEAT_INTERVAL = 30_000` ms (`POST /v1/servers` listing refresh).
+//!   - `BAN_REFRESH_INTERVAL = 300_000` ms (`GET /v1/bans` TOFU-verified ban list refresh).
+//!   - `STUN_REFRESH_INTERVAL = 120_000` ms (`UdpGameServer::reflexive` RFC 5389 Binding Request).
+//!   - `WS_RECONNECT_BASE = 1_000` ms .. `30_000` ms exponential backoff on WebSocket disconnect.
+//! - Signaling rate-limiting (`allowSignal` in `src/online-server.js`):
+//!   - Sliding window `SIGNAL_WINDOW_MS = 10_000` ms with `SIGNAL_BURST = 8` messages per sender
+//!     and `MAX_SIGNAL_SENDERS = 4096` tracked sender entries.
+//! - Supported client signaling message types (`handle_signal`):
+//!   - `offer`: validates protocol/simulation/content, checks bans, punches UDP candidates, and
+//!     replies with `answer` carrying the server game port and `host` + `srflx` candidates.
+//!   - `candidate`: punches newly trickle-discovered client UDP candidates.
+//!   - `matchProbe`: verifies `probe.match` against the active battle query token and replies
+//!     with `matchReady` once `LocalDedicatedServer` has rotated into the new match.
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};

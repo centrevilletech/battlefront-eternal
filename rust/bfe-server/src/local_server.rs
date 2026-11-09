@@ -23,8 +23,31 @@
 //!    Crucially, `LocalDedicatedServer.ready` (`multiplayerReady` on `/healthz`) is set to
 //!    `host.world_admitted`, which is `true` **only** when `Context::world_admit` has admitted a
 //!    real mission world (never when running a fallback/unadmitted context).
+//!
+//! Why `LocalDedicatedServer` separates the TCP `/info` listener, `BFE-LAN/1` UDP discovery
+//! responder, and `BFE-UDP/1` 60 Hz world tick thread instead of multiplexing them on a single
+//! Node.js libuv event loop (`startLocalServer` in `src/local-server.js` and `GameSession` in
+//! `src/game-session.js`):
+//! - In Node (`src/local-server.js`), HTTP `/info` requests (`http.createServer`), LAN discovery
+//!   broadcasts (`startLanDiscovery` in `src/lan.js`), UDP game socket reads (`UdpServer` in
+//!   `src/udp-server.js`), and `MessagePort` IPC with `src/world-worker.js` all contend for the
+//!   same single-threaded V8 event loop. That contention requires `GameSession.drainSlice()` to
+//!   enforce a `WORLD_SLICE_MS = 4` ms per-turn budget (`let count = 0; while (count < 64 &&
+//!   performance.now() - start < WORLD_SLICE_MS)`).
+//! - In `bfeserver`, `start_info_http_listener` runs on a lightweight non-blocking TCP thread,
+//!   `LanDiscoveryResponder` runs on its own UDP responder thread (`lan.rs`), and the authoritative
+//!   simulation (`NativeWorldHost`) runs on a dedicated 60 Hz OS thread (`TICK_DURATION = 16,666,667` ns).
+//! - Late ticks on the 60 Hz world thread are bounded by the `4 * TICK_DURATION` (`66.67` ms)
+//!   catch-up clamp (`if now > next_tick + TICK_DURATION * 4`), which drops excess backlog,
+//!   increments `w.dropped_ticks` (`WireWorldFacts::DROPPED_TICKS` and `input-ack.dropped`), and
+//!   resynchronizes `next_tick = now + TICK_DURATION`.
+//! - Readiness honesty (`LocalDedicatedServer.ready` -> `/healthz` `multiplayerReady`):
+//!   `init_tx` reports `host.world_admitted`, which is `true` if and only if `Context::world_admit`
+//!   succeeded on the active map and query. When `Context::world_admit` returns
+//!   `SimErrorKind::Unavailable` (before cold admission finishes for a stage), `ready` remains
+//!   `false` so `/healthz` never advertises `multiplayerReady: true` on an unadmitted world.
 
-use crate::browser_info::{clean_browser_info, BrowserInfo};
+use crate::browser_info::{browser_info, map_names, BrowserInfo};
 use crate::config::{check_content, check_state_budget, ServerConfig};
 use crate::identity::ServerIdentity;
 use crate::lan::LanDiscoveryResponder;
@@ -79,22 +102,29 @@ pub fn with_match_param(query: &str, match_token: &str) -> String {
     format!("?{}", pairs.join("&"))
 }
 
+// Native authority outcomes stay separate from the publication clock: an
+// accepted clock advance can still refuse an owner phase. Operator metrics
+// read these counters on demand, without allocating on the tick path.
+#[derive(Default)]
+struct WorldTickCounters {
+    attempted: AtomicU64,
+    refused: AtomicU64,
+    errors: AtomicU64,
+}
+
 /// Running local dedicated server instance (`export async function startLocalServer` in `src/local-server.js`).
-/// Authoritative local/dedicated server harness porting `startLocalServer(options)` in
-/// `packages/bfe-server/src/local-server.js`.
 ///
 /// Coordinates:
 /// - `NativeWorldHost` (`world-worker.js` equivalent): 60 Hz authoritative simulation tick,
-///   entity registry construction (`encode_entity_registry`), and per-client `Publication` blocks
+///   entity registry construction (`build_entity_registry_descriptor`), and per-client `Publication` blocks
 /// - `UdpGameServer` (`udp-server.js` + `udp-peer.js`): encrypted UDP transport, `AdmitDecision`
 ///   callback, `/24` and `/48` prefix limits, and token-bucket rate limits
 /// - `LanDiscoveryResponder` (`lan.js`): optional IPv4 broadcast + IPv6 multicast LAN responder
 /// - Optional TCP browser-info listener (`local-server.js` `infoServer`) serving `build_info_json`
 ///
 /// Why `ready` reflects `NativeWorldHost::world_admitted`:
-/// Lead requirement: a server whose `Context::world_admit` returned `ErrorKind::Unavailable` (or
-/// failed) is running an empty placeholder `Context` and must NEVER report `multiplayerReady: true`
-/// on `/healthz` or in browser status payloads.
+/// A server whose `Context::world_admit` returned `ErrorKind::Unavailable` (or failed) is running
+/// an empty placeholder `Context` and must NEVER report `multiplayerReady: true` on `/healthz`.
 pub struct LocalDedicatedServer {
     pub id: String,
     pub port: u16,
@@ -106,6 +136,7 @@ pub struct LocalDedicatedServer {
     pub ready: Arc<AtomicBool>,
     /// Current 60 Hz simulation tick (`tick` in `src/main.js`).
     pub tick: Arc<AtomicU64>,
+    world_ticks: Arc<WorldTickCounters>,
     info_snapshot: Arc<RwLock<Value>>,
     pub udp: Arc<Mutex<UdpGameServer>>,
     world_tx: Sender<WorldCommand>,
@@ -124,24 +155,6 @@ impl LocalDedicatedServer {
     /// 2. `/info` HTTP server on TCP `actual_port` (`18451`).
     /// 3. `LanDiscoveryResponder` on UDP `config.discovery_port` (default `18452`) unless `config.discovery == false`.
     /// 4. The 60 Hz world tick thread hosting `NativeWorldHost`.
-    ///
-    /// Starts the dedicated server, binds the dual-stack UDP socket, initializes `NativeWorldHost`
-    /// from `content_dir`, and spawns the 60 Hz simulation + transport tick thread, porting
-    /// `startLocalServer(options)` in `packages/bfe-server/src/local-server.js`.
-    ///
-    /// Thread loop responsibilities (matching `local-server.js` + `world-worker.js`):
-    /// 1. Poll `UdpGameServer::poll` to process handshakes, check `is_banned` (local SQLite + global
-    ///    master ban cache), decode client `entity-input` (`0x01`) and `snapshot-ack` (`0x02`)
-    ///    datagrams, and collect `WorldPeerEvent`s (`Joined`, `Left`, `Input`, `SnapshotAck`, `Events`).
-    /// 2. On `WorldPeerEvent::Joined`: send the reliable `entity-registry` frame (64-byte header +
-    ///    sorted `EntityTypeEntry` table) followed by the reliable `welcome` event (`epoch`, `tick`,
-    ///    `match`, `map`, `mode`), then register the client in `NativeWorldHost`.
-    /// 3. Step `NativeWorldHost` at 60 Hz (`TICK_INTERVAL_MS = 16.666...`) and drain its outbound
-    ///    `Publication` blocks via `decode_publication_block`, routing reliable gameplay events to
-    ///    Channel 0 and unreliable `bni1` delta/baseline state packets to Channel 2.
-    /// 4. When a match finishes (`match-end` event or `match_rotate`), invoke `on_scores` so
-    ///    `OperatorStore::scores` persists the scoreboard to `operator.sqlite`, then transition to
-    ///    the next map/mode in `rotation`.
     pub fn start<B, S>(
         config: &ServerConfig,
         identity: &ServerIdentity,
@@ -155,16 +168,13 @@ impl LocalDedicatedServer {
         let _ = on_score;
         // Validate outbound per-peer state budget (`checkStateBudget` in `src/local-server.js`).
         let state_bytes_per_second = check_state_budget(Some(config.state_bytes_per_second))?;
-        // Sanitize operator browser metadata (`cleanBrowserInfo` in `src/browser-info.js`).
-        let browser = clean_browser_info(
-            config.description.as_deref(),
-            config.sponsor.as_ref(),
-            config.location.as_deref(),
-        )?;
         // Verify prepared content manifest and map rotation (`checkContent` in `src/local-server.js`).
         let checked = check_content(&config.data, &config.rotation, &config.ai)?;
         let match_token = random_match_hex();
         let active_query = with_match_param(&checked.first_query, &match_token);
+
+        // local-server.js info() includes the active battle, bot and team policy.
+        let browser = browser_info(config, &active_query, 0, &map_names(&config.data), 0);
 
         // Compute the 64-hex content fingerprint for the active map query (`fingerprint::hash`).
         let files = bfe_content::files::DirFiles::new(&checked.root);
@@ -225,6 +235,7 @@ impl LocalDedicatedServer {
         let udp = Arc::new(Mutex::new(udp_server));
         let ready = Arc::new(AtomicBool::new(false));
         let tick = Arc::new(AtomicU64::new(0));
+        let world_ticks = Arc::new(WorldTickCounters::default());
         let tick_stop = Arc::new(AtomicBool::new(false));
         let (world_tx, world_rx) = mpsc::channel::<WorldCommand>();
         let (init_tx, init_rx) = mpsc::sync_channel::<Result<bool, String>>(1);
@@ -232,6 +243,7 @@ impl LocalDedicatedServer {
         let udp_c = Arc::clone(&udp);
         let info_c = Arc::clone(&info_snapshot);
         let tick_c = Arc::clone(&tick);
+        let world_ticks_c = Arc::clone(&world_ticks);
         let stop_c = Arc::clone(&tick_stop);
         let server_id = identity.id.clone();
         let server_name = config.name.clone();
@@ -262,6 +274,7 @@ impl LocalDedicatedServer {
             };
 
             let mut next_tick = Instant::now();
+            let mut world_tick_failed = false;
             while !stop_c.load(Ordering::Relaxed) {
                 while let Ok(cmd) = world_rx.try_recv() {
                     match cmd {
@@ -278,8 +291,13 @@ impl LocalDedicatedServer {
                     continue;
                 }
                 next_tick += TICK_DURATION;
-                // Cap catch-up debt to 4 ticks (`count < 4` in `src/world-worker.js`).
+                // Cap catch-up debt to 4 ticks (`count < 4` and `debt > 8 / 60` in `src/world-worker.js`).
+                // Any excess backlog beyond `4 * TICK_DURATION` is dropped and recorded in `w.dropped_ticks`
+                // so `WireWorldFacts::DROPPED_TICKS` and `input-ack.dropped` reflect the late tick bound.
                 if now > next_tick + TICK_DURATION * 4 {
+                    let overdue_ns = (now - (next_tick + TICK_DURATION * 4)).as_nanos();
+                    let dropped = ((overdue_ns / TICK_DURATION.as_nanos()) as u32).max(1);
+                    w.dropped_ticks = w.dropped_ticks.saturating_add(dropped);
                     next_tick = now + TICK_DURATION;
                 }
 
@@ -291,9 +309,11 @@ impl LocalDedicatedServer {
 
                 {
                     let mut u = udp_c.lock().unwrap();
+                    let now_ms = u.now_ms();
+                    w.last_now_ms = w.last_now_ms.max(now_ms);
                     for ev in events {
                         match ev {
-                            WorldPeerEvent::Joined { id, .. } => {
+                            WorldPeerEvent::Joined { id, name, .. } => {
                                 // Send `entity-registry` before `welcome` (`handle("join")` in `src/world-worker.js`).
                                 let reg_msg = json!({
                                     "type": "entity-registry",
@@ -302,6 +322,7 @@ impl LocalDedicatedServer {
                                 u.send_events(&id, &reg_msg);
                                 match w.add_player(
                                     &id,
+                                    &name,
                                     false,
                                     auto_spawn,
                                     !auto_assign_teams,
@@ -321,11 +342,10 @@ impl LocalDedicatedServer {
                                             &id,
                                             &json!({"type": "gameplay-error", "message": err}),
                                         );
-                                        let now_ms = u.now_ms();
                                         u.close_peer(
                                             &id,
                                             close_code::REJECTED as u16,
-                                            "admission failed",
+                                            &format!("admission failed: {err}"),
                                             now_ms,
                                         );
                                     }
@@ -335,6 +355,7 @@ impl LocalDedicatedServer {
                                 w.remove_player(&id);
                             }
                             WorldPeerEvent::Start { id, call_id, .. } => {
+                                w.handle_start(&id, now_ms);
                                 u.send_events(
                                     &id,
                                     &json!({
@@ -366,15 +387,53 @@ impl LocalDedicatedServer {
                                     }),
                                 );
                             }
-                            WorldPeerEvent::EdgeAck { .. }
-                            | WorldPeerEvent::Input { .. }
-                            | WorldPeerEvent::Resync { .. } => {}
+                            WorldPeerEvent::EdgeAck { id, message } => {
+                                w.handle_edge_ack(&id, &message, now_ms);
+                            }
+                            WorldPeerEvent::Input { id, bytes } => {
+                                w.handle_input(&id, &bytes, now_ms);
+                            }
+                            WorldPeerEvent::Resync { id } => {
+                                w.handle_resync(&id, now_ms);
+                            }
                         }
                     }
 
-                    let now_ms = u.now_ms();
+                    w.links.clear();
+                    for (id, peer) in &u.peers {
+                        if let Some(&native_id) = w.native_by_client.get(id) {
+                            w.links.push(bfe_sim::gen::WirePublicationLink {
+                                id: native_id,
+                                discarded_actions: 0.,
+                                rtt: peer.session.rtt.or(peer.peer.last_rtt).unwrap_or(f64::NAN),
+                                has_kind: true,
+                                relay: peer.peer.path.kind == "relay",
+                                has_family: true,
+                                family_six: peer.peer.path.address.is_ipv6(),
+                            });
+                        }
+                    }
                     let unix_ms = UdpGameServer::unix_ms();
-                    if let Ok(Some(pub_out)) = w.step(now_ms, unix_ms) {
+                    world_ticks_c.attempted.fetch_add(1, Ordering::Relaxed);
+                    let publication = match w.step(now_ms, unix_ms) {
+                        Ok(publication) => {
+                            world_tick_failed = false;
+                            publication
+                        }
+                        Err(error) => {
+                            if error == "native world refused authoritative tick" {
+                                world_ticks_c.refused.fetch_add(1, Ordering::Relaxed);
+                            } else {
+                                world_ticks_c.errors.fetch_add(1, Ordering::Relaxed);
+                            }
+                            if !world_tick_failed {
+                                eprintln!("authoritative world tick failed: {error}");
+                            }
+                            world_tick_failed = true;
+                            None
+                        }
+                    };
+                    if let Some(pub_out) = publication {
                         for ev in pub_out.events {
                             u.send_events(&ev.peer_id, &ev.message);
                         }
@@ -424,6 +483,7 @@ impl LocalDedicatedServer {
             fingerprint: fp,
             ready,
             tick,
+            world_ticks,
             info_snapshot,
             udp,
             world_tx,
@@ -450,7 +510,9 @@ impl LocalDedicatedServer {
         let mut u = self.udp.lock().unwrap();
         let now_ms = u.now_ms();
         u.close_peer(id, close_code::KICKED as u16, reason, now_ms);
-        let _ = self.world_tx.send(WorldCommand::RemovePlayer(id.to_string()));
+        let _ = self
+            .world_tx
+            .send(WorldCommand::RemovePlayer(id.to_string()));
     }
 
     /// Broadcasts an admin announcement chat message to all connected players
@@ -472,12 +534,6 @@ impl LocalDedicatedServer {
     }
 
     /// Broadcasts a `match` rotation event to all connected players (`match(value)` in `src/udp-server.js`).
-    /// Schedules an authoritative map/mode rotation to `query` after `delay_ms` milliseconds,
-    /// porting `rotate(query, delayMs)` in `packages/bfe-server/src/local-server.js`.
-    ///
-    /// Broadcasts a reliable `match-rotate` notice to connected peers, waits `delay_ms` (or rotates
-    /// immediately when `delay_ms == 0`), increments the match `epoch`, reloads `NativeWorldHost`,
-    /// and re-sends `entity-registry` + `welcome` for the new epoch.
     pub fn match_rotate(&self, query: &str, delay_ms: u64) {
         let mut u = self.udp.lock().unwrap();
         u.broadcast_events(&json!({
@@ -495,7 +551,13 @@ impl LocalDedicatedServer {
 
     /// Returns endpoint-wide transport counters (`metrics` in `src/udp-server.js`).
     pub fn transport_metrics(&self, reset: bool) -> Value {
-        self.udp.lock().unwrap().transport_metrics(reset)
+        let mut metrics = self.udp.lock().unwrap().transport_metrics(reset);
+        // Like the world tick, lifetime authority totals do not reset when
+        // the operator asks for a fresh transport sampling window.
+        metrics["worldTickAttempts"] = json!(self.world_ticks.attempted.load(Ordering::Relaxed));
+        metrics["worldTicksRefused"] = json!(self.world_ticks.refused.load(Ordering::Relaxed));
+        metrics["worldTickErrors"] = json!(self.world_ticks.errors.load(Ordering::Relaxed));
+        metrics
     }
 
     /// Enqueues a synthetic or recorded `Publication` frame for wire/transport tests.
@@ -534,9 +596,6 @@ impl Drop for LocalDedicatedServer {
 
 /// Composes the `/info` JSON payload (`const info = () => ({ ... })` in `startLocalServer` in `src/local-server.js`).
 #[allow(clippy::too_many_arguments)]
-/// Builds the public JSON status payload served by the optional info HTTP listener and LAN
-/// discovery responder, porting `buildInfo()` in `packages/bfe-server/src/local-server.js` and
-/// `browserInfo()` in `packages/bfe-server/src/browser-info.js`.
 pub fn build_info_json(
     id: &str,
     name: &str,
@@ -568,7 +627,10 @@ pub fn build_info_json(
     );
     map.insert("players".to_string(), json!(players));
     map.insert("maxPlayers".to_string(), json!(max_players));
-    map.insert("relayPolicy".to_string(), Value::String("never".to_string()));
+    map.insert(
+        "relayPolicy".to_string(),
+        Value::String("never".to_string()),
+    );
     map.insert(
         "fingerprint".to_string(),
         Value::String(fingerprint.to_string()),
@@ -582,9 +644,6 @@ pub fn build_info_json(
 
 /// Spawns the non-blocking HTTP server serving `GET /info` on the TCP game port
 /// (`http.createServer` in `startLocalServer` in `src/local-server.js`).
-/// Spawns the lightweight non-blocking HTTP info server used by LAN/browser status probes when
-/// `enable_info_http` is set, porting `startInfoServer()` in
-/// `packages/bfe-server/src/local-server.js`.
 fn start_info_http_listener(
     port: u16,
     bind_host: Option<&str>,

@@ -19,6 +19,19 @@
 //! - For TURN relay allocation (`credentials(serverId, peerId)` in `src/master-client.js`), the
 //!   server calls `POST /v1/relay-credentials` and parses each `turn:` / `turns:` URI matching
 //!   `/^(turns?):([^:]+):(\d+)\?transport=(udp|tcp)$/` into `{ hostname, port, username, password, relayType }`.
+//!
+//! Master directory HTTP & WebSocket protocol details (`master_client.rs` <-> `src/master-client.js`):
+//! - Canonical Ed25519 request signing (`signRequest` in `src/identity.js`):
+//!   `[METHOD, PATH, TIMESTAMP, NONCE, BODY].join("\n")` signed with the server keypair and attached
+//!   via `x-bfe-id`, `x-bfe-timestamp`, `x-bfe-nonce`, `x-bfe-public-key`, and `x-bfe-signature`.
+//! - Endpoints:
+//!   - `GET /v1/info`: returns master server public key for TOFU ban-cache pinning (`bans.rs`).
+//!   - `GET /v1/bans`: returns Ed25519-signed global ban list (`bans.rs`).
+//!   - `POST /v1/servers`: registers/heartbeats server listing (`OnlineServer::beat`).
+//!   - `DELETE /v1/servers/:id`: unregisters server listing on graceful stop (`OnlineServer::close`).
+//!   - `POST /v1/signal-ticket`: acquires a single-use WebSocket rendezvous ticket (`connect()`).
+//!   - `GET /v1/signal?ticket=<ticket>`: RFC 6455 WebSocket upgrade for client signaling relay.
+//!   - `POST /v1/turn-credentials`: fetches ephemeral TURN relay credentials (`credentials()`).
 
 use std::io::Read;
 use std::net::TcpStream;

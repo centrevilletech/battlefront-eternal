@@ -27,8 +27,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 // Both native drivers resolve capture identities from the same content registry.
-#[path = "world-hash-native/registry.rs"]
-mod registry;
 
 /// The local client's step (bfe_client::host::STEP).
 const STEP: f64 = 1.0 / 60.0;
@@ -104,7 +102,7 @@ fn run_into(row: &Row, content: &PathBuf, ticks: usize, outcome: &mut Outcome) -
     outcome.admitted = true;
     context.world_step_init(admitted.setup.clone()).map_err(|e| format!("world_step_init: {}", e.message()))?;
     let h = &admitted.handles;
-    let (explosions, host_content) = registry::content_tables(&context, content, &row.options, h.store_source)?;
+    let (explosions, host_content) = bfe_sim::host::content_tables(&context, content, &row.options, h.store_source)?;
     context.world_host_start(Some(Capture { combat: h.combat, presentation: h.presentation, store_source: h.store_source, explosions }), host_content)
         .map_err(|e| format!("world_host_start: {}", e.message()))?;
     context.world_host_client(h.player, h.edges).map_err(|e| format!("world_host_client: {}", e.message()))?;

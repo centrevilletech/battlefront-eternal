@@ -179,6 +179,10 @@ pub struct Cx<'a> {
     /// (ai-nav.json, the sides' ai.json, mission scripts).
     pub files: &'a dyn Files,
     pub options: &'a Options,
+    /// createNetworkRemotes(maxPlayers), before the first owner is attached.
+    pub connection_capacity: u32,
+    /// Dedicated worlds reserve the server army size; local worlds retain mission counts.
+    pub army_size: Option<f64>,
     /// The registered definitions as shared values, in JS order (producers:
     /// combat for classes, weapons, explosions, ordnance and items; units
     /// for recon). The id tables key the same objects by path.
@@ -217,7 +221,7 @@ pub struct Cx<'a> {
 }
 impl<'a> Cx<'a> {
     pub fn new(content: &'a Content, defs: &'a Defs, files: &'a dyn Files, options: &'a Options, strings: Strings) -> Self {
-        Self { content, battle: &content.battle, defs, files, options, definitions: Definitions::default(), holders: Vec::new(),
+        Self { content, battle: &content.battle, defs, files, options, connection_capacity: 1, army_size: None, definitions: Definitions::default(), holders: Vec::new(),
             player: super::session::PlayerBindings::default(), at: 1000.0, unix_ms: 1_700_000_001_000.0, strings, streams: battle::streams::Streams::default(), ids: Ids::default(), returned: Vec::new(), returned_rows: Vec::new() }
     }
     /// The world's table after a body interned on its own (the AI's voices,
