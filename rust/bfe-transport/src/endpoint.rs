@@ -12,7 +12,7 @@ impl<F:FnMut(Lane,bool,&[u8],f64)> Sink for Output<'_,F>{
             // Socket pressure is packet loss. Reliable ranges stay tracked by
             // the connection and are retried; replaceable state is never queued
             // behind the OS send buffer or promoted to a reliable lane.
-            let _=socket.udp.send_to(bytes,path);
+            send_datagram(&socket.udp,bytes,path);
         }
     }
     fn message(&mut self,lane:Lane,text:bool,bytes:&[u8]){(self.messages)(lane,text,bytes,self.now);}
@@ -77,7 +77,7 @@ impl Endpoint{
             // A datagram flood has a bounded turn, so native input and drawing
             // still get their next frame. Remaining packets stay in the kernel.
             for _ in 0..256{
-                let (n,path)=match self.sockets[socket].udp.recv_from(&mut bytes){Ok(v)=>v,Err(e)if e.kind()==std::io::ErrorKind::WouldBlock=>break,Err(e)if datagram_drop(&e)=>continue,Err(_)=>return Err(Error("UDP receive failed"))};
+                let (n,path)=match self.sockets[socket].udp.recv_from(&mut bytes){Ok(v)=>v,Err(e)if matches!(e.kind(),std::io::ErrorKind::WouldBlock|std::io::ErrorKind::TimedOut)=>break,Err(e)=>{eprintln!("client UDP receive local={:?} capacity={} raw_os_error={:?}: {e}",self.sockets[socket].udp.local_addr(),bytes.len(),e.raw_os_error());if datagram_drop(&e){continue;}return Err(Error("UDP receive failed"));}};
                 let packet=&bytes[..n];if n<common::BYTES{continue;}
                 if matches!(packet[0]as usize,packet::DATA|packet::DATA_PHASE){
                     if let Some(c)=&mut self.connection{
@@ -93,10 +93,10 @@ impl Endpoint{
                     Event::Ignore=>{},
                     Event::Retry=>{let candidate=&mut self.candidates[index];if candidate.retries>=2{candidate.rejected=true;}else{candidate.retries+=1;candidate.length=h.token().len();candidate.token[..candidate.length].copy_from_slice(h.token());self.last_handshake=f64::NEG_INFINITY;}},
                     Event::Version(_)|Event::IdentityMismatch=>{self.candidates[index].rejected=true;},
-                    Event::Duplicate=>{let _=self.sockets[socket].udp.send_to(h.confirm(),path);},
+                    Event::Duplicate=>{send_datagram(&self.sockets[socket].udp,h.confirm(),path);},
                     Event::Established=>{
                         let Some(keys)=h.take_keys()else{continue;};self.server_hello.extend_from_slice(&h.server_hello);self.chosen=Some(index);
-                        self.connection=Some(Connection::new(keys,path,now,now.max(1.)));let _=self.sockets[socket].udp.send_to(h.confirm(),path);self.last_handshake=now;
+                        self.connection=Some(Connection::new(keys,path,now,now.max(1.)));send_datagram(&self.sockets[socket].udp,h.confirm(),path);self.last_handshake=now;
                     },
                 }
             }
@@ -105,8 +105,8 @@ impl Endpoint{
         // initiations would create needless half-open sessions at the server.
         if !self.ready&&now-self.last_handshake>=250.{
             let h=self.handshake.as_ref().ok_or(Error("handshake is unavailable"))?;
-            if let Some(index)=self.chosen{let c=&self.candidates[index];let _=self.sockets[c.socket].udp.send_to(h.confirm(),c.path);}
-            else{let mut init=[0;l::INITIATION_BYTES];let mut any=false;for c in &self.candidates{if !c.rejected{any=true;h.initiation(&c.token[..c.length],&mut init)?;let _=self.sockets[c.socket].udp.send_to(&init,c.path);}}
+            if let Some(index)=self.chosen{let c=&self.candidates[index];send_datagram(&self.sockets[c.socket].udp,h.confirm(),c.path);}
+            else{let mut init=[0;l::INITIATION_BYTES];let mut any=false;for c in &self.candidates{if !c.rejected{any=true;h.initiation(&c.token[..c.length],&mut init)?;send_datagram(&self.sockets[c.socket].udp,&init,c.path);}}
                 if !any{return Err(Error("server identity or transport version does not match"));}}
             self.last_handshake=now;
         }
@@ -126,6 +126,14 @@ fn datagram_drop(error:&std::io::Error)->bool{
     matches!(error.kind(),std::io::ErrorKind::Interrupted|std::io::ErrorKind::ConnectionReset|std::io::ErrorKind::ConnectionRefused)
 }
 // Verify that transient per-datagram socket errors are classified as drops rather than fatal failures.
+// Handshake and established traffic use the same error diagnostics; successful
+// sends remain allocation-free and retain ordinary packet-loss semantics.
+fn send_datagram(socket:&UdpSocket,bytes:&[u8],path:SocketAddr){
+    if let Err(error)=socket.send_to(bytes,path){
+        eprintln!("client UDP send local={:?} to={path} bytes={} raw_os_error={:?}: {error}",socket.local_addr(),bytes.len(),error.raw_os_error());
+    }
+}
+
 #[cfg(test)]mod tests{
     #[test]fn per_datagram_errors_do_not_end_a_session(){
         use std::io::{Error,ErrorKind};

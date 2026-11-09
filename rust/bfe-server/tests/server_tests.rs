@@ -1379,7 +1379,7 @@ fn local_dedicated_server_full_join_entity_registry_welcome_and_publication_repl
                 state_datagrams.push(bytes.to_vec());
             }
         })
-        .expect("establish BFE-UDP/1 connection");
+        .unwrap_or_else(|error| panic!("establish BFE-UDP/1 connection: {error:?}; server UDP log is captured above; metrics={} players={:?}", server.transport_metrics(false), server.stats()));
 
     let start = Instant::now();
     let mut sent_start_call = false;
@@ -1531,7 +1531,7 @@ fn udp_endpoint_client_joins_bfeserver_and_exchanges_events_and_snapshots() {
                 state_magics.push(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
             }
         })
-        .expect("establish BFE-UDP/1 connection");
+        .unwrap_or_else(|error| panic!("establish BFE-UDP/1 connection: {error:?}; server UDP log is captured above; metrics={} players={:?}", server.transport_metrics(false), server.stats()));
 
     let start = Instant::now();
     let mut sent_start = false;
@@ -1686,7 +1686,7 @@ fn sixteen_concurrent_clients_join_and_exchange_state_with_local_dedicated_serve
                     state_magics.push(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
                 }
             })
-            .expect("establish client");
+            .unwrap_or_else(|error| panic!("establish client: {error:?}; server UDP log is captured above; metrics={} players={:?}", server.transport_metrics(false), server.stats()));
         clients.push(TestClient {
             endpoint,
             events,
@@ -2339,7 +2339,7 @@ fn sixty_four_concurrent_clients_join_reconnect_and_stream_snapshots_within_memo
                             .push(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
                     }
                 })
-                .expect("establish 64-client wave");
+                .unwrap_or_else(|error| panic!("establish 64-client wave: {error:?}; server UDP log is captured above; metrics={} players={:?}", server.transport_metrics(false), server.stats()));
             clients.push(WaveClient {
                 endpoint,
                 events,

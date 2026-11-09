@@ -40,9 +40,37 @@ fn datagram_error(error: &io::Error) -> bool {
 pub(crate) fn recv_from(socket: &UdpSocket, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
     loop {
         match socket.recv_from(buf) {
-            Err(error) if datagram_error(&error) => continue,
+            Err(error)
+                if !matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) =>
+            {
+                eprintln!(
+                    "server UDP receive local={:?} capacity={} raw_os_error={:?}: {error}",
+                    socket.local_addr(),
+                    buf.len(),
+                    error.raw_os_error()
+                );
+                if datagram_error(&error) {
+                    continue;
+                }
+                return Err(error);
+            }
             result => return result,
         }
+    }
+}
+
+/// Error diagnostics stay off the successful packet path.
+pub(crate) fn send_to(socket: &UdpSocket, bytes: &[u8], to: SocketAddr) {
+    if let Err(error) = socket.send_to(bytes, to) {
+        eprintln!(
+            "server UDP send local={:?} to={to} bytes={} raw_os_error={:?}: {error}",
+            socket.local_addr(),
+            bytes.len(),
+            error.raw_os_error()
+        );
     }
 }
 

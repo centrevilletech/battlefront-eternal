@@ -139,7 +139,7 @@ struct SendOnlySink<'a>(&'a UdpSocket);
 
 impl ServerSink for SendOnlySink<'_> {
     fn send_packet(&mut self, bytes: &[u8], to: SocketAddr) {
-        let _ = self.0.send_to(bytes, to);
+        crate::sockets::send_to(self.0, bytes, to);
     }
 
     fn on_hello(&mut self) -> Value {
@@ -181,7 +181,7 @@ struct PollSink<'a, F: FnMut(&str) -> bool> {
 
 impl<F: FnMut(&str) -> bool> ServerSink for PollSink<'_, F> {
     fn send_packet(&mut self, bytes: &[u8], to: SocketAddr) {
-        let _ = self.socket.send_to(bytes, to);
+        crate::sockets::send_to(self.socket, bytes, to);
     }
 
     /// Builds the server handshake `hello` payload (`server.hello` in `startUdpServer` in `src/udp-server.js`).
@@ -337,6 +337,7 @@ impl UdpGameServer {
     ) -> Result<Self, String> {
         let (socket, family) = bind_dual_stack_udp(port, bind_host)?;
         let actual_port = socket.local_addr().map(|a| a.port()).unwrap_or(port);
+        eprintln!("server UDP bound local={:?} family={family}", socket.local_addr());
         let _ = socket.set_nonblocking(true);
         let retry = RetryTokens::new().map_err(|e| format!("failed to init retry tokens: {e}"))?;
         let max_sessions = (max_players * 2 + 32).max(32);
@@ -410,7 +411,7 @@ impl UdpGameServer {
     pub fn reflexive(&self, server: SocketAddr, timeout: Duration) -> Result<ReflexiveMap, String> {
         let tx = stun::new_transaction().map_err(|e| e.to_string())?;
         let req = stun::encode_binding_request(&tx);
-        let _ = self.socket.send_to(&req, server);
+        crate::sockets::send_to(&self.socket, &req, server);
         let deadline = Instant::now() + timeout;
         let mut buf = [0u8; 512];
         while Instant::now() < deadline {
