@@ -144,10 +144,21 @@ impl Mounts {
     }
     pub fn lease(&self,store:&Store,entities:&Entities,reference:Ref<SeatLease>)->Option<LeaseView> {
         let l=store.seat_lease.get(reference)?;
+        // VehicleAI.leaseOf/currentControllable reject released bot controls.
+        // Core unbind can retire their identity while
+        // the lease survives; keep its holder for mountReach's own-lease fallback.
+        let controllable = l.controllable.and_then(|reference| {
+            let object = entities.find(Entity::Control(reference));
+            if l.released {
+                object
+            } else {
+                Some(object.expect("registered AI control"))
+            }
+        });
         Some(LeaseView { obj:entities.find(Entity::Lease(reference))?,released:l.released,human:l.human,
             live:crate::seats::lease::live(l,reference,&store.unit),
             unit:l.unit.map(|r|entities.find(Entity::Unit(r)).expect("registered AI rider")),
-            controllable:l.controllable.map(|r|entities.find(Entity::Control(r)).expect("registered AI control")),
+            controllable,
             vehicle:l.vehicle.map(|r|entities.find(Entity::Hull(r)).expect("registered AI hull")),
             turret:l.turret.map(|r|entities.find(Entity::Turret(r)).expect("registered AI turret")),index:l.index,team:l.team })
     }
