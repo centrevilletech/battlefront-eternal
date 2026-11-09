@@ -397,7 +397,7 @@ fn responder_loop<F>(
         });
         if let Ok(bytes) = serde_json::to_vec(&packet) {
             if bytes.len() <= MAX_PACKET {
-                let _ = socket.send_to(&bytes, rinfo);
+                crate::sockets::send_to(&socket, &bytes, rinfo);
             }
         }
     }
@@ -427,11 +427,13 @@ pub fn discover_lan(timeout_ms: u64, port: u16) -> Vec<Value> {
     if let Some(s4) = &sock4 {
         let _ = s4.set_broadcast(true);
         let _ = s4.set_nonblocking(true);
-        let _ = s4.send_to(
+        crate::sockets::send_to(
+            s4,
             &packet,
             SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::BROADCAST, port)),
         );
-        let _ = s4.send_to(
+        crate::sockets::send_to(
+            s4,
             &packet,
             SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)),
         );
@@ -447,12 +449,14 @@ pub fn discover_lan(timeout_ms: u64, port: u16) -> Vec<Value> {
     .ok();
     if let Some(s6) = &sock6 {
         let _ = s6.set_nonblocking(true);
-        let _ = s6.send_to(
+        crate::sockets::send_to(
+            s6,
             &packet,
             SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::LOCALHOST, port, 0, 0)),
         );
         for scope in ipv6_multicast_interfaces() {
-            let _ = s6.send_to(
+            crate::sockets::send_to(
+                s6,
                 &packet,
                 SocketAddr::V6(SocketAddrV6::new(LAN_MULTICAST_V6, port, 0, scope)),
             );

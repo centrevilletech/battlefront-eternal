@@ -64,7 +64,16 @@ pub(crate) fn recv_from(socket: &UdpSocket, buf: &mut [u8]) -> io::Result<(usize
 
 /// Error diagnostics stay off the successful packet path.
 pub(crate) fn send_to(socket: &UdpSocket, bytes: &[u8], to: SocketAddr) {
-    if let Err(error) = socket.send_to(bytes, to) {
+    // ServerEndpoint normalizes mapped sources for identity and path checks.
+    // Winsock still requires sockaddr_in6 when replying through an IPv6 socket;
+    // Linux also accepts sockaddr_in here, masking the missing conversion.
+    let destination = match to {
+        SocketAddr::V4(addr) if socket.local_addr().is_ok_and(|local| local.is_ipv6()) => {
+            SocketAddr::new(addr.ip().to_ipv6_mapped().into(), addr.port())
+        }
+        _ => to,
+    };
+    if let Err(error) = socket.send_to(bytes, destination) {
         eprintln!(
             "server UDP send local={:?} to={to} bytes={} raw_os_error={:?}: {error}",
             socket.local_addr(),
@@ -114,9 +123,33 @@ mod tests {
                 .send_to(b"x", SocketAddr::new(ip.parse().unwrap(), port))
                 .unwrap();
             let mut byte = [0];
-            assert_eq!(recv_from(&receiver, &mut byte).unwrap().0, 1);
+            let (length, source) = recv_from(&receiver, &mut byte).unwrap();
+            assert_eq!(length, 1);
             assert_eq!(byte, *b"x");
+            // The transport hands the sink a canonical IPv4 address even
+            // though recv_from returned an IPv6-mapped source. Prove replies,
+            // not only reception, work through that same dual-stack socket.
+            let normalized = bfe_transport::server::normalize_socket_addr(source);
+            sender
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            send_to(&receiver, b"y", normalized);
+            assert_eq!(sender.recv_from(&mut byte).unwrap().0, 1);
+            assert_eq!(byte, *b"y");
         }
+    }
+
+    #[test]
+    fn ipv4_listener_replies_without_mapping_the_destination() {
+        let receiver = udp("127.0.0.1:0".parse().unwrap(), false).unwrap();
+        let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
+        sender
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        send_to(&receiver, b"x", sender.local_addr().unwrap());
+        let mut byte = [0];
+        assert_eq!(sender.recv_from(&mut byte).unwrap().0, 1);
+        assert_eq!(byte, *b"x");
     }
 
     #[test]
