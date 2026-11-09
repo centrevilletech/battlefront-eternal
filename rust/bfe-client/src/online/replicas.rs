@@ -33,6 +33,7 @@ struct Model {
     hand: Option<usize>,
     head: Option<usize>,
     clips: Vec<(String, f64)>,
+    death_clip: f64,
 }
 struct Slot {
     actor: usize,
@@ -44,6 +45,9 @@ struct Slot {
     rider_resource: Option<(u8, usize)>,
     rider: (f64, bool, Option<f64>, bool),
     source: f64,
+    // Latest death can precede the historical display's death sample.
+    dead: bool,
+    death_pending: bool,
 }
 pub struct Replicas {
     pub first_person: super::first_person::Views,
@@ -199,6 +203,7 @@ impl Replicas {
             names.push(name);
             models.push(Model {
                 row,
+                death_clip: -1.,
                 preview,
                 preview_parts,
                 preview_animation,
@@ -217,6 +222,21 @@ impl Replicas {
         // Soldier look limits are authored class constants, not a second
         // controller. Class registry ids are sparse and cannot index models.
         let mut turns = vec![(2., [-0.8, 1.1]); registry.classes.len() + 1];
+        // SoldierAnimator.die defaults to backward, then its generic fallback.
+        // Clip names are resolved once, outside the live animation batch.
+        for model in &mut models {
+            model.death_clip = model
+                .clips
+                .iter()
+                .position(|(name, _)| name == "human_rifle_stand_death_backward")
+                .or_else(|| {
+                    model
+                        .clips
+                        .iter()
+                        .position(|(name, _)| name == "human_rifle_die")
+                })
+                .map_or(-1., |clip| clip as f64);
+        }
         let mut classes = vec![None; registry.classes.len() + 1];
         let mut dive_times = vec![0.; classes.len()];
         for class in &defs.classes {
@@ -264,6 +284,8 @@ impl Replicas {
                     rider: (-1., false, None, false),
                     rider_resource: None,
                     source: 0.,
+                    dead: false,
+                    death_pending: false,
                 });
             }
         }
@@ -432,6 +454,8 @@ impl Replicas {
                     self.refused += 1;
                     continue;
                 };
+                self.slots[slot].dead = false;
+                self.slots[slot].death_pending = false;
                 self.slots[slot].mount = None;
                 self.slots[slot].rider_resource = None;
                 self.slots[slot].rider = (-1., false, None, false);
@@ -501,6 +525,26 @@ impl Replicas {
                     self.slots[slot].rider = (pick.map_or(-1., |i| i as f64), !nine, None, nine);
                 }
             }
+            let dead = if key.0 as f64 == receiver.own.id {
+                !receiver.own.alive
+            } else if kind == k::SOLDIER {
+                matches!(row[r::STATE] as u32, 7 | 8)
+            } else {
+                row[r::DEAD] != 0.
+            };
+            if dead && !self.slots[slot].dead {
+                self.slots[slot].death_pending = key.0 as f64 != receiver.own.id;
+                if key.0 as f64 == receiver.own.id {
+                    let at = self.units.input[f::COMMANDS] as usize * command::STRIDE;
+                    let c = &mut self.units.commands[at..at + command::STRIDE];
+                    c.fill(0.);
+                    c[command::ACTOR] = self.slots[slot].actor as f64;
+                    c[command::KIND] = kind::DIE as f64;
+                    c[command::CLIP] = self.models[model].death_clip;
+                    self.units.input[f::COMMANDS] += 1.;
+                }
+            }
+            self.slots[slot].dead = dead;
             let actor = self.slots[slot].actor;
             let input = &mut self.units.input[f::STRIDE + actor * i::STRIDE..][..i::STRIDE];
             input[i::ID] = row[r::ID];
@@ -517,6 +561,8 @@ impl Replicas {
             input[i::SOURCE_PROP] = -1.;
             input[i::SOURCE_TURRET] = turret.map_or(-1., |i| i as f64);
             input[i::RIDER_LIVE] = turret.is_some() as u8 as f64;
+            input[i::DEATH_PENDING] = self.slots[slot].death_pending as u8 as f64;
+            input[i::DEATH_CLIP] = self.models[model].death_clip;
             input[i::SOURCE_RIG] = rig.map_or(-1., |r| r as f64);
             input[i::RIDER_RESET] = changed as u8 as f64;
             input[i::MOUNT_PRESENT] = lease.is_some() as u8 as f64;
@@ -627,6 +673,14 @@ impl Replicas {
             self.units.pose_frame();
         }
         self.units.attachment_frame();
+        // Unit.present consumes deathPending only at the historical death.
+        // Retain it through earlier samples, then retire it without replaying.
+        for slot in &mut self.slots {
+            let out = &self.units.output[slot.actor * o::STRIDE..];
+            if slot.active && out[o::DEAD] != 0. && out[o::DEATH_PENDING] == 0. {
+                slot.death_pending = false;
+            }
+        }
         // Graphics.updateVisible places remote roots after the pose phase.
         // Units.frame deliberately leaves those matrices stale until this
         // draw boundary; both instance culling and rider attachments need

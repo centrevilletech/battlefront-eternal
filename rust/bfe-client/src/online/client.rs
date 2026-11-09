@@ -91,6 +91,19 @@ impl Client {
         receiver.clock.advance(self.dt).map_err(str::to_string)?;
         Ok(())
     }
+    // Reliable chat is echoed only by the authority, as NetworkSession.chat.
+    pub fn chat(&mut self, text: &str, team: bool) -> Result<(), String> {
+        let bytes = super::chat::encode(text, team);
+        if self
+            .endpoint
+            .send(Lane::Events, true, &bytes)
+            .map_err(|e| e.to_string())?
+        {
+            Ok(())
+        } else {
+            Err("Chat could not be sent: server is not connected".into())
+        }
+    }
     // A queued input and its durable edges share one transport flush.
     // The sender advances delivery accounting only after queue admission.
     pub fn send(&mut self) -> Result<(), String> {

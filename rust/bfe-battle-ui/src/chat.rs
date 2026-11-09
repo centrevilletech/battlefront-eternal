@@ -25,6 +25,14 @@ pub enum ChatChannel {
 }
 
 impl ChatChannel {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Global => "global",
+            Self::Team => "team",
+            Self::Server => "server",
+        }
+    }
+
     /// Parses a wire or caller channel name (`"global"`, `"team"`, `"server"`).
     ///
     /// Mirrors the `Object.hasOwn(CHAT_COLORS, channel)` guard in `ChatLog.receive` (`src/chat.js`),
@@ -205,6 +213,28 @@ impl ChatController {
         can_open: bool,
         now_ms: f64,
     ) -> bool {
+        let mut sent = None;
+        let handled =
+            self.handle_key_with_send(code, repeat, modifiers, can_open, |channel, text| {
+                sent = Some((channel, text.to_owned()));
+            });
+        if let Some((channel, text)) = sent {
+            self.log
+                .receive(channel.name(), &self.player_name, &text, now_ms);
+        }
+        handled
+    }
+
+    /// createChat replaces send for online play; only the server echoes an
+    /// accepted message. Text entry and closing retain their offline behavior.
+    pub fn handle_key_with_send(
+        &mut self,
+        code: &str,
+        repeat: bool,
+        modifiers: bool,
+        can_open: bool,
+        mut send: impl FnMut(ChatChannel, &str),
+    ) -> bool {
         if self.active_channel.is_none() {
             if repeat || modifiers || !can_open {
                 return false;
@@ -226,15 +256,9 @@ impl ChatController {
             match code {
                 "Enter" | "NumpadEnter" => {
                     if let Some(ch) = self.active_channel.take() {
-                        let ch_name = match ch {
-                            ChatChannel::Global => "global",
-                            ChatChannel::Team => "team",
-                            ChatChannel::Server => "server",
-                        };
                         let text = self.draft.trim().to_string();
                         if !text.is_empty() {
-                            let speaker = self.player_name.clone();
-                            self.log.receive(ch_name, &speaker, &text, now_ms);
+                            send(ch, &text);
                         }
                     }
                     self.draft.clear();
@@ -306,5 +330,30 @@ pub fn route_battle_key(
         "F3" if !spawn_open && !scoreboard_open => BattleKeyAction::SquadCommand(3),
         "F4" if !spawn_open && !scoreboard_open => BattleKeyAction::SquadCommand(4),
         _ => BattleKeyAction::None,
+    }
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::*;
+
+    #[test]
+    fn online_submission_waits_for_server_echo_and_cancel_sends_nothing() {
+        let mut chat = ChatController::new("Player");
+        chat.handle_key("KeyY", false, false, true, 0.0);
+        chat.draft = " hello ".into();
+        let mut sent = Vec::new();
+        chat.handle_key_with_send("Enter", false, false, true, |channel, text| {
+            sent.push((channel, text.to_owned()))
+        });
+        assert_eq!(sent, vec![(ChatChannel::Team, "hello".into())]);
+        assert!(chat.log.messages.is_empty());
+        assert!(!chat.is_open());
+        chat.handle_key("KeyT", false, false, true, 0.0);
+        chat.draft = "cancel".into();
+        chat.handle_key_with_send("Escape", false, false, true, |_, _| {
+            panic!("cancel sent chat")
+        });
+        assert!(!chat.is_open());
     }
 }

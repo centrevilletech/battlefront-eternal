@@ -1426,6 +1426,14 @@ impl NativeWorldHost {
         Ok(true)
     }
 
+    /// Chat routing reads the player's current authority team, including a
+    /// switch while bodiless. The join welcome is only an initial assignment.
+    pub fn player_team(&self, peer_id: &str) -> Option<f64> {
+        let native = self.native_by_client.get(peer_id)?;
+        let player = self.player_by_native.get(native)?;
+        self.context.world_network_team(*player).ok().flatten()
+    }
+
     /// Admits a player into the world roster (`world.addPlayer` and `entityHost.addClient` in
     /// `handle("join")` in `src/world-worker.js`).
     pub fn add_player(

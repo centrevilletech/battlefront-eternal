@@ -556,3 +556,30 @@ fn xdotool_under_xvfb_and_nested_weston_delivers_audited_hotkeys() {
         harness.phase, harness.dom_keys, harness.mouse_buttons, harness.wheels
     );
 }
+
+#[test]
+fn reliable_browser_chat_reaches_the_retained_native_feed() {
+    let mut receiver = bfe_client::online::receiver::Receiver::new(serde_json::json!({}));
+    for _ in 0..10 {
+        receiver.message(
+            true,
+            br#"{"type":"chat","sender":"Other player","text":"hello","team":false}"#,
+            100.0,
+        );
+    }
+    assert!(receiver.fault.is_none());
+    assert_eq!(receiver.chat.messages.len(), 8);
+    assert_eq!(
+        receiver.chat.messages[0].formatted_line(),
+        "Other player: hello"
+    );
+    receiver.message(
+        true,
+        br#"{"type":"chat","sender":"Server","text":"notice","team":false,"admin":true}"#,
+        200.0,
+    );
+    assert_eq!(
+        receiver.chat.messages.last().unwrap().formatted_line(),
+        "[SERVER] notice"
+    );
+}

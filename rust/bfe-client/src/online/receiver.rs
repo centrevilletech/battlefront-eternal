@@ -114,6 +114,7 @@ struct Early {
     now: f64,
 }
 pub struct Receiver {
+    pub chat: bfe_battle_ui::ChatLog,
     flight: bfe_sim::prediction::corrections::FlightState,
     pub next_match: Option<super::rotation::NextMatch>,
     pub roster: super::roster::Roster,
@@ -162,6 +163,7 @@ impl Receiver {
         let mut session = Session::new();
         session.reserve_receive();
         Self {
+            chat: bfe_battle_ui::ChatLog::new(),
             flight: bfe_sim::prediction::corrections::FlightState {
                 numbers: Vec::with_capacity(37),
                 vectors: Vec::with_capacity(7),
@@ -495,6 +497,11 @@ impl Receiver {
             return;
         };
         match m.kind {
+            "chat" => {
+                if let Err(error) = super::chat::receive(bytes, &mut self.chat, now) {
+                    self.fault = Some(error);
+                }
+            }
             "entity-registry" => {
                 if self.registry {
                     self.fault = Some("duplicate entity registry");

@@ -26,7 +26,7 @@
 //! 4. **Control message framing and dispatch (`GameSession.message` in `src/game-session.js`)**:
 //!    Validates incoming JSON messages on the `events` lane (`<= 65,536` bytes), answers application
 //!    `ping` / `pong` probes (`PING_INTERVAL_MS = 2,000 ms`), forwards `edge-ack` / `entity-edge-ack`,
-//!    and dispatches `call` / `rpc` methods (`start`, `chat`, etc.).
+//!    and routes `chat` and dispatches `call` / `rpc` methods (`start`, etc.).
 
 use serde_json::{json, Value};
 
@@ -52,8 +52,8 @@ pub enum SessionAction {
     Close { code: u16, reason: String },
     /// Client invoked the `start` RPC (`m.method === 'start'` in `GameSession.message`).
     ClientStart { call_id: Option<Value>, args: Value },
-    /// Client sent a chat message (`m.type === 'chat'` or `method === 'chat'` in `GameSession.message`).
-    ClientChat { call_id: Option<Value>, text: String },
+    /// Client sent a chat message (`m.type === 'chat'` in `GameSession.message`).
+    ClientChat { text: String, team: bool },
     /// Client acknowledged reliable entity-edge outcomes (`entity-edge-ack` in `GameSession.message`).
     EdgeAck(Value),
     /// Request a full snapshot baseline reset for this client (`resync` in `GameSession.message`).
@@ -84,6 +84,9 @@ pub struct GameSessionState {
     pub dropped_inputs: u64,
     /// Previous congestion state used to detect `congested -> clear` transitions for baseline resync.
     pub was_congested: bool,
+    // GameSession.message permits four accepted chat lines per five seconds.
+    chat_times: [f64; 4],
+    chat_at: usize,
 }
 
 impl GameSessionState {
@@ -101,6 +104,8 @@ impl GameSessionState {
             rtt: None,
             dropped_inputs: 0,
             was_congested: false,
+            chat_times: [f64::NEG_INFINITY; 4],
+            chat_at: 0,
         }
     }
 
@@ -231,9 +236,36 @@ impl GameSessionState {
                 Vec::new()
             }
             "edge-ack" | "entity-edge-ack" => vec![SessionAction::EdgeAck(msg)],
+            "chat" => {
+                let Some(text) = obj.get("text").and_then(Value::as_str) else {
+                    return Vec::new();
+                };
+                if text.encode_utf16().count() > 240
+                    || now_ms - self.chat_times[self.chat_at] < 5000.0
+                {
+                    return Vec::new();
+                }
+                let text: String = text
+                    .chars()
+                    .filter(|c| (*c as u32) > 31 && *c != '\u{7f}')
+                    .collect();
+                let text = text.trim().to_owned();
+                if text.is_empty() {
+                    return Vec::new();
+                }
+                self.chat_times[self.chat_at] = now_ms;
+                self.chat_at = (self.chat_at + 1) % self.chat_times.len();
+                vec![SessionAction::ClientChat {
+                    text,
+                    team: obj.get("team").and_then(Value::as_bool) == Some(true),
+                }]
+            }
             "call" | "rpc" => {
                 let call_id = obj.get("id").cloned();
-                let method = obj.get("method").and_then(Value::as_str).unwrap_or_default();
+                let method = obj
+                    .get("method")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
                 let args = obj
                     .get("args")
                     .or_else(|| obj.get("fields"))
@@ -243,16 +275,6 @@ impl GameSessionState {
                     "start" => {
                         self.started = true;
                         vec![SessionAction::ClientStart { call_id, args }]
-                    }
-                    "chat" => {
-                        let text = args
-                            .get("text")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default()
-                            .chars()
-                            .take(240)
-                            .collect::<String>();
-                        vec![SessionAction::ClientChat { call_id, text }]
                     }
                     _ => vec![SessionAction::SendEvents(
                         json!({
@@ -267,5 +289,38 @@ impl GameSessionState {
             }
             _ => Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod chat_tests {
+    use super::*;
+
+    #[test]
+    fn browser_events_chat_is_sanitized_rate_limited_and_keeps_team() {
+        let mut session = GameSessionState::new("peer".into(), 0.0);
+        for index in 0..4 {
+            let actions = session.on_events_message(
+                br#"{"type":"chat","text":" hi\u0007 there ","team":true}"#,
+                index as f64,
+            );
+            assert!(
+                matches!(&actions[..], [SessionAction::ClientChat { text, team: true }] if text == "hi there")
+            );
+        }
+        assert!(session
+            .on_events_message(br#"{"type":"chat","text":"fifth","team":false}"#, 100.0)
+            .is_empty());
+        assert!(matches!(
+            &session.on_events_message(br#"{"type":"chat","text":"later","team":false}"#, 5000.0)[..],
+            [SessionAction::ClientChat { team: false, .. }]
+        ));
+        let too_long =
+            serde_json::to_vec(&json!({"type":"chat","text":"😀".repeat(121),"team":false}))
+                .unwrap();
+        assert!(session.on_events_message(&too_long, 6000.0).is_empty());
+        assert!(session
+            .on_events_message(br#"{"type":"chat","text":" \u0007 ","team":false}"#, 6000.0)
+            .is_empty());
     }
 }

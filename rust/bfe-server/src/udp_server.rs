@@ -112,8 +112,8 @@ pub enum WorldPeerEvent {
     /// A client submitted a chat message (`m.type === "chat"` in `src/game-session.js`).
     Chat {
         id: String,
-        call_id: Option<Value>,
         text: String,
+        team: bool,
     },
     /// A client acknowledged reliable entity-edge results (`entity-edge-ack` in `src/game-session.js`).
     EdgeAck {
@@ -704,11 +704,11 @@ impl UdpGameServer {
                                     args,
                                 });
                             }
-                            SessionAction::ClientChat { call_id, text } => {
+                            SessionAction::ClientChat { text, team } => {
                                 events.push(WorldPeerEvent::Chat {
                                     id: peer_id.clone(),
-                                    call_id,
                                     text,
+                                    team,
                                 });
                             }
                             SessionAction::EdgeAck(message) => {

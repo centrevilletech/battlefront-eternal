@@ -941,6 +941,20 @@ impl Page {
                     );
                 }
                 let ping = port.network() && model.state == BoardState::Peek;
+                if ping {
+                    self.label(
+                        b,
+                        m,
+                        numeric[0] - 65.,
+                        top + 51.,
+                        "PING",
+                        11.,
+                        0.,
+                        l.ink,
+                        1,
+                        false,
+                    );
+                }
                 for (i, row) in model.lists[side - 1].iter().enumerate().skip(model.first) {
                     let y = list_top + (i - model.first) as f64 * pitch;
                     if y + row_h > bottom {

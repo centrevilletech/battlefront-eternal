@@ -172,6 +172,12 @@ impl Context {
         .map_err(|e| Error::host(e.to_string()))
     }
 
+    /// world.player(client).team is authoritative for team chat, including
+    /// the bodiless interval between a team choice and the next spawn.
+    pub fn world_network_team(&self, player: u32) -> Result<Option<f64>, Error> {
+        self.owned(|w| w.input.players.pool.get(player as usize).map(|p| p.team))
+    }
+
     /// SnapshotHost links carry transport measurements and native lane counters.
     pub fn world_network_discarded(&self, player: u32) -> Result<f64, Error> {
         self.owned(|w| {

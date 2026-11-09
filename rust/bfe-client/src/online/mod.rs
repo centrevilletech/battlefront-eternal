@@ -1,6 +1,7 @@
 //! Direct online battle host. The server supplies snapshots and accepts input;
 //! this owner runs no authoritative simulation and never creates a world.
 pub mod client;
+pub mod chat;
 pub mod clock;
 pub mod feedback;
 pub mod index;

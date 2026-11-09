@@ -404,26 +404,28 @@ impl LocalDedicatedServer {
                                     }),
                                 );
                             }
-                            WorldPeerEvent::Chat { id, call_id, text } => {
-                                let sender = u
+                            WorldPeerEvent::Chat { id, text, team } => {
+                                // world-worker.js routes only started players, and a
+                                // team line follows current teams after a side switch.
+                                if !u.peers.get(&id).is_some_and(|p| p.session.started) {
+                                    continue;
+                                }
+                                let Some(sender_team) = w.player_team(&id) else {
+                                    continue;
+                                };
+                                let sender = u.peers[&id].peer.name.clone();
+                                let recipients: Vec<_> = u
                                     .peers
-                                    .get(&id)
-                                    .map(|p| p.peer.name.clone())
-                                    .unwrap_or_else(|| "Player".to_string());
-                                u.broadcast_events(&json!({
-                                    "type": "chat",
-                                    "sender": sender,
-                                    "text": text,
-                                    "team": false,
-                                }));
-                                u.send_events(
-                                    &id,
-                                    &json!({
-                                        "type": "reply",
-                                        "id": call_id,
-                                        "ok": true,
-                                    }),
-                                );
+                                    .iter()
+                                    .filter(|(peer, state)| {
+                                        state.session.started && (!team || w.player_team(peer) == Some(sender_team))
+                                    })
+                                    .map(|(peer, _)| peer.clone())
+                                    .collect();
+                                let message = json!({"type":"chat", "sender":sender, "text":text, "team":team});
+                                for peer in recipients {
+                                    u.send_events(&peer, &message);
+                                }
                             }
                             WorldPeerEvent::EdgeAck { id, message } => {
                                 w.handle_edge_ack(&id, &message, now_ms);

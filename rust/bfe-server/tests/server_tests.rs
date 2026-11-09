@@ -3547,6 +3547,7 @@ fn native_reliable_team_switch_publishes_and_spawns_the_other_side() {
     let welcome = host
         .add_player("human", "Human", false, false, true)
         .unwrap();
+    assert_eq!(host.player_team("human"), Some(f64::from(welcome.team)));
     let team = 3 - welcome.team;
     let class_name = if team == 1 {
         "cis_inf_battledroid"
@@ -3596,6 +3597,7 @@ fn native_reliable_team_switch_publishes_and_spawns_the_other_side() {
             );
         }
     }
+    assert_eq!(host.player_team("human"), Some(f64::from(team)));
     let units = bfe_sim::host::unit_rows(&host.context).unwrap();
     assert!(
         units
