@@ -68,7 +68,17 @@ impl Publication {
             if !active {
                 let bound=controller_object.and_then(|controller|state.controllers.read(&state.entities,controller))
                     .is_some_and(|controller|controller.unit==state.entities.find(Entity::Control(reference)));
-                if !bound {
+                // SeatLease.controllable still owns the SeatUnit when its
+                // alive getter is false: boarding has not committed Unit.seat
+                // yet, or death/promotion is between synchronous callbacks.
+                // UnitController.unbind clears no lease ownership.
+                // VehicleAI.leaseOf/currentControllable must still be able to
+                // read the same object and apply their own liveness checks.
+                let lease_owns_control = store
+                    .seat_lease
+                    .get(birth.lease)
+                    .is_some_and(|lease| !lease.released && lease.controllable == Some(reference));
+                if !bound && !lease_owns_control {
                     state.controls.retire(reference);state.turrets.retire_control(reference);
                     state.births.retire(seats,&mut state.entities,reference);
                 }

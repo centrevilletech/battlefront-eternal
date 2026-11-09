@@ -186,3 +186,156 @@ fn released_mount_lease_does_not_resolve_a_retired_control() {
     COUNTING.with(|active| active.set(false));
     assert_eq!(ALLOCATIONS.with(Cell::get), 0);
 }
+
+#[test]
+fn unreleased_lease_owns_an_inactive_control_until_release_or_replacement() {
+    use crate::ai::owned::{
+        seats::Occupant,
+        state::{Capacity, State},
+    };
+    use crate::gen::*;
+    // SeatUnit.alive can be false before boarding commits Unit.seat, during
+    // holder/rider death, or while promotion changes the index. The browser's
+    // SeatLease still owns its controllable across each synchronous boundary.
+    for transition in 0..4 {
+        let mut world = super::empty_world();
+        let mut state = State::new(
+            crate::ai::nav::Nav::empty(Default::default()),
+            false,
+            Capacity {
+                registry: 8,
+                characters: 1,
+                posts: 0,
+                hulls: 1,
+                buildings: 0,
+                controls: 2,
+                scopes: 2,
+                cameras: 0,
+            },
+        );
+        let rider = world.sim.store.unit.insert(Unit {
+            alive: true,
+            generation: 1.,
+            ..Default::default()
+        });
+        let hull = world.sim.store.vehicle.insert(Vehicle {
+            alive: true,
+            target_generation: 1.,
+            seats: vec![Default::default(), Default::default()],
+            ..Default::default()
+        });
+        let lease = world.sim.store.seat_lease.insert(SeatLease {
+            unit: Some(rider),
+            generation: 1.,
+            vehicle: Some(hull),
+            ..Default::default()
+        });
+        world.sim.store.vehicle.get_mut(hull).unwrap().seats[0].lease = Some(lease);
+        world.sim.store.unit.get_mut(rider).unwrap().seat = Some(lease);
+        state.entities.register(Entity::Unit(rider));
+        state.entities.register(Entity::Hull(hull));
+        let control = state
+            .births
+            .construct(
+                &world.sim.store,
+                world.fleet.seats_owner(),
+                &mut state.entities,
+                lease,
+                None,
+            )
+            .unwrap();
+        world
+            .sim
+            .store
+            .seat_lease
+            .get_mut(lease)
+            .unwrap()
+            .controllable = Some(control);
+        assert!(state.controls.register(
+            &world.sim.store,
+            &mut state.entities,
+            control,
+            lease,
+            AiLifeHandle {
+                kind: KIND_VEHICLE.into(),
+                slot: hull.slot,
+                generation: hull.gen,
+                life: 1.
+            },
+            5.,
+            Default::default(),
+            "craft".into(),
+            None,
+            Occupant {
+                id: rider.slot as f64,
+                hero: false
+            }
+        ));
+        let identity = state.entities.find(Entity::Control(control)).unwrap();
+        match transition {
+            0 => world.sim.store.unit.get_mut(rider).unwrap().seat = None,
+            1 => world.sim.store.vehicle.get_mut(hull).unwrap().alive = false,
+            2 => world.sim.store.unit.get_mut(rider).unwrap().alive = false,
+            _ => world.sim.store.seat_lease.get_mut(lease).unwrap().index = 1.,
+        }
+        let mut publication = std::mem::take(&mut state.control_views);
+        // Warm publication before counting; repeated observation must neither
+        // allocate nor resurrect a control under a different qualified token.
+        publication.publish(
+            &mut state,
+            &world.sim.store,
+            world.fleet.seats_owner(),
+            &crate::battle::f4::live_ref(&world.battle).buildings,
+        );
+        ALLOCATIONS.with(|count| count.set(0));
+        COUNTING.with(|active| active.set(true));
+        for _ in 0..120 {
+            publication.publish(
+                &mut state,
+                &world.sim.store,
+                world.fleet.seats_owner(),
+                &crate::battle::f4::live_ref(&world.battle).buildings,
+            );
+            assert_eq!(
+                state.entities.find(Entity::Control(control)),
+                Some(identity),
+                "transition {transition}"
+            );
+            assert_eq!(
+                state
+                    .mounts
+                    .lease(&world.sim.store, &state.entities, lease)
+                    .unwrap()
+                    .controllable,
+                Some(identity)
+            );
+            assert!(!state
+                .controls
+                .unit(&world.sim.store, &state.entities, control)
+                .is_some_and(|view| view.alive));
+        }
+        COUNTING.with(|active| active.set(false));
+        assert_eq!(ALLOCATIONS.with(Cell::get), 0);
+        // Release or replacement removes the lease's ownership. With no Core
+        // binding, the old pool entry can then retire and reuse its storage.
+        if transition % 2 == 0 {
+            world.sim.store.seat_lease.get_mut(lease).unwrap().released = true;
+        } else {
+            world
+                .sim
+                .store
+                .seat_lease
+                .get_mut(lease)
+                .unwrap()
+                .controllable = None;
+        }
+        publication.publish(
+            &mut state,
+            &world.sim.store,
+            world.fleet.seats_owner(),
+            &crate::battle::f4::live_ref(&world.battle).buildings,
+        );
+        assert!(state.entities.find(Entity::Control(control)).is_none());
+        assert!(state.births.read(control).is_none());
+    }
+}
