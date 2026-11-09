@@ -1344,8 +1344,13 @@ impl ShellHost {
         }
         if screen == ScreenId::InstantAction {
             if let Some((left, row)) = bfe_shell::render::hit_ia_list(&self.app, w, h, x_px, y_px) {
-                if left { self.app.ia_focus = IaFocus::Available; self.app.ia_available_selected = row; }
-                else { self.app.ia_focus = IaFocus::Selected; self.app.ia_selected_cursor = row; }
+                if left {
+                    self.app.ia_focus = IaFocus::Available;
+                    self.app.ia_available_selected = row;
+                } else {
+                    self.app.ia_focus = IaFocus::Selected;
+                    self.app.ia_selected_cursor = row;
+                }
             }
             if iy >= 690.0 {
                 if ix < 260.0 {
@@ -1435,7 +1440,8 @@ impl ShellHost {
         } else if self.app.current_screen() != ScreenId::Gate
             && iy < 690.0
             && self.app.current_screen() != ScreenId::InstantAction
-            && bfe_shell::render::hit_player_menu(&self.app, &self.fonts, w, h, x_px, y_px).is_none()
+            && bfe_shell::render::hit_player_menu(&self.app, &self.fonts, w, h, x_px, y_px)
+                .is_none()
         {
             return None;
         }
