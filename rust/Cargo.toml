@@ -1,6 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["bfe-video", "bfe-transport", "bfe-online", "bfe-shell", "bfe-render", "bfe-presentation", "bfe-pose", "bfe-client", "bfe-content-native", "bfe-battle-ui", "sim", "sim-replay", "content", "v8math", "jsrt", "three", "audio", "audio-decode", "basis-transcode", "texture-codec", "image-codec", "bfe-environment", "audio-control", "bfe-desktop", "xtask", "bfe-interface", "bfe-server"]
+members = ["bfe-ui", "bfe-video", "bfe-transport", "bfe-online", "bfe-shell", "bfe-render", "bfe-presentation", "bfe-pose", "bfe-client", "bfe-content-native", "bfe-battle-ui", "sim", "sim-replay", "content", "v8math", "jsrt", "three", "audio", "audio-decode", "basis-transcode", "texture-codec", "image-codec", "bfe-environment", "audio-control", "bfe-desktop", "xtask", "bfe-interface", "bfe-server"]
+
+[workspace.dependencies]
+# Slint is used under its GPL-3.0-only option. Keep compiler and runtime in
+# lockstep; only the Winit/FemtoVG desktop backend is admitted here.
+slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-femtovg"] }
+slint-build = "=1.18.1"
+i-slint-core = { version = "=1.18.1", default-features = false }
 
 [profile.release]
 opt-level = 3
@@ -12,7 +19,3 @@ codegen-units = 1
 # in one output file).
 debug = false
 
-[workspace.dependencies]
-slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-femtovg"] }
-slint-build = "=1.18.1"
-i-slint-core = { version = "=1.18.1", default-features = false }

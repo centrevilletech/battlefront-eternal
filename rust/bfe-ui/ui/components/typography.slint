@@ -1,0 +1,123 @@
+import { Theme } from "../theme.slint";
+import { Surface, ChamferStyle } from "surface.slint";
+
+export enum TextRole { heading, label, note, popup, prompt, corner }
+export component PageText inherits Text {
+    in property <TextRole> role: TextRole.label;
+    font-family: Theme.font-family;
+    font-size: root.role == TextRole.heading ? Theme.heading-font-size
+        : root.role == TextRole.note ? Theme.note-font-size
+        : root.role == TextRole.popup ? Theme.popup-font-size
+        : root.role == TextRole.prompt ? Theme.prompt-font-size
+        : root.role == TextRole.corner ? 12px : Theme.label-font-size;
+    font-weight: root.role == TextRole.heading ? 800 : root.role == TextRole.corner ? 600 : 700;
+    letter-spacing: self.font-size * (root.role == TextRole.heading ? 0.22 : root.role == TextRole.note ? 0.12
+        : root.role == TextRole.popup ? 0.06 : root.role == TextRole.prompt ? 0.32 : root.role == TextRole.corner ? 0.08 : 0.2);
+    color: root.role == TextRole.heading ? Theme.bfe-accent : root.role == TextRole.note ? Theme.bfe-note
+        : root.role == TextRole.corner ? Theme.bfe-text-faint : root.role == TextRole.label ? Theme.bfe-text-dim : Theme.bfe-text;
+    vertical-alignment: center;
+    wrap: root.role == TextRole.popup ? word-wrap : no-wrap;
+    horizontal-alignment: root.role == TextRole.note || root.role == TextRole.popup || root.role == TextRole.prompt ? center : left;
+}
+
+// Titles have one shape policy per look. Their actual strings stay with the
+// screen models; no component replaces or abbreviates a menu caption.
+export component PageTitle inherits Rectangle {
+    in property <string> title;
+    property <length> size: Theme.title-font-size * (Theme.bf1 ? 0.78 : Theme.bf2 ? 0.74 : 1);
+    preferred-width: title-text.preferred-width + (Theme.bf1 ? 2.6 : Theme.bf2 ? 2.4 : 0) * root.size;
+    width: self.preferred-width;
+    preferred-height: root.size * (Theme.bf1 ? 1.4 : Theme.bf2 ? 1.5 : 1.3);
+    height: self.preferred-height;
+    Surface {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        visible: !Theme.eternal;
+        bottom-cut: false;
+        fill: Theme.bf1 ? Theme.bfe-tag-fill : Theme.bfe-tab-active-bg;
+        edge: {width:Theme.bf2 ? 2px : 0px,color:#2b0703};
+        radius: Theme.bf2 ? root.size * 0.45 : 0px;
+        chamfer: Theme.bf1 ? root.size : 0px;
+        chamfer-style: ChamferStyle.top-right;
+    }
+    title-text := Text {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        text: root.title.to-uppercase();
+        font-family: Theme.font-family;
+        font-size: root.size;
+        font-weight: 800;
+        letter-spacing: 0.06 * self.font-size;
+        color: Theme.bf1 ? #13204a : white;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        stroke: Theme.bf2 ? #111 : transparent;
+        stroke-width: Theme.bf2 ? 1px : 0px;
+        stroke-style: outside;
+    }
+    if Theme.eternal: Rectangle {
+        x: 0px;
+        y: root.height - 3px;
+        width: root.width;
+        height: 3px;
+        background: @linear-gradient(90deg, transparent, #ff9a1f 25%, #ff9a1f 75%, transparent);
+    }
+}
+
+// The bundled 900 face supplies the expanded wordmark. Depth layers retain
+// the browser's ordered colour steps; the amber/red tag is a separate shape.
+export component Wordmark inherits Rectangle {
+    in property <length> size: min(104px, min(5.5 * Theme.vw, 10 * Theme.vh));
+    preferred-width: word.preferred-width;
+    width: self.preferred-width;
+    preferred-height: root.size * 1.35;
+    height: self.preferred-height;
+    for shadow in Theme.bfe-logo-depth: Text {
+        x: shadow.x; y: shadow.y;
+        width: root.width;
+        height: root.size;
+        text: "BATTLEFRONT";
+        font-family: Theme.font-family;
+        font-size: root.size;
+        font-weight: 900;
+        letter-spacing: -0.01 * root.size;
+        color: shadow.color;
+        visible: shadow.blur == 0px;
+    }
+    word := Text {
+        y: 0px;
+        width: root.width;
+        height: root.size;
+        text: "BATTLEFRONT";
+        font-family: Theme.font-family;
+        font-size: root.size;
+        font-weight: 900;
+        letter-spacing: -0.01 * root.size;
+        color: Theme.bfe-logo-fill;
+    }
+    tag := Surface {
+        x: root.width - self.width - root.size * 0.1;
+        y: root.size * 0.84 + root.size * 0.25 * 0.42;
+        width: tag-text.preferred-width + root.size * 0.25 * 3.3;
+        height: root.size * 0.25 * 1.56;
+        fill: Theme.bfe-tag-fill;
+        edge: {width:0px,color:transparent};
+        radius: 0px;
+        chamfer: root.size * 0.25 * 1.5;
+        chamfer-style: ChamferStyle.top-right;
+        tag-text := Text {
+            x: root.size * 0.25 * 0.9;
+            width: parent.width - root.size * 0.25 * 3.3;
+            height: parent.height;
+            text: "ETERNAL";
+            font-family: Theme.font-family;
+            font-size: root.size * 0.25;
+            font-weight: 800;
+            letter-spacing: root.size * 0.25 * 0.5;
+            color: Theme.bfe-tag-ink;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component PageBrand inherits Wordmark {
+    size: min(32px, min(1.7 * Theme.vw, 3.2 * Theme.vh));
+}

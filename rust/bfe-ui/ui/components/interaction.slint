@@ -1,0 +1,76 @@
+import { Theme, MenuSound, ControlState } from "../theme.slint";
+
+// Screen.setFocus gives pointer and keyboard moves the same selection sound.
+// FocusScope keeps keyboard traversal and focus-visible in the shared control,
+// while TouchArea owns pointer capture, cancellation and the OS cursor.
+export component Interaction inherits FocusScope {
+    in property <bool> disabled: false;
+    in property <bool> interactive: true;
+    in property <MouseCursor> cursor: pointer;
+    in property <MenuSound> accept-sound: MenuSound.accept;
+    in property <ControlState> visual-state: root.disabled ? ControlState.disabled : !root.interactive ? ControlState.idle
+        : root.pressed ? ControlState.pressed : root.has-focus ? (root.keyboard-focus ? ControlState.focused : ControlState.hover)
+        : hit-area.has-hover ? ControlState.hover : ControlState.idle;
+    out property <bool> hovered: hit-area.has-hover && !root.disabled;
+    out property <bool> pressed: (hit-area.pressed || root.key-held) && !root.disabled;
+    out property <bool> focus-visible: root.has-focus && root.keyboard-focus;
+    out property <bool> active: root.visual-state == ControlState.hover
+        || root.visual-state == ControlState.pressed || root.visual-state == ControlState.focused;
+    property <bool> key-held: false;
+    property <bool> keyboard-focus: false;
+    callback activated();
+    callback selected();
+    callback stepped(int);
+    callback pointer-down(length, length);
+    callback pointer-moved(length, length);
+    focus-on-click: false;
+    focus-on-tab-navigation: !root.disabled && root.interactive;
+    focus-gained(reason) => {
+        root.keyboard-focus = true;
+        if (!root.disabled && root.interactive) { root.selected(); Theme.sound-requested(MenuSound.select); }
+    }
+    focus-lost(reason) => { root.key-held = false; }
+    key-pressed(event) => {
+        if (root.disabled || !root.interactive) { return reject; }
+        root.keyboard-focus = true;
+        if (event.text == Key.Return || event.text == " ") {
+            root.key-held = true;
+            return accept;
+        }
+        if (event.text == Key.LeftArrow || event.text == Key.RightArrow) {
+            root.stepped(event.text == Key.LeftArrow ? -1 : 1);
+            return accept;
+        }
+        return reject;
+    }
+    key-released(event) => {
+        if (root.key-held && (event.text == Key.Return || event.text == " ")) {
+            root.key-held = false;
+            if (!root.disabled && root.interactive) { root.activated(); Theme.sound-requested(root.accept-sound); }
+            return accept;
+        }
+        return reject;
+    }
+    hit-area := TouchArea {
+        mouse-cursor: root.disabled || !root.interactive ? default : root.cursor;
+        changed has-hover => {
+            if (self.has-hover && !root.disabled && root.interactive) {
+                root.focus();
+                root.keyboard-focus = false;
+            }
+        }
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down && !root.disabled && root.interactive) {
+                root.focus();
+                root.keyboard-focus = false;
+                root.pointer-down(self.mouse-x, self.mouse-y);
+            }
+        }
+        moved => { if (!root.disabled && root.interactive) { root.pointer-moved(self.mouse-x, self.mouse-y); } }
+        clicked => {
+            if (root.disabled) { Theme.sound-requested(MenuSound.error); }
+            else if (root.interactive) { root.activated(); Theme.sound-requested(root.accept-sound); }
+        }
+    }
+    @children
+}

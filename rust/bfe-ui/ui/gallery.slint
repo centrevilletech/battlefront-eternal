@@ -1,0 +1,221 @@
+import { Theme, ControlState, MenuSound } from "theme.slint";
+import { PageButton, ButtonVariant } from "components/button.slint";
+import { PageTab, TabStrip } from "components/tab.slint";
+import { PageList, PageListRow, ListEntry } from "components/list.slint";
+import { OptionRow, PageToggle, OptionKind } from "components/option-row.slint";
+import { PageSlider } from "components/slider.slint";
+import { InputField, SelectField } from "components/field.slint";
+import { PageText, PageTitle, Wordmark, PageBrand, TextRole } from "components/typography.slint";
+import { PopupBox, PageDialog } from "components/dialog.slint";
+import { BackdropMovies, PreviewFrame } from "components/media.slint";
+import { PageScrim, PageDim, PagePattern } from "components/scrim.slint";
+import { ScreenFrame, ScreenLayout } from "components/screen-frame.slint";
+import { Surface } from "components/surface.slint";
+export { Theme, MenuSound, ControlState, Pattern, MovieFilter } from "theme.slint";
+export { ListEntry } from "components/list.slint";
+
+component Caption inherits PageText {
+    role: TextRole.corner;
+    color: Theme.bfe-text-dim;
+    letter-spacing: 1px;
+}
+
+// Fixed state samples and live controls use the same component definitions.
+// The gallery has no content dependency and never starts a game simulation.
+
+export component ComponentGallery inherits Window {
+    title: "Battlefront Eternal Component Gallery";
+    no-frame: true;
+    width: 1280px;
+    height: 720px;
+    background: Theme.bfe-backdrop;
+    in-out property <int> section: 0;
+    in-out property <image> movie-frame;
+    in-out property <string> status: "";
+    property <[ControlState]> states: [ControlState.idle, ControlState.hover, ControlState.pressed, ControlState.focused, ControlState.disabled];
+    property <[string]> state-labels: ["IDLE", "HOVER", "PRESSED", "FOCUS-VISIBLE", "DISABLED"];
+    property <length> cell-width: (root.width - 76px - 4 * 16px) / 5;
+    changed width => { Theme.viewport-width = root.width; }
+    changed height => { Theme.viewport-height = root.height; }
+    Rectangle {
+        x: 0px; y: 0px; width: root.width;
+        height: 84px;
+        background: rgba(0,0,0,0.45);
+        HorizontalLayout {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            padding-left: 20px; padding-right: 20px; padding-top: 14px; padding-bottom: 14px;
+            spacing: 12px;
+            for title[index] in ["SINGLEPLAYER", "OPTIONS", "PROFILE MANAGEMENT", "INSTANT ACTION"]: PageTab {
+                label: title;
+                selected-tab: root.section == index;
+                activated => { root.section = index; }
+            }
+            SelectField {
+                width: 210px;
+                choices: ["Battlefront (2004)", "Battlefront II (2005)", "Eternal"];
+                current-index: Theme.bf1 ? 0 : Theme.bf2 ? 1 : 2;
+                selection-changed(index) => { Theme.menu-theme = index == 0 ? "bf1" : index == 1 ? "bf2" : "eternal"; }
+            }
+        }
+    }
+    if root.section == 0: Rectangle {
+        x: 0px; y: 98px; width: root.width; height: root.height - self.y - 36px;
+        for state[index] in root.states: Rectangle {
+            x: 38px + index * (root.cell-width + 16px);
+            y: 0px;
+            width: root.cell-width;
+            height: parent.height;
+            Caption { x: 0px; y: 0px; width: parent.width; height: 24px; text: root.state-labels[index]; }
+            PageButton { x: 0px; y: 32px; width: parent.width; label: "OPTIONS"; visual-state: state; disabled: state == ControlState.disabled; }
+            PageButton { x: 0px; y: 106px; width: parent.width; label: "BACK"; variant: ButtonVariant.small; visual-state: state; disabled: state == ControlState.disabled; }
+            PageButton { x: 0px; y: 158px; width: parent.width; label: "CANCEL"; variant: ButtonVariant.dialog; visual-state: state; disabled: state == ControlState.disabled; }
+            PageButton { x: 0px; y: 218px; width: parent.width; label: "SAVE"; variant: ButtonVariant.accept; visual-state: state; disabled: state == ControlState.disabled; }
+            PageTab { x: 0px; y: 278px; width: parent.width; label: "INFANTRY"; selected-tab: true; visual-state: state; disabled: state == ControlState.disabled; }
+            PageListRow { x: 0px; y: 338px; width: parent.width; cells: ["BESPIN: PLATFORMS"]; selected-row: true; visual-state: state; disabled: state == ControlState.disabled; }
+            PageSlider { x: 0px; y: 392px; width: parent.width; value: 0.8; visual-state: state; disabled: state == ControlState.disabled; }
+            SelectField { x: 0px; y: 442px; width: parent.width; choices: ["Battlefront (2004)", "Battlefront II (2005)", "Eternal"]; visual-state: state; disabled: state == ControlState.disabled; }
+            InputField { x: 0px; y: 498px; width: parent.width; text: "PLAYER 1"; visual-state: state; disabled: state == ControlState.disabled; }
+        }
+    }
+    if root.section == 1: Rectangle {
+        x: 0px; y: 98px; width: root.width; height: root.height - self.y - 32px;
+        Surface {
+            x: 38px; y: 0px; width: root.width - 76px;
+            height: 5 * Theme.option-height + 28px;
+            VerticalLayout {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                padding: 14px; spacing: 0px;
+                for state[index] in root.states: OptionRow {
+                    label: "FRIENDLY FIRE"; value-text: "ON";
+                    visual-state: state; disabled: state == ControlState.disabled;
+                }
+            }
+        }
+        Surface {
+            x: 38px; y: 224px; width: (root.width - 100px) / 2; height: 296px;
+            VerticalLayout {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                padding: 12px; spacing: 0px;
+                OptionRow { label: "MASTER VOLUME"; kind: OptionKind.slider; value-text: "80%"; fraction: 0.8; }
+                OptionRow { label: "SIMULATION RATE"; kind: OptionKind.fixed; value-text: "60 HZ"; }
+                OptionRow { label: "INVERT Y AXIS"; kind: OptionKind.choice; value-text: "NO"; }
+                OptionRow { label: ""; kind: OptionKind.action; value-text: "RESET TO DEFAULTS"; visual-state: ControlState.hover; }
+                HorizontalLayout {
+                    padding-top: 8px; padding-left: 14px; spacing: 24px;
+                    PageToggle { label: "HIDE FULL"; checked: true; }
+                    PageToggle { label: "HIDE EMPTY"; checked: false; }
+                }
+                PageText { role: TextRole.note; text: "THE BATTLE ALWAYS RUNS AT 60 HZ"; }
+            }
+        }
+        TabStrip {
+            x: (root.width + 24px) / 2; y: 224px; width: (root.width - 100px) / 2;
+            PageTab { label: "INFANTRY"; selected-tab: true; }
+            PageTab { label: "VEHICLE"; selected-tab: false; }
+            PageTab { label: "STARFIGHTER"; selected-tab: false; }
+        }
+        PageList {
+            x: (root.width + 24px) / 2; y: 280px;
+            width: (root.width - 100px) / 2; height: 240px;
+            columns: [1, 1]; selected-index: 0;
+            entries: [
+                {cells:["PRIMARY FIRE:","MOUSE BUTTON 1"],badge:"",disabled:false},
+                {cells:["GRENADE / SECONDARY FIRE:","MOUSE BUTTON 2, ALT"],badge:"",disabled:false},
+                {cells:["SECONDARY NEXT:","G"],badge:"",disabled:false},
+                {cells:["JUMP:","SPACE"],badge:"",disabled:false}
+            ];
+        }
+        PageButton {
+            x: 38px; y: 536px; width: 368px; label: "OPTIONS";
+            activated => { root.status = "OPTIONS"; }
+        }
+        Caption { x: 430px; y: 536px; width: 400px; height: 40px; text: root.status; }
+    }
+    if root.section == 2: Rectangle {
+        x: 0px; y: 98px; width: root.width; height: root.height - self.y - 32px;
+        for state[index] in root.states: InputField {
+            x: 38px + index * (root.cell-width + 16px); y: 0px; width: root.cell-width;
+            text: "PLAYER 1"; visual-state: state; disabled: state == ControlState.disabled;
+        }
+        PageDialog {
+            x: 38px; y: 76px; width: 589px; height: 197px;
+            title: "PROFILE";
+            message: "Player name ";
+            accept-label: "SAVE";
+            cancel-label: "CANCEL";
+            InputField { width: 217px; height: 43px; text: "PLAYER 1"; }
+            accepted => { root.status = "SAVE"; }
+            cancelled => { root.status = "CANCEL"; }
+        }
+        PopupBox {
+            x: root.width - 518px; y: 76px; width: 480px; height: 140px;
+            message: "EXIT TO WINDOWS?"; accept-label: "YES"; cancel-label: "NO";
+            accepted => { root.status = "YES"; }
+            cancelled => { root.status = "NO"; }
+        }
+        PageButton {
+            x: 38px; y: 310px; width: 368px; label: "PLAYER 1"; disabled: true;
+        }
+        PageButton {
+            x: 38px; y: 360px; width: 368px; label: "CREATE PROFILE"; highlighted: true;
+            activated => { root.status = "CREATE PROFILE"; }
+        }
+        PageButton {
+            x: 38px; y: 410px; width: 368px; label: "DELETE PROFILE";
+            activated => { root.status = "DELETE PROFILE"; }
+        }
+        Caption { x: 38px; y: 496px; width: 400px; height: 24px; text: root.status; }
+    }
+    if root.section == 3: Rectangle {
+        x: 0px; y: 84px; width: root.width; height: root.height - self.y;
+        BackdropMovies { x: 0px; y: 0px; width: parent.width; height: parent.height; current-frame: root.movie-frame; }
+        PagePattern { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+        PageScrim { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+        ScreenFrame {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            title: "INSTANT ACTION"; layout: ScreenLayout.wide;
+            left-label: "BACK";
+            middle-label: "PLAY IN ORDER";
+            right-label: "LAUNCH";
+            PageList {
+                x: 0px; y: 0px; width: 340px; height: 320px;
+                columns: [1]; selected-index: 0;
+                entries: [
+                    {cells:["BESPIN: PLATFORMS"],badge:"",disabled:false},
+                    {cells:["BESPIN: CLOUD CITY"],badge:"",disabled:false},
+                    {cells:["ENDOR: BUNKER"],badge:"",disabled:false},
+                    {cells:["HOTH: ECHO BASE"],badge:"",disabled:false},
+                    {cells:["KAMINO: TIPOCA CITY"],badge:"",disabled:false}
+                ];
+            }
+            PreviewFrame {
+                x: (parent.width - self.width) / 2;
+                y: 0px;
+                width: 360px;
+                movie-frame: root.movie-frame;
+                caption: "BESPIN: PLATFORMS";
+            }
+            HorizontalLayout {
+                x: (parent.width - 300px) / 2;
+                y: 286px;
+                width: 300px;
+                height: 34px;
+                spacing: 16px;
+                alignment: center;
+                PageButton { label: "ADD"; variant: ButtonVariant.small; }
+                PageButton { label: "REMOVE"; variant: ButtonVariant.small; }
+            }
+            PageList {
+                x: parent.width - 340px; y: 0px; width: 340px; height: 320px;
+                columns: [2, 1]; selected-index: 0;
+                entries: [
+                    {cells:["BESPIN: PLATFORMS","CONQUEST"],badge:"CW",disabled:false},
+                    {cells:["HOTH: ECHO BASE","CONQUEST"],badge:"GCW",disabled:false}
+                ];
+            }
+        }
+        Wordmark { x: 38px; y: 470px; size: 34px; }
+        PageText { x: 38px; y: 530px; width: root.width - 76px; height: 28px; role: TextRole.prompt; text: "PRESS ANY KEY OR CLICK TO BEGIN"; }
+        PageDim { x: 0px; y: 0px; width: parent.width; height: parent.height; dimmed: false; }
+    }
+}

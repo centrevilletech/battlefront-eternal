@@ -1,0 +1,37 @@
+import { Theme } from "../theme.slint";
+
+// Scrim, grid and dim are independent so a renderer can place a current
+// blurred game/movie underlay behind them without baking UI into the image.
+export component PageScrim inherits Rectangle {
+    in property <bool> overlay: false;
+    background: root.overlay ? Theme.bfe-overlay : transparent;
+    Rectangle { x: 0px; y: 0px; width: parent.width; height: parent.height; background: Theme.bfe-scrim; }
+}
+export component PageDim inherits Rectangle {
+    in property <bool> dimmed: false;
+    background: Theme.bfe-dim;
+    opacity: root.dimmed ? 1 : 0;
+    animate opacity { duration: Theme.dim-duration; }
+}
+export component PagePattern inherits Rectangle {
+    opacity: Theme.bfe-pattern-opacity;
+    clip: true;
+    property <length> major: max(1px, Theme.bfe-pattern.major);
+    property <length> minor: max(1px, Theme.bfe-pattern.minor);
+    if Theme.bfe-pattern.major > 0px: Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        for index in ceil(root.width / root.major): Rectangle { x: index * root.major; y: 0px; width: 1px; height: parent.height; background: Theme.bfe-pattern.major-color; }
+        for index in ceil(root.height / root.major): Rectangle { x: 0px; y: index * root.major; width: parent.width; height: 1px; background: Theme.bfe-pattern.major-color; }
+    }
+    if Theme.bfe-pattern.minor > 0px: Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        if !Theme.bfe-pattern.scanlines: Rectangle {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            for index in ceil(root.width / root.minor): Rectangle { x: index * root.minor; y: 0px; width: 1px; height: parent.height; background: Theme.bfe-pattern.minor-color; }
+        }
+        for index in ceil(root.height / root.minor): Rectangle {
+            x: 0px; y: index * root.minor; width: parent.width; height: 1px;
+            background: Theme.bfe-pattern.scanlines ? Theme.bfe-pattern.major-color : Theme.bfe-pattern.minor-color;
+        }
+    }
+}

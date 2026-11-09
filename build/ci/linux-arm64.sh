@@ -41,6 +41,7 @@ base_test_crates=(
 )
 
 wave_crates=(
+  bfe-ui
   bfe-interface
   bfe-shell
   bfe-video

@@ -1,0 +1,51 @@
+import { Theme, ControlState, MenuSound } from "../theme.slint";
+import { Interaction } from "interaction.slint";
+
+// Slider capture stays in TouchArea through a drag outside its bounds. Both
+// pointer and arrow changes publish a fraction; the model owns the setting.
+export component PageSlider inherits Interaction {
+    in-out property <float> value: 0.5;
+    in property <float> step: 0.05;
+    callback value-changed(float);
+    cursor: ew-resize;
+    min-width: 110px;
+    preferred-width: 220px;
+    preferred-height: 32px;
+    height: self.preferred-height;
+    opacity: root.visual-state == ControlState.disabled ? Theme.option-disabled-opacity : 1;
+    public function set-fraction(fraction: float) {
+        if (!root.disabled) {
+            root.value = min(1, max(0, fraction));
+            root.value-changed(root.value);
+        }
+    }
+    pointer-down(x, y) => { root.set-fraction(x / root.width); }
+    pointer-moved(x, y) => { if (root.pressed) { root.set-fraction(x / root.width); } }
+    stepped(delta) => { root.set-fraction(root.value + delta * root.step); Theme.sound-requested(MenuSound.accept); }
+    Rectangle {
+        x: 0px; width: parent.width;
+        y: (parent.height - Theme.slider-height) / 2;
+        height: Theme.slider-height;
+        background: Theme.bfe-track;
+        border-radius: Theme.bfe-track-radius;
+        Rectangle {
+            x: 0px; y: 0px; height: parent.height;
+            width: parent.width * root.value;
+            background: Theme.bfe-accent-fill;
+            border-radius: Theme.bfe-track-radius;
+        }
+    }
+    Rectangle {
+        x: root.width * root.value - self.width / 2;
+        y: (parent.height - self.height) / 2;
+        width: Theme.slider-thumb-width;
+        height: Theme.slider-thumb-height;
+        background: Theme.bfe-thumb;
+        border-width: Theme.bfe-thumb-border.width;
+        border-color: Theme.bfe-thumb-border.color;
+        border-radius: Theme.bfe-thumb-radius;
+        drop-shadow-offset-y: 1px;
+        drop-shadow-blur: 4px;
+        drop-shadow-color: rgba(0,0,0,0.6);
+    }
+}

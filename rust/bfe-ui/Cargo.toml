@@ -1,0 +1,13 @@
+[package]
+name = "bfe-ui"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "Shared native page theme and Slint components"
+
+[dependencies]
+slint.workspace = true
+
+[build-dependencies]
+slint-build.workspace = true

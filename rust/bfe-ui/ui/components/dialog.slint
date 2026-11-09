@@ -1,0 +1,83 @@
+import { Theme, MenuSound } from "../theme.slint";
+import { Surface } from "surface.slint";
+import { PageButton, ButtonVariant } from "button.slint";
+import { PageText, TextRole } from "typography.slint";
+
+export component PopupBox inherits Surface {
+    in property <string> message;
+    in property <string> accept-label: "OK";
+    in property <string> cancel-label;
+    callback accepted();
+    callback cancelled();
+    preferred-width: min(700px, min(92 * Theme.vw, max(480px, 48 * Theme.vw)));
+    width: self.preferred-width;
+    preferred-height: content.preferred-height + 8 * Theme.vh + Theme.popup-gap + Theme.button-small-height;
+    height: self.preferred-height;
+    VerticalLayout {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        padding-left: 3 * Theme.vw;
+        padding-right: 3 * Theme.vw;
+        padding-top: 4.5 * Theme.vh;
+        padding-bottom: 3.5 * Theme.vh;
+        spacing: Theme.popup-gap;
+        content := PageText { text: root.message; role: TextRole.popup; }
+        HorizontalLayout {
+            alignment: center;
+            spacing: 1.2 * Theme.vw;
+            PageButton { label: root.accept-label; variant: ButtonVariant.small; activated => { root.accepted(); } }
+            if root.cancel-label != "": PageButton {
+                label: root.cancel-label; variant: ButtonVariant.small;
+                highlighted: true;
+                accept-sound: MenuSound.back;
+                activated => { root.cancelled(); }
+            }
+        }
+    }
+}
+
+// Native dialogs share the page look, including fields supplied as children.
+// Their 28/32px padding is intentionally independent of viewport units.
+export component PageDialog inherits Surface {
+    in property <string> title;
+    in property <string> message;
+    in property <string> accept-label: "SAVE";
+    in property <string> cancel-label: "CANCEL";
+    callback accepted();
+    callback cancelled();
+    preferred-width: 589px;
+    width: self.preferred-width;
+    preferred-height: 197px;
+    height: self.preferred-height;
+    fill: Theme.bfe-dialog-bg;
+    chamfer: 0px;
+    VerticalLayout {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        padding-top: 28px; padding-bottom: 28px;
+        padding-left: 32px; padding-right: 32px;
+        spacing: 16px;
+        Text {
+            text: root.title.to-uppercase();
+            font-family: Theme.font-family; font-size: 27px; font-weight: 800;
+            letter-spacing: 0.06 * self.font-size;
+            color: Theme.bfe-text;
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            if root.message != "": Text {
+                text: root.message;
+                font-family: Theme.font-family;
+                font-size: 18px;
+                font-weight: 400;
+                color: Theme.bfe-text;
+                vertical-alignment: center;
+            }
+            @children
+            PageButton { label: root.accept-label; variant: ButtonVariant.accept; activated => { root.accepted(); } }
+            if root.cancel-label != "": PageButton {
+                label: root.cancel-label; variant: ButtonVariant.dialog;
+                accept-sound: MenuSound.back; activated => { root.cancelled(); }
+            }
+        }
+    }
+}

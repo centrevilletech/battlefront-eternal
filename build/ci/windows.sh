@@ -32,6 +32,7 @@ test_crates=(
 )
 
 optional_crates=(
+  bfe-ui
   bfe-interface
   bfe-shell
   bfe-video

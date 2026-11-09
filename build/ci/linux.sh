@@ -37,6 +37,7 @@ strict_clippy_crates=(
 # New crates introduced across the native port lanes. Each is added to both the
 # strict clippy gate and the test matrix as soon as its Cargo.toml lands.
 wave_crates=(
+  bfe-ui
   bfe-interface
   bfe-shell
   bfe-video

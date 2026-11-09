@@ -1,0 +1,55 @@
+import { Theme, ControlState } from "../theme.slint";
+import { Interaction } from "interaction.slint";
+import { Surface } from "surface.slint";
+
+export component PageTab inherits Interaction {
+    in property <string> label;
+    in property <string> badge;
+    in property <bool> selected-tab: false;
+    preferred-height: (1.5625 + 1.5) * Theme.tab-font-size;
+    height: self.preferred-height;
+    preferred-width: text.preferred-width + 3.6 * Theme.tab-font-size;
+    opacity: root.visual-state == ControlState.disabled ? Theme.tab-disabled-opacity : 1;
+    accessible-role: tab;
+    accessible-label: root.label;
+    Surface {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        fill: root.selected-tab ? Theme.bfe-tab-active-bg : Theme.bfe-tab-bg;
+        radius: Theme.bf2 ? 10px : Theme.bf1 ? 3px : 0px;
+        chamfer: Theme.eternal ? 10px : 0px;
+        bottom-cut: false;
+        edge: { width: root.visual-state == ControlState.focused ? 2px : Theme.bf2 ? 2px : 0px,
+            color: root.visual-state == ControlState.focused ? Theme.bfe-accent : #23272d };
+    }
+    text := Text {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        text: Theme.format-label(root.label, !Theme.bf2) + (root.badge == "" ? "" : "  " + root.badge);
+        font-family: Theme.font-family;
+        font-size: Theme.tab-font-size;
+        font-weight: 400;
+        letter-spacing: 0.16 * self.font-size;
+        color: root.selected-tab ? Theme.bfe-tab-active-ink : Theme.bfe-text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+        stroke: Theme.bf2 ? #111 : transparent;
+        stroke-width: Theme.bf2 ? 1px : 0px;
+        stroke-style: outside;
+    }
+}
+
+export component TabStrip inherits Rectangle {
+    preferred-height: 49px;
+    height: self.preferred-height;
+    Rectangle {
+        x: 0px; y: parent.height - 2px;
+        width: parent.width; height: 2px;
+        background: Theme.bfe-tab-line;
+    }
+    HorizontalLayout {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        spacing: 0.5 * Theme.vw;
+        alignment: start;
+        @children
+    }
+}

@@ -1,0 +1,111 @@
+import { Theme, ControlState, MenuSound } from "../theme.slint";
+import { Interaction } from "interaction.slint";
+
+export struct ListEntry { cells: [string], badge: string, disabled: bool }
+// A row retains column weights, end alignment and badges. Selection and
+// keyboard focus remain separate, matching ListView's selected/focused CSS.
+export component PageListRow inherits Interaction {
+    in property <[string]> cells;
+    in property <[float]> columns;
+    in property <string> badge;
+    in property <bool> selected-row: false;
+    in property <bool> end-aligned: false;
+    preferred-height: Theme.list-row-height;
+    height: self.preferred-height;
+    opacity: root.visual-state == ControlState.disabled ? 0.4 : 1;
+    Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        background: root.selected-row && root.visual-state == ControlState.focused ? Theme.bfe-accent-fill
+            : root.selected-row ? Theme.bfe-list-selected : root.active ? Theme.bfe-list-hover : transparent;
+        HorizontalLayout {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            padding-left: 0.9 * Theme.list-font-size;
+            padding-right: 0.9 * Theme.list-font-size;
+            spacing: Theme.list-font-size;
+            for cell[index] in root.cells: Text {
+                min-width: 0px;
+                horizontal-stretch: index < root.columns.length ? root.columns[index] : 1;
+                text: cell.to-uppercase();
+                font-family: Theme.font-family;
+                font-size: Theme.list-font-size;
+                font-weight: 700;
+                letter-spacing: 0.08 * self.font-size;
+                color: root.selected-row && root.visual-state == ControlState.focused ? Theme.bfe-accent-ink : Theme.bfe-text;
+                vertical-alignment: center;
+                horizontal-alignment: root.end-aligned && index == root.cells.length - 1 ? right : left;
+                overflow: elide;
+            }
+            if root.badge != "": Rectangle {
+                width: badge.preferred-width + Theme.list-font-size;
+                height: Theme.list-font-size * 1.1;
+                y: (parent.height - self.height) / 2;
+                border-width: 1px;
+                border-color: Theme.bfe-text;
+                opacity: 0.85;
+                badge := Text {
+                    x: 0px; y: 0px; width: parent.width; height: parent.height;
+                    text: root.badge.to-uppercase();
+                    font-family: Theme.font-family;
+                    font-size: 0.72 * Theme.list-font-size;
+                    letter-spacing: 0.1 * self.font-size;
+                    color: Theme.bfe-text;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}
+
+export component PageList inherits FocusScope {
+    in property <[ListEntry]> entries;
+    in property <[float]> columns;
+    in property <bool> disabled: false;
+    in-out property <int> selected-index: -1;
+    callback chosen(int);
+    focus-on-tab-navigation: !root.disabled;
+    Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        background: Theme.bfe-list-bg;
+        border-width: Theme.bfe-panel-border.width;
+        border-color: Theme.bfe-panel-border.color;
+    }
+    scroll := Flickable {
+        x: 4px; y: 4px;
+        width: parent.width - 8px;
+        height: parent.height - 8px;
+        content-width: self.width;
+        content-height: root.entries.length * Theme.list-row-height;
+        rows := VerticalLayout {
+            x: 0px; y: 0px;
+            width: scroll.width;
+            spacing: 0px;
+            for entry[index] in root.entries: row := PageListRow {
+                cells: entry.cells;
+                columns: root.columns;
+                badge: entry.badge;
+                disabled: entry.disabled || root.disabled;
+                selected-row: index == root.selected-index;
+                visual-state: self.disabled ? ControlState.disabled : root.has-focus && self.selected-row ? ControlState.focused
+                    : self.pressed ? ControlState.pressed : self.hovered ? ControlState.hover : ControlState.idle;
+                activated => { root.selected-index = index; root.focus(); root.chosen(index); }
+            }
+        }
+    }
+    key-pressed(event) => {
+        if (root.disabled) { return reject; }
+        if (event.text == Key.UpArrow || event.text == Key.DownArrow) {
+            if (root.entries.length > 0) {
+                root.selected-index = min(root.entries.length - 1, max(0, root.selected-index + (event.text == Key.UpArrow ? -1 : 1)));
+                Theme.sound-requested(MenuSound.select);
+            }
+            return accept;
+        }
+        if (event.text == Key.Return && root.selected-index >= 0) {
+            if (root.entries[root.selected-index].disabled) { Theme.sound-requested(MenuSound.error); }
+            else { root.chosen(root.selected-index); Theme.sound-requested(MenuSound.accept); }
+            return accept;
+        }
+        return reject;
+    }
+}

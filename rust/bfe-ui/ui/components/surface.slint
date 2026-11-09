@@ -1,0 +1,55 @@
+import { Theme, SurfaceBorder, SurfaceShadow } from "../theme.slint";
+
+// A typed border and chamfer replace CSS clip-path without a per-screen
+// polygon. The same path is used by buttons, options panels and popups.
+export enum ChamferStyle { diagonal, top-right }
+
+export component Surface inherits Rectangle {
+    in property <image> blurred-underlay;
+    in property <brush> fill: Theme.bfe-panel-bg;
+    in property <SurfaceBorder> edge: Theme.bfe-panel-border;
+    in property <length> radius: Theme.bfe-panel-radius;
+    in property <length> chamfer: Theme.bfe-panel-clip;
+    in property <bool> bottom-cut: true;
+    in property <ChamferStyle> chamfer-style: ChamferStyle.diagonal;
+    in property <[SurfaceShadow]> shadows: [];
+    for shadow in root.shadows: Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        background: transparent;
+        border-top-left-radius: min(root.radius, root.height / 2);
+        border-top-right-radius: min(root.radius, root.height / 2);
+        border-bottom-left-radius: root.bottom-cut ? min(root.radius, root.height / 2) : 0px;
+        border-bottom-right-radius: root.bottom-cut ? min(root.radius, root.height / 2) : 0px;
+        drop-shadow-offset-x: shadow.x;
+        drop-shadow-offset-y: shadow.y;
+        drop-shadow-blur: shadow.blur;
+        drop-shadow-color: shadow.inset ? transparent : shadow.color;
+    }
+    Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: root.blurred-underlay; image-fit: cover; }
+    if root.chamfer == 0px: Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        background: root.fill;
+        border-color: root.edge.color;
+        border-width: root.edge.width;
+        border-top-left-radius: min(root.radius, root.height / 2);
+        border-top-right-radius: min(root.radius, root.height / 2);
+        border-bottom-left-radius: root.bottom-cut ? min(root.radius, root.height / 2) : 0px;
+        border-bottom-right-radius: root.bottom-cut ? min(root.radius, root.height / 2) : 0px;
+    }
+    if root.chamfer > 0px: Path {
+        x: 0px; y: 0px;
+        width: parent.width;
+        height: parent.height;
+        fill: root.fill;
+        stroke: root.edge.color;
+        stroke-width: root.edge.width;
+        MoveTo { x: root.chamfer-style == ChamferStyle.top-right ? 0 : root.chamfer / 1px; y: 0; }
+        LineTo { x: (root.width - (root.chamfer-style == ChamferStyle.top-right ? root.chamfer : 0px)) / 1px; y: 0; }
+        LineTo { x: root.width / 1px; y: (root.height - (root.bottom-cut && root.chamfer-style == ChamferStyle.diagonal ? root.chamfer : 0px)) / 1px; }
+        LineTo { x: (root.width - (root.bottom-cut && root.chamfer-style == ChamferStyle.diagonal ? root.chamfer : 0px)) / 1px; y: root.height / 1px; }
+        LineTo { x: 0; y: root.height / 1px; }
+        LineTo { x: 0; y: root.chamfer-style == ChamferStyle.top-right ? 0 : root.chamfer / 1px; }
+        Close {}
+    }
+    @children
+}

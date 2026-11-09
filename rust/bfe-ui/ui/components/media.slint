@@ -1,0 +1,71 @@
+import { Theme } from "../theme.slint";
+
+// Movie pixels come from the renderer's current libvpx frame. These image
+// inputs are also usable by the standalone gallery; no poster asset is used.
+export component MovieLayer inherits Rectangle {
+    in property <image> current-frame;
+    in property <image> previous-frame;
+    in property <float> blend: 1;
+    in property <bool> image-visible: true;
+    clip: true;
+    Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: root.previous-frame; image-fit: cover; visible: root.image-visible; }
+    Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: root.current-frame; image-fit: cover; opacity: root.blend; visible: root.image-visible; }
+}
+
+export component BackdropMovies inherits Rectangle {
+    in property <image> current-frame;
+    in property <image> previous-frame;
+    in property <float> blend: 1;
+    in property <bool> image-visible: true;
+    in property <bool> wide: false;
+    in property <bool> use-underlay: false;
+    background: root.use-underlay ? transparent : Theme.bfe-backdrop;
+    clip: true;
+    // The host applies Theme.bfe-movie-filter and the side masks in the same
+    // GL context before providing a frame or drawing an underlay. Slint owns
+    // placement and crossfade; it never decodes or substitutes a still.
+    MovieLayer {
+        y: 0px; height: parent.height;
+        width: parent.width * 0.56;
+        current-frame: root.current-frame; previous-frame: root.previous-frame;
+        blend: root.blend; image-visible: root.image-visible && !root.use-underlay;
+        x: root.wide ? -0.07 * self.width : 0px;
+    }
+    MovieLayer {
+        y: 0px; height: parent.height;
+        x: parent.width * 0.44 + (root.wide ? 0.07 * self.width : 0px);
+        width: parent.width * 0.56;
+        current-frame: root.current-frame; previous-frame: root.previous-frame;
+        blend: root.blend; image-visible: root.image-visible && !root.use-underlay;
+    }
+}
+
+export component PreviewFrame inherits Rectangle {
+    in property <image> movie-frame;
+    in property <bool> image-visible: true;
+    in property <string> caption;
+    preferred-width: 330px;
+    width: self.preferred-width;
+    preferred-height: root.width / 1.5 + 1.2 * Theme.vh + 1.2 * caption-text.font-size;
+    height: self.preferred-height;
+    Rectangle {
+        x: 0px; y: 0px; width: root.width;
+        height: root.width / 1.5;
+        background: black;
+        border-width: Theme.bfe-preview-border.width;
+        border-color: Theme.bfe-preview-border.color;
+        clip: true;
+        Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: root.movie-frame; image-fit: cover; visible: root.image-visible; }
+    }
+    caption-text := Text {
+        x: 0px; width: root.width;
+        y: root.width / 1.5 + 1.2 * Theme.vh;
+        text: root.caption.to-uppercase();
+        font-family: Theme.font-family;
+        font-size: min(23px, max(14px, 2.2 * Theme.vh));
+        font-weight: 800;
+        letter-spacing: 0.14 * self.font-size;
+        color: Theme.bfe-text;
+        horizontal-alignment: center;
+    }
+}
