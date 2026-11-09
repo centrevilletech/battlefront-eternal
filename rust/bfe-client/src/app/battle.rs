@@ -1562,8 +1562,9 @@ impl BattleController {
                 world.set_suspended(!focused);
                 world.poll_publications(receiver, *now_ms)?;
                 if self.frames == 60 {
-                    eprintln!("local HUD publications: focused={} welcomed={} packets={} corrections={} alive={}",
-                        focused, receiver.welcomed, receiver.packets, receiver.corrections, receiver.own.alive);
+                    eprintln!("local HUD publications: focused={} welcomed={} packets={} corrections={} alive={} active={} visible={}",
+                        focused, receiver.welcomed, receiver.packets, receiver.corrections, receiver.own.alive,
+                        receiver.active().count(), self.scene.online.as_ref().map_or(0, |r| r.visible));
                 }
                 sender.feedback(receiver);
                 receiver.clock.advance(dt).map_err(str::to_string)?;
@@ -1640,6 +1641,12 @@ impl BattleController {
                     return Ok(Some(BattleTransition::LeaveOnline { reason: Some(err) }));
                 }
                 self.scene.online_frame(client, dt);
+                if self.frames == 60 {
+                    eprintln!("online HUD publications: welcomed={} packets={} corrections={} alive={} active={} visible={}",
+                        client.receiver.welcomed, client.receiver.packets, client.receiver.corrections,
+                        client.receiver.own.alive, client.receiver.active().count(),
+                        self.scene.online.as_ref().map_or(0, |r| r.visible));
+                }
                 v
             }
         };
