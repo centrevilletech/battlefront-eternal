@@ -621,10 +621,12 @@ impl WorldThread {
                 })();
                 match build_res {
                     Ok((runtime, info)) => {
+                        eprintln!("native world admission succeeded: player={} welcome queued", info.player_id);
                         let _ = admit_tx.send(Ok(info));
                         run_world_loop(Box::new(runtime), thread_shared);
                     }
                     Err(err) => {
+                        eprintln!("native world admission failed: {err}");
                         let _ = admit_tx.send(Err(err));
                     }
                 }
@@ -779,6 +781,7 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
     let mut accum_look_x = 0.0;
     let mut accum_look_y = 0.0;
     let mut next_seq: f64 = 1.0;
+    let mut spawn_reply_pending = false;
 
     loop {
         if shared.shutdown.load(Ordering::Acquire) {
@@ -833,6 +836,7 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
                         class_name,
                         post_name,
                     } => {
+                        spawn_reply_pending = true;
                         eprintln!("world spawn request: team={team} class={class_name} post={post_name}");
                         if let Err(err) = runtime.spawn_human(team, &class_name, &post_name) {
                             eprintln!("world spawn request refused: {err}");
@@ -934,6 +938,12 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
         );
         match step_res {
             Ok(tick) => {
+                if runtime.ticks == 1 || spawn_reply_pending {
+                    eprintln!("world publication: tick={} welcomed={} corrections={} alive={} generation={}",
+                        tick, runtime.receiver.welcomed, runtime.receiver.corrections,
+                        runtime.receiver.own.alive, runtime.receiver.own.generation);
+                    spawn_reply_pending = false;
+                }
                 shared
                     .latest_tick_bits
                     .store(tick.to_bits(), Ordering::Release);

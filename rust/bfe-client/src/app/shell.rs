@@ -1343,6 +1343,12 @@ impl ShellHost {
             return;
         }
 
+        if matches!(screen, ScreenId::Main | ScreenId::Singleplayer) {
+            if let Some(row) = bfe_shell::render::hit_player_menu(&self.app, &self.fonts, w, h, x_px, y_px) {
+                self.app.set_selected_row_index(screen, row);
+            }
+            return;
+        }
         let rows = self.app.rows_for(screen);
         if rows.is_empty() {
             return;

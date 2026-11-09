@@ -970,6 +970,8 @@ impl BattleController {
         // Drain the initial tick-0 publication so `replicas.hud` has the mission's
         // authoritative command posts, unit classes, and reinforcement counts.
         world.poll_publications(&mut receiver, 0.0)?;
+        eprintln!("local welcome received: welcomed={} packets={} corrections={} alive={}",
+            receiver.welcomed, receiver.packets, receiver.corrections, receiver.own.alive);
         replicas
             .hud
             .frame(&mut scene.bridge, &receiver, &replay, 0.0);
@@ -1559,6 +1561,10 @@ impl BattleController {
                 world.set_paused(self.pause_menu.is_open);
                 world.set_suspended(!focused);
                 world.poll_publications(receiver, *now_ms)?;
+                if self.frames == 60 {
+                    eprintln!("local HUD publications: focused={} welcomed={} packets={} corrections={} alive={}",
+                        focused, receiver.welcomed, receiver.packets, receiver.corrections, receiver.own.alive);
+                }
                 sender.feedback(receiver);
                 receiver.clock.advance(dt).map_err(str::to_string)?;
 
