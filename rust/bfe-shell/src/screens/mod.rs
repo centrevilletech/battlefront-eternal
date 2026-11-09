@@ -27,7 +27,7 @@ use crate::{
     profile::ProfileState,
     version::{version_line, AboutInfo},
 };
-use bfe_online::{browser::ServerEntry, direct::DEFAULT_DIRECT_PORT};
+use bfe_online::browser::ServerEntry;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -307,6 +307,8 @@ pub struct ShellApp {
     pub direct_connect_draft: String,
     pub direct_port_draft: String,
     pub direct_field: usize,
+    /// Editable host modal drafts and list selections.
+    pub host_form: HostForm,
     /// Host game configuration (`SET GAME OPTIONS` on `ScreenId::HostDialog`).
     pub host_config: HostConfig,
     /// Pending multiplayer action after the profile prompt finishes.
@@ -363,8 +365,9 @@ impl ShellApp {
             mp_status: None,
             mp_needs_notice: false,
             direct_connect_draft: String::new(),
-            direct_port_draft: DEFAULT_DIRECT_PORT.to_string(),
-            direct_field:0,
+            direct_port_draft: bfe_online::direct::DEFAULT_DIRECT_PORT.to_string(),
+            direct_field: 0,
+            host_form: HostForm::default(),
             host_config: HostConfig::default(),
             pending_mp_after_profile: None,
             popup: None,
@@ -1072,6 +1075,7 @@ impl ShellApp {
         // Dismissing a modal popup (`Notice`, `ConfirmExit`, or `HostClosePrompt`)
         // plays `"shell_menu_cancel"` without popping the underlying screen.
         if let Some(popup) = self.popup.take() {
+            self.host_form.pending_start = false;
             self.sound_queue.push("shell_menu_cancel");
             if matches!(popup, PopupState::HostClosePrompt { .. }) {
                 self.pending_action = Some(ShellAction::HostCloseDecision(2));

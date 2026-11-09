@@ -84,7 +84,7 @@ pub struct HostConfig {
     pub era: String,
     /// Game mode identifier (default `"conquest"`).
     pub mode: String,
-    /// Maximum player slots (`1..=64`, default `32`).
+    /// Maximum human player slots (`2..=64`, default `8`).
     pub max_players: u32,
     /// AI bot count per team (`0..=32`, default `16`).
     pub bots: u32,
@@ -111,15 +111,15 @@ pub struct HostConfig {
 impl Default for HostConfig {
     fn default() -> Self {
         Self {
-            server_name: "PLAYER 1'S GAME".to_string(),
+            server_name: "My Battlefront server".to_string(),
             family: GameFamily::Swbf1,
             map: "nab2".to_string(),
             side: "rep".to_string(),
             era: "cw".to_string(),
             mode: DEFAULT_MODE.to_string(),
-            max_players: 32,
+            max_players: 8,
             bots: 16,
-            lan_only: false,
+            lan_only: true,
             relay_policy: "auto".to_string(),
             ai_difficulty: "medium".to_string(),
             reinforcements_pct: 100,
@@ -130,6 +130,39 @@ impl Default for HostConfig {
             auto_spawn: false,
         }
     }
+}
+
+/// Draft and focus for hostDialog's native text inputs and selects.
+#[derive(Clone, Debug)]
+pub struct HostForm {
+    pub players: String,
+    pub focus: usize,
+    pub choice: Option<usize>,
+    pub choice_cursor: usize,
+    pub error: Option<String>,
+    pub pending_start: bool,
+}
+impl Default for HostForm {
+    fn default() -> Self {
+        Self {
+            players: "8".into(),
+            focus: 0,
+            choice: None,
+            choice_cursor: 0,
+            error: None,
+            pending_start: false,
+        }
+    }
+}
+
+/// The host dialog has the same inputs as hostDialog in src/shell/host-dialog.js.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum HostControl {
+    Field(usize),
+    Select(usize),
+    Choice(usize),
+    Cancel,
+    Start,
 }
 
 /// Resolved multiplayer join or host target launched by the shell.
@@ -380,6 +413,178 @@ pub fn hosted_server_entry(config: &HostConfig) -> ServerEntry {
 }
 
 impl ShellApp {
+    /// Profile gating is shared by Create and the empty LAN hosting action.
+    pub fn request_host(&mut self) {
+        if self.require_profile_for(PendingMpAction::Host) {
+            self.open_host_dialog();
+        }
+    }
+
+    /// Select entries retain the browser's order, including its independent side choice.
+    pub fn host_choices(&self, field: usize) -> Vec<(String, String)> {
+        let options: &[(&str, &str)] = match field {
+            1 => &[("lan", "LAN only"), ("public", "Public online")],
+            3 => &[
+                ("rep", "Republic"),
+                ("cis", "CIS"),
+                ("all", "Alliance"),
+                ("imp", "Empire"),
+            ],
+            5 => &[
+                ("auto", "Automatic"),
+                ("always", "Relay only"),
+                ("never", "Direct only"),
+            ],
+            _ => &[],
+        };
+        if field == 2 {
+            if self.data.maps.is_empty() {
+                return vec![("nab2".into(), "Naboo: Theed".into())];
+            }
+            return self
+                .data
+                .maps
+                .iter()
+                .map(|map| (map.id.clone(), map.name.clone()))
+                .collect();
+        }
+        options
+            .iter()
+            .map(|(value, label)| ((*value).into(), (*label).into()))
+            .collect()
+    }
+
+    /// Display and selection use the same value as the bundled server launch.
+    pub fn host_value(&self, field: usize) -> &str {
+        match field {
+            1 => {
+                if self.host_config.lan_only {
+                    "lan"
+                } else {
+                    "public"
+                }
+            }
+            2 => &self.host_config.map,
+            3 => &self.host_config.side,
+            5 => &self.host_config.relay_policy,
+            _ => "",
+        }
+    }
+
+    /// HostDialog's controls share one form owner with the native text editor.
+    /// Numeric drafts remain strings until submission, just as the browser input.
+    pub fn host_control(&mut self, control: HostControl) {
+        self.host_form.error = None;
+        match control {
+            HostControl::Field(field) => {
+                self.host_form.focus = field;
+                self.host_form.choice = None;
+            }
+            HostControl::Select(field) => {
+                self.host_form.focus = field;
+                self.host_form.choice = if self.host_form.choice == Some(field) {
+                    None
+                } else {
+                    Some(field)
+                };
+                self.host_form.choice_cursor = self
+                    .host_choices(field)
+                    .iter()
+                    .position(|(value, _)| value == self.host_value(field))
+                    .unwrap_or(0);
+            }
+            HostControl::Choice(index) => {
+                if let Some(field) = self.host_form.choice.take() {
+                    if let Some((value, _)) = self.host_choices(field).get(index) {
+                        match field {
+                            1 => self.host_config.lan_only = value == "lan",
+                            2 => self.host_config.map.clone_from(value),
+                            3 => {
+                                self.host_config.side.clone_from(value);
+                                self.host_config.era = if matches!(value.as_str(), "all" | "imp") {
+                                    "gcw"
+                                } else {
+                                    "cw"
+                                }
+                                .into();
+                            }
+                            5 => self.host_config.relay_policy.clone_from(value),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            HostControl::Cancel => self.back(),
+            HostControl::Start => {
+                self.host_form.focus = 6;
+                let Some(players) = self
+                    .host_form
+                    .players
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|n| (2..=64).contains(n))
+                else {
+                    self.host_form.error = Some("Choose 2 to 64 human players total.".into());
+                    return;
+                };
+                if self.host_config.server_name.trim().is_empty() {
+                    self.host_form.error = Some("Enter a server name.".into());
+                    return;
+                }
+                self.host_config.max_players = players;
+                if !self.host_config.lan_only && self.mp_needs_notice {
+                    self.host_form.pending_start = true;
+                    self.popup = Some(Self::online_notice());
+                    return;
+                }
+                self.execute_host();
+            }
+        }
+    }
+
+    /// Native select keys stay inside the dialog; Tab visits inputs then actions.
+    pub fn host_key(&mut self, key: &str, shift: bool) -> bool {
+        if let Some(field) = self.host_form.choice {
+            let last = self.host_choices(field).len().saturating_sub(1);
+            match key {
+                "ArrowUp" => {
+                    self.host_form.choice_cursor = self.host_form.choice_cursor.saturating_sub(1)
+                }
+                "ArrowDown" => {
+                    self.host_form.choice_cursor = (self.host_form.choice_cursor + 1).min(last)
+                }
+                "Home" => self.host_form.choice_cursor = 0,
+                "End" => self.host_form.choice_cursor = last,
+                "Enter" | " " => {
+                    self.host_control(HostControl::Choice(self.host_form.choice_cursor))
+                }
+                "Escape" | "Tab" => self.host_form.choice = None,
+                _ => {}
+            }
+            return true;
+        }
+        let focus = self.host_form.focus;
+        match key {
+            "Escape" => self.back(),
+            "Tab" => self.host_form.focus = (focus + if shift { 7 } else { 1 }) % 8,
+            "ArrowUp" | "ArrowDown" | " " if matches!(focus, 1 | 2 | 3 | 5) => {
+                self.host_control(HostControl::Select(focus))
+            }
+            "Enter" => self.host_control(match focus {
+                1 | 2 | 3 | 5 => HostControl::Select(focus),
+                7 => HostControl::Cancel,
+                _ => HostControl::Start,
+            }),
+            _ => {}
+        }
+        true
+    }
+
+    /// The review action can always reopen a dismissed notice without accepting it.
+    pub fn online_notice() -> PopupState {
+        PopupState::OnlineNotice { message: "Before you play online\n\nOnline services are operated by the directory operator.\n\nThe service sees your IP address and public player identity. Reports are retained for 30 days. TURN relay traffic is forwarded.\n\nAccept to contact https://online.battlefronteternal.com. Your choice is saved on this computer.".into(), selected_accept: false }
+    }
+
     /// Adds the currently highlighted map in `AVAILABLE MAPS` to `SELECTED MAPS`
     /// (or pushes the era picker popup when the map has both `cw` and `gcw`).
     ///
@@ -525,8 +730,14 @@ impl ShellApp {
                     selected_accept, ..
                 } => {
                     self.popup = None;
+                    let start_host = self.host_form.pending_start;
+                    self.host_form.pending_start = false;
                     if selected_accept {
                         self.mp_needs_notice = false;
+                        // hostDialog awaits this consent inside its submit handler.
+                        if start_host {
+                            self.host_control(HostControl::Start);
+                        }
                     }
                     self.sound_queue.push(if selected_accept {
                         "shell_menu_accept"
@@ -838,15 +1049,17 @@ impl ShellApp {
             // `DirectConnect`: validates `direct_connect_draft` via `direct_connect_entry`
             // and joins over `LAN` (or shows an error notice popup if invalid).
             ScreenId::DirectConnect => {
-                let address = self.direct_connect_draft.trim();
-                let addr = if address.parse::<std::net::Ipv6Addr>().is_ok() {
+                let address = self
+                    .direct_connect_draft
+                    .trim()
+                    .trim_start_matches('[')
+                    .trim_end_matches(']');
+                let target = if address.contains(':') {
                     format!("[{address}]:{}", self.direct_port_draft)
-                } else if address.contains(':') {
-                    address.to_owned()
                 } else {
                     format!("{address}:{}", self.direct_port_draft)
                 };
-                match direct_connect_entry(&addr) {
+                match direct_connect_entry(&target) {
                     Ok(server) => {
                         self.stack.pop();
                         self.rebuild_cached_rows();
@@ -890,7 +1103,9 @@ impl ShellApp {
     /// Initializes `self.host_config` defaults from the current profile and
     /// extracted maps, then pushes `ScreenId::HostDialog` (`SET GAME OPTIONS`).
     pub fn open_host_dialog(&mut self) {
-        self.host_config.server_name = format!("{}'S GAME", self.profile.name);
+        // hostDialog starts afresh every time CREATE opens it.
+        self.host_config = HostConfig::default();
+        self.host_form = HostForm::default();
         if self.host_config.map.is_empty()
             || !self
                 .data
@@ -936,7 +1151,6 @@ impl ShellApp {
     /// Builds a [`ServerEntry`] from `self.host_config` and sets
     /// `pending_action = Some(ShellAction::LaunchMultiplayer(launch))`.
     pub fn execute_host(&mut self) {
-        self.host_config.server_name = format!("{}'S GAME", self.profile.name);
         if self.host_config.map.is_empty() {
             if let Some(first_map) = self.data.maps.iter().find(|m| m.extracted != Some(false)) {
                 self.host_config.family = first_map.family;
@@ -1052,44 +1266,27 @@ impl ShellApp {
         // 3. On `DirectConnect`, route `Enter`, `Escape`, `Backspace`, and
         //    printable address characters to `self.direct_connect_draft`.
         if self.current_screen() == ScreenId::DirectConnect {
-            if key == "Tab" {
-                self.direct_field = (self.direct_field + 1) % 2;
-                return true;
-            }
             match key {
-                "Enter" => {
-                    self.accept(browser);
-                    return true;
-                }
-                "Escape" => {
-                    self.back();
-                    return true;
-                }
+                "Tab" => self.direct_field = (self.direct_field + 1) % 2,
+                "Enter" => self.accept(browser),
+                "Escape" => self.back(),
                 "Backspace" => {
                     if self.direct_field == 0 {
                         self.direct_connect_draft.pop();
                     } else {
                         self.direct_port_draft.pop();
                     }
-                    self.sound_queue.push("shell_keyboard_backspace");
-                    return true;
                 }
-                _ => {
-                    // Append unmodified single-character keys to `direct_connect_draft`.
-                    if key.chars().count() == 1 && !ctrl && !meta && !alt {
-                        if let Some(ch) = key.chars().next() {
-                            if self.direct_field == 0 {
-                                self.direct_connect_draft.push(ch);
-                            } else if ch.is_ascii_digit() && self.direct_port_draft.len() < 5 {
-                                self.direct_port_draft.push(ch);
-                            }
-                            self.sound_queue.push("shell_keyboard_key");
-                            return true;
-                        }
+                _ if key.chars().count() == 1 && !ctrl && !meta && !alt => {
+                    if self.direct_field == 0 {
+                        self.direct_connect_draft.push_str(key);
+                    } else {
+                        self.direct_port_draft.push_str(key);
                     }
-                    return false;
                 }
+                _ => return false,
             }
+            return true;
         }
 
         // 4. Standard menu navigation keys (`bindMenuInput` in `src/menus/input.js`):

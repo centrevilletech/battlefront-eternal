@@ -2,13 +2,16 @@
 //! existing ServerBrowserService and ShellApp; no network state lives here.
 use super::{Hit, Page};
 use crate::{render::ShellTextures, screens::ShellApp};
-use bfe_online::browser::{BrowserState, Filters, GameInfo, ServerBrowserService, Source};
+use bfe_online::browser::{
+    BrowserState, Filters, GameInfo, ServerBrowserService, SortColumn, SortSpec, Source,
+};
 use bfe_render::interface::{Batch, Color, Matrix, UV};
 
 #[derive(Default)]
 pub struct BrowserView {
     pub source: Option<Source>,
     pub filters: Filters,
+    pub sort: SortSpec,
     pub state: BrowserState,
     pub selected: Option<String>,
     pub rows: Vec<[String; 7]>,
@@ -26,6 +29,7 @@ impl BrowserView {
     pub fn sync(&mut self, browser: &dyn ServerBrowserService) {
         self.source = Some(browser.source());
         self.filters = browser.filters().clone();
+        self.sort = browser.sort_spec();
         self.state = browser.state().clone();
         let selected = browser.selected();
         self.selected = selected.map(|s| s.id.clone());
@@ -63,7 +67,18 @@ impl BrowserView {
                 ]
             })
             .collect();
-        self.count_label = format!("{} SERVERS", self.rows.len());
+        let players: u32 = browser.rows().iter().map(|server| server.players).sum();
+        self.count_label = format!(
+            "{} {}  ·  {} {}",
+            self.rows.len(),
+            if self.rows.len() == 1 {
+                "SERVER"
+            } else {
+                "SERVERS"
+            },
+            players,
+            if players == 1 { "PLAYER" } else { "PLAYERS" }
+        );
     }
 }
 impl Page {
@@ -128,31 +143,71 @@ impl Page {
             look,
         );
         // Tabs stay owned by the same multiplayer screen. CREATE invokes HOST.
-        for (i, label) in ["JOIN", "CREATE", "LEADERBOARD   PLANNED"]
-            .iter()
-            .enumerate()
-        {
-            let x = edge + [0., 110., 250.][i];
+        for (i, label) in ["JOIN", "CREATE", "LEADERBOARD"].iter().enumerate() {
+            let x = edge + [0., 106., 244.][i];
             let r = [x, h * 0.122, x + if i == 2 { 260. } else { 100. }, h * 0.19];
             if i == 0 {
-                Self::rect(b, m, r, t.solid, accent);
+                for row in 0..10 {
+                    Self::accent_fill(
+                        b,
+                        m,
+                        t,
+                        [
+                            r[0] + 10. - row as f64,
+                            r[1] + row as f64,
+                            r[2],
+                            r[1] + row as f64 + 1.,
+                        ],
+                        look,
+                    );
+                }
+                Self::accent_fill(b, m, t, [r[0], r[1] + 10., r[2], r[3]], look);
             }
-            self.label(
+            self.form_label(
                 b,
                 m,
                 x + 30.,
                 r[1] + 30.,
                 label,
                 14.,
-                3.,
-                if i == 0 { ink } else { dim },
+                2.8,
+                if i == 0 {
+                    ink
+                } else if i == 1 {
+                    white
+                } else {
+                    dim
+                },
                 0,
-                false,
+                super::forms::FormFace::Regular,
             );
+            if i == 2 {
+                let tag = [x + 182., r[1] + 15., x + 256., r[1] + 36.];
+                Self::form_border(b, m, t, tag, [1., 1., 1., 0.22]);
+                self.form_label(
+                    b,
+                    m,
+                    tag[0] + 7.,
+                    tag[1] + 14.,
+                    "PLANNED",
+                    10.,
+                    1.,
+                    dim,
+                    0,
+                    super::forms::FormFace::Regular,
+                );
+            }
             if i < 2 {
                 self.hits.push((r, Hit::BrowserTab(i)));
             }
         }
+        Self::rect(
+            b,
+            m,
+            [edge, h * 0.19, right, h * 0.19 + 2.],
+            t.solid,
+            [1., 1., 1., 0.12],
+        );
         let bar = [edge, h * 0.202, right, h * 0.264];
         Self::browser_panel(b, m, t, bar, look);
         let gap = w * 0.008;
@@ -246,25 +301,27 @@ impl Page {
                 } else {
                     view.filters.hide_empty
                 };
-                Self::rect(
-                    b,
-                    m,
-                    [x, r[1] + 9., x + 23., r[1] + 21.],
-                    t.solid,
-                    if on { accent } else { [1., 1., 1., 0.14] },
-                );
-                Self::rect(
-                    b,
-                    m,
-                    [
-                        x + if on { 13. } else { 1. },
-                        r[1] + 10.,
-                        x + if on { 22. } else { 10. },
-                        r[1] + 20.,
-                    ],
-                    t.solid,
-                    white,
-                );
+                // The browser uses a short switch, rather than a checkbox.
+                let track = if on { accent } else { [1., 1., 1., 0.14] };
+                for (inset, top, bottom) in [(3., 9., 21.), (1., 11., 19.), (0., 13., 17.)] {
+                    Self::rect(
+                        b,
+                        m,
+                        [x + inset, r[1] + top, x + 23. - inset, r[1] + bottom],
+                        t.solid,
+                        track,
+                    );
+                }
+                let knob = x + if on { 12. } else { 0. };
+                for (inset, top, bottom) in [(3., 9., 21.), (1., 11., 19.), (0., 13., 17.)] {
+                    Self::rect(
+                        b,
+                        m,
+                        [knob + inset, r[1] + top, knob + 12. - inset, r[1] + bottom],
+                        t.solid,
+                        white,
+                    );
+                }
                 self.label(b, m, x + 29., r[1] + 20., label, 10., 1., dim, 0, false);
             }
             self.hits.push((r, Hit::BrowserFilter(i)));
@@ -273,14 +330,20 @@ impl Page {
             }
             x += widths[i] + gap;
         }
-        let table = [edge, h * 0.276, right, h * 0.612];
+        let ready = matches!(view.state, BrowserState::Ready);
+        let table = [
+            edge,
+            h * 0.276,
+            right,
+            h * if ready { 0.5875 } else { 0.612 },
+        ];
         Self::browser_panel(b, m, t, table, look);
-        Self::rect(
+        Self::accent_fill(
             b,
             m,
+            t,
             [table[0], table[1], table[2], table[1] + 30.],
-            t.solid,
-            accent,
+            look,
         );
         let columns = [3.1, 0.95, 1.9, 1., 1.55, 0.85, 1.35];
         let total = columns.iter().sum::<f64>();
@@ -314,6 +377,31 @@ impl Page {
                 0,
                 super::forms::FormFace::Regular,
             );
+            if view.sort.column == SortColumn::ALL[i] {
+                let scale = 16. / self.regular.height;
+                let label_width =
+                    self.regular
+                        .width(&label.encode_utf16().collect::<Vec<_>>(), scale, 2.);
+                let tx = x + label_width + 7.;
+                let ty = table[1] + 14.;
+                // CSS .bfe-sort is a six-pixel triangle beside the sorted header.
+                for line in 0..4 {
+                    let row = if view.sort.dir > 0 { line } else { 3 - line };
+                    let width = (row * 2 + 1) as f64;
+                    Self::rect(
+                        b,
+                        m,
+                        [
+                            tx - width / 2.,
+                            ty + line as f64,
+                            tx + width / 2.,
+                            ty + line as f64 + 1.,
+                        ],
+                        t.solid,
+                        ink,
+                    );
+                }
+            }
             self.hits
                 .push(([x, table[1], ends[i], table[1] + 30.], Hit::BrowserSort(i)));
             x = ends[i] + w * 0.01;
@@ -334,16 +422,18 @@ impl Page {
         if view.rows.is_empty() {
             let (message,hint)=match &view.state{
                 BrowserState::Notice=>("ONLINE PLAY NEEDS YOUR OK FIRST","Read how the online service handles your connection, then accept to see the servers."),
+                BrowserState::Loading if view.source==Some(Source::Lan)=>("LOOKING FOR SERVERS ON YOUR NETWORK…",""),
                 BrowserState::Loading=>("SEARCHING FOR SERVERS…",""),
                 BrowserState::Error(e)=>(e.as_str(),"REFRESH TO TRY AGAIN"),
-                _ if view.filters.is_filtered()=>("NO SERVERS MATCH THESE FILTERS","Try changing the filters."),
-                _=>("NO SERVERS ONLINE","Refresh or try LAN to find a local game."),
+                _ if view.filters.is_filtered()=>("NO SERVERS MATCH THESE FILTERS","Clear a filter to see more."),
+                _ if view.source==Some(Source::Lan)=>("NO SERVERS ON YOUR NETWORK","Host one with CREATE, or reach one by its address with DIRECT CONNECT."),
+                _=>("NO SERVERS ONLINE RIGHT NOW","Host one with CREATE, or reach one by its address with DIRECT CONNECT."),
             };
             self.label(
                 b,
                 m,
                 w / 2.,
-                table[1] + 104.,
+                table[1] + if ready { 115. } else { 104. },
                 message,
                 15.,
                 2.,
@@ -351,7 +441,18 @@ impl Page {
                 2,
                 false,
             );
-            self.label(b, m, w / 2., table[1] + 138., hint, 14., 0.8, dim, 2, false);
+            self.label(
+                b,
+                m,
+                w / 2.,
+                table[1] + if ready { 149. } else { 138. },
+                hint,
+                14.,
+                0.8,
+                dim,
+                2,
+                false,
+            );
             if matches!(view.state, BrowserState::Notice) {
                 let r = [w / 2. - 85., table[1] + 152., w / 2. + 85., table[1] + 186.];
                 self.widget_button(b, m, t, r, "REVIEW NOTICE", look, false, false);
@@ -391,7 +492,7 @@ impl Page {
                     .push(([edge, y, right, y + 28.], Hit::BrowserServer(index)));
             }
         }
-        if !view.rows.is_empty() {
+        if ready {
             self.label(
                 b,
                 m,
@@ -405,15 +506,23 @@ impl Page {
                 false,
             );
         }
+        if ready {
+            self.form_label(
+                b,
+                m,
+                right - 5.,
+                table[3] + 20.,
+                "UPDATED JUST NOW",
+                10.,
+                1.6,
+                dim,
+                1,
+                super::forms::FormFace::Medium,
+            );
+        }
         let info = [edge, h * 0.634, right, h * 0.893];
         Self::browser_panel(b, m, t, info, look);
-        Self::rect(
-            b,
-            m,
-            [info[0], info[1], info[2], info[1] + 25.],
-            t.solid,
-            accent,
-        );
+        Self::accent_fill(b, m, t, [info[0], info[1], info[2], info[1] + 25.], look);
         self.label(
             b,
             m,

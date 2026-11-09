@@ -22,7 +22,7 @@ use crate::{
 };
 use bfe_content_native::textures::Library;
 use bfe_desktop::host::{
-    AiDifficulty, ClosePrompt, HostMode, HostOptions, RelayPolicy, TeamAssignment,
+    ClosePrompt, HostMode, HostOptions, RelayPolicy,
 };
 use bfe_interface::{
     HitRegion, OptionsContext, OptionsController, Surface as InterfaceSurfaceState,
@@ -46,7 +46,7 @@ use bfe_render::{
 use bfe_shell::{
     audio::ShellAudioMixer,
     data::{load_shell_data_from_dir, ShellData},
-    launch::{BattleRequest, PlaylistEntry},
+    launch::BattleRequest,
     loading::{planet_name, LoadingTimeline, LookId},
     render::{draw_loading_with_typeface, draw_shell, ShellFonts, ShellTextures, StageTexture},
     screens::{
@@ -123,99 +123,26 @@ fn shell_textures_to_interface_surface(
     surf
 }
 
-/// Converts [`HostConfig`] (`SET GAME OPTIONS` on `ScreenId::HostDialog`) and the
-/// current Instant Action playlist into [`bfe_desktop::host::HostOptions`].
-///
-/// ## Field Mapping (`HostConfig` -> `HostOptions`)
-/// - `cfg.lan_only`: `true` -> [`HostMode::Lan`], `false` -> [`HostMode::Public`].
-/// - `cfg.relay_policy`: `"always"` -> [`RelayPolicy::Always`],
-///   `"direct"` / `"never"` -> [`RelayPolicy::Never`], `_` -> [`RelayPolicy::Auto`].
-/// - `cfg.ai_difficulty`: `"easy"` -> [`AiDifficulty::Easy`],
-///   `"hard"` -> [`AiDifficulty::Hard`], `_` -> [`AiDifficulty::Medium`].
-/// - `cfg.auto_assign_teams`: `true` -> [`TeamAssignment::AutoAssign`],
-///   `false` -> [`TeamAssignment::PlayerSelect`].
-/// - `playlist`: Starts with `swbf1/<map>:<side>:conquest` for the primary map/era
-///   and appends deduplicated `swbf1/<map>:<side>:conquest` slugs from `ia_playlist`.
-/// - `victory_timer_sec`: Normalizes values in `10..=60` seconds (or converts minutes > 60).
-pub fn host_options_from_shell(cfg: &HostConfig, ia_playlist: &[PlaylistEntry]) -> HostOptions {
-    // Map LAN-only toggle to `HostMode::Lan` vs `HostMode::Public`.
-    let mode = if cfg.lan_only {
-        HostMode::Lan
-    } else {
-        HostMode::Public
-    };
-    // Map TURN relay policy string (`"auto"`, `"always"`, `"direct"`/`"never"`) to `RelayPolicy`.
-    let relay = match cfg.relay_policy.as_str() {
-        "always" => RelayPolicy::Always,
-        "direct" | "never" => RelayPolicy::Never,
-        _ => RelayPolicy::Auto,
-    };
-    // Map AI difficulty string (`"easy"`, `"medium"`, `"hard"`) to `AiDifficulty`.
-    let ai_difficulty = match cfg.ai_difficulty.as_str() {
-        "easy" => AiDifficulty::Easy,
-        "hard" => AiDifficulty::Hard,
-        _ => AiDifficulty::Medium,
-    };
-    // Map team assignment boolean to `TeamAssignment::AutoAssign` vs `PlayerSelect`.
-    let team_assignment = if cfg.auto_assign_teams {
-        TeamAssignment::AutoAssign
-    } else {
-        TeamAssignment::PlayerSelect
-    };
-    // Normalize primary faction identifier (`"rep"`, `"cis"`, `"all"`, or `"imp"`).
-    let side = if matches!(cfg.side.as_str(), "rep" | "cis" | "all" | "imp") {
-        cfg.side.clone()
-    } else if cfg.era == "gcw" {
-        "all".to_string()
-    } else {
-        "rep".to_string()
-    };
-    let map = if cfg.map.is_empty() {
-        "nab2".to_string()
-    } else {
-        cfg.map.clone()
-    };
-    // Build the mission rotation array starting with the primary selected map/side and
-    // appending any additional entries from the Instant Action playlist.
-    let mut playlist = vec![format!("swbf1/{map}:{side}:conquest")];
-    for entry in ia_playlist {
-        let entry_era = entry.era.as_deref().unwrap_or("cw");
-        let entry_side = if entry_era == "gcw" { "all" } else { "rep" };
-        let slug = format!("swbf1/{}:{entry_side}:conquest", entry.map);
-        if !playlist.contains(&slug) {
-            playlist.push(slug);
-        }
-    }
-    // Normalize victory timer seconds to `10..=60` when set.
-    let victory_timer_sec = if (10..=60).contains(&cfg.victory_timer_sec) {
-        Some(cfg.victory_timer_sec)
-    } else if cfg.victory_timer_sec > 60 {
-        Some((cfg.victory_timer_sec / 60).clamp(10, 60))
-    } else {
-        None
-    };
-
+/// Map the browser hostDialog fields directly to the bundled server options.
+/// Its single selected map and side form one mission. Instant Action's playlist
+/// and the old native SET GAME OPTIONS fields do not participate in this form.
+pub fn host_options_from_shell(cfg: &HostConfig) -> HostOptions {
     HostOptions {
-        name: if cfg.server_name.trim().is_empty() {
-            "Battlefront Eternal Host".to_string()
+        name: cfg.server_name.clone(),
+        mode: if cfg.lan_only {
+            HostMode::Lan
         } else {
-            cfg.server_name.clone()
+            HostMode::Public
         },
-        mode,
-        map,
-        side,
-        max_players: cfg.max_players.clamp(2, 64),
-        relay,
-        playlist,
-        password: None,
-        ai_units_per_team: Some(cfg.bots.min(32)),
-        ai_difficulty: Some(ai_difficulty),
-        reinforcements_pct: Some(cfg.reinforcements_pct.clamp(50, 500)),
-        victory_timer_sec,
-        friendly_fire: Some(cfg.friendly_fire),
-        heroes_enabled: Some(cfg.heroes_enabled),
-        team_assignment: Some(team_assignment),
-        auto_spawn: Some(cfg.auto_spawn),
+        map: cfg.map.clone(),
+        side: cfg.side.clone(),
+        max_players: cfg.max_players,
+        relay: match cfg.relay_policy.as_str() {
+            "always" => RelayPolicy::Always,
+            "never" => RelayPolicy::Never,
+            _ => RelayPolicy::Auto,
+        },
+        ..HostOptions::default()
     }
 }
 
@@ -249,6 +176,8 @@ pub struct LiveServerBrowser {
     rx: Option<mpsc::Receiver<BrowserRefreshMessage>>,
     /// Optional explicit `HOST:PORT` target injected from `--server` or `BFE_SERVER_TARGET`.
     server_target: Option<String>,
+    /// Consent survives source changes, which reset the browser presentation state.
+    privacy_accepted: bool,
 }
 
 impl LiveServerBrowser {
@@ -264,6 +193,7 @@ impl LiveServerBrowser {
             inner,
             rx: None,
             server_target,
+            privacy_accepted,
         }
     }
 
@@ -283,7 +213,11 @@ impl LiveServerBrowser {
     /// 4. [`Self::poll`] drains `self.rx` via `try_recv` on the render thread.
     pub fn trigger_refresh(&mut self) {
         let source = self.inner.source();
-        if source == Source::Internet && self.inner.state() == &BrowserState::Notice {
+        if source == Source::Internet && !self.privacy_accepted {
+            self.rx = None;
+            if let Some(token) = self.inner.begin_refresh(false) {
+                self.inner.finish_refresh_notice(token);
+            }
             return;
         }
         let Some(token) = self.inner.begin_refresh(false) else {
@@ -512,6 +446,10 @@ fn scripted_run() -> bool {
 /// and `bfe-interface` options pages.
 pub struct ShellHost {
     pub movies: bfe_shell::movies::MoviePlayer,
+    right_movies: bfe_shell::movies::MoviePlayer,
+    backdrop: super::page_backdrop::PageBackdrop,
+    right_texture: bfe_shell::movie_gpu::MovieTexture,
+    right_handle: u32,
     pub preview_movies: bfe_shell::movies::MoviePlayer,
     movie_clock: std::time::Instant,
     pub movie_allocs_max: u64,
@@ -599,7 +537,9 @@ impl ShellHost {
 
         let movie_texture = bfe_shell::movie_gpu::MovieTexture::new(make_gl())?;
         let preview_texture = bfe_shell::movie_gpu::MovieTexture::new(make_gl())?;
+        let right_texture = bfe_shell::movie_gpu::MovieTexture::new(make_gl())?;
         let movie_handle = core.add_texture(movie_texture.texture);
+        let right_handle = core.add_texture(right_texture.texture);
         let preview_handle = core.add_texture(preview_texture.texture);
         let textures = ShellTextures {
             movie: movie_handle,
@@ -640,6 +580,10 @@ impl ShellHost {
         core.state.reset();
         Ok(Self {
             movies: Default::default(),
+            right_movies: Default::default(),
+            backdrop: Default::default(),
+            right_texture,
+            right_handle,
             preview_movies: Default::default(),
             movie_clock: std::time::Instant::now(),
             movie_allocs_max: 0,
@@ -924,11 +868,9 @@ impl ShellHost {
         shell_audio.apply_media_events(&media, &data);
         audio_router.set_shell(Some(shell_audio));
 
-        // Initial media cues have already reached audio; start the same movie
-        // here rather than dropping the gate's video event with that drain.
-        if let Some(movie) = app.media.movie_of(&data, "start").cloned() {
-            self.movies.play(content_dir, movie, false, 0.);
-        }
+        // PageTheme's MovieBackdrop is independent of SCREEN_MEDIA. Its two
+        // side sequences keep playing when Multiplayer has no screen movie.
+        self.backdrop.start(content_dir,&mut self.movies,&mut self.right_movies);
         self.movie_clock = std::time::Instant::now();
         self.app = app;
         self.content_dir = Some(content_dir.to_path_buf());
@@ -1278,7 +1220,7 @@ impl ShellHost {
     fn page_media_textures(&self) -> bfe_shell::page::MediaTextures {
         use bfe_shell::page::{FrameTexture, MediaTextures};
         MediaTextures {
-            backdrops: [FrameTexture::new(self.textures.movie); 2],
+            backdrops: self.backdrop.frames([self.textures.movie,self.right_handle],self.size),
             preview: Some(FrameTexture::new(self.textures.movie_preview)),
         }
     }
@@ -1316,13 +1258,14 @@ impl ShellHost {
         let now = std::time::Instant::now();
         let movie_dt = now.duration_since(self.movie_clock).as_secs_f64();
         self.movie_clock = now;
-        self.movies.update(root, movie_dt);
+        self.backdrop.update(root,movie_dt,&mut self.movies,&mut self.right_movies);
         self.preview_movies.update(root, movie_dt);
         if std::mem::take(&mut self.movies.intro_ended) {
             let (_, events) = self.app.media.finish_intro(None);
             self.app.media_events.extend(events);
         }
-        self.movie_texture.draw(&self.movies, self.size);
+        self.movie_texture.draw(&self.movies,self.backdrop.output_size(0,self.size));
+        self.right_texture.draw(&self.right_movies,self.backdrop.output_size(1,self.size));
         let rect = bfe_shell::media::preview_rect(self.size[0] as f64, self.size[1] as f64);
         self.preview_texture.draw(
             &self.preview_movies,
@@ -1438,7 +1381,14 @@ impl ShellHost {
         audio_router: &SharedAudioRouter,
     ) -> Option<ShellTransition> {
         let sounds = self.app.drain_sounds();
-        let media = self.app.drain_media_events();
+        let mut media = self.app.drain_media_events();
+        // PAGE_MEDIA starts music immediately; there is no blocking screen intro.
+        if media.iter().any(|event| {
+            matches!(event, bfe_shell::media::MediaEvent::PlayMovie { .. })
+        }) {
+            let (_, events) = self.app.media.finish_intro(None);
+            media.extend(events);
+        }
         let root = self
             .content_dir
             .as_deref()
@@ -1446,30 +1396,15 @@ impl ShellHost {
         for event in &media {
             use bfe_shell::{data::ScreenMovie, media::MediaEvent};
             match event {
-                MediaEvent::PlayMovie {
-                    intro_url,
-                    loop_url,
-                    play_intro,
-                } => {
-                    let find = |url: &Option<String>| {
-                        url.as_ref()
-                            .and_then(|url| self.app.media.clip_for_url(&self.app.data, url))
-                            .cloned()
-                    };
-                    self.movies.play(
-                        root,
-                        ScreenMovie {
-                            intro: find(intro_url),
-                            loop_clip: find(loop_url),
-                        },
-                        *play_intro,
-                        0.,
-                    );
+                MediaEvent::PlayMovie { .. } => {
+                    // Screen changes cannot replace the independent side movies.
                     // Instant Action queues its preview before the screen's
                     // empty backdrop event. Keep that preview alive.
                     if !matches!(
                         self.app.current_screen(),
                         ScreenId::InstantAction | ScreenId::InstantActionEra
+                            | ScreenId::Multiplayer | ScreenId::MultiplayerList(_)
+                            | ScreenId::HostDialog | ScreenId::DirectConnect
                     ) {
                         self.preview_movies.play(
                             root,
@@ -1505,6 +1440,7 @@ impl ShellHost {
                 _ => (),
             }
         }
+        self.browser.privacy_accepted = !self.app.mp_needs_notice;
         let _ = settings.capture_from_shell_app(&self.app);
 
         if !sounds.is_empty() || !media.is_empty() {
@@ -1531,7 +1467,7 @@ impl ShellHost {
                 ShellAction::LaunchMultiplayer(mp) => {
                     if mp.server_id == "local-host" || mp.server_id == "host:local" {
                         let host_opts =
-                            host_options_from_shell(&self.app.host_config, &self.app.ia_entries);
+                            host_options_from_shell(&self.app.host_config);
                         return Some(ShellTransition::StartHost(host_opts, mp));
                     }
                     return Some(ShellTransition::StartOnline(mp));
@@ -1619,6 +1555,13 @@ impl ShellHost {
             self.page.dropdown = true;
             return self.flush_events(settings, audio_router);
         }
+        if self.app.current_screen() == ScreenId::HostDialog
+            && self.app.popup.is_none()
+            && !self.app.profile.editing
+        {
+            self.app.host_key(key, shift);
+            return self.flush_events(settings, audio_router);
+        }
         if self.browser_page() && self.page_browser_key(key) {
             return self.flush_events(settings, audio_router);
         }
@@ -1660,6 +1603,7 @@ impl ShellHost {
         }
         let entered_list = prev_screen != self.app.current_screen()
             && matches!(self.app.current_screen(), ScreenId::MultiplayerList(_));
+        self.browser.privacy_accepted = !self.app.mp_needs_notice;
         if (was_notice && !self.app.mp_needs_notice)
             || refresh_requested
             || (entered_list && self.browser.rx.is_none())
@@ -1885,6 +1829,7 @@ impl ShellHost {
                     self.page.dropdown = false;
                 }
                 Some(Hit::DirectField(index)) => self.app.direct_field = index,
+                Some(Hit::Host(control)) => self.app.host_control(control),
                 Some(Hit::DirectButton(true)) => self.app.accept(&mut self.browser),
                 Some(Hit::DirectButton(false)) => self.app.back(),
                 Some(Hit::Game) => self.page.game_dropdown = !self.page.game_dropdown,
@@ -1948,6 +1893,7 @@ impl ShellHost {
                 None if self.app.current_screen() == ScreenId::Gate => self.app.unlock_gate(),
                 _ => {}
             }
+            self.browser.privacy_accepted = !self.app.mp_needs_notice;
             if was_notice && !self.app.mp_needs_notice {
                 if let Some(token) = self.browser.inner.begin_refresh(false) {
                     self.browser
@@ -2053,6 +1999,7 @@ impl ShellHost {
         }
         let entered_list = prev_screen != self.app.current_screen()
             && matches!(self.app.current_screen(), ScreenId::MultiplayerList(_));
+        self.browser.privacy_accepted = !self.app.mp_needs_notice;
         if (was_notice && !self.app.mp_needs_notice)
             || refresh_requested
             || (entered_list && self.browser.rx.is_none())
@@ -2074,6 +2021,10 @@ impl ShellHost {
         } else if self.app.current_screen() == ScreenId::InstantAction {
             self.page
                 .scroll_ia(x_px, y_px, if dy < 0. { -1 } else { 1 }, &self.app);
+        } else if self.app.current_screen() == ScreenId::HostDialog && self.app.popup.is_none() {
+            if self.app.host_form.choice.is_some() {
+                self.app.host_key(if dy < 0. { "ArrowUp" } else { "ArrowDown" }, false);
+            }
         } else if self.browser_page() {
             self.page_browser_key(if dy < 0. { "ArrowUp" } else { "ArrowDown" });
         }
@@ -2445,5 +2396,39 @@ pub fn pump_headless_audio(
 impl Drop for ShellHost {
     fn drop(&mut self) {
         self.blur.dispose(&self.core.gl);
+    }
+}
+
+#[cfg(test)]
+mod multiplayer_form_tests {
+    use super::*;
+    #[test]
+    fn declining_notice_then_changing_source_never_queries_online() {
+        let mut browser = LiveServerBrowser::new(None, false);
+        // Source changes reset presentation state; they must not grant consent.
+        browser.inner.set_source(Source::Lan);
+        browser.inner.set_source(Source::Internet);
+        browser.trigger_refresh();
+        assert_eq!(browser.state(), &BrowserState::Notice);
+        assert!(browser.rx.is_none());
+    }
+    #[test]
+    fn host_launch_uses_the_browser_fields_and_one_mission() {
+        let cfg = HostConfig {
+            server_name: "Custom battle".into(),
+            max_players: 12,
+            side: "imp".into(),
+            relay_policy: "never".into(),
+            ..HostConfig::default()
+        };
+        let options = host_options_from_shell(&cfg);
+        assert_eq!(options.name, "Custom battle");
+        assert_eq!(options.max_players, 12);
+        assert_eq!(options.relay, RelayPolicy::Never);
+        assert_eq!(
+            options.effective_rotation(),
+            vec!["swbf1/nab2:imp:conquest"]
+        );
+        assert_eq!(options.ai_units_per_team, None);
     }
 }

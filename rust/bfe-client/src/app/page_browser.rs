@@ -16,7 +16,36 @@ impl ShellHost {
     }
     pub(super) fn sync_page_browser(&mut self) {
         self.app.sync_from_browser(&self.browser);
+        let previous = self
+            .page
+            .browser
+            .info
+            .as_ref()
+            .map(|info| info.map_id.clone());
         self.page.browser.sync(&self.browser);
+        let next = self
+            .page
+            .browser
+            .info
+            .as_ref()
+            .map(|info| info.map_id.clone());
+        if previous != next {
+            let clip = next
+                .as_ref()
+                .and_then(|id| self.app.data.maps.iter().find(|map| &map.id == id))
+                .and_then(|map| map.fly.clone());
+            self.preview_movies.play(
+                self.content_dir
+                    .as_deref()
+                    .unwrap_or_else(|| std::path::Path::new(".")),
+                bfe_shell::data::ScreenMovie {
+                    intro: None,
+                    loop_clip: clip,
+                },
+                false,
+                bfe_shell::media::PREVIEW_DELAY,
+            );
+        }
     }
     pub(super) fn browser_page(&self) -> bool {
         self.app.popup.is_none()
@@ -57,8 +86,7 @@ impl ShellHost {
     pub(super) fn page_browser_hit(&mut self, hit: Hit) -> bool {
         match hit {
             Hit::BrowserTab(1) => {
-                self.app.set_selected_row_index(ScreenId::Multiplayer, 0);
-                self.app.accept(&mut self.browser);
+                self.app.request_host();
             }
             Hit::BrowserTab(_) => {}
             Hit::BrowserFilter(field) => {
@@ -85,6 +113,7 @@ impl ShellHost {
                                     .data
                                     .maps
                                     .iter()
+                                    .filter(|m| m.extracted != Some(false))
                                     .map(|m| (m.id.clone(), m.name.clone())),
                             )
                             .collect(),
@@ -136,8 +165,7 @@ impl ShellHost {
                 _ => {}
             },
             Hit::BrowserNotice => {
-                self.app.popup=Some(bfe_shell::screens::PopupState::OnlineNotice{
-                    message:"Before you play online\n\nOnline services are operated by the directory operator.\n\nThe service sees your IP address and public player identity. Reports are retained for 30 days. TURN relay traffic is forwarded.\n\nAccept to contact https://online.battlefronteternal.com. Your choice is saved on this computer.".into(),selected_accept:false});
+                self.app.popup = Some(bfe_shell::screens::ShellApp::online_notice());
             }
             _ => return false,
         }

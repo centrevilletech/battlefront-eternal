@@ -43,6 +43,7 @@ pub enum Hit {
     GameChoice(usize),
     OptionBack(usize, usize),
     DirectField(usize),
+    Host(crate::screens::HostControl),
     DirectButton(bool),
     Discord(usize),
 }
@@ -1117,9 +1118,11 @@ impl Page {
             );
         } else if id == ScreenId::InstantAction {
             self.instant_action(b, m, t, a, w, h, accent, ink, white);
-        } else if id == ScreenId::HostDialog {
-            self.host_draw(b, m, t, a, w, h, accent, ink, white);
-        } else if matches!(id, ScreenId::Multiplayer | ScreenId::MultiplayerList(_)) {
+        } else if matches!(
+            id,
+            ScreenId::Multiplayer | ScreenId::MultiplayerList(_)
+                | ScreenId::HostDialog | ScreenId::DirectConnect
+        ) {
             self.browser_draw(b, m, t, a, w, h, accent, ink, white);
         } else if matches!(id, ScreenId::Options | ScreenId::OptionsPage(_)) {
             // Existing interface widgets are painted by paint_widgets.
@@ -1223,6 +1226,9 @@ impl Page {
             _ => 2,
         };
         self.picker(b, m, solid, w, look, accent, ink, bg, white);
+        if id == ScreenId::HostDialog {
+            self.host_draw(b, m, t, a, w, h, accent, ink, white);
+        }
         if a.popup.is_some()
             || a.profile.editing
             || self.discord_offer
@@ -1230,7 +1236,9 @@ impl Page {
         {
             self.modal_start = Some(b.count);
         }
-        if let Some(popup) = &a.popup {
+        if let Some(PopupState::OnlineNotice {message,..}) = &a.popup {
+            self.online_notice_form(b, m, t, a, w, h, message, ink, white);
+        } else if let Some(popup) = &a.popup {
             self.hits.clear();
             Self::rect(b, m, [0., 0., w, h], solid, [0., 0., 0., 0.5]);
             let (message, selected) = match popup {
@@ -1304,6 +1312,8 @@ impl Page {
             }
         } else if a.current_screen() == ScreenId::DirectConnect {
             self.direct_form(b, m, t, a, w, h, look, accent, ink, white);
+        } else if a.profile.editing && !a.profile.message.is_empty() {
+            self.multiplayer_profile_form(b, m, t, a, w, h, accent, ink, white);
         } else if a.profile.editing {
             self.hits.clear();
             Self::rect(b, m, [0., 0., w, h], solid, [0., 0., 0., 0.5]);

@@ -77,6 +77,7 @@ pub mod script;
 pub mod settings;
 pub mod shell;
 mod page_font;
+mod page_backdrop;
 mod page_blur;
 mod page_integrations;
 mod page_proof;
@@ -489,14 +490,11 @@ impl StandaloneWindowApp {
                     };
                 }
                 if app.current_screen() == ScreenId::HostDialog {
-                    let index = app.selected_row_index(ScreenId::HostDialog);
-                    if app
-                        .active_rows()
-                        .get(index)
-                        .is_some_and(|row| row.id == "serverName")
-                    {
-                        return Some(("host", &mut app.host_config.server_name, 80));
-                    }
+                    return match app.host_form.focus {
+                        0 => Some(("host-name", &mut app.host_config.server_name, 80)),
+                        4 => Some(("host-players", &mut app.host_form.players, 2)),
+                        _ => None,
+                    };
                 }
                 None
             }
