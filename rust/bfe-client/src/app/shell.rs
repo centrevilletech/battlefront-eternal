@@ -501,6 +501,13 @@ impl ServerBrowserService for LiveServerBrowser {
     }
 }
 
+/// Scripted proof runs (`--script`) never get the one-time Discord offer. The
+/// arguments are read once, not on every frame.
+fn scripted_run() -> bool {
+    static SCRIPTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SCRIPTED.get_or_init(|| std::env::args().any(|a| a == "--script"))
+}
+
 /// Front-end renderer and controller for the startup loader, click gate, shell menus,
 /// and `bfe-interface` options pages.
 pub struct ShellHost {
@@ -1027,6 +1034,19 @@ impl ShellHost {
         }
     }
 
+    /// Records the answer to the one-time Discord offer ("off", "game" or "full") and saves it.
+    fn save_discord_offer(&mut self, settings: &mut AppSettingsStore, detail: &str) {
+        self.page.discord_offer = false;
+        self.page.discord_asked = true;
+        settings
+            .desktop
+            .presence
+            .get_or_insert_with(Default::default)
+            .discord = Some(detail.into());
+        settings.desktop.discord_presence = detail != "off";
+        let _ = settings.save_desktop();
+    }
+
     /// Shows the 3-button hosted server close confirmation dialog from [`ClosePrompt`].
     ///
     /// Copies `prompt.title` (`"Hosted server is running"`), `prompt.message`
@@ -1324,6 +1344,16 @@ impl ShellHost {
                 self.size
             );
         }
+        if settings
+            .desktop
+            .presence
+            .as_ref()
+            .and_then(|p| p.discord.as_ref())
+            .is_some()
+            || scripted_run()
+        {
+            self.page.discord_asked = true;
+        }
         if self.page_active() {
             self.page.draw(
                 &mut self.batch,
@@ -1557,6 +1587,12 @@ impl ShellHost {
         if std::env::var_os("BFE_MENU_INPUT_TRACE").is_some() {
             eprintln!("[menu input] {:?} key={key:?}", self.app.current_screen());
         }
+        if let Some(choice) = self.page.discord_key(key) {
+            if let Some(detail) = choice {
+                self.save_discord_offer(settings, detail);
+            }
+            return self.flush_events(settings, audio_router);
+        }
         if let Some(selection) = self.page.dropdown_key(key) {
             if let Some(index) = selection {
                 self.app.settings.menu_theme = ["bf1", "bf2", "eternal"][index].into();
@@ -1661,6 +1697,7 @@ impl ShellHost {
     pub fn handle_cursor_move(&mut self, x_px: f64, y_px: f64) {
         if self.page_active() {
             match self.page.hit(x_px, y_px) {
+                Some(bfe_shell::page::Hit::Discord(i)) => self.page.discord_cursor = i,
                 Some(bfe_shell::page::Hit::Look(i)) => self.page.dropdown_cursor = i,
                 Some(bfe_shell::page::Hit::BrowserChoice(_, i)) => {
                     self.page.browser.choice_cursor = i
@@ -1781,6 +1818,12 @@ impl ShellHost {
         audio_router: &SharedAudioRouter,
     ) -> Option<ShellTransition> {
         if !self.page.input_matches(&self.app) {
+            return self.flush_events(settings, audio_router);
+        }
+        if self.page.discord_offer {
+            if let Some(bfe_shell::page::Hit::Discord(i)) = self.page.hit(x_px, y_px) {
+                self.save_discord_offer(settings, ["off", "game", "full"][i]);
+            }
             return self.flush_events(settings, audio_router);
         }
         match self.page.hit(x_px, y_px) {

@@ -43,6 +43,7 @@ pub enum Hit {
     OptionBack(usize, usize),
     DirectField(usize),
     DirectButton(bool),
+    Discord(usize),
 }
 
 struct Paragraph {
@@ -70,6 +71,9 @@ pub struct Page {
     pub dropdown: bool,
     pub dropdown_cursor: usize,
     pub game_dropdown: bool,
+    pub discord_offer: bool,
+    pub discord_cursor: usize,
+    pub discord_asked: bool,
     ia_first: [usize; 2],
     ia_last: [usize; 2],
     pub buttons: [u32; 6],
@@ -133,6 +137,9 @@ impl Page {
             dropdown: false,
             dropdown_cursor: 2,
             game_dropdown: false,
+            discord_offer: false,
+            discord_cursor: 0,
+            discord_asked: false,
             ia_first: [0; 2],
             ia_last: [usize::MAX; 2],
             buttons: [0; 6],
@@ -191,6 +198,38 @@ impl Page {
             "Escape" | "Tab" => {
                 self.dropdown = false;
                 Some(None)
+            }
+            _ => Some(None),
+        }
+    }
+    pub fn discord_key(&mut self, key: &str) -> Option<Option<&'static str>> {
+        if !self.discord_offer {
+            return None;
+        }
+        match key {
+            "ArrowRight" | "Tab" => {
+                self.discord_cursor = (self.discord_cursor + 1) % 3;
+                Some(None)
+            }
+            "ArrowLeft" => {
+                self.discord_cursor = (self.discord_cursor + 2) % 3;
+                Some(None)
+            }
+            "Home" => {
+                self.discord_cursor = 0;
+                Some(None)
+            }
+            "End" => {
+                self.discord_cursor = 2;
+                Some(None)
+            }
+            "Enter" | " " => {
+                self.discord_offer = false;
+                Some(Some(["off", "game", "full"][self.discord_cursor]))
+            }
+            "Escape" => {
+                self.discord_offer = false;
+                Some(Some("off"))
             }
             _ => Some(None),
         }
@@ -795,8 +834,8 @@ impl Page {
         self.hits.push((tr, Hit::Theme));
         if self.dropdown {
             for (i, name) in names.iter().enumerate() {
-                let y = tr[3] + i as f64 * 34.;
-                let r = [tr[0], y, tr[2], y + 34.];
+                let y = tr[3] + i as f64 * 30.;
+                let r = [tr[0], y, tr[2], y + 30.];
                 Self::rect(
                     b,
                     m,
@@ -812,7 +851,7 @@ impl Page {
                     b,
                     m,
                     r[0] + 12.,
-                    y + 23.,
+                    y + 21.,
                     name,
                     13.,
                     0.5,
@@ -884,6 +923,7 @@ impl Page {
             self.text.clear();
             self.paragraphs.clear();
             self.dropdown = false;
+            self.discord_offer = false;
         }
         b.begin();
         self.row_spans.clear();
@@ -1028,6 +1068,16 @@ impl Page {
                 0,
             );
         }
+        if id == ScreenId::Main
+            && !self.discord_asked
+            && (a.pulse_elapsed - self.entered) >= 1.5
+            && a.popup.is_none()
+            && !a.profile.editing
+        {
+            self.discord_asked = true;
+            self.discord_offer = true;
+            self.discord_cursor = 0;
+        }
         let home = matches!(id, ScreenId::Gate | ScreenId::Main);
         if !home {
             Self::rect(b, m, [0., 0., w, h], solid, [0., 0., 0., 0.5]);
@@ -1115,7 +1165,12 @@ impl Page {
                     "bf2" => 1,
                     _ => 2,
                 };
-                self.widget_button(b, m, t, r, &row.label, look, focused, row.disabled);
+                let label = if look != 1 && row.label.bytes().any(|c| c.is_ascii_lowercase()) {
+                    std::borrow::Cow::Owned(row.label.to_uppercase())
+                } else {
+                    std::borrow::Cow::Borrowed(row.label.as_str())
+                };
+                self.widget_button(b, m, t, r, &label, look, focused, row.disabled);
                 self.row_spans.push(motion::RowSpan {
                     first,
                     end: b.count,
@@ -1165,7 +1220,11 @@ impl Page {
             _ => 2,
         };
         self.picker(b, m, solid, w, look, accent, ink, bg, white);
-        if a.popup.is_some() || a.profile.editing || a.current_screen() == ScreenId::DirectConnect {
+        if a.popup.is_some()
+            || a.profile.editing
+            || self.discord_offer
+            || a.current_screen() == ScreenId::DirectConnect
+        {
             self.modal_start = Some(b.count);
         }
         if let Some(popup) = &a.popup {
@@ -1371,6 +1430,16 @@ impl Page {
                     solid,
                     if accept { accent } else { [1., 1., 1., 0.06] },
                 );
+                if !accept {
+                    for line in [
+                        [r[0], r[1], r[2], r[1] + 1.],
+                        [r[0], r[3] - 1., r[2], r[3]],
+                        [r[0], r[1], r[0] + 1., r[3]],
+                        [r[2] - 1., r[1], r[2], r[3]],
+                    ] {
+                        Self::rect(b, m, line, solid, [1., 1., 1., 0.22]);
+                    }
+                }
                 self.label(
                     b,
                     m,
@@ -1384,6 +1453,123 @@ impl Page {
                     false,
                 );
                 self.hits.push((r, Hit::Profile(accept)));
+            }
+        } else if self.discord_offer {
+            self.hits.clear();
+            Self::rect(b, m, [0., 0., w, h], solid, [0., 0., 0., 0.5]);
+            let bw = 660f64.min(w - 32.);
+            let bh = 412.;
+            let x = (w - bw) / 2.;
+            let y = (h - bh) / 2.;
+            let fill = match look {
+                0 => [0.04, 0.10, 0.23, 1.],
+                1 => [0.06, 0.13, 0.25, 1.],
+                _ => [0.047, 0.059, 0.082, 1.],
+            };
+            Self::rect(b, m, [x, y, x + bw, y + bh], solid, fill);
+            for r in [
+                [x, y, x + bw, y + 1.],
+                [x, y + bh - 1., x + bw, y + bh],
+                [x, y, x + 1., y + bh],
+                [x + bw - 1., y, x + bw, y + bh],
+            ] {
+                Self::rect(b, m, r, solid, [1., 1., 1., 0.16]);
+            }
+            self.form_label(
+                b,
+                m,
+                x + 32.,
+                y + 41.,
+                "DISCORD",
+                13.,
+                1.8,
+                accent,
+                0,
+                forms::FormFace::Regular,
+            );
+            for (dy, line) in [(79., "SHOW DISCORD FRIENDS WHAT YOU"), (112., "PLAY?")] {
+                self.form_label(
+                    b,
+                    m,
+                    x + 32.,
+                    y + dy,
+                    line,
+                    27.,
+                    1.62,
+                    white,
+                    0,
+                    forms::FormFace::Bold,
+                );
+            }
+            // src/shell/integrations.js discordDialog, wrapped as the browser wraps it at 1280x720.
+            for (dy, line) in [
+                (161., "Battlefront Eternal can show “Playing Battlefront Eternal” on your Discord"),
+                (186., "profile while you play. With map and server, friends also see the battle you"),
+                (212., "are in and the server's name."),
+                (253., "Nothing is sent to Discord unless you say yes."),
+                (294., "You can change this any time in Options, Steam & Discord."),
+            ] {
+                self.form_label(
+                    b,
+                    m,
+                    x + 32.,
+                    y + dy,
+                    line,
+                    17.,
+                    0.,
+                    white,
+                    0,
+                    forms::FormFace::Regular,
+                );
+            }
+            let by = y + 335.;
+            for (i, left, width, label) in [
+                (0, x + 33., 174., "NO THANKS"),
+                (1, x + 227., 172., "GAME ONLY"),
+                (2, x + 420., 198., "MAP AND SERVER"),
+            ] {
+                let r = [left, by, left + width, by + 48.];
+                let primary = i == 2;
+                Self::rect(
+                    b,
+                    m,
+                    r,
+                    solid,
+                    if primary { accent } else { [1., 1., 1., 0.06] },
+                );
+                if !primary {
+                    for line in [
+                        [r[0], r[1], r[2], r[1] + 1.],
+                        [r[0], r[3] - 1., r[2], r[3]],
+                        [r[0], r[1], r[0] + 1., r[3]],
+                        [r[2] - 1., r[1], r[2], r[3]],
+                    ] {
+                        Self::rect(b, m, line, solid, [1., 1., 1., 0.22]);
+                    }
+                }
+                if i == self.discord_cursor {
+                    for line in [
+                        [r[0] - 3., r[1] - 3., r[2] + 3., r[1] - 1.],
+                        [r[0] - 3., r[3] + 1., r[2] + 3., r[3] + 3.],
+                        [r[0] - 3., r[1] - 3., r[0] - 1., r[3] + 3.],
+                        [r[2] + 1., r[1] - 3., r[2] + 3., r[3] + 3.],
+                    ] {
+                        Self::rect(b, m, line, solid, accent);
+                    }
+                }
+                self.label(
+                    b,
+                    m,
+                    left + width / 2.,
+                    by + 30.,
+                    label,
+                    15.,
+                    1.3,
+                    if primary { ink } else { white },
+                    2,
+                    false,
+                );
+                self.hits.push((r, Hit::Discord(i)));
             }
         }
     }
@@ -1439,13 +1625,18 @@ impl Page {
         );
         let field = [edge + col - 204., top - 39., edge + col, top - 9.];
         Self::rect(b, m, field, t.solid, [0., 0., 0., 0.4]);
+        let field_border = if self.game_dropdown {
+            accent
+        } else {
+            [1., 1., 1., 0.22]
+        };
         for r in [
             [field[0], field[1], field[2], field[1] + 1.],
             [field[0], field[3] - 1., field[2], field[3]],
             [field[0], field[1], field[0] + 1., field[3]],
             [field[2] - 1., field[1], field[2], field[3]],
         ] {
-            Self::rect(b, m, r, t.solid, [1., 1., 1., 0.22]);
+            Self::rect(b, m, r, t.solid, field_border);
         }
         self.label(
             b,
@@ -1459,18 +1650,18 @@ impl Page {
             0,
             false,
         );
-        self.label(
-            b,
-            m,
-            field[2] - 12.,
-            field[1] + 20.,
-            "v",
-            12.,
-            0.,
-            accent,
-            1,
-            false,
+        let arrow_x = field[2] - 20.;
+        let arrow_y = (field[1] + field[3]) / 2. - 2.;
+        let l = rotate_z(
+            translate(m, arrow_x, arrow_y, 0.),
+            std::f64::consts::FRAC_PI_4,
         );
+        let r = rotate_z(
+            translate(m, arrow_x + 5., arrow_y + 5., 0.),
+            -std::f64::consts::FRAC_PI_4,
+        );
+        Self::rect(b, l, [0., -1., 7.2, 1.], t.solid, accent);
+        Self::rect(b, r, [0., -1., 7.2, 1.], t.solid, accent);
         self.hits.push((field, Hit::Game));
         self.label(
             b,
@@ -1556,15 +1747,21 @@ impl Page {
         let first = self.ia_first[1];
         for (row, entry) in a.ia_entries.iter().enumerate().skip(first).take(shown) {
             let y = top + 4. + (row - first) as f64 * rh;
+            let row_focused = row == a.ia_selected_cursor && a.ia_focus == IaFocus::Selected;
             if row == a.ia_selected_cursor {
                 Self::rect(
                     b,
                     m,
                     [right + 4., y, right + col - 4., (y + rh).min(bottom - 1.)],
                     t.solid,
-                    [accent[0], accent[1], accent[2], 0.20],
+                    if row_focused {
+                        accent
+                    } else {
+                        [accent[0], accent[1], accent[2], 0.20]
+                    },
                 );
             }
+            let fg = if row_focused { ink } else { white };
             if let Some(map) = a.data.maps.iter().find(|map| map.id == entry.map) {
                 self.label(
                     b,
@@ -1574,28 +1771,40 @@ impl Page {
                     &map.name,
                     12.,
                     0.96,
-                    white,
+                    fg,
                     0,
                     false,
                 );
             }
-            let era = if entry.era.as_deref() == Some("cw") {
-                "REP  CIS"
+            let badges = if entry.era.as_deref() == Some("cw") {
+                [("REP", right + col - 76., 29.), ("CIS", right + col - 42., 26.)]
             } else {
-                "REB  IMP"
+                [("IMP", right + col - 76., 29.), ("REB", right + col - 42., 26.)]
             };
-            self.label(
-                b,
-                m,
-                right + col - 12.,
-                y + rh * 0.70,
-                era,
-                9.,
-                0.5,
-                white,
-                1,
-                false,
-            );
+            let by = (y + (rh - 18.) / 2.).round();
+            let border = [fg[0], fg[1], fg[2], 0.85];
+            for (tag, bx, bw) in badges {
+                for line in [
+                    [bx, by, bx + bw, by + 1.],
+                    [bx, by + 17., bx + bw, by + 18.],
+                    [bx, by, bx + 1., by + 18.],
+                    [bx + bw - 1., by, bx + bw, by + 18.],
+                ] {
+                    Self::rect(b, m, line, t.solid, border);
+                }
+                self.label(
+                    b,
+                    m,
+                    bx + bw / 2.,
+                    by + 13.,
+                    tag,
+                    9.,
+                    0.5,
+                    fg,
+                    2,
+                    false,
+                );
+            }
             self.hits
                 .push(([right, y, right + col, y + rh], Hit::Entry(row)));
         }
@@ -1693,18 +1902,35 @@ impl Page {
             self.hits.push((r, Hit::Ia(focus)));
         }
         if self.game_dropdown {
-            for (i, (_, label, enabled)) in a.ia_game_picker_options().iter().enumerate() {
-                let y = field[3] + i as f64 * 30.;
-                let r = [field[0], y, field[2] + 60., y + 30.];
-                Self::rect(b, m, r, t.solid, [0.03, 0.04, 0.06, 1.]);
+            let options = a.ia_game_picker_options();
+            let menu = [
+                field[0] - 44.,
+                field[3],
+                field[2],
+                field[3] + options.len() as f64 * 26.,
+            ];
+            for (i, (_, label, enabled)) in options.iter().enumerate() {
+                let y = field[3] + i as f64 * 26.;
+                let r = [menu[0], y, menu[2], y + 26.];
+                Self::rect(
+                    b,
+                    m,
+                    r,
+                    t.solid,
+                    if i == 0 {
+                        [25. / 255., 103. / 255., 210. / 255., 1.]
+                    } else {
+                        [0.047, 0.059, 0.082, 1.]
+                    },
+                );
                 self.label(
                     b,
                     m,
-                    r[0] + 12.,
-                    y + 21.,
+                    r[0] + 10.,
+                    y + 18.,
                     label,
-                    11.,
-                    0.5,
+                    10.,
+                    0.4,
                     if *enabled { white } else { [0.5, 0.5, 0.5, 1.] },
                     0,
                     false,
@@ -1712,6 +1938,14 @@ impl Page {
                 if *enabled {
                     self.hits.push((r, Hit::GameChoice(i)));
                 }
+            }
+            for line in [
+                [menu[0], menu[1], menu[2], menu[1] + 1.],
+                [menu[0], menu[3] - 1., menu[2], menu[3]],
+                [menu[0], menu[1], menu[0] + 1., menu[3]],
+                [menu[2] - 1., menu[1], menu[2], menu[3]],
+            ] {
+                Self::rect(b, m, line, t.solid, [0.46, 0.46, 0.46, 1.]);
             }
         }
     }
@@ -1767,5 +2001,45 @@ mod tests {
             );
             assert_eq!(page.hit(1., h * 0.8), None);
         }
+    }
+    #[test]
+    fn discord_offer_profile_uppercase_and_ia_playlist_badges() {
+        let mut app = ShellApp::new(crate::data::ShellData::default(), None);
+        app.unlock_gate();
+        let mut page = Page::new(Font::default(), Font::default());
+        let textures = ShellTextures::default();
+        let mut batch = Batch::default();
+        page.draw(&mut batch, &textures, &app, 1280., 720.);
+        assert!(!page.discord_offer);
+        app.pulse_elapsed = 1.6;
+        page.draw(&mut batch, &textures, &app, 1280., 720.);
+        assert!(page.discord_offer);
+        assert_eq!(page.hit(450., 512.), Some(Hit::Discord(0)));
+        assert_eq!(page.hit(630., 512.), Some(Hit::Discord(1)));
+        assert_eq!(page.hit(820., 512.), Some(Hit::Discord(2)));
+        assert_eq!(page.discord_key("ArrowRight"), Some(None));
+        assert_eq!(page.discord_cursor, 1);
+        assert_eq!(page.discord_key("Enter"), Some(Some("game")));
+        assert!(!page.discord_offer);
+
+        app.profile.name = "fable".into();
+        app.push_screen(ScreenId::Profile);
+        app.pulse_elapsed = 3.0;
+        page.draw(&mut batch, &textures, &app, 1280., 720.);
+        assert!(page.text.contains_key("FABLE"));
+
+        app.push_screen(ScreenId::InstantAction);
+        app.ia_entries.push(crate::launch::PlaylistEntry {
+            family: crate::launch::GameFamily::Swbf1,
+            map: "nab2".into(),
+            era: Some("cw".into()),
+            mode: "conquest".into(),
+        });
+        app.ia_focus = IaFocus::Selected;
+        page.game_dropdown = true;
+        page.draw(&mut batch, &textures, &app, 1280., 720.);
+        assert!(page.text.contains_key("REP"));
+        assert!(page.text.contains_key("CIS"));
+        assert_eq!(page.hit(250., 162.), Some(Hit::GameChoice(0)));
     }
 }
