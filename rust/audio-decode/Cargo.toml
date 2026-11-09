@@ -5,9 +5,6 @@ edition = "2021"
 license = "GPL-3.0-only"
 publish = false
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [dependencies]
 claxon = "=0.4.3"
 opus-pure = "=0.2.2"

@@ -371,7 +371,7 @@ impl BrowserKey {
 }
 
 // Advertised server IPv4/IPv6 endpoint from the master listing or `/info`
-// (`endpoints` array in `electron/network.js::withLatency`).
+// (`endpoints` array in the desktop host).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct EndpointAddr {
     // Numeric IPv4 or IPv6 literal (`"203.0.113.10"` or `"2001:db8::1"`).
@@ -525,7 +525,7 @@ pub struct RawSponsor {
 }
 
 // Deserialized server listing entry from the master server (`GET /v1/servers`),
-// LAN discovery (`BFE-LAN/1`), or direct `/info` query (`electron/network.js`).
+// LAN discovery (`BFE-LAN/1`), or direct `/info` query (the desktop host).
 // Uses `#[serde(default)]` across fields so partial LAN or mock entries parse
 // cleanly without rejecting unknown optional fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -1570,7 +1570,7 @@ mod tests {
 
     // Verifies the refresh state machine (`Initial` when idle, `Quiet` after
     // 30s when healthy, concurrent quiet refresh suppression while `busy`,
-    // stale-row preservation + 10s retry cadence on quiet failure, and Electron
+    // stale-row preservation + 10s retry cadence on quiet failure, and desktop host
     // IPC prefix stripping in `error_text`).
     #[test]
     fn schedules_periodic_refresh_and_quiet_retry_and_formats_errors(

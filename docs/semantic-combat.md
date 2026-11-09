@@ -37,7 +37,7 @@ health. Actor dead state drives persistent corpse animation, independently of
 notification delivery. Generation checks prevent old damage/death notifications
 from affecting a respawned body.
 
-The client uses the ordnance presentation phase (`rust/bfe-presentation/src/ordnance.rs`), animator, weapon flash and sound APIs.
+The client uses the ordnance presentation phase (`rust/bfe-presentation (ordnance.rs)`), animator, weapon flash and sound APIs.
 It never calls `stepBolt`, collision, or a damage hook for replicated projectiles.
 Matched local data defines the ordnance registry; the handshake compares sorted
 content paths before accepting numeric IDs.
@@ -46,7 +46,7 @@ Tests exercise actual shared bolt launch and impact, cosmetic flight,
 feedback, duplicate/reordered delivery, exact fractional lifetime, pellet identity,
 expiry garbage collection and observer fault isolation. Existing local bolt
 replication tests remain required. The two-client browser harness
-(`tests/multiplayer-browser.mjs` with `BFE_TEST_DYNAMIC=1`) covers a grenade's
+(`cargo test --locked --workspace` with `BFE_TEST_DYNAMIC=1`) covers a grenade's
 remote samples, removal and explosion delivery; that functional check does not
 qualify rendering performance or carrier-network loss.
 
@@ -58,7 +58,7 @@ client does not replay collision, homing or random bounces. Thrown items (mines
 and power-ups, which travel as item records, not combat schemas) are the one
 explicit exception: their flight is deterministic, so a page flies its copy
 with the world's own flight rules against its own collision and the server's
-item records steer it (`rust/bfe-presentation/src/items.rs`,
+item records steer it (`rust/bfe-presentation (items.rs)`,
 docs/snapshot-delta-design.md "Remote presentation"); the server alone decides
 where an item ends up and who takes it. Samples retain at most
 eight points, render three ticks behind, and extrapolate velocity by at most three
@@ -76,7 +76,7 @@ When gameplay gains a mutable projectile field, determine whether it changes
 simulation or only presentation. Keep simulation changes in shared Ordnance and
 add an explicit semantic field or event only when the remote presentation needs
 it. Own prediction recoil uses the shared recoil rule (`PlayerCombat.updateKick`,
-ported in `rust/sim/src/combat/combat.rs`) on a private copied kick state; authoritative combat and weapon state remain untouched.
+ported in `rust/sim/rust/combat/combat.rs`) on a private copied kick state; authoritative combat and weapon state remain untouched.
 
 ### Delivery and display timing
 
@@ -99,7 +99,7 @@ retransmissions are still rejected; they cannot restart an explosion.
 ### Sniper rounds online
 
 A sniper rifle's round is a 2000 m/s bolt and the head a 0.17 m sphere, so
-lag compensation has to be exact. `tools/sniper-lag-probe.mjs` models a
+lag compensation has to be exact. `cargo test --locked --workspace` models a
 shooter whose page sees the target as history recorded it (round trip, input
 lead and playout delay back), leads it by the round's flight and presses;
 the target strafes at 7 m/s. Before these changes a strafing shooter's head

@@ -931,7 +931,7 @@ impl CpuInfo {
     }
 }
 
-/// Desktop player settings snapshot (`{ complete, values }` in `electron/player-settings.js`
+/// Desktop player settings snapshot (`{ complete, values }` in the desktop host
 /// and `src/settings.js`).
 ///
 /// When `complete` is true, `values` holds the authoritative player settings across
@@ -1074,7 +1074,7 @@ impl Settings {
     }
 
     /// Serializes [`Settings`] as a desktop snapshot (`{ complete, values }`), matching
-    /// `Settings.persist()` in `src/settings.js` and `electron/player-settings.js`.
+    /// `Settings.persist()` in `src/settings.js` and the desktop host.
     pub fn to_desktop_snapshot(&self) -> DesktopSettingsSnapshot {
         let mut values = Map::new();
         // Complete records write all 59 keys in `DEFAULTS` order.

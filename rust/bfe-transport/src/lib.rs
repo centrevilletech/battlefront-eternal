@@ -10,8 +10,6 @@ pub mod connection;
 pub mod endpoint;
 pub mod stun;
 pub mod server;
-#[cfg(feature="node")]
-mod node;
 
 // Static string slices keep protocol errors copyable without allocating on the
 // packet path when a malformed frame or exhausted stream budget triggers a close.

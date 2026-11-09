@@ -2,9 +2,9 @@
 // Simulation store schema compiler (part 1): model definitions, type parser,
 // multi-pass model builder, row/record layout calculator, and Rust codegen.
 //
-// Direct port of the first half of `tools/sim-schema.mjs` (see `docs/sim-store.md`
+// Direct port of the first half of the schema generator (see `docs/sim-store.md`
 // for the store architecture). Every pass, data structure, and formatting rule
-// mirrors `tools/sim-schema.mjs` so that generated files under:
+// mirrors the schema generator so that generated files under:
 //   - `rust/sim/src/gen/` and `rust/sim/src/gen_test/`
 //   - `rust/bfe-client/src/generated_input.rs`
 //   - `rust/bfe-render/src/hud_model/layout.rs` and `src/hud-layout.js`
@@ -31,40 +31,29 @@ use crate::schema_eval::LoadedSchema;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug)]
-// Describes one schema compilation target (`TARGETS` in `tools/sim-schema.mjs`),
+// Describes one schema compilation target (`TARGETS`),
 // pairing a schema source directory with its Rust and JS output directories
 // and crate/runtime import paths.
 pub struct Target {
     pub name: &'static str,
     pub schema: &'static str,
     pub rust: &'static str,
-    pub js: &'static str,
-    pub compare: &'static str,
     pub test: bool,
 }
 
 // The two simulation store targets compiled by `sim-schema`:
-//   1. Production simulation schemas in `rust/sim/schema/` -> `rust/sim/src/gen/`
-//      and `src/sim/gen/`.
-//   2. Synthetic test schemas in `rust/sim/schema-test/` -> `rust/sim/src/gen_test/`
-//      and `tests/sim-gen/` (exercising every field/container/union combination).
+//   1. Production simulation schemas in `rust/sim/schema/` -> `rust/sim/src/gen/`.
+//   2. Synthetic test schemas in `rust/sim/schema-test/` -> `rust/sim/src/gen_test/`.
 pub const TARGETS: &[Target] = &[
-    Target { name: "gen", schema: "rust/sim/schema", rust: "rust/sim/src/gen", js: "src/sim/gen", compare: "../compare.js", test: false, },
-    Target {
-        name: "gen_test",
-        schema: "rust/sim/schema-test",
-        rust: "rust/sim/src/gen_test",
-        js: "tests/sim-gen",
-        compare: "../../src/sim/compare.js",
-        test: true,
-    },
+    Target { name: "gen", schema: "rust/sim/schema", rust: "rust/sim/src/gen", test: false },
+    Target { name: "gen_test", schema: "rust/sim/schema-test", rust: "rust/sim/src/gen_test", test: true },
 ];
 
-// Primitive scalar types recognized by `parseType()` in `tools/sim-schema.mjs`.
+// Primitive scalar types recognized by `parseType()`.
 // Fixed-size `f64xN` arrays are handled alongside scalars via `is_f64x_any`.
 const SCALARS: &[&str] = &["f64", "f32", "i32", "u32", "u8", "bool", "vec3", "quat", "mat4", "str"];
 // Rust reserved keywords that must be escaped with `r#` when used as field or
-// module identifiers (`RUST_KEYWORDS` in `tools/sim-schema.mjs`).
+// module identifiers (`RUST_KEYWORDS`).
 const RUST_KEYWORDS: &[&str] = &[
     "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for",
     "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
@@ -73,10 +62,10 @@ const RUST_KEYWORDS: &[&str] = &[
     "override", "priv", "typeof", "unsized", "virtual", "yield", "try", "gen",
 ];
 
-// Mirrors `pascal(s)` in tools/sim-schema.mjs:
+// Mirrors `pascal(s)`:
 // `s.replace(/[^A-Za-z0-9]+(.)?/g, (_, c) => (c ? c.toUpperCase() : '')).replace(/^./, (c) => c.toUpperCase())`
 // Converts an identifier `s` (`snake_case`, `kebab-case`, or `camelCase`) into
-// `PascalCase` for Rust struct/enum/variant names (`pascal(s)` in `tools/sim-schema.mjs`).
+// `PascalCase` for Rust struct/enum/variant names (`pascal(s)`).
 // Splits on any non-ASCII-alphanumeric separator and capitalizes the first
 // character of each segment while preserving interior uppercase letters.
 pub fn pascal(s: &str) -> String {
@@ -92,10 +81,10 @@ pub fn pascal(s: &str) -> String {
     out
 }
 
-// Mirrors `snake(s)` in tools/sim-schema.mjs:
+// Mirrors `snake(s)`:
 // `s.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/[^A-Za-z0-9]+/g, '_').toLowerCase()`
 // Converts a camelCase or PascalCase identifier `s` into a valid Rust
-// `snake_case` identifier (`snake(s)` in `tools/sim-schema.mjs`), inserting `_`
+// `snake_case` identifier (`snake(s)`), inserting `_`
 // at `[a-z0-9][A-Z]` transitions and escaping Rust reserved keywords (`type`,
 // `move`, `loop`, `match`, `ref`, `self`, etc.) with `r#`.
 pub fn snake(s: &str) -> String {
@@ -125,23 +114,23 @@ pub fn snake(s: &str) -> String {
 
 // Converts `s` to `snake_case` without escaping Rust keywords. Used when
 // composing larger identifiers such as `<prefix>_<field>` method names where
-// keyword escaping does not apply (`snakeBare(s)` in `tools/sim-schema.mjs`).
+// keyword escaping does not apply (`snakeBare(s)`).
 pub fn snake_bare(s: &str) -> String {
     let sn = snake(s);
     sn.strip_prefix("r#").unwrap_or(&sn).to_string()
 }
 
 // Converts `s` to `UPPER_SNAKE_CASE` for Rust and JS constant identifiers
-// (`upper(s)` in `tools/sim-schema.mjs`).
+// (`upper(s)`).
 pub fn upper(s: &str) -> String { snake_bare(s).to_uppercase() }
 
 // Returns the `KIND_<UPPER>` constant name for a store kind
-// (`kindConst(kind)` in `tools/sim-schema.mjs`).
+// (`kindConst(kind)`).
 pub fn kind_const(kind: &str) -> String { format!("KIND_{}", upper(kind)) }
 
 // Tests whether `name` matches `/^[A-Za-z_$][A-Za-z0-9_$]*$/` so JS codegen can
 // emit `.name` or unquoted object keys instead of `["name"]` (`JS_IDENT` in
-// `tools/sim-schema.mjs`).
+// the schema generator).
 fn is_js_ident(name: &str) -> bool {
     let mut chars = name.chars();
     let Some(first) = chars.next() else { return false };
@@ -150,29 +139,29 @@ fn is_js_ident(name: &str) -> bool {
 }
 
 // Tests whether `name` matches `/^\d+$/` for numeric property keys in JS
-// (`jsKey` / `jsOptKey` in `tools/sim-schema.mjs`).
+// (`jsKey` / `jsOptKey`).
 fn is_digits(name: &str) -> bool { !name.is_empty() && name.chars().all(|c| c.is_ascii_digit()) }
 
 // Formats a property access suffix on a non-null JS receiver (`.foo` for valid
 // identifiers, `[0]` for digits, or `["..."]` otherwise). Mirrors `jsKey(name)`
-// in `tools/sim-schema.mjs`.
+//.
 pub fn js_key(name: &str) -> String {
     if is_js_ident(name) { format!(".{name}") } else if is_digits(name) { format!("[{name}]") } else { format!("[{}]", quote_str(name)) }
 }
 
 // Formats an optional-chaining property access suffix (`?.foo` or `?.[key]`).
-// Mirrors `jsOptKey(name)` in `tools/sim-schema.mjs`.
+// Mirrors `jsOptKey(name)`.
 pub fn js_opt_key(name: &str) -> String {
     if is_js_ident(name) { format!("?.{name}") } else { let k = js_key(name); format!("?.{}", k.strip_prefix('.').unwrap_or(&k)) }
 }
 
 // Formats a chain of optional JS property accesses (`a?.b?.c`) for reading
-// nested source paths on live JS objects (`jsPath(path)` in `tools/sim-schema.mjs`).
+// nested source paths on live JS objects (`jsPath(path)`).
 pub fn js_path(path: &[String]) -> String { path.iter().map(|s| js_key(s)).collect::<Vec<_>>().join("") }
 
-// FNV-1a over UTF-16 code units: mirrors `fnv(text)` in tools/sim-schema.mjs.
+// FNV-1a over UTF-16 code units: mirrors `fnv(text)`.
 // Computes the 32-bit FNV-1a hash over the UTF-16 code units of `text`
-// (`fnv(text)` in `tools/sim-schema.mjs`, starting from offset basis `0x811c9dc5`
+// (`fnv(text)`, starting from offset basis `0x811c9dc5`
 // and multiplying by prime `0x01000193` with 32-bit wrapping arithmetic).
 // Used both for standalone string hashing and as the building block of
 // `Model::hash` (`LAYOUT_HASH`).
@@ -185,13 +174,13 @@ pub fn fnv(text: &str) -> u32 {
 // Describes how an optional (`T | null`) type is represented in flat `f64` words:
 // either via a sentinel value in the first word (`sentinel: "nan"` or `"-1"`
 // with `tag: 0`) or via a dedicated 1-word presence tag (`tag: 1`, `sentinel: None`).
-// Mirrors the `nullable` descriptor attached by `parseType()` in `tools/sim-schema.mjs`.
+// Mirrors the `nullable` descriptor attached by `parseType()`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Nullable { pub null: bool, pub undefined: bool, }
 
 // Describes the key type of a `map<K, V>` field: `kind` is `"str"`, `"i32"`,
 // `"enum"`, or `"union"`, and `name` holds the enum or key-union name when
-// applicable. Mirrors the `key` object in `parseType()` (`tools/sim-schema.mjs`).
+// applicable. Mirrors the `key` object in `parseType()`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MapKey {
     pub base: String, // "num" or "ref"
@@ -199,7 +188,7 @@ pub struct MapKey {
 }
 
 // Parsed representation of a schema type expression (`parseType()` in
-// `tools/sim-schema.mjs`). Covers scalars, fixed `f64xN` arrays, handles
+// the schema generator). Covers scalars, fixed `f64xN` arrays, handles
 // (`&kind`), named types (`enum`, `record`, `union`), homogeneous containers
 // (`vec<T>`, `set<T>`, `table<K>`), keyed maps (`map<K, V>`), and nullable
 // wrappers (`T | null`).
@@ -224,19 +213,19 @@ pub struct TypeSpec {
 }
 
 // Returns true if `t` is nullable (`T | null`) or a nullable handle (`&kind | null`).
-// Mirrors `optional(t)` in `tools/sim-schema.mjs`.
+// Mirrors `optional(t)`.
 pub fn optional(t: &TypeSpec) -> bool { t.nullable.null || t.nullable.undefined }
 
 // Returns true if `t` is a collection type (`vec`, `set`, `map`, or `table`)
-// whose elements live on the side-buffer heap (`container(t)` in `tools/sim-schema.mjs`).
+// whose elements live on the side-buffer heap (`container(t)`).
 pub fn container(t: &TypeSpec) -> bool { matches!(t.base.as_str(), "map" | "list" | "obj") }
 
 // Strips the outer nullable modifier from `t` while keeping its underlying kind,
-// element, and key descriptors intact (`bare(t)` in `tools/sim-schema.mjs`).
+// element, and key descriptors intact (`bare(t)`).
 pub fn bare(t: &TypeSpec) -> TypeSpec { let mut c = t.clone(); c.nullable = Nullable { null: false, undefined: false, }; c }
 
 // Splits a type expression on top-level `|` characters while ignoring `|`
-// nested inside `(...)` or `<...>`. Mirrors `bars(text)` in `tools/sim-schema.mjs`.
+// nested inside `(...)` or `<...>`. Mirrors `bars(text)`.
 fn bars(text: &str) -> Vec<&str> {
     let mut parts = Vec::new();
     let mut depth = 0i32;
@@ -257,7 +246,7 @@ fn bars(text: &str) -> Vec<&str> {
 
 // Returns true when `text` is enclosed in a single matching pair of outer
 // parentheses `(...)` so `parse_type` can unwrap grouped expressions.
-// Mirrors `grouped(text)` in `tools/sim-schema.mjs`.
+// Mirrors `grouped(text)`.
 fn grouped(text: &str) -> bool {
     if !text.starts_with('(') || !text.ends_with(')') { return false; }
     let mut depth = 0i32;
@@ -285,7 +274,7 @@ fn is_f64x_any(s: &str) -> bool { if let Some(rest) = s.strip_prefix("f64x") { i
 // rules, nullable sentinel selection (`NaN` for `f64`/`f32`/`vec3`/`quat`/`mat4`/`f64xN`,
 // `-1` for `&kind` and `enum`, or a 1-word tag for `i32`/`u32`/`u8`/`bool`/`str`/
 // `record`/`union`), and rejecting nullable containers or unknown syntax.
-// Direct port of `parseType(text, where)` in `tools/sim-schema.mjs`.
+// Direct port of `parseType(text, where)`.
 pub fn parse_type(text: &str, where_loc: &str) -> Result<TypeSpec, String> {
     let split = bars(text);
     let base_str = split[0].trim();
@@ -323,7 +312,7 @@ pub fn parse_type(text: &str, where_loc: &str) -> Result<TypeSpec, String> {
     // `list:<T>`: homogeneous array stored on the side-buffer heap as a 2-word
     // `[offset, count]` header in the parent row. Bare identifier items default
     // to entity handles (`ref:<kind>`); nested containers and nullable items
-    // without parens are rejected just like `parseType` in `tools/sim-schema.mjs`.
+    // without parens are rejected just like `parseType`.
     if let Some(rest) = base_str.strip_prefix("list:") {
         spec.base = "list".to_string();
         if let Some(item) = inner(rest, "a list's item")? { spec.value = Some(Box::new(item)); return Ok(spec); }
@@ -454,7 +443,7 @@ pub fn parse_type(text: &str, where_loc: &str) -> Result<TypeSpec, String> {
 }
 
 // A parsed field on a record or kind (`parseField(name, spec, where)` in
-// `tools/sim-schema.mjs`), recording both its JS property name and its Rust
+// the schema generator), recording both its JS property name and its Rust
 // `snake_case` identifier, parsed `TypeSpec`, storage tier (`"export"`,
 // `"import"`, or `"cold"`), and optional JS source path (`from`).
 #[derive(Clone, Debug)]
@@ -462,7 +451,7 @@ pub struct Field { pub name: String, pub js: Vec<String>, pub ty: TypeSpec, pub 
 
 // Parses a field specification from either a shorthand type string (`"f64"`)
 // or an object (`{ type, tier, from, doc }`). Mirrors `parseField()` in
-// `tools/sim-schema.mjs`.
+// the schema generator.
 fn parse_field(name: &str, spec: &JsonValue, where_loc: &str) -> Result<Field, String> {
     let (ty_str, js_opt, mirror, import) = match spec {
         JsonValue::String(s) => (s.as_str(), None, true, true),
@@ -666,7 +655,7 @@ impl<V> OrdList<V> {
 }
 
 // Complete validated and layout-resolved schema model produced by `build_model()`
-// in `tools/sim-schema.mjs`. Holds all declarations in both cross-file insertion
+//. Holds all declarations in both cross-file insertion
 // order (`OrdList`) and sorted code order (`kind_list`, `command_list`, etc.),
 // along with the 32-bit FNV-1a `hash` of the canonical layout summary.
 // Complete compiled schema model for one `Target`:
@@ -725,7 +714,7 @@ fn str_list(val: Option<&JsonValue>) -> Vec<String> {
     }
 }
 
-// Multi-pass schema compiler (`buildModel(files, target)` in `tools/sim-schema.mjs`).
+// Multi-pass schema compiler (`buildModel(files, target)`).
 //
 // Pass 1 (declaration collection): iterates `files` in sorted filename order,
 // validating top-level section keys and collecting `commands`, `events`,
@@ -1128,7 +1117,7 @@ pub fn build_model(files: &[LoadedSchema], target: Target) -> Result<Model, Stri
             .join(";")
     }
 
-    // Pass 5: layout hash calculation (`LAYOUT_HASH` in `tools/sim-schema.mjs`).
+    // Pass 5: layout hash calculation (`LAYOUT_HASH`).
     //   - Starts from the 32-bit FNV-1a offset basis (`0x811c9dc5`, initialized on
     //     `Model::hash`) and folds in canonical signature strings for every:
     //     * kind (`kind:<code>:<name>:<singleton>:<stored>:<key>:<home>:...` + field specs)
@@ -1162,7 +1151,7 @@ pub fn build_model(files: &[LoadedSchema], target: Target) -> Result<Model, Stri
 }
 
 // Returns the flat `f64` word width of `ty` inside a row or record (`words(model, type)`
-// in `tools/sim-schema.mjs`). Scalars take 1 word (`vec3` -> 3, `quat` -> 4,
+//). Scalars take 1 word (`vec3` -> 3, `quat` -> 4,
 // `mat4` -> 16, `f64xN` -> N, `str` -> 2 `[offset, len]`), containers take 2
 // words (`[offset, count]`), records take the sum of their fields' words, and
 // unions take `1 + max(variant words)`. A nullable type with a separate tag adds
@@ -1193,8 +1182,8 @@ pub fn words(model: &Model, ty: &TypeSpec) -> usize {
 }
 
 // Computes the flat `f64` word width of union `u`: 1 tag word plus the maximum
-// word width across all of its variants (`unionWords(model, u)` in `tools/sim-schema.mjs`).
-// Union word width calculator (`unionWords(model, u)` in `tools/sim-schema.mjs`):
+// word width across all of its variants (`unionWords(model, u)`).
+// Union word width calculator (`unionWords(model, u)`):
 //   - Word 0 stores the 0-based variant tag (`0.0 .. (variants.len() - 1) as f64`).
 //   - Words `1..=max_payload` store the active variant's payload (`0` words for
 //     `null`, `undefined`, and `lit:<name>`; `1` word for `ref:<kind>`; or
@@ -1212,8 +1201,8 @@ pub fn union_words(model: &Model, u: &UnionDef) -> usize {
 
 // Returns the flat `f64` word width of a `map<K, V>` key on the heap (`1` for
 // `i32`/`enum`, `2` for `str`, or `union_words` for a key union). Mirrors
-// `keyWords(model, t)` in `tools/sim-schema.mjs`.
-// Map key word width calculator (`keyWords(model, t)` in `tools/sim-schema.mjs`):
+// `keyWords(model, t)`.
+// Map key word width calculator (`keyWords(model, t)`):
 //   - When `t.key` is a union of entity references (`map:ref:<Union>:<V>`), the
 //     key takes `2` words on the heap (`[variant_tag, entity_slot]`).
 //   - For all single-type map keys (`str` `StrId`, `num` `f64`, or single
@@ -1226,11 +1215,11 @@ pub fn key_words(model: &Model, t: &TypeSpec) -> usize {
 }
 
 // Returns the flat `f64` word stride of one `map<K, V>` entry on the heap:
-// `key_words(K) + words(V)`. Mirrors `entryWords(model, t)` in `tools/sim-schema.mjs`.
+// `key_words(K) + words(V)`. Mirrors `entryWords(model, t)`.
 pub fn entry_words(model: &Model, t: &TypeSpec) -> usize { key_words(model, t) + words(model, t.value.as_ref().unwrap()) }
 
 // A field placed at a concrete `f64` word `offset` and `width` inside a row or
-// record layout (`layout()` in `tools/sim-schema.mjs`).
+// record layout (`layout()`).
 #[derive(Clone, Debug)]
 pub struct PlacedField { pub field: Field, pub at: usize, }
 
@@ -1240,7 +1229,7 @@ pub struct PlacedField { pub field: Field, pub at: usize, }
 pub struct RowLayout { pub fields: Vec<PlacedField>, pub stride: usize, }
 
 // Computes the `RowLayout` for a kind's `"exports"`, `"imports"`, or `"full"`
-// row (`layout(model, kind, which)` in `tools/sim-schema.mjs`).
+// row (`layout(model, kind, which)`).
 //   - `"exports"`: only `export`-tier fields
 //   - `"imports"`: only `import`-tier fields
 //   - `"full"`: all fields (`export`, `import`, and `cold`) in declaration order
@@ -1260,7 +1249,7 @@ pub fn layout(model: &Model, kind: &KindDef, which: &str) -> RowLayout {
 
 // Returns true when two `RowLayout`s have the exact same word count and field
 // sequence, allowing codegen to alias `full` row readers/writers to `exports`
-// when a kind has only export-tier fields (`sameLayout(a, b)` in `tools/sim-schema.mjs`).
+// when a kind has only export-tier fields (`sameLayout(a, b)`).
 pub fn same_layout(a: &RowLayout, b: &RowLayout) -> bool {
     a.stride == b.stride
         && a.fields.len() == b.fields.len()
@@ -1273,8 +1262,8 @@ pub fn same_layout(a: &RowLayout, b: &RowLayout) -> bool {
 // Returns true if record `name` contains no heap-allocated fields (no strings,
 // containers, or nested non-flat records/unions), allowing `vec<Record>` to pack
 // elements contiguously on the heap without per-element heap pointers and
-// enabling JS flat-view wrappers. Mirrors `flat(model, name)` in `tools/sim-schema.mjs`.
-// Flatness predicate for record `name` (`flat(model, name)` in `tools/sim-schema.mjs`):
+// enabling JS flat-view wrappers. Mirrors `flat(model, name)`.
+// Flatness predicate for record `name` (`flat(model, name)`):
 //   - A record is flat when none of its fields (or nested sub-records/unions)
 //     allocate on the side-buffer heap (`list`, `set`, `map`, `obj`, `typed`).
 //   - Note: `str` (`StrId`) is a 1-word interned string handle in the simulation
@@ -1295,21 +1284,21 @@ pub fn flat(model: &Model, name: &str) -> bool {
 }
 
 // Returns the total flat `f64` word width of record `name` across all of its
-// fields (`recordWords(model, name)` in `tools/sim-schema.mjs`).
+// fields (`recordWords(model, name)`).
 pub fn record_words(model: &Model, name: &str) -> usize {
     let rec = model.records.get(name).unwrap();
     rec.fields.iter().map(|f| words(model, &f.ty)).sum()
 }
 
 // Describes the return-value wire protocol of a command, event, or import
-// (`operationsOf(model)` in `tools/sim-schema.mjs`): `None` for one-way calls,
+// (`operationsOf(model)`): `None` for one-way calls,
 // `Scalar` for single-word primitive returns, or `Heap` when the answer uses
 // the return buffer (`ret` + `heap`).
 #[derive(Clone, Debug, PartialEq)]
 pub enum OpAnswers { None, Block, Scalar, }
 
 // Unified descriptor for a command, event, or import produced by
-// `operations_of(model)` (`operationsOf(model)` in `tools/sim-schema.mjs`).
+// `operations_of(model)` (`operationsOf(model)`).
 #[derive(Clone, Debug)]
 pub struct OperationSpec {
     pub name: String,
@@ -1324,8 +1313,8 @@ pub struct OperationSpec {
 
 // Collects all commands, events, and imports in sorted code order into a single
 // list of `OperationSpec` descriptors for Rust and JS dispatch codegen.
-// Mirrors `operationsOf(model)` in `tools/sim-schema.mjs`.
-// Unified operation table builder (`operationsOf(model)` in `tools/sim-schema.mjs`):
+// Mirrors `operationsOf(model)`.
+// Unified operation table builder (`operationsOf(model)`):
 //   - Combines all schema-declared `commands` with the built-in store lifecycle
 //     and query operations (`init`, `reset`, `step`, `spawn`, `remove`, etc.) into
 //     a single 1-indexed `OP_*` code space shared by Rust and JS.
@@ -1391,14 +1380,14 @@ pub fn operations_of(model: &Model) -> Vec<OperationSpec> {
 
 // Returns the Rust key type string for a `map<K, V>` field (`String`, `i32`,
 // enum PascalCase name, or synthesized key-union PascalCase name). Mirrors
-// `rustKey(model, t)` in `tools/sim-schema.mjs`.
+// `rustKey(model, t)`.
 fn rust_key(model: &Model, t: &TypeSpec) -> String {
     let k_of = t.key.as_ref().unwrap().of.as_ref().unwrap();
     if let Some(k) = model.kinds.get(k_of) { format!("Ref<{}>", k.rust) } else { k_of.clone() }
 }
 
 // Returns the Rust type string for `t` (`rustType(model, t, inner)` in
-// `tools/sim-schema.mjs`). When `inner` is false and `t` is nullable, wraps the
+// the schema generator). When `inner` is false and `t` is nullable, wraps the
 // bare Rust type in `Option<...>`.
 pub fn rust_type(model: &Model, t: &TypeSpec, inner: bool) -> String {
     // Map each bare schema `TypeSpec` to its owned Rust struct field type:
@@ -1441,20 +1430,20 @@ pub fn rust_type(model: &Model, t: &TypeSpec, inner: bool) -> String {
 // Returns `"*"` for `Copy` value types (`f64`, `f32`, `i32`, `u32`, `u8`, `bool`,
 // `vec3`, `quat`, `mat4`, `f64xN`, `&kind`, `enum`) and `""` for heap-owning or
 // composite types when iterating slices in generated Rust code. Mirrors
-// `deref(t)` in `tools/sim-schema.mjs`.
+// `deref(t)`.
 pub fn deref(t: &TypeSpec) -> &'static str {
     if matches!(t.base.as_str(), "rec" | "list" | "set" | "map" | "obj" | "typed") { "v" } else { "(*v)" }
 }
 
 // Returns `""` for `Copy` element types and `"&"` for borrowed element references
-// when iterating `Vec<T>` in generated Rust writers (`itemOf(t)` in `tools/sim-schema.mjs`).
+// when iterating `Vec<T>` in generated Rust writers (`itemOf(t)`).
 pub fn item_of(t: &TypeSpec) -> &'static str {
     if matches!(t.base.as_str(), "rec" | "list" | "set" | "map" | "obj" | "typed") { "e" } else { "(*e)" }
 }
 
 // Returns true if `t` (or any nested field/variant inside `t`) writes variable-
 // length data to `heap: &mut Vec<f64>` during `put_*` serialization (`rustOwnsHeap`
-// in `tools/sim-schema.mjs`), determining whether `heap` must be mutable/used.
+//), determining whether `heap` must be mutable/used.
 // Determines whether packing or unpacking `t` touches the `heap` side-buffer:
 //   - `list`, `set`, `map`, `obj`, and `typed` always read/write `heap`.
 //   - `rec` touches `heap` if and only if `!flat(model, rec_name)`.
@@ -1478,7 +1467,7 @@ pub fn rust_owns_heap(model: &Model, t: &TypeSpec) -> bool {
 
 // Generates the Rust statement that serializes a non-null value expression `x`
 // of bare type `t` into `row[k..]` (and `heap` when variable-length). Mirrors
-// `rustPut(model, t, x, k)` in `tools/sim-schema.mjs`.
+// `rustPut(model, t, x, k)`.
 pub fn rust_put(model: &Model, t: &TypeSpec, x: &str, k: &str) -> String {
     // Dispatch on the bare type to emit the Rust word-packing statement:
     //   - scalars pack directly into `row[k]` (casting integers/enums/bools to `f64`)
@@ -1553,7 +1542,7 @@ pub fn rust_put(model: &Model, t: &TypeSpec, x: &str, k: &str) -> String {
 // Generates the Rust statement that serializes a potentially nullable field `x`
 // of type `t` into `row[k..]`, writing either the null sentinel (`f64::NAN` /
 // `-1.0`) or tag word (`0.0` vs `1.0`) before delegating to `rust_put`.
-// Mirrors `rustPutField(model, t, x, k)` in `tools/sim-schema.mjs`.
+// Mirrors `rustPutField(model, t, x, k)`.
 pub fn rust_put_field(model: &Model, t: &TypeSpec, x: &str, k: &str) -> String {
     if !optional(t) { return rust_put(model, t, x, k); }
     let inner = rust_put(model, &bare(t), deref(t), &format!("{k} + 1"));
@@ -1567,7 +1556,7 @@ pub fn rust_put_field(model: &Model, t: &TypeSpec, x: &str, k: &str) -> String {
 }
 
 // Generates the Rust expression that decodes one scalar element of a `vec<scalar>`
-// from a single `f64` word `w` on the heap (`typedTake(elem, w)` in `tools/sim-schema.mjs`).
+// from a single `f64` word `w` on the heap (`typedTake(elem, w)`).
 fn typed_take(elem: &str, w: &str) -> String {
     match elem {
         "f64" => w.to_string(),
@@ -1584,7 +1573,7 @@ fn typed_take(elem: &str, w: &str) -> String {
 
 // Generates the Rust expression that deserializes a non-null value of bare type
 // `t` from `row[k..]` and `heap`. Mirrors `rustTake(model, t, k)` in
-// `tools/sim-schema.mjs`.
+// the schema generator.
 pub fn rust_take(model: &Model, t: &TypeSpec, k: &str) -> String {
     // Dispatch on the bare type to emit the Rust word-unpacking expression
     // from `row[k..]` and `heap`:
@@ -1657,7 +1646,7 @@ pub fn rust_take(model: &Model, t: &TypeSpec, k: &str) -> String {
 // Generates the Rust expression that deserializes a potentially nullable field
 // of type `t` from `row[k..]`, checking for `.is_nan()`, `< 0.0`, or tag `== 0.0`
 // before calling `rust_take`. Mirrors `rustTakeField(model, t, k)` in
-// `tools/sim-schema.mjs`.
+// the schema generator.
 pub fn rust_take_field(model: &Model, t: &TypeSpec, k: &str) -> String {
     if !optional(t) { return rust_take(model, t, k); }
     let inner = rust_take(model, &bare(t), &format!("{k} + 1"));
@@ -1670,7 +1659,7 @@ pub fn rust_take_field(model: &Model, t: &TypeSpec, k: &str) -> String {
 
 // Returns the Rust default initializer expression for a field of type `t` when
 // constructing a row from export-only or import-only slices (`rustColdDefault`
-// in `tools/sim-schema.mjs`).
+//).
 pub fn rust_cold_default(model: &Model, t: &TypeSpec) -> String {
     if optional(t) { return if t.nullable.null && t.nullable.undefined { "Nullable::Undefined".to_string() } else { "None".to_string() }; }
     // Default Rust field initializers for cold/unmirrored fields when constructing
@@ -1731,8 +1720,8 @@ pub fn rust_cold_default(model: &Model, t: &TypeSpec) -> String {
 
 // Emits a `#[derive(Clone, Debug, PartialEq)] pub struct <Name>` definition
 // with `Default` implementation when all fields have sensible defaults.
-// Mirrors `rustStruct(model, name, fields, doc)` in `tools/sim-schema.mjs`.
-// Struct definition and `Default` impl emitter (`rustStruct` in `tools/sim-schema.mjs`):
+// Mirrors `rustStruct(model, name, fields, doc)`.
+// Struct definition and `Default` impl emitter (`rustStruct`):
 //   - Emits `#[derive(Clone, Debug, PartialEq)] pub struct <Name>` with public
 //     fields in schema declaration order.
 //   - Generates an explicit `impl Default for <Name>` using `rust_cold_default`
@@ -1751,8 +1740,8 @@ pub fn rust_struct(model: &Model, name: &str, fields: &[Field], doc: Option<&str
 }
 
 // Emits paired `put_<suffix>` and `take_<suffix>` row serialization functions
-// for a record or kind tier (`rustRows()` in `tools/sim-schema.mjs`).
-// Row pack/unpack method pair emitter (`rustRows` in `tools/sim-schema.mjs`):
+// for a record or kind tier (`rustRows()`).
+// Row pack/unpack method pair emitter (`rustRows`):
 //   - Emits `pub fn <put_name>(&self, row: &mut [f64], heap: &mut Vec<f64>)` and
 //     `pub fn <take_name>(row: &[f64], heap: &[f64]) -> Self`.
 //   - Automatically prefixes `row` or `heap` parameter names with `_` when the
@@ -1805,8 +1794,8 @@ fn rust_rows(
 // Generates an in-place Rust deserialization statement (`take_*_into`) for one
 // field at word offset `at`, reusing existing `String` and `Vec` allocations
 // wherever possible to avoid per-tick heap churn (`rustReuseField` in
-// `tools/sim-schema.mjs`).
-// In-place field unpacker (`rustReuseField` in `tools/sim-schema.mjs`):
+// the schema generator).
+// In-place field unpacker (`rustReuseField`):
 //   - Rather than allocating a fresh `Vec` on every tick for `list`, `set`, `map`,
 //     `obj`, or `typed` fields, calls `.clear()` on the existing vector (`target`)
 //     or reuses existing `rec` elements in place when lengths match, eliminating
@@ -1832,7 +1821,7 @@ fn rust_reuse_field(model: &Model, t: &TypeSpec, target: &str, at: usize) -> Str
 }
 
 // Emits the body of `take_imports_into(&mut self, row: &[f64], heap: &[f64])`
-// for a kind or record (`rustReuseRows` in `tools/sim-schema.mjs`).
+// for a kind or record (`rustReuseRows`).
 // Generates `pub fn take_<tier>_into(&mut self, row: &[f64], heap: &[f64])`
 // for a record or kind tier, updating every placed field in place via
 // `rust_reuse_field` so existing `Vec` allocations inside `self` are retained.
@@ -1853,8 +1842,8 @@ fn rust_reuse_rows(model: &Model, placed: &[PlacedField], words_count: usize) ->
 
 // Emits the complete Rust definition for a schema record (`struct`, `WORDS`
 // constant, `Default` impl, `put`, `take`, and `take_into` methods). Mirrors
-// `rustRecord(model, rec)` in `tools/sim-schema.mjs`.
-// Record Rust codegen (`rustRecord(model, rec)` in `tools/sim-schema.mjs`):
+// `rustRecord(model, rec)`.
+// Record Rust codegen (`rustRecord(model, rec)`):
 //   - Places all fields contiguously starting at word offset 0 (`WORDS`).
 //   - Emits `pub struct <Name>`, `Default`, `put`, `take`, and `take_into`.
 //   - When `rec.publish` is non-empty, also emits `PUBLISH_WORDS` and `put_publish`
@@ -1900,8 +1889,8 @@ pub fn rust_record(model: &Model, rec: &RecordDef) -> Vec<String> {
 }
 
 // Emits a `#[repr(i32)]` Rust `enum` with `Default` (variant 0), `from_word`,
-// `to_word`, and `as_str` helpers. Mirrors `rustEnum(e)` in `tools/sim-schema.mjs`.
-// Enum Rust codegen details (`rustEnum(e)` in `tools/sim-schema.mjs`):
+// `to_word`, and `as_str` helpers. Mirrors `rustEnum(e)`.
+// Enum Rust codegen details (`rustEnum(e)`):
 //   - Emits `#[repr(u32)] #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]`.
 //   - Variant 0 is marked `#[default]` so `Default::default()` requires no manual impl.
 //   - Emits `NAMES: [&str; N]`, `from_word(w: f64) -> Self` (clamping/indexing via
@@ -1935,8 +1924,8 @@ pub fn rust_enum(e: &EnumDef) -> Vec<String> {
 
 // Emits a Rust tagged `enum` for union `u` along with `WORDS`, `Default`
 // (first variant), `put`, and `take` methods. Mirrors `rustUnion(model, u)`
-// in `tools/sim-schema.mjs`.
-// Union Rust codegen details (`rustUnion(model, u)` in `tools/sim-schema.mjs`):
+//.
+// Union Rust codegen details (`rustUnion(model, u)`):
 //   - Wire format: word 0 holds the 0-based variant tag (`0.0 .. (N-1) as f64`),
 //     and words `1..WORDS` hold the variant payload padded to the widest variant.
 //   - When `u.key_union` is true (a union of entity references used as a map key),
@@ -2046,8 +2035,8 @@ pub fn rust_union(model: &Model, u: &UnionDef) -> Vec<String> {
 // Emits the Rust `struct` and row layout constants/methods (`EXPORT_WORDS`,
 // `IMPORT_WORDS`, `FULL_WORDS`, `put_exports`, `take_exports`, `put_imports`,
 // `take_imports`, `take_imports_into`, `put_full`, `take_full`) for store kind
-// `k`. Mirrors `rustKind(model, k)` in `tools/sim-schema.mjs`.
-// Kind Rust codegen details (`rustKind(model, k)` in `tools/sim-schema.mjs`):
+// `k`. Mirrors `rustKind(model, k)`.
+// Kind Rust codegen details (`rustKind(model, k)`):
 //   - Every stored kind gets three row layouts computed by `layout()`:
 //     1. `export` (`EXPORT_WORDS`): fields with `mirror: true` (Rust -> JS).
 //     2. `import` (`IMPORT_WORDS`): fields with `import: true` (JS -> Rust).
@@ -2102,7 +2091,7 @@ pub fn rust_kind(model: &Model, k: &KindDef) -> Vec<String> {
 
 // Generates the complete `<file>.rs` module for a single schema file, emitting
 // constants, enums, records, unions, and kinds declared in `file` in declaration
-// order. Mirrors `rustFile(model, file)` in `tools/sim-schema.mjs`.
+// order. Mirrors `rustFile(model, file)`.
 pub fn rust_file(model: &Model, file: &str) -> String {
     let mut lines = vec![
         format!("// Generated by tools/sim-schema.mjs from {}/{file}.mjs; do not edit.", model.target.schema),
@@ -2122,7 +2111,7 @@ pub fn rust_file(model: &Model, file: &str) -> String {
 
 // Returns true if any declaration in `model` requires importing the store
 // helper types (`Handle`, `Table`, etc.) into `mod.rs`. Mirrors `storeTypes(model)`
-// in `tools/sim-schema.mjs`.
+//.
 fn store_types(model: &Model) -> bool {
     fn has(t: &TypeSpec) -> bool {
         t.base == "obj"
@@ -2142,8 +2131,8 @@ fn store_types(model: &Model) -> bool {
 // `rust/sim/src/gen_test/mod.rs`), declaring submodules, `LAYOUT_HASH`, kind
 // code constants (`KIND_*`), the `Kind` metadata table, the `Store` container
 // struct with per-kind slabs/singletons, and command/event/import dispatchers.
-// Mirrors `rustIndex(model)` in `tools/sim-schema.mjs`.
-// `mod.rs` Rust codegen details (`rustIndex(model)` in `tools/sim-schema.mjs`):
+// Mirrors `rustIndex(model)`.
+// `mod.rs` Rust codegen details (`rustIndex(model)`):
 //   - Re-exports all per-file modules (`pub mod <file>; pub use <file>::*;`).
 //   - Emits `LAYOUT_HASH` (`0x{:08x}`), `KIND_*`, `COMMAND_*`, `EVENT_*`, `IMPORT_*`,
 //     and `OP_*` constants in sorted name order.
@@ -2381,8 +2370,8 @@ pub fn rust_index(model: &Model) -> String {
 // Generates the command, event, and import code constants (`CMD_*`, `EVT_*`,
 // `IMP_*`), the `Commands` / `Events` / `Imports` traits, and the wire
 // dispatch functions appended to `mod.rs`. Mirrors `rustCalls(model)` in
-// `tools/sim-schema.mjs`.
-// Command, event, and import wire glue (`rustCalls(model)` in `tools/sim-schema.mjs`):
+// the schema generator.
+// Command, event, and import wire glue (`rustCalls(model)`):
 //   - For commands: emits `Store::dispatch_command` (decoding args from `row`/`heap`
 //     and encoding any result record into `out`/`out_heap`) plus per-command C-ABI
 //     or trait veneers when `c.rust` names a handler path.

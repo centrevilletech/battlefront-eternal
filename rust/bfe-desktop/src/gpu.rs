@@ -1,7 +1,7 @@
 //! GPU feature status filtering, device summary normalization, and discrete GPU
 //! switch selection.
 //!
-//! Mirrors `electron/gpu.js` (`gpuSwitches`, `FEATURES`, `gpuReport`).
+//! Mirrors the desktop host (`gpuSwitches`, `FEATURES`, `gpuReport`).
 
 use std::collections::BTreeMap;
 
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 /// GPU feature keys reported to the VIDEO OPTIONS diagnostics view.
 ///
-/// Mirrors `FEATURES` in `electron/gpu.js`.
+/// Mirrors `FEATURES` in the desktop host.
 pub const FEATURES: &[&str] = &["webgl", "webgl2", "gpu_compositing", "rasterization"];
 
 /// Returns the GPU command-line switches for `platform`.
@@ -18,7 +18,7 @@ pub const FEATURES: &[&str] = &["webgl", "webgl2", "gpu_compositing", "rasteriza
 /// high-performance discrete adapter (`force_high_performance_gpu`). On Linux,
 /// the system's own PRIME offload environment variables govern adapter choice.
 ///
-/// Mirrors `gpuSwitches` in `electron/gpu.js`.
+/// Mirrors `gpuSwitches` in the desktop host.
 pub fn gpu_switches(platform: &str) -> Vec<Vec<String>> {
     if platform == "win32" {
         vec![vec!["force_high_performance_gpu".to_string()]]
@@ -29,7 +29,7 @@ pub fn gpu_switches(platform: &str) -> Vec<Vec<String>> {
 
 /// Single GPU adapter entry inside [`GpuReport`].
 ///
-/// Mirrors the normalized `devices` items built in `gpuReport` in `electron/gpu.js`.
+/// Mirrors the normalized `devices` items built in `gpuReport` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GpuDevice {
@@ -45,7 +45,7 @@ pub struct GpuDevice {
 
 /// Complete GPU diagnostics report for the VIDEO OPTIONS screen.
 ///
-/// Mirrors the return object of `gpuReport` in `electron/gpu.js`.
+/// Mirrors the return object of `gpuReport` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GpuReport {
@@ -62,7 +62,7 @@ pub struct GpuReport {
 /// Retains only [`FEATURES`] keys in `status`, keeps at most 4 devices, and
 /// truncates `driver_version` strings to 64 characters.
 ///
-/// Mirrors `gpuReport` in `electron/gpu.js`.
+/// Mirrors `gpuReport` in the desktop host.
 pub fn gpu_report(
     raw_status: &BTreeMap<String, String>,
     raw_devices: &[GpuDevice],

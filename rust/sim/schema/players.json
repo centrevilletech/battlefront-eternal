@@ -1,0 +1,103 @@
+{
+  "enums": {
+    "PlayerLane": [
+      "actions",
+      "fire"
+    ]
+  },
+  "records": {
+    "PlayerSetup": {
+      "$layout": true,
+      "mailbox": "u32",
+      "character": "rec:F4Handle|null",
+      "spectator": "bool",
+      "reliableFire": "bool",
+      "separateActions": "bool",
+      "teamSelect": "bool",
+      "autoRespawn": "bool",
+      "ordinal": "f64",
+      "team": "f64",
+      "reconKey": "u32|null",
+      "at": "f64"
+    },
+    "PlayerLink": {
+      "$layout": true,
+      "mailbox": "u32",
+      "reliableFire": "bool",
+      "separateActions": "bool",
+      "at": "f64"
+    },
+    "PlayerFire": {
+      "$layout": true,
+      "edge": "rec:IfEdge",
+      "epochOne": "bool",
+      "pressedValid": "bool",
+      "tick": "f64",
+      "at": "f64"
+    },
+    "PlayerActions": {
+      "$layout": true,
+      "entry": "rec:IaEntry",
+      "sameEpoch": "bool",
+      "payloadValid": "bool",
+      "humanValid": "bool",
+      "human": "list:rec:IaHuman",
+      "tick": "f64",
+      "at": "f64"
+    },
+    "PlayerLanes": {
+      "$layout": true,
+      "actionsReceived": "f64",
+      "actionsAck": "f64",
+      "actionsDiscarded": "f64",
+      "fireReceived": "f64",
+      "fireButtons": "f64x2",
+      "stale": "bool",
+      "faults": "f64",
+      "outcomes": "list:rec:IaOutcome"
+    },
+    "PlayerView": {
+      "$layout": true,
+      "handle": "u32",
+      "deleted": "bool",
+      "unit": "ref:unit|null",
+      "className": "str|null",
+      "team": "f64",
+      "phase": "enum:HumanPhase",
+      "post": "str|null",
+      "spawnedOnce": "bool",
+      "deadTime": "f64",
+      "ended": "bool",
+      "disconnected": "bool",
+      "intent": "rec:Intent|null",
+      "stopped": "bool"
+    },
+    "PlayerViews": {
+      "$layout": true,
+      "players": "list:rec:PlayerView"
+    },
+    "PlayerShots": {
+      "$layout": true,
+      "handle": "u32",
+      "fire0": "f64|null",
+      "fire1": "f64|null"
+    },
+    "PlayerShotList": {
+      "$layout": true,
+      "players": "list:rec:PlayerShots"
+    },
+    "PlayerAdmission": {
+      "$layout": true,
+      "accepted": "bool",
+      "error": "str|null"
+    },
+    "PlayerSquad": {
+      "unit": "u32",
+      "life": "f64",
+      "label": "u32"
+    }
+  },
+  "events": {
+    "playerSquad": "PlayerSquad"
+  }
+}

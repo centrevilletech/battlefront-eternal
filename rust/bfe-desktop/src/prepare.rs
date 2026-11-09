@@ -1,7 +1,7 @@
 //! Prepared content version checks, toolchain paths, progress estimation, and
 //! subprocess driver (`tools/prepare_content.py`).
 //!
-//! Mirrors `electron/prepare.js` and `electron/startup-content.js`.
+//! Mirrors the desktop host and the desktop host.
 //!
 //! Note on `ContentVersion`:
 //! `tools/content-version.json` is the single shared source of truth for both
@@ -72,7 +72,7 @@ pub fn parse_content_version(raw: &str, source_label: &str) -> Result<ContentVer
 
 /// Reads and parses `<tools_dir>/content-version.json` at runtime.
 ///
-/// Mirrors how `electron/prepare.js` loads `../tools/content-version.json` from
+/// Mirrors how the desktop host loads `../tools/content-version.json` from
 /// the installed `tools` directory (`resourcesPath/tools/content-version.json`
 /// in packaged builds). Never falls back to literal numbers.
 pub fn read_content_version(tools_dir: &Path) -> Result<ContentVersion, String> {
@@ -97,17 +97,17 @@ pub fn checkout_content_version() -> Result<ContentVersion, String> {
 
 /// Top-level output entries written by `prepare_content.py` into a content folder.
 ///
-/// Mirrors `PREPARED_OUTPUTS` in `electron/prepare.js`.
+/// Mirrors `PREPARED_OUTPUTS` in the desktop host.
 pub const PREPARED_OUTPUTS: &[&str] = &["maps", "sides", "common", "audio", ".prepare.json"];
 
 /// Step statuses that represent idle or unscheduled steps rather than active work.
 ///
-/// Mirrors `IDLE` in `electron/prepare.js`.
+/// Mirrors `IDLE` in the desktop host.
 pub const IDLE_STATUSES: &[&str] = &["unavailable", "off", "left-out"];
 
 /// Baseline expected duration in seconds for each preparation step kind.
 ///
-/// Mirrors `EXPECTED` in `electron/prepare.js`.
+/// Mirrors `EXPECTED` in the desktop host.
 pub fn expected_baseline_seconds(kind: &str) -> f64 {
     match kind {
         "catalog" => 20.0,
@@ -127,7 +127,7 @@ pub fn expected_baseline_seconds(kind: &str) -> f64 {
 
 /// Options for resolving bundled toolchain and script paths.
 ///
-/// Mirrors the argument object of `toolchainPaths` in `electron/prepare.js`.
+/// Mirrors the argument object of `toolchainPaths` in the desktop host.
 #[derive(Debug, Clone)]
 pub struct ToolchainOptions {
     /// Whether the application is running from a packaged build.
@@ -144,7 +144,7 @@ pub struct ToolchainOptions {
 
 /// Resolved paths for the bundled toolchain, Python interpreter, and `prepare_content.py`.
 ///
-/// Mirrors the return object of `toolchainPaths` in `electron/prepare.js`.
+/// Mirrors the return object of `toolchainPaths` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolchainPaths {
     /// Root directory of the native helper binaries (`toolchain`).
@@ -161,7 +161,7 @@ pub struct ToolchainPaths {
 
 /// Resolves the toolchain root, `tools` directory, Python binary, and `prepare_content.py` script.
 ///
-/// Mirrors `toolchainPaths` in `electron/prepare.js`.
+/// Mirrors `toolchainPaths` in the desktop host.
 pub fn toolchain_paths(opts: &ToolchainOptions) -> ToolchainPaths {
     // Map Node/Rust platform names to the toolchain subdirectory naming convention.
     let os = match opts.platform.as_str() {
@@ -216,7 +216,7 @@ pub fn toolchain_paths(opts: &ToolchainOptions) -> ToolchainPaths {
 
 /// Options for constructing the environment variables passed to `prepare_content.py`.
 ///
-/// Mirrors the argument object of `toolEnv` in `electron/prepare.js`.
+/// Mirrors the argument object of `toolEnv` in the desktop host.
 #[derive(Debug, Clone)]
 pub struct ToolEnvOptions {
     /// Toolchain root directory resolved by [`toolchain_paths`].
@@ -236,9 +236,9 @@ pub struct ToolEnvOptions {
 /// Prepends existing `toolchain/bin` and `toolchain/ktx/bin` directories to `PATH`,
 /// configures `KTX2_ENCODER` and shared library search paths when bundled KTX tools
 /// are present, sets `BFE_GAME_DIR` / `BFE_CONTENT_DIR` and Python UTF-8/unbuffered
-/// flags, and strips `PYTHONHOME`, `PYTHONPATH`, and `ELECTRON_RUN_AS_NODE`.
+/// flags, and strips `PYTHONHOME` and `PYTHONPATH`.
 ///
-/// Mirrors `toolEnv` in `electron/prepare.js`.
+/// Mirrors `toolEnv` in the desktop host.
 pub fn tool_env(opts: &ToolEnvOptions) -> BTreeMap<String, String> {
     let is_win = opts.platform == "win32" || opts.platform == "windows";
     let sep = if is_win { ";" } else { ":" };
@@ -281,10 +281,9 @@ pub fn tool_env(opts: &ToolEnvOptions) -> BTreeMap<String, String> {
     next.insert("PYTHONDONTWRITEBYTECODE".to_string(), "1".to_string());
     next.insert("PYTHONIOENCODING".to_string(), "utf-8".to_string());
 
-    // Strip ambient Python / Electron variables that could hijack the bundled interpreter.
+    // Strip ambient Python variables that could hijack the bundled interpreter.
     next.remove("PYTHONHOME");
     next.remove("PYTHONPATH");
-    next.remove("ELECTRON_RUN_AS_NODE");
 
     let ktx_exe = ktx_bin.join(if is_win { "ktx.exe" } else { "ktx" });
     if ktx_exe.exists() {
@@ -341,7 +340,7 @@ pub struct PrepareFailureRecord {
 
 /// Deserialized representation of `<content>/.prepare.json`.
 ///
-/// Mirrors the state object read by `readPrepareState` in `electron/prepare.js`.
+/// Mirrors the state object read by `readPrepareState` in the desktop host.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrepareState {
@@ -371,7 +370,7 @@ pub struct PrepareState {
 
 /// Reads and parses `<content_dir>/.prepare.json`, returning `None` if missing or invalid.
 ///
-/// Mirrors `readPrepareState` in `electron/prepare.js`.
+/// Mirrors `readPrepareState` in the desktop host.
 pub fn read_prepare_state(content_dir: Option<&Path>) -> Option<PrepareState> {
     let dir = content_dir?;
     let raw = fs::read_to_string(dir.join(".prepare.json")).ok()?;
@@ -381,7 +380,7 @@ pub fn read_prepare_state(content_dir: Option<&Path>) -> Option<PrepareState> {
 /// Checks whether a `.prepare.json` state matches the required [`ContentVersion`]
 /// and completed with zero failed or skipped steps.
 ///
-/// Mirrors `preparedContentCurrent` in `electron/prepare.js`.
+/// Mirrors `preparedContentCurrent` in the desktop host.
 pub fn prepared_content_current(
     state: Option<&PrepareState>,
     content_version: &ContentVersion,
@@ -404,7 +403,7 @@ pub fn prepared_content_current(
 /// Normalizes a filesystem path for cross-platform comparison in `prepared_from`.
 ///
 /// On Windows and macOS, paths are compared case-insensitively after resolution.
-/// Mirrors `comparablePath` in `electron/prepare.js`.
+/// Mirrors `comparablePath` in the desktop host.
 fn comparable_path(p: &Path, platform: &str) -> String {
     let resolved = resolve_from(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")), p);
     let text = normalize_comparable_path(&resolved);
@@ -419,7 +418,7 @@ fn comparable_path(p: &Path, platform: &str) -> String {
 /// Checks whether `state` was prepared from the given `game` installation root.
 ///
 /// Compares `state.game` against `<game>/GameData/Data/_LVL_PC`.
-/// Mirrors `preparedFrom` in `electron/prepare.js`.
+/// Mirrors `preparedFrom` in the desktop host.
 pub fn prepared_from(state: Option<&PrepareState>, game: Option<&Path>, platform: &str) -> bool {
     let (Some(st), Some(game_dir)) = (state, game) else {
         return false;
@@ -441,7 +440,7 @@ pub struct WantedPrepareOptions {
 /// Checks whether `state` is current, prepared from `game`, includes the same
 /// sorted `add_ons` list, and satisfies `wanted` options (such as `enhanced_sound`).
 ///
-/// Mirrors `preparedFor` in `electron/prepare.js`.
+/// Mirrors `preparedFor` in the desktop host.
 pub fn prepared_for(
     state: Option<&PrepareState>,
     game: Option<&Path>,
@@ -483,7 +482,7 @@ pub fn prepared_for(
 
 /// Summary of add-on failures and enhanced sound status extracted from `.prepare.json`.
 ///
-/// Mirrors the return value of `preparedSummary` in `electron/prepare.js`.
+/// Mirrors the return value of `preparedSummary` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreparedSummary {
@@ -499,7 +498,7 @@ pub struct PreparedSummary {
 
 /// Extracts a [`PreparedSummary`] from an optional [`PrepareState`].
 ///
-/// Mirrors `preparedSummary` in `electron/prepare.js`.
+/// Mirrors `preparedSummary` in the desktop host.
 pub fn prepared_summary(state: Option<&PrepareState>) -> PreparedSummary {
     let failures = state
         .and_then(|s| s.failures.clone())
@@ -532,7 +531,7 @@ pub fn prepared_summary(state: Option<&PrepareState>) -> PreparedSummary {
 /// Returns `true` when existing prepared outputs were removed so a clean build
 /// from `game` can proceed without stale assets from another install.
 ///
-/// Mirrors `clearPreparedFor` in `electron/prepare.js`.
+/// Mirrors `clearPreparedFor` in the desktop host.
 pub fn clear_prepared_for(content: Option<&Path>, game: Option<&Path>, platform: &str) -> bool {
     let (Some(content_dir), Some(game_dir)) = (content, game) else {
         return false;
@@ -560,7 +559,7 @@ pub fn clear_prepared_for(content: Option<&Path>, game: Option<&Path>, platform:
 
 /// Single step entry in a [`PrepareSnapshot`].
 ///
-/// Mirrors step objects in `snapshot.steps` in `electron/prepare.js`.
+/// Mirrors step objects in `snapshot.steps` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrepareStep {
@@ -593,7 +592,7 @@ pub struct PrepareStep {
 
 /// Live snapshot of a running or completed content preparation job.
 ///
-/// Mirrors `createSnapshot()` in `electron/prepare.js`.
+/// Mirrors `createSnapshot()` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrepareSnapshot {
@@ -635,7 +634,7 @@ pub struct PrepareSnapshot {
 
 /// Creates a fresh idle [`PrepareSnapshot`].
 ///
-/// Mirrors `createSnapshot` in `electron/prepare.js`.
+/// Mirrors `createSnapshot` in the desktop host.
 pub fn create_snapshot() -> PrepareSnapshot {
     PrepareSnapshot {
         status: "idle".to_string(),
@@ -660,7 +659,7 @@ pub fn create_snapshot() -> PrepareSnapshot {
 
 /// Appends a trimmed log line to `snapshot.logs`, retaining at most the last 160 lines.
 ///
-/// Mirrors `pushLog` in `electron/prepare.js`.
+/// Mirrors `pushLog` in the desktop host.
 pub fn push_log(snapshot: &mut PrepareSnapshot, line: &str) {
     let text = line.trim();
     if text.is_empty() {
@@ -675,7 +674,7 @@ pub fn push_log(snapshot: &mut PrepareSnapshot, line: &str) {
 /// Recomputes `total`, `done`, and `percent` from `snapshot.steps`.
 ///
 /// Excludes steps whose status is in [`IDLE_STATUSES`] (`unavailable`, `off`, `left-out`).
-/// Mirrors `recount` in `electron/prepare.js`.
+/// Mirrors `recount` in the desktop host.
 pub fn recount(snapshot: &mut PrepareSnapshot) {
     let active: Vec<&PrepareStep> = snapshot
         .steps
@@ -707,7 +706,7 @@ pub fn recount(snapshot: &mut PrepareSnapshot) {
 /// Applies a JSON event emitted by `prepare_content.py` to a [`PrepareSnapshot`].
 ///
 /// Handles `"log"`, `"plan"`, `"step"`, `"playable"`, `"finished"`, `"busy"`,
-/// and `"error"` events identically to `applyEvent` in `electron/prepare.js`.
+/// and `"error"` events identically to `applyEvent` in the desktop host.
 pub fn apply_event(snapshot: &mut PrepareSnapshot, event: &Value, now_ms: u64) {
     let Some(event_type) = event.get("event").and_then(|v| v.as_str()) else {
         return;
@@ -907,7 +906,7 @@ pub type StepTimings = BTreeMap<String, Vec<f64>>;
 /// Returns the expected duration in seconds for a step kind using historical
 /// median timings when available, or [`expected_baseline_seconds`] otherwise.
 ///
-/// Mirrors `expectedSeconds` in `electron/prepare.js`.
+/// Mirrors `expectedSeconds` in the desktop host.
 pub fn expected_seconds_for_kind(kind: &str, timings: Option<&StepTimings>) -> f64 {
     if let Some(samples) = timings.and_then(|t| t.get(kind)) {
         let mut valid: Vec<f64> = samples
@@ -925,7 +924,7 @@ pub fn expected_seconds_for_kind(kind: &str, timings: Option<&StepTimings>) -> f
 
 /// Returns the expected duration in seconds for a [`PrepareStep`].
 ///
-/// Mirrors `expectedSeconds(step, timings)` in `electron/prepare.js`.
+/// Mirrors `expectedSeconds(step, timings)` in the desktop host.
 pub fn expected_seconds(step: &PrepareStep, timings: Option<&StepTimings>) -> f64 {
     expected_seconds_for_kind(&step.kind, timings)
 }
@@ -933,7 +932,7 @@ pub fn expected_seconds(step: &PrepareStep, timings: Option<&StepTimings>) -> f6
 /// Records a completed, non-cached step duration into the rolling timing history
 /// (retaining at most the last 8 samples per step kind).
 ///
-/// Mirrors `recordTiming` in `electron/prepare.js`.
+/// Mirrors `recordTiming` in the desktop host.
 pub fn record_timing(
     timings: &StepTimings,
     step: &PrepareStep,
@@ -971,7 +970,7 @@ pub struct EstimateResult {
 /// at least 3 samples have completed (clamped to `0.5..=3.0`) and accounts for
 /// parallel worker concurrency on map steps.
 ///
-/// Mirrors `estimate` in `electron/prepare.js`.
+/// Mirrors `estimate` in the desktop host.
 pub fn estimate(
     snapshot: &PrepareSnapshot,
     timings: Option<&StepTimings>,
@@ -1127,7 +1126,7 @@ pub struct PlanEstimateResult {
 
 /// Computes an upfront time estimate for a preparation plan before execution starts.
 ///
-/// Mirrors `planEstimate` in `electron/prepare.js`.
+/// Mirrors `planEstimate` in the desktop host.
 pub fn plan_estimate(
     counts: &PlanCounts,
     workers: u32,
@@ -1156,7 +1155,7 @@ pub fn plan_estimate(
 
 /// Startup content resolution mode returned by [`resolve_startup_content`].
 ///
-/// Mirrors the `mode` field returned by `startupContent` in `electron/startup-content.js`.
+/// Mirrors the `mode` field returned by `startupContent` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StartupMode {
@@ -1174,7 +1173,7 @@ pub enum StartupMode {
 
 /// Complete startup content resolution result.
 ///
-/// Mirrors the return value of `startupContent` in `electron/startup-content.js`.
+/// Mirrors the return value of `startupContent` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StartupContentResult {
     /// Startup action the desktop shell should take.
@@ -1196,7 +1195,7 @@ pub struct StartupContentResult {
 /// the compile-time embedded checkout copy, returning an explicit error if the
 /// version file is missing or unparsable.
 ///
-/// Mirrors `startupContent` in `electron/startup-content.js`.
+/// Mirrors `startupContent` in the desktop host.
 pub fn resolve_startup_content(
     settings: &SettingsStore,
     likely_content_dirs: &[PathBuf],

@@ -2,7 +2,7 @@
 //
 // Ports the direct connection dialog validation in `src/shell/direct-connect.js`
 // (`address.value.trim().replace(/^\[|\]$/g, '')`, port `1..=65535` defaulting
-// to `18451`) and the `directInfo` IPC guard in `electron/network.js`
+// to `18451`) and the `directInfo` IPC guard in the desktop host
 // (`isIP(value.address) && Number.isInteger(value.port)`), plus `HOST:PORT`
 // CLI target resolution for `online-tool ping`.
 
@@ -83,7 +83,7 @@ impl std::error::Error for DirectConnectError {}
 
 // Strips surrounding whitespace and a single pair of outer `[` / `]` brackets,
 // matching `String(address ?? '').trim().replace(/^\[|\]$/g, '')` in
-// `src/shell/direct-connect.js` and `electron/network.js`.
+// `src/shell/direct-connect.js` and the desktop host.
 pub fn strip_host_brackets(raw: &str) -> &str {
     let trimmed = raw.trim();
     let without_open = trimmed.strip_prefix('[').unwrap_or(trimmed);
@@ -119,7 +119,7 @@ pub fn parse_direct_target(address: &str, port: &str) -> Result<DirectTarget, Di
 }
 
 // Validates a `(address, port)` pair where `port` is already a numeric integer
-// (`typeof value.port === 'number'` in `electron/network.js::dispatch('directInfo')`).
+// (`typeof value.port === 'number'` in the desktop host('directInfo')`).
 // Strips optional IPv6 brackets and verifies `1 <= port <= 65535` before any
 // TCP connection is attempted by `direct_info`.
 pub fn validate_direct_endpoint(address: &str, port: i64) -> Result<DirectTarget, String> {
@@ -140,7 +140,7 @@ pub fn validate_direct_endpoint(address: &str, port: i64) -> Result<DirectTarget
 }
 
 // Parses a strict numeric IPv4 or IPv6 address literal, matching Node's
-// `net.isIP(address)` check in `electron/network.js`.
+// `net.isIP(address)` check in the desktop host.
 // Rejects leading zeros on multi-digit IPv4 octets (e.g. `.01.`) so ambiguous
 // octal-style notation is never accepted.
 pub fn parse_strict_ip(host: &str) -> Option<IpAddr> {

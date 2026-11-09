@@ -2,7 +2,7 @@
 // notice acknowledgement storage.
 //
 // Ports `loadIdentity`, `getIdentity`, `signedHeaders`, `readOnlineConsent`,
-// and `writeOnlineConsent` from `electron/network.js`, plus `verifySignature`
+// and `writeOnlineConsent` from the desktop host, plus `verifySignature`
 // and `requireNotice` from `battlefront-eternal-master/src/auth.js` and
 // `identity` / `default_identity` from `rust/bfe-client/src/online/info.rs`.
 
@@ -21,7 +21,7 @@ use sha2::{Digest, Sha256};
 
 // Online notice version required in the `x-bfe-notice` header by
 // `battlefront-eternal-master/src/auth.js` (`NOTICE_VERSION`) and stored by
-// `electron/network.js` (`ONLINE_NOTICE_VERSION`).
+// the desktop host (`ONLINE_NOTICE_VERSION`).
 pub const ONLINE_NOTICE_VERSION: &str = "2026-10-11";
 
 // Fixed ASN.1 SubjectPublicKeyInfo (SPKI) DER prefix for a 32-byte raw Ed25519
@@ -31,7 +31,7 @@ pub const ED25519_SPKI_PREFIX: [u8; 12] = [
 ];
 
 // Fixed ASN.1 PKCS#8 v1 DER prefix for a 32-byte raw Ed25519 private seed.
-// Allows reading Electron's `player-identity.json` (`privateKey` base64 DER)
+// Allows reading the desktop host's `player-identity.json` (`privateKey` base64 DER)
 // as well as the native 32-byte `identity.key` seed file.
 const ED25519_PKCS8_PREFIX: [u8; 16] = [
     0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
@@ -44,7 +44,7 @@ pub fn default_identity_path() -> Option<PathBuf> {
 }
 
 // Resolves the default online notice consent path in the user's application
-// data directory, matching `electron/network.js::consentPath`.
+// data directory, matching the desktop host.
 pub fn default_consent_path() -> Option<PathBuf> {
     default_data_dir().map(|dir| dir.join("online-consent.json"))
 }
@@ -70,7 +70,7 @@ fn default_data_dir() -> Option<PathBuf> {
     )
 }
 
-// In-memory Ed25519 player identity (`loadNetworkIdentity` in `electron/network.js`).
+// In-memory Ed25519 player identity (`loadNetworkIdentity` in the desktop host).
 // Holds the 32-byte secret seed and `ed25519_dalek::SigningKey` alongside the
 // precomputed Base64 SPKI DER public key (`x-bfe-key`) and 64-char hex player ID
 // (`sha256(publicKeyBase64)`).
@@ -98,7 +98,7 @@ impl std::fmt::Debug for PlayerIdentity {
 }
 
 // Complete set of `x-bfe-*` authentication and privacy-notice headers attached
-// to every master HTTP request in `electron/network.js::request`.
+// to every master HTTP request in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignedMasterHeaders {
     // Base64-encoded 44-byte SPKI DER Ed25519 public key (`x-bfe-key`).
@@ -115,7 +115,7 @@ pub struct SignedMasterHeaders {
 
 impl SignedMasterHeaders {
     // Header name/value pairs sent on every master HTTP request, matching
-    // `electron/network.js::signedHeaders`.
+    // the desktop host.
     pub fn as_pairs(&self) -> [(&'static str, &str); 5] {
         [
             ("x-bfe-key", self.key.as_str()),
@@ -127,7 +127,7 @@ impl SignedMasterHeaders {
     }
 }
 
-// JSON schema written by Electron's `loadNetworkIdentity` (`{ publicKey, privateKey }`)
+// JSON schema written by the desktop host's `loadNetworkIdentity` (`{ publicKey, privateKey }`)
 // where `publicKey` is Base64 SPKI DER and `privateKey` is Base64 PKCS#8 v1 DER.
 #[derive(Deserialize)]
 struct StoredJsonIdentity {
@@ -139,11 +139,11 @@ struct StoredJsonIdentity {
 
 impl PlayerIdentity {
     // Constructs a player identity from a 32-byte Ed25519 secret seed.
-    // Ports `generateIdentity` / `loadIdentity` in `electron/network.js`:
+    // Ports `generateIdentity` / `loadIdentity` in the desktop host:
     // - `public_key_b64` is standard Base64 of the 44-byte SPKI DER public key.
     // - `id_hex` is lowercase hex SHA-256 of the Base64 `public_key_b64` string
     //   (matching `crypto.createHash("sha256").update(keys.publicKey).digest("hex")`
-    //   in both `electron/network.js` and `battlefront-eternal-master/src/auth.js`).
+    //   in both the desktop host and `battlefront-eternal-master/src/auth.js`).
     pub fn from_seed(seed: [u8; 32]) -> Self {
         let signing = SigningKey::from_bytes(&seed);
         let verifying: VerifyingKey = signing.verifying_key();
@@ -174,7 +174,7 @@ impl PlayerIdentity {
     // Loads an existing identity from `path` or creates a new 32-byte seed file
     // when the file does not exist. Supports both the native 32-byte raw seed
     // format (`rust/bfe-client/src/online/info.rs::identity`) and
-    // Electron's JSON PKCS#8 format (`electron/network.js::loadIdentity`).
+    // the desktop host's JSON PKCS#8 format (the desktop host).
     pub fn load_or_create(path: &Path) -> Result<Self, String> {
         match fs::read(path) {
             Ok(bytes) => Self::from_file_bytes(&bytes, path),
@@ -186,7 +186,7 @@ impl PlayerIdentity {
                             .map_err(|e| format!("{}: {e}", parent.display()))?;
                     }
                 }
-                // Use `create_new(true)` (`flag: 'wx'` in `electron/network.js`) and
+                // Use `create_new(true)` (`flag: 'wx'` in the desktop host) and
                 // mode `0o600` on Unix so concurrent processes race safely: if another
                 // process created the identity file first (`AlreadyExists` / `EEXIST`),
                 // reload and adopt the winner's persisted key instead of overwriting it.
@@ -301,7 +301,7 @@ impl PlayerIdentity {
     }
 
     // Signs a master HTTP request at a caller-supplied Unix timestamp (seconds)
-    // and 32-char lowercase hex nonce. Ports `electron/network.js::signedHeaders`
+    // and 32-char lowercase hex nonce. Ports the desktop host
     // and `battlefront-eternal-master/src/auth.js::verifySignature`:
     //   message = "{METHOD}\n{route}\n{time}\n{nonce}\n{sha256_hex(body)}"
     pub fn sign_master_request_at(
@@ -365,13 +365,13 @@ pub fn try_read_online_consent(path: &Path) -> Result<bool, String> {
     Ok(parsed.version == ONLINE_NOTICE_VERSION)
 }
 
-// Ports `readOnlineConsent` in `electron/network.js`: returns true only when
+// Ports `readOnlineConsent` in the desktop host: returns true only when
 // the consent file exists and records `version == ONLINE_NOTICE_VERSION`.
 pub fn read_online_consent(path: &Path) -> bool {
     try_read_online_consent(path).unwrap_or(false)
 }
 
-// Ports the `'accept'` action in `electron/network.js`: records the player's
+// Ports the `'accept'` action in the desktop host: records the player's
 // acceptance of `ONLINE_NOTICE_VERSION` at the current system clock timestamp
 // so subsequent master directory and signaling requests are permitted.
 pub fn write_online_consent(path: &Path) -> Result<bool, String> {
@@ -385,7 +385,7 @@ pub fn write_online_consent(path: &Path) -> Result<bool, String> {
 // Writes `online-consent.json` atomically via a per-PID `.tmp` sibling file
 // with `0o600` permissions on Unix followed by `fs::rename`, matching the
 // `writeFileSync(temporary, ..., { mode: 0o600 }); renameSync(temporary, consentFile)`
-// pattern in `electron/network.js`.
+// pattern in the desktop host.
 pub fn write_online_consent_at(path: &Path, accepted_at_ms: u64) -> Result<bool, String> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
@@ -429,7 +429,7 @@ pub(crate) fn hex_lower(bytes: &[u8]) -> String {
 }
 
 // Validates that `value` is a 64-character lowercase hex SHA-256 digest
-// (`/^[a-f0-9]{64}$/` in `electron/network.js` and `electron/lan.js`).
+// (`/^[a-f0-9]{64}$/` in the desktop host and the desktop host).
 pub(crate) fn is_lower_hex_64(value: &str) -> bool {
     value.len() == 64
         && value
@@ -444,7 +444,7 @@ mod tests {
     // Cross-language test vector verifying that `PlayerIdentity::from_seed([1..=32])`
     // produces the exact SPKI DER Base64 `publicKey`, SHA-256 `id_hex`, uppercase
     // colon-separated `fingerprint`, and Ed25519 `x-bfe-signature` produced by
-    // Node's `node:crypto` in `electron/network.js` and `battlefront-eternal-master`.
+    // Node's `node:crypto` in the desktop host and `battlefront-eternal-master`.
     #[test]
     fn matches_node_ed25519_spki_id_fingerprint_and_master_signature() {
         let mut seed = [0u8; 32];
@@ -484,7 +484,7 @@ mod tests {
     }
 
     // Verifies atomic creation and reload of a 32-byte `identity.key` seed file,
-    // compatibility with Electron's JSON PKCS#8 `player-identity.json` format,
+    // compatibility with the desktop host's JSON PKCS#8 `player-identity.json` format,
     // and atomic persistence of `online-consent.json`.
     #[test]
     fn loads_and_persists_32_byte_seed_and_json_pkcs8() -> Result<(), Box<dyn std::error::Error>> {
@@ -503,7 +503,7 @@ mod tests {
         assert_eq!(created.id_hex(), loaded.id_hex());
         assert_eq!(created.public_key_base64(), loaded.public_key_base64());
 
-        // Also test loading Electron's JSON PKCS#8 identity format.
+        // Also test loading the desktop host's JSON PKCS#8 identity format.
         let mut pkcs8 = Vec::with_capacity(48);
         pkcs8.extend_from_slice(&ED25519_PKCS8_PREFIX);
         pkcs8.extend_from_slice(created.seed());

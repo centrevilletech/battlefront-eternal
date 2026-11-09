@@ -1,12 +1,12 @@
 // Native world-hash matrix runner (`cargo xtask matrix`), replacing the legacy
-// Node.js gate `tools/world-hash-matrix.mjs` and per-battle driver `tools/world-hash.mjs`.
+// Node.js gate the matrix runner and per-battle driver the matrix runner.
 //
 // Architecture of the world-hash gate and its post-step pipeline:
-//   - Row specification (`readMatrix` in `tools/world-hash-matrix.mjs`):
+//   - Row specification (`readMatrix` in the matrix runner):
 //     Reads `tools/world-hash-matrix.txt` (61 standing battles), stripping `#`
 //     comments and blank lines, extracting `<label> <args...>`, and computing
 //     `battles` (`2` for `--twice`, or `--battles N`) and `ticks = base_ticks * battles`.
-//   - Per-battle execution (`battle(index)` in `tools/world-hash.mjs`):
+//   - Per-battle execution (`battle(index)` in the matrix runner):
 //     Admits the world natively through one function (`admit_world`) with two
 //     runtime-selected implementations:
 //       1. Recorded admission (the row's recorded session, `<label>.jsonl.gz`)
@@ -31,7 +31,7 @@
 //     packets, applies optional `--ack` lag acknowledgements (`wire_host_op`),
 //     and emits `<prefix><tick> <state> <digest> <published>` (16-hex-char SHA-1
 //     prefixes of `worldState(game)`, `digest()`, and published packet frames).
-//   - Comparison and reporting (`compareLines` in `tools/world-hash-matrix.mjs`):
+//   - Comparison and reporting (`compareLines` in the matrix runner):
 //     Writes `<out>/<label>.<variant>.{txt,err,json}`, `summary.md`, and
 //     `summary.json`, compares every row tick by tick against `--against DIR`,
 //     prints the markdown summary table, first-divergence diagnostics, and
@@ -50,11 +50,11 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 // Names of the three per-tick SHA-1 hash columns in `<label>.<variant>.txt`,
 // matching `const COLUMNS = ['state', 'digest', 'published']` in
-// `tools/world-hash-matrix.mjs`.
+// the matrix runner.
 pub const COLUMNS: [&str; 3] = ["state", "digest", "published"];
 
 // Parsed CLI configuration for `cargo xtask matrix`, mirroring the flags of
-// `tools/world-hash-matrix.mjs` (`--against`, `--out`, `--only`, `--jobs`,
+// the matrix runner (`--against`, `--out`, `--only`, `--jobs`,
 // `--rows` / `--matrix`, `--variants`, `--variant`, `--cpus`, `--shard`,
 // `--resume`, `--compare-only`, `--require-comparison`, `--any-v8`).
 #[derive(Clone, Debug)]
@@ -81,7 +81,7 @@ pub struct MatrixArgs {
 }
 
 // One named matrix variant (default `rust` with empty extra args), corresponding
-// to `variants` entries in `tools/world-hash-matrix.mjs`.
+// to `variants` entries in the matrix runner.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VariantSpec {
     pub name: String,
@@ -89,7 +89,7 @@ pub struct VariantSpec {
 }
 
 // One battle row parsed from `tools/world-hash-matrix.txt`, corresponding to the
-// objects returned by `readMatrix(file)` in `tools/world-hash-matrix.mjs`.
+// objects returned by `readMatrix(file)` in the matrix runner.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MatrixRow {
     pub label: String,
@@ -110,7 +110,7 @@ pub struct HashLine {
 
 impl HashLine {
     // Formats the hash record back into the exact `<tick> <state> <digest> <published>`
-    // line written by `tools/world-hash.mjs`.
+    // line written by the matrix runner.
     pub fn to_line(&self) -> String {
         format!("{} {} {} {}", self.tick, self.state, self.digest, self.published)
     }
@@ -134,7 +134,7 @@ impl HashLine {
 }
 
 // Per-battle metadata stored in `<label>.<variant>.json`, matching the `meta`
-// object written by `run(task, cpu)` in `tools/world-hash-matrix.mjs`.
+// object written by `run(task, cpu)` in the matrix runner.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RowMeta {
     pub label: String,
@@ -159,7 +159,7 @@ pub struct RowMeta {
 }
 
 // First-divergence diagnostic returned by `compare_lines`, matching the object
-// returned by `compareLines(a, b)` in `tools/world-hash-matrix.mjs`.
+// returned by `compareLines(a, b)` in the matrix runner.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LineDiff {
     pub line: usize,
@@ -170,7 +170,7 @@ pub struct LineDiff {
 }
 
 // Per-variant summary inside a row of `summary.json`, matching
-// `row.variants[variant.name]` in `tools/world-hash-matrix.mjs`.
+// `row.variants[variant.name]` in the matrix runner.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct VariantSummary {
     pub exit: i32,
@@ -194,7 +194,7 @@ pub struct ComparisonEntry {
 }
 
 // Per-row summary record in `summary.json`, matching `rows` in
-// `tools/world-hash-matrix.mjs`.
+// the matrix runner.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RowSummary {
     pub label: String,
@@ -223,7 +223,7 @@ pub struct MatrixSummary {
 }
 
 // Parses command-line flags for `cargo xtask matrix`, supporting the same
-// options as `tools/world-hash-matrix.mjs` plus `--rows FILE` as an alias for
+// options as the matrix runner plus `--rows FILE` as an alias for
 // `--matrix FILE`.
 pub fn parse_args(root: &Path, argv: &[String]) -> Result<MatrixArgs, String> {
     let opt = |name: &str| -> Option<String> {
@@ -350,7 +350,7 @@ pub fn parse_args(root: &Path, argv: &[String]) -> Result<MatrixArgs, String> {
     })
 }
 
-// Ports `cpuList(text)` from `tools/world-hash-matrix.mjs`, expanding comma-
+// Ports `cpuList(text)` from the matrix runner, expanding comma-
 // separated CPU indices and inclusive `a-b` ranges.
 pub fn parse_cpu_list(text: &str) -> Result<Vec<usize>, String> {
     let mut out = Vec::new();
@@ -375,7 +375,7 @@ pub fn parse_cpu_list(text: &str) -> Result<Vec<usize>, String> {
     Ok(out)
 }
 
-// Ports `readMatrix(file)` from `tools/world-hash-matrix.mjs`: strips `#`
+// Ports `readMatrix(file)` from the matrix runner: strips `#`
 // comments, splits each non-empty line into `[label, ...args]`, checks for
 // duplicate labels, and computes `battles` and `ticks`.
 pub fn parse_matrix_rows(text: &str, source_name: &str) -> Result<Vec<MatrixRow>, String> {
@@ -429,7 +429,7 @@ pub fn parse_matrix_rows(text: &str, source_name: &str) -> Result<Vec<MatrixRow>
 
 // Reads and filters matrix rows from `file` according to the optional `--only`
 // regular expression, matching `readMatrix(matrixFile).filter(...)` in
-// `tools/world-hash-matrix.mjs`.
+// the matrix runner.
 pub fn read_matrix(file: &Path, only: Option<&str>) -> Result<Vec<MatrixRow>, String> {
     let content = fs::read_to_string(file)
         .map_err(|e| format!("failed to read {}: {e}", file.display()))?;
@@ -674,13 +674,13 @@ fn match_seq(pattern: &str, chars: &[char], pos: usize) -> Option<usize> {
 }
 
 // Constructs `<dir>/<label>.<variant>.<ext>`, matching `file(label, variant, ext, dir)`
-// in `tools/world-hash-matrix.mjs`.
+// in the matrix runner.
 pub fn artifact_path(dir: &Path, label: &str, variant: &str, ext: &str) -> PathBuf {
     dir.join(format!("{label}.{variant}.{ext}"))
 }
 
 // Reads non-empty lines from a `.txt` hash stream file, matching `linesOf(f)`
-// in `tools/world-hash-matrix.mjs`.
+// in the matrix runner.
 pub fn read_raw_lines(path: &Path) -> Option<Vec<String>> {
     let text = fs::read_to_string(path).ok()?;
     Some(
@@ -699,7 +699,7 @@ pub fn read_hash_file(path: &Path) -> Result<Vec<HashLine>, String> {
 }
 
 // Writes structured `HashLine` records to `<label>.<variant>.txt` with trailing
-// newline, matching `tools/world-hash.mjs` stdout output.
+// newline, matching the matrix runner stdout output.
 pub fn write_hash_file(path: &Path, lines: &[HashLine]) -> Result<(), String> {
     let mut out = String::with_capacity(lines.len() * 58);
     for line in lines {
@@ -710,7 +710,7 @@ pub fn write_hash_file(path: &Path, lines: &[HashLine]) -> Result<(), String> {
 }
 
 // Reads `<label>.<variant>.json` into `RowMeta`, returning `None` if missing
-// or malformed (`readJson(f)` in `tools/world-hash-matrix.mjs`).
+// or malformed (`readJson(f)` in the matrix runner).
 pub fn read_row_meta(path: &Path) -> Option<RowMeta> {
     let text = fs::read_to_string(path).ok()?;
     serde_json::from_str(&text).ok()
@@ -726,7 +726,7 @@ pub fn write_row_meta(path: &Path, meta: &RowMeta) -> Result<(), String> {
 
 // Parses `world step <ms> ms` lines from `<label>.<variant>.err` and returns
 // their mean, matching `[...log.matchAll(/world step ([0-9.]+) ms/g)]` in
-// `tools/world-hash-matrix.mjs`.
+// the matrix runner.
 pub fn parse_step_ms(err_log: &str) -> Option<f64> {
     let mut steps = Vec::new();
     let needle = "world step ";
@@ -755,7 +755,7 @@ pub fn parse_step_ms(err_log: &str) -> Option<f64> {
 }
 
 // Checks whether a battle completed cleanly (`meta.exit === 0 && meta.ticks === config.ticks`),
-// porting `whole(config, variant, dir)` from `tools/world-hash-matrix.mjs`.
+// porting `whole(config, variant, dir)` from the matrix runner.
 pub fn whole(row: &MatrixRow, variant: &str, dir: &Path) -> Option<RowMeta> {
     let meta = read_row_meta(&artifact_path(dir, &row.label, variant, "json"))?;
     if meta.exit == 0 && meta.ticks == row.ticks {
@@ -765,7 +765,7 @@ pub fn whole(row: &MatrixRow, variant: &str, dir: &Path) -> Option<RowMeta> {
     }
 }
 
-// Ports `compareLines(a, b)` from `tools/world-hash-matrix.mjs`: compares two
+// Ports `compareLines(a, b)` from the matrix runner: compares two
 // hash streams tick by tick and returns the first line that differs along with
 // the names of the differing hash columns (`state`, `digest`, `published`, or
 // `length`).
@@ -813,7 +813,7 @@ pub fn compare_lines(a: &[String], b: &[String]) -> Option<LineDiff> {
 }
 
 // Formats a `serde_json::Value` using `indent_spaces` spaces per nesting level,
-// matching V8's `JSON.stringify(value, null, 1)` used in `tools/world-hash-matrix.mjs`.
+// matching V8's `JSON.stringify(value, null, 1)` used in the matrix runner.
 pub fn format_json_indent(value: &Value, indent_spaces: usize) -> String {
     fn fmt_inner(v: &Value, depth: usize, step: usize, out: &mut String) {
         match v {
@@ -878,7 +878,7 @@ pub fn format_json_indent(value: &Value, indent_spaces: usize) -> String {
 }
 
 // Formats an integer with US thousands commas (`189000` -> `"189,000"`),
-// matching `ticksPerVariant.toLocaleString('en-US')` in `tools/world-hash-matrix.mjs`.
+// matching `ticksPerVariant.toLocaleString('en-US')` in the matrix runner.
 pub fn format_thousands(n: usize) -> String {
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
@@ -893,7 +893,7 @@ pub fn format_thousands(n: usize) -> String {
 
 // Splits `--against DIR[:VARIANT]` into `(against_dir, against_variant)`,
 // matching `const [againstDir, againstVariant = null] = against ? against.split(':') : [null]`
-// in `tools/world-hash-matrix.mjs`.
+// in the matrix runner.
 fn split_against(against: Option<&str>) -> (Option<&str>, Option<&str>) {
     let Some(raw) = against else {
         return (None, None);
@@ -906,7 +906,7 @@ fn split_against(against: Option<&str>) -> (Option<&str>, Option<&str>) {
 
 // Evaluates all comparisons across `configs` and `variants` in `out_dir` (and
 // optionally `against`), producing the `MatrixSummary` and markdown table lines
-// identical to the bottom half of `tools/world-hash-matrix.mjs`.
+// identical to the bottom half of the matrix runner.
 #[allow(clippy::too_many_arguments)]
 pub fn evaluate_matrix(
     root: &Path,
@@ -1132,7 +1132,7 @@ fn other_dir_str(path: &Path) -> String {
 }
 
 // Strips a leading `<battle>:` prefix from a hash line (`"2:1 abc..."` -> `"1 abc..."`),
-// matching `line.replace(/^\d+:/, '')` in `tools/world-hash-matrix.mjs`.
+// matching `line.replace(/^\d+:/, '')` in the matrix runner.
 fn strip_battle_prefix(line: &str) -> String {
     if let Some(colon) = line.find(':') {
         if colon > 0 && line[..colon].bytes().all(|b| b.is_ascii_digit()) {
@@ -1143,7 +1143,7 @@ fn strip_battle_prefix(line: &str) -> String {
 }
 
 // Formats the markdown summary lines written to `summary.md` and stdout,
-// matching `const table = [...]` in `tools/world-hash-matrix.mjs`.
+// matching `const table = [...]` in the matrix runner.
 pub fn render_summary_table(summary: &MatrixSummary, against_dir: Option<&str>) -> Vec<String> {
     let variants_desc: Vec<String> = summary
         .variants
@@ -1268,7 +1268,7 @@ pub fn render_summary_table(summary: &MatrixSummary, against_dir: Option<&str>) 
 }
 
 // Writes `summary.md` and `summary.json` into `out_dir`, matching the file
-// layout produced by `tools/world-hash-matrix.mjs`.
+// layout produced by the matrix runner.
 pub fn write_summary_files(
     out_dir: &Path,
     summary: &MatrixSummary,
@@ -1289,7 +1289,7 @@ pub fn write_summary_files(
 
 // Resolves git HEAD commit hash (and `+changes` suffix when `src`, `tools`, or
 // `rust` have uncommitted modifications), porting `commitOf()` from
-// `tools/world-hash-matrix.mjs`.
+// the matrix runner.
 pub fn commit_of(root: &Path) -> Option<String> {
     if let Ok(c) = std::env::var("BFE_COMMIT") {
         if !c.is_empty() {
@@ -1319,7 +1319,7 @@ pub fn commit_of(root: &Path) -> Option<String> {
 }
 
 // Formats the current UTC timestamp in ISO-8601 format (`YYYY-MM-DDTHH:MM:SS.mmmZ`),
-// matching `new Date().toISOString()` in `tools/world-hash-matrix.mjs`.
+// matching `new Date().toISOString()` in the matrix runner.
 fn iso_now() -> String {
     let dur = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1383,7 +1383,7 @@ pub fn run_matrix(root: &Path, argv: &[String]) -> Result<(), String> {
 
     // Order tasks longest battles first, preserving row order on ties, matching
     // `tasks.sort((a, b) => b.config.ticks - a.config.ticks || ...)` in
-    // `tools/world-hash-matrix.mjs`.
+    // the matrix runner.
     let mut indexed_configs: Vec<(usize, &MatrixRow)> = configs.iter().enumerate().collect();
     indexed_configs.sort_by(|(ia, a), (ib, b)| b.ticks.cmp(&a.ticks).then_with(|| ia.cmp(ib)));
 
@@ -1425,7 +1425,7 @@ pub fn run_matrix(root: &Path, argv: &[String]) -> Result<(), String> {
     let started_all = Instant::now();
     let (against_dir_str, against_variant) = split_against(args.against.as_deref());
     // Inherit the reference directory's runtime metadata (`node`, `v8`) when
-    // comparing against a reference so `tools/world-hash-matrix.mjs` and
+    // comparing against a reference so the matrix runner and
     // `cargo xtask matrix` agree on runtime comparability without `--any-v8`.
     let (node_ver, v8_ver) = against_dir_str
         .and_then(|dir| {

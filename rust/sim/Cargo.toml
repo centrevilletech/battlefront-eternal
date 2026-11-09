@@ -5,25 +5,17 @@ edition = "2021"
 license = "GPL-3.0-only"
 publish = false
 
-# The world simulation's WebAssembly module, bfe_sim: a raw module (no
-# wasm-bindgen) that src/sim/module.js instantiates with plain WebAssembly
-# APIs, in a worker, a page or Node alike, one instance a battle. It holds
-# the collision's queries, the soldiers' movement and the pose sampler
-# (once the crates rays and anim) and the entity store the simulation's
-# port builds on (docs/sim-store.md). The rlib is for the native tests.
+# The world simulation library (`bfe_sim`): collision queries, soldier movement,
+# pose sampling, and the entity store (`docs/sim-store.md`).
 [lib]
 name = "bfe_sim"
-crate-type = ["cdylib", "rlib"]
 
 [features]
 # Reading and writing the replay harness's values (rust/sim-replay, native
 # only): `cargo test -p sim --features replay` replays captured phases.
 replay = ["dep:sim-replay", "bfe-pose/replay"]
-# The navigation port's twin runner (src/bin/nav-twin.rs, tools/nav-twin.mjs),
-# off by default so `cargo test` builds no binary beside the tests: the
-# release profile aborts on a panic and tests unwind, so the lib would be
-# built twice into the same file (cargo's output filename collision), and a
-# test could link the other build's dependencies.
+# The navigation twin runner (src/bin/nav-twin.rs), off by default so `cargo test`
+# builds no binary beside the tests.
 nav-twin = []
 # Whole-world corpus runner; native entry integration is opt-in.
 world-twin = []
@@ -33,8 +25,7 @@ admit-replay = []
 # (src/bin/admit-run.rs): the native admission's acceptance sweep.
 admit-run = []
 # The world-hash matrix's per-row worker (src/bin/world-hash-native.rs, run
-# by `cargo xtask matrix`): the three per-tick hashes tools/world-hash.mjs
-# prints, from the native world.
+# by `cargo xtask matrix`): the three per-tick hashes from the native world.
 world-hash-native = ["dep:flate2", "dep:sha1", "dep:base64"]
 
 [[bin]]
@@ -63,26 +54,15 @@ path = "src/bin/world-hash-native.rs"
 required-features = ["world-hash-native"]
 
 [dependencies]
-bfe-presentation = { path = "../bfe-presentation", default-features = false }
+bfe-presentation = { path = "../bfe-presentation" }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 bfe-pose = { path = "../bfe-pose" }
 audio-control = { path = "../audio-control" }
-# The game's content as JavaScript loads it, and the JavaScript and
-# three.js arithmetic its loaders share with the simulation (a body's
-# class numbers, units/class.rs).
 content = { path = "../content" }
-# JavaScript's Math as the production server's V8 computes it.
 v8math = { path = "../v8math" }
-# three.js r170's math and Object3D transforms, operation by operation
-# (the rigs, rig/).
 three = { path = "../three" }
-# JavaScript's semantics the port keeps (Math.min/max with -0 and NaN,
-# ToUint32, V8's sort, the game's random streams and a press's seeded
-# draws, a flyer's targets in flight/targeting.rs), from P1's crate.
 jsrt = { path = "../jsrt" }
 sim-replay = { path = "../sim-replay", optional = true }
-# The matrix worker's inputs are gzip JSON and its fingerprints SHA-1
-# prefixes, as tools/world-hash.mjs makes them.
 flate2 = { version = "1", optional = true }
 sha1 = { version = "0.10", optional = true }
 base64 = { version = "0.22", optional = true }

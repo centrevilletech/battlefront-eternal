@@ -1,5 +1,5 @@
 //! Native desktop platform crate for Battlefront Eternal (`bfe-desktop`).
-//! Mirrors `electron/` modules for paths, settings, discovery, preparation,
+//! Desktop modules for paths, settings, discovery, preparation,
 //! archives, updates, launch handoff, rich presence, local server hosting,
 //! Steam, and Linux integration.
 //! Used by `bfe-client` and `desktop-tool` on Windows and Linux.

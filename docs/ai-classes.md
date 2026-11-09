@@ -1,20 +1,20 @@
 # Classic AI class jobs
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-runs in `rust/sim/src/ai/` (ported from JavaScript); API examples below
+runs in `rust/sim/rust/ai/` (ported from JavaScript); API examples below
 document its behavioral contract.
 
 
-`rust/sim/src/ai/control/classes.rs` holds the class jobs' data and pure
+`rust/sim/rust/ai/control/classes.rs` holds the class jobs' data and pure
 helpers (the repair service book, health types, ammo and placement
 arithmetic, the snipe priority heap); the control core
-(`rust/sim/src/ai/control/mod.rs`) runs the snipe and mine helpers and the
+(`rust/sim/rust/ai/control/mod.rs`) runs the snipe and mine helpers and the
 pilot/support services. The Trooper, Scout and Repair agents keep their
 state dispatch, Scout 60 to 100 second deadline, five-second pilot job scan
 and interrupt policies.
 
-The jet-hint helper is `rust/sim/src/ai/nav/jet_hints.rs`, with its running
-jobs in `rust/sim/src/ai/owned/jets.rs`. Combat's pattern 11 calls its find,
+The jet-hint helper is `rust/sim/rust/ai/nav/jet_hints.rs`, with its running
+jobs in `rust/sim/rust/ai/owned/jets.rs`. Combat's pattern 11 calls its find,
 enter, tick and exit.
 
 ## Behavior
@@ -54,12 +54,12 @@ enter, tick and exit.
 
 Normal units, weapons, mission controls and hints use the interfaces in
 `docs/ai.md`. Additional inputs, served by the core's and combat's worlds
-(`rust/sim/src/ai/control/world.rs`, `rust/sim/src/ai/combat/world.rs`):
+(`rust/sim/rust/ai/control/world.rs`, `rust/sim/rust/ai/combat/world.rs`):
 
 | Field | Contract |
 | --- | --- |
 | items (`items_len`, `item`) | Shared Items service (`items`, `owned`), or an array of item records. Items provide position, owner, team, def, gone and radius. |
-| `service_candidates(center, radius)` | Registry units and stable building/vehicle wrappers, including dead rebuildable structures (`rust/sim/src/ai/owned/services.rs`). Filtering and cap50 happen in Classes. |
+| `service_candidates(center, radius)` | Registry units and stable building/vehicle wrappers, including dead rebuildable structures (`rust/sim/rust/ai/owned/services.rs`). Filtering and cap50 happen in Classes. |
 | service candidate | position, generation, team, alive, kind, health/maxHealth (or combat equivalents), radius/sphere, healthType, optional human/humanPiloted, velocity, forward, combat.arsenal. |
 | `healthType` | Numeric0 person,1 animal,2 droid,3 vehicle,4 building,5 rebuild,6 build; classDef.HealthType strings work for ordinary types. |
 | `candidate.building` / `.vehicle` | Shared gameplay object, for comparison with `combat.repairTarget`. Wrappers must retain identity and expose live health/team fields. |
@@ -133,7 +133,7 @@ churn the main cause of everyone else's.
 - The mine veto, which looks for any hostile object near the hint, checks
   the living unit registry before items; the original combined entity insertion order can differ.
   This is an explicit adapter limit, not an alternate tactic. Repair
-  candidates (`rust/sim/src/ai/owned/services.rs`) include wrecked
+  candidates (`rust/sim/rust/ai/owned/services.rs`) include wrecked
   buildings that the living registry omits.
 - Service target reservations are local to this class binding with the
   shared three-second generation-checked lifetime. They are not yet backed
@@ -146,7 +146,7 @@ churn the main cause of everyone else's.
 
 ## Validation
 
-`rust/sim/src/ai/owned/tests/phase.rs` covers class jobs reading native ammo and
+`rust/sim/rust/ai/owned/tests/phase.rs` covers class jobs reading native ammo and
 arsenals (mine weapon choice, owned items), building repair identity, and
 jet-hint jobs (random ties, authored vectors, launch position). The per-phase
 replays (`rust/sim/tests/replay_ai.rs`) run the control core, class jobs

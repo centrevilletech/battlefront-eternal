@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Native Windows (x86_64-pc-windows-msvc) CI gate: build native client/replay/server
+# Native Windows (x86_64-pc-windows-msvc) CI gate: build native client/server
 # binaries, run device-independent crate tests, and verify CLI startup.
 set -euo pipefail
 
@@ -12,7 +12,6 @@ target="${CARGO_BUILD_TARGET:-x86_64-pc-windows-msvc}"
 echo "==> Step 1: Building Windows native executables (${target})"
 build_pkgs=(
   -p bfe-client
-  -p bfe-native
   -p bfe-online
 )
 if [[ -f "rust/bfe-server/Cargo.toml" ]]; then
@@ -27,7 +26,6 @@ cargo build --manifest-path "${manifest}" --locked --target "${target}" "${build
 echo "==> Step 2: Running device-independent Windows crate tests (${target})"
 test_crates=(
   bfe-client
-  bfe-native
   bfe-content-native
   bfe-transport
   bfe-online

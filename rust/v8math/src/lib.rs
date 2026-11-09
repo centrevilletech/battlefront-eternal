@@ -18,7 +18,7 @@
 //! - `sqrt`, `floor`, `ceil`, `trunc`, `abs` and `fround` are exact
 //!   operations, the same in every implementation.
 //!
-//! Newer V8 differs: V8 15.2 (Electron 44) computes most transcendental
+//! Newer V8 differs: V8 15.2 computes most transcendental
 //! functions with LLVM's libc instead of fdlibm and differs from V8 13.6 in
 //! the last bit of a small fraction of the results of `sin`, `cos`, `tan`,
 //! `atan`, `atan2`, `acos`, `exp`, `log`, `cbrt` and `tanh`. This crate
@@ -368,7 +368,7 @@ mod tests {
             ("atan2", &[0x8000000000000000, 0xbff0000000000000], 0xc00921fb54442d18),
             ("hypot", &[0x4008000000000000, 0x4010000000000000], 0x4014000000000000),
             ("hypot", &[0x7fe1ccf385ebc8a0, 0x7fe1ccf385ebc8a0], 0x7fe92c80954c51f5),
-            // Inputs where V8 15.2 (Electron 44) gives another last bit.
+            // Inputs where V8 15.2 gives another last bit.
             ("sin", &[0xd8d9bb0afc003ba2], 0x3fe6bde4c86e2a0e),
             ("cos", &[0xc033a28c59de50d5], 0x3fe6a09e65b26276),
             ("exp", &[0x3fd2bec48000f933], 0x3ff571de7f0febcc),

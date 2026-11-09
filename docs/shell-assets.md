@@ -221,7 +221,7 @@ Every map Instant Action lists, in its order (BES1 to YAV2).
 world (map.json's `missions`, by mission name), so each era of every map is
 `extracted` once the map is. `?map=<id>&era=<era>` plays that era's battle;
 `?map=<id>` alone plays its Clone Wars battle, or the one it has
-(`src/mission.js`). The historical versions are imported and marked
+(`rust/sim` (`mission`)). The historical versions are imported and marked
 (`historical`) for a campaign mode to come; Instant Action and servers never
 pick them. The campaign's Naboo battles are fought in worlds of their own
 (`NAB/nab1_h.lvl` and `nab2_h.lvl`, which no map extracts yet): those two are
@@ -254,7 +254,7 @@ The six segments of the `shell_music` stream, as Ogg Opus (48 kHz stereo,
   track; `duration` is in seconds.
 - How the original plays it: `shell_soundtrack` starts with
   the profile screen and cycles the initial five (CyclePlayback: in order,
-  from a random first pick as `rust/audio-control/src/engine.rs` does it), 10 s of silence
+  from a random first pick as `rust/audio-control (engine.rs)` does it), 10 s of silence
   between tracks (0 while the audio options page is open). Galactic
   Conquest switches to `shell_galacticconquest`, each briefing to its
   mission's track. The bus is `shellmusic` (gain 0.6, under `music`, `main`
@@ -370,7 +370,7 @@ once stored at 3× (Lanczos and a luma unsharp mask) to look sharper; side by
 side with the source that looked the same, since resampling cannot recover
 detail the 800×600 frames lack, and it cost most of the desktop app's
 first-launch encode. The shell now draws each movie through
-`src/shell/video-sharpen.js`: a Catmull-Rom upscale to the screen pixels it
+`rust/bfe-shell`: a Catmull-Rom upscale to the screen pixels it
 covers, then FSR 1's RCAS contrast-adaptive sharpening (strength 0.7;
 `?moviesharpen=0` to `1` overrides it, 0 shows the plain video). Without
 WebGL2 the plain `<video>` plays. The player contains the image instead of
@@ -409,7 +409,7 @@ once.
   (`shell_transition<N>.flac`) above.
 - `sound.json` and `bank.bin`: a sound sub-level named `shell`, in the form
   `tools/zero_sound.py` writes a battle's, so
-  `SoundData.load("/audio", "shell")` (`src/audio/data.js`) loads it and
+  `SoundData.load("/audio", "shell")` (`rust/audio-control`) loads it and
   the audio engine plays its sounds by name: `core.lvl`'s objects (the
   buses, `shell_select_change`, `shell_menu_accept`, `_enter`, `_cancel`,
   `_error`, `_exit`, `shell_keyboard_key`, the `load_*` sounds) and

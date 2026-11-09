@@ -1,7 +1,7 @@
 // LAN server discovery over IPv4 broadcast and IPv6 link-local multicast
 // (`BFE-LAN/1` UDP protocol on port 18452).
 //
-// Ports `electron/lan.js`, `electron/network.js::discoverLan`, and
+// Ports the desktop host, the desktop host, and
 // `battlefront-eternal-server/src/lan.js`.
 
 use std::collections::HashMap;
@@ -14,17 +14,17 @@ use crate::browser::ServerEntry;
 use crate::identity::{hex_lower, is_lower_hex_64};
 use crate::ping::{with_latency, PING_TIMEOUT};
 
-// UDP port for `BFE-LAN/1` discovery beacons (`LAN_PORT` in `electron/lan.js`).
+// UDP port for `BFE-LAN/1` discovery beacons (`LAN_PORT` in the desktop host).
 pub const LAN_PORT: u16 = 18452;
 
-// Protocol discriminator (`LAN_MAGIC` in `electron/lan.js`).
+// Protocol discriminator (`LAN_MAGIC` in the desktop host).
 pub const LAN_MAGIC: &str = "BFE-LAN/1";
 
 // IPv6 link-local multicast group `ff02::bf:1` (`LAN_MULTICAST_V6` in
-// `electron/lan.js`).
+// the desktop host).
 pub const LAN_MULTICAST_V6: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0x00bf, 0x0001);
 
-// Default discovery window (`DEFAULT_TIMEOUT_MS = 750` in `electron/lan.js`).
+// Default discovery window (`DEFAULT_TIMEOUT_MS = 750` in the desktop host).
 pub const DEFAULT_LAN_TIMEOUT: Duration = Duration::from_millis(750);
 
 // Maximum distinct servers collected in one scan (`MAX_SERVERS = 256`).
@@ -34,7 +34,7 @@ pub const MAX_LAN_SERVERS: usize = 256;
 pub const MAX_LAN_PACKET: usize = 2048;
 
 // Configuration for a single `discover_lan` UDP scan (`discoverLan({ port, timeout, targets })`
-// in `electron/lan.js`).
+// in the desktop host).
 // - `port`: destination UDP beacon port (`LAN_PORT = 18452` when `0` or default).
 // - `timeout`: collection window clamped to `1..=5000` ms (`DEFAULT_LAN_TIMEOUT = 750` ms).
 // - `targets`: explicit broadcast/multicast socket addresses (used by unit tests
@@ -68,7 +68,7 @@ impl Default for LanDiscoveryOptions {
 }
 
 // Wire format of the client -> LAN broadcast probe (`{ magic: "BFE-LAN/1", type: "discover", nonce }`
-// in `electron/lan.js`).
+// in the desktop host).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct LanDiscoverPacket<'a> {
     // Protocol discriminator (`"BFE-LAN/1"`).
@@ -81,7 +81,7 @@ struct LanDiscoverPacket<'a> {
 }
 
 // Wire format of the server -> client unicast reply (`{ magic: "BFE-LAN/1", type: "server", nonce, info }`
-// in `electron/lan.js`).
+// in the desktop host).
 #[derive(Debug, Clone, Deserialize)]
 struct LanServerPacket {
     // Protocol discriminator (`"BFE-LAN/1"`).
@@ -97,7 +97,7 @@ struct LanServerPacket {
 
 // Fallible encoder for a `BFE-LAN/1` discovery request datagram
 // (`JSON.stringify({ magic: "BFE-LAN/1", type: "discover", nonce })` in
-// `electron/lan.js`).
+// the desktop host).
 pub fn try_encode_discover_packet(nonce_hex: &str) -> Result<Vec<u8>, String> {
     serde_json::to_vec(&LanDiscoverPacket {
         magic: LAN_MAGIC,
@@ -122,7 +122,7 @@ pub fn encode_discover_packet(nonce_hex: &str) -> Vec<u8> {
 // Validates and decodes a `BFE-LAN/1` server response datagram against
 // `expected_nonce` and attaches the responder's source IP address.
 //
-// Enforces every check from the `socket.on('message')` handler in `electron/lan.js`:
+// Enforces every check from the `socket.on('message')` handler in the desktop host:
 // - Datagram size is `1..=MAX_LAN_PACKET` (2048 bytes).
 // - `magic == "BFE-LAN/1"`, `type == "server"`, and `nonce == expected_nonce`
 //   (preventing off-path or replayed UDP spoofing).
@@ -160,7 +160,7 @@ pub fn parse_server_packet(
 // Enumerates IPv4 broadcast targets (`Ipv4Addr::BROADCAST` plus per-interface
 // directed subnet broadcasts) and IPv6 link-local multicast targets
 // (`[ff02::bf:1%iface]:port`). Ports `broadcastTargets` and `multicastTargets6`
-// from `electron/lan.js`.
+// from the desktop host.
 //
 // On Unix (`cfg(unix)`), active non-loopback interfaces are enumerated via
 // `libc::getifaddrs` to emit directed IPv4 subnet broadcasts and per-interface
@@ -253,7 +253,7 @@ fn collect_lan_interfaces(_v4_broadcasts: &mut Vec<Ipv4Addr>, _v6_scopes: &mut V
 // Broadcasts a `BFE-LAN/1` discovery probe over IPv4 and IPv6 and collects
 // valid server responses within `options.timeout` (clamped to 1..=5000 ms).
 // When a host answers on both IPv4 and IPv6, prefers the IPv4 address just as
-// `electron/lan.js` does. When `options.measure_ping` is true, populates
+// the desktop host does. When `options.measure_ping` is true, populates
 // `latency_ms` via `with_latency`.
 pub fn discover_lan(options: LanDiscoveryOptions) -> Result<Vec<ServerEntry>, String> {
     let port = if options.port == 0 {
@@ -296,7 +296,7 @@ pub fn discover_lan(options: LanDiscoveryOptions) -> Result<Vec<ServerEntry>, St
 
     // Fan out the discovery probe to every configured IPv4 broadcast address
     // and IPv6 link-local multicast target (`for (const destination of destinations)
-    // socket.send(request, port, destination)` in `electron/lan.js`).
+    // socket.send(request, port, destination)` in the desktop host).
     for target in &targets {
         match target {
             SocketAddr::V4(_) => {
@@ -329,7 +329,7 @@ pub fn discover_lan(options: LanDiscoveryOptions) -> Result<Vec<ServerEntry>, St
                     continue;
                 };
                 // Matches `if (!found.has(info.id) || remote.family === 'IPv4')`
-                // in `electron/lan.js`: when a dual-stack LAN server answers on
+                // in the desktop host: when a dual-stack LAN server answers on
                 // both IPv6 multicast and IPv4 broadcast, prefer its IPv4 address
                 // while preserving the initial discovery order across distinct servers.
                 let is_v4 = remote.is_ipv4();
@@ -362,7 +362,7 @@ pub fn discover_lan(options: LanDiscoveryOptions) -> Result<Vec<ServerEntry>, St
     }
 
     // Collect discovered servers in the order their IDs were first seen,
-    // matching `Map.prototype.values()` iteration order in `electron/lan.js`.
+    // matching `Map.prototype.values()` iteration order in the desktop host.
     let servers: Vec<ServerEntry> = order
         .into_iter()
         .filter_map(|id| found.remove(&id).map(|(entry, _)| entry))
@@ -484,7 +484,7 @@ mod tests {
 
     // Verifies dual-stack deduplication: when the same server ID answers on both
     // `[::1]` (IPv6) and `127.0.0.1` (IPv4), `discover_lan` deduplicates by `id`
-    // and prefers the IPv4 responder address just as `electron/lan.js` does.
+    // and prefers the IPv4 responder address just as the desktop host does.
     #[test]
     fn discovers_lan_server_over_ipv6_and_prefers_ipv4_when_dual_stack_answers(
     ) -> Result<(), Box<dyn std::error::Error>> {

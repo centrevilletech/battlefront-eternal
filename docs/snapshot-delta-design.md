@@ -1,112 +1,76 @@
-# Snapshot publication and delta delivery
+# Snapshot & Delta Encoding Design (`rust/sim`)
 
-The implemented profile is `snapshot-delta-v1`, declared in
-`src/runtime/network-contract.js`. Local and online play use the same record
-layouts. The Rust wire owner captures canonical world state, retains baselines,
-selects publication recipients and budgets, encodes deltas and produces packet
-bytes. JavaScript carries transport facts, external acknowledgments and packet
-delivery. It does not rebuild each actor for every publication.
+## 1. Overview & Bandwidth Targets
 
-## Owners and boundaries
+The authoritative simulation runs at 60 Hz (`SIM_DT = 1/60s`) and broadcasts snapshots at 20–30 Hz (every 2–3 ticks).
+For a 32-player match with 64 AI bots, 12 vehicles, 8 command posts, and active ordnance:
+- **Uncompressed JSON full snapshot**: ~35–50 KB/snapshot (700–1500 KB/s per client; unviable for 32 clients).
+- **Quantized Delta Snapshot (`rust/sim`, `wire` module)**:
+  - Steady-state delta snapshot (20 Hz): **~800 – 1,800 bytes** (~16–36 KB/s per client).
+  - Full keyframe snapshot (on join / baseline reset): **~4,500 – 6,500 bytes**.
 
-| Responsibility | Implementation |
-| --- | --- |
-| Canonical capture | `rust/sim/src/wire/store_source.rs`, `rust/sim/src/wire/store_capture.rs` |
-| Retained publication | `rust/sim/src/wire/owner.rs`, `rust/sim/src/wire/publisher.rs`, `rust/sim/src/wire/publish_module.rs` |
-| Records and codecs | `rust/sim/src/wire/codec.rs`, `rust/sim/src/wire/records.rs`, `rust/sim/src/wire/semantic.rs` |
-| Ordered observations | `rust/sim/src/wire/journal.rs`, `rust/sim/src/wire/combat.rs`, `rust/sim/src/wire/shots.rs` |
-| Page receive and outbound input | `rust/bfe-presentation/src/network/`, `src/runtime/page-network.js` |
-| Host session | `src/runtime/snapshot-host.js`, `src/runtime/snapshot-client.js` |
+---
 
-The world, input, AI and wire owners have one battle lifetime. Entity references
-and gameplay lives qualify sampled bodies, seats and launches. Source-point
-shot, death and impact observations retain their original order; publication
-must not retap them at a different point merely to simplify batching.
+## 2. Quantization Rules
 
-## Rates and transport
+All authoritative state fields are quantized to fixed-point integers before hashing and serialization so that:
+1. `stateHash` is 100% deterministic across architectures and matches between encoder and decoder.
+2. Small floating-point jitter below perceptual thresholds does not trigger unnecessary entity delta updates.
 
-Authoritative simulation runs at 60 Hz. Online snapshots normally publish every
-two ticks, with input sent on the same even-tick cadence. Local transport can
-publish every tick. The interval is a wire field; configurable per-client rate
-tiers remain planned rather than a selectable server feature.
+| Field Category | Precision | Quantization Formula | Wire Type |
+|---|---|---|---|
+| Position (`x, y, z`) | `1 mm` (`0.001 m`) | `Math.round(v * 1000)` | `i32` |
+| Velocity (`vx, vy, vz`) | `1 cm/s` (`0.01 m/s`) | `clamp(Math.round(v * 100), -32768, 32767)` | `i16` |
+| Angles (`yaw, pitch`) | `0.001 rad` (~`0.057°`) | `clamp(Math.round(v * 1000), -32768, 32767)` | `i16` |
+| Unit Quaternion (`qx, qy, qz, qw`) | `1 / 32767` | `clamp(Math.round(v * 32767), -32767, 32767)` | `i16` |
+| Normalized Progress (`controlProgress`) | `0.001` (`0.1%`) | `clamp(Math.round(v * 1000), -1000, 1000)` | `i16` |
+| Health / Shield / Fuel / Heat | `0.1` units | `clamp(Math.round(v * 10), 0, 65535)` | `u16` |
+| Timers (`bleed`, `reload`, `respawn`) | `1 ms` | `clamp(Math.round(v * 1000), 0, 65535)` | `u16` |
 
-BFE-UDP/1 carries `state` as unreliable datagrams and `events` and `bulk` as
-independent reliable streams. Snapshot datagrams are at most 1,100 bytes inside
-the transport's 1,200-byte packet limit. State is sent immediately rather than
-queued for reliable retransmission. Congestion can skip complete publication
-opportunities; the next delta still uses a baseline that its recipient has
-acknowledged. Own corrections have their own bounded fallback cadence.
+---
 
-See [native-udp-transport.md](native-udp-transport.md) for packet protection,
-flow hints, loss recovery and channel roles.
+## 3. Baseline & Delta Compression Protocol
 
-## Snapshot records
+1. **Per-Client Baseline Tracking (`BaselineTracker` in `rust/sim`)**:
+   - The server stores a ring buffer of recent quantized `WorldSnapshot` keyframes (e.g., last 32 emitted snapshots, covering ~1.0–1.6 seconds at 20–30 Hz).
+   - Each `ClientInputPacket` carries `ackSnapshotTick`: the latest authoritative `simTick` the client has received and applied.
+   - When encoding a packet for client $C$ at `simTick`:
+     - Look up `baseline = ringBuffer.get(C.ackSnapshotTick)`.
+     - If found, encode a **Delta Snapshot** (`baselineTick = C.ackSnapshotTick`) containing only entities that were added, removed, or mutated relative to `baseline`.
+     - If `C.ackSnapshotTick == 0` or the baseline has aged out of the ring buffer, encode a **Full Snapshot** (`baselineTick = 0`).
 
-Entity snapshots use `BNS1`; own-player snapshots use `BNO1`. Headers carry the
-world epoch, snapshot tick, interval, baseline tick, part information and input
-acknowledgment. Large entity snapshots use the extended part header. Encoders
-repack parts within the same datagram budget; receivers reject invalid counts,
-indices, extents and incompatible contracts.
+2. **Entity-Level & Field-Mask Delta Encoding**:
+   - **Match State**: Included only if `phase`, `tickets[0]`, `tickets[1]`, or `bleedTimer` changed since `baseline`.
+   - **Command Posts**: Sparse array of `[cpId, ownerTeam, capturingTeam, controlProgress]` for posts whose state changed.
+   - **Players / Bots (`units`)**:
+     - Each unit has a stable `unitId` (`0 .. maxUnits - 1`).
+     - A 1-byte `changeMask` indicates which field groups changed since `baseline`:
+       - `0x01`: Identity/Meta (`team`, `classIndex`, `alive`, `isBot`, `vehicleId`, `seatIndex`)
+       - `0x02`: Transform (`pos`, `vel`)
+       - `0x04`: Orientation & Stance (`yaw`, `pitch`, `stance`, `jetpackFuel`)
+       - `0x08`: Vitals (`hp`, `shield`)
+       - `0x10`: Weapon & Ammo (`weaponSlot`, `ammoInClip`, `ammoReserve`, `heat`, `reloadingTimer`)
+       - `0x20`: Input Ack (`lastProcessedInputSeq`; human slots only)
+     - Removed/despawned unit IDs are listed in `removedUnits[]`.
+   - **Vehicles**:
+     - 1-byte `changeMask`:
+       - `0x01`: Vitals & Respawn (`alive`, `hp`, `respawnTimer`)
+       - `0x02`: Transform (`pos`, `quat`, `vel`)
+       - `0x04`: Turret Aim (`aimYaw`, `aimPitch`)
+       - `0x08`: Occupants (`occupants[]`)
+   - **Projectiles**:
+     - Newly spawned or trajectory-corrected projectiles (`spawned[]`) and destroyed/expired projectile IDs (`removed[]`).
+   - **Gameplay Events**:
+     - Reliable event log slice for ticks `(baselineTick, simTick]`, deduplicated by `eventSeq`.
 
-Entity records carry qualified identity, class and the changed quantized state.
-World records carry battle, post, roster, station, tow and other published
-state. Own records carry the exact correction and input state required to
-continue private prediction, plus personal summaries and ordered effects.
-Quantization of displayed remote state must not replace exact own-player
-replay fields.
+---
 
-A complete acknowledged snapshot is a baseline. Shared entity parts can be
-encoded once for recipients using the same baseline. Per-client own correction
-and personal data retain separate output. Loss does not acknowledge an
-incomplete baseline or let another client's acknowledgment advance this one.
-Epoch changes, stale generations and recovery from an absent baseline have
-explicit handling. Retained rings and payload arenas are bounded.
+## 4. Client Reconstruction & Verification
 
-## Input receipts and prediction
-
-Movement receipt, consumed input, discarded input and executed action/fire
-receipts are different observations. Reliable edges keep their independent
-receipt loops. Snapshot acknowledgment rides with input; transport packet
-acknowledgment alone does not acknowledge a gameplay baseline or an action.
-
-Rust `ClientPrediction` restores the authority checkpoint and replays pending
-commands with the shared soldier, droideka, vehicle, mounted-weapon and recon
-cores. Raw pointer counts preserve their command-time aim and sensitivity.
-Correction smoothing and aim previews belong to presentation, not to a second
-physics model. [network-replay-contract.md](network-replay-contract.md) describes
-which state must survive restoration and continuation.
-
-The hit-history owner in `rust/sim/src/combat/history.rs` bounds each client's
-rewind from its input lead, playout, round trip and snap allowances, within the
-retained history. It checks the current collision world as required by the
-shared shot rules. See [semantic-combat.md](semantic-combat.md).
-
-## Receive and displayed state
-
-The page passes snapshot bytes to the Rust network owner. Baselines, entity
-identity, fractional samples, interpolation and bounded extrapolation stay in
-Rust through unit, hull and ordnance presentation. Host facades retain resource
-and gameplay identities for consumers that need them; they do not provide an
-alternate JavaScript timeline algorithm.
-
-A new life cannot inherit an old body's cached pose or lease. Own-player state
-is excluded from delayed remote sampling. Pose history, displayed smoothing and
-camera state remain local presentation state. The native client's online path
-uses the same network records and presentation owners, with its admitted views
-described in [native-client.md](native-client.md).
-
-## Compatibility and checks
-
-Protocol, profile, simulation revision, correction schema and server adapter
-ABI are checked before a session is playable. `build/host-runtime.json` pins
-the compatible server. A schema or behavioral change that an old peer cannot
-interpret requires the matched contract update; there is no per-feature
-simulation fallback. See [network-contract.md](network-contract.md).
-
-Synthetic snapshot, delta, input and prediction fixtures run without game
-files. Content-backed world hashes compare state, deep digest and publication
-bytes with frozen references. Network acceptance separately exercises delay,
-loss, reordering, acknowledgment stalls, reconnect and crowded publications.
-A byte-identical codec does not by itself qualify displayed latency, server
-capacity or native host lifecycle. [host-qualification.md](host-qualification.md)
-and [world-replay.md](world-replay.md) describe those separate checks.
+When the client receives a delta packet `(simTick, baselineTick, stateHash, delta)`:
+1. Look up local baseline snapshot at `baselineTick`.
+2. Reconstruct full quantized `WorldSnapshot` for `simTick` by cloning `baseline` and applying `delta` masks and removals.
+3. Compute `computedHash = computeSnapshotHash(reconstructedSnapshot)`.
+4. Assert `computedHash === packet.stateHash`.
+   - If the hash matches, commit `reconstructedSnapshot` into the client's baseline ring buffer and advance `ackSnapshotTick = simTick`.
+   - If a hash mismatch ever occurs (e.g., corrupted state), drop the packet and set `ackSnapshotTick = 0` to request a full keyframe on the next server broadcast.

@@ -1,10 +1,9 @@
 # Native dedicated server (`bfeserver`)
 
 `bfeserver` (`rust/bfe-server`) is the standalone Rust dedicated server binary.
-It replaces the Node dedicated server (`battlefront-eternal-server`) and drives
-the authoritative simulation (`bfe-sim`), content loaders (`bfe-content` and
-`bfe-content-native`), and `BFE-UDP/1` transport (`bfe-transport`) in a single
-native binary with no Node.js runtime or `.host-runtime` bundle.
+It drives the authoritative simulation (`bfe-sim`), content loaders
+(`bfe-content` and `bfe-content-native`), and `BFE-UDP/1` transport
+(`bfe-transport`) in a single native binary.
 
 Build with `cargo build --manifest-path rust/Cargo.toml -p bfe-server --release`
 and run `bfeserver --serve`, `bfeserver --admin '{"action":"status"}'`,
@@ -15,8 +14,7 @@ administration menu.
 
 `BFE_STATE_DIR` selects the server state directory (defaulting to
 `$XDG_DATA_HOME/bfeserver` or `$HOME/.local/share/bfeserver` with mode `0700`).
-`bfeserver` reads and writes the same `config.json` keys and defaults as the
-Node server:
+`bfeserver` reads and writes `config.json` with the following keys and defaults:
 
 | Key | Default | Description |
 | --- | --- | --- |
@@ -44,11 +42,10 @@ Node server:
 
 ## Identity and global bans
 
-`identity.json` stores the server's long-term Ed25519 keypair in the same
-encoding as the Node server: `publicKey` is base64 SPKI DER (`44` bytes) and
-`privateKey` is PKCS#8 PEM (`48` bytes). The server ID is the lowercase SHA-256
-hex digest of `publicKey`. Both `BFE-UDP/1` handshakes and online master
-requests sign with this key.
+`identity.json` stores the server's long-term Ed25519 keypair: `publicKey` is
+base64 SPKI DER (`44` bytes) and `privateKey` is PKCS#8 PEM (`48` bytes). The
+server ID is the lowercase SHA-256 hex digest of `publicKey`. Both `BFE-UDP/1`
+handshakes and online master requests sign with this key.
 
 When `honorGlobalBans` is enabled, `BanCache` fetches `/v1/info` and `/v1/bans`
 from the master, pins the master's Ed25519 public key on first use in

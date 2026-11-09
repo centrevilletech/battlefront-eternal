@@ -1,8 +1,8 @@
 //! Rich presence activity formatting and state helpers for Discord and Steam Friends.
 //!
-//! Mirrors `electron/presence/activity.js` (`ERAS`, `SIDES`, `SCREENS`,
+//! Mirrors the desktop host (`ERAS`, `SIDES`, `SCREENS`,
 //! `DETAIL_LEVELS`, `fit`, `titleCase`, `discordActivity`) and
-//! `electron/presence/application.js` (`DISCORD_APPLICATION_ID`, `DISCORD_LARGE_IMAGE`).
+//! the desktop host (`DISCORD_APPLICATION_ID`, `DISCORD_LARGE_IMAGE`).
 //!
 //! ## Activity Formatting Rules
 //! - **Privacy detail levels (`DETAIL_LEVELS`)**:
@@ -22,22 +22,22 @@ use serde_json::{json, Value};
 
 /// Battlefront Eternal's public Discord Application ID.
 ///
-/// Mirrors `DISCORD_APPLICATION_ID` in `electron/presence/application.js`.
+/// Mirrors `DISCORD_APPLICATION_ID` in the desktop host.
 pub const DISCORD_APPLICATION_ID: &str = "1561126739894210652";
 
 /// Rich Presence large image asset key (`"logo"`).
 ///
-/// Mirrors `DISCORD_LARGE_IMAGE` in `electron/presence/application.js`.
+/// Mirrors `DISCORD_LARGE_IMAGE` in the desktop host.
 pub const DISCORD_LARGE_IMAGE: &str = "logo";
 
 /// Supported Discord presence detail levels (`"full"`, `"game"`, `"off"`).
 ///
-/// Mirrors `DETAIL_LEVELS` in `electron/presence/activity.js`.
+/// Mirrors `DETAIL_LEVELS` in the desktop host.
 pub const DETAIL_LEVELS: &[&str] = &["full", "game", "off"];
 
 /// Returns the display name for an era code (`"cw"` -> `"Clone Wars"`, `"gcw"` -> `"Galactic Civil War"`).
 ///
-/// Mirrors `ERAS` in `electron/presence/activity.js`.
+/// Mirrors `ERAS` in the desktop host.
 pub fn era_name(era: &str) -> Option<&'static str> {
     // Map lowercase era codes (`cw`, `gcw`) to their full Star Wars era labels.
     match era {
@@ -49,7 +49,7 @@ pub fn era_name(era: &str) -> Option<&'static str> {
 
 /// Returns the display name for a side code (`"rep"`, `"cis"`, `"imp"`, `"all"`).
 ///
-/// Mirrors `SIDES` in `electron/presence/activity.js`.
+/// Mirrors `SIDES` in the desktop host.
 pub fn side_name(side: &str) -> Option<&'static str> {
     // Map lowercase 3-letter side codes to their Discord rich presence labels.
     match side {
@@ -63,7 +63,7 @@ pub fn side_name(side: &str) -> Option<&'static str> {
 
 /// Returns the menu subtitle for a front-end screen ID (`"ia"`, `"sp"`, `"mp"`).
 ///
-/// Mirrors `SCREENS` in `electron/presence/activity.js`.
+/// Mirrors `SCREENS` in the desktop host.
 pub fn screen_subtitle(screen: &str) -> Option<&'static str> {
     // Map front-end menu screen identifiers to their secondary activity text.
     match screen {
@@ -77,7 +77,7 @@ pub fn screen_subtitle(screen: &str) -> Option<&'static str> {
 /// whitespace, returning `None` when fewer than 2 characters remain, and
 /// truncating with a single ellipsis (`\u{2026}`) when longer than `max`.
 ///
-/// Mirrors `fit` in `electron/presence/activity.js`.
+/// Mirrors `fit` in the desktop host.
 pub fn fit(text: Option<&str>, max: usize) -> Option<String> {
     // Collapse consecutive ASCII/Unicode whitespace into single spaces.
     let raw = text?;
@@ -99,7 +99,7 @@ pub fn fit(text: Option<&str>, max: usize) -> Option<String> {
 /// Converts an all-uppercase catalog title such as `"NABOO: THEED"` into
 /// title case (`"Naboo: Theed"`), leaving mixed-case strings untouched.
 ///
-/// Mirrors `titleCase` in `electron/presence/activity.js`.
+/// Mirrors `titleCase` in the desktop host.
 pub fn title_case(name: &str) -> String {
     // Preserve strings that already contain lowercase characters.
     let text = name.trim();
@@ -140,7 +140,7 @@ pub struct PresenceServerInfo {
 
 /// Scene state consumed by [`discord_activity`].
 ///
-/// Mirrors the `state` object passed to `discordActivity` in `electron/presence/activity.js`.
+/// Mirrors the `state` object passed to `discordActivity` in the desktop host.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PresenceSceneState {
@@ -178,7 +178,7 @@ pub struct PresenceSceneState {
 /// (`"full"`, `"game"`, or `"off"`), and art asset key `image`.
 ///
 /// Returns `None` when `detail == "off"` or `state.scene == "unknown"`.
-/// Mirrors `discordActivity` in `electron/presence/activity.js`.
+/// Mirrors `discordActivity` in the desktop host.
 pub fn discord_activity(
     state: &PresenceSceneState,
     detail: &str,

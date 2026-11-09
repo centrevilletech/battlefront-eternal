@@ -9,7 +9,7 @@ cd "${repo_root}"
 
 manifest="rust/Cargo.toml"
 
-# Flip these to 1 after the workspace hygiene pass formats and clears legacy
+# Flip these to 1 after the workspace hygiene pass formats and clears
 # lint warnings across the pre-existing crates.
 BFE_CI_STRICT_FMT="${BFE_CI_STRICT_FMT:-0}"
 BFE_CI_STRICT_CLIPPY="${BFE_CI_STRICT_CLIPPY:-0}"
@@ -69,7 +69,6 @@ pre_hygiene_crates=(
   audio-control
   bfe-client
   bfe-content-native
-  bfe-native
   bfe-transport
 )
 
@@ -113,7 +112,6 @@ base_test_crates=(
   audio-control
   bfe-client
   bfe-content-native
-  bfe-native
   bfe-transport
   bfe-online
 )

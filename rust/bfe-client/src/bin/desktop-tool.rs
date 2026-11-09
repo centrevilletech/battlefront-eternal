@@ -25,8 +25,8 @@
 //!   attempts a non-fatal local Discord IPC publish.
 //! - `desktop-tool host <start|status|stop|attach|join|restart|kick|ban|unban> [flags]`
 //!   Starts, queries, attaches to, or stops a detached `bfeserver` instance via
-//!   [`HostController`](bfe_desktop::host::HostController), porting `electron/host.js`
-//!   and the keep-running close workflow from `electron/main.js`.
+//!   [`HostController`](bfe_desktop::host::HostController), porting the desktop host
+//!   and the keep-running close workflow from the desktop host.
 //!   Supports `--state-dir`, `--content-dir`, `--server-bin`, `--admin-port`, `--game-port`,
 //!   `--name`, `--mode <lan|public>`, `--map`, `--side`, `--max-players`, and `--relay`.
 //!
@@ -63,7 +63,7 @@ use bfe_desktop::update::keys::{default_keys, FEED};
 use bfe_desktop::update::state::{choose_launch, installed_versions, platform_key, read_state, state_file_path};
 use bfe_desktop::update::version::is_newer;
 
-/// Returns the platform string matching Node/Electron conventions (`"linux"`, `"darwin"`, `"win32"`).
+/// Returns the platform string matching platform conventions (`"linux"`, `"darwin"`, `"win32"`).
 fn current_platform_str() -> &'static str {
     // Map Rust target_os values to the platform strings expected by `bfe-desktop`.
     if cfg!(target_os = "windows") {
@@ -75,7 +75,7 @@ fn current_platform_str() -> &'static str {
     }
 }
 
-/// Returns the CPU architecture string matching Node/Electron conventions (`"x64"`, `"arm64"`).
+/// Returns the CPU architecture string matching platform conventions (`"x64"`, `"arm64"`).
 fn current_arch_str() -> &'static str {
     // Map Rust target_arch values to the architecture strings expected by `bfe-desktop`.
     if cfg!(target_arch = "aarch64") {
@@ -475,7 +475,7 @@ fn cmd_presence_test() -> Result<(), String> {
 /// Executes `desktop-tool host <start|status|stop|attach|join|restart|kick|ban|unban|close-prompt|keep-running> [flags]`.
 ///
 /// Exercises [`HostController`](bfe_desktop::host::HostController) (`createHostController` in
-/// `electron/host.js`) and the close-decision flow (`before-quit` in `electron/main.js`).
+/// the desktop host) and the close-decision flow (`before-quit` in the desktop host).
 ///
 /// ## Supported Actions
 /// - `start`: writes `<state>/config.json` (mode `0600`), rotates `<state>/hosting.log` (mode `0600`)
@@ -492,7 +492,7 @@ fn cmd_presence_test() -> Result<(), String> {
 /// - `join` / `restart` / `kick` / `ban` / `unban` / `close-prompt` / `keep-running`:
 ///   exercises join info lookup, match restart, player moderation, and the close confirmation prompt.
 ///
-/// Resolves `<userData>/server` (`stateRoot` in `electron/main.js`) and `content_root` from
+/// Resolves `<userData>/server` (`stateRoot` in the desktop host) and `content_root` from
 /// [`resolve_desktop_paths`], allowing CLI flags (`--state-dir`, `--content-dir`, `--server-bin`,
 /// `--admin-port`, `--game-port`, `--name`, `--mode`, `--map`, `--side`, `--max-players`,
 /// `--relay`, `--playlist`, `--bots`, `--auto-assign-teams`, `--consent`) to override defaults.
@@ -529,7 +529,7 @@ fn cmd_host(args: &[String]) -> Result<(), String> {
     let desktop_store = SettingsStore::new(&dp.settings_file);
     let desktop_settings = desktop_store.load();
 
-    // Default `<state>` to `<userData>/server` (`path.join(app.getPath('userData'), 'server')` in `electron/main.js`).
+    // Default `<state>` to `<userData>/server` (`path.join(app.getPath('userData'), 'server')` in the desktop host).
     let mut state_dir = env_map
         .get("BFE_HOST_STATE_DIR")
         .map(PathBuf::from)
@@ -561,7 +561,7 @@ fn cmd_host(args: &[String]) -> Result<(), String> {
     let mut reason = String::new();
 
     // Parse optional CLI flags for `desktop-tool host`, mapping each flag onto `HostControllerConfig`
-    // or `HostOptions` (`createHostController` in `electron/host.js`).
+    // or `HostOptions` (`createHostController` in the desktop host).
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -572,14 +572,14 @@ fn cmd_host(args: &[String]) -> Result<(), String> {
                     state_dir = PathBuf::from(v);
                 }
             }
-            // Override the prepared game content directory (`contentRoot` in `electron/host.js`).
+            // Override the prepared game content directory (`contentRoot` in the desktop host).
             "--content-dir" | "--content" | "--data" => {
                 i += 1;
                 if let Some(v) = args.get(i) {
                     content_dir = PathBuf::from(v);
                 }
             }
-            // Override the `bfeserver` binary path (`executable` in `electron/host.js`).
+            // Override the `bfeserver` binary path (`executable` in the desktop host).
             "--server-bin" => {
                 i += 1;
                 if let Some(v) = args.get(i) {
@@ -600,14 +600,14 @@ fn cmd_host(args: &[String]) -> Result<(), String> {
                     game_port = v;
                 }
             }
-            // Set the hosted server display name (`options.name` in `electron/host.js`).
+            // Set the hosted server display name (`options.name` in the desktop host).
             "--name" => {
                 i += 1;
                 if let Some(v) = args.get(i) {
                     opts.name = v.clone();
                 }
             }
-            // Set visibility mode (`"lan"` or `"public"`, matching `options.mode` in `electron/host.js`).
+            // Set visibility mode (`"lan"` or `"public"`, matching `options.mode` in the desktop host).
             "--mode" => {
                 i += 1;
                 if let Some(v) = args.get(i) {
@@ -623,25 +623,25 @@ fn cmd_host(args: &[String]) -> Result<(), String> {
             "--lan" | "--private" => {
                 opts.mode = HostMode::Lan;
             }
-            // Acknowledge the online privacy notice for `--mode public` (`consent` in `electron/host.js`).
+            // Acknowledge the online privacy notice for `--mode public` (`consent` in the desktop host).
             "--consent" => {
                 online_consent = true;
             }
-            // Select the initial map ID (`options.map` in `electron/host.js`, e.g. `nab2`).
+            // Select the initial map ID (`options.map` in the desktop host, e.g. `nab2`).
             "--map" => {
                 i += 1;
                 if let Some(v) = args.get(i) {
                     opts.map = v.clone();
                 }
             }
-            // Select the faction ID (`options.side` in `electron/host.js`: `rep`, `cis`, `all`, `imp`).
+            // Select the faction ID (`options.side` in the desktop host: `rep`, `cis`, `all`, `imp`).
             "--side" => {
                 i += 1;
                 if let Some(v) = args.get(i) {
                     opts.side = v.clone();
                 }
             }
-            // Set maximum human player capacity (`options.maxPlayers` in `electron/host.js`, `2..=64`).
+            // Set maximum human player capacity (`options.maxPlayers` in the desktop host, `2..=64`).
             "--max-players" => {
                 i += 1;
                 if let Some(v) = args.get(i).and_then(|s| s.parse::<u32>().ok()) {
@@ -650,7 +650,7 @@ fn cmd_host(args: &[String]) -> Result<(), String> {
                     return Err("Invalid host settings".to_string());
                 }
             }
-            // Set TURN relay policy (`options.relay` in `electron/host.js`: `auto`, `always`, `never`).
+            // Set TURN relay policy (`options.relay` in the desktop host: `auto`, `always`, `never`).
             "--relay" => {
                 i += 1;
                 if let Some(v) = args.get(i) {
@@ -714,7 +714,7 @@ fn cmd_host(args: &[String]) -> Result<(), String> {
     }
 
     // Assemble the `HostControllerConfig` from resolved paths, ports, binary, and consent flag
-    // (`createHostController` parameters in `electron/host.js`).
+    // (`createHostController` parameters in the desktop host).
     let mut cfg = HostControllerConfig::new(state_dir, content_dir);
     cfg.executable = server_bin;
     cfg.engine_root = project_root;
@@ -816,7 +816,7 @@ fn cmd_host(args: &[String]) -> Result<(), String> {
             );
             Ok(())
         }
-        // Print the `ClosePrompt` dialog strings when a server is active (`before-quit` in `electron/main.js`).
+        // Print the `ClosePrompt` dialog strings when a server is active (`before-quit` in the desktop host).
         "close-prompt" => {
             let prompt = controller.close_prompt();
             println!(

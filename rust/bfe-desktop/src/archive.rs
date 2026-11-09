@@ -1,7 +1,7 @@
 //! Portable prepared content archive (`.bfecontent`) export, verification,
 //! atomic import, and game-install relocation.
 //!
-//! Mirrors `electron/content-archive.js`.
+//! Mirrors the desktop host.
 //!
 //! A `.bfecontent` file is an uncompressed ZIP64-capable archive containing:
 //! - `bfe-content-manifest.json` (`format: "battlefront-eternal-content"`, `version: 1`)
@@ -46,42 +46,42 @@ use crate::prepare::{
 
 /// Manifest entry filename inside `.bfecontent` ZIP archives.
 ///
-/// Mirrors `MANIFEST` in `electron/content-archive.js`.
+/// Mirrors `MANIFEST` in the desktop host.
 pub const MANIFEST_NAME: &str = "bfe-content-manifest.json";
 
 /// Receipt filename written into imported content directories.
 ///
-/// Mirrors `RECEIPT` in `electron/content-archive.js`.
+/// Mirrors `RECEIPT` in the desktop host.
 pub const RECEIPT_NAME: &str = ".bfe-import.json";
 
 /// Archive format identifier stored in `bfe-content-manifest.json`.
 ///
-/// Mirrors `FORMAT` in `electron/content-archive.js`.
+/// Mirrors `FORMAT` in the desktop host.
 pub const ARCHIVE_FORMAT: &str = "battlefront-eternal-content";
 
 /// Archive manifest schema version.
 ///
-/// Mirrors `VERSION` in `electron/content-archive.js`.
+/// Mirrors `VERSION` in the desktop host.
 pub const ARCHIVE_VERSION: u32 = 1;
 
 /// Allowed top-level subdirectories inside a `.bfecontent` archive.
 ///
-/// Mirrors `CONTENT_ROOTS` in `electron/content-archive.js`.
+/// Mirrors `CONTENT_ROOTS` in the desktop host.
 const CONTENT_ROOTS: &[&str] = &["common", "sides", "maps", "audio"];
 
 /// Maximum allowed file count in an imported `.bfecontent` archive (`300_000`).
 ///
-/// Mirrors `MAX_FILES` in `electron/content-archive.js`.
+/// Mirrors `MAX_FILES` in the desktop host.
 pub const MAX_FILES: usize = 300_000;
 
 /// Maximum allowed total uncompressed bytes in an imported archive (`256 GiB`).
 ///
-/// Mirrors `MAX_BYTES` in `electron/content-archive.js`.
+/// Mirrors `MAX_BYTES` in the desktop host.
 pub const MAX_BYTES: u64 = 256 * 1024 * 1024 * 1024;
 
 /// Maximum allowed size of `bfe-content-manifest.json` (`64 MiB`).
 ///
-/// Mirrors `MAX_MANIFEST` in `electron/content-archive.js`.
+/// Mirrors `MAX_MANIFEST` in the desktop host.
 pub const MAX_MANIFEST: u64 = 64 * 1024 * 1024;
 
 /// Single file entry inside `bfe-content-manifest.json`.
@@ -147,7 +147,7 @@ pub struct ArchiveManifest {
 /// Windows reserved device names, and (when `content_only` is true) allowed top-level roots.
 ///
 /// Returns the normalized path segments on success.
-/// Mirrors `safePath` in `electron/content-archive.js`.
+/// Mirrors `safePath` in the desktop host.
 pub fn safe_path(name: &str, content_only: bool) -> Result<Vec<String>, String> {
     // Reject empty or overly long entry names (> 1024 bytes).
     if name.is_empty() || name.len() > 1024 {
@@ -223,7 +223,7 @@ pub fn safe_path(name: &str, content_only: bool) -> Result<Vec<String>, String> 
 
 /// Computes the size and lowercase hex SHA-256 digest of a file on disk.
 ///
-/// Mirrors `hashFile` in `electron/content-archive.js`.
+/// Mirrors `hashFile` in the desktop host.
 pub fn hash_file(file_path: &Path) -> Result<(u64, String), String> {
     // Stream the file in 64 KiB chunks to bound peak memory usage on large audio or map files.
     let mut file = File::open(file_path)
@@ -259,7 +259,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 
 /// Returns a portable `(dev, ino)` key for hardlink detection on Unix when `nlink > 1`.
 ///
-/// Mirrors the `stat.nlink > 1 && stat.ino > 0` check in `walk` in `electron/content-archive.js`.
+/// Mirrors the `stat.nlink > 1 && stat.ino > 0` check in `walk` in the desktop host.
 #[cfg(unix)]
 fn hardlink_key(meta: &fs::Metadata) -> Option<(u64, u64)> {
     use std::os::unix::fs::MetadataExt;
@@ -283,7 +283,7 @@ pub type ContentFileRecord = (String, PathBuf, u64, Option<(u64, u64)>);
 /// `common/`, `sides/`, `maps/`, `audio/`, and `.prepare.json`.
 ///
 /// Rejects symlinks and verifies that every path passes [`safe_path`].
-/// Mirrors `walk` in `electron/content-archive.js`.
+/// Mirrors `walk` in the desktop host.
 pub fn list_content_files(
     root: &Path,
 ) -> Result<Vec<ContentFileRecord>, String> {
@@ -364,7 +364,7 @@ fn walk_content_dir(
 ///
 /// Walks up to 4 parent directories from `<game>/GameData/Data/_LVL_PC` looking
 /// for the directory named `GameData` (case-insensitively).
-/// Mirrors the `GameData` ancestor lookup inside `sourceFingerprint` in `electron/content-archive.js`.
+/// Mirrors the `GameData` ancestor lookup inside `sourceFingerprint` in the desktop host.
 fn game_data_root(state_game: Option<&str>) -> Option<PathBuf> {
     let game_str = state_game.filter(|s| !s.is_empty())?;
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -393,7 +393,7 @@ fn game_data_root(state_game: Option<&str>) -> Option<PathBuf> {
 /// Collects SHA-256 fingerprints of `.lvl` files inside `GameData`, or falls back
 /// to an existing `.bfe-import.json` receipt if the original game install is absent.
 ///
-/// Mirrors `provenance` and `sourceFingerprint` in `electron/content-archive.js`.
+/// Mirrors `provenance` and `sourceFingerprint` in the desktop host.
 pub fn source_manifest(root: &Path, state_game: Option<&str>) -> Option<SourceReceipt> {
     // Prefer hashing `.lvl` files from the live `GameData` directory when it exists on disk.
     if let Some(game_data) = game_data_root(state_game).filter(|d| d.exists()) {
@@ -496,7 +496,7 @@ struct CentralRecord {
 /// Streaming uncompressed (`method = 0`) ZIP / ZIP64 archive writer.
 ///
 /// Produces uncompressed store-mode ZIP/ZIP64 archives identical to `yazl`
-/// with `{ compress: false }` in `exportContent` in `electron/content-archive.js`.
+/// with `{ compress: false }` in `exportContent` in the desktop host.
 struct ZipStoreWriter {
     /// Underlying output file handle.
     file: File,
@@ -828,7 +828,7 @@ fn read_exact_at(file: &mut File, offset: u64, len: usize) -> Result<Vec<u8>, St
 
 /// Parses the ZIP / ZIP64 central directory of `file`.
 ///
-/// Mirrors the `yauzl.open` central directory reader in `importContent` in `electron/content-archive.js`.
+/// Mirrors the `yauzl.open` central directory reader in `importContent` in the desktop host.
 ///
 /// Scans backwards from the end of `file` to find the 22-byte End of Central Directory
 /// (EOCD) record, checks for a preceding 20-byte ZIP64 EOCD Locator (`PK\x06\x07`) and
@@ -1029,7 +1029,7 @@ fn entry_data_offset(file: &mut File, entry: &ZipEntryInfo) -> Result<u64, Strin
 
 /// Reads and verifies the full byte payload of a ZIP entry (supporting store `0` and deflate `8`).
 ///
-/// Mirrors `readEntryBuffer` in `electron/content-archive.js`.
+/// Mirrors `readEntryBuffer` in the desktop host.
 fn read_entry_bytes(
     file: &mut File,
     entry: &ZipEntryInfo,
@@ -1072,7 +1072,7 @@ fn read_entry_bytes(
 /// Extracts a single ZIP entry to `dest` on disk while verifying both its CRC-32
 /// and its expected SHA-256 digest.
 ///
-/// Mirrors `extractEntry` in `electron/content-archive.js`.
+/// Mirrors `extractEntry` in the desktop host.
 fn extract_entry_to_file(
     file: &mut File,
     entry: &ZipEntryInfo,
@@ -1144,7 +1144,7 @@ fn extract_entry_to_file(
 /// Validates a parsed [`ArchiveManifest`] against the active [`ContentVersion`]
 /// and the central directory entries of the ZIP file.
 ///
-/// Mirrors `validateManifest` in `electron/content-archive.js`.
+/// Mirrors `validateManifest` in the desktop host.
 ///
 /// Checks performed:
 /// 1. `manifest.format == "battlefront-eternal-content"` and `manifest.version == 1`.
@@ -1283,7 +1283,7 @@ pub struct ExportSummary {
 /// at `archive_path`.
 ///
 /// Writes to a temporary sibling file first and atomically renames on completion.
-/// Mirrors `exportContent` in `electron/content-archive.js`.
+/// Mirrors `exportContent` in the desktop host.
 pub fn export_content(
     content_dir: &Path,
     archive_path: &Path,
@@ -1487,7 +1487,7 @@ pub struct InspectArchiveResult {
 
 /// Validates a `.bfecontent` archive's central directory and manifest without extracting files.
 ///
-/// Mirrors the manifest inspection step of `importContent` and `validateManifest` in `electron/content-archive.js`.
+/// Mirrors the manifest inspection step of `importContent` and `validateManifest` in the desktop host.
 pub fn inspect_archive(
     archive_path: &Path,
     tools_dir: Option<&Path>,
@@ -1542,7 +1542,7 @@ pub struct ImportSummary {
 /// `.prepare.json` against `tools/content-version.json`, writes `.bfe-import.json`,
 /// and renames the directory to `<destination_parent>/content-<id>`.
 ///
-/// Mirrors `importContent` in `electron/content-archive.js`.
+/// Mirrors `importContent` in the desktop host.
 pub fn import_content(
     archive_path: &Path,
     destination_parent: &Path,
@@ -1698,7 +1698,7 @@ pub struct RelocateResult {
 /// against the `.bfe-import.json` source `.lvl` hashes of `content_dir`, and
 /// updates `<content_dir>/.prepare.json`'s `game` field when they match.
 ///
-/// Mirrors `relocatePreparation` in `electron/content-archive.js`.
+/// Mirrors `relocatePreparation` in the desktop host.
 pub fn relocate_preparation(
     content_dir: &Path,
     install_dir: &Path,

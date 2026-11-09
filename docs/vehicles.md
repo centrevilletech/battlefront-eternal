@@ -20,28 +20,28 @@ discarded when a profile loads.
 
 ## Module layout
 
-The page's flight modules are under `src/flight/`; a craft's tick runs in
-`rust/sim/src/flight` (the world's and the pilot's prediction alike):
+The page's flight modules are under `rust/sim` (`flight`); a craft's tick runs in
+`rust/sim (flight)` (the world's and the pilot's prediction alike):
 
 | Module | Responsibility |
 | --- | --- |
 | `config.js` | Four class configurations; shared live tuning |
 | `debug.js` | First-built telemetry, axes/path/cone/ray/camera gizmos, tuning panel |
-| `model.js` | Cold replica construction; the step itself (quaternion dynamics, states, tricks, swept contacts and boundaries) is `rust/sim/src/flight/model.rs` |
+| `model.js` | Cold replica construction; the step itself (quaternion dynamics, states, tricks, swept contacts and boundaries) is `rust/sim/rust/flight/model.rs` |
 | `controls.js` | Independent starfighter bindings, gamepad and rebind capture |
 | `camera.js` | Rolling chase/cockpit cameras, clearance and view blend |
-| `targeting.js` | The ordnance world's seeker service; lock, assists and missile navigation are `rust/sim/src/flight/targeting.rs` |
-| `rust/sim/src/flight/ai.rs` | A bot pilot's stick and altitude stage, through the same model |
+| `targeting.js` | The ordnance world's seeker service; lock, assists and missile navigation are `rust/sim/rust/flight/targeting.rs` |
+| `rust/sim/rust/flight/ai.rs` | A bot pilot's stick and altitude stage, through the same model |
 | `gear.js` | Landing gear, gear doors and S-foils from each craft's takeoff clip |
 | `spawn.js` | Friendly landed attack transport spawn points |
-| `rust/sim/src/flight/pilotless.rs` | A craft in flight that nobody flies |
+| `rust/sim/rust/flight/pilotless.rs` | A craft in flight that nobody flies |
 
 `Vehicles` owns the fixed-step model and weapon/seat integration. `game.js`
 connects input, profile settings, debug and transport spawn selection. The
-battle HUD (`src/hud.js`) draws a craft's seat as it draws any vehicle's; see
+battle HUD (`rust/sim` (`hud`)) draws a craft's seat as it draws any vehicle's; see
 [The HUD aboard a craft](#the-hud-aboard-a-craft).
 `ordnance.js` advances flight missiles. The entity protocol carries the flight
-state and quaternion (`src/runtime/network-entity-flight.js`); presentation
+state and quaternion (`rust/sim` (`wire`)); presentation
 interpolation stays on the rendering page.
 
 ## Controls and behavior
@@ -113,7 +113,7 @@ participates in the model. Space omits world-up leveling.
 Speeds are metres/second, angular rates radians/second, camera offsets metres.
 A craft's speeds, handling, lift and camera are its own ODF's (see
 [Movement](#movement) and [Camera](#camera)). The port's own tuning, shared by
-class, has its mutable source of truth in `src/flight/config.js`. Add
+class, has its mutable source of truth in `rust/sim` (`flight`). Add
 `?flightDebug` to show live controls and diagnostic geometry; the controls'
 commands carry tuning changes to the simulation.
 
@@ -142,7 +142,7 @@ This is the port's own counterplay tuning.
 ## Movement
 
 Every vehicle's speeds come from its class's ODF, read the way the 2004 game
-reads them (`src/vehicle-motion.js`). The page, the world worker, the dedicated
+reads them (`rust/sim` (`vehicle-motion`)). The page, the world worker, the dedicated
 server and desktop host, and a client's prediction copies all build hulls
 through it, so a vehicle is as fast online as offline, for the player and for
 the AI. A key the ODF leaves unset takes the original's class default, and a
@@ -267,7 +267,7 @@ either way, so three circuits take 12.6 s.
 ## Camera
 
 The pilot's chase camera is the 2004 game's, on his section
-(`src/flight/camera.js`; the original's flyer camera, through its camera
+(`rust/sim` (`flight`); the original's flyer camera, through its camera
 section). It looks along the craft's nose with the craft's
 up, pitched down by TiltValue, and turns toward that at AimTension (1/s); it
 rests at TrackCenter in the craft's frame and TrackOffset (right, up, back) in
@@ -298,11 +298,11 @@ marks where the nose points, above the middle of the screen by TiltValue.
 
 ## The HUD aboard a craft
 
-A craft's seats show the battle HUD (`src/hud.js`) as any vehicle's do, as the
+A craft's seats show the battle HUD (`rust/sim` (`hud`)) as any vehicle's do, as the
 original has it (docs/formats.md, "Seated"): nothing in its HUD checks for a
 flyer or for first person. `combat.updateHud` reads the seat the page knows he
 holds afresh every frame (`driver.vehicle`, set from the entity records' seat
-state, `src/runtime/entity-seats.js`), so leaving a seat by any way takes its
+state, `rust/sim` (`wire`)), so leaving a seat by any way takes its
 displays with it.
 
 - His own health stays on the top bar; the hull's goes in the panel under it
@@ -355,8 +355,8 @@ flight bails out (below).
 
 ## Boarding, leaving and seat controls
 
-`src/boarding.js` holds the rules for everyone who sits in a vehicle: the
-player (`VehicleDriver`), a network human (`src/runtime/multiplayer-world.js`,
+`rust/sim` (`boarding`) holds the rules for everyone who sits in a vehicle: the
+player (`VehicleDriver`), a network human (`rust/sim` (`wire`),
 through `Vehicles.board` and his seat lease) and the bots (the Classic AI's
 `canEnter` and `boardNow`, through `Vehicles.eligibleSeat` and
 `Vehicles.board`).
@@ -395,7 +395,7 @@ through `Vehicles.board` and his seat lease) and the bots (the Classic AI's
   `81bce0f9` to 0, which no retail class does, so nobody is flung. The hull
   stays for anyone: a hover with nobody at the controls slows to a stop at its
   Deceleration, as when its driver lets go of the keys.
-- A craft nobody flies (`rust/sim/src/flight/pilotless.rs`): with anyone still aboard
+- A craft nobody flies (`rust/sim/rust/flight/pilotless.rs`): with anyone still aboard
   it holds its course with the stick let go. Empty, it comes down, its speed
   carried on and gravity bending its path, nose along the path, and is
   destroyed where it strikes the ground, a building, the water or a death
@@ -409,8 +409,8 @@ through `Vehicles.board` and his seat lease) and the bots (the Classic AI's
   vehicle replay all build a seat's input with `seatInput`, so a seat change
   earlier in the tick (E, a seat key) cannot leave stale bindings behind.
 
-`tests/ai-world.test.js` runs mounted movement, flight, boarding and turret
-combat through the enclosing native world tick. `tests/boarding.test.js`
+`cargo test --locked --workspace` runs mounted movement, flight, boarding and turret
+combat through the enclosing native world tick. `cargo test --locked --workspace`
 covers the seat and input rules.
 
 ## Riders in the open
@@ -429,7 +429,7 @@ stands on top of the droid starfighter on Bespin: Platforms).
 - What is struck (`Vehicle.exposedSeat`, `SeatLease.exposed`,
   `Unit.updateSpheres`): his body as his seat poses it, from the same clip
   and point in it that his seat draws (`riderSample`), carried down his
-  own skeleton at the tick (`rust/bfe-pose/src/rig/rider.rs`): the head as a sphere (three
+  own skeleton at the tick (`rust/bfe-pose/rust/rig/rider.rs`): the head as a sphere (three
   times the damage, as on foot), the torso from the pelvis up to the neck,
   each thigh and shin, and each upper arm and forearm to the middle of the
   hand as capsules (a gunner's arms reach out to the grips well clear of his
@@ -463,9 +463,9 @@ A placed turret's gunner is struck by the same rules, and leaves his gun
 the same way when killed there, with one difference the original makes:
 a blast hurts him at the gun (docs/live-objects.md "Turret gunners").
 
-`tests/exposed-riders.test.js` covers the shapes, the rounds, the deaths and
+`cargo test --locked --workspace` covers the shapes, the rounds, the deaths and
 the seat; with an extract it fires rifle bolts at every seat of Tatooine's
-and Hoth's hulls in the headless world. `tests/turret-gunners.test.js` does
+and Hoth's hulls in the headless world. `cargo test --locked --workspace` does
 the same for the turrets' gunners.
 
 ## Landing gear
@@ -492,8 +492,8 @@ The stock flyers on the 17 maps (`tools/zero_vehicle.py` exports the clips;
 | Snowspeeder | `all_fly_snowspeeder` | none (one other clip) | modelled pose | |
 | TIE fighter, TIE bomber, droid fighter, Geonosian fighter, LAAT/i | none | | modelled pose | |
 
-`src/flight/gear.js` draws the clip at the craft's gear (`gear`, 1 down and 0
-stowed; `src/flight/model.js`): held down through the lift, stowed over
+`rust/sim` (`flight`) draws the clip at the craft's gear (`gear`, 1 down and 0
+stowed; `rust/sim` (`flight`)): held down through the lift, stowed over
 `TakeoffTime` once the craft is `TakeoffHeight` above where it rests (as the
 original's takeoff progress runs), and down again over `LandingTime` as the
 landing's progress runs out. Every takeoff clip also lifts `DummyRoot` by a constant that seats the
@@ -504,16 +504,16 @@ leaves that track out.
   tick does (rust/sim `flight/gear.rs`) before the aimers turn and
   the fire points are read, and so does the render pass that `Vehicles.update`
   runs on every host after it. The gear is the craft's flight state there and
-  in the pilot's own replay (`rust/sim/src/client/hulls.rs`) and
+  in the pilot's own replay (`rust/sim/rust/client/hulls.rs`) and
   correction. A page has every other craft only from its records, which
   carry its flight state but not its gear: the gear follows that state by the
   world's own rule (the same ray down for the lift, 1/`TakeoffTime` stowing,
   the landing's ease over its time), so another player's or a bot's craft
   shows what its pilot sees within a tick (`followFlightState`, called by
-  `src/runtime/network-entity-game.js`). Nothing new goes on the wire.
+  `rust/sim` (`wire`)). Nothing new goes on the wire.
 - **Content.** The clips are in each battle's vehicle pack, after every
   walker's so their offsets are unchanged, and the network fingerprint leaves a
-  flyer's clips out (`src/runtime/content-hash.js`): a pack prepared before
+  flyer's clips out (`rust/sim` (`wire`)): a pack prepared before
   them plays with one prepared after. The world reads them too (where a landed
   craft stands, below), but it is the authority on that: a peer without them
   only replays its own craft's landing elsewhere and is corrected.
@@ -531,7 +531,7 @@ leaves that track out.
   feet, where it spawns and after a landing: its origin stands the depth of its
   lowest point at the clip's first frame (`gearFoot`, skinned from the class's
   own model batches as a page draws them) over the ground, its collision never
-  in it (`standHeight` in `src/flight/model.js`). On Bespin: Platforms every
+  in it (`standHeight` in `rust/sim` (`flight`)). On Bespin: Platforms every
   one's feet touch the pad. Every other craft rests with its collision 0.5 m
   (`SetAltitude`, unless set) over the ground where it spawns, 0.15 m after a
   landing.
@@ -554,8 +554,8 @@ leaves that track out.
 
 ## Acceptance checks and limits
 
-`tests/flight-acceptance.js` runs the actual vehicle/collision/camera modules;
-`tests/flight-browser.mjs` runs those scenarios in Chromium with WebGL rendering,
+`cargo test --locked --workspace` runs the actual vehicle/collision/camera modules;
+`cargo test --locked --workspace` runs those scenarios in Chromium with WebGL rendering,
 then loads the extracted Bespin Platforms map. Its artifacts go to the folder
 named by `FLIGHT_TEST_ARTIFACTS`. These are automated engine checks; subjective
 feel and audio quality still need human playtesting. No BF2 space-map assets
@@ -579,11 +579,9 @@ not an imported capital-ship playthrough.
 | 13 | Views | .25 s cockpit blend, near plane .03 m, chase pulls inside wall obstruction |
 | 14 | Frame rates | Identical position, quaternion and power at 30/60/144 fps |
 
-`npm test` runs the unit tests. `node node_modules/vite/bin/vite.js build --mode desktop --outDir <dir>`
+`cargo test --locked --workspace` runs the unit tests. `cargo build --locked --release -p bfe-client`
 validates the production bundle without copying the local asset library.
-The browser runner is `PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs
-FLIGHT_TEST_URL=http://127.0.0.1:18612 node tests/flight-browser.mjs` against Vite.
-
+The browser runner is `
 Further checks cover every locally extracted vehicle class (initialization,
 movement and every equipped weapon channel); destruction on real Bespin
 clearing seat, driver and mounted state and soldier velocity, with infantry
@@ -719,7 +717,7 @@ rounds, ShotDelay 3) whose ordnance is a `towcable` with `CableLength 60`
   the winding back at zero.
 - `emitSound("towAttach")` and `"towRelease"` play the sound bank's
   `all_weap_fly_snowspeeder_towcable_attach` and `_release`
-  (src/audio/game.js).
+  (rust/audio-control).
 - The HUD draws the extra aiming ticks only for a weapon with `LockOffAngle`
   and the target diamond only for a launcher in its acquisition state, as the
   original does. The stock tow weapon has neither, so no range-plus-time marker
@@ -733,26 +731,26 @@ rounds, ShotDelay 3) whose ordnance is a `towcable` with `CableLength 60`
 
 ## Checks
 
-`tests/vehicle-assets.test.js` exercises every weapon channel separately on
+`cargo test --locked --workspace` exercises every weapon channel separately on
 every locally extracted vehicle class through `CommandControls`, including
 release-to-fire weapons, and checks projectile direction and own-hull
 exclusion.
 
-`node tests/vehicle-hud-browser.mjs` (Vite with extracted Hoth, Tatooine:
+`cargo test --locked --workspace` (the native client with extracted Hoth, Tatooine:
 Dune Sea and Bespin: Platforms) boards ten kinds of hull and leaves each by
 every way there is (E on the ground and in flight, a seat switch and E, the
 hull destroyed, killed on the seat, shot off an open seat, each death
 followed by a respawn): seated, the HUD's quads are the hull's; after each,
 they are his own soldier's, with no hull icon, no craft prompt and no other
-canvas over the game's. `tests/vehicle-hud.test.js` covers page seat changes and reticle direction.
+canvas over the game's. `cargo test --locked --workspace` covers page seat changes and reticle direction.
 Native HUD fixtures and the [frozen HUD corpus](hud.md) cover panel geometry,
 prompts, names, colours, map range, death and layer display ordering.
 
 ## Effects and sounds
 
 What a hull shows and plays beyond its model, at Classic:
-`src/vehicle-effects.js` (effects), `rust/audio-control/src/vehicles.rs` (sounds) and
-`rust/bfe-presentation/src/feet.rs` (a walker's footfalls, for both). They run on the page
+`rust/sim` (`vehicle-effects`) (effects), `rust/audio-control (vehicles.rs)` (sounds) and
+`rust/bfe-presentation (feet.rs)` (a walker's footfalls, for both). They run on the page
 only and read nothing but what every host gives a hull: whether it is alive,
 its health, flight state and velocity, who holds which seat, and the pose
 drawn this frame. A battle whose world runs in the local server worker or on
@@ -760,7 +758,7 @@ a server therefore looks and sounds the same, and the worker and the server
 never draw or play anything. Each module keeps its per-hull state in a
 `WeakMap`, never on the `Vehicle`, so a copy of a hull's plain fields from
 the world cannot wipe a playing handle
-(`tests/vehicle-presentation-replica.test.js`).
+(`cargo test --locked --workspace`).
 A new life of a hull (`aiTarget.generation`) starts both afresh.
 
 ### The data
@@ -787,7 +785,7 @@ The death blast is `ExplosionName`, else `Explosion`, else `ExplosionDestruct`
 
 `tools/zero_sound.py` also exports the class sound keys `TurningOffSound`,
 `WindUpSound`, `WindDownSound`, `HydraulicSound` and `FootstepSound0` to `5`.
-Older exports give some of them by hash; `rust/audio-control/src/vehicles.rs` reads both.
+Older exports give some of them by hash; `rust/audio-control (vehicles.rs)` reads both.
 In the sound configs a scope that follows another for the same object adds to
 it: 46 objects are followed by an empty one, which must not wipe their name
 and samples (the AT-ST's and AT-AT's head cannon `FireSound` among them).
@@ -861,7 +859,7 @@ original's walker class does:
    On the page, a crewman who rode hidden inside it (every seat without a
    pilot animation: the AT-TE's pilot and side gunner, the AT-AT's and
    AT-ST's whole crew) is never drawn again in that life
-   (the presentation body batch, `rust/bfe-presentation/src/units.rs`): he
+   (the presentation body batch, `rust/bfe-presentation (units.rs)`): he
    dies with it out of sight. His body still
    dies, falls and is thrown by the blast in the simulation (the AT-TE's
    blast throws its crew 6 m up, flailing over the walker); only its drawing
@@ -894,7 +892,7 @@ In the port the simulation keeps the clock: `Vehicle.dying`, the seconds of
 the clip left (a plain field), counted down by `Vehicle.dyingTick` in
 `Vehicles.update` on every host, which sets off the final blast. Whoever
 draws the hull poses it from that clock (`Vehicle.present`, on the page,
-whichever host runs the world); `src/vehicle-effects.js` times its
+whichever host runs the world); `rust/sim` (`vehicle-effects`) times its
 dying explosions and dust from it too, so a slow page or a client shows
 the same count. Online the vehicle record says `Dying` and carries the
 milliseconds left in its `power`; the client draws the dead hull until its
@@ -942,7 +940,7 @@ footstep, hydraulic and stomp moments are the original's
 
 ### Walkers' feet
 
-`rust/bfe-presentation/src/feet.rs`, after the original's walker foot update (run while the
+`rust/bfe-presentation (feet.rs)`, after the original's walker foot update (run while the
 walker walks or turns; the class keys and their defaults are the original's):
 
 - A foot is where its `TerrainCollision` primitive meets the ground: its
@@ -974,10 +972,10 @@ stomp as it walks (all four as it sets off). At lower frame rates the
 original stomps them too.
 
 The walk cycle is drawn on the page by the native hull phase
-(`src/presentation/vehicles.js`, `rust/bfe-presentation/src/vehicles.rs`),
+(`rust/bfe-presentation`, `rust/bfe-presentation (vehicles.rs)`),
 which `Vehicle.present` queues every hull for (the walk cycle, the manned
 seats, the gear), the one he drives included: nothing on the page runs `aimTick`, and no record poses his own
-hull. His hull's prediction (`rust/sim/src/client/hulls.rs`) advances
+hull. His hull's prediction (`rust/sim/rust/client/hulls.rs`) advances
 its walk cycle with its ticks, as the world's `aimTick` does, and is drawn
 between its last two ticks, legs and hull alike. The page also keeps the
 hull's `age`, the clock of the idle clip, the repulsor's bob and a rider's
@@ -999,7 +997,7 @@ Walkers and the droideka are the only classes with water damage keys
 (`WaterDamageInterval`, `WaterDamageAmount`; the droideka also
 `UprightWaterDamageHeight` and `BallWaterDamageHeight`). Every stock walker
 sets 1 s and 10: the AT-AT, AT-TE, spider walker and the three AT-STs.
-Hovers and flyers have none. `src/vehicle-water.js` follows the original:
+Hovers and flyers have none. `rust/sim` (`vehicle-water`) follows the original:
 
 - **Wading:** a walker's leg rays meet terrain and buildings, not the water, so
   it walks in on the ground under the surface. The foot update counts a foot
@@ -1023,10 +1021,10 @@ Water is a terrain layer on Kamino, Kashyyyk: Islands and Docks, Naboo:
 Theed, Yavin 4: Temple and Jabba's Palace. Walkers meet it on Kashyyyk:
 Docks (the spider walker, the AT-ST) and Yavin 4: Temple (the AT-ST);
 droidekas in the Clone Wars battles of all six.
-The world applies the damage (`Vehicle.tick`, `src/game.js` for every
+The world applies the damage (`Vehicle.tick`, `rust/sim` (`game`) for every
 droideka); hull and soldier health travel as for any damage, and a client's
-own predicted walker never deals itself damage (`rust/sim/src/client/hulls.rs`).
-`tests/vehicle-water.test.js` covers the clock, the depths and an AT-ST
+own predicted walker never deals itself damage (`rust/sim/rust/client/hulls.rs`).
+`cargo test --locked --workspace` covers the clock, the depths and an AT-ST
 wading in and being worn down.
 
 ### Not drawn or played yet

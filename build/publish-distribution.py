@@ -24,7 +24,7 @@ KEYHOME = os.environ.get('BFE_SIGNING_HOME', '/deployment/signing')
 KEY = 'F210B0710D270963CB641C118043BCB331D34C9B'
 # Desktop updates (docs/desktop-updates.md): the channel installed clients
 # follow, signed with an Ed25519 key whose public half ships in the client
-# (electron/update/keys.js).
+# (rust/bfe-desktop/src/update/keys.rs).
 CHANNEL = os.environ.get('BFE_UPDATE_CHANNEL', 'development-preview')
 UPDATE_KEY = os.environ.get('BFE_UPDATE_KEY', str(Path(KEYHOME) / 'update-ed25519.pem'))
 UPDATE_PLATFORMS = ('linux-x64', 'linux-arm64', 'win32-x64')
@@ -72,11 +72,10 @@ def safe_relative(value):
     return (isinstance(value, str) and 0 < len(value) <= 512
             and all(part not in ('', '.', '..') and SAFE_PART.fullmatch(part) for part in value.split('/')))
 
-# The dedicated server archive (build/server-archive.mjs, build/native/server-archive.py,
+# The dedicated server archive (build/native/server-archive.py,
 # docs/server-updates.md): its root entries, and files every archive holds for
-# either the Electron/Node server or the native bfeserver binary.
-SERVER_ENTRIES = {'bfe-tree.json', 'bfeserver', 'host-runtime', 'legal', 'toolchain', 'tools'}
-SERVER_FILES = ('host-runtime/server/src/main.js', 'host-runtime/engine/src/game.js', 'tools/prepare.py', 'bfe-tree.json')
+# the native bfeserver binary.
+SERVER_ENTRIES = {'bfe-tree.json', 'bfeserver', 'legal', 'toolchain', 'tools'}
 NATIVE_SERVER_FILES = ('bfeserver', 'tools/prepare.py', 'tools/content-version.json', 'toolchain/python/bin/python3', 'legal/LICENSE', 'bfe-tree.json')
 
 def archive_relative(name):
@@ -101,17 +100,11 @@ def check_server_archive(path):
             if member.isfile():
                 modes[name] = member.mode
             names.add(name)
-    has_host_runtime = any(name == 'host-runtime' or name.startswith('host-runtime/') for name in names)
-    if 'bfeserver' in names and not has_host_runtime:
-        for file in NATIVE_SERVER_FILES:
-            if file not in names:
-                raise ValueError(f'{path.name} lacks {file}')
-        if not (modes.get('bfeserver', 0) & 0o111):
-            raise ValueError(f'bfeserver in {path.name} is not executable')
-    else:
-        for file in SERVER_FILES:
-            if file not in names:
-                raise ValueError(f'{path.name} lacks {file}')
+    for file in NATIVE_SERVER_FILES:
+        if file not in names:
+            raise ValueError(f'{path.name} lacks {file}')
+    if not (modes.get('bfeserver', 0) & 0o111):
+        raise ValueError(f'bfeserver in {path.name} is not executable')
 
 def zstd_digest(path):
     """SHA-256 of a zstd blob's decompressed contents (zstd also checks the

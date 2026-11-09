@@ -1,7 +1,7 @@
 //! Linux AppImage desktop integration (`~/.local/share/applications/battlefront-eternal.desktop`,
 //! hicolor icon installation, and `~/.local/bin/battlefront` launcher scripts).
 //!
-//! Mirrors `electron/linux-integration.js` (`DISPLAY_NAME`, `desktopEntry`,
+//! Mirrors the desktop host (`DISPLAY_NAME`, `desktopEntry`,
 //! `launcherScript`, `updatingLauncher`, `adoptInstallerLauncher`,
 //! `integrateLinuxDesktop`).
 
@@ -14,37 +14,37 @@ use serde::{Deserialize, Serialize};
 
 /// Human-readable application name written into `battlefront-eternal.desktop`.
 ///
-/// Mirrors `DISPLAY_NAME` in `electron/linux-integration.js`.
+/// Mirrors `DISPLAY_NAME` in the desktop host.
 pub const DISPLAY_NAME: &str = "Battlefront Eternal";
 
 /// Desktop entry and icon base identifier (`"battlefront-eternal"`).
 ///
-/// Mirrors `ID` in `electron/linux-integration.js`.
+/// Mirrors `ID` in the desktop host.
 pub const ID: &str = "battlefront-eternal";
 
 /// Ownership marker comment placed in `~/.local/bin/battlefront` so a foreign
 /// `battlefront` binary or script installed by another package is never overwritten.
 ///
-/// Mirrors `MARKER` in `electron/linux-integration.js`.
+/// Mirrors `MARKER` in the desktop host.
 pub const MARKER: &str = "# Created by Battlefront Eternal";
 
 /// Ownership marker comment placed in `~/.local/bin/battlefront-eternal` when
 /// adopting the `install.sh` wrapper script.
 ///
-/// Mirrors `UPDATING_MARKER` in `electron/linux-integration.js`.
+/// Mirrors `UPDATING_MARKER` in the desktop host.
 pub const UPDATING_MARKER: &str =
     "# Battlefront Eternal: the newest installed update, else the AppImage.";
 
-/// Shell snippet resolving the `current` symlink maintained by `electron/update/state.js`.
+/// Shell snippet resolving the `current` symlink maintained by the desktop host.
 ///
-/// Mirrors `CURRENT` in `electron/linux-integration.js`.
+/// Mirrors `CURRENT` in the desktop host.
 const CURRENT: &str =
     "current=\"${XDG_DATA_HOME:-$HOME/.local/share}/battlefront-eternal/current/battlefront-eternal\"";
 
 /// Shell snippet that launches `$current` directly (adding `--no-sandbox` when
 /// unprivileged user namespaces are unavailable).
 ///
-/// Mirrors `RUN_CURRENT` in `electron/linux-integration.js`.
+/// Mirrors `RUN_CURRENT` in the desktop host.
 const RUN_CURRENT: &[&str] = &[
     "if [ -x \"$current\" ]; then",
     "  unshare -Ur true 2>/dev/null || set -- --no-sandbox \"$@\"",
@@ -55,7 +55,7 @@ const RUN_CURRENT: &[&str] = &[
 /// Formats the contents of `battlefront-eternal.desktop` for `executable`.
 ///
 /// Escapes `"`, `` ` ``, `$`, and `\` inside the double-quoted `Exec=` argument
-/// identically to `desktopEntry` in `electron/linux-integration.js`.
+/// identically to `desktopEntry` in the desktop host.
 pub fn desktop_entry(executable: &str) -> String {
     let mut escaped = String::with_capacity(executable.len() + 4);
     for ch in executable.chars() {
@@ -88,7 +88,7 @@ pub fn desktop_entry(executable: &str) -> String {
 /// Execs the newest installed update under `${XDG_DATA_HOME:-$HOME/.local/share}/battlefront-eternal/current`
 /// when present, falling back to `executable`.
 ///
-/// Mirrors `launcherScript` in `electron/linux-integration.js`.
+/// Mirrors `launcherScript` in the desktop host.
 pub fn launcher_script(executable: &str) -> String {
     let single_quoted = executable.replace('\'', "'\\''");
     let mut lines = Vec::with_capacity(8);
@@ -106,7 +106,7 @@ pub fn launcher_script(executable: &str) -> String {
 /// Formats the `~/.local/bin/battlefront-eternal` bash launcher that prefers
 /// the newest installed update before falling back to `exec <command> --appimage-extract-and-run "$@"`.
 ///
-/// Mirrors `updatingLauncher` in `electron/linux-integration.js`.
+/// Mirrors `updatingLauncher` in the desktop host.
 pub fn updating_launcher(command: &str) -> String {
     let mut lines = Vec::with_capacity(9);
     lines.push("#!/usr/bin/env bash".to_string());
@@ -151,7 +151,7 @@ fn parse_installer_launcher_command(existing: &str) -> Option<String> {
 /// Writes `content` to `file` with `mode` via a PID-tagged temporary file only
 /// when `file` is missing or its bytes differ from `content`.
 ///
-/// Mirrors `writeIfChanged` in `electron/linux-integration.js`.
+/// Mirrors `writeIfChanged` in the desktop host.
 pub fn write_if_changed(file: &Path, content: &[u8], mode: u32) -> Result<bool, String> {
     if let Ok(current) = fs::read(file) {
         if current == content {
@@ -183,7 +183,7 @@ pub fn write_if_changed(file: &Path, content: &[u8], mode: u32) -> Result<bool, 
 /// on every launch.
 ///
 /// Returns `"missing"`, `"foreign"`, `"updated"`, or `"current"`.
-/// Mirrors `adoptInstallerLauncher` in `electron/linux-integration.js`.
+/// Mirrors `adoptInstallerLauncher` in the desktop host.
 pub fn adopt_installer_launcher(home: &Path) -> Result<&'static str, String> {
     let file = home.join(".local").join("bin").join("battlefront-eternal");
     let Ok(existing) = fs::read_to_string(&file) else {
@@ -229,7 +229,7 @@ pub enum LauncherCommandStatus {
 
 /// Result returned by [`integrate_linux_desktop`].
 ///
-/// Mirrors the return object of `integrateLinuxDesktop` in `electron/linux-integration.js`.
+/// Mirrors the return object of `integrateLinuxDesktop` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IntegrateLinuxDesktopResult {
@@ -247,7 +247,7 @@ pub struct IntegrateLinuxDesktopResult {
 /// `battlefront-eternal.desktop`, and `~/.local/bin/battlefront`), rewriting only
 /// files that are missing or stale and leaving any foreign `battlefront` command untouched.
 ///
-/// Mirrors `integrateLinuxDesktop` in `electron/linux-integration.js`.
+/// Mirrors `integrateLinuxDesktop` in the desktop host.
 pub fn integrate_linux_desktop(
     opts: &IntegrateLinuxDesktopOptions,
 ) -> Result<IntegrateLinuxDesktopResult, String> {

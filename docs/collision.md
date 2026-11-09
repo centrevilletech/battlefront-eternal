@@ -4,7 +4,7 @@ How soldier and world collision is imported from the retail archives and
 how the soldier controller moves over it. The collision buffers are written by
 `tools/extract.py` into the ignored map extracts (`collision.bin`,
 `collision_index.bin`, `collision_poly.bin`, the terrain buffers and, for live
-objects, `props_collision.bin`) and queried by `src/collision.js`.
+objects, `props_collision.bin`) and queried by `rust/sim` (`collision`).
 
 ## Case-insensitive lookup
 
@@ -26,7 +26,7 @@ map-specific collision exceptions are involved.
 
 `python3 tests/test_collision_export.py` checks synthetic case/priority
 fixtures and, when retail archives are available, every placed collision
-model type across all 16 maps. `node --test tests/stair-traversal.test.js`
+model type across all 16 maps. `cargo test --locked --workspace`
 walks all four Yavin Arena arch staircases uphill/downhill at three offsets,
 checks the temple approach in both directions, and samples clear interiors
 of walkable inclined collision faces throughout every available map. The
@@ -68,7 +68,7 @@ their flanking columns. The separate open Theed arch at approximately
 lateral offsets. The arch at (-168, -50, 100) contains a visibly closed gate
 and a separate authored invisible barrier; those remain solid.
 
-Run `node tests/collision.mjs` and `python3 tests/test_collision_export.py`.
+Run `cargo test --locked --workspace` and `python3 tests/test_collision_export.py`.
 The JavaScript checks cover low platforms, a tall wall, blocked headroom,
 high-speed thin-wall collision, and toggled live-body clearance, including a
 synthetic 0.4 m riser the controller walks across. With local retail assets
@@ -98,12 +98,12 @@ and gravity retain their own trajectory. Spawning resets the counter. This
 lets actor and camera presentation soften a real step without moving the
 collision body or delaying input.
 
-`node --test tests/movement-continuity.test.js` checks continuous and diagonal
+`cargo test --locked --workspace` checks continuous and diagonal
 slopes, turning, a ballistic jump, and, with local assets, both directions on
 the real Theed bridge staircase and Bespin ramp. Four additional real-map
 cases roll uphill/downhill, verify the full roll duration, and require
 unbroken ground support. Wall, low-ceiling, platform, and arcade tests are in
-`tests/collision.mjs`.
+`cargo test --locked --workspace`.
 
 At 60 simulation ticks/s, the four real-map staircase routes (Theed and
 Bespin, uphill and downhill) keep ground support on every tick, and the
@@ -173,7 +173,7 @@ above; a current extract reports none on any map.
 
 `python3 tests/test_collision_export.py -k GeometryName` covers the lookup,
 the static and live exports, and the audit's comparison on synthetic
-fixtures. `node --test tests/collision-import.test.js` walks a soldier into
+fixtures. `cargo test --locked --workspace` walks a soldier into
 a trunk cylinder and across a raised deck built from the exporter's own
 polygon layout, runs those Python checks, and, with an extract present
 (`BFE_CONTENT_DIR`, or `public/`), probes three Docks platforms and three

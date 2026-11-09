@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Pack a staged native app tree into a content-addressed update-<platform>.tar.
 
-Matches the archive layout and manifest format produced by build/update-payload.mjs
-and consumed by build/publish-distribution.py and the desktop/server updaters:
+Produces the archive layout and manifest format consumed by
+build/publish-distribution.py and the desktop/server updaters:
   - update-<platform>.json (schema 1, version, platform, executable,
     server_executable, content, files with zsize, links, dirs)
   - blobs/<sha256>.zst for every blob not already listed in --known
@@ -135,7 +135,7 @@ def build_update_payload(
 
         # Write flat file entries only (no directory entries) as expected by
         # build/publish-distribution.py ingest_updates.
-        with tarfile.open(out_path, 'w') as tar:
+        with tarfile.open(out_path, 'w', format=tarfile.USTAR_FORMAT) as tar:
             tar.add(manifest_file, arcname=manifest_name, recursive=False)
             for digest in sorted(fresh_files):
                 tar.add(fresh_files[digest], arcname=f'blobs/{digest}.zst', recursive=False)
@@ -148,27 +148,28 @@ def build_update_payload(
     }
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--tree', required=True, type=Path, help='Path to staged unpacked tree')
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description='Build native update-<platform>.tar payload.')
+    parser.add_argument('--tree', '--staged-dir', dest='staged_dir', required=True, type=Path, help='Staged app directory')
     parser.add_argument('--platform', required=True, help='Target platform (linux-x64, linux-arm64, win32-x64)')
-    parser.add_argument('--version', required=True, help='Release version (for example 0.1.0-preview.1)')
+    parser.add_argument('--version', required=True, help='Release version string')
     parser.add_argument('--out', required=True, type=Path, help='Output update-<platform>.tar path')
-    parser.add_argument('--known', type=Path, help='Optional blobs.json listing digests already on the origin')
-    args = parser.parse_args()
+    parser.add_argument('--known', type=Path, default=None, help='Optional blobs.json path of already-published blobs')
+    args = parser.parse_args(argv)
 
-    stats = build_update_payload(
-        staged_dir=args.tree,
+    summary = build_update_payload(
+        staged_dir=args.staged_dir.resolve(),
         platform=args.platform,
         version=args.version,
-        out_path=args.out,
-        known_blobs_path=args.known,
+        out_path=args.out.resolve(),
+        known_blobs_path=args.known.resolve() if args.known else None,
     )
     print(
-        f"update-{stats['platform']}: {stats['unique_blobs']} unique blobs, "
-        f"{stats['shipped_blobs']} shipped, {stats['reused_blobs']} already on server"
+        f"update-payload: wrote {args.out} "
+        f"({summary['shipped_blobs']} new / {summary['reused_blobs']} reused blobs)"
     )
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

@@ -1,16 +1,16 @@
 //! Unit and integration tests for `bfe-desktop`.
 //!
 //! Ports the test suites from:
-//! - `electron/discover.test.js`
-//! - `electron/prepare.test.js`
-//! - `electron/settings.test.js`
-//! - `electron/player-settings.test.js`
-//! - `electron/content-archive.test.js`
-//! - `electron/linux-desktop.test.js`
-//! - `electron/slow-links.test.js`
-//! - `electron/presence.test.js`
-//! - `electron/steam.test.js`
-//! - `electron/update.test.js`
+//! - the desktop host
+//! - the desktop host
+//! - the desktop host
+//! - the desktop host
+//! - the desktop host
+//! - the desktop host
+//! - the desktop host
+//! - the desktop host
+//! - the desktop host
+//! - the desktop host
 //! - `tests/gpu-info.test.js`
 //!
 //! ## Test Architecture
@@ -249,12 +249,12 @@ fn make_add_on(root: &Path, id: &str, valid: bool) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Discover tests (ports electron/discover.test.js)
+// 1. Discover tests (ports the desktop host)
 // ---------------------------------------------------------------------------
 
 /// Verifies `inspect_content` and `find_content` prefer the candidate with the largest map count.
 ///
-/// Mirrors `findContent` ranking behavior in `electron/discover.test.js`:
+/// Mirrors `findContent` ranking behavior in the desktop host:
 /// when two `likely` content directories are both valid, the one with more
 /// prepared `maps/<id>/scene.json` entries wins.
 #[test]
@@ -282,7 +282,7 @@ fn discover_validates_prepared_content_and_prefers_richest_map_set() {
 
 /// Verifies `search_content` traverses nested project folders while skipping `SKIP_DIRS` (`node_modules`).
 ///
-/// Mirrors the bounded recursive directory search test in `electron/discover.test.js`.
+/// Mirrors the bounded recursive directory search test in the desktop host.
 #[test]
 fn discover_searches_home_folder_within_depth_and_skips_heavy_dirs() {
     let tmp = TempDir::new("discover-search");
@@ -300,7 +300,7 @@ fn discover_searches_home_folder_within_depth_and_skips_heavy_dirs() {
 
 /// Verifies `inspect_install` accepts retail SWBF1 regardless of casing and rejects SWBF2.
 ///
-/// Mirrors the SWBF1 vs SWBF2 `Common/<LANG>/common.lvl` check in `electron/discover.test.js`.
+/// Mirrors the SWBF1 vs SWBF2 `Common/<LANG>/common.lvl` check in the desktop host.
 #[test]
 fn discover_validates_classic_swbf1_installs_case_insensitively() {
     let tmp = TempDir::new("discover-install");
@@ -327,7 +327,7 @@ fn discover_validates_classic_swbf1_installs_case_insensitively() {
 
 /// Verifies `installed_add_ons` returns sorted lowercase IDs for valid `AddOn/<id>` folders.
 ///
-/// Mirrors `installedAddOns` in `electron/discover.test.js`.
+/// Mirrors `installedAddOns` in the desktop host.
 #[test]
 fn discover_finds_valid_addon_campaigns_sorted_by_id() {
     let tmp = TempDir::new("discover-addons");
@@ -342,7 +342,7 @@ fn discover_finds_valid_addon_campaigns_sorted_by_id() {
 
 /// Verifies `parse_library_folders` and `parse_install_dir` extract paths from Valve VDF/ACF text.
 ///
-/// Mirrors the VDF/ACF parser tests in `electron/discover.test.js`.
+/// Mirrors the VDF/ACF parser tests in the desktop host.
 #[test]
 fn discover_parses_steam_libraryfolders_and_appmanifest() {
     // Double-escaped Windows paths in `libraryfolders.vdf` must unescape to single backslashes.
@@ -384,7 +384,7 @@ fn discover_parses_steam_libraryfolders_and_appmanifest() {
 
 /// Verifies `steam_libraries` and `find_steam_install` follow secondary library roots in `libraryfolders.vdf`.
 ///
-/// Mirrors the multi-library Steam discovery test in `electron/discover.test.js`.
+/// Mirrors the multi-library Steam discovery test in the desktop host.
 #[test]
 fn discover_finds_steam_install_across_secondary_libraries() {
     let tmp = TempDir::new("discover-steam");
@@ -436,7 +436,7 @@ fn discover_finds_steam_install_across_secondary_libraries() {
 
 /// Verifies GOG discovery across Wine `system.reg` files and Heroic Launcher `installed.json`.
 ///
-/// Mirrors the GOG / Wine / Heroic discovery tests in `electron/discover.test.js`.
+/// Mirrors the GOG / Wine / Heroic discovery tests in the desktop host.
 #[test]
 fn discover_finds_gog_installs_from_heroic_wine_and_gog_folders() {
     let tmp = TempDir::new("discover-gog");
@@ -490,7 +490,7 @@ fn discover_finds_gog_installs_from_heroic_wine_and_gog_folders() {
 
 /// Verifies `find_game_installs` orders candidates and upgrades `"chosen"` entries when also found in Steam/GOG.
 ///
-/// Mirrors `findGameInstalls` provenance ordering and upgrade tests in `electron/discover.test.js`.
+/// Mirrors `findGameInstalls` provenance ordering and upgrade tests in the desktop host.
 #[test]
 fn discover_lists_multiple_installs_and_upgrades_chosen_provenance() {
     let tmp = TempDir::new("discover-multi");
@@ -554,7 +554,7 @@ fn discover_lists_multiple_installs_and_upgrades_chosen_provenance() {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Prepare & ContentVersion tests (ports electron/prepare.test.js)
+// 2. Prepare & ContentVersion tests (ports the desktop host)
 // ---------------------------------------------------------------------------
 
 /// Verifies `ContentVersion` reads `tools/content-version.json` and errors on missing or corrupt files
@@ -599,7 +599,7 @@ fn content_version_loads_from_shared_file_and_errors_when_missing_or_corrupt() {
 /// Verifies `toolchain_paths` and `tool_env` configure `PATH`, `KTX2_ENCODER`, and `LD_LIBRARY_PATH`
 /// while stripping `PYTHONHOME` and `PYTHONPATH`.
 ///
-/// Mirrors the `toolchainPaths` and `toolEnv` tests in `electron/prepare.test.js`.
+/// Mirrors the `toolchainPaths` and `toolEnv` tests in the desktop host.
 #[test]
 fn prepare_builds_isolated_tool_environment_with_bundled_binaries() {
     let tmp = TempDir::new("tool-env");
@@ -702,7 +702,7 @@ fn prepare_builds_isolated_tool_environment_with_bundled_binaries() {
 
 /// Verifies `prepared_content_current`, `prepared_from`, and `prepared_for` against `ContentVersion`.
 ///
-/// Mirrors the `.prepare.json` version and provenance tests in `electron/prepare.test.js`.
+/// Mirrors the `.prepare.json` version and provenance tests in the desktop host.
 #[test]
 fn prepare_checks_whether_prepared_content_matches_current_importer_versions() {
     let ver = checkout_content_version().unwrap();
@@ -796,7 +796,7 @@ fn prepare_checks_whether_prepared_content_matches_current_importer_versions() {
 /// Verifies `prepared_summary` filters `addon:*` failures and `clear_prepared_for` removes only
 /// prepared output directories when switching game installations.
 ///
-/// Mirrors `preparedSummary` and `clearPreparedFor` in `electron/prepare.test.js`.
+/// Mirrors `preparedSummary` and `clearPreparedFor` in the desktop host.
 #[test]
 fn prepare_summarizes_addon_failures_and_clears_only_prepared_outputs() {
     // Only failures with `id` starting with `"addon:"` are included in `add_on_failures`.
@@ -865,7 +865,7 @@ fn prepare_summarizes_addon_failures_and_clears_only_prepared_outputs() {
 
 /// Verifies `apply_event`, `record_timing`, `estimate`, and `plan_estimate` across NDJSON progress events.
 ///
-/// Mirrors the NDJSON progress state machine and ETA estimator tests in `electron/prepare.test.js`.
+/// Mirrors the NDJSON progress state machine and ETA estimator tests in the desktop host.
 #[test]
 fn prepare_tracks_progress_events_and_estimates_remaining_time() {
     let mut snap = create_snapshot();
@@ -1097,7 +1097,7 @@ fn paths_parses_content_arg_and_orders_candidates() {
         let list = content_candidates(&ContentCandidateEnv {
             argv: vec!["--content=/cli/content".to_string()],
             env,
-            cwd: PathBuf::from("/work/repo/electron"),
+            cwd: PathBuf::from("/work/repo/bin"),
             project_root: PathBuf::from("/work/repo"),
             user_data: Some(PathBuf::from(
                 "/opt/example/player/.config/battlefront-eternal",
@@ -1140,7 +1140,7 @@ fn paths_parses_content_arg_and_orders_candidates() {
         let list = content_candidates(&ContentCandidateEnv {
             argv: vec![r"--content=C:\cli\content".to_string()],
             env,
-            cwd: PathBuf::from(r"C:\work\repo\electron"),
+            cwd: PathBuf::from(r"C:\work\repo\bin"),
             project_root: PathBuf::from(r"C:\work\repo"),
             user_data: Some(PathBuf::from(
                 r"C:\opt\example\player\AppData\Roaming\Battlefront Eternal",
@@ -1175,10 +1175,10 @@ fn paths_parses_content_arg_and_orders_candidates() {
 /// Verifies `desktop_entry`, `launcher_script`, `adopt_installer_launcher`, `integrate_linux_desktop`,
 /// `gpu_switches`, `gpu_report`, and `allow_slow_links`.
 ///
-/// Mirrors `electron/linux-desktop.test.js`, `tests/gpu-info.test.js`, and `electron/slow-links.test.js`.
+/// Mirrors the desktop host, `tests/gpu-info.test.js`, and the desktop host.
 #[test]
 fn linux_desktop_entry_adopts_installer_launcher_and_gpu_and_slow_links_match_js() {
-    // Verify desktopEntry and launcherScript output format from electron/linux-integration.js.
+    // Verify desktopEntry and launcherScript output format from the desktop host
     let entry = desktop_entry("/opt/example/Apps/Battlefront Eternal.AppImage");
     assert!(entry.contains("[Desktop Entry]"));
     assert!(entry.contains("Exec=\"/opt/example/Apps/Battlefront Eternal.AppImage\" %U"));
@@ -1228,7 +1228,7 @@ fn linux_desktop_entry_adopts_installer_launcher_and_gpu_and_slow_links_match_js
     assert!(res.entry);
     assert_eq!(res.command, Some(LauncherCommandStatus::Updated));
 
-    // Verify gpuSwitches and gpuReport match electron/gpu.js and tests/gpu-info.test.js.
+    // Verify gpuSwitches and gpuReport match the desktop host and tests/gpu-info.test.js.
     assert_eq!(
         gpu_switches("win32"),
         vec![vec!["force_high_performance_gpu"]]
@@ -1264,7 +1264,7 @@ fn linux_desktop_entry_adopts_installer_launcher_and_gpu_and_slow_links_match_js
     assert_eq!(report.devices[1].driver_version, None);
     assert_eq!(report.switches, vec!["force_high_performance_gpu"]);
 
-    // Verify allowSlowLinks, CONNECT_ATTEMPT, and SLOW_LINKS_FLAG match electron/slow-links.js.
+    // Verify allowSlowLinks, CONNECT_ATTEMPT, and SLOW_LINKS_FLAG match the desktop host
     assert_eq!(CONNECT_ATTEMPT, 2500);
     assert_eq!(
         SLOW_LINKS_FLAG,
@@ -1274,12 +1274,12 @@ fn linux_desktop_entry_adopts_installer_launcher_and_gpu_and_slow_links_match_js
 }
 
 // ---------------------------------------------------------------------------
-// 6. Player settings & Desktop settings tests (ports electron/player-settings.test.js)
+// 6. Player settings & Desktop settings tests (ports the desktop host)
 // ---------------------------------------------------------------------------
 
 /// Verifies `PlayerSettingsStore` and `SettingsStore` persist, merge, and sanitize settings.
 ///
-/// Mirrors `electron/player-settings.test.js` and `electron/settings.test.js`.
+/// Mirrors the desktop host and the desktop host.
 #[test]
 fn settings_stores_persist_sanitize_and_merge_patches() {
     let tmp = TempDir::new("settings");
@@ -1330,12 +1330,12 @@ fn settings_stores_persist_sanitize_and_merge_patches() {
 }
 
 // ---------------------------------------------------------------------------
-// 7. Rich Presence & Discord IPC tests (ports electron/presence.test.js)
+// 7. Rich Presence & Discord IPC tests (ports the desktop host)
 // ---------------------------------------------------------------------------
 
 /// Verifies `normalize_presence_state`, `format_discord_activity`, and `format_steam_rich_presence`.
 ///
-/// Mirrors `electron/presence.test.js`.
+/// Mirrors the desktop host.
 #[test]
 fn presence_normalizes_and_formats_discord_and_steam_activities() {
     // Normalize a multiplayer match on `bes2a` (`Bespin: Cloud City`) as `all` (`Rebel Alliance`).
@@ -1387,7 +1387,7 @@ fn presence_normalizes_and_formats_discord_and_steam_activities() {
 
 /// Verifies Discord IPC binary framing (`encode_frame`, `decode_frames`, and `candidate_ipc_paths`).
 ///
-/// Mirrors the Discord IPC packet framing and socket discovery tests in `electron/presence.test.js`.
+/// Mirrors the Discord IPC packet framing and socket discovery tests in the desktop host.
 #[test]
 fn discord_ipc_frame_encoding_and_decoding_handles_partial_and_oversized_frames() {
     // Encode a handshake frame (`OP_HANDSHAKE`) followed by an activity frame (`OP_FRAME`).
@@ -1438,12 +1438,12 @@ fn discord_ipc_frame_encoding_and_decoding_handles_partial_and_oversized_frames(
 }
 
 // ---------------------------------------------------------------------------
-// 8. Steam VDF, Shortcut & Overlay tests (ports electron/steam.test.js)
+// 8. Steam VDF, Shortcut & Overlay tests (ports the desktop host)
 // ---------------------------------------------------------------------------
 
 /// Verifies binary `shortcuts.vdf` roundtripping, shortcut upsert, relaunch decision, and `LD_PRELOAD` setup.
 ///
-/// Mirrors `electron/steam.test.js`.
+/// Mirrors the desktop host.
 #[test]
 fn steam_vdf_roundtrips_and_manages_non_steam_shortcuts_and_overlay() {
     // Non-Steam shortcut AppIDs must have bit 31 set, and GameIDs pack `(appId << 32) | 0x02000000`.
@@ -1794,13 +1794,13 @@ fn update_versions_feed_signatures_payload_slots_and_rollback_work() {
 }
 
 // ---------------------------------------------------------------------------
-// 10. Content archive (.bfecontent) tests (ports electron/content-archive.test.js)
+// 10. Content archive (.bfecontent) tests (ports the desktop host)
 // ---------------------------------------------------------------------------
 
 /// Verifies `.bfecontent` export, central directory inspection, import, hardlink deduplication,
 /// game-install relocation (`relocate_preparation`), and `safe_path` traversal rejection.
 ///
-/// Mirrors `electron/content-archive.test.js`.
+/// Mirrors the desktop host.
 #[test]
 fn content_archive_exports_imports_deduplicates_hardlinks_and_relocates() {
     let tmp = TempDir::new("content-archive");

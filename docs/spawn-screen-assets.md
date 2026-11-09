@@ -37,7 +37,7 @@ All of it is additions. No existing key changes.
   existing ones.
 - `holograms.shell_cube` is the room, in the same form as the `com_icon_*`
   logos. So `modelPack(common.holograms, holograms.bin, holograms_index.bin)`
-  (`src/models.js`) serves it by name, and `partMaterial()` makes its
+  (`rust/sim` (`models`)) serves it by name, and `partMaterial()` makes its
   material:
 
   ```json
@@ -68,7 +68,7 @@ All of it is additions. No existing key changes.
 The atlases land in `public/common/raster-hud/` as
 `<name>-<first 12 hex digits of the PNG's sha256>-4x.webp`. `manifest.json`
 keys them by the PNG's path in `textures` (`textures/border_3_pieces.png`).
-`RasterHudAssets.upgrade()` (`src/raster-hud.js`) finds them for any texture
+`RasterHudAssets.upgrade()` (`rust/sim` (`raster-hud`)) finds them for any texture
 the HUD loads by its `/common/textures/<name>.png` URL, which is what
 `hud.texture(name)` does.
 
@@ -108,7 +108,7 @@ geo1's `missions.geo1r`, abridged:
 
 Each battle the map holds has its own (`missions[<mission>].spawnScreen`; a
 battle fought in a world of its own has none). The battle a URL plays puts
-its own in `world.spawnScreen` (`src/mission.js`), where the screen reads it.
+its own in `world.spawnScreen` (`rust/sim` (`mission`)), where the screen reads it.
 
 #### `cameraShots`
 
@@ -118,13 +118,13 @@ its own in `world.spawnScreen` (`src/mission.js`), where the screen reads it.
   camera's transform from them (a normalized quaternion turned into a
   rotation matrix). So `position` is in the archive's world frame, the frame
   every other `map.json` transform uses, unconverted.
-- `quaternion` is the call's rotation, normalized, in three.js's x, y, z, w
+- `quaternion` is the call's rotation, normalized, in OpenGL's x, y, z, w
   order.
-- The engine's camera looks down its own −z, as a three.js camera does. So a
+- The engine's camera looks down its own −z, as a OpenGL camera does. So a
   shot goes straight onto the camera:
   `camera.position.fromArray(shot.position); camera.quaternion.fromArray(shot.quaternion)`.
   Soldiers face +z instead, which is why the player camera adds π of yaw
-  (`src/camera.js`). A shot needs no such turn.
+  (`rust/sim` (`camera`)). A shot needs no such turn.
 - Checked by placing the game's camera at all 18 shots of the six extracted
   maps (headless SwiftShader). Every one frames a deliberate view: the Theed
   plaza, Echo Base's hangar, the Geonosis war room. Turning by π, or
@@ -228,7 +228,7 @@ python3 -m unittest discover -s tests -p test_raster_hud.py              # needs
 ```
 
 - **Synthetic tests** cover:
-  - the shot conversion, including that the quaternion is a three.js
+  - the shot conversion, including that the quaternion is a OpenGL
     camera's;
   - names and trimming;
   - team sides and objectives in order;

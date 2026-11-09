@@ -15,26 +15,26 @@ understood the world's rain, so four things the 2004 engine draws on many
 maps never reached the port. They now do, at the Classic look (the formats
 and the engine's rules are in docs/formats.md, "Sky and effects config"):
 
-- **FogCloud** (`src/atmosphere.js`): the band of big soft squares 90 to
+- **FogCloud** (`rust/sim` (`atmosphere`)): the band of big soft squares 90 to
   120 m out, 16 m over the ground, drifting with the wind and slowly turning.
   Geonosis (brownmist), Endor, Rhen Var Citadel and both Yavins. The same
   random pattern repeats every 256 m and scrolls; each frame the points
   inside the view's slab are stood on the terrain (a cache of terrain
   heights on an 8 m grid) and drawn, faded at both ends of the range.
-- **Dust and mist** (`src/atmosphere.js`): the `dusteffect` objects placed in
+- **Dust and mist** (`rust/sim` (`atmosphere`)): the `dusteffect` objects placed in
   the world. Geonosis's 23 copies of brown dust blowing across the plain,
   Hoth's blowing snow dust and mist, Kamino's and Yavin's mist, the Dune Sea's
   dust and the Citadel's clouds rolling below the walls. Each class's few
   dozen particles run once a frame and every copy in view draws them,
   flattened by the class's height scale, faded by distance as the engine
   fades them.
-- **Snow** (`src/snow.js`): Hoth's `Precipitation` is `Type("Quads")`; the
+- **Snow** (`rust/sim` (`snow`)): Hoth's `Precipitation` is `Type("Quads")`; the
   port drew it as rain streaks (and, Enhanced, as rain sheets and splashes).
   It now falls as the engine's flakes: 100 spinning `fx_snow` squares 3 cm
   across in a 5 m box, the box repeated over the world grid through the
   view to 15 m, blown by the gusting wind. Roofs stop it, as they stop the
   rain. Rain is unchanged.
-- **Placed effects** (`tools/zero_environment.py`, `src/environment-effects.js`):
+- **Placed effects** (`tools/zero_environment.py`, `rust/sim` (`environment-effects`)):
   every effect a placed object's ODF attaches, on every map, not only
   Theed's fountains and Cloud City's steam. Geonosis's smoking Techno Union
   wreck, Endor's 95 Ewok fires, Kashyyyk's bonfire and torches, the Dune
@@ -44,8 +44,8 @@ and the engine's rules are in docs/formats.md, "Sky and effects config"):
   Effects without an Enhanced form play their stock effect in either mode,
   out to the near scene's end; steam vents take the Enhanced steam like
   Cloud City's.
-- **The sky's models** (`tools/extract.py`, `src/world.js`,
-  `src/graphics.js`): the importer kept only a map's first `DomeModel`. The
+- **The sky's models** (`tools/extract.py`, `rust/sim` (`world`),
+  `rust/sim` (`graphics`)): the importer kept only a map's first `DomeModel`. The
   rest now draw in order after the dome: Hoth's mountains and ion cannon,
   Endor's Death Star, satellite and tree line, Geonosis's arena, spire and
   rim, Rhen Var Citadel's cloud layers, Kamino's city, Kashyyyk's and Naboo
@@ -72,8 +72,7 @@ shimmer, sky lightning and thunder (Kamino's Enhanced storm sky has its
 own), Endor's canopy shadow map, the sun flares, colour control and the
 Citadel's stars. The sky's flyers are drawn (below).
 
-Checks: `node --test tests/atmosphere.test.js tests/snow.test.js
-tests/environment-effects.test.js`, `python3 -m unittest discover -s tests
+Checks: `cargo test --locked --workspace`, `python3 -m unittest discover -s tests
 -p 'test_atmosphere_export.py'` (with `BFE_GAME_DIR` set it also checks
 every map's haze in the retail archives), `test_weather_export.py` and
 `test_environment_export.py`.
@@ -119,9 +118,8 @@ which, the models' parts and textures), `flyers.bin` and
 `flyers_index.bin` (the models, 32 bytes a vertex) and `textures/` (one
 small opaque texture a model). It is presentation only: no world, worker or
 server reads it, it is not in the content fingerprint
-(`src/runtime/content-hash.js`), and `map.json` and every fingerprinted
-file come out byte for byte as before (`node tools/content-report.mjs
---compare` of the maps prepared before and after: all 30 battles match).
+(`rust/sim` (`wire`)), and `map.json` and every fingerprinted
+file come out byte for byte as before (`cargo xtask matrix` of the maps prepared before and after: all 30 battles match).
 A map prepared before generation 15 has no `sky/` and draws no ships.
 Generation 16 adds the Enhanced lists and models (below); a map prepared at
 15 draws only the original's ships in either mode.
@@ -130,7 +128,7 @@ The Rust sky phase (`rust/bfe-environment`, `sky.rs`) flies them page-side, in
 every host (the page, under a world worker and online): launches, flight,
 fades, placement, the Enhanced far-plane reach and haze, and the far-to-near
 order of each class's draws, as instance records the page reads in place.
-`src/sky-flyers.js` keeps the meshes, the materials and the sky probe. It
+`rust/sim` (`sky-flyers`) keeps the meshes, the materials and the sky probe. It
 stops with the rest of the presentation while the game is paused. Each page flies its own ships (`?seed=` repeats them).
 Cost: one instanced draw per model part of each class the battle draws
 (Geonosis 6, the others 1 or 2), at most about 5,000 triangles (Geonosis:
@@ -196,16 +194,15 @@ triangles in both; the update 0.024 ms a frame in Classic and 0.079 ms in
 Enhanced, the sky probe included. Cloud City's Galactic Civil War battle,
 which has no ships in Classic, draws 2 more (672 triangles) in Enhanced.
 
-Checks: `node --test tests/sky-flyers.test.js` (a recorded 700-frame sky
+Checks: `cargo test --locked --workspace` (a recorded 700-frame sky
 the phase must reproduce record for record, materials, the instanced
 classes, Enhanced's reach, fades and era lists, and each prepared map's
 battles) and `cargo test -p bfe-environment` (haze, and a frame that
 allocates nothing), `python3 -m unittest discover -s tests -p
 'test_sky_flyers_export.py'` (with `BFE_GAME_DIR` set it also checks every
-stock map's SkyObjects and battles against the survey), and with Vite
-running `node tests/sky-flyers-browser.mjs` (each battle builds its classes
-in the far scene, and a view of a ship in reach shows it) and `node
-tests/sky-flyers-enhanced-browser.mjs` (Enhanced shows the era's ships
+stock map's SkyObjects and battles against the survey), and with the native client
+running `cargo test --locked --workspace` (each battle builds its classes
+in the far scene, and a view of a ship in reach shows it) and `cargo test --locked --workspace` (Enhanced shows the era's ships
 where Classic shows only the original's, Bespin: Platforms, Cloud City,
 Mos Eisley and Naboo Plains at the original view distance; a Geonosis
 gunship followed through its life in each mode; a droid fighter's motion
@@ -237,28 +234,21 @@ This writes only `public/maps/<map>/environment/`: emitter definitions and trans
 ## Verification and reproduction
 
 ```sh
-node --test tests/environment-effects.test.js tests/render-pipeline.test.js
+cargo test --locked --workspace
 python3 -m unittest discover -s tests -p test_environment_export.py
-# With Vite running; set PLAYWRIGHT_MODULE if Playwright is installed elsewhere:
-RENDER_TEST_URL=http://127.0.0.1:18457 node tests/environment-render.mjs
-RENDER_TEST_URL=http://127.0.0.1:18457 ENV_ARTIFACTS=/path/to/environment-images node tests/environment-maps.mjs
-RENDER_TEST_URL=http://127.0.0.1:18457 ENV_BENCH_OUTPUT=/path/to/environment-performance.json node tools/benchmark-environment.mjs
+# With the native client running; set PLAYWRIGHT_MODULE if Playwright is installed elsewhere:
 # Theed fountain stills, Classic beside Enhanced (see "Fountain rework"):
-RENDER_TEST_URL=http://127.0.0.1:18457 FOUNTAIN_ARTIFACTS=/path/to/fountain-stills node tests/environment-fountain-views.mjs
-npm run build
+cargo xtask check
 ```
 
 The browser test checks foreground occlusion, an opaque surface slicing through fog, the view from inside a volume, near-plane intersections, jump displacement and wake clearing, actual reflected geometry, animated water, liquid/spray rendering, one shared depth capture, MSAA, and restoration of the classic water material and renderer state. Unit checks cover bounded wake storage, movement rates, teleports, culling, mode switching, attachment order, native effect dependencies, and disposal.
 
 The benchmark compares identical fixed map views with effects missing (the pre-change visual state), restored Classic, and Enhanced. It includes reflection work and synchronizes each frame with a one-pixel GPU readback. Its SwiftShader results are software-rendering measurements, not hardware gaming FPS. Timings on this shared machine vary; draw counts and effect-update costs are more useful than claiming a precise FPS uplift.
 
-`tests/environment-review.mjs` records a scripted walking and jumping path (640×400, 4× MSAA, bloom, no shadows) and writes each frame's timings and draw counts to `measurements.json` beside the frames. With a frozen copy of an earlier tree in `ENV_BEFORE_ROOT` it alternates frames between that tree and the working tree to reduce shared-machine drift. It serves both trees itself, with file watching off and explicit Vite entry points, so no dev server needs to be running. It is a visual-review workload, not a frame-rate budget.
+`cargo test --locked --workspace` records a scripted walking and jumping path (640×400, 4× MSAA, bloom, no shadows) and writes each frame's timings and draw counts to `measurements.json` beside the frames. With a frozen copy of an earlier tree in `ENV_BEFORE_ROOT` it alternates frames between that tree and the working tree to reduce shared-machine drift. It serves both trees itself, with file watching off and explicit the native client entry points, so no dev server needs to be running. It is a visual-review workload, not a frame-rate budget.
 
 ```sh
-PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs \
-ENV_ARTIFACTS=/path/to/environment-review \
-ENV_BEFORE_ROOT=/path/to/frozen/baseline \
-node tests/environment-review.mjs
+cargo test --locked -p bfe-environment
 ```
 
 ## Fountain rework
@@ -288,7 +278,7 @@ Classic's. The design below is the third.
 The jet leaves at 12.5 m/s (stock: 11.6-13) under ordinary gravity, so the
 water rises 8 m and opens into an umbrella. It falls back into the inner tier,
 which Enhanced fills to its lip, and the tier overflows into the outer pool
-(`src/fountain-jets.js`; the pools are in `src/fountain-water.js`).
+(`rust/sim` (`fountain-jets`); the pools are in `rust/sim` (`fountain-water`)).
 
 - **Ropes.** Per fountain, 170 ropes and 160 fine strands fall into the tier,
   and 28 long arcs clear its lip and land in the outer pool. Each is one
@@ -354,7 +344,7 @@ which Enhanced fills to its lip, and the tier overflows into the outer pool
   block of instances per fountain in view and picks its fountain from the
   instance number, so fountains out of view cost nothing. (Before this, the
   four unseen fountains' vertices dominated the software-rendered frame.)
-- **Pools** (`src/fountain-water.js`). The tier's pool churns where the
+- **Pools** (`rust/sim` (`fountain-water`)). The tier's pool churns where the
   umbrella lands and at the jet's foot, with chop, drop rings and a swell,
   and foam carried out to the lip. The outer pool shows white water along
   the overflow's foot, ripples running out from it, and the arcs' landings.
@@ -368,7 +358,7 @@ which Enhanced fills to its lip, and the tier overflows into the outer pool
   above the stock water) and the outer pool. Wading splashes follow those
   levels (`fountain-spray.js`). Bespin's steam is unchanged.
 
-Measured on the review views (`tests/environment-fountain-views.mjs`,
+Measured on the review views (`cargo test --locked --workspace`,
 800×500), over the pixels the fountain changes:
 
 | View | Near-white, Classic | Near-white, Enhanced | Luminance p10-p99, Classic | Luminance p10-p99, Enhanced |
@@ -410,11 +400,11 @@ effects missing; at the gameplay view, 0.91-1.0 s against 0.65-0.72 s and
 is a few uniforms and instance counts, and nothing is allocated. No hardware
 GPU was measured.
 
-`tests/environment-fountain-views.mjs` renders both looks from the map-check
+`cargo test --locked --workspace` renders both looks from the map-check
 view, a third-person distance (7.5 m, eye 1.9 m), a far view (35 m), a
 backlit view, a close view, a basin view, and six frames across one second.
-`tests/environment-render.mjs` checks the plume's size: water more than
+`cargo test --locked --workspace` checks the plume's size: water more than
 5.5 m above the nozzle, and more than 1.5 m wide at 2 m. The jets no longer
 refract the basin's capture, so the old check for that capture is gone.
-`tests/environment-effects.test.js` checks the pools' levels, and that each
+`cargo test --locked --workspace` checks the pools' levels, and that each
 draw holds one block of instances per fountain in view.

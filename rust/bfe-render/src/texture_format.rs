@@ -29,7 +29,7 @@ impl Capabilities {
 // does, so an unrelated renderer containing these letters cannot lose BC7.
 pub fn unpacks_bc7(renderer: &str) -> bool {
     // The interface warning and uploader consume one device-policy table.
-    let policy: serde_json::Value=serde_json::from_str(include_str!("../../../src/gpu-policy.json")).expect("Static GPU policy JSON");
+    let policy: serde_json::Value=serde_json::from_str(include_str!("gpu-policy.json")).expect("Static GPU policy JSON");
     let text = renderer.to_ascii_lowercase();
     let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
     for (at, _) in text.match_indices("mesa") {

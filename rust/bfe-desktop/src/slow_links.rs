@@ -1,6 +1,6 @@
 //! Dual-stack connection attempt timeout configuration for slow or high-latency links.
 //!
-//! Mirrors `electron/slow-links.js` (`CONNECT_ATTEMPT`, `allowSlowLinks`,
+//! Mirrors the desktop host (`CONNECT_ATTEMPT`, `allowSlowLinks`,
 //! `SLOW_LINKS_FLAG`).
 
 use std::time::Duration;
@@ -13,19 +13,19 @@ use std::time::Duration;
 /// answer. Raising the per-family attempt timeout to 2500 ms allows high-latency
 /// dual-stack connections to complete while still failing fast when no route exists.
 ///
-/// Mirrors `CONNECT_ATTEMPT` in `electron/slow-links.js`.
+/// Mirrors `CONNECT_ATTEMPT` in the desktop host.
 pub const CONNECT_ATTEMPT: u64 = 2500;
 
 /// Command-line flag passed to child processes (such as a hosted server) so
 /// their dual-stack connection attempts use [`CONNECT_ATTEMPT`] milliseconds.
 ///
-/// Mirrors `SLOW_LINKS_FLAG` in `electron/slow-links.js`.
+/// Mirrors `SLOW_LINKS_FLAG` in the desktop host.
 pub const SLOW_LINKS_FLAG: &str = "--network-family-autoselection-attempt-timeout=2500";
 
 /// Returns the [`Duration`] (`2500` ms) configured by `allowSlowLinks` for
 /// dual-stack Happy Eyeballs connection attempts.
 ///
-/// Mirrors `allowSlowLinks` in `electron/slow-links.js`.
+/// Mirrors `allowSlowLinks` in the desktop host.
 pub const fn allow_slow_links() -> Duration {
     Duration::from_millis(CONNECT_ATTEMPT)
 }

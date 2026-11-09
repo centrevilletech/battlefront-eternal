@@ -1,14 +1,10 @@
 # World and frame performance
 
 Rust owns the authoritative world tick, AI, movement, combat, vehicles and
-snapshot publication. Rust also owns prediction, presentation, sound processing
-and the battle renderer. The browser and Electron hosts still pay for input,
-loading, scene facts, menus, devices, IPC and transport. Moving a subsystem to
-Rust does not establish a frame-rate improvement on every machine.
-
-The production engine has one implementation of each ported phase. Compare a
-candidate with a frozen reference build; there is no JavaScript simulation or
-battle-renderer switch for performance comparisons.
+snapshot publication (`rust/sim`). Rust also owns prediction, presentation
+(`rust/bfe-presentation`), sound processing (`rust/audio`, `rust/audio-control`),
+the battle and UI renderer (`rust/bfe-render`), and the native desktop and
+server hosts (`rust/bfe-client`, `rust/bfe-server`).
 
 ## Measurements and their scope
 
@@ -37,12 +33,12 @@ Measure the release build and workload on the actual target device.
 
 | Work | Owner | What to observe |
 | --- | --- | --- |
-| World phases | `rust/sim/src/world/step.rs` | Completed ticks, step cost, catch-up debt, allocations and ordered output. |
-| AI | `rust/sim/src/ai/owned/` | Decision/LOS budgets, native queries, held intent publication and allocations. |
-| Collision and movement | `rust/sim/src/collision/`, `rust/sim/src/movement/` | Query visits, retained scratch, dynamic-body state and exact final positions. |
-| Hulls, riders and weapons | `rust/sim/src/vehicles/`, `rust/sim/src/units/` | Native substeps, rig sampling, touched rows and callback order. |
-| Snapshots | `rust/sim/src/wire/` | Publication bytes, recipients, budgets, queues and retained baselines. |
-| Prediction and displayed poses | `rust/sim/src/client/`, `rust/bfe-presentation` | Pending replay ticks, correction work, sampled poses and observed readbacks. |
+| World phases | `rust/sim/rust/world/step.rs` | Completed ticks, step cost, catch-up debt, allocations and ordered output. |
+| AI | `rust/sim/rust/ai/owned/` | Decision/LOS budgets, native queries, held intent publication and allocations. |
+| Collision and movement | `rust/sim/rust/collision/`, `rust/sim/rust/movement/` | Query visits, retained scratch, dynamic-body state and exact final positions. |
+| Hulls, riders and weapons | `rust/sim/rust/vehicles/`, `rust/sim/rust/units/` | Native substeps, rig sampling, touched rows and callback order. |
+| Snapshots | `rust/sim/rust/wire/` | Publication bytes, recipients, budgets, queues and retained baselines. |
+| Prediction and displayed poses | `rust/sim/rust/client/`, `rust/bfe-presentation` | Pending replay ticks, correction work, sampled poses and observed readbacks. |
 | Drawing | `rust/bfe-render` | Submitted work, GPU completion, shadows, uploads, target size and frame pacing. |
 | Sound | `rust/audio-control`, `rust/audio` | Active voices, decode/stream credits, device quanta and master-chain cost. |
 
@@ -59,42 +55,34 @@ retained content, reserved capacity, used records and resources after close.
 
 ## Reproduce and check
 
-`tools/benchmark-world.mjs` exercises collision and movement against prepared
-Theed and Bespin content in the checkout's generated map directory:
+Use `rust/glbench`, `rust/v8math-check`, `cargo xtask matrix` and `bfe-client`
+to benchmark and verify simulation and rendering workloads:
 
 ```sh
-node tools/benchmark-world.mjs
+cd rust
+cargo test --release --locked -p sim -p bfe-presentation -p bfe-render
+cargo run --release --locked -p glbench -- --help
 ```
 
-`PERF_ROUNDS` and `PERF_CYCLES` set its sample counts. An optional
-`PERF_REFERENCE_COLLISION` points to an external frozen module exporting
-`CollisionWorld`; it does not select an alternate implementation in the game.
-Loading and renderer work are excluded from that workload. Its historical
-JavaScript foliage sweep was removed; foliage is measured in Rust drawn frames.
-
-For a complete battle, use a minified desktop build with the same content,
+For a complete battle, use a release `bfe-client` build with the same content,
 seed, population, input trace, graphics settings and camera in both versions.
 Alternate candidate and reference order, retain warmup rules, and record device
 and driver details with the result. Avoid background work that changes CPU or
 GPU contention during one role.
 
-`tools/desktop-world-advance.mjs` checks a real running desktop world's clocks,
-player life and errors. `tools/world-hash-matrix.mjs` checks state, deep digest
-and published bytes against frozen reference hashes. A stopped simulation must
-not be credited as a cheaper page frame. Native and browser replay checks cover
-shared arithmetic; pixel comparisons cover displayed output separately.
-
-Correctness captures and load tests are not performance qualification. In
-particular, software rendering cannot predict a physical GPU, and a fast GPU
-test machine cannot establish CPU performance on an older laptop.
+`cargo xtask matrix` checks state, deep digest and published bytes against
+frozen reference hashes (`tests/fixtures/world-hashes.json`). Correctness
+captures and load tests are not performance qualification. In particular,
+software rendering cannot predict a physical GPU, and a fast GPU test machine
+cannot establish CPU performance on an older laptop.
 
 ## Report separate budgets
 
-Record page CPU, worker/server CPU, completed world ticks, GPU completion,
-frame-time percentiles and input-to-present latency separately. Submission time
-alone omits queued GPU work. A reduced back buffer can help a GPU bottleneck
-without reducing simulation cost. A frame cap can reduce presentation work
-without changing gameplay dt.
+Record render-thread CPU, world/server thread CPU, completed world ticks, GPU
+completion, frame-time percentiles and input-to-present latency separately.
+Submission time alone omits queued GPU work. A reduced back buffer can help a
+GPU bottleneck without reducing simulation cost. A frame cap can reduce
+presentation work without changing gameplay `dt`.
 
 Measure loading, ordinary play, spawning and newly encountered effects, long
 battles, pause/resume, focus loss and reconnect. Keep synthetic fixture results,

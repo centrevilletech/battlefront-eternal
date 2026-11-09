@@ -3,7 +3,7 @@
 //
 // Ports `requestMaster`, `fetchJson`, `unreachableError`, `masterHost`,
 // `listServers`, `serverInfo`, `relayCredentials`, and `signalTicket` from
-// `electron/network.js`.
+// the desktop host.
 
 use std::env;
 use std::time::Duration;
@@ -16,19 +16,19 @@ use crate::browser::ServerEntry;
 use crate::identity::{is_lower_hex_64, PlayerIdentity};
 use crate::ping::{with_latency, PING_TIMEOUT};
 
-// Production master server URL (`DEFAULT_MASTER` in `electron/network.js`).
+// Production master server URL (`DEFAULT_MASTER` in the online master client).
 pub const DEFAULT_MASTER_URL: &str = "https://online.battlefronteternal.com";
 
 // Default per-request master HTTP timeout (10s, matching `MASTER_TIMEOUT_MS`
-// in `electron/network.js`).
+// in the online master client).
 pub const MASTER_TIMEOUT: Duration = Duration::from_secs(10);
 
 // Delay before retrying a failed idempotent `GET` request (750 ms, matching
-// `MASTER_RETRY_DELAY_MS` in `electron/network.js`).
+// `MASTER_RETRY_DELAY_MS` in the online master client).
 pub const MASTER_RETRY_DELAY: Duration = Duration::from_millis(750);
 
 // Maximum response body size accepted from the master server (128 KiB, matching
-// `fetchJson` in `electron/network.js`).
+// `fetchJson` in the online master client).
 const MAX_MASTER_RESPONSE_BYTES: u64 = 128 * 1024;
 
 // IP address family preference for outbound master HTTP/HTTPS connections.
@@ -54,7 +54,7 @@ impl MasterIpFamily {
 }
 
 // Short-lived TURN relay credentials returned by `POST /v1/relay-credentials`
-// (`dispatch('credentials')` in `electron/network.js`).
+// (`dispatch('credentials')` in the online master client).
 // - `urls`: `turn:` / `turns:` server URIs accepted by the ICE/TURN client.
 // - `username` and `credential`: time-limited HMAC TURN credentials scoped to
 //   the player's identity and the target `serverId`.
@@ -73,7 +73,7 @@ pub struct RelayCredentials {
 }
 
 // One-time WebSocket signaling ticket returned by `POST /v1/signal-ticket`
-// (`dispatch('connect')` in `electron/network.js`), redeemed on
+// (`dispatch('connect')` in the online master client), redeemed on
 // `wss://<master>/v1/signal?ticket=<ticket>` to exchange WebRTC/UDP offers,
 // answers, ICE candidates, and match readiness probes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,7 +98,7 @@ struct SingleServerEnvelope {
 }
 
 // Error JSON body returned by the master on HTTP 4xx/5xx (`{ "error": "..." }`
-// in `electron/network.js`: `result.error || ...`).
+// in the online master client: `result.error || ...`).
 #[derive(Debug, Deserialize)]
 struct ErrorEnvelope {
     error: Option<String>,
@@ -124,7 +124,7 @@ pub fn normalize_base_url(url: &str) -> String {
 }
 
 // Extracts the `host[:port]` authority from a master URL for user-facing error
-// messages, matching `masterHost(baseUrl)` in `electron/network.js`.
+// messages, matching `masterHost(baseUrl)` in the online master client.
 pub fn master_host(base_url: &str) -> &str {
     let trimmed = base_url.trim();
     let after_scheme = trimmed
@@ -139,11 +139,11 @@ pub fn master_host(base_url: &str) -> &str {
 }
 
 // Formats a transport/connection failure into the exact user-facing message
-// produced by `unreachableError(baseUrl, err)` in `electron/network.js`.
+// produced by `unreachableError(baseUrl, err)` in the online master client.
 // Formats a socket/DNS/TLS connection failure into a concise user-facing error
 // message naming the target master `host[:port]` authority and distinguishing
 // request timeouts (`"timed out"`) from connection errors (`unreachable` in
-// `electron/network.js`).
+// the desktop host).
 pub fn unreachable_error(base_url: &str, detail: &str) -> String {
     let host = master_host(base_url);
     let lower = detail.to_ascii_lowercase();
@@ -162,13 +162,13 @@ pub fn unreachable_error(base_url: &str, detail: &str) -> String {
 }
 
 // Signed HTTP/HTTPS client for the Battlefront Eternal master service
-// (`request(route, method, value)` in `electron/network.js`).
+// (`request(route, method, value)` in the online master client).
 //
 // Signs every request with the player's Ed25519 `PlayerIdentity` (`x-bfe-key`,
 // `x-bfe-time`, `x-bfe-nonce`, `x-bfe-signature`, `x-bfe-notice`), enforces a
 // 128 KiB response body cap, and retries idempotent `GET` requests once with a
 // freshly generated timestamp and nonce if the first attempt fails at the
-// transport layer (`if (method === 'GET' && attempt === 0)` in `electron/network.js`).
+// transport layer (`if (method === 'GET' && attempt === 0)` in the online master client).
 pub struct MasterClient {
     // Normalized base URL of the master service (without trailing slash).
     base_url: String,
@@ -247,13 +247,13 @@ impl MasterClient {
     }
 
     // Fetches `GET /v1/servers` and measures TCP handshake latency to each
-    // listed server (`listServers` in `electron/network.js`).
+    // listed server (`listServers` in the online master client).
     pub fn list_servers(&self) -> Result<Vec<ServerEntry>, String> {
         let servers = self.list_servers_raw()?;
         Ok(with_latency(servers, self.ping_timeout))
     }
 
-    // Fetches `GET /v1/servers/:id` (`serverInfo` in `electron/network.js`).
+    // Fetches `GET /v1/servers/:id` (`serverInfo` in the online master client).
     pub fn server_info(&self, server_id: &str) -> Result<ServerEntry, String> {
         if !is_lower_hex_64(server_id) {
             return Err("Invalid server ID".to_string());
@@ -265,7 +265,7 @@ impl MasterClient {
 
     // Requests short-lived TURN relay credentials (`POST /v1/relay-credentials`),
     // optionally authorizing the peer->server TURN route for `server_id`.
-    // Ports `relayCredentials(serverId)` in `electron/network.js`.
+    // Ports `relayCredentials(serverId)` in the online master client.
     pub fn relay_credentials(&self, server_id: Option<&str>) -> Result<RelayCredentials, String> {
         let payload = match server_id {
             Some(id) => {
@@ -281,7 +281,7 @@ impl MasterClient {
 
     // Requests a one-time WebSocket signaling ticket (`POST /v1/signal-ticket`)
     // used when joining `relayPolicy: "auto"` or `"always"` servers.
-    // Ports `signalTicket()` in `electron/network.js`.
+    // Ports `signalTicket()` in the online master client.
     pub fn signal_ticket(&self) -> Result<SignalTicket, String> {
         self.request_master("POST", "/v1/signal-ticket", Some("{}"))
     }
@@ -289,7 +289,7 @@ impl MasterClient {
     // Executes a signed master HTTP request, retrying idempotent `GET` requests
     // once after `self.retry_delay` (750ms) when a transport error occurs.
     // Non-idempotent `POST` requests and explicit HTTP 4xx/5xx responses fail
-    // immediately without retrying, matching `request()` in `electron/network.js`.
+    // immediately without retrying, matching `request()` in the online master client.
     fn request_master<T: serde::de::DeserializeOwned>(
         &self,
         method: &str,
@@ -335,7 +335,7 @@ impl MasterClient {
 
         // Attach the 5 signed `x-bfe-*` headers (`x-bfe-key`, `x-bfe-time`,
         // `x-bfe-nonce`, `x-bfe-signature`, `x-bfe-notice`) and dispatch either
-        // a bodyless `GET` or a JSON `POST` (`electron/network.js::request`).
+        // a bodyless `GET` or a JSON `POST` (master request).
         let mut response = if method.eq_ignore_ascii_case("GET") {
             let mut req = self.agent.get(&url).header("accept", "application/json");
             for (k, v) in signed.as_pairs() {
@@ -374,7 +374,7 @@ impl MasterClient {
             })?;
 
         // On HTTP 4xx/5xx, prefer the master's structured `{ "error": "..." }`
-        // message (`result.error || ...` in `electron/network.js`), falling back
+        // message (`result.error || ...` in the online master client), falling back
         // to `"Request failed (<status>)"` when the body is not a JSON error object.
         if status >= 400 {
             if let Ok(env) = serde_json::from_str::<ErrorEnvelope>(&text) {

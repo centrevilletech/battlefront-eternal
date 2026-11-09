@@ -90,7 +90,7 @@ pub fn atlas<M:Math>()->Vec<u8>{
 
 // FountainWater's tier discs formerly constructed a BufferGeometry per map.
 // Authored basin centres remain cold input; topology and all Float32 rounding
-// are native, using Electron's trigonometry only where it reaches the pixels.
+// are native, using V8's trigonometry only where it reaches the pixels.
 pub fn basin_tiers<M:crate::pixel_math::Math>(basins:&[[f64;4]])->(Vec<f32>,Vec<u32>) {
  // FountainWater keeps five authored basin slots. The native tier adds a
  // twelve-sided lip at the same raised water level used by its shader.

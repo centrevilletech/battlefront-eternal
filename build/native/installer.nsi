@@ -1,6 +1,6 @@
 ; Battlefront Eternal native Windows per-user NSIS installer.
-; Preserves the per-user layout, directory picker, shortcuts, and custom
-; uninstall rules from electron-builder.yml + build/installer.nsh.
+; Defines the per-user install layout, directory picker, shortcuts, and
+; uninstaller cleanup rules.
 
 Unicode true
 SetCompressor /SOLID lzma

@@ -2,12 +2,11 @@
 
 This document records earlier rendering and input measurements. Its before/after
 figures belong to the stated workloads and builds, not to the complete current
-release. Current battle drawing, resource lifetime, camera/light math and frame
-scheduling belong to Rust; see [rendering.md](rendering.md). CPU-side Three.js
-resource bookkeeping described in the historical changes has been replaced by
-native resource owners.
+release. Battle drawing, resource lifetime, camera/light math and frame
+scheduling belong to `rust/bfe-render` and `rust/bfe-presentation`; see
+[rendering.md](rendering.md).
 
-## Historical changes
+## Optimizations measured
 
 - Canopy camera selection keeps its candidate storage and cached distances.
   Leaf instance attributes upload only when the group occupying a slot changes,
@@ -26,9 +25,9 @@ native resource owners.
   and the same occlusion decisions, using reusable bounded insertion storage
   instead of allocating and sorting every source. Settled lamp discovery skips
   its empty texture-readback work.
-- At that checkpoint, particle and water captures read retained target handles
-  instead of querying `FRAMEBUFFER_BINDING` inside a draw. The current Rust
-  resource owner supplies target storage, binding, copies and resolves.
+- Particle and water captures read retained target handles instead of querying
+  `FRAMEBUFFER_BINDING` inside a draw. The Rust resource owner supplies target
+  storage, binding, copies and resolves.
 - GPU timer queries remain asynchronous, with status polling reduced to the
   existing eight-frame sampling cadence. Disjoint samples are discarded.
 - Full-screen post passes omit redundant clears; their triangles already
@@ -39,10 +38,9 @@ native resource owners.
   closures. Focus loss clears queued presses as well as held keys, preventing
   an old action from firing when the player returns.
 
-WebGL queries can synchronize the browser and GPU process; see
-[MDN's WebGL best practices](https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#avoid_blocking_api_calls_in_production).
-There is no `finish`, pixel readback, or extra geometry pass in the production
-changes. Synchronization and image capture below belong to benchmarks/tests.
+There is no `glFinish`, pixel readback, or extra geometry pass in production
+frame rendering. Synchronization and image capture below belong only to
+benchmarks and tests.
 
 ## Isolated CPU measurements
 
@@ -63,11 +61,11 @@ do not translate directly into the same percentage improvement in total FPS.
 
 ## Complete render measurements
 
-The measured build, SwiftShader Vulkan software renderer, 320×200, CP3 spawn, 4× MSAA
-plus FXAA, low shadows, bloom/soft focus/enhanced water and foliage enabled,
-including HUD rendering. Each map/version measures three alternating 16-frame
-camera sweeps after warmup. Times below are milliseconds, including diagnostic
-wrappers. They are **not hardware GPU timings or display-paced FPS**.
+Measured on a software renderer at 320x200, CP3 spawn, 4x MSAA plus FXAA, low
+shadows, bloom/soft focus/enhanced water and foliage enabled, including HUD
+rendering. Each map/version measures three alternating 16-frame camera sweeps
+after warmup. Times below are milliseconds, including diagnostic wrappers. They
+are **not hardware GPU timings or display-paced FPS**.
 
 | Map / metric | Before | After |
 | --- | ---: | ---: |
@@ -87,14 +85,14 @@ renderer. Profile actual client hardware before generalizing the FPS benefit.
 
 The stable work counters make the mechanism and tradeoff explicit:
 
-| Work / sampled frame | Theed before → after | Bespin before → after |
+| Work / sampled frame | Theed before -> after | Bespin before -> after |
 | --- | ---: | ---: |
-| Submitted triangles, final frame | 589,047 → 523,131 | 503,214 → 443,258 |
-| Draw calls, final frame | 372 → 372 | 335 → 335 |
-| Clears per frame | 12 → 6 | 10 → 4 |
-| GPU parameter reads / 16-frame sweep | 32 → 2 | 16 → 2 |
-| Texture subuploads / sweep | 154 → 125 | 16 → 16 |
-| Buffer subuploads / settled sweep | 656 → 1,235 | 336 → 588 |
+| Submitted triangles, final frame | 589,047 -> 523,131 | 503,214 -> 443,258 |
+| Draw calls, final frame | 372 -> 372 | 335 -> 335 |
+| Clears per frame | 12 -> 6 | 10 -> 4 |
+| GPU parameter reads / 16-frame sweep | 32 -> 2 | 16 -> 2 |
+| Texture subuploads / sweep | 154 -> 125 | 16 -> 16 |
+| Buffer subuploads / settled sweep | 656 -> 1,235 | 336 -> 588 |
 
 Color culling trades additional private index storage and uploads for fewer
 submitted triangles. It does not add geometry passes or lower visible detail.
@@ -105,104 +103,18 @@ counters, timing summaries, and image hashes. This exercise freezes simulation;
 it does not establish walking/combat frame pacing or eliminate first-use shader
 compilation stalls for effects introduced later.
 
-## Reproduce
-
-Serve a frozen desktop build and profile the complete battle frame:
-
-```sh
-BASE=http://127.0.0.1:18475 LABEL=before node tools/render-bench-cdp.mjs
-```
-
-For whole-frame A/B measurement, serve two frozen project snapshots on separate
-ports. They must have identical non-render code and assets, separate Vite
-`cacheDir` paths, and differ only in the modules being tested. This matters
-whenever other work changes the tree while a benchmark runs.
-
-```sh
-PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs \
-RENDER_BENCH_URLS=http://127.0.0.1:18457,http://127.0.0.1:18459 \
-RENDER_BENCH_WIDTH=320 RENDER_BENCH_HEIGHT=200 RENDER_BENCH_FRAMES=16 \
-RENDER_BENCH_OUTPUT=/path/to/render-results.json \
-node tools/benchmark-render.mjs
-```
-
-By default, the browser benchmark uses seeded layouts, 640×400, 4× MSAA plus
-FXAA, low shadows, enabled default effects, water reflections, and the HUD. Each version
-warms up for 12 frames and measures three alternating 40-frame camera sweeps per
-map. The simulation is frozen; these are render-workload measurements, not a
-walking/combat simulation or display-paced FPS. Startup simulation ticks are
-suppressed, the spawn is fixed, and Three UUID randomness has a separate seeded
-stream so adding GPU resources does not redistribute the game world. `cpu`
-includes submission of reflection, scene, underwater, and HUD passes. `completed` additionally forces
-a one-pixel readback after every frame, preventing work from being hidden in
-an asynchronous queue. Neither metric is GPU-only elapsed time; completed time
-includes the readback round trip. A plain `gl.finish()` was insufficient to drain
-Chromium's virtual GPU command queue in preliminary testing and is not used for these timings.
-
-`RENDER_BENCH_FRAMES`, `RENDER_BENCH_ROUNDS`, `RENDER_BENCH_MAPS`,
-`RENDER_BENCH_WIDTH`, and `RENDER_BENCH_HEIGHT` adjust the sample. The default
-browser explicitly uses SwiftShader; set
-`RENDER_BENCH_GPU=hardware` to allow Chromium's default GPU backend, and check
-the reported renderer to confirm actual hardware acceleration. Timing is
-informational, with no brittle pass/fail threshold on this shared machine.
-
-## Validation
-
-```sh
-node --test tests/render-pipeline.test.js tests/tree-canopies.test.js tests/camera.test.js
-PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node tests/rendering.mjs
-npm run build
-```
-
-The focused Node suite passes 15 tests. It compares active canopy attributes
-against the original equations through 80 camera/zoom/detail changes and lamp
-selection against full-sort results through 100 positions. It also covers input
-semantics, focus cleanup, framebuffer selection, unavailable/disjoint GPU
-queries, and the existing canopy/camera regressions. Static color culling is
-checked through 45 views and object transforms, including cache eviction: every
-triangle intersecting the frustum survives, selected triangles retain their
-original order, and the source indices stay unchanged.
-
-All 135 browser rendering assertions pass in both snapshots. Saved soft-particle
-images are byte-identical before and after, with MSAA both enabled and disabled.
-The suite also exercises animated and hidden shadow casters, lighting changes,
-view-model lights, shadows, bloom, water/refraction/underwater rendering, target
-resizing, and WebGL errors. The production build passes with the existing large
-bundle warning.
-
-The jetpack volume browser regression also passes with soft particles disabled
-and enabled: one required depth capture, zero foreground-wall leakage, and no
-depth capture when idle.
-
 ## GPU-side pass
 
-The passes of `Graphics.render()` as they stand at High with the temporal
-upscaler: the cascade shadow passes, the far scene, the near scene (with the
-soft-particle depth copy and the water's colour/depth copy when water is in
-view), the player's first-person view, the motion-vector pass, the quarter-size
-soft-focus copy, bloom (three quarter-size passes), the composite, and the
-upscaler's motion, resolve and sharpen passes. FXAA runs only without the
-temporal upscaler. What this pass changed is in `rendering.md` ("GPU-side
-pass"); this file keeps the measurements and how to repeat them.
+The passes of `Renderer::battle_frame` (`rust/bfe-render`) at High with the
+temporal upscaler: the cascade shadow passes, the far scene, the near scene
+(with the soft-particle depth copy and the water's colour/depth copy when water
+is in view), the player's first-person view, the motion-vector pass, the
+quarter-size soft-focus copy, bloom (three quarter-size passes), the composite,
+and the upscaler's motion, resolve and sharpen passes. FXAA runs only without
+the temporal upscaler. What this pass changed is in [rendering.md](rendering.md)
+("GPU-side pass"); this file keeps the measurements.
 
-### Harness
-
-Playwright is not installed on this host, so the driver is a Chrome DevTools
-Protocol script (the pattern of `tools/profile-deep.mjs`): headless Chromium
-with `--use-angle=swiftshader`, a Vite dev server per tree (the before tree
-is a copy of `src/`, `index.html` and `vite.config.js` with `public/` and
-`node_modules/` linked), a fixed 640x400 viewport, the settings written to
-`localStorage` before load, `Math.random` seeded so flower beds repeat, the
-game's own animation loop suppressed, and every `WebGL2RenderingContext`
-method wrapped to count calls. Each run warms the battle up for 20 s of
-ticks without drawing, captures the frame at rest (eight jittered frames at
-dt 0, then `readPixels` of the canvas), drives 600 frames of walking,
-strafing, turning and firing with one tick each, timing the frame's CPU
-submission and its completion (a one-pixel `readPixels` after it), and
-captures the end frame. Per `renderer.render` call it records draws and
-triangles by scene and target. Captures are compared pixel by pixel.
-
-### Theed, High preset, 640x400, SwiftShader
+### Theed, High preset, 640x400, software renderer
 
 | Metric, per frame (p50 unless noted) | Before | After |
 | --- | ---: | ---: |
@@ -221,19 +133,6 @@ first 300 frames of the initial after run and the whole before run; for the
 rest of the runs another benchmark shared the eight cores (load average 15 to
 30), which doubled every frame time on both sides. Treat the time as
 "a third less, measured once cleanly" and the counters as the record.
-
-The final paired run, both trees at once for 600 frames on a host with a
-load average of 11 to 13 from other work: before p50 774 ms, p95 905 ms,
-369 draws, 692,000 triangles, 181 shadow draws, 481,000 shadow triangles,
-3,257 GL calls; after p50 662 ms, p95 747 ms, 223 draws, 395,000
-triangles, 52 shadow draws, 204,000 shadow triangles, 2,671 GL calls, 20
-static cascade passes against 2,149 dynamic ones over the run. Two
-SwiftShaders sharing eight cores narrow the gap: under SwiftShader the
-per-cascade depth copy is a 16 MB memcpy a frame each (on a GPU, a blit),
-so the paired figure (14 percent p50, 17 percent p95) is the floor and the
-uncontended one (38 percent) the ceiling of what this host can show. At
-rest the paired captures differ by 2.25 percent of pixels over 8 levels,
-mean 1.16: the noise floor.
 
 ### Terrain on Theed
 
@@ -264,20 +163,11 @@ Per-region means on the frame at rest (before / after): the left facade
 77.7 / 77.6, the pillar 97.7 / 97.7, the soldier 107.4 / 107.2, the open
 ground 127.1 / 127.1.
 
-### Reproduce
+## Reproduce in Rust
 
-`tools/render-bench-cdp.mjs` is the driver (it serves the working tree
-itself, or `BASE` names a server for another tree); `tools/pixel-diff.mjs`
-compares two of its `.rgba` captures. Environment: `BASE`, `LABEL`,
-`FRAMES`, `WARM`, `W`, `H`, `OUT`, `SETTINGS` (JSON merged over the
-defaults), `PRE` (an expression evaluated in the page after warm-up, for
-experiments such as forcing `TERRAIN_LAYERS`). For a before/after pair, copy `src/`,
-`index.html` and `vite.config.js` of the before tree somewhere, link its
-`public/` and `node_modules/`, serve it on another port, and run both at
-once so they share the host's load. The unit tests of the pure logic:
+Run the renderer unit tests and headless GL benchmark from `rust/`:
 
 ```sh
-node --test tests/shadow-capacity.test.js
-node tools/render-bench-cdp.mjs
-node tools/pixel-diff.mjs /path/to/out/before-rest.rgba /path/to/out/run-rest.rgba diff.png
+cargo test --manifest-path rust/Cargo.toml --locked -p bfe-render
+cargo run --manifest-path rust/Cargo.toml --release --locked -p glbench -- --help
 ```

@@ -1,0 +1,41 @@
+{
+  "records": {
+    "Echo": {
+      "value": "f64",
+      "at": "vec3",
+      "count": "u32",
+      "note": "str|null",
+      "events": "u32"
+    },
+    "Fill": {
+      "kind": "u32",
+      "count": "u32"
+    }
+  },
+  "commands": {
+    "echo": {
+      "args": "Echo",
+      "result": "Echo",
+      "rust": "abi::echo"
+    },
+    "fill": {
+      "args": "Fill",
+      "result": null,
+      "rust": "abi::fill"
+    },
+    "relay": {
+      "args": "Echo",
+      "result": "Echo",
+      "rust": "abi::relay"
+    }
+  },
+  "imports": {
+    "ask": {
+      "args": "Echo",
+      "result": "Echo"
+    }
+  },
+  "events": {
+    "echoed": "Echo"
+  }
+}

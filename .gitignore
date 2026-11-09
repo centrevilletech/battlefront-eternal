@@ -1,6 +1,3 @@
-node_modules/
-dist/
-dist-desktop/
 .DS_Store
 *.log
 __pycache__/
@@ -25,18 +22,6 @@ tools/models/
 # The optional audio tools' virtual environment (tools/requirements-audio.txt).
 .venv-audio/
 
-# Desktop packages (electron-builder)
+# Desktop packages
 release/
 toolchain/
-
-# Bundled server code staging (no imported game assets).
-.host-runtime/
-
-# Built Node-API host artifacts.
-.host-addon/
-.host-probe/
-
-.host-runtime-stage-*/
-.host-runtime-previous/
-
-.transport-addon/

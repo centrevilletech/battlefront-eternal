@@ -4,10 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-only"
 publish = false
-description = "Battle renderer spike: the static world and soldiers drawn through glow"
-
-[lib]
-crate-type = ["cdylib", "rlib"]
+description = "Battle renderer: the static world and soldiers drawn through glow"
 
 [dependencies]
 three = { path = "../three" }
@@ -21,8 +18,3 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 
 [dev-dependencies]
 sha2 = "0.10"
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "=0.2.130"
-js-sys = "0.3"
-web-sys = { version = "0.3", features = ["WebGl2RenderingContext", "WebGlTexture", "WebglMultiDraw", "WebGlFramebuffer", "WebGlRenderbuffer", "WebGlSync", "HtmlCanvasElement"] }

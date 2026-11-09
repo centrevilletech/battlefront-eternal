@@ -361,6 +361,6 @@ impl Connection{
     }
     // Short counters exercise key changes in synthetic interoperability
     // fixtures; the device build always uses the generated protocol interval.
-    #[cfg(any(test,feature="node"))]
+    #[cfg(test)]
     pub(crate) fn fixture_key_interval(&mut self,n:u32){self.key_interval=n.max(1);}
 }

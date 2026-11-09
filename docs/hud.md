@@ -2,13 +2,13 @@
 
 `bfe-render::hud_model::HudModel` owns the battle HUD's display state and
 geometry. `bfe-render::interface` supplies retained quad batches, transforms,
-bitmap fonts and stack number labels. Native hosts can use both modules without
-WebGL or page objects. The existing `bfe-render::hud` pass consumes the resulting
-vertices and ordered texture/mask draw records with its Rust-owned program.
+bitmap fonts and stack number labels. Native hosts use both modules directly.
+The `bfe-render::hud` pass consumes the resulting vertices and ordered
+texture/mask draw records with its Rust-owned program.
 
-The page writes scalar game facts into a reusable generated input block. Its
-schema is `rust/sim/schema/hud.mjs`; `node tools/sim-schema.mjs` generates the
-standalone layouts in `src/hud-layout.js` and `hud_model/layout.rs`. Weapon,
+The client writes scalar game facts into a reusable generated input block. Its
+schema is `rust/sim/schema/hud.json`; `cargo xtask schema` generates the
+standalone layouts in `rust/sim` and `hud_model/layout.rs`. Weapon,
 entity, objective, objective-count, team and state rows use numeric asset/text handles.
 Fonts and their glyph pages are registered once. The block length is checked
 when the host attaches. Input publication writes changed scalar values only.
@@ -24,8 +24,7 @@ stay local; observations are consumed immediately without storage. Messages, kil
 damage, shots and map toggles enter `hud_model_event` immediately, including
 during loading. There is no event queue whose capacity depends on frame rate.
 The native feed keeps the original newest five lines; hits accumulate and radar
-shot windows update in place. Game construction awaits the renderer before the
-HUD attaches its fonts/text, so these events need no first-frame initialization.
+shot windows update in place.
 The host supplies weapon lock and objective progress; the HUD never advances
 simulation or chooses gameplay targets.
 
@@ -42,29 +41,13 @@ skip excess drawing rather than abort a frame. The radar retains its original
 450-candidate limit. Buffers are allocated before frames; native
 fixtures cover the complete update/build path with an allocation counter.
 
-The browser still hosts layer/overlay callbacks and resource IO for the separate
-shell surfaces. Their `drawBattlefield` entry calls the same Rust map generator
-and temporarily copies its output into the shell's own batch. Battle HUD output
-is copied directly between Rust model and render buffers without a JS vertex
-mirror. The model lives outside the GPU renderer, preserving clocks, messages,
+Battle HUD output is copied directly between Rust model and render buffers.
+The model lives outside the GPU renderer, preserving clocks, messages,
 fonts and radar state during context reconstruction. Restored resource handles
 keep their logical IDs and force a full GPU upload before the next HUD draw.
 
-`tools/hud-corpus/capture.mjs` captures both armies on four maps in Classic and
-Enhanced at fixed ticks and settings. It exercises first person, health/ammo and
-messages, scope/target feedback, a synthetic vehicle seat, expanded map, death,
-a spawn HUD layer and a covering overlay. Each comparison must use separate
-frozen-reference, repeat-reference and candidate sessions on the same GPU backend;
-`tools/renderer-corpus/compare.mjs::compareCase` checks every RGBA byte and tick.
-These fixtures exercise the battle HUD's layer contract; shell model surfaces
-and their animations have their own capture corpus.
+## Verification
 
-Pass `--vehicles` to `tools/hud-corpus.mjs` to add every loaded vehicle class's
-seats to each case. The fixture reads their actual weapon definitions, health
-icons and seat labels while holding the world at the same tick. This checks HUD
-presentation of those inputs; it does not claim a boarding/lifecycle test.
-
-`tools/hud-corpus/stall.mjs` checks a minified build with a throttled page:
-loading setters and message/kill bursts run before publication, then hundreds of
-updates run per publication and actual battle frames must continue. The native
-allocation test also exercises event bursts and multiple updates per draw.
+```sh
+~/bfe-work/tools/rbuild.sh cargo test --locked -p bfe-render
+```

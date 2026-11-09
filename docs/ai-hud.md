@@ -1,8 +1,8 @@
 # Classic AI HUD
 
 `bfe-render::hud_model` owns radar visibility, HUD relationship colours, hit
-feedback, messages, stats and geometry. `src/hud.js` publishes page game facts
-and semantic commands. `src/targeting-facts.js` retains gameplay target queries
+feedback, messages, stats and geometry. `rust/sim` (`hud`) publishes page game facts
+and semantic commands. `rust/sim` (`targeting-facts`) retains gameplay target queries
 used by the page and headless game. [Battle HUD](hud.md) describes the generated
 boundary and native/shared interface modules.
 
@@ -145,18 +145,18 @@ owns the credit; the HUD only observes the Character counter.
 
 ## Validation
 
-`tests/hud-units.test.js` covers the remaining gameplay relationship and target
+`cargo test --locked --workspace` covers the remaining gameplay relationship and target
 queries. Native `bfe-render` tests cover radar sensor boundaries/transmitters,
 life-generation resets, visual/authoritative position separation, heading poles,
 health/stat/hit/message clocks, prompt selection, objective capture and frame
 ordering. `rust/bfe-render/tests/hud_frame.rs` counts allocations across complete
 non-empty update/build cycles, including death, layer and overlay frames.
 
-Native damage and death notices are covered by `tests/f3-ordnance.test.js`,
-`tests/f3-blasts.test.js` and `tests/network-entity-combat.test.js`. Those
+Native damage and death notices are covered by `cargo test --locked --workspace`,
+`cargo test --locked --workspace` and `cargo test --locked --workspace`. Those
 fixtures exercise the owning unit/combat phase and feedback decoder without
 installed game files.
 
-`tools/hud-corpus/capture.mjs` supplies fixed-tick frozen-reference captures of
+`rust/bfe-render` (`hud_model`) supplies fixed-tick frozen-reference captures of
 Rust-owned battle HUD presentation. Authoritative combat and capture-credit
 rules remain covered by their simulation phase tests. See [Battle HUD](hud.md).

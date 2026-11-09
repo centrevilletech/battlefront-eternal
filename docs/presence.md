@@ -1,6 +1,7 @@
 # Steam and Discord presence
 
-The desktop client tells the player's friends what they are playing:
+The desktop client (`bfe-client`, through `rust/bfe-desktop/rust/presence/` and
+`rust/bfe-desktop/rust/steam/`) tells the player's friends what they are playing:
 
 - **Steam** shows friends the player in "Battlefront Eternal" (the friends
   list and the profile; others see "In non-Steam game"), and counts play
@@ -15,29 +16,26 @@ The desktop client tells the player's friends what they are playing:
   began. It is off until the player says yes: the main menu asks once
   ([What friends see](#what-friends-see)).
 
-Neither needs an account with us, a network service of ours, or a native
-module. Both are optional and never stand in the way of starting the game.
+Neither needs an account with us, a network service of ours, or a third-party
+SDK. Both are optional and never stand in the way of starting the game.
 Locally generated identities stay the only identity the game uses
-(MULTIPLAYER.md): nothing here links a Steam or Discord account.
+([MULTIPLAYER.md](../MULTIPLAYER.md)): nothing here links a Steam or Discord
+account.
 
-## Files
+## Modules
 
-| File | What it does |
+| Module | What it does |
 | --- | --- |
-| `electron/presence/discord.js` | Discord's local IPC protocol: finding the client's socket, the handshake, `SET_ACTIVITY`, reconnecting |
-| `electron/presence/activity.js` | What friends see, from the page's URL, the map catalog, the server and the battle's reports (pure) |
-| `electron/presence/index.js` | The main process's state: window navigation, server lists, hosting, page reports, the detail setting |
-| `electron/presence/application.js` | The Discord application id |
-| `src/presence.js` | The pages' reports: the front end's screen, a battle's start, the player's side, players online |
-| `electron/steam/vdf.js` | Steam's binary KeyValues (`shortcuts.vdf`) and text KeyValues (`loginusers.vdf`, `registry.vdf`) |
-| `electron/steam/shortcut.js` | The library entry: Steam's app id scheme, adding, updating and removing it |
-| `electron/steam/client.js` | Steam's installations, accounts, the running client, the `steam` command |
-| `electron/steam/launcher.js` | What the entry runs on each platform and installation |
-| `electron/steam/index.js` | Adding and removing with Steam closed, artwork, keeping the entry current |
-| `electron/steam/relaunch.js` | A start from outside Steam going through it (at boot) |
-| `electron/steam/overlay.js` | Where Steam's overlay can work, the switches that let it draw (Windows), whether it loaded |
-| `src/shell/integrations.js` | OPTIONS > STEAM & DISCORD, and the main menu's one-time questions: Discord activity, and adding the game to Steam |
-| `electron/assets/steam/` | The library's artwork, drawn by `tools/steam-artwork.mjs` (original, no retail art) |
+| `rust/bfe-desktop/rust/presence/discord.rs` | Discord's local IPC protocol: finding the client's socket, the handshake, `SET_ACTIVITY`, reconnecting |
+| `rust/bfe-desktop/rust/presence/activity.rs` | What friends see, from the active screen, map catalog, server and battle state |
+| `rust/bfe-desktop/rust/presence/mod.rs` | Presence controller state, rate limiting, and the detail setting (`off`, `game`, `full`) |
+| `rust/bfe-desktop/rust/steam/vdf.rs` | Steam's binary KeyValues (`shortcuts.vdf`) and text KeyValues (`loginusers.vdf`, `registry.vdf`) |
+| `rust/bfe-desktop/rust/steam/shortcut.rs` | The library entry: Steam's app id scheme, adding, updating and removing it |
+| `rust/bfe-desktop/rust/steam/client.rs` | Steam's installations, accounts, the running client, the `steam` command |
+| `rust/bfe-desktop/rust/steam/launcher.rs` | What the entry runs on each platform and installation |
+| `rust/bfe-desktop/rust/steam/mod.rs` | Adding and removing with Steam closed, artwork, keeping the entry current, and relaunching through Steam |
+| `rust/bfe-shell` | OPTIONS > STEAM & DISCORD, and the main menu's one-time questions: Discord activity, and adding the game to Steam |
+| `resources/assets/steam/` | The library's artwork (original, no retail art) |
 
 ## Steam
 
@@ -54,12 +52,12 @@ ADD TO STEAM or NOT NOW.
 OPTIONS > STEAM & DISCORD adds or removes it later. The entry:
 
 - is named **Battlefront Eternal**;
-- runs the same start the desktop launcher does (`launcher.js`), with
-  `--steam` as its launch options:
+- runs the same start the desktop launcher does, with `--steam` as its launch
+  options:
 
   | Installation | The entry runs |
   | --- | --- |
-  | Windows installer | the installed `Battlefront Eternal.exe` |
+  | Windows installer | the installed `bfe-client.exe` |
   | Debian or Ubuntu package | `/opt/Battlefront Eternal/battlefront-eternal` |
   | AppImage from `install.sh` (Omarchy, Arch and others) | `~/.local/bin/battlefront-eternal` |
   | AppImage run directly | `~/.local/bin/battlefront`, else the AppImage |
@@ -74,8 +72,6 @@ OPTIONS > STEAM & DISCORD adds or removes it later. The entry:
 - has Steam's app id for shortcuts: the CRC-32 of its executable and name,
   top bit set, as Steam ROM Manager and BoilR compute it. It is chosen once and
   kept, with the play time and artwork it collects;
-- asks for the Steam overlay off (`AllowOverlay` 0), which newer clients
-  ignore ([Overlays](#overlays));
 - gets our capsule, portrait, hero, logo (with its position,
   `<id>.json`, without which Steam does not show a custom logo) and icon in
   `config/grid`, unless the player already set their own for that place.
@@ -104,23 +100,21 @@ to do instead.
 Steam only knows a game runs when it started it. So when Steam is open and
 signed in to the account whose library has the entry, a start from anywhere
 else (the desktop launcher, the Start menu, `battlefront-eternal` in a
-terminal) goes through Steam (`relaunch.js`, at the very start of
-`electron/boot.js`):
+terminal) goes through Steam (`rust/bfe-desktop/rust/steam/`):
 
 1. This copy leaves a request with a token in the update folder's
    `launches/` and asks Steam for `steam://rungameid/<id>`.
 2. Steam starts the entry. That copy has `--steam` (and Steam's
    `SteamGameId` in its environment), finds the request and leaves the token.
-3. This copy exits. The round trip took 1.3 to 2 s against a stand-in
-   Steam (`tests/desktop-steam-launch.mjs`).
+3. This copy exits.
 
 If Steam has not started the game within 20 seconds (signed out, an update
 dialog, a broken entry), this copy carries on by itself, and so do the
 versions it hands off to (`BFE_NO_STEAM`) and every start of the next half
 hour (`launches/steam-relaunch-failed`); nothing about Steam can stop the
 game from starting. A second click on the launcher during the round trip
-exits and leaves it to the existing process; a request left by a start that died is
-ignored. Already running, the game comes to the front without a round trip.
+exits and leaves it to the existing process; a request left by a start that died
+is ignored. Already running, the game comes to the front without a round trip.
 OPTIONS > STEAM & DISCORD > START THROUGH STEAM turns this off;
 `BFE_NO_STEAM=1` skips it for one start.
 
@@ -129,35 +123,16 @@ the newest update; Steam on Windows would see the game end with it (a
 launcher that exits loses "In-Game"), and so would a Flatpak Steam, which
 follows `flatpak-spawn`, which ends with the process it started. There,
 started by Steam, the hand-off and the restart into a fresh update stay,
-windowless, until the game exits, and pass on its exit code
-(`launchVersion({ stay })`, `steamStays`). A native Linux Steam starts games
-under its reaper, a child subreaper that follows every process the game
-starts, so nothing stays there. A process that stays costs about 120 MB
-(about 220 MB when it already showed the loader); the game it started
-follows it (`BFE_STEAM_PARENT`), so Steam's STOP ends the game too.
-
-Installed executables from before this change hand off and exit instead
-of staying, so on Windows and with a Flatpak Steam, Steam soon stops showing
-the game. The game notices (`steamLost`) and OPTIONS > STEAM & DISCORD asks
-the player to reinstall once.
+windowless, until the game exits, and pass on its exit code. A native Linux
+Steam starts games under its reaper, a child subreaper that follows every
+process the game starts, so nothing stays there.
 
 A server hosted from the game keeps running after it when the player
 chooses so. Under a native Linux Steam's reaper that would keep the game
 "playing" in Steam, and Steam's STOP would end the server, so a game Steam
 started there starts its server through the user's systemd
-(`systemd-run --user`, `host.js: startOutside`), outside the game's
-processes; without a user systemd it starts as usual.
-
-On Linux Steam preloads its overlay library into every game it starts
-(`LD_PRELOAD=...gameoverlayrenderer.so`), with the overlay turned off too, and
-enables its Vulkan overlay layer. In Electron apps that library has crashed
-Chromium's sandboxed GPU process and zygote (Electron 37 and 43 reports, one
-on Omarchy). Started that way, the game starts itself again at once, in
-place (`process.execve`: the same process, so Steam keeps following it),
-without the library, the layer and any Steam runtime library path, before
-any window or GPU process exists (`withoutSteamOverlay`).
-`tests/desktop-steam-launch.mjs` checks that none of the game's processes
-maps the library.
+(`systemd-run --user`), outside the game's processes; without a user systemd it
+starts as usual.
 
 ### Per platform
 
@@ -173,7 +148,7 @@ maps the library.
   (`/usr/bin/flatpak-spawn --host --watch-bus <launcher> --steam`, starting
   in the home folder, which the sandbox has too), which needs Steam to be
   allowed to talk to `org.freedesktop.Flatpak`. The offer says so, and the
-  app asks in a dialog of its own (never on a page's word); agreeing runs
+  app asks in a dialog of its own; agreeing runs
   `flatpak override --user --talk-name=org.freedesktop.Flatpak com.valvesoftware.Steam`.
   That permission lets anything Steam starts run programs outside the
   sandbox, which is why it is the player's choice, and removing the game
@@ -196,12 +171,12 @@ Discord Developer Portal by the project owner:
 1. At <https://discord.com/developers/applications>, choose **New
    Application** and name it **Battlefront Eternal** (the name players'
    friends see). A Team can own it.
-2. Under **General Information**, upload `electron/assets/icon.png` as the
-   app icon, and copy the **Application ID**.
-3. Under **Rich Presence > Art Assets**, upload `electron/assets/icon.png`
-   with the key `logo` (assets take about 10 minutes to appear).
-4. Put the id in `electron/presence/application.js`
-   (`DISCORD_APPLICATION_ID`) and set `DISCORD_LARGE_IMAGE` to `"logo"`.
+2. Under **General Information**, upload the application icon (`icon.png`),
+   and copy the **Application ID**.
+3. Under **Rich Presence > Art Assets**, upload `icon.png` with the key `logo`
+   (assets take about 10 minutes to appear).
+4. Set `DISCORD_APPLICATION_ID` and `DISCORD_LARGE_IMAGE = "logo"` in
+   `rust/bfe-desktop/rust/presence/`.
 
 The application id is public (it is sent in the clear to the local Discord
 client) and Rich Presence needs no secret, OAuth or approval. Never put the
@@ -211,11 +186,10 @@ testing.
 
 ### The connection
 
-The main process speaks Discord's local IPC protocol
-(`electron/presence/discord.js`): frames of an opcode and a length (32-bit
-little-endian) and JSON; a handshake (`{v: 1, client_id}`) answered with
-READY; then `SET_ACTIVITY` with the main process's pid. It looks for the
-client:
+`rust/bfe-desktop/rust/presence/discord.rs` speaks Discord's local IPC protocol:
+frames of an opcode and a length (32-bit little-endian) and JSON; a handshake
+(`{v: 1, client_id}`) answered with READY; then `SET_ACTIVITY` with the
+process's pid. It looks for the client:
 
 | Client | Where |
 | --- | --- |
@@ -233,10 +207,6 @@ in 20 seconds). An application id Discord does not know is not tried again.
 Clearing (detail OFF) sends an empty `SET_ACTIVITY` and closes once Discord
 has answered: while the game's process lives, Discord would otherwise keep
 the last activity of a closed socket. Quitting the game clears it too.
-
-The same code was checked against a stand-in that answers as Discord does
-(`tests/presence-discord.test.js`, `tests/desktop-presence-electron.mjs`) and
-against arRPC 3.6.0, the server Vesktop and browser Discord use.
 
 ### What friends see
 
@@ -281,73 +251,16 @@ from Arch's repository), Vesktop, or keep the web app and run arRPC (AUR
 extension's arRPC plugin. Flatpak Discord's wrapper forwards only its first
 socket; the client looks for it there.
 
-## Overlays
-
-Steam's overlay (Shift+Tab: friends, chat, the web browser) is a library
-Steam loads into the process it starts. It draws into each frame that
-process presents and reads the keyboard there to see Shift+Tab. Electron
-presents frames from a GPU process of its own, so by default the overlay
-never sees one.
-
-- **Windows: OPTIONS > STEAM & DISCORD > STEAM OVERLAY**, off until the
-  player turns it on (`electron/steam/overlay.js`). Then, when Steam starts
-  the game, Chromium's GPU work runs in the game's main process
-  (`--in-process-gpu`) and DirectComposition is off
-  (`--disable-direct-composition`), as Electron games sold on Steam do; the
-  game redraws every frame, which the overlay also needs. It is
-  experimental: with Electron 25 and later the overlay has shown as a white
-  rectangle until the window is resized
-  ([steamworks.js #116](https://github.com/ceifa/steamworks.js/issues/116)),
-  and the switches have caused duplicate windows on Alt+Tab
-  ([#95](https://github.com/ceifa/steamworks.js/issues/95)). They also give
-  up the GPU sandbox and GPU crash recovery (a driver crash closes the game).
-  OVERLAY THIS START says whether Steam's library is in the game's process
-  (Node's diagnostic report lists the loaded libraries): the game may be the
-  version the installed executable handed off to, which Steam only reaches
-  if it follows child processes. Nothing else changes: the world worker, the
-  network process and audio stay where they are, and starts outside Steam
-  keep Electron's usual GPU process.
-- **Linux: none.** On Wayland (Hyprland, GNOME, KDE), Steam's overlay
-  cannot hook a native Wayland window at all; Valve's Steam Runtime
-  maintainer put it as "only works as intended when using X11/GLX, not when
-  using X11/EGL or Wayland/EGL"
-  ([steam-for-linux #13361](https://github.com/ValveSoftware/steam-for-linux/issues/13361),
-  July 2026). Electron stays a native Wayland app there. On X11 it would
-  draw (Chromium presents through GLX, about 60 swaps a second in the
-  game's process with `--in-process-gpu`), but Valve's current
-  `gameoverlayrenderer.so` reads input only through Xlib (`XNextEvent`,
-  `XPending`, `XCheck*`), while Chromium reads keys as XInput2 events
-  through XCB. A probe that hooks what the overlay hooks saw every key arrive
-  through `xcb_poll_for_event` and none through Xlib, so Shift+Tab could
-  never open the overlay and it could not hold the game's input while open.
-  The game removes the library instead (the crash fix above).
-- **Steam Deck Game Mode** (and SteamOS, Bazzite): gamescope draws Steam's
-  overlay itself, apart from the game, so it is expected to work there
-  (untested).
-- **Discord overlay** (Windows only): a separate window that takes the focus
-  while open. The game then loses pointer lock and pauses, as for any other
-  window, and a click resumes it. Its default keys (Shift+\` or Ctrl+\`) reach
-  the game too; with Shift or Ctrl held, \` no longer toggles the stats line
-  (`src/input.js`: `overlayChord`).
-
-The library entry still asks for the overlay off (`AllowOverlay` 0): newer
-Steam clients keep that choice in their own settings and ignore it, and the
-game decides for itself as above.
-
 ## Limits
 
 - **Steam's pop-up.** What friends see in the friends list and on the
   profile is the entry's name. Steam's "is now playing" pop-up is raised when
-  a friend's app id changes (read from the client's code; not tried on a live
-  client), and non-Steam games all have app id 0, so it most likely stays
-  quiet. Only a Steam app of Battlefront Eternal's own would give the pop-up
-  and Steam Rich Presence; Steamworks with the original game's app id would
-  show "STAR WARS Battlefront (Classic, 2004)" instead, so it is not used.
+  a friend's app id changes, and non-Steam games all have app id 0, so it most
+  likely stays quiet. Only a Steam app of Battlefront Eternal's own would give
+  the pop-up and Steam Rich Presence; Steamworks with the original game's app id
+  would show "STAR WARS Battlefront (Classic, 2004)" instead, so it is not used.
 - **Starting outside Steam** with Steam closed is not seen by Steam: the game
   does not start Steam for itself.
-- **Steam Input:** for controllers other than Valve's, Chromium sees the
-  physical pad and Steam's virtual one. The game reads the initial pad, only
-  when flying, so the two do not add up.
 - **Discord Join** (Ask to Join, party invites) is not used: it needs a launch
   protocol registration and a join path into the server browser, and
   browser-based setups (arRPC) do not carry it.
@@ -355,15 +268,5 @@ game decides for itself as above.
 ## Testing
 
 ```bash
-node --test tests/presence-*.test.js tests/steam-*.test.js
-# Electron, a stand-in Discord socket and Steam folders (needs prepared data):
-BFE_CONTENT_DIR=/path/to/game-data PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs \
-  xvfb-run -a node tests/desktop-presence-electron.mjs
-# A packaged build's start through a stand-in Steam (Linux):
-BFE_PACKAGED=release/linux-unpacked BFE_CONTENT_DIR=/path/to/game-data \
-  xvfb-run -a node tests/desktop-steam-launch.mjs
+cargo test --manifest-path rust/Cargo.toml --locked -p bfe-desktop
 ```
-
-Not tested here: a real Steam client (Windows, Ubuntu, Omarchy, Flatpak,
-Steam Deck) and a real Discord client. Before release, add the game to Steam
-on each, start it from the desktop launcher, and check a friend sees it.

@@ -36,7 +36,6 @@ base_test_crates=(
   audio-control
   bfe-client
   bfe-content-native
-  bfe-native
   bfe-transport
   bfe-online
 )

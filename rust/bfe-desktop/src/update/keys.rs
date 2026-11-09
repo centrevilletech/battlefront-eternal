@@ -1,6 +1,6 @@
 //! Pinned Ed25519 public keys and default distribution origin for desktop auto-updates.
 //!
-//! Mirrors `electron/update/keys.js` (`UPDATE_KEYS`) and `electron/update/feed.js` (`FEED`).
+//! Mirrors the desktop host (`UPDATE_KEYS`) and the desktop host (`FEED`).
 //!
 //! ## Key Format
 //! Channel envelopes (`updates/<channel>.json`) carry `{ key, payload, signature }`
@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 
 /// Default HTTPS origin for desktop update channels, manifests, and blobs.
 ///
-/// Mirrors `FEED` in `electron/update/feed.js`.
+/// Mirrors `FEED` in the desktop host.
 pub const FEED: &str = "https://get.battlefronteternal.com/downloads/";
 
 /// Alias for [`FEED`].
@@ -26,7 +26,7 @@ pub const PRODUCTION_KEY_ID: &str = "33913637e5932c25";
 
 /// Pinned production Ed25519 public key in SubjectPublicKeyInfo PEM format.
 ///
-/// Mirrors `UPDATE_KEYS["33913637e5932c25"]` in `electron/update/keys.js`.
+/// Mirrors `UPDATE_KEYS["33913637e5932c25"]` in the desktop host.
 pub const PRODUCTION_PUBLIC_KEY_PEM: &str = "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAobuiVMy9A0xN6BzAUgA/5e8uk7rpZBpH5aJj0Frqor0=\n-----END PUBLIC KEY-----\n";
 
 /// ASN.1 DER SubjectPublicKeyInfo prefix for a 32-byte Ed25519 public key (RFC 8410).
@@ -36,7 +36,7 @@ const ED25519_SPKI_PREFIX: [u8; 12] = [
 
 /// Pinned Ed25519 public keys table (`(key_id, public_key_pem)`).
 ///
-/// Mirrors `UPDATE_KEYS` in `electron/update/keys.js`.
+/// Mirrors `UPDATE_KEYS` in the desktop host.
 pub const KEYS: &[(&str, &str)] = &[(PRODUCTION_KEY_ID, PRODUCTION_PUBLIC_KEY_PEM)];
 
 /// Returns the default trusted [`KEYS`] table as a `BTreeMap<String, String>`.
@@ -57,7 +57,7 @@ pub fn encode_spki_der(verifying_key: &VerifyingKey) -> [u8; 44] {
 }
 
 /// Encodes a 32-byte Ed25519 verifying key as a SubjectPublicKeyInfo PEM string
-/// matching the format in `electron/update/keys.js`.
+/// matching the format in the desktop host.
 pub fn encode_spki_pem(verifying_key: &VerifyingKey) -> String {
     let der = encode_spki_der(verifying_key);
     let b64 = BASE64_STANDARD.encode(der);
@@ -65,7 +65,7 @@ pub fn encode_spki_pem(verifying_key: &VerifyingKey) -> String {
 }
 
 /// Computes the 16-character lowercase hex key ID (`sha256(spki_der)[:16]`) matching
-/// `keyId` in `electron/update/feed.js`.
+/// `keyId` in the desktop host.
 pub fn key_id_from_verifying_key(verifying_key: &VerifyingKey) -> String {
     let der = encode_spki_der(verifying_key);
     let mut hasher = Sha256::new();

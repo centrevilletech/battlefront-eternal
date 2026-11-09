@@ -1,0 +1,8 @@
+{
+  "kinds": {
+    "controller": {},
+    "seatUnit": {
+      "class": "SeatUnit"
+    }
+  }
+}

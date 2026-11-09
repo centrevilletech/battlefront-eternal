@@ -566,7 +566,7 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
 
     // Record graceful shutdown and unregistration (`shutdown()` in `src/main.js`) so `<state>/hosting.log`
     // captures the unregistration of online directory and LAN discovery listeners when `HostController::stop`
-    // (`POST /admin {"action": "stop"}` in `electron/host.js`) or `SIGINT`/`SIGTERM` terminates the service.
+    // (`POST /admin {"action": "stop"}` on the operator HTTP endpoint) or `SIGINT`/`SIGTERM` terminates the service.
     println!("bfeserver stopping: unregistering service and closing sessions");
     // Step 1: If registered with the online master directory, send `DELETE /v1/servers/:id` and close the signaling WebSocket.
     if let Some(online) = control.online.lock().unwrap().take() {

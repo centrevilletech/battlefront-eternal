@@ -1,14 +1,15 @@
 # Desktop client
 
-The desktop client ships as an installable application for Windows (`x64`) and
-Linux (`x64` and `arm64`), bundling the game runtime, the dedicated server,
-the content preparation tools and their standalone Python, FFmpeg and
-KTX-Software toolchain. MULTIPLAYER.md covers the release plan; this note
-covers what ships, where it installs and how it prepares game data.
+The desktop client ships as an installable native application for Windows (`x64`)
+and Linux (`x64` and `arm64`), bundling the game runtime (`bfe-client`), the
+dedicated server (`bfeserver`), the content preparation tools and their
+standalone Python, FFmpeg and KTX-Software toolchain. [MULTIPLAYER.md](../MULTIPLAYER.md)
+covers the release plan; this note covers what ships, where it installs and how
+it prepares game data.
 
 ## What ships in the desktop package
 
-Native packages built by `.github/workflows/release-native.yml` and staged by
+Native packages built by `.github/workflows/release.yml` and staged by
 `build/native/stage.py` lay out the unpacked application folder as follows:
 
 - `bfe-client` (`bfe-client.exe` on Windows): the native desktop client
@@ -34,46 +35,6 @@ Native packages built by `.github/workflows/release-native.yml` and staged by
 - `resources/assets/`: the application and Steam icons (`icon.png`,
   `icon-512.png`, `icon-256.png`, `icon.svg`, `steam/`, and the freedesktop
   `icons/hicolor/` theme tree).
-
-During the Electron transition, `.github/workflows/release.yml` packages the
-Electron host (`electron/main.js`, `electron/content.js`, `electron/preload.cjs`
-and `resources/app.asar`) with the same `resources/tools`,
-`resources/toolchain`, `resources/legal` and `resources/bfe-tree.json` layout:
-
-- `electron/main.js` opens one window on `app://bfe/`. The renderer is
-  sandboxed, with context isolation and no Node. Navigation stays on that
-  origin, new windows are denied (https links open in the system browser), and
-  only pointer lock, fullscreen, keyboard lock and clipboard writes are granted.
-- `electron/content.js` serves that origin. Engine files come from the Vite
-  build inside the app. `/maps`, `/sides`, `/common` and `/audio` come from the
-  player's game data folder, with byte ranges for the audio streams. Every
-  response carries a Content-Security-Policy; nothing loads from the network.
-  It allows `'unsafe-eval'` because three's KTX2 transcoder (Emscripten
-  embind) generates functions at runtime in its decoding workers; without
-  it no KTX2 texture ever decodes.
-- A battle holds still under its loading screen: no tick runs until every
-  requested texture has arrived and been uploaded to the GPU, with shaders
-  compiled against them (`game.loaded()`), then the screen closes and
-  `game.begin()` starts the world. `game.texturesPending()` lists what the
-  load still waits on.
-- `electron/preload.cjs` is the only bridge: `window.bfeDesktop` reports the
-  platform and the game data folder, opens the folder picker, and gives the
-  loader its state and buttons.
-- `electron/gpu.js`: on Windows Chromium starts with
-  `force_high_performance_gpu` (a laptop's discrete GPU), and
-  `bfeDesktop.gpu()` reports Chromium's GPU feature status, as
-  `chrome://gpu` shows it. VIDEO OPTIONS and the stats line warn when the game
-  is drawn or composited in software (`docs/performance.md`).
-- Every battle runs in the world worker, as in a browser.
-  `--query=<flags>` opens the main menu with dev flags that launch URLs keep.
-- F11 toggles fullscreen. The menu bar is hidden until Alt is pressed; its
-  Game menu reopens the main menu or the preparation loader, chooses a game
-  or data folder, and opens the data folder or the preparation log.
-- Ctrl is crouch, so outside macOS the menu takes no Ctrl+letter shortcut a
-  battle uses: Ctrl+W, Ctrl+M, Ctrl+R, Ctrl+Shift+R and Linux's Ctrl+Q do
-  nothing, where Electron's stock items would close, minimize, reload or
-  quit the game. Exit, Reload, Force Reload and the title bar's buttons
-  remain; Alt+F4 still closes the window. macOS keeps its Command shortcuts.
 
 ## Where packages install
 
@@ -103,10 +64,11 @@ changes what preparation produces. See [desktop-updates.md](desktop-updates.md).
 ## Prepared content compatibility
 
 `tools/content-version.json` is shared by the Python preparer and the desktop
-startup check. Increase its map, side or common generation when generated gameplay
-assets change (common: what every side shares, its clips among them;
-stored in `.prepare.json` as `commonVersion`). The packaged client reads the same external resource as Python; the installer
-smoke test imports it inside the actual package archive.
+startup check (`rust/bfe-desktop`). Increase its map, side or common generation
+when generated gameplay assets change (common: what every side shares, its clips
+among them; stored in `.prepare.json` as `commonVersion`). The packaged client
+reads the same external resource as Python; the installer smoke test imports it
+inside the actual package archive.
 After the application update check, startup checks the state, map, side and common
 versions of every selected, imported, managed or discovered content folder.
 Outdated or unfinished content prepares again before the menu opens, from the
@@ -119,7 +81,7 @@ on the next launch. Failed preparation stays on the loader with a retry action.
 Current imports still work without Steam. If an outdated import has no local
 source, the loader asks for the original installation or a current content
 export rather than opening the menu with incompatible data. Explicit developer
-`--content-dir` / `BFE_CONTENT_DIR` and `--dev-url` overrides remain unchecked.
+`--content-dir` / `BFE_CONTENT_DIR` overrides remain unchecked.
 The runtime content fingerprint check is still enforced when joining a server;
 startup generation checks do not detect arbitrary edits or corruption.
 
@@ -127,11 +89,9 @@ Updating the executable alone cannot update a dedicated server's game data.
 Refresh its prepared data from the same generation as the clients, including
 map JSON, prop animation and collision binaries, common and side definitions.
 Keep the previous server directory until health and a player join are verified.
-Use `node tools/content-report.mjs <data-folder> '?map=nab2&side=rep'` on both
-copies to compare the exact runtime fingerprint and identify differing files.
-`node tools/content-report.mjs --compare <a> <b>` compares every regular battle
-of two prepared folders (or `--battles` output saved as `.json`, taken on the
-server with its own engine) and exits 1 when any differs.
+Use `cargo run --manifest-path rust/Cargo.toml -p bfe-content-native --example fingerprint -- <data-folder>`
+or `desktop-tool content` (`rust/bfe-desktop`) to inspect and compare runtime
+content fingerprints across prepared folders.
 Texture quality and operating system do not require different gameplay hashes.
 
 Preparation must give the same bits on every platform, because the server's
@@ -153,15 +113,14 @@ updater always prepares fresh data, [server-updates.md](server-updates.md)).
 A stage that reuses earlier content keeps whatever an earlier tool wrote.
 
 Map generation 15 adds the sky's flyers: a `sky/` folder beside
-`map.json` on the five maps whose battles draw ships (tools/zero_sky.py). It
+`map.json` on the five maps whose battles draw ships (`tools/zero_sky.py`). It
 is presentation only and outside the fingerprint; `map.json` and every
-fingerprinted file come out byte for byte as at 14 (`content-report.mjs
---compare` of the two: all 30 battles match). So clients and servers at 14
-and 15 still play together; a client prepares its maps again once on
-update (every map step, then the catalog, environment and texture steps
-after them, as for any map generation) and draws the ships only after that.
-A server needs nothing new; its updater prepares a fresh data folder for the
-release anyway, as it does whenever the tools change
+fingerprinted file come out byte for byte as at 14 (all 30 battles match).
+So clients and servers at 14 and 15 still play together; a client prepares its
+maps again once on update (every map step, then the catalog, environment and
+texture steps after them, as for any map generation) and draws the ships only
+after that. A server needs nothing new; its updater prepares a fresh data folder
+for the release anyway, as it does whenever the tools change
 ([server-updates.md](server-updates.md)).
 
 Map generation 16 adds the Enhanced sky's flyers:
@@ -170,10 +129,10 @@ each class's `era`), and `sky/` holds their models from the side archives,
 so Bespin: Platforms gets a `sky/` folder too
 ([environment-effects.md](environment-effects.md), "Enhanced"). It is
 presentation only and outside the fingerprint; `map.json` and every
-fingerprinted file come out byte for byte as at 15 (`content-report.mjs
---compare`: all 30 battles match), so clients and servers at 14, 15 and 16
-play together. A client prepares its maps again once on update and draws
-the Enhanced sky's ships after that; a server needs nothing new.
+fingerprinted file come out byte for byte as at 15 (all 30 battles match),
+so clients and servers at 14, 15 and 16 play together. A client prepares its
+maps again once on update and draws the Enhanced sky's ships after that; a
+server needs nothing new.
 
 ## Moving prepared content to another computer
 
@@ -201,9 +160,9 @@ the source and relocate its preparation checkpoint. Current pipeline versions
 still decide which stages must rerun. A changed source falls back to normal
 preparation. Re-exporting on a computer without Steam retains the provenance.
 
-For scripted transfers, `node tools/content-archive.mjs export <content> <file.bfepack>`
-and `node tools/content-archive.mjs import <file.bfepack> <parent>` use the same
-archive format and verification as the desktop menus.
+For scripted transfers, `desktop-tool content export <content> <file.bfepack>`
+and `desktop-tool content import <file.bfepack> <parent>` (`rust/bfe-desktop`)
+use the same archive format and verification as the desktop menus.
 
 Online browsing and public hosting share an accessible, scrollable privacy
 dialog. Buttons occupy their own row; keyboard input stays in the modal.
@@ -213,7 +172,7 @@ shows a retryable error on failure. A failed save never enables online access.
 ## First launch: finding and preparing the game
 
 Retail data is never packaged. On launch the app shows its loader
-and decides, in order:
+and decides, in order (`rust/bfe-desktop/rust/discovery/`):
 
 1. `--content-dir=<folder>` or `BFE_CONTENT_DIR`, or a data folder the player
    chose: used as it is.
@@ -230,7 +189,7 @@ and decides, in order:
    `game-data` folder (in its user data folder) was completely prepared from
    that copy, with the add-ons it has now, the main menu opens; otherwise the
    app asks before preparing (below, "Asking first").
-3. Without a Steam copy, the GOG copy (`findGogInstall`), prepared the same
+3. Without a Steam copy, the GOG copy, prepared the same
    way: it has the Steam copy's layout (`GameData/Battlefront.exe`,
    `GameData/Data/_LVL_PC`). Found where GOG's records say: each game's key
    under `HKLM\SOFTWARE\WOW6432Node\GOG.com\Games` (GOG Galaxy and the
@@ -256,15 +215,14 @@ and decides, in order:
 
 ### Asking first
 
-Discovery collects every copy it can find, each once (`findGameInstalls`),
+Discovery collects every copy it can find, each once (`rust/bfe-desktop/rust/discovery/`),
 in the order the confirm screen offers them: the folder the player chose,
 Steam's own copy (the one its app manifest names) in any library, then GOG's
 (where GOG's records say), and only then folders that merely look like the
 game: another folder in a library's `steamapps/common` (a copy placed there
 by hand, perhaps modded), a Battlefront folder where GOG games usually go, or
 one found on a drive. So a hand-made copy in one library no longer wins over
-Steam's own copy in another. `findGameInstall` is still checked before those other locations,
-found without looking further.
+Steam's own copy in another.
 
 Before anything is converted, the app runs `tools/prepare.py --check` on the
 copy (`tools/prepare_check.py`, about a second; it only reads, and writes
@@ -289,14 +247,14 @@ stock archives were replaced by a mod passes it, and then fails (or prepares
 as modded) in the steps that read them; online it is spectator-only, as the
 content fingerprint differs from the server's.
 
-The confirm screen (the loader's `confirm` mode) shows the folder, where it
-was found ("your Steam library", "your GOG library", "the folder you chose",
-"a copy in ... that Steam didn't install"), the check's result, the add-on
-maps the copy has (and any that will be left out, with why), and why the app
-prepares at all: it converts the game's maps, armies, sound and movies into
-formats it can read, once, taking about as long as the estimate says (from
-the check's counts of maps, armies and sound sub-levels, and this machine's
-measured step times), and the installation is only read, never changed.
+The confirm screen shows the folder, where it was found ("your Steam library",
+"your GOG library", "the folder you chose", "a copy in ... that Steam didn't
+install"), the check's result, the add-on maps the copy has (and any that will
+be left out, with why), and why the app prepares at all: it converts the game's
+maps, armies, sound and movies into formats it can read, once, taking about as
+long as the estimate says (from the check's counts of maps, armies and sound
+sub-levels, and this machine's measured step times), and the installation is
+only read, never changed.
 PREPARE starts; CHOOSE ANOTHER FOLDER opens the folder picker; IMPORT
 CONTENT EXPORT takes an export from another computer instead of preparing
 here; with more than one copy found, each other one has USE THIS COPY, which
@@ -308,10 +266,7 @@ Verify / Repair, then CHECK AGAIN), and offers no PREPARE. A check that
 couldn't run at all (no Python, the tool failing, a drive too slow to answer
 in time) says nothing about the copy: the screen says so and offers CHECK
 AGAIN and PREPARE ANYWAY, so a fault in the check never keeps a working copy
-from being prepared. The screen is in
-the loader's look; its list (as the list of add-on maps left out, later)
-scrolls on its own and fades out at its foot when there is more, so the
-title, the explanation and the buttons stay in view in any window.
+from being prepared.
 
 The copy the player prepares from becomes `gameDir`. Preparing that copy
 again, after an update whose content generations differ or a run cut short,
@@ -332,9 +287,8 @@ is complete without them. The game then plays the original sound;
 OPTIONS > AUDIO > SOUND still offers ENHANCED, the 2026 sound stage over the
 original recordings, and its note says the Enhanced sound isn't prepared.
 Multiplayer is unaffected: the content fingerprint leaves sound out. To add
-it later, the loader's YOUR GAME CONTENT screen (the Game menu's Game Data
-Preparation; Alt shows the menu bar) has ADD ENHANCED SOUND, which prepares
-only those steps from the copy the folder was prepared from.
+it later, the loader's YOUR GAME CONTENT screen has ADD ENHANCED SOUND, which
+prepares only those steps from the copy the folder was prepared from.
 
 When the copy to prepare from is a different one from the one the app's own
 `game-data` folder was prepared from (or the folder records none), what is
@@ -383,12 +337,11 @@ position: `tools/zero_foliage.py` finds the table by its bytes, so every map
 with painted foliage prepares from either copy.
 
 Preparing both copies (`prepare.py --core-only`, the same tools and Python)
-gives the same fingerprint for all 30 battles (`content-report.mjs
---compare`), so a GOG player joins servers prepared from Steam. The prepared
-files are identical apart from `.prepare.json`, which records the game folder,
-and six menu music `.opus` files, which differ only in the Ogg stream serial
-number ffmpeg picks at random on every encode (and the page CRCs over it), as
-two Steam preparations would.
+gives the same fingerprint for all 30 battles, so a GOG player joins servers
+prepared from Steam. The prepared files are identical apart from `.prepare.json`,
+which records the game folder, and six menu music `.opus` files, which differ
+only in the Ogg stream serial number ffmpeg picks at random on every encode
+(and the page CRCs over it), as two Steam preparations would.
 
 On Windows, `tools/enhance_audio.py` renames a sample's record over the shared
 `audio/enhanced/samples/<id>.json`, which Windows refuses while another
@@ -456,10 +409,10 @@ skipped is marked in the look's note colour. A map or army prepared again
 and `environment` again so the catalog and the effects match. The loader
 shows its look's backdrop, then the game's own loading pictures for the map
 being prepared once the catalog is in. The log is in the app's user data
-folder, `logs/prepare.log` (Game → Open Preparation Log).
+folder, `logs/prepare.log`.
 
 The bar and the time left are by expected time, not step count
-(`electron/prepare.js`: `estimate`): each step kind has a measured duration
+(`rust/bfe-desktop/rust/prepare/`): each step kind has a measured duration
 (a side 1 to 17 s, common 10 to 35 s, a map 3 to 30 s with six running side
 by side, a sub-level's sound enhancement 25 to 60 s with four jobs, the
 textures a few seconds (the extraction steps compress their own as they
@@ -483,44 +436,16 @@ BFE_GAME_DIR="$HOME/.local/share/Steam/steamapps/common/Star Wars Battlefront (C
 ### The loader's look
 
 The loader is drawn in the look the player chose for the front end: Eternal,
-Battlefront (2004) or Battlefront II (2005), the `menuTheme` setting. The
-three looks are defined once, in `electron/ui/looks.css`: their colours and
-surfaces (custom properties on `<html data-bfe-theme>`), the Saira font, the
-BATTLEFRONT / ETERNAL logo and the buttons' and titles' shapes. The menus'
-page theme (`src/menus/themes/page/style.js`) inlines the same file through
-Vite. It lives beside the loader because the app serves its own pages
-(`electron/ui/`, under `app://bfe/__desktop/`) as they are, outside the Vite
-build. `prepare.css` lays the loader out from those properties and defines
-no look of its own.
-
-`electron/ui/theme.js`, a blocking script at the top of the page, reads the
-setting as the front end does (`src/settings.js`): the settings file the
-desktop keeps (`electron/player-settings.js`, through the preload's
-`settingsStore`), else localStorage. It sets the look before the initial frame
-is drawn and writes nothing. Without settings, as on a first run, the look
-is Eternal. A look changed in the menus applies the next time the loader
-opens.
-
-The page has the logo over a panel shaped as the front end's option pages:
-the state's title, its detail, the progress bar and the phases in the look's
-accent colours, and its buttons, the state's own choice lit as the front
-end lights its focused button (the 2005 look sets their labels in title
-case, as its menus do). A state that needs the player (game not found, data outdated)
-and one that failed mark their title in the look's note and red colours.
-While it works, the LOADING disk at the bottom right is the game's loading
-screen disk without its texture, drawn in SVG: 28 square lights with a lit
-tail chasing round them and translucent segments turning both ways, in the
-loading screen's own colours for the look (grey for 2004, amber for
-Eternal, red with silver rings for 2005).
-`tests/launcher-look.test.js` checks that the loader picks the same look as
-the front end for the same settings, and that neither keeps a copy of the
-looks.
+Battlefront (2004) or Battlefront II (2005), the `menuTheme` setting in
+`player-settings.json` (`rust/bfe-desktop/rust/settings/` and `rust/bfe-shell`).
+Without settings, as on a first run, the look is Eternal. A look changed in the
+menus applies the next time the loader opens.
 
 ### The toolchain
 
-`node build/fetch-toolchain.mjs [linux|mac|win] [x64|arm64 ...]` fills
-`toolchain/<os>-<arch>/` (gitignored), which `build/native/stage.py` and
-`electron-builder` pack as `resources/toolchain` beside `resources/tools`:
+`python3 build/native/fetch-toolchain.py [linux|mac|win] [x64|arm64 ...]` fills
+`toolchain/<os>-<arch>/` (gitignored), which `build/native/stage.py` packs as
+`resources/toolchain` beside `resources/tools`:
 
 - CPython 3.13 from python-build-standalone, with Pillow, numpy, scipy,
   soundfile and soxr installed for the target by pip, test suites pruned;
@@ -540,7 +465,7 @@ launchers, Omarchy's included, list it; search "battlefront"), its icon, and
 updates them on the next launch. A `battlefront` command the app did not
 create is left alone. `BFE_NO_DESKTOP_INTEGRATION=1` turns this off. The
 launchers start the newest installed update directly when there is one
-(desktop-updates.md).
+([desktop-updates.md](desktop-updates.md)).
 
 ## Steam and Discord
 
@@ -563,96 +488,45 @@ unpacked folder (`build/native/stage.py`), build the Linux `.deb` and
 (`build/native/update-payload.py`), and verify every artifact
 (`build/native/check-packages.py`).
 
-For the Electron host:
-
-```bash
-npm run desktop        # desktop build, then Electron on it
-npm run dev            # in one terminal, then:
-npm run desktop:dev    # Electron on the Vite dev server (hot reload)
-npm run dist           # package for this platform into release/
-npm run dist:dir       # unpacked app only, quicker to inspect
-```
-
-Electron must not inherit `ELECTRON_RUN_AS_NODE=1` (some Electron-based
-terminals and editors set it); with it, Electron runs as plain Node.
-
-`npm run build:desktop` (`vite build --mode desktop`) does not copy `public/`
-into `dist/`, since `public/` holds the extractor's retail-derived output.
-`build/check-dist.cjs` refuses to package a `dist/` that contains `maps`,
-`sides`, `common` or `audio`. Use `build:desktop`, not `build`, before
-packaging. Vite bundles three and three-mesh-bvh, so no `node_modules` ship.
-
 Targets:
 
 | Platform | Output | Architectures |
 | --- | --- | --- |
 | Linux (Ubuntu, Omarchy) | AppImage, deb and server `.tar.xz` | x64, arm64 |
 | Windows | NSIS installer | x64 |
-| macOS (experimental, not supported yet) | dmg and zip | x64, arm64 |
+| macOS (planned) | dmg and zip | x64, arm64 |
 
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on GitHub-hosted runners for every push to
-main, every pull request and on demand: the unit tests (`npm test`, which
-need no game files) and a code-only browser bundle. No job in this repository
-uses a self-hosted runner.
+`main`, every pull request and on demand: the generated-code check
+(`cargo xtask check`), Linux `x64` and `arm64` unit and integration tests,
+Windows `x64` unit tests, and the software OpenGL `renderer-smoke-native` job.
+No job in this repository uses a self-hosted runner.
 
-`.github/workflows/desktop-native.yml` builds an experimental, unsigned macOS
-package on demand and uploads it as a workflow artifact. macOS is not a
-supported platform yet. The package is ad-hoc signed and needs right-click →
-Open (or `xattr -d com.apple.quarantine`) on first launch. The workflow signs
-only when the repository defines the secrets `MAC_CSC_LINK` and
-`MAC_CSC_KEY_PASSWORD` (a Developer ID Application certificate), and
-notarizes only when it also defines `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`
-and `APPLE_TEAM_ID`.
-
-`.github/workflows/release-native.yml` builds the native Windows (`windows-latest`
+`.github/workflows/release.yml` builds the native Windows (`windows-latest`
 MSVC `x64`) and Linux (`ubuntu-24.04` `x64` and `ubuntu-24.04-arm` `arm64`)
 desktop installers, dedicated server archives and update payloads with the
 pinned Rust toolchain (`1.99.0`, `--locked`), runs the native Rust and
 distribution test suites, verifies each package on its runner with
 `build/native/check-packages.py`, and publishes the release through
-`build/publish-distribution.py`. `.github/workflows/release.yml` performs the
-same release publication for the Electron packages until the Electron host is
-retired. A Windows installer without a code-signing certificate shows a
-SmartScreen warning.
+`build/publish-distribution.py`. A Windows installer without a code-signing
+certificate shows a SmartScreen warning.
 
-## Network process
+## Networking in the desktop client
 
-In the native client (`bfe-client`), UDP transport, session authentication and
-server discovery run directly in Rust. In the Electron host, online play runs
-in a separate Electron utility process
-(`electron/net-process.js`, started on demand by `electron/net-host.js`). It
-owns the UDP sockets and the player's identity key and runs the engine's
-native UDP transport (`src/net/`). Each battle gets a fresh MessageChannel:
-one port in the utility process, the other delivered to the page by the
-preload script as a `{type: "bfe:net-port"}` window message, because ports
-cannot cross the context bridge. Game packets never pass through the main
-process or wait behind the render thread, and the renderer cannot ask for any
-identity signature. The main process keeps master requests, consent and
-rendezvous signaling (`electron/network.js`). A crashed utility process is
-started again for the next battle.
-
-### Slow links
-
-Node gives each of a host's addresses 250 ms to connect before it moves to
-the next ("happy eyeballs"). Over a congested link (round trips of 500 to
-800 ms were seen) the IPv4 attempt was dropped before it could
-answer, and with no IPv6 route every master request failed with "fetch
-failed" (ETIMEDOUT) while curl and browsers got through. `electron/
-slow-links.js` gives each attempt 2.5 s: it is the initial import of the main
-process (`boot.js`) and of the network process, and a hosted server gets the
-same as its first argument (`--network-family-autoselection-attempt-
-timeout`). A master read that still never gets an answer is tried once more,
-signed afresh, then reported as "Can't reach the online service (code)";
-requests that change something are never sent twice.
+In `bfe-client`, UDP transport (`rust/bfe-transport`), session authentication,
+master directory queries, LAN discovery and rendezvous signaling
+(`rust/bfe-online`) run directly in Rust on background threads so game packets
+never wait behind the render thread. Master HTTPS requests use an explicit
+connection timeout per address family (`rust/bfe-online`) so congested links or
+hosts without an IPv6 route fall back cleanly.
 
 ## Not done yet
 
 - The headphone decoder (`tools/make_binaural.py`) is not part of
   preparation: it downloads its HRIR set and needs heavier dependencies.
 - The planned server-data import/export flow.
-- Final application art (`electron/assets/icon.svg` is a temporary design),
-  signing certificates, and Windows arm64.
-- Native TURN over TCP/TLS in the network process, for networks that block
+- Final application art, signing certificates, and Windows arm64.
+- Native TURN over TCP/TLS in `rust/bfe-transport`, for networks that block
   UDP (`docs/native-udp-transport.md`).

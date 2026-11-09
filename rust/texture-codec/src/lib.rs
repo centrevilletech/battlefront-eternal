@@ -1,10 +1,12 @@
 // Basis decoding lives in the loading worker, separate from the drawer.
 // PNG-only battles must not reserve its tables in every worker/renderer heap.
 // Restoration uses retained transcoded blocks and never needs this module.
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 // Format priority and block sizing are shared source, not a second policy.
 #[path = "../../bfe-render/src/texture_format.rs"]
 pub mod texture_format;
+#[cfg(target_arch = "wasm32")]
 use texture_format::{Capabilities, Format};
 
 // The C++ transcoder is a long-lived library inside this module. Referencing
@@ -18,9 +20,11 @@ fn initialize_resource_runtime() {
     INIT.call_once(||unsafe {__wasm_call_ctors();});
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub struct DecodedBasis { image: basis_transcode::Transcoded, format: Format }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 impl DecodedBasis {
     #[wasm_bindgen(getter)]
@@ -40,6 +44,7 @@ impl DecodedBasis {
 
 // KTX2Loader's format selection and complete mip transcode in one Rust call.
 // Encoded input dies with the decoder; the smaller GPU block chain survives.
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn decode_texture_basis(bytes: Vec<u8>, max_size: u32, bits: u32) -> Result<DecodedBasis, JsValue> {
     #[cfg(target_arch = "wasm32")]

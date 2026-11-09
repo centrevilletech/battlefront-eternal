@@ -8,7 +8,7 @@ force powers are added.
 
 ## Gameplay
 
-`src/heroes.js` supplies the shared combat implementation with:
+`rust/sim` (`heroes`) supplies the shared combat implementation with:
 
 - `regenerate(combat, dt)`: living actors recover authored `AddHealth` per
   second, clamped to `MaxHealth`. Stock heroes have both values set to
@@ -53,7 +53,7 @@ so true/false are zero.
 
 Stock heroes consequently take normal projectile and melee damage; their
 large finite health and regeneration make ordinary weapons ineffective.
-The melee strike's block test (`block` in `rust/sim/src/units/f3_sensors.rs`)
+The melee strike's block test (`block` in `rust/sim/rust/units/f3_sensors.rs`)
 supports an explicitly enabled melee block with no facing or swing-state
 gate. Generic projectile reflection and the block pose/sounds
 are not implemented; custom CanDeflect=1 classes therefore have only melee
@@ -99,13 +99,13 @@ or retail tables are tracked.
 
 ## Verification
 
-`tests/ai-heroes.test.js` covers finite regeneration and irreversible death,
+`cargo test --locked --workspace` covers finite regeneration and irreversible death,
 strict swing timing, multiple victims, range and candidate caps, seeded
 controller input through real `IntentControls` and `PlayerCombat` for repeated
 swings, effective defense, blade geometry, and all five extracted stock
 classes when local assets exist. `tests/test_ai_heroes_export.py` uses synthetic
 properties to cover ordered swings and the defense compatibility parser.
 
-`tests/ai-browser.mjs` with `AI_TEST_HEROES=1` runs whole headless battles
-(`tools/headless-world.mjs`) with heroes fielded, on locally extracted
+`cargo test --locked --workspace` with `AI_TEST_HEROES=1` runs whole headless battles
+(`rust/sim-replay`) with heroes fielded, on locally extracted
 content (`public/` or `BFE_CONTENT_DIR`).

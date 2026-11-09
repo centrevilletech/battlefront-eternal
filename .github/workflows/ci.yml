@@ -3,8 +3,6 @@ name: CI
 # Runs on GitHub-hosted runners only. No job in this repository may target a
 # self-hosted runner: pull requests from forks run the workflow files they
 # carry, so a self-hosted label here would hand a stranger's code a machine.
-# Desktop packages are built by release.yml; the project's release host
-# signs and publishes them (docs/desktop.md).
 
 on:
   push:
@@ -16,165 +14,180 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - name: Gameplay, networking and runtime tests (no game files needed)
-        run: npm test
-      - name: Code-only browser bundle
-        run: node --input-type=module -e "import {build} from 'vite'; await build({build:{outDir:'dist-engine-ci',copyPublicDir:false}})"
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
 
-  rust:
-    # The WebAssembly built from rust/ is committed (src/sim-wasm.js,
-    # src/audio-dsp-wasm.js and src/rust-pkg/), so the test job and the
-    # release builds need no Rust. This job rebuilds it with the toolchain
-    # rust/rust-toolchain.toml pins and fails when a committed byte differs,
-    # keeping the rebuilt files as the run's rust-generated artifact
-    # (docs/development.md, "The Rust parts").
+jobs:
+  linux:
+    name: Linux Native (x86_64)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      - name: Install JavaScript dependencies for the Rust test oracles
-        run: npm ci
-      - name: Pinned renderer C++ compiler
-        # Freeze the Ubuntu archive as well as the package versions. New LLVM
-        # point releases must not change committed C++ WebAssembly bytes.
-        run: bash build/install-render-compiler.sh
-      - name: The Rust toolchain rust/rust-toolchain.toml pins
-        working-directory: rust
-        run: rustup toolchain install
-      - name: Restore Cargo's downloads and the wasm-bindgen CLI
+
+      - name: Install Linux audio headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev alsa-utils
+
+      - name: Install Rust toolchain
+        run: bash build/ci/install-rust.sh
+
+      - name: Cache Cargo registry and build target
         uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
-            ~/.cargo/bin/wasm-bindgen
-          key: rust-${{ runner.os }}-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
-          restore-keys: rust-${{ runner.os }}-
-      - name: The wasm-bindgen CLI of the version rust/Cargo.lock locks
-        working-directory: rust
-        run: |
-          version=$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;}' Cargo.lock)
-          [ "$(wasm-bindgen --version 2>/dev/null)" = "wasm-bindgen $version" ] || cargo install wasm-bindgen-cli --version "$version" --locked
-      - name: Rebuild the committed WebAssembly and compare
-        run: node tools/build-rust.mjs --check
-      - name: Native audio development headers
-        run: sudo apt-get install -y libasound2-dev
-      - name: Rust unit tests
-        working-directory: rust
-        # The content BVH oracle uses the installed three and three-mesh-bvh.
-        # sim-replay's format test has Node write a made-up capture; the
-        # replays of real battles need game data, so they pass empty here.
-        run: cargo test --locked -p sim -p sim-replay -p bfe-render -p bfe-presentation -p bfe-pose -p content -p v8math -p jsrt -p three -p audio -p audio-decode -p basis-transcode -p texture-codec -p image-codec -p bfe-environment -p audio-control -p bfe-interface -p bfe-client -p bfe-content-native -p bfe-native -p bfe-transport -p bfe-online -p bfe-shell -p bfe-desktop -p bfe-battle-ui --features sim/replay -p bfe-server
+            ~/.cargo/git/db/
+            rust/target/
+          key: cargo-linux-x64-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+          restore-keys: |
+            cargo-linux-x64-${{ hashFiles('rust/rust-toolchain.toml') }}-
 
-      - name: Native static content construction
-        run: |
-          cargo build --locked --manifest-path rust/Cargo.toml -p bfe-content-native --example static-fixture
-          node tools/native-static-fixture.mjs
-          cargo build --locked --manifest-path rust/Cargo.toml -p bfe-content-native --example fingerprint
-          node --test tests/native-content-hash.mjs
-      - name: Native transport schema
-        run: |
-          python3 tools/native-render-bridge.py --check
-          python3 tools/native-presentation-bridge.py --check
-      - name: Native audio null device
-        working-directory: rust
-        run: |
-          config=$(mktemp)
-          trap 'rm -f "$config"' EXIT
-          printf 'pcm.!default { type null }\n' > "$config"
-          ALSA_CONFIG_PATH="$config" BFE_AUDIO_NULL=1 cargo test --locked -p bfe-client --test audio -- --ignored
-      - name: Native UDP interoperability
-        run: |
-          node tools/build-native-transport.mjs
-          node --test tests/native-transport.mjs
-      - name: Build the Linux Node host addon
-        run: node tools/build-node-host.mjs --fixtures
-      - name: Node host handshake and lifecycle fixtures
-        run: node --expose-gc --test tests/node-host-addon.mjs tests/node-host-lifecycle.mjs
-      - name: Keep the rebuilt files
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: rust-generated
-          retention-days: 7
-          if-no-files-found: ignore
-          path: rust/target/generated/
+      - name: Check generated Rust files
+        run: bash build/ci/check-generated.sh
 
-  renderer-smoke:
-    # Public, generated fixtures only. WARP exercises ANGLE's D3D11 path
-    # without requiring a physical GPU; it does not qualify GPU drivers.
-    if: github.event_name == 'workflow_dispatch'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            backend: warp
-          - os: ubuntu-latest
-            backend: gl
-    runs-on: ${{ matrix.os }}
+      - name: Run Linux native lint, tests, and startup checks
+        run: bash build/ci/linux.sh
+
+  linux-arm64:
+    name: Linux Native (arm64)
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
-    env:
-      BFE_SMOKE_OUTPUT: ${{ github.workspace }}/renderer-smoke.jsonl
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - name: Install Electron executable
-        run: node node_modules/electron/install.js
-      - name: Pinned Rust toolchain for native Windows hosts
-        if: runner.os == 'Windows'
-        working-directory: rust
-        run: rustup toolchain install
-      - name: Build and test native Windows client and replay tool
-        if: runner.os == 'Windows'
-        working-directory: rust
-        # Unit tests need neither a window nor an audio device. The WARP
-        # check below continues to qualify the separate renderer host.
-        run: |
-          cargo build --locked --target x86_64-pc-windows-msvc -p bfe-client -p bfe-native --bins
-          cargo test --locked --target x86_64-pc-windows-msvc -p bfe-client -p bfe-native -p bfe-content-native -p bfe-shell -p bfe-desktop -p bfe-battle-ui -p bfe-interface --lib --tests
 
-      - name: ANGLE D3D11 software renderer
-        if: runner.os == 'Windows'
-        run: node tools/renderer-smoke.mjs warp
-      - name: ANGLE OpenGL software baseline
-        if: runner.os == 'Linux'
+      - name: Install Linux audio headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev
+
+      - name: Install Rust toolchain
+        run: bash build/ci/install-rust.sh --minimal
+
+      - name: Cache Cargo registry and build target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust/target/
+          key: cargo-linux-arm64-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+          restore-keys: |
+            cargo-linux-arm64-${{ hashFiles('rust/rust-toolchain.toml') }}-
+
+      - name: Run arm64 native determinism gate and workspace tests
+        run: bash build/ci/linux-arm64.sh
+
+  windows:
+    name: Windows Native (x86_64 MSVC)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        shell: bash
         env:
-          LIBGL_ALWAYS_SOFTWARE: '1'
-          BFE_SMOKE_NO_SANDBOX: '1'
-        run: xvfb-run -a node tools/renderer-smoke.mjs gl
-      - name: Keep shader-family compile and fixture results
+          CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+        run: bash build/ci/install-rust.sh --minimal
+
+      - name: Cache Cargo registry and build target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust/target/
+          key: cargo-windows-x64-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+          restore-keys: |
+            cargo-windows-x64-${{ hashFiles('rust/rust-toolchain.toml') }}-
+
+      - name: Build and test Windows native crates
+        shell: bash
+        env:
+          CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+        run: bash build/ci/windows.sh
+
+  renderer-smoke-native:
+    name: Native Software-GL Renderer Smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Mesa software OpenGL and Xvfb dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev \
+            libegl1 \
+            libegl-mesa0 \
+            libgl1-mesa-dri \
+            libglx-mesa0 \
+            libwayland-client0 \
+            libwayland-cursor0 \
+            libwayland-egl1 \
+            libxcb-xkb1 \
+            libxcursor1 \
+            libxi6 \
+            libxinerama1 \
+            libxkbcommon0 \
+            libxkbcommon-x11-0 \
+            libxrandr2 \
+            mesa-utils \
+            xvfb
+
+      - name: Install Rust toolchain
+        run: bash build/ci/install-rust.sh --minimal
+
+      - name: Cache Cargo registry and build target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust/target/
+          key: cargo-smoke-linux-x64-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+          restore-keys: |
+            cargo-smoke-linux-x64-${{ hashFiles('rust/rust-toolchain.toml') }}-
+            cargo-linux-x64-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+            cargo-linux-x64-${{ hashFiles('rust/rust-toolchain.toml') }}-
+
+      - name: Build native renderer smoke binaries
+        run: |
+          cargo build --manifest-path rust/Cargo.toml --locked \
+            -p bfe-client --bin render-smoke --bin bfe-client --bin static-frame \
+            -p bfe-content-native --example static-fixture --example fingerprint
+
+      - name: Run native software-OpenGL renderer smoke
+        run: |
+          python3 tools/renderer-smoke-native.py \
+            --output renderer-smoke-native.jsonl \
+            --png-out renderer-smoke-native.png
+
+      - name: Upload renderer-smoke-native artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: renderer-smoke-${{ matrix.backend }}
-          path: ${{ github.workspace }}/renderer-smoke.jsonl
-          if-no-files-found: warn
+          name: renderer-smoke-native
+          path: |
+            renderer-smoke-native.png
+            renderer-smoke-native.jsonl
+          if-no-files-found: error

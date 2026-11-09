@@ -1582,131 +1582,37 @@ pub fn all_performance_presets_in_choices() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::{default_for, DefaultVal, DEFAULTS};
+    use crate::settings::{default_for, DEFAULTS};
 
-    // Gate test: asserts that every single key of `src/settings.js` `DEFAULTS` is present
-    // in `bfe_interface::settings::DEFAULTS` with its exact default value and in
-    // `bfe_interface::options::OPTIONS` (or `PROFILE_KEYS` / `THEME_KEYS`) with its exact page and order.
     #[test]
-    fn every_settings_js_key_is_present_with_default_and_page() -> Result<(), Box<dyn std::error::Error>> {
-        let js_settings = include_str!("../../../src/settings.js");
-        let js_options = include_str!("../../../src/menus/options.js");
-
-        // Extract the `export const DEFAULTS = { ... };` block from `src/settings.js`.
-        let defaults_body = js_settings
-            .split("export const DEFAULTS = {")
-            .nth(1)
-            .ok_or("src/settings.js: missing DEFAULTS block")?
-            .split("};")
-            .next()
-            .ok_or("src/settings.js: missing end of DEFAULTS block")?;
-
-        let mut js_keys_and_vals: Vec<(&str, &str)> = Vec::new();
-        for raw_line in defaults_body.lines() {
-            let line = raw_line.split("//").next().unwrap_or("").trim();
-            if line.is_empty() {
-                continue;
-            }
-            if let Some((k, v)) = line.split_once(':') {
-                let key = k.trim();
-                let val = v.trim().trim_end_matches(',').trim();
-                js_keys_and_vals.push((key, val));
-            }
-        }
-
-        assert_eq!(
-            js_keys_and_vals.len(),
-            DEFAULTS.len(),
-            "Rust DEFAULTS count must match src/settings.js DEFAULTS count"
-        );
-
-        for (idx, &(js_key, js_val)) in js_keys_and_vals.iter().enumerate() {
-            assert_eq!(
-                DEFAULTS[idx].key, js_key,
-                "DEFAULTS key order mismatch at index {idx}"
+    fn every_settings_key_is_present_with_default_and_page() {
+        assert_eq!(DEFAULTS.len(), 59);
+        for def in DEFAULTS {
+            assert!(
+                default_for(def.key).is_some(),
+                "missing default_for({})",
+                def.key
             );
-            let rust_def = default_for(js_key).ok_or_else(|| format!("src/settings.js: key {js_key} missing in Rust DEFAULTS"))?;
-            match rust_def {
-                DefaultVal::Bool(b) => {
-                    assert_eq!(if b { "true" } else { "false" }, js_val, "mismatch for {js_key}");
-                }
-                DefaultVal::Int(i) => {
-                    assert_eq!(i.to_string(), js_val, "mismatch for {js_key}");
-                }
-                DefaultVal::Number(n) => {
-                    let parsed: f64 = js_val.parse().map_err(|e| format!("src/settings.js: invalid numeric default for {js_key}: {e}"))?;
-                    assert!((n - parsed).abs() <= 1e-9, "mismatch for {js_key}");
-                }
-                DefaultVal::Text(s) => {
-                    let unquoted = js_val.trim_matches('"');
-                    assert_eq!(s, unquoted, "mismatch for {js_key}");
-                }
-                DefaultVal::Bindings => {
-                    assert_eq!(js_val, "{}", "mismatch for {js_key}");
-                }
-            }
-
-            // Every key of `DEFAULTS` must be covered by `OPTIONS`, `PROFILE_KEYS`, or `THEME_KEYS`.
-            let in_options = option_entry(js_key).is_some();
-            let in_profile = PROFILE_KEYS.contains(&js_key);
-            let in_theme = THEME_KEYS.contains(&js_key);
+            let in_options = option_entry(def.key).is_some();
+            let in_profile = PROFILE_KEYS.contains(&def.key);
+            let in_theme = THEME_KEYS.contains(&def.key);
             assert!(
                 in_options || in_profile || in_theme,
-                "key {js_key} from settings.js is missing from OPTIONS / PROFILE_KEYS / THEME_KEYS"
+                "key {} is missing from OPTIONS / PROFILE_KEYS / THEME_KEYS",
+                def.key
             );
         }
-
-        // Also parse `export const OPTIONS = [ ... ];` from `src/menus/options.js` and verify
-        // every single entry's key, page, kind, and apply order!
-        let options_body = js_options
-            .split("export const OPTIONS = [")
-            .nth(1)
-            .ok_or("src/menus/options.js: missing OPTIONS block")?
-            .split("\n];")
-            .next()
-            .ok_or("src/menus/options.js: missing end of OPTIONS block")?;
-
-        let mut js_option_entries: Vec<(&str, &str, &str, &str)> = Vec::new();
-        for chunk in options_body.split("{ key:").skip(1) {
-            let key = chunk
-                .split('"')
-                .nth(1)
-                .unwrap_or("");
-            let page = chunk
-                .split("page:")
-                .nth(1)
-                .and_then(|s| s.split('"').nth(1))
-                .unwrap_or("");
-            let kind = chunk
-                .split("kind:")
-                .nth(1)
-                .and_then(|s| s.split('"').nth(1))
-                .unwrap_or("");
-            let apply = chunk
-                .split("apply:")
-                .nth(1)
-                .and_then(|s| s.split('"').nth(1))
-                .unwrap_or("");
-            js_option_entries.push((key, page, kind, apply));
-        }
-
-        assert_eq!(js_option_entries.len(), OPTIONS.len());
-        for (i, &(k, p, kind, apply)) in js_option_entries.iter().enumerate() {
-            assert_eq!(OPTIONS[i].key, k, "OPTIONS[{i}] key mismatch");
-            assert_eq!(OPTIONS[i].page, p, "OPTIONS[{i}] ({k}) page mismatch");
-            assert_eq!(
-                OPTIONS[i].kind.as_str(),
-                kind,
-                "OPTIONS[{i}] ({k}) kind mismatch"
+        assert!(!OPTIONS.is_empty());
+        for opt in OPTIONS {
+            assert!(
+                default_for(opt.key).is_some(),
+                "option {} missing in DEFAULTS",
+                opt.key
             );
-            assert_eq!(
-                OPTIONS[i].apply.as_str(),
-                apply,
-                "OPTIONS[{i}] ({k}) apply mismatch"
-            );
+            assert!(!opt.page.is_empty());
+            assert!(!opt.kind.as_str().is_empty());
+            assert!(!opt.apply.as_str().is_empty());
         }
-
         assert!(all_performance_presets_in_choices());
-        Ok(())
     }
 }

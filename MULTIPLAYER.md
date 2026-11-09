@@ -1,19 +1,18 @@
 # Battlefront Eternal: multiplayer
 
-Multiplayer works today in the desktop app on Windows and Linux: LAN games, an
-online server browser with measured ping, direct connect by address, hosting
-from the app, NAT punching and TURN relays, IPv4 and IPv6, locally generated
-player identities, kick and ban, and an optional shared ban list. A battle
-holds up to 64 players (32 a side), and bots fill the empty slots. The
-transport is the engine's encrypted native UDP (BFE-UDP/1, protocol 3; see
-[docs/native-udp-transport.md](docs/native-udp-transport.md)); WebRTC and
-protocol 2 are retired. The dedicated server, `bfeserver`, lives in its own
-public GPL-3.0 repository,
-[battlefront-eternal-server](https://github.com/centrevilletech/battlefront-eternal-server),
+Multiplayer works today in the native desktop client (`bfe-client`) on Windows
+and Linux: LAN games, an online server browser with measured ping, direct
+connect by address, hosting from the app, NAT punching and TURN relays, IPv4
+and IPv6, locally generated player identities, kick and ban, and an optional
+shared ban list. A battle holds up to 64 players (32 a side), and bots fill the
+empty slots. The transport is the engine's encrypted native UDP (BFE-UDP/1,
+protocol 3; see [docs/native-udp-transport.md](docs/native-udp-transport.md));
+WebRTC and protocol 2 are retired. The dedicated server, `bfeserver`, is built
+from `rust/bfe-server` in this workspace and packaged for standalone Linux
+servers alongside [battlefront-eternal-server](https://github.com/centrevilletech/battlefront-eternal-server),
 and servers update themselves from the release channel
-([docs/server-updates.md](docs/server-updates.md)). The browser development
-build cannot play online. The separate native development client supports
-direct online joins; it is not the Electron launcher.
+([docs/server-updates.md](docs/server-updates.md)). `bfe-client` also supports
+direct online joins from the command line ([docs/native-client.md](docs/native-client.md)).
 
 Planned, not built yet: macOS releases (only an experimental manual build
 exists, and it does not self-update), SteamCMD game acquisition and
@@ -22,9 +21,9 @@ that block UDP, Battlefront II, and custom maps and mods.
 
 The rest of this document is the design behind that and the roadmap beyond it.
 Where a section describes something that is not built, it says so. The
-networking foundation (the fixed clock, commands, snapshots, the world worker)
-is in [docs/runtime-architecture.md](docs/runtime-architecture.md), and the
-current wire contract is in [docs/network-contract.md](docs/network-contract.md).
+networking foundation (the fixed clock, commands, snapshots, the local server
+thread) is in [docs/runtime-architecture.md](docs/runtime-architecture.md), and
+the current wire contract is in [docs/network-contract.md](docs/network-contract.md).
 
 *Battlefront Eternal* is the name of the project: it plays the 2004 game's maps
 and, later, Battlefront II's (2005) in one engine, from the player's own copies
@@ -35,27 +34,27 @@ behavior. Multiplayer is designed for both games from the start.
 
 | Decision | Design |
 | --- | --- |
-| Electron desktop app on Windows and Linux (Omarchy and Ubuntu); macOS is planned | Sandboxed renderer, privileged networking process, signed releases |
-| Players can HOST public servers from the desktop app, as well as LAN/private games | Launch the actual bfeserver runtime in the background; same public listing and relay support as a VPS |
-| Dedicated servers must run on a VPS with no GPU | Standalone headless runtime; no Electron, display server, graphics context or rendering work |
+| Native desktop app (`bfe-client`) on Windows and Linux (Omarchy and Ubuntu); macOS is planned | Native Rust client, encrypted UDP networking, signed releases |
+| Players can HOST public servers from the desktop app, as well as LAN/private games | Launch the actual `bfeserver` runtime in the background; same public listing and relay support as a VPS |
+| Dedicated servers must run on a VPS with no GPU | Standalone headless `bfeserver` binary; no display server, graphics context or rendering work |
 | Planned: Steam sign-in is the primary CLI setup path | SteamCMD downloads the operator's owned game, then local extraction prepares server data; no desktop or GPU required. Today the operator supplies an owned copy of the game ([docs/server-updates.md](docs/server-updates.md)) |
 | Planned: the client exports server world data as an alternative | Upload a versioned gameplay-only bundle; server setup asks for its path and validates it |
 | Missing content means spectator-only; mixed playlists stay joinable | Lobby/scoreboard view without assets; 3D spectating only with renderable content |
 | New public service repositories use GPL-3.0-only | No retail data in releases |
 | Locally generated player identities are always allowed | No mandatory Steam/email/Discord account or verification-only server mode |
 | Global bans with operator choice | Optional shared ban list; each operator can honor or ignore it independently of local bans |
-| Closing the app offers keep-running or stop-server | Background bfeserver survives renderer exit and can be managed on reopening |
+| Closing the app offers keep-running or stop-server | Background `bfeserver` survives client exit and can be managed on reopening |
 | Stats stay per server | No global aggregation or leaderboard for now |
 | Launch with the BF1 GUI; a unified BF1/BF2 GUI is planned | Family-specific in-match HUDs remain separate from the front-end choice |
 | Custom maps and mods are planned after launch | Reserve pack identities and compatibility metadata now |
 | Official releases are stable only | One official stable update channel for client and server (releases currently ship on a development-preview channel) |
-| Check and auto-update the Electron client on boot; enforce versions | Signed updates, recovery, offline startup and an explicit compatibility gate (Windows and Linux; macOS is planned) |
+| Check and auto-update the desktop client on boot; enforce versions | Signed updates, recovery, offline startup and an explicit compatibility gate (Windows and Linux; macOS is planned) |
 | Official services are run by the project, and anyone can run their own | The master's web endpoints sit behind an ordinary HTTPS reverse proxy; the relay uses separate ports; capacity and abuse limits remain necessary |
 | MULTIPLAYER offers LAN and ONLINE | Also direct connect by address, as the original had; the original's screens and strings where they fit |
 | The server browser shows whether this player connects directly or through a relay | Today it shows the server's relay policy; planned: per-player path checks, explicit unchecked/checking states, actual active path shown while connected |
 | ONLINE lists servers from a master server at `online.battlefronteternal.com`; settings can point at any other | The master also does signaling, player identity and relay credentials; a client can list several masters and merge them |
 | The master is open source, ships as a Docker container, and runs HTTPS over IPv4 and IPv6 from day one | Its own public repository; a Compose file behind an HTTPS reverse proxy, plus a compatible relay stack |
-| Linux dedicated servers: one install, runs as a service, a menu instead of config files | `bfeserver`: a Node.js service running the client's own simulation; a systemd service today, with a numbered menu that works over SSH planned |
+| Linux dedicated servers: one install, runs as a service, a menu instead of config files | `bfeserver`: a native Rust service running the client's own simulation; a systemd service today, with a numbered menu that works over SSH planned |
 | Direct connections to a public IPv4 or IPv6 address; otherwise through `relay.battlefronteternal.com` | Native encrypted UDP (BFE-UDP/1, protocol 3) replaced WebRTC; direct, hole punching, then relay |
 | A playlist editor with rules per map; optional location sharing | Location off by default for players and hosts; coarse location only when enabled |
 | Notice before entering the online server browser | Explain IP processing, conditional relay use and independent operators; separate optional location permission |
@@ -92,15 +91,15 @@ behavior. Multiplayer is designed for both games from the start.
   content the player has) is all the matchmaking there is.
 - Kernel-level anti-cheat.
 - Voice chat.
-- Shipping a browser-only multiplayer client in v1. The browser remains a
-  development target; the release client is Electron.
+- Shipping a browser multiplayer client. The release client is the native
+  desktop application (`bfe-client`).
 
 ## Names
 
 | Name | What it is |
 | --- | --- |
-| client | The Electron desktop app for Windows and Linux (Omarchy/Ubuntu); macOS is planned. The browser development build is a web page and cannot play online |
-| `bfeserver` | The dedicated server: a systemd service, with a menu planned |
+| client | The native desktop app (`bfe-client`) for Windows and Linux (Omarchy/Ubuntu); macOS is planned |
+| `bfeserver` | The dedicated server (`rust/bfe-server`): a systemd service, with a menu planned |
 | master server | `online.battlefronteternal.com`: the server list, signaling, identity, relay credentials. It is a directory, not skill-based matchmaking |
 | relay | `relay.battlefronteternal.com`: authenticated forwarding for servers players cannot reach directly |
 | family | Which game a map, its rules and its interface belong to: `swbf1` (2004) or `swbf2` (2005) |
@@ -131,7 +130,7 @@ wording:
 - **The lobby**: NAME, TEAM, PING, CONNECTION; VOTE TO BOOT, BOOT NOW, the
   mute list, FRIENDS.
 - **ONLINE OPTIONS**: HOSTING BANDWIDTH (DSL/CABLE from 256 to 784 KBPS, T1+)
-  and the voice settings. `optionsMenu()` already has a hidden ONLINE OPTIONS
+  and the voice settings. The options menu has a hidden ONLINE OPTIONS
   row for this ([docs/menus.md](docs/menus.md)).
 - **In battle**: the Tab player list exists only in a network game
   ([docs/formats.md](docs/formats.md)).
@@ -149,23 +148,21 @@ lot once servers and saved playlists exist.
 1. **Ids name their family.** Maps, missions, sides, classes and content are
    `swbf1/hot1` and `swbf2/hot1`. The two games use the same short codes for
    different maps (Hoth is `hot1` in both), so bare ids collide. A bare id
-   keeps meaning `swbf1`, so today's URLs still work. Extracted data moves to
+   keeps meaning `swbf1`, so existing map ids still work. Extracted data moves to
    `public/<family>/{maps,sides,common,audio}/` before the initial BF2
    extraction.
 2. **Playlist entries name family, map, era and mode**: `swbf2/hot1:gcw:ctf`.
    BF1 multiplayer only has conquest, but the mode is in the format from the
    start (BF2 adds capture the flag, Hunt, Assault, space and hero modes).
-   `parseRotation()` in `src/launch.js` drops both a `family/` prefix and a
-   third field today.
+   Playlist rotation parsing in `rust/bfe-server` and `rust/bfe-client` strips
+   both a `family/` prefix and a third field today.
 3. **Family and Classic/Enhanced are separate axes.** In this codebase
    "Classic" means faithful to the original: Classic AI, Classic effects,
-   `src/scoreboard/classic/`. A BF2 map has its own Classic HUD (BF2's), and
+   and the Classic scoreboard. A BF2 map has its own Classic HUD (BF2's), and
    could get Enhanced options too. Views are picked by family *and* style.
-4. **The interface sits behind ports.** The scoreboard and spawn screen
-   already split a model and port from the view (`model.js`, `port.js`,
-   `classic/`). The HUD needs the same split: today `src/hud.js` lays out the
-   2004 HUD and reads the world in one file. After that, a family supplies
-   views and the ports stay.
+4. **The interface sits behind ports.** The scoreboard, spawn screen and HUD
+   read the simulation's published HUD and scoreboard views (`rust/bfe-client (ui.rs)`
+   and `rust/bfe-render/rust/hud/`). A family supplies views and the ports stay.
 5. **A family module supplies** its extractor profile; mission loading; its
    rules (movement and stances, where BF2 adds sprint and the dodge roll and
    drops prone; classes, heroes, awards, modes, capture, bleed); its interface
@@ -205,7 +202,7 @@ server from the app ([docs/shell.md](docs/shell.md),
 fuller target; favorites, recent servers, QUICK JOIN, region filters and share
 links are planned.
 
-MAIN MENU → MULTIPLAYER → PICK CONNECTION TYPE:
+MAIN MENU -> MULTIPLAYER -> PICK CONNECTION TYPE:
 
 - **LAN**: servers on this network ([LAN](#lan)).
 - **ONLINE**: the master servers' lists.
@@ -235,7 +232,7 @@ LAN and ONLINE share one session list:
 
 Joining: ENTER PASSWORD: if needed, JOINING SESSION ..., the content and
 version check, the loading screen, then the spawn screen (or the spectator
-lobby for missing content). Failures use the original’s messages.
+lobby for missing content). Failures use the original's messages.
 
 In battle: Tab's scoreboard (implemented: every player and bot with kills,
 deaths and command post points, and each player's ping; the original's
@@ -298,8 +295,8 @@ paths address disclosure depends on signaling and transport implementation.
 Do not advertise relay use as player anonymity.
 
 GAME INFO should identify an independent operator and expose its supplied
-privacy/rules links when available; absent links show “Policy not provided.”
-Official logo approval is not approval of that operator’s data practices or
+privacy/rules links when available; absent links show "Policy not provided."
+Official logo approval is not approval of that operator's data practices or
 all server content. Official services retain their own reporting/delisting
 controls and responsibility for their own processing.
 
@@ -309,7 +306,7 @@ public region is requested/published automatically. Explain the use and
 recipient when enabling location; allow disabling/removing it in settings.
 Do not put player coordinates in server listings. A host can publish a coarse
 region or rounded coordinates, preview them first, and remove them later.
-Without shared location, show “Not shared”; measured ping, Direct/Relay status,
+Without shared location, show "Not shared"; measured ping, Direct/Relay status,
 joining and relay selection by measured reachability/latency still work.
 Location/region filters must offer inclusion of servers without shared location.
 
@@ -318,7 +315,7 @@ to arbitrary collection or a universal liability waiver. Determine the lawful
 basis for necessary network processing separately from optional location
 consent. Final Terms should address independent-server content and liability
 only to the extent applicable law permits; obtain jurisdiction-specific legal
-review rather than asserting “we are not responsible for anything.” The
+review rather than asserting "we are not responsible for anything." The
 [ICO consent guidance](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/lawful-basis/a-guide-to-lawful-basis/consent/)
 describes the requirements for freely given, specific, informed opt-in consent;
 its [transparency guidance](https://ico.org.uk/media/for-organisations/guide-to-the-general-data-protection-regulation-gdpr/individual-rights/right-to-be-informed-1-0.pdf)
@@ -326,8 +323,8 @@ lists the information to provide when collecting personal data.
 
 ### Ping and missing content
 
-The desktop measures each listed server's ping on the player's own machine: how
-long a TCP connection to the server's game port takes to open, the lowest over
+The desktop client measures each listed server's ping on the player's own machine:
+how long a TCP connection to the server's game port takes to open, the lowest over
 the server's addresses, with no answer within a second shown as no ping
 ([docs/server-browser.md](docs/server-browser.md)). Only addresses from master
 listings, LAN discovery or an address the player typed are probed. Geographic
@@ -360,7 +357,7 @@ same server may see different labels and pings, which is expected.
 A missing map never forces a player out of a mixed playlist. They remain
 connected as spectator-only and can see the lobby, score, chat and next map.
 Today a client whose game data differs from the server's connects as a
-spectator, and the status line says why. Without the map’s geometry and
+spectator, and the status line says why. Without the map's geometry and
 textures there is no 3D world to display.
 Follow cameras require the needed presentation assets and compatible data;
 otherwise the UI explains what is missing. No retail files are downloaded
@@ -374,7 +371,7 @@ and bandwidth limits. Spectator feeds must also respect anti-ghosting rules
 
 ```mermaid
 flowchart LR
-  C["Electron client"]
+  C["bfe-client (native desktop client)"]
   S["bfeserver (dedicated server)"]
   M["Master server: online.battlefronteternal.com"]
   R["Relay: relay.battlefronteternal.com"]
@@ -386,37 +383,27 @@ flowchart LR
   R ==>|"relayed"| S
 ```
 
-- **bfeserver** runs the client's own world: `createGame()` headless, as the
-  local server in the world worker does
-  ([docs/runtime-architecture.md](docs/runtime-architecture.md)). Under Node it
-  needs a data port that reads files instead of fetching URLs. One battle per
+- **bfeserver** (`rust/bfe-server`) runs the engine's world headless, using the
+  same `sim` crate as the client's local battle thread
+  ([docs/runtime-architecture.md](docs/runtime-architecture.md)). One battle per
   process. The connection layer outlives battles, so a map change builds a
   new world while players stay connected. Bots run here.
-  The standalone server must run on a GPU-free VPS without Electron,
-  Chromium, a display server, WebGL or software rendering. CPU-side math and
-  collision dependencies are fine; creating a graphics context is not.
+  The standalone server runs on a GPU-free VPS without a display server,
+  OpenGL or software rendering. CPU-side math and collision dependencies are
+  fine; creating a graphics context is not.
 - **The master** is small: a server list held in memory, signaling, probes,
   and SQLite for keys, bans, sponsor art and reports.
 - **The relay** is coturn: the native transport uses its UDP allocations.
-- **The client** talks HTTPS/WSS to masters. Its privileged network process
-  owns game connections and LAN sockets; the renderer receives bounded data
-  through a narrow IPC bridge.
+- **The client** (`rust/bfe-client`) talks HTTPS/WSS to masters through
+  `rust/bfe-online` and runs game connections and LAN sockets over
+  `rust/bfe-transport`.
 
-The Node server hosts the Rust simulation as WebAssembly, sharing gameplay
-cores with client prediction. Rust owns the world tick, AI, combat, vehicles,
-battle rules and snapshot publication. JavaScript provides cold assembly,
-transport sessions, input admission and server administration. Shared phase
-bodies also compile natively, and a development Node addon provides owned
-contexts and store arenas. The packaged host still selects WASM: a native
-store bridge is not a qualified native dedicated server. See
-[docs/node-host.md](docs/node-host.md) and
+Both `bfeserver` and `bfe-client` compile the Rust simulation (`rust/sim`)
+natively, sharing gameplay cores with client prediction. Rust owns the world
+tick, AI, combat, vehicles, battle rules, snapshot publication, transport
+sessions, input admission and server administration. See
+[docs/native-client.md](docs/native-client.md) and
 [docs/host-qualification.md](docs/host-qualification.md).
-
-A separate development executable, `bfe-client`, can connect directly to a
-server with its Rust UDP implementation. It consumes authoritative snapshots
-without creating another authority. Its supported views and controls are
-listed in [docs/native-client.md](docs/native-client.md). This does not change
-the desktop app's hosting or service setup.
 
 ## Netcode
 
@@ -444,7 +431,7 @@ not positions. This section adds what the network changes.
 - **Prediction** covers the player's own soldier or driven vehicle, with the
   same rules. On each snapshot: restore, drop acknowledged commands, replay
   the rest (`CommandHistory` keeps the commands; the replay runs in the
-  simulation module, `rust/sim/src/prediction` and `rust/sim/src/client`).
+  simulation module, `rust/sim (prediction)` and `rust/sim (client)`).
   Input production and local prediction must
   continue when downstream snapshots stall, with bounded replay history and
   explicit recovery when the retained history no longer covers authority.
@@ -505,8 +492,8 @@ server browser, LAN and desktop HOST use it without a URL switch. Both
 identities are proven inside the transport handshake; a client or server on a
 different contract gets an update-required error. WebRTC (protocol 2) and its
 ordered-snapshot, journal and interim profiles are retired and cannot be
-negotiated. Single Player runs the same simulation host locally behind a local
-transport.
+negotiated. Single Player runs the same simulation host locally behind an
+in-process channel.
 
 The requirements behind it:
 
@@ -555,7 +542,7 @@ do not establish perceived fairness.
 ### Bots
 
 - The Classic AI throttles bots away from the camera: "within 45 m of camera
-  0, or inside any camera's frustum" (`rust/sim/src/ai/control/scheduler.rs`). On a
+  0, or inside any camera's frustum" (`rust/sim/rust/ai/control/scheduler.rs`). On a
   server, every human's view has to count. The server works each view out
   from the player's soldier and viewpoint setting, rather than trusting the
   client. Offline keeps the original first-camera radius; online the 45 m
@@ -576,23 +563,15 @@ run as separate instances.
 
 ## Transport
 
-Electron removes the browser restriction on sockets: Node’s
-[`dgram`](https://nodejs.org/api/dgram.html) supports UDP sockets, IPv4
-broadcast and multicast membership. Socket access belongs in the privileged
-network process, not the page rendering the UI.
-
 **Native UDP for the lowest latency.** WebRTC's per-connection SCTP congestion
 control and reliable-channel retransmission were the measured source of state
 backlog under loss. The replacement is
-[BFE-UDP/1](docs/native-udp-transport.md), written for this game in
-`src/net/` and shared by the desktop network process and bfeserver. It uses
-only standard primitives from Node and Electron's crypto (X25519, Ed25519,
-HKDF-SHA256, AES-256-GCM) in established constructions: a SIGMA-I handshake
-as TLS 1.3 uses, QUIC's acknowledgement ranges and loss detection, and
-WireGuard-style session ids, roaming and replay windows. No library was
-pinned: Node's QUIC support is experimental and absent from Electron's Node,
-and the maintained alternatives need native modules on both ends. Its
-handshake, parsers and trust boundaries had a security review
+[BFE-UDP/1](docs/native-udp-transport.md), implemented in `rust/bfe-transport`
+and shared by `bfe-client` and `bfeserver`. It uses standard cryptographic
+primitives (X25519, Ed25519, HKDF-SHA256, AES-256-GCM) in established
+constructions: a SIGMA-I handshake as TLS 1.3 uses, QUIC's acknowledgement
+ranges and loss detection, and WireGuard-style session ids, roaming and replay
+windows. Its handshake, parsers and trust boundaries had a security review
 ([docs/native-udp-security-review.md](docs/native-udp-security-review.md)).
 
 Required behavior, as implemented:
@@ -614,12 +593,11 @@ Required behavior, as implemented:
   measure around a 1,200-byte datagram ceiling rather than fragmenting packets.
 
 One transport interface separates this choice from the simulation and wire
-schema (`NetworkSession` over `UdpTransport`; `GameSession` over `UdpPeer`).
-The relay path works through coturn because only the server (or a client
-launched with `relay=always`) speaks TURN, over a UDP allocation; the other
-end sends plain UDP to the relayed address. TURN over TCP or TLS for networks
-that block UDP is not implemented on the native transport; those players
-cannot join until it is.
+schema (`rust/bfe-transport`). The relay path works through coturn because only
+the server (or a client launched with `relay=always`) speaks TURN, over a UDP
+allocation; the other end sends plain UDP to the relayed address. TURN over TCP
+or TLS for networks that block UDP is not implemented on the native transport;
+those players cannot join until it is.
 
 ## Connectivity
 
@@ -656,7 +634,7 @@ both.
 
 Relay policy, per server: **auto** (the default: relay only where direct
 fails), **never**, or **always**. Always must suppress direct addresses in listings, signaling and probes as
-well as relay game traffic. It limits exposure of a home host’s address; it
+well as relay game traffic. It limits exposure of a home host's address; it
 cannot hide an address already known or eliminate denial-of-service risk.
 
 ### Relay
@@ -696,16 +674,15 @@ controls before setting capacity.
 
 ### LAN
 
-- bfeserver and in-client hosts answer bounded IPv4 discovery broadcasts and
+- `bfeserver` and in-client hosts answer bounded IPv4 discovery broadcasts and
   IPv6 link-local multicast queries.
-- The Electron network process enumerates usable interfaces, preserving IPv6
-  scope IDs. Deduplicate by server key; account for multiple NICs and VPNs.
+- `rust/bfe-online` enumerates usable interfaces, preserving IPv6 scope IDs.
+  Deduplicate by server key; account for multiple NICs and VPNs.
 - No internet, master, GeoIP or relay is required. JOIN IP remains available
   across routed subnets or where Wi-Fi isolation blocks discovery.
 - Package and test OS firewall/local-network permissions on Windows, Ubuntu
-  and Omarchy (and on macOS once it is supported). Electron socket access does
-  not bypass OS permissions. Handle denial with a clear message and retry
-  action.
+  and Omarchy (and on macOS once it is supported). Handle denial with a clear
+  message and retry action.
 - Bind only configured interfaces and validate discovery messages before
   allocation; do not broadcast beyond local links.
 
@@ -728,7 +705,7 @@ Minimizing the client window must not suspend the server. Pausing opens the
 local menu without stopping the multiplayer clock. Closing the app with an
 active host offers **Keep server running**, **Stop server and quit**, and
 **Cancel**. Keeping it running closes the local window and player connection
-but leaves bfeserver, remote players, master registration and relay sessions
+but leaves `bfeserver`, remote players, master registration and relay sessions
 alive. Reopening the app discovers and attaches to its existing local server;
 it does not start a duplicate. Keep a local management and stop command
 available when the window is closed. Show the session status before the player
@@ -749,10 +726,11 @@ that an older PC can host 64 players.
 
 ## The dedicated server: bfeserver
 
-`bfeserver` is the dedicated server, in its own public GPL-3.0 repository
+`bfeserver` is the dedicated server, built from `rust/bfe-server` and
+distributed alongside its service unit repository
 ([battlefront-eternal-server](https://github.com/centrevilletech/battlefront-eternal-server)).
 It runs on a GPU-free Linux VPS, serves up to 64 players (32 a side) with bots
-filling the empty slots, and is the same runtime the desktop app launches for
+filling the empty slots, and is the same binary the desktop app launches for
 HOST. What runs today is the systemd service described in
 [docs/server-updates.md](docs/server-updates.md). The install packages, the
 setup menu, the command line and the Steam acquisition below are planned
@@ -767,21 +745,21 @@ administration, with no rendering, visual animation, audio playback, texture
 loading or GPU initialization. Retain animation data/math that affects game
 rules or collision, even though no animated model is drawn.
 
-The Electron host and VPS host must produce the same gameplay results for
-the same inputs. A VPS dedicates its resources to serving the battle; an
-app-hosting PC also pays for the local player's renderer and prediction.
-Measure tick time, encoding time, memory and bandwidth under real player/bot
-load; headless operation removes presentation cost but does not guarantee
-capacity on an undersized or heavily shared VPS.
+The desktop host and VPS host produce the same gameplay results for the same
+inputs. A VPS dedicates its resources to serving the battle; an app-hosting PC
+also pays for the local player's renderer and prediction. Measure tick time,
+encoding time, memory and bandwidth under real player/bot load; headless
+operation removes presentation cost but does not guarantee capacity on an
+undersized or heavily shared VPS.
 
 ### Install and updates
 
-Today a Linux server runs `bfeserver.service` under systemd with its own Node
-runtime (under `/opt/bfeserver` by default) and keeps its state and
-`config.json` in `/var/lib/bfeserver`. It updates itself: a systemd timer
-follows the signed release channel, installs each release's engine and server
-adapter, prepares that release's game data from the operator's owned copy of
-the game, and swaps the service over once nobody is playing
+Today a Linux server runs `bfeserver.service` under systemd (under
+`/opt/bfeserver` by default) and keeps its state and `config.json` in
+`/var/lib/bfeserver`. It updates itself: a systemd timer follows the signed
+release channel, installs each release's `bfeserver` binary and tools, prepares
+that release's game data from the operator's owned copy of the game, and swaps
+the service over once nobody is playing
 ([docs/server-updates.md](docs/server-updates.md)). One installation can run
 several servers (`bfeserver-<name>.service`, each with its own state folder,
 ports and identity). The game port (UDP and TCP 18451 by default) must be open
@@ -806,8 +784,8 @@ release's tools, as the desktop client does
 ([docs/server-updates.md](docs/server-updates.md),
 [docs/desktop.md](docs/desktop.md)). The rest of this section is planned work.
 
-The planned primary operator workflow is **install → run `bfeserver` → sign in
-to Steam → download owned game files → prepare server data → host**. It would
+The planned primary operator workflow is **install -> run `bfeserver` -> sign in
+to Steam -> download owned game files -> prepare server data -> host**. It would
 work from an SSH terminal on a GPU-free VPS, without copying files from a PC.
 SteamCMD acquisition is not implemented; title/depot access must pass the
 validation below before it can be advertised as working.
@@ -825,11 +803,11 @@ First-run GAME DATA would lead with:
 
 #### Steam sign-in and download (planned)
 
-1. Explain that the operator signs into Valve’s SteamCMD on this machine to
+1. Explain that the operator signs into Valve's SteamCMD on this machine to
    download a supported game they own. Battlefront Eternal's master and relay
    never receive Steam credentials. This is data acquisition, separate from
    any future Steam-based player identity or admin permissions.
-2. Run Valve’s SteamCMD as an unprivileged, isolated import helper. Handle
+2. Run Valve's SteamCMD as an unprivileged, isolated import helper. Handle
    interactive account login and whatever Steam Guard challenge SteamCMD
    presents; never require disabling Steam Guard. Keep password/code input
    out of process arguments, shell history, application logs and telemetry.
@@ -846,7 +824,7 @@ First-run GAME DATA would lead with:
    activate the same canonical bundle format used by client exports. Show
    imported maps, source build and gameplay hashes before continuing setup.
 6. End the Steam session and remove helper authentication state by default.
-   An explicit “Remember Steam login on this server” option may retain only
+   An explicit "Remember Steam login on this server" option may retain only
    SteamCMD-managed authentication state in a restricted directory, with a
    Forget action. Never store the password in bfeserver config. Exclude auth
    state from backups, exports and support bundles; verify cleanup behavior
@@ -858,7 +836,7 @@ SteamCMD download/authentication behavior is documented by Valve in its
 Validate the exact retail app IDs, depot access, Steam Guard flow, concurrent
 Steam-client session behavior and Linux dependencies with an owned account.
 The native Linux SteamCMD helper's architecture requirements are separate
-from the game server’s: qualify x86-64 first, and retain bundle import on ARM
+from the game server's: qualify x86-64 first, and retain bundle import on ARM
 unless a supported acquisition route is proven. No claim of universal title
 or host-architecture support before testing.
 
@@ -870,8 +848,8 @@ change live content hashes or disrupt an active battle.
 
 #### Import alternatives and common bundle format (planned)
 
-For client export, the desktop app imports the operator’s own retail files,
-then GAME DATA → EXPORT SERVER DATA creates a bundle for selected maps and
+For client export, the desktop app imports the operator's own retail files,
+then GAME DATA -> EXPORT SERVER DATA creates a bundle for selected maps and
 families. Upload it through normal file transfer and choose its path in the
 CLI. Existing game folders use the same local extraction helper as Steam
 imports. These paths support operators who use other retail sources or do
@@ -885,7 +863,7 @@ The bundle contains collision, terrain, regions, spawn paths, posts, mission
 setup, class/weapon/vehicle properties, AI navigation and animations used by
 gameplay (such as droideka movement). Exclude render-only meshes, textures and
 audio. Headless loader auditing must establish the actual dependency closure;
-today’s mixed extraction output cannot simply have every mesh deleted.
+today's mixed extraction output cannot simply have every mesh deleted.
 
 Proposed manifest: schema and extractor versions, family/map/era/mode IDs,
 compatible simulation data version, dependency list, file sizes and hashes,
@@ -905,13 +883,12 @@ engine code does not change that boundary. No automatic sharing of missing
 retail assets.
 
 The existing extractor is Python (`tools/extract.py` and its helpers). Package
-a versioned helper for desktop imports and CLI Steam/folder imports; do not
-make a JavaScript rewrite a prerequisite. The headless profile must exclude
-presentation-only processing and dependencies, including audio conversion.
-Provision its required Python/native dependencies through setup. Bundle-only
-import and the running server need neither Python nor SteamCMD. The
-distribution must account for Valve’s SteamCMD distribution terms; provision
-the official helper rather than assuming it can be repackaged.
+a versioned helper for desktop imports and CLI Steam/folder imports. The
+headless profile must exclude presentation-only processing and dependencies,
+including audio conversion. Provision its required Python/native dependencies
+through setup. Bundle-only import and the running server need neither Python
+nor SteamCMD. The distribution must account for Valve's SteamCMD distribution
+terms; provision the official helper rather than assuming it can be repackaged.
 
 ### The menu (planned)
 
@@ -920,15 +897,15 @@ the battlefront-eternal-server README). The menu and commands below are the
 planned interface.
 
 `bfeserver` with no arguments opens the menu: numbered choices, keyboard
-only, working over SSH in 80×24 and without colour. It talks to the running
+only, working over SSH in 80x24 and without colour. It talks to the running
 service over a local socket. Leaving the menu leaves the server running.
 Changes apply as soon as they can: the name at once, the playlist at the next
 map, ports after a restart (which the menu offers).
 
 ```
- BATTLEFRONT ETERNAL SERVER · Theed Thursdays                        v0.4.2
- Running · NABOO: THEED (CW) · 14/32 players, 18 bots · up 3d 4h
- IPv4 reachable · IPv6 reachable · relay standby
+ BATTLEFRONT ETERNAL SERVER . Theed Thursdays                        v0.4.2
+ Running . NABOO: THEED (CW) . 14/32 players, 18 bots . up 3d 4h
+ IPv4 reachable . IPv6 reachable . relay standby
 
   1  Live         players, chat, kick, ban, next map
   2  Playlist     maps and their rules
@@ -1001,13 +978,13 @@ description, location, sponsor, rotation and bots from `config.json`
 | Public or private | Private is unlisted and joinable by code or address (the original's PUBLIC GAME / PRIVATE GAME) |
 | Password | Optional |
 | Max players | Up to 64 (32 a side) with bots filling the empty slots; also capped by the measured upload |
-| Location | Optional, off by default. Publish only an operator-approved coarse region or rounded coordinates (0.1°); otherwise omit coordinates, region and country. No automatic GeoIP publication |
+| Location | Optional, off by default. Publish only an operator-approved coarse region or rounded coordinates (0.1 deg); otherwise omit coordinates, region and country. No automatic GeoIP publication |
 | Language, tags | For the list's filters |
 | Profanity filter | Off unless the operator turns it on |
 | Sponsor | Logo and website |
 | Admins | Player keys |
 | Block list | By player key, name pattern, IP address or prefix; permanent or timed, with a reason. An allow-list mode makes a server private to a clan |
-| Global bans | Honor or ignore the project’s signed ban feed; local bans still apply |
+| Global bans | Honor or ignore the project's signed ban feed; local bans still apply |
 | Votes | VOTE TO BOOT and vote to skip the map; thresholds, cooldowns |
 | Idle kick, ping limit, reserved admin slots | |
 | Master servers | Official by default; more can be added |
@@ -1059,19 +1036,19 @@ of this section is the planned design.
 - The operator gives a logo (PNG, JPEG or WebP, up to 512 KB; not SVG, which
   can carry script) and an `https:` website.
 - The server uploads both to the master. The master re-encodes the logo at
-  fixed sizes (512×128 and 256×64 WebP, for example), strips its metadata and
+  fixed sizes (512x128 and 256x64 WebP, for example), strips its metadata and
   serves it from its own domain. Clients never load images from game servers
   or third-party hosts: no tracking pixels, no leaked addresses, no hostile
   files.
-- Logos are hidden until approved in the master’s backend. Approval is bound
+- Logos are hidden until approved in the master's backend. Approval is bound
   to the image hash and website; edits return the submission to pending. The
   backend supports pending/approved/rejected/revoked states and an audit log.
   Clients honor revocation and never display a pending image from a direct
   server URL. Each community master moderates its own submissions. GAME INFO
   has a report button, and a master can delist a server.
 - The website shows as its domain, with punycode visible. Clicking asks "Open
-  example.com in your browser?" and opens the validated HTTPS URL in the system browser. Never load sponsor
-  pages inside a privileged Electron window.
+  example.com in your browser?" and opens the validated HTTPS URL in the
+  system browser.
 - The logo shows in GAME INFO, and also on the server's loading screen and
   scoreboard if the operator wants. Players can turn sponsor art off.
 - On an offline LAN, display only cached art with a valid approval record
@@ -1139,7 +1116,7 @@ game keeps working with any community master.
 - Explicitly configure and test IPv4 and IPv6 listeners, DNS and container
   networking. Preserve source addresses for probes and rate limits; a proxy
   address is not the client address. Host networking is a deployment option
-  for the UDP relay, subject to the selected implementation’s port needs.
+  for the UDP relay, subject to the selected implementation's port needs.
 - A reverse proxy terminates master HTTPS/WSS on TCP 443. Trust forwarded
   addresses only from the configured proxy, overwrite spoofed forwarding
   headers there, and block direct backend access. Coturn terminates its own TLS
@@ -1228,8 +1205,7 @@ When online, incompatible servers remain unavailable regardless of update state.
 
 - Windows: signed installer and updater; test a clean machine and upgrades.
 - macOS (planned): signed and notarized distribution outside the App Store;
-  test both supported CPU architectures. Signing is required for Electron’s
-  macOS updater.
+  test both supported CPU architectures.
 - Linux and Windows (implemented, [docs/desktop-updates.md](docs/desktop-updates.md)):
   every installation, the Debian package, the AppImage or the Windows
   installer, installs signed releases into the user's own folder and hands
@@ -1244,13 +1220,13 @@ When online, incompatible servers remain unavailable regardless of update state.
 
 ### Older PCs
 
-A remote server removes the full battle’s AI and authoritative simulation
+A remote server removes the full battle's AI and authoritative simulation
 from the client, which should help CPU-limited PCs. The client still renders,
 animates, mixes audio, decodes snapshots and predicts/reconciles its own
-soldier or vehicle, including necessary collision work. Electron also adds
-memory overhead. GPU-limited PCs will still need graphics scaling. Hosting
-locally retains the full simulation cost. Measure minimum-spec CPU/GPU/RAM
-and frame times; do not promise that all math moves to the server.
+soldier or vehicle, including necessary collision work. GPU-limited PCs will
+still need graphics scaling. Hosting locally retains the full simulation cost.
+Measure minimum-spec CPU/GPU/RAM and frame times; do not promise that all math
+moves to the server.
 
 ## Security
 
@@ -1263,7 +1239,7 @@ and frame times; do not promise that all math moves to the server.
   code or a secret shipped inside it. Enforce action rates, movement, inventory,
   team/seat access and command tick windows at the server; bound rewind history.
   Never trust client content claims or a build string as anti-cheat attestation.
-- A player can modify either client host, so aim help and seeing through
+- A player can modify a client executable, so aim help and seeing through
   walls stay possible. The limits: don't send units far outside relevance
   (distance first, map visibility later); flag statistical outliers; record
   demos that admins can review; VOTE TO BOOT.
@@ -1271,9 +1247,8 @@ and frame times; do not promise that all math moves to the server.
 - Clients authenticate the server's Ed25519 identity against the identity
   supplied by the listing, direct-connect information or join data.
 - The menu is local only. No admin port faces the network.
-- Electron renderer: sandbox on, `contextIsolation: true`, `nodeIntegration: false`; narrow typed preload APIs, validated IPC sender and payload, no
-  generic filesystem/shell/socket bridge. Treat names, chat, MOTD and logos as
-  untrusted content. Follow the [Electron security guidance](https://www.electronjs.org/docs/latest/tutorial/security).
+- Treat names, chat, MOTD and logos as untrusted content; validate all
+  decoded strings and image headers before rendering.
 
 ## Publication and privacy
 
@@ -1342,11 +1317,11 @@ Each of these answers a question before the design leans on it:
   Guard, missing entitlement, interrupted downloads, credential
   redaction/cleanup and helper dependencies. Compare Steam/folder extraction
   hashes with desktop-exported bundles from the same source build and
-  extractor, then run `createGame()` from a gameplay-only bundle and compare
-  results and tick cost with the client import.
+  extractor, then run the headless world from a gameplay-only bundle and
+  compare results and tick cost with the client import.
 - **GPU-free server**: run a full battle on a clean Linux VM with no display
-  server, Electron, Chromium or software-rendering packages, and compare the
-  simulation results with the bfeserver process launched from the desktop app.
+  server or software-rendering packages, and compare the simulation results
+  with the `bfeserver` process launched from the desktop app.
 - **Offline LAN and hosting**: three machines discover and join with WAN
   disabled; IPv4 and IPv6, firewall denial, multiple interfaces, minimized
   host window, host exit and sleep/wake. Test manual IP with no discovery.

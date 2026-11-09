@@ -1,0 +1,805 @@
+{
+  "enums": {
+    "F3PropEffectKind": [
+      "publish",
+      "show",
+      "destroyed"
+    ],
+    "DbOperation": [
+      "launch",
+      "update",
+      "bounce",
+      "rest",
+      "clear"
+    ],
+    "DbActionKind": [
+      "add",
+      "remove",
+      "cast",
+      "low",
+      "play",
+      "move",
+      "stop",
+      "publish",
+      "out",
+      "vectors"
+    ],
+    "PbStateName": [
+      "unbuilt",
+      "built",
+      "destroyed"
+    ],
+    "PbKind": [
+      "building",
+      "turret",
+      "objective"
+    ],
+    "PbMode": [
+      "waiting",
+      "active"
+    ],
+    "PbOperation": [
+      "setHealth",
+      "damage",
+      "regenerate",
+      "update",
+      "serve",
+      "sphere",
+      "blastSphere",
+      "built",
+      "destroyed"
+    ],
+    "PbActionKind": [
+      "show",
+      "crewDestroyed",
+      "destroyed",
+      "explode",
+      "damaged",
+      "targetChanged",
+      "served",
+      "serveSound"
+    ],
+    "PaOperation": [
+      "step",
+      "state"
+    ],
+    "PaActionKind": [
+      "sound",
+      "letGo",
+      "damage",
+      "remove",
+      "rider"
+    ],
+    "PqValueKind": [
+      "undefined",
+      "null",
+      "boolean",
+      "number",
+      "string"
+    ],
+    "PqHealth": [
+      "building",
+      "vehicle",
+      "rebuild",
+      "build"
+    ],
+    "PqOperation": [
+      "blast",
+      "struck",
+      "repairs",
+      "repair",
+      "lockOn",
+      "enterable"
+    ],
+    "PqActionKind": [
+      "target",
+      "sphere",
+      "cast",
+      "teamScale",
+      "damage",
+      "setHealth",
+      "may"
+    ],
+    "PtOperation": [
+      "steer",
+      "holdYaw",
+      "viewDirection",
+      "present",
+      "gunWant",
+      "aimGun",
+      "pose",
+      "muzzle",
+      "fireDirection",
+      "eyePoint",
+      "aimOrigin",
+      "seatPoint",
+      "seatTurn",
+      "seatYaw"
+    ],
+    "PcOperation": [
+      "seatOf",
+      "canMan",
+      "man",
+      "requestExit",
+      "leave",
+      "vacate",
+      "destroyed",
+      "update",
+      "drive",
+      "pose"
+    ],
+    "PcActionKind": [
+      "publish",
+      "resume",
+      "makeLease",
+      "cast",
+      "overlaps",
+      "raycast",
+      "standUp",
+      "kill",
+      "riderDrop",
+      "controllerState",
+      "controllable",
+      "boarded",
+      "unboarded",
+      "seated",
+      "unseated",
+      "placed",
+      "dropped",
+      "seatPolicy",
+      "pose",
+      "lock",
+      "weapon",
+      "fire",
+      "bind",
+      "sound",
+      "fired"
+    ]
+  },
+  "records": {
+    "F3BuildingState": {
+      "index": "u32",
+      "state": "enum:PbStateName",
+      "health": "f64",
+      "addHealth": "f64",
+      "attacker": "union:Attacker",
+      "generation": "f64|null",
+      "team": "f64",
+      "targetTeam": "f64",
+      "gunner": "ref:unit|null",
+      "trapMode": "bool",
+      "trapState": "rec:TrState"
+    },
+    "F3BuildingSetup": {
+      "index": "u32",
+      "target": "union:RepairTarget",
+      "member": "union:Member|null",
+      "key": "str",
+      "settings": "rec:PbSettings",
+      "state": "rec:F3BuildingState",
+      "live": "rec:F4BuildingBirth",
+      "trap": "rec:F4TrapBirth|null",
+      "bodies": "list:(ref:body|null)",
+      "explosion": "u32|null",
+      "damaged": "bool",
+      "category": "u32",
+      "kind": "f64",
+      "trapSphere": "rec:Bounds|null"
+    },
+    "F3PropEffect": {
+      "kind": "enum:F3PropEffectKind",
+      "state": "rec:F3BuildingState"
+    },
+    "F3PropDamage": {
+      "index": "u32",
+      "amount": "f64",
+      "attacker": "union:Attacker",
+      "hasDirection": "bool",
+      "direction": "vec3",
+      "untyped": "f64",
+      "typed": "f64",
+      "generic": "f64",
+      "position": "vec3",
+      "team": "f64",
+      "generation": "f64|null"
+    },
+    "DbChunk": {
+      "speed": "f64",
+      "omega": "vec3",
+      "still": "bool",
+      "terrainCollisions": "f64",
+      "terrainEffect": "str|null",
+      "trail": "str|null",
+      "smoke": "str|null"
+    },
+    "DbSettle": {
+      "from": "quat",
+      "to": "quat",
+      "y0": "f64",
+      "y1": "f64",
+      "t": "f64"
+    },
+    "DbPiece": {
+      "id": "f64",
+      "chunk": "rec:DbChunk",
+      "position": "vec3",
+      "previous": "vec3",
+      "velocity": "vec3",
+      "omega": "vec3",
+      "quaternion": "quat",
+      "hits": "f64",
+      "lift": "f64",
+      "thin": "f64",
+      "settle": "rec:DbSettle|null",
+      "ignore": "f64|null",
+      "resting": "bool",
+      "flight": "f64",
+      "left": "f64",
+      "trail": "f64|null",
+      "smoke": "f64|null",
+      "gone": "bool|undefined"
+    },
+    "DbState": {
+      "pieces": "list:rec:DbPiece",
+      "ray": "vec3",
+      "start": "vec3",
+      "out": "vec3"
+    },
+    "DbLaunch": {
+      "id": "f64",
+      "chunk": "rec:DbChunk",
+      "matrix": "mat4",
+      "low": "vec3",
+      "high": "vec3",
+      "origin": "vec3",
+      "velocity": "vec3",
+      "health": "f64",
+      "ignore": "f64|null",
+      "center": "bool",
+      "floor": "f64"
+    },
+    "DbInput": {
+      "op": "enum:DbOperation",
+      "state": "rec:DbState",
+      "launch": "rec:DbLaunch|null",
+      "dt": "f64",
+      "id": "f64",
+      "floor": "f64"
+    },
+    "DbAction": {
+      "kind": "enum:DbActionKind",
+      "piece": "rec:DbPiece|null",
+      "id": "f64",
+      "point": "vec3",
+      "turn": "quat",
+      "shift": "vec3|null",
+      "direction": "vec3",
+      "far": "f64",
+      "ignore": "f64|null",
+      "name": "str|null",
+      "velocity": "vec3|null",
+      "impact": "bool"
+    },
+    "DbActionResult": {
+      "hit": "bool",
+      "point": "vec3",
+      "normal": "vec3",
+      "low": "f64",
+      "effect": "f64|null"
+    },
+    "PbIdentity": {
+      "kind": "f64",
+      "id": "f64"
+    },
+    "PbModel": {
+      "sphere": "f64x4|null",
+      "low": "vec3|null",
+      "high": "vec3|null"
+    },
+    "PbSettings": {
+      "kind": "enum:PbKind",
+      "maxHealth": "f64",
+      "respawnTime": "f64",
+      "builtAddHealth": "f64",
+      "regenerates": "bool",
+      "hasDestroyed": "bool",
+      "hasUnbuilt": "bool",
+      "hasExplosion": "bool",
+      "matrix": "mat4",
+      "models": "list:(rec:PbModel|null)"
+    },
+    "PbConfiguration": {
+      "buildings": "list:rec:PbSettings"
+    },
+    "PbState": {
+      "state": "enum:PbStateName",
+      "health": "f64",
+      "addHealth": "f64",
+      "lastAttacker": "rec:PbIdentity",
+      "targetGeneration": "f64|null"
+    },
+    "PbStation": {
+      "building": "rec:PbState",
+      "mode": "enum:PbMode",
+      "active": "f64",
+      "pulse": "f64",
+      "servedPlayer": "bool",
+      "servedHealth": "bool",
+      "servedAmmo": "bool"
+    },
+    "PbWeapon": {
+      "bottomless": "bool",
+      "ammo": "f64",
+      "clip": "f64",
+      "perShot": "f64",
+      "reserve": "f64"
+    },
+    "PbTarget": {
+      "id": "f64",
+      "position": "vec3",
+      "vehicle": "bool",
+      "alive": "bool",
+      "player": "bool",
+      "radius": "f64",
+      "health": "f64",
+      "maxHealth": "f64",
+      "weapons": "list:rec:PbWeapon"
+    },
+    "PbSupply": {
+      "position": "vec3",
+      "radius": "f64",
+      "delay": "f64",
+      "health": "f64",
+      "ammo": "f64",
+      "vehicleHealth": "f64",
+      "vehicleAmmo": "f64"
+    },
+    "PbInput": {
+      "op": "enum:PbOperation",
+      "index": "f64",
+      "state": "rec:PbState",
+      "crew": "bool",
+      "damaged": "bool",
+      "station": "rec:PbStation|null",
+      "supply": "rec:PbSupply|null",
+      "value": "f64",
+      "attacker": "rec:PbIdentity",
+      "hit": "rec:PbIdentity",
+      "targets": "list:rec:PbTarget",
+      "soldiers": "list:f64",
+      "vehicles": "list:f64"
+    },
+    "PbResult": {
+      "state": "rec:PbState",
+      "station": "rec:PbStation|null",
+      "targets": "list:rec:PbTarget",
+      "number": "f64",
+      "point": "vec3"
+    },
+    "PbAction": {
+      "kind": "enum:PbActionKind",
+      "index": "f64",
+      "state": "rec:PbState|null",
+      "station": "rec:PbStation|null",
+      "target": "rec:PbTarget|null",
+      "point": "vec3",
+      "amount": "f64",
+      "attacker": "rec:PbIdentity",
+      "hit": "rec:PbIdentity",
+      "first": "f64",
+      "gave": "f64"
+    },
+    "PbActionResult": {
+      "state": "rec:PbState|null",
+      "target": "rec:PbTarget|null"
+    },
+    "PaClip": {
+      "frames": "f64",
+      "fps": "f64",
+      "rootMotion": "bool",
+      "tracks": "list:f64",
+      "data": "list:f64"
+    },
+    "PaTrigger": {
+      "slot": "f64",
+      "point": "vec3",
+      "radius": "f64",
+      "sound": "str|null",
+      "opens": "bool"
+    },
+    "PaGrab": {
+      "slot": "f64",
+      "window": "f64",
+      "radius": "f64",
+      "node": "f64|null",
+      "clip": "str"
+    },
+    "PaBind": {
+      "q": "quat",
+      "p": "vec3"
+    },
+    "PaSettings": {
+      "door": "bool",
+      "clips": "list:(rec:PaClip|null)",
+      "doorClip": "rec:PaClip|null",
+      "doorDuration": "f64",
+      "idleDelay": "f64",
+      "openSlots": "list:bool",
+      "triggers": "list:rec:PaTrigger",
+      "grabs": "list:rec:PaGrab",
+      "position": "vec3",
+      "killSound": "str|null",
+      "root": "mat4",
+      "parents": "list:f64",
+      "bind": "list:rec:PaBind"
+    },
+    "PaConfiguration": {
+      "props": "list:rec:PaSettings"
+    },
+    "PaPose": {
+      "root": "f64",
+      "q": "list:f64",
+      "t": "list:f64",
+      "w": "list:f64"
+    },
+    "PaBone": {
+      "p": "vec3",
+      "q": "quat",
+      "s": "vec3",
+      "world": "mat4"
+    },
+    "PaVictim": {
+      "unit": "f64",
+      "generation": "f64",
+      "grab": "f64",
+      "since": "f64"
+    },
+    "PaState": {
+      "index": "f64",
+      "slot": "f64",
+      "time": "f64",
+      "weight": "f64",
+      "loop": "bool",
+      "hold": "f64",
+      "started": "f64",
+      "startTime": "f64",
+      "victim": "rec:PaVictim|null",
+      "openness": "f64",
+      "bodyEnabled": "bool|null",
+      "standQ": "list:f64",
+      "standT": "list:f64",
+      "pose": "rec:PaPose|null",
+      "rootWorld": "mat4",
+      "bones": "list:rec:PaBone"
+    },
+    "PaHeld": {
+      "prop": "f64",
+      "grab": "f64",
+      "since": "f64",
+      "frame": "mat4|null",
+      "time": "f64|null"
+    },
+    "PaBody": {
+      "key": "f64",
+      "id": "f64",
+      "generation": "f64",
+      "soldier": "bool",
+      "walker": "bool",
+      "removed": "bool",
+      "alive": "bool",
+      "dead": "bool",
+      "seated": "bool",
+      "held": "rec:PaHeld|null",
+      "combat": "bool",
+      "mounted": "bool",
+      "position": "vec3",
+      "previous": "vec3|null",
+      "settled": "vec3|null",
+      "velocity": "vec3",
+      "air": "bool",
+      "dive": "f64",
+      "tickCount": "f64|null",
+      "letGo": "bool",
+      "remove": "bool",
+      "riderClips": "list:bool"
+    },
+    "PaInput": {
+      "op": "enum:PaOperation",
+      "state": "rec:PaState",
+      "bodies": "list:rec:PaBody",
+      "order": "list:f64",
+      "positions": "list:vec3",
+      "dt": "f64",
+      "tick": "f64"
+    },
+    "PaResult": {
+      "state": "rec:PaState",
+      "bodies": "list:rec:PaBody",
+      "record": "list:f64"
+    },
+    "PaAction": {
+      "kind": "enum:PaActionKind",
+      "index": "f64",
+      "state": "rec:PaState",
+      "body": "rec:PaBody|null",
+      "text": "str|null",
+      "point": "vec3",
+      "value": "f64"
+    },
+    "PaActionResult": {
+      "body": "rec:PaBody|null",
+      "found": "bool",
+      "root": "vec3",
+      "turn": "quat"
+    },
+    "PqValue": {
+      "kind": "enum:PqValueKind",
+      "number": "f64",
+      "text": "str"
+    },
+    "PqDefinition": {
+      "repair": "list:rec:PqValue",
+      "targetVehicle": "rec:PqValue",
+      "targetNeutral": "rec:PqValue",
+      "targetEnemy": "rec:PqValue",
+      "targetFriendly": "rec:PqValue",
+      "range": "rec:PqValue",
+      "angle": "rec:PqValue",
+      "shieldScale": "rec:PqValue",
+      "damage": "rec:PqValue",
+      "inner": "rec:PqValue",
+      "outer": "rec:PqValue",
+      "scales": "list:rec:PqValue"
+    },
+    "PqTarget": {
+      "alive": "bool",
+      "state": "enum:PbStateName|null",
+      "healthType": "enum:PqHealth|null",
+      "health": "f64",
+      "maxHealth": "f64",
+      "team": "f64",
+      "body": "f64|null",
+      "gunner": "bool",
+      "position": "vec3",
+      "matrix": "mat4"
+    },
+    "PqState": {
+      "center": "vec3",
+      "toward": "vec3"
+    },
+    "PqDamage": {
+      "direction": "vec3|null",
+      "amount": "f64",
+      "typed": "f64",
+      "generic": "rec:PqValue"
+    },
+    "PqInput": {
+      "op": "enum:PqOperation",
+      "state": "rec:PqState",
+      "definition": "rec:PqDefinition",
+      "buildings": "list:f64",
+      "vehicles": "list:f64",
+      "turrets": "list:f64",
+      "one": "f64",
+      "building": "bool",
+      "owner": "rec:PbIdentity",
+      "a": "vec3",
+      "b": "vec3",
+      "direction": "vec3|null",
+      "team": "f64",
+      "held": "bool",
+      "teamScale": "bool",
+      "may": "bool",
+      "collision": "bool"
+    },
+    "PqResult": {
+      "state": "rec:PqState",
+      "selected": "f64",
+      "flag": "bool"
+    },
+    "PqAction": {
+      "kind": "enum:PqActionKind",
+      "state": "rec:PqState",
+      "index": "f64",
+      "point": "vec3",
+      "direction": "vec3",
+      "far": "f64",
+      "ignore": "f64|null",
+      "blast": "bool",
+      "lock": "bool",
+      "staticOnly": "bool",
+      "amount": "f64",
+      "owner": "rec:PbIdentity",
+      "info": "rec:PqDamage|null",
+      "value": "rec:PqValue"
+    },
+    "PqActionResult": {
+      "state": "rec:PqState",
+      "target": "rec:PqTarget|null",
+      "point": "vec3",
+      "number": "f64",
+      "flag": "bool",
+      "found": "bool",
+      "hitDistance": "f64",
+      "hitOwner": "f64"
+    },
+    "PtSettings": {
+      "facing": "f64",
+      "position": "vec3",
+      "matrix": "mat4",
+      "pitchLimits": "f64x2",
+      "yawLimits": "f64x2|null",
+      "wrapYaw": "bool",
+      "gunPitchLimits": "f64x2",
+      "gunYawLimits": "f64x2",
+      "turnRate": "f64",
+      "filter": "f64",
+      "gunPitchRate": "f64",
+      "gunYawRate": "f64",
+      "yawFactor": "f64",
+      "pitchFactor": "f64",
+      "cameraEye": "vec3",
+      "cameraCenter": "vec3",
+      "cameraOffset": "vec3",
+      "cameraTilt": "f64",
+      "pivot": "vec3",
+      "up": "vec3",
+      "drumParentTurn": "quat|null",
+      "gunBind": "quat|null",
+      "root": "mat4",
+      "parents": "list:f64",
+      "drum": "f64|null",
+      "gun": "f64|null",
+      "seat": "f64|null",
+      "firePoints": "list:f64"
+    },
+    "PtConfiguration": {
+      "turrets": "list:rec:PtSettings"
+    },
+    "PtState": {
+      "index": "f64",
+      "yaw": "f64",
+      "pitch": "f64",
+      "yawVel": "f64",
+      "pitchVel": "f64",
+      "gunYaw": "f64",
+      "gunPitch": "f64",
+      "barrel": "f64",
+      "rootWorld": "mat4",
+      "bones": "list:rec:PaBone"
+    },
+    "PtInput": {
+      "op": "enum:PtOperation",
+      "state": "rec:PtState",
+      "dt": "f64",
+      "turn": "f64",
+      "pitch": "f64",
+      "zoom": "f64",
+      "yaw": "f64",
+      "target": "vec3|null",
+      "from": "vec3",
+      "along": "vec3",
+      "advance": "bool",
+      "direction": "bool",
+      "alias": "bool",
+      "firstPerson": "bool"
+    },
+    "PtResult": {
+      "state": "rec:PtState",
+      "point": "vec3",
+      "direction": "vec3",
+      "pair": "f64x2",
+      "number": "f64",
+      "turn": "quat"
+    },
+    "PcRider": {
+      "unit": "ref:unit",
+      "noEnter": "f64",
+      "zoomStep": "f64",
+      "zoom": "f64",
+      "firstPerson": "bool",
+      "blowApart": "bool",
+      "dead": "bool",
+      "mounted": "bool|undefined",
+      "gunUnderwater": "bool",
+      "aimOverride": "vec3|null|undefined"
+    },
+    "PcTurret": {
+      "state": "rec:PtState",
+      "turret": "ref:turret",
+      "alive": "bool",
+      "lease": "ref:seatLease|null",
+      "gunner": "ref:unit|null",
+      "attacker": "union:Attacker",
+      "center": "vec3",
+      "radius": "f64",
+      "weapon": "bool",
+      "missileLock": "bool",
+      "body": "ref:body|null",
+      "rider": "bool",
+      "shootable": "bool"
+    },
+    "PcState": {
+      "time": "f64",
+      "ticks": "f64",
+      "leases": "list:seatLease",
+      "rows": "list:seatLease",
+      "units": "list:unit",
+      "turrets": "list:rec:PcTurret",
+      "riders": "list:rec:PcRider",
+      "controls": "list:rec:SeatAiControl",
+      "collide": "bool",
+      "latched": "list:seatUnit"
+    },
+    "PcInput": {
+      "op": "enum:PcOperation",
+      "state": "rec:PcState",
+      "unit": "ref:unit|null",
+      "turret": "f64",
+      "lease": "ref:seatLease|null",
+      "dt": "f64",
+      "placement": "bool",
+      "post": "ref:post|null",
+      "kill": "bool",
+      "attacker": "union:Attacker",
+      "reason": "enum:SeatReason"
+    },
+    "PcResult": {
+      "state": "rec:PcState",
+      "flag": "bool",
+      "lease": "ref:seatLease|null",
+      "dt": "f64"
+    },
+    "PcNewLease": {
+      "unit": "ref:unit|null",
+      "generation": "f64",
+      "human": "bool",
+      "team": "f64",
+      "vehicle": "ref:vehicle|null",
+      "turret": "ref:turret|null",
+      "index": "f64",
+      "role": "enum:SeatRole",
+      "since": "f64",
+      "tick": "f64"
+    },
+    "PcShot": {
+      "yaw": "f64",
+      "pitch": "f64"
+    },
+    "PcAction": {
+      "kind": "enum:PcActionKind",
+      "state": "rec:PcState|null",
+      "unit": "ref:unit|null",
+      "turret": "f64",
+      "lease": "ref:seatLease|null",
+      "point": "vec3",
+      "direction": "vec3",
+      "value": "f64",
+      "yaw": "f64",
+      "flag": "bool",
+      "second": "bool",
+      "third": "bool",
+      "body": "ref:body|null",
+      "attacker": "union:Attacker",
+      "post": "ref:post|null",
+      "reason": "enum:SeatReason",
+      "made": "rec:PcNewLease|null",
+      "index": "f64",
+      "shot": "f64"
+    },
+    "PcActionResult": {
+      "state": "rec:PcState|null",
+      "lease": "ref:seatLease|null",
+      "control": "ref:seatUnit|null",
+      "hit": "rec:SeatHit|null",
+      "flag": "bool",
+      "value": "f64|undefined",
+      "point": "vec3",
+      "shots": "list:rec:PcShot"
+    }
+  },
+  "events": {
+    "f3PropDamage": "F3PropDamage",
+    "f3PropEffect": "F3PropEffect"
+  }
+}

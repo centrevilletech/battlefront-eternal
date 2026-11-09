@@ -15,7 +15,7 @@
 //! - Content root resolution and `contentHash(query)` in `src/world-worker.js`
 //!   (`resolve_content_root` and `check_content`), using `bfe_content_native::fingerprint::hash`
 //!   so the Rust server computes the exact `bfe-content-sha256-...` digest expected by the
-//!   native and Electron clients.
+//!   native clients.
 
 use crate::identity::write_mode_600;
 use bfe_content::files::DirFiles;
@@ -96,7 +96,7 @@ pub fn default_rotation() -> Vec<String> {
 ///
 /// Why both defaults and strict bounds are enforced inside `ServerConfig`:
 /// Operator config files (`config.json`), interactive menu edits (`main.js` `menu()`), and
-/// Electron host launch parameters share this schema. Clamping ports (`1..=65535`), state
+/// Host launch parameters share this schema. Clamping ports (`1..=65535`), state
 /// byte budgets (`512..=1200`), and playlist strings at load time guarantees that
 /// `LocalDedicatedServer`, `OnlineServer`, `MasterClient`, and `OperatorStore` all observe
 /// valid, mutually consistent settings before any socket is bound.

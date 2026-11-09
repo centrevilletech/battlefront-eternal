@@ -3,7 +3,7 @@
 The original's spawn screen: unit and class select, team switch and spawn
 post, before every life. It has two sides here:
 
-- **The screen** (this document, `src/spawn-screen/`): what is drawn and how
+- **The screen** (this document, `rust/bfe-battle-ui` (`spawn_screen`)): what is drawn and how
   input makes a choice. It reads the world only through the spawn port, and
   its choice goes back as a world command.
 - **The world side** ([human-spawn.md](human-spawn.md)): when the player may
@@ -17,30 +17,30 @@ screenshots of the 2004 game: Geonosis (Republic), Kamino (CIS) and Hoth
 
 | File | What it does |
 | --- | --- |
-| `src/spawn-screen/index.js` | `createSpawnScreen()`: opens and closes the screen, drives the model, input and view, plays the sounds, sets the camera shot, frees the mouse. `pauseRespawn()`: the pause menu's RESPAWN. |
-| `src/spawn-screen/model.js` | Pure: the screen's state (closed, choosing, committed) and the choice (team, class, post), with the original's rules for each |
-| `src/spawn-screen/input.js` | Keys and mouse to model actions, once per frame; `bindDom()` feeds it from the page |
-| `src/spawn-screen/classic/view.js` | The Classic screen, as a layer of the battle HUD |
-| `src/spawn-screen/classic/layout.js` | Pure: where each piece sits for an interface height |
-| `src/spawn-screen/page/view.js` | The page view: the screen in the front end's look (see [The page view](#the-page-view)) |
-| `src/spawn-screen/page/stage.js` | The page view's 3D stage on the HUD's canvas: the body on its projector, the room or the vignette, the hologram map |
-| `src/spawn-screen/page/rig.js` | The stage's camera: the framing (a lens shift), the sweep in, the swings, the drift |
-| `src/spawn-screen/page/holomap.js` | The battlefield projected as a hologram: the HUD's spawn map drawn into a texture, the disc, the pins, the projector, picking |
-| `src/spawn-screen/page/rooms.js` | The 2004 look's hologram room (the `shell_cube` texture), and the floor of light over the battle |
-| `src/spawn-screen/page/director.js` | The battle behind the page view: the mission's camera shots, drifting, cut to the one that sees the post picked |
-| `src/interface/flashy.js` | The window titles' intro animation (the shared interface kit, docs/menus.md) |
-| `src/interface/models.js` | The interface's 3D: its material and lights, model scales, its camera |
-| `src/interface/shapes.js` | The windows' 9-slice, text wrapping, the hotspots' point-in-quad test |
-| `src/spawn-screen/classic/preview.js` | The picked class's body, standing and lit |
-| `src/spawn-screen/debug.js` | The screen on demand over the running game |
-| `src/spawn-screen/policy.js` | The world side's: whether the screen runs (see human-spawn.md) |
-| `src/hud.js` | The layer hook, `drawBattlefield()` and the spawn map; `toInterface()` from the interface kit (`src/interface/`) |
-| `src/pause/index.js` | RESPAWN in the pause menu (`enableRespawn()`) |
-| `src/audio/game.js` | The `interface` sound event |
+| `rust/bfe-battle-ui` (`spawn_screen`) | `createSpawnScreen()`: opens and closes the screen, drives the model, input and view, plays the sounds, sets the camera shot, frees the mouse. `pauseRespawn()`: the pause menu's RESPAWN. |
+| `rust/bfe-battle-ui` (`spawn_screen`) | Pure: the screen's state (closed, choosing, committed) and the choice (team, class, post), with the original's rules for each |
+| `rust/bfe-battle-ui` (`spawn_screen`) | Keys and mouse to model actions, once per frame; `bindDom()` feeds it from the page |
+| `rust/bfe-battle-ui` (`spawn_screen`) | The Classic screen, as a layer of the battle HUD |
+| `rust/bfe-battle-ui` (`spawn_screen`) | Pure: where each piece sits for an interface height |
+| `rust/bfe-battle-ui` (`spawn_screen`) | The page view: the screen in the front end's look (see [The page view](#the-page-view)) |
+| `rust/bfe-battle-ui` (`spawn_screen`) | The page view's 3D stage on the HUD's canvas: the body on its projector, the room or the vignette, the hologram map |
+| `rust/bfe-battle-ui` (`spawn_screen`) | The stage's camera: the framing (a lens shift), the sweep in, the swings, the drift |
+| `rust/bfe-battle-ui` (`spawn_screen`) | The battlefield projected as a hologram: the HUD's spawn map drawn into a texture, the disc, the pins, the projector, picking |
+| `rust/bfe-battle-ui` (`spawn_screen`) | The 2004 look's hologram room (the `shell_cube` texture), and the floor of light over the battle |
+| `rust/bfe-battle-ui` (`spawn_screen`) | The battle behind the page view: the mission's camera shots, drifting, cut to the one that sees the post picked |
+| `rust/bfe-interface` | The window titles' intro animation (the shared interface kit, docs/menus.md) |
+| `rust/bfe-interface` | The interface's 3D: its material and lights, model scales, its camera |
+| `rust/bfe-interface` | The windows' 9-slice, text wrapping, the hotspots' point-in-quad test |
+| `rust/bfe-battle-ui` (`spawn_screen`) | The picked class's body, standing and lit |
+| `rust/bfe-battle-ui` (`spawn_screen`) | The screen on demand over the running game |
+| `rust/bfe-battle-ui` (`spawn_screen`) | The world side's: whether the screen runs (see human-spawn.md) |
+| `rust/sim` (`hud`) | The layer hook, `drawBattlefield()` and the spawn map; `toInterface()` from the interface kit (`rust/bfe-interface`) |
+| `rust/bfe-battle-ui` (`pause`) | RESPAWN in the pause menu (`enableRespawn()`) |
+| `rust/audio-control` | The `interface` sound event |
 
 ## When it shows
 
-- `src/game.js` builds the screen only in the page, and only when the
+- `rust/sim` (`game`) builds the screen only in the page, and only when the
   policy says it runs: no `side=`, `unit=` or `spawn=`, or `spawnscreen=1`.
   With them the world confirms the URL's choice by itself, as before.
 - It opens when the map loads (the player starts `unspawned`) and on the
@@ -267,7 +267,7 @@ upscaler's history; a cut drops it.
 
 ## The pause menu's RESPAWN
 
-The pause menu (src/pause) lists RESPAWN (`game.pause.suicide`) always, as
+The pause menu (`rust/bfe-battle-ui`, `pause`) lists RESPAWN (`game.pause.suicide`) always, as
 the original's does, with or without the screen. It asks for confirmation
 (`game.pause.suicide_prompt`), and YES calls `port.suicide()` if the soldier
 is alive: a normal death, a ticket spent, then the screen four seconds
@@ -275,8 +275,8 @@ later.
 
 ## The page view
 
-`src/spawn-screen/page/` draws the same screen, model and input in the
-front end's look (src/menus/themes/page, docs/menus.md): the battle
+`rust/bfe-battle-ui` (`spawn_screen`) draws the same screen, model and input in the
+front end's look (rust/menus/themes/page, docs/menus.md): the battle
 passes `view: "page"` unless the URL has `menus=classic`, which keeps the
 Classic view. The layout is the original's: the classes down the left,
 the soldier in the middle with SPAWN under him, the objectives and the
@@ -287,8 +287,7 @@ a 3D stage on the HUD's canvas:
   the origin: the body (the Classic view's `ClassPreview`) on a hologram
   projector (a ring of light turning on the floor, a glow, a column of
   light with scan lines, motes rising), lit in the look's light (the
-  interface material's optional key tint and rim, `src/interface/
-  models.js`). A new class builds up from its feet behind a line of light
+  interface material's optional key tint and rim, `rust/bfe-interface`). A new class builds up from its feet behind a line of light
   (the material's optional `cut`).
 - **The camera** (`rig.js`) frames the soldier into the page's place for
   him with a lens shift, so he keeps his place while it moves. Opening, it
@@ -361,13 +360,12 @@ a 3D stage on the HUD's canvas:
 ## Checks
 
 ```sh
-node --test tests/spawn-screen-model.test.js tests/spawn-screen-input.test.js tests/spawn-screen-index.test.js
-PLAYWRIGHT_MODULE=.../playwright/index.mjs node tests/spawn-screen-browser.mjs
+cargo test --locked --workspace
 ```
 
-- The node tests cover the model's rules, the input's bindings and quirks,
+- The unit tests cover the model's rules, the input's bindings and quirks,
   and the screen's opening, closing, sounds, camera and withdrawn choices,
-  against a fake port (`tests/spawn-screen-fake-port.js`).
+  against a fake port (`cargo test --locked --workspace`).
 - The browser test loads geo1, kam1 and hot1 with the screen, renders each
   at 1024 × 768 and 1280 × 720 into the folder `SPAWN_SHOTS` names, and on
   geo1 plays it: a team switch and back, a class picked by a click, SPAWN,
@@ -376,7 +374,7 @@ PLAYWRIGHT_MODULE=.../playwright/index.mjs node tests/spawn-screen-browser.mjs
 - To show the screen over a living player, from the console:
 
   ```js
-  const { livePort } = await import("/tests/spawn-screen-fake-port.js");
-  const { spawnScreenDebug } = await import("/src/spawn-screen/debug.js");
+  const { livePort } = await import("/cargo test --locked --workspace");
+  const { spawnScreenDebug } = await import("/rust/sim (spawn-screen/debug)");
   await spawnScreenDebug(__bf, await livePort(__bf));
   ```

@@ -1,7 +1,7 @@
 //! Boot-time version handoff (`handOff`), CLI argument forwarding (`passedArguments`),
 //! and background update check/install (`createUpdater` / `check_and_install`).
 //!
-//! Mirrors `electron/update/index.js` (`passedArguments`, `readReleaseInfo`,
+//! Mirrors the desktop host (`passedArguments`, `readReleaseInfo`,
 //! `handOff`, `createUpdater`).
 
 use std::collections::{BTreeMap, HashMap};
@@ -30,12 +30,12 @@ use crate::update::version::{is_newer, parse_version};
 /// Default delay in milliseconds (`5_000`) after startup before running the
 /// background update check.
 ///
-/// Mirrors `setTimeout(() => updater.check().catch(() => {}), 5000)` in `electron/main.js`.
+/// Mirrors `setTimeout(() => updater.check().catch(() => {}), 5000)` in the desktop host.
 pub const DEFAULT_CHECK_DELAY_MS: u64 = 5 * 1000;
 
 /// Extracts the command-line arguments to forward to a handed-off child version.
 ///
-/// Mirrors `passedArguments` in `electron/update/index.js`.
+/// Mirrors `passedArguments` in the desktop host.
 pub fn passed_arguments(argv: &[String], is_packaged: bool) -> Vec<String> {
     if is_packaged {
         return argv.get(1..).unwrap_or(&[]).to_vec();
@@ -49,7 +49,7 @@ pub fn passed_arguments(argv: &[String], is_packaged: bool) -> Vec<String> {
 /// Configuration for [`hand_off`] and [`check_and_install`].
 ///
 /// Mirrors the parameter object of `handOff` and `createUpdater` in
-/// `electron/update/index.js`.
+/// the desktop host.
 #[derive(Debug, Clone)]
 pub struct UpdaterContext {
     /// Directory containing the running executable.
@@ -194,7 +194,7 @@ struct ResolvedUpdaterEnv {
 
 /// Outcome returned by [`hand_off`].
 ///
-/// Mirrors `{ handedOff, target }` returned by `handOff` in `electron/update/index.js`.
+/// Mirrors `{ handedOff, target }` returned by `handOff` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandoffOutcome {
     /// True if a newer installed version was spawned and signalled readiness.
@@ -215,7 +215,7 @@ pub struct HandoffOutcome {
 /// 4. Otherwise logs `handoff to <version> failed (<reason>)` and falls back to the
 ///    next older installed version or the running build.
 ///
-/// Mirrors `handOff` in `electron/update/index.js`.
+/// Mirrors `handOff` in the desktop host.
 pub fn hand_off(ctx: &UpdaterContext) -> HandoffOutcome {
     let Some(resolved) = ctx.resolve_active() else {
         return HandoffOutcome {
@@ -285,7 +285,7 @@ pub fn hand_off(ctx: &UpdaterContext) -> HandoffOutcome {
 /// Runs [`hand_off`] for the current process and exits with status `0` if a newer
 /// installed version took over execution.
 ///
-/// Mirrors the `handOff()` check in `electron/boot.js`.
+/// Mirrors the `handOff()` check in the desktop host.
 pub fn boot_handoff_or_continue() {
     let ctx = UpdaterContext::from_current_process();
     let outcome = hand_off(&ctx);
@@ -297,7 +297,7 @@ pub fn boot_handoff_or_continue() {
 /// Result of [`check_and_install`].
 ///
 /// Mirrors the state transitions of `updater.check()` and `updater.install()` in
-/// `electron/update/index.js`.
+/// the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CheckOutcome {
     /// Auto-updates are disabled (unpackaged build or `BFE_DISABLE_UPDATES=1` / `BFE_NO_UPDATE=1`).
@@ -336,7 +336,7 @@ pub enum CheckOutcome {
 /// if a newer release is published and not marked `bad`, downloads and stages its
 /// platform manifest and missing blobs into `<root>/versions/<version>`.
 ///
-/// Mirrors `updater.check()` and `updater.install()` in `electron/update/index.js`.
+/// Mirrors `updater.check()` and `updater.install()` in the desktop host.
 pub fn check_and_install<F>(ctx: &UpdaterContext, on_progress: Option<F>) -> CheckOutcome
 where
     F: FnMut(InstallProgress),
@@ -445,7 +445,7 @@ where
 /// Starts a newly installed version in the current process's place and waits for its
 /// readiness token (`BFE_LAUNCH_DIR/BFE_LAUNCH_TOKEN`).
 ///
-/// Mirrors `updater.launch(installed)` in `electron/update/index.js`.
+/// Mirrors `updater.launch(installed)` in the desktop host.
 pub fn launch_installed(ctx: &UpdaterContext, version: &str) -> bool {
     let Some(resolved) = ctx.resolve_active() else {
         return false;
@@ -492,7 +492,7 @@ pub fn launch_installed(ctx: &UpdaterContext, version: &str) -> bool {
 /// newly installed version once its window signals readiness.
 ///
 /// Mirrors `bootUpdate` (`updater.check` -> `updater.install` -> `updater.launch`) in
-/// `electron/main.js`.
+/// the desktop host.
 pub fn schedule_background_check() {
     let delay_ms = env::var("BFE_CHECK_DELAY_MS")
         .ok()

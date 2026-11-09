@@ -1,0 +1,568 @@
+{
+  "enums": {
+    "F3OrdnanceEvent": [
+      "projectile",
+      "launch",
+      "impact",
+      "grenadeContact",
+      "bounce"
+    ],
+    "F3ProjectileKind": [
+      "bolt",
+      "beam",
+      "grenade",
+      "round"
+    ],
+    "RoundKind": [
+      "bullet",
+      "missile",
+      "shell",
+      "fatray"
+    ],
+    "HitPart": [
+      "head",
+      "body"
+    ]
+  },
+  "unions": {
+    "OrdnanceOwner": [
+      "null",
+      "lit:player",
+      "ref:unit",
+      "ref:vehicle",
+      "ref:ownerSnapshot"
+    ],
+    "BeamSource": [
+      "null",
+      "lit:player",
+      "ref:emitter",
+      "ref:unit",
+      "ref:vehicle",
+      "ref:ownerSnapshot"
+    ]
+  },
+  "records": {
+    "F3OwnerCreated": {
+      "slot": "u32",
+      "generation": "u32",
+      "sourceUnit": "ref:unit",
+      "id": "f64",
+      "life": "f64",
+      "team": "f64",
+      "human": "bool",
+      "className": "str",
+      "character": "ref:character|null"
+    },
+    "F3OrdnanceKey": {
+      "kind": "enum:F3ProjectileKind",
+      "slot": "u32",
+      "generation": "u32"
+    },
+    "F3OrdnanceNotice": {
+      "key": "rec:F3OrdnanceKey",
+      "event": "enum:F3OrdnanceEvent",
+      "def": "def:ordnance",
+      "owner": "union:OrdnanceOwner",
+      "tick": "f64|null|undefined",
+      "ownerId": "f64",
+      "ownerGeneration": "f64",
+      "fireId": "f64",
+      "channel": "f64",
+      "team": "f64",
+      "hasSource": "bool",
+      "source": "rec:F3LifeRef",
+      "position": "vec3",
+      "direction": "vec3",
+      "offset": "vec3",
+      "hasOffset": "bool",
+      "speed": "f64",
+      "life": "f64",
+      "merge": "f64",
+      "point": "vec3",
+      "normal": "vec3",
+      "surface": "f64",
+      "struck": "rec:Impact",
+      "hasStruck": "bool"
+    },
+    "Impact": {
+      "point": "vec3",
+      "normal": "vec3",
+      "terrain": "bool",
+      "body": "ref:body|null|undefined",
+      "unit": "ref:unit|undefined",
+      "part": "enum:HitPart|null|undefined"
+    },
+    "NoArgs": {},
+    "NumberAnswer": {
+      "value": "f64"
+    },
+    "FlagAnswer": {
+      "value": "bool"
+    },
+    "PointAnswer": {
+      "found": "bool",
+      "point": "vec3"
+    },
+    "CastArgs": {
+      "origin": "vec3",
+      "direction": "vec3",
+      "far": "f64",
+      "behind": "bool",
+      "ignoreBody": "ref:body|null|undefined",
+      "staticOnly": "bool|undefined"
+    },
+    "CastAnswer": {
+      "found": "bool",
+      "distance": "f64",
+      "point": "vec3",
+      "normal": "vec3",
+      "terrain": "bool",
+      "body": "ref:body|null"
+    },
+    "UnitCastArgs": {
+      "origin": "vec3",
+      "direction": "vec3",
+      "far": "f64",
+      "owner": "union:OrdnanceOwner",
+      "historyTick": "f64|undefined",
+      "ignoreBody": "ref:body|null",
+      "mount": "ref:vehicle|null"
+    },
+    "UnitCastAnswer": {
+      "found": "bool",
+      "unit": "ref:unit|null",
+      "distance": "f64",
+      "point": "vec3",
+      "normal": "vec3",
+      "part": "enum:HitPart|null|undefined"
+    },
+    "BodyArgs": {
+      "body": "ref:body|null|undefined"
+    },
+    "MountAnswer": {
+      "found": "bool",
+      "vehicle": "ref:vehicle|null",
+      "boundRadius": "f64",
+      "body": "ref:body|null|undefined"
+    },
+    "NearArgs": {
+      "center": "vec3",
+      "radius": "f64",
+      "owner": "union:OrdnanceOwner",
+      "struck": "set:unit",
+      "ignoreBody": "ref:body|null"
+    },
+    "NearAnswer": {
+      "found": "bool",
+      "units": "list:unit"
+    },
+    "UnitArgs": {
+      "unit": "ref:unit"
+    },
+    "SphereAnswer": {
+      "found": "bool",
+      "center": "vec3",
+      "radius": "f64"
+    },
+    "GoneArgs": {
+      "subject": "union:BeamSource"
+    },
+    "SourceArgs": {
+      "source": "union:BeamSource",
+      "origin": "vec3"
+    },
+    "BeamPoseArgs": {
+      "source": "union:BeamSource",
+      "localOrigin": "vec3",
+      "position": "vec3",
+      "direction": "vec3"
+    },
+    "BeamPoseAnswer": {
+      "position": "vec3",
+      "direction": "vec3"
+    },
+    "ShotArgs": {
+      "owner": "union:OrdnanceOwner",
+      "channel": "f64"
+    },
+    "TickAnswer": {
+      "value": "f64|null|undefined"
+    },
+    "ShooterAnswer": {
+      "fireId": "f64",
+      "unit": "f64",
+      "generation": "f64"
+    },
+    "TargetArgs": {
+      "targetId": "f64",
+      "targetGeneration": "f64"
+    },
+    "SeekArgs": {
+      "position": "vec3",
+      "velocity": "vec3",
+      "flightClass": "str|undefined",
+      "targetId": "f64",
+      "targetGeneration": "f64",
+      "dt": "f64"
+    },
+    "SeekAnswer": {
+      "velocity": "vec3",
+      "targetId": "f64"
+    },
+    "SegmentArgs": {
+      "from": "vec3",
+      "to": "vec3"
+    },
+    "BlastArgs": {
+      "defTag": "u32",
+      "def": "f64",
+      "position": "vec3",
+      "owner": "union:OrdnanceOwner"
+    },
+    "StrikeArgs": {
+      "body": "ref:body",
+      "def": "def:ordnance",
+      "beam": "ref:beam|null",
+      "damage": "f64|undefined",
+      "owner": "union:OrdnanceOwner",
+      "direction": "vec3"
+    },
+    "UnitStrikeArgs": {
+      "unit": "ref:unit",
+      "def": "def:ordnance",
+      "beam": "ref:beam|null",
+      "beamDef": "bool",
+      "damage": "f64|undefined",
+      "at": "u32",
+      "point": "vec3",
+      "owner": "union:OrdnanceOwner",
+      "part": "enum:HitPart|null|undefined",
+      "direction": "vec3"
+    },
+    "ProjectileArgs": {
+      "kind": "u32",
+      "type": "u32"
+    },
+    "LaunchArgs": {
+      "kind": "u32",
+      "tick": "f64|null|undefined"
+    },
+    "ImpactArgs": {
+      "kind": "u32",
+      "point": "vec3",
+      "normal": "vec3",
+      "surface": "f64",
+      "struck": "rec:Impact|null"
+    },
+    "ContactArgs": {
+      "kind": "u32"
+    },
+    "BounceArgs": {
+      "def": "def:ordnance",
+      "position": "vec3",
+      "speed": "f64"
+    },
+    "FireArgs": {
+      "def": "def:ordnance",
+      "origin": "vec3",
+      "direction": "vec3",
+      "owner": "union:OrdnanceOwner",
+      "visual": "vec3|null",
+      "ignoreBody": "ref:body|null",
+      "emitter": "union:BeamSource",
+      "channel": "f64",
+      "targetId": "f64|undefined",
+      "targetGeneration": "f64|undefined"
+    },
+    "FlightMissileArgs": {
+      "round": "ref:round",
+      "flightClass": "str|undefined",
+      "life": "f64",
+      "speed": "f64"
+    }
+  },
+  "imports": {
+    "cast": {
+      "args": "CastArgs",
+      "result": "CastAnswer"
+    },
+    "castMoving": {
+      "args": "CastArgs",
+      "result": "CastAnswer"
+    },
+    "raycastUnits": {
+      "args": "UnitCastArgs",
+      "result": "UnitCastAnswer"
+    },
+    "riderMount": {
+      "args": "BodyArgs",
+      "result": "MountAnswer"
+    },
+    "fatQuery": {
+      "args": "NearArgs",
+      "result": "NearAnswer"
+    },
+    "unitSphere": {
+      "args": "UnitArgs",
+      "result": "SphereAnswer"
+    },
+    "isDroid": {
+      "args": "UnitArgs",
+      "result": "FlagAnswer"
+    },
+    "gone": {
+      "args": "GoneArgs",
+      "result": "FlagAnswer"
+    },
+    "beamLocalOrigin": {
+      "args": "SourceArgs",
+      "result": "PointAnswer"
+    },
+    "beamPose": {
+      "args": "BeamPoseArgs",
+      "result": "BeamPoseAnswer"
+    },
+    "shotTick": {
+      "args": "ShotArgs",
+      "result": "TickAnswer"
+    },
+    "historyTick": {
+      "args": "NoArgs",
+      "result": "NumberAnswer"
+    },
+    "shooter": {
+      "args": "ShotArgs",
+      "result": "ShooterAnswer"
+    },
+    "missileTarget": {
+      "args": "TargetArgs",
+      "result": "PointAnswer"
+    },
+    "navigateMissile": {
+      "args": "SeekArgs",
+      "result": "SeekAnswer"
+    },
+    "waterCrossing": {
+      "args": "SegmentArgs",
+      "result": "PointAnswer"
+    },
+    "waver": {
+      "args": "NoArgs",
+      "result": "NumberAnswer"
+    },
+    "spin": {
+      "args": "NoArgs",
+      "result": "NumberAnswer"
+    },
+    "explosion": {
+      "args": "BlastArgs",
+      "result": null
+    },
+    "hit": {
+      "args": "StrikeArgs",
+      "result": null
+    },
+    "hitUnit": {
+      "args": "UnitStrikeArgs",
+      "result": null
+    },
+    "projectile": {
+      "args": "ProjectileArgs",
+      "result": null
+    },
+    "launch": {
+      "args": "LaunchArgs",
+      "result": null
+    },
+    "impact": {
+      "args": "ImpactArgs",
+      "result": null
+    },
+    "grenadeContact": {
+      "args": "ContactArgs",
+      "result": null
+    },
+    "bounce": {
+      "args": "BounceArgs",
+      "result": null
+    }
+  },
+  "events": {
+    "f3OwnerCreated": "F3OwnerCreated",
+    "f3Ordnance": "F3OrdnanceNotice"
+  },
+  "kinds": {
+    "ordnance": {
+      "singleton": true,
+      "fields": {
+        "bolts": "list:bolt",
+        "beams": "list:beam",
+        "grenades": "list:grenade",
+        "rounds": "list:round",
+        "start": "vec3"
+      }
+    },
+    "bolt": {
+      "home": "ordnance.bolts",
+      "fields": {
+        "def": "def:ordnance",
+        "owner": "union:OrdnanceOwner",
+        "networkFireId": "f64",
+        "networkFireChannel": "f64",
+        "networkFireUnit": "f64",
+        "networkFireGeneration": "f64",
+        "ignoreBody": "ref:body|null",
+        "position": "vec3",
+        "direction": "vec3",
+        "speed": "f64",
+        "life": "f64",
+        "drawn": "f64",
+        "flown": "f64",
+        "offset": "vec3|null",
+        "merge": "f64",
+        "impact": "rec:Impact|null",
+        "previousFlown": "f64|undefined",
+        "previousDrawn": "f64|undefined"
+      },
+      "skip": {
+        "glow": "colour from the definition, for drawing",
+        "light": "colour from the definition, for drawing",
+        "visualMuzzle": "a page muzzle callback (combat.js)",
+        "mountResolved": "page drawing",
+        "presented": "page drawing",
+        "seed": "page drawing (its flicker)",
+        "weapon": "the gun drawn firing it (combat.js bindRoundMuzzle), for the muzzle the page draws it from",
+        "muzzleGeneration": "the same",
+        "muzzleIndex": "the same",
+        "muzzleBarrel": "the same",
+        "mount": "the hull or turret drawn firing it (muzzles.js bindMountedRound), for the same",
+        "mountSeat": "the same",
+        "mountWeapon": "the same",
+        "mountBarrel": "the same"
+      }
+    },
+    "beam": {
+      "home": "ordnance.beams",
+      "fields": {
+        "networkFireChannel": "f64",
+        "historyTick": "f64|null",
+        "def": "def:ordnance",
+        "owner": "union:OrdnanceOwner",
+        "source": "union:BeamSource",
+        "ignoreBody": "ref:body|null",
+        "life": "f64",
+        "duration": "f64",
+        "effectTime": "f64",
+        "position": "vec3",
+        "end": "vec3",
+        "direction": "vec3",
+        "localOrigin": "vec3|null",
+        "damage": {
+          "type": "f64|undefined",
+          "js": "damageDef.Damage",
+          "mirror": false
+        }
+      },
+      "skip": {
+        "damageDef": "a copy of the definition; its Damage is `damage`",
+        "axis": "scratch for drawing",
+        "color": "colour from the definition, for drawing"
+      }
+    },
+    "grenade": {
+      "home": "ordnance.grenades",
+      "fields": {
+        "networkFireChannel": "f64",
+        "def": "def:ordnance",
+        "owner": "union:OrdnanceOwner",
+        "position": "vec3",
+        "previous": "vec3",
+        "launchPosition": "vec3",
+        "velocity": "vec3",
+        "gravity": "f64",
+        "slow": "f64",
+        "resting": "bool",
+        "flight": "f64",
+        "fuse": "f64|null",
+        "spin": "vec3",
+        "quaternion": "quat",
+        "sinking": "bool|undefined",
+        "touched": "bool|undefined",
+        "gone": "bool|undefined"
+      },
+      "skip": {
+        "mesh": "its model, drawn by the page",
+        "trail": "its trail effect, drawn by the page",
+        "light": "colour from the definition, for drawing",
+        "contactTime": "when it first touched anything, written by the battle (game.js onGrenadeContact) for the AI's danger warnings",
+        "aiDanger": "the AI's own record of warning soldiers of it (ai/classic/combat.js grenadeUpdate)"
+      }
+    },
+    "round": {
+      "home": "ordnance.rounds",
+      "fields": {
+        "kind": "enum:RoundKind",
+        "networkFireChannel": "f64",
+        "ignoreBody": "ref:body|null",
+        "def": "def:ordnance",
+        "owner": "union:OrdnanceOwner",
+        "position": "vec3",
+        "previous": "vec3",
+        "launchPosition": "vec3",
+        "velocity": "vec3",
+        "life": "f64",
+        "impact": "rec:Impact|null",
+        "dead": "bool",
+        "gravity": "f64",
+        "ramp": "f64",
+        "desired": "vec3",
+        "targetId": "f64|undefined",
+        "targetGeneration": "f64|undefined",
+        "phase": "f64x2",
+        "quaternion": "quat",
+        "struck": "set:unit|undefined",
+        "gone": "bool|undefined",
+        "flightMissile": "bool|undefined",
+        "flightClass": "str|undefined"
+      },
+      "skip": {
+        "mesh": "its model, drawn by the page",
+        "trail": "its trail effect, drawn by the page",
+        "light": "colour from the definition, for drawing",
+        "visualMuzzle": "a page muzzle callback (combat.js bindRoundMuzzle)",
+        "muzzleOffset": "page drawing",
+        "mountResolved": "page drawing",
+        "weapon": "the gun drawn firing it (combat.js bindRoundMuzzle), for the muzzle the page draws it from",
+        "muzzleGeneration": "the same",
+        "muzzleIndex": "the same",
+        "muzzleBarrel": "the same",
+        "mount": "the hull or turret drawn firing it (muzzles.js bindMountedRound), for the same",
+        "mountSeat": "the same",
+        "mountWeapon": "the same",
+        "mountBarrel": "the same"
+      }
+    },
+    "unit": {
+      "key": "id",
+      "class": "Unit"
+    },
+    "vehicle": {
+      "class": "Vehicle"
+    },
+    "body": {},
+    "emitter": {},
+    "ownerSnapshot": {
+      "class": "OwnerSnapshot",
+      "identity": true,
+      "fields": {
+        "sourceUnit": "ref:unit",
+        "id": "f64",
+        "generation": "f64",
+        "team": "f64",
+        "human": "bool",
+        "className": "str",
+        "character": "ref:character|null"
+      }
+    }
+  }
+}

@@ -1,7 +1,7 @@
 //! Release version parsing and ordering (`0.1.0-preview.262`, Debian `0.1.0~preview.262`,
 //! and SemVer 2.0 release strings).
 //!
-//! Mirrors `electron/update/version.js` (`parseVersion`, `compareVersions`, `isNewer`).
+//! Mirrors the desktop host (`parseVersion`, `compareVersions`, `isNewer`).
 //!
 //! ## Ordering Rules
 //! - `major`, `minor`, and `patch` are compared numerically first.
@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Both `0.1.0-preview.262` (`package.json`) and `0.1.0~preview.262` (Debian package
 /// version) normalize to the same prerelease identifiers so they compare equal,
-/// matching `parseVersion` in `electron/update/version.js`.
+/// matching `parseVersion` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParsedVersion {
     /// Original normalized version string (without a leading `v` or `V`).
@@ -48,7 +48,7 @@ pub enum PrereleasePart {
 /// into a [`ParsedVersion`].
 ///
 /// Returns `None` if the version does not conform to `MAJOR.MINOR.PATCH[(-|~)PRERELEASE][+BUILD]`.
-/// Mirrors `parseVersion` in `electron/update/version.js`.
+/// Mirrors `parseVersion` in the desktop host.
 pub fn parse_version(value: &str) -> Option<ParsedVersion> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -136,7 +136,7 @@ pub fn parse_version(value: &str) -> Option<ParsedVersion> {
 /// A release without a prerelease suffix (`prerelease.is_empty()`) sorts after
 /// every prerelease/preview of the same `major.minor.patch`.
 ///
-/// Mirrors `compareVersions` in `electron/update/version.js`.
+/// Mirrors `compareVersions` in the desktop host.
 pub fn compare_versions(a: &str, b: &str) -> Option<i32> {
     let va = parse_version(a)?;
     let vb = parse_version(b)?;
@@ -197,7 +197,7 @@ pub fn compare_versions(a: &str, b: &str) -> Option<i32> {
 
 /// Checks whether `candidate` is strictly newer than `current` (`compare_versions(candidate, current) == Some(1)`).
 ///
-/// Mirrors `isNewer` in `electron/update/version.js`.
+/// Mirrors `isNewer` in the desktop host.
 pub fn is_newer(candidate: &str, current: &str) -> bool {
     compare_versions(candidate, current) == Some(1)
 }

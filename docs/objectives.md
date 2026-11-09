@@ -37,8 +37,8 @@ The port: `tools/extract.py` treats such a class as a live object
 its collision; `write_props` writes its building (`base: "commandpost"`,
 `post: <instance name>`, its wreck, explosion, damage effects and chunks,
 and `objective_post`'s animation and `fx.dying`), and `command_posts` gives
-its post `maxHealth` and `killRegion`. `src/props.js` `ObjectivePost` is
-the building, `src/commandposts.js` the post (`attachBuildings` pairs them
+its post `maxHealth` and `killRegion`. `rust/sim` (`props`) `ObjectivePost` is
+the building, `rust/sim` (`commandposts`) the post (`attachBuildings` pairs them
 by name).
 
 ## Damage
@@ -47,7 +47,7 @@ by name).
   fire factor, a neutral post fully. Capture and ownership don't gate it. It
   takes damage as a building (the weapons' building scales).
 - Its damage stages burn between their start and stop shares of MaxHealth,
-  as a hull's do (`src/vehicle-effects.js`): the shield generator sparks
+  as a hull's do (`rust/sim` (`vehicle-effects`)): the shield generator sparks
   below 85 %, smokes below 70 % and burns below 55 %.
 - It never comes back by itself. The building's rebuild would reactivate the
   post, but nothing in the stock game calls it, so the port lets no repair
@@ -67,7 +67,7 @@ by name).
    left in its place for good and the rest flying. The port draws the
    dying from the moment a host sees the building destroyed
    (`ObjectivePost.show`, `present`; the walker dying rules in
-   `src/vehicle-effects.js`), so the state that travels stays the plain
+   `rust/sim` (`vehicle-effects`)), so the state that travels stays the plain
    building state and a late joiner sees the wreck.
 2. The post goes: out of the post update, so no capture logic and
    no more Info line; the bots sent there choose again; "<team>
@@ -80,8 +80,8 @@ by name).
    uniformly through the region's box, each `explosion`, `med_explosion`
    or `small_explosion` at random; then up to 64 soldiers and vehicles whose
    origin is inside are killed outright, no one credited. Single player or
-   the host only. The port: `rust/sim/src/battle/objectives.rs` (`killRegion`),
-   from `objectiveDestroyed` in `rust/sim/src/battle/phase.rs`.
+   the host only. The port: `rust/sim/rust/battle/objectives.rs` (`killRegion`),
+   from `objectiveDestroyed` in `rust/sim/rust/battle/phase.rs`.
 4. From then on the post iterators skip it: it is no
    spawn point, no AI objective, adds no `ValueBleed` and counts neither as
    held nor as neutral, so a team left with nothing else starts its 20 s
@@ -93,7 +93,7 @@ by name).
 
 A post is drawn with its class's `MapTexture` at its `MapScale`: the
 objectives' `hud_dest_icon` at 3.0 against the capture posts' flag at 2.5
-(`postIcon`, `rust/bfe-render/src/hud_model/map.rs`).
+(`postIcon`, `rust/bfe-render/rust/hud_model/map.rs`).
 
 ## Voice-over
 
@@ -111,7 +111,7 @@ The Info line: every frame, while the post stands, its update asks for the
 owner's Info line for the local player's side, not while the
 game is over. The line's stream properties pace it: these say
 `PlayInterval 90`, so it is heard as the battle starts and every 90 s
-after. The port does the same in `rust/audio-control/src/director.rs` (`objectives`), once the
+after. The port does the same in `rust/audio-control (director.rs)` (`objectives`), once the
 player has a body; `tools/zero_sound.py` exports the Info keys
 (`CP_EVENTS`). No line or message is tied to the post taking damage: the
 original game has no "under attack" report.
@@ -138,14 +138,14 @@ port's own; the other two fix port bugs):
 
 - **Drawn more often, on the front:** a standing enemy objective weighs 3
   times its authored value in the objective draw (`OBJECTIVE_ATTACK_BIAS`,
-  `rust/sim/src/ai/control/goals.rs`) while it is on the team's front: the
+  `rust/sim/rust/ai/control/goals.rs`) while it is on the team's front: the
   candidate nearest one of the posts the team spawns at (a command
   walker's post included). Further back it keeps its authored value, so
   the posts in front of it are drawn as the original draws them.
 - **Shot first:** to a bot whose objective it is, the building ranks as
   its top match-up (priority 20, an armed building's, rather than a
   building's 1) in the sight scan and the target tracker
-  (`targetPriority`, `rust/sim/src/ai/combat/perception.rs`), so it fires on the
+  (`targetPriority`, `rust/sim/rust/ai/combat/perception.rs`), so it fires on the
   generator rather than on every soldier along the way.
 - **Hoth's probe droid drop weighs nothing:** the post records are joined
   to the runtime posts by the runtime name, and the unnamed post (the probe
@@ -159,12 +159,12 @@ port's own; the other two fix port bugs):
   and the walker stood driverless. Only a bot in a later seat moves up
   (`Vehicles.promote`).
 - **Not repaired by bots:** no bot takes an objective as a repair job
-  (`rust/sim/src/ai/owned/services.rs`). Four pilots' fusion cutters (60 health a tick)
+  (`rust/sim/rust/ai/owned/services.rs`). Four pilots' fusion cutters (60 health a tick)
   restored the generator to full faster than the Empire's infantry hurt
   it. A player's fusion cutter still repairs one.
 
 With all of them, seeded 15-minute Hoth battles (`SEED=1..3
-tools/objective-probe.mjs hot1 54000`) destroy the generator in some runs,
+cargo test --locked -p sim`) destroy the generator in some runs,
 mostly by infantry: the AT-ATs close to 200 to 300 m, but the ridge in
 front of the base, the head guns' narrow arc and the chin guns' short AI
 range still keep them from shooting it much.
@@ -208,12 +208,12 @@ Empire's spawn at cp1 has stopped.
 
 - `rust/sim/tests/f4_live.rs`: a destroyed objective does not regenerate,
   and commands for its old kind are rejected.
-- `tools/objective-probe.mjs <map> [ticks] [--destroy]`: a headless battle
+- `rust/sim` (`battle::objectives`): a headless battle
   on the prepared data, with the objectives' health every 30 s, how many
   bots have one as their sight candidate, how many are sent to it and how
   near they are, and who damaged them; `--destroy` also puts three bots in
   the kill region first.
-- `tests/objectives-browser.mjs`: the page over the world worker (Geonosis
+- `cargo test --locked --workspace`: the page over the world worker (Geonosis
   ship standing, dying, gone; the map; Hoth's wreck), with screenshots.
 
 Not yet determined: when `AmbientSound` (the shield generator's

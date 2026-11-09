@@ -1,7 +1,7 @@
 //! The three.js r170 operations content loading runs (a bone's local matrix
 //! decomposed and recomposed, world matrices, inverses, bounding boxes and
 //! spheres, points carried through matrices), each transliterated operation
-//! by operation from node_modules/three/src/math so its results are three's
+//! by operation from three/src/math so its results are three's
 //! own to the last bit. `rust/three` (the port's three.js crate) supersedes
 //! this once it is part of the build.
 

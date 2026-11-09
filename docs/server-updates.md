@@ -2,12 +2,10 @@
 
 A dedicated game server updates itself the way the desktop client does
 ([desktop-updates.md](desktop-updates.md)): it follows the same signed
-release channel, so it always runs the engine and server adapter of the
-newest release, on game data that release's own tools prepared, which is
-what every player's client of that release has. Nobody deploys by hand,
-and a server never lags behind the players it is meant for.
-`electron/update/server.js` does it; every release carries it (the host
-runtime's `update/`, `build/prepare-host-runtime.mjs`).
+release channel, so it always runs the `bfeserver` binary of the newest
+release, on game data that release's own tools prepared, which is what every
+player's client of that release has. Nobody deploys by hand, and a server never
+lags behind the players it is meant for.
 
 ## What a run does
 
@@ -17,9 +15,8 @@ after the last run ended, at idle CPU and disk priority:
 1. **Check** the channel (`development-preview`). Nothing happens unless a
    release is newer than the one running and has not failed here.
 2. **Install** it into `<root>/versions/<version>/`: of the release's Linux
-   build only `resources/host-runtime/` (engine, server adapter, this
-   updater), `resources/tools/` and `resources/toolchain/`, each file
-   checked against the signed manifest. Files an installed version already
+   build only `bfeserver`, `resources/tools/` and `resources/toolchain/`, each
+   file checked against the signed manifest. Files an installed version already
    has are hard-linked, so a typical release downloads a few megabytes.
 3. **Prepare its game data** from the owned game at `retail` (the folder
    holding `GameData`): the release's `tools/prepare.py --core-only`, run by
@@ -31,22 +28,19 @@ after the last run ended, at idle CPU and disk priority:
    job this takes about 45 minutes, while the server keeps playing. A run
    whose preparation fails three times for the same key gives up until a
    newer release.
-4. **Check** the release: its engine's network contract loads, and every
-   battle in the server's rotation fingerprints on the new data
-   (`src/runtime/content-hash.js`).
+4. **Check** the release: `bfeserver` validates its network contract and
+   verifies that every battle in the server's rotation fingerprints on the new
+   data (`bfe-content-native`).
 5. **Swap, once nobody plays.** The player count comes from the game port's
    `/info`. A server between battles does not answer there while its
    players wait, so an unknown count waits too; a server that is down or in
    a fault has nobody on it. With nobody on, the updater stops the service,
-   points `<root>/engine`, `server`, `game-data` and `update` at the new
-   release, starts it and waits up to three minutes for health: running,
-   multiplayer ready, the release's network contract, ticks advancing. If
-   it fails, every link goes back, the old release starts again, and the new
-   one is set aside until a newer one arrives. With players on, the next
-   run looks again; the work of steps 2 to 4 is kept. `<root>/update` moves
-   to the release's updater only once that answers `--status` through a
-   link, as the timer starts it; otherwise the running updater stays, so a
-   broken one can never leave the server without updates.
+   points `<root>/current` and `<root>/game-data` at the new release, starts it
+   and waits up to three minutes for health: running, multiplayer ready, the
+   release's network contract, ticks advancing. If it fails, every link goes
+   back, the old release starts again, and the new one is set aside until a
+   newer one arrives. With players on, the next run looks again; the work of
+   steps 2 to 4 is kept.
 6. **Clean up**: versions and game data neither the running release nor
    the one before it uses are deleted. The initial release replaces a manual
    deploy's folders, which stay as `<name>.manual` until the release after
@@ -54,8 +48,7 @@ after the last run ended, at idle CPU and disk priority:
 
 `<root>/update-state.json` records the running and previous versions, a
 release waiting for an empty server, set-aside versions, preparation
-failures and the last error. `node <root>/update/server.js --status`
-prints it. Everything a run does is logged to the journal:
+failures and the last error. Everything a run does is logged to the journal:
 `journalctl -u bfeserver-update`.
 
 ## The server archive
@@ -66,41 +59,37 @@ release publishes `battlefront-eternal-server_<version>_linux-amd64.tar.xz`
 and `_linux-arm64.tar.xz` beside the `.deb` in
 `https://get.battlefronteternal.com/downloads/latest/`, listed in that
 folder's `SHA256SUMS` (signed, `SHA256SUMS.asc`). The `<version>` is the
-package version, `0.1.0~preview.N`. `build/server-archive.mjs` packs it
-from the Linux build the `.deb` is made of, so an archive and its package
-hold the same files, and the release host refuses a release whose archive
-reaches outside this layout. Its root holds the package's
-`resources/host-runtime/` (the engine, the server adapter and this
-updater), `resources/tools/`, `resources/toolchain/` (the Python, ffmpeg
-and `ktx` the tools run on), `resources/legal/` and
-`resources/bfe-tree.json`, under those names without the `resources/`
-prefix:
+package version, `0.1.0~preview.N`. `build/native/server-archive.py` packs it
+from the staged Linux build the `.deb` is made of, so an archive and its
+package hold the same files, and the release host refuses a release whose
+archive reaches outside this layout. Its root holds the `bfeserver` binary,
+`tools/`, `toolchain/` (the Python, ffmpeg and `ktx` the tools run on),
+`legal/` and `bfe-tree.json`:
 
 ```
-host-runtime/   tools/   toolchain/   legal/   bfe-tree.json
+bfeserver   tools/   toolchain/   legal/   bfe-tree.json
 ```
 
 With the archive unpacked into `<bfe>`, the game data is prepared from the
-owned game as the desktop app does it, and the server runs on Node.js 24
-(22.13 or later), which the archive does not carry:
+owned game as the desktop app does it, and the standalone `bfeserver` binary
+runs directly:
 
 ```sh
 BFE_GAME_DIR=<retail> BFE_CONTENT_DIR=<data> <bfe>/toolchain/python/bin/python3 <bfe>/tools/prepare.py --core-only
-BFE_ENGINE_DIR=<bfe>/host-runtime/engine BFE_DATA_DIR=<data> BFE_STATE_DIR=<state> node <bfe>/host-runtime/server/src/main.js --serve
+BFE_DATA_DIR=<data> BFE_STATE_DIR=<state> <bfe>/bfeserver --serve
 ```
 
 The data only needs preparing again when a release changes `tools/` or
-`toolchain/`: compare their entries in `bfe-tree.json`, whose paths keep
-the `resources/` prefix of the full build. A host that unpacks the archive
-updates the server itself (LinuxGSM's `update` does); the updater above is
-for the systemd layout of the sections that follow.
+`toolchain/`: compare their entries in `bfe-tree.json`. A host that unpacks the
+archive updates the server itself (LinuxGSM's `update` does); the updater above
+is for the systemd layout of the sections that follow.
 
 ## Layout
 
 | Path | What |
 | --- | --- |
-| `<root>/engine`, `server`, `update` | Links into the running version's `resources/host-runtime/` |
-| `<root>/instances/<name>/` | Another server's `engine`, `server` and `game-data` links |
+| `<root>/current` | Link to the running version in `<root>/versions/<version>/` |
+| `<root>/instances/<name>/` | Another server's `current` and `game-data` links |
 | `<root>/game-data` | Link to `<root>/data/<key>` |
 | `<root>/versions/<version>/` | Installed releases (`.bfe-install.json` written last) |
 | `<root>/data/<key>/` | Prepared game data, owned by root, readable by the server |
@@ -108,7 +97,7 @@ for the systemd layout of the sections that follow.
 | `/etc/bfeserver-update.json` | Configuration |
 
 The server's own configuration (`/var/lib/bfeserver/config.json`) keeps
-naming `<root>/engine` and `<root>/game-data`; the links move under it.
+naming `<root>/game-data`; the links move under it.
 
 ## Configuration
 
@@ -159,31 +148,25 @@ describe:
 
 Every other server gets `bfeserver-<name>.service`, its state in
 `/var/lib/bfeserver-<name>` (its `config.json`, naming
-`<root>/instances/<name>/engine` and `game-data`, and the identity it
-creates) and its links in `<root>/instances/<name>/`. `service`,
-`stateDir`, `links`, `health`, `info` and `memoryMax` (1.5 GB) override
-those. `--install-units` writes and enables the units and makes the
-folders; the next run starts a server once its `config.json` is there.
-Each server moves to a new release on its own, once nobody plays on it, so
-one busy server never holds another back; the data and the version
-folders are shared, and a version stays installed while any server runs
-it. A server's game port (`gamePort`, UDP and TCP) must be open to
-players.
+`<root>/instances/<name>/game-data`, and the identity it creates) and its links
+in `<root>/instances/<name>/`. `service`, `stateDir`, `links`, `health`, `info`
+and `memoryMax` (1.5 GB) override those. Each server moves to a new release on
+its own, once nobody plays on it, so one busy server never holds another back;
+the data and the version folders are shared, and a version stays installed
+while any server runs it. A server's game port (`gamePort`, UDP and TCP) must
+be open to players.
 
 ## Setting up a server
 
 On a Linux server with systemd, `bfeserver.service` running from
-`<root>/server` with `<root>/node`, as root:
+`<root>/current/bfeserver`:
 
 1. Copy the owned game to `<root>/retail` (the folder that holds
    `GameData`), readable by the server's user: `chmod -R a+rX`.
-2. Copy `electron/update/` from an engine checkout (the files
-   `build/prepare-host-runtime.mjs` lists, with a `package.json` of
-   `{"type": "module"}`) to `<root>/update-bootstrap`, and link
-   `<root>/update` to it.
-3. `<root>/node/bin/node <root>/update/server.js --install-units` writes
-   `bfeserver-update.service` and `.timer`, a configuration if there is
-   none, and enables the timer.
+2. Unpack `battlefront-eternal-server_<version>_linux-amd64.tar.xz` (or
+   `arm64`) into `<root>/versions/<version>` and point `<root>/current` at it.
+3. Enable `bfeserver.service` and `bfeserver-update.timer` (see the
+   `battlefront-eternal-server` repository for the systemd unit files).
 
 The initial run installs the newest release, prepares its data, and takes
-over from the manual deploy once nobody plays.
+over once nobody plays.

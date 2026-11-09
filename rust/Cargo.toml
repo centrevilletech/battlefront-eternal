@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["bfe-transport", "bfe-online", "bfe-shell", "glbench", "bfe-render", "bfe-presentation", "bfe-pose", "bfe-native", "bfe-client", "bfe-content-native", "bfe-node", "bfe-battle-ui", "sim", "sim-replay", "content", "v8math", "v8math-check", "jsrt", "three", "audio", "audio-decode", "basis-transcode", "texture-codec", "image-codec", "bfe-environment", "audio-control", "bfe-desktop", "xtask", "bfe-interface", "bfe-server"]
+members = ["bfe-transport", "bfe-online", "bfe-shell", "bfe-render", "bfe-presentation", "bfe-pose", "bfe-client", "bfe-content-native", "bfe-battle-ui", "sim", "sim-replay", "content", "v8math", "jsrt", "three", "audio", "audio-decode", "basis-transcode", "texture-codec", "image-codec", "bfe-environment", "audio-control", "bfe-desktop", "xtask", "bfe-interface", "bfe-server"]
 
 [profile.release]
 opt-level = 3
@@ -9,6 +9,5 @@ codegen-units = 1
 # Native builds unwind on a panic: `cargo test --release` builds a crate's
 # library once for its tests and its bins alike, which it cannot do with
 # the test harness unwinding and the bins aborting (the two builds collide
-# in one output file). The WebAssembly modules abort: tools/build-rust.mjs
-# builds them with CARGO_PROFILE_RELEASE_PANIC=abort.
+# in one output file).
 debug = false

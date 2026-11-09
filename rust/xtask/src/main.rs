@@ -1,26 +1,21 @@
-// Command-line entry point for `cargo xtask`, replacing the legacy Node.js
-// build and code-generation scripts under `tools/`:
-//   - `cargo xtask schema`              (`tools/sim-schema.mjs`)
-//   - `cargo xtask schema --export-json DIR` (converts `.mjs` schemas to `.json`)
-//   - `cargo xtask shaders`             (`tools/render-shaders.mjs`)
-//   - `cargo xtask presentation-schema` (`tools/presentation-schema.mjs`)
-//   - `cargo xtask environment-schema`  (`tools/environment-schema.mjs`)
-//   - `cargo xtask transport-schema`    (`tools/transport-schema.mjs`)
-//   - `cargo xtask audio-control-schema`(`tools/audio-control-schema.mjs`)
-//   - `cargo xtask audio-schema`        (`tools/audio-schema.mjs`)
-//   - `cargo xtask audio-codec-schema`  (`tools/audio-codec-schema.mjs`)
-//   - `cargo xtask host-contract`       (`tools/host-contract.mjs`)
-//   - `cargo xtask matrix`              (`tools/world-hash-matrix.mjs`)
-//   - `cargo xtask build` / `check`     (`tools/build-rust.mjs`)
-//   - `ar-sorted`                       (`tools/ar-sorted.mjs`)
+// Command-line entry point for `cargo xtask`:
+//   - `cargo xtask schema`
+//   - `cargo xtask shaders`
+//   - `cargo xtask presentation-schema`
+//   - `cargo xtask environment-schema`
+//   - `cargo xtask transport-schema`
+//   - `cargo xtask audio-control-schema`
+//   - `cargo xtask audio-schema`
+//   - `cargo xtask audio-codec-schema`
+//   - `cargo xtask matrix`
+//   - `cargo xtask build` / `check`
 //
 // Passing `--check` to any generator subcommand (or invoking `cargo xtask check`)
-// verifies that every generated Rust, JavaScript, and JSON artifact on disk is
+// verifies that every generated Rust and JSON artifact on disk is
 // byte-for-byte identical to what the generator produces from the current
 // schema and shader sources.
 
 mod build;
-mod host_contract;
 mod json;
 mod layouts;
 mod matrix;
@@ -44,67 +39,15 @@ pub fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
-// Extracts the directory argument from `--export-json <DIR>` or `--export-json=<DIR>`
-// when passed to `cargo xtask schema`.
-fn parse_export_json_arg(args: &[String]) -> Result<Option<String>, String> {
-    for (i, arg) in args.iter().enumerate() {
-        if arg == "--export-json" {
-            let dir = args
-                .get(i + 1)
-                .filter(|s| !s.starts_with('-'))
-                .ok_or_else(|| "usage: cargo xtask schema --export-json <DIR>".to_string())?;
-            return Ok(Some(dir.clone()));
-        }
-        if let Some(dir) = arg.strip_prefix("--export-json=") {
-            if dir.is_empty() {
-                return Err("usage: cargo xtask schema --export-json <DIR>".to_string());
-            }
-            return Ok(Some(dir.to_string()));
-        }
-    }
-    Ok(None)
-}
-
-// Dispatches `cargo xtask <subcommand>` or acts as the deterministic `ar-sorted`
-// archiver wrapper when invoked via a symlink/copy named `ar-sorted`.
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if let Some(arg0) = args.first() {
-        let exe_name = Path::new(arg0)
-            .file_name()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        if exe_name == "ar-sorted" || exe_name == "ar-sorted.exe" {
-            process::exit(build::run_ar_sorted(&args[1..]));
-        }
-    }
-
     let root = repo_root();
     let sub = args.get(1).map(|s| s.as_str()).unwrap_or("");
     let rest = if args.len() > 2 { &args[2..] } else { &[] };
     let check = rest.iter().any(|a| a == "--check");
 
-    // Dispatch the requested xtask subcommand:
-    //   - `schema` / `sim-schema`: simulation store Rust & JS codegen (`sim_schema_js::run_sim_schema`),
-    //     or `.mjs` -> `.json` schema export when `--export-json <DIR>` is passed
-    //   - `shaders` / `render-shaders`: GLSL shader table codegen (`shaders::render_shaders`)
-    //   - `presentation-schema`: presentation frame/command layout codegen (`layouts::presentation_schema`)
-    //   - `environment-schema`: environment config/state layout codegen (`layouts::environment_schema`)
-    //   - `transport-schema`: network transport packet/state layout codegen (`layouts::transport_schema`)
-    //   - `audio-control-schema`: audio control command/state layout codegen (`layouts::audio_control_schema`)
-    //   - `audio-schema`: audio mixer frame layout codegen (`layouts::audio_schema`)
-    //   - `audio-codec-schema`: ADPCM/PCM codec header layout codegen (`layouts::audio_codec_schema`)
-    //   - `host-contract`: boundary wire contract hash & table codegen (`host_contract::host_contract`)
-    //   - `matrix`: native world-hash matrix runner (`matrix::run_matrix`)
-    //   - `build`: full generator + Wasm build pipeline (`build::run_build`)
-    //   - `check`: runs all nine generators in `--check` verification mode
-    //   - `ar-sorted`: deterministic `ar` wrapper sorting archive members by basename
     let res = match sub {
-        "schema" | "sim-schema" => match parse_export_json_arg(rest) {
-            Ok(Some(dir)) => schema_eval::export_schemas_json(&root, &dir),
-            Ok(None) => sim_schema_js::run_sim_schema(&root, check),
-            Err(e) => Err(e),
-        },
+        "schema" | "sim-schema" => sim_schema_js::run_sim_schema(&root, check),
         "shaders" | "render-shaders" => shaders::render_shaders(&root, check),
         "presentation-schema" => layouts::presentation_schema(&root, check),
         "environment-schema" => layouts::environment_schema(&root, check),
@@ -112,7 +55,6 @@ fn main() {
         "audio-control-schema" => layouts::audio_control_schema(&root, check),
         "audio-schema" => layouts::audio_schema(&root, check),
         "audio-codec-schema" => layouts::audio_codec_schema(&root, check),
-        "host-contract" => host_contract::host_contract(&root, check),
         "matrix" => matrix::run_matrix(&root, rest),
         "build" => build::run_build(&root, rest),
         "check" => {
@@ -124,9 +66,8 @@ fn main() {
             }
             build::run_build(&root, &check_args)
         }
-        "ar-sorted" => process::exit(build::run_ar_sorted(rest)),
         _ => Err(
-            "usage: cargo xtask <schema|shaders|presentation-schema|environment-schema|host-contract|transport-schema|audio-schema|audio-control-schema|audio-codec-schema|matrix|build|check> [--check|--export-json DIR]"
+            "usage: cargo xtask <schema|shaders|presentation-schema|environment-schema|transport-schema|audio-schema|audio-control-schema|audio-codec-schema|matrix|build|check> [--check]"
                 .to_string(),
         ),
     };
@@ -141,9 +82,8 @@ fn main() {
 mod tests {
     use super::*;
     use crate::json::JsonValue;
-    use crate::schema_eval::{eval_schema_module, load_json_schema, load_schemas, LoadedSchema};
+    use crate::schema_eval::{load_json_schema, load_schemas, LoadedSchema};
     use crate::sim_schema::{build_model, parse_type, rust_file, TARGETS};
-    use crate::sim_schema_js::js_file;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -163,13 +103,6 @@ mod tests {
 
     // Verifies that `parse_type` accepts valid scalar, nullable, list, map, obj,
     // and typed-array expressions and rejects malformed or nested-container types.
-    // Tests `parse_type` across the full grammar of schema type expressions:
-    //   - `map:<V>`, `map:num:<V>`, and `map:ref:<K>:<V>` key/value combinations
-    //   - parenthesized nullable inner items (`list:(ref:character|null)`) vs
-    //     outer nullable lists (`list:ref:character|null`)
-    //   - `obj:<V>` plain-object dictionaries and `<Typed>Array(N)` fixed views
-    //   - rejection of double-null (`|null|null`), nested containers (`map:map:f64`,
-    //     `list:(list:f64|null)`), unknown scalars (`vec4`), and invalid modifiers.
     #[test]
     fn schema_types_are_checked_as_they_are_read() {
         assert_eq!(
@@ -265,17 +198,8 @@ mod tests {
             .contains("no object or typed array"));
     }
 
-    // Verifies that `build_model` rejects colliding Rust type names, names that
-    // shadow `runtime.js` helper functions, invalid map-key unions, and unknown
-    // target kinds.
-    // Verifies that `build_model` enforces global identifier invariants:
-    //   - A union and a kind cannot map to the same PascalCase Rust type name (`Body` vs `body`).
-    //   - A kind cannot use a name (`each`) whose generated `sameEach` function
-    //     would shadow the `sameEach` runtime helper imported from `src/sim/runtime.js`.
-    //   - A union used as a `map:ref:<Union>:<V>` key must consist exclusively of
-    //     `ref:<kind>` variants (no `null` or primitive branches).
-    //   - Every `ref:<target>` in a map key must resolve to a declared kind or union.
-    //   - Fixed `<Typed>Array(N)` views cannot be used directly as union variants.
+    // Verifies that `build_model` rejects colliding Rust type names, reserved
+    // helper names, invalid map-key unions, and unknown target kinds.
     #[test]
     fn duplicate_and_reserved_names_are_refused() {
         assert!(model_from_json(
@@ -316,16 +240,6 @@ mod tests {
 
     // Verifies identity-kind rules, `$publish` field lists, and `$observe`
     // metadata extraction in `build_model`.
-    // Verifies store entity lifecycle and publication metadata rules:
-    //   - Kinds with `identity: true` are stored in the Rust arena (`stored: true`)
-    //     without requiring a numeric `$id` key or a singleton home list, and
-    //     cannot simultaneously declare a `key` property.
-    //   - Ordinary slotted kinds without `singleton: true` or `identity: true`
-    //     are rejected if no singleton `list:<kind>` field claims them via `home`.
-    //   - `$publish: [...]` records the ordered subset of fields exported to the
-    //     double-buffered presentation publication snapshot.
-    //   - `$observe: [...]` records the subset of fields tracked by `syncObserved*`
-    //     when a record is referenced by a `$defer` kind field.
     #[test]
     fn identity_publication_and_observed_metadata_rules() {
         let model = model_from_json(
@@ -376,23 +290,14 @@ mod tests {
         assert_eq!(obs_model.records.get("Detail").unwrap().fields.len(), 2);
     }
 
-    // Evaluates declarative `.mjs` schema files (or `.json` equivalents after
-    // conversion) and compares the resulting `JsonValue` trees against expected
-    // JSON fixtures. Also verifies `layoutOnly` extraction and rejection of
-    // unsupported JS statements.
+    // Loads `.json` schema files and compares the resulting `JsonValue` trees
+    // against expected JSON fixtures, including `$layoutOnly` extraction.
     #[test]
-    fn evaluator_matches_expected_json_for_real_schemas() {
+    fn json_schema_loader_matches_expected_json_for_real_schemas() {
         let root = repo_root();
         let load_one = |stem: &str| -> (JsonValue, bool) {
-            let mjs = root.join(format!("rust/sim/schema/{stem}.mjs"));
-            if mjs.exists() {
-                eval_schema_module(&fs::read_to_string(&mjs).unwrap(), &format!("{stem}.mjs"))
-                    .unwrap()
-            } else {
-                let json = root.join(format!("rust/sim/schema/{stem}.json"));
-                load_json_schema(&fs::read_to_string(&json).unwrap(), &format!("{stem}.json"))
-                    .unwrap()
-            }
+            let json = root.join(format!("rust/sim/schema/{stem}.json"));
+            load_json_schema(&fs::read_to_string(&json).unwrap(), &format!("{stem}.json")).unwrap()
         };
 
         let (phase_val, phase_layout_only) = load_one("phase");
@@ -407,87 +312,18 @@ mod tests {
 
         let (_hud_val, hud_layout_only) = load_one("hud");
         assert!(hud_layout_only);
-    }
 
-    // Verifies that `cargo xtask schema --export-json DIR` exports every `.mjs`
-    // schema to `.json` and that `load_schemas` + `sim_schema_js::generate_all`
-    // produce byte-for-byte identical generated files from `.json` sources.
-    #[test]
-    fn export_json_roundtrips_and_regenerates_byte_identically() {
-        let root = repo_root();
-        if !root.join("rust/sim/schema/client.mjs").exists() {
-            return;
-        }
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let tmp = env::temp_dir().join(format!("xtask-export-json-{}-{nanos}", process::id()));
-        let tmp_schema = tmp.join("rust/sim/schema");
-        let tmp_schema_test = tmp.join("rust/sim/schema-test");
-        fs::create_dir_all(&tmp_schema).unwrap();
-        fs::create_dir_all(&tmp_schema_test).unwrap();
-
-        // Copy `rust/sim/schema-test/shelf.mjs` into `tmp_schema_test`, export both
-        // directories to `.json`, and delete the `.mjs` files so `load_schemas` reads
-        // exclusively from the exported `.json` files.
-        for entry in fs::read_dir(root.join("rust/sim/schema-test")).unwrap() {
-            let entry = entry.unwrap();
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("mjs") {
-                fs::copy(&path, tmp_schema_test.join(entry.file_name())).unwrap();
-            }
-        }
-        schema_eval::export_schemas_json(&root, &tmp_schema.to_string_lossy()).unwrap();
-        schema_eval::export_schemas_json(&root, &tmp_schema_test.to_string_lossy()).unwrap();
-        let _ = fs::remove_file(tmp_schema_test.join("shelf.mjs"));
-
-        // Verify that `load_schemas` over the JSON-only directories produces the exact
-        // same `LoadedSchema` list (file stem, V8-ordered `JsonValue`, and `layout_only`)
-        // as `load_schemas` over the `.mjs` directories.
-        let mjs_main = load_schemas(&root.join("rust/sim/schema"), true).unwrap();
-        let json_main = load_schemas(&tmp_schema, true).unwrap();
-        assert_eq!(mjs_main.len(), json_main.len());
-        for (a, b) in mjs_main.iter().zip(json_main.iter()) {
-            assert_eq!(a.file, b.file);
-            assert_eq!(a.layout_only, b.layout_only);
-            assert_eq!(a.schema, b.schema, "schema mismatch for {}", a.file);
-        }
-
-        // Verify that `generate_all` against the JSON-only temp workspace produces
-        // byte-for-byte identical contents for all 94 generated Rust and JS files.
-        let from_mjs = sim_schema_js::generate_all(&root).unwrap();
-        let from_json = sim_schema_js::generate_all(&tmp).unwrap();
-        assert_eq!(from_mjs.len(), from_json.len());
-        for ((p_mjs, c_mjs), (p_json, c_json)) in from_mjs.iter().zip(from_json.iter()) {
-            let rel_mjs = p_mjs.strip_prefix(&root).unwrap();
-            let rel_json = p_json.strip_prefix(&tmp).unwrap();
-            assert_eq!(rel_mjs, rel_json);
-            assert_eq!(
-                c_mjs,
-                c_json,
-                "generated file differs for {}",
-                rel_mjs.display()
-            );
-        }
-
-        let _ = fs::remove_dir_all(&tmp);
+        let main_schemas = load_schemas(&root.join("rust/sim/schema"), true).unwrap();
+        assert_eq!(main_schemas.len(), 42);
+        let test_schemas = load_schemas(&root.join("rust/sim/schema-test"), true).unwrap();
+        assert_eq!(test_schemas.len(), 1);
     }
 
     // Compiles a small synthetic schema containing a constant, an enum, a tagged
-    // union, a record, and a singleton kind, and snapshots both the generated
-    // Rust module (`rust_file`) and JavaScript mirror module (`js_file`).
-    // Snapshot test for both `sim_schema::rust_file` and `sim_schema_js::js_file`
-    // over a synthetic schema module (`synth.mjs`) covering:
-    //   - a shared integer constant (`MAX_STEPS`)
-    //   - a 2-variant string enum (`Mode`: `idle`, `active`)
-    //   - a 3-variant tagged union (`Choice`: `null`, `f64`, `enum:Mode`)
-    //   - a 2-field flat record (`Pair`: `i32`, `enum:Mode`)
-    //   - a singleton store kind (`panel`) combining mirrored (`pair`, `choice`)
-    //     and import-only (`notes`, `mirror: false`) fields so `EXPORT_WORDS` (6)
-    //     and `IMPORT_WORDS` / `FULL_WORDS` (7) differ.
+    // union, a record, and a singleton kind, and snapshots the generated Rust
+    // module (`rust_file`).
     #[test]
-    fn codegen_snapshot_matches_rust_and_js_mirrors() {
+    fn codegen_snapshot_matches_rust_module() {
         let model = model_from_json(
             "synth",
             r#"{
@@ -512,7 +348,6 @@ mod tests {
         .unwrap();
 
         let rust_code = rust_file(&model, "synth");
-        let js_code = js_file(&model, "synth");
 
         let expected_rust = concat!(
             "// Generated by tools/sim-schema.mjs from rust/sim/schema/synth.mjs; do not edit.\n", "#![allow(clippy::all, unused_braces, unused_parens, unused_variables)]\n", "\n",
@@ -561,86 +396,16 @@ mod tests {
             "\n", "}\n", "",
         );
 
-        let expected_js = concat!(
-            "// Generated by tools/sim-schema.mjs from rust/sim/schema/synth.mjs; do not edit.\n", "import * as THREE from \"three\";\n", "import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from \"../compare.js\";\n",
-            "\n", "export const MAX_STEPS = 4;\n", "export const Mode_NAMES = [\"idle\",\"active\"];\n",
-            "export const Mode_INDEX = new Map(Mode_NAMES.map((name, i) => [name, i]));\n", "export const Mode_VALUE = Object.freeze({\"idle\":0,\"active\":1});\n", "\n",
-            "export function variantOfChoice(b, x) {\n", "  if (x === null) return 0;\n", "  if (typeof x === \"number\") return 1;\n",
-            "  if (Mode_INDEX.has(x)) return 2;\n", "  return -1;\n", "}\n",
-            "\n", "// Which of Choice's variants a value is.\n", "export function whichChoice(b, x) {\n",
-            "  const i = variantOfChoice(b, x);\n", "  if (i < 0) throw Error(`Choice: ${x?.constructor?.name ?? x} is none of its variants`);\n", "  return i;\n",
-            "}\n", "\n", "// An export row's union (from `at`) as a value: a vector or record the field held, if it is of the variant, read into in place.\n",
-            "export function syncChoice(b, f, at, h, current) {\n", "  switch (f[at]) {\n", "    case 0: return null;\n",
-            "    case 1: { let v = variantOfChoice(b, current) === 1 ? current : undefined; v = f[at + 1]; return v; }\n", "    case 2: { let v = variantOfChoice(b, current) === 2 ? current : undefined; v = Mode_NAMES[f[at + 1]]; return v; }\n", "    default: throw Error('Choice: no such variant');\n",
-            "  }\n", "}\n", "\n",
-            "export function putChoice(b, x, f, at, heap) {\n", "  const i = whichChoice(b, x);\n", "  f[at + 1] = 0;\n",
-            "  f[at] = i;\n", "  switch (i) {\n", "    case 1: { f[at + 1] = x; break; }\n",
-            "    case 2: { f[at + 1] = Mode_INDEX.get(x); break; }\n", "  }\n", "}\n",
-            "\n", "export function sameChoice(x, y) {\n", "  if (Object.is(x, y)) return true;\n",
-            "  if (x === null || y === null || x === undefined || y === undefined) return false;\n", "  return false;\n", "}\n",
-            "\n", "export function exportChoice(x, cx) {\n", "  switch (whichChoice(cx, x)) {\n",
-            "    case 0: return null;\n", "    case 1: return x;\n", "    case 2: return x;\n",
-            "  }\n", "}\n", "\n",
-            "export class PairMirror {\n", "  constructor() {\n", "    this.count = 0;\n",
-            "    this.mode = \"idle\";\n", "  }\n", "}\n",
-            "\n", "export function syncPair(b, f, at, h, m) {\n", "  m.count = f[at + 0] | 0;\n",
-            "  m.mode = Mode_NAMES[f[at + 1]];\n", "  return m;\n", "}\n",
-            "\n", "export function putPair(b, o, f, at, heap) {\n", "  f[at + 0] = o.count;\n",
-            "  f[at + 1] = Mode_INDEX.get(o.mode);\n", "}\n", "\n",
-            "export function samePair(a, b) {\n", "  if (!Object.is(a.count, b.count)) return \".count\";\n", "  if (!Object.is(a.mode, b.mode)) return \".mode\";\n",
-            "  return null;\n", "}\n", "\n",
-            "export function exportPair(o, cx) {\n", "  let v = cx.seen.get(o);\n", "  if (v) return v;\n",
-            "  v = {};\n", "  cx.seen.set(o, v);\n", "  v.count = o.count;\n",
-            "  v.mode = o.mode;\n", "  return v;\n", "}\n",
-            "\n", "// panel: from rust/sim/schema/synth.mjs.\n", "export class PanelMirror {\n",
-            "  constructor() {\n", "    this.pair = new PairMirror();\n", "    this.choice = null;\n",
-            "  }\n", "}\n", "\n",
-            "export const PANEL_KEYS = new Set([\"pair\", \"choice\", \"notes\"]);\n", "export const PANEL_EXPORT_STRIDE = 6, PANEL_IMPORT_STRIDE = 7, PANEL_FULL_STRIDE = 7;\n", "\n",
-            "// An export row (from `at`; the heap from `h`) into mirror `m`.\n", "export function syncPanel(b, f, at, h, m) {\n", "  m.pair = syncPair(b, f, at + 2, h, m.pair ?? new PairMirror());\n",
-            "  m.choice = syncChoice(b, f, at + 4, h, m.choice);\n", "  return m;\n", "}\n",
-            "\n", "// A full row into object `m`.\n", "export function syncFullPanel(b, f, at, h, m) {\n",
-            "  m.pair = syncPair(b, f, at + 2, h, m.pair ?? new PairMirror());\n", "  m.choice = syncChoice(b, f, at + 4, h, m.choice);\n", "  m.notes = f[at + 6];\n",
-            "  return m;\n", "}\n", "\n",
-            "// Object `o`'s import fields into a row (lists to `heap`).\n", "export function putPanel(b, o, f, at, heap) {\n", "  putPair(b, o.pair, f, at + 2, heap);\n",
-            "  putChoice(b, o.choice, f, at + 4, heap);\n", "  f[at + 6] = o.notes;\n", "}\n",
-            "\n", "// Every field of object `o` into a row.\n", "export function putFullPanel(b, o, f, at, heap) {\n",
-            "  putPair(b, o.pair, f, at + 2, heap);\n", "  putChoice(b, o.choice, f, at + 4, heap);\n", "  f[at + 6] = o.notes;\n",
-            "}\n", "\n", "// The first mirrored field of `m` that is not what the export row says (a\n",
-            "// write JavaScript made to Rust's state without a command), or null.\n", "export function checkPanel(b, f, at, h, m) {\n", "  const want = syncPanel(b, f, at, h, new PanelMirror());\n",
-            "  { const d = samePair(m.pair, want.pair); if (d) return \".pair\" + d; }\n", "  if (!sameChoice(m.choice, want.choice)) return \".choice\";\n", "  return null;\n",
-            "}\n", "\n", "export function samePanel(a, b) {\n",
-            "  { const d = samePair(a.pair, b.pair); if (d) return \".pair\" + d; }\n", "  if (!sameChoice(a.choice, b.choice)) return \".choice\";\n", "  if (!Object.is(a.notes, b.notes)) return \".notes\";\n",
-            "  return null;\n", "}\n", "\n",
-            "export function exportPanel(o, cx) {\n", "  let v = cx.seen.get(o);\n", "  if (v) return v;\n",
-            "  v = {};\n", "  cx.seen.set(o, v);\n", "  v.pair = exportPair(o.pair, cx);\n",
-            "  v.choice = exportChoice(o.choice, cx);\n", "  v.notes = o.notes;\n", "  return v;\n",
-            "}\n", "",
-        );
-
         assert_eq!(rust_code, expected_rust);
-        assert_eq!(js_code, expected_js);
     }
 
     // Verifies that `JsonValue::parse`, `to_json_compact`, and `to_json_pretty`
-    // match V8's `JSON.stringify` property ordering (ascending array-index keys
-    // followed by string keys in insertion order, with duplicate keys updating
-    // in place), number formatting (`-0.0`, integer-valued floats, fractions),
-    // and 2-space pretty-printing rules.
-    // Tests the custom `JsonValue` parser and serializer (`json.rs`) against
-    // V8 / ECMAScript `JSON.stringify` rules:
-    //   - Array-index keys (`"0"`, `"2"`, `"10"`) are sorted in ascending numeric
-    //     order ahead of ordinary string keys (`"z"`, `"a"`, `"empty_arr"`).
-    //   - Duplicate keys (`"z": 1.0` followed by `"z": 2.5`) update the existing
-    //     slot in place without moving `"z"` after `"a"`.
-    //   - `-0.0` formats as `"0"`, integer-valued floats (`1.0`) format without
-    //     a trailing `.0`, and fractional floats (`2.5`) preserve their digits.
-    //   - `to_json_pretty` uses 2-space indentation per nesting level while keeping
-    //     empty `{}` and `[]` containers on a single line.
+    // match V8's `JSON.stringify` property ordering, number formatting (`-0.0`,
+    // integer-valued floats, fractions), and 2-space pretty-printing rules.
     #[test]
     fn json_serializer_preserves_v8_order_and_number_formatting() {
-        let (parsed, _) = eval_schema_module(
-            r#"export default {"z": 1.0, "10": "ten", "a": -0.0, "2": [true, false, null], "0": {}, "z": 2.5, "empty_arr": []};"#,
-            "v8_order.mjs",
+        let parsed = JsonValue::parse(
+            r#"{"z": 1.0, "10": "ten", "a": -0.0, "2": [true, false, null], "0": {}, "z": 2.5, "empty_arr": []}"#,
         )
         .unwrap();
 
@@ -670,15 +435,6 @@ mod tests {
     // deliberately stale generated file and returns an `Err` naming the stale
     // path, while write mode (`check = false`) restores the file so a subsequent
     // `--check` passes.
-    // End-to-end test of generator `--check` verification (`write_or_check`):
-    //   1. Sets up an isolated temporary workspace root with `rust/audio-codec/schema.json`.
-    //   2. Runs `layouts::audio_codec_schema(&tmp, false)` to write the generated
-    //      Rust (`rust/audio-codec/src/layout.rs`) and JS (`src/audio/codec-layout.js`)
-    //      artifacts and confirms `check = true` succeeds.
-    //   3. Corrupts `src/audio/codec-layout.js` with stale content and asserts
-    //      that `check = true` fails with an error message naming the stale file.
-    //   4. Re-runs with `check = false` to regenerate the file and confirms that
-    //      `check = true` passes again.
     #[test]
     fn check_mode_detects_deliberately_stale_generated_file() {
         let nanos = SystemTime::now()
@@ -687,32 +443,28 @@ mod tests {
             .as_nanos();
         let tmp = env::temp_dir().join(format!("xtask-check-test-{}-{nanos}", process::id()));
 
-        fs::create_dir_all(tmp.join("src/audio")).unwrap();
         fs::create_dir_all(tmp.join("rust/audio-decode/src")).unwrap();
 
-        // Generate the initial Rust and JS layout files into the temp root.
         layouts::audio_codec_schema(&tmp, false).unwrap();
         layouts::audio_codec_schema(&tmp, true).unwrap();
 
-        // Deliberately corrupt one generated output file so it becomes stale.
-        let generated_js = tmp.join("src/audio/codec-layout.js");
-        fs::write(&generated_js, "// stale file content\n").unwrap();
+        let generated_rs = tmp.join("rust/audio-decode/src/layout.rs");
+        fs::write(&generated_rs, "// stale file content\n").unwrap();
 
         let err = layouts::audio_codec_schema(&tmp, true)
             .expect_err("check mode must fail when a generated file is stale");
         assert!(
-            err.contains("src/audio/codec-layout.js"),
+            err.contains("rust/audio-decode/src/layout.rs"),
             "unexpected error message: {err}"
         );
 
-        // Re-running with `check = false` overwrites the stale file and restores check pass.
         layouts::audio_codec_schema(&tmp, false).unwrap();
         layouts::audio_codec_schema(&tmp, true).unwrap();
 
         let _ = fs::remove_dir_all(&tmp);
     }
 
-    // Runs all nine generators in `--check` mode against the committed repository
+    // Runs all eight generators in `--check` mode against the committed repository
     // tree to guarantee byte-for-byte parity across every generated file.
     #[test]
     fn all_generators_match_committed_files() {
@@ -725,6 +477,5 @@ mod tests {
         layouts::audio_control_schema(&root, true).unwrap();
         layouts::audio_schema(&root, true).unwrap();
         layouts::audio_codec_schema(&root, true).unwrap();
-        host_contract::host_contract(&root, true).unwrap();
     }
 }

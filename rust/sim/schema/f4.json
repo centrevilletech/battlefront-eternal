@@ -1,0 +1,426 @@
+{
+  "enums": {
+    "F4ConnectionOp": [
+      "admit",
+      "spawn",
+      "unspawn",
+      "state",
+      "team"
+    ],
+    "F4AIHookOp": [
+      "requestObjective",
+      "republish",
+      "post",
+      "mobile",
+      "over",
+      "spawned",
+      "died",
+      "retarget",
+      "rejected",
+      "attach",
+      "detach"
+    ],
+    "F4ObjectKind": [
+      "building",
+      "animated",
+      "trap",
+      "character",
+      "post",
+      "mobilePost",
+      "battle",
+      "spawning",
+      "human",
+      "roster"
+    ],
+    "F4CommandOp": [
+      "health",
+      "damage",
+      "built",
+      "destroyed",
+      "play",
+      "retire",
+      "spend",
+      "credit",
+      "headshot",
+      "vehicleDestroyed",
+      "point",
+      "postDestroyed",
+      "class",
+      "ready",
+      "team",
+      "cancel",
+      "suicide",
+      "reserve",
+      "release",
+      "objective",
+      "controller",
+      "characterController"
+    ]
+  },
+  "records": {
+    "F4StartupClass": {
+      "$layout": true,
+      "className": "str",
+      "team": "f64",
+      "rosters": "list:rec:F4RosterClasses"
+    },
+    "F4UnitSpawn": {
+      "$layout": true,
+      "target": "rec:F4Handle",
+      "post": "rec:F4Handle",
+      "className": "str",
+      "position": "vec3",
+      "yaw": "f64"
+    },
+    "F4ConnectionCommand": {
+      "$layout": true,
+      "op": "enum:F4ConnectionOp",
+      "target": "rec:F4Handle",
+      "className": "str|null",
+      "post": "str|null",
+      "ordinal": "f64",
+      "autoRespawn": "bool"
+    },
+    "F4ConnectionView": {
+      "$layout": true,
+      "accepted": "bool",
+      "unit": "ref:unit|null",
+      "className": "str|null",
+      "post": "str|null",
+      "phase": "enum:HumanPhase",
+      "spawnedOnce": "bool",
+      "deadTime": "f64",
+      "ended": "bool"
+    },
+    "F4HumanReady": {
+      "$layout": true,
+      "target": "rec:F4Handle",
+      "className": "str|null",
+      "classIndex": "f64|null",
+      "post": "rec:F4Handle|null",
+      "suppliedPost": "bool"
+    },
+    "F4PlayerRequest": {
+      "$layout": true,
+      "character": "ref:character|null",
+      "body": "ref:unit|null",
+      "className": "str",
+      "post": "str|null",
+      "position": "vec3",
+      "yaw": "f64",
+      "local": "bool"
+    },
+    "F4RosterNames": {
+      "faction": "f64",
+      "state": "u32|null",
+      "first": "list:str",
+      "last": "list:str",
+      "local": "str|null"
+    },
+    "F4RosterSetup": {
+      "$layout": true,
+      "classic": "bool",
+      "hasAi": "bool",
+      "armySize": "f64|null",
+      "local": "ref:character|null",
+      "names": "list:rec:F4RosterNames"
+    },
+    "F4RosterCommand": {
+      "$layout": true,
+      "op": "enum:RoOperation",
+      "target": "rec:F4Handle|null",
+      "team": "f64",
+      "playerId": "union:PlayerId",
+      "name": "str"
+    },
+    "F4RosterResult": {
+      "$layout": true,
+      "handle": "rec:F4Handle|null",
+      "flag": "bool",
+      "full": "bool",
+      "counts": "list:rec:RoCount"
+    },
+    "F4RosterClasses": {
+      "$layout": true,
+      "classes": "list:str"
+    },
+    "F4TailSetup": {
+      "$layout": true,
+      "local": "ref:unit|null",
+      "character": "ref:character|null",
+      "classic": "bool",
+      "enhanced": "bool",
+      "registryCapacity": "u32",
+      "victimCapacity": "u32",
+      "commandCapacity": "u32",
+      "pointCapacity": "u32",
+      "spawnIndex": "f64",
+      "fallbackPath": "list:f64x4",
+      "random": "u32",
+      "gameplay": "u32",
+      "boundary": "rec:BfConfig",
+      "rosters": "list:rec:F4RosterClasses",
+      "classes": "list:str"
+    },
+    "F4PostSetup": {
+      "$layout": true,
+      "post": "ref:post",
+      "rawPath": "list:f64x4|null"
+    },
+    "F4PadSetup": {
+      "$layout": true,
+      "index": "u32",
+      "pad": "rec:PsPad"
+    },
+    "F4HeroSetup": {
+      "$layout": true,
+      "className": "str",
+      "name": "str|null"
+    },
+    "F4CaptureTeam": {
+      "$layout": true,
+      "team": "u32",
+      "value": "f64"
+    },
+    "F4AIHook": {
+      "$layout": true,
+      "op": "enum:F4AIHookOp",
+      "post": "rec:PostEvent|null",
+      "mobile": "rec:PsMobileEvent|null",
+      "number": "f64",
+      "className": "str|null",
+      "characterHandle": "rec:F4Handle|null"
+    },
+    "F4SpawnNotice": {
+      "$layout": true,
+      "key": "rec:F3UnitKey",
+      "unit": "ref:unit",
+      "character": "ref:character|null",
+      "className": "str",
+      "post": "str|null",
+      "team": "f64",
+      "position": "vec3",
+      "local": "bool"
+    },
+    "F4BattleSetup": {
+      "$layout": true,
+      "capacity": "u32"
+    },
+    "F4LiveSetup": {
+      "$layout": true,
+      "local": "ref:unit|null",
+      "unitCapacity": "u32",
+      "registryCapacity": "u32",
+      "hullCapacity": "u32"
+    },
+    "F4UnitClass": {
+      "$layout": true,
+      "def": "def:unitClass",
+      "captures": "bool",
+      "vehicle": "bool",
+      "healthEffect": "str",
+      "ammoEffect": "str",
+      "label": "str|null"
+    },
+    "F4WeaponClass": {
+      "$layout": true,
+      "def": "def:weapon",
+      "ammunition": "list:f64",
+      "primary": "bool",
+      "key": "str|null",
+      "labels": "list:(str|null)"
+    },
+    "F4AnimationSetup": {
+      "$layout": true,
+      "prop": "ref:prop",
+      "body": "ref:body|null",
+      "birth": "rec:F4AnimatedBirth"
+    },
+    "F4GripClass": {
+      "$layout": true,
+      "def": "def:unitClass",
+      "animated": "rec:F4Handle",
+      "clips": "list:(u32|null)"
+    },
+    "F4HullClass": {
+      "$layout": true,
+      "hull": "ref:vehicle",
+      "vehicle": "bool",
+      "side": "str|null",
+      "label": "str|null"
+    },
+    "F4Effect": {
+      "$layout": true,
+      "name": "str",
+      "position": "vec3"
+    },
+    "F4Sound": {
+      "$layout": true,
+      "name": "str",
+      "position": "vec3"
+    },
+    "F4HitInfo": {
+      "$layout": true,
+      "direction": "vec3|null",
+      "amount": "f64",
+      "typed": "f64",
+      "generic": "f64"
+    },
+    "F4Serve": {
+      "$layout": true,
+      "station": "rec:F4Handle",
+      "unit": "ref:unit|null"
+    },
+    "F4Held": {
+      "$layout": true,
+      "key": "rec:F3UnitKey",
+      "prop": "rec:F4Handle|null",
+      "grab": "u32",
+      "since": "f64",
+      "frame": "mat4|null",
+      "time": "f64|null"
+    },
+    "F4Handle": {
+      "$layout": true,
+      "kind": "enum:F4ObjectKind",
+      "slot": "u32",
+      "generation": "u32",
+      "life": "f64"
+    },
+    "F4Command": {
+      "$layout": true,
+      "target": "rec:F4Handle",
+      "op": "enum:F4CommandOp",
+      "value": "f64",
+      "team": "f64",
+      "flag": "bool",
+      "tick": "f64",
+      "other": "rec:F4Handle|null",
+      "attacker": "union:Attacker",
+      "hit": "rec:PbIdentity",
+      "damageInfo": "rec:F4HitInfo|null",
+      "controller": "ref:controller|null",
+      "unitKey": "rec:F3UnitKey|null"
+    },
+    "F4Delta": {
+      "$layout": true,
+      "target": "rec:F4Handle",
+      "retired": "bool",
+      "length": "u32",
+      "source": "u32",
+      "borrowedWords": "u32",
+      "mask": "list:u32",
+      "values": "list:f64"
+    },
+    "F4StatsClass": {
+      "def": "def:unitClass",
+      "label": "str|null"
+    },
+    "F4StatsHull": {
+      "hull": "ref:vehicle",
+      "label": "str|null"
+    },
+    "F4StatsWeapon": {
+      "def": "def:weapon",
+      "primary": "bool",
+      "key": "str|null",
+      "labels": "list:(str|null)"
+    },
+    "F4Counters": {
+      "$layout": true,
+      "live": "f64",
+      "tail": "f64",
+      "commands": "f64",
+      "lifecycle": "f64",
+      "hooks": "f64",
+      "inputWords": "f64",
+      "outputWords": "f64",
+      "publishedRows": "f64",
+      "allocations": "u32",
+      "reallocations": "u32",
+      "allocationBytes": "u32"
+    },
+    "F4Phase": {
+      "$layout": true,
+      "version": "u32",
+      "liveInput": "u32",
+      "tailInput": "u32",
+      "inputCapacity": "u32",
+      "buildings": "u32",
+      "animated": "u32",
+      "traps": "u32",
+      "battle": "u32",
+      "events": "u32",
+      "counters": "u32"
+    },
+    "F4LiveInput": {
+      "$layout": true,
+      "dt": "f64",
+      "tick": "f64"
+    },
+    "F4TailInput": {
+      "$layout": true,
+      "dt": "f64",
+      "tick": "f64",
+      "server": "bool",
+      "humanCommands": "u32",
+      "humanCount": "u32"
+    },
+    "F4BuildingBirth": {
+      "settings": "rec:PbSettings",
+      "state": "rec:PbStation",
+      "supply": "rec:PbSupply|null",
+      "crew": "bool",
+      "damaged": "bool",
+      "attacker": "union:Attacker"
+    },
+    "F4TrapBirth": {
+      "settings": "rec:TrSettings",
+      "state": "rec:TrState",
+      "attacker": "union:Attacker"
+    },
+    "F4AnimatedBirth": {
+      "settings": "rec:PaSettings",
+      "state": "rec:PaState"
+    },
+    "F4BuildingView": {
+      "$layout": true,
+      "state": "rec:PbStation",
+      "attacker": "union:Attacker"
+    },
+    "F4AnimatedView": {
+      "$layout": true,
+      "slot": "i32",
+      "time": "f64",
+      "weight": "f64",
+      "looping": "bool",
+      "hold": "f64",
+      "started": "f64",
+      "startTime": "f64",
+      "hasVictim": "bool",
+      "victim": "rec:PaVictim",
+      "openness": "f64",
+      "bodyEnabled": "bool|null"
+    },
+    "F4TrapView": {
+      "$layout": true,
+      "state": "rec:TrState",
+      "attacker": "union:Attacker"
+    }
+  },
+  "imports": {
+    "f4AIHook": {
+      "args": "F4AIHook",
+      "result": null
+    }
+  },
+  "events": {
+    "f4CharacterBirth": "F4Handle",
+    "f4Spawn": "F4SpawnNotice",
+    "f4Human": "HsEvent",
+    "f4Effect": "F4Effect",
+    "f4Sound": "F4Sound",
+    "f4Serve": "F4Serve",
+    "f4Held": "F4Held"
+  }
+}

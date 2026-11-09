@@ -1,7 +1,7 @@
 //! Detached local server host controller (`HostController`) for `bfe-desktop`.
 //!
-//! Ports `createHostController`, `startOutside`, and `unitActive` from `electron/host.js`,
-//! together with the close-decision prompt and keep-running flow from `electron/main.js`
+//! Ports `createHostController`, `startOutside`, and `unitActive` from the desktop host,
+//! together with the close-decision prompt and keep-running flow from the desktop host
 //! (`before-quit` handler).
 //!
 //! ## Architecture and Responsibilities
@@ -24,7 +24,7 @@
 //!   [`HostController::attach`] detects an already-running server via `<state_root>/operator-token`,
 //!   `/admin`, and `/info`, re-attaching instead of spawning a duplicate `bfeserver`.
 //! - **Close Decision Data**: Exposes [`CloseChoice`] and [`ClosePrompt`] with the exact
-//!   dialog strings from `electron/main.js` (`"Hosted server is running"`,
+//!   dialog strings from the desktop host (`"Hosted server is running"`,
 //!   `"Other players can keep playing after you close the app."`, and button labels) so the
 //!   native client shell can render the quit prompt with its own UI kit.
 
@@ -43,32 +43,32 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 /// Default loopback TCP port for the hosted server's `/admin` and `/healthz` HTTP listener
-/// (`const ADMIN_PORT = port('BFE_HOST_ADMIN_PORT', 18460)` in `electron/host.js`).
+/// (`const ADMIN_PORT = port('BFE_HOST_ADMIN_PORT', 18460)` in the desktop host).
 pub const DEFAULT_ADMIN_PORT: u16 = 18460;
 
 /// Default UDP gameplay and TCP `/info` port for a client-hosted server
-/// (`const GAME_PORT = port('BFE_HOST_GAME_PORT', 18461)` in `electron/host.js`).
+/// (`const GAME_PORT = port('BFE_HOST_GAME_PORT', 18461)` in the desktop host).
 pub const DEFAULT_GAME_PORT: u16 = 18461;
 
 /// Maximum human player count allowed in a hosted match
-/// (`MAX_MATCH_PLAYERS = 64` in `src/battle-limits.js`, imported by `electron/host.js`).
+/// (`MAX_MATCH_PLAYERS = 64` in `src/battle-limits.js`, imported by the desktop host).
 pub const MAX_MATCH_PLAYERS: u32 = 64;
 
 /// Maximum size in bytes (`8 MiB`) of `<state_root>/hosting.log` before `start()` truncates it
-/// (`statSync(log).size > 8388608` in `createHostController` in `electron/host.js`).
+/// (`statSync(log).size > 8388608` in `createHostController` in the desktop host).
 pub const LOG_ROTATE_BYTES: u64 = 8_388_608;
 
 /// Default master directory URL written to `<state_root>/config.json`
-/// (`master: 'https://online.battlefronteternal.com'` in `createHostController` in `electron/host.js`).
+/// (`master: 'https://online.battlefronteternal.com'` in `createHostController` in the desktop host).
 pub const DEFAULT_MASTER_URL: &str = "https://online.battlefronteternal.com";
 
-/// Default readiness poll count (`for (let i = 0; i < 120; i++)` in `electron/host.js`).
+/// Default readiness poll count (`for (let i = 0; i < 120; i++)` in the desktop host).
 pub const DEFAULT_READY_POLL_ATTEMPTS: usize = 120;
 
-/// Default interval in milliseconds between readiness polls (`setTimeout(resolve, 500)` in `electron/host.js`).
+/// Default interval in milliseconds between readiness polls (`setTimeout(resolve, 500)` in the desktop host).
 pub const DEFAULT_READY_POLL_INTERVAL_MS: u64 = 500;
 
-/// Default loopback HTTP request timeout in milliseconds (`AbortSignal.timeout(3000)` in `electron/host.js`).
+/// Default loopback HTTP request timeout in milliseconds (`AbortSignal.timeout(3000)` in the desktop host).
 pub const DEFAULT_HTTP_TIMEOUT_MS: u64 = 3000;
 
 /// Windows `DETACHED_PROCESS` creation flag (`0x00000008`), detaching the child from the parent's console.
@@ -78,7 +78,7 @@ pub const WINDOWS_DETACHED_PROCESS: u32 = 0x0000_0008;
 pub const WINDOWS_CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
 
 /// Windows `CREATE_NO_WINDOW` creation flag (`0x08000000`), preventing a console window from appearing
-/// (`windowsHide: true` in `electron/host.js`).
+/// (`windowsHide: true` in the desktop host).
 pub const WINDOWS_CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Combined Win32 process creation flags used when spawning `bfeserver.exe` on Windows so the
@@ -88,7 +88,7 @@ pub const WINDOWS_HOST_CREATION_FLAGS: u32 =
 
 /// Resolves a TCP/UDP port from an environment variable map, falling back to `fallback` when the
 /// variable is unset, non-numeric, or outside `1..=65535`
-/// (`const port = (name, fallback) => ...` in `electron/host.js`).
+/// (`const port = (name, fallback) => ...` in the desktop host).
 pub fn resolve_port_from_env(env_map: &BTreeMap<String, String>, name: &str, fallback: u16) -> u16 {
     // Parse the environment variable as an integer in 1..=65535 (`value > 0 && value < 65536`).
     env_map
@@ -105,14 +105,14 @@ pub fn resolve_port_from_env(env_map: &BTreeMap<String, String>, name: &str, fal
 }
 
 /// Resolves the loopback operator HTTP port (`BFE_HOST_ADMIN_PORT`, default `18460`)
-/// (`ADMIN_PORT` in `electron/host.js`).
+/// (`ADMIN_PORT` in the desktop host).
 pub fn resolve_admin_port(env_map: &BTreeMap<String, String>) -> u16 {
     // Delegate to `resolve_port_from_env` with `DEFAULT_ADMIN_PORT` (18460).
     resolve_port_from_env(env_map, "BFE_HOST_ADMIN_PORT", DEFAULT_ADMIN_PORT)
 }
 
 /// Resolves the hosted game UDP and `/info` TCP port (`BFE_HOST_GAME_PORT`, default `18461`)
-/// (`GAME_PORT` in `electron/host.js`).
+/// (`GAME_PORT` in the desktop host).
 pub fn resolve_game_port(env_map: &BTreeMap<String, String>) -> u16 {
     // Delegate to `resolve_port_from_env` with `DEFAULT_GAME_PORT` (18461).
     resolve_port_from_env(env_map, "BFE_HOST_GAME_PORT", DEFAULT_GAME_PORT)
@@ -185,7 +185,7 @@ pub fn resolve_server_executable(
         .unwrap_or_else(|| PathBuf::from(bin_name))
 }
 
-/// Visibility mode for a client-hosted server (`options.mode` in `electron/host.js`).
+/// Visibility mode for a client-hosted server (`options.mode` in the desktop host).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum HostMode {
@@ -198,7 +198,7 @@ pub enum HostMode {
 impl HostMode {
     /// Returns the wire/config string (`"lan"` or `"public"`).
     pub fn as_str(self) -> &'static str {
-        // Match the exact mode strings validated in `createHostController.start` (`electron/host.js`).
+        // Match the exact mode strings validated in `createHostController.start` (the desktop host).
         match self {
             Self::Lan => "lan",
             Self::Public => "public",
@@ -216,7 +216,7 @@ impl HostMode {
     }
 }
 
-/// TURN relay policy for a hosted server (`options.relay` in `electron/host.js`).
+/// TURN relay policy for a hosted server (`options.relay` in the desktop host).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RelayPolicy {
@@ -273,13 +273,13 @@ pub enum TeamAssignment {
     PlayerSelect,
 }
 
-/// Game and network options passed to [`HostController::start`], combining the Electron
-/// host dialog options (`src/shell/host-dialog.js` and `electron/host.js`) with the
+/// Game and network options passed to [`HostController::start`], combining the desktop host
+/// host dialog options (`src/shell/host-dialog.js` and the desktop host) with the
 /// native client's `SET GAME OPTIONS` screen (`rust/bfe-shell/src/screens.rs`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostOptions {
-    /// Server display name (`1..=80` non-whitespace characters; `options.name` in `electron/host.js`).
+    /// Server display name (`1..=80` non-whitespace characters; `options.name` in the desktop host).
     pub name: String,
     /// Server visibility (`HostMode::Lan` for private/LAN, `HostMode::Public` for master listing).
     pub mode: HostMode,
@@ -287,12 +287,12 @@ pub struct HostOptions {
     pub map: String,
     /// Primary faction identifier (`"rep"`, `"cis"`, `"all"`, or `"imp"`).
     pub side: String,
-    /// Maximum human players (`2..=64`; `options.maxPlayers` in `electron/host.js`).
+    /// Maximum human players (`2..=64`; `options.maxPlayers` in the desktop host).
     pub max_players: u32,
     /// TURN relay policy (`RelayPolicy::Auto`, `RelayPolicy::Always`, or `RelayPolicy::Never`).
     pub relay: RelayPolicy,
     /// Optional multi-map rotation entries (e.g. `["swbf1/nab2:rep:conquest", "swbf1/tat1:imp:conquest"]`).
-    /// When empty, `start()` constructs `["swbf1/<map>:<side>:conquest"]` exactly like `electron/host.js`.
+    /// When empty, `start()` constructs `["swbf1/<map>:<side>:conquest"]` exactly like the desktop host.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub playlist: Vec<String>,
     /// Optional session password from the host dialog (stored only in memory/UI, never written as an
@@ -353,7 +353,7 @@ impl Default for HostOptions {
 }
 
 impl HostOptions {
-    /// Validates host options against the exact rules in `createHostController.start` (`electron/host.js`).
+    /// Validates host options against the exact rules in `createHostController.start` (the desktop host).
     ///
     /// Returns `Err("Invalid host settings")` if any field fails validation.
     pub fn validate(&self) -> Result<(), String> {
@@ -383,7 +383,7 @@ impl HostOptions {
     }
 
     /// Returns the effective mission rotation array written to `config.json`
-    /// (`rotation: [`swbf1/${options.map}:${options.side}:conquest`]` in `electron/host.js`).
+    /// (`rotation: [`swbf1/${options.map}:${options.side}:conquest`]` in the desktop host).
     pub fn effective_rotation(&self) -> Vec<String> {
         // Default to a single conquest entry when no multi-map playlist is specified.
         if self.playlist.is_empty() {
@@ -394,7 +394,7 @@ impl HostOptions {
     }
 
     /// Builds the `config.json` JSON object for `bfeserver` using strictly valid keys from
-    /// `rust/bfe-server/src/config.rs` and `electron/host.js`.
+    /// `rust/bfe-server/src/config.rs` and the desktop host.
     pub fn to_server_config_json(
         &self,
         engine_root: &Path,
@@ -402,7 +402,7 @@ impl HostOptions {
         game_port: u16,
         master_url: &str,
     ) -> Value {
-        // Construct the base 10 keys written by `createHostController.start` in `electron/host.js`.
+        // Construct the base 10 keys written by `createHostController.start` in the desktop host.
         let mut obj = Map::new();
         obj.insert("name".to_string(), Value::String(self.name.trim().to_string()));
         obj.insert(
@@ -459,7 +459,7 @@ impl HostOptions {
     }
 }
 
-/// Validates a map identifier against `/^[a-z0-9_-]{1,32}$/` (`electron/host.js`).
+/// Validates a map identifier against `/^[a-z0-9_-]{1,32}$/` (the desktop host).
 fn is_valid_map_id(map: &str) -> bool {
     // Reject empty strings, identifiers over 32 bytes, or characters outside `[a-z0-9_-]`.
     !map.is_empty()
@@ -520,9 +520,9 @@ pub struct HostedPlayer {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostStatus {
-    /// Whether the hosted server's `/admin` endpoint is reachable and active (`active` in `electron/host.js`).
+    /// Whether the hosted server's `/admin` endpoint is reachable and active (`active` in the desktop host).
     pub active: bool,
-    /// Whether `HostController::start` is currently polling for readiness (`starting` in `electron/host.js`).
+    /// Whether `HostController::start` is currently polling for readiness (`starting` in the desktop host).
     pub starting: bool,
     /// Service lifecycle status reported by `bfeserver` (`"setup"`, `"loading"`, `"running"`, or `"fault"`).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -578,7 +578,7 @@ pub struct HostStatus {
 }
 
 /// Join descriptor returned by [`HostController::start`], [`HostController::join_info`], and
-/// [`HostController::attach`] (`joinInfo()` in `electron/host.js`).
+/// [`HostController::attach`] (`joinInfo()` in the desktop host).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostJoinInfo {
@@ -636,30 +636,30 @@ pub struct AttachRecord {
 }
 
 /// User choice when closing the client while a hosted server is running
-/// (`before-quit` dialog in `electron/main.js`, lines 1061-1068).
+/// (`before-quit` dialog in the desktop host, lines 1061-1068).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CloseChoice {
     /// Leave the detached `bfeserver` running in the background and write the attach record
-    /// (`choice === 0`: `"Keep server running"` in `electron/main.js`).
+    /// (`choice === 0`: `"Keep server running"` in the desktop host).
     KeepRunning,
     /// Stop the hosted server gracefully via `/admin` (`{"action": "stop"}`) and quit the client
-    /// (`choice === 1`: `"Stop server and quit"` in `electron/main.js`).
+    /// (`choice === 1`: `"Stop server and quit"` in the desktop host).
     StopAndQuit,
-    /// Abort closing the client and keep playing/hosting (`choice === 2`: `"Cancel"` in `electron/main.js`).
+    /// Abort closing the client and keep playing/hosting (`choice === 2`: `"Cancel"` in the desktop host).
     Cancel,
 }
 
 /// Dialog copy and button labels for the close confirmation prompt when a hosted server is active
-/// (`dialog.showMessageBoxSync` in `before-quit` in `electron/main.js`, lines 1061-1068).
+/// (`dialog.showMessageBoxSync` in `before-quit` in the desktop host, lines 1061-1068).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClosePrompt {
-    /// Dialog window title (`"Hosted server is running"` in `electron/main.js`).
+    /// Dialog window title (`"Hosted server is running"` in the desktop host).
     pub title: &'static str,
-    /// Dialog body message (`"Other players can keep playing after you close the app."` in `electron/main.js`).
+    /// Dialog body message (`"Other players can keep playing after you close the app."` in the desktop host).
     pub message: &'static str,
-    /// Ordered button labels (`["Keep server running", "Stop server and quit", "Cancel"]` in `electron/main.js`).
+    /// Ordered button labels (`["Keep server running", "Stop server and quit", "Cancel"]` in the desktop host).
     pub buttons: [&'static str; 3],
     /// Ordered choices corresponding 1:1 with `buttons`.
     pub choices: [CloseChoice; 3],
@@ -670,14 +670,14 @@ pub struct ClosePrompt {
 }
 
 impl Default for ClosePrompt {
-    /// Returns the exact close confirmation prompt from `electron/main.js` (`before-quit`).
+    /// Returns the exact close confirmation prompt from the desktop host (`before-quit`).
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl ClosePrompt {
-    /// Constructs the close confirmation prompt with the exact strings from `electron/main.js` (lines 1061-1068).
+    /// Constructs the close confirmation prompt with the exact strings from the desktop host (lines 1061-1068).
     pub const fn new() -> Self {
         Self {
             title: "Hosted server is running",
@@ -708,7 +708,7 @@ impl ClosePrompt {
     }
 }
 
-/// Parameters for [`start_outside`] (`export function startOutside` in `electron/host.js`).
+/// Parameters for [`start_outside`] (`export function startOutside` in the desktop host).
 #[derive(Clone, Debug)]
 pub struct StartOutsideOptions {
     /// Path to the `bfeserver` binary.
@@ -724,7 +724,7 @@ pub struct StartOutsideOptions {
 }
 
 /// Starts `bfeserver` outside the current process tree using the user's `systemd` instance
-/// (`export function startOutside` in `electron/host.js`).
+/// (`export function startOutside` in the desktop host).
 ///
 /// When the game is started by native Linux Steam, Steam's reaper waits for every process in the
 /// game's cgroup/tree. Starting `bfeserver` via `systemd-run --user --collect --quiet` places it
@@ -743,7 +743,7 @@ pub fn start_outside(options: &StartOutsideOptions) -> Option<String> {
     let unit = format!("battlefront-eternal-server-{now_ms}");
     let log_str = options.log.to_string_lossy();
 
-    // Build `systemd-run --user --collect --quiet --unit=<unit>` with log redirection (`electron/host.js`).
+    // Build `systemd-run --user --collect --quiet --unit=<unit>` with log redirection (the desktop host).
     let mut cmd = Command::new(&options.systemd_run_program);
     cmd.arg("--user")
         .arg("--collect")
@@ -773,7 +773,7 @@ pub fn start_outside(options: &StartOutsideOptions) -> Option<String> {
         cmd.creation_flags(WINDOWS_HOST_CREATION_FLAGS);
     }
 
-    // Resolve `Some(unit)` on exit code 0, or `None` on spawn error / non-zero exit (`electron/host.js`).
+    // Resolve `Some(unit)` on exit code 0, or `None` on spawn error / non-zero exit (the desktop host).
     match cmd.status() {
         Ok(status) if status.success() => Some(unit),
         _ => None,
@@ -781,7 +781,7 @@ pub fn start_outside(options: &StartOutsideOptions) -> Option<String> {
 }
 
 /// Checks whether a transient `systemd --user` unit started by [`start_outside`] is currently active
-/// (`const unitActive = unit => spawnSync('systemctl', ['--user', 'is-active', '--quiet', unit])` in `electron/host.js`).
+/// (`const unitActive = unit => spawnSync('systemctl', ['--user', 'is-active', '--quiet', unit])` in the desktop host).
 pub fn unit_active(unit: &str) -> bool {
     unit_active_with_program("systemctl", unit)
 }
@@ -802,16 +802,16 @@ pub fn unit_active_with_program(systemctl_program: &str, unit: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Configuration for constructing a [`HostController`] (`createHostController` parameters in `electron/host.js`).
+/// Configuration for constructing a [`HostController`] (`createHostController` parameters in the desktop host).
 #[derive(Clone, Debug)]
 pub struct HostControllerConfig {
     /// Path to the `bfeserver` executable.
     pub executable: PathBuf,
-    /// Legacy engine root path written to `config.json` (`engineRoot` in `electron/host.js`).
+    /// Legacy engine root path written to `config.json` (`engineRoot` in the desktop host).
     pub engine_root: PathBuf,
-    /// Prepared game content directory (`contentRoot` in `electron/host.js`).
+    /// Prepared game content directory (`contentRoot` in the desktop host).
     pub content_root: PathBuf,
-    /// Host state directory (`<userData>/server` in `electron/main.js`, containing `config.json`,
+    /// Host state directory (`<userData>/server` in the desktop host, containing `config.json`,
     /// `operator-token`, `operator.sqlite`, `hosting.log`, and `attach.json`).
     pub state_root: PathBuf,
     /// Loopback TCP operator `/admin` port (default `18460`, overridable via `BFE_HOST_ADMIN_PORT`).
@@ -820,9 +820,9 @@ pub struct HostControllerConfig {
     pub game_port: u16,
     /// Master server base URL (default `"https://online.battlefronteternal.com"`).
     pub master_url: String,
-    /// Whether the user has accepted the online privacy notice (`consent` callback in `electron/host.js`).
+    /// Whether the user has accepted the online privacy notice (`consent` callback in the desktop host).
     pub online_consent: bool,
-    /// Whether to attempt launching via `systemd-run --user` (`outside` callback in `electron/host.js`,
+    /// Whether to attempt launching via `systemd-run --user` (`outside` callback in the desktop host,
     /// true when launched under native Linux Steam).
     pub launch_outside: bool,
     /// Program name/path for `systemd-run` (defaults to `"systemd-run"`).
@@ -849,7 +849,7 @@ impl HostControllerConfig {
         let engine_root = content_root.clone();
         let admin_port = resolve_admin_port(&env_map);
         let game_port = resolve_game_port(&env_map);
-        // Enable `systemd-run --user` on Linux when the client was launched by Steam (`electron/main.js`).
+        // Enable `systemd-run --user` on Linux when the client was launched by Steam (the desktop host).
         let launch_outside = cfg!(target_os = "linux")
             && crate::steam::client::launched_under_steam(&env_map, &env::args().collect::<Vec<_>>());
 
@@ -873,8 +873,8 @@ impl HostControllerConfig {
 }
 
 /// Manages a client-hosted `bfeserver` instance across the native client's lifecycle,
-/// porting `createHostController` from `electron/host.js` and the quit/keep-running
-/// integration from `electron/main.js`.
+/// porting `createHostController` from the desktop host and the quit/keep-running
+/// integration from the desktop host.
 #[derive(Clone, Debug)]
 pub struct HostController {
     /// Immutable paths, ports, and timeouts for this controller.
@@ -895,7 +895,7 @@ struct ControllerInner {
 
 impl HostController {
     /// Creates a new [`HostController`] and ensures `<state_root>` exists with mode `0700` on Unix
-    /// (`mkdirSync(stateRoot, { recursive: true, mode: 0o700 })` in `createHostController` in `electron/host.js`).
+    /// (`mkdirSync(stateRoot, { recursive: true, mode: 0o700 })` in `createHostController` in the desktop host).
     pub fn new(config: HostControllerConfig) -> Result<Self, String> {
         ensure_dir_mode_700(&config.state_root)?;
         Ok(Self {
@@ -914,7 +914,7 @@ impl HostController {
         self.config.content_root = content_root;
     }
 
-    /// Updates whether the user has accepted the online privacy notice (`consent` in `electron/host.js`).
+    /// Updates whether the user has accepted the online privacy notice (`consent` in the desktop host).
     pub fn set_online_consent(&mut self, accepted: bool) {
         self.config.online_consent = accepted;
     }
@@ -940,7 +940,7 @@ impl HostController {
     }
 
     /// Sends an authenticated `POST /admin` JSON request to `127.0.0.1:<admin_port>` using the
-    /// bearer token in `<state_root>/operator-token` (`async function admin(value)` in `electron/host.js`).
+    /// bearer token in `<state_root>/operator-token` (`async function admin(value)` in the desktop host).
     ///
     /// Returns `Err("Cannot manage the hosted server")` if the token file cannot be read, the
     /// loopback HTTP request fails, or the server responds with a non-2xx HTTP status.
@@ -979,7 +979,7 @@ impl HostController {
     }
 
     /// Queries the hosted server's live status by calling `/admin` (`{"action": "status"}`) and,
-    /// when running, enriching the result with `/info` from the game port (`status()` in `electron/host.js`).
+    /// when running, enriching the result with `/info` from the game port (`status()` in the desktop host).
     ///
     /// Never fails: when no server is running or `/admin` is unreachable, returns a [`HostStatus`]
     /// with `active: false`.
@@ -1104,9 +1104,9 @@ impl HostController {
     }
 
     /// Queries `/admin` (`{"action": "status"}`) and `GET /info` on the game port to build a
-    /// [`HostJoinInfo`] for `127.0.0.1:<game_port>` (`async function joinInfo()` in `electron/host.js`).
+    /// [`HostJoinInfo`] for `127.0.0.1:<game_port>` (`async function joinInfo()` in the desktop host).
     ///
-    /// Error strings match `electron/host.js` verbatim:
+    /// Error strings match the desktop host verbatim:
     /// - `"Cannot manage the hosted server"` if `/admin` is unreachable or unauthorized.
     /// - `"Hosted server is still starting"` if `status != "running"`.
     /// - `"Hosted server is unavailable"` if `GET /info` fails or returns non-2xx.
@@ -1187,13 +1187,13 @@ impl HostController {
     }
 
     /// Starts a detached `bfeserver` instance with `options`, or attaches to the existing server if
-    /// one is already running (`async function start(options)` in `electron/host.js`).
+    /// one is already running (`async function start(options)` in the desktop host).
     ///
     /// Preserves the exact validation rules, file permissions (`0600`), environment variables,
-    /// 60-second readiness poll loop (120 * 500 ms), and error strings of `electron/host.js`.
+    /// 60-second readiness poll loop (120 * 500 ms), and error strings of the desktop host.
     pub fn start(&self, options: &HostOptions) -> Result<HostJoinInfo, String> {
         // Step 1: If a server is already active in `<state_root>`, attach to it instead of spawning a second `bfeserver`
-        // (`const current = await status(); if (current.active) return joinInfo();` in `electron/host.js`).
+        // (`const current = await status(); if (current.active) return joinInfo();` in the desktop host).
         let current = self.status();
         if current.active {
             return self.join_info();
@@ -1209,7 +1209,7 @@ impl HostController {
         }
 
         // Step 4: Verify prepared content (`common/common.json` and `maps/<map>/map.json`) before spawning
-        // (`if (!existsSync(path.join(content, 'common/common.json')) || !existsSync(path.join(content, 'maps', options.map, 'map.json')))` in `electron/host.js`).
+        // (`if (!existsSync(path.join(content, 'common/common.json')) || !existsSync(path.join(content, 'maps', options.map, 'map.json')))` in the desktop host).
         let content = &self.config.content_root;
         if !content.join("common").join("common.json").is_file()
             || !content
@@ -1360,7 +1360,7 @@ impl HostController {
 
         // Step 10: Poll `join_info()` up to `ready_poll_attempts` (120 * 500 ms = 60 s), checking
         // whether the child process or transient systemd unit exited early on each iteration
-        // (`const ready = (async () => { for (let i = 0; i < 120; i++) ... })()` in `electron/host.js`).
+        // (`const ready = (async () => { for (let i = 0; i < 120; i++) ... })()` in the desktop host).
         for i in 0..self.config.ready_poll_attempts {
             if let Some(ref unit_name) = unit {
                 if i > 0
@@ -1393,7 +1393,7 @@ impl HostController {
     }
 
     /// Stops the hosted server gracefully via `POST /admin` `{"action": "stop"}` using the
-    /// bearer token in `<state_root>/operator-token` (`if (action === 'stop') return admin({ action: 'stop' })` in `electron/host.js`).
+    /// bearer token in `<state_root>/operator-token` (`if (action === 'stop') return admin({ action: 'stop' })` in the desktop host).
     ///
     /// Removes `<state_root>/attach.json` once the stop command is accepted.
     pub fn stop(&self) -> Result<Value, String> {
@@ -1408,28 +1408,28 @@ impl HostController {
     }
 
     /// Restarts the active match on the hosted server via `POST /admin` `{"action": "restart"}`
-    /// (`if (action === 'restart') return admin({ action: 'restart' })` in `electron/host.js`).
+    /// (`if (action === 'restart') return admin({ action: 'restart' })` in the desktop host).
     pub fn restart(&self) -> Result<Value, String> {
         self.admin(&json!({ "action": "restart" }))
     }
 
-    /// Kicks a player by 64-character lowercase hex identity (`action === 'kick'` in `electron/host.js`).
+    /// Kicks a player by 64-character lowercase hex identity (`action === 'kick'` in the desktop host).
     pub fn kick(&self, id: &str, reason: &str) -> Result<Value, String> {
         self.moderation_action("kick", id, reason)
     }
 
-    /// Bans a player for 24 hours by 64-character lowercase hex identity (`action === 'ban'` in `electron/host.js`).
+    /// Bans a player for 24 hours by 64-character lowercase hex identity (`action === 'ban'` in the desktop host).
     pub fn ban(&self, id: &str, reason: &str) -> Result<Value, String> {
         self.moderation_action("ban", id, reason)
     }
 
-    /// Removes a local ban for a 64-character lowercase hex identity (`action === 'unban'` in `electron/host.js`).
+    /// Removes a local ban for a 64-character lowercase hex identity (`action === 'unban'` in the desktop host).
     pub fn unban(&self, id: &str, reason: &str) -> Result<Value, String> {
         self.moderation_action("unban", id, reason)
     }
 
     /// Shared moderation helper porting `if (action === 'kick' || action === 'ban' || action === 'unban')`
-    /// from `createHostController` in `electron/host.js`.
+    /// from `createHostController` in the desktop host.
     fn moderation_action(&self, action: &str, id: &str, reason: &str) -> Result<Value, String> {
         // Require a 64-character lowercase hex player digest (`!/^[a-f0-9]{64}$/.test(value.id)`).
         if !is_hex_64_lower(id) {
@@ -1449,7 +1449,7 @@ impl HostController {
 
     /// Returns `Some(ClosePrompt)` when the hosted server is currently active so the client shell
     /// can prompt the user before closing, or `None` when no hosted server is running
-    /// (`before-quit` handler in `electron/main.js`, lines 1060-1071).
+    /// (`before-quit` handler in the desktop host, lines 1060-1071).
     pub fn close_prompt(&self) -> Option<ClosePrompt> {
         if self.status().active {
             Some(ClosePrompt::new())
@@ -1459,7 +1459,7 @@ impl HostController {
     }
 
     /// Applies the user's [`CloseChoice`] when closing the client while a hosted server is running
-    /// (`before-quit` handler in `electron/main.js`, lines 1061-1071):
+    /// (`before-quit` handler in the desktop host, lines 1061-1071):
     /// - [`CloseChoice::KeepRunning`]: leaves `bfeserver` running in the background, updates
     ///   `<state_root>/attach.json` with `kept_running: true`, and returns `Ok(true)` (allow client exit).
     /// - [`CloseChoice::StopAndQuit`]: sends `POST /admin {"action": "stop"}` to stop the server
@@ -1483,12 +1483,12 @@ impl HostController {
                 Ok(true)
             }
             CloseChoice::StopAndQuit => {
-                // Stop the server (`host('stop')` in `electron/main.js`) and allow the client to exit.
+                // Stop the server (`host('stop')` in the desktop host) and allow the client to exit.
                 let _ = self.stop();
                 Ok(true)
             }
             CloseChoice::Cancel => {
-                // Cancel the close event (`event.preventDefault()` in `electron/main.js`).
+                // Cancel the close event (`event.preventDefault()` in the desktop host).
                 Ok(false)
             }
         }
@@ -1524,7 +1524,7 @@ impl HostController {
     }
 }
 
-/// Validates a 64-character lowercase hexadecimal identity (`/^[a-f0-9]{64}$/` in `electron/host.js`).
+/// Validates a 64-character lowercase hexadecimal identity (`/^[a-f0-9]{64}$/` in the desktop host).
 fn is_hex_64_lower(value: &str) -> bool {
     // Check that the string is 64 ASCII lowercase hex characters (`0-9` or `a-f`).
     value.len() == 64
@@ -1565,7 +1565,7 @@ fn ensure_dir_mode_700(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Writes `content` to `path` and sets file permissions to `0600` on Unix (`mode: 0o600` in `electron/host.js`).
+/// Writes `content` to `path` and sets file permissions to `0600` on Unix (`mode: 0o600` in the desktop host).
 fn write_file_mode_600(path: &Path, content: &[u8]) -> Result<(), String> {
     // Open `path` with create+truncate and mode `0600` on Unix so secrets and configs are owner-only.
     let mut options = OpenOptions::new();
@@ -1591,7 +1591,7 @@ fn write_file_mode_600(path: &Path, content: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// Opens `path` in append mode with `0600` permissions on Unix (`openSync(log, 'a', 0o600)` in `electron/host.js`).
+/// Opens `path` in append mode with `0600` permissions on Unix (`openSync(log, 'a', 0o600)` in the desktop host).
 fn open_log_append_600(path: &Path) -> Result<File, String> {
     // Open or create the log file in append mode with `0600` permissions on Unix.
     let mut options = OpenOptions::new();
@@ -1711,10 +1711,10 @@ mod tests {
     }
 
     /// Verifies `resolve_admin_port` (`18460`) and `resolve_game_port` (`18461`) against
-    /// `BFE_HOST_ADMIN_PORT` and `BFE_HOST_GAME_PORT` (`const port = (name, fallback) => ...` in `electron/host.js`).
+    /// `BFE_HOST_ADMIN_PORT` and `BFE_HOST_GAME_PORT` (`const port = (name, fallback) => ...` in the desktop host).
     #[test]
     fn port_resolution_honors_env_and_bounds() {
-        // Verify default ports and `BFE_HOST_ADMIN_PORT` / `BFE_HOST_GAME_PORT` overrides (`electron/host.js`).
+        // Verify default ports and `BFE_HOST_ADMIN_PORT` / `BFE_HOST_GAME_PORT` overrides (the desktop host).
         let mut env_map = BTreeMap::new();
         assert_eq!(resolve_admin_port(&env_map), 18460);
         assert_eq!(resolve_game_port(&env_map), 18461);
@@ -1731,10 +1731,10 @@ mod tests {
     }
 
     /// Verifies `HostOptions::validate` and `HostOptions::to_server_config_json` against the
-    /// validation rules in `electron/host.js` and the config schema in `bfe-server/src/config.rs`.
+    /// validation rules in the desktop host and the config schema in `bfe-server/src/config.rs`.
     #[test]
     fn host_options_validation_and_config_mapping_match_server_schema() {
-        // Verify validation rules and strict `config.json` key mapping (`createHostController.start` in `electron/host.js`).
+        // Verify validation rules and strict `config.json` key mapping (`createHostController.start` in the desktop host).
         let mut opts = HostOptions::default();
         assert!(opts.validate().is_ok());
 
@@ -1787,7 +1787,7 @@ mod tests {
         assert_eq!(obj["rotation"], json!(["swbf1/nab2:rep:conquest"]));
     }
 
-    /// Verifies that `HostController::start` returns the exact error strings from `electron/host.js`
+    /// Verifies that `HostController::start` returns the exact error strings from the desktop host
     /// when online consent, prepared map data, or the `bfeserver` binary is missing.
     #[test]
     fn start_enforces_consent_content_and_binary_errors() {
@@ -1829,10 +1829,10 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// Verifies `ClosePrompt` and `CloseChoice` against the `before-quit` dialog in `electron/main.js`.
+    /// Verifies `ClosePrompt` and `CloseChoice` against the `before-quit` dialog in the desktop host.
     #[test]
-    fn close_prompt_matches_electron_main_strings() {
-        // Verify close dialog copy and button indices from `electron/main.js` (`before-quit`).
+    fn close_prompt_matches_host_strings() {
+        // Verify close dialog copy and button indices from the desktop host (`before-quit`).
         let prompt = ClosePrompt::new();
         assert_eq!(prompt.title, "Hosted server is running");
         assert_eq!(
@@ -1848,7 +1848,7 @@ mod tests {
         assert_eq!(prompt.choice_for_index(2), CloseChoice::Cancel);
     }
 
-    /// Verifies `start_outside` and `unit_active_with_program` (`startOutside` and `unitActive` in `electron/host.js`).
+    /// Verifies `start_outside` and `unit_active_with_program` (`startOutside` and `unitActive` in the desktop host).
     #[cfg(unix)]
     #[test]
     fn start_outside_builds_systemd_user_unit_and_checks_active() {
@@ -2034,7 +2034,7 @@ print("bfeserver stopped", flush=True)
         fs::set_permissions(&fake_server, fs::Permissions::from_mode(0o755)).unwrap();
 
         // Pre-populate a >8 MiB log file (`LOG_ROTATE_BYTES + 1024`) to verify log truncation on `start()`
-        // (`if (existsSync(log) && statSync(log).size > 8388608) writeFileSync(log, '')` in `electron/host.js`).
+        // (`if (existsSync(log) && statSync(log).size > 8388608) writeFileSync(log, '')` in the desktop host).
         fs::create_dir_all(&state_root).unwrap();
         let log_path = state_root.join("hosting.log");
         fs::write(&log_path, vec![b'x'; (LOG_ROTATE_BYTES as usize) + 1024]).unwrap();
@@ -2092,7 +2092,7 @@ print("bfeserver stopped", flush=True)
         assert_eq!(st.players.len(), 1);
         assert_eq!(st.players[0].name, "PilotOne");
 
-        // Simulate client exit with `CloseChoice::KeepRunning` (`before-quit` in `electron/main.js`).
+        // Simulate client exit with `CloseChoice::KeepRunning` (`before-quit` in the desktop host).
         assert!(controller.close_prompt().is_some());
         assert!(controller.apply_close_choice(CloseChoice::KeepRunning).unwrap());
         let attach_rec = controller
@@ -2118,7 +2118,7 @@ print("bfeserver stopped", flush=True)
         assert_eq!(joined_again.pid, Some(first_pid));
 
         // Verify moderation actions (`kick`, `ban`, `unban`, `restart`) and 64-hex player ID validation
-        // (`if (action === 'kick' || action === 'ban' || action === 'unban')` in `electron/host.js`).
+        // (`if (action === 'kick' || action === 'ban' || action === 'unban')` in the desktop host).
         let valid_id = "b".repeat(64);
         assert_eq!(
             second_controller.kick("invalid-id", "reason").unwrap_err(),
@@ -2145,7 +2145,7 @@ print("bfeserver stopped", flush=True)
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// Verifies that `HostController::start` reports the exact error strings from `electron/host.js`
+    /// Verifies that `HostController::start` reports the exact error strings from the desktop host
     /// when the child process exits prematurely or when readiness polling times out.
     #[cfg(unix)]
     #[test]

@@ -1,11 +1,11 @@
 //! Steam client detection, process liveness checks, `steam://rungameid/<gameId>`
 //! relaunch decision logic, and Steam Overlay environment helpers.
 //!
-//! Mirrors `electron/steam/client.js` (`FLATPAK_ID`, `rootKind`, `dotSteam`,
+//! Mirrors the desktop host (`FLATPAK_ID`, `rootKind`, `dotSteam`,
 //! `alive`, `runningSteam`, `steamCommand`, `steamEnvironment`),
-//! `electron/steam/launcher.js` (`startedBySteam`, `steamStays`, `steamLost`,
-//! `withoutSteamOverlay`), `electron/steam/overlay.js` (`overlaySupport`,
-//! `overlaySwitches`), and `electron/steam/relaunch.js` (`REQUEST_MS`,
+//! the desktop host (`startedBySteam`, `steamStays`, `steamLost`,
+//! `withoutSteamOverlay`), the desktop host (`overlaySupport`,
+//! `overlaySwitches`), and the desktop host (`REQUEST_MS`,
 //! `BACKOFF_MS`, `relaunchThroughSteam`).
 //!
 //! ## Steam Integration Overview
@@ -36,24 +36,24 @@ use crate::steam::shortcut::{
 
 /// Flatpak application ID for the Valve Steam client on Linux.
 ///
-/// Mirrors `FLATPAK_ID` in `electron/steam/client.js`.
+/// Mirrors `FLATPAK_ID` in the desktop host.
 pub const FLATPAK_ID: &str = "com.valvesoftware.Steam";
 
 /// How long a `steam-relaunch.json` hand-off request stands before timing out (`20_000` ms).
 ///
-/// Mirrors `REQUEST_MS` in `electron/steam/relaunch.js`.
+/// Mirrors `REQUEST_MS` in the desktop host.
 pub const REQUEST_MS: u64 = 20_000;
 
 /// Cool-down duration (`30` minutes in ms) after a failed Steam relaunch before
 /// trying to relaunch through Steam again.
 ///
-/// Mirrors `BACKOFF_MS` in `electron/steam/relaunch.js`.
+/// Mirrors `BACKOFF_MS` in the desktop host.
 pub const BACKOFF_MS: u64 = 30 * 60 * 1000;
 
 /// Classifies a Steam installation root path into `"windows"`, `"mac"`, `"flatpak"`,
 /// `"snap"`, or `"native"`.
 ///
-/// Mirrors `rootKind` in `electron/steam/client.js`.
+/// Mirrors `rootKind` in the desktop host.
 pub fn root_kind(root: &Path, platform: &str) -> &'static str {
     // Windows and macOS have single native Steam layouts; Linux distinguishes
     // Flatpak (`/.var/app/com.valvesoftware.Steam/`), Snap (`/snap/steam/`), and native packages.
@@ -76,7 +76,7 @@ pub fn root_kind(root: &Path, platform: &str) -> &'static str {
 /// Returns the `~/.steam` directory holding `registry.vdf` and `steam.pid` for
 /// the given Linux Steam installation `kind` (`"flatpak"`, `"snap"`, or `"native"`).
 ///
-/// Mirrors `dotSteam` in `electron/steam/client.js`.
+/// Mirrors `dotSteam` in the desktop host.
 pub fn dot_steam(kind: &str, home: &Path) -> PathBuf {
     // Sandboxed Linux Steam clients keep their `.steam` folder inside their own home prefix.
     match kind {
@@ -91,7 +91,7 @@ pub fn dot_steam(kind: &str, home: &Path) -> PathBuf {
 /// On Unix, sends signal `0` via `libc::kill` and treats both `0` and `EPERM`
 /// as alive. On Windows, probes `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`.
 ///
-/// Mirrors `alive` in `electron/steam/client.js` and `electron/steam/relaunch.js`.
+/// Mirrors `alive` in the desktop host and the desktop host.
 pub fn pid_alive(pid: u32) -> bool {
     if pid == 0 {
         return false;
@@ -143,7 +143,7 @@ pub fn pid_alive(pid: u32) -> bool {
 /// Checks whether the local Steam client is currently running by inspecting
 /// `<home>/.steam/steam.pid`, sandbox `.steam/steam.pid` locations, and `<root>/steam.pid`.
 ///
-/// Complements `runningSteam` in `electron/steam/client.js`.
+/// Complements `runningSteam` in the desktop host.
 pub fn is_steam_client_running(
     platform: &str,
     home: Option<&Path>,
@@ -176,7 +176,7 @@ pub fn is_steam_client_running(
 
 /// Locates the `steam` (or `steam.exe`) executable on the current machine.
 ///
-/// Mirrors the executable lookup in `steamCommand` in `electron/steam/client.js`.
+/// Mirrors the executable lookup in `steamCommand` in the desktop host.
 pub fn find_steam_executable(
     platform: &str,
     home: Option<&Path>,
@@ -215,7 +215,7 @@ pub fn find_steam_executable(
 /// in the environment, or an injected `gameoverlayrenderer` in `LD_PRELOAD` /
 /// `DYLD_INSERT_LIBRARIES`).
 ///
-/// Mirrors `startedBySteam` in `electron/steam/launcher.js`.
+/// Mirrors `startedBySteam` in the desktop host.
 pub fn launched_under_steam(env: &BTreeMap<String, String>, argv: &[String]) -> bool {
     // Steam sets `SteamGameId` and `SteamOverlayGameId` when launching a non-Steam shortcut.
     let has_env = env.get("SteamGameId").filter(|s| !s.is_empty()).is_some()
@@ -246,7 +246,7 @@ pub fn launched_under_steam(env: &BTreeMap<String, String>, argv: &[String]) -> 
 /// Steam runtime paths from `LD_PRELOAD` / `LD_LIBRARY_PATH` on Linux when
 /// `BFE_STEAM_CLEAN` is not yet set.
 ///
-/// Mirrors `withoutSteamOverlay` in `electron/steam/launcher.js`.
+/// Mirrors `withoutSteamOverlay` in the desktop host.
 pub fn without_steam_overlay(
     env: &BTreeMap<String, String>,
     platform: &str,
@@ -478,7 +478,7 @@ pub struct SteamRelaunchDecision {
 /// `steam://rungameid/<gameId>` so Steam shows friends `"playing Battlefront Eternal"`.
 ///
 /// Mirrors the relaunch conditions in `relaunchThroughSteam` and `steamEntry`
-/// (`electron/steam/relaunch.js`).
+/// (the desktop host).
 pub fn decide_steam_relaunch(
     enabled: bool,
     packaged: bool,

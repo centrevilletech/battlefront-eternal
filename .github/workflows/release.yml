@@ -1,20 +1,26 @@
 name: Release
 
-# Builds the Windows and Linux desktop packages for every push to main that
-# changes more than documentation, and attaches them to a GitHub release
-# tagged preview-N. The project's release host then signs the update channel
-# and the APT repository and publishes the release to
-# get.battlefronteternal.com (build/publish-distribution.py). GitHub-hosted
-# runners only; no secrets beyond this workflow's own token.
+# Builds the native Windows and Linux desktop packages, dedicated server
+# archives and update payloads, verifies each package on its runner, and
+# attaches them to a GitHub release tagged preview-N. The project's release
+# host then signs the update channel and the APT repository and publishes the
+# release to get.battlefronteternal.com (build/publish-distribution.py).
+# GitHub-hosted runners only; no secrets beyond this workflow's own token.
 
 on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Create a GitHub release after all build jobs pass"
+        required: false
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths-ignore:
       - "**/*.md"
       - "docs/**"
       - "LICENSE"
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,142 +30,451 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Preview numbers continue from the releases published before this
-  # repository existed (the last was preview-319).
   PREVIEW_OFFSET: 319
+  CARGO_TERM_COLOR: always
 
 jobs:
-  package:
-    if: github.ref == 'refs/heads/main'
+  linux-x64:
+    name: Build & Package (Linux x86_64)
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    # The pinned builder container preserves the packaging environment.
-    container:
-      image: electronuserland/builder:wine@sha256:41ae540902461b6cbc988987db79547fcc10cda04d2a6c6367504f59d4b37c64
+    timeout-minutes: 60
     outputs:
-      tag: ${{ steps.release.outputs.tag }}
-      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-      - name: Install build tools
+
+      - name: Install Linux build and packaging dependencies
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends python3 python3-pip git ca-certificates curl gnupg openssl zstd xz-utils xvfb xauth libnss3 libgtk-3-0 libgbm1 libasound2 libsecret-1-0
-      - run: npm ci
-      - run: npm test
-      - name: Signed distribution regression checks
-        run: python3 -m unittest discover -s tests -p test_distribution.py
-      - name: Assign a monotonically increasing preview version
-        id: release
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libasound2-dev \
+            libudev-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxkbcommon-dev \
+            libxrandr-dev \
+            libvulkan1 \
+            bzip2 \
+            ca-certificates \
+            curl \
+            file \
+            gnupg \
+            openssl \
+            zstd \
+            xz-utils
+
+      - name: The Rust toolchain rust/rust-toolchain.toml pins
+        working-directory: rust
+        run: |
+          rustup toolchain install
+          rustup target add x86_64-unknown-linux-gnu
+
+      - name: Restore Cargo's downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+          key: rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+          restore-keys: rust-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Assign monotonically increasing preview version
+        id: meta
         shell: bash
         run: |
           number=$((GITHUB_RUN_NUMBER + PREVIEW_OFFSET))
-          npm pkg set "version=0.1.0-preview.$number"
-          # Installed clients follow this channel (docs/desktop-updates.md);
-          # local builds have none and never update themselves.
-          npm pkg set bfeUpdateChannel=development-preview
-          echo "tag=preview-$number" >> "$GITHUB_OUTPUT"
-          echo "version=0.1.0-preview.$number" >> "$GITHUB_OUTPUT"
-      - name: Bundle engine and portable host
-        env:
-          GH_TOKEN: ${{ github.token }}
+          version="0.1.0-preview.$number"
+          tag="preview-$number"
+          commit="${GITHUB_SHA}"
+          date=$(date -u +%Y-%m-%d)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          python3 - "${version}" "${tag}" "${commit}" "${date}" <<'PY'
+          import json, pathlib, sys
+          version, tag, commit, date = sys.argv[1:5]
+          pathlib.Path("build/bfe-release.json").write_text(json.dumps({
+              "version": version,
+              "tag": tag,
+              "commit": commit,
+              "date": date,
+              "channel": "development-preview",
+          }, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Run native Rust test suites
+        working-directory: rust
+        run: cargo test --locked -p sim -p sim-replay -p bfe-render -p bfe-presentation -p bfe-pose -p content -p v8math -p jsrt -p three -p audio -p audio-decode -p basis-transcode -p texture-codec -p image-codec -p bfe-environment -p audio-control -p bfe-client -p bfe-content-native -p bfe-transport -p bfe-online -p bfe-shell -p bfe-desktop -p bfe-interface -p bfe-battle-ui -p bfe-server -p xtask --features sim/replay
+
+      - name: Signed distribution and native packaging regression checks
+        run: python3 -m unittest discover -s tests -p "test_distribution.py"
+
+      - name: Build native bfe-client and bfeserver (release, locked)
+        id: build
+        working-directory: rust
+        shell: bash
         run: |
-          npm run build:desktop
-          npm run host:prepare
-      - name: Verify automatic content repair in Electron
+          cargo build --release --locked --target x86_64-unknown-linux-gnu --bin bfe-client --bin bfeserver
+          echo "has_server=true" >> "$GITHUB_OUTPUT"
+
+      - name: Cache toolchain downloads (linux-x64)
+        uses: actions/cache@v6
+        with:
+          path: toolchain/.downloads
+          key: toolchain-linux-x64-${{ hashFiles('build/native/fetch-toolchain.py') }}
+
+      - name: Fetch pinned content preparation toolchain (linux-x64)
+        run: python3 build/native/fetch-toolchain.py linux x64
+
+      - name: Stage unpacked tree, installers, server archive, and update payload
+        shell: bash
         run: |
-          # npm's script policy may skip Electron's binary download. Install
-          # it explicitly, and keep test tooling outside locked app dependencies.
-          node node_modules/electron/install.js
-          npm install --prefix /tmp/bfe-playwright --no-save --package-lock=false playwright@1.64.1
-          export PLAYWRIGHT_MODULE=/tmp/bfe-playwright/node_modules/playwright/index.mjs
-          # A loaded runner sometimes misses Electron's 60 s launch window;
-          # a real failure fails twice.
-          xvfb-run -a node tests/desktop-startup-electron.mjs || xvfb-run -a node tests/desktop-startup-electron.mjs
-          xvfb-run -a node tests/desktop-transfer-electron.mjs || xvfb-run -a node tests/desktop-transfer-electron.mjs
-      - name: Fetch Linux import tools
-        run: |
-          node build/fetch-toolchain.mjs linux x64 arm64
-      - name: Package Linux
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: |
-          npx electron-builder --linux AppImage deb --x64 --arm64 --publish never
-      - name: Verify packaged engine and resources
-        run: node build/check-packaged.mjs
-      - name: Dedicated server archives, from the verified packages
-        env:
-          VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          # Published beside the .deb for hosts without the desktop app (docs/server-updates.md).
-          node build/server-archive.mjs release/linux-unpacked amd64 "release/battlefront-eternal-server_${VERSION}_linux-amd64.tar.xz"
-          node build/server-archive.mjs release/linux-arm64-unpacked arm64 "release/battlefront-eternal-server_${VERSION}_linux-arm64.tar.xz"
-      - name: Update payloads, checked with the packaged updater
-        run: |
-          known=https://get.battlefronteternal.com/downloads/updates/blobs.json
-          node build/update-payload.mjs release/linux-unpacked linux-x64 release/update-linux-x64.tar --known "$known"
-          node build/update-payload.mjs release/linux-arm64-unpacked linux-arm64 release/update-linux-arm64.tar --known "$known"
-          node build/check-update.mjs release/linux-unpacked linux-x64 release/update-linux-x64.tar
+          VERSION="${{ steps.meta.outputs.version }}"
+          curl -fsSL https://get.battlefronteternal.com/downloads/updates/blobs.json -o build/known-blobs.json || echo '{"blobs":{}}' > build/known-blobs.json
+          python3 build/native/stage.py \
+            --platform linux-x64 \
+            --client-bin rust/target/x86_64-unknown-linux-gnu/release/bfe-client \
+            --server-bin rust/target/x86_64-unknown-linux-gnu/release/bfeserver \
+            --toolchain-dir toolchain/linux-x64 \
+            --out-dir release/linux-unpacked \
+            --release-json build/bfe-release.json
+          python3 build/native/package-linux.py \
+            --staged-dir release/linux-unpacked \
+            --platform linux-x64 \
+            --version "${VERSION}" \
+            --out-dir release
+          python3 build/native/server-archive.py \
+            --staged-dir release/linux-unpacked \
+            --platform linux-x64 \
+            --version "${VERSION}" \
+            --out-dir release
+          python3 build/native/update-payload.py \
+            --tree release/linux-unpacked \
+            --platform linux-x64 \
+            --version "${VERSION}" \
+            --known build/known-blobs.json \
+            --out release/update-linux-x64.tar
+
       - name: Record compatibility scope
         run: |
           python3 - <<'PY'
           import json
           from pathlib import Path
-          Path('release/compatibility.json').write_text(json.dumps({'minimum_glibc':'2.28','targets':['Debian 10 and newer','Ubuntu 20.04 and newer','Omarchy'], 'qualification':'Package install and runtime smoke checks; GPU and gameplay qualification remains ongoing.', 'legacy_texture_compression':'Bundled KTX encoder requires glibc 2.34; older systems use the existing PNG fallback.'},indent=2))
+          Path('release/compatibility.json').write_text(json.dumps({
+              'minimum_glibc': '2.39',
+              'targets': ['Debian 13 and newer', 'Ubuntu 24.04 and newer', 'Omarchy'],
+              'qualification': 'Native package install and runtime smoke checks; GPU and gameplay qualification remains ongoing.',
+              'texture_compression': 'Bundled KTX encoder requires glibc 2.34; older systems use the existing PNG fallback.',
+          }, indent=2) + '\n', encoding='utf-8')
           PY
+
+      - name: Verify Linux x86_64 packages and report sizes
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          python3 build/native/check-packages.py \
+            --platform linux-x64 \
+            --staged-dir release/linux-unpacked \
+            --deb "release/Battlefront-Eternal-${VERSION}-linux-amd64.deb" \
+            --install-deb \
+            --appimage "release/Battlefront-Eternal-${VERSION}-linux-x86_64.AppImage" \
+            --server-archive "release/battlefront-eternal-server_${VERSION}_linux-amd64.tar.xz" \
+            --update-payload release/update-linux-x64.tar \
+            --report-out release/size-report-linux-x64.md
+          cat release/size-report-linux-x64.md >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v7
         with:
-          name: release-linux
+          name: release-linux-x64
           retention-days: 3
           if-no-files-found: error
           path: |
             release/*.AppImage
             release/*.deb
-            release/battlefront-eternal-server_*.tar.xz
-            release/update-*.tar
+            release/battlefront-eternal-server_*_linux-amd64.tar.xz
+            release/update-linux-x64.tar
             release/compatibility.json
+            release/size-report-linux-x64.md
+
+  linux-arm64:
+    name: Build & Package (Linux ARM64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Linux ARM64 build and packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libasound2-dev \
+            libudev-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxkbcommon-dev \
+            libxrandr-dev \
+            libvulkan1 \
+            bzip2 \
+            ca-certificates \
+            curl \
+            file \
+            zstd \
+            xz-utils
+
+      - name: The Rust toolchain rust/rust-toolchain.toml pins
+        working-directory: rust
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-unknown-linux-gnu
+
+      - name: Restore Cargo's downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+          key: rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+          restore-keys: rust-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Assign monotonically increasing preview version
+        id: meta
+        shell: bash
+        run: |
+          number=$((GITHUB_RUN_NUMBER + PREVIEW_OFFSET))
+          version="0.1.0-preview.$number"
+          tag="preview-$number"
+          commit="${GITHUB_SHA}"
+          date=$(date -u +%Y-%m-%d)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          python3 - "${version}" "${tag}" "${commit}" "${date}" <<'PY'
+          import json, pathlib, sys
+          version, tag, commit, date = sys.argv[1:5]
+          pathlib.Path("build/bfe-release.json").write_text(json.dumps({
+              "version": version,
+              "tag": tag,
+              "commit": commit,
+              "date": date,
+              "channel": "development-preview",
+          }, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Run native Rust test suites
+        working-directory: rust
+        run: cargo test --locked -p sim -p sim-replay -p bfe-render -p bfe-presentation -p bfe-pose -p content -p v8math -p jsrt -p three -p audio -p audio-decode -p basis-transcode -p texture-codec -p image-codec -p bfe-environment -p audio-control -p bfe-client -p bfe-content-native -p bfe-transport -p bfe-online -p bfe-shell -p bfe-desktop -p bfe-interface -p bfe-battle-ui -p bfe-server -p xtask --features sim/replay
+
+      - name: Build native bfe-client and bfeserver (release, locked)
+        id: build
+        working-directory: rust
+        shell: bash
+        run: |
+          cargo build --release --locked --target aarch64-unknown-linux-gnu --bin bfe-client --bin bfeserver
+          echo "has_server=true" >> "$GITHUB_OUTPUT"
+
+      - name: Cache toolchain downloads (linux-arm64)
+        uses: actions/cache@v6
+        with:
+          path: toolchain/.downloads
+          key: toolchain-linux-arm64-${{ hashFiles('build/native/fetch-toolchain.py') }}
+
+      - name: Fetch pinned content preparation toolchain (linux-arm64)
+        run: python3 build/native/fetch-toolchain.py linux arm64
+
+      - name: Stage unpacked tree, installers, server archive, and update payload
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          curl -fsSL https://get.battlefronteternal.com/downloads/updates/blobs.json -o build/known-blobs.json || echo '{"blobs":{}}' > build/known-blobs.json
+          python3 build/native/stage.py \
+            --platform linux-arm64 \
+            --client-bin rust/target/aarch64-unknown-linux-gnu/release/bfe-client \
+            --server-bin rust/target/aarch64-unknown-linux-gnu/release/bfeserver \
+            --toolchain-dir toolchain/linux-arm64 \
+            --out-dir release/linux-arm64-unpacked \
+            --release-json build/bfe-release.json
+          python3 build/native/package-linux.py \
+            --staged-dir release/linux-arm64-unpacked \
+            --platform linux-arm64 \
+            --version "${VERSION}" \
+            --out-dir release
+          python3 build/native/server-archive.py \
+            --staged-dir release/linux-arm64-unpacked \
+            --platform linux-arm64 \
+            --version "${VERSION}" \
+            --out-dir release
+          python3 build/native/update-payload.py \
+            --tree release/linux-arm64-unpacked \
+            --platform linux-arm64 \
+            --version "${VERSION}" \
+            --known build/known-blobs.json \
+            --out release/update-linux-arm64.tar
+
+      - name: Verify Linux ARM64 packages and report sizes
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          python3 build/native/check-packages.py \
+            --platform linux-arm64 \
+            --staged-dir release/linux-arm64-unpacked \
+            --deb "release/Battlefront-Eternal-${VERSION}-linux-arm64.deb" \
+            --install-deb \
+            --appimage "release/Battlefront-Eternal-${VERSION}-linux-arm64.AppImage" \
+            --server-archive "release/battlefront-eternal-server_${VERSION}_linux-arm64.tar.xz" \
+            --update-payload release/update-linux-arm64.tar \
+            --report-out release/size-report-linux-arm64.md
+          cat release/size-report-linux-arm64.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-linux-arm64
+          retention-days: 3
+          if-no-files-found: error
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/battlefront-eternal-server_*_linux-arm64.tar.xz
+            release/update-linux-arm64.tar
+            release/size-report-linux-arm64.md
 
   windows:
-    if: github.ref == 'refs/heads/main'
+    name: Build & Package (Windows x64 MSVC)
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+
+      - name: The Rust toolchain rust/rust-toolchain.toml pins
+        working-directory: rust
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustup target add x86_64-pc-windows-msvc
+
+      - name: Restore Cargo's downloads
+        uses: actions/cache@v6
         with:
-          node-version: 24
-      - run: npm ci
-      - name: Verify Windows content transfers and consent persistence
-        run: node --test tests/content-archive.test.js tests/network-bridge.test.js
-      - name: Set matching preview version
-        shell: bash
-        run: npm pkg set "version=0.1.0-preview.$((GITHUB_RUN_NUMBER + PREVIEW_OFFSET))" bfeUpdateChannel=development-preview
-      - name: Bundle engine and host
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          npm run build:desktop
-          npm run host:prepare
-      - name: Fetch Windows import tools
-        run: node build/fetch-toolchain.mjs win x64
-      - name: Package and execute the Windows runtime checks
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: |
-          npx electron-builder --win nsis --x64 --publish never
-          node build/check-packaged.mjs
-      - name: Update payload, checked with the packaged updater on Windows
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+          key: rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+          restore-keys: rust-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Assign monotonically increasing preview version
+        id: meta
         shell: bash
         run: |
-          node build/update-payload.mjs release/win-unpacked win32-x64 release/update-win32-x64.tar --known https://get.battlefronteternal.com/downloads/updates/blobs.json
-          node build/check-update.mjs release/win-unpacked win32-x64 release/update-win32-x64.tar
+          number=$((GITHUB_RUN_NUMBER + PREVIEW_OFFSET))
+          version="0.1.0-preview.$number"
+          tag="preview-$number"
+          commit="${GITHUB_SHA}"
+          date=$(date -u +%Y-%m-%d)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          python - "${version}" "${tag}" "${commit}" "${date}" <<'PY'
+          import json, pathlib, sys
+          version, tag, commit, date = sys.argv[1:5]
+          pathlib.Path("build/bfe-release.json").write_text(json.dumps({
+              "version": version,
+              "tag": tag,
+              "commit": commit,
+              "date": date,
+              "channel": "development-preview",
+          }, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Run native Rust test suites
+        working-directory: rust
+        shell: bash
+        run: cargo test --locked --target x86_64-pc-windows-msvc -p bfe-client -p bfe-content-native -p bfe-transport -p bfe-online -p bfe-shell -p bfe-desktop -p bfe-interface -p bfe-battle-ui -p bfe-server --lib --tests
+
+      - name: Build native bfe-client.exe and bfeserver.exe (release, locked)
+        id: build
+        working-directory: rust
+        shell: bash
+        run: |
+          cargo build --release --locked --target x86_64-pc-windows-msvc --bin bfe-client --bin bfeserver
+          echo "has_server=true" >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned NSIS (3.11)
+        id: nsis
+        shell: bash
+        run: |
+          NSIS_VERSION="3.11"
+          choco install nsis.install --version="${NSIS_VERSION}" -y --no-progress || choco install nsis -y --no-progress || true
+          MAKENSIS_PATH=""
+          for dir in "C:/Program Files (x86)/NSIS" "C:/Program Files/NSIS" "C:/ProgramData/chocolatey/lib/nsis.install/tools" "C:/ProgramData/chocolatey/bin"; do
+            if [ -f "$dir/makensis.exe" ]; then
+              echo "$dir" >> "$GITHUB_PATH"
+              MAKENSIS_PATH="$dir/makensis.exe"
+              break
+            fi
+          done
+          if [ -z "$MAKENSIS_PATH" ]; then
+            curl -fsSL "https://downloads.sourceforge.net/project/nsis/NSIS%203/${NSIS_VERSION}/nsis-${NSIS_VERSION}.zip" -o nsis.zip
+            7z x -y -o"C:/nsis" nsis.zip >/dev/null
+            NSIS_DIR="C:/nsis/nsis-${NSIS_VERSION}"
+            echo "$NSIS_DIR" >> "$GITHUB_PATH"
+            MAKENSIS_PATH="$NSIS_DIR/makensis.exe"
+          fi
+          [ -f "$MAKENSIS_PATH" ] || { echo "Failed to install makensis.exe"; exit 1; }
+          echo "makensis=${MAKENSIS_PATH}" >> "$GITHUB_OUTPUT"
+          echo "Using makensis at ${MAKENSIS_PATH}"
+
+      - name: Cache toolchain downloads (win-x64)
+        uses: actions/cache@v6
+        with:
+          path: toolchain/.downloads
+          key: toolchain-win-x64-${{ hashFiles('build/native/fetch-toolchain.py') }}
+
+      - name: Fetch pinned content preparation toolchain (win-x64)
+        run: python build/native/fetch-toolchain.py win x64
+
+      - name: Stage unpacked tree, NSIS installer, and update payload
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          curl -fsSL https://get.battlefronteternal.com/downloads/updates/blobs.json -o build/known-blobs.json || echo '{"blobs":{}}' > build/known-blobs.json
+          python build/native/stage.py \
+            --platform win32-x64 \
+            --client-bin rust/target/x86_64-pc-windows-msvc/release/bfe-client.exe \
+            --server-bin rust/target/x86_64-pc-windows-msvc/release/bfeserver.exe \
+            --toolchain-dir toolchain/win-x64 \
+            --out-dir release/win-unpacked \
+            --release-json build/bfe-release.json
+          python build/native/package-windows.py \
+            --staged-dir release/win-unpacked \
+            --version "${VERSION}" \
+            --out-dir release \
+            --makensis "${{ steps.nsis.outputs.makensis }}"
+          python build/native/update-payload.py \
+            --tree release/win-unpacked \
+            --platform win32-x64 \
+            --version "${VERSION}" \
+            --known build/known-blobs.json \
+            --out release/update-win32-x64.tar
+
+      - name: Verify Windows NSIS installer and report sizes
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          python build/native/check-packages.py \
+            --platform win32-x64 \
+            --staged-dir release/win-unpacked \
+            --windows-installer "release/Battlefront-Eternal-${VERSION}-win-x64.exe" \
+            --update-payload release/update-win32-x64.tar \
+            --report-out release/size-report-win32-x64.md
+          cat release/size-report-win32-x64.md >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v7
         with:
           name: release-windows
@@ -168,11 +483,16 @@ jobs:
           path: |
             release/*.exe
             release/update-win32-x64.tar
+            release/size-report-win32-x64.md
 
   release:
-    # One release with every platform's files, created only when both builds
-    # pass, so the release host never sees a partial release.
-    needs: [package, windows]
+    # One release with every platform's files, created only when all three
+    # native builds pass and publishing is enabled (workflow_dispatch with
+    # publish=true, or a push to refs/heads/main), so branch validation runs
+    # never publish a GitHub release and the release host never sees a partial
+    # release.
+    needs: [linux-x64, linux-arm64, windows]
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -183,12 +503,14 @@ jobs:
           pattern: release-*
           path: release
           merge-multiple: true
+
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.package.outputs.tag }}
-          VERSION: ${{ needs.package.outputs.version }}
+          TAG: ${{ needs.linux-x64.outputs.tag }}
+          VERSION: ${{ needs.linux-x64.outputs.version }}
         run: |
+          rm -f release/size-report-*.md
           ls -l release
           gh release create "$TAG" release/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
             --title "Development preview $VERSION" \

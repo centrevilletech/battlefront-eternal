@@ -1,9 +1,9 @@
 //! Pixel-visible arithmetic from Water.update, Water.updateRings and
-//! WaterShore.update. Electron supplies only standard scalar primitives,
+//! WaterShore.update. desktop host supplies only standard scalar primitives,
 //! following the camera phase's host-math boundary.
 
 // Native replay uses the server's V8 arithmetic, matching Node captures.
-// Electron binds its own primitives to preserve the page's rounding; its
+// desktop host binds its own primitives to preserve the page's rounding; its
 // output is checked separately by the cross-build GPU comparisons.
 pub trait Math {
     fn sin(x: f64) -> f64;

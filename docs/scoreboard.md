@@ -5,11 +5,11 @@ POINTS, as the original's end-of-match table lists them, and what that
 table leads to: DETAILS (one Character's record) and AWARDS. Also the stat
 popup in play. It has two sides here:
 
-- **The board** (`src/scoreboard/`): what is drawn and how input moves it.
+- **The board** (`rust/bfe-battle-ui` (`scoreboard`)): what is drawn and how input moves it.
   It reads the world only through the scoreboard port.
-- **The world side** (`rust/sim/src/battle/rules.rs` and `stats.rs`, with
-  the page's facades `src/battle.js`, `src/battle-stats.js` and
-  `src/bot-names.js`): who is credited with what, when the scores stop,
+- **The world side** (`rust/sim/rust/battle/rules.rs` and `stats.rs`, with
+  the page's facades `rust/sim` (`battle`), `rust/sim` (`battle-stats`) and
+  `rust/sim` (`bot-names`)): who is credited with what, when the scores stop,
   the bots' names. The world keeps all of it, so a worker or a replay
   keeps the same numbers (`worldState().scores`).
 
@@ -56,29 +56,29 @@ player's DETAILS end with his **CONNECTION**.
 A battle with the AI off (a duel server's `ai "off"`, or BATTLE AI: OFF)
 has no bots, so its table lists the players alone: nobody fields the
 mission's armies, and the roster drops them
-(`src/runtime/multiplayer-roster.js`).
+(`rust/sim` (`wire`)).
 
 ## Files
 
 | File | What it does |
 | --- | --- |
-| `src/scoreboard/index.js` | `createScoreboard()`: Tab's table, the end table when the battle is over, DONE and the idle quit, the sounds, the mouse |
-| `src/scoreboard/model.js` | Pure: the rows, their order, the selection and scroll, the page (table, DETAILS, AWARDS), the idle clock |
-| `src/scoreboard/input.js` | Keys and mouse to the model; `TabHold`, the hold-or-tap rule; `bindDom()` |
-| `src/scoreboard/port.js` | The world's side: rows (with a network game's pings), team titles, DETAILS' and AWARDS' contents, the battle's end, as plain values |
-| `src/scoreboard/classic/view.js` | The Classic board as a layer of the battle HUD: the table and the logos |
-| `src/scoreboard/classic/pages.js` | DETAILS and AWARDS |
-| `src/scoreboard/classic/layout.js` | Pure: where everything sits for an interface height |
-| `src/scoreboard/page/view.js` | The page view: the board in the front end's look, as elements over the battle (see [The page view](#the-page-view)) |
-| `src/scoreboard/debug.js` | The board on demand over the running game |
-| `rust/sim/src/battle/rules.rs` | The scores and when they stop: `credit()`, `point()`, `postDestroyed()`, `headshot()`, `vehicleDestroyed()`, `finished` |
-| `src/battle.js` | The page's scoreboard objects over the native battle: `gameOver`, `nameBots()` |
-| `rust/sim/src/battle/stats.rs`, `src/battle-stats.js` | Each Character's record for DETAILS and AWARDS (tallied natively), and the page's formatting of the reports |
-| `src/bot-names.js` | Bot names, each team from its own generator |
-| `src/runtime/network-entity-summary.js`, `src/runtime/snapshot-host.js` | The scores and records on their way to the page, a world worker's or a server's (see [The page's numbers](#the-pages-numbers)) |
-| `src/hud.js`, `rust/bfe-render/src/hud_model/panels.rs` | The stat popup (`drawStats`, drawn by the Rust HUD model), the dead player's HUD, `watch()`, a layer's `teams: false` |
-| `src/hud.js`, `rust/bfe-render/src/hud_model/` | The message feed names the player by his Character's name, "Player 1" |
-| `src/audio/game.js` | The `busFade` event; `interface` plays a sound by its own name too |
+| `rust/bfe-battle-ui` (`scoreboard`) | `createScoreboard()`: Tab's table, the end table when the battle is over, DONE and the idle quit, the sounds, the mouse |
+| `rust/bfe-battle-ui` (`scoreboard`) | Pure: the rows, their order, the selection and scroll, the page (table, DETAILS, AWARDS), the idle clock |
+| `rust/bfe-battle-ui` (`scoreboard`) | Keys and mouse to the model; `TabHold`, the hold-or-tap rule; `bindDom()` |
+| `rust/bfe-battle-ui` (`scoreboard`) | The world's side: rows (with a network game's pings), team titles, DETAILS' and AWARDS' contents, the battle's end, as plain values |
+| `rust/bfe-battle-ui` (`scoreboard`) | The Classic board as a layer of the battle HUD: the table and the logos |
+| `rust/bfe-battle-ui` (`scoreboard`) | DETAILS and AWARDS |
+| `rust/bfe-battle-ui` (`scoreboard`) | Pure: where everything sits for an interface height |
+| `rust/bfe-battle-ui` (`scoreboard`) | The page view: the board in the front end's look, as elements over the battle (see [The page view](#the-page-view)) |
+| `rust/bfe-battle-ui` (`scoreboard`) | The board on demand over the running game |
+| `rust/sim/rust/battle/rules.rs` | The scores and when they stop: `credit()`, `point()`, `postDestroyed()`, `headshot()`, `vehicleDestroyed()`, `finished` |
+| `rust/sim` (`battle`) | The page's scoreboard objects over the native battle: `gameOver`, `nameBots()` |
+| `rust/sim/rust/battle/stats.rs`, `rust/sim` (`battle-stats`) | Each Character's record for DETAILS and AWARDS (tallied natively), and the page's formatting of the reports |
+| `rust/sim` (`bot-names`) | Bot names, each team from its own generator |
+| `rust/sim` (`wire`), `rust/sim` (`wire`) | The scores and records on their way to the page, a world worker's or a server's (see [The page's numbers](#the-pages-numbers)) |
+| `rust/sim` (`hud`), `rust/bfe-render/rust/hud_model/panels.rs` | The stat popup (`drawStats`, drawn by the Rust HUD model), the dead player's HUD, `watch()`, a layer's `teams: false` |
+| `rust/sim` (`hud`), `rust/bfe-render/rust/hud_model/` | The message feed names the player by his Character's name, "Player 1" |
+| `rust/audio-control` | The `busFade` event; `interface` plays a sound by its own name too |
 
 ## Tab
 
@@ -136,7 +136,7 @@ As the original's mission loop runs it:
    over it, whose QUIT goes to the front end, and the idle clock waits
    while it is up.) As in the original, that **goes on to the next map** of the
    Instant Action playlist, which wraps round for ever (`nextUrl()` in
-   `src/launch.js`; [shell.md](shell.md#after-a-battle)). A battle opened
+   `rust/sim` (`launch`); [shell.md](shell.md#after-a-battle)). A battle opened
    without a playlist starts again: the page reloads with the same URL.
 
 ## The table
@@ -153,7 +153,7 @@ As the original's mission loop runs it:
 
 - The player is "Player 1" (the original's fallback when the profile has
   no name), here and in the message feed ("GAMMA 935 KILLED PLAYER 1"). It
-  is made in one place (`humanName()`, `src/bot-names.js`); his Character
+  is made in one place (`humanName()`, `rust/sim` (`bot-names`)); his Character
   carries it, and both read it from there.
 - A bot is named once, when its team's Characters are made (see
   [Bot names](#bot-names)).
@@ -296,7 +296,7 @@ from 5% in).
   matches it to a unit.
 
 **Side by side.** The captured tables were rebuilt on the port
-(`tests/scoreboard-capture-fixture.js`) and measured against the
+(`cargo test --locked --workspace`) and measured against the
 unsqueezed captures. Titles, icons, every row's name and numbers, the
 selection frame, DETAILS, DONE and AWARDS all land within one unit. The
 selection frame lands exactly.
@@ -304,9 +304,9 @@ selection frame lands exactly.
 ## The page view
 
 The battle shows the board in the front end's page look
-(`src/menus/themes/page`, [menus.md](menus.md)) unless its URL has
-`menus=classic`: `src/game.js` names the view `"page"`, and `VIEWS` in
-`src/scoreboard/index.js` has it beside Classic, which stays the default
+(`rust/bfe-interface` (`menus`), [menus.md](menus.md)) unless its URL has
+`menus=classic`: `rust/sim` (`game`) names the view `"page"`, and `VIEWS` in
+`rust/bfe-battle-ui` (`scoreboard`) has it beside Classic, which stays the default
 when no view is named. It is the same board behind the same model and
 input, drawn as elements instead of on the HUD:
 
@@ -434,7 +434,7 @@ team's relation colour.
 
 ## The stat popup
 
-The original's stat popup (`drawStats`, `rust/bfe-render/src/hud_model/panels.rs`):
+The original's stat popup (`drawStats`, `rust/bfe-render/rust/hud_model/panels.rs`):
 
 - **Where:** from the safe area's left middle, three rows 32 apart, for
   KILLS, DEATHS and CP POINTS. Each row is drawn at 0.75 from 36 units in:
@@ -474,10 +474,10 @@ over.
 | A command post destroyed | A CP point for its last damager, unless he is its owner's friend |
 
 `postDestroyed()` is called for the destructible posts
-(`ObjectivePost` in `src/props.js`, [objectives.md](objectives.md)) and for
-the command vehicles' posts (`src/mobile-posts.js`).
+(`ObjectivePost` in `rust/sim` (`props`), [objectives.md](objectives.md)) and for
+the command vehicles' posts (`rust/sim` (`mobile-posts`)).
 
-**The record** (`rust/sim/src/battle/stats.rs`) keeps, per Character and per team
+**The record** (`rust/sim/rust/battle/stats.rs`) keeps, per Character and per team
 slot, what DETAILS and AWARDS need:
 
 - **On each kill:**
@@ -513,7 +513,7 @@ slot, what DETAILS and AWARDS need:
 ## The page's numbers
 
 The battle runs in a world worker offline and on a server online; the page
-draws it from the snapshots either way (`src/runtime/snapshot-host.js`),
+draws it from the snapshots either way (`rust/sim` (`wire`)),
 so the board reads Characters the page makes from them:
 
 - **The roster** (world summary schema 4, `network-entity-summary.js`):
@@ -603,14 +603,12 @@ Through the `interface` sound event, by the sounds' own names:
 ## Checks
 
 ```sh
-node --test tests/scoreboard-model.test.js tests/scoreboard-input.test.js tests/scoreboard-index.test.js \
-  tests/scoreboard-port.test.js tests/scoreboard-scoring.test.js tests/scoreboard-page-view.test.js tests/battle-stats.test.js \
-  tests/bot-names.test.js tests/snapshot-host-records.test.js
-PLAYWRIGHT_MODULE=.../playwright/index.mjs node tests/scoreboard-browser.mjs
-BFE_SERVER_REPO=<bfeserver checkout> PLAYWRIGHT_MODULE=.../playwright/index.mjs node tests/scoreboard-network-browser.mjs
-```
+cargo test --locked --workspace
+  cargo test --locked --workspace cargo test --locked --workspace cargo test --locked --workspace cargo test --locked --workspace \
+  cargo test --locked --workspace cargo test --locked --workspace
+BFE_SERVER_REPO=<bfeserver checkout> ```
 
-**The node tests cover:**
+**The unit tests cover:**
 
 - the order of every mode, reverse, and Z to A names;
 - both captured end tables, from shuffled rows;
@@ -672,6 +670,6 @@ the folder `SCOREBOARD_SHOTS` names.
 **From the console, over the running game:**
 
 ```js
-const { scoreboardDebug } = await import("/src/scoreboard/debug.js");
+const { scoreboardDebug } = await import("/rust/sim (scoreboard/debug)");
 scoreboardDebug(__bf, "end"); // or "peek"
 ```

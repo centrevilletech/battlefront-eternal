@@ -21,14 +21,14 @@ Bug reports, fixes, tests and documentation are all welcome.
 ## Getting set up
 
 [docs/development.md](docs/development.md) covers setup, preparing data
-from your own copy of the game, controls and testing. `npm test` runs the
-unit tests without any game files. Browser and desktop checks need data
-prepared from your own Steam or GOG copy.
+from your own copy of the game, controls and testing. `cargo test --locked`
+in `rust/` runs the unit tests without any game files. Desktop and map checks
+need data prepared from your own Steam or GOG copy.
 
 ## Pull requests
 
 - Keep a pull request to one change, and add a test where you can.
-- Run `npm test` before opening it.
+- Run `cargo xtask check` and `cargo test --locked` in `rust/` before opening it.
 - Say what changed and how you checked it, including which maps you tried.
 - In player-facing text, say what works today separately from what is
   planned, and don't use em dashes.

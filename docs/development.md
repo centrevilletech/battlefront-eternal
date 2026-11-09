@@ -1,8 +1,5 @@
 # Development and playtesting
 
-
-Collision queries, soldier movement, world rounds and items require the Rust simulation module on the page, local world worker and dedicated server. Module failures stop startup or the query. The former `sim`, `rays` and `movement` query parameters and `BFE_SIM` / `BFE_RAYS` environment controls have been removed. Historical measurements below describe the builds measured at the time; compare current builds against recorded fingerprints with `world-hash-matrix.mjs --against`, rather than selecting an old implementation at runtime.
-
 Developer setup, controls and implementation notes for Battlefront Eternal.
 For the project overview and roadmap, see the [README](../README.md).
 
@@ -14,14 +11,17 @@ are not shipped in source. Application settings, install state, capture files
 and diagnostic reports are created by the corresponding host or tool; their
 example filenames are not checked-in assets.
 
-You need Node.js 24 with npm, Python 3, and your own copy of the game. Rust is needed only to change the parts written in it (see "The Rust parts" below).
+You need the pinned Rust toolchain (`1.99.0`, installed automatically by
+`rustup` from `rust/rust-toolchain.toml`), Python 3, and your own copy of the
+game.
 
 ```bash
-npm ci
-npm test                                # unit tests; no game files needed
-python3 tools/extract.py bes2           # one map, read from your copy of the game
-python3 tools/zero_shell.py --catalog   # Instant Action's map catalog (shell.json)
-npm run dev
+cd rust
+cargo test --locked                        # unit tests; no game files needed
+cd ..
+python3 tools/extract.py bes2              # one map, read from your copy of the game
+python3 tools/zero_shell.py --catalog      # Instant Action's map catalog (shell.json)
+cargo run --manifest-path rust/Cargo.toml --release --locked -p bfe-client
 ```
 
 `zero_shell.py --catalog` writes `public/common/shell/shell.json` and marks the maps that are extracted, so run it again after extracting more. `python3 tools/prepare.py` does all of the preparation in one run, as the desktop app does on its first launch: the catalog, every army and map, the interface, and the optional upscaling and Enhanced sound steps (a step whose tools are missing is skipped and reported).
@@ -37,40 +37,25 @@ Set `BFE_GAME_DIR` to read a Steam installation in place (the folder holding `Ga
 
 `docs/formats.md` describes what it reads. `docs/audio.md` covers the sound: the Original (2004) and Enhanced (2026) modes, speaker and headphone setup, and the optional upscaling.
 
-Classic battles run with `?map=nab2&unit=rep_inf_clone_trooper&ai=classic`.
-Add `&tier=easy|medium|hard` (default Medium), `&heroes=1`, and an optional
-`&seed=1`. The pause menu's OPTIONS → GAME OPTIONS offer the same options;
-RESTART MISSION applies AI, difficulty, or hero changes. Friendly fire
-changes immediately. AI remains off by default until selected.
-F1 orders at ease, F2 follow, F3 move out, and F4 hold, matching the
-original PC bindings. Bots use the mission's rosters, navigation, combat,
-vehicles/turrets and class jobs. The HUD shows units, target relations, hits,
-kill messages and score changes. Implementation contracts and known fidelity
-limits are in [docs/ai.md](ai.md).
+Classic battles can be launched directly from `bfe-client` with `--map nab2 --era cw --ai classic` or selected from Instant Action in the main menu. The pause menu's OPTIONS -> GAME OPTIONS offer AI mode, difficulty (`easy`, `medium`, `hard`) and heroes; RESTART MISSION applies AI, difficulty, or hero changes. Friendly fire changes immediately. F1 orders at ease, F2 follow, F3 move out, and F4 hold, matching the original PC bindings. Bots use the mission's rosters, navigation, combat, vehicles/turrets and class jobs. The HUD shows units, target relations, hits, kill messages and score changes. Implementation contracts and known fidelity limits are in [docs/ai.md](ai.md).
 
-Gameplay now uses one fixed 60 Hz clock, with rendering independent of it.
+Gameplay uses one fixed 60 Hz clock, with rendering independent of it.
 Graphics settings offer Minimum, Performance, Balanced and High quality
-presets, an optional frame cap, and adaptive resolution, judged by GPU timer
-queries or, where the browser has none, by a fence after each frame.
-Rendering defaults to the display's refresh rate. Performance targets 30 FPS
-on weaker hardware; this is a qualification target, not a measured minimum PC.
-The battle runs in a local server worker
-(`src/runtime/local-server-worker.js`), off the page's thread: the page
-sends the player's input as commands, draws the world from the worker's
-packets, and shows the player's own soldier, hull, mounted guns, recon droid
-and shots ahead of them, as an online client does.
-Browser checks step the worker frame by frame through
-`tests/battle-page.mjs` (`game.lockstep`); world logic without a page runs
-under Node through `tools/headless-world.mjs`.
+presets, an optional frame cap, and adaptive resolution. Rendering defaults to
+the display's refresh rate. Performance targets 30 FPS on weaker hardware;
+this is a qualification target, not a measured minimum PC.
+In single-player, the battle runs on a local server thread inside `bfe-client`
+(`rust/bfe-client (local_battle.rs)`), off the window's render thread: the
+client sends the player's input as commands, draws the world from the server
+thread's published snapshots, and predicts the player's own soldier, hull,
+mounted guns, recon droid and shots ahead of them, just as an online client
+does. Headless world replays and deterministic fingerprint checks run through
+`cargo xtask matrix` (`rust/xtask (matrix.rs)`) and `rust/sim-replay`.
 
-The timing/threading implementation status, audit and migration gates are in
-[docs/runtime-architecture.md](runtime-architecture.md). For a live CPU
-and input-timing capture, add `&profileRuntime=1`, reset with
-`__bf.runtimeProfile.reset()` after loading, then inspect
-`__bf.runtimeProfile.report()` after reproducing a hitch. These timings end at
-render submission; they do not measure input-to-photon latency.
+The timing and threading architecture is documented in
+[docs/runtime-architecture.md](runtime-architecture.md).
 
-`npm run dev` opens the main menu. Use Instant Action or a direct `?map=` URL to launch an extracted battle. `?map=` loads another extracted map, `?side=` another side, and `?unit=` another unit (`?map=bes2&unit=rep_inf_clone_trooper` is Bespin: Cloud City with a clone trooper; `?side=cis&unit=cis_inf_battledroid` is a super battle droid). Each map plays the battle of the era the URL asks for: `?era=gcw` (or a Galactic Civil War side, `?side=imp`) is its Galactic Civil War battle, `?era=cw` or nothing its Clone Wars one, and `?mission=nab2a` names one outright (docs/shell.md, `src/mission.js`). The Republic plays the clone trooper, ARC trooper, pilot, sharpshooter, and jet trooper; the CIS the super battle droid, the B1 assault, pilot, and assassin droids (and the battles' `_inf`, `_av`, `_pilot`, and `_sniper` versions), and the droideka (`?side=cis&unit=cis_inf_droideka`). The command posts start as the map sets them. Standing in a post's capture zone neutralizes and captures it. Your team spawns at its own posts, and holding every post starts a 20-second victory countdown. Click to capture the mouse. The keys are the 2004 PC defaults:
+Running `bfe-client` with no map flag opens the main menu, where SINGLEPLAYER -> INSTANT ACTION builds and launches a playlist and MULTIPLAYER joins or hosts LAN and online servers. Passing `--map <id>` launches a prepared map directly (`--map bes2 --era cw` is Bespin: Cloud City in the Clone Wars era; `--map nab2 --era gcw` is Theed in the Galactic Civil War era; see [docs/native-client.md](native-client.md) and [docs/shell.md](shell.md)). The Republic plays the clone trooper, ARC trooper, pilot, sharpshooter, and jet trooper; the CIS the super battle droid, the B1 assault, pilot, and assassin droids (and the battles' `_inf`, `_av`, `_pilot`, and `_sniper` versions), and the droideka (`cis_inf_droideka`). The command posts start as the map sets them. Standing in a post's capture zone neutralizes and captures it. Your team spawns at its own posts, and holding every post starts a 20-second victory countdown. Click to capture the mouse. The keys are the 2004 PC defaults:
 
 - W and S (or Up and Down) move, A/D or Left/Right strafe. The mouse aims.
 - Space jumps. With only A or D held, it dives to that side instead. In the air, Space again lights a jet trooper's jetpack (he hovers, flies where he looks with W, and burns fuel shown under the health bar), and once more cuts it.
@@ -81,7 +66,6 @@ render submission; they do not measure input-to-photon latency.
 - E gets into the vehicle or turret in front of you, and out again. Vehicles use WASD and the arrow keys to drive or steer, the mouse to aim, and the mouse buttons for primary and secondary weapons. Space brakes; F changes seats; R reloads. Aircraft take off and land with Space, throttle with W and S, steer with the mouse and roll with A and D (see [docs/vehicles.md](vehicles.md)). Q switches between chase and forward views.
 - Q (or mouse button 4) switches to first person and back.
 - M shows the whole map and the backquote key hides the stats line. As in the 2004 game, the spawn screen picks the command post you spawn at; no key moves you between posts.
-- Open `/?noreload=1` for the main menu, then SINGLEPLAYER → INSTANT ACTION to build and launch a playlist. Direct `?map=` links still enter a battle. The browser development build cannot play online: LAN and ONLINE work in the desktop app ([docs/desktop.md](desktop.md)). See [docs/shell.md](shell.md).
 - T opens global chat (yellow), Y opens team chat (green); Enter sends and Esc cancels. Server announcements are blue. Single-player messages echo locally.
 - Esc pauses: GAME PAUSED, with OPTIONS (the CONTROL OPTIONS page lists every key, by INFANTRY, VEHICLE and STARFIGHTER), RESPAWN, RESTART MISSION and QUIT. The menus are described in [docs/menus.md](menus.md).
 
@@ -121,7 +105,7 @@ detailed terrain indices from low-detail strips, fixing holes under vehicle
 pads on Geonosis and Hoth; those maps need a full re-extraction when upgrading.
 
 Rhen Var: Citadel loads with
-`?map=rhn2&side=rep&unit=rep_inf_clone_trooper&ai=classic` after
+`--map rhn2 --era cw --ai classic` after
 `python3 tools/extract.py rhn2 --side rep`. Its Clone Wars battle uses seven
 command posts, the original navigation graph, and emplaced turrets, with no
 vehicle pads. The CIS roster must also be extracted for both armies to field
@@ -129,18 +113,18 @@ vehicle pads. The CIS roster must also be extracted for both armies to field
 The sky importer resolves mixed-case model references; re-extract Citadel if
 an older import shows a black sky.
 
-Kamino: Tipoca City loads with `?map=kam1` after
+Kamino: Tipoca City loads with `--map kam1` after
 `python3 tools/extract.py kam1 --side rep`. Spawn paths follow each command
 post's authored reference, including Kamino's `CP2SpawnPath` naming. Kamino
 retains its native infantry layout without vehicle spawns.
 Its native precipitation and ocean settings are imported too: falling rain
 respects building cover, and scrolling water/foam textures and wind-driven waves
 extend into the far scene. Ocean geometry and rain instances have fixed budgets.
-Graphics → Rain effects switches between Classic and Enhanced (the default).
+Graphics -> Rain effects switches between Classic and Enhanced (the default).
 Enhanced uses layered fine rain, wind gusts, soft intersections, low drifting
 mist, and surface rings and spray. Rain remains outside building cover. Spawn
 placement uses the authored height directly, avoiding the underside of bridges.
-Graphics → Ocean and sky also defaults to Enhanced: large rolling swells,
+Graphics -> Ocean and sky also defaults to Enhanced: large rolling swells,
 crest foam, wind-blown spray, sea haze, moving volumetric storm clouds, and
 intermittent branching lightning that illuminates the clouds, water and scene.
 Classic retains the imported ocean textures and original sky. These options
@@ -149,22 +133,17 @@ On every map with ships in its sky, Enhanced also flies every class of the
 battle's era past the view distance's far plane, with smooth fades; Classic
 flies the original's (docs/environment-effects.md, "The sky's flyers").
 
-Vehicle checks: `node --test tests/vehicles.test.js`,
-`python3 -m unittest discover -s tests -p 'test_vehicle*.py'`, and
-`node tests/vehicles-browser.mjs` with Vite and extracted Theed, Geonosis, Hoth,
-and Bespin. Set `PLAYWRIGHT_MODULE` if Playwright is installed outside this project.
-The optional retail audit checks all 28 standard map/era combinations;
-`node --test tests/vehicle-assets.test.js` checks the extracted vehicle rigs,
-controllers, collision, and weapon seats together.
+Vehicle checks: `cargo test --manifest-path rust/Cargo.toml --locked -p sim`
+and `python3 -m unittest discover -s tests -p 'test_vehicle*.py'`.
 
-The options (Esc → OPTIONS) cover:
+The options (Esc -> OPTIONS) cover:
 
 - GAME: friendly fire, the Classic AI's mode, difficulty and heroes, the stats line; gameplay advances at a fixed 60 Hz, independently of display refresh;
 - VIDEO: the presets, frame pacing, render scale and upscaling, antialiasing, shadows, texture filtering, view distance, bump mapping, the map's soft-focus blur, and each Classic or Enhanced effect;
 - AUDIO: the volumes, Original or Enhanced sound, the output layout and dynamics, and the speaker test;
 - CONTROL: mouse sensitivity on the game's own 0.5 to 10 slider, invert Y, and the key list.
 
-HUD intake can generate faithful 4× lossless WebP atlases when Pillow is
+HUD intake can generate faithful 4x lossless WebP atlases when Pillow is
 installed in the extraction environment. To upgrade an existing extraction,
 run `python3 tools/upscale_hud.py`; native bitmaps are used when no atlas entry fits the device. Traced
 HUD/font vectors are no longer used. See `docs/hud-vectors.md` for details.
@@ -174,14 +153,8 @@ shadows. Water quality is selectable in graphics settings: Low preserves the
 original look, while High and Ultra add more detailed surface lighting,
 reflections of nearby geometry, underwater scattering, and small shore splashes.
 
-They are saved in the browser. URL options override them for a visit:
-
-- `?spawn=CP3` picks a starting command post.
-- `?scale=2` renders at twice the window's pixel density.
-- `?sens=` sets the mouse sensitivity slider and `?invert=1` inverts the mouse.
-- `?shadows=off` turns shadows off. Old `?rate=` values are ignored; gameplay stays at 60 Hz.
-
-The mouse reads raw counts where the browser allows it, like the original's DirectInput.
+Settings are saved in `settings.json` inside the user's application data
+directory ([docs/desktop.md](desktop.md)).
 
 Theed's flower beds and wall ivy retain their original layouts. Tree detail
 offers Original backdrops or Enhanced nearby canopies built from the game's
@@ -203,9 +176,9 @@ Each unit carries its own loadout from the game, and the weapons behave as the o
 
 The droideka walks only as fast as its walking clips carry it, rolls up into a ball that reaches 13 m/s, and dies in a string of blasts.
 
-**Graphics → Droideka effects** selects Classic or Enhanced. Classic restores the native shield's scrolling cloud texture, edge falloff and quick expanding pop. Enhanced adds a bright energy rim, fine transparent cell detail, an activation sweep and expanding damage ripples, plus an outdoor dust trail while rolling. Both use the corrected folded-shell axle and smoothly sampled roll pose.
+**Graphics -> Droideka effects** selects Classic or Enhanced. Classic restores the native shield's scrolling cloud texture, edge falloff and quick expanding pop. Enhanced adds a bright energy rim, fine transparent cell detail, an activation sweep and expanding damage ripples, plus an outdoor dust trail while rolling. Both use the corrected folded-shell axle and smoothly sampled roll pose.
 
-**Graphics → Jetpack effects** keeps the original flames in Classic; Enhanced adds twin hot exhaust jets, smoke, embers and local light.
+**Graphics -> Jetpack effects** keeps the original flames in Classic; Enhanced adds twin hot exhaust jets, smoke, embers and local light.
 
 Firing rates, clips, reloads, heat, spread, charge levels, bolts, grenade bounces and fuses, explosions, muzzle flashes, and the particle effects come from the game's weapon classes and effect files. Damage follows each class's health type, so EMP hurts droids twice as much as clones. Droids blow apart into pieces as often as the game has them do. Your own grenades can kill you, which costs a reinforcement.
 
@@ -224,67 +197,48 @@ The soldier runs on the game's own data and rules:
 
 The original game, its code, and its assets remain the property of their rights holders. Nothing in this repo is a copy of them.
 
-## The Rust parts
+## The Rust workspace
 
-Engine modules are written in Rust and compiled to WebAssembly, in the Cargo workspace under `rust/`:
+The engine, desktop client, dedicated server, and build tools live in the Cargo workspace under `rust/`:
 
-- `rust/sim`, the simulation's module (`bfe_sim`, [docs/sim-store.md](sim-store.md)), committed as base64 in `src/sim-wasm.js`, which the world worker, the page and the dedicated server load as a JavaScript import (`src/sim/module.js`), one instance a battle. It holds the collision's ray kernel (required; [docs/performance.md](performance.md)), the soldiers' movement, the page's remaining rig sampler (required; displayed body and first-person poses belong to the presentation module), and the canonical world, AI, unit, vehicle, combat, battle and publication owners. One world operation runs the ordered tick.
-- `rust/audio`, the required audio output engine and loudness meter, committed as base64 in `src/audio-dsp-wasm.js`. The page sends decoded PCM and timed commands; a thin worklet calls one Rust render quantum and copies the finished samples. Playback, mixing, filtering, resampling, convolution and both master chains run in Rust, with no alternate browser or JavaScript DSP path. Synthetic recorded-render and component goldens run in CI and Chromium offline; live contexts are required for CPU measurements. `rust/audio-decode`, committed in `src/audio-codec-wasm.js`, decodes FLAC, Ogg Opus and PCM/float WAV in a loading worker. It owns explicit asset-rate conversion and feeds bounded PCM rings for long tracks; there is no host decoder.
-- `rust/bfe-presentation`, the required effect and displayed-unit state owner, built into `src/presentation-pkg/`. Native and browser hosts share generated frame records, `bfe-pose` with simulation, and the same replay kernel; see [Presentation records](presentation.md).
-- `rust/bfe-environment`, the destruction and weather presentation phase, committed as base64 in `src/environment-wasm.js` (one instance for each page owner: the destruction effects, the haze, the snow, the rain, the sky's ships, the placed effects in view; `src/environment/module.js`). The page writes scalar commands and the camera into fixed blocks and calls it once a frame; the particle, square, flake and ship records are read in place from its memory. Block layouts and limits come from `rust/bfe-environment/layout.json` (`node tools/environment-schema.mjs`, run by the build). Recorded-run goldens and native tests (including zero allocation a frame and out-of-range input) run in CI.
-- `rust/bfe-render`, the required battle renderer, committed as wasm-bindgen's output in `src/rust-pkg/`: an ES module and the `.wasm` it fetches, which Vite bundles as an asset. The desktop app serves it from its archive as `application/wasm`; the dedicated server's copy of the engine leaves it out.
-  The browser host creates the battle canvas and WebGL2 context and supplies viewport, pixel ratio, capability, resize and loss facts. Rust owns clears, bindings, program preparation, diagnostic counters and frame execution. Battle overlays and model previews use its retained scene registry; shell menu contexts remain separately scoped.
-  Initialization and program-link failures report the GPU name and stop battle loading. Context restoration rebuilds GPU resources from Rust's retained descriptions; it never selects another drawer.
+- `rust/sim`: the simulation crate (`bfe_sim`, [docs/sim-store.md](sim-store.md)), linked directly into `bfe-client`, `bfeserver`, `sim-replay` and `xtask`. It holds the collision ray kernel ([docs/performance.md](performance.md)), soldier movement, the rig sampler, and the canonical world, AI, unit, vehicle, combat, battle and publication owners. One world operation runs the ordered 60 Hz tick.
+- `rust/audio`: the audio output engine and loudness meter (`bfe_audio`, [docs/audio.md](audio.md)). Playback, mixing, filtering, resampling, convolution and both master chains run in Rust. `rust/audio-decode` decodes FLAC, Ogg Opus and PCM/float WAV and owns explicit asset-rate conversion. `rust/audio-control` owns the battle's sound state and event decisions.
+- `rust/bfe-presentation`: the effect and displayed-unit state owner ([docs/presentation.md](presentation.md)), sharing generated frame records and `bfe-pose` with simulation.
+- `rust/bfe-environment`: the destruction and weather presentation phase (`rust/bfe-environment/layout.json`).
+- `rust/bfe-render`: the battle and UI renderer (`bfe_render`, [docs/rendering.md](rendering.md)). It owns clears, bindings, shader program preparation, diagnostic counters, frame execution, PNG and lossless WebP decoding (`rust/image-codec`), and KTX2/Basis transcoding (`rust/basis-transcode` and `rust/texture-codec`).
+- `rust/bfe-client`: the native desktop window, input, menu, network and audio host (`winit`, `glutin`, `cpal`; [docs/native-client.md](native-client.md) and [docs/desktop.md](desktop.md)).
+- `rust/bfe-server`: the native dedicated server executable (`bfeserver`; [docs/host-qualification.md](host-qualification.md) and [docs/server-updates.md](server-updates.md)).
+- `rust/bfe-desktop`: desktop installation detection, game data preparation, self-update staging and local server hosting ([docs/desktop.md](desktop.md) and [docs/desktop-updates.md](desktop-updates.md)).
+- `rust/bfe-transport` and `rust/bfe-online`: the encrypted UDP transport ([docs/native-udp-transport.md](native-udp-transport.md)), STUN/TURN client, LAN discovery, master directory client and signaling.
+- `rust/bfe-content-native`, `rust/content`, `rust/bfe-pose`, `rust/three`, `rust/jsrt`, `rust/v8math`, and `rust/sim-replay` ([docs/sim-replay.md](sim-replay.md)): shared content loaders, pose sampling, math, number/sort/RNG semantics and deterministic battle replay.
+- `rust/xtask`: the workspace code generator, verifier and world-hash matrix runner (`cargo xtask`).
 
-The renderer also owns PNG and lossless WebP decoding and KTX2/Basis transcoding. Its
-`rust/basis-transcode` FFI wraps the vendored Basis Universal decoder and Zstandard.
-`rust/image-codec` (`src/image-pkg`) contains only PNG/WebP decoding for workers.
-`rust/texture-codec`, committed in `src/texture-pkg/`, loads only for compressed
-content; its tables are absent from the drawer and PNG-only worker heaps;
-upstream licenses and provenance are retained beside those sources. Renderer WASM
-builds require Clang/LLVM 20.1.2 (`clang-20`, `clang++-20`, `llvm-ar-20`) in addition
-to the pinned Rust and wasm-bindgen toolchains. `tools/build-rust.mjs` checks the
-compiler and normalizes source paths so generated bytes remain reproducible.
-It also archives the C/C++ objects through `tools/ar-sorted.mjs`, which runs
-`llvm-ar-20` and then orders each archive's members by object name and content:
-the Basis libc/libc++ build scripts list sources in directory order, which
-differs between file systems and would otherwise change the linked bytes.
+### Code generation and schema checks (`cargo xtask`)
 
-The generated renderer driver check needs no installed game content. Run
-`node tools/renderer-smoke.mjs gl` on Linux or
-`node tools/renderer-smoke.mjs warp` on Windows. It discovers shader manifests
-at runtime, reports each variant's compile/link result and compile time per
-family, then checks Rust draws and context restoration with generated scenes.
-The same fixture checks Rust PNG/Basis uploads, shared sampler storage, target
-resize, color/depth copies, MSAA resolves and context restoration.
-`BFE_SMOKE_OUTPUT` optionally saves the JSON-lines report. The CI renderer-smoke
-job runs these backends and uploads that report even when the driver fails.
+From `rust/`, `cargo xtask` runs the workspace schema generators and verifies that all generated Rust files match their declarative JSON and shader sources:
 
-Libraries the modules above share: `rust/audio-control` (the battle's sound
-state and decisions, built into the simulation module and reached from
-`src/audio/control.js`; [docs/audio.md](audio.md)), `rust/bfe-pose` (the pose
-sampler), `rust/content` (the game's files parsed as the simulation reads
-them), `rust/three` (the three.js math subset the simulation uses), `rust/jsrt`
-(JavaScript number, sort and random-stream semantics) and `rust/sim-replay`
-(per-phase replays of recorded battles, [docs/sim-replay.md](sim-replay.md)).
+```bash
+cd rust
+cargo xtask schema [--check] [--export-json <dir>] # entity store, client input, and HUD layouts
+cargo xtask shaders [--check]                      # shader catalog, selectors, and renderer layouts
+cargo xtask presentation-schema [--check]          # presentation frame layouts
+cargo xtask environment-schema [--check]           # destruction and weather layouts
+cargo xtask transport-schema [--check]             # transport packet layouts
+cargo xtask audio-control-schema [--check]         # audio control layouts
+cargo xtask audio-schema [--check]                 # audio mixer layouts
+cargo xtask audio-codec-schema [--check]           # audio codec header layouts
+cargo xtask check                                  # run all generators in --check mode
+cargo xtask matrix --against <dir>                 # compare the 61-cell world-hash matrix against a reference directory
+```
 
-`rust/glbench` and `rust/bfe-native` are development measuring tools.
-`rust/bfe-client` is the native desktop window, input, network and audio host
-(winit, glutin, cpal). It runs the front-end menus and loader, joins online
-servers with `--join`, inspects prepared maps with `--map`, and replays
-version-2 recorded sessions through the shared Rust presentation and renderer;
-see [native-client.md](native-client.md) and [desktop.md](desktop.md).
-`rust/bfe-node` is a development-only Node-API addon, built with
-`npm run host:addon` and not included in release bundles; the dedicated
-server is built natively as `bfeserver` or steps battles in the WebAssembly
-instance ([docs/node-host.md](node-host.md)).
+The simulation schema sources under `rust/sim/schema/*.json` and `rust/sim/schema-test/*.json` are declarative JSON files read by `rust/xtask (sim_schema.rs)`. Commit rebuilt generated files alongside any schema or shader change; `cargo xtask check` fails in CI if any generated file is out of date.
 
 ## Building native packages locally
 
 Native desktop installers, dedicated server archives and update payloads are
 built from the compiled `bfe-client` and `bfeserver` binaries, the Python
 preparation scripts in `tools/`, the per-platform standalone toolchain fetched
-by `build/fetch-toolchain.mjs`, and the legal notices in `LICENSE`,
+by `build/native/fetch-toolchain.py`, and the legal notices in `LICENSE`,
 `THIRD-PARTY-NOTICES.md` and `licenses/`.
 
 1. Compile `bfe-client` and `bfeserver` in release mode with the pinned Rust
@@ -298,7 +252,7 @@ by `build/fetch-toolchain.mjs`, and the legal notices in `LICENSE`,
    target platform (`linux x64`, `linux arm64` or `win x64`):
 
    ```bash
-   node build/fetch-toolchain.mjs linux x64
+   python3 build/native/fetch-toolchain.py linux x64
    ```
 
 3. Stage the unpacked application directory (`dist/native/linux-unpacked`,
@@ -361,66 +315,23 @@ by `build/fetch-toolchain.mjs`, and the legal notices in `LICENSE`,
      --update-payload dist/native/packages/update-linux-x64.tar
    ```
 
-`rust/v8math` is a library for the Rust that must compute what the JavaScript simulation computes, to the last bit: JavaScript's `Math` as V8 13.6 computes it, the V8 in Node 24, which runs the dedicated server. Rust code that has to agree with the simulation calls it and never Rust's own `sin`, `exp` and so on, whose last bits differ. Node 24 hands `Math.pow` and `**` to the C library, so their results depend on the server: `v8math::pow` computes what glibc's `pow` computes on an x86-64 CPU with FMA and AVX2, which the game's servers have. `rust/v8math-check` compares it with V8, natively and as WebAssembly, and should run again whenever the server's Node or C library changes:
+### Continuous integration (`.github/workflows/ci.yml`)
 
-```bash
-cd rust
-cargo build --release -p v8math-check
-cargo build --release --target wasm32-unknown-unknown -p v8math-check --lib
-target/release/v8math-check --node "$(command -v node)" --special all       # the special values
-target/release/v8math-check --node "$(command -v node)" --chunks 0..64 --jobs 8 all
-node v8math-check/check-wasm.mjs --chunks 0..64 --jobs 8 all             # the same, as WebAssembly
-```
+`.github/workflows/ci.yml` validates the workspace on GitHub-hosted Linux and Windows runners using scripts under `build/ci/` and Cargo registry/target caching keyed on `rust/rust-toolchain.toml` and `rust/Cargo.lock`:
 
-Each chunk is 2^20 inputs made from bit patterns; the comments at the top of `v8math-check/src/main.rs` and `check-wasm.mjs` give the options. `target/release/v8math-check --bench` and `node v8math-check/bench.mjs` time the functions natively, as WebAssembly and in V8 itself.
-
-Because the WebAssembly is committed, building, testing and packaging the browser and Electron builds needs no Rust. Changing the Rust crates needs rustup, which installs the release `rust/rust-toolchain.toml` pins, with the wasm32 target, when cargo first runs under `rust/` (or run `rustup toolchain install` there), and the wasm-bindgen CLI of the version `rust/Cargo.lock` locks:
-
-```bash
-cargo install wasm-bindgen-cli --version 0.2.130 --locked
-npm run rust:build    # all; node tools/build-rust.mjs sim (or audio, codec, presentation, or renderer) builds one
-npm run rust:check    # rebuild all and compare with the committed files
-
-# From rust/, the pure-Rust xtask workspace tool runs the same generators and builds:
-cd rust
-cargo xtask schema [--check]               # entity store, client input, and HUD layouts (tools/sim-schema.mjs)
-cargo xtask shaders [--check]              # shader catalog, selectors, and renderer layouts (tools/render-shaders.mjs)
-cargo xtask presentation-schema [--check]  # presentation frame layouts (tools/presentation-schema.mjs)
-cargo xtask environment-schema [--check]   # destruction and weather layouts (tools/environment-schema.mjs)
-cargo xtask transport-schema [--check]     # transport packet layouts (tools/transport-schema.mjs)
-cargo xtask audio-control-schema [--check] # audio control layouts (tools/audio-control-schema.mjs)
-cargo xtask audio-schema [--check]         # audio mixer layouts (tools/audio-schema.mjs)
-cargo xtask audio-codec-schema [--check]   # audio codec header layouts (tools/audio-codec-schema.mjs)
-cargo xtask host-contract [--check]        # host boundary fingerprint (tools/host-contract.mjs)
-cargo xtask build [sim] [audio] [environment] [codec] [presentation] [renderer] [images] [textures] [--check]
-cargo xtask check                          # rebuild all and compare with the committed files
-```
-
-The simulation schema sources under `rust/sim/schema/*.mjs` and `rust/sim/schema-test/*.mjs` remain JavaScript-syntax declarative files read directly by the `xtask` schema evaluator (`rust/xtask/src/schema_eval.rs`) rather than being converted to `.json`. `HOST_SCHEMA` (`rust/xtask/src/host_contract.rs` / `tools/host-contract.mjs`) hashes the raw `rust/sim/schema/*.mjs` files into `HOST_CONTRACT_HASH`, so converting those files to JSON would change the wire compatibility hash (`0x952b2d5a`) and is a release-boundary decision for the lead.
-
-`tools/build-rust.mjs` builds with `Cargo.lock` as it is (`--locked`) and writes Cargo's home folder as `/cargo` in the file names that panic messages carry, so the bytes do not depend on where the repository or Cargo's downloads are. On Windows, Rust writes those names with backslashes, which changes the bytes: build in WSL there, or take the files CI rebuilt.
-
-Commit the rebuilt files with the Rust change that made them; `npm run rust:check` before committing a change under `rust/` fails if one is out of date. After a merge, rebuild them rather than merging their lines (`.gitattributes` makes Git keep one side of a generated file that conflicts). A new toolchain or wasm-bindgen version changes the bytes as well, so commit the rebuilt files with it.
-
-CI's `rust` job (`.github/workflows/ci.yml`) installs the pinned toolchain and wasm-bindgen, then runs `node tools/build-rust.mjs --check` and the unit tests of `sim` (with its `replay` feature, which reads and writes the replay harness's values), `sim-replay`, `bfe-render`, `bfe-presentation`, `bfe-pose`, `bfe-environment`, `audio-control`, `content`, `v8math`, `audio` and `audio-decode`. When the check fails, the run keeps the rebuilt files as its `rust-generated` artifact, laid out as `src/` is: committing those is as good as building them. The Electron release jobs package the committed files as they are, and `build/check-packaged.mjs` fails a package whose `app.asar` lacks the renderer. Native desktop and server packages are built and verified by `.github/workflows/release-native.yml`.
-
-### Native CI (`.github/workflows/ci-native.yml`)
-
-`.github/workflows/ci-native.yml` validates the pure-Rust workspace on GitHub-hosted Linux and Windows runners using scripts under `build/ci/` and Cargo registry/target caching keyed on `rust/rust-toolchain.toml` and `rust/Cargo.lock`. During branch validation it triggers on `push` to `rust/fable-ci` as well as `workflow_dispatch`, with a header comment showing the cutover replacement to `push` on `main` plus `pull_request`:
-
-- **`linux` (`ubuntu-24.04`):** Runs `build/ci/check-generated.sh` (checking `tools/native-render-bridge.py --check`, `tools/native-presentation-bridge.py --check`, and `cargo xtask check` when `rust/xtask/Cargo.toml` exists, otherwise running `npm ci` and `npm run rust:check`) and `build/ci/linux.sh` (running `cargo fmt --check`, strict `cargo clippy --locked --all-targets --no-deps -- -D warnings` on the clean crate list plus new native crates as they land, `cargo test --locked` across all workspace native crates, the ALSA null-device audio test `cpal_null_device_runs_master_pcm`, and CLI/service startup checks for `online-tool` and `bfeserver`).
-- **`linux-arm64` (`ubuntu-24.04-arm`, required blocking gate):** Runs `build/ci/linux-arm64.sh`, first executing the self-contained cross-architecture published-bytes determinism gate (`cargo test -p sim --test arm64_determinism`) and the presentation golden oracle (`cargo test -p bfe-presentation --test unit_oracle`), then executing the full workspace native crate test suite on `aarch64` with `--no-fail-fast` and `RUST_BACKTRACE=1 --nocapture`. The same native test suite is a blocking gate in `.github/workflows/release-native.yml`'s `linux-arm64` job.
-- **`windows` (`windows-latest`, MSVC):** Runs `build/ci/windows.sh`, building the native Windows executables (`bfe-client`, `bfe-native`, `bfe-online`, and `bfe-server` / `bfe-desktop` when present) for `x86_64-pc-windows-msvc`, running all device-independent unit and integration tests for `bfe-client`, `bfe-native`, `bfe-content-native`, `bfe-transport`, `bfe-online`, and the new native crates, and running CLI startup checks (`online-tool.exe --help`, `online-tool.exe identity show`, and `bfeserver.exe --version`). Live OpenGL context creation on `windows-latest` stays device-independent because `glutin-winit` defaults to WGL (which resolves to Windows GDI Generic OpenGL 1.1 on headless runners) and `static-frame` / `bfe-native` use `EGL_EXT_device_enumeration` (see [docs/renderer-smoke.md](renderer-smoke.md)).
+- **`linux` (`ubuntu-24.04`):** Runs `build/ci/check-generated.sh` (checking `tools/native-render-bridge.py --check`, `tools/native-presentation-bridge.py --check`, and `cargo xtask check`) and `build/ci/linux.sh` (running `cargo fmt --check`, strict `cargo clippy --locked --all-targets --no-deps -- -D warnings`, `cargo test --locked` across all workspace crates, the ALSA null-device audio test `cpal_null_device_runs_master_pcm`, and CLI/service startup checks for `online-tool` and `bfeserver`).
+- **`linux-arm64` (`ubuntu-24.04-arm`, required blocking gate):** Runs `build/ci/linux-arm64.sh`, first executing the self-contained cross-architecture published-bytes determinism gate (`cargo test -p sim --test arm64_determinism`) and the presentation golden oracle (`cargo test -p bfe-presentation --test unit_oracle`), then executing the full workspace crate test suite on `aarch64` with `--no-fail-fast` and `RUST_BACKTRACE=1 --nocapture`. The same native test suite is a blocking gate in `.github/workflows/release.yml`'s `linux-arm64` job.
+- **`windows` (`windows-latest`, MSVC):** Runs `build/ci/windows.sh`, building the native Windows executables (`bfe-client`, `bfeserver`, `bfe-online`) for `x86_64-pc-windows-msvc`, running all device-independent unit and integration tests, and running CLI startup checks (`online-tool.exe --help`, `online-tool.exe identity show`, and `bfeserver.exe --version`). Live OpenGL context creation on `windows-latest` stays device-independent because `glutin-winit` defaults to WGL (which resolves to Windows GDI Generic OpenGL 1.1 on headless runners) and `static-frame` uses `EGL_EXT_device_enumeration` (see [docs/renderer-smoke.md](renderer-smoke.md)).
 - **`renderer-smoke-native` (`ubuntu-24.04`):** Builds `bfe-client`, `static-frame`, `static-fixture`, and `fingerprint`, then runs `python3 tools/renderer-smoke-native.py` over Mesa `llvmpipe` (`LIBGL_ALWAYS_SOFTWARE=1`) and `xvfb-run`. It verifies synthetic static geometry against `tests/fixtures/static-geometry-hashes.json`, renders `sky`, `props`, `foliage`, and `water` offscreen over EGL, writes and validates a 640x360 PNG contact sheet (`renderer-smoke-native.png`), runs windowed `bfe-client --map room` under Xvfb, and uploads both `renderer-smoke-native.png` and `renderer-smoke-native.jsonl` as workflow artifacts.
 
 ### Cross-architecture determinism and local `aarch64` testing (`qemu-user`)
 
-Linux ARM64 (`aarch64-unknown-linux-gnu`) is a shipping target for both `bfe-client` and `bfeserver`, and multiplayer requires every client and the server to compute identical simulation, presentation and wire-publication bits across `x86_64`, `aarch64` and `wasm32`. The engine follows strict floating-point determinism rules across all architectures:
+Linux ARM64 (`aarch64-unknown-linux-gnu`) is a shipping target for both `bfe-client` and `bfeserver`, and multiplayer requires every client and the server to compute identical simulation, presentation and wire-publication bits across `x86_64` and `aarch64`. The engine follows strict floating-point determinism rules across all architectures:
 
-- **Transcendentals and JavaScript `Math` (`rust/v8math`, `rust/jsrt`):** Simulation (`rust/sim`), pose sampling (`rust/bfe-pose`), presentation (`rust/bfe-presentation`), environment (`rust/bfe-environment`), content (`rust/content`) and three.js math (`rust/three`) never call platform `libm` (`f64::sin`, `cos`, `tan`, `atan`, `atan2`, `acos`, `asin`, `exp`, `ln`, `log2`, `log10`, `cbrt`, `hypot`, `powf`). Instead they call `v8math`, which ports V8 13.6's `fdlibm` (`src/base/ieee754.cc`) in pure Rust without hardware FMA contraction, and `v8math::pow`, which emulates x86-64 FMA in software (`fma_sw` using `i128` 106-bit intermediate mantissas) so `aarch64` and `wasm32` produce the exact same last bits as `x86_64`.
-- **No hardware FMA contraction in IEEE-754 operations:** Rust never contracts `a * b + c` into hardware FMA unless `mul_add` is called explicitly, and no simulation, pose, presentation or `three` crate calls `mul_add`. In JavaScript test oracles that synthesize angles with `Math.sin` / `Math.cos` (such as `rust/bfe-presentation/tests/unit_oracle.rs` running `tests/presentation-units.test.js`), official `linux-arm64` Node 24 binaries are compiled by GCC with `-ffp-contract=fast` on `armv8-a`, which fuses multiply-adds inside V8's C++ `ieee754.cc` and differs by 1 ULP on ~1.5% of inputs. `rust/bfe-presentation/tests/support/v8math_preload.mjs` installs non-FMA `fdlibm` `Math.sin` and `Math.cos` matching `v8math` so JavaScript oracle fixtures generate identical inputs on `aarch64` and `x86_64`.
-- **Rounding, integer conversions, NaN canonicalization and sorting (`rust/jsrt`, `rust/v8math`):** JavaScript rounding (`v8math::round`, `jsrt::conv::round`), `ToInt32` / `ToUint32` (`v8math::to_int32`, `v8math::to_uint32`), `Math.min` / `Math.max` signed-zero and NaN propagation (`jsrt::js_min`, `jsrt::js_max`), `SameValueZero` map keys (`jsrt::same_value_zero`), and stable TimSort (`jsrt::sort`) are implemented in portable bit-exact Rust with no architecture-conditional branches (`cfg(target_arch = "x86_64")` vs `cfg(target_arch = "aarch64")`).
-- **CI published-bytes determinism gate (`rust/sim/tests/arm64_determinism.rs`):** Steps a self-contained multi-tick scenario without external game files—exercising `v8math` transcendentals, soldier/vehicle/item/recon-droid/turret state, `wire::store_capture::Capture`, `wire::retained::Ring` and `wire::publisher::Publisher::run`—and asserts that the SHA-256 digest of all published wire bytes and output descriptor words equals the committed `x86_64` value (`7337c8fd3896f59d7369ed60f31ab62dcb77c259a26ca8788599750eff7cbef8`).
+- **Transcendentals (`rust/v8math`, `rust/jsrt`):** Simulation (`rust/sim`), pose sampling (`rust/bfe-pose`), presentation (`rust/bfe-presentation`), environment (`rust/bfe-environment`), content (`rust/content`) and math (`rust/three`) never call platform `libm` (`f64::sin`, `cos`, `tan`, `atan`, `atan2`, `acos`, `asin`, `exp`, `ln`, `log2`, `log10`, `cbrt`, `hypot`, `powf`). Instead they call `v8math`, which ports `fdlibm` (`ieee754.cc`) in pure Rust without hardware FMA contraction, and `v8math::pow`, which emulates x86-64 FMA in software (`fma_sw` using `i128` 106-bit intermediate mantissas) so `aarch64` produces the exact same last bits as `x86_64`. `rust/v8math-check` benchmarks and verifies `v8math` bit patterns across chunks (`cargo run --release -p v8math-check -- --bench`).
+- **No hardware FMA contraction in IEEE-754 operations:** Rust never contracts `a * b + c` into hardware FMA unless `mul_add` is called explicitly, and no simulation, pose, presentation or `three` crate calls `mul_add`. The presentation golden test (`rust/bfe-presentation/tests/unit_oracle.rs`) synthesizes its scenario angles with `v8math::sin` and `v8math::cos` and formats numbers with `jsrt::numfmt::json_number_into`, asserting the committed SHA-256 digests in `tests/fixtures/presentation/unit-goldens.json` identically on `x86_64` and `aarch64`.
+- **Rounding, integer conversions, NaN canonicalization and sorting (`rust/jsrt`, `rust/v8math`):** Rounding (`v8math::round`, `jsrt::conv::round`), `ToInt32` / `ToUint32` (`v8math::to_int32`, `v8math::to_uint32`), signed-zero and NaN propagation (`jsrt::js_min`, `jsrt::js_max`), `SameValueZero` map keys (`jsrt::same_value_zero`), and stable TimSort (`jsrt::sort`) are implemented in portable bit-exact Rust with no architecture-conditional branches (`cfg(target_arch = "x86_64")` vs `cfg(target_arch = "aarch64")`).
+- **CI published-bytes determinism gate (`rust/sim/tests/arm64_determinism.rs`):** Steps a self-contained multi-tick scenario without external game files, exercising `v8math` transcendentals, soldier/vehicle/item/recon-droid/turret state, `wire::store_capture::Capture`, `wire::retained::Ring` and `wire::publisher::Publisher::run`, and asserts that the SHA-256 digest of all published wire bytes and output descriptor words equals the committed `x86_64` value (`7337c8fd3896f59d7369ed60f31ab62dcb77c259a26ca8788599750eff7cbef8`).
 
 To cross-compile and run the `aarch64-unknown-linux-gnu` test suites locally on an `x86_64` Linux machine using `qemu-user-static`:
 

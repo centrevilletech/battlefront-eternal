@@ -506,7 +506,7 @@ pub fn decode_entity_input(bytes: &[u8]) -> Result<DecodedInputPacket, &'static 
 /// porting `buildEntityRegistry()` in `packages/bfe-server/src/world-worker.js`.
 ///
 /// Why the registry is hashed and sorted deterministically by `typeId`:
-/// Both the Electron client (`packages/bfe-net`) and native `bfe-client` verify the 64-hex SHA-256
+/// Native `bfe-client` verifies the 64-hex SHA-256
 /// `hash` over the canonical `typeId:className:category` table before decoding any `bni1` state
 /// snapshot, preventing silent quantization mismatches if content packs differ.
 pub fn build_entity_registry_descriptor(
@@ -848,7 +848,7 @@ pub fn decode_publication_block(
 /// from `packages/bfe-server/src/world-worker.js`.
 ///
 /// Includes `serverId`, `epoch`, `tick`, `playerId`, `slot`, `team`, `map`, `mode`, `match`, and
-/// `maxPlayers` so both `bfe-client` and the Electron renderer can initialize their local world
+/// `maxPlayers` so `bfe-client` can initialize their local world
 /// state and HUD before the first `bni1` state snapshot arrives on Channel 2.
 pub fn build_welcome_message(info: &Value, server_id: &str, player: &PlayerWelcome) -> Value {
     let mut map = info.as_object().cloned().unwrap_or_default();

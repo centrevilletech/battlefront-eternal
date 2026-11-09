@@ -23,8 +23,8 @@
 //!    - `decode_entity_input_and_snapshot_ack_keepalive_validate_wire_format`
 //!    - `decode_publication_block_emits_acks_edges_gameplay_events_and_state_packets`
 //!    - `local_dedicated_server_full_join_entity_registry_welcome_and_publication_replay`
-//! 6. **Cross-runtime JS `UdpEndpoint` interop & 16-client load (`src/net/endpoint.js`, `src/udp-server.js`)**:
-//!    - `js_udp_endpoint_client_joins_bfeserver_and_exchanges_events_and_snapshots`
+//! 6. **`Endpoint` BNI1/BNA1 session & 16-client load**:
+//!    - `udp_endpoint_client_joins_bfeserver_and_exchanges_events_and_snapshots`
 //!    - `sixteen_concurrent_clients_join_and_exchange_state_with_local_dedicated_server`
 //! 7. **Master directory & WebSocket rendezvous signaling (`src/online-server.js`, `src/master-client.js`)**:
 //!    - `online_server_registers_with_master_and_relays_signaling_over_websocket`
@@ -55,8 +55,8 @@
 //!   - Authoritative `Publication` blocks unpacked into Channel 0 reliable events, Channel 2 shared
 //!     multicast delta groups (`OutgoingSharedGroup`), and owner-private state snapshots
 //!     (`OutgoingOwnPacket`) capped at `state_budget_bytes` (`512..=1200` B).
-//! - Cross-language interop between the Electron network-process JavaScript `UdpEndpoint` client and
-//!   the Rust `bfeserver` UDP socket over live loopback datagrams, plus 16-client full-lobby load.
+//! - End-to-end `bfe_transport::endpoint::Endpoint` client and `bfeserver` UDP socket exchange
+//!   over live loopback datagrams, plus 16-client full-lobby load.
 //!
 //! Detailed Node-to-Rust function parity map verified by this test suite:
 //! - `src/network-contract.js`:
@@ -181,7 +181,6 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -370,7 +369,7 @@ fn minimal_content_dir(dir: &Path) -> PathBuf {
 /// Verifies that `network_contract_summary()` (`network_contract.rs`, porting
 /// `packages/bfe-server/src/network-contract.js`) reports the exact transport protocol version,
 /// channel assignments (`0: events`, `1: input`, `2: state`), and wire magic tags (`BFEI`, `bni1`)
-/// expected by the Electron client and `bfe-client`.
+/// expected by `bfe-client` and `bfeserver`.
 fn network_contract_matches_transport_schema() {
     let c = NetworkContract::current();
     assert_eq!(c.manifest_version, layout_contract::MANIFEST_VERSION);
@@ -1407,20 +1406,14 @@ fn local_dedicated_server_full_join_entity_registry_welcome_and_publication_repl
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// Cross-runtime interop test: spawns a Node child process running the Electron network process's
-/// `UdpEndpoint` (`src/net/endpoint.js`), connects to `LocalDedicatedServer` over `BFE-UDP/1`,
-/// exchanges `BNI1` + `BNA1` input datagrams, and verifies `entity-registry`, `welcome`, `reply`,
-/// `input-ack`, `entity-edge-results`, `gameplay-events`, `BNS1`, and `BNO1`.
+/// End-to-end `bfe_transport::endpoint::Endpoint` client <-> `LocalDedicatedServer` session gate:
+/// - Connects a Rust `Endpoint` client over `BFE-UDP/1` to a live `LocalDedicatedServer` UDP socket.
+/// - Exchanges `BNI1` + `BNA1` input datagrams (`decode_entity_input` + `decode_snapshot_ack_keepalive`)
+///   and verifies `entity-registry`, `welcome`, `reply`, `input-ack`, `entity-edge-results`,
+///   `gameplay-events`, `BNS1`, and `BNO1`.
 #[test]
-/// Cross-language Node.js `UdpEndpoint` (`packages/bfe-net`) <-> Rust `bfeserver` (`LocalDedicatedServer`)
-/// interop gate:
-/// - Spawns Node.js running the real Electron network-process `UdpEndpoint` client against a live
-///   Rust `LocalDedicatedServer` UDP socket.
-/// - Verifies full encrypted handshake, `entity-registry` binary table reception, `welcome` event,
-///   bidirectional reliable Channel 0 events, Channel 1 `BFEI` v2 player inputs + `snapshot-ack`,
-///   and Channel 2 `bni1` authoritative state snapshots.
-fn js_udp_endpoint_client_joins_bfeserver_and_exchanges_events_and_snapshots() {
-    let dir = temp_dir("js-interop");
+fn udp_endpoint_client_joins_bfeserver_and_exchanges_events_and_snapshots() {
+    let dir = temp_dir("endpoint-interop");
     let content_root = minimal_content_dir(&dir);
     let cfg = ServerConfig {
         data: content_root.to_string_lossy().into_owned(),
@@ -1439,194 +1432,125 @@ fn js_udp_endpoint_client_joins_bfeserver_and_exchanges_events_and_snapshots() {
     )
     .expect("start local server");
 
-    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap();
-
-    let bni1_hex: String = build_sample_bni1_packet(1, 1, 1, 10)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let bni1 = build_sample_bni1_packet(1, 1, 1, 10);
     let mut bna1 = Vec::with_capacity(10);
     bna1.extend_from_slice(&ACK_MAGIC.to_le_bytes());
     bna1.extend_from_slice(&1u16.to_le_bytes());
     bna1.extend_from_slice(&10u32.to_le_bytes());
-    let bna1_hex: String = bna1.iter().map(|b| format!("{b:02x}")).collect();
 
-    let js_script = r#"
-import { generateKeyPairSync } from 'node:crypto';
-import { UdpEndpoint } from './src/net/endpoint.js';
-import { identityKeys } from './src/net/crypto.js';
-import { NETWORK_CONTRACT } from './src/net/layout.js';
-import { decodeEntityInput, decodeSnapshotAckKeepalive } from './src/runtime/network-entity-input.js';
+    let decoded_input = decode_entity_input(&bni1).expect("decode BNI1 entity input");
+    assert_eq!(decoded_input.commands[0].sequence, 1);
+    let decoded_ack = decode_snapshot_ack_keepalive(&bna1).expect("decode BNA1 snapshot ack");
+    assert_eq!(decoded_ack, (1, 10));
 
-const port = Number(process.env.SERVER_PORT);
-const serverId = process.env.SERVER_ID;
-const host = process.env.SERVER_HOST;
-const content = process.env.SERVER_FINGERPRINT;
-const bni1 = new Uint8Array(Buffer.from(process.env.BNI1_HEX, 'hex'));
-const bna1 = new Uint8Array(Buffer.from(process.env.BNA1_HEX, 'hex'));
+    let server_addr_str = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), server.port).to_string();
+    let client_id = Identity::generate().expect("generate client identity");
+    let hello = serde_json::to_vec(&json!({
+        "name": "RustTrooper",
+        "protocol": layout_contract::PROTOCOL,
+        "profile": layout_contract::PROFILE,
+        "simulation": layout_contract::SIMULATION,
+        "content": server.fingerprint,
+    }))
+    .unwrap();
+    let mut client =
+        Endpoint::connect(&server_addr_str, client_id, srv_id.inner.id, &hello).expect("connect");
 
-// Verify JS side also decodes the BNI1 + BNA1 packets identically
-const jsDecodedInput = decodeEntityInput(bni1);
-const jsDecodedAck = decodeSnapshotAckKeepalive(bna1);
+    let mut events: Vec<String> = Vec::new();
+    let mut state_magics: Vec<u32> = Vec::new();
 
-const kp = generateKeyPairSync('ed25519');
-const clientIdentity = identityKeys({
-  publicKey: kp.publicKey.export({ format: 'der', type: 'spki' }).toString('base64'),
-  privateKey: kp.privateKey.export({ format: 'pem', type: 'pkcs8' }),
-});
-const endpoint = new UdpEndpoint({ identity: clientIdentity });
-await endpoint.listen({ host, port: 0, ipv6: false });
-
-const session = await endpoint.connect({
-  serverId,
-  candidates: [{ address: host, port, family: 4 }],
-  hello: {
-    name: 'JSTrooper',
-    protocol: NETWORK_CONTRACT.protocol,
-    profile: NETWORK_CONTRACT.profile,
-    simulation: NETWORK_CONTRACT.simulation,
-    content,
-  },
-  timeoutMs: 3000,
-});
-
-const events = [];
-const stateMagics = [];
-let sentStart = false;
-
-session.on('message', (lane, payload) => {
-  if (lane === 'events') {
-    const text = typeof payload === 'string' ? payload : new TextDecoder().decode(payload);
-    const msg = JSON.parse(text);
-    events.push(msg.type);
-    if (msg.type === 'welcome' && !sentStart) {
-      sentStart = true;
-      session.send('events', JSON.stringify({
-        type: 'call',
-        id: 1,
-        method: 'start',
-        args: { name: 'JSTrooper' },
-      }));
-      session.send('state', bni1);
-      session.send('state', bna1);
-      session.flush();
-    }
-  } else if (lane === 'state' && payload.byteLength >= 4) {
-    const magic = new DataView(payload.buffer, payload.byteOffset, payload.byteLength).getUint32(0, true);
-    stateMagics.push(magic);
-  }
-});
-session.resume();
-
-const deadline = Date.now() + 3500;
-while (Date.now() < deadline) {
-  if (
-    events.includes('entity-registry') &&
-    events.includes('welcome') &&
-    events.includes('reply') &&
-    events.includes('input-ack') &&
-    events.includes('entity-edge-results') &&
-    events.includes('gameplay-events') &&
-    stateMagics.includes(0x31534e42) &&
-    stateMagics.includes(0x314f4e42)
-  ) {
-    break;
-  }
-  await new Promise((r) => setTimeout(r, 15));
-}
-
-session.close();
-await endpoint.close();
-process.stdout.write(JSON.stringify({
-  events,
-  stateMagics,
-  jsInputSeq: jsDecodedInput.commands[0].sequence,
-  jsAckTick: jsDecodedAck.tick,
-}) + '\n');
-process.exit(0);
-"#;
-
-    let host_str = Ipv4Addr::LOCALHOST.to_string();
-    let mut child = Command::new("node")
-        .arg("--input-type=module")
-        .arg("-e")
-        .arg(js_script)
-        .current_dir(repo_root)
-        .env("SERVER_PORT", server.port.to_string())
-        .env("SERVER_ID", &srv_id.id)
-        .env("SERVER_HOST", &host_str)
-        .env("SERVER_FINGERPRINT", &server.fingerprint)
-        .env("BNI1_HEX", &bni1_hex)
-        .env("BNA1_HEX", &bna1_hex)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn node JS client");
+    client
+        .establish(Duration::from_secs(3), &mut |lane, text, bytes, _now| {
+            if text && lane == Lane::Events {
+                if let Ok(v) = serde_json::from_slice::<Value>(bytes) {
+                    if let Some(t) = v.get("type").and_then(Value::as_str) {
+                        events.push(t.to_string());
+                    }
+                }
+            } else if !text && lane == Lane::State && bytes.len() >= 4 {
+                state_magics.push(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
+            }
+        })
+        .expect("establish BFE-UDP/1 connection");
 
     let start = Instant::now();
+    let mut sent_start = false;
     let mut pushed_pub = false;
-    while start.elapsed() < Duration::from_secs(5) {
-        let stats = server.stats();
-        if !pushed_pub && stats.len() == 1 {
-            let bytes_in = stats[0]
-                .get("net")
-                .and_then(|n| n.get("totalBytesIn"))
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
-            if bytes_in >= 60 {
-                pushed_pub = true;
-                let now_unix_ms = bfe_server::udp_server::UdpGameServer::unix_ms();
-                server.push_recorded_publication(build_synthetic_publication(
-                    1,
-                    1,
-                    120,
-                    now_unix_ms,
-                ));
+
+    while start.elapsed() < Duration::from_secs(4) {
+        client
+            .pump(&mut |lane, text, bytes, _now| {
+                if text && lane == Lane::Events {
+                    if let Ok(v) = serde_json::from_slice::<Value>(bytes) {
+                        if let Some(t) = v.get("type").and_then(Value::as_str) {
+                            events.push(t.to_string());
+                        }
+                    }
+                } else if !text && lane == Lane::State && bytes.len() >= 4 {
+                    state_magics.push(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
+                }
+            })
+            .expect("pump client");
+
+        let has_welcome = events.iter().any(|t| t == "welcome");
+        if has_welcome && !sent_start {
+            sent_start = true;
+            let call = serde_json::to_vec(&json!({
+                "type": "call",
+                "id": 1,
+                "method": "start",
+                "args": {"name": "RustTrooper"},
+            }))
+            .unwrap();
+            let _ = client.send(Lane::Events, true, &call);
+            let _ = client.send(Lane::State, false, &bni1);
+            let _ = client.send(Lane::State, false, &bna1);
+            let _ = client.flush();
+        }
+
+        if sent_start && !pushed_pub {
+            let stats = server.stats();
+            if stats.len() == 1 {
+                let bytes_in = stats[0]
+                    .get("net")
+                    .and_then(|n| n.get("totalBytesIn"))
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
+                if bytes_in >= 60 {
+                    pushed_pub = true;
+                    let now_unix_ms = bfe_server::udp_server::UdpGameServer::unix_ms();
+                    server.push_recorded_publication(build_synthetic_publication(
+                        1,
+                        1,
+                        120,
+                        now_unix_ms,
+                    ));
+                }
             }
         }
-        if let Ok(Some(_)) = child.try_wait() {
+
+        if events.iter().any(|t| t == "entity-registry")
+            && events.iter().any(|t| t == "welcome")
+            && events.iter().any(|t| t == "reply")
+            && events.iter().any(|t| t == "input-ack")
+            && events.iter().any(|t| t == "entity-edge-results")
+            && events.iter().any(|t| t == "gameplay-events")
+            && state_magics.contains(&SNAPSHOT_MAGIC)
+            && state_magics.contains(&OWN_MAGIC)
+        {
             break;
         }
-        std::thread::sleep(Duration::from_millis(15));
+        std::thread::sleep(Duration::from_millis(10));
     }
 
-    let output = child.wait_with_output().expect("wait for node client");
-    let stderr_str = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        output.status.success(),
-        "node JS client exited cleanly: stderr={stderr_str}"
-    );
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
-    let result: Value =
-        serde_json::from_str(stdout_str.trim()).expect("parse JS client JSON output");
-
-    let ev_list: Vec<&str> = result
-        .get("events")
-        .and_then(Value::as_array)
-        .unwrap()
-        .iter()
-        .filter_map(Value::as_str)
-        .collect();
-    assert!(ev_list.contains(&"entity-registry"));
-    assert!(ev_list.contains(&"welcome"));
-    assert!(ev_list.contains(&"reply"));
-    assert!(ev_list.contains(&"input-ack"));
-    assert!(ev_list.contains(&"entity-edge-results"));
-    assert!(ev_list.contains(&"gameplay-events"));
-
-    let magics: Vec<u64> = result
-        .get("stateMagics")
-        .and_then(Value::as_array)
-        .unwrap()
-        .iter()
-        .filter_map(Value::as_u64)
-        .collect();
-    assert!(magics.contains(&(SNAPSHOT_MAGIC as u64)), "JS received BNS1");
-    assert!(magics.contains(&(OWN_MAGIC as u64)), "JS received BNO1");
+    assert!(events.iter().any(|t| t == "entity-registry"));
+    assert!(events.iter().any(|t| t == "welcome"));
+    assert!(events.iter().any(|t| t == "reply"));
+    assert!(events.iter().any(|t| t == "input-ack"));
+    assert!(events.iter().any(|t| t == "entity-edge-results"));
+    assert!(events.iter().any(|t| t == "gameplay-events"));
+    assert!(state_magics.contains(&SNAPSHOT_MAGIC), "client received BNS1");
+    assert!(state_magics.contains(&OWN_MAGIC), "client received BNO1");
 
     server.close();
     let _ = fs::remove_dir_all(&dir);

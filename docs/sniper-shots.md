@@ -17,7 +17,7 @@ plasma bolt instead, faded the same way.
 
 ## Enhanced
 
-`src/sniper-trace.js`, a batch of the ordnance's particle renderer. Each round
+`rust/sim` (`sniper-trace`), a batch of the ordnance's particle renderer. Each round
 `draw_bolt` draws is handed over with the gun as drawn, the round's own origin
 and line, and whether its flight has ended; the trace keeps its own record of
 the shot, so the smoke and sparks outlive the bolt. Each army keeps its round's
@@ -110,8 +110,8 @@ online"). The authority still decides the damage.
 
 ## Checks
 
-`tests/sniper-deep-dive.test.js` covers the trace's life (the muzzle puff,
+`cargo test --locked --workspace` covers the trace's life (the muzzle puff,
 the bolt drawn in flight, the world's impact and one head shot flourish held
 until it arrives, nothing left after the smoke), the late-press lockout, the
 unrewound shooter, the droideka's shapes and the crosshair's convergence.
-`tests/sniper-bolts-browser.mjs` covers the Classic fade.
+`cargo test --locked --workspace` covers the Classic fade.

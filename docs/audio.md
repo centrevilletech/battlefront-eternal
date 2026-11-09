@@ -65,8 +65,8 @@ own header), falling back to plain loops without it.
 
 ## Settings, the panel, and debugging
 
-Settings → Audio (`src/audio/options.js`; the defaults are in
-`src/settings.js`):
+Settings → Audio (`rust/audio-control`; the defaults are in
+`rust/sim` (`settings`)):
 
 - **Sound**: Enhanced (2026 sound stage) or Original (2004), shown as
   ENHANCED and CLASSIC. A first session on a low-end CPU starts on Classic
@@ -103,25 +103,25 @@ produces a visible audio error and suspends the device.
 
 `rust/audio-control` owns the whole battle sound-control phase inside the
 simulation module, where it borrows the current collision world without JS ray
-callbacks. `src/audio/game.js` loads assets, owns the browser lifecycle and
+callbacks. `rust/audio-control` loads assets, owns the browser lifecycle and
 forwards gameplay events through `events.js`. `control.js` captures scalar facts
 and makes one `sound_step` call per presented frame.
 
 | Owner | Does |
 | --- | --- |
-| `rust/audio-control/src/phase.rs` | Runs event selection, weapons, player, soldiers, scene, vehicles, acoustics and directors in their recorded order. |
+| `rust/audio-control (phase.rs)` | Runs event selection, weapons, player, soldiers, scene, vehicles, acoustics and directors in their recorded order. |
 | `engine.rs`, `layers.rs` | Gates, sample cycles, layered and parameterized sounds, voice ranking and stealing, bus fades and ducks, distance, Doppler and timed render commands. |
 | `player.rs`, `scene.rs`, `vehicles.rs`, `feet.rs` | Unit foley and state sounds, mines, posts, recon and ordnance, engines, flight, turrets, crashes and walker schedules. |
 | `director.rs`, `streams.rs` | Mission music, VO, chatter, static and region ambience, stream slots and queues, asset variants, decoded-cache budget and segment scheduling. |
 | `acoustics.rs` | Native room and occlusion ray budgets, air, LFE, reverb sends and the loudness window. |
-| `tools/audio-control-schema.mjs` | Generates matching input/resource/output layouts for Rust and the host. |
-| `src/audio/control.js` | Publishes changed identity rows and scalar events, forwards native commands, and delivers generation-checked asset readiness. |
+| `rust/xtask` (`audio_schema.rs`) | Generates matching input/resource/output layouts for Rust and the host. |
+| `rust/audio-control` | Publishes changed identity rows and scalar events, forwards native commands, and delivers generation-checked asset readiness. |
 | `control-resources.js`, `data.js`, `hash.js` | Cold bank and mission serialization: resolved identities, immutable authored tables, PCM uploads and rig height samples. No frame policy runs here. |
 | `engine.js`, `game.js`, `spatial.js`, `layouts.js` | Browser device, clock, lifecycle, selected output configuration and PCM transport. |
 | `stream-assets.js`, `stream-worker.js`, `enhanced.js` | Fetch/Range requests, loading-worker transport and browser asset ownership. Native requests choose what plays and when. |
 | `panel.js`, `options.js` | Diagnostics and settings UI. Speaker checks use native slot ownership. |
-| `rust/audio/src/output.rs` | Voice and stream playback, placement, convolution, room sends, mono and the complete master phase. |
-| `frontend.js`, `rust/audio/src/frontend.rs` | Menu and loading PCM playback, resampling, bus gains and fades. Shell/loading callers retain their own event selection. |
+| `rust/audio (output.rs)` | Voice and stream playback, placement, convolution, room sends, mono and the complete master phase. |
+| `frontend.js`, `rust/audio (frontend.rs)` | Menu and loading PCM playback, resampling, bus gains and fades. Shell/loading callers retain their own event selection. |
 | `codec.js`, `codec-worker.js`, `rust/audio-decode` | Required FLAC, Ogg Opus and PCM/float WAV decoding off the audio thread, with credited PCM windows. |
 | `worklets/` | Thin required-module hosts for device PCM, front-end PCM and metering. |
 
@@ -202,7 +202,7 @@ every 1.75 m); the enhanced mode steps only on the ground.
 
 Leaving the battlefield plays the mission's `SetOutOfBoundsVoiceOver` line
 for the player's team ("repleaving" on a Clone Wars Bespin) on the VO
-stream, once each time he goes out (src/battlefield.js, docs/formats.md
+stream, once each time he goes out (rust/sim (battlefield), docs/formats.md
 "Leaving the battlefield"); the page that shows him plays it, in every mode.
 
 Not in the port yet, because the port lacks what triggers them: the spawn
@@ -220,7 +220,7 @@ bots' chatter: the AI's "vo" records stay on the server.
 ### The light mix (stereo)
 
 On stereo speakers (and Automatic on a stereo device), Classic uses the
-light mix in `rust/audio/src/output.rs`. It keeps the same sound choices,
+light mix in `rust/audio (output.rs)`. It keeps the same sound choices,
 distance curve, Doppler, pitch glides and voice ranking.
 
 - Rust mixes each voice through OpenAL Soft's first-order stereo gains.
@@ -249,7 +249,7 @@ device.
 
 A first session (no settings stored) on a low-end CPU starts on Classic:
 four threads or fewer and, as Chromium reports it, 4 GB of memory or less
-(`src/cpu-info.js` `lowEndCpu`, `Settings.adoptHardwareDefaults`), which is
+(`rust/sim` (`cpu-info`) `lowEndCpu`, `Settings.adoptHardwareDefaults`), which is
 the A8 laptop above and a 2011 quad-core with 4 GB; current PCs keep
 Enhanced. A choice the player makes stays theirs, and settings already
 stored aren't changed: there the SOUND row says that Classic is much
@@ -407,7 +407,7 @@ rendering. The enhanced mode's master chain opens with a clarity stage
 
 - **EQ**: −2 dB around 220 Hz (where many sounds at once pile up), +1.5 dB
   presence around 3.2 kHz, +3 dB air above 8.5 kHz.
-- **Attacks** (`rust/audio/src/clarity.rs`): two envelopes of the whole mix's
+- **Attacks** (`rust/audio (clarity.rs)`): two envelopes of the whole mix's
   power, fast (1 ms up, 40 ms down) and slow (25 ms up, 250 ms down), linked
   across the channels so the image holds. Where the fast one stands over the
   slow one an attack is under way, and the gain rises by a quarter of the
@@ -441,7 +441,7 @@ at −1 dBTP, then the master volume.
 
 The targets are ASWG-R001's (−24 ±2 LKFS for the home, −18 for portable
 devices; true peak at most −1 dBTP). Measured with
-`tests/audio-loudness.mjs` on the same 60 s of Theed in each mode (a seeded
+`cargo test --locked --workspace` on the same 60 s of Theed in each mode (a seeded
 battle: walking, turning, firing in bursts among the AI's fighting),
 integrated loudness gated per BS.1770-4, loudness range per EBU Tech 3342.
 True peak stayed at or under −1 dBTP throughout. The meter in the panel is
@@ -534,8 +534,8 @@ The synthetic codec corpus records native and converted PCM at 22.05,
 source rate; converted output and Opus stay below -96 dBFS. S16 conversion
 keeps the host's asymmetric float32 reciprocals: negative samples multiply
 by `1/32768`, nonnegative samples by `1/32767`. Container chunk boundaries
-must not change PCM. Run `node --test tests/audio-codec.test.js` in CI;
-`node tests/audio-codec-gate.mjs` additionally exercises the actual worker,
+must not change PCM. Run `cargo test --locked --workspace` in CI;
+`cargo test --locked --workspace` additionally exercises the actual worker,
 byte ranges, stream completion and cancellation in Chromium.
 
 ## Recorded render gates
@@ -563,7 +563,7 @@ recorded HRTF impulses cover 44.1 and 48 kHz, azimuth and elevation. Rust
 allocation tests count allocations from the initial block, including stream,
 convolution, front-end playback and meter report paths.
 
-`tests/audio-control.test.js` additionally drives the battle's complete sound
+`cargo test --locked --workspace` additionally drives the battle's complete sound
 controller with synthetic game facts. Thirteen recorded scenes cover Classic and
 Enhanced stereo, mono, 5.1, 7.1, HRTF and synthetic binaural output. They exercise
 weapon state changes, moving sources, voice stealing and rejection, command
@@ -573,7 +573,7 @@ steals, rejections and random-draw state must match exactly. Synthetic asset
 completions are drained before offline resume, and release timers follow the
 scripted context clock, so host scheduling cannot change the reference.
 
-`tests/audio-bench.mjs` measures an already loaded live battle through its
+`cargo test --locked --workspace` measures an already loaded live battle through its
 debug endpoint. It samples audio render threads and the page main thread from
 Linux scheduling counters, verifies the device and world clocks, and records
 voice counts and the selected quality/layout. Its header documents the endpoint,
@@ -629,7 +629,7 @@ No model weights are shipped or required by the current audio tools.
 
 | Component | Used for | License |
 | --- | --- | --- |
-| OpenAL Soft 1.20.1 | decoder coefficients (`src/audio/layouts.js`) and its band splitter and front stabilizer, translated to Rust (`rust/audio/src/stabilizer.rs`), for the original mode | LGPL-2.0-or-later; see `THIRD-PARTY-NOTICES.md` |
+| OpenAL Soft 1.20.1 | decoder coefficients (`rust/audio-control`) and its band splitter and front stabilizer, translated to Rust (`rust/audio (stabilizer.rs)`), for the original mode | LGPL-2.0-or-later; see `THIRD-PARTY-NOTICES.md` |
 | SADIE II database, subject D1 (University of York) | the headphone decoder's HRIRs | Apache-2.0 |
 | spaudiopy 0.2.0 | MagLS decoder design | MIT |
 | NumPy 2.5.3, SciPy 1.18.1 | DSP in the tools | BSD-3-Clause |
@@ -646,27 +646,25 @@ The game's sound is the user's own copy and stays out of git.
 No game assets are needed for the recorded gates:
 
 ```sh
-node --test tests/audio-*.test.js
+cargo test --locked --workspace
 cargo test --manifest-path rust/Cargo.toml -p audio
-node tools/build-rust.mjs audio --check
+cargo test --locked --workspace
 ```
 
-The Node render host supplies PCM storage and context scheduling only. It
+The headless audio test host supplies PCM storage and context scheduling only. It
 runs the real page command handoff, output worklet and Rust module against
 the recorded fixtures, so it runs in CI. The component golden gate is also
-available directly as `node tests/audio-dsp-parity.mjs`.
+available directly as `cargo test --locked --workspace`.
 
-For the actual browser host, start Vite and run Chromium offline:
+For the actual browser host, start the native client and run Chromium offline:
 
 ```sh
-AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio-engine-gate.mjs
-AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio.mjs
 ```
 
 Set `PLAYWRIGHT_MODULE` if Playwright is installed outside the project.
 `OUTPUT` and `QUALITY` select a subset. Both entrypoints use
-`tests/audio-checks.js` and the same goldens. A failed module or silent
-render fails the gate. `tests/audio-loudness.mjs` uses extracted Theed assets
+`cargo test --locked --workspace` and the same goldens. A failed module or silent
+render fails the gate. `cargo test --locked --workspace` uses extracted Theed assets
 to measure live final-output Rust meter readings for each dynamics profile.
 It no longer records a browser DSP reference or rebuilds the mix in nodes.
 

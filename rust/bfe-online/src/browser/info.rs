@@ -141,7 +141,7 @@ pub fn battle_summary_params(battle: Option<&BattleSummary>) -> BTreeMap<String,
     out
 }
 
-// Ports `errorText(error)` in `src/shell/server-browser.js`: strips Electron's
+// Ports `errorText(error)` in `src/shell/server-browser.js`: strips the desktop host's
 // `"Error invoking remote method '...': "` IPC wrapper prefix and any leading
 // JavaScript error constructor prefix (`"Error: "`, `"TypeError: "`, etc.) so
 // the player sees only the actionable failure sentence in the browser banner.

@@ -1,6 +1,6 @@
 //! Unified desktop rich-presence controller, server-name sanitizer, and map catalog reader.
 //!
-//! Mirrors `electron/presence/index.js` (`SCREENS`, `cleanReport`, `serverName`,
+//! Mirrors the desktop host (`SCREENS`, `cleanReport`, `serverName`,
 //! `cleanServer`, `readMapNames`, `createPresence`).
 //!
 //! ## Overview
@@ -31,14 +31,14 @@ use crate::presence::discord::{try_publish_discord_activity, DEFAULT_DISCORD_CLI
 
 /// Validated front-end screen names accepted by [`clean_report`].
 ///
-/// Mirrors `SCREENS` in `electron/presence/index.js`.
+/// Mirrors `SCREENS` in the desktop host.
 pub const SCREENS: &[&str] = &["main", "sp", "ia", "mp", "options", "profile", "start"];
 
 /// Sanitizes a server display name by stripping Unicode control/format characters
 /// and line/paragraph separators (`\u{2028}`, `\u{2029}`), collapsing whitespace,
 /// and truncating to at most 64 Unicode scalar values.
 ///
-/// Mirrors `serverName` in `electron/presence/index.js`.
+/// Mirrors `serverName` in the desktop host.
 pub fn server_name(name: &str) -> Option<String> {
     // Strip ASCII/Unicode control codes and invisible formatting/bidi characters first.
     let filtered: String = name
@@ -71,7 +71,7 @@ fn is_unicode_format_or_line_sep(c: char) -> bool {
 /// Reads the prepared map catalog (`common/shell/shell.json`) under `content_root`
 /// and returns a lowercase `map_id -> display_name` (truncated to 48 chars) map.
 ///
-/// Mirrors `readMapNames` in `electron/presence/index.js`.
+/// Mirrors `readMapNames` in the desktop host.
 pub fn read_map_names(content_root: &Path) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     let path = content_root.join("common").join("shell").join("shell.json");
@@ -123,7 +123,7 @@ pub struct PresenceStatus {
 
 /// Coordinates rich presence state normalization and publishing to Discord and Steam.
 ///
-/// Mirrors the state machine created by `createPresence` in `electron/presence/index.js`.
+/// Mirrors the state machine created by `createPresence` in the desktop host.
 #[derive(Debug, Clone)]
 pub struct PresenceController {
     enabled: bool,

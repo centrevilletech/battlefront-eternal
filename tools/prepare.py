@@ -126,7 +126,7 @@ def emit(kind, **fields):
 
 def add_on_names(game=GAME):
     """The installed add-ons' names (their folders', lower case), sorted: what
-    .prepare.json's addOns records and electron/prepare.js compares. Those
+    .prepare.json's addOns records and the client compares. Those
     a run leaves out are installed too."""
     return sorted(add_on.name for add_on in add_ons(game, everything=True))
 

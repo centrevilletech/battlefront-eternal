@@ -1,0 +1,263 @@
+{
+  "enums": {
+    "IaOperation": [
+      "push",
+      "take",
+      "clear",
+      "enable",
+      "drain",
+      "outcome"
+    ],
+    "ImOperation": [
+      "admit",
+      "push",
+      "take",
+      "clear"
+    ],
+    "IqOperation": [
+      "add",
+      "delete",
+      "has",
+      "clear"
+    ],
+    "IcOperation": [
+      "accept",
+      "clear"
+    ]
+  },
+  "records": {
+    "IaOutcome": {
+      "id": "f64",
+      "status": "str"
+    },
+    "IaEntry": {
+      "$layout": true,
+      "id": "f64",
+      "tick": "f64",
+      "generation": "f64",
+      "actions": "list:str",
+      "human": "list:rec:HsCommand"
+    },
+    "IaHuman": {
+      "command": "rec:HsCommand",
+      "valid": "bool"
+    },
+    "IaState": {
+      "epoch": "f64",
+      "capacity": "f64",
+      "received": "f64",
+      "ack": "f64",
+      "discarded": "f64",
+      "queue": "list:rec:IaEntry",
+      "outcomes": "list:rec:IaOutcome|null"
+    },
+    "IaInput": {
+      "op": "enum:IaOperation",
+      "state": "rec:IaState",
+      "entry": "rec:IaEntry|null",
+      "sameEpoch": "bool",
+      "sameGeneration": "bool",
+      "payloadValid": "bool",
+      "humanValid": "bool",
+      "human": "list:rec:IaHuman",
+      "tick": "f64",
+      "generation": "f64",
+      "id": "f64",
+      "status": "str|null"
+    },
+    "IaResult": {
+      "state": "rec:IaState",
+      "accepted": "bool",
+      "actions": "list:str",
+      "human": "list:rec:HsCommand",
+      "outcomes": "list:rec:IaOutcome",
+      "error": "str|null"
+    },
+    "IfEdge": {
+      "id": "f64",
+      "externalId": "f64|undefined",
+      "tick": "f64",
+      "generation": "f64",
+      "button": "f64",
+      "pressed": "bool",
+      "aimYaw": "f64|undefined",
+      "aimPitch": "f64|undefined",
+      "viewTick": "f64|undefined"
+    },
+    "IfState": {
+      "received": "f64",
+      "queue": "list:rec:IfEdge",
+      "buttons": "f64x2",
+      "pressTicks": "f64x2",
+      "generation": "f64|null",
+      "outcomes": "list:rec:IaOutcome|null"
+    },
+    "IfMovement": {
+      "tick": "f64",
+      "buttons": "f64x2"
+    },
+    "IfInput": {
+      "op": "enum:IaOperation",
+      "state": "rec:IfState",
+      "edge": "rec:IfEdge|null",
+      "epochOne": "bool",
+      "pressedValid": "bool",
+      "sameGeneration": "bool",
+      "tick": "f64",
+      "generation": "f64",
+      "movement": "rec:IfMovement|null",
+      "id": "f64",
+      "status": "str|null"
+    },
+    "IfResult": {
+      "state": "rec:IfState",
+      "accepted": "bool",
+      "shots": "list:rec:IfEdge",
+      "outcomes": "list:rec:IaOutcome",
+      "error": "str|null",
+      "replacedQueue": "bool",
+      "replacedButtons": "bool"
+    },
+    "ImField": {
+      "key": "str",
+      "value": "f64"
+    },
+    "ImLook": {
+      "point": "f64x2",
+      "object": "f64|null"
+    },
+    "ImFire": {
+      "id": "f64",
+      "button": "f64",
+      "pressed": "bool"
+    },
+    "InputViewUpdate": {
+      "$layout": true,
+      "key": "u8",
+      "present": "bool",
+      "view": "rec:WiView"
+    },
+    "ImEntry": {
+      "$layout": true,
+      "publication": "rec:WiView",
+      "codes": "list:str",
+      "identity": "f64",
+      "sequence": "f64",
+      "tick": "f64",
+      "generation": "f64",
+      "down": "f64",
+      "actions": "list:str",
+      "look": "list:rec:ImLook",
+      "lookTotal": "f64x2|null",
+      "view": "list:rec:ImField",
+      "human": "list:rec:HsCommand",
+      "fire": "list:rec:ImFire"
+    },
+    "ImState": {
+      "epoch": "f64",
+      "capacity": "f64",
+      "received": "f64",
+      "ack": "f64",
+      "ackTick": "f64",
+      "discarded": "f64",
+      "queue": "list:rec:ImEntry",
+      "down": "f64|null",
+      "generation": "f64",
+      "late": "f64",
+      "view": "list:rec:ImField",
+      "lookTotal": "f64x2",
+      "stateTick": "f64"
+    },
+    "ImTaken": {
+      "actions": "list:str",
+      "look": "list:rec:ImLook",
+      "human": "list:rec:HsCommand",
+      "fire": "list:rec:ImFire"
+    },
+    "ImInput": {
+      "op": "enum:ImOperation",
+      "state": "rec:ImState",
+      "entry": "rec:ImEntry|null",
+      "sequence": "f64",
+      "epochMatches": "bool",
+      "tick": "f64",
+      "generation": "f64"
+    },
+    "InputMailboxSetup": {
+      "$layout": true,
+      "epoch": "f64",
+      "capacity": "f64",
+      "codes": "list:str"
+    },
+    "InputMailboxCall": {
+      "$layout": true,
+      "op": "enum:ImOperation",
+      "entry": "rec:ImEntry|null",
+      "sequence": "f64",
+      "epochMatches": "bool",
+      "tick": "f64",
+      "generation": "f64"
+    },
+    "ImResult": {
+      "retired": "list:f64",
+      "state": "rec:ImState",
+      "accepted": "bool",
+      "command": "rec:ImTaken|null",
+      "replacedLookTotal": "bool",
+      "error": "str|null",
+      "down": "list:str"
+    },
+    "IqSlot": {
+      "index": "f64",
+      "value": "f64"
+    },
+    "IqCount": {
+      "name": "f64",
+      "count": "f64"
+    },
+    "IqState": {
+      "capacity": "f64",
+      "read": "f64",
+      "write": "f64",
+      "length": "f64",
+      "itemsLength": "f64",
+      "items": "list:rec:IqSlot",
+      "counts": "list:rec:IqCount"
+    },
+    "IqInput": {
+      "op": "enum:IqOperation",
+      "state": "rec:IqState",
+      "name": "f64"
+    },
+    "IqResult": {
+      "state": "rec:IqState",
+      "accepted": "bool",
+      "replacedItems": "bool",
+      "error": "str|null"
+    },
+    "IcState": {
+      "epoch": "f64|undefined",
+      "generation": "f64|undefined",
+      "sequence": "f64|undefined",
+      "down": "list:f64",
+      "queue": "rec:IqState"
+    },
+    "IcInput": {
+      "op": "enum:IcOperation",
+      "state": "rec:IcState",
+      "epoch": "f64|undefined",
+      "generation": "f64|undefined",
+      "sequence": "f64|undefined"
+    },
+    "IcResult": {
+      "state": "rec:IcState",
+      "accepted": "bool",
+      "replacedItems": "bool"
+    },
+    "IkInput": {
+      "down": "list:f64",
+      "plus": "list:f64",
+      "minus": "list:f64"
+    }
+  }
+}

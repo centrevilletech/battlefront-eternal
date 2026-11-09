@@ -2,9 +2,9 @@
 //! `libraryfolders.vdf`, `registry.vdf`) parser, serializer, and non-Steam
 //! shortcut AppID CRC-32 helpers.
 //!
-//! Mirrors `electron/steam/vdf.js` (`TYPE`, `writeMap`, `parseShortcuts`,
+//! Mirrors the desktop host (`TYPE`, `writeMap`, `parseShortcuts`,
 //! `serializeShortcuts`, `field`, `parseTextVdf`) and the AppID/quoting helpers
-//! in `electron/steam/shortcut.js` (`shortcutAppId`, `rungameId`, `quoted`).
+//! in the desktop host (`shortcutAppId`, `rungameId`, `quoted`).
 //!
 //! Valve's binary VDF format represents hierarchical maps of typed key/value pairs:
 //! - `0x00`: nested map (`key\0` followed by child entries terminated by `0x08`)
@@ -19,39 +19,39 @@ use serde::{Deserialize, Serialize};
 
 /// Binary VDF type tag for a nested map object (`0x00`).
 ///
-/// Mirrors `TYPE.MAP` in `electron/steam/vdf.js`.
+/// Mirrors `TYPE.MAP` in the desktop host.
 pub const TYPE_MAP: u8 = 0x00;
 
 /// Binary VDF type tag for a null-terminated UTF-8 string (`0x01`).
 ///
-/// Mirrors `TYPE.STRING` in `electron/steam/vdf.js`.
+/// Mirrors `TYPE.STRING` in the desktop host.
 pub const TYPE_STRING: u8 = 0x01;
 
 /// Binary VDF type tag for a 32-bit little-endian integer (`0x02`).
 ///
-/// Mirrors `TYPE.INT32` in `electron/steam/vdf.js`.
+/// Mirrors `TYPE.INT32` in the desktop host.
 pub const TYPE_INT32: u8 = 0x02;
 
 /// Binary VDF end-of-map marker byte (`0x08`).
 ///
-/// Mirrors `TYPE.END` in `electron/steam/vdf.js`.
+/// Mirrors `TYPE.END` in the desktop host.
 pub const TYPE_END: u8 = 0x08;
 
 /// Alternative binary VDF end-of-map marker byte (`0x0b`).
 ///
-/// Mirrors `TYPE.END_ALT` in `electron/steam/vdf.js`.
+/// Mirrors `TYPE.END_ALT` in the desktop host.
 pub const TYPE_END_ALT: u8 = 0x0b;
 
 /// Maximum nesting depth permitted when parsing binary or text VDF maps (`32`).
 ///
 /// Deeper than any file Steam writes so a corrupt file cannot recurse forever.
-/// Mirrors `MAX_DEPTH` in `electron/steam/vdf.js`.
+/// Mirrors `MAX_DEPTH` in the desktop host.
 pub const MAX_DEPTH: usize = 32;
 
 /// Single non-Steam game shortcut entry inside `userdata/<id>/config/shortcuts.vdf`.
 ///
 /// Represents the fields constructed by `newShortcut` and inspected by
-/// `describeShortcut` in `electron/steam/shortcut.js`.
+/// `describeShortcut` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ShortcutEntry {
@@ -128,7 +128,7 @@ impl Default for ShortcutEntry {
 /// Ensures an executable path is wrapped in double quotes (`"\"/path/to/exe\""`),
 /// matching Steam's `shortcuts.vdf` convention.
 ///
-/// Mirrors `quoted` in `electron/steam/shortcut.js` (idempotent when already quoted).
+/// Mirrors `quoted` in the desktop host (idempotent when already quoted).
 pub fn quote_exe(exe: &str) -> String {
     let trimmed = exe.trim();
     if trimmed.is_empty() {
@@ -146,7 +146,7 @@ pub fn quote_exe(exe: &str) -> String {
 /// Steam ROM Manager, BoilR, and Steam itself use this CRC-32 scheme with the
 /// top bit set so a non-Steam game keeps its library entry, play time, and artwork.
 ///
-/// Mirrors `shortcutAppId` in `electron/steam/shortcut.js`.
+/// Mirrors `shortcutAppId` in the desktop host.
 pub fn compute_shortcut_app_id(exe: &str, app_name: &str) -> u32 {
     let quoted = quote_exe(exe);
     let mut input = String::with_capacity(quoted.len() + app_name.len());
@@ -160,7 +160,7 @@ pub fn compute_shortcut_app_id(exe: &str, app_name: &str) -> u32 {
 /// Computes the 64-bit Steam GameID for a non-Steam shortcut (`(BigInt(appId) << 32n) | 0x02000000n`),
 /// returned as its decimal string representation for `SteamGameId` / `steam://rungameid/<id>`.
 ///
-/// Mirrors `rungameId` in `electron/steam/shortcut.js`.
+/// Mirrors `rungameId` in the desktop host.
 pub fn compute_shortcut_game_id(app_id: u32) -> String {
     let game_id: u64 = ((app_id as u64) << 32) | 0x0200_0000u64;
     game_id.to_string()
@@ -218,7 +218,7 @@ enum VdfValue {
 
 /// Reads a NUL-terminated UTF-8 string starting at `offset` in `buf`.
 ///
-/// Mirrors `Reader.cstring` in `electron/steam/vdf.js`.
+/// Mirrors `Reader.cstring` in the desktop host.
 fn read_cstring(buf: &[u8], offset: usize) -> Result<(String, usize), String> {
     let rel_end = buf[offset..]
         .iter()
@@ -230,7 +230,7 @@ fn read_cstring(buf: &[u8], offset: usize) -> Result<(String, usize), String> {
 
 /// Recursively reads a binary VDF map up to its `TYPE_END` (`0x08`) or `TYPE_END_ALT` (`0x0b`) byte.
 ///
-/// Mirrors `readMap` and `readValue` in `electron/steam/vdf.js`.
+/// Mirrors `readMap` and `readValue` in the desktop host.
 fn read_vdf_map(
     buf: &[u8],
     mut pos: usize,
@@ -288,11 +288,11 @@ fn read_vdf_map(
 /// Parses a binary `shortcuts.vdf` byte buffer into a list of [`ShortcutEntry`] items.
 ///
 /// Handles empty buffers, case-insensitive field names (`AppName` vs `appname`,
-/// `Exe` vs `exe`, matching `field` in `electron/steam/vdf.js`), and numeric
+/// `Exe` vs `exe`, matching `field` in the desktop host), and numeric
 /// index keys (`"0"`, `"1"`, ...).
 ///
-/// Mirrors `parseShortcuts` in `electron/steam/vdf.js` and `describeShortcut`
-/// in `electron/steam/shortcut.js`.
+/// Mirrors `parseShortcuts` in the desktop host and `describeShortcut`
+/// in the desktop host.
 pub fn parse_shortcuts_vdf(buffer: &[u8]) -> Result<Vec<ShortcutEntry>, String> {
     if buffer.is_empty() {
         return Ok(Vec::new());
@@ -321,7 +321,7 @@ pub fn parse_shortcuts_vdf(buffer: &[u8]) -> Result<Vec<ShortcutEntry>, String> 
 
     let mut out = Vec::with_capacity(indexed.len());
     for (_, raw_map) in indexed {
-        // Case-insensitive string field lookup (`field(fields, key)` in `electron/steam/vdf.js`).
+        // Case-insensitive string field lookup (`field(fields, key)` in the desktop host).
         let get_str = |wanted: &[&str]| -> Option<String> {
             for (k, v) in raw_map {
                 if wanted.iter().any(|w| k.eq_ignore_ascii_case(w)) {
@@ -416,7 +416,7 @@ fn push_int_field(out: &mut Vec<u8>, key: &str, val: u32) {
 /// Entries are numbered sequentially from `"0"` in slice order and terminated
 /// by two `TYPE_END` (`0x08`) bytes closing the `shortcuts` map and the root map.
 ///
-/// Mirrors `serializeShortcuts` and `writeMap` in `electron/steam/vdf.js`.
+/// Mirrors `serializeShortcuts` and `writeMap` in the desktop host.
 pub fn serialize_shortcuts_vdf(shortcuts: &[ShortcutEntry]) -> Vec<u8> {
     let mut out = Vec::new();
     // Open the top-level `"shortcuts"` map (`0x00` + `"shortcuts\0"`).
@@ -480,7 +480,7 @@ pub enum TextVdfNode {
 /// into a nested [`BTreeMap`] of [`TextVdfNode`] items.
 ///
 /// Preserves key case and unescapes `\\`, `\"`, `\n`, and `\t` exactly as Steam writes them.
-/// Mirrors `parseTextVdf` in `electron/steam/vdf.js`.
+/// Mirrors `parseTextVdf` in the desktop host.
 pub fn parse_text_vdf(text: &str) -> BTreeMap<String, TextVdfNode> {
     #[derive(Debug)]
     enum Tok {

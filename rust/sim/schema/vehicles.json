@@ -1,0 +1,347 @@
+{
+  "records": {
+    "VehicleWheel": {
+      "$layout": true,
+      "x": {
+        "type": "f64",
+        "mirror": false
+      },
+      "radius": {
+        "type": "f64",
+        "mirror": false
+      },
+      "phase": "f64",
+      "previous": "f64",
+      "tickFrom": "f64|undefined"
+    },
+    "VehicleSeat": {
+      "aimYaw": "f64",
+      "pitch": "f64",
+      "lookYaw": "f64|null",
+      "lookPitch": "f64|null",
+      "lease": "ref:seatLease|null"
+    },
+    "SeatView": {
+      "pitchLimits": "f64x2",
+      "yawLimits": "f64x2|null",
+      "wrapYaw": "bool"
+    },
+    "SeatLeaseView": {
+      "human": "bool|undefined",
+      "unit": "ref:unit|null|undefined",
+      "networkHuman": {
+        "type": "bool|undefined",
+        "mirror": false,
+        "js": "unit.networkHuman"
+      },
+      "forward": {
+        "type": "f64|undefined",
+        "mirror": false,
+        "js": "input.forward"
+      },
+      "right": {
+        "type": "f64|undefined",
+        "mirror": false,
+        "js": "input.right"
+      },
+      "turn": {
+        "type": "f64|undefined",
+        "mirror": false,
+        "js": "input.turn"
+      },
+      "pitch": {
+        "type": "f64|undefined",
+        "mirror": false,
+        "js": "input.pitch"
+      },
+      "brake": {
+        "type": "bool|undefined",
+        "mirror": false,
+        "js": "input.brake"
+      }
+    },
+    "SpawnSlot": {
+      "remaining": "f64",
+      "vehicle": "ref:vehicle|null",
+      "variants": "map:ref:vehicle"
+    },
+    "VehRay": {
+      "origin": "vec3",
+      "direction": "vec3",
+      "far": "f64",
+      "ignore": "f64"
+    },
+    "VehHit": {
+      "found": "bool",
+      "distance": "f64",
+      "point": "vec3",
+      "normal": "vec3",
+      "terrain": "bool",
+      "body": "f64"
+    },
+    "VehPoint": {
+      "position": "vec3"
+    },
+    "VehNumber": {
+      "value": "f64"
+    },
+    "VehNothing": {},
+    "F2Variant": {
+      "pad": "f64",
+      "name": "str"
+    },
+    "VehHull": {
+      "hull": "f64"
+    },
+    "VehDamaged": {
+      "hull": "f64",
+      "amount": "f64",
+      "attacker": "union:OrdnanceOwner"
+    },
+    "VehBlast": {
+      "hull": "f64",
+      "final": "bool",
+      "position": "vec3"
+    },
+    "VehEffect": {
+      "name": "str",
+      "position": "vec3"
+    },
+    "VehMembers": {
+      "indices": "list:f64"
+    },
+    "VehPoints": {
+      "$layout": true,
+      "points": "list:vec3"
+    },
+    "WaterRule": {
+      "interval": "f64",
+      "amount": "f64"
+    }
+  },
+  "kinds": {
+    "vehicles": {
+      "singleton": true,
+      "fields": {
+        "vehicles": "list:vehicle",
+        "slots": "list:rec:SpawnSlot",
+        "spawnOccupant": "vec3|null"
+      }
+    },
+    "vehicle": {
+      "home": "vehicles.vehicles",
+      "class": "Vehicle",
+      "fields": {
+        "name": {
+          "type": "str",
+          "mirror": false
+        },
+        "flying": {
+          "type": "bool",
+          "mirror": false
+        },
+        "walking": {
+          "type": "bool",
+          "mirror": false
+        },
+        "creature": {
+          "type": "bool",
+          "mirror": false
+        },
+        "wheeled": {
+          "type": "bool",
+          "mirror": false
+        },
+        "repulsor": {
+          "type": "bool",
+          "mirror": false
+        },
+        "speed": {
+          "type": "f64",
+          "mirror": false
+        },
+        "reverseSpeed": {
+          "type": "f64",
+          "mirror": false
+        },
+        "strafeSpeed": {
+          "type": "f64",
+          "mirror": false
+        },
+        "acceleration": {
+          "type": "f64",
+          "mirror": false
+        },
+        "deceleration": {
+          "type": "f64",
+          "mirror": false
+        },
+        "turnRate": {
+          "type": "f64",
+          "mirror": false
+        },
+        "hover": {
+          "type": "f64",
+          "mirror": false
+        },
+        "boundsMin": {
+          "type": "vec3",
+          "mirror": false,
+          "js": "bounds.min"
+        },
+        "boundsMax": {
+          "type": "vec3",
+          "mirror": false,
+          "js": "bounds.max"
+        },
+        "center": {
+          "type": "vec3",
+          "mirror": false
+        },
+        "size": {
+          "type": "vec3",
+          "mirror": false
+        },
+        "boundRadius": {
+          "type": "f64",
+          "mirror": false
+        },
+        "probeRadius": {
+          "type": "f64",
+          "mirror": false
+        },
+        "probes": {
+          "type": "list:vec3",
+          "mirror": false
+        },
+        "supportProbes": {
+          "type": "list:vec3",
+          "mirror": false
+        },
+        "maxHealth": {
+          "type": "f64",
+          "mirror": false
+        },
+        "waterRule": {
+          "type": "rec:WaterRule|null",
+          "mirror": false
+        },
+        "waterDepth": {
+          "type": "f64",
+          "mirror": false
+        },
+        "body": {
+          "type": "ref:body",
+          "mirror": false
+        },
+        "position": "vec3",
+        "previous": "vec3",
+        "velocity": "vec3",
+        "yaw": "f64",
+        "previousYaw": "f64",
+        "tilt": "f64",
+        "roll": "f64",
+        "previousTilt": "f64",
+        "previousRoll": "f64",
+        "yawRate": "f64",
+        "tiltRate": "f64",
+        "rollRate": "f64",
+        "support": "f64",
+        "forwardInput": "f64",
+        "rightInput": "f64",
+        "alive": "bool",
+        "sleeping": "bool|undefined",
+        "health": "f64",
+        "dying": "f64",
+        "waterClock": "f64",
+        "quaternion": "quat",
+        "matrix": "mat4",
+        "itemCenter": "vec3",
+        "supportNormal": "vec3",
+        "legSide": "list:f64|undefined",
+        "seatIndex": "f64",
+        "driver": "ref:vehicleDriver|null",
+        "wheels": "list:rec:VehicleWheel",
+        "seats": "list:rec:VehicleSeat",
+        "seatViews": {
+          "type": "list:rec:SeatView",
+          "mirror": false
+        },
+        "seatLeases": {
+          "type": "list:rec:SeatLeaseView",
+          "mirror": false
+        },
+        "tickFrom": "vec3|undefined",
+        "tickFromYaw": "f64|undefined",
+        "tickFromTilt": "f64|undefined",
+        "tickFromRoll": "f64|undefined",
+        "visible": {
+          "type": "bool",
+          "js": "root.visible",
+          "mirror": false
+        },
+        "towTarget": "f64",
+        "towLocal": "vec3",
+        "towLeg": "str",
+        "towAngle": "f64",
+        "towWinding": "f64",
+        "lastAttacker": "union:OrdnanceOwner",
+        "slotIndex": {
+          "type": "f64",
+          "mirror": false
+        },
+        "targetId": {
+          "type": "f64",
+          "mirror": false,
+          "js": "aiTarget.id"
+        },
+        "targetGeneration": {
+          "type": "f64",
+          "mirror": false,
+          "js": "aiTarget.generation"
+        }
+      }
+    },
+    "seatLease": {},
+    "vehicleDriver": {}
+  },
+  "imports": {
+    "f2Variant": {
+      "args": "F2Variant",
+      "result": null
+    },
+    "f2Life": {
+      "args": "VehHull",
+      "result": null
+    },
+    "vehRaycastUnits": {
+      "args": "VehRay",
+      "result": "VehHit"
+    },
+    "vehDamaged": {
+      "args": "VehDamaged",
+      "result": null
+    },
+    "vehDestroyed": {
+      "args": "VehHull",
+      "result": null
+    },
+    "vehExplosion": {
+      "args": "VehBlast",
+      "result": null
+    },
+    "vehEffect": {
+      "args": "VehEffect",
+      "result": null
+    },
+    "vehAimPoint": {
+      "args": "VehHull",
+      "result": "VehPoint"
+    },
+    "vehAimPoints": {
+      "borrow": true,
+      "args": "VehMembers",
+      "result": "VehPoints"
+    }
+  }
+}

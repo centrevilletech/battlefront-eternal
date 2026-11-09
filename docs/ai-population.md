@@ -1,7 +1,7 @@
 # Classic AI: population, spawning, difficulty and objectives
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-runs in `rust/sim/src/ai/` (ported from JavaScript). Function names are the
+runs in `rust/sim/rust/ai/` (ported from JavaScript). Function names are the
 Rust names where the port keeps one, usually the JavaScript name in
 snake_case; object-shaped examples document the behavioral contract.
 
@@ -17,17 +17,17 @@ ownership. Further rules found while implementing are listed under
 | File | What |
 | --- | --- |
 | `tools/zero_ai_mission.py` | Writes `public/maps/<map>/ai-mission.json` (gitignored) |
-| `rust/sim/src/ai/control/difficulty.rs` | `Difficulty`: tiers, skills, curves, mission setters, scheduler numbers, grenade danger delay |
-| `rust/sim/src/battle/spawning.rs` | the roster (Characters), spawn manager clocks, class choice, post queues, spawn-post selection, spawning |
-| `rust/sim/src/ai/control/goals.rs`, `control/mod.rs` | objective selection and publication (`Objectives`, `Core::objectives_*`), reassignment events, recapture, objective destinations, mission controls |
-| `rust/sim/src/ai/owned/population.rs` | objective requests over the canonical Characters, hull crews and command posts |
-| `src/post-data.js`, `src/sim/wasm/mission-teams.js` | `attachPostAI` (post AI properties by name), the page's mission team table |
-| `rust/sim/src/ai/owned/tests/phase.rs`, `ai_control_twin.rs`, `replay_battle.rs` | Rust tests |
+| `rust/sim/rust/ai/control/difficulty.rs` | `Difficulty`: tiers, skills, curves, mission setters, scheduler numbers, grenade danger delay |
+| `rust/sim/rust/battle/spawning.rs` | the roster (Characters), spawn manager clocks, class choice, post queues, spawn-post selection, spawning |
+| `rust/sim/rust/ai/control/goals.rs`, `control/mod.rs` | objective selection and publication (`Objectives`, `Core::objectives_*`), reassignment events, recapture, objective destinations, mission controls |
+| `rust/sim/rust/ai/owned/population.rs` | objective requests over the canonical Characters, hull crews and command posts |
+| `rust/sim` (`post-data`), `rust/sim` | `attachPostAI` (post AI properties by name), the page's mission team table |
+| `rust/sim/rust/ai/owned/tests/phase.rs`, `ai_control_twin.rs`, `replay_battle.rs` | Rust tests |
 | `tests/test_ai_mission_export.py` | `python3 -m unittest tests/test_ai_mission_export.py` |
-| `tests/ai-world-roster.test.js` | the native roster through the page boundary |
+| `cargo test --locked --workspace` | the native roster through the page boundary |
 
 Every random draw goes through the AI's generator A
-(`rust/sim/src/ai/random.rs`) in the original game's order.
+(`rust/sim/rust/ai/random.rs`) in the original game's order.
 
 ## `ai-mission.json`
 
@@ -42,7 +42,7 @@ the map's scripts load. It writes only `public/maps/<map>/ai-mission.json`.
   map: "nab2", world: "naboo2",          // world name from the wrld chunk
   mission: "nab2c",                      // the regular script for --side (rep); the
                                          //   runtime sets it to the battle the URL
-                                         //   plays (src/mission.js selectAIMission)
+                                         //   plays (rust/sim (mission) selectAIMission)
   variants: ["nab2c_h"],                 // the mission's other scripts (historical)
   sources: { "mission.lvl": sha256, "NAB/nab2.lvl": sha256, ... },
   factions: { 0: "none", 1: "alliance", 2: "empire", 3: "republic", 4: "cis", 5: "locals" },
@@ -86,7 +86,7 @@ the map's scripts load. It writes only `public/maps/<map>/ai-mission.json`.
                                          // command vehicles/buildings with class spawn
                                          //   points, from the scripts' side archives;
                                          //   the command vehicles' posts read them
-                                         //   (src/mobile-posts.js)
+                                         //   (rust/sim (mobile-posts))
   names: { "0".."4": { first: [], last: [] }, local: "ROYAL GUARD" },
                                          // bot name lists by faction (English) and the
                                          //   level's local name
@@ -243,7 +243,7 @@ the mission sets them; the battle service must use the same default.
 ## `control/goals.rs`
 
 ```text
-attachPostAI(posts, aiMission, map.spawns)   // src/post-data.js: post.ai from ai-mission.json (by name)
+attachPostAI(posts, aiMission, map.spawns)   // rust/sim (post-data): post.ai from ai-mission.json (by name)
 friendly_spawn(post, team, relation)         // can team spawn here?
 post_weight(post, team, faction)             // 1: ATK[f], 2: DEF[f], 3: DEF[f] if f > 0, else 0
 select_objective(posts, team, faction, random, relation, driver, vehicle_mask, exclude_previous, previous)
@@ -277,7 +277,7 @@ The core reads the difficulty through `Core::curves_for(team)` and
 - `crew(character)` returns null on foot or `{ vehicle, isDriver, driver,
   occupants }` (Characters); `vehicleMask(vehicle)` the vehicle class's
   traversal mask. The world provides both (`crew`,
-  `objective_vehicle_mask`; `rust/sim/src/ai/owned/crew.rs`).
+  `objective_vehicle_mask`; `rust/sim/rust/ai/owned/crew.rs`).
 - Ownership change: for each team 1..7 whose relation to the owner crosses
   between positive and not, its bots sent there draw again; a team whose
   friendly post went neutral also recruits: the registry's units within 60 m
@@ -298,9 +298,9 @@ gives it classes and a unit count, and sets how it stands with the armies
 enemies). The battle fields them through the same modules in single player,
 in a world worker, on a server and on a hosting desktop:
 
-- **Who fights whom:** `missionTeams` (`src/sim/wasm/mission-teams.js`, over the
-  native `ai_mission_teams`, `rust/sim/src/ai/owned/entry.rs`) gives each
-  team's relations, faction and capture team; `src/game.js` hands the table
+- **Who fights whom:** `missionTeams` (`rust/sim`, over the
+  native `ai_mission_teams`, `rust/sim/rust/ai/owned/entry.rs`) gives each
+  team's relations, faction and capture team; `rust/sim` (`game`) hands the table
   to the unit registry (`units.setTeams`), so
   combat, the AI's perception, kill credit, mines and the HUD all read the
   mission's relations (`units.relation(a, b)`, team a's to team b).
@@ -308,13 +308,13 @@ in a world worker, on a server and on a hosting desktop:
   that won't load fields nobody); the spawn manager fills team 3 to its unit
   count and spawns its bots at their own posts' spawn paths or at the ally
   paths of posts their friends hold, up to the locals cap (above).
-- **Keeping them:** the battle (`src/battle.js`) runs the bleed and the
+- **Keeping them:** the battle (`rust/sim` (`battle`)) runs the bleed and the
   no-post count for the armies only. A local team keeps its 2147483647
   reinforcements all battle (each death still spends one), unless it is
   friendly with exactly one army and that army's reinforcements are down to
   its living soldiers: then it has none left.
 - **Posts:** a local's soldier in a capture region counts for its team's
-  capture team (`src/commandposts.js`): the Jawas, friends of both armies,
+  capture team (`rust/sim` (`commandposts`)): the Jawas, friends of both armies,
   for nobody; the Gungans, Ewoks, Wookiees and Geonosians for the army they
   fight beside; the Tusken Raiders and Gamorreans for themselves. Posts
   without a capture region never change hands; posts whose class has no
@@ -402,7 +402,7 @@ not by the `des_` prefix.
   post's plus the authored one (the class parser makes it a turn about the up
   axis, composed with the entity's transform), so the AT-AT's points (5 and
   355 degrees, 8 m out either side) face outward. Command vehicles are such
-  posts while they live (`src/mobile-posts.js`, `CommandPosts.all()`, which
+  posts while they live (`rust/sim` (`mobile-posts`), `CommandPosts.all()`, which
   the spawn manager walks; formats.md "Spawning and the spawn screen").
 - The human's post: kept while eligible; else the eligible post nearest the
   old one; with none, the eligible post nearest any enemy-held post.
@@ -430,7 +430,7 @@ not by the `des_` prefix.
   collision radius and speed, which the extractor doesn't provide for the
   placed posts yet (default 0). A command vehicle's post gives its hull's
   nominal speed and, for the radius, the sphere round its collision bounds
-  (`src/mobile-posts.js`), not the original game's own broadphase sphere.
+  (`rust/sim` (`mobile-posts`)), not the original game's own broadphase sphere.
 - `battle/spawning.rs`: the network, secondary-world and network-occupancy branches
   (fifty peer slots, the 16 living-bot cap, team switching over capacity)
   are not modeled beyond the offline rules; attract mode's clocks are.

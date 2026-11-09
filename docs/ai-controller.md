@@ -1,7 +1,7 @@
 # Classic AI: controller, scheduler, agents, interrupts, patrol, squads
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-runs in `rust/sim/src/ai/` (ported from JavaScript). Function names are the
+runs in `rust/sim/rust/ai/` (ported from JavaScript). Function names are the
 Rust names where the port keeps one, usually the JavaScript name in
 snake_case; object-shaped examples document the behavioral contract.
 
@@ -17,21 +17,21 @@ contract. Further behavior details are under "Further behavior details".
 
 | File | What |
 | --- | --- |
-| `rust/sim/src/ai/control/controller.rs` | the controller's data (source goals, `SourceGoal`, `CommandQueue`, request/alert fields), `goal`/`state`/`role`/`combat_mode` |
-| `rust/sim/src/ai/control/fsm.rs` | the generic state-machine state every controller, agent and helper shares |
-| `rust/sim/src/ai/control/agents.rs` | agent data (`AgentKind`: Wait, WaitSecondary, Random, Follow, Hold, Board, Unboard, the objective agents Trooper/Scout/Repair, MissingCombat), the interrupt helper's state, the degraded direct helper |
-| `rust/sim/src/ai/control/policy.rs` | interrupt acceptance policies, the charge test |
-| `rust/sim/src/ai/control/patrol.rs` | patrol data, patrol-hint query and choice, command-post geometry |
-| `rust/sim/src/ai/control/squads.rs` | squad command kinds, the VO bank and entry lookup |
-| `rust/sim/src/ai/control/scheduler.rs` | the candidate budget, the camera gate, the degraded analog conversion |
-| `rust/sim/src/ai/control/mod.rs` | `Core`: binding, the per-service update, every state machine's entries, interrupts priorities 1 to 8, squad delivery, the scheduler and the AI input step |
-| `rust/sim/src/ai/control/world.rs` | `AiWorld`, what the core asks of the rest of the battle |
-| `rust/sim/src/ai/owned/runtime.rs` | the battle's AI entry points over the canonical stores |
-| `rust/sim/tests/ai_control_twin.rs`, `replay_ai.rs`, `rust/sim/src/ai/owned/tests/phase.rs`, `rust/sim/src/ai/owned/tests/native_phase.rs` | tests |
+| `rust/sim/rust/ai/control/controller.rs` | the controller's data (source goals, `SourceGoal`, `CommandQueue`, request/alert fields), `goal`/`state`/`role`/`combat_mode` |
+| `rust/sim/rust/ai/control/fsm.rs` | the generic state-machine state every controller, agent and helper shares |
+| `rust/sim/rust/ai/control/agents.rs` | agent data (`AgentKind`: Wait, WaitSecondary, Random, Follow, Hold, Board, Unboard, the objective agents Trooper/Scout/Repair, MissingCombat), the interrupt helper's state, the degraded direct helper |
+| `rust/sim/rust/ai/control/policy.rs` | interrupt acceptance policies, the charge test |
+| `rust/sim/rust/ai/control/patrol.rs` | patrol data, patrol-hint query and choice, command-post geometry |
+| `rust/sim/rust/ai/control/squads.rs` | squad command kinds, the VO bank and entry lookup |
+| `rust/sim/rust/ai/control/scheduler.rs` | the candidate budget, the camera gate, the degraded analog conversion |
+| `rust/sim/rust/ai/control/mod.rs` | `Core`: binding, the per-service update, every state machine's entries, interrupts priorities 1 to 8, squad delivery, the scheduler and the AI input step |
+| `rust/sim/rust/ai/control/world.rs` | `AiWorld`, what the core asks of the rest of the battle |
+| `rust/sim/rust/ai/owned/runtime.rs` | the battle's AI entry points over the canonical stores |
+| `rust/sim/tests/ai_control_twin.rs`, `replay_ai.rs`, `rust/sim/rust/ai/owned/tests/phase.rs`, `rust/sim/rust/ai/owned/tests/native_phase.rs` | tests |
 
 ## Using it
 
-The native owner (`rust/sim/src/ai/owned/`) drives one `Core` per battle
+The native owner (`rust/sim/rust/ai/owned/`) drives one `Core` per battle
 through `Runtime` (`owned/runtime.rs`):
 
 - `attach(character)` for every roster Character (humans are ignored);
@@ -226,7 +226,7 @@ setup say. The native owner binds them all:
   (`create_perception`, `attach_controller`, `ingest`, `aim`, `lead_point`,
   ...).
 - Population (`control/goals.rs`, `control/difficulty.rs`,
-  `rust/sim/src/battle/spawning.rs`): objective requests, friendly-spawn
+  `rust/sim/rust/battle/spawning.rs`): objective requests, friendly-spawn
   eligibility, `Core::curves_for`, `Core::is_hard`, post AI properties,
   objective centre, offset and arrival.
 - Vehicles (`vehicles/service.rs`, [ai-vehicles.md](ai-vehicles.md)): the
@@ -478,7 +478,7 @@ command posts whose bans match its AISizeType and republishes its selected
 post to AI passengers; AI passengers copy the current AI driver's post.
 Human occupants are never republished. Seat changes are read on each query.
 
-`rust/sim/src/ai/owned/tests/phase.rs` checks follow handles across recycled actors
+`rust/sim/rust/ai/owned/tests/phase.rs` checks follow handles across recycled actors
 and previous lives, and following humans; the per-phase replays
 (`rust/sim/tests/replay_ai.rs`) cover sampling, trails and objective propagation
 against captured battles when a capture corpus is supplied.

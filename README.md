@@ -5,22 +5,24 @@ with *Star Wars: Battlefront II* (2005) planned. It plays the original game's
 maps, armies, sounds and music from your own Steam or GOG copy, through a new
 renderer, a new audio engine, a rebuilt front end and new netcode.
 
-This repository holds the desktop app and the engine: the Rust renderer,
-60 Hz world simulation and bots, presentation and audio engines,
-the menus, the multiplayer client and the tools that prepare game data from
-your copy. No original game files are included or distributed.
+This repository holds the native desktop client (`bfe-client`), the dedicated
+server (`bfeserver`), and the engine: the Rust renderer, 60 Hz world simulation
+and bots, presentation and audio engines, the menus, the multiplayer client and
+the tools that prepare game data from your copy. No original game files are
+included or distributed.
 
 Much of Battlefront Eternal's code and documentation was written with AI
 coding assistants, directed and play-tested by Josh Lambert.
 
 Website and downloads: <https://battlefronteternal.com>
 
-The Electron app runs the Rust engine as WebAssembly. Rust owns the ordered
-world tick, vehicles, combat, spawning, Classic and Enhanced AI, prediction
-and snapshot publication. It also owns battle drawing, shader sources,
-resource descriptors, textures and render targets, camera and light math,
-displayed body poses, effects, HUD geometry and audio processing. JavaScript
-connects those owners to browser input, loading, menus, devices and networking.
+The desktop client (`bfe-client`) and dedicated server (`bfeserver`) are native
+Rust executables. Rust owns the ordered world tick, vehicles, combat, spawning,
+Classic and Enhanced AI, prediction and snapshot publication. It also owns
+battle drawing, shader sources, resource descriptors, textures and render
+targets, camera and light math, displayed body poses, effects, HUD geometry,
+audio processing, the front-end menus, windowing, input, desktop updates and
+the encrypted UDP transport.
 
 ## What works today
 
@@ -66,31 +68,27 @@ copy of *Star Wars: Battlefront* (2004) from Steam or GOG.
 
 ## Build from source
 
-You need Node.js 24 with npm, Python 3, and your own copy of the game.
+You need the pinned Rust toolchain (`1.99.0`), Python 3, and your own copy of
+the game.
 
 ```bash
 git clone https://github.com/centrevilletech/battlefront-eternal.git
-cd battlefront-eternal
-npm ci
-npm test          # unit tests; no game files needed
-npm run desktop   # builds and starts the desktop app
+cd battlefront-eternal/rust
+cargo test --locked                        # unit tests; no game files needed
+cargo run --release --locked -p bfe-client # builds and starts the desktop client
 ```
 
-`npm run desktop` bundles the dedicated server runtime from
-[battlefront-eternal-server](https://github.com/centrevilletech/battlefront-eternal-server)
-at the revision pinned in `build/host-runtime.json`, builds the engine and
-starts the app. On first launch it finds your copy of the game and prepares
-its data.
+`bfe-client` launches the native desktop application and can also host local or
+public servers using the `bfeserver` binary built from the same workspace. On
+first launch it finds your copy of the game and prepares its data.
 
-The [development guide](docs/development.md) covers the browser development
-build, preparing data with the Python tools, controls and testing.
+The [development guide](docs/development.md) covers building the native
+executables, preparing data with the Python tools, controls and testing.
 
-The [native client](docs/native-client.md) can join an online server directly,
-inspect prepared maps and replay recorded battles in its own window. It is a
-development executable, separate from the Electron app. The
-[Node host guide](docs/node-host.md) describes the native server foundation
-and the production WASM host; shared native phase code does not by itself
-establish a qualified native dedicated server.
+The [native client guide](docs/native-client.md) describes `bfe-client` command-line
+options for joining an online server directly, inspecting prepared maps and
+replaying recorded battles. The [server qualification guide](docs/host-qualification.md)
+covers the dedicated server (`bfeserver`) and its qualification checks.
 
 ## Documentation
 
@@ -108,7 +106,7 @@ establish a qualified native dedicated server.
 ## Related repositories
 
 - [battlefront-eternal-server](https://github.com/centrevilletech/battlefront-eternal-server):
-  the dedicated server, `bfeserver`.
+  the dedicated server distribution and service unit for `bfeserver`.
 - [battlefront-eternal-master](https://github.com/centrevilletech/battlefront-eternal-master):
   the server directory and connection signaling.
 - [battlefront-eternal-relay](https://github.com/centrevilletech/battlefront-eternal-relay):

@@ -1,0 +1,650 @@
+{
+  "enums": {
+    "F3CombatField": [
+      "health",
+      "zoomStep",
+      "dead",
+      "deathTime",
+      "blowApart",
+      "mounted",
+      "gunUnderwater",
+      "team",
+      "player",
+      "deferMuzzles",
+      "random",
+      "remotes"
+    ],
+    "F3WeaponField": [
+      "reserve",
+      "kick",
+      "clip",
+      "heat",
+      "floor",
+      "random",
+      "spreadScale",
+      "yawSpreadOverride",
+      "clearYawSpread"
+    ],
+    "CbShotKind": [
+      "round",
+      "repair",
+      "meleeStart"
+    ],
+    "F3OptionalState": [
+      "absent",
+      "null",
+      "value"
+    ],
+    "F3PresentKind": [
+      "weaponAction",
+      "endWeaponAction",
+      "lightning"
+    ],
+    "F3WeaponAction": [
+      "reload",
+      "shoot",
+      "shoot2",
+      "shoot3"
+    ],
+    "F3Effect": [
+      "headshot",
+      "meleeHit",
+      "meleeDeflect"
+    ],
+    "F3BlastStage": [
+      "present",
+      "event",
+      "finished"
+    ],
+    "F3BodyEvent": [
+      "deathBlast",
+      "blowApart",
+      "respawn"
+    ],
+    "F3HullEvent": [
+      "damaged",
+      "explosionEffect"
+    ]
+  },
+  "unions": {
+    "Attacker": [
+      "undefined",
+      "null",
+      "lit:player",
+      "ref:unit",
+      "ref:vehicle",
+      "ref:ownerSnapshot",
+      "ref:turret"
+    ],
+    "RepairTarget": [
+      "ref:turret",
+      "ref:building",
+      "ref:vehicle"
+    ]
+  },
+  "records": {
+    "F3RandomEpoch": {
+      "$layout": true,
+      "revision": "u32"
+    },
+    "F3RandomState": {
+      "state": "u32",
+      "present": "bool",
+      "sequence": "u32"
+    },
+    "F3RandomGlobals": {
+      "gameplay": "u32",
+      "spin": "u32",
+      "drop": "u32",
+      "seat": "u32"
+    },
+    "F3Presentation": {
+      "key": "rec:F3UnitKey",
+      "kind": "enum:F3PresentKind",
+      "action": "enum:F3WeaponAction|null",
+      "bank": "str",
+      "posture": "enum:Posture|null",
+      "prepare": "bool",
+      "name": "str",
+      "from": "vec3",
+      "to": "vec3",
+      "charge": "f64",
+      "channel": "f64|undefined"
+    },
+    "F3ShieldNotice": {
+      "key": "rec:F3UnitKey",
+      "taken": "f64",
+      "left": "f64",
+      "sourcePresent": "bool",
+      "source": "vec3",
+      "explosion": "bool"
+    },
+    "F3EffectNotice": {
+      "key": "rec:F3UnitKey",
+      "effect": "enum:F3Effect",
+      "position": "vec3"
+    },
+    "F3LifeRef": {
+      "id": "f64",
+      "generation": "f64"
+    },
+    "F3HeadCredit": {
+      "character": "ref:character"
+    },
+    "F3HullCredit": {
+      "character": "ref:character"
+    },
+    "F3HullSetup": {
+      "hull": "ref:vehicle",
+      "member": "union:Member|null",
+      "health": "u32",
+      "category": "u32",
+      "kind": "f64",
+      "key": "str",
+      "blastCenter": "vec3",
+      "blastRadius": "f64",
+      "explosion": "u32|null",
+      "finalExplosion": "u32|null"
+    },
+    "F3HullBirth": {
+      "hull": "ref:vehicle",
+      "memberId": "u32",
+      "index": "u32",
+      "bodySerial": "u32"
+    },
+    "F3HullNotice": {
+      "hull": "ref:vehicle",
+      "event": "enum:F3HullEvent",
+      "life": "f64",
+      "amount": "f64",
+      "attacker": "union:OrdnanceOwner",
+      "position": "vec3",
+      "team": "f64",
+      "attackerRef": "rec:F3LifeRef",
+      "hasAttackerRef": "bool",
+      "attackerTeam": "f64"
+    },
+    "F3DeathCredit": {
+      "key": "rec:F3UnitKey",
+      "unit": "ref:unit",
+      "killer": "ref:character|null",
+      "relation": "f64"
+    },
+    "F3DeathAnswer": {
+      "controller": "ref:controller|null"
+    },
+    "F3DeathNotice": {
+      "key": "rec:F3UnitKey",
+      "attacker": "union:Attacker",
+      "attackerRef": "rec:F3LifeRef",
+      "hasAttackerRef": "bool",
+      "attackerTeam": "f64",
+      "position": "vec3",
+      "team": "f64"
+    },
+    "F3BlastNotice": {
+      "stage": "enum:F3BlastStage",
+      "explosion": "u32",
+      "position": "vec3",
+      "owner": "union:OrdnanceOwner",
+      "source": "rec:F3LifeRef",
+      "hasSource": "bool",
+      "team": "f64",
+      "radius": "f64",
+      "wet": "bool"
+    },
+    "F3BlastCall": {
+      "explosion": "u32",
+      "position": "vec3",
+      "owner": "union:OrdnanceOwner"
+    },
+    "F3BodyNotice": {
+      "key": "rec:F3UnitKey",
+      "event": "enum:F3BodyEvent",
+      "health": "f64"
+    },
+    "F3DamageInfo": {
+      "explosion": "bool",
+      "amount": "f64|undefined",
+      "typed": "f64|undefined",
+      "generic": "f64|undefined",
+      "known": "bool|undefined",
+      "pointState": "enum:F3OptionalState",
+      "point": "vec3",
+      "sourcePresent": "bool",
+      "source": "vec3"
+    },
+    "F3ShotNotice": {
+      "key": "rec:F3UnitKey",
+      "shot": "rec:CbShot",
+      "position": "vec3",
+      "direction": "vec3",
+      "team": "f64"
+    },
+    "F3DamageNotice": {
+      "key": "rec:F3UnitKey",
+      "amount": "f64",
+      "attacker": "union:Attacker",
+      "attackerRef": "rec:F3LifeRef",
+      "hasAttackerRef": "bool",
+      "attackerTeam": "f64",
+      "info": "rec:F3DamageInfo",
+      "position": "vec3",
+      "team": "f64"
+    },
+    "F3HitPolicy": {
+      "ordnance": "def:ordnance",
+      "damage": "f64",
+      "person": "f64",
+      "animal": "f64",
+      "droid": "f64",
+      "vehicle": "f64",
+      "building": "f64",
+      "shield": "f64"
+    },
+    "F3BlastBinding": {
+      "explosion": "u32",
+      "combat": "u32"
+    },
+    "F3ImpactRules": {
+      "friendlyFire": "bool"
+    },
+    "F3LockRule": {
+      "range": "f64",
+      "onAngle": "f64",
+      "offAngle": "f64",
+      "relationMask": "u32",
+      "categoryMask": "u32"
+    },
+    "F3WeaponService": {
+      "ordnance": "def:ordnance|null",
+      "item": "def:item|null",
+      "channel": "f64",
+      "lock": "rec:F3LockRule",
+      "bank": "str",
+      "lightning": "str",
+      "hasLightning": "bool"
+    },
+    "F3WeaponSettings": {
+      "key": "rec:F3UnitKey",
+      "weapon": "u32",
+      "stream": "u32",
+      "spreadScale": "f64",
+      "sniperScale": "f64",
+      "yawSpreadOverride": "f64|null",
+      "floor": "f64"
+    },
+    "F3Selection": {
+      "key": "rec:F3UnitKey",
+      "weapon": "u32"
+    },
+    "F3WeaponView": {
+      "$layout": true,
+      "$delta": [
+        "thrown",
+        "repair",
+        "level",
+        "admitShot",
+        "deployed",
+        "firing",
+        "timer",
+        "bottomless",
+        "perShot",
+        "clip",
+        "reserve",
+        "heat",
+        "overheated",
+        "floor",
+        "kick",
+        "spreadScale",
+        "sniperScale",
+        "yawSpreadOverride",
+        "wait",
+        "reloadLeft",
+        "throwTime",
+        "released",
+        "hidden",
+        "charging",
+        "held",
+        "charge",
+        "limit",
+        "pattern",
+        "salvosLeft",
+        "salvoWait",
+        "salvoSeed",
+        "salvoCount",
+        "lockTargetId",
+        "lockGeneration",
+        "lockElapsed",
+        "lockComplete",
+        "melee"
+      ],
+      "thrown": "bool",
+      "repair": "bool",
+      "level": "f64",
+      "admitShot": {
+        "type": "bool",
+        "js": "admits"
+      },
+      "deployed": "bool",
+      "firing": "bool",
+      "timer": "f64",
+      "bottomless": "bool",
+      "perShot": "f64",
+      "clip": "f64",
+      "reserve": "f64",
+      "heat": "f64",
+      "overheated": "bool",
+      "floor": "f64",
+      "kick": "f64",
+      "spreadScale": "f64",
+      "sniperScale": "f64",
+      "yawSpreadOverride": "f64|null",
+      "wait": "f64",
+      "reloadLeft": "f64",
+      "throwTime": "f64",
+      "released": "bool",
+      "hidden": "bool",
+      "charging": "bool",
+      "held": "f64",
+      "charge": "f64",
+      "limit": "f64",
+      "pattern": "f64",
+      "salvosLeft": "f64",
+      "salvoWait": "f64",
+      "salvoSeed": "f64|null",
+      "salvoCount": "f64",
+      "lockTargetId": "f64",
+      "lockGeneration": "f64",
+      "lockElapsed": "f64",
+      "lockComplete": "bool",
+      "melee": "rec:Melee|null"
+    },
+    "F3CombatView": {
+      "$layout": true,
+      "$parts": [
+        "weapons",
+        "origin",
+        "target",
+        "aimDir",
+        "shotDir",
+        "left",
+        "up",
+        "pivot"
+      ],
+      "$delta": [
+        "health",
+        "dead",
+        "deathTime",
+        "lastAttacker",
+        "repairTarget",
+        "repairLock",
+        "blowApart",
+        "zoomStep",
+        "kick",
+        "mounted",
+        "gunUnderwater",
+        "origin",
+        "target",
+        "aimDir",
+        "shotDir",
+        "left",
+        "up",
+        "pivot",
+        "selected",
+        "weapons"
+      ],
+      "health": "f64",
+      "dead": "bool",
+      "deathTime": "f64",
+      "lastAttacker": "union:Attacker",
+      "repairTarget": "union:RepairTarget|null",
+      "repairLock": "str",
+      "blowApart": "bool",
+      "zoomStep": "f64",
+      "kick": "rec:Kick",
+      "mounted": "bool|undefined",
+      "gunUnderwater": "bool",
+      "origin": "vec3",
+      "target": "vec3",
+      "aimDir": "vec3",
+      "shotDir": "vec3",
+      "left": "vec3",
+      "up": "vec3",
+      "pivot": "vec3",
+      "selected": {
+        "type": "f64x2",
+        "js": "arsenal.selected",
+        "mirror": false
+      },
+      "weapons": {
+        "type": "list:rec:F3WeaponView",
+        "js": "arsenal.weapons",
+        "mirror": false
+      }
+    },
+    "Melee": {
+      "time": "f64",
+      "index": "f64",
+      "active": "bool"
+    },
+    "Weapon": {
+      "$layout": true,
+      "$publish": [
+        "deployed",
+        "firing",
+        "timer",
+        "bottomless",
+        "perShot",
+        "clip",
+        "reserve",
+        "heat",
+        "overheated",
+        "floor",
+        "kick",
+        "spreadScale",
+        "sniperScale",
+        "yawSpreadOverride",
+        "wait",
+        "reloadLeft",
+        "throwTime",
+        "released",
+        "hidden",
+        "charging",
+        "held",
+        "charge",
+        "limit",
+        "pattern",
+        "salvosLeft",
+        "salvoWait",
+        "lockTargetId",
+        "lockGeneration",
+        "lockElapsed",
+        "lockComplete"
+      ],
+      "def": {
+        "type": "def:weapon",
+        "js": "levels.0",
+        "mirror": false
+      },
+      "level": "f64",
+      "admitShot": {
+        "type": "bool",
+        "js": "admits"
+      },
+      "deployed": "bool",
+      "firing": "bool",
+      "timer": "f64",
+      "bottomless": "bool",
+      "perShot": "f64",
+      "clip": "f64",
+      "reserve": "f64",
+      "heat": "f64",
+      "overheated": "bool",
+      "floor": "f64",
+      "kick": "f64",
+      "random": {
+        "type": "bool",
+        "js": "hasRandom"
+      },
+      "spreadScale": "f64",
+      "sniperScale": "f64",
+      "enhancedFloor": "bool",
+      "yawSpreadOverride": "f64|null",
+      "wait": "f64",
+      "reloadLeft": "f64",
+      "throwTime": "f64",
+      "released": "bool",
+      "hidden": "bool",
+      "charging": "bool",
+      "held": "f64",
+      "charge": "f64",
+      "limit": "f64",
+      "pattern": "f64",
+      "salvosLeft": "f64",
+      "salvoWait": "f64",
+      "salvoSeed": "f64|null",
+      "salvoCount": "f64",
+      "lockTargetId": "f64",
+      "lockGeneration": "f64",
+      "lockElapsed": "f64",
+      "lockComplete": "bool",
+      "melee": "rec:Melee|null"
+    },
+    "Seen": {
+      "known": "bool",
+      "reloading": "bool",
+      "throwing": "bool"
+    },
+    "Kick": {
+      "rate": "f64",
+      "hold": "f64",
+      "offset": "f64"
+    },
+    "PendingShot": {
+      "weapon": "f64",
+      "yaw": "f64",
+      "pitch": "f64",
+      "charge": "f64",
+      "targetId": "f64",
+      "targetGeneration": "f64",
+      "selectedIndex": "f64",
+      "selectedBarrel": "f64",
+      "target": "vec3",
+      "forward": "vec3",
+      "kick": "f64"
+    },
+    "NetworkShot": {
+      "button": "f64",
+      "id": "f64",
+      "late": "f64",
+      "aimYaw": "f64",
+      "aimPitch": "f64"
+    },
+    "Combat": {
+      "owner": "ref:unit",
+      "player": "bool",
+      "lastAttacker": "union:Attacker",
+      "aimOverride": "vec3|null|undefined",
+      "maxHealth": "f64",
+      "health": "f64",
+      "dead": "bool",
+      "deathTime": "f64",
+      "team": "f64",
+      "repairTarget": "union:RepairTarget|null",
+      "repairLock": "str",
+      "blowApart": "bool",
+      "chunks": "f64",
+      "zoomStep": "f64",
+      "kick": "rec:Kick",
+      "scale": "str",
+      "firstPerson": "bool",
+      "mounted": "bool|undefined",
+      "gunUnderwater": "bool",
+      "deferMuzzles": "bool",
+      "pendingMuzzles": {
+        "type": "list:rec:PendingShot",
+        "js": "pendingShots"
+      },
+      "random": {
+        "type": "bool",
+        "js": "hasRandom"
+      },
+      "hasRemotes": "bool",
+      "weapons": {
+        "type": "list:rec:Weapon",
+        "js": "arsenal.weapons",
+        "mirror": false
+      },
+      "selected": {
+        "type": "f64x2",
+        "js": "arsenal.selected",
+        "mirror": false
+      },
+      "seen": {
+        "type": "list:rec:Seen",
+        "js": "seenList"
+      },
+      "origin": "vec3",
+      "target": "vec3",
+      "aimDir": "vec3",
+      "shotDir": "vec3",
+      "left": "vec3",
+      "up": "vec3",
+      "pivot": "vec3"
+    },
+    "CbEdge": {
+      "button": "f64",
+      "id": "f64|undefined",
+      "late": "f64|undefined",
+      "aimYaw": "f64|undefined",
+      "aimPitch": "f64|undefined"
+    },
+    "CbShot": {
+      "unit": "f64",
+      "weapon": "f64",
+      "kind": "enum:CbShotKind",
+      "yaw": "f64",
+      "pitch": "f64",
+      "charge": "f64",
+      "targetId": "f64",
+      "targetGeneration": "f64",
+      "admission": "f64|undefined",
+      "swing": "f64"
+    }
+  },
+  "events": {
+    "f3Shot": "F3ShotNotice",
+    "f3Damage": "F3DamageNotice",
+    "f3Presentation": "F3Presentation",
+    "f3Shield": "F3ShieldNotice",
+    "f3Effect": "F3EffectNotice",
+    "f3Death": "F3DeathNotice",
+    "f3Blast": "F3BlastNotice",
+    "f3Body": "F3BodyNotice",
+    "f3Hull": "F3HullNotice",
+    "f3HullBirth": "F3HullBirth"
+  },
+  "imports": {
+    "f3HeadCredit": {
+      "args": "F3HeadCredit",
+      "result": null
+    },
+    "f3HullCredit": {
+      "args": "F3HullCredit",
+      "result": null
+    },
+    "f3DeathCredit": {
+      "args": "F3DeathCredit",
+      "result": "F3DeathAnswer"
+    }
+  },
+  "kinds": {
+    "building": {
+      "class": "Building"
+    },
+    "turret": {
+      "class": "Turret"
+    }
+  }
+}

@@ -1168,7 +1168,7 @@ mod tests {
         assert_eq!(js_hypot2(-0.0, 0.0).to_bits(), 0.0f64.to_bits());
         assert!(js_hypot2(f64::NAN, 1.0).is_nan());
         assert_eq!(js_hypot2(f64::NAN, f64::NEG_INFINITY), f64::INFINITY);
-        // Values V8 answers (Node 22 and Electron 44 agree).
+        // Values V8 answers (V8 12.4 and 15.2 agree).
         assert_eq!(js_hypot2(0.7071067811865476, 0.7071067811865476), 1.0000000000000002);
         assert_eq!(js_hypot2(1.0, 1e-17), 1.0);
         assert_eq!(js_hypot2(0.3, 0.4), 0.5);

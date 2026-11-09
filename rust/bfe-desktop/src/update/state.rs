@@ -1,7 +1,7 @@
 //! Persistent desktop auto-update state, installed version enumeration, crash-loop
 //! rollback guard, and `current` symlink updates.
 //!
-//! Mirrors `electron/update/state.js` (`INSTALL_RECORD`, `MAX_ATTEMPTS`,
+//! Mirrors the desktop host (`INSTALL_RECORD`, `MAX_ATTEMPTS`,
 //! `SUPPORTED_PLATFORMS`, `updateRoot`, `platformKey`, `versionsDir`, `readState`,
 //! `writeState`, `installedVersions`, `chooseLaunch`, `recordAttempt`,
 //! `recordHealthy`, `pointCurrent`, `collect`).
@@ -19,25 +19,25 @@ use crate::update::version::{compare_versions, parse_version};
 /// Filename of the completion marker record written last inside an installed
 /// version directory (`<root>/versions/<version>/.bfe-install.json`).
 ///
-/// Mirrors `INSTALL_RECORD` in `electron/update/state.js`.
+/// Mirrors `INSTALL_RECORD` in the desktop host.
 pub const INSTALL_RECORD: &str = ".bfe-install.json";
 
 /// Maximum unconfirmed launch attempts before a version is set aside (`2`).
 ///
-/// Mirrors `MAX_ATTEMPTS` in `electron/update/state.js`.
+/// Mirrors `MAX_ATTEMPTS` in the desktop host.
 pub const MAX_ATTEMPTS: u32 = 2;
 
 /// Platforms supported by the built-in auto-updater (`linux-x64`, `linux-arm64`, `win32-x64`).
 ///
-/// Mirrors `SUPPORTED_PLATFORMS` in `electron/update/state.js`.
+/// Mirrors `SUPPORTED_PLATFORMS` in the desktop host.
 pub const SUPPORTED_PLATFORMS: &[&str] = &["linux-x64", "linux-arm64", "win32-x64"];
 
 /// Maps an OS and CPU architecture identifier to one of [`SUPPORTED_PLATFORMS`].
 ///
-/// Accepts both Node/Electron names (`"win32"`, `"x64"`, `"arm64"`) and Rust
+/// Accepts both platform names (`"win32"`, `"x64"`, `"arm64"`) and Rust
 /// `std::env::consts` names (`"windows"`, `"x86_64"`, `"aarch64"`).
 ///
-/// Mirrors `platformKey` in `electron/update/state.js`.
+/// Mirrors `platformKey` in the desktop host.
 pub fn platform_key(platform: &str, arch: &str) -> Option<&'static str> {
     let norm_plat = match platform {
         "linux" => "linux",
@@ -66,7 +66,7 @@ pub fn current_platform_key() -> Option<&'static str> {
 /// `BFE_UPDATE_ROOT` first and falling back to [`update_root_with`].
 ///
 /// Mirrors `root = env.BFE_UPDATE_ROOT || updateRoot({ platform, env })` in
-/// `electron/update/index.js` and `updateRoot` in `electron/update/state.js`.
+/// the desktop host and `updateRoot` in the desktop host.
 pub fn resolve_update_root(
     platform: &str,
     env_map: &HashMap<String, String>,
@@ -80,21 +80,21 @@ pub fn resolve_update_root(
 
 /// Returns `<root>/versions`.
 ///
-/// Mirrors `versionsDir` in `electron/update/state.js`.
+/// Mirrors `versionsDir` in the desktop host.
 pub fn versions_dir(root: &Path) -> PathBuf {
     root.join("versions")
 }
 
 /// Returns `<root>/state.json`.
 ///
-/// Mirrors `stateFile` in `electron/update/state.js`.
+/// Mirrors `stateFile` in the desktop host.
 pub fn state_file_path(root: &Path) -> PathBuf {
     root.join("state.json")
 }
 
 /// Persistent launch-attempt and version-health state stored in `<root>/state.json`.
 ///
-/// Mirrors `defaultState` and `normalizeState` in `electron/update/state.js`.
+/// Mirrors `defaultState` and `normalizeState` in the desktop host.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct State {
     /// Unconfirmed launch attempt counts keyed by version string.
@@ -110,7 +110,7 @@ pub struct State {
 
 /// Single file entry inside `<version>/.bfe-install.json`.
 ///
-/// Mirrors the `files` array written by `installRelease` in `electron/update/install.js`.
+/// Mirrors the `files` array written by `installRelease` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstallFileEntry {
     /// Relative POSIX path beneath the version directory.
@@ -143,8 +143,8 @@ where
 
 /// Completion marker written last to `<root>/versions/<version>/.bfe-install.json`.
 ///
-/// Mirrors `record` in `installRelease` (`electron/update/install.js`) and
-/// `installedVersions` (`electron/update/state.js`).
+/// Mirrors `record` in `installRelease` (the desktop host) and
+/// `installedVersions` (the desktop host).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstallRecord {
     /// Semantic version string matching the parent directory name.
@@ -160,7 +160,7 @@ pub struct InstallRecord {
     pub platform: Option<String>,
     /// Relative path to the main executable inside the version directory.
     pub executable: String,
-    /// Manifest file list (or integer file count when written by Electron's `installRelease`).
+    /// Manifest file list (or integer file count when written by the desktop host's `installRelease`).
     #[serde(default, deserialize_with = "deserialize_files_or_count")]
     pub files: Vec<InstallFileEntry>,
     /// ISO-8601 timestamp when installation completed.
@@ -170,7 +170,7 @@ pub struct InstallRecord {
 
 /// Verified installed version discovered under `<root>/versions/<version>`.
 ///
-/// Mirrors the objects returned by `installedVersions` in `electron/update/state.js`.
+/// Mirrors the objects returned by `installedVersions` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstalledVersion {
     /// Semantic version string (`"0.1.0-preview.332"`).
@@ -192,7 +192,7 @@ pub struct InstalledVersion {
 /// Sanitizes a raw [`State`] loaded from disk, dropping invalid version strings,
 /// zero counts, and duplicate entries in `bad` and `healthy`.
 ///
-/// Mirrors `normalizeState` in `electron/update/state.js`.
+/// Mirrors `normalizeState` in the desktop host.
 pub fn normalize_state(raw: State) -> State {
     let mut attempts = BTreeMap::new();
     for (version, count) in raw.attempts {
@@ -224,7 +224,7 @@ pub fn normalize_state(raw: State) -> State {
 /// Reads and normalizes `<root>/state.json`, returning [`State::default`] when
 /// missing or corrupt.
 ///
-/// Mirrors `readState` in `electron/update/state.js`.
+/// Mirrors `readState` in the desktop host.
 pub fn read_state(root: &Path) -> State {
     let path = state_file_path(root);
     let Ok(bytes) = fs::read(&path) else {
@@ -238,8 +238,8 @@ pub fn read_state(root: &Path) -> State {
 
 /// Atomically writes `state` to `<root>/state.json` via a sibling `.tmp` rename.
 ///
-/// Mirrors `writeState` in `electron/update/state.js` and `writeJsonAtomic` in
-/// `electron/update/fs.js`.
+/// Mirrors `writeState` in the desktop host and `writeJsonAtomic` in
+/// the desktop host.
 pub fn write_state(root: &Path, state: &State) -> Result<State, String> {
     let normalized = normalize_state(state.clone());
     fs::create_dir_all(root).map_err(|e| e.to_string())?;
@@ -267,7 +267,7 @@ pub fn write_state(root: &Path, state: &State) -> Result<State, String> {
 /// the directory name and whose `executable` resolves inside the version directory
 /// and exists on disk are returned.
 ///
-/// Mirrors `installedVersions` in `electron/update/state.js`.
+/// Mirrors `installedVersions` in the desktop host.
 pub fn installed_versions(root: &Path, platform: Option<&str>) -> Vec<InstalledVersion> {
     let dir = versions_dir(root);
     let Ok(entries) = fs::read_dir(&dir) else {
@@ -329,7 +329,7 @@ pub fn installed_versions(root: &Path, platform: Option<&str>) -> Vec<InstalledV
 /// for launch handoff (not `own_dir`, not in `state.bad`, and either in `state.healthy`
 /// or with fewer than [`MAX_ATTEMPTS`] unconfirmed attempts).
 ///
-/// Mirrors `chooseLaunch` in `electron/update/state.js`.
+/// Mirrors `chooseLaunch` in the desktop host.
 pub fn choose_launch(
     root: &Path,
     current_version: &str,
@@ -365,7 +365,7 @@ pub fn choose_launch(
 /// Increments the launch attempt counter for `version` in `<root>/state.json`.
 /// When an unconfirmed version reaches [`MAX_ATTEMPTS`], adds it to `state.bad`.
 ///
-/// Mirrors `recordAttempt` in `electron/update/state.js`.
+/// Mirrors `recordAttempt` in the desktop host.
 pub fn record_attempt(root: &Path, version: &str) -> Result<State, String> {
     let mut state = read_state(root);
     let count = state.attempts.get(version).copied().unwrap_or(0) + 1;
@@ -382,7 +382,7 @@ pub fn record_attempt(root: &Path, version: &str) -> Result<State, String> {
 /// Records `version` as healthy in `<root>/state.json`, clearing any failed attempt
 /// counter or `bad` marker and placing `version` at the front of `healthy` (capped at 10).
 ///
-/// Mirrors `recordHealthy` in `electron/update/state.js`.
+/// Mirrors `recordHealthy` in the desktop host.
 pub fn record_healthy(root: &Path, version: &str) -> Result<State, String> {
     let mut state = read_state(root);
     state.attempts.remove(version);
@@ -397,7 +397,7 @@ pub fn record_healthy(root: &Path, version: &str) -> Result<State, String> {
 /// on Unix so Linux launcher scripts (`~/.local/bin/battlefront`) can exec the
 /// newest healthy version directly without unpacking the AppImage.
 ///
-/// Mirrors `pointCurrent` in `electron/update/state.js`.
+/// Mirrors `pointCurrent` in the desktop host.
 pub fn point_current(root: &Path, dir: &Path) -> bool {
     #[cfg(unix)]
     {
@@ -438,7 +438,7 @@ pub fn point_current(root: &Path, dir: &Path) -> bool {
 /// not in `keep_versions` or the first `keep_healthy` entries of `state.healthy`,
 /// and prunes launch readiness files under `<root>/launches` older than 5 minutes.
 ///
-/// Mirrors `collect` in `electron/update/state.js`.
+/// Mirrors `collect` in the desktop host.
 pub fn collect(root: &Path, keep_versions: &[String], keep_healthy: usize) -> Vec<String> {
     let mut state = read_state(root);
     let mut keep: BTreeSet<String> = keep_versions

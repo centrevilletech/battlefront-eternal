@@ -56,7 +56,7 @@ impl Geometry {
         out.facts.index_count=out.index.len();Ok(out)
     }
     // PlaneGeometry and SphereGeometry are descriptor recipes for blades and
-    // shields. Only their trig calls import Electron math; no per-vertex host
+    // shields. Only their trig calls use V8 math; no per-vertex host
     // descriptor or geometry object exists after this cold compilation.
     fn plane(&mut self,r:&Record)->Result<(),&'static str>{let w=r.width.unwrap_or(1.)/2.;let h=r.height.unwrap_or(1.)/2.;if !w.is_finite()||!h.is_finite(){return Err("invalid actor plane");}
         self.streams=vec![Stream::Float(vec![-w as f32,h as f32,0.,w as f32,h as f32,0.,-w as f32,-h as f32,0.,w as f32,-h as f32,0.]),Stream::Float(vec![0.,0.,1.,0.,0.,1.,0.,0.,1.,0.,0.,1.]),Stream::Float(vec![0.,1.,1.,1.,0.,0.,1.,0.])];self.index=vec![0,2,1,2,3,1];self.facts.count=4;self.facts.index_width=2;for(name,size,stream)in[("position",3,0),("normal",3,1),("uv",2,2)]{self.attribute(name,stream,size,0,0);}Ok(())}

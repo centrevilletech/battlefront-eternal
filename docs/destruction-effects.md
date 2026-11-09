@@ -2,18 +2,18 @@
 
 `Destruction effects` in the graphics menu selects **Classic** or **Enhanced**
 (the default; the Performance preset picks Classic). Classic is the 2004
-behaviour, unchanged: the class's explosion sprites and `src/debris.js`
+behaviour, unchanged: the class's explosion sprites and `rust/sim` (`debris`)
 pieces. Enhanced is decided by the Rust destruction phase
 (`rust/bfe-environment`, `destruction.rs`, `solver.rs` and `fx.rs`): every
 blast, droid short-out, flying piece (a rigid body: bounces, rolls, rests,
 tips over, crumbles) and wreck's smoulder, in a fixed order from one seeded
-random stream. The page's `src/destruction.js` tells it what happened as
+random stream. The page's `rust/sim` (`destruction`) tells it what happened as
 commands (a droid blown apart, a droid died, a droideka's blast, a blast, a
 clear) with the numbers only the page has (a body's bones, where its chunks
 were, how a wreck's box sits), and applies what the phase answers: lights,
-sounds, bodies to hide, wrecks to glow. `src/destruction-debris.js` keeps the
+sounds, bodies to hide, wrecks to glow. `rust/sim` (`destruction-debris`) keeps the
 pieces' models (heated copies of the game's materials) and
-`src/destruction-fx.js` the meshes the particles and arcs are drawn from;
+`rust/sim` (`destruction-fx`) the meshes the particles and arcs are drawn from;
 their records live in the phase's memory and are read in place.
 
 ### How the boundary is bounded
@@ -28,7 +28,7 @@ time passing) before it can fill, so a load or a pause with no frame cannot
 overflow it; the page pairs the pieces with the phase's own records by id, so
 nothing it missed can leave the two out of step. Sizes and offsets are
 generated from `rust/bfe-environment/layout.json`
-(`node tools/environment-schema.mjs`).
+(`cargo xtask schema`).
 
 One quirk is kept on purpose: the point a piece's landing puffs and sparks are
 laid at is the contact's offset from the ground's point, not its place in the
@@ -179,9 +179,9 @@ Switching to Classic clears everything Enhanced has out.
 ## Checks
 
 ```sh
-node --test tests/destruction-debris.test.js tests/destruction-fx.test.js tests/destruction-mode.test.js
-# With Vite running; set PLAYWRIGHT_MODULE if Playwright is installed elsewhere:
-node tests/destruction-browser.mjs
+cargo test --locked --workspace
+# With the native client running; set PLAYWRIGHT_MODULE if Playwright is installed elsewhere:
+cargo test --locked --workspace
 ```
 
 The unit tests cover settling on a face without sinking, a rod landing on its
@@ -212,7 +212,7 @@ feet: each must short out with every arc on its own bones and every spark,
 flash and light within 3 m of it, then blow apart (`second-droid-*` frames).
 `DESTRUCTION_OUTPUT` sets the directory the frames go to.
 
-`tests/runtime-world-worker-browser.mjs` is the wider simulation check. It
+`cargo test --locked --workspace` is the wider simulation check. It
 replays 720 scripted ticks of a Classic-AI battle through two local server
 sessions and requires the two authoritative worlds to match.
 

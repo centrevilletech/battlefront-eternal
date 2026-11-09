@@ -1,0 +1,250 @@
+{
+  "enums": {
+    "SeatRole": [
+      "pilot",
+      "gunner",
+      "passenger"
+    ],
+    "SeatReason": [
+      "exit",
+      "stale",
+      "killed",
+      "destroyed",
+      "displaced"
+    ],
+    "SeatEffectKind": [
+      "seated",
+      "unseated",
+      "placed",
+      "dropped",
+      "boarded",
+      "unboarded",
+      "moved"
+    ]
+  },
+  "records": {
+    "SeatInput": {
+      "forward": "f64",
+      "right": "f64",
+      "turn": "f64",
+      "pitch": "f64",
+      "brake": "bool",
+      "up": "f64",
+      "down": "f64",
+      "aim": "vec3",
+      "aiming": "bool",
+      "held": "list:bool",
+      "pressed": "list:bool",
+      "reload": "bool",
+      "exit": "bool",
+      "trick": "bool|undefined",
+      "immelmann": "bool|undefined",
+      "boost": "bool|undefined"
+    },
+    "ExitRequest": {
+      "post": "ref:post|null",
+      "promote": "bool|undefined",
+      "placement": "bool"
+    },
+    "SeatHullFacts": {
+      "vehicle": "ref:vehicle",
+      "index": "f64",
+      "attacker": "f64",
+      "attackerId": "f64",
+      "hover": "bool",
+      "animal": "bool",
+      "turretNodes": "list:bool",
+      "weapons": "list:f64"
+    },
+    "SeatAiIntent": {
+      "forward": "f64",
+      "right": "f64",
+      "turn": "f64",
+      "pitch": "f64",
+      "jump": "bool",
+      "crouch": "bool",
+      "prone": "bool",
+      "use": "bool",
+      "exit": "bool",
+      "buttons": "f64x2",
+      "reload": "bool",
+      "nextPrimary": "bool",
+      "previousPrimary": "bool",
+      "nextSecondary": "bool",
+      "zoom": "bool",
+      "aim": "vec3|null",
+      "brake": "bool",
+      "up": "f64",
+      "down": "f64",
+      "trick": "bool",
+      "immelmann": "bool",
+      "boost": "bool"
+    },
+    "SeatAiControl": {
+      "seatUnit": "ref:seatUnit",
+      "driven": "bool",
+      "intent": "rec:SeatAiIntent"
+    },
+    "SeatPhaseArgs": {
+      "time": "f64",
+      "ticks": "f64",
+      "hulls": "list:rec:SeatHullFacts",
+      "controls": "list:rec:SeatAiControl"
+    },
+    "SeatEffect": {
+      "kind": "enum:SeatEffectKind",
+      "unit": "f64",
+      "hull": "f64",
+      "seat": "f64",
+      "yaw": "f64",
+      "at": "vec3",
+      "post": "ref:post|null",
+      "reason": "enum:SeatReason"
+    },
+    "SeatPhaseAnswer": {
+      "ticks": "f64",
+      "latched": "list:seatUnit",
+      "effects": "list:rec:SeatEffect"
+    },
+    "SeatRay": {
+      "origin": "vec3",
+      "direction": "vec3",
+      "far": "f64",
+      "ignore": "ref:body|null"
+    },
+    "SeatHit": {
+      "found": "bool",
+      "distance": "f64",
+      "point": "vec3",
+      "normal": "vec3",
+      "terrain": "bool",
+      "body": "ref:body|null"
+    },
+    "SeatSphere": {
+      "center": "vec3",
+      "radius": "f64",
+      "ignore": "ref:body|null"
+    },
+    "SeatFlag": {
+      "value": "bool"
+    },
+    "SeatWho": {
+      "unit": "f64"
+    },
+    "SeatNumber": {
+      "value": "f64|undefined"
+    },
+    "SeatLeaseArgs": {
+      "lease": "ref:seatLease",
+      "index": "f64",
+      "role": "enum:SeatRole"
+    },
+    "SeatMade": {
+      "seatUnit": "ref:seatUnit"
+    },
+    "SeatPolicyArgs": {
+      "hull": "f64",
+      "seat": "f64",
+      "player": "bool",
+      "random": "bool"
+    }
+  },
+  "commands": {
+    "seatLatch": {
+      "args": "SeatPhaseArgs",
+      "result": "SeatPhaseAnswer",
+      "rust": "seats::module::latch"
+    }
+  },
+  "imports": {
+    "seatCast": {
+      "args": "SeatRay",
+      "result": "SeatHit"
+    },
+    "seatOverlaps": {
+      "args": "SeatSphere",
+      "result": "SeatFlag"
+    },
+    "seatControllerState": {
+      "args": "SeatWho",
+      "result": "SeatNumber"
+    },
+    "seatControllable": {
+      "args": "SeatLeaseArgs",
+      "result": "SeatMade"
+    },
+    "seatPolicy": {
+      "args": "SeatPolicyArgs",
+      "result": null
+    }
+  },
+  "kinds": {
+    "seats": {
+      "singleton": true,
+      "fields": {
+        "leases": "list:seatLease"
+      }
+    },
+    "seatLease": {
+      "home": "seats.leases",
+      "class": "SeatLease",
+      "fields": {
+        "unit": "ref:unit|null",
+        "generation": "f64",
+        "human": "bool",
+        "team": "f64",
+        "vehicle": "ref:vehicle|null",
+        "turret": "ref:turret|null",
+        "index": "f64",
+        "role": "enum:SeatRole",
+        "since": "f64",
+        "tick": "f64",
+        "was": "f64x2",
+        "exitRequest": "rec:ExitRequest|null",
+        "released": "bool",
+        "input": "rec:SeatInput",
+        "controllable": "ref:seatUnit|null"
+      },
+      "skip": {
+        "lean": "a shown rider's sway, the page's (Vehicles.presentRiders)",
+        "emitter": "getters over the lease and its hull or turret: what a beam fired from the seat follows (the ordnance's)"
+      }
+    },
+    "turretSeats": {
+      "singleton": true,
+      "fields": {
+        "leases": "list:seatLease",
+        "time": "f64",
+        "ticks": "f64"
+      },
+      "skip": {
+        "live": "the battle's live objects (its turrets)",
+        "ordnance": "the battle's rounds",
+        "collision": "the collision world",
+        "units": "the registry",
+        "onFired": "the battle's hook",
+        "onBoard": "the battle's hook",
+        "onUnboard": "the battle's hook",
+        "world": "the boundary object (src/seats-world.js)",
+        "seatRandom": "the world's seat stream, handed to the weapons of a seat taken",
+        "exit": "scratch (classicSeatExit's out)",
+        "seatPoint": "scratch",
+        "dropPoint": "scratch",
+        "riderPose": "scratch",
+        "seatTurn": "scratch",
+        "view": "scratch",
+        "muzzle": "scratch",
+        "gunDir": "scratch",
+        "target": "scratch",
+        "hit": "scratch"
+      }
+    },
+    "turret": {
+      "class": "Turret"
+    },
+    "seatUnit": {
+      "class": "SeatUnit"
+    },
+    "post": {}
+  }
+}

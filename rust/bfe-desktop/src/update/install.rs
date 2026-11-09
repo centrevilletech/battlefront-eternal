@@ -2,7 +2,7 @@
 //! local tree deduplication (hardlinking on Linux when inside `root`, copying otherwise),
 //! and atomic staging into `<root>/versions/<version>`.
 //!
-//! Mirrors `electron/update/install.js` (`blobPathFor`, `placeFromLocal`,
+//! Mirrors the desktop host (`blobPathFor`, `placeFromLocal`,
 //! `downloadToFile`, `installRelease`, `DEFAULT_CONCURRENCY`, `DEFAULT_BLOB_TIMEOUT_MS`).
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -33,17 +33,17 @@ use crate::update::version::parse_version;
 
 /// Default number of concurrent blob download workers (`6`).
 ///
-/// Mirrors `DEFAULT_CONCURRENCY` in `electron/update/install.js`.
+/// Mirrors `DEFAULT_CONCURRENCY` in the desktop host.
 pub const DEFAULT_CONCURRENCY: usize = 6;
 
 /// Default timeout in milliseconds (`120_000`) for downloading and decompressing a single blob.
 ///
-/// Mirrors `DEFAULT_BLOB_TIMEOUT_MS` in `electron/update/install.js`.
+/// Mirrors `DEFAULT_BLOB_TIMEOUT_MS` in the desktop host.
 pub const DEFAULT_BLOB_TIMEOUT_MS: u64 = 120 * 1000;
 
 /// Resolves the relative blob path (`updates/blobs/<aa>/<sha256>.zst`) for `entry`.
 ///
-/// Mirrors `blobPathFor` in `electron/update/install.js`.
+/// Mirrors `blobPathFor` in the desktop host.
 pub fn blob_path_for(entry: &ManifestFileEntry) -> Result<String, String> {
     if let Some(blob) = entry.blob.as_deref().filter(|b| !b.is_empty()) {
         if blob.starts_with('/') || blob.contains("..") || blob.contains(':') {
@@ -86,7 +86,7 @@ fn apply_file_mode(path: &Path, mode: Option<u32>) {
 /// (such as a version installed by an older updater that wrote `"files": <count>` in
 /// `.bfe-install.json`), matches manifest paths in `dir` by size and SHA-256 digest.
 ///
-/// Mirrors `localFiles` in `electron/update/install.js`.
+/// Mirrors `localFiles` in the desktop host.
 fn local_files(
     sources: &[PathBuf],
     manifest_files: &[ManifestFileEntry],
@@ -132,7 +132,7 @@ fn local_files(
 /// installed versions. When `source` lives outside `root` (e.g. a system `/opt` package
 /// or temporary AppImage mount), copies `source` to `dest` and applies `mode`.
 ///
-/// Mirrors `placeFromLocal` in `electron/update/install.js`.
+/// Mirrors `placeFromLocal` in the desktop host.
 pub fn place_from_local(
     source: &Path,
     dest: &Path,
@@ -164,7 +164,7 @@ pub fn place_from_local(
 /// computing its SHA-256 and enforcing `expected_size`, and atomically renames the
 /// verified file into `dest`.
 ///
-/// Mirrors `downloadToFile` in `electron/update/install.js`.
+/// Mirrors `downloadToFile` in the desktop host.
 pub fn download_to_file(
     url: &str,
     dest: &Path,
@@ -252,7 +252,7 @@ impl Write for HashingFileWriter {
 
 /// Progress snapshot reported during [`install_release`].
 ///
-/// Mirrors the object passed to `onProgress` in `electron/update/install.js`.
+/// Mirrors the object passed to `onProgress` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallProgress {
     /// Target release version being installed.
@@ -269,7 +269,7 @@ pub struct InstallProgress {
 
 /// Options for [`install_release`].
 ///
-/// Mirrors the parameter object of `installRelease` in `electron/update/install.js`.
+/// Mirrors the parameter object of `installRelease` in the desktop host.
 #[derive(Debug, Clone)]
 pub struct InstallReleaseOptions {
     /// Update root directory (`<root>/versions` and `<root>/staging` live beneath `root`).
@@ -288,7 +288,7 @@ pub struct InstallReleaseOptions {
 
 /// Outcome returned by [`install_release`].
 ///
-/// Mirrors the return value of `installRelease` in `electron/update/install.js`.
+/// Mirrors the return value of `installRelease` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallOutcome {
     /// True if the version was newly installed; false if already present.
@@ -310,7 +310,7 @@ pub struct InstallOutcome {
 /// `<base_url>/updates/blobs/<aa>/<sha256>.zst`. Writes `.bfe-install.json` last and
 /// renames the staging directory into `<root>/versions/<version>`.
 ///
-/// Mirrors `installRelease` in `electron/update/install.js`.
+/// Mirrors `installRelease` in the desktop host.
 pub fn install_release<F>(
     opts: &InstallReleaseOptions,
     mut on_progress: Option<F>,

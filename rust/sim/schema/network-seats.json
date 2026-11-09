@@ -1,0 +1,52 @@
+{
+  "enums": {
+    "NetworkSeatsOp": [
+      "rider",
+      "seatCount",
+      "candidate",
+      "copyAim",
+      "move",
+      "aim",
+      "clearSticks",
+      "direction",
+      "scales",
+      "nextLook",
+      "control",
+      "lookRead",
+      "lookWrite",
+      "clamp",
+      "copyLook",
+      "flight",
+      "binding",
+      "bindingCode",
+      "down",
+      "take",
+      "axis",
+      "button",
+      "curve",
+      "driveAxis",
+      "space"
+    ]
+  },
+  "records": {
+    "NetworkSeatsCommand": {
+      "context": "u32",
+      "cycle": "bool"
+    },
+    "NetworkSeatsQuery": {
+      "context": "u32",
+      "op": "enum:NetworkSeatsOp",
+      "values": "list:f64"
+    },
+    "NetworkSeatsReply": {
+      "ok": "bool",
+      "values": "list:f64"
+    }
+  },
+  "imports": {
+    "networkSeatsWorld": {
+      "args": "NetworkSeatsQuery",
+      "result": "NetworkSeatsReply"
+    }
+  }
+}

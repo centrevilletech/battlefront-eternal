@@ -100,7 +100,7 @@ when no command has come from him for half a second (`inputsStale`): his
 soldier's and his hull's sticks and his droid's keys are zeroed, and the
 droid slows to a hover. Only `removePlayer` (he left) hands the droid back,
 as his death does; his next command flies it again.
-`tests/recon-network.test.js` checks the pause, the gap and leaving against the
+`cargo test --locked --workspace` checks the pause, the gap and leaving against the
 shared world.
 
 ## The strike drawn and felt on every page
@@ -117,14 +117,14 @@ player. The droid's own blaster bolts were drawn.
   and drew each on a path 215 m too low and 78 m off, under the ground and out
   of view, while the world's bolts landed where they should. A launch or
   impact outside the bounds now travels as its exact payload
-  (`src/runtime/snapshot-cosmetics.js`), which every client already reads:
+  (`rust/sim` (`wire`)), which every client already reads:
   the fix is the server's (and the world worker's), and older clients draw
   it right once their server has it.
 - **Shake.** Camera shake was set on the world's soldiers
   (`Combat.explode`), and only the world ran that; a page, which never steps
   the world, drew its own copy of the soldier, never shaken, for any
   explosion (grenades and mortars too). The shake is now the page's
-  (`rust/bfe-presentation/src/cameras/shake.rs`): `CombatPresentation` calls `onExplosion` for each
+  (`rust/bfe-presentation/rust/cameras/shake.rs`): `CombatPresentation` calls `onExplosion` for each
   explosion it shows, and the page shakes its view by what its camera
   follows (the droid he flies, the hull he drives, else his body as drawn),
   as the original game does (docs/formats.md, "Camera shake": two shakes
@@ -137,16 +137,16 @@ player. The droid's own blaster bolts were drawn.
   strike's bolts"). The initial blast destroys the droid, so the pilot is back
   in his body for the rest of the salvo, and the page measures each later
   shake to his body.
-- **Checks.** `tests/recon-network.test.js` flies a strike through the world
+- **Checks.** `cargo test --locked --workspace` flies a strike through the world
   and the snapshot host into a client's `CombatPresentation`: each bolt is
   drawn on its way down to its impact (200 m off before), and each blast
-  shows and shakes (none before). `tests/camera-shake.test.js` covers the
-  shake's rules and `tests/snapshot-codec.test.js` the exact launch.
-- **Stress.** `tests/recon-stress.mjs` (Node, no renderer: the world, its
+  shows and shakes (none before). `cargo test --locked --workspace` covers the
+  shake's rules and `cargo test --locked --workspace` the exact launch.
+- **Stress.** `cargo test --locked --workspace` (headless, no renderer: the world, its
   capture and pages applying its snapshots, 60 scenarios over the four recon
-  classes on nab2) and `tests/recon-stress-browser.mjs` (one drawn page on
+  classes on nab2) and `cargo test --locked --workspace` (one drawn page on
   its own clock, ten steps from launch to timeout). Neither is part of
-  `npm test`.
+  `cargo test --locked --workspace`.
 - **Known gap.** A page plays no `OrdnanceSound` for a replicated round
   (`SceneSounds.updateRounds` walks `ordnance.bolts`, `rounds` and
   `grenades`, which replicated rounds never join), so the strike's falling

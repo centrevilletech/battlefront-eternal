@@ -6,9 +6,8 @@ distribution. macOS is not supported yet and does not self-update. An update
 covers everything in the application tree: `bfe-client`, `bfeserver`, the
 preparation scripts in `resources/tools/`, the standalone Python and FFmpeg
 toolchain in `resources/toolchain/`, legal notices in `resources/legal/` and
-icons in `resources/assets/` (as well as Electron and `resources/app.asar` in
-Electron builds). Prepared game data is never part of an update; it is
-refreshed only when a release changes what preparation produces.
+icons in `resources/assets/`. Prepared game data is never part of an update; it
+is refreshed only when a release changes what preparation produces.
 
 ## On every launch
 
@@ -63,35 +62,16 @@ stay in the user data folder (`~/.config/Battlefront Eternal`,
 `%APPDATA%\Battlefront Eternal`), which no version owns.
 
 The player's settings (profile name, options, bindings) are kept in
-`player-settings.json` there by the host process, not in browser
-localStorage alone (`electron/player-settings.js`). Chromium locks
-localStorage to one process per user data folder. An update installed
-while the game runs starts the new version while the old one is still up:
-the old one waits for the new window and, under Steam, stays until the
-game ends. A second process gets an empty, in-memory localStorage, so the
-new version used to start as PLAYER 1 with default options and lose
-whatever it saved. The boot hand-off has no such problem: its parent
-waits before the runtime is ready and holds no lock. The initial version with
-the file moves localStorage's settings into it. If that version was
-itself started by an update, it writes only the player's own changes
-until the next launch can read localStorage again.
+`player-settings.json` and `settings.json` inside the user data folder by
+`rust/bfe-desktop/rust/settings/`.
 
 ### Debian and Ubuntu
 
 The package installs `/opt/Battlefront Eternal`, owned by root, with symlinks
 in `/usr/bin/battlefront-eternal`, `/usr/bin/bfe-client` and
-`/usr/bin/bfeserver`. Native builds need no Chromium user-namespace sandbox or
-AppArmor profile. On Electron builds, `/opt/Battlefront Eternal` includes an
-AppArmor profile that allows user namespaces for that executable (Ubuntu
-24.04 denies them otherwise), and a version started from it inherits the
-profile. Native Linux builds also include a relative
+`/usr/bin/bfeserver`. Native Linux builds also include a relative
 `battlefront-eternal -> bfe-client` symlink inside the version folder so
-existing launchers and `.desktop` entries continue to resolve across an update
-from an Electron build to a native build. On X11, the native windowing backend
-loads `libxkbcommon-x11.so.0` (`libxkbcommon-x11-0`); Electron packages already
-pull in `libxkbcommon0` through `libgtk-3-0` while standard desktop
-installations include `libxkbcommon-x11-0`, and the native Debian package lists
-`libxkbcommon-x11-0` in `Depends` so `apt upgrade` installs it automatically.
+existing launchers and `.desktop` entries continue to resolve across updates.
 `apt upgrade` still works: a newer package simply becomes the newest version.
 
 ### AppImage
@@ -116,9 +96,9 @@ settings, saves and prepared game data in `%APPDATA%\Battlefront Eternal`.
 
 ## Trust
 
-Only releases signed with a key listed in `rust/bfe-desktop/src/update/keys.rs`
-(and `electron/update/keys.js` in Electron builds) are installed. Choosing
-another master server or feed grants no code execution.
+Only releases signed with a key listed in `rust/bfe-desktop/rust/update/keys.rs`
+are installed. Choosing another master server or feed grants no code
+execution.
 
 - The channel file `downloads/updates/<channel>.json` is an envelope: the
   release JSON (version, release id, content generations and, per
@@ -140,8 +120,8 @@ another master server or feed grants no code execution.
 
 The private key stays on the release host and is never in this repository.
 Keep a copy offline: without it no installed client accepts another update.
-To rotate, add the new public key to `keys.rs` and `keys.js`, ship a release
-signed with the old key, then switch.
+To rotate, add the new public key to `rust/bfe-desktop/rust/update/keys.rs`,
+ship a release signed with the old key, then switch.
 
 ## Recovery
 
@@ -169,25 +149,23 @@ Everything else is kept.
 
 ## Release pipeline
 
-`.github/workflows/release-native.yml` (and `.github/workflows/release.yml`
-for Electron builds) builds the packages and update payloads and attaches
-the public installers and server archives to a GitHub release tagged
+`.github/workflows/release.yml` builds the packages and update payloads and
+attaches the public installers and server archives to a GitHub release tagged
 `preview-N`; the project's release host then signs and publishes that release.
 The scripts involved:
 
 - Every packaged build records its own files in `resources/bfe-tree.json`
-  (`build/native/stage.py` for native builds, `build/tree-index.cjs` for
-  Electron builds).
-- `build/native/update-payload.py` (or `build/update-payload.mjs`) turns each
-  unpacked app (`linux-unpacked`, `linux-arm64-unpacked`, `win-unpacked`)
+  (`build/native/stage.py`).
+- `build/native/update-payload.py` turns each unpacked app
+  (`linux-unpacked`, `linux-arm64-unpacked`, `win-unpacked`)
   into `update-<platform>.tar`: `update-<platform>.json` plus the compressed
   blobs the store does not hold yet. The store's `blobs.json` lists what it
   holds (`sha256` to compressed byte size). Files up to 32 MB use Zstandard
   level 19; files over 32 MB use level 12.
-- `build/native/check-packages.py` (and `build/check-update.mjs` for Electron)
-  verifies the unpacked tree, installers, server archive and update payload on
-  the runner, runs `bfe-client --help`, `bfeserver --help` and the bundled
-  Python interpreter, and reports package sizes.
+- `build/native/check-packages.py` verifies the unpacked tree, installers,
+  server archive and update payload on the runner, runs `bfe-client --help`,
+  `bfeserver --help` and the bundled Python interpreter, and reports package
+  sizes.
 - `build/publish-distribution.py` checks every new blob against its name,
   adds it to the store and writes each platform's manifest into the
   release. After the release is live, it signs and replaces the channel
@@ -198,9 +176,7 @@ The scripts involved:
 
 ## Measured
 
-On Ubuntu 24.04 under a userns profile like the Debian package's, an update
-between two packaged Linux builds one version apart reused 6,444 of 6,446
-files and downloaded 2.2 MB; it installed in 11.5 s (mostly the initial copy out
-of the system package's folder, later updates hard-link), and the next launch
-of the installed package handed off to it within 10 s, sandboxed under the
-inherited profile.
+On Ubuntu 24.04, an update between two packaged Linux builds one version apart
+reused the unchanged toolchain and asset files by SHA-256 and downloaded only
+the changed binaries and manifest metadata; it installed in seconds and the next
+launch of the installed package handed off to the new version automatically.

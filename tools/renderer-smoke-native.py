@@ -2,7 +2,7 @@
 """Native software-OpenGL renderer smoke test over synthetic public fixtures.
 
 This script exercises the native Rust renderer, shader catalog, content loader,
-and window host on Linux without prepared retail game files or Electron:
+and window host on Linux without prepared retail game files:
 
 1. Cross-checks the shader manifest catalog (`rust/bfe-render/shaders/*/manifest.json`)
    against `tools/renderer-smoke-manifests.mjs` across all 6 families (`world`: 536,
@@ -238,22 +238,8 @@ def sub_family_of(key: str) -> str:
     return rest.split("-", 1)[0]
 
 
-def load_electron_shader_manifests(repo_root: Path) -> dict[str, list[str]]:
-    """Load the shader manifest list via `tools/renderer-smoke-manifests.mjs`.
-
-    When `node` is installed on PATH, executes `readShaderManifests()` directly
-    from `tools/renderer-smoke-manifests.mjs` and also verifies it against the
-    on-disk `rust/bfe-render/shaders/*/manifest.json` files. When `node` is
-    absent in a minimal container, verifies `tools/renderer-smoke-manifests.mjs`
-    on disk and applies its exact directory and key validation rules.
-    """
-    mjs_path = repo_root / "tools" / "renderer-smoke-manifests.mjs"
-    if not mjs_path.is_file():
-        raise RuntimeError(f"missing Electron manifest reader: {mjs_path}")
-    mjs_text = mjs_path.read_text(encoding="utf-8")
-    if "readShaderManifests" not in mjs_text or "manifest.json" not in mjs_text:
-        raise RuntimeError(f"unexpected contents in {mjs_path}")
-
+def load_shader_manifests(repo_root: Path) -> dict[str, list[str]]:
+    """Load and validate `rust/bfe-render/shaders/*/manifest.json` on disk."""
     shaders_dir = repo_root / "rust" / "bfe-render" / "shaders"
     disk_families: dict[str, list[str]] = {}
     seen_keys: set[str] = set()
@@ -274,34 +260,6 @@ def load_electron_shader_manifests(repo_root: Path) -> dict[str, list[str]]:
             seen_keys.add(key)
             keys.append(key)
         disk_families[entry.name] = keys
-
-    node_bin = shutil.which("node")
-    if node_bin:
-        proc = subprocess.run(
-            [
-                node_bin,
-                "--input-type=module",
-                "-e",
-                (
-                    "import { readShaderManifests } from './tools/renderer-smoke-manifests.mjs';"
-                    "const f = await readShaderManifests();"
-                    "console.log(JSON.stringify(f));"
-                ),
-            ],
-            cwd=str(repo_root),
-            text=True,
-            capture_output=True,
-            check=True,
-        )
-        node_payload = json.loads(proc.stdout.strip())
-        node_families = {
-            item["family"]: [p["key"] for p in item["programs"]]
-            for item in node_payload
-        }
-        if node_families != disk_families:
-            raise RuntimeError(
-                "tools/renderer-smoke-manifests.mjs output diverged from on-disk manifests"
-            )
     return disk_families
 
 
@@ -828,13 +786,13 @@ def run_render_smoke(
 ) -> None:
     """Run `render-smoke` to compile/link all 1,046 variants and draw all 6 families."""
     t0 = time.monotonic()
-    electron_manifests = load_electron_shader_manifests(repo_root)
+    shader_manifests = load_shader_manifests(repo_root)
 
-    # Verify the Electron manifest catalog against EXPECTED_FAMILY_COUNTS and EXPECTED_SUB_FAMILIES.
-    electron_total = sum(len(keys) for keys in electron_manifests.values())
-    if electron_total != EXPECTED_TOTAL_VARIANTS:
+    # Verify the shader manifest catalog against EXPECTED_FAMILY_COUNTS and EXPECTED_SUB_FAMILIES.
+    manifest_total = sum(len(keys) for keys in shader_manifests.values())
+    if manifest_total != EXPECTED_TOTAL_VARIANTS:
         raise RuntimeError(
-            f"Electron manifest total {electron_total} != expected {EXPECTED_TOTAL_VARIANTS}"
+            f"Shader manifest total {manifest_total} != expected {EXPECTED_TOTAL_VARIANTS}"
         )
 
     frame_json = work_dir / "frame.json"
@@ -918,15 +876,15 @@ def run_render_smoke(
     comparison_summary: dict[str, dict] = {}
     print("=== Shader Manifest Cross-Check (tools/renderer-smoke-manifests.mjs vs native render-smoke) ===")
     for family in EXPECTED_FAMILY_ORDER:
-        if family not in electron_manifests or family not in native_by_family:
+        if family not in shader_manifests or family not in native_by_family:
             raise RuntimeError(f"missing shader family '{family}' in cross-check")
-        e_keys = electron_manifests[family]
+        e_keys = shader_manifests[family]
         n_entry = native_by_family[family]
         n_keys = [v["key"] for v in n_entry["variants"]]
         expected_count = EXPECTED_FAMILY_COUNTS[family]
         if len(e_keys) != expected_count or len(n_keys) != expected_count or e_keys != n_keys:
             raise RuntimeError(
-                f"family '{family}' mismatch: electron={len(e_keys)}, native={len(n_keys)}, expected={expected_count}"
+                f"family '{family}' mismatch: manifest={len(e_keys)}, native={len(n_keys)}, expected={expected_count}"
             )
 
         e_subs: dict[str, int] = {}
@@ -937,22 +895,22 @@ def run_render_smoke(
         expected_subs = EXPECTED_SUB_FAMILIES[family]
         if e_subs != expected_subs or n_subs != expected_subs:
             raise RuntimeError(
-                f"sub-family mismatch in '{family}': electron={e_subs}, native={n_subs}, expected={expected_subs}"
+                f"sub-family mismatch in '{family}': manifest={e_subs}, native={n_subs}, expected={expected_subs}"
             )
 
         subs_formatted = ", ".join(f"{k}:{v}" for k, v in sorted(n_subs.items()))
         print(
-            f"  {family:<10} electron={len(e_keys):>3}  native={len(n_keys):>3}  "
+            f"  {family:<10} manifest={len(e_keys):>3}  native={len(n_keys):>3}  "
             f"compileMs={n_entry['compileMs']:>7.2f}  subFamilies=[{subs_formatted}]"
         )
         comparison_summary[family] = {
-            "electron": len(e_keys),
+            "manifest": len(e_keys),
             "native": len(n_keys),
             "compileMs": n_entry["compileMs"],
             "subFamilies": n_subs,
         }
     print(
-        f"  {'TOTAL':<10} electron={electron_total:>3}  native={len(variant_results):>3}  "
+        f"  {'TOTAL':<10} manifest={manifest_total:>3}  native={len(variant_results):>3}  "
         f"compileMs={run_summary['compileMs']:>7.2f}"
     )
 

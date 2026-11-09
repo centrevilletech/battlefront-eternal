@@ -1,5 +1,5 @@
 //! Scalar camera arithmetic. The host supplies its Math implementation so
-//! Electron's lens and turns keep the last bits of the view they replace.
+//! V8's lens and turns keep the last bits of the view they replace.
 //! No camera policy or object crosses this primitive arithmetic boundary.
 use three::{Matrix4, Quaternion as Q, Vector3 as V};
 

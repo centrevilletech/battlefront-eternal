@@ -15,29 +15,29 @@ pause menu, its OPTIONS and their four pages, the YES / NO popups).
 
 | File | What it does |
 | --- | --- |
-| `src/interface/surface.js` | `InterfaceSurface`: the renderer, textures by name (4x atlases where made), fonts, strings, a quad batch, the interface camera; `drawFrame()` for a page that is only an interface; `commonTextureUrl()` |
-| `src/interface/space.js` | The interface space: 1024 × H units, the camera, `anchorMatrix()`, `planePoint()` |
-| `src/interface/batch.js`, `fonts.js` | Quads in draw order; the game's bitmap fonts |
-| `src/interface/shapes.js` | `nineSlice()`, `wrapLines()`, `insideQuad()` |
-| `src/interface/flashy.js` | `TitleIntro`: the "flashy" intro of a text |
-| `src/interface/models.js` | The interface's 3D: its camera, material, logo and body scales |
-| `src/interface/common-models.js` | The common hologram pack's models, in a battle or on a page without one |
-| `src/menus/stack.js` | `ScreenStack`: the screens gone through, the pulse, the pointer, the hotspots |
-| `src/menus/screen.js` | `MenuScreen`: widgets, focus, keys |
-| `src/menus/widgets.js` | The widgets: `Rows`, `Options` (`OptionRow`), `Button`, `Text`, `Panel`, `List`, `Tabs`, `HorizontalButtons` |
-| `src/menus/popup.js` | `confirmPopup()`: YES / NO, NO focused; `okPopup()` |
-| `src/menus/input.js` | `bindMenuInput()`: the page's keys, pointer and wheel into a stack |
-| `src/menus/sounds.js` | The interface sounds, through the game's sound events |
-| `src/menus/options.js` | The options schema: every setting, its page, its choices, when a change applies |
-| `src/menus/option-pages.js` | `optionsMenu()`: OPTIONS and its GAME, VIDEO, AUDIO and CONTROL pages |
-| `src/menus/hotkeys.js` | The CONTROL page's key list, built from `src/input.js`'s bindings |
-| `src/menus/themes/classic/` | `ClassicTheme`: how each widget looks (`index.js`) and the drawing underneath (`draw.js`) |
-| `src/menus/themes/page/` | `PageTheme`: the same widgets as a page of elements in the front end's three looks (`index.js`, `style.js`). The looks themselves, the Saira font, the logo and the buttons' and titles' shapes are in `electron/ui/looks.css`, shared with the desktop launcher |
-| `src/pause/index.js` | `createPauseMenu()`: the pause menu over a battle |
-| `src/pause/overrides.js` | RESTART MISSION's URL carrying what the options changed |
-| `src/menu.js` | `HtmlOptionsMenu`: the same options as a plain HTML form, behind `?menu=html` |
-| `src/hud.js` | The HUD on the interface kit; its second layer slot (`setOverlay()`) |
-| `src/settings.js` | URL overrides no longer saved |
+| `rust/bfe-interface` | `InterfaceSurface`: the renderer, textures by name (4x atlases where made), fonts, strings, a quad batch, the interface camera; `drawFrame()` for a page that is only an interface; `commonTextureUrl()` |
+| `rust/bfe-interface` | The interface space: 1024 × H units, the camera, `anchorMatrix()`, `planePoint()` |
+| `rust/bfe-interface`, `fonts.js` | Quads in draw order; the game's bitmap fonts |
+| `rust/bfe-interface` | `nineSlice()`, `wrapLines()`, `insideQuad()` |
+| `rust/bfe-interface` | `TitleIntro`: the "flashy" intro of a text |
+| `rust/bfe-interface` | The interface's 3D: its camera, material, logo and body scales |
+| `rust/bfe-interface` | The common hologram pack's models, in a battle or on a page without one |
+| `rust/bfe-interface` (`menus`) | `ScreenStack`: the screens gone through, the pulse, the pointer, the hotspots |
+| `rust/bfe-interface` (`menus`) | `MenuScreen`: widgets, focus, keys |
+| `rust/bfe-interface` (`menus`) | The widgets: `Rows`, `Options` (`OptionRow`), `Button`, `Text`, `Panel`, `List`, `Tabs`, `HorizontalButtons` |
+| `rust/bfe-interface` (`menus`) | `confirmPopup()`: YES / NO, NO focused; `okPopup()` |
+| `rust/bfe-interface` (`menus`) | `bindMenuInput()`: the page's keys, pointer and wheel into a stack |
+| `rust/bfe-interface` (`menus`) | The interface sounds, through the game's sound events |
+| `rust/bfe-interface` (`menus`) | The options schema: every setting, its page, its choices, when a change applies |
+| `rust/bfe-interface` (`menus`) | `optionsMenu()`: OPTIONS and its GAME, VIDEO, AUDIO and CONTROL pages |
+| `rust/bfe-interface` (`menus`) | The CONTROL page's key list, built from `rust/sim` (`input`)'s bindings |
+| `rust/bfe-interface` (`menus`) | `ClassicTheme`: how each widget looks (`index.js`) and the drawing underneath (`draw.js`) |
+| `rust/bfe-interface` (`menus`) | `PageTheme`: the same widgets as a page of elements in the front end's three looks (`index.js`, `style.js`). The looks themselves, the Saira font, the logo and the buttons' and titles' shapes are in `rust/bfe-shell` (`theme`), shared with the desktop launcher |
+| `rust/bfe-battle-ui` (`pause`) | `createPauseMenu()`: the pause menu over a battle |
+| `rust/bfe-battle-ui` (`pause`) | RESTART MISSION's URL carrying what the options changed |
+| `rust/sim` (`menu`) | `HtmlOptionsMenu`: the same options as a plain HTML form, behind `?menu=html` |
+| `rust/sim` (`hud`) | The HUD on the interface kit; its second layer slot (`setOverlay()`) |
+| `rust/sim` (`settings`) | URL overrides no longer saved |
 
 ## The interface kit
 
@@ -54,7 +54,7 @@ units.
 `InterfaceSurface` is all a screen needs, with or without a battle:
 
 ```js
-import { InterfaceSurface, commonTextureUrl } from "/src/interface/index.js";
+import { InterfaceSurface, commonTextureUrl } from "/rust/sim (interface/index)";
 const common = await fetch("/common/common.json").then((r) => r.json());
 const surface = new InterfaceSurface(renderer, { url: commonTextureUrl(common), fonts: common.fonts, strings: common.strings });
 // each frame, over whatever the canvas holds (a movie, the world):
@@ -79,7 +79,7 @@ A `MenuScreen` is a page of widgets; a `ScreenStack` holds the screens gone
 through and gives the top one the input.
 
 ```js
-import { ScreenStack, MenuScreen, Rows, Button, ClassicTheme, bindMenuInput } from "/src/menus/index.js";
+import { ScreenStack, MenuScreen, Rows, Button, ClassicTheme, bindMenuInput } from "/rust/sim (menus/index)";
 const stack = new ScreenStack({ theme: new ClassicTheme() });
 const unbind = bindMenuInput({ stack, element: renderer.domElement, toInterface: (x, y) => surface.toInterface(x, y) });
 stack.push(new MenuScreen({ id: "main", focus: "keep", back: null, widgets: [new Rows({ ... })] }));
@@ -130,7 +130,7 @@ Directly: `stack.key(code)`, `stack.pointerMove(x, y)`,
 `stack.pointerDown()`, `stack.pointerUp()`, `stack.wheel(deltaY)`.
 
 **Sounds** go out as the game's `interface` sound event
-(`src/audio/events.js`), by name: a battle's audio plays them from its
+(`rust/audio-control`), by name: a battle's audio plays them from its
 bank, the front end's from its own. `shell_select_change` (focus),
 `shell_menu_accept` (an item chosen, a value changed, YES),
 `shell_menu_cancel` (NO), `shell_menu_exit` (back to a screen),
@@ -232,7 +232,7 @@ screen leaves the page when its own animations are done (a slow frame
 can't cut them short). The looks are custom properties on
 `<html data-bfe-theme>`, which the front end's dialogs take too. Over a
 battle the pause menu uses it as an overlay (`new PageTheme({ overlay:
-true })`, `src/game.js`): no backdrop, the frozen world darkened and
+true })`, `rust/sim` (`game`)): no backdrop, the frozen world darkened and
 blurred behind its screens, the system's pointer on its elements, gone
 while it is closed but for CLICK TO RESUME (`prompt()`); the HUD's
 overlay slot drives it (`draw()` renders the page). `?menus=classic`
@@ -247,7 +247,7 @@ captures don't show it, so the theme doesn't.
 
 ## Options
 
-`src/menus/options.js` lists every setting of `src/settings.js` once, with
+`rust/bfe-interface` (`menus`) lists every setting of `rust/sim` (`settings`) once, with
 its page, label (the original's string where it had one), kind, choices or
 range, and when a change applies:
 
@@ -299,18 +299,18 @@ STARFIGHTER tabs over an "ACTION: | KEYS" list, several keys joined with ", "
 in the original's key names (MOUSE BUTTON 1, SPACE, CONTROL, MOUSE WHEEL
 UP...).
 
-- The rows come from `src/input.js`'s `BINDINGS` (axes, presses, holds), so
+- The rows come from `rust/sim` (`input`)'s `BINDINGS` (axes, presses, holds), so
   they follow them; keys the game reads directly (vehicle brake and climb,
   the jetpack, the dive, Tab's table, Esc) are listed as they are.
 - Up and Down run from the two rows into the list and back; Left and Right
   in the list, or a click, change the tab; Page Up / Page Down and the wheel
   page and scroll it.
 - **Rebinding.** Enter or a double click on a bound row opens the original's
-  PRESS NEW KEY, ESC TO CANCEL popup (`keyPopup()`, `src/menus/popup.js`;
+  PRESS NEW KEY, ESC TO CANCEL popup (`keyPopup()`, `rust/bfe-interface` (`menus`);
   `ifs.GameOpt.pc_keybindpopup`) with the action over it. The next key,
   mouse button or wheel notch becomes that action's only key and leaves any
   other action of the same set that had it, so a key does one thing
-  (`rebind()`, `src/input.js`). Esc cancels. The keys the game reads itself
+  (`rebind()`, `rust/sim` (`input`)). Esc cancels. The keys the game reads itself
   (Esc, Tab, T and Y), the window's own (F11, F12) and keys outside the
   network's set (`INPUT_CODES`) are refused, and the popup waits on. It works the same in the front end
   and over a battle: keys come through the menu stack, and the mouse is
@@ -332,7 +332,7 @@ UP...).
 
 ## The pause menu
 
-`createPauseMenu()` (`src/pause/index.js`), as `ifs_pausemenu`:
+`createPauseMenu()` (`rust/bfe-battle-ui` (`pause`)), as `ifs_pausemenu`:
 
 - **Opening.** Esc, or the browser letting go of the mouse while the game
   had it (Esc pressed while it was captured, the page losing focus):
@@ -366,7 +366,7 @@ UP...).
   | Row | Question (string key) | YES |
   | --- | --- | --- |
   | RESPAWN | `game.pause.suicide_prompt` | kills the soldier (when alive) and resumes |
-  | RESTART MISSION | `ifs.pause.warn_restart` | the battle's URL again (`src/launch.js` `restartUrl()`), its setting overrides rewritten to the options' current values |
+  | RESTART MISSION | `ifs.pause.warn_restart` | the battle's URL again (`rust/sim` (`launch`) `restartUrl()`), its setting overrides rewritten to the options' current values |
   | QUIT | `ifs.pause.warn_host_quit` | the front end's main menu (`mainMenuUrl()`) |
   | EXIT TO WINDOWS | `ifs.main.askquit` | `window.close()`, then the main menu if the browser keeps the tab |
 
@@ -399,7 +399,7 @@ table. DONE and the 30 s idle still go on to the next battle.
 
 - The settings button and the HTML settings dialog (`#settings`) and their
   CSS. `?menu=html` brings a plain HTML form of the same schema back
-  (`src/menu.js`), opened by Esc.
+  (`rust/sim` (`menu`)), opened by Esc.
 - The line of directions in `#hud` and the "O: settings" key. `#hud` stays,
   empty, for load errors (the tests wait on its "Failed" text).
 - Saving URL overrides: `?ai=classic` and the like apply for the visit and
@@ -440,11 +440,10 @@ table. DONE and the 30 s idle still go on to the next battle.
 ## Checks
 
 ```sh
-node --test tests/menus-stack.test.js tests/menus-options.test.js tests/menus-hotkeys.test.js tests/settings.test.js tests/pause-menu.test.js
-PLAYWRIGHT_MODULE=.../playwright/index.mjs node tests/pause-menu-browser.mjs
+cargo test --locked --workspace
 ```
 
-**The node tests cover:** the stack (push, pop, popups, `onEmpty`), focus
+**The unit tests cover:** the stack (push, pop, popups, `onEmpty`), focus
 and navigation (the ring, wrapping, the pointer taking and dropping the
 focus, Enter and clicks, sounds), the intro and fade on entry, the pulse
 frame by frame, option rows (choices, toggles, sliders, a slider dragged,
@@ -453,7 +452,7 @@ wheel), tabs, the row stacks' geometry against the original's layout
 numbers; the schema (every setting of `DEFAULTS` on a page, each saying when
 it applies, defaults among the choices), the pages' rows, the CONTROL page's
 tabs; the key list from the bindings (and a changed binding showing);
-rebinding (`tests/key-bindings.test.js`: a key moved from the binding that
+rebinding (`cargo test --locked --workspace`: a key moved from the binding that
 had it, the popup through the stack with a key, a mouse button, the wheel,
 Esc and refused keys, the rest of a taken click swallowed, no key reaching
 the browser meanwhile, RESET TO DEFAULTS, and the world's keys a rebound
@@ -474,7 +473,7 @@ capture (`sidebyside-<screen>-<size>.png`).
 
 ## Chat
 
-`src/chat.js` handles text entry and a bounded feed. T opens global chat
+`rust/sim` (`chat`) handles text entry and a bounded feed. T opens global chat
 (yellow), Y team chat (green), Enter sends, and Escape cancels. Text entry
 clears and disables gameplay input. Messages are rendered as text, limited to
 240 characters, with eight recent lines and a twelve-second visibility

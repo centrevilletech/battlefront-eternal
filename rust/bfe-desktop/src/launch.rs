@@ -1,12 +1,12 @@
 //! Process launch handoff, readiness token signalling, and version settlement.
 //!
-//! Mirrors `electron/update/launch.js` (`childEnvironment`, `signalReady`,
+//! Mirrors the desktop host (`childEnvironment`, `signalReady`,
 //! `launchVersion`, `DEFAULT_READY_TIMEOUT_MS`) and the lifecycle hooks in
-//! `electron/update/index.js` (`readReleaseInfo`, `updater.ready()`,
+//! the desktop host (`readReleaseInfo`, `updater.ready()`,
 //! `updater.settle()`).
 //!
 //! ## Readiness Handshake
-//! When the bootstrap build (Electron or native) or an older installed version
+//! When the bootstrap build (desktop host or native) or an older installed version
 //! hands off to a newer version under `<root>/versions/<version>/`, the parent
 //! creates a 32-character hex token name under `<root>/launches/<token>` and passes
 //! `BFE_LAUNCH_DIR` and `BFE_LAUNCH_TOKEN` in the child's environment.
@@ -42,24 +42,24 @@ use crate::update::version::parse_version;
 /// Poll interval in milliseconds while waiting for a child version to write its
 /// readiness token file.
 ///
-/// Mirrors `READY_POLL_MS` in `electron/update/launch.js`.
+/// Mirrors `READY_POLL_MS` in the desktop host.
 pub const READY_POLL_MS: u64 = 100;
 
 /// Default maximum wait in milliseconds (`30_000`) for a launched version to
 /// signal readiness before the parent kills it and records a failed attempt.
 ///
-/// Mirrors `DEFAULT_READY_TIMEOUT_MS` in `electron/update/launch.js`.
+/// Mirrors `DEFAULT_READY_TIMEOUT_MS` in the desktop host.
 pub const DEFAULT_READY_TIMEOUT_MS: u64 = 30 * 1000;
 
 /// Default delay in milliseconds (`10_000`) after window creation before
 /// [`schedule_settle`] marks the running version healthy and prunes old versions.
 ///
-/// Mirrors `setTimeout(() => updater.settle(), 10 * 1000)` in `electron/main.js`.
+/// Mirrors `setTimeout(() => updater.settle(), 10 * 1000)` in the desktop host.
 pub const DEFAULT_SETTLE_DELAY_MS: u64 = 10 * 1000;
 
 /// Returns true when `token` matches `/^[0-9a-f]{32}$/`.
 ///
-/// Mirrors `TOKEN_PATTERN` in `electron/update/launch.js`.
+/// Mirrors `TOKEN_PATTERN` in the desktop host.
 pub fn is_valid_launch_token(token: &str) -> bool {
     token.len() == 32
         && token
@@ -69,7 +69,7 @@ pub fn is_valid_launch_token(token: &str) -> bool {
 
 /// Generates a random 16-byte (32-hex-character) readiness token.
 ///
-/// Mirrors `randomToken` in `electron/update/launch.js`.
+/// Mirrors `randomToken` in the desktop host.
 pub fn random_token() -> Result<String, String> {
     let mut bytes = [0u8; 16];
     getrandom::getrandom(&mut bytes).map_err(|e| format!("getrandom failed: {e}"))?;
@@ -78,7 +78,7 @@ pub fn random_token() -> Result<String, String> {
 
 /// Inputs to [`child_environment`].
 ///
-/// Mirrors the parameter object of `childEnvironment` in `electron/update/launch.js`.
+/// Mirrors the parameter object of `childEnvironment` in the desktop host.
 #[derive(Debug, Clone, Default)]
 pub struct ChildEnvOptions {
     /// Base environment variables inherited from the parent process.
@@ -95,15 +95,13 @@ pub struct ChildEnvOptions {
 
 /// Builds the environment map for a handed-off child version.
 ///
-/// Strips `ELECTRON_RUN_AS_NODE`, preserves the outermost `BFE_BOOTSTRAP_DIR`,
+/// Preserves the outermost `BFE_BOOTSTRAP_DIR`,
 /// `BFE_BOOTSTRAP_VERSION`, and `BFE_APPIMAGE`, and sets `BFE_LAUNCH_DIR` and
 /// `BFE_LAUNCH_TOKEN` for the immediate child hop.
 ///
-/// Mirrors `childEnvironment` in `electron/update/launch.js`.
+/// Mirrors `childEnvironment` in the desktop host.
 pub fn child_environment(opts: &ChildEnvOptions) -> BTreeMap<String, String> {
     let mut env = opts.base_env.clone();
-    env.remove("ELECTRON_RUN_AS_NODE");
-
     if let Some(dir) = &opts.bootstrap_dir {
         if !dir.as_os_str().is_empty()
             && env
@@ -158,7 +156,7 @@ pub fn child_environment(opts: &ChildEnvOptions) -> BTreeMap<String, String> {
 /// Returns `true` if a valid launch token was present and the file was written, or
 /// `false` if no valid token/directory was provided or writing failed.
 ///
-/// Mirrors `signalReady` in `electron/update/launch.js`.
+/// Mirrors `signalReady` in the desktop host.
 pub fn signal_ready_with(env_map: &BTreeMap<String, String>, pid: u32) -> bool {
     let Some(token) = env_map.get("BFE_LAUNCH_TOKEN").filter(|s| !s.is_empty()) else {
         return false;
@@ -192,14 +190,14 @@ pub fn signal_ready_with(env_map: &BTreeMap<String, String>, pid: u32) -> bool {
 /// Signals launch readiness using the current process environment (`std::env::vars()`)
 /// and process ID (`std::process::id()`).
 ///
-/// Mirrors `updater.ready()` in `electron/update/index.js` and `signalReady()` in
-/// `electron/update/launch.js`.
+/// Mirrors `updater.ready()` in the desktop host and `signalReady()` in
+/// the desktop host.
 pub fn signal_ready() -> bool {
     let env_map: BTreeMap<String, String> = env::vars().collect();
     signal_ready_with(&env_map, std::process::id())
 }
 
-/// Alias for [`signal_ready`] matching `updater.ready()` in `electron/update/index.js`.
+/// Alias for [`signal_ready`] matching `updater.ready()` in the desktop host.
 pub fn ready() -> bool {
     signal_ready()
 }
@@ -217,7 +215,7 @@ pub struct LaunchTarget {
 
 /// Options for [`launch_version`].
 ///
-/// Mirrors the parameter object of `launchVersion` in `electron/update/launch.js`.
+/// Mirrors the parameter object of `launchVersion` in the desktop host.
 #[derive(Debug, Clone)]
 pub struct LaunchOptions {
     /// Installed version target to spawn.
@@ -239,7 +237,7 @@ pub struct LaunchOptions {
 /// Outcome returned by [`launch_version`].
 ///
 /// Mirrors the `{ ok, reason, detail, pid }` object returned by `launchVersion` in
-/// `electron/update/launch.js`.
+/// the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchOutcome {
     /// True when the child wrote its readiness token before exiting or timing out.
@@ -258,7 +256,7 @@ pub struct LaunchOutcome {
 /// If the child does not write its readiness token before exiting or before `timeout_ms`
 /// elapses, kills the child (on timeout), cleans up the token file, and returns `ok: false`.
 ///
-/// Mirrors `launchVersion` in `electron/update/launch.js`.
+/// Mirrors `launchVersion` in the desktop host.
 pub fn launch_version(opts: &LaunchOptions) -> LaunchOutcome {
     if opts.target.executable.as_os_str().is_empty() || !opts.target.executable.exists() {
         return LaunchOutcome {
@@ -408,7 +406,7 @@ fn format_exit_status(status: ExitStatus) -> String {
 /// Release metadata read from `<ownDir>/resources/bfe-release.json`,
 /// `<ownDir>/bfe-release.json`, `<ownDir>/package.json`, or `<ownDir>/.bfe-install.json`.
 ///
-/// Mirrors `readReleaseInfo` in `electron/update/index.js`.
+/// Mirrors `readReleaseInfo` in the desktop host.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReleaseInfo {
     /// Semantic version of the running build (`"0.1.0-preview.332"`).
@@ -433,7 +431,7 @@ struct RawReleaseJson {
 /// 3. `<own_dir>/package.json` (`version` and `bfeUpdateChannel`)
 /// 4. `<own_dir>/.bfe-install.json` (`version`, defaulting channel to `"development-preview"`)
 ///
-/// Mirrors `readReleaseInfo` in `electron/update/index.js`.
+/// Mirrors `readReleaseInfo` in the desktop host.
 pub fn read_release_info(own_dir: &Path) -> ReleaseInfo {
     for rel in ["resources/bfe-release.json", "bfe-release.json"] {
         let candidate = own_dir.join(rel);
@@ -481,7 +479,7 @@ pub fn read_release_info(own_dir: &Path) -> ReleaseInfo {
 
 /// Appends a timestamped diagnostic line to `<root>/update.log`.
 ///
-/// Mirrors `log` inside `createUpdater` in `electron/update/index.js`.
+/// Mirrors `log` inside `createUpdater` in the desktop host.
 pub fn append_update_log(root: &Path, own_version: Option<&str>, message: &str) {
     if fs::create_dir_all(root).is_err() {
         return;
@@ -525,7 +523,7 @@ pub fn iso8601_now() -> String {
 
 /// Explicit configuration for [`settle_with`].
 ///
-/// Mirrors the environment of `updater.settle()` in `electron/update/index.js`.
+/// Mirrors the environment of `updater.settle()` in the desktop host.
 #[derive(Debug, Clone)]
 pub struct SettleOptions {
     /// Directory containing the running executable.
@@ -578,7 +576,7 @@ impl SettleOptions {
 
 /// Outcome returned by [`settle`] and [`settle_with`].
 ///
-/// Mirrors `{ settled, removed }` returned by `updater.settle()` in `electron/update/index.js`.
+/// Mirrors `{ settled, removed }` returned by `updater.settle()` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettleOutcome {
     /// True if the running build settled its health state in `<root>/state.json`.
@@ -591,7 +589,7 @@ pub struct SettleOutcome {
 /// on Linux when running from `<root>/versions/<version>`, and garbage-collects superseded
 /// version directories.
 ///
-/// Mirrors `updater.settle()` in `electron/update/index.js`.
+/// Mirrors `updater.settle()` in the desktop host.
 pub fn settle_with(opts: &SettleOptions) -> SettleOutcome {
     let info = read_release_info(&opts.own_dir);
     let own_version = opts
@@ -683,7 +681,7 @@ pub fn settle_with(opts: &SettleOptions) -> SettleOutcome {
 
 /// Settles the running process using [`SettleOptions::from_current_process`].
 ///
-/// Mirrors `updater.settle()` in `electron/update/index.js`.
+/// Mirrors `updater.settle()` in the desktop host.
 pub fn settle() -> SettleOutcome {
     settle_with(&SettleOptions::from_current_process())
 }
@@ -691,7 +689,7 @@ pub fn settle() -> SettleOutcome {
 /// Schedules [`settle`] to run on a background thread after [`DEFAULT_SETTLE_DELAY_MS`]
 /// (10 seconds, or `BFE_SETTLE_DELAY_MS` if set in the environment).
 ///
-/// Mirrors `setTimeout(() => updater.settle(), 10 * 1000)` in `electron/main.js`.
+/// Mirrors `setTimeout(() => updater.settle(), 10 * 1000)` in the desktop host.
 pub fn schedule_settle() {
     let delay_ms = env::var("BFE_SETTLE_DELAY_MS")
         .ok()
@@ -720,9 +718,8 @@ mod tests {
     }
 
     #[test]
-    fn child_environment_preserves_bootstrap_and_strips_run_as_node() {
+    fn child_environment_preserves_bootstrap() {
         let mut base = BTreeMap::new();
-        base.insert("ELECTRON_RUN_AS_NODE".to_string(), "1".to_string());
         base.insert("APPIMAGE".to_string(), "/opt/bfe.AppImage".to_string());
 
         let env1 = child_environment(&ChildEnvOptions {
@@ -732,7 +729,6 @@ mod tests {
             launch_dir: Some(PathBuf::from("/var/lib/bfe/launches")),
             token: Some("0123456789abcdef0123456789abcdef".to_string()),
         });
-        assert!(!env1.contains_key("ELECTRON_RUN_AS_NODE"));
         assert_eq!(
             env1.get("BFE_BOOTSTRAP_DIR").map(|s| s.as_str()),
             Some("/opt/Battlefront Eternal")

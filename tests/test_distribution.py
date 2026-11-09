@@ -1,4 +1,6 @@
 """Exercise real Debian metadata, signatures and atomic download publication."""
+import base64
+import hashlib
 import importlib.util
 import json
 import os
@@ -14,13 +16,13 @@ distribution = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(distribution)
 
 def server_archive(source, arch, entries=None, version='0.0.0', mode=0o755):
-    """A dedicated server archive as build/server-archive.mjs or build/native/server-archive.py lays it out."""
+    """A dedicated server archive as build/native/server-archive.py lays it out."""
     import io
     import tarfile
     path = source / f'battlefront-eternal-server_{version}_linux-{arch}.tar.xz'
     with tarfile.open(path, 'w:xz') as archive:
-        for name in entries or ['host-runtime/server/src/main.js', 'host-runtime/engine/src/game.js', 'host-runtime/update/server.js',
-                                'tools/prepare.py', 'toolchain/python/bin/python3', 'legal/LICENSE', 'bfe-tree.json']:
+        for name in entries or ['bfeserver', 'tools/prepare.py', 'tools/content-version.json',
+                                'toolchain/python/bin/python3', 'legal/LICENSE', 'legal/THIRD-PARTY-NOTICES.md', 'bfe-tree.json']:
             data = f'{arch} {name}'.encode()
             info = tarfile.TarInfo(name)
             info.size = len(data)
@@ -69,7 +71,6 @@ class DistributionTest(unittest.TestCase):
                                  (source / f'battlefront-eternal-server_0.0.0_linux-{arch}.tar.xz').read_bytes())
             release = public / 'apt/dists/stable/InRelease'
             subprocess.run(['gpg','--homedir',str(keyhome),'--verify',str(release)],check=True,capture_output=True)
-            import hashlib
             for arch in ['amd64','arm64']:
                 directory = public / f'apt/dists/stable/main/binary-{arch}'
                 data = (directory / 'Packages').read_bytes()
@@ -84,9 +85,9 @@ class DistributionTest(unittest.TestCase):
             # A server archive reaching outside its layout, lacking the server, or
             # missing for an architecture is refused the same way.
             (source / 'test-win-x64.exe').write_text('fixture')
-            for entries in [['opt/evil', 'host-runtime/server/src/main.js', 'host-runtime/engine/src/game.js', 'tools/prepare.py', 'bfe-tree.json'],
-                            ['host-runtime/../escape', 'host-runtime/server/src/main.js', 'host-runtime/engine/src/game.js', 'tools/prepare.py', 'bfe-tree.json'],
-                            ['host-runtime/engine/src/game.js', 'tools/prepare.py', 'bfe-tree.json'],
+            for entries in [['opt/evil', 'bfeserver', 'tools/prepare.py', 'tools/content-version.json', 'toolchain/python/bin/python3', 'legal/LICENSE', 'bfe-tree.json'],
+                            ['tools/../escape', 'bfeserver', 'tools/prepare.py', 'tools/content-version.json', 'toolchain/python/bin/python3', 'legal/LICENSE', 'bfe-tree.json'],
+                            ['tools/prepare.py', 'tools/content-version.json', 'toolchain/python/bin/python3', 'legal/LICENSE', 'bfe-tree.json'],
                             ['bfeserver', 'bfe-client', 'tools/prepare.py', 'tools/content-version.json', 'toolchain/python/bin/python3', 'legal/LICENSE', 'legal/THIRD-PARTY-NOTICES.md', 'bfe-tree.json']]:
                 server_archive(source, 'arm64', entries)
                 with self.assertRaises(ValueError):
@@ -121,10 +122,17 @@ class DistributionTest(unittest.TestCase):
             self.assertIn('Version: 0.1.0~preview.3',packages)
 
     def test_signed_update_channel_store_and_collection(self):
-        """Payloads from build/update-payload.mjs become a signed channel the
-        client's own code (electron/update/feed.js) accepts; blobs are checked
-        by content, shared across releases and collected with them."""
+        """Payloads from build/native/update-payload.py become a signed channel
+        the client's update verifier accepts; blobs are checked by content,
+        shared across releases and collected with them."""
         repo = Path(__file__).parents[1]
+        stage_spec = importlib.util.spec_from_file_location('stage', repo / 'build/native/stage.py')
+        stage_mod = importlib.util.module_from_spec(stage_spec)
+        stage_spec.loader.exec_module(stage_mod)
+        payload_spec = importlib.util.spec_from_file_location('update_payload', repo / 'build/native/update-payload.py')
+        payload_mod = importlib.util.module_from_spec(payload_spec)
+        payload_spec.loader.exec_module(payload_mod)
+
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             keyhome = root / 'keys'
@@ -139,6 +147,9 @@ class DistributionTest(unittest.TestCase):
             distribution.UPDATE_KEY = str(root / 'update.pem')
             subprocess.run(['openssl', 'genpkey', '-algorithm', 'ed25519', '-out', distribution.UPDATE_KEY], check=True)
             spki = subprocess.check_output(['openssl', 'pkey', '-in', distribution.UPDATE_KEY, '-pubout', '-outform', 'DER'])
+            pub_pem = root / 'update-pub.pem'
+            pub_pem.write_bytes(subprocess.check_output(['openssl', 'pkey', '-in', distribution.UPDATE_KEY, '-pubout']))
+            expected_key_id = hashlib.sha256(spki).hexdigest()[:16]
             source = root / 'input'
             source.mkdir()
 
@@ -153,38 +164,41 @@ class DistributionTest(unittest.TestCase):
                     control.chmod(0o755)
                     (control / 'control').write_text(f'Package: battlefront-eternal\nVersion: 0.1.0~preview.{number}\nArchitecture: {arch}\nMaintainer: Test <test@example.invalid>\nDescription: fixture\n')
                     subprocess.run(['dpkg-deb', '--build', '--root-owner-group', str(control.parent), str(source / f'{arch}.deb')], check=True, stdout=subprocess.DEVNULL)
-                script = """
-                    import { mkdirSync, writeFileSync, chmodSync } from 'node:fs';
-                    import path from 'node:path';
-                    const [repo, source, number, payload] = process.argv.slice(1);
-                    const index = (await import(path.join(repo, 'build/tree-index.cjs'))).default.default;
-                    const { buildPayload } = await import(path.join(repo, 'build/update-payload.mjs'));
-                    for (const [platform, executable] of [['linux-x64', 'battlefront-eternal'], ['linux-arm64', 'battlefront-eternal'], ['win32-x64', 'Battlefront Eternal.exe']]) {
-                      const tree = path.join(source, 'tree-' + platform);
-                      mkdirSync(path.join(tree, 'resources', 'tools'), { recursive: true });
-                      writeFileSync(path.join(tree, executable), 'runtime ' + platform);
-                      chmodSync(path.join(tree, executable), 0o755);
-                      writeFileSync(path.join(tree, 'resources', 'app.asar'), 'app ' + payload);
-                      writeFileSync(path.join(tree, 'resources', 'tools', 'content-version.json'), '{"state":2,"maps":8,"sides":2}');
-                      await index({ appOutDir: tree, electronPlatformName: platform.split('-')[0] });
-                      await buildPayload({ tree, platform, out: path.join(source, 'update-' + platform + '.tar'), version: '0.1.0-preview.' + number });
-                    }
-                """
-                subprocess.run(['node', '--input-type=module', '-e', script, str(repo), str(source), str(number), payload], check=True, stdout=subprocess.DEVNULL)
+                for platform, exe in [
+                    ('linux-x64', 'bfe-client'),
+                    ('linux-arm64', 'bfe-client'),
+                    ('win32-x64', 'bfe-client.exe'),
+                ]:
+                    tree_dir = source / f'tree-{platform}'
+                    shutil.rmtree(tree_dir, ignore_errors=True)
+                    (tree_dir / 'resources/tools').mkdir(parents=True, exist_ok=True)
+                    (tree_dir / exe).write_text(f'runtime {platform}')
+                    (tree_dir / exe).chmod(0o755)
+                    (tree_dir / 'resources/payload.txt').write_text(f'app {payload}')
+                    (tree_dir / 'resources/tools/content-version.json').write_text('{"state":2,"maps":8,"sides":2}')
+                    stage_mod.build_tree_index(tree_dir, platform)
+                    payload_mod.build_update_payload(
+                        staged_dir=tree_dir,
+                        platform=platform,
+                        version=f'0.1.0-preview.{number}',
+                        out_path=source / f'update-{platform}.tar',
+                    )
 
             def channel():
-                script = """
-                    import { readFileSync } from 'node:fs';
-                    const [repo, file, spki] = process.argv.slice(1);
-                    const { keyId, openEnvelope } = await import(repo + '/electron/update/feed.js');
-                    const key = Buffer.from(spki, 'base64');
-                    console.log(JSON.stringify(openEnvelope(JSON.parse(readFileSync(file, 'utf8')), { [keyId(key)]: key.toString('base64') })));
-                """
-                return json.loads(subprocess.check_output(['node', '--input-type=module', '-e', script, str(repo),
-                    str(distribution.ROOT / 'downloads/updates/development-preview.json'), base64.b64encode(spki).decode()]))
+                envelope = json.loads((distribution.ROOT / 'downloads/updates/development-preview.json').read_text())
+                self.assertEqual(envelope['key'], expected_key_id)
+                payload_bytes = base64.b64decode(envelope['payload'])
+                sig_bytes = base64.b64decode(envelope['signature'])
+                with tempfile.TemporaryDirectory() as verify_dir:
+                    vpath = Path(verify_dir)
+                    (vpath / 'payload').write_bytes(payload_bytes)
+                    (vpath / 'sig').write_bytes(sig_bytes)
+                    subprocess.run([
+                        'openssl', 'pkeyutl', '-verify', '-pubin', '-inkey', str(pub_pem),
+                        '-rawin', '-in', str(vpath / 'payload'), '-sigfile', str(vpath / 'sig'),
+                    ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return json.loads(payload_bytes)
 
-            import base64
-            import hashlib
             from unittest.mock import patch
             downloads = root / 'public/downloads'
             store = downloads / 'updates/blobs'
@@ -207,10 +221,11 @@ class DistributionTest(unittest.TestCase):
             build(2, 'two')
             tar = source / 'update-linux-x64.tar'
             data = bytearray(tar.read_bytes())
-            marker = data.find(b'blobs/')
-            self.assertGreater(marker, 0)
+            payload_digest = hashlib.sha256(b'app two').hexdigest()
+            marker = data.find(f'blobs/{payload_digest}.zst'.encode())
+            self.assertGreaterEqual(marker, 0)
             body = marker + 512
-            data[body + 20] ^= 0xff
+            data[body + 10] ^= 0xff
             tar.write_bytes(bytes(data))
             with self.assertRaises(ValueError):
                 distribution.publish(source, '0.1.0~preview.2', 'preview-2', 'b' * 40, '2026-10-17')
@@ -227,13 +242,13 @@ class DistributionTest(unittest.TestCase):
             held = set(json.loads((downloads / 'updates/blobs.json').read_text())['blobs'])
             self.assertTrue(held & first, 'the runtimes did not change and are shared')
             only_first = first - held
-            self.assertTrue(only_first, "preview 1's own app.asar blobs are gone")
+            self.assertTrue(only_first, "preview 1's own payload blobs are gone")
             for digest in only_first:
                 self.assertFalse((store / digest[:2] / f'{digest}.zst').exists())
             self.assertEqual(len(list(store.glob('*/*.zst'))), len(held))
 
-            # A native release using bfe-client + bfeserver update payloads and
-            # native server archives publishes into the same channel cleanly.
+            # A subsequent native release using known_blobs_path publishes into
+            # the same channel cleanly.
             for arch in ['amd64', 'arm64']:
                 server_archive(
                     source,
@@ -244,13 +259,6 @@ class DistributionTest(unittest.TestCase):
                 control = root / f'deb-{arch}' / 'DEBIAN/control'
                 control.write_text(control.read_text().replace('preview.4', 'preview.5'))
                 subprocess.run(['dpkg-deb', '--build', '--root-owner-group', str(control.parent.parent), str(source / f'{arch}.deb')], check=True, stdout=subprocess.DEVNULL)
-
-            stage_spec = importlib.util.spec_from_file_location('stage', repo / 'build/native/stage.py')
-            stage_mod = importlib.util.module_from_spec(stage_spec)
-            stage_spec.loader.exec_module(stage_mod)
-            payload_spec = importlib.util.spec_from_file_location('update_payload', repo / 'build/native/update-payload.py')
-            payload_mod = importlib.util.module_from_spec(payload_spec)
-            payload_spec.loader.exec_module(payload_mod)
 
             for platform, exe, srv in [
                 ('linux-x64', 'bfe-client', 'bfeserver'),

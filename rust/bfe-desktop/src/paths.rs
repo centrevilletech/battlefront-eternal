@@ -1,10 +1,10 @@
 // Platform directory layout and local asset path resolution for the native
 // desktop client.
 //
-// This module ports the path helpers from `electron/main.js` (`settingsFile`,
+// This module ports the path helpers from the desktop host (`settingsFile`,
 // `managedContentDir`, `contentRoot`, `hasGameData`, `likelyContentDirs`,
-// `samePath`), `electron/update/state.js` (`updateRoot`), and
-// `electron/content.js` (`CONTENT_ROOTS`, `DESKTOP_PREFIX`, `resolveBelow`,
+// `samePath`), the desktop host (`updateRoot`), and
+// the desktop host (`CONTENT_ROOTS`, `DESKTOP_PREFIX`, `resolveBelow`,
 // `locate`, `parseRange`, `parseContentArg`, `contentCandidates`,
 // `defaultPreparedDir`). Keeping the exact directory names allows the native
 // client to share prepared game data, settings, and installed updates with an
@@ -20,17 +20,17 @@ use serde::{Deserialize, Serialize};
 /// Top-level subdirectories produced by `tools/prepare_content.py` inside a prepared
 /// game data folder.
 ///
-/// Mirrors `CONTENT_ROOTS` in `electron/content.js`.
+/// Mirrors `CONTENT_ROOTS` in the desktop host.
 pub const CONTENT_ROOTS: &[&str] = &["maps", "sides", "common", "audio"];
 
 /// URL path prefix for the desktop shell's own internal pages.
 ///
-/// Mirrors `DESKTOP_PREFIX` in `electron/content.js`.
+/// Mirrors `DESKTOP_PREFIX` in the desktop host.
 pub const DESKTOP_PREFIX: &str = "__desktop";
 
 /// Custom protocol scheme and host used by the desktop shell.
 ///
-/// Mirrors `SCHEME`, `HOST`, and `ORIGIN` in `electron/content.js`.
+/// Mirrors `SCHEME`, `HOST`, and `ORIGIN` in the desktop host.
 pub const SCHEME: &str = "app";
 /// Host component of `app://bfe`.
 pub const HOST: &str = "bfe";
@@ -40,7 +40,7 @@ pub const ORIGIN: &str = "app://bfe";
 /// Checkout subdirectories searched beneath the user's home folder by
 /// [`likely_content_dirs`].
 ///
-/// Mirrors `checkouts` in `likelyContentDirs` in `electron/main.js`.
+/// Mirrors `checkouts` in `likelyContentDirs` in the desktop host.
 const CHECKOUT_PARENTS: &[&str] = &[
     "",
     "src",
@@ -149,7 +149,7 @@ pub fn resolve_desktop_paths(opts: &DesktopPathsOptions) -> DesktopPaths {
 
 /// Directory layout for the desktop auto-updater under `<userData>/updates`.
 ///
-/// Mirrors `updatePaths` in `electron/update/state.js`.
+/// Mirrors `updatePaths` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdatePaths {
@@ -167,7 +167,7 @@ pub struct UpdatePaths {
 
 /// Computes the [`UpdatePaths`] subdirectories inside `user_data_dir`.
 ///
-/// Mirrors `updatePaths` in `electron/update/state.js`.
+/// Mirrors `updatePaths` in the desktop host.
 pub fn update_paths(user_data_dir: &Path) -> UpdatePaths {
     let root = user_data_dir.join("updates");
     UpdatePaths {
@@ -182,7 +182,7 @@ pub fn update_paths(user_data_dir: &Path) -> UpdatePaths {
 /// Inclusive 0-based byte range parsed from an HTTP `Range` header.
 ///
 /// Mirrors the `{ start, end }` object returned by `parseRange` in
-/// `electron/content.js`.
+/// the desktop host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ByteRange {
     /// Inclusive starting byte offset.
@@ -194,7 +194,7 @@ pub struct ByteRange {
 /// Roots passed to [`locate`] when mapping a URL path to a local file on disk.
 ///
 /// Mirrors the `{ appRoot, contentRoot, uiRoot }` parameter of `locate` in
-/// `electron/content.js`.
+/// the desktop host.
 #[derive(Debug, Clone)]
 pub struct LocateRoots<'a> {
     /// Root directory for application static assets (`src/`).
@@ -231,7 +231,7 @@ pub fn normalize_comparable_path(path: &Path) -> String {
 
 /// Parses `--content <dir>` or `--content=<dir>` from command-line arguments.
 ///
-/// Mirrors `parseContentArg` in `electron/content.js`.
+/// Mirrors `parseContentArg` in the desktop host.
 pub fn parse_content_arg(argv: &[String], cwd: &Path) -> Option<PathBuf> {
     let mut i = 0;
     while i < argv.len() {
@@ -256,7 +256,7 @@ pub fn parse_content_arg(argv: &[String], cwd: &Path) -> Option<PathBuf> {
 
 /// Input environment for [`content_candidates`].
 ///
-/// Mirrors the argument object of `contentCandidates` in `electron/content.js`.
+/// Mirrors the argument object of `contentCandidates` in the desktop host.
 #[derive(Debug, Clone, Default)]
 pub struct ContentCandidateEnv {
     /// Command-line arguments (`process.argv`).
@@ -286,7 +286,7 @@ pub struct ContentCandidateEnv {
 /// 4. Packaged `<resourcesPath>/content` and `<execDir>/content`, or unpackaged
 ///    `<projectRoot>/public`, `<projectRoot>/content`, `<cwd>/public`, `<cwd>/content`
 ///
-/// Mirrors `contentCandidates` in `electron/content.js`.
+/// Mirrors `contentCandidates` in the desktop host.
 pub fn content_candidates(opts: &ContentCandidateEnv) -> Vec<PathBuf> {
     let mut raw = Vec::new();
     if let Some(cli) = parse_content_arg(&opts.argv, &opts.cwd) {
@@ -330,7 +330,7 @@ pub fn content_candidates(opts: &ContentCandidateEnv) -> Vec<PathBuf> {
 
 /// Returns the default target directory where newly prepared content should be written.
 ///
-/// Mirrors `defaultPreparedDir` in `electron/content.js`.
+/// Mirrors `defaultPreparedDir` in the desktop host.
 pub fn default_prepared_dir(
     user_data: Option<&Path>,
     project_root: &Path,
@@ -349,7 +349,7 @@ pub fn default_prepared_dir(
     project_root.join("public")
 }
 
-/// Returns the per-user configuration directory matching Electron's
+/// Returns the per-user configuration directory matching the desktop host's
 /// `app.getPath("userData")` for `productName: "Battlefront Eternal"`.
 ///
 /// On Linux this is `${XDG_CONFIG_HOME:-~/.config}/Battlefront Eternal`;
@@ -398,7 +398,7 @@ pub fn user_data_dir_with(
     }
 }
 
-/// Ports `updateRoot` from `electron/update/state.js`.
+/// Ports `updateRoot` from the desktop host.
 ///
 /// Returns the per-user directory where self-updated application builds are
 /// stored (`~/.local/share/battlefront-eternal` on Linux,
@@ -412,7 +412,7 @@ pub fn update_root() -> Option<PathBuf> {
 
 /// Pure version of [`update_root`] taking explicit `platform`, `env_map`, and
 /// `home` values, matching `updateRoot({ platform, env, home })` in
-/// `electron/update/state.js`.
+/// the desktop host.
 pub fn update_root_with(
     platform: &str,
     env_map: &HashMap<String, String>,
@@ -439,7 +439,7 @@ pub fn update_root_with(
     }
 }
 
-/// Ports `managedContentDir` from `electron/main.js`.
+/// Ports `managedContentDir` from the desktop host.
 ///
 /// Returns `<userData>/game-data`, the application-managed folder into which
 /// `tools/prepare_content.py` extracts and converts the player's retail copy.
@@ -447,7 +447,7 @@ pub fn managed_content_dir(user_data: &Path) -> PathBuf {
     user_data.join("game-data")
 }
 
-/// Ports `settingsFile` from `electron/main.js`.
+/// Ports `settingsFile` from the desktop host.
 ///
 /// Returns `<userData>/desktop-settings.json`.
 pub fn settings_file(user_data: &Path) -> PathBuf {
@@ -455,12 +455,12 @@ pub fn settings_file(user_data: &Path) -> PathBuf {
 }
 
 /// Returns `<userData>/player-settings.json`, matching `PLAYER_SETTINGS_FILE`
-/// in `electron/player-settings.js`.
+/// in the desktop host.
 pub fn player_settings_file(user_data: &Path) -> PathBuf {
     user_data.join(crate::settings::PLAYER_SETTINGS_FILE)
 }
 
-/// Ports `timingsFile` from `electron/main.js`.
+/// Ports `timingsFile` from the desktop host.
 ///
 /// Returns `<userData>/prepare-timings.json`.
 pub fn timings_file(user_data: &Path) -> PathBuf {
@@ -468,19 +468,19 @@ pub fn timings_file(user_data: &Path) -> PathBuf {
 }
 
 /// Returns `<userData>/logs/prepare.log`, the log file path passed to
-/// `new Preparer` in `electron/main.js`.
+/// `new Preparer` in the desktop host.
 pub fn prepare_log_file(user_data: &Path) -> PathBuf {
     user_data.join("logs").join("prepare.log")
 }
 
-/// Ports `hasGameData` from `electron/main.js`.
+/// Ports `hasGameData` from the desktop host.
 ///
 /// Returns true when `root` is non-empty and `<root>/common/common.json` exists.
 pub fn has_game_data(root: &Path) -> bool {
     root.join("common").join("common.json").exists()
 }
 
-/// Ports `samePath` from `electron/main.js`.
+/// Ports `samePath` from the desktop host.
 ///
 /// Compares two directory paths as the target platform's filesystem does:
 /// exact byte match on Linux, ASCII case-folded on Windows and macOS.
@@ -500,7 +500,7 @@ pub fn same_path(a: Option<&Path>, b: Option<&Path>, platform: &str) -> bool {
     }
 }
 
-/// Ports `contentRoot` from `electron/main.js`.
+/// Ports `contentRoot` from the desktop host.
 ///
 /// Selects the active content folder in priority order: `forced_content_dir`
 /// (`--content-dir=` or `BFE_CONTENT_DIR`), `chosen_content_dir` from
@@ -523,7 +523,7 @@ pub fn content_root(
     normalize_lexical(&managed_content_dir(user_data))
 }
 
-/// Ports `likelyContentDirs` from `electron/main.js`.
+/// Ports `likelyContentDirs` from the desktop host.
 ///
 /// Lists candidate folders where extracted game data may already sit on the
 /// machine: `foundContentDir` from settings, `<projectRoot>/public` when not
@@ -626,7 +626,7 @@ pub fn desktop_paths() -> DesktopPaths {
     }
 }
 
-/// Ports the `TYPES` table lookup in `electron/content.js`.
+/// Ports the `TYPES` table lookup in the desktop host.
 ///
 /// Maps a file's extension to its HTTP `Content-Type` header value.
 pub fn content_type(file_path: &Path) -> &'static str {
@@ -663,7 +663,7 @@ pub fn content_type(file_path: &Path) -> &'static str {
     }
 }
 
-/// Ports `resolveBelow` from `electron/content.js`.
+/// Ports `resolveBelow` from the desktop host.
 ///
 /// Decodes percent-escapes in `url_path`, rejects NUL bytes, and resolves the
 /// path beneath `root`, returning `None` if it would escape `root`.
@@ -683,7 +683,7 @@ pub fn resolve_below(root: &Path, url_path: &str) -> Option<PathBuf> {
     }
 }
 
-/// Ports `locate` from `electron/content.js`.
+/// Ports `locate` from the desktop host.
 ///
 /// Routes `/maps/...`, `/sides/...`, `/common/...` and `/audio/...` to
 /// `content_root`, `/__desktop/...` to `ui_root`, and everything else to
@@ -707,7 +707,7 @@ pub fn locate(url_path: &str, roots: &LocateRoots<'_>) -> Option<PathBuf> {
     resolve_below(roots.app_root, target)
 }
 
-/// Ports `parseRange` from `electron/content.js`.
+/// Ports `parseRange` from the desktop host.
 ///
 /// Supports `"bytes=a-b"`, `"bytes=a-"` and suffix ranges `"bytes=-n"` against
 /// a file of `size` bytes. Returns `None` when the header does not match

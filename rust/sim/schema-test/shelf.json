@@ -1,0 +1,157 @@
+{
+  "enums": {
+    "Colour": [
+      "red",
+      "green",
+      "blue"
+    ]
+  },
+  "unions": {
+    "Holder": [
+      "null",
+      "undefined",
+      "lit:nobody",
+      "ref:person",
+      "ref:thing"
+    ],
+    "Half": [
+      "f64",
+      "vec3"
+    ],
+    "Body": [
+      "rec:Legs",
+      "rec:Wheels"
+    ],
+    "Who": [
+      "ref:person",
+      "ref:thing"
+    ]
+  },
+  "records": {
+    "Spot": {
+      "at": "vec3",
+      "turn": "quat",
+      "label": "str|null",
+      "mark": "enum:Colour",
+      "near": "ref:person|undefined",
+      "keeper": "ref:person",
+      "kept": "list:thing"
+    },
+    "Ask": {
+      "n": "f64",
+      "who": "ref:person|null",
+      "things": "list:thing",
+      "spot": "rec:Spot|null"
+    },
+    "Legs": {
+      "$class": "Legs",
+      "stride": "f64",
+      "side": "list:f64"
+    },
+    "Wheels": {
+      "$class": "Wheels",
+      "count": "u8",
+      "grip": "vec3"
+    },
+    "Shape": {
+      "radius": "f64",
+      "half": "union:Half"
+    }
+  },
+  "commands": {
+    "double": {
+      "args": "Ask",
+      "result": "Ask",
+      "rust": "gen_tests::double"
+    }
+  },
+  "events": {
+    "noted": "Spot"
+  },
+  "imports": {
+    "lookUp": {
+      "args": "Ask",
+      "result": "Spot"
+    }
+  },
+  "kinds": {
+    "shelf": {
+      "singleton": true,
+      "fields": {
+        "things": "list:thing",
+        "byName": "map:list:thing",
+        "weights": "map:f64",
+        "spots": "map:rec:Spot",
+        "owners": "map:ref:person",
+        "names": "map:str|null",
+        "byTeam": "obj:f64",
+        "rules": "obj:list:f64x2",
+        "labels": "obj:(str|undefined)",
+        "counts": "map:num:f64",
+        "spotsAt": "map:num:rec:Spot",
+        "tally": "map:ref:thing:f64",
+        "queues": "map:ref:Who:list:thing",
+        "times": "Float64Array(5)",
+        "slots": "Int32Array(4)",
+        "ring": "list:(ref:thing|null)"
+      }
+    },
+    "thing": {
+      "home": "shelf.things",
+      "fields": {
+        "count": "i32",
+        "size": "u32",
+        "small": "u8",
+        "light": "f32",
+        "mass": "f64",
+        "on": "bool",
+        "where": "vec3",
+        "facing": "quat",
+        "pair": "f64x2",
+        "name": "str",
+        "colour": "enum:Colour",
+        "def": "def:goods",
+        "owner": "ref:person|null",
+        "holder": "union:Holder",
+        "spot": "rec:Spot|null|undefined",
+        "friends": "set:person",
+        "next": "ref:thing|null",
+        "tags": "map:str|undefined",
+        "hidden": {
+          "type": "f64",
+          "mirror": false
+        },
+        "boxed": {
+          "type": "f64",
+          "js": "box.size",
+          "mirror": false
+        },
+        "marks": "list:f64",
+        "probes": "list:vec3",
+        "flags": "list:bool",
+        "spots": "list:rec:Spot",
+        "holders": "list:union:Holder",
+        "matrix": "mat4",
+        "firstSize": {
+          "type": "f64",
+          "js": "boxes.0.size",
+          "mirror": false
+        },
+        "shapes": "list:rec:Shape",
+        "hitSet": "index:shapes|null",
+        "body": "union:Body",
+        "gains": "Float32Array(2)|null",
+        "maybe": "list:(f64|undefined)",
+        "seenBy": "map:ref:person:u8",
+        "marked": "obj:(rec:Spot|null)"
+      },
+      "skip": {
+        "mesh": "drawn by the page"
+      }
+    },
+    "person": {
+      "key": "id",
+      "class": "Person"
+    }
+  }
+}

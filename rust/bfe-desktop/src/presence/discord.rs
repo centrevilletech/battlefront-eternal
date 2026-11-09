@@ -1,8 +1,8 @@
 //! Discord local IPC rich-presence client (`discord-ipc-0..9`).
 //!
-//! Mirrors `electron/presence/discord.js` (`OP`, `MAX_FRAME`, `encodeFrame`,
+//! Mirrors the desktop host (`OP`, `MAX_FRAME`, `encodeFrame`,
 //! `FrameReader`, `SANDBOXES`, `socketCandidates`, `presentSockets`, `DiscordPresence`)
-//! and `electron/presence/application.js` (`DISCORD_APPLICATION_ID`).
+//! and the desktop host (`DISCORD_APPLICATION_ID`).
 //!
 //! Speaks Discord's length-prefixed framing protocol (`[opcode: u32 LE][length: u32 LE][json]`)
 //! over Unix domain sockets on Linux/macOS and named pipes (`\\?\pipe\discord-ipc-N`)
@@ -19,38 +19,38 @@ pub use crate::presence::activity::DISCORD_APPLICATION_ID as DEFAULT_DISCORD_CLI
 
 /// Discord IPC frame opcode: initial handshake (`0`).
 ///
-/// Mirrors `OP.HANDSHAKE` in `electron/presence/discord.js`.
+/// Mirrors `OP.HANDSHAKE` in the desktop host.
 pub const OP_HANDSHAKE: u32 = 0;
 
 /// Discord IPC frame opcode: standard JSON command/event frame (`1`).
 ///
-/// Mirrors `OP.FRAME` in `electron/presence/discord.js`.
+/// Mirrors `OP.FRAME` in the desktop host.
 pub const OP_FRAME: u32 = 1;
 
 /// Discord IPC frame opcode: close frame (`2`).
 ///
-/// Mirrors `OP.CLOSE` in `electron/presence/discord.js`.
+/// Mirrors `OP.CLOSE` in the desktop host.
 pub const OP_CLOSE: u32 = 2;
 
 /// Discord IPC frame opcode: ping frame (`3`).
 ///
-/// Mirrors `OP.PING` in `electron/presence/discord.js`.
+/// Mirrors `OP.PING` in the desktop host.
 pub const OP_PING: u32 = 3;
 
 /// Discord IPC frame opcode: pong frame (`4`).
 ///
-/// Mirrors `OP.PONG` in `electron/presence/discord.js`.
+/// Mirrors `OP.PONG` in the desktop host.
 pub const OP_PONG: u32 = 4;
 
 /// Maximum Discord IPC frame payload size (`64 KiB`).
 ///
-/// Mirrors `MAX_FRAME` in `electron/presence/discord.js`.
+/// Mirrors `MAX_FRAME` in the desktop host.
 pub const MAX_FRAME_BYTES: usize = 64 * 1024;
 
 /// Relative sandbox subdirectories searched under each runtime base directory
 /// for Discord, Vesktop, Legcord, and Discord Canary.
 ///
-/// Mirrors `SANDBOXES` in `electron/presence/discord.js`.
+/// Mirrors `SANDBOXES` in the desktop host.
 pub const SANDBOXES: &[&str] = &[
     "",
     "app/com.discordapp.Discord",
@@ -84,7 +84,7 @@ pub struct DecodeFramesResult {
 /// Encodes a Discord IPC frame with an 8-byte little-endian header
 /// (`[op: u32 LE][byte_len: u32 LE]`) followed by the UTF-8 JSON body.
 ///
-/// Mirrors `encodeFrame` in `electron/presence/discord.js`.
+/// Mirrors `encodeFrame` in the desktop host.
 pub fn encode_frame(op: u32, payload: &Value) -> Vec<u8> {
     let body = serde_json::to_vec(payload).unwrap_or_else(|_| b"{}".to_vec());
     let mut out = Vec::with_capacity(8 + body.len());
@@ -97,7 +97,7 @@ pub fn encode_frame(op: u32, payload: &Value) -> Vec<u8> {
 /// Decodes zero or more complete Discord IPC frames from `buffer`.
 ///
 /// Returns an error if a frame declares a length exceeding [`MAX_FRAME_BYTES`].
-/// Mirrors `FrameReader.push` in `electron/presence/discord.js`.
+/// Mirrors `FrameReader.push` in the desktop host.
 pub fn decode_frames(buffer: &[u8]) -> Result<DecodeFramesResult, String> {
     let mut frames = Vec::new();
     let mut offset = 0usize;
@@ -129,7 +129,7 @@ pub fn decode_frames(buffer: &[u8]) -> Result<DecodeFramesResult, String> {
 /// Enumerates candidate Discord IPC socket/pipe paths (`discord-ipc-0..9`) across
 /// Windows named pipes, `XDG_RUNTIME_DIR`, Flatpak/Snap sandboxes ([`SANDBOXES`]), and `/tmp`.
 ///
-/// Mirrors `socketCandidates` in `electron/presence/discord.js`.
+/// Mirrors `socketCandidates` in the desktop host.
 pub fn candidate_ipc_paths(
     platform: &str,
     env: &BTreeMap<String, String>,
@@ -194,7 +194,7 @@ pub fn candidate_ipc_paths(
 
 /// Filters `candidates` down to Unix domain sockets that currently exist on disk.
 ///
-/// Mirrors `presentSockets` in `electron/presence/discord.js`.
+/// Mirrors `presentSockets` in the desktop host.
 pub fn present_sockets(candidates: &[String]) -> Vec<String> {
     let mut found = Vec::new();
     for file in candidates {
@@ -219,7 +219,7 @@ pub fn present_sockets(candidates: &[String]) -> Vec<String> {
 /// Builds a `SET_ACTIVITY` command frame payload for the given PID and formatted activity.
 ///
 /// Mirrors the `SET_ACTIVITY` frame built in `DiscordPresence.pump` in
-/// `electron/presence/discord.js`.
+/// the desktop host.
 pub fn build_set_activity_frame(pid: u32, activity: Option<&Value>, nonce: &str) -> Vec<u8> {
     let payload = json!({
         "cmd": "SET_ACTIVITY",

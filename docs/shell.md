@@ -11,7 +11,7 @@ It is built in two parts:
 - **The media side and the plumbing** (this page): which page a URL is,
   the URLs between the front end and the battles, the playlist, the
   movies, the music, the click gate and the loading screen.
-- **The screens** (`src/shell/screens.js`, on the menu framework of
+- **The screens** (`rust/bfe-shell`, on the menu framework of
   [menus.md](menus.md)): MAIN MENU, SINGLEPLAYER, Instant Action, OPTIONS,
   the multiplayer and profile screens, EXIT TO WINDOWS.
 
@@ -32,25 +32,25 @@ nothing.
 
 | File | What it does |
 | --- | --- |
-| `src/main.js` | The router: the battle (`src/game.js`) or the front end (`src/shell/`), each loaded only when it's the page |
-| `src/launch.js` | Pure: which page a URL is, the battle URLs, the playlist in the URL, the next battle, the main menu's URL |
-| `src/mission.js` | Pure: which of a map's battles a URL plays (`era`, `side`, `mission`), and that battle's mission, spawn screen and vehicles in map.json's places, for the page, the world worker and servers alike |
-| `src/shell/index.js` | `createShell()`: the front end's page, from the gate to the main menu |
-| `src/shell/screens.js` | Main menu, SINGLEPLAYER, Instant Action playlist, OPTIONS, profile and multiplayer screens |
-| `src/shell/version.js` | The main menu's version line, bottom right: the desktop build's preview number (else WEB BUILD), the simulation (`bfe-sim-N`, which servers must match) and the game data's map, side and common generations (`M12 S2 C2`), with what the build needs when the data is stale (`bfeDesktop.about()`) |
-| `src/shell/data.js` | `public/common/shell/shell.json` and `common.json`, read with fallbacks for whatever is missing |
-| `src/shell/movies.js` | `MoviePlayer`: the background movies, their intros, loops and fades |
-| `src/shell/audio.js` | `ShellMusic` (pure: the tracks in turn, the gaps) and `ShellAudio` (the buses, the dips, whooshes and menu sounds) |
-| `src/shell/media.js` | Each screen's movie and music, and the moves between screens (`ifs_movietrans`); Instant Action's preview |
-| `src/shell/backdrop.js` | The page theme's backdrop: a movie fading in down each side, under every screen; Instant Action's map preview in its frame |
-| `src/shell/server-browser.js` | The server browser (the page theme's MULTIPLAYER): JOIN / CREATE / LEADERBOARD, the Internet's or the LAN's servers, filters, sorting, the pick, joining |
-| `src/shell/server-browser-view.js` | The server browser on the page: the source and filters, the sortable list, GAME INFO (the map's flyover, the facts, the sponsor) |
-| `src/shell/gate.js` | The click gate |
-| `src/shell/text.js` | The game's bitmap fonts on a 2D canvas (the gate, the loading screen) |
-| `src/shell/loading.js` | The loading screen: the original's timeline and its sounds (`LoadingTimeline`), the drawing, the hand-over, and `createLoadingScreen()` for the battle page |
-| `src/shell/loading-worker.js` | The loading screen's own thread |
-| `src/shell/loading-audio.js` | The loading screen's sound: the tracking pulse and the zooms, on the audio clock |
-| `src/game.js` | `createGame({ onProgress })`: the load's steps for the loading screen, its GPU work a batch at a time; DONE's next battle |
+| `rust/sim` (`main`) | The router: the battle (`rust/sim` (`game`)) or the front end (`rust/bfe-shell`), each loaded only when it's the page |
+| `rust/sim` (`launch`) | Pure: which page a URL is, the battle URLs, the playlist in the URL, the next battle, the main menu's URL |
+| `rust/sim` (`mission`) | Pure: which of a map's battles a URL plays (`era`, `side`, `mission`), and that battle's mission, spawn screen and vehicles in map.json's places, for the page, the world worker and servers alike |
+| `rust/bfe-shell` | `createShell()`: the front end's page, from the gate to the main menu |
+| `rust/bfe-shell` | Main menu, SINGLEPLAYER, Instant Action playlist, OPTIONS, profile and multiplayer screens |
+| `rust/bfe-shell` | The main menu's version line, bottom right: the desktop build's preview number (else WEB BUILD), the simulation (`bfe-sim-N`, which servers must match) and the game data's map, side and common generations (`M12 S2 C2`), with what the build needs when the data is stale (`bfeDesktop.about()`) |
+| `rust/bfe-shell` | `public/common/shell/shell.json` and `common.json`, read with fallbacks for whatever is missing |
+| `rust/bfe-shell` | `MoviePlayer`: the background movies, their intros, loops and fades |
+| `rust/bfe-shell` | `ShellMusic` (pure: the tracks in turn, the gaps) and `ShellAudio` (the buses, the dips, whooshes and menu sounds) |
+| `rust/bfe-shell` | Each screen's movie and music, and the moves between screens (`ifs_movietrans`); Instant Action's preview |
+| `rust/bfe-shell` | The page theme's backdrop: a movie fading in down each side, under every screen; Instant Action's map preview in its frame |
+| `rust/bfe-shell` | The server browser (the page theme's MULTIPLAYER): JOIN / CREATE / LEADERBOARD, the Internet's or the LAN's servers, filters, sorting, the pick, joining |
+| `rust/bfe-shell` | The server browser on the page: the source and filters, the sortable list, GAME INFO (the map's flyover, the facts, the sponsor) |
+| `rust/bfe-shell` | The click gate |
+| `rust/bfe-shell` | The game's bitmap fonts on a 2D canvas (the gate, the loading screen) |
+| `rust/bfe-shell` | The loading screen: the original's timeline and its sounds (`LoadingTimeline`), the drawing, the hand-over, and `createLoadingScreen()` for the battle page |
+| `rust/bfe-shell` | The loading screen's own thread |
+| `rust/bfe-shell` | The loading screen's sound: the tracking pulse and the zooms, on the audio clock |
+| `rust/sim` (`game`) | `createGame({ onProgress })`: the load's steps for the loading screen, its GPU work a batch at a time; DONE's next battle |
 
 ## Pages and URLs
 
@@ -58,7 +58,7 @@ A page is a battle when its URL has any of `map`, `side`, `unit`, `spawn`
 or `spawnscreen`; otherwise it is the front end. `?shell=1` forces the
 front end, `?shell=0` the battle (on Theed, the battle's default map).
 Every URL the tests and tools open names a battle, so they load as before;
-`tests/launch.test.js` reads them all to make sure.
+`cargo test --locked --workspace` reads them all to make sure.
 
 A battle is its URL, and the Instant Action playlist rides in it:
 
@@ -67,7 +67,7 @@ A battle is its URL, and the Instant Action playlist rides in it:
 | Key | What it is |
 | --- | --- |
 | `map` | This battle's map (the folder in `public/maps/`) |
-| `era` | Its era, `cw` or `gcw`: the map's battle of that era (`src/mission.js`). A map without that era plays the one it has |
+| `era` | Its era, `cw` or `gcw`: the map's battle of that era (`rust/sim` (`mission`)). A map without that era plays the one it has |
 | `rotation` | The playlist, `map:era` entries, in the order they play this lap; 64 at most, as the original's mission queue |
 | `round` | This battle's entry in it, from 0 |
 | `order` | `random`: shuffle again at each wrap (RANDOM ORDER). Absent: PLAY IN ORDER |
@@ -81,13 +81,13 @@ battle of a map by its mission script (`?map=nab2&mission=nab2a`; the only
 way to play a historical `_h` version). `spawnscreen` is a dev flag that is
 also a battle key: the main menu's URL keeps it and adds `shell=1`.
 
-Which battle a URL plays is `src/mission.js`'s one rule, the same in the
+Which battle a URL plays is `rust/sim` (`mission`)'s one rule, the same in the
 page, the world worker and a server: `mission=`, else `era=`, else the
 era of `side=` (`rep` and `cis` fight the Clone Wars, `all` and `imp` the
 Galactic Civil War), else the map's Clone Wars battle, else its other.
 Never a historical version unless named.
 
-`src/launch.js`:
+`rust/sim` (`launch`):
 
 | Function | Gives |
 | --- | --- |
@@ -124,7 +124,7 @@ The original's DONE (or 30 s without input on the end-of-match table)
 calls `ScriptCB_QuitFromStats`, which loads the next mission of the queue;
 Instant Action's queue always loops, so it never runs out, and in RANDOM
 ORDER it is shuffled again at every wrap. Here the scoreboard's DONE and
-timeout call its port's `restart()`, which `src/game.js` makes
+timeout call its port's `restart()`, which `rust/sim` (`game`) makes
 `location.replace(nextUrl())`: the playlist's next entry, or, for a battle
 opened without a playlist, the same battle again (as before).
 
@@ -147,7 +147,7 @@ MAIN MENU, not to the Instant Action screen, and so does the port.
   battle page's clicks, else at the initial click or key.
 - **The page theme** (a design in progress) draws the front end's
   screens, popups and dialogs as a page over one backdrop, instead of the
-  original's canvas over each screen's movie (`src/menus/themes/page`,
+  original's canvas over each screen's movie (`rust/bfe-interface` (`menus`),
   docs/menus.md). One movie fades in down the left (the Clone Wars:
   `republic_win`, `republic_base`, `cis_win`) and one down the right (the
   Galactic Civil War: `imperial_win`, `rebel_base`, `rebel_win`), each
@@ -220,10 +220,10 @@ interface. As the movie config (`mcfg`) has it:
   0.5 s after the highlight moves, behind the backdrop's hole. Only the
   AVAILABLE MAPS list drives it.
 - A missing or broken movie leaves the hologram rooms' deep blue behind
-  and lets the screen go on (Vite answers a missing file with its index
+  and lets the screen go on (the native client answers a missing file with its index
   page, which fails to decode).
 
-Each screen's movie and music (`SCREEN_MEDIA` in `src/shell/media.js`):
+Each screen's movie and music (`SCREEN_MEDIA` in `rust/bfe-shell`):
 
 | Screen | Movie | Music |
 | --- | --- | --- |
@@ -236,7 +236,7 @@ Each screen's movie and music (`SCREEN_MEDIA` in `src/shell/media.js`):
 
 ## Sound
 
-The battle's engine (`src/audio`) plays a battle's sound sub-level, a
+The battle's engine (`rust/audio-control`) plays a battle's sound sub-level, a
 bank of samples and streams. The front end's music and whooshes are plain
 files in `shell.json`, so `ShellAudio` is a small player of its own on Web
 Audio, keeping the original's buses and rules:
@@ -382,7 +382,7 @@ The original's screen behaves like this:
   `FontFace` API into the fonts of the thread that draws (a worker has its
   own); no text is drawn until it is in, and if it fails the game's fonts
   stand in, in the look's colours.
-- **The sound** (`src/shell/loading-audio.js`): the original's, from the
+- **The sound** (`rust/bfe-shell`): the original's, from the
   same timeline. `LoadingTimeline.sounds()` gives each pulse's start and
   end by the original's rule (`pulse()`: from the 50 ms step in which the
   leading line moves more than a thousandth of the screen to the opening position in
@@ -427,7 +427,7 @@ The original's screen behaves like this:
   (`game.unveil()`), then the screen closes and `game.begin()` starts the
   battle. Nothing moves in the battle before that, and nothing of it is
   drawn while the screen covers it. A network battle (`?network=1`) takes
-  the same path: `src/main.js` is the same for both, `createGame` returns
+  the same path: `rust/sim` (`main`) is the same for both, `createGame` returns
   once the server's welcome is in, and the client tells the server it is
   suspended until `begin()`.
 - **Its own thread, and the GPU's.** The battle's load holds the page's
@@ -445,7 +445,7 @@ The original's screen behaves like this:
   in the screen once or twice a load. Now `graphics.warmupPaced()`
   compiles a program at a time and `game.loaded()` uploads 1 MB at a
   time, each batch waited for with a fence (`gpuIdle()` in
-  `src/game.js`), and the battle draws nothing under the screen until its
+  `rust/sim` (`game`)), and the battle draws nothing under the screen until its
   last two frames. `window.__loading.frames` counts the screen's frames,
   its worst gap and its gaps over 50 ms, with when they fell.
 - `?loading=0` leaves it out. `window.__loading` has its progress, the
@@ -481,7 +481,7 @@ screen's own frames are slow; the checks only report its gaps there.
 
 ## Data read from shell.json
 
-`src/shell/data.js` reads the schema of [shell-assets.md](shell-assets.md)
+`rust/bfe-shell` reads the schema of [shell-assets.md](shell-assets.md)
 and tolerates its variants:
 
 - `movies`: keyed by the original's screen names (`ifs_start`, `ifs_main`,
@@ -510,13 +510,13 @@ and tolerates its variants:
 
 ## Checks
 
-- `node --test tests/launch.test.js`: the router (every test URL is still a
+- `cargo test --locked --workspace`: the router (every test URL is still a
   battle), the URLs, LAUNCH, the next battle through the playlist and
   round again, the reshuffle each lap in random order, the main menu's URL.
-- `tests/shell-media.test.js`: the music's cycle and gaps, screens' music,
+- `cargo test --locked --workspace`: the music's cycle and gaps, screens' music,
   the moves (dip, whoosh, back), the preview's rectangle, the gate's keys
-  and pulse. `tests/shell-data.test.js`: reading `shell.json`.
-  `tests/shell-loading.test.js`: the loading screen's timeline against the
+  and pulse. `cargo test --locked --workspace`: reading `shell.json`.
+  `cargo test --locked --workspace`: the loading screen's timeline against the
   original's stepwise lines and pulse rule, the sequence's end, each sound
   against the moment of the animation it goes with (within a
   millisecond), the whole plan on a stand-in `AudioContext`'s clock (and
@@ -524,8 +524,7 @@ and tolerates its variants:
   lit light darker than the one before by a small step, each its own
   shade, none jumping from one frame to the next), the looks' colours, and
   the look picked from the menu theme.
-- `PLAYWRIGHT_MODULE=... node tests/shell-browser.mjs`: the front end,
-  the gate, the press, the music's tracks, a dip, a menu sound, Back,
+- `  the gate, the press, the music's tracks, a dip, a menu sound, Back,
   `?screen=main`, Instant Action's preview, a missing `shell.json`, and
   battles booting under the loading screen (its progress following the
   load's steps), with screenshots in the folder `SHELL_SHOTS` names. It serves
@@ -534,8 +533,7 @@ and tolerates its variants:
   sound and the loading screen's), so it can name what plays; `SHELL_CHECKS` picks
   checks by name, `SHELL_TEST_URL` another server, `CHROMIUM` a browser
   of the machine's instead of Playwright's download.
-- `PLAYWRIGHT_MODULE=... CHROMIUM=/usr/bin/chromium node
-  tests/shell-loading-browser.mjs`: the loading screen over a real load
+- `  cargo test --locked --workspace`: the loading screen over a real load
   of the server's data (Geonosis; `LOADING_QUERY` picks another): every
   picture loads and goes by, the sequence lasts the original's 13.5 s, the
   screen goes only after both the sequence's end and the battle's
@@ -560,4 +558,4 @@ and tolerates its variants:
 - The era of a playlist entry rides in the URL, but each map folder of an
   older import holds one mission: it plays for both eras, and the era picker
   offers only its era. A newer import holds every battle of the map, and each
-  era plays its own (`src/mission.js`).
+  era plays its own (`rust/sim` (`mission`)).

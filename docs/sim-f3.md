@@ -1,7 +1,7 @@
 # Unit phase ownership
 
 `units/f3.rs` owns adopted units, bodies, combat, weapons, factory pools and the
-mixed registry. `src/sim/wasm/f3-sim.js` publishes ordinary pooled objects for remaining
+mixed registry. `rust/sim` publishes ordinary pooled objects for remaining
 host observers and network facades. Every headless battle uses this owner; the former
 unit/combat adapters and their query/environment selections are removed.
 
@@ -79,7 +79,7 @@ finish, then separation. Native services pass the same borrowed recon authority
 and retained query scratch through damage and recursive explosions. F1's later
 ordnance and item entries join the same ownership and event machinery.
 
-The AI runs natively in the same tick (rust/sim/src/ai, [sim-ai.md](sim-ai.md)). Its post-movement aimer receives the declared movement facts at the
+The AI runs natively in the same tick (rust/sim (ai), [sim-ai.md](sim-ai.md)). Its post-movement aimer receives the declared movement facts at the
 original per-unit point and returns typed scalar deltas in retained storage.
 RNG callback setters bind only the touched weapon or combat stream, including
 replacements whose presence remains true. Ordinary ticks do no loadout polling.

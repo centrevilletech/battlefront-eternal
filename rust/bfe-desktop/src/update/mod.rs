@@ -2,7 +2,7 @@
 //! Zstandard manifest and content-addressed blob installation, version state, and
 //! boot handoff.
 //!
-//! Mirrors `electron/update/{version,keys,state,tree,feed,install,launch,index}.js`.
+//! Mirrors the desktop host{version,keys,state,tree,feed,install,launch,index}.js`.
 
 pub mod feed;
 pub mod handoff;

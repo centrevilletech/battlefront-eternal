@@ -6,11 +6,11 @@ one in the game). `Bolt Caster` on the Video options page selects **Classic**
 or **Enhanced** (the default; the Minimum and Performance presets pick
 Classic). The setting is `arcCasterEffects` and applies live.
 
-**Classic** is the 2004 renderer's look, unchanged (`src/lightning.js`):
+**Classic** is the 2004 renderer's look, unchanged (`rust/sim` (`lightning`)):
 textured ribbons, two random shapes blended, branches and children, faded
 over `FadeTime`.
 
-**Enhanced** is drawn by `src/arc-lightning.js`. It changes only how the
+**Enhanced** is drawn by `rust/sim` (`arc-lightning`). It changes only how the
 bolts look. The world still decides everything about a shot (combat.js
 `arc()`): who is linked, in what order, the damage, the heat.
 The bolts it draws are the ones `Lightning.spawn` receives, from this page's
@@ -126,7 +126,7 @@ particles) where they meet it.
 
 Arc and shock programs register from the Rust effects and actor catalogs during
 resource admission. Shock overlays use native actor descriptors rather than a
-temporary skinned mesh compiled by Three.js. Their scene anchors retain the
+temporary skinned mesh compiled by OpenGL. Their scene anchors retain the
 current view and endpoint facts; the Rust passes own program, geometry and
 raster submission.
 
@@ -135,7 +135,7 @@ raster submission.
 - One retained interleaved buffer stores 20 floats per capsule and uploads the
   drawn prefix. Admission reserves at least 16,384 capsules. Excess segments
   clip rather than grow the buffer during a frame. Native descriptors carry
-  the geometry and attribute layout; no Three.js geometry cache sets the limit.
+  the geometry and attribute layout; no OpenGL geometry cache sets the limit.
 - A line's segments, its hot loop, and the sparks are written straight into
   the buffer instead of through `push()`; the displacement settings are one
   reused object; bolts and sparks are kept in place, the spent left out;
@@ -174,7 +174,7 @@ starts clean; it never stops the battle.
 
 ## Checks
 
-- `tests/arc-lightning.test.js`: the channel keeps its ends and spread; the
+- `cargo test --locked --workspace`: the channel keeps its ends and spread; the
   shooter and struck soldier found and followed; a chain's delay and anchor;
   a droideka's shield stopping the bolt (and a link leaving it);
   the twitch over a new pose and put back, the glow's layer and skeleton; a
@@ -182,7 +182,7 @@ starts clean; it never stops the battle.
   scene; the charge crackle; the setting, presets and Classic switch; the
   batch's growth (every instance drawn, one upload range), a line written
   straight into the batch as `push()` lays it out, and spent sparks reused.
-- `tests/arc-caster.test.js` (the world's side) passes unchanged.
+- `cargo test --locked --workspace` (the world's side) passes unchanged.
 - Browser frames on Geonosis and Kamino in third person, first person, from
   the side and struck in first person: about 250 capsules and 0.4 ms of page
   time a frame for a full-charge shot linking two or three droids (software

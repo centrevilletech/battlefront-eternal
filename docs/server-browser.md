@@ -1,10 +1,10 @@
 # Server browser data
 
-What the desktop gives a server browser: `bfeDesktop.network.request("servers")`
-returns `{ servers: [...] }`, the master's listing (`GET /v1/servers`), each
-server with a ping the player's own machine measured. A listing is renewed
-by its server's heartbeat every 20 seconds and drops 60 seconds after the
-last one.
+`bfe-online::ServerBrowser` (`rust/bfe-online`) queries the master server
+directory (`GET /v1/servers`) and LAN discovery (`BFE-LAN/1` on UDP port
+`18452`), measuring each listed server's ping from the player's own machine. A
+listing is renewed by its server's heartbeat every 20 seconds and drops 60
+seconds after the last one.
 
 | Field | What | From |
 | --- | --- | --- |
@@ -19,37 +19,24 @@ last one.
 | `bots` | Whether bots fill the teams (`ai: "off"` fields none), or null | `config.json` `ai` |
 | `autoAssignTeams` | Whether the server assigns teams (no team switch), or null | `config.json` |
 | `uptime` | Seconds since the service started (it restarts for each update), or null | The service |
-| `query` | The battle a player's page loads to join (map, side, bots, seed, match token only) | The battle |
+| `query` | The battle parameters needed to load and join (map, side, bots, seed, match token only) | The battle |
 | `simulation`, `protocol`, `content` | The release it runs and its game data fingerprint | The engine |
 | `relayPolicy`, `endpoints` | `never` lists the game port at each address it heartbeats from (IPv4, IPv6); others list none | The master |
-| `latencyMs` | The player's ping: a TCP handshake with the game port, the lowest over its addresses, null for a server that lists none or does not answer within a second | The desktop (`electron/network.js`) |
+| `latencyMs` | The player's ping: a TCP handshake with the game port, the lowest over its addresses, null for a server that lists none or does not answer within a second | `rust/bfe-online` |
 
 Fields a server leaves out, or that fail the master's checks, are null; a
 listing from an older server has none of the newer ones. A server's text is
-the operator's: show it as text, never as markup.
+the operator's: show it as plain text.
 
-The page cannot load remote images (its Content-Security-Policy allows only
-`'self'`, `data:` and `blob:`), so a sponsor's logo has to come through the
-desktop's main process (fetched there, its size and type checked, handed
-over as a `data:` URL), which also keeps the logo's host from seeing every
-player who opens the browser. Open sponsor links in the system browser
-(`window.open` of an https address does).
-
-The front end's browser (MULTIPLAYER under the page theme,
-`src/shell/server-browser.js` and `server-browser-view.js`, docs/shell.md)
-shows these. It asks for a sponsor's logo with
-`bfeDesktop.network.request("logo", url)`; the GUI preview answers it, the
-desktop does not yet (the page then shows the sponsor's name and site).
-Fetching logos from the player's machine would let each sponsor's host see
-the players who look at its server; a copy kept by the master would not.
-
-Joining uses `query` (`src/shell/screens.js`, only the battle's own keys,
-`src/runtime/battle-query.js`); a page that still built another battle loads
-the server's from its welcome (`src/runtime/network-session.js`).
+The front end's server browser (`rust/bfe-shell` and `rust/bfe-client`,
+[shell.md](shell.md)) displays the server list, filters, sort order and
+connection details. Sponsor links open in the system browser only after
+validating an `https:` URL. Fetching logos directly from third-party hosts is
+disabled so sponsor hosts cannot track players browsing the server list.
 
 ## For operators
 
-In the server's `config.json` (battlefront-eternal-server README):
+In the server's `config.json` ([native-server.md](native-server.md)):
 
 ```json
 {

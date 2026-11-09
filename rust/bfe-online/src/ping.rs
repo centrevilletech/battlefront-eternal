@@ -2,7 +2,7 @@
 // and direct `/info` HTTP query (`directInfo`).
 //
 // Ports `measureLatency`, `withLatency`, `directInfo`, and `fetchJson` from
-// `electron/network.js`, plus HTTP `/info` framing from
+// the online ping client, plus HTTP `/info` framing from
 // `rust/bfe-client/src/online/info.rs`.
 
 use std::io::{Read, Write};
@@ -15,28 +15,28 @@ use crate::direct::{resolve_host_port, strip_host_brackets, validate_direct_endp
 use crate::identity::is_lower_hex_64;
 
 // Default per-endpoint TCP connect timeout (1000 ms), matching
-// `PING_TIMEOUT_MS` in `electron/network.js`.
+// `PING_TIMEOUT_MS` in the online ping client.
 pub const PING_TIMEOUT: Duration = Duration::from_millis(1_000);
 
 // Maximum concurrent server latency probes (16), matching `PING_CONCURRENCY`
-// in `electron/network.js`.
+// in the online ping client.
 pub const PING_CONCURRENCY: usize = 16;
 
 // Maximum endpoints probed per server (`endpoints.slice(0, 4)` in
-// `electron/network.js`).
+// the online ping client).
 pub const MAX_PING_ENDPOINTS: usize = 4;
 
 // Default direct `/info` HTTP timeout (5000 ms), matching
-// `DIRECT_INFO_TIMEOUT_MS` in `electron/network.js`.
+// `DIRECT_INFO_TIMEOUT_MS` in the online ping client.
 pub const DIRECT_INFO_TIMEOUT: Duration = Duration::from_millis(5_000);
 
-// Maximum `/info` response body size (32 KiB, matching `electron/network.js`).
+// Maximum `/info` response body size (32 KiB, matching the online ping client).
 const MAX_DIRECT_INFO_BYTES: usize = 32 * 1024;
 
 // Measures TCP connect handshake time to `(address, port)` in milliseconds,
 // returning `Some(max(1, round(elapsed_ms)))` on success or `None` on timeout
-// or connection error. Ports `measureLatency` in `electron/network.js`.
-// Ports `measureLatency(address, port, timeoutMs = 1000)` in `electron/network.js`:
+// or connection error. Ports `measureLatency` in the online ping client.
+// Ports `measureLatency(address, port, timeoutMs = 1000)` in the online ping client:
 //   socket.once('connect', () =>
 //     done(Math.max(1, Math.round(Number(process.hrtime.bigint() - started) / 1e6))));
 // Clamps sub-millisecond loopback connects to `1` ms so `Some(0)` is never
@@ -56,7 +56,7 @@ pub fn measure_latency(address: IpAddr, port: u16, timeout: Duration) -> Option<
 
 // Measures latency to a single `EndpointAddr` by stripping optional IPv6
 // brackets, parsing the numeric IP literal (`!isIP(address)` returns `null` in
-// `electron/network.js::measureLatency`), and timing a TCP 3-way handshake.
+// `measure_latency`), and timing a TCP 3-way handshake.
 pub fn measure_endpoint_latency(endpoint: &EndpointAddr, timeout: Duration) -> Option<u32> {
     if endpoint.port == 0 {
         return None;
@@ -68,7 +68,7 @@ pub fn measure_endpoint_latency(endpoint: &EndpointAddr, timeout: Duration) -> O
 
 // Measures latency for a single server across up to `MAX_PING_ENDPOINTS` (4)
 // advertised endpoints in parallel (`server.endpoints.slice(0, 4)` in
-// `electron/network.js::withLatency`), returning the lowest answered latency
+// `with_latency`), returning the lowest answered latency
 // (`Math.min(...answered)`) or `None` when the server lists no direct endpoints
 // (e.g. relay-only servers that keep their IP private) or none respond in time.
 // Falls back to `(server.address, server.port)` for LAN/Direct Connect entries.
@@ -114,7 +114,7 @@ pub fn measure_server_latency(server: &ServerEntry, timeout: Duration) -> Option
 // Populates `latency_ms` on every server in `servers` using a bounded pool of
 // up to `PING_CONCURRENCY` (16) worker threads pulling indices from an atomic
 // work queue (`Array.from({ length: Math.min(16, queue.length) })` in
-// `electron/network.js::withLatency`).
+// `with_latency`).
 // Preserves the input `servers` ordering while avoiding spawning unbounded OS
 // threads when the master listing contains many servers.
 pub fn with_latency(mut servers: Vec<ServerEntry>, timeout: Duration) -> Vec<ServerEntry> {
@@ -159,7 +159,7 @@ pub fn with_latency(mut servers: Vec<ServerEntry>, timeout: Duration) -> Vec<Ser
 
 // Queries `GET http://{address}:{port}/info` directly over TCP, validates the
 // server info payload, and measures TCP latency. Ports `directInfo` in
-// `electron/network.js`.
+// the online ping client.
 pub fn direct_info(address: &str, port: i64, timeout: Duration) -> Result<ServerEntry, String> {
     let target = validate_direct_endpoint(address, port)?;
     let mut info = fetch_server_info(target.socket_addr(), &target.host_port_string(), timeout)?;
@@ -188,7 +188,7 @@ pub fn ping_host_port(target: &str, timeout: Duration) -> Result<(ServerEntry, u
 
 // Performs a minimal HTTP/1.1 `GET /info` request over a raw `TcpStream` with a
 // strict `MAX_DIRECT_INFO_BYTES` (32 KiB) cap (`if (size > 32768)` in
-// `electron/network.js::directInfo`), supporting both `Content-Length` and
+// `direct_info`), supporting both `Content-Length` and
 // `Transfer-Encoding: chunked` responses and verifying that the returned JSON
 // carries a valid 64-char lowercase hex server `id`.
 pub fn fetch_server_info(
@@ -206,7 +206,7 @@ pub fn fetch_server_info(
     // Send a minimal HTTP/1.1 `GET /info` request with `Connection: close` so
     // the server flushes and closes the TCP stream as soon as the JSON body is
     // written (`httpGet({ hostname, port, path: '/info', timeout: 5000 })` in
-    // `electron/network.js::directInfo`).
+    // `direct_info`).
     let request = format!(
         "GET /info HTTP/1.1\r\nHost: {host_header}\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
     );
@@ -256,7 +256,7 @@ pub fn fetch_server_info(
 
     // Inspect response headers case-insensitively for `Content-Length` (rejecting
     // values above `MAX_DIRECT_INFO_BYTES` up front) and `Transfer-Encoding: chunked`
-    // (`node:http` in `electron/network.js` decodes chunked `/info` bodies transparently).
+    // (`node:http` in the online ping client decodes chunked `/info` bodies transparently).
     let mut content_length: Option<usize> = None;
     let mut chunked = false;
     for line in lines {

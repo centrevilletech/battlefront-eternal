@@ -1,9 +1,9 @@
 //! Non-Steam shortcut registration (`shortcuts.vdf`) and custom library artwork
 //! installation (`userdata/<id>/config/grid/`).
 //!
-//! Mirrors `electron/steam/shortcut.js` (`SHORTCUT_NAME`, `STEAM_ARG`,
+//! Mirrors the desktop host (`SHORTCUT_NAME`, `STEAM_ARG`,
 //! `newShortcut`, `findShortcut`, `describeShortcut`, `shortcutCurrent`,
-//! `upsertShortcut`, `removeShortcut`) and `electron/steam/index.js`
+//! `upsertShortcut`, `removeShortcut`) and the desktop host
 //! (`ARTWORK`, `LOGO_POSITION`, `writeShortcuts`, `placeArtwork`).
 
 use std::collections::BTreeMap;
@@ -20,18 +20,18 @@ use crate::steam::vdf::{
 
 /// Display name used when registering Battlefront Eternal in Steam's `shortcuts.vdf`.
 ///
-/// Mirrors `SHORTCUT_NAME` in `electron/steam/shortcut.js`.
+/// Mirrors `SHORTCUT_NAME` in the desktop host.
 pub const SHORTCUT_NAME: &str = "Battlefront Eternal";
 
 /// Command-line flag added to the Steam shortcut's `LaunchOptions` so the game
 /// knows it was started by Steam even when launched through `flatpak-spawn --host`.
 ///
-/// Mirrors `STEAM_ARG` in `electron/steam/shortcut.js`.
+/// Mirrors `STEAM_ARG` in the desktop host.
 pub const STEAM_ARG: &str = "--steam";
 
 /// Custom Steam library artwork source files and their target `config/grid/<appId><suffix><ext>` suffixes.
 ///
-/// Mirrors `ARTWORK` in `electron/steam/index.js`.
+/// Mirrors `ARTWORK` in the desktop host.
 pub const ARTWORK: &[(&str, &str)] = &[
     ("capsule.jpg", ""),
     ("portrait.jpg", "p"),
@@ -44,7 +44,7 @@ pub const ARTWORK: &[(&str, &str)] = &[
 /// discovered Steam roots for the current platform.
 ///
 /// Filters `userdata` subdirectories to positive decimal account IDs (`^[1-9]\d{0,10}$`),
-/// matching the userdata scan in `steamAccounts` (`electron/steam/client.js`) and
+/// matching the userdata scan in `steamAccounts` (the desktop host) and
 /// `shortcutsFile` / `gridDir` (`<root>/userdata/<account>/config`).
 pub fn steam_userdata_dirs(
     platform: &str,
@@ -87,7 +87,7 @@ pub fn steam_userdata_dirs(
 /// Launch target resolved for registering a non-Steam shortcut.
 ///
 /// Combines the executable and working directory from `gameLauncher` and
-/// `shortcutLaunch` (`electron/steam/launcher.js`) with the shortcut icon path.
+/// `shortcutLaunch` (the desktop host) with the shortcut icon path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShortcutTarget {
     /// Path to executable or AppImage.
@@ -96,7 +96,7 @@ pub struct ShortcutTarget {
     pub start_dir: String,
     /// Launch options (`"--steam"` or `"/path/to/root --steam"`).
     pub launch_options: String,
-    /// Icon path (`electron/icon.png` or `electron/icon.ico`).
+    /// Icon path (the desktop host or the desktop host).
     pub icon: String,
 }
 
@@ -120,8 +120,8 @@ pub struct ResolveTargetOptions {
 /// Resolves the executable path, working directory, launch arguments, and icon
 /// for registering Battlefront Eternal in `shortcuts.vdf`.
 ///
-/// Mirrors the launcher and icon resolution in `electron/steam/launcher.js`
-/// (`gameLauncher`, `shortcutLaunch`) and `electron/steam/index.js` (`add`).
+/// Mirrors the launcher and icon resolution in the desktop host
+/// (`gameLauncher`, `shortcutLaunch`) and the desktop host (`add`).
 pub fn resolve_executable_target(opts: &ResolveTargetOptions) -> ShortcutTarget {
     // On Linux, prefer the outer AppImage path when running from a mounted AppImage.
     let app_image = if opts.platform == "linux" {
@@ -143,18 +143,13 @@ pub fn resolve_executable_target(opts: &ResolveTargetOptions) -> ShortcutTarget 
     };
 
     let is_win = opts.platform == "win32" || opts.platform == "windows";
+    let icon_name = if is_win { "icon.ico" } else { "icon.png" };
     let icon_candidates = [
-        opts.resources_path.as_ref().map(|r| {
-            r.join("app.asar.unpacked")
-                .join("electron")
-                .join(if is_win { "icon.ico" } else { "icon.png" })
-        }),
-        Some(
-            opts.project_root
-                .join("electron")
-                .join(if is_win { "icon.ico" } else { "icon.png" }),
-        ),
-        Some(opts.project_root.join("electron").join("icon.png")),
+        opts.resources_path.as_ref().map(|r| r.join(icon_name)),
+        opts.exec_path.parent().map(|p| p.join(icon_name)),
+        Some(opts.project_root.join(icon_name)),
+        Some(opts.project_root.join("build").join("native").join(icon_name)),
+        Some(opts.project_root.join("build").join("native").join("icon.png")),
     ];
     let icon = icon_candidates
         .into_iter()
@@ -175,7 +170,7 @@ pub fn resolve_executable_target(opts: &ResolveTargetOptions) -> ShortcutTarget 
 ///
 /// Matches by [`SHORTCUT_NAME`], by quoted target executable path, or by
 /// `--steam` (`STEAM_ARG`) + `battlefront[- ]eternal` in `Exe` / `LaunchOptions`
-/// as in `findShortcut` (`electron/steam/shortcut.js`).
+/// as in `findShortcut` (the desktop host).
 pub fn matches_bfe_shortcut(entry: &ShortcutEntry, target_exe: Option<&str>) -> bool {
     if entry.app_name.trim().eq_ignore_ascii_case(SHORTCUT_NAME) {
         return true;
@@ -185,7 +180,7 @@ pub fn matches_bfe_shortcut(entry: &ShortcutEntry, target_exe: Option<&str>) -> 
             return true;
         }
     }
-    // Also match `findShortcut` in `electron/steam/shortcut.js`: `--steam` token
+    // Also match `findShortcut` in the desktop host: `--steam` token
     // in `LaunchOptions` and `battlefront[ -]eternal` in `Exe` or `LaunchOptions`.
     let has_steam_arg = entry
         .launch_options
@@ -218,7 +213,7 @@ pub struct UpsertShortcutResult {
 /// Preserves user-chosen tags, hidden state, and `last_play_time` when updating
 /// an existing shortcut.
 ///
-/// Mirrors `upsertShortcut` and `newShortcut` in `electron/steam/shortcut.js`.
+/// Mirrors `upsertShortcut` and `newShortcut` in the desktop host.
 pub fn upsert_shortcut_in_list(
     existing_shortcuts: &[ShortcutEntry],
     target: &ShortcutTarget,
@@ -285,7 +280,7 @@ pub fn upsert_shortcut_in_list(
 /// `<appId>_hero.png`, `<appId>_logo.png`, `<appId>_icon.png`) into `<config_dir>/grid`
 /// without overwriting user-customized artwork.
 ///
-/// Mirrors `placeArtwork` and `ARTWORK` in `electron/steam/index.js`.
+/// Mirrors `placeArtwork` and `ARTWORK` in the desktop host.
 pub fn install_grid_artwork(config_dir: &Path, app_id: u32, icon_path: &Path) -> Vec<PathBuf> {
     if icon_path.as_os_str().is_empty() || !icon_path.exists() {
         return Vec::new();
@@ -342,7 +337,7 @@ pub struct EnsureShortcutSummary {
 /// `userdata/<id>/config/shortcuts.vdf` and installs default grid artwork.
 ///
 /// Writes updated `shortcuts.vdf` files atomically via a PID-tagged temporary file
-/// as in `writeShortcuts` (`electron/steam/index.js`).
+/// as in `writeShortcuts` (the desktop host).
 pub fn ensure_steam_shortcut(
     opts: &ResolveTargetOptions,
     home: Option<&Path>,
@@ -431,7 +426,7 @@ pub struct InspectShortcutStatus {
 
 /// Inspects all Steam userdata accounts without modifying any files on disk.
 ///
-/// Mirrors the read-only shortcut inspection in `state` (`electron/steam/index.js`).
+/// Mirrors the read-only shortcut inspection in `state` (the desktop host).
 pub fn inspect_steam_shortcut(
     opts: &ResolveTargetOptions,
     home: Option<&Path>,

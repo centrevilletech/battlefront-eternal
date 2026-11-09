@@ -7,7 +7,7 @@ has two sides here:
   spawns as and where, his team, and the bodies he plays. It is headless, so
   the same code runs wherever the world runs: the world worker, a server,
   replays.
-- **The screen** (`src/spawn-screen/`, `docs/spawn-screen.md`): what is drawn
+- **The screen** (`rust/bfe-battle-ui` (`spawn_screen`), `docs/spawn-screen.md`): what is drawn
   and how input picks a choice. It only reads the world through the spawn
   port and sends choices as world commands.
 
@@ -18,15 +18,15 @@ spawn screen").
 
 | File | What it does |
 | --- | --- |
-| `src/mission.js` | Pure: which of the map's battles the URL plays; its mission is the one the policy and the screen read |
-| `src/spawn-screen/policy.js` | Pure: from the URL, whether the screen runs and which side and class are played first |
-| `rust/sim/src/battle/human.rs`, `human_world.rs` | The player's phases, his queued choices and how they apply; the spawn-post rules; the team switch |
-| `src/human-spawn.js` | The page's publication facade and event queue over the native state |
-| `src/player-body.js` | One body per class the player takes, built on first use and kept |
-| `src/units.js` | `buildBody()`, shared by the bots' factory and the player's bodies; `Unit.setBody()` |
-| `src/game.js` | `adopt()`, the commands' place in the tick, and `spawnPort` (`setHumanTeam` is in `human_world.rs`) |
-| `src/runtime/commands.js`, `transport.js`, `headless-ports.js`, `src/input.js` | `command.human`: building, validating and forwarding the choices |
-| `src/mobile-posts.js` | Command vehicles (the AT-AT, the AT-TE) as posts while they live |
+| `rust/sim` (`mission`) | Pure: which of the map's battles the URL plays; its mission is the one the policy and the screen read |
+| `rust/bfe-battle-ui` (`spawn_screen`) | Pure: from the URL, whether the screen runs and which side and class are played first |
+| `rust/sim/rust/battle/human.rs`, `human_world.rs` | The player's phases, his queued choices and how they apply; the spawn-post rules; the team switch |
+| `rust/sim` (`human-spawn`) | The page's publication facade and event queue over the native state |
+| `rust/sim` (`player-body`) | One body per class the player takes, built on first use and kept |
+| `rust/sim` (`units`) | `buildBody()`, shared by the bots' factory and the player's bodies; `Unit.setBody()` |
+| `rust/sim` (`game`) | `adopt()`, the commands' place in the tick, and `spawnPort` (`setHumanTeam` is in `human_world.rs`) |
+| `rust/sim` (`wire`), `transport.js`, `headless-ports.js`, `rust/sim` (`input`) | `command.human`: building, validating and forwarding the choices |
+| `rust/sim` (`mobile-posts`) | Command vehicles (the AT-AT, the AT-TE) as posts while they live |
 
 ## When the screen runs
 
@@ -93,14 +93,14 @@ same 4 s.
 
 **The camera while dead:** the original's death camera (formats.md, "Death
 camera"; `DeathCamera.update`, ported in
-`rust/bfe-presentation/src/cameras/world_death.rs`) takes over from whatever view he
+`rust/bfe-presentation/rust/cameras/world_death.rs`) takes over from whatever view he
 had, looks down on the body, and from 1.5 s turns to the killer.
 
 - It is the world's camera (`simulationCamera`), as the original's camera is
   what its AI scheduling reads. So it steps in `step()` from world state
   alone; the worker and replays get the same one. It also names the killer
   in plain numbers (`DeathCamera.blame`), which the page's death shot reads.
-- The drawn camera is the page's own (`rust/bfe-presentation/src/cameras/death.rs`, the Death Camera
+- The drawn camera is the page's own (`rust/bfe-presentation/rust/cameras/death.rs`, the Death Camera
   option: Enhanced or Classic), from the body and the killer as the page
   draws them, until the screen's camera shot covers it (`setViewShot`) or
   he spawns (`placePlayer` stops it). Online, where the page takes no
@@ -178,7 +178,7 @@ that throws is reported and doesn't stop the battle.
 
 ## Bodies
 
-`PlayerBodies` (src/player-body.js) keeps one body per class. Each body is:
+`PlayerBodies` (rust/sim (player-body)) keeps one body per class. Each body is:
 
 - a bot's body (`buildBody`): the model re-skinned by `OverrideTexture`, a
   `Soldier` or a `Droideka`, and its animator;
@@ -276,7 +276,7 @@ The screen reads the world only through `game.spawnPort` (and
 
 `window.__bf` also exposes `humanSpawn`, `bodies`, `policy`, `adopt`,
 `setHumanTeam` and `playerTeam` for checks, and `worldState()`
-(src/runtime/world-state.js) includes `humanState`.
+(rust/sim) includes `humanState`.
 
 ## Command vehicles
 
@@ -289,7 +289,7 @@ MTT and the hovernaut too, which no stock map places).
 - **The posts:** `CommandPosts.attachVehicles()` makes one post per vehicle
   pad whose classes include a command vehicle, named by the pad's slot
   (`transport-<slot>`, the names the network registry already reserves,
-  `src/runtime/entity-spawn-posts.js`). `CommandPosts.all()` lists them
+  `rust/sim` (`wire`)). `CommandPosts.all()` lists them
   after the placed posts; `posts.posts` stays the placed ones, which the
   holograms, the capture, the maps' flags and the post summaries read.
 - **Live:** a pad's post is active while its command vehicle lives (health
@@ -306,8 +306,8 @@ MTT and the hovernaut too, which no stock map places).
   `spawnPointAt` and the Classic spawn manager draw one, as for a placed
   post's class spawn points.
 - **The battle:** its `ValueBleed` counts for its owner's bleed and holding
-  it resets the no-post count (`rust/sim/src/battle/rules.rs`); its weights make it an
-  objective (`rust/sim/src/ai/control/goals.rs`).
+  it resets the no-post count (`rust/sim/rust/battle/rules.rs`); its weights make it an
+  objective (`rust/sim/rust/ai/control/goals.rs`).
 - **Lost:** when it dies the authority's `updateBattle` reports it once
   (`CommandPosts.mobileEvents()`): the AI's bots sent there draw again, its
   last attacker earns a post point unless he is the owner's friend, and
@@ -324,22 +324,22 @@ serve from the server's eligibility.
 
 ## Checks
 
-- `tests/spawn-policy.test.js`: the bypass rules.
-- `tests/human-spawn.test.js`:
+- `cargo test --locked --workspace`: the bypass rules.
+- `cargo test --locked --workspace`:
   - the phases and command rules, with AI off and with a real Classic spawn
     manager;
   - that every team holder moves (or none does);
   - the post rules.
-- `tests/mobile-posts.test.js`: command vehicles as posts: which classes,
+- `cargo test --locked --workspace`: command vehicles as posts: which classes,
   live and dead hulls, the owner, the spawn points and their pull-back, the
   events, the bleed and the no-post count, a bot's spawn, the screen's
   choice and the objectives.
-- `tests/human-commands.test.js`:
+- `cargo test --locked --workspace`:
   - command validation, the mailbox's merge, the controls and the history;
   - `Unit.setBody`.
-- `tests/human-spawn-browser.mjs`, on Theed with the AI off, through the
+- `cargo test --locked --workspace`, on Theed with the AI off, through the
   production entity session (`checkSpawnLifecycle` in
-  `tests/local-server-checks.js`):
+  `cargo test --locked --workspace`):
   - the unspawned start at the spawn screen;
   - for every class of both teams: a death that opens the screen after its
     delay, a spawn whose team and class follow the world, the presentation

@@ -1,8 +1,8 @@
 # Native AI ownership
 
 Classic and Enhanced bot decisions run in the required simulation module.
-`src/sim/wasm/ai-world-load.js` prepares authored content once and constructs the
-`AiWorld` host in `src/sim/wasm/ai-world.js`. There is no JavaScript bot implementation
+`rust/sim` prepares authored content once and constructs the
+`AiWorld` host in `rust/sim`. There is no JavaScript bot implementation
 or AI backend switch. The mode setting still chooses Classic, Enhanced or no
 bots.
 
@@ -14,8 +14,8 @@ persist across battles live in the owner's process state.
 
 Before each tick the host writes one generated phase header, current camera
 facts and new journal records into the AI exchange (`ai.prepare`, which calls
-`AiWorld.prepare` in `src/sim/wasm/ai-world.js`). The native world tick
-(`world_step_run`, `rust/sim/src/world/step.rs`) then runs the AI phase
+`AiWorld.prepare` in `rust/sim`). The native world tick
+(`world_step_run`, `rust/sim/rust/world/step.rs`) then runs the AI phase
 (`ai_world_phase`) after squad commands and before the unit phase.
 Rust runs `Core::decide` followed by `Core::execute` and
 writes held intent into the canonical unit or seat owner. The host does not
@@ -72,7 +72,7 @@ such as sounds and presentation receive the tick's events after it returns.
 
 ## Boundary and validation
 
-`rust/sim/schema/ai-phase.mjs` generates the cold content, phase, camera,
+`rust/sim/schema/ai-phase.json` generates the cold content, phase, camera,
 journal, notice and counter layouts. Controller store rows provide identity
 rather than a second copy of decision state. Counters expose phase calls,
 input/output words, random draws, services, allocations and reallocations.
@@ -132,9 +132,9 @@ network and unbound bodies still supply explicit intent. Rust checks ownership
 again before accepting an omitted request, so a stale page cannot turn missing
 input into authority. Boundary counters count the words actually written.
 
-`tests/ai-world*.test.js` exercises the actual native owner with synthetic
-content. The native fixtures in `rust/sim/src/ai/owned/tests/phase.rs`,
-`rust/sim/src/ai/owned/tests/native_phase.rs` and the policy tests under
+`cargo test --locked --workspace` exercises the actual native owner with synthetic
+content. The native fixtures in `rust/sim/rust/ai/owned/tests/phase.rs`,
+`rust/sim/rust/ai/owned/tests/native_phase.rs` and the policy tests under
 `rust/sim/tests/` cover missing services, lifecycle ordering, control,
 vehicle and combat behavior. External
 capture replays and world hashes supplement these fixtures; retail content
@@ -144,8 +144,8 @@ The detailed AI documents describe behavioral contracts. Function names in
 them are the Rust names where the port keeps one (usually the JavaScript
 name in snake_case); where a game class name such as `UnitFlyAgent` appears,
 it names the original game's behavior, not a runtime import path. Page weapon prediction still
-uses `src/ai/random.js`. Player, mounted and HUD weapon readers receive
-cold cooked policies from the Rust content owner through `src/weapon-policy.js`.
+uses `rust/sim (ai/random)`. Player, mounted and HUD weapon readers receive
+cold cooked policies from the Rust content owner through `rust/sim` (`weapon-policy`).
 The presentation page cooks its resource policies through the same Rust
 content parser without constructing an AI world. Charge levels share their
 definition's published policy; separate battles never share a class-name cache. These helpers never schedule bots.

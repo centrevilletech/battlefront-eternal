@@ -1,8 +1,8 @@
 //! Pixel-visible primitives used by FountainJets.foamPixels and water geometry.
-//! Native fixtures use V8 arithmetic; Electron supplies its own Math builtins,
+//! Native fixtures use V8 arithmetic; V8 supplies its own Math builtins,
 //! following the environment phase's scalar host-math boundary.
 pub trait Math {fn pow(x:f64,y:f64)->f64;fn sin(x:f64)->f64;fn cos(x:f64)->f64;fn hypot(x:f64,y:f64)->f64;fn hypot3(x:f64,y:f64,z:f64)->f64;}
-// Native fixtures use the same operation order as Electron's Math builtins.
+// Native fixtures use the same operation order as V8's Math builtins.
 // std::powf and the platform libm are not pixel-byte reference oracles.
 pub struct V8;
 impl Math for V8 {

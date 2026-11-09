@@ -6,7 +6,9 @@ Battlefront Eternal is distributed under the GNU General Public License v3.0
 only (`GPL-3.0-only`). Native desktop (`bfe-client`) and dedicated server
 (`bfeserver`) releases link the third-party Rust crates resolved in
 `rust/Cargo.lock`. This script queries `cargo metadata --locked` for the
-workspace at `rust/Cargo.toml`, verifies that every resolved third-party crate
+workspace at `rust/Cargo.toml` across the shipped native targets
+(`x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
+`x86_64-pc-windows-msvc`), verifies that every resolved third-party crate
 declares a permissive or GPL-3.0-compatible SPDX license expression, and writes
 the complete crate table (crate, version, license, authors, repository) into
 `THIRD-PARTY-NOTICES.md` between HTML comment markers while preserving all
@@ -39,6 +41,12 @@ DEFAULT_OUTPUT = REPO_ROOT / "THIRD-PARTY-NOTICES.md"
 BEGIN_MARKER = "<!-- BEGIN CARGO METADATA CRATES -->"
 END_MARKER = "<!-- END CARGO METADATA CRATES -->"
 INSERT_BEFORE_HEADING = "## Tools bundled in desktop packages"
+
+SHIPPED_TARGETS = (
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+)
 
 # Permissive and GPL-3.0-compatible SPDX license identifiers accepted for
 # third-party crates linked into Battlefront Eternal (`GPL-3.0-only`).
@@ -78,7 +86,7 @@ def parse_spdx_tokens(expr: str) -> list[str]:
     """Extract atomic SPDX license identifiers from a Cargo license expression.
 
     Cargo allows both standard SPDX boolean operators (`OR`, `AND`, parentheses)
-    and legacy slash-separated expressions (`MIT/Apache-2.0`). `WITH` clauses
+    and slash-separated expressions (`MIT/Apache-2.0`). `WITH` clauses
     such as `Apache-2.0 WITH LLVM-exception` are kept as a single token.
     """
     normalized = expr.strip()
@@ -133,6 +141,7 @@ def load_cargo_metadata(manifest_path: Path, metadata_json: Path | None = None) 
     """Load `cargo metadata --locked --format-version 1` output as a dictionary."""
     if metadata_json is not None:
         return json.loads(metadata_json.read_text(encoding="utf-8"))
+    filter_args = [arg for target in SHIPPED_TARGETS for arg in ("--filter-platform", target)]
     raw = subprocess.check_output(
         [
             "cargo",
@@ -142,6 +151,7 @@ def load_cargo_metadata(manifest_path: Path, metadata_json: Path | None = None) 
             "1",
             "--manifest-path",
             str(manifest_path),
+            *filter_args,
         ],
         text=True,
     )
@@ -201,7 +211,8 @@ def render_crate_section(crates: list[dict]) -> str:
         "## Rust crates (`cargo metadata`)",
         "",
         "The following third-party Rust crates are resolved in `rust/Cargo.lock`",
-        "(`cargo metadata --locked --format-version 1 --manifest-path rust/Cargo.toml`):",
+        "across the shipped native targets (`x86_64-unknown-linux-gnu`,",
+        "`aarch64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`):",
         "",
         "| Crate | Version | License | Authors | Repository |",
         "| --- | --- | --- | --- | --- |",
@@ -216,7 +227,7 @@ def render_crate_section(crates: list[dict]) -> str:
             safe_repo = repo.replace("|", "%7C").replace(" ", "%20")
             repo_cell = f"<{safe_repo}>"
         else:
-            repo_cell = "—"
+            repo_cell = "-"
         lines.append(f"| {name_cell} | {ver_cell} | {lic_cell} | {auth_cell} | {repo_cell} |")
     lines.append(END_MARKER)
     return "\n".join(lines)

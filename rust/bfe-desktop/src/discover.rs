@@ -1,7 +1,7 @@
 //! Game installation and prepared content discovery across Steam, GOG, Heroic,
 //! Wine, CrossOver, and local filesystem directories.
 //!
-//! Mirrors `electron/discover.js`.
+//! Mirrors the desktop host.
 //!
 //! ## Discovery Hierarchy
 //! - **Prepared content (`find_content`)**:
@@ -28,19 +28,19 @@ use crate::paths::{normalize_comparable_path, resolve_from};
 
 /// Steam App ID for Star Wars Battlefront (Classic, 2004).
 ///
-/// Mirrors `BF1_STEAM_APP` in `electron/discover.js`.
+/// Mirrors `BF1_STEAM_APP` in the desktop host.
 pub const BF1_STEAM_APP: &str = "1058020";
 
 /// Store URL for the GOG edition of Star Wars Battlefront (Classic, 2004).
 ///
-/// Mirrors `BF1_GOG_PAGE` in `electron/discover.js`.
+/// Mirrors `BF1_GOG_PAGE` in the desktop host.
 pub const BF1_GOG_PAGE: &str = "https://www.gog.com/game/star_wars_battlefront";
 
 /// Directory basenames skipped when scanning the user's home folder for prepared content.
 ///
 /// Skipping package caches, virtual environments, media folders, and system mounts
 /// keeps `search_content` within its 2.5-second / 20,000-directory budget.
-/// Mirrors `SKIP` in `electron/discover.js`.
+/// Mirrors `SKIP` in the desktop host.
 pub const SKIP_DIRS: &[&str] = &[
     "node_modules",
     ".git",
@@ -74,7 +74,7 @@ pub const SKIP_DIRS: &[&str] = &[
 
 /// Relative paths on Windows drive roots (`C:\..Z:\`) checked for Steam libraries.
 ///
-/// Mirrors `DRIVE_LIBRARIES` in `electron/discover.js`.
+/// Mirrors `DRIVE_LIBRARIES` in the desktop host.
 pub const DRIVE_LIBRARIES: &[&str] = &[
     "SteamLibrary",
     "Steam",
@@ -87,7 +87,7 @@ pub const DRIVE_LIBRARIES: &[&str] = &[
 
 /// Relative paths on Windows drive roots checked for GOG installations.
 ///
-/// Mirrors `DRIVE_GOG_FOLDERS` in `electron/discover.js`.
+/// Mirrors `DRIVE_GOG_FOLDERS` in the desktop host.
 pub const DRIVE_GOG_FOLDERS: &[&str] = &[
     "GOG Games",
     "Games\\GOG Games",
@@ -98,7 +98,7 @@ pub const DRIVE_GOG_FOLDERS: &[&str] = &[
 
 /// Relative paths inside Wine or CrossOver prefixes checked for GOG installations.
 ///
-/// Mirrors `PREFIX_GOG_FOLDERS` in `electron/discover.js`.
+/// Mirrors `PREFIX_GOG_FOLDERS` in the desktop host.
 pub const PREFIX_GOG_FOLDERS: &[&str] = &[
     "drive_c/GOG Games",
     "drive_c/Program Files (x86)/GOG Galaxy/Games",
@@ -107,7 +107,7 @@ pub const PREFIX_GOG_FOLDERS: &[&str] = &[
 
 /// Metadata for a validated prepared content directory (`common/common.json` + `maps/*`).
 ///
-/// Mirrors the object returned by `inspectContent` and `findContent` in `electron/discover.js`.
+/// Mirrors the object returned by `inspectContent` and `findContent` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContentInfo {
     /// Canonical or resolved path to the prepared content directory.
@@ -125,7 +125,7 @@ pub struct ContentInfo {
 /// Returns the resolved directory path and the sorted list of map subdirectories
 /// inside `<dir>/maps`.
 ///
-/// Mirrors `inspectContent` in `electron/discover.js`.
+/// Mirrors `inspectContent` in the desktop host.
 pub fn inspect_content(dir: &Path) -> Option<ContentInfo> {
     if dir.as_os_str().is_empty() {
         return None;
@@ -157,7 +157,7 @@ pub fn inspect_content(dir: &Path) -> Option<ContentInfo> {
 /// Returns the candidate with the larger `maps` count, preferring the existing
 /// `best` when tied so earlier candidates in the search order win ties.
 ///
-/// Mirrors `richerContent` in `electron/discover.js`.
+/// Mirrors `richerContent` in the desktop host.
 fn richer_content(best: Option<ContentInfo>, candidate: ContentInfo) -> Option<ContentInfo> {
     match best {
         None => Some(candidate),
@@ -174,7 +174,7 @@ fn richer_content(best: Option<ContentInfo>, candidate: ContentInfo) -> Option<C
 /// Options controlling the breadth-first home directory search in [`search_content`].
 ///
 /// Mirrors the second argument of `searchContent(root, { depth, budgetMs, maxDirs })`
-/// in `electron/discover.js`.
+/// in the desktop host.
 #[derive(Debug, Clone)]
 pub struct SearchContentOptions {
     /// Maximum directory traversal depth below `root` (defaults to `4`).
@@ -201,7 +201,7 @@ impl Default for SearchContentOptions {
 /// skips symlinks, hidden dot-directories, and names in [`SKIP_DIRS`], and respects
 /// `depth`, `budget_ms`, and `max_dirs`.
 ///
-/// Mirrors `searchContent` in `electron/discover.js`.
+/// Mirrors `searchContent` in the desktop host.
 pub fn search_content(root: &Path, opts: &SearchContentOptions) -> Option<ContentInfo> {
     if root.as_os_str().is_empty() {
         return None;
@@ -268,7 +268,7 @@ pub fn search_content(root: &Path, opts: &SearchContentOptions) -> Option<Conten
 
 /// Options for [`find_content`].
 ///
-/// Mirrors the argument object of `findContent` in `electron/discover.js`.
+/// Mirrors the argument object of `findContent` in the desktop host.
 #[derive(Debug, Clone, Default)]
 pub struct FindContentOptions {
     /// Explicitly chosen content directories checked first (first valid match wins).
@@ -284,7 +284,7 @@ pub struct FindContentOptions {
 /// Locates prepared content from explicit choices, known likely locations, or a home search.
 ///
 /// Tags the returned [`ContentInfo::source`] as `"chosen"`, `"found"`, or `"searched"`.
-/// Mirrors `findContent` in `electron/discover.js`.
+/// Mirrors `findContent` in the desktop host.
 pub fn find_content(opts: &FindContentOptions) -> Option<ContentInfo> {
     // 1. User-chosen or CLI/env-forced directories take top priority.
     for dir in &opts.explicit {
@@ -322,7 +322,7 @@ pub fn find_content(opts: &FindContentOptions) -> Option<ContentInfo> {
 /// comparing lowercase names so Linux/macOS case-sensitive filesystems still resolve
 /// retail `GameData/Data/_LVL_PC/Common/ENG/common.lvl` paths regardless of casing.
 ///
-/// Mirrors `childIgnoreCase` in `electron/discover.js`.
+/// Mirrors `childIgnoreCase` in the desktop host.
 pub fn child_ignore_case(dir: &Path, name: &str) -> Option<PathBuf> {
     let direct = dir.join(name);
     if direct.exists() {
@@ -342,7 +342,7 @@ pub fn child_ignore_case(dir: &Path, name: &str) -> Option<PathBuf> {
 
 /// Walks a sequence of path components below `root` case-insensitively.
 ///
-/// Mirrors `walkIgnoreCase` in `electron/discover.js`.
+/// Mirrors `walkIgnoreCase` in the desktop host.
 pub fn walk_ignore_case(root: &Path, parts: &[&str]) -> Option<PathBuf> {
     if root.as_os_str().is_empty() {
         return None;
@@ -367,7 +367,7 @@ pub struct ValidatedInstall {
 /// `Common` directory containing at least one language subfolder with `common.lvl`
 /// (e.g. `Common/ENG/common.lvl`), distinguishing SWBF1 from SWBF2.
 ///
-/// Mirrors `inspectInstall` in `electron/discover.js`.
+/// Mirrors `inspectInstall` in the desktop host.
 pub fn inspect_install(dir: &Path) -> Option<ValidatedInstall> {
     let lvl = walk_ignore_case(dir, &["GameData", "Data", "_LVL_PC"])?;
     let side = child_ignore_case(&lvl, "SIDE")?;
@@ -400,7 +400,7 @@ pub fn inspect_install(dir: &Path) -> Option<ValidatedInstall> {
 /// Lists sorted lowercase add-on directory IDs installed under `<dir>/GameData/AddOn`.
 ///
 /// Only includes subdirectories that contain both `addme.script` and `Data/_LVL_PC`.
-/// Mirrors `installedAddOns` in `electron/discover.js`.
+/// Mirrors `installedAddOns` in the desktop host.
 pub fn installed_add_ons(dir: &Path) -> Vec<String> {
     let Some(addon_root) = walk_ignore_case(dir, &["GameData", "AddOn"]) else {
         return Vec::new();
@@ -488,14 +488,14 @@ fn read_vdf_quoted(text: &str, start_quote: usize) -> (String, usize) {
 
 /// Parses Steam library root paths from `libraryfolders.vdf` text.
 ///
-/// Mirrors `parseLibraryFolders` in `electron/discover.js`.
+/// Mirrors `parseLibraryFolders` in the desktop host.
 pub fn parse_library_folders(text: &str) -> Vec<String> {
     parse_vdf_key_values(text, "path")
 }
 
 /// Parses the `installdir` value from a Steam `appmanifest_*.acf` text.
 ///
-/// Mirrors `parseInstallDir` in `electron/discover.js`.
+/// Mirrors `parseInstallDir` in the desktop host.
 pub fn parse_install_dir(text: &str) -> Option<String> {
     parse_vdf_key_values(text, "installdir").into_iter().next()
 }
@@ -503,7 +503,7 @@ pub fn parse_install_dir(text: &str) -> Option<String> {
 /// Converts a Windows drive path (`C:\GOG Games\...`) inside a Wine prefix (`prefix`)
 /// into a host filesystem path (`<prefix>/drive_c/GOG Games/...`).
 ///
-/// Mirrors `winePath` in `electron/discover.js`.
+/// Mirrors `winePath` in the desktop host.
 pub fn wine_path(prefix: Option<&Path>, win_path: &str) -> Option<PathBuf> {
     let pfx = prefix?;
     let bytes = win_path.as_bytes();
@@ -528,7 +528,7 @@ pub fn wine_path(prefix: Option<&Path>, win_path: &str) -> Option<PathBuf> {
 /// Parses GOG Galaxy / Inno Setup installation paths from a Wine `system.reg` file
 /// or `reg.exe query` output.
 ///
-/// Mirrors `parseGogRegistry` in `electron/discover.js`.
+/// Mirrors `parseGogRegistry` in the desktop host.
 pub fn parse_gog_registry(text: &str, prefix: Option<&Path>) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     for line in text.lines() {
@@ -577,7 +577,7 @@ pub fn parse_gog_registry(text: &str, prefix: Option<&Path>) -> Vec<PathBuf> {
 /// Parses Heroic Games Launcher's `installed.json` for GOG installs whose title
 /// or path mentions `"battlefront"`.
 ///
-/// Mirrors `parseHeroicInstalled` in `electron/discover.js`.
+/// Mirrors `parseHeroicInstalled` in the desktop host.
 pub fn parse_heroic_installed(text: &str) -> Vec<PathBuf> {
     let Ok(data) = serde_json::from_str::<serde_json::Value>(text) else {
         return Vec::new();
@@ -617,7 +617,7 @@ pub fn parse_heroic_installed(text: &str) -> Vec<PathBuf> {
 
 /// Candidate default Steam root directories for the given platform, home folder, and environment.
 ///
-/// Mirrors `steamRoots` in `electron/discover.js`.
+/// Mirrors `steamRoots` in the desktop host.
 pub fn steam_roots(
     platform: &str,
     home: Option<&Path>,
@@ -656,7 +656,7 @@ pub fn steam_roots(
 /// Enumerates all Steam library folders referenced by `steam_roots` and their
 /// `steamapps/libraryfolders.vdf` manifests.
 ///
-/// Mirrors `steamLibraries` in `electron/discover.js`.
+/// Mirrors `steamLibraries` in the desktop host.
 pub fn steam_libraries(
     platform: &str,
     home: Option<&Path>,
@@ -696,7 +696,7 @@ pub fn steam_libraries(
 
 /// Checks Windows drive roots (`C:\..Z:\`) for common unindexed Steam library folders.
 ///
-/// Mirrors `driveLibraries` in `electron/discover.js`.
+/// Mirrors `driveLibraries` in the desktop host.
 pub fn drive_libraries(platform: &str) -> Vec<PathBuf> {
     if platform != "win32" && platform != "windows" {
         return Vec::new();
@@ -720,7 +720,7 @@ pub fn drive_libraries(platform: &str) -> Vec<PathBuf> {
 /// Checks a single Steam library root for an installed `appmanifest_1058020.acf`
 /// and validates its `steamapps/common/<installdir>` target.
 ///
-/// Mirrors `manifestInstall` in `electron/discover.js`.
+/// Mirrors `manifestInstall` in the desktop host.
 fn manifest_install(library: &Path) -> Option<ValidatedInstall> {
     let manifest = library
         .join("steamapps")
@@ -734,7 +734,7 @@ fn manifest_install(library: &Path) -> Option<ValidatedInstall> {
 /// Returns candidate `steamapps/common/<folder>` directories inside `library`
 /// whose name contains `"battlefront"` (with `"Star Wars Battlefront (Classic, 2004)"` first).
 ///
-/// Mirrors `commonFolders` in `electron/discover.js`.
+/// Mirrors `commonFolders` in the desktop host.
 fn common_folders(library: &Path) -> Vec<PathBuf> {
     let common = library.join("steamapps").join("common");
     let mut dirs = vec![common.join("Star Wars Battlefront (Classic, 2004)")];
@@ -758,7 +758,7 @@ fn common_folders(library: &Path) -> Vec<PathBuf> {
 /// under `~/Library/Application Support/CrossOver/Bottles/*`, keeping only directories
 /// that contain a `drive_c` subdirectory.
 ///
-/// Mirrors `winePrefixes` in `electron/discover.js`.
+/// Mirrors `winePrefixes` in the desktop host.
 fn wine_prefixes(home: Option<&Path>) -> Vec<PathBuf> {
     let Some(h) = home else {
         return Vec::new();
@@ -787,7 +787,7 @@ fn wine_prefixes(home: Option<&Path>) -> Vec<PathBuf> {
 
 /// Reads GOG install records from Heroic Launcher config files and Wine `system.reg` registries.
 ///
-/// Mirrors `gogRecords` in `electron/discover.js`.
+/// Mirrors `gogRecords` in the desktop host.
 pub fn gog_records(
     platform: &str,
     home: Option<&Path>,
@@ -831,7 +831,7 @@ pub fn gog_records(
 
 /// Parent folders where GOG Galaxy, offline GOG installers, or Heroic place games.
 ///
-/// Mirrors `gogFolders` in `electron/discover.js`.
+/// Mirrors `gogFolders` in the desktop host.
 pub fn gog_folders(platform: &str, home: Option<&Path>) -> Vec<PathBuf> {
     let mut folders = Vec::new();
     if platform == "win32" || platform == "windows" {
@@ -869,7 +869,7 @@ pub fn gog_folders(platform: &str, home: Option<&Path>) -> Vec<PathBuf> {
 
 /// Discovered game installation with provenance metadata (`source`, `how`, `chosen`).
 ///
-/// Mirrors the install records returned by `findGameInstalls` in `electron/discover.js`.
+/// Mirrors the install records returned by `findGameInstalls` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GameInstall {
     /// Resolved path to the installation root.
@@ -899,7 +899,7 @@ pub struct FindGameOptions {
 
 /// Finds a Steam installation of Star Wars Battlefront (2004).
 ///
-/// Mirrors `findSteamInstall` in `electron/discover.js`.
+/// Mirrors `findSteamInstall` in the desktop host.
 pub fn find_steam_install(opts: &FindGameOptions) -> Option<GameInstall> {
     let listed = steam_libraries(&opts.platform, opts.home.as_deref(), &opts.env, &opts.extra);
     for library in &listed {
@@ -943,7 +943,7 @@ pub fn find_steam_install(opts: &FindGameOptions) -> Option<GameInstall> {
 
 /// Finds a GOG / Heroic / Wine installation of Star Wars Battlefront (2004).
 ///
-/// Mirrors `findGogInstall` in `electron/discover.js`.
+/// Mirrors `findGogInstall` in the desktop host.
 pub fn find_gog_install(opts: &FindGameOptions) -> Option<GameInstall> {
     for candidate in gog_records(&opts.platform, opts.home.as_deref(), &opts.env) {
         if let Some(found) = inspect_install(&candidate) {
@@ -985,7 +985,7 @@ pub fn find_gog_install(opts: &FindGameOptions) -> Option<GameInstall> {
 /// Discovers all valid Star Wars Battlefront (2004) installations on the system.
 ///
 /// Preserves the exact discovery order and upgrade semantics of `findGameInstalls`
-/// in `electron/discover.js`:
+/// in the desktop host:
 /// 1. User-chosen `extra` directories (`source: "chosen"`).
 /// 2. Steam manifest installs in listed libraries (`source: "steam"`).
 /// 3. Steam manifest installs in drive libraries (`source: "steam"`).
@@ -1133,7 +1133,7 @@ pub fn find_game_installs(opts: &FindGameOptions) -> Vec<GameInstall> {
 /// in any user-chosen folder, Steam library, GOG registry/Heroic manifest, or
 /// standard parent folder.
 ///
-/// Mirrors `findGameInstall` in `electron/discover.js`.
+/// Mirrors `findGameInstall` in the desktop host.
 pub fn find_game_install(opts: &FindGameOptions) -> Option<GameInstall> {
     find_game_installs(opts).into_iter().next()
 }

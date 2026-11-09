@@ -115,7 +115,7 @@ def sha256_file(path: Path) -> str:
 
 
 def walk_tree(root: Path, is_windows: bool, exclude_paths: set[str] | None = None) -> tuple[list[dict], list[dict], list[str]]:
-    """Walk `root` matching electron/update/tree.js walkTree: (files, links, dirs)."""
+    """Walk `root` and return `(files, links, dirs)` for `bfe-tree.json`."""
     excluded = exclude_paths or set()
     files: list[dict] = []
     links: list[dict] = []
@@ -156,7 +156,7 @@ def walk_tree(root: Path, is_windows: bool, exclude_paths: set[str] | None = Non
 
 
 def build_tree_index(root: Path, platform: str) -> dict:
-    """Build resources/bfe-tree.json matching electron/update/tree.js + native executables."""
+    """Build `resources/bfe-tree.json` indexing the staged client and server executables."""
     platform = normalize_platform(platform)
     is_windows = platform.startswith('win32-')
     executable = 'bfe-client.exe' if is_windows else 'bfe-client'
@@ -318,23 +318,22 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--platform', required=True, help='Target platform (linux-x64, linux-arm64, win32-x64)')
     parser.add_argument('--client-bin', required=True, type=Path, help='Path to compiled bfe-client binary')
-    parser.add_argument('--server-bin', type=Path, default=None, help='Optional path to compiled bfeserver binary')
-    parser.add_argument('--toolchain-dir', type=Path, help='Path to toolchain/<os>-<arch> directory')
-    parser.add_argument('--out-dir', required=True, type=Path, help='Output directory for unpacked tree')
-    parser.add_argument('--release-json', type=Path, help='Optional bfe-release.json to embed in resources/')
+    parser.add_argument('--server-bin', default=None, type=Path, help='Optional path to compiled bfeserver binary')
+    parser.add_argument('--toolchain-dir', default=None, type=Path, help='Path to toolchain/<platform> directory')
+    parser.add_argument('--out-dir', required=True, type=Path, help='Output directory for staged tree')
+    parser.add_argument('--release-json', default=None, type=Path, help='Optional path to bfe-release.json')
     args = parser.parse_args()
 
-    platform = normalize_platform(args.platform)
-    toolchain_dir = args.toolchain_dir or default_toolchain_dir(platform)
+    tc_dir = args.toolchain_dir or default_toolchain_dir(args.platform)
     manifest = stage_tree(
-        platform=platform,
-        client_bin=args.client_bin,
-        server_bin=args.server_bin,
-        toolchain_dir=toolchain_dir,
-        out_dir=args.out_dir,
-        release_json=args.release_json,
+        platform=args.platform,
+        client_bin=args.client_bin.resolve(),
+        server_bin=args.server_bin.resolve() if args.server_bin else None,
+        toolchain_dir=tc_dir.resolve(),
+        out_dir=args.out_dir.resolve(),
+        release_json=args.release_json.resolve() if args.release_json else None,
     )
-    print(f"Staged {platform} unpacked tree at {args.out_dir} ({len(manifest['files'])} files, {len(manifest['links'])} links)")
+    print(f"Staged {manifest['platform']} tree at {args.out_dir} ({len(manifest['files'])} files, {len(manifest['links'])} links)")
 
 
 if __name__ == '__main__':

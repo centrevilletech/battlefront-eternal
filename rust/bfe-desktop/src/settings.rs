@@ -1,10 +1,10 @@
 // Atomic persistence for player settings (`player-settings.json`) and desktop
 // host preferences (`desktop-settings.json` / `settings.json`).
 //
-// This module ports `electron/player-settings.js` (`PLAYER_SETTINGS_FILE`,
+// This module ports the desktop host (`PLAYER_SETTINGS_FILE`,
 // `cleanRecord`, `readPlayerSettings`, `writePlayerSettings`,
-// `shadowedStorage`) and the settings helpers in `electron/main.js`
-// (`loadSettings`, `saveSettings`) and `electron/steam/relaunch.js`
+// `shadowedStorage`) and the settings helpers in the desktop host
+// (`loadSettings`, `saveSettings`) and the desktop host
 // (`readSteamSettings`).
 //
 // Why `player-settings.json` exists alongside browser storage: during an
@@ -25,24 +25,24 @@ use serde_json::Value;
 
 /// Filename for the main-process player settings store inside `userData`.
 ///
-/// Mirrors `PLAYER_SETTINGS_FILE` in `electron/player-settings.js`.
+/// Mirrors `PLAYER_SETTINGS_FILE` in the desktop host.
 pub const PLAYER_SETTINGS_FILE: &str = "player-settings.json";
 
 /// Filename for the desktop host's own configuration inside `userData`.
 ///
-/// Mirrors `settingsFile()` in `electron/main.js`.
+/// Mirrors `settingsFile()` in the desktop host.
 pub const DESKTOP_SETTINGS_FILE: &str = "desktop-settings.json";
 
 /// Maximum serialized JSON byte length of `player-settings.json` (`256 KiB`).
 ///
-/// Mirrors `LIMIT` in `electron/player-settings.js`.
+/// Mirrors `LIMIT` in the desktop host.
 pub const LIMIT: usize = 256 * 1024;
 
 static SAVE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// Stored player settings record `{ complete, values }`.
 ///
-/// Mirrors the record validated by `cleanRecord` in `electron/player-settings.js`.
+/// Mirrors the record validated by `cleanRecord` in the desktop host.
 /// When `complete` is true, `values` holds every setting; when `complete` is
 /// false (written by a shadowed session started by an update before the file
 /// existed), `values` holds only the keys changed during that session.
@@ -56,7 +56,7 @@ pub struct PlayerSettingsRecord {
 
 /// Presence preferences stored under `presence` in `desktop-settings.json`.
 ///
-/// Mirrors `settings.presence` in `electron/main.js`.
+/// Mirrors `settings.presence` in the desktop host.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PresenceSettingsRecord {
@@ -67,7 +67,7 @@ pub struct PresenceSettingsRecord {
 
 /// Steam library integration record stored under `steam` in `desktop-settings.json`.
 ///
-/// Mirrors `settings.steam` in `electron/main.js` and `electron/steam/index.js`.
+/// Mirrors `settings.steam` in the desktop host and the desktop host.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SteamSettingsRecord {
@@ -122,7 +122,7 @@ pub struct PreparationRecord {
 
 /// Persistent desktop host state stored in `desktop-settings.json` / `settings.json`.
 ///
-/// Mirrors `settings` in `electron/main.js`, keeping any additional keys via
+/// Mirrors `settings` in the desktop host, keeping any additional keys via
 /// `extra` so unknown fields are preserved on save.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -197,7 +197,7 @@ impl Default for DesktopSettings {
 }
 
 impl DesktopSettings {
-    /// Ports `enhancedSoundWanted` from `electron/main.js`: returns true
+    /// Ports `enhancedSoundWanted` from the desktop host: returns true
     /// unless the player explicitly set `enhancedSound` to `false`.
     pub fn enhanced_sound_wanted(&self) -> bool {
         self.enhanced_sound != Some(false)
@@ -401,7 +401,7 @@ impl PlayerSettingsStore {
     }
 }
 
-/// Ports `cleanRecord` from `electron/player-settings.js`.
+/// Ports `cleanRecord` from the desktop host.
 ///
 /// Validates that `record` is a JSON object with a boolean `complete` field
 /// and a non-array object `values` field whose compact JSON serialization fits
@@ -426,7 +426,7 @@ pub fn clean_record(record: &Value) -> Option<PlayerSettingsRecord> {
     }
 }
 
-/// Ports `readPlayerSettings` from `electron/player-settings.js`.
+/// Ports `readPlayerSettings` from the desktop host.
 ///
 /// Reads `<dir>/player-settings.json` and validates it with [`clean_record`],
 /// returning `None` if the file is missing, unreadable, or malformed.
@@ -436,7 +436,7 @@ pub fn read_player_settings(dir: &Path) -> Option<PlayerSettingsRecord> {
     clean_record(&parsed)
 }
 
-/// Ports `writePlayerSettings` from `electron/player-settings.js`.
+/// Ports `writePlayerSettings` from the desktop host.
 ///
 /// Validates `record` with [`clean_record`], writes the compact JSON to
 /// `<dir>/player-settings.json.<pid>.tmp`, and renames it over
@@ -474,7 +474,7 @@ pub fn write_player_settings(dir: &Path, record: &PlayerSettingsRecord) -> bool 
     true
 }
 
-/// Ports `shadowedStorage` from `electron/player-settings.js`.
+/// Ports `shadowedStorage` from the desktop host.
 ///
 /// Returns true when `BFE_UPDATED_FROM` is set and non-empty in the process
 /// environment, indicating that this process was started by an older running
@@ -491,7 +491,7 @@ pub fn shadowed_storage(env_map: Option<&HashMap<String, String>>) -> bool {
     }
 }
 
-/// Ports `loadSettings` from `electron/main.js`.
+/// Ports `loadSettings` from the desktop host.
 ///
 /// Reads `<user_data_dir>/desktop-settings.json`, returning a default empty
 /// [`DesktopSettings`] when the file is absent or cannot be parsed.
@@ -503,7 +503,7 @@ pub fn read_desktop_settings(user_data_dir: &Path) -> DesktopSettings {
     serde_json::from_str(&text).unwrap_or_default()
 }
 
-/// Ports `saveSettings` from `electron/main.js`.
+/// Ports `saveSettings` from the desktop host.
 ///
 /// Atomically writes `settings` as 2-space pretty-printed JSON to
 /// `<user_data_dir>/desktop-settings.json.<pid>.<seq>.tmp` and renames it over
@@ -517,7 +517,7 @@ pub fn write_desktop_settings(
     write_atomic(user_data_dir, DESKTOP_SETTINGS_FILE, body.as_bytes())
 }
 
-/// Ports `readSteamSettings` from `electron/steam/relaunch.js`.
+/// Ports `readSteamSettings` from the desktop host.
 ///
 /// Reads the `steam` object from `<user_data_dir>/desktop-settings.json`
 /// synchronously before full application initialization.

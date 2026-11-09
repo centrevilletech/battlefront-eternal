@@ -200,7 +200,7 @@ Full run, all 1174 textures (1m38s on 8 cores): no problems.
   textures, the minimum is 30.1 dB and the 5th percentile 39.9 dB.
 - **The 16 water du/dv maps** (`water_bumpmap_*`) score 33.7 to 34.0 dB.
 - **Normal maps:** the other 77 `*_bump` textures are tangent-space normal
-  maps (RGB = XYZ, A = gloss; see `src/materials.js`). They are the weak
+  maps (RGB = XYZ, A = gloss; see `rust/sim` (`materials`)). They are the weak
   class: median 30.5 dB, and every one of the 36 files under 30 dB, down to
   23.8 dB on `geo_bldg_war_room_bump`. They are noisy texel to texel, which
   4x4 blocks can't follow, and levels 3 and 4 don't help. If lit bump surfaces
@@ -253,7 +253,7 @@ textures drop to 4 bpp.
 
 ## Runtime
 
-`src/textures.js` (`TextureLibrary`) loads every world texture. `game.js`
+`rust/sim` (`textures`) (`TextureLibrary`) loads every world texture. `game.js`
 creates it with the renderer and the loading manager, then awaits
 `prepare()`. That reads the `ktx2.json` of each folder the map, side, common,
 vehicle and other-side tables point into. Each `load(url)` then works like
@@ -275,7 +275,7 @@ this:
     loading; failed decodes and uploads never change the selected format.
 - **Normal maps (`*_bump.png`) stay PNG.** They measured worst (see
   above), and their block noise shows in the lighting.
-- **CPU readers** call `texturePixels()` (`src/texture-pixels.js`) instead of
+- **CPU readers** call `texturePixels()` (`rust/sim` (`texture-pixels`)) instead of
   drawing `texture.image` into a canvas: lamp detection and a laser's hue.
   A compressed texture names its PNG in `userData.png`, which is fetched on
   first request. `textureHue()` returns `undefined` until then, and `null`
@@ -290,8 +290,8 @@ Checked on Theed (SwiftShader):
 - Lamp detection finds the same 107 lights once the PNG fetches complete.
 
 The decoder worker loads the independent PNG/WebP and Basis Rust modules from
-Vite's hashed assets. It bounds completed decoded bytes awaiting paced uploads.
+the native client's hashed assets. It bounds completed decoded bytes awaiting paced uploads.
 Each upload batch also waits asynchronously for Rust's GPU fence before the
 next batch, so ANGLE's staging buffers cannot grow behind animation frames.
 Rust selects formats, owns texture and target storage, and retains encoded PNGs
-or transcoded blocks for restoration; no three.js transcoder ships.
+or transcoded blocks for restoration; no OpenGL transcoder ships.
