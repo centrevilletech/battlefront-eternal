@@ -1,3 +1,6 @@
+# Generated-file checks compare exact bytes on every platform.
+* text=auto eol=lf
+
 # WebAssembly built from rust/ by tools/build-rust.mjs, committed so the game
 # builds without Rust; CI checks each byte against a rebuild
 # (docs/development.md, "The Rust parts"). Check them out exactly as
