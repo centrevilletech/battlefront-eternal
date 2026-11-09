@@ -58,10 +58,12 @@ struct Mirror {
     quaternion: [f64; 4],
 }
 
+type ViewRecord = (usize, [f64; 3], [f64; 4], f64, usize);
+
 #[derive(Default)]
 struct Frame {
     /// (slot, position) of every view, by slot.
-    views: Vec<(usize, [f64; 3], [f64; 4], f64, usize)>,
+    views: Vec<ViewRecord>,
     lights: Vec<([f64; 3], f64)>,
     ripples: Vec<[f64; 3]>,
     rounds: usize,
@@ -203,7 +205,7 @@ impl Page {
             let at = i * vw::STRIDE;
             let row = &self.items.views[at..at + vw::STRIDE];
             let slot = row[vw::SLOT] as usize;
-            let fresh = self.mirror[slot].as_ref().map_or(true, |m| m.serial != row[vw::SERIAL]);
+            let fresh = self.mirror[slot].as_ref().is_none_or(|m| m.serial != row[vw::SERIAL]);
             if fresh {
                 self.mirror[slot] = Some(Mirror { serial: row[vw::SERIAL], definition: row[vw::DEFINITION] as usize, position: [0.0; 3], quaternion: [0.0; 4] });
             }
@@ -246,6 +248,8 @@ impl Page {
     }
 }
 
+// Retains the ported JS/GL call-site signature without an extra wrapper struct.
+#[allow(clippy::too_many_arguments)]
 fn record(epoch: f64, id: f64, generation: f64, tick: f64, active: bool, def: f64, p: [f64; 3], v: [f64; 3], yaw: f64, up: [f64; 3]) -> [f64; rc::STRIDE] {
     let mut r = [0.0; rc::STRIDE];
     r[rc::EPOCH] = epoch;
@@ -327,12 +331,12 @@ fn reproduces_the_recorded_frames_bit_for_bit() {
             for (got, want) in out.views.iter().zip(views) {
                 assert_eq!(got.0 as u64, want["id"].as_u64().unwrap(), "{name} frame {f}: slot");
                 let p = hex3(&want["position"]);
-                for k in 0..3 {
-                    assert_eq!(got.1[k].to_bits(), p[k].to_bits(), "{name} frame {f} slot {} position {k}", got.0);
+                for (k, (&g, &pv)) in got.1.iter().zip(&p).enumerate() {
+                    assert_eq!(g.to_bits(), pv.to_bits(), "{name} frame {f} slot {} position {k}", got.0);
                 }
                 if let Some(q) = want["quaternion"].as_array() {
-                    for k in 0..4 {
-                        assert_eq!(got.2[k].to_bits(), hex(&q[k]).to_bits(), "{name} frame {f} slot {} quaternion {k}", got.0);
+                    for (k, (&g, qv)) in got.2.iter().zip(q).enumerate() {
+                        assert_eq!(g.to_bits(), hex(qv).to_bits(), "{name} frame {f} slot {} quaternion {k}", got.0);
                     }
                 }
             }
@@ -340,8 +344,8 @@ fn reproduces_the_recorded_frames_bit_for_bit() {
             assert_eq!(out.lights.len(), lights.len(), "{name} frame {f}: lights");
             for (got, want) in out.lights.iter().zip(lights) {
                 let p = hex3(&want["position"]);
-                for k in 0..3 {
-                    assert_eq!(got.0[k].to_bits(), p[k].to_bits(), "{name} frame {f} light {k}");
+                for (k, (&g, &pv)) in got.0.iter().zip(&p).enumerate() {
+                    assert_eq!(g.to_bits(), pv.to_bits(), "{name} frame {f} light {k}");
                 }
                 assert_eq!(got.1.to_bits(), hex(&want["radius"]).to_bits());
             }
@@ -349,8 +353,8 @@ fn reproduces_the_recorded_frames_bit_for_bit() {
             assert_eq!(out.ripples.len(), ripples.len(), "{name} frame {f}: ripples");
             for (got, want) in out.ripples.iter().zip(ripples) {
                 let p = hex3(want);
-                for k in 0..3 {
-                    assert_eq!(got[k].to_bits(), p[k].to_bits(), "{name} frame {f} ripple {k}");
+                for (k, (&g, &pv)) in got.iter().zip(&p).enumerate() {
+                    assert_eq!(g.to_bits(), pv.to_bits(), "{name} frame {f} ripple {k}");
                 }
             }
             checked += 1;

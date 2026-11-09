@@ -281,7 +281,7 @@ pub fn batches(bytes: &[u8]) -> Result<Vec<u8>, String> {
             let p=&input.parts[index];let base=vertex;
             let joint=named(p.bone.as_deref()).unwrap_or(bones.len());
             let matrix=&world[joint];
-            for (i,data) in p.data.chunks_exact(8).enumerate() {
+            for (i,data) in p.data.as_chunks::<8>().0.iter().enumerate() {
                 let mut position=Vector3::new(data[0] as f64,data[1] as f64,data[2] as f64);
                 let mut normal=Vector3::new(data[3] as f64,data[4] as f64,data[5] as f64);
                 if p.joints.is_none() {position.apply_matrix4(matrix);normal.transform_direction(matrix);}
@@ -303,10 +303,10 @@ pub fn batches(bytes: &[u8]) -> Result<Vec<u8>, String> {
         // Bounds use the packed f32 positions, just as computeBoundingSphere
         // did. The radius allowance keeps animated barrels and feet visible.
         let mut lo=[f64::INFINITY;3];let mut hi=[f64::NEG_INFINITY;3];
-        for p in positions.chunks_exact(3) {for k in 0..3 {lo[k]=lo[k].min(p[k] as f64);hi[k]=hi[k].max(p[k] as f64);}}
+        for p in positions.as_chunks::<3>().0 {for k in 0..3 {lo[k]=lo[k].min(p[k] as f64);hi[k]=hi[k].max(p[k] as f64);}}
         let center=std::array::from_fn::<_,3,_>(|k|if count==0 {0.0} else {(lo[k]+hi[k])*0.5});
         let mut radius=0.0_f64;
-        for p in positions.chunks_exact(3) {let dx=p[0] as f64-center[0];let dy=p[1] as f64-center[1];let dz=p[2] as f64-center[2];radius=radius.max(dx*dx+dy*dy+dz*dz);}
+        for p in positions.as_chunks::<3>().0 {let dx=p[0] as f64-center[0];let dy=p[1] as f64-center[1];let dz=p[2] as f64-center[2];radius=radius.max(dx*dx+dy*dy+dz*dz);}
         let casts=input.parts[group.first].flags.unwrap_or(1)&0x84==0;
         result.push(record!({"part":group.first,"attach":group.attach,"casts":casts,"positions":positions,"normals":normals,"uv":uv,
             "joints":joints,"weights":weights,"indices":indices,"center":center,"radius":radius.sqrt()*1.35}));

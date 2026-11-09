@@ -117,7 +117,7 @@ impl Phase {
                     let mut inputs = [(1.0, true, true); 7];
                     inputs[0] = (if row[e::SPEED_LIMIT] > 0.0 { speed / row[e::SPEED_LIMIT] } else { 0.0 }, false, true);
                     inputs[1] = (acceleration, false, true); inputs[2] = (if row[e::MAX_HEALTH] > 0.0 { row[e::HEALTH] / row[e::MAX_HEALTH] } else { 1.0 }, false, true);
-                    for i in 3..7 { if s.mode == i - 2 { inputs[i] = (s.clock, false, true); } }
+                    for (i, input) in inputs.iter_mut().enumerate().skip(3) { if s.mode == i - 2 { *input = (s.clock, false, true); } }
                     self.inputs(s.primary, &inputs, false);
                 } else {
                     // VehicleSounds.updateEngine calls apply on a plain Voice

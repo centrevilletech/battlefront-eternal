@@ -15,11 +15,11 @@ fn interpolator() -> [[f32; TAPS]; PHASES] {
     let n = PHASES * TAPS;
     let mut h = [0.0f32; PHASES * TAPS];
     let mid = (n as f64 - 1.0) / 2.0;
-    for i in 0..n {
+    for (i, slot) in h.iter_mut().enumerate().take(n) {
         let t = (i as f64 - mid) / PHASES as f64;
         let sinc = if t == 0.0 { 1.0 } else { host::sin(std::f64::consts::PI * t) / (std::f64::consts::PI * t) };
         let w = 0.5 - 0.5 * host::cos((2.0 * std::f64::consts::PI * (i as f64 + 0.5)) / n as f64);
-        h[i] = (sinc * w) as f32;
+        *slot = (sinc * w) as f32;
     }
     let mut phases = [[0.0f32; TAPS]; PHASES];
     for p in 0..PHASES {
@@ -85,8 +85,8 @@ impl Limiter {
         let look = usize::max(js_round(lookahead * rate) as usize, 1);
         let phases = interpolator();
         let mut reach = 1.0;
-        for p in 1..PHASES {
-            reach = js_max(reach, phases[p].iter().fold(0.0, |s, &h| s + (h as f64).abs()));
+        for phase in phases.iter().skip(1) {
+            reach = js_max(reach, phase.iter().fold(0.0, |s, &h| s + (h as f64).abs()));
         }
         let mut l = Limiter {
             rate,
@@ -234,7 +234,7 @@ impl Limiter {
                 }
                 ms += (m - ms) * ms_coef;
                 *level = ms + 1e-12;
-                loud |= !(*level < quiet);
+                loud |= (*level).partial_cmp(&quiet) != Some(std::cmp::Ordering::Less);
             }
             // The block's math in two calls out of the module: a call a
             // value costs the audio thread several times the math. (Under
@@ -268,11 +268,11 @@ impl Limiter {
                 }
             }
             let x = input.ch(c);
-            for i in 0..n {
+            for (i, &sample) in x.iter().enumerate().take(n) {
                 // The worklet's v is the value before the Float32Array
                 // store rounds it (an assignment's value in JavaScript),
                 // and its largest sample is taken of those.
-                let v = x[i] as f64 * self.sample_gain[i];
+                let v = sample as f64 * self.sample_gain[i];
                 self.scaled[c][i] = v as f32;
                 let a = v.abs();
                 if a > top {
@@ -311,8 +311,8 @@ impl Limiter {
                     for p in 1..PHASES {
                         let taps = self.phases[p];
                         let mut acc = 0.0;
-                        for k in 0..TAPS {
-                            acc += taps[k] as f64 * self.history[c][hpos + TAPS - k] as f64;
+                        for (k, &tap) in taps.iter().enumerate() {
+                            acc += tap as f64 * self.history[c][hpos + TAPS - k] as f64;
                         }
                         let a = acc.abs();
                         if a > peak {

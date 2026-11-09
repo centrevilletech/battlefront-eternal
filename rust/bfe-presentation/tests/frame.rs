@@ -134,10 +134,10 @@ fn full_stores_refuse_births_and_events_still_pair() {
         };
         if frame < 300 {
             // A burst of births past the effect store, on every free id.
-            for id in 1..6 {
+            for (id, gen) in generation.iter_mut().enumerate().take(6).skip(1) {
                 if !live.iter().any(|&(i, _)| i == id as f64) {
-                    generation[id] += 1.0;
-                    command(&mut p, ck::SPAWN, id as f64, generation[id], 0.0);
+                    *gen += 1.0;
+                    command(&mut p, ck::SPAWN, id as f64, *gen, 0.0);
                 }
             }
             // Stale, unknown and malformed commands, all skipped.

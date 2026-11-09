@@ -555,7 +555,7 @@ impl Prop {
     fn near(&self, feet: &[f64]) -> bool {
         let Some(t) = self.triggers.first() else { return false };
         let r = t.radius * t.radius;
-        feet.chunks_exact(pf::STRIDE).any(|f| {
+        feet.as_chunks::<{ pf::STRIDE }>().0.iter().any(|f| {
             let (dx, dy, dz) = (f[0] - t.point[0], f[1] - t.point[1], f[2] - t.point[2]);
             dx * dx + dy * dy + dz * dz <= r
         })
@@ -598,7 +598,9 @@ impl Prop {
                     continue;
                 }
                 let hit = bodies
-                    .chunks_exact(pb::STRIDE)
+                    .as_chunks::<{ pb::STRIDE }>()
+                    .0
+                    .iter()
                     .any(|b| b[pb::ON_FOOT] != 0.0 && prop::within(t.point, t.radius, [b[0], b[1], b[2]]));
                 if !hit {
                     continue;

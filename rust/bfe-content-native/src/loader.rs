@@ -540,8 +540,8 @@ fn image(
         .transpose()
 }
 fn validate_triangles(positions: &[f32], indices: &[u32]) -> Result<(), String> {
-    if positions.len() % 3 != 0
-        || indices.len() % 3 != 0
+    if !positions.len().is_multiple_of(3)
+        || !indices.len().is_multiple_of(3)
         || indices.iter().any(|&i| i as usize >= positions.len() / 3)
     {
         return Err("collision triangle extent is invalid".into());
@@ -608,7 +608,7 @@ fn actor_mesh(
         let source = vertex
             .get(first..end)
             .ok_or("actor vertices exceed storage")?;
-        for v in source.chunks_exact(9) {
+        for v in source.as_chunks::<9>().0 {
             positions.extend_from_slice(&v[..3]);
             normals.extend_from_slice(&v[3..6]);
             uv.extend_from_slice(&v[6..8]);

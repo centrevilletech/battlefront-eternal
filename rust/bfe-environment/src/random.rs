@@ -15,6 +15,8 @@ impl Random {
     }
 
     /// [0, 1): a 32-bit LCG's next state over 2^32.
+    // Mirrors the JS PRNG .next() method across environment systems.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> f64 {
         self.state = self.state.wrapping_mul(1664525).wrapping_add(1013904223);
         self.state as f64 / 4294967296.0

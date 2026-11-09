@@ -64,13 +64,13 @@ impl Music {
                 }
             }
             op::NEXT => self.next(),
-            op::TICK => {
+            op::TICK
                 // Ports ShellMusic.update, including shortened intervals
                 // taking effect immediately and only one start per frame.
-                if self.row[r::PHASE] == phase::GAP as f64 && self.current.is_some() && self.enabled {
-                    self.row[r::SILENT] += self.row[r::DT];
-                    if self.row[r::SILENT] >= self.row[r::INTERVAL] { self.next(); }
-                }
+                if self.row[r::PHASE] == phase::GAP as f64 && self.current.is_some() && self.enabled =>
+            {
+                self.row[r::SILENT] += self.row[r::DT];
+                if self.row[r::SILENT] >= self.row[r::INTERVAL] { self.next(); }
             }
             _ => {}
         }

@@ -141,7 +141,7 @@ impl SkyPhase {
     pub fn update(&mut self) {
         if self.frame[layout::sky_frame::DT] > 0.0 { self.time += self.frame[layout::sky_frame::DT]; }
         self.sky.as_mut().expect("start first").update(&self.frame, &mut self.result);
-        for row in self.result.chunks_exact_mut(layout::sky_result::STRIDE) { row[layout::sky_result::TIME] = self.time; }
+        for row in self.result.as_chunks_mut::<{ layout::sky_result::STRIDE }>().0 { row[layout::sky_result::TIME] = self.time; }
     }
 }
 
@@ -216,7 +216,7 @@ impl EnvironmentPhase {
 
     pub fn update(&mut self) {
         self.camera.read(&self.view);
-        let dt = self.frame[layout::environment_frame::DT].max(0.0).min(0.1);
+        let dt = self.frame[layout::environment_frame::DT].clamp(0.0, 0.1);
         self.time += dt;
         let (reach, enhanced) = (v8math::max(90.,self.frame[layout::environment_frame::REACH]), self.frame[layout::environment_frame::ENHANCED] != 0.0);
         self.visibility.as_ref().expect("start first").update(&self.camera, reach, enhanced, &mut self.result);

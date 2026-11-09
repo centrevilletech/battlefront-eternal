@@ -207,13 +207,13 @@ fn own_preview_mount_history_and_smoothing_reserve_before_first_frame() {
     preview.frame[f::ZOOM] = 1.;
     preview.frame[f::TURRET_PITCH_LOW] = -1.;
     preview.frame[f::TURRET_PITCH_HIGH] = 1.;
-    for row in preview.commands.chunks_exact_mut(c::STRIDE) {
+    for row in preview.commands.as_chunks_mut::<{ c::STRIDE }>().0 {
         row[c::LOOK_COUNT] = lim::PREVIEW_LOOKS as f64;
     }
     preview.smooth_input[si::COMMANDS] = lim::SMOOTH_COMMANDS as f64;
     preview.smooth_input[si::SNAP] = 2.5;
     preview.smooth_input[si::TAU] = 0.05;
-    for row in preview.smooth_commands.chunks_exact_mut(sc::STRIDE) {
+    for row in preview.smooth_commands.as_chunks_mut::<{ sc::STRIDE }>().0 {
         row[sc::KIND] = kind::NOTE as f64;
         row[sc::OLD] = 0.01;
     }
@@ -284,8 +284,8 @@ fn command_aim_and_parallax_resume_allocate_nothing_from_first_use() {
     use bfe_presentation::network_layout::{net_preview_frame as f, net_outbound as o};
     let mut phase=Phase::new();
     phase.frame[f::ENABLED]=1.;phase.frame[f::ZOOM]=1.;
-    phase.frame[f::MAX_TURN]=2.;phase.frame[f::PITCH_LOW]=-0.8;phase.frame[f::PITCH_HIGH]=1.1;
-    phase.frame[f::HAS_CAMERA]=1.;phase.frame[f::CAMERA+2]=-5.;phase.frame[f::EYE_HEIGHT]=1.8;
+    phase.frame[f::MAX_TURN]=2.;phase.frame[f::PITCH_LOW] = -0.8;phase.frame[f::PITCH_HIGH]=1.1;
+    phase.frame[f::HAS_CAMERA]=1.;phase.frame[f::CAMERA+2] = -5.;phase.frame[f::EYE_HEIGHT]=1.8;
     phase.frame[f::TRACK_OFFSETS..f::TRACK_OFFSETS+3].fill(3.5);
     phase.frame[f::COMMAND_SCALE]=0.4;
     let words=[1.,1.,1.,1.,0.,1.,0.125,-0.25,0.];

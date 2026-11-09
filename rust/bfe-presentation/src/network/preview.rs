@@ -146,7 +146,7 @@ impl Phase {
     fn steer(a: &[f64], state: &mut [f64; 4], looks: &[f64], scale: f64, invert: bool) {
         let mut x = 0.;
         let mut y = 0.;
-        for look in looks.chunks_exact(l::STRIDE) {
+        for look in looks.as_chunks::<{ l::STRIDE }>().0 {
             x += look[l::X] * scale;
             y += (if invert { look[l::Y] } else { -look[l::Y] }) * scale;
         }
@@ -194,7 +194,7 @@ impl Phase {
         let rate = a[f::MAX_TURN] / 2048.;
         let scale = a[f::SCALE];
         let zoom = a[f::ZOOM];
-        for look in looks.chunks_exact(l::STRIDE) {
+        for look in looks.as_chunks::<{ l::STRIDE }>().0 {
             *yaw -= (look[l::X] / zoom) * scale * rate * mode;
             let dy = look[l::Y] / zoom;
             *pitch = clamp(*pitch + (if a[f::INVERT] != 0. { dy } else { -dy }) * scale * rate, lo, hi);
@@ -205,7 +205,7 @@ impl Phase {
     // than from a final aggregate displacement. Authority angles stay intact.
     fn vehicle_look(a: &[f64], state: &mut [f64; 2], looks: &[f64], scale: f64, invert: bool) {
         let [yaw, pitch] = state;
-        for look in looks.chunks_exact(l::STRIDE) {
+        for look in looks.as_chunks::<{ l::STRIDE }>().0 {
             *yaw -= look[l::X] * scale / 2048.;
             *pitch = clamp(
                 *pitch + (if invert { look[l::Y] } else { -look[l::Y] }) * scale / 2048.,
@@ -312,7 +312,7 @@ impl Phase {
         // frames rebuild all scratch angles. Lockstep has no outstanding
         // commands; it only interpolates the current canonical servo state.
         let count = if a[f::FROZEN] != 0. || a[f::LOCKSTEP] != 0. { 0 } else { (a[f::COMMANDS] as usize).min(lim::PREVIEW_COMMANDS) };
-        for row in self.commands[..count * c::STRIDE].chunks_exact(c::STRIDE) {
+        for row in self.commands[..count * c::STRIDE].as_chunks::<{ c::STRIDE }>().0 {
             let start = (row[c::LOOK_AT] as usize).min(lim::PREVIEW_LOOKS);
             let n = (row[c::LOOK_COUNT] as usize).min(lim::PREVIEW_LOOKS - start);
             let looks = &self.looks[start * l::STRIDE..(start + n) * l::STRIDE];

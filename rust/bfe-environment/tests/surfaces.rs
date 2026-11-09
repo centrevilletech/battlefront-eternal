@@ -43,7 +43,7 @@ fn whole_surface_phase_caches_shore_and_does_not_allocate() {
     for _ in 0..60 { phase.update::<V8,_>(&mut wall); }
     assert_eq!(gathers,wall.gathers);
     assert!(phase.shore.count > 0 && phase.shore.count <= 192);
-    for p in phase.shore.points[..phase.shore.count*4].chunks_exact(4) { assert_eq!(p[0],0.0); assert!(p[2] > 0.99); }
+    for p in phase.shore.points[..phase.shore.count*4].as_chunks::<4>().0 { assert_eq!(p[0],0.0); assert!(p[2] > 0.99); }
     phase.frame[frame::SHORE_QUALITY] = 0.0; phase.update::<V8,_>(&mut wall);
     assert_eq!(gathers,wall.gathers);
     phase.frame[frame::SHORE_QUALITY] = 2.0;
@@ -84,7 +84,7 @@ fn wake_identity_capacity_and_a_long_pause_keep_fixed_storage() {
     wakes.actors[actor::POSITION]=0.2;wakes.update(|_|true);
     assert_eq!(wakes.result[wr::CURSOR],1.0);
     wakes.clear();wakes.frame[wf::DT]=10000.0;wakes.frame[wf::ACTORS]=0.0;wakes.update(|_|true);
-    assert!(wakes.points.chunks_exact(4).all(|p|p[3]==-100.0));
+    assert!(wakes.points.as_chunks::<4>().0.iter().all(|p|p[3]==-100.0));
     assert_eq!(ALLOCATIONS.with(Cell::get),before);
 }
 
@@ -103,7 +103,7 @@ fn classic_debris_full_burst_and_view_queries_do_not_allocate() {
     }
     let mut debris=Debris::new();let mut scene=Scene;
     debris.input[launch::MATRIX..launch::MATRIX+16].copy_from_slice(&Matrix4::default().elements);
-    debris.input[launch::HEALTH]=-50.;debris.input[launch::SPEED]=8.;
+    debris.input[launch::HEALTH] = -50.;debris.input[launch::SPEED]=8.;
     let mut policy=Policy::default();policy.configure(&serde_json::json!({"grid":1,"cell":32,"height":0,"offset":[0,0],"cells":[[0,0]],"look":{}}));
     policy.input[view::FAR]=1500.;policy.input[view::FADE]=150.;policy.input[view::FADE+1]=200.;policy.input[view::FOV]=50.;policy.input[view::ASPECT]=1.5;policy.input[view::NEAR]=0.5;
     policy.input[view::INVERSE..view::INVERSE+16].copy_from_slice(&Matrix4::default().elements);

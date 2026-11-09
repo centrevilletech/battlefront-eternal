@@ -11,8 +11,8 @@ use sha2::{Digest,Sha256};
 fn frozen_water_geometry_material_and_topology(){
  let f:Fixture=serde_json::from_str(include_str!("fixtures/water-descriptors.json")).unwrap();let source=w::WaterSource::new(&f.authored.to_string(),false).unwrap();
  for (actual,expected)in [(&source.near,&f.near),(&source.far,&f.far)]{
-  assert_eq!(actual.vertices.chunks_exact(5).flat_map(|v|v[..3].iter().map(|v|v.to_bits())).collect::<Vec<_>>(),expected.position);
-  assert_eq!(actual.vertices.chunks_exact(5).flat_map(|v|v[3..].iter().map(|v|v.to_bits())).collect::<Vec<_>>(),expected.uv);
+  assert_eq!(actual.vertices.as_chunks::<5>().0.iter().flat_map(|v|v[..3].iter().map(|v|v.to_bits())).collect::<Vec<_>>(),expected.position);
+  assert_eq!(actual.vertices.as_chunks::<5>().0.iter().flat_map(|v|v[3..].iter().map(|v|v.to_bits())).collect::<Vec<_>>(),expected.uv);
   assert_eq!(actual.index,expected.index);assert_eq!(if actual.index.iter().any(|i|*i>=65535){4}else{2},expected.width);
  }
  for m in f.materials{

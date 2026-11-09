@@ -192,7 +192,7 @@ fn records_past_their_limits_and_forged_offsets_pose_nothing() {
     let b = add(&mut v, false, c);
     // More entries than the records hold: the count clamps.
     for e in 0..v.entries_capacity() {
-        entry(&mut v, e, if e % 2 == 0 { a } else { b }, mode::ALIVE, 1.0 / 60.0);
+        entry(&mut v, e, if e.is_multiple_of(2) { a } else { b }, mode::ALIVE, 1.0 / 60.0);
     }
     v.input[vf::VERSION] = layout::VERSION as f64;
     v.input[vf::ENTRIES] = 1e9;
@@ -256,6 +256,7 @@ fn craft(v: &mut Vehicles, c: u32) -> usize {
 }
 // One frame of a craft's gear: its own gear, whose records it follows (and
 // their life), its flight state and the ground height under it.
+#[allow(clippy::too_many_arguments)]
 fn gear(v: &mut Vehicles, r: usize, dt: f64, own: f64, follow: f64, generation: f64, state: u32, height: f64) -> f64 {
     let o = entry(v, 0, r, mode::ALIVE, dt);
     let x = &mut v.input[vf::STRIDE..vf::STRIDE + ve::STRIDE];
@@ -276,7 +277,7 @@ fn gear(v: &mut Vehicles, r: usize, dt: f64, own: f64, follow: f64, generation: 
         v.rays[cr::HIT] = (!height.is_nan()) as u8 as f64;
         v.rays[cr::DISTANCE] = height;
     } else {
-        assert!(height.is_nan() || !(dt > 0.0) || state != fs::TAKING_OFF || follow <= 0.0, "a lifting craft asks for its ground");
+        assert!(height.is_nan() || dt.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) || state != fs::TAKING_OFF || follow <= 0.0, "a lifting craft asks for its ground");
     }
     v.pose();
     v.stream_out[o + eo::GEAR]

@@ -63,7 +63,7 @@ pub fn ordered_object_keys(insertion: &[String]) -> Vec<String> {
             None => rest.push(key),
         }
     }
-    indices.sort_by(|a, b| a.0.cmp(&b.0));
+    indices.sort_by_key(|a| a.0);
     let mut out: Vec<String> = indices.into_iter().map(|(_, k)| k.clone()).collect();
     out.extend(rest.into_iter().cloned());
     out
@@ -185,7 +185,7 @@ pub fn ordered_object_keys_units(insertion: &[JsString]) -> Vec<JsString> {
             None => rest.push(key),
         }
     }
-    indices.sort_by(|a, b| a.0.cmp(&b.0));
+    indices.sort_by_key(|a| a.0);
     let mut out: Vec<JsString> = indices.into_iter().map(|(_, k)| k.clone()).collect();
     out.extend(rest.into_iter().cloned());
     out

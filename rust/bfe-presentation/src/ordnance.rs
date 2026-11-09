@@ -353,19 +353,19 @@ impl Out {
         self.position[i * 3 + 2] = p.z as f32;
         // The doubles are cut to f32 here, once, as Float32Array would on
         // the JavaScript push (round to nearest even).
-        for k in 0..4 {
-            self.color[i * 4 + k] = rgba[k] as f32;
+        for (k, &c) in rgba.iter().enumerate() {
+            self.color[i * 4 + k] = c as f32;
         }
         self.shape[i * 4] = size as f32;
         self.shape[i * 4 + 1] = 0.0;
         self.shape[i * 4 + 2] = length as f32;
         self.shape[i * 4 + 3] = STREAK;
-        for k in 0..3 {
-            self.axis[i * 3 + k] = axis[k] as f32;
+        for (k, &ax) in axis.iter().enumerate() {
+            self.axis[i * 3 + k] = ax as f32;
         }
         let a2 = axis2.unwrap_or([1.0, 0.0, 0.0]);
-        for k in 0..3 {
-            self.axis2[i * 3 + k] = a2[k] as f32;
+        for (k, &ax2) in a2.iter().enumerate() {
+            self.axis2[i * 3 + k] = ax2 as f32;
         }
         // Particle batches show the whole texture: frame [0, 0, 1, 1]. A
         // streak's axis2 is its tail's share of the width, then two zeros.
@@ -944,7 +944,7 @@ impl Ordnance {
             }
             let elapsed = (tick - r[rc::FLIGHT_TICK]) / 60.0;
             let f = bolt_fade(s.fade_out, elapsed - r[rc::LIFE]);
-            if source_flown + r[rc::SPEED] * elapsed < 0.0 || !(f > 0.0) {
+            if source_flown + r[rc::SPEED] * elapsed < 0.0 || f.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
                 return;
             }
             flown = source_flown + r[rc::SPEED] * min(elapsed, r[rc::LIFE]);
@@ -970,7 +970,7 @@ impl Ordnance {
         if slot.is_none() {
             self.refused_views += 1;
         }
-        let presented = slot.map_or(false, |i| self.views.table[i].presented);
+        let presented = slot.is_some_and(|i| self.views.table[i].presented);
         // A fast bolt can travel several metres before its first rendered
         // frame: show that first interval back to the muzzle.
         let first_draw = !presented && !ended;

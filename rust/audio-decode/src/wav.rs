@@ -99,7 +99,7 @@ impl Wav {
                     self.fmt.ok_or("WAV data precedes its format")?;
                 // A data chunk must end on a complete multichannel frame. Reject a trailing
                 // partial frame rather than deriving a different duration from rounded bytes.
-                if length % align != 0 {
+                if !length.is_multiple_of(align) {
                     return Err("partial WAV sample frame".into());
                 }
                 self.remaining = Some(length as u64);

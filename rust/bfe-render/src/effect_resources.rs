@@ -49,7 +49,7 @@ impl Descriptor {
             1=>{
                 let (mut data,index)=Self::plane_geometry();
                 if kind==kind::RAIN {for i in 0..4{data[i*3+1]*=0.5;}}
-                if matches!(kind,kind::WISPS|kind::SPRAY){for i in 0..12{data[i]*=0.5;}}
+                if matches!(kind,kind::WISPS|kind::SPRAY){for v in &mut data[..12]{*v*=0.5;}}
                 Some(Base{vertices:4,attributes:vec![("position",3),("uv",2)],data:data.to_vec(),index:index.to_vec()})
             },
             5=>{
@@ -171,6 +171,7 @@ pub struct BatchSpan {pub count:usize,pub from:usize,pub source:usize,pub upload
 impl BatchSpan {
     // The consumed input prefix can exceed admitted capacity. Values follow
     // that complete prefix, while only the admitted instances reach the VBO.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(count:usize,from:usize,at:usize,stride:usize,values:usize,capacity:usize,data:usize,fixed:bool,multiplier:usize)->Option<Self>{
         let admitted=if fixed{capacity/multiplier.max(1)}else{capacity.min(MAX_PARTICLES)};
         let shown=count.min(admitted);let first=from.min(count);let source=if fixed{0}else{count-first};
@@ -217,7 +218,8 @@ pub fn emitter_span(requested:usize,at:usize,capacity:usize,data:usize)->Option<
 // StormSky's lightning ribbon is a far-scene draw with authored live streams.
 // This native recipe owns its fixed sequential index and additive raster state;
 // the environment producer supplies only dirty vertices and flash intensity.
-pub fn far_mesh(kind:usize,shadows:bool)->Result<(String,&'static [(&'static str,u32)],[u32;7],u32),&'static str>{
+pub type FarMeshRecipe = (String, &'static [(&'static str, u32)], [u32; 7], u32);
+pub fn far_mesh(kind:usize,shadows:bool)->Result<FarMeshRecipe,&'static str>{
  if kind!=crate::effect_layout::STORM_LIGHTNING{return Err("unknown far effect");}
  Ok((format!("effects/storm-lightning-s2{}",if shadows{"-shadow"}else{""}),crate::effect_layout::PRODUCERS[kind].0,[1,32774,32774,770,1,770,1],2|4|16|64|128|512))
 }

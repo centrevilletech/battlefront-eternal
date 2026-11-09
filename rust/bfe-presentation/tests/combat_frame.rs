@@ -114,7 +114,7 @@ fn entity_weapon_queries_and_generation_probe_preserve_command_order() {
 #[test]
 fn combat_fact_transport_preserves_signed_zero_and_optional_defaults() {
     let mut c=Combat::new(2);event(&mut c,1,1,10.0);
-    c.input[i::DIRECTION]=-0.0;c.input[i::SURFACE]=f64::NAN;c.input[i::EXECUTION_TICK]=f64::NAN;
+    c.input[i::DIRECTION] = -0.0;c.input[i::SURFACE]=f64::NAN;c.input[i::EXECUTION_TICK]=f64::NAN;
     assert!(c.receive_facts(1.0,10.0,"{}",true).unwrap());assert!(c.resolve(false));
     assert!(c.output[o::DIRECTION].is_sign_negative());
     assert_eq!(c.output[o::EXECUTION_TICK],10.0);

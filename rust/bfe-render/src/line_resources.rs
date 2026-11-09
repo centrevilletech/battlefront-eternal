@@ -78,7 +78,7 @@ impl Lines {
             let row=&mut frames.lines[out..out+L::LEN];row.fill(0.);row[L::KEY..L::KEY+4].copy_from_slice(&[group,order,z,object]);
             let s=L::STEP;row[s+P::STEP_PROGRAM]=source.program as f64;row[s+P::STEP_TARGET]=P::TARGET_BOUND;row[s+P::STEP_UNIFORMS]=source.uniforms.len() as f64;
             let world:math::Mat4=self.input[at+R::WORLD..at+R::WORLD+16].try_into().unwrap();let model_view=math::mul(&inverse,&world);
-            for (u,&(slot,kind)) in source.uniforms.iter().enumerate(){let p=s+P::STEP_FIRST+u*P::UNIFORM;row[p]=slot as f64;row[p+1]=if matches!(kind,17|18|19){16.}else if kind==20{3.}else{kind as f64};match kind{
+            for (u,&(slot,kind)) in source.uniforms.iter().enumerate(){let p=s+P::STEP_FIRST+u*P::UNIFORM;row[p]=slot as f64;row[p+1]=if matches!(kind,17..=19){16.}else if kind==20{3.}else{kind as f64};match kind{
                 16=>row[p+2..p+18].copy_from_slice(&projection),17=>row[p+2..p+18].copy_from_slice(&model_view),18=>row[p+2..p+18].copy_from_slice(&world),19=>row[p+2..p+18].copy_from_slice(&inverse),20=>row[p+2..p+5].copy_from_slice(&self.input[V::WORLD+12..V::WORLD+15]),9=>row[p+2..p+11].copy_from_slice(&math::normal_matrix(&model_view)),5=>row[p+2]=self.input[V::ORTHOGRAPHIC],3=>row[p+2..p+5].copy_from_slice(&source.descriptor.color),_=>row[p+2]=1.,
             }}
             let s=L::STATE;row[s+P::STATE_FLAGS]=(P::STATE_OWN_GEOMETRY|P::STATE_DEPTH_WRITE|if source.descriptor.depth{P::STATE_DEPTH_TEST}else{0}) as f64;row[s+P::STATE_DEPTH_FUNC]=glow::LEQUAL as f64;
@@ -87,4 +87,4 @@ impl Lines {
         frames.line_counts[view]=shown;if self.clipped!=prior{frames.clipped=true;}core.state.reset();
     }
 }
-fn bounds_center(data:&[f32])->[f64;3]{let mut lo=[f64::INFINITY;3];let mut hi=[f64::NEG_INFINITY;3];for p in data.chunks_exact(3){for k in 0..3{lo[k]=lo[k].min(p[k] as f64);hi[k]=hi[k].max(p[k] as f64);}}std::array::from_fn(|k|(lo[k]+hi[k])*0.5)}
+fn bounds_center(data:&[f32])->[f64;3]{let mut lo=[f64::INFINITY;3];let mut hi=[f64::NEG_INFINITY;3];for p in data.as_chunks::<3>().0{for k in 0..3{lo[k]=lo[k].min(p[k] as f64);hi[k]=hi[k].max(p[k] as f64);}}std::array::from_fn(|k|(lo[k]+hi[k])*0.5)}

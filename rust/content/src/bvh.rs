@@ -42,7 +42,9 @@ const LEAF_TRIANGLES: usize = 10;
 
 fn triangle_bounds(positions: Positions<'_>, indices: &[u32]) -> Vec<[f32; 6]> {
     indices
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(|tri| {
             let mut bounds = [0.; 6];
             for axis in 0..3 {

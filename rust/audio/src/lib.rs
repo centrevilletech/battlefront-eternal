@@ -718,83 +718,6 @@ pub extern "C" fn clarity_process(h: u32, in_channels: u32, out_channels: u32) {
 #[no_mangle]
 pub extern "C" fn nothing() -> u32 { 0 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn min_max_round_keep_javascript_rules() {
-        assert!(js_min(f64::NAN, 1.0).is_nan() && js_max(1.0, f64::NAN).is_nan());
-        assert!(js_min(0.0, -0.0).is_sign_negative() && js_max(-0.0, 0.0).is_sign_positive());
-        assert_eq!(js_round(2.5), 3.0);
-        assert_eq!(js_round(-2.5), -2.0);
-        assert!(js_round(-0.4).is_sign_negative());
-        assert_eq!(js_round(4800.0), 4800.0);
-    }
-
-    fn block(data: &[f32], channels: usize, frames: usize) -> Block<'_> {
-        Block { data, channels, frames }
-    }
-
-    #[test]
-    fn panpot_centre_is_equal_power() {
-        let mut m = mixer::Mixer::new(1, 2, mixer::PANPOT, None, &[Some((30.0, 0.0)), Some((-30.0, 0.0))]);
-        m.take(&[0.0, 0.0, 0.0, -1.0, 0.0, 0.0], true);
-        let input = vec![0.5f32; 128];
-        let mut out_data = vec![0.0f32; 256];
-        let mut out = BlockMut { data: &mut out_data, channels: 2, frames: 128 };
-        m.process(&input, &[1], &mut out, None);
-        let want = (0.5f64 * std::f64::consts::FRAC_1_SQRT_2) as f32;
-        assert_eq!(out_data[0], want);
-        assert_eq!(out_data[128], want);
-    }
-
-    #[test]
-    fn limiter_keeps_a_hot_signal_at_the_ceiling() {
-        let mut l = limiter::Limiter::new(48000.0, -1.0, 0.08, 0.0015, &[0.0; limiter::DYNAMICS_COUNT], 0);
-        let data = vec![0.99f32; 2 * 128];
-        let mut out_data = vec![0.0f32; 2 * 128];
-        for _ in 0..200 {
-            let input = block(&data, 2, 128);
-            let mut out = BlockMut { data: &mut out_data, channels: 2, frames: 128 };
-            l.process(&input, &mut out);
-        }
-        let ceiling = host::pow(10.0, -1.0 / 20.0) as f32;
-        assert!(out_data.iter().all(|&v| v <= ceiling + 1e-6), "over the ceiling: {:?}", out_data.iter().fold(0.0f32, |a, &b| a.max(b)));
-        assert!(out_data.iter().all(|&v| v > 0.8), "the gain should settle near the ceiling, not silence");
-    }
-
-    #[test]
-    fn reverb_answers_an_impulse_then_goes_quiet() {
-        let mut params = [0.0; reverb::PARAM_COUNT];
-        params[0] = 0.2;
-        params[2] = 0.3;
-        let mut r = reverb::Reverb::new(48000.0, 2, &params, 0b101);
-        let mut data = vec![0.0f32; 128];
-        data[0] = 1.0;
-        let mut heard = false;
-        let mut tail = 0.0f32;
-        for b in 0..4000 {
-            let input = block(&data, 1, 128);
-            let mut out_data = vec![0.0f32; 2 * 128];
-            {
-                let mut out = BlockMut { data: &mut out_data, channels: 2, frames: 128 };
-                r.process(&input, &mut out);
-            }
-            let peak = out_data.iter().fold(0.0f32, |a, &v| a.max(v.abs()));
-            if b > 0 && peak > 0.0 {
-                heard = true;
-            }
-            if b == 3999 {
-                tail = peak;
-            }
-            data[0] = 0.0;
-        }
-        assert!(heard, "no tail after the impulse");
-        assert_eq!(tail, 0.0, "the network must reach exact silence (its quiet shortcut)");
-    }
-}
-
 /// Classic has no per-voice lowpass; select it for isolated voice fixtures.
 #[no_mangle]
 pub extern "C" fn mixer_filtered(h: u32, filtered: u32) {
@@ -835,7 +758,7 @@ pub extern "C" fn output_commands_ptr(h:u32,len:u32)->*mut f64{let o=output(h);o
 #[no_mangle]
 pub extern "C" fn output_commands(h:u32,len:u32){output(h).apply(len as usize)}
 #[no_mangle]
-pub extern "C" fn output_params(h:u32,len:u32){let o=output(h);let n=len as usize;let mut data=std::mem::take(&mut o.cfg);for i in 0..n {data[i]=data[i] as f32 as f64;}let mut at=0;while at+6<=n{let p=[data[at] as f32,data[at+1] as f32,data[at+2] as f32,data[at+3] as f32,data[at+4] as f32,data[at+5] as f32];o.mixer.take(&p,false);at+=6;}o.cfg=data;}
+pub extern "C" fn output_params(h:u32,len:u32){let o=output(h);let n=len as usize;let mut data=std::mem::take(&mut o.cfg);for v in &mut data[..n] {*v=*v as f32 as f64;}let mut at=0;while at+6<=n{let p=[data[at] as f32,data[at+1] as f32,data[at+2] as f32,data[at+3] as f32,data[at+4] as f32,data[at+5] as f32];o.mixer.take(&p,false);at+=6;}o.cfg=data;}
 /// cfg: speaker triples (azimuth, elevation, exists), then decoder row
 /// counts and rows, as the original mixer's layout interface uses.
 #[no_mangle]
@@ -950,3 +873,80 @@ pub extern "C" fn front_stream_free(h:u32,id:u32)->u32 {state().frontends[h as u
 pub extern "C" fn output_stream_error(h:u32,id:u32)->u32 {output(h).voices.samples.get(id as usize).and_then(|s|s.as_ref()).and_then(|s|s.ring.as_ref()).is_some_and(|r|r.underrun.get()) as u32}
 #[no_mangle]
 pub extern "C" fn front_stream_error(h:u32,id:u32)->u32 {state().frontends[h as usize].samples.get(id as usize).and_then(|s|s.as_ref()).and_then(|s|s.ring.as_ref()).is_some_and(|r|r.underrun.get()) as u32}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn min_max_round_keep_javascript_rules() {
+        assert!(js_min(f64::NAN, 1.0).is_nan() && js_max(1.0, f64::NAN).is_nan());
+        assert!(js_min(0.0, -0.0).is_sign_negative() && js_max(-0.0, 0.0).is_sign_positive());
+        assert_eq!(js_round(2.5), 3.0);
+        assert_eq!(js_round(-2.5), -2.0);
+        assert!(js_round(-0.4).is_sign_negative());
+        assert_eq!(js_round(4800.0), 4800.0);
+    }
+
+    fn block(data: &[f32], channels: usize, frames: usize) -> Block<'_> {
+        Block { data, channels, frames }
+    }
+
+    #[test]
+    fn panpot_centre_is_equal_power() {
+        let mut m = mixer::Mixer::new(1, 2, mixer::PANPOT, None, &[Some((30.0, 0.0)), Some((-30.0, 0.0))]);
+        m.take(&[0.0, 0.0, 0.0, -1.0, 0.0, 0.0], true);
+        let input = vec![0.5f32; 128];
+        let mut out_data = vec![0.0f32; 256];
+        let mut out = BlockMut { data: &mut out_data, channels: 2, frames: 128 };
+        m.process(&input, &[1], &mut out, None);
+        let want = (0.5f64 * std::f64::consts::FRAC_1_SQRT_2) as f32;
+        assert_eq!(out_data[0], want);
+        assert_eq!(out_data[128], want);
+    }
+
+    #[test]
+    fn limiter_keeps_a_hot_signal_at_the_ceiling() {
+        let mut l = limiter::Limiter::new(48000.0, -1.0, 0.08, 0.0015, &[0.0; limiter::DYNAMICS_COUNT], 0);
+        let data = vec![0.99f32; 2 * 128];
+        let mut out_data = vec![0.0f32; 2 * 128];
+        for _ in 0..200 {
+            let input = block(&data, 2, 128);
+            let mut out = BlockMut { data: &mut out_data, channels: 2, frames: 128 };
+            l.process(&input, &mut out);
+        }
+        let ceiling = host::pow(10.0, -1.0 / 20.0) as f32;
+        assert!(out_data.iter().all(|&v| v <= ceiling + 1e-6), "over the ceiling: {:?}", out_data.iter().fold(0.0f32, |a, &b| a.max(b)));
+        assert!(out_data.iter().all(|&v| v > 0.8), "the gain should settle near the ceiling, not silence");
+    }
+
+    #[test]
+    fn reverb_answers_an_impulse_then_goes_quiet() {
+        let mut params = [0.0; reverb::PARAM_COUNT];
+        params[0] = 0.2;
+        params[2] = 0.3;
+        let mut r = reverb::Reverb::new(48000.0, 2, &params, 0b101);
+        let mut data = vec![0.0f32; 128];
+        data[0] = 1.0;
+        let mut heard = false;
+        let mut tail = 0.0f32;
+        for b in 0..4000 {
+            let input = block(&data, 1, 128);
+            let mut out_data = vec![0.0f32; 2 * 128];
+            {
+                let mut out = BlockMut { data: &mut out_data, channels: 2, frames: 128 };
+                r.process(&input, &mut out);
+            }
+            let peak = out_data.iter().fold(0.0f32, |a, &v| a.max(v.abs()));
+            if b > 0 && peak > 0.0 {
+                heard = true;
+            }
+            if b == 3999 {
+                tail = peak;
+            }
+            data[0] = 0.0;
+        }
+        assert!(heard, "no tail after the impulse");
+        assert_eq!(tail, 0.0, "the network must reach exact silence (its quiet shortcut)");
+    }
+}

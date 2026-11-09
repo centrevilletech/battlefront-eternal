@@ -242,10 +242,10 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
             *x = x.wrapping_add(y);
         }
     };
-    for chunk in data[..whole].chunks_exact(64) {
+    for chunk in data[..whole].as_chunks::<64>().0 {
         block(chunk);
     }
-    for chunk in tail.chunks_exact(64) {
+    for chunk in tail.as_chunks::<64>().0 {
         block(chunk);
     }
     let mut out = [0u8; 32];

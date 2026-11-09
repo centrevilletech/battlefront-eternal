@@ -24,6 +24,7 @@ impl Default for Batch {
 impl Batch {
     // Ports Batch.corner: retain double arithmetic through the perspective
     // divide, then compare the float32 value the GPU would actually hold.
+    #[allow(clippy::too_many_arguments)]
     fn corner(&mut self, v: usize, a: &[f64], x: f64, y: f64, uv: usize, mu: usize, mv: usize) {
         let e = &a[q::MATRIX..q::MATRIX + 16];
         let z = a[q::DEPTH];

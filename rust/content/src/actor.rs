@@ -127,8 +127,8 @@ pub fn build_actor(def: &Value, verts: &[f32]) -> Result<Actor, String> {
         parent_of[child] = Some(parent);
         children[parent].push(child);
     };
-    for i in 0..n {
-        let parent = bones[i].parent;
+    for (i, bone) in bones.iter().enumerate().take(n) {
+        let parent = bone.parent;
         if parent >= 0.0 {
             if parent.fract() != 0.0 || parent as usize >= n {
                 return Err(format!("bone {i}: parent {parent} is not a bone"));

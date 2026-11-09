@@ -567,7 +567,7 @@ mod tests {
         let mut at = 0usize;
         for (i, (_, ty)) in FRAME_MEMBERS.iter().enumerate() {
             let (size, align) = sizes(ty);
-            at = (at + align - 1) / align * align;
+            at = at.div_ceil(align) * align;
             assert_eq!(at, FRAME_OFFSETS[i], "{i}");
             at += size;
         }

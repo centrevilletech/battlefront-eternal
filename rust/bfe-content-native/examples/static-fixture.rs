@@ -23,7 +23,7 @@ fn main() -> Result<(), String> {
         }
         Some("ocean") => {
             let s = bfe_content_native::water::ocean_geometry();
-            serde_json::json!({"positions":s.vertices.chunks_exact(5).flat_map(|r|r[..3].iter().map(|v|*v as f64)).collect::<Vec<_>>(),"index":s.index})
+            serde_json::json!({"positions":s.vertices.as_chunks::<5>().0.iter().flat_map(|r|r[..3].iter().map(|v|*v as f64)).collect::<Vec<_>>(),"index":s.index})
         }
         // OceanSurface now uploads this descriptor instead of constructing a
         // PlaneGeometry in JS. Keep the native content builder independent.

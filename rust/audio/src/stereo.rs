@@ -40,21 +40,21 @@ impl Default for LightPan {
 impl LightPan {
     pub fn place(&mut self, position: [f64; 3], level: f64, at: f64, frame: f64, rate: f64) {
         let gains = alsoft(position[0], position[1], position[2]);
-        for c in 0..2 {
-            let value = gains[c] * level;
+        for ((&gain, last_slot), side) in gains.iter().zip(&mut self.levels).zip(&mut self.sides) {
+            let value = gain * level;
             if !value.is_finite() {
                 continue;
             }
-            let last = self.levels[c];
+            let last = *last_slot;
             if !self.placed {
-                self.sides[c].set_value(value as f32);
-                self.sides[c].insert(false, value as f32, at, 0.0, frame, rate);
+                side.set_value(value as f32);
+                side.insert(false, value as f32, at, 0.0, frame, rate);
             } else if (value - last).abs() > 1e-3 * value.abs().max(last.abs()) || (value == 0.0) != (last == 0.0) {
-                self.sides[c].insert(true, value as f32, at, 0.015, frame, rate);
+                side.insert(true, value as f32, at, 0.015, frame, rate);
             } else {
                 continue;
             }
-            self.levels[c] = value;
+            *last_slot = value;
         }
         self.placed = true;
     }

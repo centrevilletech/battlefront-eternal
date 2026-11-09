@@ -94,8 +94,7 @@ impl Cameras {
         self.last_main.copy_from_slice(&self.input[..I::FAR_RANGE]);self.main_valid=true;
         // Source matrices preserve the gameplay owner's lazy placement and
         // shake boundary. Recomposition here would create a second solver.
-        let a=&self.input;let mut c=Camera::default();c.p=vector(a,I::POSITION);c.up=vector(a,I::UP);
-        c.q=Quaternion::new(a[I::QUATERNION],a[I::QUATERNION+1],a[I::QUATERNION+2],a[I::QUATERNION+3]);
+        let a=&self.input;let mut c=Camera{p:vector(a,I::POSITION),up:vector(a,I::UP),q:Quaternion::new(a[I::QUATERNION],a[I::QUATERNION+1],a[I::QUATERNION+2],a[I::QUATERNION+3]),..Camera::default()};
         c.lens.copy_from_slice(&a[I::LENS..I::LENS+N::LEN]);
         if a[I::PUBLISHED]!=0. {
             for(at,value)in[(U::WORLD,&mut c.world),(U::INVERSE,&mut c.inverse),(U::PROJECTION,&mut c.projection),(U::PROJECTION_INVERSE,&mut c.projection_inverse)] {value.elements.copy_from_slice(&a[I::MATRICES+at..I::MATRICES+at+16]);}
@@ -108,8 +107,7 @@ impl Cameras {
     // facts until their registry owns that object's world publication.
     pub fn import(&mut self,handle:f64)->Option<usize>{
         let Some(slot)=self.extra_leases.touch(handle)else{self.clipped=true;return None};
-        let role=R::EXTRA0+slot;let a=&self.input;let mut c=Camera::default();
-        c.p=vector(a,I::POSITION);c.up=vector(a,I::UP);c.q=Quaternion::new(a[I::QUATERNION],a[I::QUATERNION+1],a[I::QUATERNION+2],a[I::QUATERNION+3]);
+        let role=R::EXTRA0+slot;let a=&self.input;let mut c=Camera{p:vector(a,I::POSITION),up:vector(a,I::UP),q:Quaternion::new(a[I::QUATERNION],a[I::QUATERNION+1],a[I::QUATERNION+2],a[I::QUATERNION+3]),..Camera::default()};
         c.lens.copy_from_slice(&a[I::LENS..I::LENS+N::LEN]);
         if a[I::PUBLISHED]!=0.{
             for(at,value)in[(U::WORLD,&mut c.world),(U::INVERSE,&mut c.inverse),(U::PROJECTION,&mut c.projection),(U::PROJECTION_INVERSE,&mut c.projection_inverse)]{value.elements.copy_from_slice(&a[I::MATRICES+at..I::MATRICES+at+16]);}
@@ -160,12 +158,12 @@ impl Cameras {
         c.lens[N::FAR]=if self.input[I::FAR_RANGE+1]==0.{main.lens[N::FAR]}else{self.input[I::FAR_RANGE+1]};
         c.lens[N::ZOOM]=1.;c.lens[N::FILM_GAUGE]=35.;c.lens[N::FILM_OFFSET]=0.;c.lens[N::VIEW_ENABLED]=0.;c.project();
         c.p.y=2.*level-main.p.y;
-        let e=&main.world.elements;let mut forward=V::new(e[8],e[9],e[10]);forward.normalize().negate();forward.y=-forward.y;
-        c.up=V::new(0.,1.,0.);c.up.apply_quaternion(&main.q);c.up.y=-c.up.y;
+        let e=&main.world.elements;let mut forward=V::new(e[8],e[9],e[10]);forward.normalize().negate();forward.y = -forward.y;
+        c.up=V::new(0.,1.,0.);c.up.apply_quaternion(&main.q);c.up.y = -c.up.y;
         let mut at=c.p;at.add(&forward);c.look(at);self.publish(R::MIRROR_PLAIN,c);
         let mut plane=Plane::new(V::new(0.,1.,0.),-level);plane.apply_matrix4(&c.inverse,None);
         let mut clip=Vector4::new(plane.normal.x,plane.normal.y,plane.normal.z,plane.constant);
-        let e=&c.projection.elements;let sign=|v:f64|if v==0.{v}else if v.is_nan(){v}else{v.signum()};
+        let e=&c.projection.elements;let sign=|v:f64|if v==0.||v.is_nan(){v}else{v.signum()};
         // Math.sign keeps signed zero; a signum shortcut changes clip bits.
         let q=Vector4::new((sign(clip.x)+e[8])/e[0],(sign(clip.y)+e[9])/e[5],-1.,(1.+e[10])/e[14]);
         let denominator=clip.dot(&q);self.mirror[H::VALID]=0.;
@@ -186,12 +184,12 @@ impl Cameras {
     // look before the cube parent's translation. Six views precede mipmaps.
     pub fn probe(&mut self,slot:usize) {
         if slot>=4 {self.clipped=true;return;}
-        let eye=self.cameras[R::MAIN].p;let mut cube=Camera::default();cube.p=eye;cube.compose(V::new(1.,1.,1.));let parent=cube.world;self.publish(R::PROBE_PARENT0+slot,cube);
+        let eye=self.cameras[R::MAIN].p;let mut cube=Camera{p:eye,..Camera::default()};cube.compose(V::new(1.,1.,1.));let parent=cube.world;self.publish(R::PROBE_PARENT0+slot,cube);
         // Cube children keep local position zero. Their world translation
         // comes from the parent multiplication, which shaders read directly.
         let directions=[V::new(1.,0.,0.),V::new(-1.,0.,0.),V::new(0.,1.,0.),V::new(0.,-1.,0.),V::new(0.,0.,1.),V::new(0.,0.,-1.)];
         let ups=[V::new(0.,1.,0.),V::new(0.,1.,0.),V::new(0.,0.,-1.),V::new(0.,0.,1.),V::new(0.,1.,0.),V::new(0.,1.,0.)];
-        for face in 0..6 {let mut c=Camera::default();c.up=ups[face];c.lens[N::FOV]=-90.;c.lens[N::ASPECT]=1.;c.lens[N::NEAR]=0.05;c.lens[N::FAR]=50.;c.lens[N::ZOOM]=1.;c.lens[N::FILM_GAUGE]=35.;c.project();c.look(directions[face]);let local=c.world;c.world.multiply_matrices(&parent,&local);c.inverse=c.world;c.inverse.invert();self.publish(R::PROBE0+slot*6+face,c);}
+        for face in 0..6 {let mut c=Camera{up:ups[face],..Camera::default()};c.lens[N::FOV] = -90.;c.lens[N::ASPECT]=1.;c.lens[N::NEAR]=0.05;c.lens[N::FAR]=50.;c.lens[N::ZOOM]=1.;c.lens[N::FILM_GAUGE]=35.;c.project();c.look(directions[face]);let local=c.world;c.world.multiply_matrices(&parent,&local);c.inverse=c.world;c.inverse.invert();self.publish(R::PROBE0+slot*6+face,c);}
     }
     // Graphics.render and SkyProbe's sky-follow use the same authored scale.
     // Mirrors intentionally stand every layer at the reflected eye instead.
@@ -205,7 +203,7 @@ impl Cameras {
     // for visibility. A malformed tail cannot become a partial bounds record.
     pub fn mirror_bounds(&mut self,bounds:&[f64]){
         let count=(bounds.len()/6).min(65537);
-        if bounds.len()%6!=0||bounds.len()/6>count{self.clipped=true;}
+        if !bounds.len().is_multiple_of(6)||bounds.len()/6>count{self.clipped=true;}
         self.mirror_bounds.resize(count,[0.;6]);
         for(i,row)in self.mirror_bounds.iter_mut().enumerate(){row.copy_from_slice(&bounds[i*6..i*6+6]);}
     }
@@ -222,10 +220,10 @@ impl Cameras {
         self.mirror[H::VISIBLE]=self.water_visible(&main.projection,&main.inverse) as u8 as f64;
         self.mirror[H::FAR_VISIBLE]=0.;
         if main.p.y<a[I::WATER_LEVEL]{return;}
-        let far=a[I::FAR_RANGE+1];if !(far>a[I::WATER_FADE]){return;}
+        let far=a[I::FAR_RANGE+1];if far.partial_cmp(&a[I::WATER_FADE]) != Some(std::cmp::Ordering::Greater){return;}
         let scale=if a[I::FAR_REACH]>0.{far/a[I::FAR_REACH]}else{1.};
         let end=if a[I::WATER_REACH]>0.{a[I::WATER_REACH]*scale}else{far};
-        if !(end>a[I::WATER_FADE+1]){return;}
+        if end.partial_cmp(&a[I::WATER_FADE+1]) != Some(std::cmp::Ordering::Greater){return;}
         let mut view=main;view.lens[N::NEAR]=js_max(main.lens[N::NEAR],0.1);view.lens[N::FAR]=end;
         view.lens[N::ZOOM]=1.;view.lens[N::FILM_GAUGE]=35.;view.lens[N::FILM_OFFSET]=0.;view.lens[N::VIEW_ENABLED]=0.;view.project();
         self.mirror[H::FAR_VISIBLE]=self.water_visible(&view.projection,&main.inverse) as u8 as f64;
@@ -237,7 +235,7 @@ impl Cameras {
         let screen=crate::math::mul(&camera.projection.elements,&camera.inverse.elements);
         let frustum=crate::math::Frustum::from_matrix(&screen);
         if count>L::PLACEMENT_ROOTS{self.clipped=true;}
-        for row in self.placement.chunks_exact_mut(A::LEN).take(count.min(L::PLACEMENT_ROOTS)){
+        for row in self.placement.as_chunks_mut::<{ A::LEN }>().0.iter_mut().take(count.min(L::PLACEMENT_ROOTS)){
             let center=[row[A::POSITION],row[A::POSITION+1]+1.,row[A::POSITION+2]];
             row[A::HIDDEN]=(!frustum.sphere(&center,5.)) as u8 as f64;
         }
@@ -270,7 +268,7 @@ impl Cameras {
         // Layer masks use JS ToUint32, including signed enableAll masks.
         // Pack order remains graph order, with a bounded first-16 prefix.
         let out=&mut self.packs[pack*K::LEN..(pack+1)*K::LEN];let mut count=0;
-        for row in self.light_input.chunks_exact(P::LEN).take((self.input[I::LIGHT_COUNT] as usize).min(L::RAW_LIGHTS)) {
+        for row in self.light_input.as_chunks::<{ P::LEN }>().0.iter().take((self.input[I::LIGHT_COUNT] as usize).min(L::RAW_LIGHTS)) {
             let proxy=row[P::PROXY]!=0.;let shown=if proxy{row[P::INITIAL_SHOWN]!=0.}else{row[P::SHOWN]!=0.};
             let mask=to_uint32(if proxy{row[P::INITIAL_LAYERS]}else{row[P::LAYERS]});
             if !shown||mask&layers==0 {continue;}

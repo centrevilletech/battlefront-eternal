@@ -216,8 +216,8 @@ impl Master {
                 }
             }
             if lfe_channel == Some(c) {
-                for i in 0..FRAMES {
-                    m[i] += self.low[i];
+                for (dst, &low) in m.iter_mut().zip(&self.low) {
+                    *dst += low;
                 }
             }
             if let Some(b) = mix_in {
@@ -273,8 +273,8 @@ impl Master {
             }
         } else {
             let g = self.volume.k_rate(block, rate);
-            for i in 0..len {
-                out[i] = if g == 0.0 { 0.0 } else if g == 1.0 { self.stage[i] } else { gain_product(self.stage[i], g) };
+            for (dst, &stage) in out[..len].iter_mut().zip(&self.stage[..len]) {
+                *dst = if g == 0.0 { 0.0 } else if g == 1.0 { stage } else { gain_product(stage, g) };
             }
         }
         report

@@ -87,7 +87,7 @@ impl ClassicRandom {
     /// and `Math.trunc(f32(f32(u * f32(hi - lo + 1)) + lo))`, with
     /// every `f32()` where the JavaScript rounds.
     pub fn int(&mut self, lo: f64, hi: f64) -> f64 {
-        if !(hi > lo) {
+        if hi.partial_cmp(&lo) != Some(core::cmp::Ordering::Greater) {
             return lo;
         }
         let u = self.uniform();

@@ -21,6 +21,7 @@ fn index(value:f64,max:usize)->Option<usize>{(value.is_finite()&&value>=0.&&valu
 impl ScenePoses {
  // PageUnits.attach and rig admission reserve by admitted content. Source
  // kernel indices and renderer arena indices have independent capacities.
+ #[allow(clippy::too_many_arguments)]
  pub fn register(&mut self,owner:usize,owner_generation:u32,id:usize,generation:u32,node_start:usize,node_count:usize,skin_start:usize,skin_count:usize)->bool {
   if owner==0||owner>=limit::OWNERS||id>=limit::MODELS||owner_generation==0||generation!=owner_generation
    ||node_start>limit::SOURCE_NODES||node_count>limit::SOURCE_NODES.saturating_sub(node_start)
@@ -121,12 +122,13 @@ impl ScenePoses{
  pub fn skin_offset(&self,owner:usize,id:usize,generation:u32,skin:usize)->Option<usize>{self.skin_slot(owner,id,generation,skin).map(|at|at*16)}
  // Authored inverse matrices and bone identities are cold content. Each
  // skinned mesh also declares where its native bind inverse is published.
+ #[allow(clippy::too_many_arguments)]
  pub fn register_skin(&mut self,owner:usize,id:usize,generation:u32,skin:usize,node:usize,bind_index:usize,bones:&[u32],inverses:&[f64])->bool{
   let Some(model)=self.model(owner,id,generation).copied()else{self.rejected+=1;return false;};
   if bind_index>=model.node_count||bones.len()>limit::BONES||inverses.len()!=bones.len()*16||self.slot(owner,id,generation,node).is_none()
    ||bones.iter().any(|&n|self.slot(owner,id,generation,n as usize).is_none())
    ||(0..bones.len()).any(|i|self.skin_slot(owner,id,generation,skin+i).is_none()){self.rejected+=1;return false;}
-  let inverse=inverses.chunks_exact(16).map(|m|m.try_into().unwrap_or(IDENTITY)).collect();
+  let inverse=inverses.as_chunks::<16>().0.to_vec();
   // Re-admitting a pooled mesh replaces its binding rather than leaving an
   // older inverse later in the model chain to overwrite the new skin.
   let mut existing=model.skin_head;
@@ -188,7 +190,7 @@ impl ScenePoses{
     let slot=self.owners[owner].nodes[b.bones[i]];let target=self.owners[owner].skins[b.skin+i]*16;
     let matrix=crate::math::mul(&self.nodes[slot].world,&b.inverses[i]);
     // Skeleton.update converted only after world * authored inverse in f64.
-    for k in 0..16{self.skins[target+k]=matrix[k] as f32;}
+    for (k, &m_val) in matrix.iter().enumerate(){self.skins[target+k]=m_val as f32;}
    }
    binding=b.next;
   }

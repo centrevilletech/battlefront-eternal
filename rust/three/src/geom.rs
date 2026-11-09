@@ -1258,6 +1258,8 @@ impl Triangle {
 
     /// `Triangle.getInterpolation(point, p1..p3, v1..v3, target)`
     /// for Vector3 values.
+    // Preserves Three.js r170 Triangle.getInterpolation eight-argument signature.
+    #[allow(clippy::too_many_arguments)]
     pub fn get_interpolation_of3<'t>(
         point: &Vector3,
         p1: &Vector3, p2: &Vector3, p3: &Vector3,
@@ -1280,6 +1282,8 @@ impl Triangle {
 
     /// `Triangle.getInterpolation(...)` for Vector4 values (three
     /// checks `'w' in target`; the two shapes are distinct here).
+    // Preserves Three.js r170 Triangle.getInterpolation eight-argument signature.
+    #[allow(clippy::too_many_arguments)]
     pub fn get_interpolation_of4<'t>(
         point: &Vector3,
         p1: &Vector3, p2: &Vector3, p3: &Vector3,

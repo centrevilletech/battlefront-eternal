@@ -26,6 +26,7 @@ impl Bank {
     pub fn release(&mut self,id:u32){let Some(slot)=self.slot(id)else{return;};let s=&mut self.skins[slot];s.alive=false;self.input[slot]=f64::NAN;self.free_ids.push(slot);self.free.push((s.base,s.size*s.size*4));self.free.sort_unstable_by_key(|p|p.0);let mut n=0;for i in 0..self.free.len(){let p=self.free[i];if n>0&&self.free[n-1].0+self.free[n-1].1==p.0{self.free[n-1].1+=p.1;}else{self.free[n]=p;n+=1;}}self.free.truncate(n);while self.free.last().is_some_and(|p|p.0+p.1==self.end){let p=self.free.pop().unwrap();self.end=p.0;}}
     // Resolve the immutable depth vocabulary once. Unsupported uniforms fail
     // cold registration, never an actor's live frame or an unbounded name scan.
+    #[allow(clippy::too_many_arguments)]
     pub fn descriptor<C:HasContext,M:MultiDraw>(&mut self,core:&Core<C,M>,program:u32,geometry:u32,count:usize,side:u32,map:i32,skin:Option<u32>)->Result<Option<u32>,String>{
         if self.descriptors.len()>=32768{self.clipped=self.clipped.saturating_add(1);return Ok(None);}
         let p=core.programs.get(program as usize).ok_or("unknown actor depth program")?;
@@ -40,7 +41,7 @@ impl Bank {
         for (id,skin) in self.skins.iter_mut().enumerate(){let serial=self.input[id];if !skin.alive||serial==skin.serial||serial.is_nan(){continue;}
             let words=skin.size*skin.size*4;let base=skin.base;if base.checked_add(words).is_none_or(|n|n>self.bones.len()){self.clipped=self.clipped.saturating_add(1);continue;}
             let gl=&core.gl;let texture=core.textures.get(skin.texture as usize).copied();
-            unsafe{gl.pixel_store_i32(crate::core::UNPACK_FLIP_Y_WEBGL as u32,0);gl.pixel_store_i32(crate::core::UNPACK_PREMULTIPLY_ALPHA_WEBGL as u32,0);gl.pixel_store_i32(glow::UNPACK_ALIGNMENT,1);gl.bind_texture(glow::TEXTURE_2D,texture);gl.tex_sub_image_2d(glow::TEXTURE_2D,0,0,0,skin.size as i32,skin.size as i32,glow::RGBA,glow::FLOAT,glow::PixelUnpackData::Slice(Some(crate::core::bytes(&self.bones[base..base+words]))));}skin.serial=serial;
+            unsafe{gl.pixel_store_i32(crate::core::UNPACK_FLIP_Y_WEBGL,0);gl.pixel_store_i32(crate::core::UNPACK_PREMULTIPLY_ALPHA_WEBGL,0);gl.pixel_store_i32(glow::UNPACK_ALIGNMENT,1);gl.bind_texture(glow::TEXTURE_2D,texture);gl.tex_sub_image_2d(glow::TEXTURE_2D,0,0,0,skin.size as i32,skin.size as i32,glow::RGBA,glow::FLOAT,glow::PixelUnpackData::Slice(Some(crate::core::bytes(&self.bones[base..base+words]))));}skin.serial=serial;
         }core.state.reset();
     }
     // Called once while preparing each shadow view, before the frame owner
@@ -59,7 +60,7 @@ impl Bank {
             row.fill(0.);row[S::D_PROGRAM]=d.program as f64;row[S::D_GEOMETRY]=d.geometry as f64;row[S::D_COUNT]=core.geometries[d.geometry as usize].index_count as f64;row[S::D_SIDE]=d.side as f64;row[S::D_MIRRORED]=u8::from(math::mirrors(&world)) as f64;row[S::D_UNIFORMS]=d.uniforms.len() as f64;
             for(k,&(slot,ty,kind))in d.uniforms.iter().enumerate(){let o=S::D_FIRST+k*post::UNIFORM;row[o]=slot as f64;row[o+1]=ty as f64;match kind{
                 0=>row[o+2..o+18].copy_from_slice(&model_view),1=>row[o+2..o+18].copy_from_slice(&projection),2=>row[o+2..o+18].copy_from_slice(&bind),3=>row[o+2..o+18].copy_from_slice(&inverse),
-                4=>row[o+2]=d.skin.and_then(|id|self.get(id)).map_or(-1.,|s|s.texture as f64),5=>row[o+2]=d.map as f64,6=>row[o+2]=0.5,7=>{row[o+2]=1.;row[o+3]=-0.;row[o+6]=1.;row[o+10]=1.;},_=>{}
+                4=>row[o+2]=d.skin.and_then(|id|self.get(id)).map_or(-1.,|s|s.texture as f64),5=>row[o+2]=d.map as f64,6=>row[o+2]=0.5,7=>{row[o+2]=1.;row[o+3] = -0.;row[o+6]=1.;row[o+10]=1.;},_=>{}
             }}
         }
         core.state.reset();

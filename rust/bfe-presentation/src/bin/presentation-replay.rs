@@ -14,8 +14,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("unaligned capture".into());
     }
     let data: Vec<f64> = bytes
-        .chunks_exact(8)
-        .map(|b| f64::from_le_bytes(b.try_into().unwrap()))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|&b| f64::from_le_bytes(b))
         .collect();
     let mut engine = Presentation::new(content, Limits::default());
     let mut at = 0;

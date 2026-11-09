@@ -48,6 +48,11 @@ pub struct Publication {
     motion_frame: f64,
     pub still: f64,
 }
+impl Default for Publication {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Publication {
     // Before its first motion render, a new sky has consumed no observation.
     // The negative frame sentinel preserves the renderer frame-zero case.

@@ -101,7 +101,7 @@ pub fn texture_hue(data: &[u8]) -> Vec<f64> {
     let mut weight = 0.0;
     // Ignore an incomplete pixel rather than indexing past a malformed host
     // image. Real decoded textures always supply complete RGBA rows.
-    for p in data.chunks_exact(4) {
+    for p in data.as_chunks::<4>().0 {
         let peak = max(max(p[0] as f64, p[1] as f64), p[2] as f64);
         if peak < 48.0 || p[3] < 32 { continue; }
         let saturation = 1.0 - min(min(p[0] as f64, p[1] as f64), p[2] as f64) / peak;
@@ -112,6 +112,42 @@ pub fn texture_hue(data: &[u8]) -> Vec<f64> {
         weight += w;
     }
     if weight > 1.0 { sheath(&sum).to_vec() } else { Vec::new() }
+}
+
+
+
+
+
+// BlasterBatch's per-view pixel scale uses the actual drawing target height,
+// which can differ from the browser window under dynamic resolution.
+pub fn bolt_view(fov: f64, zoom: f64, height: f64) -> f64 {
+    (2.0*v8math::tan((fov*(std::f64::consts::PI/180.0))/2.0))/max(height,1.0)/super::or(zoom,1.0)
+}
+// Scripted kills can carry infinite damage; debris already saturates at -50.
+pub fn visual_damage(amount: f64) -> f64 { max(-50.0,amount) }
+
+
+// PageOrdnance.send: class defaults, flight classification and every style
+// scalar are compiled here. Batch handles remain opaque resource identities.
+pub fn row(content:&Content,look:bool)->[f64;crate::ordnance_layout::ordnance_style::STRIDE]{
+    use crate::ordnance_layout::{ordnance_style as s,flight};
+    let mut row=[0.0;s::STRIDE];let n=style(content.clone());
+    row[s::CORE_BATCH] = -1.0;row[s::GLOW_BATCH] = -1.0;row[s::BEAM_BATCH] = -1.0;
+    row[s::LASER_WIDTH]=content.laser_width.unwrap_or(0.0);row[s::LASER_LENGTH]=content.laser_length.unwrap_or(0.0);
+    row[s::GLOW_LENGTH]=n.glow_length;row[s::GLOW_RAW]=content.glow_length.unwrap_or(0.0);
+    row[s::BLUR_LENGTH]=content.blur_length.unwrap_or(0.0);row[s::FADE_OUT_TIME]=content.fade_out_time.unwrap_or(0.0);
+    row[s::LIGHT_RADIUS]=content.light_radius.unwrap_or(0.0);row[s::GRAVITY]=content.gravity.unwrap_or(1.0);
+    row[s::FLIGHT]=match content.base.as_deref(){Some("bullet"|"fatray")=>flight::STRAIGHT,Some("shell")=>flight::BALLISTIC,_=>flight::NONE} as f64;
+    row[s::LIGHT_COLOR..s::LIGHT_COLOR+3].copy_from_slice(&n.light_color);row[s::GLOW_COLOR..s::GLOW_COLOR+3].copy_from_slice(&n.glow_color);
+    if look {
+        row[s::LOOK_COLOR..s::LOOK_COLOR+3].copy_from_slice(&n.color);row[s::LOOK_GLOW]=n.glow;
+        row[s::LOOK_CORE]=n.core;row[s::LOOK_LENGTH]=n.length;row[s::LOOK_BRIGHTNESS]=n.brightness;row[s::LOOK_LIGHT_RADIUS]=n.light_radius;
+    }row
+}
+pub fn resources(content:&Content,role:u32,enhanced:bool)->serde_json::Value{
+    if enhanced {return serde_json::json!({"hue":if content.glow_length.unwrap_or(0.0)==0.0{content.laser_texture.as_deref()}else{None}});}
+    if role==2 {serde_json::json!({"beam":content.laser_texture.as_deref().filter(|n|!n.is_empty()).unwrap_or("lightglow")})}
+    else {serde_json::json!({"core":content.laser_texture,"glow":"lightglow"})}
 }
 
 #[cfg(test)]
@@ -131,37 +167,4 @@ mod tests {
         assert_eq!(texture_hue(&[255,255,255,255, 4,0,0,255, 0,255,0,0, 200,50,0,255]), vec![1.0,0.25,0.0]);
         assert!(texture_hue(&[255,255,255,255, 1]).is_empty());
     }
-}
-
-
-// BlasterBatch's per-view pixel scale uses the actual drawing target height,
-// which can differ from the browser window under dynamic resolution.
-pub fn bolt_view(fov: f64, zoom: f64, height: f64) -> f64 {
-    (2.0*v8math::tan((fov*(std::f64::consts::PI/180.0))/2.0))/max(height,1.0)/super::or(zoom,1.0)
-}
-// Scripted kills can carry infinite damage; debris already saturates at -50.
-pub fn visual_damage(amount: f64) -> f64 { max(-50.0,amount) }
-
-
-// PageOrdnance.send: class defaults, flight classification and every style
-// scalar are compiled here. Batch handles remain opaque resource identities.
-pub fn row(content:&Content,look:bool)->[f64;crate::ordnance_layout::ordnance_style::STRIDE]{
-    use crate::ordnance_layout::{ordnance_style as s,flight};
-    let mut row=[0.0;s::STRIDE];let n=style(content.clone());
-    row[s::CORE_BATCH]=-1.0;row[s::GLOW_BATCH]=-1.0;row[s::BEAM_BATCH]=-1.0;
-    row[s::LASER_WIDTH]=content.laser_width.unwrap_or(0.0);row[s::LASER_LENGTH]=content.laser_length.unwrap_or(0.0);
-    row[s::GLOW_LENGTH]=n.glow_length;row[s::GLOW_RAW]=content.glow_length.unwrap_or(0.0);
-    row[s::BLUR_LENGTH]=content.blur_length.unwrap_or(0.0);row[s::FADE_OUT_TIME]=content.fade_out_time.unwrap_or(0.0);
-    row[s::LIGHT_RADIUS]=content.light_radius.unwrap_or(0.0);row[s::GRAVITY]=content.gravity.unwrap_or(1.0);
-    row[s::FLIGHT]=match content.base.as_deref(){Some("bullet"|"fatray")=>flight::STRAIGHT,Some("shell")=>flight::BALLISTIC,_=>flight::NONE} as f64;
-    row[s::LIGHT_COLOR..s::LIGHT_COLOR+3].copy_from_slice(&n.light_color);row[s::GLOW_COLOR..s::GLOW_COLOR+3].copy_from_slice(&n.glow_color);
-    if look {
-        row[s::LOOK_COLOR..s::LOOK_COLOR+3].copy_from_slice(&n.color);row[s::LOOK_GLOW]=n.glow;
-        row[s::LOOK_CORE]=n.core;row[s::LOOK_LENGTH]=n.length;row[s::LOOK_BRIGHTNESS]=n.brightness;row[s::LOOK_LIGHT_RADIUS]=n.light_radius;
-    }row
-}
-pub fn resources(content:&Content,role:u32,enhanced:bool)->serde_json::Value{
-    if enhanced {return serde_json::json!({"hue":if content.glow_length.unwrap_or(0.0)==0.0{content.laser_texture.as_deref()}else{None}});}
-    if role==2 {serde_json::json!({"beam":content.laser_texture.as_deref().filter(|n|!n.is_empty()).unwrap_or("lightglow")})}
-    else {serde_json::json!({"core":content.laser_texture,"glow":"lightglow"})}
 }

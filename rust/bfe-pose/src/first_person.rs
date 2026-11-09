@@ -251,6 +251,8 @@ impl FirstPerson {
     }
     /// FirstPersonView.update before camera placement, light rays, and flash
     /// material publication. It advances each clip exactly once per frame.
+    // Public step entry point matching FirstPersonView.update parameter list.
+    #[allow(clippy::too_many_arguments)]
     pub fn update(
         &mut self,
         dt: f64,

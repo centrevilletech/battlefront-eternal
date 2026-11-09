@@ -132,9 +132,9 @@ impl Phase {
             player.flags = [false; 2]; player.previous = [None; 2]; player.stride = 0.0; player.idle = 0.0; return;
         }
         let heights = [row[e::FOOT0], row[e::FOOT1]]; let mut planted = false;
-        for foot in 0..2 {
-            if heights[foot].is_nan() { continue; }
-            let height = heights[foot] - row[e::Y]; let prev = player.previous[foot]; player.previous[foot] = Some(height);
+        for (foot, &foot_y) in heights.iter().enumerate() {
+            if foot_y.is_nan() { continue; }
+            let height = foot_y - row[e::Y]; let prev = player.previous[foot]; player.previous[foot] = Some(height);
             let Some(prev) = prev else { continue; };
             if prev - height > 0.3 * dt {
                 if !player.flags[foot] && height > player.rearm[foot] { self.flag_foot(player, class, foot); }
@@ -175,7 +175,7 @@ impl Phase {
         for id in 0..self.weapon_count { if index(self.weapons[id][w::OWNER]) == own { self.update_weapon(id, true); } }
         let selected = [row[e::SELECTED0], row[e::SELECTED1]];
         if p.selection_seen && selected != p.selected && row[e::ALIVE] != 0.0 {
-            for channel in 0..2 { if selected[channel] == p.selected[channel] { continue; } let id = self.current_weapon(own, channel); if id != NONE { self.play_class(index(self.weapons[id][w::CLASS]), c::CHANGE, EFFECTS, own, None, None); } }
+            for (channel, (&sel, &prev_sel)) in selected.iter().zip(&p.selected).enumerate() { if sel == prev_sel { continue; } let id = self.current_weapon(own, channel); if id != NONE { self.play_class(index(self.weapons[id][w::CLASS]), c::CHANGE, EFFECTS, own, None, None); } }
         }
         p.selected = selected; p.selection_seen = true;
         for channel in 0..2 {

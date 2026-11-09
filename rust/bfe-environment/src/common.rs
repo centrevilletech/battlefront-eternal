@@ -58,14 +58,14 @@ impl Frustum {
 
     pub fn intersects_sphere(&self, center: &Vector3, radius: f64) -> bool {
         let negative = -radius;
-        self.planes.iter().all(|plane| !(plane.distance_to_point(center) < negative))
+        self.planes.iter().all(|plane| plane.distance_to_point(center).partial_cmp(&negative) != Some(std::cmp::Ordering::Less))
     }
 
     pub fn intersects_box(&self, min: &Vector3, max: &Vector3) -> bool {
         self.planes.iter().all(|plane| {
             let n = &plane.normal;
             let corner = Vector3::new(if n.x > 0.0 { max.x } else { min.x }, if n.y > 0.0 { max.y } else { min.y }, if n.z > 0.0 { max.z } else { min.z });
-            !(plane.distance_to_point(&corner) < 0.0)
+            plane.distance_to_point(&corner).partial_cmp(&0.0) != Some(std::cmp::Ordering::Less)
         })
     }
 }
@@ -83,6 +83,12 @@ pub struct Camera {
     pub position: [f64; 3],
     pub fov: f64,
     pub aspect: f64,
+}
+
+impl Default for Camera {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Camera {

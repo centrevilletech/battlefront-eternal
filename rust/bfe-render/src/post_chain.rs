@@ -29,7 +29,7 @@ impl Default for PostChain {
 }
 // Every imported dimension/index is bounded before use. Invalid host facts
 // cannot turn a long pause or resource transition into a frame-path panic.
-fn dimension(x: f64) -> f64 { if x.is_finite() { x.max(1.).min(32768.) } else { 1. } }
+fn dimension(x: f64) -> f64 { if x.is_finite() { x.clamp(1., 32768.) } else { 1. } }
 fn index(x: f64, max: usize) -> usize { (x as usize).min(max) }
 fn matrix(data: &[f64], at: usize) -> [f64; 16] {
     let mut out = [0.; 16]; out.copy_from_slice(&data[at..at+16]); out
@@ -79,7 +79,7 @@ impl PostChain {
         // Upscaler.resize scales the Halton period by pixel area. Its f64
         // rounding order matters at the boundaries between phase counts.
         let ratio = ow / w;
-        let phases = (8. * ratio * ratio).round().max(8.).min(32.) as usize;
+        let phases = (8. * ratio * ratio).round().clamp(8., 32.) as usize;
         let i = index(s[S::FRAME], u32::MAX as usize) % phases + 1;
         let (x, y) = (halton(i, 2) - 0.5, halton(i, 3) - 0.5);
         s[S::PHASES] = phases as f64; s[S::JITTER] = x; s[S::JITTER+1] = y;
@@ -101,8 +101,8 @@ impl PostChain {
         let blur = f[F::SOFT_FOCUS] != 0. && f[F::BLUR_ENABLED] != 0.;
         let bloom = f[F::BLOOM] != 0.; let mode = index(f[F::MODE], M::TEMPORAL);
         let aa = index(f[F::AA], A::FAST); let fxaa = !temporal && aa != A::OFF;
-        let speed = if f[F::SPEED_ENABLED] != 0. { f[F::SPEED_AMOUNT].max(0.).min(1.) * 0.085 } else { 0. };
-        let turn = f[F::SPEED_TURN].max(-2.).min(2.);
+        let speed = if f[F::SPEED_ENABLED] != 0. { f[F::SPEED_AMOUNT].clamp(0., 1.) * 0.085 } else { 0. };
+        let turn = f[F::SPEED_TURN].clamp(-2., 2.);
         let (w,h) = (dimension(f[F::INPUT_WIDTH]),dimension(f[F::INPUT_HEIGHT]));
         // Soft focus and bloom share the scene but use independently sized
         // resources: map blur rounds its extent; Bloom.resize rounds up.
@@ -114,7 +114,7 @@ impl PostChain {
         }
         // Graphics.postSteps elides a composite only when all three effects
         // are visually inactive. Keep its small vehicle-blur threshold.
-        let plain = !blur && !bloom && !(speed > 0.0001);
+        let plain = !blur && !bloom && speed.partial_cmp(&0.0001) != Some(std::cmp::Ordering::Greater);
         let direct = upscale && mode == M::BILINEAR && !fxaa && plain;
         let fxaa_source = if fxaa && plain { R::SCENE } else { R::POST };
         if !(fxaa && plain) {
@@ -146,7 +146,7 @@ impl PostChain {
                 // Upscaler.resize limits confidence by source-pixel area;
                 // sparse input retains fewer old samples after disocclusion.
                 let ratio = (w/dimension(f[F::OUTPUT_WIDTH])).min(1.);
-                p.value(U::resolve::MAX_WEIGHT,&[(12. * ratio * ratio).max(4.).min(12.)]); p.value(U::resolve::KERNEL,&[2.29]);
+                p.value(U::resolve::MAX_WEIGHT,&[(12. * ratio * ratio).clamp(4., 12.)]); p.value(U::resolve::KERNEL,&[2.29]);
                 p.step(P::SHARPEN,None); p.sampler(U::sharpen::MAP,write); p.value(U::sharpen::SHARPNESS,&[f[F::SHARPNESS]]);
             } else {
                 p.step(if mode == M::BILINEAR {P::BILINEAR} else {P::SPATIAL},None); p.sampler(U::spatial::MAP,image);

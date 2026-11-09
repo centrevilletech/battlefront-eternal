@@ -27,7 +27,7 @@ fn bins(g:&Geometry,numeric:bool)->(Vec<u32>,Vec<Cell>) {
     let mut parts:Vec<Part>=vec![];let mut lookup=HashMap::new();let mut cell_of=Vec::with_capacity(g.index.len()/3);
     // mergeStaticShadows uses a numeric cell key; partitionShadowCaster uses
     // a coordinate pair. Preserve that distinction and first-appearance order.
-    for t in g.index.chunks_exact(3) {
+    for t in g.index.as_chunks::<3>().0 {
         let x=((p(t[0],0)+p(t[1],0)+p(t[2],0))/3./48.).floor();
         let z=((p(t[0],2)+p(t[1],2)+p(t[2],2))/3./48.).floor();
         let key=if numeric {(((x+32768.)*65536.+(z+32768.)).to_bits(),0)} else {(if x==0. {0} else {x.to_bits()},if z==0. {0} else {z.to_bits()})};
@@ -42,7 +42,7 @@ fn bins(g:&Geometry,numeric:bool)->(Vec<u32>,Vec<Cell>) {
     let mut cells:Vec<_>=parts.iter().map(|p|Cell{first:0,end:0,min:p.min,max:p.max}).collect();let mut cursor=0;
     for at in order {cells[at].first=cursor;cursor+=parts[at].count as u32;cells[at].end=cursor;}
     let mut fill:Vec<_>=cells.iter().map(|c|c.first as usize).collect();let mut sorted=vec![0;g.index.len()];
-    for (t,&at) in g.index.chunks_exact(3).zip(&cell_of) {let first=fill[at];sorted[first..first+3].copy_from_slice(t);fill[at]+=3;}
+    for (t,&at) in g.index.as_chunks::<3>().0.iter().zip(&cell_of) {let first=fill[at];sorted[first..first+3].copy_from_slice(t);fill[at]+=3;}
     (sorted,cells)
 }
 impl DepthGeometry {
@@ -127,7 +127,7 @@ impl Bank {
                 0=>u[2..18].copy_from_slice(&model_view),
                 1=>u[2..18].copy_from_slice(&view[..16]),
                 2=>u[2]=view[32],3=>u[2]=r.texture as f64,4=>u[2]=0.5,
-                6=>{u[3]=-0.;u[2]=1.;u[6]=1.;u[10]=1.;},7=>u[2..18].copy_from_slice(&camera_view),
+                6=>{u[3] = -0.;u[2]=1.;u[6]=1.;u[10]=1.;},7=>u[2..18].copy_from_slice(&camera_view),
                 _=>{u[2]=1.;u[7]=1.;u[12]=1.;u[17]=1.;}
             }
             crate::post::set_uniform(core,matrices,r.program,&u,&mut unit);

@@ -74,7 +74,7 @@ impl CanopySelection {
         let camera: Mat4 = self.view[v::VIEW..v::VIEW + 16].try_into().unwrap_or([0.; 16]);
         let frustum = Frustum::from_matrix(&math::mul(&projection, &camera));
         if self.view[v::ENABLED] != 0. {
-            for (id, sphere) in self.bounds.chunks_exact(4).enumerate() {
+            for (id, sphere) in self.bounds.as_chunks::<4>().0.iter().enumerate() {
                 let center = [sphere[0], sphere[1], sphere[2]];
                 if !frustum.sphere(&center, sphere[3]) { continue; }
                 // The original helper used camera.position, including cube

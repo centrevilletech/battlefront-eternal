@@ -25,7 +25,7 @@ impl Policy {
             "mapTransform"=>defaults[at..at+9].copy_from_slice(&[1.,-0.,0.,0.,1.,0.,0.,0.,1.]),
             "diffuse"=>defaults[at..at+3].fill(1.),"opacity"|"charge"|"enhanced"=>defaults[at]=1.,"birth"=>defaults[at]=10.,"hasMap"=>defaults[at]=if texture>=0{1.}else{0.},
             "fieldColor"|"specularColor"=>{let fallback=if name=="fieldColor"{[96.,160.,192.]}else{[216.,240.,255.]};let source=if name=="fieldColor"{&look.color}else{&look.specular_color};for i in 0..3{defaults[at+i]=source.as_ref().and_then(|v|v.get(i)).copied().unwrap_or(fallback[i])/255.;}},
-            "impacts"=>for i in 0..6{defaults[at+i*4+2]=1.;defaults[at+i*4+3]=-1000.;},_=>{}}}
+            "impacts"=>for i in 0..6{defaults[at+i*4+2]=1.;defaults[at+i*4+3] = -1000.;},_=>{}}}
         Ok(Self{keys,blend,values:values.join(","),defaults})
     }
 }

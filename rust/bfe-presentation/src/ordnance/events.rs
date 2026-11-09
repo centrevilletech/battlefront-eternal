@@ -8,6 +8,7 @@ fn list(v:&Value)->&[Value]{v.as_array().map(Vec::as_slice).unwrap_or(&[])}
 fn truth(v:&Value)->bool{match v{Value::Null=>false,Value::Bool(v)=>*v,Value::Number(v)=>v.as_f64().is_some_and(|v|v!=0.0),Value::String(v)=>!v.is_empty(),_=>true}}
 // This cheap probe precedes cold descriptor construction. A pending event can
 // retry missing resources each displayed frame without allocating a plan.
+#[allow(clippy::too_many_arguments)]
 pub fn ready(kind:&str,owner:f64,generation:f64,present:bool,actual:f64,mount:f64,mount_generation:f64,mount_present:bool,mount_actual:f64)->bool{
     kind=="lightning"||((owner==0.0||present&&generation==actual)&&(mount==0.0||mount_present&&mount_generation==mount_actual))
 }
@@ -79,10 +80,8 @@ pub fn plan(text:&str,facts:&str)->Result<String,String>{
         "serve"=>{if !b(&f,"station"){return fail();}emit(json!(["serve",own]));}
         // Tow sounds select a weapon across all seats in their stored order.
         // Their resource host receives the definition, not its state facade.
-        "towAttach"|"towRelease"=>{
-            if b(&f,"ownerVehicle"){
-                if let Some(i)=list(&f["towWeapons"]).iter().position(|w|w["name"]==f["name"]){emit(json!(["tow",i]));}
-            }
+        "towAttach"|"towRelease" if b(&f,"ownerVehicle")=>{
+            if let Some(i)=list(&f["towWeapons"]).iter().position(|w|w["name"]==f["name"]){emit(json!(["tow",i]));}
         }
         _=>{}
     }

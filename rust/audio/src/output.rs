@@ -171,6 +171,7 @@ pub struct Output {
     test: Vec<f32>,
 }
 impl Output {
+    // Retains the ported JS/GL call-site signature without an extra wrapper struct.
     #[allow(clippy::too_many_arguments)]
     pub fn new(rate: f64, channels: usize, enhanced: bool, headphones: bool, binaural: bool, mono: bool, x86: bool) -> Self {
         // Match Renderer.build's quality/output combinations, including mono as
@@ -688,22 +689,26 @@ impl Output {
                 // Recorded beds place each lane at the same virtual speaker angles as
                 // route_stream. A placed bed uses one moving mono panner instead; its other
                 // recorded lanes do not become additional positioned sources.
-                let angles: &[f64] = match stream.channels {
-                    1 => &[0.0],
-                    2 => &[30.0, -30.0],
-                    4 => {
-                        if self.enhanced {
-                            &[30.0, -30.0, 110.0, -110.0]
-                        } else {
-                            &[30.0, -30.0, 150.0, -150.0]
+                let angles: &[f64] = if stream.spatial {
+                    &[0.0]
+                } else {
+                    match stream.channels {
+                        1 => &[0.0],
+                        2 => &[30.0, -30.0],
+                        4 => {
+                            if self.enhanced {
+                                &[30.0, -30.0, 110.0, -110.0]
+                            } else {
+                                &[30.0, -30.0, 150.0, -150.0]
+                            }
                         }
+                        _ => &[],
                     }
-                    _ => &[],
                 };
                 if !stream.spatial && ((self.enhanced && stream.channels != 4) || angles.is_empty()) {
                     continue;
                 }
-                for c in 0..if stream.spatial { 1 } else { stream.channels } {
+                for (c, &angle_deg) in angles.iter().enumerate() {
                     let id = VOICES + slot * CHANNELS + c;
                     if stream.spatial {
                         pan_position(
@@ -718,7 +723,7 @@ impl Output {
                             &mut self.scratch,
                         );
                     } else {
-                        let a = angles[c] * PI / 180.0;
+                        let a = angle_deg * PI / 180.0;
                         // The former positionX/Z AudioParams stored floats before PannerHandler
                         // normalized the vector. Keep that round trip even for fixed bed angles;
                         // using full-precision trigonometry changes kernel selection at boundaries.
@@ -985,6 +990,8 @@ impl Output {
 // HRTFPanner chooses one direction per quantum from the first sample. Advance
 // all three timelines fully before selecting that direction; later automation
 // must not stall just because spatial selection is block based.
+// Block-level HRTF panner step across 3D placement and automation state.
+#[allow(clippy::too_many_arguments)]
 fn pan_position(
     meta: &mut Placement,
     database: &Option<Database>,
@@ -997,9 +1004,9 @@ fn pan_position(
     scratch: &mut [f32; FRAMES],
 ) {
     let mut position = [0.0; 3];
-    for c in 0..3 {
-        meta.axes[c].a_rate(block, scratch, rate, x86);
-        position[c] = scratch[0] as f64;
+    for (pos, axis) in position.iter_mut().zip(&mut meta.axes) {
+        axis.a_rate(block, scratch, rate, x86);
+        *pos = scratch[0] as f64;
     }
     let (azimuth, elevation) = crate::hrtf::angles(position.map(|v| v as f32));
     panner.process(database.as_ref().unwrap(), rate, azimuth, elevation, input, pair);

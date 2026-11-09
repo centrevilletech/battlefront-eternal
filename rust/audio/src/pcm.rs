@@ -56,6 +56,8 @@ impl Source {
     // StreamOut.start and FrontendAudio.play pass seconds, just as BufferSource
     // start did. Clamp offsets to asset duration and retain source/device rate
     // scaling even though most decoded assets already use the device rate.
+    // Mirrors AudioBufferSourceNode.start scheduling parameters.
+    #[allow(clippy::too_many_arguments)]
     pub fn start(
         &mut self,
         sample: usize,

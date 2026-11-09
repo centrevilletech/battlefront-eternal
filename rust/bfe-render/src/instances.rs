@@ -243,7 +243,7 @@ impl<C: HasContext> InstancePass<C> {
             stats.gl_calls += 1;
             if bone_cursor > 0 {
                 state.bind_texture(gl, stats, UNIT_BONES, Some(self.bone_texture));
-                let rows = (bone_cursor * 4 + BONE_TEXELS - 1) / BONE_TEXELS;
+                let rows = (bone_cursor * 4).div_ceil(BONE_TEXELS);
                 crate::core::spare_view_slot();
                 gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, BONE_TEXELS as i32, rows as i32, glow::RGBA, glow::FLOAT,
                     glow::PixelUnpackData::Slice(Some(bytes(&self.bone_upload[..rows * BONE_TEXELS * 4]))));

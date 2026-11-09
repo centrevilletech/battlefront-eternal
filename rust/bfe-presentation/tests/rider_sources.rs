@@ -22,7 +22,7 @@ fn leases_keep_the_native_source_revision_without_frame_allocation(){
  // The current hull advances before the body consumes the newly arrived lease.
  source.frame.elements[12]=25.0;source.age=9.0;source.pitch=0.7;
  vehicles.borrow_mut().epoch=2.0;vehicles.borrow_mut().publish(0,0,source);
- for k in 0..256 {let x=&mut input[f::STRIDE+k*i::STRIDE..][..i::STRIDE];x[i::ACTOR]=k as f64;x[i::GENERATION]=1.0;x[i::SOURCE_PROP]=-1.0;x[i::SOURCE_TURRET]=-1.0;
+ for k in 0..256 {let x=&mut input[f::STRIDE+k*i::STRIDE..][..i::STRIDE];x[i::ACTOR]=k as f64;x[i::GENERATION]=1.0;x[i::SOURCE_PROP] = -1.0;x[i::SOURCE_TURRET] = -1.0;
   x[i::RIDER_KIND]=1.0;x[i::SOURCE_VERSION]=1.0;x[i::RIDER_RESET]=1.0;}
  bindings.fill(&mut input);
  let x=&input[f::STRIDE..];assert_eq!(x[i::LEASE_POSITION],7.0);assert_eq!(x[i::RIDER_PITCH],0.35);assert_eq!(x[i::RIDER_TIME],2.0);assert_eq!(x[i::RIDER_MATRIX+12],25.0);
@@ -60,7 +60,7 @@ fn replica_hit_shapes_follow_native_mount_and_hold_frames(){
  let vehicles=Rc::new(RefCell::new(Vehicles::default()));let props=Rc::new(RefCell::new(Props::default()));units.rider_sources.bind(&vehicles,&props);
  vehicles.borrow_mut().rig(1);let mut frame=Matrix4::default();frame.elements[12]=7.0;
  vehicles.borrow_mut().publish(0,0,Source{frame,..Default::default()});
- let x=&mut units.collision.input;x[c::ENABLED]=1.0;x[c::GENERATION]=1.0;x[c::SCALE]=1.0;x[c::SEAT]=1.0;x[c::EXPOSED]=1.0;x[c::SOURCE_TURRET]=-1.0;x[c::SOURCE_PROP]=-1.0;
+ let x=&mut units.collision.input;x[c::ENABLED]=1.0;x[c::GENERATION]=1.0;x[c::SCALE]=1.0;x[c::SEAT]=1.0;x[c::EXPOSED]=1.0;x[c::SOURCE_TURRET] = -1.0;x[c::SOURCE_PROP] = -1.0;
  units.collision_frame(1);assert_eq!(units.collision.output[o::COUNT],6.0);
  let head=units.collision.shapes[s::CENTER];assert!(head>6.0);
  // Held output replaces the mount resource, without a matrix crossing JS.

@@ -116,7 +116,7 @@ impl Shield {
         }
         if command == 1. {
             let amount = self.input[f::AMOUNT];
-            if !(amount > 0.) {
+            if amount.partial_cmp(&0.) != Some(std::cmp::Ordering::Greater) {
                 return;
             }
             self.place();

@@ -98,6 +98,8 @@ fn falling_foot_plants_once_preserves_primitive_turns_and_resets_on_new_generati
     );
     assert_eq!(feet.output[o::HAS_TURN], 1.0);
 
+    // Exact authored quaternion literals from the FootPrimitive fixture above.
+    #[allow(clippy::approx_constant)]
     let prim_turn = Quaternion::new(0.0, 0.0, 0.7071067811865475, 0.7071067811865476);
     let mut expected_turn = bone_turn;
     expected_turn.multiply(&prim_turn);

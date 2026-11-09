@@ -148,7 +148,7 @@ fn complete_frames_retain_storage_and_emit_golden_geometry() {
     assert!(h.batch.count >= initial);
     ALLOCATIONS.store(0, Ordering::Relaxed);
     TRACK.store(true, Ordering::Relaxed);
-    for frame in 0..240 {
+    for frame in 0usize..240 {
         // A slow renderer can receive many game updates and loading previews
         // before it draws. Latest-value rows stay fixed; real events are applied
         // immediately, so their volume cannot increase a pending queue.
@@ -167,7 +167,7 @@ fn complete_frames_retain_storage_and_emit_golden_geometry() {
         for _ in 0..8 { h.update(); }
         event(&mut h, 0, 2., 0.25 + (frame % 10) as f64 * 0.01, 0., 0., 0.);
         event(&mut h, 1, 12., 2., 1., 0.2, 0.);
-        if frame % 20 == 0 {
+        if frame.is_multiple_of(20) {
             event(&mut h, 2, 8., 1., 2., 0., 0.);
         }
         h.update();

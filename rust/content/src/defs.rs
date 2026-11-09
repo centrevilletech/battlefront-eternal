@@ -223,10 +223,9 @@ impl Defs {
                         }
                         _ => None,
                     };
-                    let item = match w.get("item").filter(|x| x.as_object().is_some()) {
-                        Some(record) => Some(item_def(format!("{}/{class_name}/weapon/{slot}", side.name), record, &mut names, &mut items)),
-                        None => None,
-                    };
+                    let item = w.get("item").filter(|x| x.as_object().is_some()).map(|record| {
+                        item_def(format!("{}/{class_name}/weapon/{slot}", side.name), record, &mut names, &mut items)
+                    });
                     weapons.push(WeaponDef {
                         owner: index,
                         slot,

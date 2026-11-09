@@ -39,7 +39,7 @@ impl EulerOrder {
 
     /// Parse three's spelling; anything else is the unknown order
     /// three warns about and then leaves the value alone.
-    pub fn from_str(s: &str) -> Option<EulerOrder> {
+    pub fn parse(s: &str) -> Option<EulerOrder> {
         match s {
             "XYZ" => Some(EulerOrder::XYZ),
             "YXZ" => Some(EulerOrder::YXZ),
@@ -49,6 +49,14 @@ impl EulerOrder {
             "XZY" => Some(EulerOrder::XZY),
             _ => None,
         }
+    }
+}
+
+impl core::str::FromStr for EulerOrder {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s).ok_or(())
     }
 }
 

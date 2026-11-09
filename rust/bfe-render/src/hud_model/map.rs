@@ -111,6 +111,7 @@ impl HudModel {
     }
     // drawMapMarker/mapIconRotation: authored directional icons point up;
     // battlefield positive Z points down, so north-up is PI minus yaw.
+    #[allow(clippy::too_many_arguments)]
     fn marker(&mut self, m: Matrix, x: f64, y: f64, size: f64, t: u32, color: Color, yaw: f64, turn: f64) {
         let face = rotate_z(translate(m, x, y, 0.), PI - yaw + turn);
         self.quad(face, [-size / 2., -size / 2., size / 2., size / 2.], t, UV, color);

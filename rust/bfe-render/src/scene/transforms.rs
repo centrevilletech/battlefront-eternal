@@ -123,7 +123,7 @@ impl SceneRegistry{
                 self.nodes[id].data[row::WORLD..row::WORLD+16].copy_from_slice(&world);
                 if changed&&bits(self.nodes[id].data[row::FAMILIES])!=0{self.refresh_bounds(id);}
                 if state.flags&f::SKINNED!=0&&state.flags&f::ATTACHED!=0{
-                    let mut bind=Matrix4::default();bind.elements=world;bind.invert();
+                    let mut bind = Matrix4 { elements: world }; bind.invert();
                     self.transforms.values[at+s::BIND_INVERSE..at+s::BIND_INVERSE+16].copy_from_slice(&bind.elements);
                 }
                 self.transforms.states[id].changed=false;

@@ -131,7 +131,7 @@ fn specialcase(tmp: f64, sbits: u64, ki: u64) -> f64 {
         let one = if y < 0.0 { -1.0 } else { 1.0 };
         let mut lo = scale - y + st;
         let hi = one + y;
-        lo = one - hi + y + lo;
+        lo += one - hi + y;
         y = (hi + lo) - one;
         if y == 0.0 {
             y = f64::from_bits(sbits & 0x8000_0000_0000_0000); // the sign of 0

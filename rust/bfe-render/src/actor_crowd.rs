@@ -20,8 +20,11 @@ impl Crowd {
         if self.vertices.checked_add(added).is_none_or(|n|n>L::VERTICES)||self.full.len().checked_add(indices).is_none_or(|n|n>L::INDICES)||self.spans.len()+spans>L::SPANS||bones>L::BONES{self.clipped=self.clipped.saturating_add(1);return None;}
         let vertices=self.vertices+added;let total=self.full.len()+indices;
         let grow=vertices>self.vertex_capacity||total>self.index_capacity||bones>self.bones;
-        if grow{self.vertex_capacity=self.vertex_capacity.max(((vertices as f64)*1.5).ceil() as usize).max(1024).min(L::VERTICES);self.index_capacity=self.index_capacity.max(((total as f64)*1.5).ceil() as usize).max(1024).min(L::INDICES);self.bones=self.bones.max(((bones as f64)*1.5).ceil() as usize).max(32).min(L::BONES);
-            if let Stream::Float(v)=&mut target.streams[0]{v.resize(self.vertex_capacity*3,0.);}if let Stream::Unsigned(v)=&mut target.streams[1]{v.resize(self.vertex_capacity*4,0);}if let Stream::Float(v)=&mut target.streams[2]{v.resize(self.vertex_capacity*4,0.);}target.index.resize(self.index_capacity,0);target.index.fill(0);
+        if grow{self.vertex_capacity=self.vertex_capacity.max(((vertices as f64)*1.5).ceil() as usize).clamp(1024, L::VERTICES);self.index_capacity=self.index_capacity.max(((total as f64)*1.5).ceil() as usize).clamp(1024, L::INDICES);self.bones=self.bones.max(((bones as f64)*1.5).ceil() as usize).clamp(32, L::BONES);
+            if let Stream::Float(v)=&mut target.streams[0]{v.resize(self.vertex_capacity*3,0.);}
+            if let Stream::Unsigned(v)=&mut target.streams[1]{v.resize(self.vertex_capacity*4,0);}
+            if let Stream::Float(v)=&mut target.streams[2]{v.resize(self.vertex_capacity*4,0.);}
+            target.index.resize(self.index_capacity,0);target.index.fill(0);
         }
         let first_span=self.spans.len();let mut span_first=self.full.len();let mut group=0;
         // body positions/joints are already immutable native streams. Weapon
@@ -34,7 +37,8 @@ impl Crowd {
             for i in 0..source.facts.count{let at=i*stride+p.offset as usize/4;let mut point=[data[at] as f64,data[at+1] as f64,data[at+2] as f64];if let Some(m)=matrix{let [x,y,z]=point;let w=1./(m[3]*x+m[7]*y+m[11]*z+m[15]);point=[(m[0]*x+m[4]*y+m[8]*z+m[12])*w,(m[1]*x+m[5]*y+m[9]*z+m[13])*w,(m[2]*x+m[6]*y+m[10]*z+m[14])*w];}
                 let index=base+i;if let Stream::Float(out)=&mut target.streams[0]{for k in 0..3{out[index*3+k]=point[k] as f32;}}
                 let source_joint=if matrix.is_none(){joint.and_then(|a|match &source.streams[a.stream]{Stream::Unsigned(v)=>v.get(i*4).copied(),_=>None}).unwrap_or(0) as usize}else{0};
-                if let Stream::Unsigned(out)=&mut target.streams[1]{out[index*4]=(bone+source_joint) as u16;}if let Stream::Float(out)=&mut target.streams[2]{out[index*4]=1.;}
+                if let Stream::Unsigned(out)=&mut target.streams[1]{out[index*4]=(bone+source_joint) as u16;}
+                if let Stream::Float(out)=&mut target.streams[2]{out[index*4]=1.;}
             }
             self.full.extend(source.index.iter().map(|i|base as u32+*i));self.vertices+=source.facts.count;
         }

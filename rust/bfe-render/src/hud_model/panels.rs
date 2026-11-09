@@ -31,13 +31,13 @@ impl HudModel {
             tint
         };
         let mut groups = [IDENTITY; 2];
-        for ch in 0..2 {
+        for (ch, slot) in groups.iter_mut().enumerate() {
             let o = WEAPONS + ch * W::WORDS;
             if self.input[o + W::ID] == 0. {
                 continue;
             }
             let m = if ch == 0 { group } else { translate(group, 27., 16., 0.) };
-            groups[ch] = m;
+            *slot = m;
             let (pw, puv, bx, bw, bh, buv, tx) = if ch == 0 {
                 (
                     118.,
@@ -135,7 +135,7 @@ impl HudModel {
         // starts its two-second name timer, including when a channel disappears.
         // Seat names replace weapon labels, but do not change the identity used to
         // restart that timer. The shadow is a separate glyph pass three units behind.
-        for ch in 0..2 {
+        for (ch, &group_mat) in groups.iter().enumerate() {
             let o = WEAPONS + ch * W::WORDS;
             let id = self.input[o + W::ID];
             if id != self.named[ch] {
@@ -150,7 +150,7 @@ impl HudModel {
             }
             let k = self.name_left[ch] / 2. * fade;
             let label = if self.input[H::VEHICLE] != 0. { self.input[H::SEAT_NAME] } else { self.input[o + W::LABEL] };
-            let at = translate(groups[ch], 123., 1., 0.);
+            let at = translate(group_mat, 123., 1., 0.);
             self.text(at, 0., 0., label as usize, 0, alpha(SHADOW, k), 0, 1., 3.);
             self.text(at, 0., 0., label as usize, 0, alpha(WHITE, k), 0, 1., 0.);
         }
@@ -158,6 +158,8 @@ impl HudModel {
     fn supply_pulse(&self) -> f64 {
         0.5 - 0.5 * (self.time * 3. * PI).cos()
     }
+    // Retains the ported JS/GL call-site signature without an extra wrapper struct.
+    #[allow(clippy::too_many_arguments)]
     fn piece(&mut self, m: Matrix, x: f64, y: f64, w: f64, h: f64, t: u32, uv: [f64; 4], c: Color) {
         self.quad(m, [x - w, y, x, y + h], t, uv, c);
     }

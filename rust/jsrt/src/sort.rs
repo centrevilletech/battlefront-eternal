@@ -658,7 +658,7 @@ impl<T: Clone, F: FnMut(&T, &T) -> f64> TimSort<'_, T, F> {
         // V8 asserts the pending-runs stack holds; honest inputs
         // need far fewer than 85 runs. (A comparator cannot change
         // the run lengths once pushed, so the bound is CPython's.)
-        debug_assert!(K_MAX_MERGE_PENDING >= 85);
+        const { assert!(K_MAX_MERGE_PENDING >= 85) };
         let mut remaining = length;
         let mut low = 0i64;
         let min_run = compute_min_run_length(remaining);
@@ -764,7 +764,7 @@ pub fn js_sort_slots<T: Clone>(
 /// decimal text without building it; the result is the same order
 /// `Number::toString` gives, which is what this uses for every
 /// number.
-pub fn js_sort_default_f64(a: &mut Vec<f64>) {
+pub fn js_sort_default_f64(a: &mut [f64]) {
     // ToString is computed per comparison in V8's generic path too
     // (SortCompareDefault builds both strings). The values do not
     // change under a pure comparator, so cache the texts alongside
@@ -856,7 +856,7 @@ pub fn typed_sort_f64(a: &mut Vec<f64>) {
 /// `float32Array.sort()` with no comparator. The elements are read
 /// as doubles, compared numerically, and stored back (each already
 /// a float32 value, so the store is exact).
-pub fn typed_sort_f32(a: &mut Vec<f32>) {
+pub fn typed_sort_f32(a: &mut [f32]) {
     let mut doubles: Vec<f64> = a.iter().map(|&x| x as f64).collect();
     typed_sort_f64(&mut doubles);
     for (i, x) in doubles.into_iter().enumerate() {
@@ -877,21 +877,21 @@ fn typed_merge<T: Clone>(
 ) {
     let mut left = from;
     let mut right = middle;
-    for target_index in from..to {
+    for slot in target.iter_mut().take(to).skip(from) {
         if left < middle && right >= to {
-            target[target_index] = source[left].clone();
+            *slot = source[left].clone();
             left += 1;
         } else if left < middle {
             let order = normalize_order(cmp(&source[left], &source[right]));
             if order <= 0.0 {
-                target[target_index] = source[left].clone();
+                *slot = source[left].clone();
                 left += 1;
             } else {
-                target[target_index] = source[right].clone();
+                *slot = source[right].clone();
                 right += 1;
             }
         } else {
-            target[target_index] = source[right].clone();
+            *slot = source[right].clone();
             right += 1;
         }
     }

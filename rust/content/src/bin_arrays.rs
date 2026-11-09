@@ -18,7 +18,7 @@ impl std::fmt::Display for LengthError {
 impl std::error::Error for LengthError {}
 
 fn check(bytes: &[u8], element: usize) -> Result<(), LengthError> {
-    if bytes.len() % element == 0 {
+    if bytes.len().is_multiple_of(element) {
         Ok(())
     } else {
         Err(LengthError { bytes: bytes.len(), element })
@@ -27,15 +27,15 @@ fn check(bytes: &[u8], element: usize) -> Result<(), LengthError> {
 
 pub fn f32s(bytes: &[u8]) -> Result<Vec<f32>, LengthError> {
     check(bytes, 4)?;
-    Ok(bytes.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
+    Ok(bytes.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect())
 }
 
 pub fn u32s(bytes: &[u8]) -> Result<Vec<u32>, LengthError> {
     check(bytes, 4)?;
-    Ok(bytes.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
+    Ok(bytes.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c)).collect())
 }
 
 pub fn u16s(bytes: &[u8]) -> Result<Vec<u16>, LengthError> {
     check(bytes, 2)?;
-    Ok(bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect())
+    Ok(bytes.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect())
 }

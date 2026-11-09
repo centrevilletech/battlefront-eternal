@@ -11,7 +11,8 @@ fn canonical(value:&Value,out:&mut String,depth:usize)->Result<(),String>{
     if depth>256{return Err("gameplay content nesting exceeds bounds".into());}
     match value{
         Value::Null=>out.push_str("null"),Value::Bool(v)=>out.push_str(if *v{"true"}else{"false"}),
-        Value::Number(v)=>{if !v.is_finite(){return Err("invalid gameplay JSON number".into());}if *v==0.&&v.is_sign_negative(){out.push_str("-0");}else{out.push_str(&jsrt::numfmt::number_to_string(*v));}},
+        Value::Number(v)=>{if !v.is_finite(){return Err("invalid gameplay JSON number".into());}
+            if *v==0.&&v.is_sign_negative(){out.push_str("-0");}else{out.push_str(&jsrt::numfmt::number_to_string(*v));}},
         Value::String(v)=>string(v,out),Value::Array(values)=>{out.push('[');for (i,v)in values.iter().enumerate(){if i>0{out.push(',');}canonical(v,out,depth+1)?;}out.push(']');},
         Value::Object(values)=>{let mut keys=values.keys().collect::<Vec<_>>();keys.sort_by(|a,b|utf16_cmp(a,b));out.push('{');
             for (i,key)in keys.iter().enumerate(){if i>0{out.push(',');}string(key,out);out.push(':');canonical(values.get(key).unwrap(),out,depth+1)?;}out.push('}');},

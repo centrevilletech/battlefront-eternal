@@ -302,9 +302,9 @@ impl Mixer {
                 let w = 1.0 - spread;
                 let k = (16.0 / (1.0 + 3.0 * w * w + 5.0 * host::pow(w, 4.0) + 7.0 * host::pow(w, 6.0))).sqrt();
                 out[0] = (out[0] as f64 * k) as f32;
-                for c in 1..16 {
+                for (c, slot) in out.iter_mut().enumerate().take(16).skip(1) {
                     let e = (c as f64).sqrt().floor();
-                    out[c] = (out[c] as f64 * (k * host::pow(w, e))) as f32;
+                    *slot = (*slot as f64 * (k * host::pow(w, e))) as f32;
                 }
             }
             return;
@@ -371,9 +371,7 @@ impl Mixer {
             if self.dirty[s] != 0 {
                 let mut next = std::mem::take(&mut self.next);
                 self.gains(s, &mut next);
-                for c in 0..n {
-                    self.goal[base + c] = next[c];
-                }
+                self.goal[base..base + n].copy_from_slice(&next[..n]);
                 self.next = next;
                 self.lfe_target[s] = self.params[s * 5 + 4];
                 self.dirty[s] = 0;

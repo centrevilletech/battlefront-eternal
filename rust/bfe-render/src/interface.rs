@@ -130,10 +130,13 @@ impl Batch {
         self.start = QUADS * 4;
         self.end = 0;
     }
+    // Retains the ported JS/GL call-site signature without an extra wrapper struct.
+    #[allow(clippy::too_many_arguments)]
     pub fn quad(&mut self, m: Matrix, rect: [f64; 4], texture: u32, uv: [f64; 4], tint: Color, z: f64, mask: u32) {
         self.corners(m, rect, texture, [[uv[0], uv[1]], [uv[0], uv[3]], [uv[2], uv[1]], [uv[2], uv[3]]], tint, z, mask);
     }
     // Batch.quadCorners: the minimap's rotated art retains a fixed mask UV.
+    #[allow(clippy::too_many_arguments)]
     pub fn corners(&mut self, m: Matrix, r: [f64; 4], texture: u32, uv: [[f64; 2]; 4], tint: Color, z: f64, mask: u32) {
         if texture == 0 || self.count >= QUADS {
             return;

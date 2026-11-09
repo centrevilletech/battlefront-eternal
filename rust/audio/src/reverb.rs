@@ -133,9 +133,9 @@ impl Reverb {
     /// New targets (the worklet's port message): only the masked, finite
     /// ones are taken.
     pub fn set(&mut self, params: &[f64; PARAM_COUNT], mask: u32) {
-        for k in 0..PARAM_COUNT {
-            if mask & (1 << k) != 0 && params[k].is_finite() {
-                self.target[k] = params[k];
+        for (k, (&param, target)) in params.iter().zip(&mut self.target).enumerate() {
+            if mask & (1 << k) != 0 && param.is_finite() {
+                *target = param;
             }
         }
     }
@@ -303,8 +303,8 @@ impl Reverb {
             ys[i] = y;
         }
         self.in_lp = in_lp;
-        for d in 0..4 {
-            self.diffusers[d].pos = dp[d];
+        for (diffuser, &pos) in self.diffusers.iter_mut().zip(&dp) {
+            diffuser.pos = pos;
         }
         self.early.pos = ep;
         self.pre.pos = pp;
@@ -334,7 +334,7 @@ impl Reverb {
         }
         // The Householder mix (I - 2/N 11^T), fed back with the input.
         let mut mixes = std::mem::take(&mut self.mixes);
-        for i in 0..n {
+        for (i, mix) in mixes.iter_mut().enumerate().take(n) {
             let at = i * LINES;
             let sum = values[at] as f64
                 + values[at + 1] as f64
@@ -344,7 +344,7 @@ impl Reverb {
                 + values[at + 5] as f64
                 + values[at + 6] as f64
                 + values[at + 7] as f64;
-            mixes[i] = (2.0 / LINES as f64) * sum;
+            *mix = (2.0 / LINES as f64) * sum;
         }
         for k in 0..LINES {
             let line = &mut self.lines[k];
@@ -369,7 +369,7 @@ impl Reverb {
             let s = self.signs[c % self.signs.len()];
             let side = if c % 2 != 0 { -0.5 } else { 0.5 };
             let level = if c < 2 { 1.0 } else { 0.6 };
-            for i in 0..n {
+            for (i, &early) in earlies.iter().enumerate().take(n) {
                 let at = i * LINES;
                 let v = values[at] as f64 * s[0]
                     + values[at + 1] as f64 * s[1]
@@ -379,7 +379,7 @@ impl Reverb {
                     + values[at + 5] as f64 * s[5]
                     + values[at + 6] as f64 * s[6]
                     + values[at + 7] as f64 * s[7];
-                out.set(c, i, v * reverb + earlies[i] * side * level);
+                out.set(c, i, v * reverb + early * side * level);
             }
         }
         self.ys = ys;
@@ -429,19 +429,17 @@ impl Reverb {
                 diff.pos = (diff.pos + 1) % diff.buf.len();
             }
             let mut sum = 0.0;
-            for k in 0..LINES {
-                let line = &mut self.lines[k];
+            for (val, line) in values.iter_mut().zip(&mut self.lines) {
                 let len = line.buf.len();
                 let read = line.buf[(line.pos + len - line.len) % len] as f64;
                 line.lp = read * (1.0 - line.a) + line.lp * line.a;
-                values[k] = (line.lp * line.g) as f32;
-                sum += values[k] as f64;
+                *val = (line.lp * line.g) as f32;
+                sum += *val as f64;
             }
             let h = (2.0 / LINES as f64) * sum;
-            for k in 0..LINES {
-                let line = &mut self.lines[k];
+            for (&val, line) in values.iter().zip(&mut self.lines) {
                 let len = line.buf.len();
-                line.buf[line.pos] = (values[k] as f64 - h + y * 0.5) as f32;
+                line.buf[line.pos] = (val as f64 - h + y * 0.5) as f32;
                 line.pos = (line.pos + 1) % len;
             }
             for c in 0..out.channels {

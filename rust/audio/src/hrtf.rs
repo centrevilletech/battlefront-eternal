@@ -47,13 +47,13 @@ fn resample(input: &[f32], rate: f64) -> Vec<f32> {
     let ratio = 44100.0 / rate;
     let scale = if ratio > 1.0 { 0.9 / ratio } else { 0.9 };
     let mut kernels = [[0.0f32; 32]; 33];
-    for offset in 0..=32 {
+    for (offset, kernel) in kernels.iter_mut().enumerate() {
         let fraction = offset as f32 / 32.0;
-        for i in 0..32 {
+        for (i, slot) in kernel.iter_mut().enumerate() {
             let pre = std::f32::consts::PI * (i as f32 - 16.0 - fraction);
             let x = (i as f32 - fraction) / 32.0;
             let window = (0.42 - 0.5 * host::cos(2.0 * PI * x as f64) + 0.08 * host::cos(4.0 * PI * x as f64)) as f32;
-            kernels[offset][i] = (window as f64 * if pre == 0.0 { scale } else { host::sin(scale * pre as f64) / pre as f64 }) as f32;
+            *slot = (window as f64 * if pre == 0.0 { scale } else { host::sin(scale * pre as f64) / pre as f64 }) as f32;
         }
     }
     // Truncate the converted resource length and zero-extend the sinc window.
@@ -137,11 +137,11 @@ impl Database {
         for elevation in 0..ELEVATIONS {
             let angle = -45 + elevation as i32 * 15;
             let mut raw = Vec::with_capacity(48);
-            for azimuth in 0..24 {
+            for (azimuth, &max_elevation) in MAX_ELEVATIONS.iter().enumerate() {
                 // The database repeats the nearest available elevation above each raw
                 // measurement's coverage. ELEVATION_ORDER reflects file order, not ascending
                 // angle, so use a lookup rather than indexing directly by elevation.
-                let actual = angle.min(MAX_ELEVATIONS[azimuth]);
+                let actual = angle.min(max_elevation);
                 let e = ELEVATION_ORDER.iter().position(|v| *v == actual).unwrap();
                 for ear in 0..2 {
                     let mut input = [0.0; 256];
@@ -183,9 +183,9 @@ impl Database {
                     // per-ear Delay restores the removed part during playback while the kernel
                     // retains its short lead-in and direction-dependent spectral detail.
                     let adjust = delay * 2.0 * PI / analysis_size as f64;
-                    for i in 1..analysis_size / 2 {
-                        let (m, p) = spectrum_parts(spectrum[i]);
-                        spectrum[i] = polar(m, p + i as f64 * adjust);
+                    for (i, bin) in spectrum.iter_mut().enumerate().take(analysis_size / 2).skip(1) {
+                        let (m, p) = spectrum_parts(*bin);
+                        *bin = polar(m, p + i as f64 * adjust);
                     }
                     spectrum[0].re = 0.0;
                     mirror(&mut spectrum);
@@ -240,7 +240,7 @@ impl Database {
         spectrum[0].re = ((1.0 - x) * a.spectrum[0].re as f64 + x * b.spectrum[0].re as f64) as f32;
         spectrum[n / 2].re = ((1.0 - x) * a.spectrum[n / 2].re as f64 + x * b.spectrum[n / 2].re as f64) as f32;
         let (mut phase, mut last_a, mut last_b) = (0.0, 0.0, 0.0);
-        for i in 1..n / 2 {
+        for (i, bin) in spectrum.iter_mut().enumerate().take(n / 2).skip(1) {
             let (ma, pa) = spectrum_parts(a.spectrum[i]);
             let (mb, pb) = spectrum_parts(b.spectrum[i]);
             let (da, db) = (20.0 * host::log10(ma), 20.0 * host::log10(mb));
@@ -270,7 +270,7 @@ impl Database {
                 sa * dpa + sb * dpb
             };
             phase = unwrap(phase + change);
-            spectrum[i] = polar(host::pow(10.0, 0.05 * (sa * da + sb * db)), phase);
+            *bin = polar(host::pow(10.0, 0.05 * (sa * da + sb * db)), phase);
         }
         mirror(&mut spectrum);
         plan.process(&mut spectrum, true);
@@ -318,13 +318,13 @@ impl Delay {
         let read = (self.at as f64 + len as f64 - frames).rem_euclid(len as f64);
         let index = read as usize;
         let fraction = (read - index as f64) as f32;
-        for i in 0..FRAMES {
-            self.data[(self.at + i) % len] = input[i];
+        for (i, &sample) in input.iter().enumerate() {
+            self.data[(self.at + i) % len] = sample;
         }
-        for i in 0..FRAMES {
+        for (i, out) in output.iter_mut().enumerate() {
             let a = self.data[(index + i) % len];
             let b = self.data[(index + i + 1) % len];
-            output[i] = a + fraction * (b - a);
+            *out = a + fraction * (b - a);
         }
         self.at = (self.at + FRAMES) % len;
     }
@@ -419,18 +419,27 @@ impl Panner {
             }
         }
         if self.increment == 0.0 {
-            for ear in 0..2 {
-                output[ear].copy_from_slice(&self.scratch[self.selection][ear]);
+            for (out_ear, src_ear) in output.iter_mut().zip(&self.scratch[self.selection]) {
+                out_ear.copy_from_slice(src_ear);
             }
         } else {
             // Crossfade gains advance as f32 once per sample, shared by both ears.
             // The accumulation and endpoint snap mirror HRTFPanner's transition, avoiding
             // a different envelope from recomputing a double-precision ramp each block.
             let mut x = self.blend;
-            for i in 0..FRAMES {
-                for ear in 0..2 {
-                    output[ear][i] = (1.0 - x) * self.scratch[0][ear][i] + x * self.scratch[1][ear][i];
-                }
+            let [out_l, out_r] = output;
+            for ((l, r), ((&l0, &r0), (&l1, &r1))) in out_l
+                .iter_mut()
+                .zip(out_r.iter_mut())
+                .zip(
+                    self.scratch[0][0]
+                        .iter()
+                        .zip(&self.scratch[0][1])
+                        .zip(self.scratch[1][0].iter().zip(&self.scratch[1][1])),
+                )
+            {
+                *l = (1.0 - x) * l0 + x * l1;
+                *r = (1.0 - x) * r0 + x * r1;
                 x += self.increment;
             }
             self.blend = x;
@@ -448,6 +457,42 @@ impl Panner {
             }
         }
     }
+}
+
+/// PannerHandler's listener-relative geometry. Its vector normalization
+/// and elevation result round to float, which matters at kernel boundaries.
+pub fn angles(position: [f32; 3]) -> (f64, f64) {
+    let [mut x, mut y, mut z] = position;
+    let length = ((x as f64 * x as f64 + y as f64 * y as f64) + z as f64 * z as f64).sqrt() as f32;
+    // PannerHandler treats a coincident source/listener as straight ahead.
+    // The threshold avoids division by an effectively zero float length, keeping
+    // subsequent azimuth and elevation selection finite.
+    if length < 1.0e-10 {
+        return (0.0, 0.0);
+    }
+    x /= length;
+    y /= length;
+    z /= length;
+    let horizontal = (x as f64 * x as f64 + z as f64 * z as f64).sqrt() as f32;
+    let (px, pz) = if horizontal > 1.0e-10 {
+        (x / horizontal, z / horizontal)
+    } else {
+        (x, z)
+    };
+    // Resolve quadrants in the host's listener convention: forward is -Z,
+    // right is +X. Keep its acos/quadrant formulation rather than replacing it
+    // with atan2, whose boundary rounding can pick a neighboring grid cell.
+    let mut azimuth = (px.clamp(-1.0, 1.0) as f64).acos() * 180.0 / PI;
+    if -pz < 0.0 {
+        azimuth = 360.0 - azimuth;
+    }
+    azimuth = if azimuth <= 270.0 { 90.0 - azimuth } else { 450.0 - azimuth };
+    // Normalization itself rounded each component to f32. Recompute the
+    // length of that rounded vector before elevation, then round the degree
+    // result to float as PannerHandler does before returning its double value.
+    let normalized_length = ((x as f64 * x as f64 + y as f64 * y as f64) + z as f64 * z as f64).sqrt() as f32;
+    let elevation = 90.0 - (((y / normalized_length).clamp(-1.0, 1.0) as f64).acos() * 180.0 / PI) as f32 as f64;
+    (azimuth, elevation)
 }
 
 #[cfg(test)]
@@ -491,13 +536,13 @@ mod tests {
                     input[0] = 1.0;
                 }
                 panner.process(db, *rate, azimuth, elevation, &input, &mut output);
-                for ear in 0..2 {
-                    for i in 0..FRAMES {
+                for (ear, ear_out) in output.iter().enumerate() {
+                    for (i, &sample) in ear_out.iter().enumerate() {
                         let at = (case * 8192 + ear * 4096 + block * FRAMES + i) * 4;
                         let value = f32::from_le_bytes(expected[at..at + 4].try_into().unwrap());
-                        if (output[ear][i] - value).abs() > worst {
-                            worst = (output[ear][i] - value).abs();
-                            example = (block * FRAMES + i, output[ear][i], value);
+                        if (sample - value).abs() > worst {
+                            worst = (sample - value).abs();
+                            example = (block * FRAMES + i, sample, value);
                         }
                     }
                 }
@@ -509,40 +554,4 @@ mod tests {
             assert!(worst < 0.000015848932, "case {case}: {worst}");
         }
     }
-}
-
-/// PannerHandler's listener-relative geometry. Its vector normalization
-/// and elevation result round to float, which matters at kernel boundaries.
-pub fn angles(position: [f32; 3]) -> (f64, f64) {
-    let [mut x, mut y, mut z] = position;
-    let length = ((x as f64 * x as f64 + y as f64 * y as f64) + z as f64 * z as f64).sqrt() as f32;
-    // PannerHandler treats a coincident source/listener as straight ahead.
-    // The threshold avoids division by an effectively zero float length, keeping
-    // subsequent azimuth and elevation selection finite.
-    if length < 1.0e-10 {
-        return (0.0, 0.0);
-    }
-    x /= length;
-    y /= length;
-    z /= length;
-    let horizontal = (x as f64 * x as f64 + z as f64 * z as f64).sqrt() as f32;
-    let (px, pz) = if horizontal > 1.0e-10 {
-        (x / horizontal, z / horizontal)
-    } else {
-        (x, z)
-    };
-    // Resolve quadrants in the host's listener convention: forward is -Z,
-    // right is +X. Keep its acos/quadrant formulation rather than replacing it
-    // with atan2, whose boundary rounding can pick a neighboring grid cell.
-    let mut azimuth = (px.clamp(-1.0, 1.0) as f64).acos() * 180.0 / PI;
-    if -pz < 0.0 {
-        azimuth = 360.0 - azimuth;
-    }
-    azimuth = if azimuth <= 270.0 { 90.0 - azimuth } else { 450.0 - azimuth };
-    // Normalization itself rounded each component to f32. Recompute the
-    // length of that rounded vector before elevation, then round the degree
-    // result to float as PannerHandler does before returning its double value.
-    let normalized_length = ((x as f64 * x as f64 + y as f64 * y as f64) + z as f64 * z as f64).sqrt() as f32;
-    let elevation = 90.0 - (((y / normalized_length).clamp(-1.0, 1.0) as f64).acos() * 180.0 / PI) as f32 as f64;
-    (azimuth, elevation)
 }

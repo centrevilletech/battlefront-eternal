@@ -24,6 +24,8 @@ impl Seeded {
         r.next();
         r
     }
+    // Mirrors Seeded.next() PRNG method name from the JS foliage generator.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> f64 {
         let a = self.0.wrapping_mul(1664525).wrapping_add(1013904223);
         let b = a.wrapping_mul(1664525).wrapping_add(1013904223);
@@ -123,6 +125,8 @@ pub fn cards(
             // buildLeaves visits the first branch completely before the
             // second. Both geometry order and subsequent PRNG draws depend
             // on that traversal, so a breadth-first walk would differ.
+            // Recursive vine branch helper matching buildLeaves parameter list.
+            #[allow(clippy::too_many_arguments)]
             fn vine(
                 def: &Value,
                 r: &mut Seeded,
@@ -292,7 +296,7 @@ pub fn admit(
         // its authored distance; grass placed by hand has no sphere test.
         let mut lo = [f64::INFINITY; 3];
         let mut hi = [f64::NEG_INFINITY; 3];
-        for c in cards.chunks_exact(9) {
+        for c in cards.as_chunks::<9>().0 {
             let center = [c[0], if grass { c[1] } else { c[1] * scale }, c[2]];
             let reach = if grass {
                 c[4] + c[5]

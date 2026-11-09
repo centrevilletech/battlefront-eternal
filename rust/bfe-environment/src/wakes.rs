@@ -21,7 +21,7 @@ impl Default for Wakes { fn default() -> Self { Self::new() } }
 impl Wakes {
     pub fn new() -> Self {
         let mut points = vec![0.0; lim::COUNT * 4];
-        for p in points.chunks_exact_mut(4) { p[3] = -100.0; }
+        for p in points.as_chunks_mut::<4>().0 { p[3] = -100.0; }
         Self { frame: vec![0.0; frame::STRIDE], actors: vec![0.0; lim::ACTORS * actor::STRIDE],
             result: vec![0.0; out::STRIDE], points, motion: vec![0.0; lim::COUNT*4],
             states: vec![State::default(); lim::STATES], count: 0, time: 0.0, cursor: 0, serial: 0, overflow: 0 }
@@ -29,7 +29,7 @@ impl Wakes {
     pub fn clear(&mut self) {
         // EnvironmentWakes.clear kept time and cursor, but forgot every actor's
         // preceding position. A mode switch must not manufacture a long wake.
-        for p in self.points.chunks_exact_mut(4) { p[3] = -100.0; }
+        for p in self.points.as_chunks_mut::<4>().0 { p[3] = -100.0; }
         self.count = 0;
     }
     fn add(&mut self, position: [f64;3], velocity: [f64;3], strength: f64) {

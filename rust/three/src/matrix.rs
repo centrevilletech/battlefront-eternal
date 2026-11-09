@@ -169,6 +169,8 @@ impl Matrix3 {
     }
 
     /// `setUvTransform(tx, ty, sx, sy, rotation, cx, cy)`.
+    // Preserves Three.js r170 Matrix3.prototype.setUvTransform parameter list.
+    #[allow(clippy::too_many_arguments)]
     pub fn set_uv_transform(
         &mut self,
         tx: f64, ty: f64, sx: f64, sy: f64, rotation: f64, cx: f64, cy: f64,
@@ -818,6 +820,8 @@ impl Matrix4 {
 
     /// `makePerspective(left, right, top, bottom, near, far,
     /// coordinateSystem)`.
+    // Preserves Three.js r170 Matrix4.prototype.makePerspective parameter list.
+    #[allow(clippy::too_many_arguments)]
     pub fn make_perspective(
         &mut self,
         left: f64, right: f64, top: f64, bottom: f64, near: f64, far: f64,
@@ -841,6 +845,8 @@ impl Matrix4 {
 
     /// `makeOrthographic(left, right, top, bottom, near, far,
     /// coordinateSystem)`.
+    // Preserves Three.js r170 Matrix4.prototype.makeOrthographic parameter list.
+    #[allow(clippy::too_many_arguments)]
     pub fn make_orthographic(
         &mut self,
         left: f64, right: f64, top: f64, bottom: f64, near: f64, far: f64,
@@ -853,7 +859,7 @@ impl Matrix4 {
         let y = (top + bottom) * h;
         let (z, z_inv) = match coordinate_system {
             CoordinateSystem::WebGL => ((far + near) * p, -2.0 * p),
-            CoordinateSystem::WebGPU => (near * p, -1.0 * p),
+            CoordinateSystem::WebGPU => (near * p, -p),
         };
         let te = &mut self.elements;
         te[0] = 2.0 * w; te[4] = 0.0; te[8] = 0.0; te[12] = -x;

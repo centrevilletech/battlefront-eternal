@@ -18,8 +18,11 @@ use three::vector::{Vector2, Vector3, Vector4};
 fn read_f64s() -> Vec<f64> {
     let mut buf = Vec::new();
     std::io::stdin().read_to_end(&mut buf).unwrap();
-    buf.chunks_exact(8)
-        .map(|c| f64::from_le_bytes(c.try_into().unwrap()))
+    buf.as_chunks::<8>()
+        .0
+        .iter()
+        .copied()
+        .map(f64::from_le_bytes)
         .collect()
 }
 
@@ -70,7 +73,7 @@ fn main() {
         //      addScaled lerp normalize(a) setLength clampLength
         //      projectOnVector angleTo(libm, separate mode) = 3*8+5+3 = see below
         "v3a" => {
-            for p in input.chunks_exact(7) {
+            for p in input.as_chunks::<7>().0 {
                 let a = v3(&p[0..3]);
                 let b = v3(&p[3..6]);
                 let s = p[6];
@@ -136,7 +139,7 @@ fn main() {
         // (libm) in: a(3) b(3) angle(1): angleTo, applyAxisAngle,
         // setFromSphericalCoords(radius=a.x, phi=angle, theta=b.x)
         "v3libm" => {
-            for p in input.chunks_exact(7) {
+            for p in input.as_chunks::<7>().0 {
                 let a = v3(&p[0..3]);
                 let b = v3(&p[3..6]);
                 let angle = p[6];
@@ -160,7 +163,7 @@ fn main() {
         }
         // in: v(3) m(16) = 19
         "v3m" => {
-            for p in input.chunks_exact(19) {
+            for p in input.as_chunks::<19>().0 {
                 let a = v3(&p[0..3]);
                 let m = m4(&p[3..19]);
                 let mut r = a;
@@ -187,7 +190,7 @@ fn main() {
         }
         // in: v(3) q(4) = 7 (applyQuaternion)
         "v3q" => {
-            for p in input.chunks_exact(7) {
+            for p in input.as_chunks::<7>().0 {
                 let mut a = v3(&p[0..3]);
                 let q = q4(&p[3..7]);
                 a.apply_quaternion(&q);
@@ -200,7 +203,7 @@ fn main() {
         //            normalize(q)(4) invert(4) setFromRotationMatrix(4)
         //            setFromUnitVectors as Vector3s(4)
         "quat" => {
-            for p in input.chunks_exact(25) {
+            for p in input.as_chunks::<25>().0 {
                 let q = q4(&p[0..4]);
                 let r = q4(&p[4..8]);
                 let m = m4(&p[9..25]);
@@ -233,7 +236,7 @@ fn main() {
         // slerp(4) slerpQuaternions(4) angleTo setFromAxisAngle(4)
         // rotateTowards(4) slerpFlat(4)
         "quatlibm" => {
-            for p in input.chunks_exact(12) {
+            for p in input.as_chunks::<12>().0 {
                 let q = q4(&p[0..4]);
                 let r = q4(&p[4..8]);
                 let t = p[8];
@@ -265,7 +268,7 @@ fn main() {
         // quaternion.setFromEuler(4) matrix.makeRotationFromEuler(16)
         // euler.setFromQuaternion back (3)
         "euler" => {
-            for p in input.chunks_exact(4) {
+            for p in input.as_chunks::<4>().0 {
                 let e = Euler::new(p[0], p[1], p[2], orders(p[3]));
                 let mut q = Quaternion::default();
                 q.set_from_euler(&e);
@@ -284,7 +287,7 @@ fn main() {
         }
         // (libm) in: m(16) order(1) = 17: euler.setFromRotationMatrix
         "eulerm" => {
-            for p in input.chunks_exact(17) {
+            for p in input.as_chunks::<17>().0 {
                 let m = m4(&p[0..16]);
                 let mut e = Euler::default();
                 e.set_from_rotation_matrix(&m, Some(orders(p[16])));
@@ -296,7 +299,7 @@ fn main() {
         // compose from (v, quat from b rotation part?, scale) — harness
         // instead passes compose inputs in mode compose.
         "mat4" => {
-            for p in input.chunks_exact(36) {
+            for p in input.as_chunks::<36>().0 {
                 let a = m4(&p[0..16]);
                 let b = m4(&p[16..32]);
                 let s = p[35];
@@ -330,7 +333,7 @@ fn main() {
         // in: pos(3) quat(4) scale(3) = 10: compose(16) then
         // decompose back pos(3) quat(4) scale(3)
         "compose" => {
-            for p in input.chunks_exact(10) {
+            for p in input.as_chunks::<10>().0 {
                 let pos = v3(&p[0..3]);
                 let q = q4(&p[3..7]);
                 let sc = v3(&p[7..10]);
@@ -351,7 +354,7 @@ fn main() {
         }
         // in: eye(3) target(3) up(3) = 9: Matrix4.lookAt(16)
         "lookat" => {
-            for p in input.chunks_exact(9) {
+            for p in input.as_chunks::<9>().0 {
                 let eye = v3(&p[0..3]);
                 let target = v3(&p[3..6]);
                 let up = v3(&p[6..9]);
@@ -365,7 +368,7 @@ fn main() {
         // in: box1(6) box2(6) sphere(4:center+radius) plane(4:normal+constant)
         //     point(3) tri(9) m(16) = 48
         "box" => {
-            for p in input.chunks_exact(48) {
+            for p in input.as_chunks::<48>().0 {
                 let b1 = Box3::new(v3(&p[0..3]), v3(&p[3..6]));
                 let b2 = Box3::new(v3(&p[6..9]), v3(&p[9..12]));
                 let sph = Sphere::new(v3(&p[12..15]), p[15]);
@@ -443,7 +446,7 @@ fn main() {
         // out: flags + points with hit=1/0; on miss the point is
         // whatever was in target (harness inits targets to (9,9,9)).
         "ray" => {
-            for p in input.chunks_exact(38) {
+            for p in input.as_chunks::<38>().0 {
                 let ray = Ray::new(v3(&p[0..3]), v3(&p[3..6]));
                 let sph = Sphere::new(v3(&p[6..9]), p[9]);
                 let bx = Box3::new(v3(&p[10..13]), v3(&p[13..16]));
@@ -472,10 +475,7 @@ fn main() {
                 let hit = ray.intersect_plane(&pl, &mut t).is_some();
                 out.push(hit as i32 as f64);
                 push3(&mut out, &t);
-                out.push(match ray.distance_to_plane(&pl) {
-                    Some(d) => d,
-                    None => f64::NAN,
-                });
+                out.push(ray.distance_to_plane(&pl).unwrap_or(f64::NAN));
                 out.push(ray.distance_to_point(&pt));
                 out.push(ray.distance_sq_to_point(&pt));
                 let mut t = Vector3::new(9.0, 9.0, 9.0);
@@ -511,7 +511,7 @@ fn main() {
         }
         // MathUtils scalars. in: 5 per case.
         "mathutils" => {
-            for p in input.chunks_exact(5) {
+            for p in input.as_chunks::<5>().0 {
                 let (x, y, a, b, t) = (p[0], p[1], p[2], p[3], p[4]);
                 out.push(mu::clamp(x, a, b));
                 out.push(mu::euclidean_modulo(x, y));
@@ -528,7 +528,7 @@ fn main() {
         }
         // (libm) MathUtils damp + power-of-two helpers.
         "mathutilslibm" => {
-            for p in input.chunks_exact(5) {
+            for p in input.as_chunks::<5>().0 {
                 let (x, y, a, b, t) = (p[0], p[1], p[2], p[3], p[4]);
                 out.push(mu::damp(x, y, a, t));
                 out.push(mu::ceil_power_of_two(x.abs()));
@@ -538,7 +538,7 @@ fn main() {
         }
         // Vector2/Vector4 spread. in: a2(2) b2(2) a4(4) b4(4) s(1) m16 = 29
         "v24" => {
-            for p in input.chunks_exact(29) {
+            for p in input.as_chunks::<29>().0 {
                 let a2 = Vector2::new(p[0], p[1]);
                 let b2 = Vector2::new(p[2], p[3]);
                 let a4v = Vector4::new(p[4], p[5], p[6], p[7]);
@@ -582,7 +582,7 @@ fn main() {
         // = 80; then a quaternion(4) written onto node 3, a lookAt
         // target(3) for node 5, attach + rotate params(4).
         "tree" => {
-            for p in input.chunks_exact(91) {
+            for p in input.as_chunks::<91>().0 {
                 let mut tree = TransformTree::new();
                 let mut ids = Vec::new();
                 for i in 0..8 {

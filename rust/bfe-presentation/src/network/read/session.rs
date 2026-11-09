@@ -186,7 +186,8 @@ impl Session {
     pub(crate) fn unlink(&mut self,table:&std::rc::Rc<std::cell::RefCell<crate::network::LinkTable>>){let weak=std::rc::Rc::downgrade(table);self.links.retain(|p|!p.ptr_eq(&weak));}
     pub(crate) fn link(&mut self,table:&std::rc::Rc<std::cell::RefCell<crate::network::LinkTable>>)->bool{
         let weak=std::rc::Rc::downgrade(table);self.links.retain(|p|p.strong_count()!=0);
-        if self.links.iter().any(|p|p.ptr_eq(&weak)){return true;}if self.links.len()==l::OWNERS{return false;}self.links.push(weak);true
+        if self.links.iter().any(|p|p.ptr_eq(&weak)){return true;}
+        if self.links.len()==l::OWNERS{return false;}self.links.push(weak);true
     }
     pub fn reserve_receive(&mut self) { if !self.snapshots.is_empty() { return; }
         self.snapshots = (0..=l::BASELINES + l::ASSEMBLIES).map(|_| Snapshot::new()).collect();
@@ -641,7 +642,7 @@ fn apply_group(entry: &mut Entry, group: u8, values: &[f64]) { let class = entry
         (0, 4) => &[r::POSTURE, r::CHARGE, r::STATE, r::WEAPON, r::SLOT, r::SEAT_COUNT],
         (1, 3) => &[r::HEALTH, r::POSTURE, r::STATE, r::WEAPON, r::SLOT, r::SEAT_COUNT],
         (1, 4) => &[r::MODE, r::REVERSE, r::DEAD, r::SHIELD_ON, r::TIME, r::ROLL, r::LEAN, r::LEGS, r::SHIELD],
-        (0 | 1 | 2, 5) => &[r::FIRE_COUNTER], (2, 2) => { entry.range(r::QUATERNION, values);
+        (0..=2, 5) => &[r::FIRE_COUNTER], (2, 2) => { entry.range(r::QUATERNION, values);
             return; }
         (2, 3) => &[r::HEALTH, r::STATE, r::POWER], (2, 4) => { let n = values[5] as usize;
             for (i, at) in
@@ -697,12 +698,11 @@ impl Session {
     /// Resource prerequisites are occasional packet-time lookups, never a
     /// display sampler. The same changed-record layout returns their values.
     pub fn lookup(&mut self, kind: u32, id: f64, bounds: &[f64; 6]) -> Option<usize> {
-        let Some(index) = self.current else { return None; };
+        let index = self.current?;
         let row = &self.snapshots[index];
         let class = if kind == k::MOUNT { k::VEHICLE } else { kind };
-        let Some(entry) =
-            row.order.iter().map(|&i| row.entries[i]).find(|e| e.get(r::KIND) == class as f64 && e.get(r::ID) == id)
-        else { return None; };
+        let entry =
+            row.order.iter().map(|&i| row.entries[i]).find(|e| e.get(r::KIND) == class as f64 && e.get(r::ID) == id)?;
         let record = if kind == k::MOUNT { mount_record(entry, row.tick) } else { semantic(entry, row.tick, bounds) };
         self.leases.put(&record,&[]) }
     pub fn capture_record(&self,id:usize)->serde_json::Value{

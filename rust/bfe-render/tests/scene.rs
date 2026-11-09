@@ -41,7 +41,7 @@ fn canopy_selection_keeps_ties_ranges_cache_layers_and_resource_generations() {
         scene_canopy_view as v, scene_canopy_header as h, scene_canopy_selection as s}};
     let mut canopy = CanopySelection::default();
     canopy.reserve(40, 1);
-    for sphere in canopy.bounds.chunks_exact_mut(4) { sphere.copy_from_slice(&[0., 0., 0., 1.]); }
+    for sphere in canopy.bounds.as_chunks_mut::<4>().0 { sphere.copy_from_slice(&[0., 0., 0., 1.]); }
     canopy.view[v::GENERATION] = 1.; canopy.view[v::ENABLED] = 1.;
     canopy.view[v::LAYERS] = 1.; canopy.view[v::NODE_LAYERS] = 1.;
     for at in [v::PROJECTION, v::VIEW, v::WORLD] { canopy.view[at..at + 16].copy_from_slice(&IDENTITY); }
@@ -76,7 +76,7 @@ fn canopy_queries_over_content_capacity_allocate_nothing_during_views() {
     let mut canopy = CanopySelection::default();
     canopy.reserve(100_000, 1);
     assert_eq!(canopy.bounds.len(), 65536 * 4);
-    for sphere in canopy.bounds.chunks_exact_mut(4) { sphere.copy_from_slice(&[0., 0., 0., 1.]); }
+    for sphere in canopy.bounds.as_chunks_mut::<4>().0 { sphere.copy_from_slice(&[0., 0., 0., 1.]); }
     canopy.view[v::GENERATION] = 1.; canopy.view[v::ENABLED] = 1.;
     for at in [v::PROJECTION, v::VIEW, v::WORLD] { canopy.view[at..at + 16].copy_from_slice(&IDENTITY); }
     ALLOCS.with(|n| n.set(0)); TRACK.with(|n| n.set(true));
@@ -279,7 +279,7 @@ fn line_selection_survives_other_queries_and_clears_an_invalid_view() {
     let mut root=node(0,-1,1,0);root[n::FAMILIES]=0.;
     let mut line=node(1,0,1,f::TRANSPARENT);line[n::FAMILIES]=family::LINE as f64;
     line[n::RESOURCE]=17.;line[n::RENDER_ORDER]=9.;
-    let mut pending=node(2,0,1,0);pending[n::FAMILIES]=family::LINE as f64;pending[n::RESOURCE]=-1.;
+    let mut pending=node(2,0,1,0);pending[n::FAMILIES]=family::LINE as f64;pending[n::RESOURCE] = -1.;
     apply(&mut scene,&[root,line,pending]);view(&mut scene,mode::VIEW);
     scene.view[v::FAMILIES]=family::LINE as f64;
     assert_eq!(scene.select(),1);assert_eq!(scene.line_output[h::COUNT],1.);
@@ -344,7 +344,7 @@ fn motion_sources_select_before_frustum_and_emit_bounded_lifecycle_events() {
     assert_eq!(scene.select(),0);assert_eq!(scene.motion_events[h::EVENTS],0.);
     source[n::WORLD+12]=2.;apply(&mut scene,&[source]);assert_eq!(ids(&mut scene),[4]);
     // Hidden or non-default-layer pooled bodies never age as detached.
-    source[n::LAYERS]=2.;source[n::PARENT]=-1.;apply(&mut scene,&[source]);
+    source[n::LAYERS]=2.;source[n::PARENT] = -1.;apply(&mut scene,&[source]);
     scene.select();
     for _ in 0..700 {assert_eq!(scene.select(),0);assert_eq!(scene.motion_events[h::EVENTS],0.);}
     source[n::LAYERS]=1.;apply(&mut scene,&[source]);
@@ -362,12 +362,12 @@ fn motion_sources_select_before_frustum_and_emit_bounded_lifecycle_events() {
 #[test]
 fn signed_layer_masks_keep_enable_all_and_the_high_bit() {
     let mut scene=SceneRegistry::new(4);
-    let mut root=node(0,-1,1,0);root[n::FAMILIES]=0.;root[n::LAYERS]=-1.;
+    let mut root=node(0,-1,1,0);root[n::FAMILIES]=0.;root[n::LAYERS] = -1.;
     let mut mesh=node(1,0,1,0);mesh[n::LAYERS]=i32::MIN as f64;
     apply(&mut scene,&[root,mesh]);view(&mut scene,mode::SCENE);
     scene.view[v::LAYERS]=i32::MIN as f64;assert_eq!(ids(&mut scene),[1]);
-    scene.view[v::LAYERS]=-1.;assert_eq!(ids(&mut scene),[1]);
-    mesh[n::LAYERS]=-1.;apply(&mut scene,&[mesh]);scene.view[v::LAYERS]=1.;assert_eq!(ids(&mut scene),[1]);
+    scene.view[v::LAYERS] = -1.;assert_eq!(ids(&mut scene),[1]);
+    mesh[n::LAYERS] = -1.;apply(&mut scene,&[mesh]);scene.view[v::LAYERS]=1.;assert_eq!(ids(&mut scene),[1]);
 }
 
 #[test]
@@ -380,7 +380,7 @@ fn cached_views_keep_pose_changes_sparse_and_authored_visibility_current() {
     assert_eq!(ids(&mut scene),[2]);assert_eq!(scene.output[s::GROUP_ORDER],7.);
     let builds=scene.visibility_builds;let bounds=scene.bounds_updates;
     // Camera motion changes keys and culling, never authored visibility.
-    scene.view[v::VIEW+14]=-0.25;
+    scene.view[v::VIEW+14] = -0.25;
     assert_eq!(ids(&mut scene),[2]);assert_eq!(scene.output[s::DEPTH],-0.25);
     assert_eq!(scene.visibility_builds,builds);assert_eq!(scene.bounds_updates,bounds);
     mesh[n::WORLD+12]=4.;apply(&mut scene,&[mesh]);

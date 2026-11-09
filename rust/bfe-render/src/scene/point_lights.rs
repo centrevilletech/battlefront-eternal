@@ -35,13 +35,14 @@ impl SceneRegistry{
  }
  fn point_shown(&self,id:usize,root:usize)->bool{
   let mut at=id;
-  for _ in 0..self.nodes.len(){if at==NONE||at==root{return true;}if bits(self.nodes[at].data[row::FLAGS])&flags::VISIBLE==0{return false;}at=self.nodes[at].parent;}
+  for _ in 0..self.nodes.len(){if at==NONE||at==root{return true;}
+   if bits(self.nodes[at].data[row::FLAGS])&flags::VISIBLE==0{return false;}at=self.nodes[at].parent;}
   false
  }
  // A scene's cached list is a stable depth-first traversal, independent of
  // current visibility. Hidden ancestors are tested later for each packed row.
  fn point_sources(&mut self,root:usize,generation:f64,now:f64)->Option<usize>{
-  if self.pose_ref(root,generation).is_none(){return None;}
+  self.pose_ref(root,generation)?;
   let slot=*self.points.by_root.get(root)?;if slot==NONE{return None;}
   let source=&self.points.roots[slot];if source.root!=root||source.generation!=generation{return None;}
   if source.at.is_none_or(|at|now-at>500.){
@@ -75,6 +76,8 @@ impl SceneRegistry{
    for &(id,generation) in &self.points.candidates{let node=&self.nodes[id];self.points.proxies.push(Proxy{slot:id,generation,shown:(bits(node.data[row::FLAGS])&flags::VISIBLE!=0) as u8 as f64,layers:node.data[row::LAYERS]});}
   }
  }
+ // Retains the ported JS/GL call-site signature without an extra wrapper struct.
+ #[allow(clippy::too_many_arguments)]
  pub fn point_lights_frame(&mut self,cameras:&mut Cameras,root:usize,generation:f64,role:usize,source:usize,source_generation:f64,view:bool,now:f64,pack:usize){
   if role>=r::COUNT{return;}let Some(census)=self.point_sources(root,generation,now)else{return;};
   let mut count=0;

@@ -81,8 +81,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let shadow = ShadowPass::new(&mut core);
         let motion = MotionPass::new(&mut core);
         let canopies = CanopiesPass::new(&mut core);
-        let renderer = Renderer { prepare: crate::prepare::Prepare::default(), cameras: crate::cameras::Cameras::default(), scene: crate::scene::SceneRegistry::default(), frames: crate::frame::FrameBank::default(), core, world, instances, far, transparent, effects, foliage, view, post, post_chain: crate::post_chain::PostChain::default(), hud, interface: InterfacePass::default(), water, shadow, motion, canopies };
-        renderer
+        Renderer { prepare: crate::prepare::Prepare::default(), cameras: crate::cameras::Cameras::default(), scene: crate::scene::SceneRegistry::default(), frames: crate::frame::FrameBank::default(), core, world, instances, far, transparent, effects, foliage, view, post, post_chain: crate::post_chain::PostChain::default(), hud, interface: InterfacePass::default(), water, shadow, motion, canopies }
     }
 
     // Replace a pending image's sampler in every retained draw binding.

@@ -44,7 +44,7 @@ impl Shake {
         self.total = 0.0;
     }
     pub fn add(&mut self, amount: f64, length: f64) -> bool {
-        if !(amount > 0.0) {
+        if amount.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
             return false;
         }
         if self.count == 4 {
@@ -60,6 +60,8 @@ impl Shake {
         self.count += 1;
         true
     }
+    // CameraShake.explosion falloff and impulse parameters.
+    #[allow(clippy::too_many_arguments)]
     pub fn explosion<M: Math>(
         &mut self,
         position: V,
@@ -83,7 +85,7 @@ impl Shake {
         } else {
             0.0
         };
-        if !(share > 0.0) {
+        if share.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
             return 0.0;
         }
         for _ in 0..2 {
@@ -98,7 +100,7 @@ impl Shake {
         still: bool,
         random: &mut C,
     ) {
-        if !(dt > 0.0) || self.count == 0 {
+        if dt.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) || self.count == 0 {
             return;
         }
         let mut total = 0.0;
@@ -108,7 +110,7 @@ impl Shake {
         for i in 0..self.count {
             total += self.amounts[i];
             let amount = self.amounts[i] - dt * self.rates[i];
-            if !(amount <= 0.0) {
+            if !matches!(amount.partial_cmp(&0.0), Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)) {
                 self.amounts[out] = amount;
                 self.rates[out] = self.rates[i];
                 out += 1;
@@ -116,7 +118,7 @@ impl Shake {
         }
         self.count = out;
         self.total = total;
-        if still || !(total > 0.0) {
+        if still || total.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
             return;
         }
         for v in [V::new(1.0, 0.0, 0.0), UP, V::new(0.0, 0.0, 1.0)].iter() {

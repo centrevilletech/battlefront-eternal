@@ -35,6 +35,8 @@ impl TickRows {
     /// player's command names none; WorldTick.run's defaults for the last
     /// two are 0 and 1: a harness keeps no wall clock for the players'
     /// stale-input rule, and its players name their own mouse scale).
+    // Mirrors WorldTick.run input construction for bfe-client and bfe-server callers.
+    #[allow(clippy::too_many_arguments)]
     pub fn input(&self, units: u32, ai: bool, live: bool, camera: u32, offline_camera: bool, squads: u32, at: f64, mouse_scale: f64) -> WorldTickInput {
         WorldTickInput {
             dt: self.clock.dt,

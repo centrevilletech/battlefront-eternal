@@ -983,7 +983,7 @@ impl Destruction {
             let near = !self.has_eye || self.eye.distance_to_squared(&self.bodies[i].position) < SHADOW_REACH * SHADOW_REACH;
             self.pieces[i].shadows = self.pieces[i].crumble <= 0.0 && near;
             let body = &self.bodies[i];
-            if self.pieces[i].crumble >= 1.0 || !(body.position.y >= body.lowest) || !finite(&body.position) {
+            if self.pieces[i].crumble >= 1.0 || body.position.y.partial_cmp(&body.lowest) == Some(std::cmp::Ordering::Less) || body.position.y.is_nan() || body.lowest.is_nan() || !finite(&body.position) {
                 self.retire(i);
             }
         }

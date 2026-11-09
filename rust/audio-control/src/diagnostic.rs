@@ -4,8 +4,8 @@ use crate::{engine::{Engine,NONE},streams::Streams,layout::{event as e,event_kin
 #[derive(Clone,Copy)]
 struct Lane {slot:usize,ends:f64,around:bool,start:f64}
 impl Default for Lane {fn default()->Self{Self{slot:NONE,ends:0.0,around:false,start:0.0}}}
+#[derive(Default)]
 pub struct Diagnostic {lanes:[Lane;16]}
-impl Default for Diagnostic {fn default()->Self{Self{lanes:[Lane::default();16]}}}
 impl Diagnostic {
     /// ports AudioPanel.test/around's scheduling. The UI supplies requested
     /// device channel and generated PCM; the native owner reserves and frees

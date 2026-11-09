@@ -21,7 +21,7 @@ impl Image {
     // alone differs at half-byte boundaries and can change a detected hue.
     pub fn canvas_pixels(&mut self) {
         const BYTE_SCALE: f32 = 1.0 / 255.0;
-        for pixel in self.rgba.chunks_exact_mut(4) {
+        for pixel in self.rgba.as_chunks_mut::<4>().0 {
             let alpha = pixel[3] as u32;
             let a = alpha as f32 * BYTE_SCALE;
             let inverse = if alpha == 0 { 0.0 } else { 1.0 / a };

@@ -43,7 +43,7 @@ impl World {
             if t < -1e-6 || t > far {
                 continue;
             }
-            if best.map_or(true, |(b, _)| t < b) {
+            if best.is_none_or(|(b, _)| t < b) {
                 best = Some((t, i));
             }
         }

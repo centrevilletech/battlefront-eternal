@@ -13,7 +13,7 @@ fn warm_interface_descriptor_expansion_allocates_nothing(){
  use bfe_render::{interface_resources::{Descriptor,Style,Policy},interface_resource_layout::{raw as R,look as L},interface_scene::layout as D};
  let style=Style{program:"model".into(),..Default::default()};let policy=Policy::new(&style,true,true).unwrap();let descriptor=Descriptor::new(1,2,400,3,policy,&[7,8,9,0]).unwrap();let mut row=[0.;D::STRIDE];
  TRACK.with(|v|v.set((true,0)));for _ in 0..10000{
-  for at in [R::WORLD,R::VIEW,R::PROJECTION,R::BIND,R::INVERSE]{for i in 0..16{row[D::VALUES+at+i]=if i%5==0{1.}else{0.};}}
+  for at in [R::WORLD,R::VIEW,R::PROJECTION,R::BIND,R::INVERSE]{for i in 0..16{row[D::VALUES+at+i]=if i.is_multiple_of(5){1.}else{0.};}}
   for i in 0..L::LEN{row[D::VALUES+R::LOOK+i]=i as f64/13.;}row[D::COUNT]=f64::MAX;descriptor.publish(&mut row);std::hint::black_box(&row);
  }
  let allocations=TRACK.with(|v|{let(_,n)=v.get();v.set((false,0));n});assert_eq!(allocations,0);assert_eq!(row[D::COUNT],400.);

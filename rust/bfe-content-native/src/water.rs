@@ -134,7 +134,7 @@ pub fn surface(data: &Value, divisions: usize, rows: usize) -> Result<Surface, S
             let ix: Vec<u32> =
                 serde_json::from_value(patch["indices"].clone()).map_err(|e| e.to_string())?;
             if p.len() != uv.len()
-                || ix.len() % 3 != 0
+                || !ix.len().is_multiple_of(3)
                 || ix.iter().any(|i| *i as usize >= p.len())
                 || p.iter()
                     .flatten()

@@ -335,6 +335,8 @@ impl HudModel {
         let t = self.texture(texture);
         self.batch.quad(m, r, t, uv, color, 0., 0);
     }
+    // Retains the ported JS/GL call-site signature without an extra wrapper struct.
+    #[allow(clippy::too_many_arguments)]
     fn text(
         &mut self,
         m: Matrix,
@@ -351,12 +353,15 @@ impl HudModel {
             self.fonts[font].draw(&mut self.batch, m, x, y, text, color, align, scale, 1., z);
         }
     }
+    // Retains the ported JS/GL call-site signature without an extra wrapper struct.
+    #[allow(clippy::too_many_arguments)]
     fn label(&mut self, m: Matrix, x: f64, y: f64, text: &Label, font: usize, color: Color, align: u32, scale: f64) {
         self.fonts[font].draw(&mut self.batch, m, x, y, text.text(), color, align, scale, 1., 0.);
     }
     // drawWeapons/drawTeams/drawStats all share integer bitmap labels. Writing
     // into the stack label keeps changing ammo and countdown digits off the heap.
     // Alignment is applied by Font to the rounded advances of that exact label.
+    #[allow(clippy::too_many_arguments)]
     fn number(&mut self, m: Matrix, x: f64, y: f64, n: f64, font: usize, color: Color, align: u32, scale: f64) {
         let mut label = Label::default();
         let _ = write!(label, "{n:.0}");
@@ -451,10 +456,15 @@ impl HudModel {
                 let next = [a - 2. * b, c, d];
                 if self.has_stats {
                     let mut changed = false;
-                    for j in 0..3 {
-                        if next[j] != self.stats[j] {
-                            self.stat_changes[j] = (next[j] - self.stats[j]).signum();
-                            self.stat_flash[j] = 1.;
+                    for (((&n, &s), chg), flash) in next
+                        .iter()
+                        .zip(&self.stats)
+                        .zip(&mut self.stat_changes)
+                        .zip(&mut self.stat_flash)
+                    {
+                        if n != s {
+                            *chg = (n - s).signum();
+                            *flash = 1.;
                             changed = true;
                         }
                     }

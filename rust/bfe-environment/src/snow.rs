@@ -43,7 +43,7 @@ impl Wind {
 
     // The next gust's velocity: the authored one, give or take the range.
     fn target(&mut self) -> [f64; 2] {
-        if !(self.range > 0.0) {
+        if self.range.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
             return self.base;
         }
         [self.base[0] + (self.random.float() * 2.0 - 1.0) * self.range, self.base[1] + (self.random.float() * 2.0 - 1.0) * self.range]

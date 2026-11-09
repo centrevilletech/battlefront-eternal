@@ -180,7 +180,7 @@ impl<C: HasContext> MotionPass<C> {
         let mut attributes = vec![];
         unsafe {
             gl.bind_vertex_array(Some(core.geometries[geometry as usize].vao));
-            for a in layout.chunks_exact(3) {
+            for a in layout.as_chunks::<3>().0 {
                 let (location, columns, rows) = (a[0], a[1], a[2] as i32);
                 let floats = columns as usize * rows as usize;
                 let b = gl.create_buffer().unwrap();
@@ -345,7 +345,7 @@ impl<C: HasContext> MotionPass<C> {
             for (texture, unit, data, n) in [(self.bones_texture, UNIT_BONES, &self.bones, bones), (self.previous_texture, UNIT_PREVIOUS_BONES, &self.previous, previous)] {
                 state.bind_texture(gl, stats, unit, Some(texture));
                 if n > 0 {
-                    let rows = (n * 4 + BONE_TEXELS - 1) / BONE_TEXELS;
+                    let rows = (n * 4).div_ceil(BONE_TEXELS);
                     crate::core::spare_view_slot();
                     gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, BONE_TEXELS as i32, rows as i32, glow::RGBA, glow::FLOAT,
                         glow::PixelUnpackData::Slice(Some(bytes(&data[..rows * BONE_TEXELS * 4]))));

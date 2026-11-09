@@ -16,7 +16,7 @@ fn words(base64_text: &str) -> Vec<f64> {
         bits += 6;
         if bits >= 8 { bits -= 8; bytes.push((acc >> bits) as u8); }
     }
-    bytes.chunks_exact(8).map(|b| f64::from_le_bytes(b.try_into().unwrap())).collect()
+    bytes.as_chunks::<8>().0.iter().map(|b| f64::from_le_bytes(*b)).collect()
 }
 fn row(input: &WorldTickInput) -> Vec<f64> {
     let mut row = vec![0.0; WorldTickInput::WORDS];

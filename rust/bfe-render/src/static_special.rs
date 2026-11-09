@@ -41,7 +41,7 @@ pub fn fabric(g:&mut Geometry)->Result<(), &'static str> {
 // subdivision implementation with static descriptors and keep normalized
 // source attributes in f64 until the final Float32BufferAttribute boundary.
 fn fabric_rows(vertices:&[f64],stride:usize,indices:&[u32])->Result<(Vec<f64>,Vec<u32>), &'static str> {
-    if stride<3||vertices.len()%stride!=0||indices.len()%3!=0||indices.len()>3_145_728||indices.iter().any(|i|*i as usize>=vertices.len()/stride){return Err("invalid fabric stream");}
+    if stride<3||!vertices.len().is_multiple_of(stride)||!indices.len().is_multiple_of(3)||indices.len()>3_145_728||indices.iter().any(|i|*i as usize>=vertices.len()/stride){return Err("invalid fabric stream");}
     let count=vertices.len()/stride;
     // fabricGeometry rounds weld positions to millimetres only to discover
     // connected cloth pieces; original UV and normal seams remain separate.
@@ -50,7 +50,7 @@ fn fabric_rows(vertices:&[f64],stride:usize,indices:&[u32])->Result<(Vec<f64>,Ve
         let key = [0,1,2].map(|k|(vertices[v*stride+k]*1000.+0.5).floor() as i64);
         if let Some(&held)=welded.get(&key) { join(&mut parent,v,held); } else { welded.insert(key,v); }
     }
-    for t in indices.chunks_exact(3) {join(&mut parent,t[0] as usize,t[1] as usize);join(&mut parent,t[0] as usize,t[2] as usize);}
+    for t in indices.as_chunks::<3>().0 {join(&mut parent,t[0] as usize,t[1] as usize);join(&mut parent,t[0] as usize,t[2] as usize);}
     let mut bounds:HashMap<usize,(f64,f64)>=HashMap::new();
     for v in 0..count { let id=root(&mut parent,v);let y=vertices[v*stride+1];
         let b=bounds.entry(id).or_insert((f64::INFINITY,f64::NEG_INFINITY));b.0=b.0.min(y);b.1=b.1.max(y);
@@ -74,7 +74,7 @@ fn fabric_rows(vertices:&[f64],stride:usize,indices:&[u32])->Result<(Vec<f64>,Ve
             for k in 0..width { rows.push((rows[a as usize*width+k]+rows[b as usize*width+k])*0.5); }
             cache.insert(key,v);v
         };
-        for t in index.chunks_exact(3) {let [a,b,c]=[t[0],t[1],t[2]];let ab=midpoint(a,b);let bc=midpoint(b,c);let ca=midpoint(c,a);
+        for t in index.as_chunks::<3>().0 {let [a,b,c]=[t[0],t[1],t[2]];let ab=midpoint(a,b);let bc=midpoint(b,c);let ca=midpoint(c,a);
             next.extend_from_slice(&[a,ab,ca,ab,b,bc,ca,bc,c,ab,bc,ca]);
         }
         index=next;
@@ -117,7 +117,7 @@ pub fn trees(g:&mut Geometry, record:&Record)->Result<(), &'static str> {
     if !bush && !name.contains("treebillboard") {return Ok(());}
     let stride=g.stride as usize/4;let count=g.vertices.len()/stride;
     let mut parent:Vec<_>=(0..count).collect();
-    for t in g.index.chunks_exact(3) {join(&mut parent,t[0] as usize,t[1] as usize);join(&mut parent,t[1] as usize,t[2] as usize);}
+    for t in g.index.as_chunks::<3>().0 {join(&mut parent,t[0] as usize,t[1] as usize);join(&mut parent,t[1] as usize,t[2] as usize);}
     let mut pieces:Vec<Vec<usize>>=vec![];let mut by_root=HashMap::new();
     for v in 0..count {let id=root(&mut parent,v);let next=pieces.len();let at=*by_root.entry(id).or_insert_with(|| {pieces.push(vec![]);next});pieces[at].push(v);}
     let vec=|a:[f64;3]|Vector3::new(a[0],a[1],a[2]);
@@ -202,7 +202,7 @@ mod cloth_tests {
         ],index:vec![0,1,2],bounds:[0.;10]}.compile().unwrap();
         assert_eq!(cloth.index.len(),48);assert_eq!(&cloth.index[..12],&[0,6,8,6,3,7,8,7,5,6,7,8]);
         let p=&cloth.attributes[1].values;assert_eq!(p.len(),45);
-        let anchor=&cloth.attributes[2].values;assert!(anchor.chunks_exact(2).all(|v|v==[4.,4.]));
+        let anchor=&cloth.attributes[2].values;assert!(anchor.as_chunks::<2>().0.iter().all(|v|v==&[4.,4.]));
         assert_eq!(cloth.attributes[0].values[3],((1./255.+2./255.)*0.5) as f32 as f64);
         assert_eq!(cloth.bounds[4],-0.18);assert_eq!(cloth.bounds[8],4.18);
     }

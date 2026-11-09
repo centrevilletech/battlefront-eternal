@@ -31,7 +31,7 @@ impl<const N:usize> Leases<N> {
     }
     pub fn release(&mut self,handle:f64)->bool{
         let Some(slot)=self.resolve(handle)else{return false};
-        self.entries[slot].live=false;self.handles[slot]=-1.;true
+        self.entries[slot].live=false;self.handles[slot] = -1.;true
     }
 }
 #[cfg(test)]

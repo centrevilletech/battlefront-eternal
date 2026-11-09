@@ -370,7 +370,7 @@ impl Solver {
         t.normalize();
         a.cross_vectors(&normal, &t);
         a.normalize();
-        let sign = if piece.nudges % 2 != 0 { 1.0 } else { -1.0 };
+        let sign = if !piece.nudges.is_multiple_of(2) { 1.0 } else { -1.0 };
         piece.spin.add_scaled_vector(&a, NUDGE_SPIN * sign);
         piece.velocity.add_scaled_vector(&t, 0.15);
         true
@@ -483,7 +483,7 @@ impl Solver {
                     continue;
                 }
                 let span = shapes[pieces[i].shape].radius + shapes[pieces[k].shape].radius;
-                if !(pieces[i].position.distance_to_squared(&pieces[k].position) <= span * span) {
+                if !matches!(pieces[i].position.distance_to_squared(&pieces[k].position).partial_cmp(&(span * span)), Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)) {
                     continue;
                 }
                 // Two bodies of the one list, borrowed apart.

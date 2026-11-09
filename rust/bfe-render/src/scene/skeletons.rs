@@ -21,10 +21,10 @@ impl SceneRegistry{
         // Cold pooled-rig replacement compacts the retained arena. No external
         // pointer names these spans; live frames only resolve qualified ids.
         if existing!=NONE{
-            self.skeletons.values.splice(start..start+old*16,std::iter::repeat(0.).take(bones.len()*16));
+            self.skeletons.values.splice(start..start+old*16,std::iter::repeat_n(0.,bones.len()*16));
             for (slot,skeleton) in self.skeletons.bindings.iter_mut().enumerate(){if slot!=existing&&skeleton.start>=start+old*16{skeleton.start=skeleton.start-old*16+bones.len()*16;}}
         }else{self.skeletons.values.resize(start+bones.len()*16,0.);}
-        let bones=bones.iter().zip(generations).zip(inverses.chunks_exact(16)).zip(controls).map(|(((&id,&generation),inverse),&control)|(id as usize,generation as f64,inverse.try_into().unwrap_or([0.;16]),control as usize)).collect();
+        let bones=bones.iter().zip(generations).zip(inverses.as_chunks::<16>().0).zip(controls).map(|(((&id,&generation),&inverse),&control)|(id as usize,generation as f64,inverse,control as usize)).collect();
         let skeleton=Skeleton{generation,start,bones};
         if existing==NONE{self.skeletons.by_node[id]=self.skeletons.bindings.len();self.skeletons.bindings.push(skeleton);}else{self.skeletons.bindings[existing]=skeleton;}true
     }
@@ -43,7 +43,7 @@ impl SceneRegistry{
             // by that matrix too, preserving the old signed-zero f32 bytes.
             let inverse=if control==0||visibility.get(control-1).is_some_and(|v|*v!=0.){inverse}else{[0.;16]};
             let matrix=crate::math::mul(&world,&inverse);
-            for k in 0..16{self.skeletons.values[start+i*16+k]=matrix[k] as f32;}
+            for (k, &m_val) in matrix.iter().enumerate(){self.skeletons.values[start+i*16+k]=m_val as f32;}
         }true
     }
     pub fn skeleton_count(&self,id:usize,generation:f64)->Option<usize>{

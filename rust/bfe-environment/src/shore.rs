@@ -97,7 +97,7 @@ impl Shore {
             for i in 0..count.min(lim::SHORE_TRIANGLES) {
                 let at = i * tri::STRIDE;
                 let mut vertices = [[0.0;3];3];
-                for v in 0..3 { vertices[v].copy_from_slice(&self.triangles[at+v*3..at+v*3+3]); }
+                for (v, vertex) in vertices.iter_mut().enumerate() { vertex.copy_from_slice(&self.triangles[at+v*3..at+v*3+3]); }
                 Self::sample(&vertices, height, &mut self.tiles[n], queries, &mut self.overflow);
             }
             dirty = true;
@@ -125,7 +125,7 @@ impl Shore {
         self.count = count;
         for i in 0..count {
             let p = self.selected[i].p;
-            for j in 0..4 { self.points[i*point::STRIDE+j] = p[j] as f32; }
+            for (j, &coord) in p.iter().enumerate() { self.points[i*point::STRIDE+j] = coord as f32; }
             let phase = M::sin(p[0]*12.9898+p[1]*78.233)*43758.5453;
             self.phases[i] = (((phase % 1.0)+1.0)%1.0) as f32;
         }

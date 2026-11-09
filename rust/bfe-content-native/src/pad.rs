@@ -36,7 +36,7 @@ pub fn placement(
                 .ok_or("pad index exceeds collision")?;
             Ok(Vector3::new(p[0] as f64, p[1] as f64, p[2] as f64))
         };
-        for triangle in index.chunks_exact(3) {
+        for triangle in index.as_chunks::<3>().0 {
             let mut hit = Vector3::default();
             if ray
                 .intersect_triangle(

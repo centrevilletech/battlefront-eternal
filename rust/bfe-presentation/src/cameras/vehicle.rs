@@ -331,6 +331,8 @@ impl Vehicle {
     // Its corner rays include the near-plane skin in their query length.
     // The own hull is excluded by stable collision slot in the native adapter.
     // No candidate list or scratch vector crosses back to the page.
+    // VehicleCamera.follow third-person chase solver.
+    #[allow(clippy::too_many_arguments)]
     fn follow<T: Math, C: Cast>(
         &mut self,
         seat: Seat,
@@ -507,6 +509,8 @@ impl Turret {
             fov: None,
         }
     }
+    // TurretCamera.frame entry point across seat, frame, and aim state.
+    #[allow(clippy::too_many_arguments)]
     pub fn frame<T: Math, C: Cast>(
         &mut self,
         cam: &mut Camera,

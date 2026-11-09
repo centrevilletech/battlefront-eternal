@@ -36,7 +36,7 @@ impl LightSettings {
                 self.base.copy_from_slice(&out[O::COLORS+3..O::COLORS+15]);
                 for i in 0..4{let at=O::COLORS+3+i*3;out[at]+=a[I::FLASH]*0.10;out[at+1]+=a[I::FLASH]*0.13;out[at+2]+=a[I::FLASH]*0.18;}self.flashing=true;
             },
-            C::RESTORE=>{if self.flashing{out[O::COLORS+3..O::COLORS+15].copy_from_slice(&self.base);self.flashing=false;}},
+            C::RESTORE if self.flashing=>{out[O::COLORS+3..O::COLORS+15].copy_from_slice(&self.base);self.flashing=false;},
             _=>{},
         }
     }

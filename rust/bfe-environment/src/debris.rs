@@ -49,15 +49,15 @@ impl Phase {
         let(mut middle,mut size)=(Vector3::default(),Vector3::default());
         if center&&valid{middle.add_vectors(&lo,&hi).multiply_scalar(0.5);size.sub_vectors(&hi,&lo);p.lift=v8math::min(v8math::min(size.x,size.y),size.z)/2.;p.thin=if size.x<=size.y&&size.x<=size.z{0}else if size.y<=size.z{1}else{2};p.shift=Some(middle);}
         matrix.decompose(&mut p.position,&mut p.q,&mut Vector3::default());
-        if center{p.position.copy(&middle.apply_matrix4(&matrix));p.position.y=v8math::max(p.position.y,c[input::FLOOR]+size.y/2.);}
+        if center{p.position.copy(middle.apply_matrix4(&matrix));p.position.y=v8math::max(p.position.y,c[input::FLOOR]+size.y/2.);}
         let mut d=Vector3::default();d.sub_vectors(&p.position,&v(input::ORIGIN));d.y+=0.25*d.length();if d.length_sq()<1e-8{d.set(0.,1.,0.);}
-        p.resting=c[input::STILL]!=0.;if p.resting{p.left=f64::INFINITY;}else{let health=c[input::HEALTH];let factor=if health<=-50.{1.}else{v8math::min(0.1-(0.9*health)/50.,1.)};p.velocity=*d.normalize().multiply_scalar(c[input::SPEED]).add(&v(input::VELOCITY)).multiply_scalar(factor);}
+        p.resting=c[input::STILL]!=0.;if p.resting{p.left=f64::INFINITY;}else{let health=c[input::HEALTH];let factor=if health<=-50.{1.}else{v8math::min(0.1-(0.9*health)/50.,1.)};p.velocity = *d.normalize().multiply_scalar(c[input::SPEED]).add(&v(input::VELOCITY)).multiply_scalar(factor);}
         // The model children are CPU resource transforms. Return their
         // recentered coordinates with this same admission, rather than
         // running a second host geometry transform or one call per child.
         if let Some(shift)=p.shift {
             let count=(self.input[input::CHILD_COUNT] as usize).min(lim::CHILDREN);
-            for child in self.input[input::CHILDREN..input::CHILDREN+count*3].chunks_exact_mut(3){child[0]-=shift.x;child[1]-=shift.y;child[2]-=shift.z;}
+            for child in self.input[input::CHILDREN..input::CHILDREN+count*3].as_chunks_mut::<3>().0{child[0]-=shift.x;child[1]-=shift.y;child[2]-=shift.z;}
         }
         self.scratch[scratch::OUT..scratch::OUT+3].copy_from_slice(&[d.x,d.y,d.z]);
         p.previous=p.position;self.event(id,&p,event::ADMIT,host);self.pieces[id]=Some(p);self.order.push(id);
@@ -132,7 +132,7 @@ mod tests {
         fn low(&mut self,_:usize,_:Quaternion)->f64{0.}
         fn event(&mut self,_:usize,_:f64,_:&[f64]){self.events+=1;}
     }
-    fn launch(phase:&mut Phase){phase.input[input::MATRIX..input::MATRIX+16].copy_from_slice(&Matrix4::default().elements);phase.input[input::MATRIX+13]=0.5;phase.input[input::ORIGIN+1]=0.5;phase.input[input::HEALTH]=-50.;phase.input[input::SPEED]=8.;phase.input[input::COLLISIONS]=3.;phase.input[input::TRAIL]=1.;}
+    fn launch(phase:&mut Phase){phase.input[input::MATRIX..input::MATRIX+16].copy_from_slice(&Matrix4::default().elements);phase.input[input::MATRIX+13]=0.5;phase.input[input::ORIGIN+1]=0.5;phase.input[input::HEALTH] = -50.;phase.input[input::SPEED]=8.;phase.input[input::COLLISIONS]=3.;phase.input[input::TRAIL]=1.;}
     #[test]fn classic_flight_bounces_rests_and_retires(){let mut p=Phase::new();let mut scene=Scene::default();launch(&mut p);p.launch(0,&mut scene);assert_eq!(p.pieces[0].unwrap().velocity,Vector3::new(0.,8.,0.));
         for _ in 0..240{p.update(1./60.,&mut scene);}assert!(scene.hits>0);let piece=p.pieces[0].unwrap();assert!(piece.resting);assert_eq!(piece.velocity,Vector3::default());assert!(piece.position.y>=0.05);
         for _ in 0..900{p.update(1./60.,&mut scene);}assert!(p.order.is_empty());assert_eq!(p.free(),0);

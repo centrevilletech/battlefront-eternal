@@ -794,6 +794,8 @@ impl Animator {
         } else {
             1.2566371
         };
+        // Rounded angle threshold ported verbatim from SoldierAnimator.gaitFor.
+        #[allow(clippy::approx_constant)]
         let ll = if alert { -0.7853982 } else { -1.2566371 };
         let lh = if alert { 0.5497787 } else { 1.2566371 };
         if angle > lo && angle < hi {
@@ -828,6 +830,8 @@ impl Animator {
     /// step ends. Snapping straight to zero would change the next turn edge.
     fn turn_in_place(&mut self, dt: f64, posture: usize, t: &Tables, clips: &[DisplayClip]) {
         if self.turn.is_none() {
+            // Rounded posture turn thresholds ported verbatim from SoldierAnimator.turnInPlace.
+            #[allow(clippy::approx_constant)]
             let (lo, hi) = match posture {
                 0 => (-0.7068, 0.3927),
                 1 => (-1.1781, 0.3927),

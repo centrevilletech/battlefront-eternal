@@ -72,10 +72,10 @@ impl Meter {
         let n = PHASES * TAPS;
         let mut h = [0.0f64; PHASES * TAPS];
         let mid = (n as f64 - 1.0) / 2.0;
-        for i in 0..n {
+        for (i, slot) in h.iter_mut().enumerate().take(n) {
             let t = (i as f64 - mid) / PHASES as f64;
             let sinc = if t == 0.0 { 1.0 } else { host::sin(std::f64::consts::PI * t) / (std::f64::consts::PI * t) };
-            h[i] = sinc * (0.5 - 0.5 * host::cos((2.0 * std::f64::consts::PI * (i as f64 + 0.5)) / n as f64));
+            *slot = sinc * (0.5 - 0.5 * host::cos((2.0 * std::f64::consts::PI * (i as f64 + 0.5)) / n as f64));
         }
         let mut phases = [[0.0f32; TAPS]; PHASES];
         for p in 0..PHASES {
@@ -170,8 +170,8 @@ impl Meter {
             let (mut s0, mut s1, mut s2, mut s3, mut s4, mut s5, mut s6, mut s7) = (s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]);
             let mut chan_peak = self.chan_peak[c];
             let mut hpos = h0;
-            for i in from..to {
-                let v = x[i] as f64;
+            for (i, &sample) in x.iter().enumerate().take(to).skip(from) {
+                let v = sample as f64;
                 // Two biquads, direct form I.
                 let y1 = pb0 * v + pb1 * s0 + pb2 * s1 - pa0 * s2 - pa1 * s3;
                 s1 = s0;
@@ -195,8 +195,8 @@ impl Meter {
                 let top = hpos + TAPS;
                 for taps in [p1, p2, p3] {
                     let mut acc = 0.0;
-                    for k in 0..TAPS {
-                        acc += taps[k] as f64 * self.hist[c][top - k] as f64;
+                    for (k, &tap) in taps.iter().enumerate() {
+                        acc += tap as f64 * self.hist[c][top - k] as f64;
                     }
                     if acc.abs() > tp {
                         tp = acc.abs();

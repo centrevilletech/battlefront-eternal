@@ -93,6 +93,8 @@ fn put_v(a: &mut [f64], i: usize, v: Vector3) {
 fn put_q(a: &mut [f64], i: usize, q: Quaternion) {
     a[i..i + 4].copy_from_slice(&[q.x, q.y, q.z, q.w]);
 }
+// Seat descriptor extraction across camera pose, aim, and weapon tables.
+#[allow(clippy::too_many_arguments)]
 fn seat(
     a: &[f64],
     eye: usize,

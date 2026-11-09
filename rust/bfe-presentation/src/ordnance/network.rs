@@ -290,40 +290,6 @@ impl Combat {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn launch(c:&mut Combat,id:f64,tick:f64) {
-        c.input.fill(0.0);c.input[i::ID]=id;c.input[i::GENERATION]=1.0;c.input[i::SCHEMA]=1.0;
-        c.input[i::TICK]=tick;c.input[i::EXPIRY_TICK]=tick+120.0;c.input[i::EXECUTION_TICK]=tick;
-        c.input[i::LAUNCH_TICK]=tick;c.input[i::SPEED]=60.0;c.input[i::LIFE]=1.0;
-        c.input[i::MERGE]=8.0;c.input[i::DIRECTION+2]=1.0;
-    }
-    #[test]
-    fn paused_burst_and_full_bank_never_panic_or_replace_identity() {
-        let mut c=Combat::new(4);
-        for id in 1..=10000 {
-            launch(&mut c,id as f64,10.0);
-            let accepted=c.receive(1.0,10.0);
-            assert_eq!(accepted,id<=4);if accepted {assert!(c.resolve(false));}
-        }
-        assert_eq!(c.ids.len(),4);assert_eq!(c.flashes.len(),1);
-        c.present(200.0);assert!(c.ids.is_empty());
-        launch(&mut c,10001.0,200.0);assert!(c.receive(1.0,200.0));assert!(c.resolve(false));
-        assert!(c.ids.contains_key(&10001));assert!(!c.ids.contains_key(&1));
-    }
-    #[test]
-    fn terminal_waits_for_playout_and_repeated_launch_is_rejected() {
-        let mut c=Combat::new(8);launch(&mut c,7.0,10.0);
-        assert!(c.receive(1.0,10.0));c.resolve(false);c.present(10.0);
-        c.input[i::SCHEMA]=2.0;c.input[i::TICK]=12.0;c.input[i::POSITION+2]=3.0;c.input[i::SURFACE]=2.0;
-        assert!(c.receive(1.0,12.0));c.resolve(false);
-        c.settle(12.0);assert_eq!(c.result[r::ROWS],0.0);
-        c.settle(13.0);assert_eq!(c.output[o::KIND],k::IMPACT as f64);
-        c.settle(14.0);assert_eq!(c.result[r::ROWS],0.0);
-        launch(&mut c,7.0,10.0);assert!(!c.receive(1.0,14.0));
-    }
-}
 
 // CombatPresentation.impact selects authored names, not resource objects.
 // Water's nullish default deliberately differs from the other truthy fallbacks.
@@ -406,4 +372,39 @@ pub fn impact_name(effect:usize,text:&str)->Result<String,String>{
     if effect==5{return Ok("watersplash_ord".into());}
     let d:serde_json::Value=serde_json::from_str(text).map_err(|e|e.to_string())?;
     Ok(IMPACT_FIELDS.get(effect).and_then(|k|d[*k].as_str()).unwrap_or("").to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn launch(c:&mut Combat,id:f64,tick:f64) {
+        c.input.fill(0.0);c.input[i::ID]=id;c.input[i::GENERATION]=1.0;c.input[i::SCHEMA]=1.0;
+        c.input[i::TICK]=tick;c.input[i::EXPIRY_TICK]=tick+120.0;c.input[i::EXECUTION_TICK]=tick;
+        c.input[i::LAUNCH_TICK]=tick;c.input[i::SPEED]=60.0;c.input[i::LIFE]=1.0;
+        c.input[i::MERGE]=8.0;c.input[i::DIRECTION+2]=1.0;
+    }
+    #[test]
+    fn paused_burst_and_full_bank_never_panic_or_replace_identity() {
+        let mut c=Combat::new(4);
+        for id in 1..=10000 {
+            launch(&mut c,id as f64,10.0);
+            let accepted=c.receive(1.0,10.0);
+            assert_eq!(accepted,id<=4);if accepted {assert!(c.resolve(false));}
+        }
+        assert_eq!(c.ids.len(),4);assert_eq!(c.flashes.len(),1);
+        c.present(200.0);assert!(c.ids.is_empty());
+        launch(&mut c,10001.0,200.0);assert!(c.receive(1.0,200.0));assert!(c.resolve(false));
+        assert!(c.ids.contains_key(&10001));assert!(!c.ids.contains_key(&1));
+    }
+    #[test]
+    fn terminal_waits_for_playout_and_repeated_launch_is_rejected() {
+        let mut c=Combat::new(8);launch(&mut c,7.0,10.0);
+        assert!(c.receive(1.0,10.0));c.resolve(false);c.present(10.0);
+        c.input[i::SCHEMA]=2.0;c.input[i::TICK]=12.0;c.input[i::POSITION+2]=3.0;c.input[i::SURFACE]=2.0;
+        assert!(c.receive(1.0,12.0));c.resolve(false);
+        c.settle(12.0);assert_eq!(c.result[r::ROWS],0.0);
+        c.settle(13.0);assert_eq!(c.output[o::KIND],k::IMPACT as f64);
+        c.settle(14.0);assert_eq!(c.result[r::ROWS],0.0);
+        launch(&mut c,7.0,10.0);assert!(!c.receive(1.0,14.0));
+    }
 }

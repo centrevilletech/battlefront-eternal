@@ -161,7 +161,7 @@ fn elect_shortest(x: f64, digits: &str, n: i32) -> (String, i32) {
         let distance = candidate_distance(x, &candidate, exp10);
         // The spec's order: fewest digits, then closest, then the
         // even last digit.
-        let last_even = |d: &str| d.bytes().last().map(|b| (b - b'0') % 2 == 0).unwrap_or(false);
+        let last_even = |d: &str| d.bytes().last().map(|b| (b - b'0').is_multiple_of(2)).unwrap_or(false);
         let take = match &best {
             None => true,
             Some((best_distance, best_digits, _)) => {

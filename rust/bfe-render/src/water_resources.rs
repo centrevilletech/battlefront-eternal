@@ -44,9 +44,9 @@ fn geometry(data:&Value,columns:usize,rows:usize)->Result<Geometry,&'static str>
  }
  // BufferGeometry.computeBoundingSphere consumed rounded Float32 positions.
  // Bounds must use those stored values, not their pre-conversion source.
- let mut lo=[f64::INFINITY;3];let mut hi=[f64::NEG_INFINITY;3];for p in vertices.chunks_exact(5){for j in 0..3{lo[j]=lo[j].min(p[j] as f64);hi[j]=hi[j].max(p[j] as f64);}}
+ let mut lo=[f64::INFINITY;3];let mut hi=[f64::NEG_INFINITY;3];for p in vertices.as_chunks::<5>().0{for j in 0..3{lo[j]=lo[j].min(p[j] as f64);hi[j]=hi[j].max(p[j] as f64);}}
  if vertices.is_empty(){lo=[0.;3];hi=[0.;3];}
- let c=std::array::from_fn::<_,3,_>(|j|(lo[j]+hi[j])*0.5);let mut radius:f64=0.;for p in vertices.chunks_exact(5){let d=std::array::from_fn::<_,3,_>(|j|p[j] as f64-c[j]);radius=radius.max(d[0]*d[0]+d[1]*d[1]+d[2]*d[2]);}
+ let c=std::array::from_fn::<_,3,_>(|j|(lo[j]+hi[j])*0.5);let mut radius:f64=0.;for p in vertices.as_chunks::<5>().0{let d=std::array::from_fn::<_,3,_>(|j|p[j] as f64-c[j]);radius=radius.max(d[0]*d[0]+d[1]*d[1]+d[2]*d[2]);}
  Ok(Geometry{vertices,index,stride:5,bounds:[c[0],c[1],c[2],radius.sqrt(),lo[0],lo[1],lo[2],hi[0],hi[1],hi[2]]})
 }
 // Stable data fields are independent of catalog slots. The cold native compiler
@@ -65,7 +65,7 @@ pub fn sampler(name:&str)->bool{matches!(name,"waterMap"|"foamMap"|"mask"|"skyPr
 // clocks, contact rows, camera facts and logical sampler identities.
 pub fn defaults(kind:usize,source:&WaterSource)->Result<Vec<f64>,&'static str>{
  let fields=fields(kind)?;let mut values=vec![0.;fields.iter().map(|(_,s)|*s as usize).sum()];
- let mut put=|name:&str,v:&[f64]|{if let Some((at,n))=field(fields,name){for(i,x)in v.iter().take(n).enumerate(){values[at+i]=*x;}}};
+ let mut put=|name:&str,v:&[f64]|{if let Some((at,n))=field(fields,name){for(i,&x)in v.iter().take(n).enumerate(){values[at+i]=x;}}};
  let look=&source.look;let scale=source.scale;let tint=color(look,"RefractionColor");let reflection=color(look,"ReflectionColor");
  put("tint",&tint);put("reflectAmount",&[reflection[3]]);put("fresnel",&pair(look,"FresnelMinMax",[0.2,0.9]));
  for(name,key,multiplier,default)in [("tile","Tile",scale,[1.,1.]),("velocity","Velocity",1./scale,[0.,0.]),("maskTile","SpecularMaskTile",scale,[1.,1.]),("maskVelocity","SpecularMaskScrollSpeed",1./scale,[0.,0.])]{put(name,&pair(look,key,default).map(|x|x*multiplier));}

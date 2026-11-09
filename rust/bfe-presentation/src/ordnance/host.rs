@@ -21,6 +21,11 @@ pub struct Class {
     pub row:[f64;crate::ordnance_layout::ordnance_style::STRIDE],
     loaded:[bool;4],look:bool,
 }
+impl Default for Host {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Host {
     pub fn new()->Self{Self{input:vec![0.0;f::STRIDE+limits::RECORDS*h::STRIDE],records:0,net_count:0,serial:0.0,classes:Vec::with_capacity(limits::STYLES),batches:0,dropped:0,reported:false,
         slots:vec![false;limits::NET_SLOTS],free:(0..limits::NET_SLOTS).rev().collect()}}
@@ -62,7 +67,8 @@ impl Ordnance {
                 (h::QUATERNION,flag::HAS_QUATERNION),(h::VELOCITY,flag::HAS_VELOCITY)] {
                 if present(a[raw]){bits|=1<<flag;}
             }
-            if a[h::HAS_MESH]!=0.0{bits|=1<<flag::HAS_MESH;}if a[h::HAS_TRAIL]!=0.0{bits|=1<<flag::HAS_TRAIL;}
+            if a[h::HAS_MESH]!=0.0{bits|=1<<flag::HAS_MESH;}
+            if a[h::HAS_TRAIL]!=0.0{bits|=1<<flag::HAS_TRAIL;}
             if present(a[h::MUZZLE]) {
                 if kind==k::BOLT{bits|=1<<(a[h::RESOLVE] as u32).min(31);}
                 else if kind==k::ROUND&&present(a[h::LAUNCH]){bits|=1<<flag::RESOLVE_ROUND;}
@@ -125,7 +131,7 @@ impl Ordnance {
 impl Ordnance {
     pub fn host_net_sample(&mut self,at:usize,slot:usize,style:i32,flags:u32,text:&str)->Result<(),String>{
         use crate::ordnance_layout::{net_command as n,net_kind,net_type};
-        if at%n::STRIDE!=0||at.checked_add(n::STRIDE).is_none_or(|end|end>self.net_input.len()){self.host.dropped+=1;return Ok(());}
+        if !at.is_multiple_of(n::STRIDE)||at.checked_add(n::STRIDE).is_none_or(|end|end>self.net_input.len()){self.host.dropped+=1;return Ok(());}
         let e:serde_json::Value=serde_json::from_str(text).map_err(|e|e.to_string())?;
         let row=&mut self.net_input[at..at+n::STRIDE];row.fill(0.0);
         row[n::KIND]=net_kind::SAMPLE as f64;row[n::SLOT]=slot.min(limits::NET_SLOTS) as f64;

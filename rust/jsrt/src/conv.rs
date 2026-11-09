@@ -69,9 +69,7 @@ pub fn to_uint8_clamp(x: f64) -> u8 {
     let f = x.floor();
     let r = if x - f > 0.5 {
         f + 1.0
-    } else if x - f < 0.5 {
-        f
-    } else if (f as i64) % 2 == 0 {
+    } else if x - f < 0.5 || (f as i64) % 2 == 0 {
         f
     } else {
         f + 1.0
@@ -342,7 +340,10 @@ mod tests {
         assert_eq!(js_hypot2(-0.0, 0.0).to_bits(), 0.0f64.to_bits());
         assert!(js_hypot2(f64::NAN, 1.0).is_nan());
         assert_eq!(js_hypot2(f64::NAN, f64::NEG_INFINITY), f64::INFINITY);
-        assert_eq!(js_hypot2(0.7071067811865476, 0.7071067811865476), 1.0000000000000002);
+        assert_eq!(
+            js_hypot2(core::f64::consts::FRAC_1_SQRT_2, core::f64::consts::FRAC_1_SQRT_2),
+            1.0000000000000002
+        );
         assert_eq!(js_hypot2(1.0, 1e-17), 1.0);
         assert_eq!(js_hypot2(0.1, 0.2), 0.223606797749979);
         assert_eq!(js_hypot(&[]), 0.0);

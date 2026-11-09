@@ -51,15 +51,15 @@ impl Outbound {
     // emits only a cosmetic callback; durable press/release edges remain on
     // the reliable transport until the server explicitly receipts them.
     fn triggers(&mut self,held:&[u16],length:usize,taps:[usize;2]){
-        for button in 0..2 {
+        for (button, &tap_count) in taps.iter().enumerate() {
             let key=[77u16,111,117,115,101,if button==0{48}else{50}];
             let mut at=0;let mut down=false;
             while at<length{let n=held[at]as usize;at+=1;if held[at..at+n]==key{down=true;}at+=n;}
             let mut emitted=false;
-            for tap in 0..taps[button]{
+            for tap in 0..tap_count{
                 if self.fire_held[button]{self.fire(button,false,false);self.fire_held[button]=false;}
                 self.fire(button,true,false);self.fire_held[button]=true;emitted=true;
-                if tap+1<taps[button]||!down{self.fire(button,false,false);self.fire_held[button]=false;}
+                if tap+1<tap_count||!down{self.fire(button,false,false);self.fire_held[button]=false;}
             }
             if down!=self.fire_held[button]{self.fire(button,down,false);self.fire_held[button]=down;emitted=true;}
             if !emitted&&self.fire_held[button]{self.fire(button,true,true);}
@@ -129,7 +129,7 @@ impl Outbound {
                 if reset {*self=Self::default();self.life=Some(life);}
                 // Add individual samples in source order. A page-side sum
                 // would change floating-point cancellation across commands.
-                for look in looks.chunks_exact(2){self.look[0]+=look[0];self.look[1]+=look[1];}
+                for look in looks.as_chunks::<2>().0{self.look[0]+=look[0];self.look[1]+=look[1];}
                 let changed=self.held.as_ref().is_some_and(|(last,n)|*n!=length || last[..*n]!=held[..length]);
                 if changed {self.transition=Some([sequence,tick]);}
                 if changed || self.held.is_none(){self.revision=self.revision.wrapping_add(1);}

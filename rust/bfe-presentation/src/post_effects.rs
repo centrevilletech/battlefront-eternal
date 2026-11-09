@@ -101,7 +101,7 @@ impl Posts {
     pub fn new(descriptor: Descriptor) -> Self {
         let look = descriptor.look;
         let mut input = vec![0.; limits::POSTS * f::STRIDE];
-        for row in input.chunks_exact_mut(f::STRIDE) {
+        for row in input.as_chunks_mut::<{ f::STRIDE }>().0 {
             row[f::FLICKER] = 1.;
             row[f::HALO_SCALE..f::HALO_SCALE + 3].copy_from_slice(&[
                 2.6,

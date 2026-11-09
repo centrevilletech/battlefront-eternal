@@ -104,8 +104,8 @@ impl Sha256 {
     /// Compresses a single 512-bit message block into the running 256-bit state.
     fn compress(state: &mut [u32; 8], block: &[u8; 64]) {
         let mut w = [0u32; 64];
-        for (i, chunk) in block.chunks_exact(4).enumerate() {
-            w[i] = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        for (i, &chunk) in block.as_chunks::<4>().0.iter().enumerate() {
+            w[i] = u32::from_be_bytes(chunk);
         }
         for i in 16..64 {
             let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
@@ -116,14 +116,14 @@ impl Sha256 {
                 .wrapping_add(s1);
         }
         let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = *state;
-        for i in 0..64 {
+        for (i, &w_i) in w.iter().enumerate() {
             let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
             let ch = (e & f) ^ ((!e) & g);
             let temp1 = h
                 .wrapping_add(s1)
                 .wrapping_add(ch)
                 .wrapping_add(Self::K[i])
-                .wrapping_add(w[i]);
+                .wrapping_add(w_i);
             let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
             let maj = (a & b) ^ (a & c) ^ (b & c);
             let temp2 = s0.wrapping_add(maj);
@@ -243,7 +243,7 @@ fn make_signal(kind: &str, channels: usize, blocks: usize, seed: u32) -> Vec<Vec
                     }
                     "tiny" => (rand() * 1e-38) as f32,
                     "square" => {
-                        if (((b * BLOCK + i) >> 4) % 2) != 0 {
+                        if !((b * BLOCK + i) >> 4).is_multiple_of(2) {
                             0.9
                         } else {
                             -0.9
@@ -544,6 +544,7 @@ fn mixer_matches_recorded_goldens() {
 /// invokes `drive(b)` to apply any scheduled parameter change, copies the planar
 /// input channels into the processor staging buffer, runs one block, and collects
 /// the planar output channels for SHA-256 verification.
+#[allow(clippy::too_many_arguments)]
 unsafe fn run_staged(
     in_ptr: impl Fn() -> *mut f32,
     out_ptr: impl Fn() -> *mut f32,
@@ -589,7 +590,8 @@ fn reverb_stabilizer_clarity_and_rates_match_recorded_goldens() {
             audio::reverb_params(h, initial);
         };
 
-        let reverb_cases: &[(&[(usize, f64)], usize, &str, usize, &str, usize)] = &[
+        type ReverbCase<'a> = (&'a [(usize, f64)], usize, &'a str, usize, &'a str, usize);
+        let reverb_cases: &[ReverbCase<'_>] = &[
             (&[(0, 0.08), (1, 0.8), (2, 0.8), (3, 0.6), (4, 0.2), (5, 0.02), (6, 0.7), (7, 0.03), (8, 1.0), (9, 1.0), (10, 5000.0)], 2, "noise", 300, "e573d890801716fb17d82cdd121c5409eeec088ed4a705b4c45f174e22f92659", 76800),
             (&[(0, 0.35), (1, 0.4), (2, 3.5), (3, 0.3), (4, 0.6), (5, 0.05), (6, 1.2), (7, 0.1), (8, 0.7), (9, 0.6), (10, 3000.0)], 6, "impulse", 600, "0f25e0d5a4c7d6254be3e417e8d03a9ce8a88a5c7b37a9f83dbc0f549700f155", 460800),
             (&[(0, 0.05), (1, 1.0), (2, 0.3), (3, 1.5), (4, 0.1), (5, 0.0), (6, 0.5), (7, 0.0), (8, 0.2), (9, 0.2), (10, 8000.0)], 2, "sine", 200, "c00136525b8ed0275b725313db44d821e0354e0ceff6391ab8499367788829a8", 51200),
@@ -757,7 +759,8 @@ fn limiter_and_meter_match_recorded_goldens_and_readings() {
             -0.0002852482073466172,
             -0.00008037323672175114,
         ];
-        let limiter_cases: &[([f64; 6], usize, &str, usize, &str, usize, &[f64])] = &[
+        type LimiterCase<'a> = ([f64; 6], usize, &'a str, usize, &'a str, usize, &'a [f64]);
+        let limiter_cases: &[LimiterCase<'_>] = &[
             ([0.0, 1.0, 0.0, 0.003, 0.25, -10.2], 2, "hot", 400, "e51f5684c877e5d7456cfa3c500bb7c67cb430777f4bf17d23cfa75b29cdffb5", 102400, &[0.0; 10]),
             ([-18.0, 2.0, 8.0, 0.025, 0.2, -2.3], 2, "noise", 400, "4289bd15511119065f322ee16dbe81b3631d0d572c5c4d786bdea98f987a18e6", 102400, &[0.0; 10]),
             ([-30.0, 5.0, 10.0, 0.004, 0.35, 10.6], 6, "square", 400, "3c5a562b5d7cdb4c41b11cbe72795e0c71695664a144bc1cedfd24339a506709", 307200, night_reports),

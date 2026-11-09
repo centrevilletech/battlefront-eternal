@@ -137,8 +137,8 @@ impl Kind {
         ship.position[0] -= f[2] * back[0] + f[0] * back[2];
         ship.position[1] -= back[1];
         ship.position[2] -= -f[0] * back[0] + f[2] * back[2];
-        for k in 0..3 {
-            ship.velocity[k] -= a[k] * t;
+        for (vel, &acc) in ship.velocity.iter_mut().zip(&a) {
+            *vel -= acc * t;
         }
         ship.age -= t;
         ship.entered = false;
@@ -215,13 +215,13 @@ fn within_reach(matrix: &[f64; 16], eye: [f64; 3], radius: f64, far: f64, out: &
     let distance = js_hypot3(x, y, z);
     let reach = far * REACH;
     *out = *matrix;
-    if !(distance + radius > reach) || !(reach > 0.0) {
+    if (distance + radius).partial_cmp(&reach) != Some(std::cmp::Ordering::Greater) || reach.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return 1.0;
     }
     let scale = reach / (distance + radius);
-    for i in 0..12 {
+    for (i, elem) in out.iter_mut().enumerate().take(12) {
         if i % 4 != 3 {
-            out[i] *= scale;
+            *elem *= scale;
         }
     }
     out[12] = eye[0] + x * scale;
@@ -235,7 +235,7 @@ fn within_reach(matrix: &[f64; 16], eye: [f64; 3], radius: f64, far: f64, out: &
 // How much of the sky behind it a ship takes on: none overhead or near, up to
 // HAZE low on the horizon three times the far plane away.
 pub fn haze(distance: f64, rise: f64, far: f64) -> f64 {
-    if !(distance > 0.0) || !(far > 0.0) {
+    if distance.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) || far.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return 0.0;
     }
     HAZE * (1.0 - smooth(0.04, 0.35, rise / distance)) * smooth(0.6, 3.0, distance / far)
@@ -443,8 +443,8 @@ impl Sky {
                 let fading = smooth_fades && alpha < SOLID;
                 let (m, l, at) = if fading { (2, 3, fadings) } else { (0, 1, solids) };
                 if fading { fadings += 1 } else { solids += 1 }
-                for k in 0..16 {
-                    kind.arrays[m][at * 16 + k] = drawn[k] as f32;
+                for (k, &val) in drawn.iter().enumerate() {
+                    kind.arrays[m][at * 16 + k] = val as f32;
                 }
                 kind.arrays[l][at * 4] = alpha as f32;
                 kind.arrays[l][at * 4 + 1] = mist as f32;

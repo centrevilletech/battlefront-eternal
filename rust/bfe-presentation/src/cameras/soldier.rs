@@ -276,6 +276,8 @@ pub fn ease_axes<M: Math>(cam: &mut Camera, target: V, rates: [f64; 6], dt: f64)
 // A droideka supplies its own scalar height through the outer phase instead.
 // HUD and speculative shots still have separate gameplay basis consumers.
 // This function is the sole eye writer used by the own camera phase.
+// SoldierCamera.combatEye eye/target/FOV solver across posture and first-person state.
+#[allow(clippy::too_many_arguments)]
 pub fn combat_eye<M: Math>(
     feet: V,
     position: V,

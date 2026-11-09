@@ -46,6 +46,8 @@ pub fn normalize(a: Point) -> Point { let n = length(a); scale(a, 1.0 / if n == 
 /// seed lets frozen scenes check the order of every gate and sample draw.
 pub struct Random(pub u32);
 impl Random {
+    // Mirrors the JS PRNG .next() method across audio-control and policy tests.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> f64 {
         self.0 = self.0.wrapping_mul(1664525).wrapping_add(1013904223);
         self.0 as f64 / 4294967296.0

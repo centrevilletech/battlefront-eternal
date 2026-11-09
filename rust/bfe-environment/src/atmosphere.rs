@@ -265,8 +265,10 @@ impl Batch {
         }
     }
 
+    // Billboard batch insertion taking 3D position, size, rotation, and alpha.
+    #[allow(clippy::too_many_arguments)]
     fn push(&mut self, depth: f64, x: f64, y: f64, z: f64, size: f64, angle: f64, alpha: f64) {
-        if self.used == CAPACITY || !(alpha > 0.001) {
+        if self.used == CAPACITY || alpha.partial_cmp(&0.001) != Some(std::cmp::Ordering::Greater) {
             return;
         }
         self.items[self.used] = [depth, x, y, z, size, angle, alpha];
@@ -346,7 +348,7 @@ impl Atmosphere {
     // the far, its alpha falling off with the squared distance's place between.
     fn fog_squares(fog: &Fog, time: f64, eye: &Vector3, right: &Vector3, up: &Vector3, forward: &Vector3, tan_x: f64, tan_y: f64, heights: &mut GroundHeights, ground: &mut dyn FnMut(f64, f64) -> f64, batch: &mut Batch) -> usize {
         let (near, far, cell, size) = (fog.near, fog.far, fog.cell, fog.size);
-        if !(far > near) || !(fog.density > 0.0) {
+        if far.partial_cmp(&near) != Some(std::cmp::Ordering::Greater) || fog.density.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
             return 0;
         }
         // A view direction's corners are normalized (the box around the view's slab
@@ -480,7 +482,7 @@ impl Atmosphere {
                 }
                 objects += 1;
                 for p in dust.particles.iter() {
-                    if !(p[9] > 0.0) {
+                    if p[9].partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
                         continue;
                     }
                     let x = at.x + p[0] as f64;

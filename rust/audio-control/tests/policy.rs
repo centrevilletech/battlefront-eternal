@@ -100,7 +100,7 @@ fn mine_landing_is_once_and_ticks_follow_whole_seconds() {
     let mut p=phase(); p.classes[0][class::TICK]=1.0; p.classes[0][class::TICK_PITCH]=0.5; p.classes[0][class::BOUNCE]=2.0; p.item_count=1;
     let r=&mut p.items[0]; r[item::PRESENT]=1.0; r[item::MINE]=1.0; r[item::MINE_BASE]=1.0; r[item::LANDING_SOURCE]=1.0; r[item::LANDED]=1.0; r[item::SPAN]=2.0; r[item::LIFE]=2.0;
     tick(&mut p,0.01,&[]); assert_eq!(live(&p,1),1); assert_eq!(live(&p,2),1); let n=p.engine.stats[2]; tick(&mut p,0.01,&[]); assert_eq!(p.engine.stats[2],n);
-    p.items[0][item::LIFE]=0.5; tick(&mut p,0.01,&[]); assert_eq!(p.engine.stats[2],n+1); assert_eq!(p.engine.voices.iter().filter(|v|!v.done&&v.sound==1).last().unwrap().pitch,0.625);
+    p.items[0][item::LIFE]=0.5; tick(&mut p,0.01,&[]); assert_eq!(p.engine.stats[2],n+1); assert_eq!(p.engine.voices.iter().rfind(|v|!v.done&&v.sound==1).unwrap().pitch,0.625);
 }
 #[test]
 fn round_loop_stops_when_the_published_round_disappears() {
@@ -123,8 +123,8 @@ fn hull_damage_death_and_crash_use_distinct_rules() {
 #[test]
 fn engine_reach_culling_returns_without_another_turn_on() {
     let mut p=phase(); actor(&mut p,0,3); p.classes[0][class::ENGINE]=1.0; p.classes[0][class::TURN_ON]=2.0; p.emitters[0][emitter::PILOTED]=1.0;
-    tick(&mut p,0.01,&[]); assert_eq!(live(&p,1),1); let on=started(&p,2); p.emitters[0][emitter::Z]=-1000.0; tick(&mut p,0.01,&[]); assert_eq!(live(&p,1),0);
-    p.emitters[0][emitter::Z]=-3.0; tick(&mut p,1.01,&[]); assert_eq!(live(&p,1),1); assert_eq!(started(&p,2),on);
+    tick(&mut p,0.01,&[]); assert_eq!(live(&p,1),1); let on=started(&p,2); p.emitters[0][emitter::Z] = -1000.0; tick(&mut p,0.01,&[]); assert_eq!(live(&p,1),0);
+    p.emitters[0][emitter::Z] = -3.0; tick(&mut p,1.01,&[]); assert_eq!(live(&p,1),1); assert_eq!(started(&p,2),on);
 }
 fn stream_bank(p:&mut Phase) {
     p.engine.sounds[8].kind=4; p.engine.sounds[8].stream=0;
@@ -148,7 +148,7 @@ fn stream_queue_retains_far_bias_and_respects_the_shared_interval() {
     let mut p=phase();stream_bank(&mut p);p.engine.sounds[8].interval=1.0;p.engine.sounds[8].bias=0.001;
     let mut line=Options::new(8,6);line.ask.position=Some([1000.0,0.0,0.0]);line.spatial=true;
     assert!(p.streams.queue(&mut p.engine,line));assert!(!p.streams.queue(&mut p.engine,line));tick(&mut p,0.01,&[]);assert_eq!(p.streams.requests.len(),1);
-    assert!(p.streams.busy(usize::MAX,&p.engine)==false,"a loading source does not duck");
+    assert!(!p.streams.busy(usize::MAX,&p.engine),"a loading source does not duck");
 }
 #[test]
 fn layout_selects_enhanced_stream_assets_in_the_native_phase() {
@@ -192,7 +192,7 @@ fn leaving_boundary_uses_the_current_listener_team() {
 fn probability_failure_uses_interval_and_cycle_picks_only_draw_once() {
     let mut p=phase();let sound=&mut p.engine.sounds[0];sound.interval=1.0;sound.probability=0.0;
     assert_eq!(p.play(Ask::new(0,0)),SILENT);let seed=p.engine.random.0;assert_eq!(p.play(Ask::new(0,0)),SILENT);assert_eq!(p.engine.random.0,seed);
-    p.engine.time=2.0;p.engine.sounds[0].probability=1.0;p.engine.sounds[0].cycle=-1;
+    p.engine.time=2.0;p.engine.sounds[0].probability=1.0;p.engine.sounds[0].cycle = -1;
     let _=p.play(Ask::new(0,0));assert_eq!(p.engine.sounds[0].cycle,0);
     let seed=p.engine.random.0;let mut random=audio_control::Random(seed);random.next();random.spread();random.spread();p.engine.time=4.0;
     let _=p.play(Ask::new(0,0));assert_ne!(p.engine.random.0,seed);
@@ -266,7 +266,7 @@ fn placed_layer_children_keep_their_own_roll_in_and_roll_off() {
 }
 #[test]
 fn negative_loop_and_doppler_tags_are_not_enabled() {
-    let mut row=[f64::NAN;sound::STRIDE];row[sound::LOOP]=-1.0;row[sound::DOPPLER]=-1.0;let sound=Sound::load(&row,Vec::new());assert!(!sound.looping);assert!(!sound.doppler);
+    let mut row=[f64::NAN;sound::STRIDE];row[sound::LOOP] = -1.0;row[sound::DOPPLER] = -1.0;let sound=Sound::load(&row,Vec::new());assert!(!sound.looping);assert!(!sound.doppler);
 }
 #[test]
 fn release_tails_recycle_on_wall_time_while_the_device_clock_is_suspended() {

@@ -38,11 +38,11 @@ impl Splitter {
     fn allpass(&self, x: &mut [f32], n: usize) {
         let k = self.coeff;
         let mut z1 = 0.0;
-        for i in 0..n {
-            let xi = x[i] as f64;
+        for sample in &mut x[..n] {
+            let xi = *sample as f64;
             let y = xi * k + z1;
             z1 = xi - y * k;
-            x[i] = y as f32;
+            *sample = y as f32;
         }
     }
 

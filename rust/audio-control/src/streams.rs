@@ -164,6 +164,8 @@ impl Streams {
     }
     /// ports StreamVoice.next's asynchronous continuation. This is an asset
     /// readiness boundary, never another gameplay or per-emitter update.
+    // Stream asset readiness callback matching the decoded segment metadata fields.
+    #[allow(clippy::too_many_arguments)]
     pub fn ready(&mut self, e: &mut Engine, id: usize, generation: u64, part: usize, sample: usize, duration: f64, channels: usize) -> bool {
         let v = &mut self.voices[id]; if !v.active || v.generation != generation { return false; }
         if !v.bound { v.bound = true; if v.channels != channels { v.channels = channels; let kind = match v.category { VOICE => 1.0, MUSIC => 2.0, _ => 0.0 }; e.commands.extend_from_slice(&[render::STREAM_BIND as f64, id as f64, channels as f64, kind, v.spatial as u8 as f64]); } }
@@ -186,7 +188,7 @@ impl Streams {
     }
     pub fn stop(&mut self, e: &mut Engine, handle: u64, fade: f64) { if let Some(id) = self.id(handle) { self.stop_id(e, id, fade); } }
     pub fn failed(&mut self, e: &Engine, id: usize, generation: u64) -> bool { if id >= self.voices.len() || !self.voices[id].active || self.voices[id].generation != generation { return false; } self.finish(e, id); true }
-    pub fn stop_all(&mut self, e: &mut Engine, fade: f64) { for id in 0..STREAM_VOICES { self.stop_id(e, id, fade); } for q in &mut self.queues { *q = [None; 4]; } }
+    pub fn stop_all(&mut self, e: &mut Engine, fade: f64) { for id in 0..STREAM_VOICES { self.stop_id(e, id, fade); } self.queues.fill([None; 4]); }
     /// ports StreamVoice.update, including its five-millisecond queued handoff
     /// and eight-second lookahead. No segment choice or timing remains in JS.
     pub fn update(&mut self, e: &mut Engine, acoustics: &Acoustics, space_send: f64) {
@@ -224,7 +226,7 @@ impl Streams {
     fn place(e: &mut Engine, id: usize, v: &mut Voice, p: Point, span: f64, shape: crate::engine::Shape, reverb: f64) {
         if e.light { e.commands.extend_from_slice(&[render::STREAM_PLACE as f64, id as f64, p[0], p[1], p[2], 1.0, e.now]); return; }
         if e.hrtf {
-            for axis in 0..3 { let value = p[axis] * span.max(1.0); if v.position_target[axis].set(value, e.now, 0.01) { e.commands.extend_from_slice(&[render::POSITION as f64, (64 + id) as f64, axis as f64, value, 0.01, e.now, 0.0]); } }
+            for (axis, (&coord, target)) in p.iter().zip(&mut v.position_target).enumerate() { let value = coord * span.max(1.0); if target.set(value, e.now, 0.01) { e.commands.extend_from_slice(&[render::POSITION as f64, (64 + id) as f64, axis as f64, value, 0.01, e.now, 0.0]); } }
         } else {
             let spread = if e.enhanced { shape.spread.max((1.0 - span / 1.5).clamp(0.0, 1.0) * 0.6) } else { shape.spread };
             let lfe = if e.enhanced && e.lfe { shape.lfe * 0.5 } else { 0.0 }; let sent = [p[0] as f32, p[1] as f32, p[2] as f32, spread as f32, lfe as f32];

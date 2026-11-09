@@ -86,7 +86,7 @@ impl Lightning{
  pub fn definition(&mut self,def:Definition)->usize{let id=self.defs.len();self.defs.push(def);id}
  // Actor admission allocates only cold topology. Parent indices must precede
  // children; invalid and oversized nodes are ignored without frame panics.
- pub fn actor(&mut self,id:usize,mut actor:Actor)->usize{if id>=lim::UNITS{return NONE;}self.shocks[id].joints=[Joint::default();lim::JOINTS];let n=actor.parents.len().min(lim::NODES_PER_UNIT);actor.parents.truncate(n);for (i,p) in actor.parents.iter_mut().enumerate(){if *p>=i as i32{*p=-1;}}
+ pub fn actor(&mut self,id:usize,mut actor:Actor)->usize{if id>=lim::UNITS{return NONE;}self.shocks[id].joints=[Joint::default();lim::JOINTS];let n=actor.parents.len().min(lim::NODES_PER_UNIT);actor.parents.truncate(n);for (i,p) in actor.parents.iter_mut().enumerate(){if *p>=i as i32{*p = -1;}}
   actor.bones.retain(|i|*i<n);actor.bones.truncate(n);actor.low.retain(|i|*i<n);actor.low.truncate(n);actor.twitch.retain(|(i,_)|*i<n);actor.twitch.truncate(lim::JOINTS);actor.chest=actor.chest.filter(|i|*i<n);let start=self.actors[id].node_start.unwrap_or(self.nodes.len());
   // Local pose slabs are admitted with the actor, not reserved for the whole
   // army. Reusing a host slot retains its slab through subsequent lives.
@@ -111,7 +111,7 @@ impl Lightning{
   if classic{b.seed_a=seed(random);b.seed_b=seed(random);}b.born=self.time;
   if enhanced{b.charge=if b.charge.is_nan(){0.}else{b.charge.clamp(0.,1.)};b.life=d.fade_time.filter(|x|*x!=0.).unwrap_or(0.6).max(0.25)+0.1;b.seed=seed(random);b.jag=seed(random);b.branch_seed=seed(random);
    b.rgb=rgb(d.color.unwrap_or([130.,170.,255.,255.]),1.6);b.child_rgb=rgb(d.child_color.or(d.color).unwrap_or([140.,180.,255.,100.]),1.4);
-   b.child_count=((d.num_children.unwrap_or(1.)*b.charge).floor() as usize).max(1).min(lim::CHILDREN);for child in &mut b.children[..b.child_count]{child.seed=seed(random);child.on=true;}
+   b.child_count=((d.num_children.unwrap_or(1.)*b.charge).floor() as usize).clamp(1, lim::CHILDREN);for child in &mut b.children[..b.child_count]{child.seed=seed(random);child.on=true;}
    let mut parent=false;for &i in &self.order{let other=self.bolts[i];if self.time-other.born<0.25&&other.end.distance_to_squared(&b.start)<1e-4{parent=true;b.delay=other.delay+0.05;b.source=other.target;b.source_gen=other.target_gen;self.bolts[i].air=false;}}
    let count=(self.frame[f::ORDER_COUNT] as usize).min(lim::UNITS);
    if b.follow{let at=vec(&self.spawn,sp::FOLLOW_AT);let mut nearest=0.25;
@@ -147,9 +147,12 @@ impl Lightning{
  fn bolt_from(&mut self,b:&Bolt)->V{if self.same(b.shooter,b.shooter_gen)&&self.fact(b.shooter,u::DEAD)==0.&&self.fact(b.shooter,u::MOUNTED)==0.&&self.fact(b.shooter,u::HAS_WEAPON)!=0.&&self.fact(b.shooter,u::HAS_MUZZLE)!=0.{return self.point(b.shooter,u::MUZZLE);}
   if self.same(b.source,b.source_gen){return if self.shield(b.source){self.on_shield(b.source,b.to)}else{self.chest(b.source)};}b.start
  }
- fn bolt_to(&mut self,b:&Bolt)->V{if self.same(b.target,b.target_gen){if self.own(b.target)&&self.fact(b.target,u::HAS_HAND)!=0.{return self.point(b.target,u::HAND);}if self.shield(b.target)&&self.outside(b.target,b.from){return self.on_shield(b.target,b.from);}return self.chest(b.target);}b.end}
+ fn bolt_to(&mut self,b:&Bolt)->V{if self.same(b.target,b.target_gen){if self.own(b.target)&&self.fact(b.target,u::HAS_HAND)!=0.{return self.point(b.target,u::HAND);}
+  if self.shield(b.target)&&self.outside(b.target,b.from){return self.on_shield(b.target,b.from);}return self.chest(b.target);}b.end}
  // Ports ArcBatch.push and ArcLightning.line. Counts clamp before every store,
  // including lines, whose old reserve() did not protect its direct writes.
+ // Capsule segment emitter for lightning bolts and arcs.
+ #[allow(clippy::too_many_arguments)]
  fn push(&mut self,a:V,b:V,na:V,nb:V,rgb:[f64;3],brightness:f64,core:f64,glow:f64,hot:f64){
   if brightness<=0.002{return;}let key=if self.view{h::VIEW_CAPSULES}else{h::CAPSULES};let n=self.counts[key] as usize;if n==lim::CAPSULES{self.counts[h::DROPPED]=self.counts[h::DROPPED].saturating_add(1);return;}
   let d=if self.view{&mut self.view_capsules}else{&mut self.capsules};let o=n*ca::STRIDE;
@@ -157,10 +160,12 @@ impl Lightning{
   d[o+ca::COLOR]=rgb[0] as f32;d[o+ca::COLOR+1]=rgb[1] as f32;d[o+ca::COLOR+2]=rgb[2] as f32;d[o+ca::COLOR+3]=brightness as f32;
   d[o+ca::SIZE]=core as f32;d[o+ca::SIZE+1]=glow as f32;d[o+ca::SIZE+2]=hot as f32;d[o+ca::SIZE+3]=0.;self.counts[key]+=1;
  }
+ // Polyline capsule emitter with miter normals and taper.
+ #[allow(clippy::too_many_arguments)]
  fn line(&mut self,path:&Path,shown:f64,rgb:[f64;3],brightness:f64,core:f64,glow:f64,hot:f64,taper:f64){
   let n=(shown.ceil() as usize).min(path.count.saturating_sub(1));if n<1||brightness<=0.002{return;}let mut normals=[V::default();POINTS];
-  for i in 1..n{let into=sub(path.points[i],path.points[i-1]);let out=sub(path.points[i+1],path.points[i]);let li=into.length();let lo=out.length();if li<1e-6||lo<1e-6{continue;}
-   let ni=mul(into,1./li);let m=add(ni,mul(out,1./lo));let length=m.length();normals[i]=if length<0.1{ni}else{mul(m,1./length)};
+  for (i, normal) in normals.iter_mut().enumerate().take(n).skip(1){let into=sub(path.points[i],path.points[i-1]);let out=sub(path.points[i+1],path.points[i]);let li=into.length();let lo=out.length();if li<1e-6||lo<1e-6{continue;}
+   let ni=mul(into,1./li);let m=add(ni,mul(out,1./lo));let length=m.length();*normal=if length<0.1{ni}else{mul(m,1./length)};
   }
   let last=path.count.saturating_sub(1).max(1) as f64;for i in 0..n{let a=path.points[i];let b=if i==n-1&&shown<(n as f64){mix(a,path.points[i+1],shown-i as f64)}else{path.points[i+1]};let scale=1.+(taper-1.)*((i as f64+0.5)/last);
    self.push(a,b,if i>0{normals[i]}else{V::default()},if i+1<n{normals[i+1]}else{V::default()},rgb,brightness,core*scale,glow*scale,hot);
@@ -168,6 +173,8 @@ impl Lightning{
  }
  // Ports Lightning.strand/ribbon. Branch start records are stack scratch,
  // because recursive strands overwrite the reusable main point bank.
+ // Classic ribbon strand generator matching Lightning.strand.
+ #[allow(clippy::too_many_arguments)]
  fn strand(&mut self,from:V,to:V,half_width:f64,spread:f64,break_distance:f64,texture_size:f64,color:[f64;4],seed_a:u32,seed_b:u32,phase:f64,branches:Option<[f64;4]>){
   let length=from.distance_to(&to);let n=((length/break_distance.max(1e-3)).floor() as usize).max(3);if n>100{return;}
   let dir=mul(sub(to,from),1./length.max(1e-6));let mut ra=ShapeRandom(seed_a);let mut rb=ShapeRandom(seed_b);let mut points=[V::default();102];let mut offsets=[V::default();102];let mut widths=[0.;102];
@@ -177,12 +184,13 @@ impl Lightning{
   let base=self.counts[h::VERTICES] as usize;let idx=self.counts[h::INDICES] as usize;
   if base+(n+1)*2<=lim::VERTICES&&idx+n*6<=lim::VERTICES*3{let eye=vec(&self.frame,f::EYE);let mut u=0.;let mut vertex=base;
    for i in 0..=n{let p=points[i];let prev=points[i.saturating_sub(1)];let next=points[(i+1).min(n)];let side=mul(norm(cross(sub(next,prev),sub(eye,p))),widths[i]);if i>0{u+=p.distance_to(&prev)/texture_size.max(1e-3);}let alpha=if i==0||i==n{0.}else{color[3]};
-    for (sign,v) in [(1.,0.),(-1.,1.)]{self.positions[vertex*3]=(p.x+side.x*sign) as f32;self.positions[vertex*3+1]=(p.y+side.y*sign) as f32;self.positions[vertex*3+2]=(p.z+side.z*sign) as f32;self.uvs[vertex*2]=u as f32;self.uvs[vertex*2+1]=v;for k in 0..3{self.colors[vertex*4+k]=color[k] as f32;}self.colors[vertex*4+3]=alpha as f32;vertex+=1;}
+    for (sign,v) in [(1.,0.),(-1.,1.)]{self.positions[vertex*3]=(p.x+side.x*sign) as f32;self.positions[vertex*3+1]=(p.y+side.y*sign) as f32;self.positions[vertex*3+2]=(p.z+side.z*sign) as f32;self.uvs[vertex*2]=u as f32;self.uvs[vertex*2+1]=v;for (k, &c) in color.iter().take(3).enumerate(){self.colors[vertex*4+k]=c as f32;}self.colors[vertex*4+3]=alpha as f32;vertex+=1;}
    }
    for i in 0..n{let a=(base+i*2) as u32;self.indices[idx+i*6..idx+i*6+6].copy_from_slice(&[a,a+1,a+2,a+1,a+3,a+2]);}self.counts[h::VERTICES]=vertex as u32;self.counts[h::INDICES]=(idx+n*6) as u32;
   }else{self.counts[h::DROPPED]=self.counts[h::DROPPED].saturating_add(1);}
   if let Some(o)=branches{let mut random=ShapeRandom(seed_a^0x9e3779b9);let mut spots=[(V::default(),V::default(),0.);100];let mut count=0;
-   for i in 1..n{if count as f64>=o[1]{break;}if random.next()>=o[0]{continue;}spots[count]=(points[i],norm(scaled(offsets[i],dir,o[3])),widths[i]);count+=1;}
+   for i in 1..n{if count as f64>=o[1]{break;}
+   if random.next()>=o[0]{continue;}spots[count]=(points[i],norm(scaled(offsets[i],dir,o[3])),widths[i]);count+=1;}
    for (k,&(start,way,width)) in spots[..count].iter().enumerate(){self.strand(start,scaled(start,way,o[2]),width,spread,break_distance,texture_size,color,seed_a.wrapping_add(k as u32+1),seed_b.wrapping_add(k as u32+1),phase,None);}
   }
  }
@@ -190,7 +198,7 @@ impl Lightning{
  // Children consume fresh seeds even when their ribbon exceeds its segment cap.
  fn classic(&mut self,b:&Bolt,random:&mut dyn FnMut()->f64){let d=self.defs[b.def];let fade=(2.*b.classic_life/d.fade_time.unwrap_or(0.)).min(1.);let width=0.3+0.7*b.charge;let alpha=fade*(0.5+0.5*b.charge);let mut color=d.color.unwrap_or([0.;4]);for c in &mut color{*c/=255.;}color[3]*=alpha;
   self.strand(b.start,b.end,d.width.unwrap_or(0.)*width,d.spread_factor.unwrap_or(0.),d.break_distance.unwrap_or(0.),d.texture_size.unwrap_or(0.),color,b.seed_a,b.seed_b,b.phase,Some([d.branch_factor.unwrap_or(0.),d.max_branches.unwrap_or(0.),d.branch_length.unwrap_or(0.),d.branch_spread_factor.unwrap_or(0.)]));
-  let children=((d.num_children.unwrap_or(0.)*b.charge).floor() as usize).max(1).min(lim::CHILDREN);let mut color=d.child_color.unwrap_or([0.;4]);for c in &mut color{*c/=255.;}color[3]*=alpha;
+  let children=((d.num_children.unwrap_or(0.)*b.charge).floor() as usize).clamp(1, lim::CHILDREN);let mut color=d.child_color.unwrap_or([0.;4]);for c in &mut color{*c/=255.;}color[3]*=alpha;
   for _ in 0..children{let s=seed(random);self.strand(b.start,b.end,d.child_width.unwrap_or(0.)*width,d.child_spread_factor.unwrap_or(0.),d.child_break_distance.unwrap_or(0.),d.child_texture_size.unwrap_or(0.),color,s,s,0.,None);}
  }
  // Ports ArcLightning.spray and stepSpark. The fixed 600-record store keeps
@@ -207,7 +215,8 @@ impl Lightning{
  // Ports ArcLightning.land and shieldStruck. Existing generations qualify
  // every retained association, including a shock refreshed by another bolt.
  fn land(&mut self,b:&mut Bolt,random:&mut dyn FnMut()->f64,collision:&mut dyn Collision){if b.air{return;}let to=self.bolt_to(b);b.own=self.same(b.target,b.target_gen)&&self.own(b.target);let unit=if self.same(b.target,b.target_gen){b.target}else{NONE};let shield=self.shield(unit);
-  if shield{b.surface=Some(norm(sub(to,self.point(unit,u::CENTER))));}if !b.own{self.spray(b,to,10+(16.*b.charge).round() as usize,1.,random,collision);}self.light(1.,to,b.rgb,6.+4.*b.charge,0.16);if unit==NONE{return;}
+  if shield{b.surface=Some(norm(sub(to,self.point(unit,u::CENTER))));}
+  if !b.own{self.spray(b,to,10+(16.*b.charge).round() as usize,1.,random,collision);}self.light(1.,to,b.rgb,6.+4.*b.charge,0.16);if unit==NONE{return;}
   let mut shock=if shield{self.shields[unit]}else{self.shocks[unit]};let life=if shield{0.55+0.45*b.charge}else{0.7+0.7*b.charge};let strength=0.6+0.4*b.charge;
   if shock.on&&shock.generation==self.fact(unit,u::GENERATION){shock.life=(shock.life-shock.age).max(life);shock.age=0.;shock.strength=shock.strength.max(strength);if !shield{shock.rgb=b.rgb;}}
   else{if shield{self.shield_order.retain(|i|*i!=unit);self.shield_order.push(unit);}else{self.shock_order.retain(|i|*i!=unit);self.shock_order.push(unit);}shock=Shock{on:true,generation:self.fact(unit,u::GENERATION),age:0.,life,strength,rgb:b.rgb,seed:if shield{0}else{seed(random)},..Default::default()};}
@@ -216,6 +225,8 @@ impl Lightning{
  // Ports twist. Its envelope is sampled at the original main-channel index,
  // so skipping alternate vertices leaves both endpoints exactly anchored.
  fn twist(&self,main:&Path,out:&mut Path,seed:u32,amplitude:f64,u:V,w:V){let n=main.count-1;let stride=if n>=16{2}else{1};let m=n/stride;for k in 0..=m{let i=(k*stride).min(n);let s=i as f64/n as f64;let envelope=pow(sin(std::f64::consts::PI*s),0.7);let x=(wave(seed,k as f64*0.42)*amplitude+signed(seed,(k*3+7) as i32)*0.04)*envelope;let y=(wave(seed.wrapping_add(101),k as f64*0.42)*amplitude+signed(seed,(k*3+8) as i32)*0.04)*envelope;out.points[k]=scaled(scaled(main.points[i],u,x),w,y);}out.count=m+1;}
+ // Secondary branch emitter along the main bolt path.
+ #[allow(clippy::too_many_arguments)]
  fn branches(&mut self,b:&Bolt,rgb:[f64;3],brightness:f64,core:f64,glow:f64,charge:f64,u:V,w:V){let d=self.defs[b.def];let main=self.main;let n=main.count-1;let length=b.from.distance_to(&b.to);let most=((d.max_branches.unwrap_or(3.)*(0.5+0.5*charge)).round() as usize).saturating_add(if length>12.{1}else{0}).min(100);let odds=0.35+d.branch_factor.unwrap_or(0.15);
   let mut branch=Path::default();let mut twig=Path::default();for k in 0..most{let seed=b.branch_seed.wrapping_add(k as u32*977);if hash(seed,1)>odds{continue;}let at=(n as f64*(0.12+0.68*hash(seed,2))).floor() as usize;let start=main.points[at];let next=main.points[(at+1).min(n)];let angle=hash(seed,3)*std::f64::consts::PI*2.;let spread=d.branch_spread_factor.unwrap_or(0.8)*(0.7+0.8*hash(seed,4));let mut dir=norm(sub(next,start));dir=norm(scaled(scaled(dir,u,cos(angle)*spread),w,sin(angle)*spread));let reach=d.branch_length.unwrap_or(4.)*(0.22+0.45*hash(seed,5))*(0.55+0.45*charge);let end=scaled(start,dir,reach);let (bu,bw)=basis(V::default(),dir);displace(&mut branch,start,end,3,bu,bw,jag(0.3,0.35,seed,seed^0x5bd1e995));self.line(&branch,(branch.count-1) as f64,rgb,brightness*0.8,core*0.75,glow*0.7,0.7,0.1);
    if hash(seed,6)<0.45{let from=branch.points[3+(hash(seed,7)*2.).floor() as usize];let angle2=angle+(hash(seed,8)-0.5)*2.4;
@@ -224,22 +235,28 @@ impl Lightning{
    }
   }
  }
+ // Terminal fizzle arc emitter when a bolt expires in air.
+ #[allow(clippy::too_many_arguments)]
  fn fizzle(&mut self,b:&Bolt,to:V,rgb:[f64;3],brightness:f64,core:f64,glow:f64,u:V,w:V){let dir=norm(sub(b.to,b.from));let mut path=Path::default();for k in 0..3{let seed=b.branch_seed.wrapping_add(31*k+7);let angle=hash(seed,1)*std::f64::consts::PI*2.;let way=norm(scaled(scaled(dir,u,cos(angle)*0.9),w,sin(angle)*0.9));let end=scaled(to,way,0.3+0.6*hash(seed,2));let (bu,bw)=basis(V::default(),way);displace(&mut path,to,end,2,bu,bw,jag(0.32,0.12,seed,seed^0x2545f491));self.line(&path,4.,rgb,brightness*0.5,core*0.3,glow*0.4,0.4,0.05);}}
  // Ports ArcLightning.drawBolt. One retained record owns leader, strike,
  // child and afterglow timing; no state is mirrored back into JS objects.
- fn draw_bolt(&mut self,b:&mut Bolt,dt:f64,random:&mut dyn FnMut()->f64,collision:&mut dyn Collision)->bool{b.age+=dt;let t=b.age-b.delay;if t<0.{return true;}if t>=b.life{return false;}let d=self.defs[b.def];let charge=b.charge;b.from=self.bolt_from(b);b.to=self.bolt_to(b);let from=b.from;let to=b.to;let length=from.distance_to(&to);if length<0.05{return true;}
+ fn draw_bolt(&mut self,b:&mut Bolt,dt:f64,random:&mut dyn FnMut()->f64,collision:&mut dyn Collision)->bool{b.age+=dt;let t=b.age-b.delay;if t<0.{return true;}
+  if t>=b.life{return false;}let d=self.defs[b.def];let charge=b.charge;b.from=self.bolt_from(b);b.to=self.bolt_to(b);let from=b.from;let to=b.to;let length=from.distance_to(&to);if length<0.05{return true;}
   let leader=0.035+0.0014*length;let reach=(t/leader).min(1.);if reach>=1.&&!b.arrived{b.arrived=true;b.flash=1.;self.land(b,random,collision);}b.flash=(b.flash-dt*8.).max(0.);
   if self.time>=b.next_strike{b.jag=seed(random);b.branch_seed=seed(random);b.strike=0.62+0.38*random();if random()<0.12{b.strike*=0.45;}b.next_strike=self.time+0.028+random()*0.045;if b.arrived&&!b.air&&!b.own&&random()<0.45{self.spray(b,to,1+(random()*3.).floor() as usize,0.6,random,collision);}}
   let remain=1.-t/b.life;let fade=if remain>0.45{1.}else{pow(remain/0.45,1.4)};let width_scale=(0.3+0.7*charge)*(0.75+0.25*fade);let brightness=(0.55+0.45*charge)*b.strike*fade*(1.+1.5*b.flash);let cool=1.-fade;let rgb=[(1.-cool*0.6)*b.rgb[0]+cool*0.6*0.62,(1.-cool*0.6)*b.rgb[1]+cool*0.6*0.42,b.rgb[2]];
   let (u,w)=basis(from,to);let depth=(log2(length/0.32).ceil() as usize).clamp(2,8);let spread=d.spread_factor.unwrap_or(0.8).max(0.1)*0.75*(0.4+length/16.).min(1.);displace(&mut self.main,from,to,depth,u,w,Jag{time:self.time,writhe:2.6,coarse:2,..jag(0.2,spread,b.seed,b.jag)});
   let main=self.main;let n=main.count-1;let width=d.width.unwrap_or(0.5);let core=width*0.07*width_scale;let glow=width*0.3*width_scale;let shown=reach*n as f64;self.line(&main,shown,rgb,brightness,core,glow,0.9,if b.air{0.25}else{0.7});if reach<1.{let at=(shown.floor() as usize).min(n-1);let tip=mix(main.points[at],main.points[at+1],shown-at as f64);self.push(tip,tip,V::default(),V::default(),rgb,1.4*brightness,core*2.2,glow*2.2,1.);}
   if b.arrived{let child_width=d.child_width.unwrap_or(width*0.8);let child_alpha=d.child_color.map(|c|c[3]).unwrap_or(100.)/255.;let amplitude=d.child_spread_factor.unwrap_or(1.)*0.2*(0.6+0.4*charge)*(0.35+length/12.).min(1.);let mut child_path=Path::default();
-   for child in &mut b.children[..b.child_count]{if self.time>=child.next{child.seed=seed(random);child.on=random()<0.78;child.next=self.time+0.02+random()*0.04;}if !child.on{continue;}self.twist(&main,&mut child_path,child.seed,amplitude,u,w);self.line(&child_path,(child_path.count-1) as f64,b.child_rgb,brightness*(0.5+child_alpha),child_width*0.035*width_scale,child_width*0.2*width_scale,0.5,1.);}
+   for child in &mut b.children[..b.child_count]{if self.time>=child.next{child.seed=seed(random);child.on=random()<0.78;child.next=self.time+0.02+random()*0.04;}
+   if !child.on{continue;}self.twist(&main,&mut child_path,child.seed,amplitude,u,w);self.line(&child_path,(child_path.count-1) as f64,b.child_rgb,brightness*(0.5+child_alpha),child_width*0.035*width_scale,child_width*0.2*width_scale,0.5,1.);}
    self.branches(b,rgb,brightness,core,glow,charge,u,w);
   }
   let flicker=brightness*(0.85+0.15*random());if b.shooter!=NONE||b.follow{self.push(from,from,V::default(),V::default(),rgb,0.9*flicker,core*1.5,glow*if from.distance_to_squared(&vec(&self.frame,f::EYE))<2.25{0.6}else{1.1},1.);}
   if b.arrived&&!b.air&&!b.own{self.push(to,to,V::default(),V::default(),rgb,flicker,core*2.,glow*1.8,1.);self.push(to,to,V::default(),V::default(),rgb,0.18*flicker,0.,glow*6.,0.);}else if b.arrived&&b.air{self.fizzle(b,to,rgb,brightness,core,glow,u,w);}
-  let light=1.1*flicker;if b.shooter!=NONE||b.follow{self.light(0.,from,rgb,4.+2.5*charge,light*0.8);}if b.arrived&&!b.air{self.light(0.,to,rgb,5.+4.*charge,light);}if length>10.&&reach>=1.{self.light(0.,mix(from,to,0.5),rgb,(length*0.5).min(10.),light*0.6);}true
+  let light=1.1*flicker;if b.shooter!=NONE||b.follow{self.light(0.,from,rgb,4.+2.5*charge,light*0.8);}
+  if b.arrived&&!b.air{self.light(0.,to,rgb,5.+4.*charge,light);}
+  if length>10.&&reach>=1.{self.light(0.,mix(from,to,0.5),rgb,(length*0.5).min(10.),light*0.6);}true
  }
  // Ports twitch/endShock: an animation-written quaternion becomes the new
  // base; an untouched joint keeps its previous base until the shock ends.
@@ -260,7 +277,8 @@ impl Lightning{
  fn pick_arm_arcs(&mut self,id:usize,shock:&mut Shock,random:&mut dyn FnMut()->f64){shock.next_arcs=self.time+0.03+random()*0.035;shock.arc_count=0;let count=2+(random()*2.).floor() as usize;for _ in 0..count{let t1=0.25+random()*0.75;let t2=(t1+if random()<0.5{-1.}else{1.}*(0.15+random()*0.35)).clamp(0.2,1.);let mut arc=Arc{t1,t2,..Default::default()};arc.o1=[(random()*2.-1.)*0.035,(random()*2.-1.)*0.035];arc.o2=[(random()*2.-1.)*0.035,(random()*2.-1.)*0.035];arc.seed=seed(random);shock.arcs[shock.arc_count]=arc;shock.arc_count+=1;}
   if self.fact(id,u::HAS_WRIST)!=0.&&random()<0.5{let mut arc=Arc{t1:0.3+random()*0.4,t2:-1.,..Default::default()};arc.o1=[(random()*2.-1.)*0.035,(random()*2.-1.)*0.035];arc.seed=seed(random);shock.arcs[shock.arc_count]=arc;shock.arc_count+=1;}
  }
- fn gun_point(&self,id:usize,t:f64,o:[f64;2])->Option<V>{if t<0.{return if self.fact(id,u::HAS_WRIST)!=0.{Some(self.point(id,u::WRIST))}else{None};}if self.fact(id,u::HAS_CURRENT_MUZZLE)==0.{return None;}let p=mix(self.point(id,u::GRIP),self.point(id,u::CURRENT_MUZZLE),t);let at=f::CAMERA;let q=Q::new(self.frame[at],self.frame[at+1],self.frame[at+2],self.frame[at+3]);let mut right=SIDE;right.apply_quaternion(&q);let mut up=UP;up.apply_quaternion(&q);Some(scaled(scaled(p,right,o[0]),up,o[1]))}
+ fn gun_point(&self,id:usize,t:f64,o:[f64;2])->Option<V>{if t<0.{return if self.fact(id,u::HAS_WRIST)!=0.{Some(self.point(id,u::WRIST))}else{None};}
+  if self.fact(id,u::HAS_CURRENT_MUZZLE)==0.{return None;}let p=mix(self.point(id,u::GRIP),self.point(id,u::CURRENT_MUZZLE),t);let at=f::CAMERA;let q=Q::new(self.frame[at],self.frame[at+1],self.frame[at+2],self.frame[at+3]);let mut right=SIDE;right.apply_quaternion(&q);let mut up=UP;up.apply_quaternion(&q);Some(scaled(scaled(p,right,o[0]),up,o[1]))}
  fn draw_arm_arc(&mut self,id:usize,shock:&Shock,arc:Arc,intensity:f64,random:&mut dyn FnMut()->f64){if let (Some(a),Some(b))=(self.gun_point(id,arc.t1,arc.o1),self.gun_point(id,arc.t2,arc.o2)){let (u,w)=basis(a,b);let mut path=Path::default();displace(&mut path,a,b,3,u,w,jag(0.3,0.04,arc.seed,seed(random)));self.line(&path,8.,shock.rgb,1.3*intensity,0.0025,0.012,0.9,1.);}}
  // Overlay visibility and intensity are complete native results.
  // The host copies them alongside the matching body resource identity.
@@ -280,12 +298,13 @@ impl Lightning{
  fn draw_shield(&mut self,id:usize,dt:f64,random:&mut dyn FnMut()->f64){let mut shock=self.shields[id];shock.age+=dt;if !self.same(id,shock.generation)||!self.shield(id)||shock.age>=shock.life{shock.on=false;self.shields[id]=shock;return;}
   if self.time>=shock.next_flicker{shock.flicker=0.55+0.45*random();shock.next_flicker=self.time+1./30.;}let k=1.-shock.age/shock.life;let intensity=(shock.age/0.03).min(1.)*pow(k,1.3)*shock.flicker*shock.strength*(1.+1.2*(1.-shock.age/0.12).max(0.));
   if self.time>=shock.next_arcs{shock.next_arcs=self.time+0.03+random()*0.03;shock.arc_count=(4.+(4.*intensity.min(1.)).round()) as usize;for i in 0..shock.arc_count{let va=Self::turned(shock.impact,random()*0.3,random);let reach=if i<2{0.3+random()*0.4}else{0.8+random()*(0.8+0.6*k)};let vb=Self::turned(shock.impact,reach,random);shock.arcs[i]=Arc{va,vb,..Default::default()};}}
-  let c=self.point(id,u::CENTER);let r=self.point(id,u::RADIUS);let mut web=Path::default();web.count=16;for arc in &shock.arcs[..shock.arc_count]{let jag=seed(random);for i in 0..16{let t=i as f64/15.;let sway=sin(std::f64::consts::PI*t)*0.07;let mut d=arc.va;d.lerp(&arc.vb,t);d.normalize();let (u,w)=basis(V::default(),d);d=norm(scaled(scaled(d,u,signed(jag,(i*2) as i32)*sway),w,signed(jag,(i*2+1) as i32)*sway));web.points[i]=V::new(c.x+d.x*r.x*1.02,c.y+d.y*r.y*1.02,c.z+d.z*r.z*1.02);}self.line(&web,15.,shock.rgb,1.4*intensity,0.008,0.045,0.85,0.3);}
+  let c=self.point(id,u::CENTER);let r=self.point(id,u::RADIUS);let mut web=Path{count:16,..Path::default()};for arc in &shock.arcs[..shock.arc_count]{let jag=seed(random);for i in 0..16{let t=i as f64/15.;let sway=sin(std::f64::consts::PI*t)*0.07;let mut d=arc.va;d.lerp(&arc.vb,t);d.normalize();let (u,w)=basis(V::default(),d);d=norm(scaled(scaled(d,u,signed(jag,(i*2) as i32)*sway),w,signed(jag,(i*2+1) as i32)*sway));web.points[i]=V::new(c.x+d.x*r.x*1.02,c.y+d.y*r.y*1.02,c.z+d.z*r.z*1.02);}self.line(&web,15.,shock.rgb,1.4*intensity,0.008,0.045,0.85,0.3);}
   let toward=add(c,V::new(shock.impact.x*r.x,shock.impact.y*r.y,shock.impact.z*r.z));let at=self.on_shield(id,toward);self.push(at,at,V::default(),V::default(),shock.rgb,1.3*intensity,0.03,0.22,1.);self.light(0.,at,shock.rgb,3.5+1.5*shock.strength,0.8*intensity);self.shields[id]=shock;
  }
  // Ports drawCharges: all arc selection, pulse and radius math is native.
  // JS publishes the current weapon's authored color and raw held duration.
- fn draw_charge(&mut self,id:usize,random:&mut dyn FnMut()->f64){if self.fact(id,u::CHARGING)==0.{self.charges[id].on=false;return;}if self.fact(id,u::HAS_CURRENT_MUZZLE)==0.{return;}let most=self.fact(id,u::MAX_PRESSED);let charge=(self.fact(id,u::PRESSED)/if most==0.{1.}else{most}).clamp(0.,1.);let mut crackle=self.charges[id];
+ fn draw_charge(&mut self,id:usize,random:&mut dyn FnMut()->f64){if self.fact(id,u::CHARGING)==0.{self.charges[id].on=false;return;}
+  if self.fact(id,u::HAS_CURRENT_MUZZLE)==0.{return;}let most=self.fact(id,u::MAX_PRESSED);let charge=(self.fact(id,u::PRESSED)/if most==0.{1.}else{most}).clamp(0.,1.);let mut crackle=self.charges[id];
   if !crackle.on{crackle=Shock{on:true,..Default::default()};let at=id*u::STRIDE+u::COLOR;crackle.rgb=rgb([self.units[at],self.units[at+1],self.units[at+2],self.units[at+3]],1.6);}
   let muzzle=self.point(id,u::CURRENT_MUZZLE);let back=if self.fact(id,u::FIRST_PERSON)!=0.{Some(vec(&self.frame,f::EYE))}else if self.fact(id,u::HAS_ORIGIN)!=0.{Some(self.point(id,u::ORIGIN))}else{None};let barrel=back.map(|p|sub(p,muzzle)).filter(|p|p.length_sq()>1e-4).map(norm);let size=if muzzle.distance_to_squared(&vec(&self.frame,f::EYE))<2.25{0.55}else{1.};
   if self.time>=crackle.next_arcs{crackle.next_arcs=self.time+0.03+random()*0.03;crackle.arc_count=0;let out=1+(3.*charge).round() as usize;for _ in 0..out{let mut v=norm(V::new(random()*2.-1.,random()*2.-1.,random()*2.-1.));if let Some(barrel)=barrel{v=norm(scaled(v,barrel,-0.6));}crackle.arcs[crackle.arc_count]=Arc{va:v,reach:(0.08+random()*(0.1+0.4*charge))*size,seed:seed(random),..Default::default()};crackle.arc_count+=1;}
@@ -307,7 +326,12 @@ impl Lightning{
   }
    if b.classic_life>self.frame[f::DT]&&b.follow{let n=self.counts[h::FOLLOW] as usize;self.follows[n]=id as u32;self.counts[h::FOLLOW]+=1;let unit=b.follow_unit;if unit<lim::UNITS&&!selected[unit]{selected[unit]=true;let n=self.counts[h::AIM] as usize;self.aim[n]=unit as u32;self.counts[h::AIM]+=1;}}
   }
-  if self.frame[f::ENHANCED]==0.&&!self.enhanced{return;}for id in 0..lim::UNITS{if self.shocks[id].on{self.readers[id]|=rd::POSE as u32;if self.own(id){self.readers[id]|=(rd::CURRENT|rd::VIEW) as u32;}}if self.shields[id].on{self.readers[id]|=rd::DETAILS as u32;}}if self.frame[f::ENHANCED]==0.{return;}for at in 0..(self.frame[f::ORDER_COUNT] as usize).min(lim::UNITS){let id=self.unit_order[at] as usize;if id>=lim::UNITS{continue;}if self.fact(id,u::LISTED)!=0.&&self.fact(id,u::CHARGING)!=0.&&self.fact(id,u::DEAD)==0.&&self.fact(id,u::MOUNTED)==0.&&self.fact(id,u::SOLDIER)!=0.{self.readers[id]|=rd::CURRENT as u32;if self.fact(id,u::FIRST_PERSON)==0.{self.readers[id]|=rd::ORIGIN as u32;}if self.fact(id,u::FIRST_PERSON)==0.&&!selected[id]{selected[id]=true;let n=self.counts[h::AIM] as usize;self.aim[n]=id as u32;self.counts[h::AIM]+=1;}}}
+  if self.frame[f::ENHANCED]==0.&&!self.enhanced{return;}for id in 0..lim::UNITS{if self.shocks[id].on{self.readers[id]|=rd::POSE as u32;if self.own(id){self.readers[id]|=(rd::CURRENT|rd::VIEW) as u32;}}
+   if self.shields[id].on{self.readers[id]|=rd::DETAILS as u32;}}
+  if self.frame[f::ENHANCED]==0.{return;}
+  for at in 0..(self.frame[f::ORDER_COUNT] as usize).min(lim::UNITS){let id=self.unit_order[at] as usize;if id>=lim::UNITS{continue;}
+   if self.fact(id,u::LISTED)!=0.&&self.fact(id,u::CHARGING)!=0.&&self.fact(id,u::DEAD)==0.&&self.fact(id,u::MOUNTED)==0.&&self.fact(id,u::SOLDIER)!=0.{self.readers[id]|=rd::CURRENT as u32;if self.fact(id,u::FIRST_PERSON)==0.{self.readers[id]|=rd::ORIGIN as u32;}
+    if self.fact(id,u::FIRST_PERSON)==0.&&!selected[id]{selected[id]=true;let n=self.counts[h::AIM] as usize;self.aim[n]=id as u32;self.counts[h::AIM]+=1;}}}
  }
  // A frame is one whole effect phase. Scratch paths and all output banks
  // retain their capacity, including when the host pauses without drawing.
@@ -316,7 +340,8 @@ impl Lightning{
   // Lightning.update did before choosing its draw family.
   for k in 0..self.order.len(){let id=self.order[k];let b=&mut self.bolts[id];if b.classic{b.classic_life-=dt;if b.classic_life>0.{b.phase+=self.defs[b.def].interpolation_speed.unwrap_or(0.)*dt;while b.phase>=1.{b.phase-=1.;b.seed_a=b.seed_b;b.seed_b=seed(random);}if b.follow{b.start=vec(&self.held,id*3);}}}}
   if enhanced{self.time+=dt;self.enhanced=true;for at in 0..self.shock_order.len(){let id=self.shock_order[at];if self.shocks[id].on{self.draw_shock(id,dt,random);}}for at in 0..self.shield_order.len(){let id=self.shield_order[at];if self.shields[id].on{self.draw_shield(id,dt,random);}}
-   for k in 0..self.order.len(){let id=self.order[k];let mut b=self.bolts[id];if b.life>0.{if !self.draw_bolt(&mut b,dt,random,collision){b.life=0.;}}if b.life<=0.&&(!b.classic||b.classic_life<=0.){b.active=false;}self.bolts[id]=b;}
+   for k in 0..self.order.len(){let id=self.order[k];let mut b=self.bolts[id];if b.life>0. && !self.draw_bolt(&mut b,dt,random,collision){b.life=0.;}
+    if b.life<=0.&&(!b.classic||b.classic_life<=0.){b.active=false;}self.bolts[id]=b;}
    self.draw_sparks(dt);for at in 0..(self.frame[f::ORDER_COUNT] as usize).min(lim::UNITS){let id=self.unit_order[at] as usize;if self.fact(id,u::LISTED)==0.||self.fact(id,u::COMBAT)==0.||self.fact(id,u::REMOVED)!=0.||self.fact(id,u::DEAD)!=0.||self.fact(id,u::MOUNTED)!=0.||self.fact(id,u::SOLDIER)==0.{continue;}self.draw_charge(id,random);}
   }else{if self.enhanced{for id in 0..lim::UNITS{if self.shocks[id].on{let mut shock=self.shocks[id];self.end_shock(id,&mut shock);self.shocks[id]=shock;}self.shields[id].on=false;self.charges[id].on=false;}self.sparks.clear();for b in &mut self.bolts{b.life=0.;}self.enhanced=false;}
    for k in 0..self.order.len(){let id=self.order[k];let b=self.bolts[id];if b.classic&&b.classic_life>0.{if self.counts[h::TEXTURE]==u32::MAX{self.counts[h::TEXTURE]=b.def as u32;}self.classic(&b,random);}else{self.bolts[id].active=false;}}
@@ -326,7 +351,8 @@ impl Lightning{
  // A host slot cannot be recycled while a native effect still names it.
  // Removed charging guns release their otherwise invisible crackle state.
  fn retain_units(&mut self){self.used.fill(0);for &id in &self.order{let b=self.bolts[id];for unit in [b.shooter,b.source,b.target,b.follow_unit]{if unit<lim::UNITS{self.used[unit]=1;}}}
-  for id in 0..lim::UNITS{if self.fact(id,u::REMOVED)!=0.||self.fact(id,u::ALIVE)==0.{self.charges[id].on=false;}if self.shocks[id].on||self.shields[id].on||self.charges[id].on{self.used[id]=1;}}
+  for id in 0..lim::UNITS{if self.fact(id,u::REMOVED)!=0.||self.fact(id,u::ALIVE)==0.{self.charges[id].on=false;}
+   if self.shocks[id].on||self.shields[id].on||self.charges[id].on{self.used[id]=1;}}
  }
  // Clearing the look restores native-owned joint offsets before hiding it.
  // All retained allocations remain available for a later Enhanced birth.
@@ -353,7 +379,7 @@ fn v(a:[f64;3])->V{V::new(a[0],a[1],a[2])}
 impl Lightning{
  pub fn fixture(&mut self,data:Fixture,random:&mut dyn FnMut()->f64,collision:&mut dyn Collision)->String{match data{
   Fixture::Displace{a,b,depth,u,w,rough,spread,seed,jag,time,writhe,coarse}=>{let mut p=Path::default();displace(&mut p,v(a),v(b),depth,v(u),v(w),Jag{rough,spread,seed,jag,time,writhe,coarse});serde_json::to_string(&p.points[..p.count].iter().map(|p|array(*p)).collect::<Vec<_>>()).unwrap()},
-  Fixture::Line{points,shown,rgb,brightness,core,glow,hot,taper,count}=>{let mut path=Path::default();path.count=points.len().min(POINTS);for (to,from) in path.points.iter_mut().zip(points){*to=v(from);}self.counts[h::CAPSULES]=count.min(lim::CAPSULES) as u32;self.line(&path,shown,rgb,brightness,core,glow,hot,taper);String::new()},
+  Fixture::Line{points,shown,rgb,brightness,core,glow,hot,taper,count}=>{let mut path=Path{count:points.len().min(POINTS),..Path::default()};for (to,from) in path.points.iter_mut().zip(points){*to=v(from);}self.counts[h::CAPSULES]=count.min(lim::CAPSULES) as u32;self.line(&path,shown,rgb,brightness,core,glow,hot,taper);String::new()},
   Fixture::Spray{from,to,at,floor,surface,rgb,count,speed}=>{let mut b=Bolt{from:v(from),to:v(to),floor,surface:surface.map(v),rgb,..Default::default()};self.spray(&mut b,v(at),count,speed,random,collision);self.counts[h::SPARKS]=self.sparks.len() as u32;String::new()},
   Fixture::Sparks{dt,count}=>{self.counts[h::CAPSULES]=count.min(lim::CAPSULES) as u32;self.draw_sparks(dt);self.counts[h::SPARKS]=self.sparks.len() as u32;String::new()},
  }}
@@ -379,7 +405,7 @@ pub(crate) mod tests {
  #[test]
  fn displaced_channels_keep_authored_ends_and_order(){let mut p=Path::default();let a=V::new(0.,1.,0.);let b=V::new(0.,1.,20.);displace(&mut p,a,b,6,SIDE,UP,Jag{time:0.3,writhe:2.6,coarse:2,..jag(0.2,0.6,7,11)});assert_eq!(p.count,65);assert_eq!(p.points[0],a);assert_eq!(p.points[64],b);for pair in p.points[..p.count].windows(2){assert!(pair[1].z>=pair[0].z);assert!(hypot(pair[0].x,pair[0].y-1.)<0.6/(1.-0.64));}}
  #[test]
- fn paused_birth_bursts_and_full_draw_banks_never_allocate(){let mut owner=Lightning::default();let def=owner.definition(definition());let mut random=random();put(&mut owner.spawn,sp::START,V::new(0.,1.,0.));put(&mut owner.spawn,sp::END,V::new(0.,1.,24.));owner.spawn[sp::CHARGE]=1.;owner.spawn[sp::FOLLOW_UNIT]=-1.;owner.frame[f::ENHANCED]=1.;owner.frame[f::DT]=0.1;
+ fn paused_birth_bursts_and_full_draw_banks_never_allocate(){let mut owner=Lightning::default();let def=owner.definition(definition());let mut random=random();put(&mut owner.spawn,sp::START,V::new(0.,1.,0.));put(&mut owner.spawn,sp::END,V::new(0.,1.,24.));owner.spawn[sp::CHARGE]=1.;owner.spawn[sp::FOLLOW_UNIT] = -1.;owner.frame[f::ENHANCED]=1.;owner.frame[f::DT]=0.1;
   ALLOCS.with(|n|n.set(0));TRACK.with(|t|t.set(true));for _ in 0..lim::BOLTS+32{owner.add(def,true,true,&mut random,&mut EmptyCollision);}owner.step(&mut random,&mut EmptyCollision);owner.frame[f::DT]=3600.;owner.step(&mut random,&mut EmptyCollision);TRACK.with(|t|t.set(false));
   assert_eq!(ALLOCS.with(Cell::get),0);assert_eq!(owner.counts[h::BOLTS],0);assert!(owner.counts[h::DROPPED]>=32);assert!(owner.counts[h::CAPSULES] as usize<=lim::CAPSULES);assert!(owner.sparks.len()<=lim::SPARKS);
  }

@@ -111,7 +111,7 @@ fn positive(x: f64) -> Result<Text, fmt::Error> {
     for delta in -2i64..=2 {
         let candidate = number as i64 + delta; if candidate <= 0 { continue; }
         let mut normalized = candidate as u64; let raw = decimal(normalized); let n = exponent + raw.len as i32;
-        while normalized % 10 == 0 { normalized /= 10; }
+        while normalized.is_multiple_of(10) { normalized /= 10; }
         let digits = decimal(normalized); let text = layout(&digits, n)?;
         if text.text()?.parse::<f64>().ok().map(f64::to_bits) != Some(x.to_bits()) { continue; }
         let exact = distance(x, candidate as u64, exponent)?;
@@ -119,7 +119,7 @@ fn positive(x: f64) -> Result<Text, fmt::Error> {
             if digits.len != old.len { return digits.len < old.len; }
             match exact.cmp(before) {
                 Ordering::Less => true, Ordering::Greater => false,
-                Ordering::Equal => digits.bytes[digits.len - 1] % 2 == 0 && old.bytes[old.len - 1] % 2 != 0,
+                Ordering::Equal => digits.bytes[digits.len - 1].is_multiple_of(2) && !old.bytes[old.len - 1].is_multiple_of(2),
             }
         });
         if take { best = Some((exact, digits, n)); }
@@ -138,26 +138,6 @@ pub fn json_number_into(x: f64, output: &mut [u8; 32]) -> Option<usize> {
         let digits = positive(x.abs()).ok()?; text.raw(&digits.bytes[..digits.len]).ok()?;
     }
     output[..text.len].copy_from_slice(&text.bytes[..text.len]); Some(text.len)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn retained_digits_match_the_exact_election_across_double_exponents() {
-        let mut bits = 8217923123u64; let mut bytes = [0; 32];
-        let edge = [0., -0., f64::NAN, f64::INFINITY, f64::NEG_INFINITY, f64::MAX, f64::MIN_POSITIVE,
-            f64::from_bits(1), 1e-7, 1e-6, 1e20, 1e21, 1000000000000000100.];
-        for x in edge.into_iter().chain((0..100000).map(|_| {
-            bits ^= bits << 13; bits ^= bits >> 7; bits ^= bits << 17; f64::from_bits(bits)
-        })) {
-            let count = json_number_into(x, &mut bytes).expect("bounded double formatting");
-            assert_eq!(core::str::from_utf8(&bytes[..count]).unwrap(), crate::numfmt::json_number(x), "bits {:016x}", x.to_bits());
-            let expected = crate::numfmt::to_fixed(x, 4.).unwrap().parse::<f64>().unwrap();
-            let actual = fixed_four_number(x).unwrap();
-            assert!(crate::same_value(actual, expected), "fixed bits {:016x}: {actual:?} != {expected:?}", x.to_bits());
-        }
-    }
 }
 
 /// +(value.toFixed(4)), used by creature publication clocks. Multiplying
@@ -180,4 +160,24 @@ pub fn fixed_four_number(x: f64) -> Option<f64> {
     let mut text = Text::new(); if x < 0. { text.byte(b'-').ok()?; }
     for i in (0..count.max(5)).rev() { text.byte(reverse[i]).ok()?; if i == 4 { text.byte(b'.').ok()?; } }
     text.text().ok()?.parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn retained_digits_match_the_exact_election_across_double_exponents() {
+        let mut bits = 8217923123u64; let mut bytes = [0; 32];
+        let edge = [0., -0., f64::NAN, f64::INFINITY, f64::NEG_INFINITY, f64::MAX, f64::MIN_POSITIVE,
+            f64::from_bits(1), 1e-7, 1e-6, 1e20, 1e21, 1000000000000000100.];
+        for x in edge.into_iter().chain((0..100000).map(|_| {
+            bits ^= bits << 13; bits ^= bits >> 7; bits ^= bits << 17; f64::from_bits(bits)
+        })) {
+            let count = json_number_into(x, &mut bytes).expect("bounded double formatting");
+            assert_eq!(core::str::from_utf8(&bytes[..count]).unwrap(), crate::numfmt::json_number(x), "bits {:016x}", x.to_bits());
+            let expected = crate::numfmt::to_fixed(x, 4.).unwrap().parse::<f64>().unwrap();
+            let actual = fixed_four_number(x).unwrap();
+            assert!(crate::same_value(actual, expected), "fixed bits {:016x}: {actual:?} != {expected:?}", x.to_bits());
+        }
+    }
 }

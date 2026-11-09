@@ -171,6 +171,8 @@ impl Motion {
     // An interrupted bob is allowed to settle at its existing derivative.
     // The cue is a scalar duration for the arms' hands-down/landing clips.
     // The host consumes it in the same frame before attachment sampling.
+    // CameraMotion.update step across posture, gait, velocity, and authored keys.
+    #[allow(clippy::too_many_arguments)]
     pub fn update(
         &mut self,
         dt: f64,

@@ -162,7 +162,7 @@ impl Listener {
     /// ahead while direction is measured from the camera itself.
     pub fn set(&mut self, position: Point, forward: Point, up: Point) {
         self.position = position; self.forward = normalize(forward); self.right = normalize(cross(self.forward, up)); self.up = cross(self.right, self.forward);
-        for i in 0..3 { self.ear[i] = position[i] + self.forward[i] * 2.0; }
+        for (ear, (&pos, &fwd)) in self.ear.iter_mut().zip(position.iter().zip(&self.forward)) { *ear = pos + fwd * 2.0; }
     }
     pub fn place(&self, position: Point) -> (f64, f64, Point) {
         let distance = length(sub(position, self.ear)); let delta = sub(position, self.position); let span = length(delta);
@@ -439,7 +439,7 @@ impl Engine {
         if self.light { self.commands.extend_from_slice(&[render::PLACE as f64, slot, direction[0], direction[1], direction[2], level, self.now]); return; }
         if self.hrtf && (v.mode3d || !self.enhanced) {
             let distance = v.span.max(1.0);
-            for axis in 0..3 { let value = direction[axis] * distance; if v.position_target[axis].set(value, self.now, 0.01) { self.commands.extend_from_slice(&[render::POSITION as f64, slot, axis as f64, value, 0.01, self.now, 0.0]); } }
+            for (axis, (&dir, target)) in direction.iter().zip(&mut v.position_target).enumerate() { let value = dir * distance; if target.set(value, self.now, 0.01) { self.commands.extend_from_slice(&[render::POSITION as f64, slot, axis as f64, value, 0.01, self.now, 0.0]); } }
         } else if self.binaural && !v.mode3d {
             let pan = direction[0].clamp(-1.0, 1.0);
             if v.pan_target.set(pan, self.now, 0.015) { self.commands.extend_from_slice(&[render::PAN as f64, slot, pan, 0.015, self.now]); }

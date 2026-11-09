@@ -75,7 +75,7 @@ impl Bindings {
         else {let vehicles=self.vehicles.as_ref()?.borrow();vehicles.get(rig,seat,vehicles.epoch)}
     }
     pub fn held_source(&self,prop:f64)->Option<Held>{
-        if !(prop>=0.0){return None;}self.props.as_ref()?.borrow().held.get(prop as usize).copied().filter(|h|h.placed)
+        if !matches!(prop.partial_cmp(&0.0), Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)){return None;}self.props.as_ref()?.borrow().held.get(prop as usize).copied().filter(|h|h.placed)
     }
     pub fn fill(&mut self,input:&mut [f64]){
         // Unit collection already knows whether any body has a holder.

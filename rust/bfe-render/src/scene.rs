@@ -321,10 +321,11 @@ impl SceneRegistry {
                 let old=self.nodes[id].pose_slot;
                 if let Some(head)=self.poses.heads.get_mut(old){
                     let mut at=*head;let mut previous=NONE;
-                    for _ in 0..self.nodes.len(){if at==NONE{break;}if at==id{let next=self.nodes[at].pose_next;if previous==NONE{*head=next;}else{self.nodes[previous].pose_next=next;}break;}previous=at;at=self.nodes[at].pose_next;}
+                    for _ in 0..self.nodes.len(){if at==NONE{break;}
+                     if at==id{let next=self.nodes[at].pose_next;if previous==NONE{*head=next;}else{self.nodes[previous].pose_next=next;}break;}previous=at;at=self.nodes[at].pose_next;}
                 }
                 self.nodes[id].pose_slot=source;self.nodes[id].pose_next=NONE;
-                if let Some(head)=self.poses.heads.get_mut(source){self.nodes[id].pose_next=*head;*head=id;}
+                if let Some(head)=self.poses.heads.get_mut(source){self.nodes[id].pose_next = *head;*head=id;}
             }
             if source!=NONE {if let Some(world)=self.poses.arena_world(source).copied(){self.nodes[id].data[row::WORLD..row::WORLD+16].copy_from_slice(&world);self.transforms.import_world(id,&world,generation);}}
 
@@ -462,7 +463,7 @@ impl SceneRegistry {
             let node = &self.nodes[found];
             let mut threshold = node.data[row::LOD_DISTANCE];
             if node.lod_visible { threshold -= threshold * node.data[row::LOD_HYSTERESIS]; }
-            if !(distance >= threshold) { break; }
+            if !matches!(distance.partial_cmp(&threshold), Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)) { break; }
             chosen = level; level += 1.;
         }
         let mut child = self.nodes[id].first;
@@ -595,7 +596,7 @@ impl SceneRegistry {
             out[selected::OBJECT_ID] = h.object_id; out[selected::MATERIAL_ID] = h.material_id;
             out[selected::FIRST] = first; out[selected::COUNT] = end - first;
             if mode==mode::PROXY {out[selected::FIRST]=0.;out[selected::COUNT]=h.range[2];}
-            out[selected::GROUP]=-1.;out[selected::MATERIAL_INDEX]=-1.;out[selected::FLAGS]=f as f64;
+            out[selected::GROUP] = -1.;out[selected::MATERIAL_INDEX] = -1.;out[selected::FLAGS]=f as f64;
             if f&flags::MATERIAL_ARRAY!=0 && (mode==mode::SHADOW || mode==mode::LOCKED) {
                 let base=(h.group_first as usize).min(self.groups.len());
                 let count=(h.group_count as usize).min(self.groups.len().saturating_sub(base));
@@ -803,7 +804,7 @@ impl SceneRegistry {
         // paused queries neither grow a host queue nor resend that reset.
         if advance {
             if !visible && !self.nodes[id].motion_cleared{self.motion_event(id,mk::CLEAR);}
-            self.nodes[id].motion_cleared=!visible;
+            self.nodes[id].motion_cleared = !visible;
         }
         visible
     }
@@ -863,11 +864,10 @@ fn compare(a: &[f64; selected::STRIDE], b: &[f64; selected::STRIDE], mode: usize
 // multiplications. Combining the matrices, or dividing, changes ties and bits.
 fn world_point(world: &Mat4, center: &[f64; 3], sprite: bool) -> [f64;4] {
     let [x, y, z] = *center;
-    let p = if sprite { [world[12], world[13], world[14], 1.] } else {
+    if sprite { [world[12], world[13], world[14], 1.] } else {
         [world[0]*x+world[4]*y+world[8]*z+world[12], world[1]*x+world[5]*y+world[9]*z+world[13],
          world[2]*x+world[6]*y+world[10]*z+world[14], world[3]*x+world[7]*y+world[11]*z+world[15]]
-    };
-    p
+    }
 }
 fn clip_z(p:&[f64;4],screen:&Mat4)->f64 {
     screen[2]*p[0]+screen[6]*p[1]+screen[10]*p[2]+screen[14]*p[3]

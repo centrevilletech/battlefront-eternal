@@ -30,7 +30,7 @@ impl Runtime {
     }
     pub fn import(&mut self, kind: usize, length: usize) {
         assert!(length <= self.input.len());
-        if kind == import::PLANE { for row in self.input[..length].chunks_exact(plane::STRIDE) { self.planes.push(row.try_into().unwrap()); } }
+        if kind == import::PLANE { for row in self.input[..length].as_chunks::<{ plane::STRIDE }>().0 { self.planes.push(*row); } }
         else { self.resources.import(&mut self.phase, kind, &self.input[..length]); }
     }
     pub fn clear_output(&mut self) {
@@ -89,7 +89,7 @@ impl Runtime {
         let mut follows = [0u32; RECORDS];
         for v in &p.engine.voices { if !v.done && v.emitter < RECORDS { follows[v.emitter] += 1; } }
         p.layers.follows(&mut follows);
-        for id in 0..RECORDS { if self.follows[id] != follows[id] { self.follows[id] = follows[id]; } }
+        for (dst, &src) in self.follows[..RECORDS].iter_mut().zip(&follows) { if *dst != src { *dst = src; } }
     }
     pub fn diagnostic(&mut self) {
         let mut count = 0;

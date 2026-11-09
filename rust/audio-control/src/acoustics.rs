@@ -56,7 +56,7 @@ impl Default for Acoustics {
         let mut rays = [[0.0; 3]; 19];
         // ports Acoustics.constructor's fan: twelve horizontal rays, six
         // elevated rays and the roof. Directions never change during play.
-        for i in 0..12 { let a = i as f64 / 12.0 * std::f64::consts::PI * 2.0; rays[i] = [v8math::sin(a), 0.0, v8math::cos(a)]; }
+        for (i, ray) in rays.iter_mut().enumerate().take(12) { let a = i as f64 / 12.0 * std::f64::consts::PI * 2.0; *ray = [v8math::sin(a), 0.0, v8math::cos(a)]; }
         for i in 0..6 {
             let a = i as f64 / 6.0 * std::f64::consts::PI * 2.0 + 0.3;
             let e = 50.0 * std::f64::consts::PI / 180.0;

@@ -54,6 +54,7 @@
 //! - authored outlet direction is normalized before applying the body turn;
 //! - supplied mesh outlet directions are normalized after copying;
 //! - retained tail targets and perpendicular bends stay in world coordinates.
+//!
 //! This distinction avoids applying the body quaternion twice to sampled outlets.
 //!
 //! The default quaternion is not inferred from direction. The host supplies the
@@ -68,6 +69,7 @@
 //! - re-enabling begins with fresh positions rather than an old tail;
 //! - cutoff leaves existing detached particles alive until their rounded expiry;
 //! - an active-to-inactive transition does not restart the ignition birth clock.
+//!
 //! Clear does not reset the historical emitted counter used by diagnostics.
 //!
 //! A particle consumes random values in its original attribute order:
@@ -153,6 +155,7 @@ impl Wake {
         }
     }
     // WakePool.emit retains the random draw order: a full pool consumes none.
+    #[allow(clippy::too_many_arguments)]
     fn emit(
         &mut self,
         kind: usize,
@@ -265,8 +268,8 @@ impl Wake {
             } else {
                 direction
             };
-            for kind in 0..3 {
-                let rate = RATE[kind] * throttle;
+            for (kind, &base_rate) in RATE.iter().enumerate() {
+                let rate = base_rate * throttle;
                 let phase = previous.phase[kind];
                 let total = phase + dt * rate;
                 let births = (total + 1e-9).floor();

@@ -84,8 +84,8 @@ pub(crate) fn from_words(hi: u32, lo: u32) -> f64 {
 /// which glibc keeps) computes it. Every correct `scalbn` gives the same
 /// result; V8's fdlibm calls the C library's.
 pub(crate) fn scalbn(x: f64, n: i32) -> f64 {
-    const TWO54: f64 = 1.80143985094819840000e+16;
-    const TWOM54: f64 = 5.55111512312578270212e-17;
+    const TWO54: f64 = 1.801_439_850_948_198_4e16;
+    const TWOM54: f64 = 5.551_115_123_125_783e-17;
     const HUGE: f64 = 1.0e+300;
     const TINY: f64 = 1.0e-300;
     let mut x = x;

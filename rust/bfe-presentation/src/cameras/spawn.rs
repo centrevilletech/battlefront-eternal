@@ -58,21 +58,12 @@ impl Default for State {
         }
     }
 }
+#[derive(Default)]
 pub struct Director {
     state: State,
     revision: u32,
     committed: State,
     committed_revision: u32,
-}
-impl Default for Director {
-    fn default() -> Self {
-        Self {
-            state: State::default(),
-            revision: 0,
-            committed: State::default(),
-            committed_revision: 0,
-        }
-    }
 }
 impl Director {
     // ShotDirector.update commits one HUD paint's shot before the next frame.

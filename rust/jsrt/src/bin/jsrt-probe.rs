@@ -16,8 +16,11 @@ use jsrt::text::JsString;
 fn read_f64s() -> Vec<f64> {
     let mut buf = Vec::new();
     std::io::stdin().read_to_end(&mut buf).unwrap();
-    buf.chunks_exact(8)
-        .map(|c| f64::from_le_bytes(c.try_into().unwrap()))
+    buf.as_chunks::<8>()
+        .0
+        .iter()
+        .copied()
+        .map(f64::from_le_bytes)
         .collect()
 }
 
@@ -36,7 +39,7 @@ fn unary(f: impl Fn(f64) -> f64) {
 
 fn binary(f: impl Fn(f64, f64) -> f64) {
     let input = read_f64s();
-    let output: Vec<f64> = input.chunks_exact(2).map(|p| f(p[0], p[1])).collect();
+    let output: Vec<f64> = input.as_chunks::<2>().0.iter().map(|p| f(p[0], p[1])).collect();
     write_f64s(&output);
 }
 
@@ -96,7 +99,7 @@ fn main() {
         "hypot3" => {
             let input = read_f64s();
             let output: Vec<f64> = input
-                .chunks_exact(3)
+                .as_chunks::<3>().0.iter()
                 .map(|p| js_hypot3(p[0], p[1], p[2]))
                 .collect();
             write_f64s(&output);
@@ -104,7 +107,7 @@ fn main() {
         "hypot4" => {
             let input = read_f64s();
             let output: Vec<f64> = input
-                .chunks_exact(4)
+                .as_chunks::<4>().0.iter()
                 .map(|p| js_hypot(&[p[0], p[1], p[2], p[3]]))
                 .collect();
             write_f64s(&output);
@@ -128,7 +131,7 @@ fn main() {
             // pairs (x, f)
             let input = read_f64s();
             let mut out = std::io::stdout().lock();
-            for p in input.chunks_exact(2) {
+            for p in input.as_chunks::<2>().0 {
                 match to_fixed(p[0], p[1]) {
                     Some(s) => writeln!(out, "{s}").unwrap(),
                     None => writeln!(out, "RangeError").unwrap(),
@@ -171,7 +174,7 @@ fn main() {
         "spread" => {
             let input = read_f64s();
             let mut out = Vec::new();
-            for p in input.chunks_exact(4) {
+            for p in input.as_chunks::<4>().0.iter() {
                 let seed = spread_seed(p[0], p[1], p[2], p[3]);
                 out.push(seed as f64);
                 let mut m = Mulberry32::from_seed_u32(seed);

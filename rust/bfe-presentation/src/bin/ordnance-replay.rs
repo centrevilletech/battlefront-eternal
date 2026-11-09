@@ -26,8 +26,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("unaligned capture".into());
     }
     let data: Vec<f64> = bytes
-        .chunks_exact(8)
-        .map(|b| f64::from_le_bytes(b.try_into().unwrap()))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|&b| f64::from_le_bytes(b))
         .collect();
     if data.first() != Some(&(VERSION as f64)) {
         return Err("invalid capture version".into());
@@ -112,11 +114,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 let capsules = kernel.blaster_arrays();
-                for k in 0..4 {
-                    for i in 0..blasters * BLASTER_SIZES[k] {
-                        check("blasters", capsules[k][i] as f64, *data.get(at + i).ok_or("truncated capture")?, i)?;
+                for (capsule, &size) in capsules.iter().zip(&BLASTER_SIZES) {
+                    for (i, &val) in capsule.iter().enumerate().take(blasters * size) {
+                        check("blasters", val as f64, *data.get(at + i).ok_or("truncated capture")?, i)?;
                     }
-                    at += blasters * BLASTER_SIZES[k];
+                    at += blasters * size;
                 }
                 frames += 1;
             }

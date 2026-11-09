@@ -121,6 +121,7 @@ impl Sniper {
     fn burst(&mut self,at:V,color:[f64;3],radius:f64,life:f64,brightness:f64,turn:f64){append(&mut self.bursts,65,Burst{at,color,radius,life,brightness,turn,born:self.now});}
     // Resource events retain their numeric order. The store exceeds the
     // maximum callback releases and light requests in one command block.
+    #[allow(clippy::too_many_arguments)]
     fn emit(&mut self,kind:u32,token:f64,seed:f64,at:V,color:[f64;3],reach:f64,time:f64){let index=self.counts[h::EVENTS]as usize;if index>=lim::EVENTS{self.counts[h::DROPPED]+=1;return;}self.counts[h::EVENTS]+=1;let out=&mut self.events[index*e::STRIDE..(index+1)*e::STRIDE];out[e::KIND]=kind as f64;out[e::TOKEN]=token;out[e::SEED]=seed;out[e::POSITION..e::POSITION+3].copy_from_slice(&[at.x,at.y,at.z]);out[e::COLOR..e::COLOR+3].copy_from_slice(&color);out[e::REACH]=reach;out[e::TIME]=time;}
     // Reserve an effect birth seed before making sparks, as land did.
     // The host consumes that seed when it applies the callback resource.
@@ -150,6 +151,7 @@ impl Sniper {
     fn claim_waiting(&mut self,random:&mut impl FnMut()->f64){let mut kept=0;for k in 0..self.waiting.len(){let w=self.waiting[k];let record=self.records.iter_mut().find(|r|!r.headshot&&r.landed.is_none()&&off_line(r,w.at)<1.5);if let Some(r)=record{r.headshot=true;r.head_at=Some(w.at);}else if self.now<w.until{self.waiting[kept]=w;kept+=1;}else{self.flourish(w.at,V::new(0.0,0.0,1.0),random);}}self.waiting.truncate(kept);}
     // SniperTrace's GPU attributes use generated group offsets. Component
     // order and f32 conversion stay identical to the interleaved draw format.
+    #[allow(clippy::too_many_arguments)]
     fn streak(&mut self,head:V,tail:V,color:[f64;3],brightness:f64,core:f64,glow:f64,kind:f64,seed:f64,age:f64,opacity:f64,offset:f64,near:f64){
         let k=self.counts[h::STREAKS]as usize;
         if k>=lim::STREAKS{self.counts[h::DROPPED]+=1;return;}
@@ -175,7 +177,8 @@ impl Sniper {
     pub fn frame(&mut self,random:&mut impl FnMut()->f64){self.facts();let dt=self.time.map_or(0.0,|t|(self.now-t).clamp(0.0,0.1));self.time=Some(self.now);self.counts[h::STREAKS]=0;self.counts[h::FLARES]=0;self.counts[h::EVENTS]=0;
         self.claim_waiting(random);let mut kept=0;for k in 0..self.records.len(){let mut r=self.records[k];if self.draw_record(&mut r,random){self.records[kept]=r;kept+=1;}}self.records.truncate(kept);
         kept=0;for k in 0..self.puffs.len(){let p=self.puffs[k];if self.draw_puff(p){self.puffs[kept]=p;kept+=1;}}self.puffs.truncate(kept);
-        kept=0;for k in 0..self.bursts.len(){let b=self.bursts[k];let age=self.now-b.born;if age>=0.0{self.flare(b,age);}if age<b.life{self.bursts[kept]=b;kept+=1;}}self.bursts.truncate(kept);
+        kept=0;for k in 0..self.bursts.len(){let b=self.bursts[k];let age=self.now-b.born;if age>=0.0{self.flare(b,age);}
+        if age<b.life{self.bursts[kept]=b;kept+=1;}}self.bursts.truncate(kept);
         kept=0;for k in 0..self.sparks.len(){let mut s=self.sparks[k];s.age+=dt;s.velocity.y-=9.8*dt;s.velocity.multiply_scalar(V8::exp(-dt*2.5));s.at.add_scaled_vector(&s.velocity,dt);let left=1.0-s.age/s.life;
             if left>0.0{let tail=plus(s.at,s.velocity,if s.ember{-0.012}else{-0.03});let color=if s.ember&&left>0.6{WHITE}else{s.color};self.streak(s.at,tail,color,if s.ember{1.1*left}else{1.4*left},if s.ember{0.01}else{0.012},if s.ember{0.035}else{0.05},2.0,0.0,0.0,0.0,0.0,0.0);}
             if s.age<s.life{self.sparks[kept]=s;kept+=1;}}self.sparks.truncate(kept);self.sizes();}

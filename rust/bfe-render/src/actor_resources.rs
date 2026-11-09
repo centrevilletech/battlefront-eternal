@@ -44,7 +44,7 @@ impl Geometry {
             "cylinder"=>out.cylinder::<M>(record)?,"plane"=>out.plane(record)?,"sphere"=>out.sphere::<M>(record)?,"model"=>out.model(record,vertices,indices)?,"body"=>out.body(record,vertices,indices)?,"rig"=>out.rig(record)?,_=>return Err("unknown actor source kind"),
         }
         crate::interface_geometry::transform::<M>(&mut out,&record.transforms)?;
-        if out.index.len()>MAX_INDICES||out.index.len()%3!=0||out.index.iter().any(|i|*i as usize>=out.facts.count){return Err("invalid actor index");}
+        if out.index.len()>MAX_INDICES||!out.index.len().is_multiple_of(3)||out.index.iter().any(|i|*i as usize>=out.facts.count){return Err("invalid actor index");}
         let position=out.attributes.iter().find(|a|a.name=="position").ok_or("missing actor positions")?;
         let Stream::Float(data)=&out.streams[position.stream] else{return Err("invalid actor position storage")};
         let stride=if position.stride==0{3}else{position.stride as usize/4};
@@ -65,7 +65,8 @@ impl Geometry {
         for iy in 0..=height{let v=iy as f64/height as f64;let offset=if iy==0{0.5/width as f64}else if iy==height{-0.5/width as f64}else{0.};
             for ix in 0..=width{let u=ix as f64/width as f64;let x=-radius*M::cos(u*(std::f64::consts::PI*2.))*M::sin(v*std::f64::consts::PI);let y=radius*M::cos(v*std::f64::consts::PI);let z=radius*M::sin(u*(std::f64::consts::PI*2.))*M::sin(v*std::f64::consts::PI);let inv=1./{let n=(x*x+y*y+z*z).sqrt();if n==0.{1.}else{n}};positions.extend_from_slice(&[x as f32,y as f32,z as f32]);normals.extend_from_slice(&[(x*inv) as f32,(y*inv) as f32,(z*inv) as f32]);uv.extend_from_slice(&[(u+offset) as f32,(1.-v) as f32]);}
         }
-        for iy in 0..height{for ix in 0..width{let a=(iy*(width+1)+ix+1) as u32;let b=a-1;let c=b+(width+1) as u32;let d=c+1;if iy!=0{self.index.extend_from_slice(&[a,b,d]);}if iy!=height-1{self.index.extend_from_slice(&[b,c,d]);}}}
+        for iy in 0..height{for ix in 0..width{let a=(iy*(width+1)+ix+1) as u32;let b=a-1;let c=b+(width+1) as u32;let d=c+1;if iy!=0{self.index.extend_from_slice(&[a,b,d]);}
+        if iy!=height-1{self.index.extend_from_slice(&[b,c,d]);}}}
         self.facts.count=(width+1)*(height+1);self.facts.index_width=if self.facts.count>=65535{4}else{2};self.streams=vec![Stream::Float(positions),Stream::Float(normals),Stream::Float(uv)];for(name,size,stream)in[("position",3,0),("normal",3,1),("uv",2,2)]{self.attribute(name,stream,size,0,0);}Ok(())
     }
     // BuildHologram's open CylinderGeometry, translated half its height.
@@ -107,7 +108,7 @@ impl Geometry {
             if slot>=4{return Err("actor material group capacity");}
             let index=part_indices(p,ix)?;if self.index.len().checked_add(index.len()).is_none_or(|n|n>MAX_INDICES){return Err("actor index capacity");}
             self.facts.groups.push([self.index.len() as u32,index.len() as u32,slot as u32]);self.index.extend_from_slice(index);
-            for row in data.chunks_exact(9){positions.extend_from_slice(&row[..3]);normals.extend_from_slice(&row[3..6]);uv.extend_from_slice(&row[6..8]);if !row[8].is_finite()||row[8]<0.||row[8]>=65536.{return Err("invalid actor joint");}joints[cursor*4]=row[8] as u16;weights[cursor*4]=1.;cursor+=1;}
+            for row in data.as_chunks::<9>().0{positions.extend_from_slice(&row[..3]);normals.extend_from_slice(&row[3..6]);uv.extend_from_slice(&row[6..8]);if !row[8].is_finite()||row[8]<0.||row[8]>=65536.{return Err("invalid actor joint");}joints[cursor*4]=row[8] as u16;weights[cursor*4]=1.;cursor+=1;}
         }
         // BufferGeometry.setIndex(array) chooses Uint32 at the reserved 65535
         // restart index, whereas modelPack's explicitly typed index never did.
@@ -143,7 +144,7 @@ impl Geometry {
         Ok(())
     }
 }
-fn part_indices<'a>(p:&Part,indices:&'a[u32])->Result<&'a[u32],&'static str>{if p.index_offset%4!=0{return Err("invalid actor index offset");}let first=p.index_offset/4;let end=first.checked_add(p.index_count).ok_or("actor index overflow")?;if p.index_count>MAX_INDICES{return Err("actor index capacity");}indices.get(first..end).ok_or("short actor indices")}
+fn part_indices<'a>(p:&Part,indices:&'a[u32])->Result<&'a[u32],&'static str>{if !p.index_offset.is_multiple_of(4){return Err("invalid actor index offset");}let first=p.index_offset/4;let end=first.checked_add(p.index_count).ok_or("actor index overflow")?;if p.index_count>MAX_INDICES{return Err("actor index capacity");}indices.get(first..end).ok_or("short actor indices")}
 // BufferGeometry's bound calculation is f64 over stored Float32 positions.
 // Preserve addition order and NaN rejection without touching authored UV bits.
 fn bounds(data:&[f32],stride:usize,offset:usize)->Result<[f64;10],&'static str>{
@@ -194,8 +195,10 @@ impl Material {
 }
 // CPU source identity outlives a replaceable GPU context. Recreated VAOs use
 // the same native bytes and group policy; source admission is never replayed.
+type EffectKey = (u32, u32, bool, bool, i32, String);
+type MaterialKey = (u32, String, bool, bool, Vec<i32>);
 #[derive(Default)]
-pub struct Bank {pub shape_sources:HashMap<String,u32>,pub sources:Vec<Geometry>,pub geometry:std::collections::HashMap<(u32,String,bool),u32>,pub clipped:u64,pub depth:crate::actor_depth::Bank,pub crowd:crate::actor_crowd::Crowd,pub effects:std::collections::HashMap<(u32,u32,bool,bool,i32,String),Vec<f64>>,pub materials:std::collections::HashMap<(u32,String,bool,bool,Vec<i32>),Vec<f64>>,pub recipes:Vec<(u32,Style,bool,bool)>,pub motions:std::collections::HashMap<(u32,bool,bool),u32>}
+pub struct Bank {pub shape_sources:HashMap<String,u32>,pub sources:Vec<Geometry>,pub geometry:std::collections::HashMap<(u32,String,bool),u32>,pub clipped:u64,pub depth:crate::actor_depth::Bank,pub crowd:crate::actor_crowd::Crowd,pub effects:std::collections::HashMap<EffectKey,Vec<f64>>,pub materials:std::collections::HashMap<MaterialKey,Vec<f64>>,pub recipes:Vec<(u32,Style,bool,bool)>,pub motions:std::collections::HashMap<(u32,bool,bool),u32>}
 impl Bank {
     pub const SOURCES:usize=8192;
     pub fn source<M:crate::pixel_math::Math>(&mut self,record:&Record,vertices:&[f32],indices:&[u32])->Result<Option<u32>,String>{
@@ -253,6 +256,6 @@ impl MotionDescriptor {pub fn publish(&self,row:&mut[f64]){use crate::motion::*;
 // subsequent frames keep it just as the former mesh did until disposal.
 pub fn flyer_bounds(bounds:&[f64;10],matrices:&[f32])->[f64;4]{
     fn expand(c:&mut[f64;3],r:&mut f64,p:[f64;3]){let d=std::array::from_fn::<_,3,_>(|i|p[i]-c[i]);let length=d[0]*d[0]+d[1]*d[1]+d[2]*d[2];if length>*r**r{let length=length.sqrt();let delta=(length-*r)*0.5;for i in 0..3{c[i]+=d[i]*(delta/length);}*r+=delta;}}
-    let mut center=[0.;3];let mut radius=-1.;for raw in matrices.chunks_exact(16).take(256){let m=std::array::from_fn(|i|raw[i]as f64);let(c,r)=crate::math::sphere_to_world(&m,&[bounds[0],bounds[1],bounds[2]],bounds[3]);if radius<0.{center=c;radius=r;}else if center==c{radius=radius.max(r);}else{let d=std::array::from_fn::<_,3,_>(|i|c[i]-center[i]);let length=(d[0]*d[0]+d[1]*d[1]+d[2]*d[2]).sqrt();let scale=r/length;let edge=d.map(|x|x*scale);expand(&mut center,&mut radius,std::array::from_fn(|i|c[i]+edge[i]));expand(&mut center,&mut radius,std::array::from_fn(|i|c[i]-edge[i]));}}
+    let mut center=[0.;3];let mut radius=-1.;for raw in matrices.as_chunks::<16>().0.iter().take(256){let m=std::array::from_fn(|i|raw[i]as f64);let(c,r)=crate::math::sphere_to_world(&m,&[bounds[0],bounds[1],bounds[2]],bounds[3]);if radius<0.{center=c;radius=r;}else if center==c{radius=radius.max(r);}else{let d=std::array::from_fn::<_,3,_>(|i|c[i]-center[i]);let length=(d[0]*d[0]+d[1]*d[1]+d[2]*d[2]).sqrt();let scale=r/length;let edge=d.map(|x|x*scale);expand(&mut center,&mut radius,std::array::from_fn(|i|c[i]+edge[i]));expand(&mut center,&mut radius,std::array::from_fn(|i|c[i]-edge[i]));}}
     [center[0],center[1],center[2],radius]
 }

@@ -148,7 +148,8 @@ impl Phase {
         if !Layers::is_group(handle) { return; }
         for i in 0..self.layers.count(handle) {
             let child = self.layers.child(handle, i); let (gain, pitch) = self.layers.parameters(handle, i, inputs, single);
-            if let Some(gain) = gain { self.gain(child, gain); } if let Some(pitch) = pitch { self.pitch(child, pitch, false); }
+            if let Some(gain) = gain { self.gain(child, gain); }
+            if let Some(pitch) = pitch { self.pitch(child, pitch, false); }
         }
     }
     pub(crate) fn apply_handle(&mut self, handle: u64) {
@@ -170,7 +171,8 @@ impl Phase {
                 for layer in 0..self.layers.count(handle) {
                     if !self.layers.due(id, layer) { continue; }
                     let child = self.play(self.layers.child_ask(handle, layer)); let (gain, pitch) = self.layers.scales(handle);
-                    if pitch != 0.0 { self.pitch(child, pitch, false); } if gain != 0.0 { self.gain(child, gain); }
+                    if pitch != 0.0 { self.pitch(child, pitch, false); }
+                    if gain != 0.0 { self.gain(child, gain); }
                     self.layers.set_child(handle, layer, child);
                 }
                 self.layers.advance(id, dt);

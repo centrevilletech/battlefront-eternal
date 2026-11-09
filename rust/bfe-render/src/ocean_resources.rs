@@ -2,8 +2,8 @@
 //! These procedural streams have no content decoder or browser resource owner.
 use crate::{water_resources::Geometry,pixel_math::Math};
 fn shape(vertices:Vec<f32>,index:Vec<u32>)->Geometry{
- let mut lo=[f64::INFINITY;3];let mut hi=[f64::NEG_INFINITY;3];for p in vertices.chunks_exact(3){for j in 0..3{lo[j]=lo[j].min(p[j] as f64);hi[j]=hi[j].max(p[j] as f64);}}
- let center=std::array::from_fn::<_,3,_>(|j|(lo[j]+hi[j])*0.5);let mut radius:f64=0.;for p in vertices.chunks_exact(3){let d=std::array::from_fn::<_,3,_>(|j|p[j] as f64-center[j]);radius=radius.max(d[0]*d[0]+d[1]*d[1]+d[2]*d[2]);}
+ let mut lo=[f64::INFINITY;3];let mut hi=[f64::NEG_INFINITY;3];for p in vertices.as_chunks::<3>().0{for j in 0..3{lo[j]=lo[j].min(p[j] as f64);hi[j]=hi[j].max(p[j] as f64);}}
+ let center=std::array::from_fn::<_,3,_>(|j|(lo[j]+hi[j])*0.5);let mut radius:f64=0.;for p in vertices.as_chunks::<3>().0{let d=std::array::from_fn::<_,3,_>(|j|p[j] as f64-center[j]);radius=radius.max(d[0]*d[0]+d[1]*d[1]+d[2]*d[2]);}
  Geometry{vertices,index,stride:3,bounds:[center[0],center[1],center[2],radius.sqrt(),lo[0],lo[1],lo[2],hi[0],hi[1],hi[2]]}
 }
 pub fn geometry<M:Math>()->[Geometry;3]{
@@ -30,7 +30,8 @@ pub fn geometry<M:Math>()->[Geometry;3]{
  // negative-X convention and trigonometric operation order before f32 storage.
  let mut p=Vec::with_capacity(33*13*3);let mut index=vec![];
  for y in 0..=12{let theta=y as f64/12.*std::f64::consts::PI;for x in 0..=32{let phi=x as f64/32.*(std::f64::consts::PI*2.);p.extend([(-850.*M::cos(phi)*M::sin(theta)) as f32,(850.*M::cos(theta)) as f32,(850.*M::sin(phi)*M::sin(theta)) as f32]);}}
- for y in 0..12{for x in 0..32{let a=y*33+x+1;let b=a-1;let c=b+33;let d=a+33;if y!=0{index.extend([a,b,d]);}if y!=11{index.extend([b,c,d]);}}}
+ for y in 0..12{for x in 0..32{let a=y*33+x+1;let b=a-1;let c=b+33;let d=a+33;if y!=0{index.extend([a,b,d]);}
+  if y!=11{index.extend([b,c,d]);}}}
  [
   classic,
   storm,

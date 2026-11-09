@@ -49,8 +49,8 @@ fn hash_f32(mut hash: u32, rows: &[f32]) -> u32 {
 fn values(bytes: &[u8], at: &mut usize, out: &mut [f64]) -> Result<(), Box<dyn Error>> {
     let end = *at + out.len() * 8;
     let input = bytes.get(*at..end).ok_or("short unit replay")?;
-    for (value, chunk) in out.iter_mut().zip(input.chunks_exact(8)) {
-        *value = f64::from_le_bytes(chunk.try_into().unwrap());
+    for (value, &chunk) in out.iter_mut().zip(input.as_chunks::<8>().0) {
+        *value = f64::from_le_bytes(chunk);
     }
     *at = end;
     Ok(())

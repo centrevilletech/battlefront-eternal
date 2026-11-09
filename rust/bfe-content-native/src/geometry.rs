@@ -59,21 +59,25 @@ pub struct Group {
 // Binary words must not round-trip through JSON numbers. This keeps NaN bits,
 // signed zero and authored Float32 positions unchanged at the GPU boundary.
 pub fn floats(bytes: &[u8]) -> Result<Vec<f32>, String> {
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return Err("float buffer is not word aligned".into());
     }
     Ok(bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| f32::from_le_bytes(*b))
         .collect())
 }
 pub fn words(bytes: &[u8]) -> Result<Vec<u32>, String> {
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return Err("index buffer is not word aligned".into());
     }
     Ok(bytes
-        .chunks_exact(4)
-        .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| u32::from_le_bytes(*b))
         .collect())
 }
 fn span(

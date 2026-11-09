@@ -6,7 +6,7 @@ pub struct WarmSpec { pub key:&'static str, pub family:u32, pub cascades:i32, pu
 impl WarmSpec {
     fn matches(&self,family:u32,cascades:u32,lamps:bool,shadows:bool)->bool {
         if self.family!=family || self.derived {return false;}
-        if self.cascades>=0 && self.cascades!=0 && self.cascades!=cascades.min(4) as i32 {return false;}
+        if self.cascades>0 && self.cascades!=cascades.min(4) as i32 {return false;}
         if self.lamps>=0 && (self.lamps!=0)!=(self.dynamic&&lamps) {return false;}
         if self.shadow>=0 && (self.shadow!=0)!=shadows {return false;}
         if self.csm>=0 && (self.csm!=0)!=(cascades!=0) {return false;}
@@ -48,10 +48,12 @@ pub struct PendingWorld {
     pub item:Option<u32>,
 }
 impl PendingWorld {
+    // Retains the ported JS/GL call-site signature without an extra wrapper struct.
     #[allow(clippy::too_many_arguments)]
     pub fn new(source:u32,far:bool,scale:f64,samplers:&[i32],features:&[u32],order:u32,slot:u32,object:u32)->Self {
         Self{source,far,scale:scale.to_bits(),samplers:samplers.to_vec(),features:features.to_vec(),order,slot,object,item:None}
     }
+    // Retains the ported JS/GL call-site signature without an extra wrapper struct.
     #[allow(clippy::too_many_arguments)]
     pub fn matches(&self,source:u32,far:bool,scale:f64,samplers:&[i32],features:&[u32],order:u32,slot:u32,object:u32)->bool {
         self.source==source&&self.far==far&&self.scale==scale.to_bits()&&self.samplers==samplers&&self.features==features&&self.order==order&&self.slot==slot&&self.object==object
@@ -80,7 +82,7 @@ impl PendingWorld {
     #[test] fn settings_select_exact_shadow_twins_and_actor_lamp_variants(){
         for cascades in [0,1,2,3,4] {for lamps in [false,true]{for shadows in [false,true]{
             let mut p=Prepare::default();p.begin(1,cascades,lamps,shadows);
-            while let Some(key)=p.next_key(){let row=catalog::PROGRAMS.iter().find(|r|r.key==key).unwrap();assert!(row.cascades<0||row.cascades==0||row.cascades==cascades as i32);assert!(!row.derived);}
+            while let Some(key)=p.next_key(){let row=catalog::PROGRAMS.iter().find(|r|r.key==key).unwrap();assert!(row.cascades<=0||row.cascades==cascades as i32);assert!(!row.derived);}
             p.begin(2,cascades,lamps,shadows);let mut count=0;
             while let Some(key)=p.next_key(){let row=catalog::PROGRAMS.iter().find(|r|r.key==key).unwrap();assert!(row.shadow<0||(row.shadow!=0)==shadows);count+=1;}assert!(count>0);
         }}}

@@ -94,6 +94,7 @@ fn filter_one(band: &mut [Biquad; 4], src: &[f32], dst: &mut [f32], gains: &[f32
 // is nonzero) rather than on its sign, which the CPU cannot guess.
 // (Not `v != 0.0`, which holds for NaN too, whose sign abs would clear.)
 #[inline(always)]
+// Retains the ported JS/GL call-site signature without an extra wrapper struct.
 #[allow(clippy::double_comparisons)]
 fn rectify(v: f64) -> f64 {
     if v < 0.0 || v > 0.0 { v.abs() } else { v }
@@ -121,6 +122,7 @@ impl Sample for f64 {
 // y = b0 u + z1, z1 = b1 u - a1 y + z2, z2 = b2 u - a2 y, sample by
 // sample, rectifying u first for the top's first filter.
 #[inline(always)]
+// Retains the ported JS/GL call-site signature without an extra wrapper struct.
 #[allow(clippy::too_many_arguments)]
 fn stage_two<T: Sample>(k: &Biquad, za: &mut (f64, f64), zb: &mut (f64, f64), ua: &[T], ub: &[T], ya: &mut [f64], yb: &mut [f64], rect: bool) {
     let (b0, b1, b2, a1, a2) = (k.b0, k.b1, k.b2, k.a1, k.a2);
@@ -246,9 +248,9 @@ impl Clarity {
                 continue;
             }
             let src = input.ch(c);
-            for i in 0..n {
-                let x = src[i] as f64;
-                self.power[i] += x * x;
+            for (power, &sample) in self.power[..n].iter_mut().zip(&src[..n]) {
+                let x = sample as f64;
+                *power += x * x;
             }
         }
         // The attack gain, per sample. The worklet keeps the gains in a

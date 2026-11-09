@@ -353,8 +353,8 @@ fn a_creature_hangs_whom_it_holds_from_its_node() {
     let mut want = Matrix4::default();
     want.multiply_matrices(&placed, &root);
     let got = &p.prop_output[po::HELD_FRAME..po::HELD_FRAME + 16];
-    for k in 0..16 {
-        assert!((got[k] - want.elements[k]).abs() < 1e-9, "{k}: {} {}", got[k], want.elements[k]);
+    for (k, (&g, &w)) in got.iter().zip(&want.elements).enumerate() {
+        assert!((g - w).abs() < 1e-9, "{k}: {g} {w}");
     }
     // Let go, a stale skeleton or clip, or a grab past its nodes: none or
     // not placed, never a panic.

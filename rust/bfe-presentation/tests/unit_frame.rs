@@ -134,7 +134,7 @@ fn unit_frame_has_no_allocation_even_during_lifecycle_changes() {
             units.collision.input[collision+ci::GENERATION]=1.0;
             units.collision.input[collision+ci::SCALE]=1.0;
             units.collision.input[collision+ci::YAW]=frame as f64*0.001;
-            units.collision.input[collision+ci::SOURCE_PROP]=-1.0;
+            units.collision.input[collision+ci::SOURCE_PROP] = -1.0;
             let at = f::STRIDE + row * i::STRIDE;
             // Exercise first attach, detach and a parent move between the
             // two phases as interface layout does, without growing children.
@@ -244,7 +244,7 @@ fn overfull_counts_and_unknown_ids_never_fail_a_frame() {
     use bfe_presentation::layout::unit_collision_output as co;
     units.collision.input[ci::ENABLED]=1.0;
     units.collision.input[ci::SCALE]=1.0;
-    units.collision.input[ci::SOURCE_PROP]=-1.0;
+    units.collision.input[ci::SOURCE_PROP] = -1.0;
     units.frame();assert_eq!(units.collision.output[co::COUNT],0.0);
     units.collision.actors[0]=u32::MAX;
     units.collision_frame(usize::MAX);assert_eq!(units.collision.output[co::COUNT],0.0);

@@ -142,7 +142,7 @@ impl Phase {
         let forward_length = (self.frame[f]*self.frame[f] + self.frame[f+1]*self.frame[f+1] + self.frame[f+2]*self.frame[f+2]).sqrt();
         let inverse = 1.0 / if forward_length == 0.0 { 1.0 } else { forward_length };
         self.result[out::YAW] = M::atan2(self.frame[f]*inverse, self.frame[f + 2]*inverse) - std::f64::consts::PI / 2.0;
-        self.update_waders::<M>();
+        self.update_waders();
         self.rings::<M>(dt);
         if self.frame[frame::OCEAN] != 0.0 { self.ocean_time += dt; }
         self.result[out::OCEAN_TIME] = self.ocean_time;
@@ -165,7 +165,7 @@ impl Phase {
         self.result[out::SHORE_TILES] = self.shore.tiles() as f64;
         self.result[out::OVERFLOW] = (self.overflow + self.shore.overflow) as f64;
     }
-    fn update_waders<M: Math>(&mut self) {
+    fn update_waders(&mut self) {
         // Water.updateWaders deletes stale contacts in insertion order. Stable
         // ordering matters when two soldiers are equally far from the camera.
         let mut n = 0;
@@ -239,9 +239,9 @@ impl Phase {
                     [r.x + self.circle_cos[s]*inner, y, r.z + self.circle_sin[s]*inner],
                     [r.x + self.circle_cos[s+1]*outer, y, r.z + self.circle_sin[s+1]*outer],
                     [r.x + self.circle_cos[s+1]*inner, y, r.z + self.circle_sin[s+1]*inner]];
-                for v in 0..4 {
+                for (v, point) in points.iter().enumerate() {
                     let at = q*4+v;
-                    for axis in 0..3 { self.positions[at*3+axis] = points[v][axis] as f32; }
+                    for (axis, &coord) in point.iter().enumerate() { self.positions[at*3+axis] = coord as f32; }
                     self.uvs[at*2] = ((s + usize::from(v >= 2)) as f64 * 0.25) as f32;
                     self.uvs[at*2+1] = (v & 1) as f32;
                     self.alpha[at] = alpha as f32;

@@ -39,7 +39,8 @@ fn cylinder<M:Math>(g:&mut Geometry,r:&Record){
     let top=r.top.unwrap_or(1.);let bottom=r.bottom.unwrap_or(1.);let height=r.height.unwrap_or(1.);let segments=r.segments.unwrap_or(32).clamp(3,512);let slope=(bottom-top)/height;
     let mut p=vec![];let mut n=vec![];let mut uv=vec![];
     for row in 0..=1{let v=row as f64;let radius=v*(bottom-top)+top;for i in 0..=segments{let u=i as f64/segments as f64;let sin=M::sin(u*TAU);let cos=M::cos(u*TAU);p.extend([(radius*sin)as f32,(-v*height+height/2.)as f32,(radius*cos)as f32]);let inv=1./(sin*sin+slope*slope+cos*cos).sqrt();n.extend([(sin*inv)as f32,(slope*inv)as f32,(cos*inv)as f32]);uv.extend([u as f32,(1.-v)as f32]);}}
-    for x in 0..segments as u32{let a=x;let b=a+segments as u32+1;if top>0.{g.index.extend([a,b,a+1]);}if bottom>0.{g.index.extend([b,b+1,a+1]);}}
+    for x in 0..segments as u32{let a=x;let b=a+segments as u32+1;if top>0.{g.index.extend([a,b,a+1]);}
+    if bottom>0.{g.index.extend([b,b+1,a+1]);}}
     g.facts.groups.push([0,g.index.len()as u32,0]);
     if !r.open{for is_top in [true,false]{let radius=if is_top{top}else{bottom};if radius<=0.{continue;}let sign=if is_top{1.}else{-1.};let start=g.index.len()as u32;let centers=p.len()as u32/3;
         for _ in 0..segments{p.extend([0.,(height/2.*sign)as f32,0.]);n.extend([0.,sign as f32,0.]);uv.extend([0.5,0.5]);}
@@ -62,8 +63,8 @@ pub fn populate<M:Math>(g:&mut Geometry,r:&Record)->Result<(),&'static str>{
 // BufferGeometry.applyMatrix4 rounded positions after every authored operation,
 // then transformed and renormalized normals. Preserve that cold f64 order.
 pub fn transform<M:Math>(g:&mut Geometry,ops:&[(String,f64)])->Result<(),&'static str>{
-    for (op,value)in ops{if !value.is_finite(){return Err("invalid interface transform");}let mut m=[1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.];let(c,s)=(M::cos(*value),M::sin(*value));match op.as_str(){"translateY"=>m[13]=*value,"rotateX"=>{m[5]=c;m[6]=s;m[9]=-s;m[10]=c;},"rotateY"=>{m[0]=c;m[2]=-s;m[8]=s;m[10]=c;},_=>return Err("unknown interface transform")};
-        for a in &g.attributes{if !matches!(a.name,"position"|"normal"){continue;}let Stream::Float(data)=&mut g.streams[a.stream]else{continue;};let normal=crate::math::normal_matrix(&m);for p in data.chunks_exact_mut(3){let(x,y,z)=(p[0]as f64,p[1]as f64,p[2]as f64);let v=if a.name=="position"{{let w=1./(m[3]*x+m[7]*y+m[11]*z+m[15]);[(m[0]*x+m[4]*y+m[8]*z+m[12])*w,(m[1]*x+m[5]*y+m[9]*z+m[13])*w,(m[2]*x+m[6]*y+m[10]*z+m[14])*w]}}else{let v=[normal[0]*x+normal[3]*y+normal[6]*z,normal[1]*x+normal[4]*y+normal[7]*z,normal[2]*x+normal[5]*y+normal[8]*z];let len=(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]).sqrt();let inv=1./if len==0.{1.}else{len};v.map(|v|v*inv)};for i in 0..3{p[i]=v[i]as f32;}}
+    for (op,value)in ops{if !value.is_finite(){return Err("invalid interface transform");}let mut m=[1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.];let(c,s)=(M::cos(*value),M::sin(*value));match op.as_str(){"translateY"=>m[13] = *value,"rotateX"=>{m[5]=c;m[6]=s;m[9] = -s;m[10]=c;},"rotateY"=>{m[0]=c;m[2] = -s;m[8]=s;m[10]=c;},_=>return Err("unknown interface transform")};
+        for a in &g.attributes{if !matches!(a.name,"position"|"normal"){continue;}let Stream::Float(data)=&mut g.streams[a.stream]else{continue;};let normal=crate::math::normal_matrix(&m);for p in data.as_chunks_mut::<3>().0{let(x,y,z)=(p[0]as f64,p[1]as f64,p[2]as f64);let v=if a.name=="position"{{let w=1./(m[3]*x+m[7]*y+m[11]*z+m[15]);[(m[0]*x+m[4]*y+m[8]*z+m[12])*w,(m[1]*x+m[5]*y+m[9]*z+m[13])*w,(m[2]*x+m[6]*y+m[10]*z+m[14])*w]}}else{let v=[normal[0]*x+normal[3]*y+normal[6]*z,normal[1]*x+normal[4]*y+normal[7]*z,normal[2]*x+normal[5]*y+normal[8]*z];let len=(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]).sqrt();let inv=1./if len==0.{1.}else{len};v.map(|v|v*inv)};for i in 0..3{p[i]=v[i]as f32;}}
         }
     }Ok(())
 }

@@ -32,7 +32,7 @@ pub(crate) fn program<C:HasContext,M:MultiDraw>(core:&mut Core<C,M>,old:usize,sh
     unsafe{
         let gl=&core.gl;gl.use_program(Some(core.programs[program].program));
         for (name,ty) in previous.uniforms {
-            if !matches!(ty,32|33|34|35){continue;}
+            if !matches!(ty,32..=35){continue;}
             if let Some(from)=location(core,old,name){
                 let mut unit=[0];gl.get_uniform_i32(core.programs[old].program,&from,&mut unit);
                 gl.uniform_1_i32(location(core,program,name).as_ref(),unit[0]);

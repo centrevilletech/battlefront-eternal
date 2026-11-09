@@ -63,7 +63,7 @@ impl FramePlan {
             let dirty = f[F::SHADOW_DIRTY+i] != 0.;
             let last = cascades > 2 && i+1 == cascades;
             s[S::SHADOW_STATIC+i] = (i<cascades && dirty) as u8 as f64;
-            s[S::SHADOW_DYNAMIC+i] = (i<cascades && (dirty || f[F::SHADOW_MOVED+i] != 0. || !last || count(s[S::FRAME],u32::MAX as usize)%2 == 0)) as u8 as f64;
+            s[S::SHADOW_DYNAMIC+i] = (i<cascades && (dirty || f[F::SHADOW_MOVED+i] != 0. || !last || count(s[S::FRAME],u32::MAX as usize).is_multiple_of(2))) as u8 as f64;
         }
     }
     // The operation store is bounded independently of imported view counts.

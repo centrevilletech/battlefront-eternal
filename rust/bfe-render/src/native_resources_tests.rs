@@ -12,7 +12,7 @@ struct Device {
 }
 thread_local! { static DEVICE:RefCell<Device>=RefCell::default(); }
 unsafe extern "system" fn string(_: u32) -> *const u8 {
-    b"3.3 synthetic\0".as_ptr()
+    c"3.3 synthetic".as_ptr().cast()
 }
 unsafe extern "system" fn integer(name: u32, out: *mut i32) {
     // SAFETY: glow passes one writable integer for GetIntegerv; these queries

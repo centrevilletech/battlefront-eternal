@@ -148,7 +148,7 @@ fn radix_value(digits: &str, radix: u32) -> Option<f64> {
         mantissa = (mantissa << 1) | b as u64;
     }
     let round = bits[53] == 1;
-    let sticky = bits[54..].iter().any(|&b| b == 1);
+    let sticky = bits[54..].contains(&1);
     if round && (sticky || mantissa & 1 == 1) {
         mantissa += 1;
     }

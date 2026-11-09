@@ -62,8 +62,8 @@ impl Decoder {
             for chunk in 0..chunks {
                 parts[chunk % count].extend_from_slice(&self.bytes[chunk * interleave..(chunk + 1) * interleave]);
             }
-            for part in 0..count {
-                decode(&parts[part], channels, &mut self.output[part * channels..(part + 1) * channels]);
+            for (part, part_bytes) in parts.iter().enumerate() {
+                decode(part_bytes, channels, &mut self.output[part * channels..(part + 1) * channels]);
             }
         }
         self.output[0].len()

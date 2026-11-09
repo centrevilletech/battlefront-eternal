@@ -90,10 +90,10 @@ fn delta(mut r: Reader, base: Option<&[u8]>, out: &mut Output) -> Result<()> { l
     let base = base.ok_or("word delta baseline not held")?;
     let n = r.u16()? as usize;
     let words = r.u16()? as usize;
-    if base.len() != n || words != (n + 7) / 8 { return Err("word delta shape"); }
+    if base.len() != n || words != n.div_ceil(8) { return Err("word delta shape"); }
     // Bitmap padding is not payload. The final changed word still consumes
     // eight source bytes while copying only the remaining logical bytes.
-    let bitmap = r.take((words + 7) / 8)?;
+    let bitmap = r.take(words.div_ceil(8))?;
     out.extend(&[1., n as f64])?;
     let dest = out.packed(n)?;
     dest.copy_from_slice(base);
@@ -186,7 +186,7 @@ fn group(r: &mut Reader<'_>, class: u8, index: u8, base: Option<&BaselineSlot>, 
         // weapon and seat identity retain their following read order.
         (0, 4) => { let p = r.u8()?;
             out.extend(&[(p & 3) as f64, (p >> 2) as f64, r.u8()? as f64, r.u16()? as f64, seat(r)?, r.u8()? as f64]) }
-        (0 | 1 | 2, 5) => out.extend(&[r.u8()? as f64]), (1, 3) => {
+        (0..=2, 5) => out.extend(&[r.u8()? as f64]), (1, 3) => {
             out.extend(&[r.u16()? as f64, r.u8()? as f64, r.u8()? as f64, r.u16()? as f64, seat(r)?, r.u8()? as f64]) }
         // droidekaGroup carries five f32 animation fields after its flags.
         // A malformed f32 must fail before a later group can be published.
@@ -316,8 +316,8 @@ fn position_values(codes: [f64; 3], b: &[f64; 6]) -> [f64; 3] {
 fn quaternion(index: usize, values: [f64; 3]) -> [f64; 4] { let mut q = [0.; 4];
     let mut sum = 0.;
     let mut n = 0;
-    for i in 0..4 { if i != index { q[i] = (values[n] / 32767. - 0.5) * 2. * FRAC_1_SQRT_2;
-            sum += q[i] * q[i];
+    for (i, q_elem) in q.iter_mut().enumerate() { if i != index { *q_elem = (values[n] / 32767. - 0.5) * 2. * FRAC_1_SQRT_2;
+            sum += *q_elem * *q_elem;
             n += 1; } }
     q[index] = jsrt::js_max(0., 1. - sum).sqrt();
     let length = jsrt::js_hypot(&q);

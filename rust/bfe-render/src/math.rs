@@ -8,7 +8,7 @@ pub type Mat4 = [f64; 16];
 // ShadowPass.add tested Matrix4.determinant, including its full f64 order.
 // Preserve that boundary rather than substituting an affine sign shortcut.
 pub fn determinant_mirrors(world:&Mat4)->bool{
-    let mut matrix=three::Matrix4::default();matrix.elements=*world;matrix.determinant()<0.
+    let matrix = three::Matrix4 { elements: *world }; matrix.determinant() < 0.
 }
 
 // Matrix4.multiplyMatrices(a, b).
@@ -175,17 +175,6 @@ pub fn sphere_to_world(m: &Mat4, center: &[f64; 3], radius: f64) -> ([f64; 3], f
     (c, radius * sx.max(sy).max(sz).sqrt())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn normal_matrix_of_scale() {
-        let mut m = [0.0; 16];
-        m[0] = 2.0; m[5] = 4.0; m[10] = 8.0; m[15] = 1.0;
-        let n = normal_matrix(&m);
-        assert_eq!(n, [0.5, 0.0, 0.0, 0.0, 0.25, 0.0, 0.0, 0.0, 0.125]);
-    }
-}
 
 // writeUniform's view and UV transforms retain their own native scratch bank.
 // The caller supplies facts; no Three model-view/normal/texture matrix changes.
@@ -215,3 +204,16 @@ impl UniformTransforms{
         self.output[o::EYE..o::EYE+3].copy_from_slice(&self.input[i::EYE..i::EYE+3]);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn normal_matrix_of_scale() {
+        let mut m = [0.0; 16];
+        m[0] = 2.0; m[5] = 4.0; m[10] = 8.0; m[15] = 1.0;
+        let n = normal_matrix(&m);
+        assert_eq!(n, [0.5, 0.0, 0.0, 0.0, 0.25, 0.0, 0.0, 0.0, 0.125]);
+    }
+}
+

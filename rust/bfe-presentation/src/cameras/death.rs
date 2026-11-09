@@ -69,7 +69,7 @@ impl Follow {
 // Both the retained value and velocity are returned as stack scalars.
 // Tracking and final-pose followers deliberately use separate state.
 fn spring<M: Math>(x: f64, v: f64, a0: f64, a1: f64, rate: f64, dt: f64) -> (f64, f64) {
-    if !(dt > 0.0) {
+    if dt.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return (x, v);
     }
     let speed = (a1 - a0) / dt;
@@ -154,7 +154,7 @@ impl FollowTurn {
         self.velocity = V::default()
     }
     fn step<M: Math>(&mut self, goal: Q, rate: f64, dt: f64) {
-        if !(dt > 0.0) {
+        if dt.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
             return;
         }
         let inverse = inv(self.goal);
@@ -676,7 +676,7 @@ impl Death {
 
     fn show_trace(&mut self) {
         let since = self.time - 1.0f64.max(self.known_at + 0.15);
-        self.trace.visible = !self.classic && self.known && since >= 0.0 && since <= 2.3;
+        self.trace.visible = !self.classic && self.known && (0.0..=2.3).contains(&since);
         if !self.trace.visible {
             return;
         }

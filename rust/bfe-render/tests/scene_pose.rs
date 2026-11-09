@@ -6,11 +6,11 @@ fn packet(p:&mut ScenePoses,sequence:f64,x:f64){
  p.input[..h::STRIDE].fill(0.);p.input[h::OWNER]=1.;p.input[h::GENERATION]=1.;p.input[h::SEQUENCE]=sequence;
  p.input[h::WORLDS]=1.;p.input[h::SKINS]=1.;p.input[h::BINDS]=1.;
  let a=h::STRIDE;p.input[a+w::MODEL]=2.;p.input[a+w::GENERATION]=1.;p.input[a+w::INDEX]=7.;
- p.input[a+w::WORLD..a+w::WORLD+16].copy_from_slice(&ID);p.input[a+w::WORLD+12]=x;p.input[a+w::WORLD+13]=-0.;
+ p.input[a+w::WORLD..a+w::WORLD+16].copy_from_slice(&ID);p.input[a+w::WORLD+12]=x;p.input[a+w::WORLD+13] = -0.;
  let a=a+w::STRIDE;p.input[a+s::MODEL]=2.;p.input[a+s::GENERATION]=1.;p.input[a+s::INDEX]=3.;
  for i in 0..8{p.input[a+s::BITS+i]=f64::from_bits(((0x7fc00042u64)<<32)|0x80000000);}
  let a=a+s::STRIDE;p.input[a+b::MODEL]=2.;p.input[a+b::GENERATION]=1.;
- p.input[a+b::INVERSE..a+b::INVERSE+16].copy_from_slice(&ID);p.input[a+b::INVERSE+12]=-x;
+ p.input[a+b::INVERSE..a+b::INVERSE+16].copy_from_slice(&ID);p.input[a+b::INVERSE+12] = -x;
  p.input[h::WORDS]=(a+b::STRIDE)as f64;
 }
 #[test]
@@ -32,7 +32,7 @@ fn contiguous_prop_worlds_bind_and_skins_match_original_f64_order(){
  p.stream_info[th::OWNER]=1.;p.stream_info[th::GENERATION]=1.;p.stream_info[th::MODEL]=2.;p.stream_info[th::WORDS]=(2*tn::STRIDE) as f64;p.stream_info[th::COUNT]=2.;p.stream_info[th::KIND]=tk::TREE as f64;
  for i in 0..2{let a=i*tn::STRIDE;p.stream[a+tn::WORLD..a+tn::WORLD+16].copy_from_slice(&ID);p.stream[a+tn::BIND_INVERSE..a+tn::BIND_INVERSE+16].copy_from_slice(&ID);p.stream[a+tn::CHANGED]=1.;}
  p.stream[tn::STRIDE+tn::WORLD+12]=0.12345678901234567;
- p.stream[tn::BIND_INVERSE+12]=-0.75;assert_eq!(p.import_stream(),2);
+ p.stream[tn::BIND_INVERSE+12] = -0.75;assert_eq!(p.import_stream(),2);
  let expected=bfe_render::math::mul(&p.node(1,2,1,1).unwrap().world,&ID);
  assert_eq!(p.skin(1,2,1,0).unwrap().iter().map(|x|x.to_bits()).collect::<Vec<_>>(),expected.iter().map(|x|(*x as f32).to_bits()).collect::<Vec<_>>());
  assert_eq!(p.node(1,2,1,0).unwrap().inverse.unwrap()[12],-0.75);assert_eq!(p.import_stream(),0);

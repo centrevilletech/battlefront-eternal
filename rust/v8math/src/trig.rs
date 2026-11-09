@@ -41,15 +41,15 @@ const NPIO2_HW: [i32; 32] = [
     0x4046C6CB, 0x40478FDB, 0x404858EB, 0x404921FB,
 ];
 
-const HALF: f64 = 5.00000000000000000000e-01;
-const TWO24: f64 = 1.67772160000000000000e+07;
-const INVPIO2: f64 = 6.36619772367581382433e-01;
-const PIO2_1: f64 = 1.57079632673412561417e+00;
-const PIO2_1T: f64 = 6.07710050650619224932e-11;
-const PIO2_2: f64 = 6.07710050630396597660e-11;
-const PIO2_2T: f64 = 2.02226624879595063154e-21;
-const PIO2_3: f64 = 2.02226624871116645580e-21;
-const PIO2_3T: f64 = 8.47842766036889956997e-32;
+const HALF: f64 = 5e-1;
+const TWO24: f64 = 1.677_721_6e7;
+const INVPIO2: f64 = std::f64::consts::FRAC_2_PI;
+const PIO2_1: f64 = 1.570_796_326_734_125_6;
+const PIO2_1T: f64 = 6.077_100_506_506_192e-11;
+const PIO2_2: f64 = 6.077_100_506_303_966e-11;
+const PIO2_2T: f64 = 2.022_266_248_795_950_6e-21;
+const PIO2_3: f64 = 2.022_266_248_711_166_5e-21;
+const PIO2_3T: f64 = 8.478_427_660_368_9e-32;
 
 /// Remainder of `x` modulo pi/2: returns `n` and writes the remainder as
 /// `y[0] + y[1]`, as fdlibm's `__ieee754_rem_pio2`.
@@ -125,6 +125,8 @@ fn rem_pio2(x: f64, y: &mut [f64; 2]) -> i32 {
             return n;
         }
     }
+    // fdlibm subtracts Inf/NaN from itself so IEEE arithmetic produces NaN instead of 0.0.
+    #[allow(clippy::eq_op)]
     if ix >= 0x7FF0_0000 {
         y[0] = x - x;
         y[1] = x - x;
@@ -134,9 +136,9 @@ fn rem_pio2(x: f64, y: &mut [f64; 2]) -> i32 {
     let e0 = (ix >> 20) - 1046;
     let mut z = from_words((ix - ((e0 as u32) << 20) as i32) as u32, lo(x));
     let mut tx = [0.0f64; 3];
-    for i in 0..2 {
-        tx[i] = (z as i32) as f64;
-        z = (z - tx[i]) * TWO24;
+    for item in tx.iter_mut().take(2) {
+        *item = (z as i32) as f64;
+        z = (z - *item) * TWO24;
     }
     tx[2] = z;
     let mut nx: i32 = 3;
@@ -157,16 +159,16 @@ fn rem_pio2(x: f64, y: &mut [f64; 2]) -> i32 {
 /// and a second term), `jk` = 4.
 fn kernel_rem_pio2(x: &[f64; 3], y: &mut [f64; 2], e0: i32, nx: i32, ipio2: &[i32; 66]) -> i32 {
     const PIO2: [f64; 8] = [
-        1.57079625129699707031e+00,
-        7.54978941586159635335e-08,
-        5.39030252995776476554e-15,
-        3.28200341580791294123e-22,
-        1.27065575308067607349e-29,
-        1.22933308981111328932e-36,
-        2.73370053816464559624e-44,
-        2.16741683877804819444e-51,
+        1.570_796_251_296_997,
+        7.549_789_415_861_596e-8,
+        5.390_302_529_957_765e-15,
+        3.282_003_415_807_913e-22,
+        1.270_655_753_080_676e-29,
+        1.229_333_089_811_113_3e-36,
+        2.733_700_538_164_645_6e-44,
+        2.167_416_838_778_048_2e-51,
     ];
-    const TWON24: f64 = 5.96046447753906250000e-08;
+    const TWON24: f64 = 5.960_464_477_539_063e-8;
 
     let jk = 4i32;
     let jp = jk;
@@ -182,15 +184,13 @@ fn kernel_rem_pio2(x: &[f64; 3], y: &mut [f64; 2], e0: i32, nx: i32, ipio2: &[i3
     let mut fq = [0.0f64; 20];
     let mut iq = [0i32; 20];
 
-    let mut j = jv - jx;
     let m = jx + jk;
-    for i in 0..=m {
+    for (j, i) in (jv - jx..).zip(0..=m) {
         f[i as usize] = if j < 0 {
             0.0
         } else {
             ipio2[j as usize] as f64
         };
-        j += 1;
     }
     for i in 0..=jk {
         let mut fw = 0.0f64;
@@ -342,17 +342,15 @@ fn kernel_rem_pio2(x: &[f64; 3], y: &mut [f64; 2], e0: i32, nx: i32, ipio2: &[i3
 }
 
 fn kernel_cos(x: f64, y: f64) -> f64 {
-    const C1: f64 = 4.16666666666666019037e-02;
-    const C2: f64 = -1.38888888888741095749e-03;
-    const C3: f64 = 2.48015872894767294178e-05;
-    const C4: f64 = -2.75573143513906633035e-07;
-    const C5: f64 = 2.08757232129817482790e-09;
-    const C6: f64 = -1.13596475577881948265e-11;
+    const C1: f64 = 4.166_666_666_666_66e-2;
+    const C2: f64 = -1.388_888_888_887_411e-3;
+    const C3: f64 = 2.480_158_728_947_673e-5;
+    const C4: f64 = -2.755_731_435_139_066_3e-7;
+    const C5: f64 = 2.087_572_321_298_175e-9;
+    const C6: f64 = -1.135_964_755_778_819_5e-11;
     let ix = (hi(x) as i32) & 0x7FFF_FFFF;
-    if ix < 0x3E40_0000 {
-        if (x as i32) == 0 {
-            return 1.0;
-        }
+    if ix < 0x3E40_0000 && (x as i32) == 0 {
+        return 1.0;
     }
     let z = x * x;
     let r = z * (C1 + z * (C2 + z * (C3 + z * (C4 + z * (C5 + z * C6)))));
@@ -371,17 +369,15 @@ fn kernel_cos(x: f64, y: f64) -> f64 {
 }
 
 fn kernel_sin(x: f64, y: f64, iy: i32) -> f64 {
-    const S1: f64 = -1.66666666666666324348e-01;
-    const S2: f64 = 8.33333333332248946124e-03;
-    const S3: f64 = -1.98412698298579493134e-04;
-    const S4: f64 = 2.75573137070700676789e-06;
-    const S5: f64 = -2.50507602534068634195e-08;
-    const S6: f64 = 1.58969099521155010221e-10;
+    const S1: f64 = -1.666_666_666_666_663_2e-1;
+    const S2: f64 = 8.333_333_333_322_49e-3;
+    const S3: f64 = -1.984_126_982_985_795e-4;
+    const S4: f64 = 2.755_731_370_707_006_8e-6;
+    const S5: f64 = -2.505_076_025_340_686_3e-8;
+    const S6: f64 = 1.589_690_995_211_55e-10;
     let ix = (hi(x) as i32) & 0x7FFF_FFFF;
-    if ix < 0x3E40_0000 {
-        if (x as i32) == 0 {
-            return x;
-        }
+    if ix < 0x3E40_0000 && (x as i32) == 0 {
+        return x;
     }
     let z = x * x;
     let v = z * x;
@@ -395,42 +391,40 @@ fn kernel_sin(x: f64, y: f64, iy: i32) -> f64 {
 
 fn kernel_tan(x_in: f64, y_in: f64, iy: i32) -> f64 {
     const T: [f64; 13] = [
-        3.33333333333334091986e-01,
-        1.33333333333201242699e-01,
-        5.39682539762260521377e-02,
-        2.18694882948595424599e-02,
-        8.86323982359930005737e-03,
-        3.59207910759131235356e-03,
-        1.45620945432529025516e-03,
-        5.88041240820264096874e-04,
-        2.46463134818469906812e-04,
-        7.81794442939557092300e-05,
-        7.14072491382608190305e-05,
-        -1.85586374855275456654e-05,
-        2.59073051863633712884e-05,
+        3.333_333_333_333_341e-1,
+        1.333_333_333_332_012_4e-1,
+        5.396_825_397_622_605e-2,
+        2.186_948_829_485_954_2e-2,
+        8.863_239_823_599_3e-3,
+        3.592_079_107_591_312_4e-3,
+        1.456_209_454_325_290_3e-3,
+        5.880_412_408_202_641e-4,
+        2.464_631_348_184_699e-4,
+        7.817_944_429_395_571e-5,
+        7.140_724_913_826_082e-5,
+        -1.855_863_748_552_754_6e-5,
+        2.590_730_518_636_337e-5,
     ];
-    const PIO4: f64 = 7.85398163397448278999e-01;
-    const PIO4LO: f64 = 3.06161699786838301793e-17;
+    const PIO4: f64 = std::f64::consts::FRAC_PI_4;
+    const PIO4LO: f64 = 3.061_616_997_868_383e-17;
     let mut x = x_in;
     let mut y = y_in;
     let hx = hi(x) as i32;
     let ix = hx & 0x7FFF_FFFF;
-    if ix < 0x3E30_0000 {
-        if (x as i32) == 0 {
-            let low = lo(x);
-            if ((ix as u32 | low) | ((iy + 1) as u32)) == 0 {
-                return 1.0 / x.abs();
-            } else if iy == 1 {
-                return x;
-            } else {
-                let w = x + y;
-                let z = with_lo(w, 0);
-                let v = y - (z - x);
-                let a = -1.0 / w;
-                let t = with_lo(a, 0);
-                let s = 1.0 + t * z;
-                return t + a * (s + t * v);
-            }
+    if ix < 0x3E30_0000 && (x as i32) == 0 {
+        let low = lo(x);
+        if ((ix as u32 | low) | ((iy + 1) as u32)) == 0 {
+            return 1.0 / x.abs();
+        } else if iy == 1 {
+            return x;
+        } else {
+            let w = x + y;
+            let z = with_lo(w, 0);
+            let v = y - (z - x);
+            let a = -1.0 / w;
+            let t = with_lo(a, 0);
+            let s = 1.0 + t * z;
+            return t + a * (s + t * v);
         }
     }
     if ix >= 0x3FE5_9428 {
@@ -472,7 +466,11 @@ pub fn sin(x: f64) -> f64 {
     if ix <= 0x3FE9_21FB {
         kernel_sin(x, 0.0, 0)
     } else if ix >= 0x7FF0_0000 {
-        x - x
+        // fdlibm subtracts Inf/NaN from itself so IEEE arithmetic produces NaN instead of 0.0.
+        #[allow(clippy::eq_op)]
+        {
+            x - x
+        }
     } else {
         let mut y = [0.0f64; 2];
         let n = rem_pio2(x, &mut y);
@@ -491,7 +489,11 @@ pub fn cos(x: f64) -> f64 {
     if ix <= 0x3FE9_21FB {
         kernel_cos(x, 0.0)
     } else if ix >= 0x7FF0_0000 {
-        x - x
+        // fdlibm subtracts Inf/NaN from itself so IEEE arithmetic produces NaN instead of 0.0.
+        #[allow(clippy::eq_op)]
+        {
+            x - x
+        }
     } else {
         let mut y = [0.0f64; 2];
         let n = rem_pio2(x, &mut y);
@@ -513,7 +515,11 @@ pub fn sin_cos(x: f64) -> (f64, f64) {
     if ix <= 0x3FE9_21FB {
         (kernel_sin(x, 0.0, 0), kernel_cos(x, 0.0))
     } else if ix >= 0x7FF0_0000 {
-        (x - x, x - x)
+        // fdlibm subtracts Inf/NaN from itself so IEEE arithmetic produces NaN instead of 0.0.
+        #[allow(clippy::eq_op)]
+        {
+            (x - x, x - x)
+        }
     } else {
         let mut y = [0.0f64; 2];
         let n = rem_pio2(x, &mut y);
@@ -533,7 +539,11 @@ pub fn tan(x: f64) -> f64 {
     if ix <= 0x3FE9_21FB {
         kernel_tan(x, 0.0, 1)
     } else if ix >= 0x7FF0_0000 {
-        x - x
+        // fdlibm subtracts Inf/NaN from itself so IEEE arithmetic produces NaN instead of 0.0.
+        #[allow(clippy::eq_op)]
+        {
+            x - x
+        }
     } else {
         let mut y = [0.0f64; 2];
         let n = rem_pio2(x, &mut y);

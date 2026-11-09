@@ -134,6 +134,7 @@ pub const KEY_STRIDE: usize = 4;
 
 // The frame's list: every source's items, sorted, and where each segment
 // starts. Taken out of the pass while the sources draw.
+#[derive(Default)]
 pub struct List {
     pub items: Vec<Item>,
     scratch:Vec<Item>,
@@ -148,9 +149,7 @@ pub struct List {
 // Keep stable ordering without sort_by's temporary heap allocation. The
 // bound covers registered map buckets plus the bounded effect/rig/line rows.
 const LIST_RESERVE:usize=16384;
-impl Default for List {
-    fn default()->Self {Self{items:Vec::new(),scratch:Vec::new(),segments:Vec::new(),view:None,frame:0}}
-}
+
 impl List {
     pub fn reserved()->Self {Self{items:Vec::with_capacity(LIST_RESERVE),scratch:Vec::with_capacity(LIST_RESERVE),segments:Vec::with_capacity(MAX_THREE+2),view:None,frame:0}}
     // Sorts the items as three would, then finds the segments around

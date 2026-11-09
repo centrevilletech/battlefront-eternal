@@ -60,7 +60,7 @@ impl Leases {
         if bytes.len()>l::PAYLOAD{self.refused+=1;return None;}
         let Some(id)=self.free.pop()else{self.refused+=1;return None;};
         let target=&mut self.records[id*r::STRIDE..][..r::STRIDE];target.copy_from_slice(row);
-        target[r::PAIR]=-1.;target[r::PAYLOAD_OFFSET]=(id*l::PAYLOAD)as f64;target[r::PAYLOAD_LENGTH]=bytes.len()as f64;
+        target[r::PAIR] = -1.;target[r::PAYLOAD_OFFSET]=(id*l::PAYLOAD)as f64;target[r::PAYLOAD_LENGTH]=bytes.len()as f64;
         self.payloads[id*l::PAYLOAD..id*l::PAYLOAD+bytes.len()].copy_from_slice(bytes);
         self.used[id]=true;self.refs[id]=1;self.packet.push(id);Some(id)
     }
@@ -77,9 +77,9 @@ mod tests {
         let first=leases.put(&row,&[1,2,3]).unwrap();leases.changes[0]=1;leases.changes[1]=(first+1)as i32;leases.begin();
         for i in 0..l::LEASES-1{row[r::ID]=i as f64+100.;leases.put(&row,&[]).unwrap();}
         assert!(leases.put(&row,&[]).is_none());assert_eq!(leases.records[first*r::STRIDE+r::ID],7.);
-        leases.changes[0]=2;leases.changes[1]=-((first+1)as i32);leases.changes[2]=(first+1)as i32;leases.begin();
+        leases.changes[0]=2;leases.changes[1] = -((first+1)as i32);leases.changes[2]=(first+1)as i32;leases.begin();
         assert_eq!(leases.records[first*r::STRIDE+r::ID],7.);assert!(leases.used[first]);
-        leases.changes[0]=1;leases.changes[1]=-((first+1)as i32);leases.begin();assert_eq!(leases.free.len(),l::LEASES);
+        leases.changes[0]=1;leases.changes[1] = -((first+1)as i32);leases.begin();assert_eq!(leases.free.len(),l::LEASES);
         leases.reset();assert_eq!(leases.free.len(),l::LEASES);
     }
 }

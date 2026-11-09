@@ -32,7 +32,7 @@ impl Cards {
     // Float32Array assignment. In particular the sunk grass UV and scaled leaf
     // height must not be rounded before their final arithmetic operation.
     pub fn new(grass: bool, cards: &[f64], def: &Definition) -> Result<Self, &'static str> {
-        if cards.len() % CARD != 0 || cards.len() / CARD > MAX_CARDS { return Err("foliage card capacity or stride"); }
+        if !cards.len().is_multiple_of(CARD) || cards.len() / CARD > MAX_CARDS { return Err("foliage card capacity or stride"); }
         let count = cards.len() / CARD;
         let mut vertices = vec![0.; count * 4 * VERTEX];
         let mut index = Vec::with_capacity(count * 6);
@@ -40,7 +40,7 @@ impl Cards {
         // FoliageGpuBatch treated grass and leaves differently when NumParts
         // was absent: grass uses its atlas unless explicitly set to one.
         let atlas = if grass { def.num_parts.unwrap_or(4) != 1 } else { def.num_parts.unwrap_or(4) == 4 };
-        for (i, c) in cards.chunks_exact(CARD).enumerate() {
+        for (i, c) in cards.as_chunks::<CARD>().0.iter().enumerate() {
             if c.iter().any(|v| !v.is_finite()) || c[8] < 0. || c[8] > 3. || c[8].fract() != 0. { return Err("invalid authored foliage card"); }
             let [u0, v0, u1, v1] = if atlas { ATLAS[c[8] as usize] } else { [0., 0., 1., 1.] };
             // A single-image class mirrors odd authored parts. Atlas classes

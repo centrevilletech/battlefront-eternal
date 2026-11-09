@@ -210,7 +210,7 @@ impl Units {
     /// Native resource pools can lend a skeleton to another identity whose
     /// generation happens to equal the previous body's. Force the ordinary
     /// life-boundary path without constructing another rig or animator.
-    pub fn reset_binding(&mut self,id:usize){if let Some(actor)=self.actors.get_mut(id){actor.generation=-1.0;}}
+    pub fn reset_binding(&mut self,id:usize){if let Some(actor)=self.actors.get_mut(id){actor.generation = -1.0;}}
     /// Held sampling snapshots the native local pose at first seizure.
     /// Immutable bind lengths remain the class's; unkeyed joints keep the
     /// current pose, as riderPoints read them without another JS bone copy.
@@ -535,7 +535,7 @@ impl Units {
                 out[o::YAW]=if turret_birth {let m=matrix(input,i::RIDER_MATRIX);v8math::atan2(m.elements[8],m.elements[10])} else {input[i::RIDER_YAW]};
                 out[o::PITCH]=input[i::RIDER_PITCH];
                 a.step_offset=0.0;a.last_step=input[i::PREVIOUS_STEP];a.network=false;
-                a.fire_epoch=-1.0;a.fire_generation=-1.0;a.fire_tick=-1.0;
+                a.fire_epoch = -1.0;a.fire_generation = -1.0;a.fire_tick = -1.0;
             }
             let mut walker = [
                 input[i::WALKER_ROLL],

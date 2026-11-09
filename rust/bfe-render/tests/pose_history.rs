@@ -18,7 +18,7 @@ fn pose(h:&mut PoseHistory,id:u32,x:f64) {
     h.poses[at+p::WORLD..at+p::WORLD+16].copy_from_slice(&IDENTITY);
     h.poses[at+p::WORLD+12]=x;
     h.poses[at+p::INVERSE..at+p::INVERSE+16].copy_from_slice(&IDENTITY);
-    h.poses[at+p::INVERSE+12]=-x;
+    h.poses[at+p::INVERSE+12] = -x;
 }
 fn publication(h:&mut PoseHistory,id:u32)->(Vec<f64>,Vec<f32>,Vec<f32>){
     let mut input=vec![0.;m::INPUT_LEN];let mut bones=vec![0.;32];let mut previous=vec![0.;32];
@@ -71,8 +71,8 @@ fn shared_skin_commits_once_and_invalid_indices_clip_without_panicking() {
 #[test]
 fn retained_source_preserves_words_and_rejects_incomplete_skin_before_mutation(){
     let mut h=PoseHistory::default();let skin=h.skin(2);let id=h.model(skin,&IDENTITY);
-    let mut world=IDENTITY;world[12]=0.125;world[13]=-0.;
-    let mut inverse=IDENTITY;inverse[12]=-0.125;
+    let mut world=IDENTITY;world[12]=0.125;world[13] = -0.;
+    let mut inverse=IDENTITY;inverse[12] = -0.125;
     let mut source=[0.;32];source[0]=f32::from_bits(0x80000000);source[31]=f32::from_bits(0x7fc00042);
     assert!(h.source(id,&world,&inverse,2,|i|source.get(i*16..i*16+16)));
     assert_eq!(h.current.iter().map(|n|n.to_bits()).collect::<Vec<_>>(),source.iter().map(|n|n.to_bits()).collect::<Vec<_>>());
@@ -115,6 +115,6 @@ fn larger_than_map_paused_bursts_and_frames_allocate_nothing(){
 #[test]
 fn rigid_source_retains_identity_inverse_at_the_motion_boundary(){
  use bfe_render::{pose_history::PoseHistory,cameras::layout::history_pose as p};
- let mut history=PoseHistory::default();let identity=[1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.];let id=history.model(0,&identity);let mut inverse=identity;inverse[12]=-7.;
+ let mut history=PoseHistory::default();let identity=[1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.];let id=history.model(0,&identity);let mut inverse=identity;inverse[12] = -7.;
  assert!(history.source(id,&identity,&inverse,0,|_|None));assert_eq!(&history.poses[p::INVERSE..p::INVERSE+16],&identity);
 }

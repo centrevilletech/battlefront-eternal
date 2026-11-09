@@ -119,7 +119,7 @@ impl Policy {
                 }),
         );
         r[out::FAR_VISIBLE] = 0.;
-        if !(r[out::RANGE + 1] > r[out::RANGE]) {
+        if r[out::RANGE + 1].partial_cmp(&r[out::RANGE]) != Some(std::cmp::Ordering::Greater) {
             return;
         }
         // PerspectiveCamera.updateProjectionMatrix uses a fresh camera, with

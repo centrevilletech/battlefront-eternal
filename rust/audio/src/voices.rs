@@ -367,14 +367,14 @@ impl Engine {
                 }
                 LIGHT_PLACE => {
                     let gains=crate::stereo::alsoft(a[1],a[2],a[3]);
-                    for c in 0..2 {
-                        let value=gains[c]*a[4];
+                    for ((&gain, last_slot), side) in gains.iter().zip(&mut v.light_levels).zip(&mut v.sides) {
+                        let value=gain*a[4];
                         if !value.is_finite(){continue;}
-                        let last=v.light_levels[c];
-                        if !v.placed {v.sides[c].set_value(value as f32);v.sides[c].insert(false,value as f32,a[5],0.0,frame,rate);}
-                        else if (value-last).abs()>1e-3*value.abs().max(last.abs())||(value==0.0)!=(last==0.0){v.sides[c].insert(true,value as f32,a[5],0.015,frame,rate);}
+                        let last=*last_slot;
+                        if !v.placed {side.set_value(value as f32);side.insert(false,value as f32,a[5],0.0,frame,rate);}
+                        else if (value-last).abs()>1e-3*value.abs().max(last.abs())||(value==0.0)!=(last==0.0){side.insert(true,value as f32,a[5],0.015,frame,rate);}
                         else{continue;}
-                        v.light_levels[c]=value;
+                        *last_slot=value;
                     }
                     v.placed=true;
                 }

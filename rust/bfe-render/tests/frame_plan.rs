@@ -21,7 +21,7 @@ fn main_schedule_matches_frozen_graphics_render(){
 #[test]
 fn probe_faces_precede_mipmaps_and_held_mirrors_preserve_prior_maps(){
     let mut p=FramePlan::default();p.facts[F::MAIN]=1.;p.facts[F::PROBE_ENABLED]=1.;p.facts[F::PROBE_TIME]=10.;p.facts[F::PROBE_EYE+1]=20.;
-    p.facts[F::MIRROR_ENABLED]=1.;p.facts[F::MIRROR_VISIBLE]=1.;p.facts[F::MIRROR_EYE+1]=10.;p.facts[F::MIRROR_FORWARD+2]=-1.;p.facts[F::MIRROR_CLIP_VALID]=1.;
+    p.facts[F::MIRROR_ENABLED]=1.;p.facts[F::MIRROR_VISIBLE]=1.;p.facts[F::MIRROR_EYE+1]=10.;p.facts[F::MIRROR_FORWARD+2] = -1.;p.facts[F::MIRROR_CLIP_VALID]=1.;
     p.select();p.plan();
     for i in 0..6{assert_eq!(p.operations[2*i].kind,O::BIND);assert_eq!(p.operations[2*i].role,R::PROBE0+i);assert_eq!(p.operations[2*i+1].kind,O::DRAW);}
     assert_eq!(p.operations[12].kind,O::MIPMAP);
@@ -34,7 +34,7 @@ fn probe_faces_precede_mipmaps_and_held_mirrors_preserve_prior_maps(){
 }
 #[test]
 fn maximum_and_malformed_facts_clip_without_panicking(){
-    let mut p=FramePlan::default();p.facts.fill(f64::MAX);p.facts[F::MAIN]=1.;p.facts[F::WATER_EYE_Y]=-100.;p.facts[F::WATER_LEVEL]=0.;
+    let mut p=FramePlan::default();p.facts.fill(f64::MAX);p.facts[F::MAIN]=1.;p.facts[F::WATER_EYE_Y] = -100.;p.facts[F::WATER_LEVEL]=0.;
     for i in 0..L::MIRRORS{p.facts[F::MIRROR_LOW+i]=0.;p.facts[F::MIRROR_EYE+3*i+1]=10.;p.facts[F::MIRROR_LEVEL+i]=0.;}
     p.select();p.plan();assert!(p.count<=L::OPERATIONS);
     let frame=p.state[S::FRAME];p.state[S::CLIPPED]=1.;p.complete(true);assert_eq!(p.state[S::FRAME],frame);
@@ -86,7 +86,7 @@ fn ui_execution_uses_semantic_slots_instead_of_publication_order(){
 #[test]
 fn water_readers_and_fog_take_distinct_surface_snapshots(){
     let mut p=FramePlan::default();p.facts[F::MAIN]=1.;p.facts[F::SURFACE_COPY]=1.;
-    p.facts[F::WATER_OVER]=1.;p.facts[F::WATER_SCALE]=1.;p.facts[F::WATER_EYE_Y]=-1.;
+    p.facts[F::WATER_OVER]=1.;p.facts[F::WATER_SCALE]=1.;p.facts[F::WATER_EYE_Y] = -1.;
     p.select();p.plan();
     let transparent=p.operations[..p.count].iter().position(|o|o.kind==O::DRAW&&o.role==R::TRANSPARENT).unwrap();
     let fog=p.operations[..p.count].iter().position(|o|o.kind==O::DRAW&&o.role==R::FOG).unwrap();

@@ -47,6 +47,8 @@ fn sample(h: &[f64], length: f64, phase: f64) -> f64 {
     h[i] + (h[(i + 1) % h.len()] - h[i]) * (fraction - fraction.floor())
 }
 impl Foot {
+    // Mirrors Footfalls.Foot constructor parameter list.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(point: [f64; 3], heights: &[f64], length: f64, detection: bool, threshold: f64, hydraulic: f64, centred: bool, rate: f64) -> Self {
         let schedule = |direction: f64| {
             let mut result = Vec::new(); if heights.is_empty() || length <= 0.0 { return result; }
@@ -63,7 +65,8 @@ impl Foot {
                 if detection { if landed { if before - h > 0.1 { landed = false; armed = Some(phase); } } else if before - h < 0.1 { stomp = true; landed = true; } }
                 else { let crossed = before > h && level > h && before > level; stomp = crossed && !crossing; crossing = crossed; }
                 let mut lift = false; if h > before { if h - lift0 > hydraulic && !lifted { lifted = true; lift = true; } } else { lifted = false; }
-                if pass == 1 && stomp { stomps.push((phase, if detection { armed } else { None })); } if pass == 1 && lift { lifts.push(phase); }
+                if pass == 1 && stomp { stomps.push((phase, if detection { armed } else { None })); }
+                if pass == 1 && lift { lifts.push(phase); }
             } }
             for (phase, arm) in stomps { result.push(Event { at: phase, kind: 1 }); if let Some(at) = arm { result.push(Event { at, kind: 0 }); } }
             for at in lifts { result.push(Event { at, kind: 2 }); } result.truncate(lim::EVENTS); result
@@ -105,6 +108,8 @@ impl Foot {
     /// Footfalls.update/fall, shared by sounds and visual stomp events.
     /// The caller supplies the previously displayed cycle once per hull;
     /// every foot keeps only its own arming and fallback height state.
+    // Shared per-foot step detector used by audio-control and bfe-presentation.
+    #[allow(clippy::too_many_arguments)]
     pub fn events(&self,state:&mut State,previous:Option<f64>,was_walking:bool,
         phase:f64,walking:bool,height:f64,dt:f64,out:&mut [u8;lim::EVENTS])->usize {
             let mut events = [(0.0, 0u8); lim::EVENTS]; let mut count = 0;

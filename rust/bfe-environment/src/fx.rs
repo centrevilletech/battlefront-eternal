@@ -241,8 +241,7 @@ impl Arcs {
     fn resolve(point: Vector3, anchor: &Anchor) -> Vector3 {
         let mut out = point;
         if anchor.kind != AnchorKind::World {
-            let mut m = Matrix4::default();
-            m.elements = anchor.matrix;
+            let m = Matrix4 { elements: anchor.matrix };
             out.apply_matrix4(&m);
         }
         out

@@ -237,13 +237,13 @@ impl Frontend {
                         || frame as f64 >= v.gain.end;
                     if constant {
                         let level = v.gain.value(frame as f64);
-                        for i in 0..FRAMES {
-                            bus[i] += gain(self.scratch[i], level);
+                        for (dst, &sample) in bus.iter_mut().zip(&self.scratch) {
+                            *dst += gain(sample, level);
                         }
                     } else {
-                        for i in 0..FRAMES {
+                        for (i, (dst, &sample)) in bus.iter_mut().zip(&self.scratch).enumerate() {
                             let level = v.gain.value((frame + i as u64) as f64);
-                            bus[i] += gain(self.scratch[i], level);
+                            *dst += gain(sample, level);
                         }
                     }
                 } else {

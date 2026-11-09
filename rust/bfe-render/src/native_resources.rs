@@ -254,7 +254,7 @@ impl GpuResources {
                     };
                     self.gl
                         .tex_parameter_i32(d.target, glow::TEXTURE_MAX_LEVEL, level as i32);
-                    p.levels = level as u32 + 1;
+                    p.levels = level + 1;
                 }
             }
             if changed && !render_target {
@@ -494,7 +494,7 @@ impl GpuResources {
                         crate::texture_image::decode_image(encoded, d.width.max(d.height) as u32)?
                             .rgba;
                     if sampling.premultiply {
-                        for px in decoded.chunks_exact_mut(4) {
+                        for px in decoded.as_chunks_mut::<4>().0 {
                             let alpha = px[3] as u32;
                             for c in &mut px[..3] {
                                 *c = ((*c as u32 * alpha + 127) / 255) as u8;
@@ -561,7 +561,7 @@ impl GpuResources {
                         && ty == glow::UNSIGNED_BYTE
                     {
                         for y in 0..d.height as usize {
-                            for px in converted[y * pitch..y * pitch + row].chunks_exact_mut(4) {
+                            for px in converted[y * pitch..y * pitch + row].as_chunks_mut::<4>().0 {
                                 let a = px[3] as u32;
                                 for c in &mut px[..3] {
                                     *c = ((*c as u32 * a + 127) / 255) as u8;
@@ -884,6 +884,7 @@ impl GpuResources {
         }
         Ok(())
     }
+    // Retains the ported JS/GL call-site signature without an extra wrapper struct.
     #[allow(clippy::too_many_arguments)]
     pub fn bind(
         &mut self,
@@ -1033,15 +1034,15 @@ impl crate::frame::FrameTargets for GpuResources {
         self.bind(
             row[b::TARGET] as i32,
             (row[b::FACE] as u32).min(5),
-            row[b::LEVEL].max(0.).min(32.) as i32,
+            row[b::LEVEL].clamp(0., 32.) as i32,
             row[b::X] as i32,
             row[b::Y] as i32,
-            row[b::WIDTH].max(0.).min(32768.) as i32,
-            row[b::HEIGHT].max(0.).min(32768.) as i32,
+            row[b::WIDTH].clamp(0., 32768.) as i32,
+            row[b::HEIGHT].clamp(0., 32768.) as i32,
             row[b::SCISSOR] as i32,
             row[b::SCISSOR + 1] as i32,
-            row[b::SCISSOR + 2].max(0.).min(32768.) as i32,
-            row[b::SCISSOR + 3].max(0.).min(32768.) as i32,
+            row[b::SCISSOR + 2].clamp(0., 32768.) as i32,
+            row[b::SCISSOR + 3].clamp(0., 32768.) as i32,
             row[b::CLIPPED] != 0.,
         )
     }

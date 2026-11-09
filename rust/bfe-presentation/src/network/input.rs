@@ -120,10 +120,10 @@ pub fn encode(op: u32, input: &mut super::Words, bytes: &mut [u8]) -> Result<usi
         // Commands reference these rows by index, never by another entity id.
         let mut views: [WiView; 8] = std::array::from_fn(|_| WiView::default());
         let mut indices=[0usize;8];let mut unique=0;
-        for row in 0..nv {
+        for idx_out in indices.iter_mut().take(nv) {
             let value=WiView::take(input.span(WiView::WORDS)?,&[]);
             let index=(0..unique).find(|&i|context_equal(&views[i],&value));
-            indices[row]=if let Some(index)=index{index}else{
+            *idx_out=if let Some(index)=index{index}else{
                 view(&mut w,&value)?;views[unique]=value;unique+=1;unique-1
             };
         }
@@ -180,8 +180,8 @@ pub fn encode(op: u32, input: &mut super::Words, bytes: &mut [u8]) -> Result<usi
         for v in &views[..unique] { validate_view(v)?; }
         for vi in &command_views[..nc] { if jsrt::to_uint32(*vi) as usize >= nv { return Err("invalid view reference");
             } }
-        for i in 0..128 { let valid = input.uint(1)? != 0;
-            if used[i] && !valid { return Err("unknown held input"); } }
+        for &is_used in &used { let valid = input.uint(1)? != 0;
+            if is_used && !valid { return Err("unknown held input"); } }
         for e in &edges[..ne] { if e.id == 0. || e.kind > 5. { return Err("invalid edge"); }
             if e.kind == 0. && e.action >= 21. { return Err("unknown action"); }
             if e.kind == 1. && (e.view_tick < 0. || e.view_tick > 4294967295.) { return Err("invalid fire aim"); } } }

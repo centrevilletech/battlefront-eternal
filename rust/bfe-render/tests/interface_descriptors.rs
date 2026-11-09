@@ -16,7 +16,7 @@ fn frozen_interface_raster_and_catalog(){
 #[test]
 fn preview_skin_release_reuses_storage_without_stale_handles(){
  let mut bank=bfe_render::actor_depth::Bank::default();let first=bank.skin(3,32).unwrap();let base=bank.get(first).unwrap().base;bank.release(first);let second=bank.skin(7,32).unwrap();assert_ne!(first,second);assert_eq!(bank.slot(second),Some(0));assert_eq!(bank.get(second).unwrap().base,base);bank.release(first);assert!(bank.get(second).is_some());
- for _ in 0..2000{let previous=bank.skins[0].generation;bank.release((previous<<bfe_render::actor_layout::limit::SKIN_INDEX_BITS)|0);let id=bank.skin(7,32).unwrap();assert!(bank.get(id).is_some());}assert_eq!(bank.skins.len(),1);
+ for _ in 0..2000{let previous=bank.skins[0].generation;bank.release(previous<<bfe_render::actor_layout::limit::SKIN_INDEX_BITS);let id=bank.skin(7,32).unwrap();assert!(bank.get(id).is_some());}assert_eq!(bank.skins.len(),1);
 }
 // Recorded before deleting InterfacePass.write, including mirrored nonuniform
 // scale, bind transforms, scroll, point size and all fifteen catalog variants.

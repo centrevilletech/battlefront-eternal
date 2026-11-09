@@ -45,7 +45,7 @@ impl Geometry {
     pub fn new(record: &Record, vertices: &[f32], index: &[u32]) -> Result<Self, &'static str> {
         if record.vertex_count == 0 || record.vertex_count > 8_388_608 || record.stride > 32 || record.stride < 3
             || vertices.len() != record.vertex_count.checked_mul(record.stride).ok_or("world vertex overflow")?
-            || index.len() > 50_331_648 || index.len() % 3 != 0 || index.iter().any(|v| *v as usize >= record.vertex_count)
+            || index.len() > 50_331_648 || !index.len().is_multiple_of(3) || index.iter().any(|v| *v as usize >= record.vertex_count)
             || vertices.chunks_exact(record.stride).any(|row|row[..3].iter().any(|v|!v.is_finite())) { return Err("invalid world stream capacity or index"); }
         // geometryFor used one authored interleaved stream. Attribute order
         // determines byte offsets; shader locations come only from the catalog.
@@ -208,7 +208,7 @@ impl Terrain {
             // Bin by triangle centroid, retaining the authored triangle order
             // inside each cell. Full and reduced levels use the same policy.
             let mut bins = vec![Vec::new();nx*nz];
-            for t in source.chunks_exact(3) {
+            for t in source.as_chunks::<3>().0 {
                 let x = (p(t[0],0)+p(t[1],0)+p(t[2],0))/3.;
                 let z = (p(t[0],2)+p(t[1],2)+p(t[2],2))/3.;
                 let cx = ((x-lo[0])/sx).floor().clamp(0.,(nx-1) as f64) as usize;
@@ -230,7 +230,7 @@ impl Terrain {
         // level(true)'s most common horizontal edge, tied by first appearance.
         // Keep the JS Map insertion rule rather than sorting equal counts.
         let mut lengths: Vec<(f64,usize)> = vec![];
-        for t in full.index[..full.index.len().min(30000)].chunks_exact(3) { for k in 0..3 {
+        for t in full.index[..full.index.len().min(30000)].as_chunks::<3>().0 { for k in 0..3 {
             let a=t[k];let b=t[(k+1)%3];
             let d=(((p(a,0)-p(b,0)).abs().max((p(a,2)-p(b,2)).abs()))*100.).round()/100.;
             if d>0. { if let Some((_,n))=lengths.iter_mut().find(|(v,_)|*v==d) { *n+=1; } else { lengths.push((d,1)); } }
@@ -256,7 +256,7 @@ impl Terrain {
             let mut kept=vec![];let mut seen=std::collections::HashSet::new();
             // Collapsed or reversed triangles disappear. Duplicate keys use
             // the original numeric arithmetic, including its f64 rounding.
-            for t in full.index.chunks_exact(3) {
+            for t in full.index.as_chunks::<3>().0 {
                 let a=rep[t[0] as usize];let b=rep[t[1] as usize];let c=rep[t[2] as usize];
                 if a==b||b==c||a==c||area(t[0],t[1],t[2])*area(a,b,c)<=0. {continue;}
                 let mut sorted=[a,b,c];sorted.sort();let [x,y,z]=sorted.map(|v|v as f64);

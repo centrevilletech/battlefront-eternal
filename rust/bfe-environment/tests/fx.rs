@@ -514,7 +514,7 @@ mod destruction {
     /// chunks, then the phase steps.
     fn frame(d: &mut Destruction, n: usize, commands: usize, wrecked: bool) {
         let mut cast = floor;
-        d.frame[df::DT] = if n % 7 == 0 { 0.05 } else { 1.0 / 60.0 };
+        d.frame[df::DT] = if n.is_multiple_of(7) { 0.05 } else { 1.0 / 60.0 };
         d.frame[df::ENHANCED] = 1.0;
         d.frame[df::HAS_EYE] = 1.0;
         d.frame[df::EYE + 1] = 3.0;

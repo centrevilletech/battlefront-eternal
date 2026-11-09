@@ -135,7 +135,7 @@ impl Phase {
         if self.frame[f::OVER] != 0.0 { return; } let own = self.frame[f::TEAM] as usize;
         if self.frame[f::HUMAN] != 0.0 {
             for id in 0..self.post_count { let row = self.posts[id]; if row[p::PRESENT] == 0.0 || row[p::ACTIVE] == 0.0 || row[p::BUILDING_ALIVE] == 0.0 { continue; } let owner = row[p::TEAM] as usize;
-                if owner >= 1 && owner <= 2 { self.line(index(row[p::INFO11 + (own - 1) * 2 + owner - 1])); }
+                if (1..=2).contains(&owner) { self.line(index(row[p::INFO11 + (own - 1) * 2 + owner - 1])); }
             }
         }
         for team in 1..=2 {
@@ -149,7 +149,7 @@ impl Phase {
     pub fn post_event(&mut self, id: usize, actor: usize, captured: bool) {
         if id >= self.post_count { return; } let row = self.posts[id];
         self.play_class(index(row[p::CLASS]), if captured { c::CAPTURE } else { c::LOST }, FOLEY, NONE, Some([row[p::X], row[p::Y], row[p::Z]]), None);
-        let listener = self.frame[f::TEAM] as usize; if actor < 1 || actor > 2 || listener < 1 || listener > 2 { return; }
+        let listener = self.frame[f::TEAM] as usize; if !(1..=2).contains(&actor) || !(1..=2).contains(&listener) { return; }
         self.line(index(row[if captured { p::CAPTURE11 } else { p::LOST11 } + (listener - 1) * 2 + actor - 1]));
     }
     fn ambience_options(row: &[f64; r::STRIDE]) -> Options {

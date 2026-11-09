@@ -197,8 +197,8 @@ impl StereoConvolver {
             kernels.push(std::array::from_fn(|ear| {
                 let impulse = if ear == 0 { left } else { right };
                 let mut data = vec![Complex::default(); len];
-                for i in 0..FRAMES {
-                    data[i].re = impulse.get(part * FRAMES + i).copied().unwrap_or(0.0);
+                for (i, slot) in data.iter_mut().enumerate().take(FRAMES) {
+                    slot.re = impulse.get(part * FRAMES + i).copied().unwrap_or(0.0);
                 }
                 plan.process(&mut data, false);
                 data
@@ -239,11 +239,11 @@ impl StereoConvolver {
         // negative-frequency partners for the shared inverse transform.
         for (part, kernels) in self.kernels.iter().enumerate() {
             let history = &self.history[(self.at + self.history.len() - part) % self.history.len()];
-            for ear in 0..2 {
-                for i in 0..=FRAMES {
-                    let p = history[i].product(kernels[ear][i]);
-                    self.sums[ear][i].re += p.re;
-                    self.sums[ear][i].im += p.im;
+            for (sum_ear, kernel_ear) in self.sums.iter_mut().zip(kernels) {
+                for ((sum, &hist), &kern) in sum_ear[..=FRAMES].iter_mut().zip(&history[..=FRAMES]).zip(&kernel_ear[..=FRAMES]) {
+                    let p = hist.product(kern);
+                    sum.re += p.re;
+                    sum.im += p.im;
                 }
             }
         }
@@ -261,9 +261,10 @@ impl StereoConvolver {
         // Add the previous upper half before replacing overlap with this block's
         // tail. All spectra, sums and overlap storage were allocated in new.
         self.plan.process(&mut self.scratch, true);
+        let [out_l, out_r] = output;
         for i in 0..FRAMES {
-            output[0][i] = self.scratch[i].re + self.overlap[i].re;
-            output[1][i] = self.scratch[i].im + self.overlap[i].im;
+            out_l[i] = self.scratch[i].re + self.overlap[i].re;
+            out_r[i] = self.scratch[i].im + self.overlap[i].im;
             self.overlap[i] = self.scratch[i + FRAMES];
         }
         // Advance the spectrum history after both ears consume the current block.
@@ -382,8 +383,8 @@ mod tests {
         for block in 0..5 {
             convolver.process(&input, &mut output);
             input.fill(0.0);
-            for ear in 0..2 {
-                for i in 0..FRAMES {
+            for (ear, ear_out) in output.iter().enumerate() {
+                for (i, &sample) in ear_out.iter().enumerate() {
                     let expected = if ear == 0 {
                         left.get(block * FRAMES + i)
                     } else {
@@ -391,7 +392,7 @@ mod tests {
                     }
                     .copied()
                     .unwrap_or(0.0);
-                    assert!((output[ear][i] - expected).abs() < 1e-6);
+                    assert!((sample - expected).abs() < 1e-6);
                 }
             }
         }

@@ -637,6 +637,7 @@ impl<C: HasContext> FarPass<C> {
         self.list = list;
     }
 
+    // Retains the ported JS/GL call-site signature without an extra wrapper struct.
     #[allow(clippy::too_many_arguments)]
     fn draw_item<M: MultiDraw>(&mut self, core: &mut Core<C, M>, i: usize, projection: &Mat4, view: &Mat4, eye: &[f64; 3], frustum: &math::Frustum, limit: f64) {
         let counted = self.counted;
@@ -925,6 +926,26 @@ fn order<C: HasContext>(a: &Item<C>, za: f64, b: &Item<C>, zb: f64) -> Ordering 
     by(a.order[3], b.order[3])
 }
 
+
+impl<C:HasContext> FarPass<C> {
+    // Preserve source indices and sampler units: a settings change only links
+    // the counterpart program, never reconstructs geometry or frame inputs.
+    pub fn descriptor_programs(&self)->Vec<usize>{self.items.iter().map(|i|i.program).collect()}
+    pub fn effect_settings<M:MultiDraw>(&mut self,core:&mut Core<C,M>,shadows:bool)->Result<(),String>{
+        for item in &mut self.items {
+            let program=crate::effect_settings::program(core,item.program,shadows)?;
+            if program==item.program {continue;}
+            for uniform in &mut self.tables[item.table] {
+                uniform.location=crate::effect_settings::location(core,program,&uniform.name);
+                uniform.value.fill(f32::NAN);
+                if matches!(uniform.ty,SAMPLER_2D|SAMPLER_CUBE){unsafe{core.gl.uniform_1_i32(uniform.location.as_ref(),uniform.unit as i32);}}
+            }
+            item.program=program;
+        }
+        core.state.reset();Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -977,21 +998,3 @@ mod tests {
     }
 }
 
-impl<C:HasContext> FarPass<C> {
-    // Preserve source indices and sampler units: a settings change only links
-    // the counterpart program, never reconstructs geometry or frame inputs.
-    pub fn descriptor_programs(&self)->Vec<usize>{self.items.iter().map(|i|i.program).collect()}
-    pub fn effect_settings<M:MultiDraw>(&mut self,core:&mut Core<C,M>,shadows:bool)->Result<(),String>{
-        for item in &mut self.items {
-            let program=crate::effect_settings::program(core,item.program,shadows)?;
-            if program==item.program {continue;}
-            for uniform in &mut self.tables[item.table] {
-                uniform.location=crate::effect_settings::location(core,program,&uniform.name);
-                uniform.value.fill(f32::NAN);
-                if matches!(uniform.ty,SAMPLER_2D|SAMPLER_CUBE){unsafe{core.gl.uniform_1_i32(uniform.location.as_ref(),uniform.unit as i32);}}
-            }
-            item.program=program;
-        }
-        core.state.reset();Ok(())
-    }
-}

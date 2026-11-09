@@ -30,7 +30,7 @@ fn frozen_camera_publications(){
 #[test]
 fn bounded_stores_survive_paused_bursts_and_restore(){
     let mut cameras=Cameras::default();cameras.main();let original=cameras.output.clone();
-    cameras.input[I::SHIFT]=0.000125;cameras.input[I::SHIFT+1]=-0.000225;
+    cameras.input[I::SHIFT]=0.000125;cameras.input[I::SHIFT+1] = -0.000225;
     for role in 0..R::COUNT+8{cameras.copy(R::MAIN,role);}
     for role in 0..R::COUNT+8{cameras.shift(role);}cameras.restore();cameras.restore();
     for role in 0..R::COUNT{assert_eq!(&cameras.output[role*C::LEN+C::PROJECTION..role*C::LEN+C::PROJECTION+16],&original[C::PROJECTION..C::PROJECTION+16]);}
@@ -101,7 +101,7 @@ unsafe impl GlobalAlloc for CountAlloc {
 #[global_allocator]static ALLOCATOR:CountAlloc=CountAlloc;
 #[test]
 fn camera_publication_allocates_nothing_after_admission(){
-    let mut cameras=Cameras::default();cameras.input[I::CASCADE_COUNT]=1e12;cameras.input[I::MAP_SIZE]=2048.;cameras.input[I::MAX_FAR]=500.;cameras.input[I::LIGHT_RANGE]=1.;cameras.input[I::LIGHT_RANGE+1]=3000.;cameras.input[I::MARGIN]=400.;cameras.settings.output[1]=-1.;cameras.input[I::SKY_COUNT]=1e12;cameras.input[I::LIGHT_COUNT]=1e12;
+    let mut cameras=Cameras::default();cameras.input[I::CASCADE_COUNT]=1e12;cameras.input[I::MAP_SIZE]=2048.;cameras.input[I::MAX_FAR]=500.;cameras.input[I::LIGHT_RANGE]=1.;cameras.input[I::LIGHT_RANGE+1]=3000.;cameras.input[I::MARGIN]=400.;cameras.settings.output[1] = -1.;cameras.input[I::SKY_COUNT]=1e12;cameras.input[I::LIGHT_COUNT]=1e12;
     ALLOCS.with(|n|n.set(0));TRACK.with(|on|on.set(true));
     for _ in 0..1000{cameras.main();cameras.cascades();cameras.reflect();cameras.probe(0);cameras.lights(0);cameras.sky(R::MAIN,true);cameras.shift(R::MAIN);cameras.restore();}
     TRACK.with(|on|on.set(false));assert_eq!(ALLOCS.with(Cell::get),0);
@@ -109,7 +109,7 @@ fn camera_publication_allocates_nothing_after_admission(){
 
 #[test]
 fn signed_layer_masks_keep_the_high_bit(){
-    let mut c=Cameras::default();c.input[I::LIGHT_COUNT]=2.;c.input[I::LIGHT_LAYERS]=-2147483648.;
+    let mut c=Cameras::default();c.input[I::LIGHT_COUNT]=2.;c.input[I::LIGHT_LAYERS] = -2147483648.;
     for i in 0..2{let at=i*P::LEN;c.light_input[at+P::SHOWN]=1.;c.light_input[at+P::INTENSITY]=1.;c.light_input[at+P::COLOR]=1.;c.light_input[at+P::LAYERS]=if i==0{-1.}else{1.};}
     c.lights(0);assert_eq!(c.packs[K::COUNT],1.);
 }
@@ -143,7 +143,7 @@ fn camera_shader_layout_matches_the_existing_uniform_block(){
 #[test]
 fn unchanged_main_views_publish_once(){
     let mut c=Cameras::default();assert!(c.main());assert!(!c.main());
-    c.input[I::POSITION]=-0.;assert!(c.main());assert!(!c.main());
+    c.input[I::POSITION] = -0.;assert!(c.main());assert!(!c.main());
     c.invalidate();assert!(c.main());
 }
 
@@ -175,7 +175,7 @@ fn view_light_metadata_survives_visibility_changes_without_proxy_objects(){
 fn conservative_placement_uses_the_unshifted_native_camera(){
     use bfe_render::cameras::layout::placement as a;
     let mut c=Cameras::default();c.main();
-    c.placement[a::POSITION+2]=-10.;c.placement[a::LEN+a::POSITION]=100.;c.placement[a::LEN+a::POSITION+2]=-10.;
+    c.placement[a::POSITION+2] = -10.;c.placement[a::LEN+a::POSITION]=100.;c.placement[a::LEN+a::POSITION+2] = -10.;
     c.placement(2);assert_eq!(c.placement[a::HIDDEN],0.);assert_eq!(c.placement[a::LEN+a::HIDDEN],1.);
     c.placement(usize::MAX);assert!(c.clipped);
 }

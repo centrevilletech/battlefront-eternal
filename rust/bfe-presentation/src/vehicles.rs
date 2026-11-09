@@ -662,7 +662,7 @@ impl Vehicles {
     /// streams do not fit is skipped (counted in the header).
     fn entries(&self) -> usize {
         let n = self.input[vf::ENTRIES];
-        if !(n > 0.0) {
+        if n.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
             return 0;
         }
         (n as usize).min(self.entries_capacity())
@@ -800,7 +800,7 @@ fn entry_of(input: &[f64], rigs: &[Rig], e: usize) -> Option<(usize, usize, usiz
     let at = vf::STRIDE + e * ve::STRIDE;
     let x = &input[at..at + ve::STRIDE];
     let rig = x[ve::RIG];
-    if !(rig >= 0.0) || rig as usize >= rigs.len() {
+    if !matches!(rig.partial_cmp(&0.0), Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)) || rig as usize >= rigs.len() {
         return None;
     }
     let r = &rigs[rig as usize];
@@ -925,7 +925,7 @@ fn place_alive(r: &mut Rig, slot: usize, x: &[f64], out: &mut [f64], block: &mut
     // feelLegs: each foot's ray from the drawn root, for the host to cast.
     let dt = x[ve::DT];
     let Some(legs) = r.legs.as_ref() else { return };
-    if r.creature || !(dt > 0.0) {
+    if r.creature || dt.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return;
     }
     // The root's turn from its Euler angles (legEuler), as feelLegs takes it.
@@ -1116,7 +1116,7 @@ fn shown_gear(r: &mut Rig, slot: usize, x: &[f64], ground: f64) -> f64 {
     let own = x[ve::GEAR];
     let own_or = |fallback: f64| if own.is_nan() { fallback } else { own };
     let follow = x[ve::GEAR_FOLLOW];
-    if !(follow >= 0.0) {
+    if !matches!(follow.partial_cmp(&0.0), Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)) {
         return clamp01(own_or(1.0));
     }
     let (generation, state, follows) = (x[ve::GEAR_GENERATION], x[ve::FLIGHT_STATE], follow > 0.0);

@@ -41,7 +41,7 @@ impl Timeline {
         let bucket=self.bucket(id);let index=self.buckets[bucket];
         if index==usize::MAX {return;}
         for snapshot in &mut self.snapshots {snapshot.records[index*r::STRIDE+r::VALID]=0.0;}
-        self.entities[index].id=-1.0;self.entities[index].fire_tick=f64::NEG_INFINITY;self.entities[index].generation=-1.0;
+        self.entities[index].id = -1.0;self.entities[index].fire_tick=f64::NEG_INFINITY;self.entities[index].generation = -1.0;
         self.free.push(index);self.buckets[bucket]=usize::MAX;
         // Close this probe cluster instead of retaining tombstones. Long
         // battles can reuse slots indefinitely without degrading lookups.
@@ -85,7 +85,7 @@ impl Timeline {
         let count=(self.input[f::COUNT] as usize).min(lim::ENTITIES);
         for row in 0..count {
             let at=f::STRIDE+row*r::STRIDE;
-            self.input[at+r::SLOT]=-1.0;
+            self.input[at+r::SLOT] = -1.0;
             let id=self.input[at+r::ID];
             if !id.is_finite() || id<0.0 || id.fract()!=0.0 {continue;}
             let kind=self.input[at+r::KIND];if !(0.0..=2.0).contains(&kind) || kind.fract()!=0.0 {continue;}
@@ -128,7 +128,7 @@ impl Timeline {
         let hz=self.input[f::HZ];let extrapolate=self.input[f::EXTRAPOLATE];
         self.input[f::DT]=self.presented.map_or(0.0,|previous|three::clamp((tick-previous)/60.0,0.0,0.25));
         self.presented=Some(tick);
-        if !(hz>0.0) || !hz.is_finite() {return;}
+        if !hz.is_finite() || hz <= 0.0 {return;}
         // One batch covers every retained identity. The host copies only
         // bound rows and verifies the published id before using its slot.
         for (entity,e) in self.entities.iter().enumerate() {

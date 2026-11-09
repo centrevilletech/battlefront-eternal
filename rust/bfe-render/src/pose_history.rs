@@ -36,7 +36,7 @@ impl PoseHistory {
     pub fn flyer_frame(&mut self,id:u32,stepped:bool)->u32{
         let Some(flyer)=self.flyers.get_mut(id.wrapping_sub(1) as usize)else{return receipt::STILL as u32;};
         let fresh=flyer.checked!=Some(self.frame);
-        if fresh{flyer.checked=Some(self.frame);flyer.still=!stepped;}
+        if fresh{flyer.checked=Some(self.frame);flyer.still = !stepped;}
         (if flyer.still{receipt::STILL as u32}else{0})|if fresh{receipt::CONSUMED as u32}else{0}
     }
 

@@ -5,7 +5,7 @@ const ID:Mat4=[1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.];
 pub struct DepthMarker{pub key:[f64;k::LEN],pub output:[f64;o::LEN],screen:Mat4,earliest:[f64;7],requests:u32}
 impl Default for DepthMarker{fn default()->Self{Self{key:[0.;k::LEN],output:[0.;o::LEN],screen:ID,earliest:[0.;7],requests:0}}}
 impl DepthMarker{
- pub fn begin(&mut self,screen:&Mat4){self.screen=*screen;self.requests=0;self.output[o::VISIBLE]=0.;self.output[o::REQUESTS]=0.;}
+ pub fn begin(&mut self,screen:&Mat4){self.screen = *screen;self.requests=0;self.output[o::VISIBLE]=0.;self.output[o::REQUESTS]=0.;}
  // Reverse painter order includes group, explicit order, centre depth and id.
  // Comparisons deliberately retain JS's NaN and signed-zero behaviour.
  pub fn request(&mut self)->bool{
@@ -30,7 +30,7 @@ impl DepthMarker{
     if projected[2]>z{placed=true;break;}step*=2.;
    }
   }
-  if placed{self.output[o::GROUP]=e[0];self.output[o::ORDER]=e[1];}else{matrix=ID;self.output[o::GROUP]=-f64::MAX;self.output[o::ORDER]=0.;}
+  if placed{self.output[o::GROUP]=e[0];self.output[o::ORDER]=e[1];}else{matrix=ID;self.output[o::GROUP] = -f64::MAX;self.output[o::ORDER]=0.;}
   self.output[o::MATRIX..o::MATRIX+16].copy_from_slice(&matrix);self.output[o::VISIBLE]=1.;
  }
 }
