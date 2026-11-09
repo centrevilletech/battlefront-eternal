@@ -31,10 +31,9 @@ build.mkdir(exist_ok=True)
 if not (build / "libvpx_srcs.txt").exists():
     # Generic C has no OS-specific assembly or pthread ABI. cc-rs selects the
     # actual target compiler after configure has selected the decoder sources.
-    configure = source / "configure"
-    path = configure.as_posix()
-    if os.name == "nt":
-        path = "/" + path[0].lower() + path[2:]
+    # Relative paths work in both Git Bash and native Windows GNU make;
+    # MSYS drive paths such as /c cannot be opened by the latter.
+    path = f"../libvpx-{VERSION}/configure"
     configure_env = os.environ.copy()
     bash_program = "bash"
     if os.name == "nt":
@@ -51,7 +50,8 @@ if not (build / "libvpx_srcs.txt").exists():
     subprocess.run([bash_program, path, "--target=generic-gnu", "--disable-examples",
                     "--disable-tools", "--disable-docs", "--disable-unit-tests",
                     "--disable-vp8", "--disable-vp9-encoder", "--disable-multithread",
-                    "--disable-runtime-cpu-detect", "--disable-webm-io"], cwd=build, check=True, env=configure_env)
+                    "--disable-runtime-cpu-detect", "--disable-webm-io",
+                    "--disable-dependency-tracking"], cwd=build, check=True, env=configure_env)
     subprocess.run(["make", "libvpx_srcs.txt"], cwd=build, check=True, env=configure_env)
 
 if os.name == "nt":
