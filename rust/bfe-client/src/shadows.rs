@@ -99,10 +99,11 @@ impl Shadows {
             .copy_from_slice(&view.values[SF::VIEW..SF::VIEW + 16]);
         input[I::MATRICES + U::PROJECTION..I::MATRICES + U::PROJECTION + 16]
             .copy_from_slice(&view.values[..16]);
-        // The admitted native lens is a 60-degree vertical perspective.
-        input[I::LENS + N::FOV] = 60.;
+        // Cascades use the displayed lens, including mounted seats and zoom.
+        input[I::LENS + N::FOV] =
+            2. * bfe_pose::rig::math::atan(1. / view.values[5]).to_degrees();
         input[I::LENS + N::ASPECT] = view.values[5] / view.values[0];
-        input[I::LENS + N::NEAR] = 0.3;
+        input[I::LENS + N::NEAR] = view.values[14] / (view.values[10] - 1.);
         input[I::LENS + N::FAR] = view.values[14] / (view.values[10] + 1.);
         bridge.r.cameras.settings.output[L::DIRECTION..L::DIRECTION + 3]
             .copy_from_slice(&view.values[SF::SUN_DIRECTION..SF::SUN_DIRECTION + 3]);

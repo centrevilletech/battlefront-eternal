@@ -76,7 +76,10 @@ impl Bodies {
             };
             let row = &mut self.rows[slot];
             row.active = true;
-            let own = fact[r::ID] == receiver.own.vehicle && fact[r::GENERATION] == receiver.own.vehicle_generation;
+            // Every occupied vehicle seat excludes its hull, including passengers
+            // whose body checkpoint remains an infantry body.
+            let own = receiver.own.mount_kind == k::VEHICLE
+                && receiver.own.mount.is_some_and(|lease| lease.0 == key.0 && lease.1 == key.1);
             collision.enable_body(row.kernel, !own);
             let p = r::POSITION;
             let q = r::QUATERNION;
@@ -111,5 +114,49 @@ impl Bodies {
             collision.body_set(row.kernel);
         }
         collision.body_flags(world, &mut self.flags);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bfe_content::install::CollisionKernel;
+
+    #[test]
+    fn passenger_queries_exclude_only_the_occupied_vehicle_generation() {
+        let mut collision = Box::new(CollisionOwner::new());
+        let vertices = [-1., -1., 0., 1., -1., 0., 0., 1., 0.];
+        let indices = [0, 2, 1];
+        let bvh = bfe_content::bvh::build(bfe_content::bvh::Positions::F32(&vertices), &indices);
+        let positions = collision.positions(&vertices);
+        let tree = collision.tree(positions, &indices, &bvh);
+        let world = collision.world(tree, -1, -1);
+        let mut bodies = Bodies::new(&mut collision, world, &[(7, tree, [-1., -1., 0., 1., 1., 0.])], 0);
+        let mut receiver = Box::new(Receiver::new(serde_json::json!({})));
+        receiver.corrections = 1;
+        let row = &mut receiver.own_fact;
+        row[r::KIND] = k::VEHICLE as f64;
+        row[r::ID] = 5.;
+        row[r::GENERATION] = 9.;
+        row[r::CLASS_ID] = 7.;
+        row[r::QUATERNION + 3] = 1.;
+        bodies.frame(&receiver, &mut collision, world);
+        assert_eq!(bodies.flags[0], 1.);
+
+        // A passenger has an infantry body and no piloted-hull header.
+        receiver.own.vehicle = 0.;
+        receiver.own.mount = Some((5, 9, 1));
+        receiver.own.mount_kind = k::VEHICLE;
+        bodies.frame(&receiver, &mut collision, world);
+        assert_eq!(bodies.flags[0], 0.);
+
+        // Independent entity ids and reused generations cannot hide a hull.
+        receiver.own.mount_kind = k::TURRET;
+        bodies.frame(&receiver, &mut collision, world);
+        assert_eq!(bodies.flags[0], 1.);
+        receiver.own.mount_kind = k::VEHICLE;
+        receiver.own.mount = Some((5, 10, 1));
+        bodies.frame(&receiver, &mut collision, world);
+        assert_eq!(bodies.flags[0], 1.);
     }
 }

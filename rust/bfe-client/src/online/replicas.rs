@@ -31,6 +31,7 @@ struct Model {
     inverses: Vec<[f64; 16]>,
     content: usize,
     hand: Option<usize>,
+    head: Option<usize>,
     clips: Vec<(String, f64)>,
 }
 struct Slot {
@@ -209,6 +210,7 @@ impl Replicas {
                     .iter()
                     .find(|(n, _)| n == body_key)
                     .map_or(vec![], |(_, c)| c.list.iter().map(|c| (c.name.clone(), c.fps)).collect()),
+                head: actor.bone_by_name("bone_head"),
                 hand: actor.attach.as_ref().and_then(|name| actor.bone_by_name(name)).map(|i| i + 2),
             });
         }
@@ -505,6 +507,13 @@ impl Replicas {
             input[i::GENERATION] = row[r::GENERATION];
             input[i::PRESENT] = 1.;
             input[i::OWN] = (row[r::ID] == receiver.own.id) as u8 as f64;
+            // RiderSources fills only rows that still name a mounted source.
+            // Release its retained frame/lease flags before the next fill so
+            // an exited actor cannot remain attached to the departing hull.
+            input[i::RIDER] = 0.;
+            input[i::LEASE_FACTS] = 0.;
+            input[i::MOUNT_ENCLOSED] = 0.;
+            input[i::RIDER_ANIMAL] = 0.;
             input[i::SOURCE_PROP] = -1.;
             input[i::SOURCE_TURRET] = turret.map_or(-1., |i| i as f64);
             input[i::RIDER_LIVE] = turret.is_some() as u8 as f64;
@@ -582,11 +591,42 @@ impl Replicas {
         // Pose and placement publish skin once into the existing owner banks.
         // Renderer submission below borrows that storage synchronously.
     }
+    // VehicleDriver.updateCamera uses an exposed rider's posed head. Advance the
+    // mounted body phase before selecting its camera, once per frame; the
+    // inactive infantry view has no camera dependency while aboard a hull.
+    pub fn prepare_camera(
+        &mut self,
+        receiver: &Receiver,
+        prediction: &super::replay::Replay,
+        camera: &[f64; 16],
+    ) -> Option<[f64; 3]> {
+        if receiver.own.mount_kind != k::VEHICLE {
+            return None;
+        }
+        self.first_person.frame(&mut self.units, receiver, prediction, camera, 0.);
+        self.units.pose_frame();
+        let identity = (receiver.own.id as u32, receiver.own.generation as u32);
+        let slot = self
+            .slots
+            .iter()
+            .find(|slot| slot.active && slot.identity == Some(identity))?;
+        let row = &self.units.output[slot.actor * o::STRIDE..];
+        if row[o::SEAT_VISIBLE] != 1. {
+            return None;
+        }
+        let head = self.models[slot.model].head?;
+        let (_, rig) = self.units.rider_source(slot.actor)?;
+        let matrix = &rig.tree.node(*rig.bones.get(head)?).matrix_world.elements;
+        Some([matrix[12], matrix[13], matrix[14]])
+    }
     // Finalize after the camera selector: FirstPersonView hangs below the
     // selected view and consumes this frame's camera-motion cue.
     pub fn finish_frame(&mut self, receiver: &Receiver, prediction: &super::replay::Replay, camera: &[f64; 16], cue: f64) {
-        self.first_person.frame(&mut self.units, receiver, prediction, camera, cue);
-        self.units.frame();
+        if receiver.own.mount_kind != k::VEHICLE {
+            self.first_person.frame(&mut self.units, receiver, prediction, camera, cue);
+            self.units.pose_frame();
+        }
+        self.units.attachment_frame();
         // Graphics.updateVisible places remote roots after the pose phase.
         // Units.frame deliberately leaves those matrices stale until this
         // draw boundary; both instance culling and rider attachments need
@@ -676,6 +716,15 @@ impl Replicas {
             .map(|s| 1 + s.weapon.and_then(|id| self.held.get(id)).and_then(Option::as_ref).map_or(0, |m| m.rows.len()))
             .sum();
         actors + self.hulls.record_budget() + self.turrets.record_budget() + self.items.record_budget() + self.combat.record_budget()
+    }
+    pub fn hidden_shadow_budget(&self) -> usize {
+        self.hulls.hidden_shadow_budget() + self.turrets.hidden_shadow_budget()
+    }
+    // Enclosed eye views hide their hull's color while keeping its sun shadow.
+    // These records follow the visible prefix and never enter the color pass.
+    pub fn append_hidden_shadows(&self, bridge: &mut Bridge, records: usize, bones: usize) -> usize {
+        let (records, bones) = self.hulls.append_hidden_shadow(bridge, records, bones);
+        self.turrets.append_hidden_shadow(bridge, records, bones).0
     }
     pub fn append(&self, bridge: &mut Bridge, mut records: usize, mut bones: usize) -> (usize, usize) {
         // Drawing clips at the renderer's existing record and bone budgets.

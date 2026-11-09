@@ -34,6 +34,7 @@ pub struct Fleet {
     pub aim: [f64; 2],
     pub ticks: u64,
     active: Option<usize>,
+    frozen_weapons: bool,
     water:Option<bfe_sim::units::water::WaterState>,last_water:f64,
 }
 impl Fleet {
@@ -142,7 +143,9 @@ impl Fleet {
             walk: [0.; 4],
             aim: [0.; 2],
             ticks: 0,
-            active: None,water,last_water:0.,
+            active: None,
+            frozen_weapons: false,
+            water, last_water: 0.,
         })
     }
     pub fn weapons(&self) -> impl Iterator<Item = bfe_sim::gen::Weapon> + '_ {
@@ -150,6 +153,8 @@ impl Fleet {
             .identity
             .and_then(|_| self.state.as_ref())
             .and_then(|_| self.active_owner());
+        let frozen = self.active.filter(|_| self.frozen_weapons && self.identity.is_some())
+            .map_or(&[][..], |i| self.hulls[i].arsenal.rows.as_slice());
         let output = owner.map_or(&[][..], |o| o.output.as_slice());
         let at = if output.len() >= ClientResult::WORDS {
             ClientResult::take(output, &[]).weapons_at as usize
@@ -163,6 +168,7 @@ impl Fleet {
             .chunks_exact(bfe_sim::gen::Weapon::WORDS)
             .take(count)
             .map(|row| bfe_sim::gen::Weapon::take(row, &[]))
+            .chain(frozen.iter().cloned())
     }
     fn active_owner(&self) -> Option<&ClientPrediction> {
         self.active.map(|i| &self.hulls[i].owner)
@@ -183,6 +189,7 @@ impl Fleet {
         self.state = None;
         self.identity = None;
         self.active = None;
+        self.frozen_weapons = false;
         if receiver.own.vehicle == 0. || ![7, 10].contains(&receiver.own.body_schema) {
             return Ok(());
         }
@@ -220,8 +227,8 @@ impl Fleet {
         arsenal.restore(receiver)?;
         // Vehicle.fireSeat freezes timers at the authority flight state, even
         // when private movement predicts the following takeoff transition.
-        if receiver.own.flight.is_some_and(|state|state!=2){arsenal.rows.clear();}
-        let (weapons_at, weapons_words, mounts_at, mounts_count) = arsenal.write(words);
+        self.frozen_weapons = receiver.own.flight.is_some_and(|state| state != bfe_sim::gen::FlightState::Flying as u8);
+        let (weapons_at, weapons_words, mounts_at, mounts_count) = arsenal.write(words, !self.frozen_weapons);
         let (commands_at, commands_count) = sender.history.write(words);
         let frame = ClientFrame {
             mode: ClientMode::Hull,

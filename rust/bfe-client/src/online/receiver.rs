@@ -34,7 +34,10 @@ pub struct Own {
     pub dive: f64,
     pub lock: f64,
     pub mount: Option<(u32, u32, usize)>,
+    pub mount_kind: u32,
     pub flight: Option<u8>,
+    pub flight_warning: u8,
+    pub flight_can_land: bool,
 }
 // Server diagnostics are terminal observations, not retained JSON objects.
 // Keep at most the browser's 240 characters, including escaped JSON text;
@@ -323,15 +326,24 @@ impl Receiver {
                 };
                 self.checkpoint_length = bytes.len();
                 self.checkpoint[..bytes.len()].copy_from_slice(bytes);
-                self.own.mount = bfe_sim::prediction::corrections::own_mounted(bytes)
-                    .ok()
-                    .flatten()
-                    .map(|mount| (mount.id, mount.generation, mount.index as usize));
+                let mount = bfe_sim::prediction::corrections::own_mounted(bytes).ok().flatten();
+                // Vehicle and emplacement ids occupy independent namespaces.
+                // Passenger leases also name a hull when the body header does not.
+                self.own.mount_kind = mount.as_ref().map_or(0, |mount| {
+                    if mount.mode == 3 {
+                        k::TURRET
+                    } else {
+                        k::VEHICLE
+                    }
+                });
+                self.own.mount = mount.map(|mount| (mount.id, mount.generation, mount.index as usize));
                 self.own.health = head.health;
                 self.own.vehicle = head.vehicle_id as f64;
                 self.own.vehicle_generation = head.vehicle_generation as f64;
                 self.own.body_schema = head.body_schema;
                 self.own.flight = None;
+                self.own.flight_warning = 0;
+                self.own.flight_can_land = false;
                 if let Some(body) = head.body.get(bytes) {
                     if body.len() > self.body_bytes.len() {
                         self.fault = Some("own body exceeds prediction reservation");
@@ -369,7 +381,11 @@ impl Receiver {
                         self.own.position = self.flight.vectors[0];
                         self.own.yaw = self.flight.seat[0].value;
                         self.own.pitch = self.flight.seat[1].value;
-                        self.own.flight = Some(self.flight.enums[0]);
+                        use bfe_sim::gen::ClientFlightEnumField as field;
+                        self.own.flight = Some(self.flight.enums[field::State as usize]);
+                        self.own.flight_warning = self.flight.enums[field::Warning as usize];
+                        self.own.flight_can_land = self.flight.enums[field::Reason as usize]
+                            == bfe_sim::flight::Message::PressSpace as u8;
                     }
                 } else if head.body_schema == 10 {
                     if let Ok(body) = bfe_sim::prediction::corrections::decode_ground(head.body.get(bytes), true, [true; 2]) {
@@ -392,6 +408,9 @@ impl Receiver {
                 fact[r::STATE] = self.own.air as f64;
                 fact[r::HEALTH] = self.own.health;
                 fact[r::DEAD] = (!self.own.alive) as u8 as f64;
+                // This row survives corrections. An exit must release the
+                // old rider binding as well as the own control checkpoint.
+                fact[r::SEAT_PRESENT..=r::SEAT_INDEX].fill(0.);
                 if let Some((id, generation, index)) = self.own.mount {
                     fact[r::SEAT_PRESENT] = 1.;
                     fact[r::SEAT_VEHICLE_ID] = id as f64;

@@ -929,10 +929,12 @@ impl BattleController {
     /// Resolves the selected mission and its canonical startup faction, then
     /// admits a paused local World. The loading worker owns this cold call;
     /// open_instant_action later creates display resources on the GL thread.
+    /// The worker receives the AI policy snapshot before admitting tick zero.
     pub fn prepare_instant_action(
         content_dir: &Path,
         request: BattleRequest,
         playlist_index: usize,
+        ai_enabled: bool,
     ) -> Result<InstantAdmission, String> {
         // Resolve the target map ID and era from `request.playlist[playlist_index]` or `request`.
         let default_era = request.era.clone().unwrap_or_else(|| "cw".to_string());
@@ -983,7 +985,7 @@ impl BattleController {
             duration: None,
         };
 
-        let (world, admitted) = WorldThread::admit_instant_action(&local_options)?;
+        let (world, admitted) = WorldThread::admit_instant_action(&local_options, ai_enabled)?;
         let graphics = Scene::prepare_online(content_dir, &admitted.query)?;
         Ok(InstantAdmission {
             request,
@@ -1462,6 +1464,12 @@ impl BattleController {
             .get_bindings_ref("flightBindings")
             .unwrap_or(&empty);
         self.input.set_bindings(kb, fb);
+        let flight = bfe_interface::flight_bindings(Some(fb));
+        let takeoff = flight
+            .get("takeoff")
+            .and_then(|codes| codes.first())
+            .map_or("", String::as_str);
+        self.scene.set_flight_hud_key(&bfe_interface::key_name(takeoff));
         let f_scale = settings.interface.get_f64("flightSensitivity");
         self.input.flight_scale = if f_scale.is_finite() && f_scale > 0.0 {
             f_scale.clamp(0.2, 3.0)
@@ -1475,6 +1483,11 @@ impl BattleController {
             1.35
         };
         self.input.flight_invert = settings.interface.get_bool("flightInvertY");
+        let first = settings.interface.get_bool("flightFirstPerson");
+        match &mut self.authority {
+            BattleAuthority::InstantAction { camera, .. } => camera.set_flight_perspective(first),
+            BattleAuthority::Online { client, .. } => client.camera.set_flight_perspective(first),
+        }
     }
 
     fn take_step_command(
@@ -1700,9 +1713,15 @@ impl BattleController {
                 sender.feedback(receiver);
                 receiver.clock.advance(dt).map_err(str::to_string)?;
 
+                camera.set_flight_mode(receiver.own.flight.is_some());
                 let ack = Publication::acknowledgement(receiver);
                 for (mut cmd, look, flight, actions) in step_cmds.into_iter().flatten() {
-                    if actions.perspective { camera.first_person = !camera.first_person; }
+                    if actions.perspective {
+                        camera.first_person = !camera.first_person;
+                        if receiver.own.flight.is_some() {
+                            settings.interface.set("flightFirstPerson", camera.first_person);
+                        }
+                    }
                     cmd.first_person = Some(camera.first_person);
                     sender.tick(&cmd, &look, &flight, receiver, 0.0, *now_ms);
                     // Corrections acknowledge the sender's command identities,
@@ -1768,6 +1787,9 @@ impl BattleController {
                 for (cmd, look, flight, actions) in step_cmds.into_iter().flatten() {
                     if let Err(err) = client.step(&cmd, &look, &flight, &actions, STEP) {
                         return Ok(Some(BattleTransition::LeaveOnline { reason: Some(err) }));
+                    }
+                    if actions.perspective && client.receiver.own.flight.is_some() {
+                        settings.interface.set("flightFirstPerson", client.camera.first_person);
                     }
                 }
                 client.present(alpha_interp);
@@ -2286,10 +2308,11 @@ impl BattleController {
                 &client.replay,
             ),
         };
-        eprintln!("battle controls: frames={} meanFrameMs={:.3} authorityPosition={:?} authorityAim={:?} cameraPosition={:?} displayAim={:?} firstPerson={} inputSequence={} appliedSequence={} pointerTotal={:?} mouseScale={} maxTurn={}",
+        eprintln!("battle controls: frames={} meanFrameMs={:.3} authorityPosition={:?} authorityAim={:?} cameraPosition={:?} displayAim={:?} firstPerson={} inputSequence={} appliedSequence={} alive={} mount={:?} bodySchema={} pointerTotal={:?} mouseScale={} maxTurn={}",
             self.frames, 1000. * self.frame_seconds / self.frames.max(1) as f64,
             receiver.own.position, [receiver.own.yaw, receiver.own.pitch], camera.position,
             camera.aim(), camera.first_person, sender.command_sequence(), receiver.corrected_sequence,
+            receiver.own.alive, receiver.own.mount, receiver.own.body_schema,
             self.input.pointer_metrics().0, self.input.pointer_metrics().1,
             self.scene.online.as_ref().and_then(|scene| scene.turns.get(receiver.own.class)).map_or(0., |turn| turn.0));
         eprintln!(

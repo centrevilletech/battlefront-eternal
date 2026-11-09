@@ -48,6 +48,7 @@ struct Model {
     flying: bool,
     walking: bool,
     max_speed: f64,
+    camera_blend: f64,
     seats: usize,
     aimers: usize,
     rider: Vec<(Option<String>, Option<String>, bool)>,
@@ -60,6 +61,10 @@ struct Slot {
     active: bool,
     skin: Vec<f32>,
     dying_since: Option<f64>,
+    velocity: [f64; 3],
+    flight_frame: [f64; 4],
+    health: f64,
+    boosting: bool,
 }
 pub struct Hulls {
     pub owner: Box<Vehicles>,
@@ -282,6 +287,11 @@ impl Hulls {
                 flying,
                 walking,
                 max_speed: motion.speed,
+                camera_blend: if flying {
+                    bfe_sim::flight::config::Tuning::of(bfe_sim::flight::config::flight_class(defs.names.text(class.name))).camera_blend_time
+                } else {
+                    0.
+                },
                 rows: admission.records,
                 inverses: inverses.into_iter().map(|elements| Matrix4 { elements }).collect(),
                 walk_length,
@@ -298,7 +308,18 @@ impl Hulls {
         for (model, m) in models.iter().enumerate() {
             for _ in 0..(POOL / models.len().max(1)).max(1) {
                 let rig = owner.add_rig(array(&descriptors[model])?);
-                slots.push(Slot { rig, model, identity: None, active: false, skin: vec![0.; m.inverses.len() * 16], dying_since: None });
+                slots.push(Slot {
+                    rig,
+                    model,
+                    identity: None,
+                    active: false,
+                    skin: vec![0.; m.inverses.len() * 16],
+                    dying_since: None,
+                    velocity: [0.; 3],
+                    flight_frame: [0., 0., 0., 1.],
+                    health: 0.,
+                    boosting: false,
+                });
             }
         }
         Ok(Self {
@@ -345,13 +366,19 @@ impl Hulls {
         x[f::VEHICLE_POSITION..f::VEHICLE_POSITION + 3].copy_from_slice(&matrix[12..15]);
         x[f::SEAT_POSITION..f::SEAT_POSITION + 3].copy_from_slice(&matrix[12..15]);
         x[f::VEHICLE_DRAWN..f::VEHICLE_DRAWN + 4].copy_from_slice(q);
-        x[f::VEHICLE_FLIGHT_FRAME..f::VEHICLE_FLIGHT_FRAME + 4].copy_from_slice(q);
+        // Flight cameras follow the controller frame; the drawn hull may
+        // include a cosmetic bank that belongs only to its cockpit view.
+        x[f::VEHICLE_FLIGHT_FRAME..f::VEHICLE_FLIGHT_FRAME + 4].copy_from_slice(&slot.flight_frame);
+        x[f::VEHICLE_VELOCITY..f::VEHICLE_VELOCITY + 3].copy_from_slice(&slot.velocity);
+        x[f::VEHICLE_AGE] = output[o::AGE];
+        x[f::VEHICLE_BOOSTING] = slot.boosting as u8 as f64;
+        x[f::VEHICLE_BLEND_DURATION] = m.camera_blend;
         x[f::VEHICLE_YAW] = angles.y;
         x[f::VEHICLE_TILT] = -angles.x;
         x[f::VEHICLE_ROLL] = angles.z;
         x[f::VEHICLE_HUMAN] = 1.;
         x[f::VEHICLE_MAX_SPEED] = m.max_speed;
-        x[f::VEHICLE_HEALTH] = 1.;
+        x[f::VEHICLE_HEALTH] = slot.health;
         x[f::VEHICLE_BOUNDS..f::VEHICLE_BOUNDS + 6].copy_from_slice(&m.bounds);
         for k in 0..3 {
             x[f::VEHICLE_CENTER + k] = (m.bounds[k] + m.bounds[k + 3]) * 0.5;
@@ -514,6 +541,8 @@ impl Hulls {
             x[e::BODY] = -1.;
             x[e::INPUT] = input as f64;
             x[e::OUTPUT] = output as f64;
+            s.health = row[r::HEALTH];
+            s.boosting = false;
             // Only the currently piloted qualified hull may use the private
             // continuation. All other hulls borrow Session's delayed sample.
             // The local result carries the solver's gait and gear as facts;
@@ -528,6 +557,8 @@ impl Hulls {
                     x[e::TILT] = p.tilt;
                     x[e::ROLL] = p.roll;
                     x[e::DYING] = p.dying;
+                    s.health = p.health;
+                    s.boosting = p.boosting.unwrap_or(false);
                     if let Some(gear) = p.gear {
                         x[e::GEAR] = gear;
                         x[e::GEAR_FOLLOW] = 0.;
@@ -538,6 +569,10 @@ impl Hulls {
                     x[e::WALK_FROM_BLEND] = prediction.walk[3];
                 }
             }
+            // Retain the same presented motion facts for VehicleCamera.
+            // The camera must not infer velocity from its own eased pose.
+            s.velocity.copy_from_slice(&x[e::VELOCITY..e::VELOCITY + 3]);
+            s.flight_frame.copy_from_slice(&x[e::QUATERNION..e::QUATERNION + 4]);
             let start = self.owner.slot_input(s.rig, 0);
             for seat_no in 0..m.seats {
                 let x = &mut self.owner.stream_in[start + seat_no * seat::STRIDE..][..seat::STRIDE];
@@ -630,9 +665,33 @@ impl Hulls {
     pub fn record_budget(&self) -> usize {
         self.slots.iter().filter(|s| s.active && self.hidden != Some(s.rig)).map(|s| self.models[s.model].rows.len()).sum()
     }
-    pub fn append(&self, bridge: &mut Bridge, mut records: usize, mut bones: usize) -> (usize, usize) {
+    pub fn hidden_shadow_budget(&self) -> usize {
+        self.slots
+            .iter()
+            .filter(|s| s.active && self.hidden == Some(s.rig))
+            .map(|s| self.models[s.model].rows.len())
+            .sum()
+    }
+    pub fn append(&self, bridge: &mut Bridge, records: usize, bones: usize) -> (usize, usize) {
+        self.append_visibility(bridge, records, bones, false)
+    }
+    pub fn append_hidden_shadow(
+        &self,
+        bridge: &mut Bridge,
+        records: usize,
+        bones: usize,
+    ) -> (usize, usize) {
+        self.append_visibility(bridge, records, bones, true)
+    }
+    fn append_visibility(
+        &self,
+        bridge: &mut Bridge,
+        mut records: usize,
+        mut bones: usize,
+        hidden: bool,
+    ) -> (usize, usize) {
         for s in &self.slots {
-            if !s.active || self.hidden == Some(s.rig) {
+            if !s.active || (self.hidden == Some(s.rig)) != hidden {
                 continue;
             }
             let m = &self.models[s.model];

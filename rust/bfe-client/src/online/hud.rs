@@ -155,19 +155,35 @@ struct Weapon {
 // cold resources, while HudModel retains progress animation, icon state,
 // text layout, fades and radar selection across displayed frames.
 struct Post{id:usize,row:[f64;P::WORDS],label:String,region:Option<bfe_content::regions::BuiltRegion>,counts:[[f64;PC::WORDS];8],count:usize}
+// PlayerCombat.updateHud uses the mounted object's authored health/icon;
+// vehicle seats also name their position independently of their weapons.
+struct MountHud {
+    kind: f64,
+    source: usize,
+    health: f64,
+    icon: u32,
+    seats: Vec<u32>,
+}
 pub struct Prepared {
     assets: Vec<Asset>,
     fonts: Vec<(f64, Vec<f64>)>,
     names: BTreeMap<String, u32>,
     weapons: Vec<Weapon>,
+    mounts: Vec<MountHud>,
     labels: Vec<String>,
     strings: Value,
     radar: super::radar::Teams,map:Option<[f64;5]>,posts:Vec<Post>,max_health:Vec<f64>,unit_defs:Vec<[f64;U::WORDS]>,
     class_meta: Vec<HudClassMeta>,
     post_meta: Vec<HudPostMeta>,
 }
+#[derive(Clone, Copy)]
+pub struct Aim {
+    pub point: [f64; 3],
+    pub project_x: bool,
+}
 pub struct Hud {
     weapons: Vec<Weapon>,
+    mounts: Vec<MountHud>,
     size: [i32; 2],
     pub quads: usize,
     pub frames: u64,
@@ -185,6 +201,7 @@ pub struct Hud {
     pub roster_total: usize,
     pub roster: [HudRosterEntry; 64],
     pub auto_build: bool,
+    flight_key: String,
 }
 impl Prepared {
     // Reserve the fixed art slots even if a map omits an image. Optional art
@@ -209,6 +226,7 @@ impl Prepared {
             fonts: vec![],
             names: BTreeMap::new(),
             weapons: vec![],
+            mounts: vec![],
             labels: vec![String::new()],
             strings: common["strings"].clone(),radar:super::radar::Teams::new(content),map:None,posts:vec![],max_health:vec![],unit_defs:vec![],
             class_meta: vec![],
@@ -344,25 +362,92 @@ impl Prepared {
             }
         }
         for (id,definition,vehicle) in defs.classes.iter().filter_map(|c|c.registry_id.map(|id|(id,&c.record,false))).chain(defs.vehicles.iter().filter_map(|c|c.registry_id.map(|id|(id,&c.record,true)))){let id=id as usize;let d=if vehicle{definition.get("settings").unwrap_or(definition)}else{definition};result.max_health[id]=bfe_content::odf::num(d.get("MaxHealth"),if vehicle{1000.}else{300.});let row=&mut result.unit_defs[id];row[U::SOLDIER]=(!vehicle)as u8 as f64;row[U::KIND]=if vehicle{2.}else{0.};row[U::SCALE]=d.get("MapScale").and_then(bfe_content::Value::as_f64).unwrap_or(f64::NAN);row[U::SCAN]=bfe_content::odf::num(d.get("ScanningRange"),0.);row[U::TRANSMIT]=bfe_content::odf::num(d.get("TransmitRange"),0.);let texture=d.get("MapTexture").and_then(bfe_content::Value::as_str);let handle=asset(texture.unwrap_or(""),&mut result)?;let row=&mut result.unit_defs[id];row[U::TEXTURE]=handle as f64;row[U::HAS_MAP_TEXTURE]=texture.is_some()as u8 as f64;}
+        // Resolve mounted HUD facts before texture admission ends. Turret
+        // records identify a placed building rather than a vehicle class.
+        for vehicle in &defs.vehicles {
+            let Some(source) = vehicle.registry_id else {
+                continue;
+            };
+            let settings = vehicle.record.get("settings").unwrap_or(&vehicle.record);
+            let icon = asset(
+                settings
+                    .get("HealthTexture")
+                    .and_then(bfe_content::Value::as_str)
+                    .unwrap_or("hud_vehiclehealth"),
+                &mut result,
+            )?;
+            let mut seats = Vec::new();
+            for seat in &vehicle.seats {
+                let key = seat
+                    .record
+                    .get("settings")
+                    .and_then(|s| s.get("da1b8c0c"))
+                    .and_then(bfe_content::Value::as_str)
+                    .unwrap_or("");
+                let fallback = match key {
+                    "common.vehiclepositions.pilot" => "PILOT",
+                    "common.vehiclepositions.copilot" => "CO-PILOT",
+                    "common.vehiclepositions.gunner" => "MAIN GUNNER",
+                    "common.vehiclepositions.bomber" => "BOMBADIER",
+                    "common.vehiclepositions.leftturret" => "LEFT TURRET",
+                    "common.vehiclepositions.rightturret" => "RIGHT TURRET",
+                    "common.vehiclepositions.passenger" => "PASSENGER",
+                    _ => "",
+                };
+                seats.push(result.labels.len() as u32);
+                result
+                    .labels
+                    .push(result.strings[key].as_str().unwrap_or(fallback).into());
+            }
+            result.mounts.push(MountHud {
+                kind: k::VEHICLE as f64,
+                source: source as usize,
+                health: bfe_content::odf::num(settings.get("MaxHealth"), 1000.),
+                icon,
+                seats,
+            });
+        }
+        for prop in &defs.props {
+            if prop.base.map(|name| defs.names.text(name)) != Some("armedbuilding") {
+                continue;
+            }
+            let settings = prop.record.get("settings").unwrap_or(&prop.record);
+            let icon = asset(
+                settings
+                    .get("HealthTexture")
+                    .and_then(bfe_content::Value::as_str)
+                    .unwrap_or("hud_vehiclehealth"),
+                &mut result,
+            )?;
+            result.mounts.push(MountHud {
+                kind: k::TURRET as f64,
+                source: prop.index,
+                health: bfe_content::odf::num(settings.get("MaxHealth"), 1000.),
+                icon,
+                seats: vec![],
+            });
+        }
         for (index,desc) in content.content.battle.world.get("commandPosts").and_then(bfe_content::Value::as_array).unwrap_or(&[]).iter().enumerate().take(hud_model::MAX_POSTS){let name=desc.get("name").and_then(bfe_content::Value::as_str).map(str::to_string).unwrap_or_else(||format!("#{index}"));let Some(id)=defs.registry.posts.iter().position(|n|*n==name).map(|i|i+1)else{continue;};let d=authored_json(desc);let mut row=[0.;P::WORDS];row[P::X]=d["matrix"][12].as_f64().unwrap_or(0.);row[P::Z]=d["matrix"][14].as_f64().unwrap_or(0.);row[P::MAPPED]=(d.get("mapTexture").is_none()||(d["mapTexture"].as_str().is_some_and(|s|!s.is_empty())&&d["mapScale"].as_f64().unwrap_or(1.)>0.))as u8 as f64;row[P::ACTIVE]=1.;row[P::TEAM]=d["team"].as_f64().unwrap_or(0.);row[P::TEXTURE]=asset(d["mapTexture"].as_str().unwrap_or(""),&mut result)?as f64;row[P::SCALE]=d["mapScale"].as_f64().unwrap_or(2.5);let region=desc.get("capture").filter(|v|v.truthy()).map(bfe_content::regions::build_region);let label:String=d["displayName"].as_str().or_else(||d["label"].as_str()).unwrap_or("").into();let y=d["matrix"][13].as_f64().unwrap_or(0.);result.post_meta.push(HudPostMeta{id,name:name.clone(),display_name:if label.is_empty(){format!("COMMAND POST {}",index+1)}else{label.clone()},position:[row[P::X],y,row[P::Z]],team:row[P::TEAM]as u8,active:true});result.posts.push(Post{id,row,label,region,counts:[[0.;PC::WORDS];8],count:0});}
         let definitions = defs
             .weapons
             .iter()
-            .map(|w| &w.record)
+            .map(|w| (&w.record, None))
             .chain(
                 defs.vehicles
                     .iter()
                     .flat_map(|v| v.seats.iter())
-                    .flat_map(|s| s.weapons.iter())
-                    .filter_map(|w| w.get("def")),
+                    .flat_map(|s| s.weapons.iter().enumerate())
+                    .filter_map(|(channel, w)| w.get("def").map(|def| (def, Some(channel)))),
             )
             .chain(
                 defs.props
                     .iter()
                     .filter(|p| p.base.map(|n| defs.names.text(n)) == Some("armedbuilding"))
-                    .filter_map(|p| p.record.get("weapon")),
+                    .filter_map(|p| p.record.get("weapon").map(|def| (def, Some(0)))),
             );
-        for (index, weapon) in definitions.enumerate() {
+        // Vehicle.current indexes its seat weapons by trigger channel; the
+        // nested weapon definition only supplies the common firing constants.
+        for (index, (weapon, mounted_channel)) in definitions.enumerate() {
             let d = authored_json(weapon);
             let mut row = [0.; W::WORDS];
             row[W::ID] = (index + 1) as f64;
@@ -386,11 +471,14 @@ impl Prepared {
             }
             result.weapons.push(Weapon {
                 row,
-                channel: d["channel"]
-                    .as_u64()
-                    .or_else(|| d["channel"].as_f64().map(|n| n as u64))
-                    .unwrap_or(0)
-                    .min(1) as usize,
+                channel: mounted_channel
+                    .unwrap_or_else(|| {
+                        d["channel"]
+                            .as_u64()
+                            .or_else(|| d["channel"].as_f64().map(|n| n as u64))
+                            .unwrap_or(0) as usize
+                    })
+                    .min(1),
             });
         }
         if let Some(map_def)=world.get("minimap").filter(|m|!m.is_null()){let image=if let Some(texture)=map_def["texture"].as_str(){let image=content.textures.load(&format!("maps/{map}/{texture}"))?;let source=&content.textures.images[image];let id=result.assets.len();result.assets.push(Asset{image:Some(image),width:source.width as f64,height:source.height as f64});id as f64}else{0.};result.map=Some([map_def["center"][0].as_f64().unwrap_or(0.),map_def["center"][1].as_f64().unwrap_or(0.),map_def["half"].as_f64().unwrap_or(1.),world["commandPost"]["mapScale"].as_f64().unwrap_or(1.),image]);}
@@ -413,9 +501,28 @@ impl Prepared {
         for label in &self.labels[1..] {
             labels.push(bridge.hud_model_text(label, false));
         }
+        let mut mounts = self.mounts;
+        for mount in &mut mounts {
+            for name in &mut mount.seats {
+                *name = labels[*name as usize];
+            }
+        }
         let mut weapons = self.weapons;
         for weapon in &mut weapons {
             weapon.row[W::LABEL] = labels[weapon.row[W::LABEL] as usize] as f64;
+        }
+        for (index, text) in [
+            "TAKEOFF PATH BLOCKED",
+            "LANDING PATH BLOCKED",
+            "TOO FAST TO LAND",
+            "NO LANDING ZONE",
+            "FLIGHT CEILING",
+        ]
+        .iter()
+        .enumerate()
+        {
+            bridge.hud_model.input[H::PROMPT_TEXTS + 2 + index] =
+                bridge.hud_model_text(text, false) as f64;
         }
         for (at, key, fallback) in [
             (H::VICTORY, "hud.victory_in", ""),
@@ -460,8 +567,9 @@ impl Prepared {
                 }
             }
         }
-        Ok(Hud {
+        let mut hud = Hud {
             weapons,
+            mounts,
             size,
             quads: 0,
             frames: 0,
@@ -475,10 +583,40 @@ impl Prepared {
             roster_total: 0,
             roster: [HudRosterEntry::default(); 64],
             auto_build: true,
-        })
+            flight_key: String::new(),
+        };
+        let bindings = bfe_interface::default_flight_bindings();
+        let code = bindings
+            .get("takeoff")
+            .and_then(|codes| codes.first())
+            .map_or("", String::as_str);
+        hud.set_flight_key(bridge, &bfe_interface::key_name(code));
+        Ok(hud)
     }
 }
 impl Hud {
+    // BattleHud.promptLine uses the first physical key of the flight binding.
+    // This cold update follows settings changes; no text is built per frame.
+    pub fn set_flight_key(&mut self, bridge: &mut Bridge, key: &str) {
+        if self.flight_key == key {
+            return;
+        }
+        self.flight_key.clear();
+        self.flight_key.push_str(key);
+        let takeoff = self
+            .strings
+            .get("game.tooltips.flyertakeoff")
+            .map_or("TO TAKE OFF", String::as_str);
+        for (index, hint) in [takeoff, "TO LAND"].iter().enumerate() {
+            let text = if key.is_empty() {
+                (*hint).to_string()
+            } else {
+                format!("{key} {hint}")
+            };
+            bridge.hud_model.input[H::PROMPT_TEXTS + index] =
+                bridge.hud_model_text(&text, false) as f64;
+        }
+    }
     pub fn audio_facts(&self)->([f64;4],bool){([self.teams[1][0],self.teams[2][0],self.teams[1][1],self.teams[2][1]],self.game_over)}
     // Hud.update contributes gameplay observations once per displayed frame.
     // Health notifications wake the existing faders; summary records supply
@@ -644,8 +782,12 @@ impl Hud {
         }
         let mount = receiver.own.mount.and_then(|lease| receiver.active().find(|row|
             row[r::ID] == lease.0 as f64 && row[r::GENERATION] == lease.1 as f64
-                && (row[r::KIND] == k::VEHICLE as f64 || row[r::KIND] == k::TURRET as f64)));
-        let hull_fill = mount.map_or(0., |row| row[r::HEALTH] / self.max_health.get(row[r::CLASS_ID] as usize).copied().unwrap_or(1000.));
+                && row[r::KIND] == receiver.own.mount_kind as f64));
+        let mounted = mount.and_then(|row| {
+            let source = row[if row[r::KIND] == k::TURRET as f64 { r::BUILDING } else { r::CLASS_ID }] as usize;
+            self.mounts.iter().find(|m| m.kind == row[r::KIND] && m.source == source)
+        });
+        let hull_fill = mount.map_or(0., |row| row[r::HEALTH] / mounted.map_or(1000., |m| m.health));
         bridge.hud_model_observe(bfe_render::hud_model::layout::HudCommand::HULL,
             mount.is_some() as u8 as f64,hull_fill,0.,0.);
         let x = &mut bridge.hud_model.input;
@@ -655,7 +797,8 @@ impl Hud {
         x[H::PLAYER] = receiver.own.alive as u8 as f64;
         x[H::HEALTH] = health;
         x[H::HEALTH_ICON] = A::HUD_HEALTH as f64;
-        x[H::HULL_ICON] = if mount.is_some() { A::HUD_VEHICLEHEALTH as f64 } else { 0. };
+        x[H::HULL_ICON] = mounted.map_or(if mount.is_some() { A::HUD_VEHICLEHEALTH as f64 } else { 0. }, |m| m.icon as f64);
+        x[H::SEAT_NAME] = mounted.and_then(|m| receiver.own.mount.and_then(|lease| m.seats.get(lease.2))).copied().unwrap_or(0) as f64;
         x[H::HULL_FILL] = hull_fill;
         x[H::SEATS..H::SEATS+5].fill(-1.);
         if let Some(row) = mount {
@@ -749,21 +892,38 @@ impl Hud {
             }
             any = true;
         }
+        let flight = flight_status(&receiver.own);
+        for (at, value) in [
+            H::FLIGHT_PILOT,
+            H::FLIGHT_STATE,
+            H::FLIGHT_WARNING,
+            H::FLIGHT_CAN_LAND,
+        ]
+        .into_iter()
+        .zip(flight)
+        {
+            x[at] = value;
+        }
         x[H::MOUNT] = receiver.own.mount.is_some() as u8 as f64;
-        x[H::VEHICLE] = (receiver.own.vehicle != 0.) as u8 as f64;
+        x[H::VEHICLE] = (receiver.own.mount_kind == k::VEHICLE) as u8 as f64;
         x[H::ARSENAL] = any as u8 as f64;
         x[H::RETICLE] = receiver.own.alive as u8 as f64;
     }
 
     // PlayerCombat.updateHud projects the point 1024 m along the displayed
     // aim against the camera actually drawn, after its eye/chase phase.
-    pub fn aim(&mut self, bridge: &mut Bridge, view: &crate::scene::View, point: Option<[f64; 3]>) {
+    pub fn aim(&mut self, bridge: &mut Bridge, view: &crate::scene::View, point: Option<Aim>) {
         let x = &mut bridge.hud_model.input;
+        x[H::FOV] = 2. * bfe_pose::rig::math::atan(1. / view.values[5]).to_degrees();
+        x[H::ASPECT] = view.values[5] / view.values[0];
         x[H::RETICLE_X] = 0.5;
         x[H::RETICLE_Y] = 0.5;
         if let Some(point) = point {
-            if let Some(y) = aim_anchor(view, point) {
-                x[H::RETICLE_Y] = y;
+            if let Some([ax, ay]) = aim_anchor(view, point.point) {
+                if point.project_x {
+                    x[H::RETICLE_X] = ax;
+                }
+                x[H::RETICLE_Y] = ay;
             } else {
                 x[H::RETICLE] = 0.;
             }
@@ -779,7 +939,7 @@ impl Hud {
 
 // Anchors are screen fractions, independent of the HUD's virtual height.
 // A point behind the displayed camera hides the cursor in updateHud.
-fn aim_anchor(view: &crate::scene::View, point: [f64; 3]) -> Option<f64> {
+fn aim_anchor(view: &crate::scene::View, point: [f64; 3]) -> Option<[f64; 2]> {
     let mut inverse = three::Matrix4::default();
     inverse.elements.copy_from_slice(&view.values[16..32]);
     let mut p = three::Vector3::new(point[0], point[1], point[2]);
@@ -787,7 +947,37 @@ fn aim_anchor(view: &crate::scene::View, point: [f64; 3]) -> Option<f64> {
     if p.z >= 0. {
         return None;
     }
-    Some(0.5 - 0.5 * p.y * view.values[5] / -p.z)
+    Some([
+        0.5 + 0.5 * p.x * view.values[0] / -p.z,
+        0.5 - 0.5 * p.y * view.values[5] / -p.z,
+    ])
+}
+
+// Flight prompt facts come from the qualified pilot checkpoint, never a
+// guessed terrain test or an infantry body's remaining view state.
+fn flight_status(own: &super::receiver::Own) -> [f64; 4] {
+    use bfe_sim::{flight::Message, gen::FlightState};
+    let pilot = own.alive
+        && own.mount_kind == k::VEHICLE
+        && own.mount.is_some_and(|lease| lease.2 == 0)
+        && own.flight.is_some();
+    if !pilot {
+        return [0.; 4];
+    }
+    let state = match own.flight {
+        Some(state) if state == FlightState::Landed as u8 => 1.,
+        Some(state) if state == FlightState::Flying as u8 => 2.,
+        _ => 0.,
+    };
+    let warning = match own.flight_warning {
+        code if code == Message::TakeoffBlocked as u8 => 1.,
+        code if code == Message::LandingBlocked as u8 => 2.,
+        code if code == Message::TooFast as u8 => 3.,
+        code if code == Message::NoLandingZone as u8 => 4.,
+        code if code == Message::Ceiling as u8 => 5.,
+        _ => 0.,
+    };
+    [1., state, warning, own.flight_can_land as u8 as f64]
 }
 
 #[cfg(test)]
@@ -795,15 +985,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn flight_prompts_follow_the_pilot_checkpoint_and_refusal() {
+        let mut own = super::super::receiver::Own {
+            alive: true,
+            mount_kind: k::VEHICLE,
+            mount: Some((7, 2, 0)),
+            flight: Some(bfe_sim::gen::FlightState::Landed as u8),
+            ..Default::default()
+        };
+        assert_eq!(flight_status(&own), [1., 1., 0., 0.]);
+        own.flight = Some(bfe_sim::gen::FlightState::Flying as u8);
+        own.flight_can_land = true;
+        own.flight_warning = bfe_sim::flight::Message::TooFast as u8;
+        assert_eq!(flight_status(&own), [1., 2., 3., 1.]);
+        own.mount = Some((7, 2, 1));
+        assert_eq!(flight_status(&own), [0.; 4]);
+    }
+
+    #[test]
     fn aim_anchor_projects_into_screen_fractions_and_hides_behind_camera() {
         let mut view = crate::scene::View {
             values: [0.; bfe_render::shader::FRAME_FLOATS],
         };
+        view.values[0] = 1.;
         view.values[5] = 2.;
         view.values[16..32].copy_from_slice(&three::Matrix4::default().elements);
-        assert_eq!(aim_anchor(&view, [0., 0., -100.]), Some(0.5));
-        assert_eq!(aim_anchor(&view, [0., 25., -100.]), Some(0.25));
-        assert_eq!(aim_anchor(&view, [0., -25., -100.]), Some(0.75));
+        assert_eq!(aim_anchor(&view, [0., 0., -100.]), Some([0.5, 0.5]));
+        assert_eq!(aim_anchor(&view, [0., 25., -100.]), Some([0.5, 0.25]));
+        assert_eq!(aim_anchor(&view, [0., -25., -100.]), Some([0.5, 0.75]));
+        assert_eq!(aim_anchor(&view, [50., 0., -100.]), Some([0.75, 0.5]));
         assert_eq!(aim_anchor(&view, [0., 0., 100.]), None);
     }
 

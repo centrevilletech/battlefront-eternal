@@ -189,6 +189,17 @@ impl Loader {
                     });
                 }
             }
+            // buildWorld creates another ground view from the same terrain,
+            // using the map's low-resolution image across its whole extent.
+            // It belongs to the far scene even though no mesh row names it.
+            if kind == MaterialKind::Terrain {
+                let low = &metadata["distance"]["lowRes"];
+                if let Some(name) = low["texture"].as_str().filter(|name| !name.is_empty()) {
+                    let texture = image(&mut textures, &map_table, Some(name))?;
+                    let far = far_terrain(world.last().unwrap(), name, &low["scale"], texture);
+                    world.push(far);
+                }
+            }
         }
         // Visible-only packs are absent from the headless world's requirements:
         // common/side effects, prop extras, and ships in the far sky. They use
@@ -761,4 +772,75 @@ pub fn append_pack(
         }
     }
     Ok(())
+}
+
+// The far view keeps authored geometry and baked colour but replaces the
+// near layer maps; retaining them would overwrite the low-resolution sampler.
+fn far_terrain(near: &Mesh, name: &str, scale: &Value, texture: Option<usize>) -> Mesh {
+    let mut record = near.material.record.clone();
+    record["far"] = Value::Bool(true);
+    record["texture"] = Value::String(name.into());
+    record["lowResScale"] = scale.clone();
+    if let Some(fields) = record.as_object_mut() {
+        for key in ["layers", "detail", "weights"] {
+            fields.remove(key);
+        }
+    }
+    Mesh {
+        name: "far-terrain".into(),
+        geometry: near.geometry.clone(),
+        material: material(
+            record,
+            MaterialKind::Terrain,
+            near.material.flags,
+            texture,
+            None,
+        ),
+    }
+}
+
+#[cfg(test)]
+mod far_terrain_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn far_ground_keeps_the_height_field_and_uses_its_own_map() {
+        let record = json!({
+            "terrain": true,
+            "texture": "near",
+            "layers": ["grass", "soil"],
+            "detail": "grain",
+            "weights": "weights.bin",
+            "vertexCount": 3,
+            "stride": 3,
+            "attributes": ["position"],
+            "vertexOffset": 0,
+            "indexOffset": 0,
+            "indexCount": 3
+        });
+        let vertices: Vec<u8> = [0f32, 0., 0., 4., 1., 0., 0., 2., 4.]
+            .into_iter()
+            .flat_map(f32::to_le_bytes)
+            .collect();
+        let indices: Vec<u8> = [0u32, 1, 2]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect();
+        let near = Mesh {
+            name: "ground".into(),
+            geometry: Geometry::world(&record, &vertices, &indices).unwrap(),
+            material: material(record, MaterialKind::Terrain, 1, Some(3), None),
+        };
+        let far = far_terrain(&near, "overview", &json!(2), Some(7));
+        assert!(far.material.far);
+        assert_eq!(far.material.kind, MaterialKind::Terrain);
+        assert_eq!(far.material.texture, Some(7));
+        assert_eq!(far.material.record["lowResScale"], 2);
+        assert!(far.material.record.get("layers").is_none());
+        assert!(far.material.record.get("detail").is_none());
+        assert_eq!(far.geometry.buffers, near.geometry.buffers);
+        assert_eq!(far.geometry.indices, near.geometry.indices);
+        assert!(!near.material.far);
+    }
 }

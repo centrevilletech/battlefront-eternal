@@ -572,6 +572,7 @@ impl WorldThread {
     /// the caller displays the error to the player.
     pub fn admit_instant_action(
         options: &super::options::Options,
+        ai_enabled: bool,
     ) -> Result<(Self, AdmittedWorldInfo), String> {
         let owned_options = super::options::Options {
             root: options.root.clone(),
@@ -593,7 +594,10 @@ impl WorldThread {
                     (Runtime<super::context::Native>, AdmittedWorldInfo),
                     String,
                 > {
-                    let prepared = super::launch::Prepared::with_spawn_screen(&owned_options, true)?;
+                    let mut prepared = super::launch::Prepared::with_spawn_screen(&owned_options, true)?;
+                    // Battle AI OFF disables the same phase as the browser's
+                    // battle option before the world thread takes its first tick.
+                    prepared.admission.tick.ai = ai_enabled;
                     let info = AdmittedWorldInfo {
                         query: prepared.admission.query.clone(),
                         registry: prepared.admission.registry.clone(),

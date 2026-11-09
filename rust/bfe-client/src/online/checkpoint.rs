@@ -213,24 +213,58 @@ impl Mounted {
     // Offsets refer to the retained frame bank, so the prediction owner can
     // borrow all weapons and commands in one call. Empty optional heaps here
     // hold no dynamic fields; generated Weapon and ClientMount are fixed rows.
-    pub fn write(&self, out: &mut Vec<f64>) -> (u32, u32, u32, u32) {
+    pub fn write(&self, out: &mut Vec<f64>, active: bool) -> (u32, u32, u32, u32) {
+        // Landed craft keep their checkpoint rows for display while the
+        // prediction packet omits them, preserving Vehicle.fireSeat's freeze.
+        let rows = if active { self.rows.as_slice() } else { &[] };
         let at = out.len();
-        out.push(self.rows.len() as f64);
+        out.push(rows.len() as f64);
         let mut heap = Vec::new();
-        for weapon in &self.rows {
+        for weapon in rows {
             let at = out.len();
             out.resize(at + Weapon::WORDS, 0.);
             weapon.put(&mut out[at..], &mut heap);
         }
-        out.extend([0., 0., 0., self.rows.len() as f64]);
-        out.extend_from_slice(&self.barrels[..self.rows.len()]);
+        out.extend([0., 0., 0., rows.len() as f64]);
+        out.extend_from_slice(&self.barrels[..rows.len()]);
         let len = out.len() - at;
         let mounts = out.len();
-        for i in 0..self.rows.len() {
+        for i in 0..rows.len() {
             let at = out.len();
             out.resize(at + bfe_sim::gen::ClientMount::WORDS, 0.);
             bfe_sim::gen::ClientMount { advance: self.advance[i], tow: false }.put(&mut out[at..], &mut heap);
         }
-        (at as u32, len as u32, mounts as u32, self.rows.len() as u32)
+        (at as u32, len as u32, mounts as u32, rows.len() as u32)
+    }
+}
+
+#[cfg(test)]
+mod mounted_display_tests {
+    use super::*;
+
+    #[test]
+    fn frozen_prediction_packet_retains_checkpoint_weapons_for_the_hud() {
+        let weapon = Weapon {
+            clip: 0.75,
+            timer: 0.25,
+            ..Default::default()
+        };
+        let mounted = Mounted {
+            seats: vec![],
+            rows: vec![weapon.clone()],
+            barrels: [0.; 2],
+            advance: [true; 2],
+        };
+        let mut words = Vec::new();
+        let (at, _, _, count) = mounted.write(&mut words, false);
+        assert_eq!(words[at as usize], 0.);
+        assert_eq!(count, 0);
+        assert_eq!(mounted.rows, [weapon.clone()]);
+        // Takeoff restores prediction from the same preserved checkpoint,
+        // including heat/reload timers and ammunition shown while landed.
+        words.clear();
+        let (at, _, _, count) = mounted.write(&mut words, true);
+        assert_eq!(count, 1);
+        assert_eq!(Weapon::take(&words[at as usize + 1..], &[]), weapon);
     }
 }

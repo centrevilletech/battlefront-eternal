@@ -40,6 +40,10 @@ pub struct MapCamera {
     time: f64,
     view: View,
     slots: [usize; 3],
+    phase_camera: bool,
+    subject_eye: [f64; 3],
+    flight_mode: bool,
+    perspectives: [bool; 2],
 }
 impl MapCamera {
     pub fn new(position: [f64; 3], size: [i32; 2]) -> Result<Self, String> {
@@ -95,7 +99,29 @@ impl MapCamera {
             time: 0.0,
             view,
             slots,
+            phase_camera: false,
+            subject_eye: position,
+            flight_mode: false,
+            perspectives: [false; 2],
         })
+    }
+    pub fn subject_eye(&self) -> [f64; 3] {
+        self.subject_eye
+    }
+    // VehicleDriver and flight perspective keep independent choices. A bail
+    // returns to the ground view without copying the cockpit preference.
+    pub fn set_flight_perspective(&mut self, first: bool) {
+        self.perspectives[1] = first;
+        if self.flight_mode {
+            self.first_person = first;
+        }
+    }
+    pub fn set_flight_mode(&mut self, flight: bool) {
+        if self.flight_mode != flight {
+            self.perspectives[self.flight_mode as usize] = self.first_person;
+            self.first_person = self.perspectives[flight as usize];
+            self.flight_mode = flight;
+        }
     }
     pub fn aim(&self) -> [f64; 2] {
         [self.yaw - std::f64::consts::PI, self.pitch]
@@ -104,9 +130,25 @@ impl MapCamera {
     pub fn aspect(&self)->f64{let projection=&self.view.values[..16];projection[5]/projection[0]}
     /// A camera phase has already selected and obstructed this view. Publish
     /// its exact matrices instead of deriving them again from yaw and pitch.
-    pub fn accept_camera(&mut self,output:&[f64]){use bfe_presentation::layout::camera_output as o;self.position.copy_from_slice(&output[o::POSITION..o::POSITION+3]);self.view.values[..16].copy_from_slice(&output[o::PROJECTION..o::PROJECTION+16]);self.view.values[16..32].copy_from_slice(&output[o::INVERSE..o::INVERSE+16]);let at=self.slots[1];self.view.values[at..at+3].copy_from_slice(&self.position);}
-    pub fn follow(&mut self,position:[f64;3],yaw:f64,pitch:f64,dt:f64){
-        self.position=position;self.yaw=yaw+std::f64::consts::PI;self.pitch=pitch;self.time+=dt;
+    pub fn accept_camera(&mut self, output: &[f64]) {
+        use bfe_presentation::layout::camera_output as o;
+        self.phase_camera = true;
+        self.position.copy_from_slice(&output[o::POSITION..o::POSITION + 3]);
+        self.view.values[..16].copy_from_slice(&output[o::PROJECTION..o::PROJECTION + 16]);
+        self.view.values[16..32].copy_from_slice(&output[o::INVERSE..o::INVERSE + 16]);
+        let at = self.slots[1];
+        self.view.values[at..at + 3].copy_from_slice(&self.position);
+    }
+    pub fn follow(&mut self, position: [f64; 3], yaw: f64, pitch: f64, dt: f64) {
+        // CameraPhase eases from its previous displayed pose. Following the
+        // subject updates input aim without replacing that pose with its eye.
+        self.subject_eye = position;
+        if !self.phase_camera {
+            self.position = position;
+        }
+        self.yaw = yaw + std::f64::consts::PI;
+        self.pitch = pitch;
+        self.time += dt;
     }
 
 }
@@ -148,6 +190,10 @@ impl World for MapCamera {
         Ok(())
     }
     fn present(&mut self, _: f64) -> &View {
+        if self.phase_camera {
+            self.view.values[self.slots[2]] = self.time;
+            return &self.view;
+        }
         let eye = Vector3::new(self.position[0], self.position[1], self.position[2]);
         let target = Vector3::new(
             eye.x - self.yaw.sin() * self.pitch.cos(),
@@ -970,14 +1016,29 @@ impl Scene {
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
             resources.frame(receiver,receiver.clock.shown,dt.min(8./60.),camera.position,
                 replay,history,&mut self.bridge);
-            let cue = resources.cameras.frame(receiver,replay,&mut resources.hulls,&mut resources.turrets,camera,dt);
+            let rider_eye = resources.prepare_camera(receiver, replay, &world.elements);
+            let cue = resources.cameras.frame(
+                receiver,
+                replay,
+                &mut resources.hulls,
+                &mut resources.turrets,
+                camera,
+                rider_eye,
+                dt,
+            );
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
             resources.first_person.enabled = resources.cameras.eye_view;
             resources.finish_frame(receiver, replay, &world.elements, cue);
-            let reticle = resources.reticle_point(receiver);
+            let reticle = resources.cameras.mounted_aim(camera).or_else(||
+                resources.reticle_point(receiver).map(|point| crate::online::hud::Aim { point, project_x: false }));
             resources.hud.aim(&mut self.bridge, camera.snapshot(), reticle);
             resources.sound.bleed = [resources.hud.teams[1][3], resources.hud.teams[2][3]];
             resources.sound.frame(receiver,&world.elements,dt,replay,resources.hud.audio_facts());
+        }
+    }
+    pub fn set_flight_hud_key(&mut self, key: &str) {
+        if let Some(online) = &mut self.online {
+            online.hud.set_flight_key(&mut self.bridge, key);
         }
     }
     pub fn online_frame(&mut self,client:&mut crate::online::client::Client,dt:f64){
@@ -1018,7 +1079,12 @@ impl Scene {
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         crate::static_scene::update(&mut self.static_content, &mut self.bridge, &view.values);
         if component == Component::All {
-            self.bridge.r.core.input[..16].copy_from_slice(&self.far_projection);
+            // Far terrain shares the displayed lens. Its separate clipping
+            // planes cannot replace a mounted or scoped camera's field of view.
+            let mut projection = self.far_projection;
+            projection[0] = view.values[0];
+            projection[5] = view.values[5];
+            self.bridge.r.core.input[..16].copy_from_slice(&projection);
         }
         for id in &self.near_world_ids {
             self.bridge
@@ -1043,7 +1109,7 @@ impl Scene {
         self.publish(r::FAR, k::FAR, 0, 0, 0);
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         let mut records = if matches!(component, Component::All | Component::Props) {
-            let room=if component==Component::All{self.online.as_ref().map_or(0,|r|r.record_budget().min(bfe_render::instances::MAX_RECORDS))}else{0};
+            let room=if component==Component::All{self.online.as_ref().map_or(0,|r|(r.record_budget()+r.hidden_shadow_budget()).min(bfe_render::instances::MAX_RECORDS))}else{0};
             self.static_content.select_limit(&mut self.bridge,bfe_render::instances::MAX_RECORDS-room)
         } else {
             0
@@ -1067,7 +1133,12 @@ impl Scene {
             .max()
             .unwrap_or(0);
         if component==Component::All{if let Some(online)=&self.online{(records,bones)=online.append(&mut self.bridge,records,bones);}}
-        if let Some(shadows) = &mut self.shadows { shadows.publish(&mut self.bridge, view, records)?; }
+        if let Some(shadows) = &mut self.shadows {
+            let shadow_records = self.online.as_ref().map_or(records, |online| {
+                online.append_hidden_shadows(&mut self.bridge, records, bones)
+            });
+            shadows.publish(&mut self.bridge, view, shadow_records)?;
+        }
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         self.publish(r::NEAR, k::SCENE, records, bones, 0);
         self.bridge.r.post.input[..bfe_render::post::STEP].copy_from_slice(&self.image_step);
@@ -1234,4 +1305,59 @@ fn environment(view: &mut View, map: &serde_json::Value) {
         .filter(|r| !low["fog"].is_null() && r[0] >= 0. && r[0] < r[1])
         .unwrap_or([1e9, 2e9]);
     set(view, "fogRange", &range);
+}
+
+#[cfg(test)]
+mod camera_tests {
+    use super::*;
+
+    #[test]
+    fn saved_cockpit_perspective_does_not_replace_the_ground_choice() {
+        let mut camera = MapCamera::new([0.; 3], [1280, 720]).unwrap();
+        camera.set_flight_perspective(true);
+        assert!(!camera.first_person);
+        camera.set_flight_mode(true);
+        assert!(camera.first_person);
+        camera.set_flight_mode(false);
+        assert!(!camera.first_person);
+    }
+
+    #[test]
+    fn exiting_a_cockpit_restores_the_independent_ground_perspective() {
+        let mut camera = MapCamera::new([0.; 3], [1280, 720]).unwrap();
+        camera.set_flight_mode(true);
+        camera.first_person = true;
+        camera.set_flight_mode(false);
+        assert!(!camera.first_person);
+        camera.set_flight_mode(true);
+        assert!(camera.first_person);
+        camera.set_flight_mode(false);
+        camera.first_person = true;
+        camera.set_flight_mode(true);
+        camera.first_person = false;
+        camera.set_flight_mode(false);
+        assert!(camera.first_person);
+    }
+
+    #[test]
+    fn following_a_subject_preserves_the_camera_phase_pose() {
+        use bfe_presentation::layout::camera_output as o;
+        let mut camera = MapCamera::new([0.; 3], [1280, 720]).unwrap();
+        let mut output = [0.; o::STRIDE];
+        output[o::POSITION..o::POSITION + 3].copy_from_slice(&[4., 8., 12.]);
+        output[o::PROJECTION..o::PROJECTION + 16].copy_from_slice(&Matrix4::default().elements);
+        let mut inverse = Matrix4::default();
+        inverse.make_rotation_y(0.4);
+        output[o::INVERSE..o::INVERSE + 16].copy_from_slice(&inverse.elements);
+        camera.accept_camera(&output);
+        let displayed = *camera.snapshot();
+        camera.follow([100., 200., 300.], 0.5, -0.2, 0.1);
+        camera.present(0.5);
+        assert_eq!(camera.position, [4., 8., 12.]);
+        assert_eq!(camera.subject_eye(), [100., 200., 300.]);
+        assert_eq!(&camera.snapshot().values[..32], &displayed.values[..32]);
+        assert!((camera.aim()[0] - 0.5).abs() < 1e-14);
+        assert_eq!(camera.aim()[1], -0.2);
+        assert_eq!(camera.snapshot().values[camera.slots[2]], 0.1);
+    }
 }

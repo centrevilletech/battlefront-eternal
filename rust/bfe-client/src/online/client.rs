@@ -122,6 +122,7 @@ impl World for Client {
         self.receiver.own.generation as u32
     }
     fn step(&mut self, c: &ClientCommand, look: &ClientLook, flight: &ClientFlightCommand, actions: &ViewActions, _: f64) -> Result<(), String> {
+        self.camera.set_flight_mode(self.receiver.own.flight.is_some());
         if actions.perspective { self.camera.first_person = !self.camera.first_person; }
         let mut command = c.clone();
         command.first_person = Some(self.camera.first_person);

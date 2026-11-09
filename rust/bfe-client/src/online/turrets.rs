@@ -354,9 +354,32 @@ impl Turrets {
     pub fn record_budget(&self) -> usize {
         self.rows.iter().filter(|t| t.shown).map(|t| t.parts.len()).sum()
     }
-    pub fn append(&self, bridge: &mut Bridge, mut records: usize, mut bones: usize) -> (usize, usize) {
+    pub fn hidden_shadow_budget(&self) -> usize {
+        self.hidden
+            .and_then(|index| self.rows.get(index))
+            .filter(|t| t.shown)
+            .map_or(0, |t| t.parts.len())
+    }
+    pub fn append(&self, bridge: &mut Bridge, records: usize, bones: usize) -> (usize, usize) {
+        self.append_visibility(bridge, records, bones, false)
+    }
+    pub fn append_hidden_shadow(
+        &self,
+        bridge: &mut Bridge,
+        records: usize,
+        bones: usize,
+    ) -> (usize, usize) {
+        self.append_visibility(bridge, records, bones, true)
+    }
+    fn append_visibility(
+        &self,
+        bridge: &mut Bridge,
+        mut records: usize,
+        mut bones: usize,
+        hidden: bool,
+    ) -> (usize, usize) {
         for (index, t) in self.rows.iter().enumerate() {
-            if !t.shown || self.hidden == Some(index) {
+            if !t.shown || (self.hidden == Some(index)) != hidden {
                 continue;
             }
             for part in &t.parts {

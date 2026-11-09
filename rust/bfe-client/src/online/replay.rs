@@ -240,7 +240,7 @@ impl Replay {
             let x = &mut self.words;
             x.clear();
             x.resize(ClientFrame::WORDS, 0.);
-            let (weapons_at, weapons_words, mounts_at, mounts_count) = self.mounted.write(x);
+            let (weapons_at, weapons_words, mounts_at, mounts_count) = self.mounted.write(x, true);
             let (commands_at, commands_count) = sender.history.write(x);
             let frame = ClientFrame {
                 mode: bfe_sim::gen::ClientMode::Mounted,
