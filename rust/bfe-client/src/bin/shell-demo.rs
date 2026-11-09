@@ -1094,6 +1094,11 @@ impl ShellScene {
                         })
                     );
                 }
+                ShellAction::HostCloseDecision(idx) => {
+                    if idx != 2 {
+                        return true;
+                    }
+                }
                 ShellAction::ExitToWindows => {
                     return true;
                 }

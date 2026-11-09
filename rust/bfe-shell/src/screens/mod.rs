@@ -64,9 +64,10 @@ pub enum ScreenId {
     MultiplayerList(MultiplayerKind),
     /// Direct connection address input modal (`DIRECT CONNECTION`).
     DirectConnect,
-    /// Host server dialog modal (`HOST`).
+    /// Host server configuration screen (`SET GAME OPTIONS`).
     HostDialog,
-    /// Modal notice popup (`OK`) or exit confirmation (`YES` / `NO`).
+    /// Modal notice popup (`OK`), exit confirmation (`YES` / `NO`), or
+    /// 3-button hosted server close prompt.
     Popup,
 }
 
@@ -166,7 +167,7 @@ pub enum IaFocus {
     Launch,
 }
 
-/// Modal popup kind (`Ok` notice or `ConfirmExit` `YES`/`NO`).
+/// Modal popup kind (`Ok` notice, `ConfirmExit` `YES`/`NO`, or `HostClosePrompt` 3-button dialog).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PopupState {
     /// Single-button notice dialog (`okPopup` in `src/menus/index.js`).
@@ -181,6 +182,17 @@ pub enum PopupState {
         /// Whether `YES` (`true`) or `NO` (`false`) currently has focus.
         selected_yes: bool,
     },
+    /// Three-button close prompt when a hosted server is running (`bfe_desktop::host::ClosePrompt`).
+    HostClosePrompt {
+        /// Dialog title (`"Hosted server is running"`).
+        title: String,
+        /// Dialog message (`"<name> is currently hosting a match."`).
+        message: String,
+        /// Button labels (`["Keep server running", "Stop server and quit", "Cancel"]`).
+        buttons: [String; 3],
+        /// Currently highlighted button index (`0..3`).
+        selected: usize,
+    },
 }
 
 /// Action returned to the host application when a shell action completes.
@@ -192,6 +204,8 @@ pub enum ShellAction {
     LaunchMultiplayer(MultiplayerLaunch),
     /// Close the application window (`EXIT TO WINDOWS` confirmed).
     ExitToWindows,
+    /// User decision on the 3-button `HostClosePrompt` (`0` = KeepServer, `1` = StopServer, `2` = Cancel).
+    HostCloseDecision(usize),
 }
 
 /// Option value stored in [`ShellSettings`] for the `OPTIONS` pages.
@@ -289,9 +303,11 @@ pub struct ShellApp {
     pub mp_needs_notice: bool,
     /// Direct connect draft address (`"127.0.0.1:18451"`).
     pub direct_connect_draft: String,
+    /// Host game configuration (`SET GAME OPTIONS` on `ScreenId::HostDialog`).
+    pub host_config: HostConfig,
     /// Pending multiplayer action after the profile prompt finishes.
     pub(super) pending_mp_after_profile: Option<PendingMpAction>,
-    /// Active modal popup (`Notice` or `ConfirmExit`), if any.
+    /// Active modal popup (`Notice`, `ConfirmExit`, or `HostClosePrompt`), if any.
     pub popup: Option<PopupState>,
     /// Elapsed time on the click gate (for `gate::pulse`).
     pub gate_elapsed: f64,
@@ -343,6 +359,7 @@ impl ShellApp {
             mp_status: None,
             mp_needs_notice: false,
             direct_connect_draft: format!("127.0.0.1:{DEFAULT_DIRECT_PORT}"),
+            host_config: HostConfig::default(),
             pending_mp_after_profile: None,
             popup: None,
             gate_elapsed: 0.0,
@@ -426,8 +443,8 @@ impl ShellApp {
 
     /// Returns the topmost active [`ScreenId`].
     pub fn current_screen(&self) -> ScreenId {
-        // An active modal popup (`Notice` or `ConfirmExit`) takes input priority
-        // over the navigation stack.
+        // An active modal popup (`Notice`, `ConfirmExit`, or `HostClosePrompt`)
+        // takes input priority over the navigation stack.
         if self.popup.is_some() {
             return ScreenId::Popup;
         }
@@ -469,7 +486,7 @@ impl ShellApp {
     }
 
     /// Takes any pending [`ShellAction`] (`LaunchBattle`, `LaunchMultiplayer`,
-    /// `ExitToWindows`).
+    /// `ExitToWindows`, `HostCloseDecision`).
     pub fn take_action(&mut self) -> Option<ShellAction> {
         self.pending_action.take()
     }
@@ -493,7 +510,7 @@ impl ShellApp {
             ScreenId::Multiplayer => "MULTIPLAYER",
             ScreenId::MultiplayerList(kind) => kind.as_str(),
             ScreenId::DirectConnect => "DIRECT CONNECTION",
-            ScreenId::HostDialog => "HOST GAME",
+            ScreenId::HostDialog => "SET GAME OPTIONS",
             ScreenId::Popup => "",
         }
     }
@@ -504,7 +521,7 @@ impl ShellApp {
     }
 
     /// Returns the rows for any row-based screen (`Main`, `Singleplayer`,
-    /// `Options`, `Profile`, `Multiplayer`, `MultiplayerList`, `InstantActionEra`).
+    /// `Options`, `Profile`, `Multiplayer`, `MultiplayerList`, `InstantActionEra`, `HostDialog`).
     ///
     /// Mirrors the `rowScreen` definitions in `src/shell/screens.js`.
     pub fn rows_for(&self, screen: ScreenId) -> Vec<MenuRow> {
@@ -599,8 +616,256 @@ impl ShellApp {
                     Vec::new()
                 }
             }
+            ScreenId::HostDialog => self.host_option_rows(),
             _ => Vec::new(),
         }
+    }
+
+    /// Builds the `SET GAME OPTIONS` rows for `ScreenId::HostDialog`, mirroring
+    /// `hostDialog` (`SET GAME OPTIONS`) in `src/shell/host-dialog.js` and
+    /// `bfe_desktop::host::HostOptions`.
+    fn host_option_rows(&self) -> Vec<MenuRow> {
+        let cfg = &self.host_config;
+        let map_label = self
+            .data
+            .maps
+            .iter()
+            .find(|m| m.id == cfg.map)
+            .map(|m| m.name.as_str())
+            .unwrap_or(cfg.map.as_str())
+            .to_ascii_uppercase();
+        let era_label = if cfg.era == "gcw" {
+            "GALACTIC CIVIL WAR"
+        } else {
+            "CLONE WARS"
+        };
+        let side_label = match cfg.side.as_str() {
+            "cis" => "CIS",
+            "all" => "REBEL ALLIANCE",
+            "imp" => "GALACTIC EMPIRE",
+            _ => "REPUBLIC",
+        };
+        let mode_label = if cfg.lan_only {
+            "LAN ONLY"
+        } else {
+            "INTERNET + LAN"
+        };
+        let relay_label = match cfg.relay_policy.as_str() {
+            "always" => "ALWAYS RELAY",
+            "direct" => "DIRECT ONLY",
+            _ => "AUTO",
+        };
+        let timer_label = if cfg.victory_timer_sec == 0 {
+            "UNTIMED".to_string()
+        } else {
+            format!("{} MIN", cfg.victory_timer_sec / 60)
+        };
+        vec![
+            MenuRow::enabled("launch", "LAUNCH HOSTED SERVER"),
+            MenuRow::enabled("map", format!("MISSION MAP: {map_label} ({era_label})")),
+            MenuRow::enabled("side", format!("STARTING FACTION: {side_label}")),
+            MenuRow::enabled("mode", format!("VISIBILITY: {mode_label}")),
+            MenuRow::enabled("maxPlayers", format!("MAX PLAYERS: {}", cfg.max_players)),
+            MenuRow::enabled("relay", format!("RELAY POLICY: {relay_label}")),
+            MenuRow::enabled("aiUnits", format!("AI UNITS PER TEAM: {}", cfg.bots)),
+            MenuRow::enabled(
+                "aiDifficulty",
+                format!("AI DIFFICULTY: {}", cfg.ai_difficulty.to_ascii_uppercase()),
+            ),
+            MenuRow::enabled(
+                "reinforcements",
+                format!("REINFORCEMENTS: {}%", cfg.reinforcements_pct),
+            ),
+            MenuRow::enabled("victoryTimer", format!("VICTORY TIMER: {timer_label}")),
+            MenuRow::enabled(
+                "friendlyFire",
+                format!(
+                    "FRIENDLY FIRE: {}",
+                    if cfg.friendly_fire { "ON" } else { "OFF" }
+                ),
+            ),
+            MenuRow::enabled(
+                "heroes",
+                format!(
+                    "AI HEROES: {}",
+                    if cfg.heroes_enabled { "ON" } else { "OFF" }
+                ),
+            ),
+            MenuRow::enabled(
+                "teamAssignment",
+                format!(
+                    "TEAM ASSIGNMENT: {}",
+                    if cfg.auto_assign_teams {
+                        "AUTO-ASSIGN"
+                    } else {
+                        "PLAYER CHOOSES"
+                    }
+                ),
+            ),
+            MenuRow::enabled(
+                "autoSpawn",
+                format!("AUTO-SPAWN: {}", if cfg.auto_spawn { "ON" } else { "OFF" }),
+            ),
+        ]
+    }
+
+    /// Steps the highlighted `SET GAME OPTIONS` row on `ScreenId::HostDialog`
+    /// left (`delta = -1`) or right (`delta = 1`).
+    pub(super) fn adjust_host_option(&mut self, delta: isize) {
+        let rows = self.rows_for(ScreenId::HostDialog);
+        let idx = self.selected_row_index(ScreenId::HostDialog);
+        let Some(row) = rows.get(idx) else {
+            return;
+        };
+        match row.id.as_str() {
+            "map" => {
+                let extracted: Vec<(GameFamily, String, Vec<String>)> = self
+                    .data
+                    .maps
+                    .iter()
+                    .filter(|m| m.extracted != Some(false))
+                    .map(|m| {
+                        let eras: Vec<String> = m
+                            .playable_eras()
+                            .into_iter()
+                            .map(str::to_string)
+                            .collect();
+                        let eras = if eras.is_empty() {
+                            vec!["cw".to_string()]
+                        } else {
+                            eras
+                        };
+                        (m.family, m.id.clone(), eras)
+                    })
+                    .collect();
+                if !extracted.is_empty() {
+                    let cur = extracted
+                        .iter()
+                        .position(|(_, id, _)| *id == self.host_config.map)
+                        .unwrap_or(0) as isize;
+                    let len = extracted.len() as isize;
+                    let next = (((cur + delta) % len) + len) % len;
+                    let (fam, id, eras) = &extracted[next as usize];
+                    self.host_config.family = *fam;
+                    self.host_config.map = id.clone();
+                    if !eras.contains(&self.host_config.era) {
+                        self.host_config.era = eras[0].clone();
+                    }
+                    self.host_config.side = if self.host_config.era == "gcw" {
+                        "all".to_string()
+                    } else {
+                        "rep".to_string()
+                    };
+                    self.sound_queue.push("shell_select_change");
+                }
+            }
+            "side" => {
+                let sides = [
+                    ("cw", "rep"),
+                    ("cw", "cis"),
+                    ("gcw", "all"),
+                    ("gcw", "imp"),
+                ];
+                let cur = sides
+                    .iter()
+                    .position(|(_, s)| *s == self.host_config.side)
+                    .unwrap_or(0) as isize;
+                let len = sides.len() as isize;
+                let next = (((cur + delta) % len) + len) % len;
+                let (era, side) = sides[next as usize];
+                self.host_config.era = era.to_string();
+                self.host_config.side = side.to_string();
+                self.sound_queue.push("shell_select_change");
+            }
+            "mode" => {
+                self.host_config.lan_only = !self.host_config.lan_only;
+                self.sound_queue.push("shell_select_change");
+            }
+            "maxPlayers" => {
+                let presets = [4u32, 8, 16, 24, 32, 64];
+                let cur = presets
+                    .iter()
+                    .position(|&p| p == self.host_config.max_players)
+                    .unwrap_or(4) as isize;
+                let len = presets.len() as isize;
+                let next = (((cur + delta) % len) + len) % len;
+                self.host_config.max_players = presets[next as usize];
+                self.sound_queue.push("shell_select_change");
+            }
+            "relay" => {
+                let policies = ["auto", "always", "direct"];
+                let cur = policies
+                    .iter()
+                    .position(|&p| p == self.host_config.relay_policy)
+                    .unwrap_or(0) as isize;
+                let len = policies.len() as isize;
+                let next = (((cur + delta) % len) + len) % len;
+                self.host_config.relay_policy = policies[next as usize].to_string();
+                self.sound_queue.push("shell_select_change");
+            }
+            "aiUnits" => {
+                let presets = [0u32, 8, 16, 24, 32];
+                let cur = presets
+                    .iter()
+                    .position(|&b| b == self.host_config.bots)
+                    .unwrap_or(2) as isize;
+                let len = presets.len() as isize;
+                let next = (((cur + delta) % len) + len) % len;
+                self.host_config.bots = presets[next as usize];
+                self.sound_queue.push("shell_select_change");
+            }
+            "aiDifficulty" => {
+                let diffs = ["easy", "medium", "hard"];
+                let cur = diffs
+                    .iter()
+                    .position(|&d| d == self.host_config.ai_difficulty)
+                    .unwrap_or(1) as isize;
+                let len = diffs.len() as isize;
+                let next = (((cur + delta) % len) + len) % len;
+                self.host_config.ai_difficulty = diffs[next as usize].to_string();
+                self.sound_queue.push("shell_select_change");
+            }
+            "reinforcements" => {
+                let presets = [50u32, 100, 150, 200];
+                let cur = presets
+                    .iter()
+                    .position(|&r| r == self.host_config.reinforcements_pct)
+                    .unwrap_or(1) as isize;
+                let len = presets.len() as isize;
+                let next = (((cur + delta) % len) + len) % len;
+                self.host_config.reinforcements_pct = presets[next as usize];
+                self.sound_queue.push("shell_select_change");
+            }
+            "victoryTimer" => {
+                let presets = [0u32, 300, 600, 900, 1200];
+                let cur = presets
+                    .iter()
+                    .position(|&t| t == self.host_config.victory_timer_sec)
+                    .unwrap_or(0) as isize;
+                let len = presets.len() as isize;
+                let next = (((cur + delta) % len) + len) % len;
+                self.host_config.victory_timer_sec = presets[next as usize];
+                self.sound_queue.push("shell_select_change");
+            }
+            "friendlyFire" => {
+                self.host_config.friendly_fire = !self.host_config.friendly_fire;
+                self.sound_queue.push("shell_select_change");
+            }
+            "heroes" => {
+                self.host_config.heroes_enabled = !self.host_config.heroes_enabled;
+                self.sound_queue.push("shell_select_change");
+            }
+            "teamAssignment" => {
+                self.host_config.auto_assign_teams = !self.host_config.auto_assign_teams;
+                self.sound_queue.push("shell_select_change");
+            }
+            "autoSpawn" => {
+                self.host_config.auto_spawn = !self.host_config.auto_spawn;
+                self.sound_queue.push("shell_select_change");
+            }
+            _ => {}
+        }
+        self.rebuild_cached_rows();
     }
 
     /// Builds the `LABEL: VALUE` rows and `RESET TO DEFAULTS` row for an
@@ -797,11 +1062,13 @@ impl ShellApp {
     /// Pops the current screen (or invokes `Main`'s `backAction` which pushes
     /// `Profile`, matching `screen.backAction = push(profile)` in `src/shell/screens.js`).
     pub fn back(&mut self) {
-        // Dismissing a modal popup (`Notice` or `ConfirmExit`) plays
-        // `"shell_menu_cancel"` without popping the underlying screen.
-        if self.popup.is_some() {
-            self.popup = None;
+        // Dismissing a modal popup (`Notice`, `ConfirmExit`, or `HostClosePrompt`)
+        // plays `"shell_menu_cancel"` without popping the underlying screen.
+        if let Some(popup) = self.popup.take() {
             self.sound_queue.push("shell_menu_cancel");
+            if matches!(popup, PopupState::HostClosePrompt { .. }) {
+                self.pending_action = Some(ShellAction::HostCloseDecision(2));
+            }
             return;
         }
         // Cancelling the profile callsign editor discards any pending
@@ -857,6 +1124,12 @@ impl ShellApp {
     /// Moves the selection cursor up (`delta = -1`) or down (`delta = 1`) on
     /// the active screen.
     pub fn move_vertical(&mut self, delta: isize) {
+        if let Some(PopupState::HostClosePrompt { selected, .. }) = &mut self.popup {
+            let next = (((*selected as isize + delta) % 3) + 3) % 3;
+            *selected = next as usize;
+            self.sound_queue.push("shell_select_change");
+            return;
+        }
         if self.popup.is_some() || self.profile.editing {
             return;
         }
@@ -922,7 +1195,8 @@ impl ShellApp {
     }
 
     /// Moves focus horizontally (`delta = -1` or `1`) on screens with multiple
-    /// columns or buttons (`InstantAction`, `ConfirmExit` popup, `OptionsPage` sliders).
+    /// columns or buttons (`InstantAction`, `ConfirmExit` popup, `HostClosePrompt`,
+    /// `OptionsPage` sliders, `HostDialog` options).
     pub fn move_horizontal(&mut self, delta: isize) {
         // Left/Right on `EXIT TO WINDOWS?` toggles focus between `YES` and `NO`.
         if let Some(PopupState::ConfirmExit { selected_yes, .. }) = &mut self.popup {
@@ -930,10 +1204,22 @@ impl ShellApp {
             self.sound_queue.push("shell_select_change");
             return;
         }
+        // Left/Right on `HostClosePrompt` cycles across the 3 buttons (`0..3`).
+        if let Some(PopupState::HostClosePrompt { selected, .. }) = &mut self.popup {
+            let next = (((*selected as isize + delta) % 3) + 3) % 3;
+            *selected = next as usize;
+            self.sound_queue.push("shell_select_change");
+            return;
+        }
         let screen = self.current_screen();
         // Left/Right on an options sub-page steps the selected slider or toggle.
         if let ScreenId::OptionsPage(page) = screen {
             self.adjust_option(page, delta);
+            return;
+        }
+        // Left/Right on `SET GAME OPTIONS` (`ScreenId::HostDialog`) steps the selected host option.
+        if screen == ScreenId::HostDialog {
+            self.adjust_host_option(delta);
             return;
         }
         // Left/Right in `INSTANT ACTION` cycles focus across the two listboxes,
@@ -1013,7 +1299,6 @@ impl ShellApp {
         }
         self.rebuild_cached_rows();
     }
-
 }
 
 #[cfg(test)]
@@ -1204,6 +1489,40 @@ mod tests {
                 assert_eq!(mp.era, "gcw");
                 assert_eq!(mp.mode, "conquest");
                 assert!(mp.relay_always);
+                assert_eq!(mp.player_name, "JOSH");
+            }
+            other => return Err(format!("expected LaunchMultiplayer, got {other:?}").into()),
+        }
+        Ok(())
+    }
+
+    // Verifies the `MULTIPLAYER -> HOST -> SET GAME OPTIONS` flow (`ScreenId::HostDialog`).
+    #[test]
+    fn multiplayer_host_opens_set_game_options_and_launches()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut browser = ServerBrowser::default();
+        let mut app = ShellApp::new(test_shell_data(), None);
+        app.profile.name = "JOSH".to_string();
+        app.unlock_gate();
+
+        // Navigate to MULTIPLAYER (row 1) -> HOST (row 0).
+        app.move_vertical(1);
+        app.accept(&mut browser);
+        assert_eq!(app.current_screen(), ScreenId::Multiplayer);
+        app.accept(&mut browser);
+        assert_eq!(app.current_screen(), ScreenId::HostDialog);
+        assert_eq!(app.screen_title_str(ScreenId::HostDialog), "SET GAME OPTIONS");
+
+        // Move down to MISSION MAP (row 1), step right to `bes2`, then return to LAUNCH (row 0).
+        app.move_vertical(1);
+        app.move_horizontal(1);
+        assert_eq!(app.host_config.map, "bes2");
+        app.move_vertical(-1);
+        app.accept(&mut browser);
+        match app.take_action() {
+            Some(ShellAction::LaunchMultiplayer(mp)) => {
+                assert_eq!(mp.server_id, "local-host");
+                assert_eq!(mp.map, "bes2");
                 assert_eq!(mp.player_name, "JOSH");
             }
             other => return Err(format!("expected LaunchMultiplayer, got {other:?}").into()),

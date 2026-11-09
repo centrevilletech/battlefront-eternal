@@ -53,6 +53,90 @@ pub struct HudPostMeta {
     pub active: bool,
 }
 
+/// Decoded `Summaries::own` (`SCHEMA == 3.`) record for the local player's spawn screen state.
+///
+/// Uses fixed-size arrays so decoding in `Hud::frame` performs zero heap allocations.
+#[derive(Clone, Copy, Debug)]
+pub struct HudOwnSummary {
+    pub valid: bool,
+    pub unit_id: u32,
+    pub generation: u32,
+    pub team: u8,
+    pub phase: u8,
+    pub class_id: u16,
+    pub post_id: u16,
+    pub spawned_once: bool,
+    pub ended: bool,
+    pub dead_time: f64,
+    pub post_count: usize,
+    pub posts: [u16; 32],
+    pub class_count: usize,
+    pub classes: [u16; 32],
+    pub slot: u8,
+}
+
+impl Default for HudOwnSummary {
+    fn default() -> Self {
+        Self {
+            valid: false,
+            unit_id: 0,
+            generation: 0,
+            team: 1,
+            phase: 2,
+            class_id: 0,
+            post_id: 0,
+            spawned_once: false,
+            ended: false,
+            dead_time: 0.0,
+            post_count: 0,
+            posts: [0; 32],
+            class_count: 0,
+            classes: [0; 32],
+            slot: 0,
+        }
+    }
+}
+
+/// Decoded `Summaries::roster` (`SCHEMA == 4.`) entry for scoreboard display.
+///
+/// Uses a fixed 64-byte UTF-8 name buffer so decoding in `Hud::frame` performs zero heap allocations.
+#[derive(Clone, Copy, Debug)]
+pub struct HudRosterEntry {
+    pub team: u8,
+    pub attached: bool,
+    pub kills: i32,
+    pub team_kills: i32,
+    pub deaths: i32,
+    pub captures: i32,
+    pub rtt: u16,
+    pub link_code: u8,
+    pub name_len: usize,
+    pub name: [u8; 64],
+}
+
+impl Default for HudRosterEntry {
+    fn default() -> Self {
+        Self {
+            team: 1,
+            attached: false,
+            kills: 0,
+            team_kills: 0,
+            deaths: 0,
+            captures: 0,
+            rtt: 0,
+            link_code: 0,
+            name_len: 0,
+            name: [0; 64],
+        }
+    }
+}
+
+impl HudRosterEntry {
+    pub fn name_str(&self) -> &str {
+        std::str::from_utf8(&self.name[..self.name_len]).unwrap_or("")
+    }
+}
+
 struct Asset {
     image: Option<usize>,
     width: f64,
@@ -97,6 +181,9 @@ pub struct Hud {
     pub strings: HashMap<String, String>,
     pub class_meta: Vec<HudClassMeta>,
     pub post_meta: Vec<HudPostMeta>,
+    pub own_summary: HudOwnSummary,
+    pub roster_total: usize,
+    pub roster: [HudRosterEntry; 64],
     pub auto_build: bool,
 }
 impl Prepared {
@@ -390,117 +477,15 @@ impl Prepared {
             strings,
             class_meta: self.class_meta,
             post_meta: self.post_meta,
+            own_summary: HudOwnSummary::default(),
+            roster_total: 0,
+            roster: [HudRosterEntry::default(); 64],
             auto_build: true,
         })
     }
 }
 impl Hud {
     pub fn audio_facts(&self)->([f64;4],bool){([self.teams[1][0],self.teams[2][0],self.teams[1][1],self.teams[2][1]],self.game_over)}
-    pub fn apply_fallback(&mut self, bridge: &mut Bridge, snap: &crate::local::thread::FallbackSnapshot) {
-        for team in 1..=2usize {
-            let idx = team - 1;
-            self.teams[team][0] = snap.teams_tickets[idx] as f64;
-            self.teams[team][1] = snap.teams_start[idx] as f64;
-            self.teams[team][2] = 16.0;
-            self.teams[team][3] = snap.teams_bleed[idx] as u8 as f64;
-        }
-        self.game_over = snap.game_over;
-        self.countdown = snap.countdown;
-        self.losing = snap.losing;
-        let relation = |team: f64| -> f64 {
-            if team == 0. {
-                0.
-            } else if team == snap.own.team as f64 {
-                1.
-            } else if team >= 5. {
-                3.
-            } else {
-                2.
-            }
-        };
-        let x = &mut bridge.hud_model.input;
-        for i in 0..snap.post_count.min(self.posts.len()) {
-            let fp = &snap.posts[i];
-            let post = &mut self.posts[i];
-            post.row[P::TEAM] = fp.team as f64;
-            post.row[P::TOWARD] = fp.toward as f64;
-            post.row[P::PROGRESS] = fp.progress;
-            post.row[P::NEUTRALIZE] = fp.neutralize;
-            post.row[P::CONTESTED] = fp.contested as u8 as f64;
-            post.row[P::ACTIVE] = fp.active as u8 as f64;
-            post.row[P::RELATION] = relation(post.row[P::TEAM]);
-            post.row[P::TOWARD_RELATION] = relation(post.row[P::TOWARD]);
-            let at = hud_model::POSTS + i * P::WORDS;
-            x[at..at + P::WORDS].copy_from_slice(&post.row);
-            if let Some(meta) = self.post_meta.get_mut(i) {
-                meta.team = fp.team;
-                meta.active = fp.active;
-            }
-        }
-        let own_team = snap.own.team.clamp(1, 2) as usize;
-        let foe_team = if own_team == 1 { 2 } else { 1 };
-        x[H::OWN] = self.teams[own_team][0];
-        x[H::OWN_START] = self.teams[own_team][1];
-        x[H::OWN_BLEED] = self.teams[own_team][3];
-        x[H::FOE] = self.teams[foe_team][0];
-        x[H::FOE_START] = self.teams[foe_team][1];
-        x[H::FOE_BLEED] = self.teams[foe_team][3];
-        x[H::COUNTDOWN] = self.countdown;
-        x[H::LOSING] = self.losing as u8 as f64;
-        x[H::GAME_OVER] = self.game_over as u8 as f64;
-        if snap.own.alive && !self.weapons.is_empty() {
-            x[hud_model::WEAPONS..hud_model::WEAPONS + W::WORDS * 4].fill(0.);
-            let mut row = self.weapons[0].row;
-            row[W::LOADED] = (snap.primary_clip * row[W::ROUNDS_PER_CLIP].max(30.)).round();
-            row[W::SPARE] = (snap.primary_reserve * row[W::ROUNDS_PER_CLIP].max(30.)).round();
-            row[W::RESERVE] = snap.primary_reserve;
-            row[W::HEAT] = snap.primary_heat;
-            row[W::RELOADING] = (snap.primary_reload_left > 0.0) as u8 as f64;
-            row[W::RELOAD_LEFT] = snap.primary_reload_left;
-            for panel in [0usize, 2usize] {
-                let at = hud_model::WEAPONS + panel * W::WORDS;
-                x[at..at + W::WORDS].copy_from_slice(&row);
-            }
-            if let Some(sec) = self.weapons.iter().find(|w| w.channel == 1) {
-                let mut srow = sec.row;
-                srow[W::LOADED] = 4.0;
-                srow[W::SPARE] = 4.0;
-                srow[W::RESERVE] = 4.0;
-                for panel in [1usize, 3usize] {
-                    let at = hud_model::WEAPONS + panel * W::WORDS;
-                    x[at..at + W::WORDS].copy_from_slice(&srow);
-                }
-            }
-            x[H::ARSENAL] = 1.;
-            x[H::RETICLE] = 1.;
-            x[H::RETICLE_X] = 512.;
-            x[H::RETICLE_Y] = x[H::HEIGHT] / 2.;
-        }
-        let mut units = 0usize;
-        for p in &snap.players[..snap.player_count] {
-            if units == hud_model::MAX_UNITS || !p.alive {
-                continue;
-            }
-            let Some(def) = self.unit_defs.get(p.class_id) else {
-                continue;
-            };
-            let at = hud_model::UNITS + units * U::WORDS;
-            let input = &mut x[at..at + U::WORDS];
-            input.copy_from_slice(def);
-            input[U::ID] = (p.slot + 1) as f64;
-            input[U::GENERATION] = 1.0;
-            input[U::X..U::X + 3].copy_from_slice(&p.position);
-            input[U::VISUAL_X] = p.position[0];
-            input[U::VISUAL_Z] = p.position[2];
-            input[U::YAW] = p.yaw;
-            input[U::TEAM] = p.team as f64;
-            input[U::ALIVE] = 1.0;
-            input[U::DEAD] = 0.0;
-            input[U::HAS_POSITION] = 1.0;
-            units += 1;
-        }
-        x[H::UNITS] = units as f64;
-    }
     // Hud.update contributes gameplay observations once per displayed frame.
     // Health notifications wake the existing faders; summary records supply
     // tickets and objective facts without an authoritative client world.
@@ -528,7 +513,120 @@ impl Hud {
                 }
             }
         }
-        for field in receiver.publications.iter(){if field.row[r::KIND]!=k::SUMMARY as f64{continue;}let bytes=&field.bytes[..field.length];if field.row[r::SCHEMA]==1.{let mut at=1+bytes.first().copied().unwrap_or(0)as usize*33;if let Some(flags)=bytes.get(at..at+5){self.game_over=flags[1]!=0;self.losing=flags[3]!=0;at+=13;if let Some(&present)=bytes.get(at){at+=1+if present!=0{8}else{0};if let Some(&present)=bytes.get(at){at+=1;self.countdown=if present==0{f64::NAN}else{bytes.get(at..at+8).map_or(f64::NAN,|v|f64::from_le_bytes(v.try_into().unwrap()))};}}}}else if field.row[r::SCHEMA]==2.&&bytes.len()>=23{let id=u16::from_le_bytes([bytes[0],bytes[1]])as usize;if let Some(post)=self.posts.iter_mut().find(|p|p.id==id){post.row[P::TEAM]=bytes[2]as f64;post.row[P::TOWARD]=bytes[3]as f64;post.row[P::PROGRESS]=f64::from_le_bytes(bytes[4..12].try_into().unwrap());post.row[P::NEUTRALIZE]=f64::from_le_bytes(bytes[12..20].try_into().unwrap());post.row[P::CONTESTED]=bytes[20]as f64;post.row[P::ACTIVE]=bytes[21]as f64;post.count=(bytes[22]as usize).min(8).min(bytes.len().saturating_sub(23)/3);for i in 0..post.count{post.counts[i][PC::TEAM]=bytes[23+i*3]as f64;post.counts[i][PC::COUNT]=u16::from_le_bytes([bytes[24+i*3],bytes[25+i*3]])as f64;}}}}
+        for field in receiver.publications.iter() {
+            if field.row[r::KIND] != k::SUMMARY as f64 {
+                continue;
+            }
+            let bytes = &field.bytes[..field.length];
+            if field.row[r::SCHEMA] == 1. {
+                let mut at = 1 + bytes.first().copied().unwrap_or(0) as usize * 33;
+                if let Some(flags) = bytes.get(at..at + 5) {
+                    self.game_over = flags[1] != 0;
+                    self.losing = flags[3] != 0;
+                    at += 13;
+                    if let Some(&present) = bytes.get(at) {
+                        at += 1 + if present != 0 { 8 } else { 0 };
+                        if let Some(&present) = bytes.get(at) {
+                            at += 1;
+                            self.countdown = if present == 0 {
+                                f64::NAN
+                            } else {
+                                bytes
+                                    .get(at..at + 8)
+                                    .map_or(f64::NAN, |v| f64::from_le_bytes(v.try_into().unwrap()))
+                            };
+                        }
+                    }
+                }
+            } else if field.row[r::SCHEMA] == 2. && bytes.len() >= 23 {
+                let id = u16::from_le_bytes([bytes[0], bytes[1]]) as usize;
+                if let Some(post) = self.posts.iter_mut().find(|p| p.id == id) {
+                    post.row[P::TEAM] = bytes[2] as f64;
+                    post.row[P::TOWARD] = bytes[3] as f64;
+                    post.row[P::PROGRESS] = f64::from_le_bytes(bytes[4..12].try_into().unwrap());
+                    post.row[P::NEUTRALIZE] = f64::from_le_bytes(bytes[12..20].try_into().unwrap());
+                    post.row[P::CONTESTED] = bytes[20] as f64;
+                    post.row[P::ACTIVE] = bytes[21] as f64;
+                    post.count = (bytes[22] as usize).min(8).min(bytes.len().saturating_sub(23) / 3);
+                    for i in 0..post.count {
+                        post.counts[i][PC::TEAM] = bytes[23 + i * 3] as f64;
+                        post.counts[i][PC::COUNT] =
+                            u16::from_le_bytes([bytes[24 + i * 3], bytes[25 + i * 3]]) as f64;
+                    }
+                }
+            } else if field.row[r::SCHEMA] == 3. && bytes.len() >= 24 {
+                self.own_summary.valid = true;
+                self.own_summary.unit_id = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+                self.own_summary.generation = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+                self.own_summary.team = bytes[8];
+                self.own_summary.phase = bytes[9];
+                self.own_summary.class_id = u16::from_le_bytes([bytes[10], bytes[11]]);
+                self.own_summary.post_id = u16::from_le_bytes([bytes[12], bytes[13]]);
+                self.own_summary.spawned_once = bytes[14] != 0;
+                self.own_summary.ended = bytes[15] != 0;
+                self.own_summary.dead_time = f64::from_le_bytes(bytes[16..24].try_into().unwrap());
+                let mut at = 24usize;
+                for _ in 0..2 {
+                    if let Some(&present) = bytes.get(at) {
+                        at += 1 + if present != 0 { 5 } else { 0 };
+                    }
+                }
+                if let Some(&pcount) = bytes.get(at) {
+                    at += 1;
+                    let n = (pcount as usize).min(32).min(bytes.len().saturating_sub(at) / 2);
+                    self.own_summary.post_count = n;
+                    for i in 0..n {
+                        self.own_summary.posts[i] =
+                            u16::from_le_bytes([bytes[at + i * 2], bytes[at + i * 2 + 1]]);
+                    }
+                    at += (pcount as usize) * 2;
+                }
+                if let Some(&ccount) = bytes.get(at) {
+                    at += 1;
+                    let n = (ccount as usize).min(32).min(bytes.len().saturating_sub(at) / 2);
+                    self.own_summary.class_count = n;
+                    for i in 0..n {
+                        self.own_summary.classes[i] =
+                            u16::from_le_bytes([bytes[at + i * 2], bytes[at + i * 2 + 1]]);
+                    }
+                    at += (ccount as usize) * 2;
+                }
+                if let Some(&slot) = bytes.get(at) {
+                    self.own_summary.slot = slot;
+                }
+            } else if field.row[r::SCHEMA] == 4. && bytes.len() >= 5 {
+                let total = u16::from_le_bytes([bytes[0], bytes[1]]) as usize;
+                let start = u16::from_le_bytes([bytes[2], bytes[3]]) as usize;
+                let count = bytes[4] as usize;
+                self.roster_total = total.min(64);
+                let mut at = 5usize;
+                for i in 0..count {
+                    let Some(head) = bytes.get(at..at + 14) else {
+                        break;
+                    };
+                    let name_len = head[13] as usize;
+                    let Some(name_bytes) = bytes.get(at + 14..at + 14 + name_len) else {
+                        break;
+                    };
+                    at += 14 + name_len;
+                    let slot = start + i;
+                    if slot < 64 {
+                        let entry = &mut self.roster[slot];
+                        entry.team = head[0];
+                        entry.attached = head[1] != 0;
+                        entry.kills = u16::from_le_bytes([head[2], head[3]]) as i16 as i32;
+                        entry.team_kills = u16::from_le_bytes([head[4], head[5]]) as i16 as i32;
+                        entry.deaths = u16::from_le_bytes([head[6], head[7]]) as i16 as i32;
+                        entry.captures = u16::from_le_bytes([head[8], head[9]]) as i16 as i32;
+                        entry.rtt = u16::from_le_bytes([head[10], head[11]]);
+                        entry.link_code = head[12];
+                        let copy_len = name_len.min(64);
+                        entry.name_len = copy_len;
+                        entry.name[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
+                    }
+                }
+            }
+        }
         for (i, post) in self.posts.iter().enumerate() {
             if let Some(meta) = self.post_meta.get_mut(i) {
                 meta.team = post.row[P::TEAM] as u8;

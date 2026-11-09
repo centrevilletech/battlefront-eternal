@@ -68,7 +68,8 @@ impl MultiplayerKind {
     }
 }
 
-/// Host game configuration submitted from the `HOST` screen/dialog.
+/// Host game configuration (`SET GAME OPTIONS`) submitted from the `HOST` screen
+/// (`ScreenId::HostDialog`) and mapped to `bfe_desktop::host::HostOptions`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostConfig {
     /// Public server name shown in the LAN/online browser.
@@ -77,6 +78,8 @@ pub struct HostConfig {
     pub family: GameFamily,
     /// Mission map identifier (e.g. `"nab2"`, `"geo1"`).
     pub map: String,
+    /// Starting faction side (`"rep"`, `"cis"`, `"all"`, or `"imp"`).
+    pub side: String,
     /// Era code (`"cw"` or `"gcw"`).
     pub era: String,
     /// Game mode identifier (default `"conquest"`).
@@ -87,6 +90,46 @@ pub struct HostConfig {
     pub bots: u32,
     /// Whether the server only listens on the local network (`true` = LAN only).
     pub lan_only: bool,
+    /// Relay policy (`"auto"`, `"always"`, `"direct"`).
+    pub relay_policy: String,
+    /// AI difficulty (`"easy"`, `"medium"`, `"hard"`).
+    pub ai_difficulty: String,
+    /// Reinforcements percentage (`50`, `100`, `150`, `200`).
+    pub reinforcements_pct: u32,
+    /// Victory timer in seconds (`0` = untimed, `300`, `600`, `900`, `1200`).
+    pub victory_timer_sec: u32,
+    /// Friendly fire toggle (`false` by default).
+    pub friendly_fire: bool,
+    /// AI heroes toggle (`true` by default).
+    pub heroes_enabled: bool,
+    /// Auto-assign teams (`true` = auto-assign, `false` = player chooses).
+    pub auto_assign_teams: bool,
+    /// Auto-spawn toggle (`false` by default).
+    pub auto_spawn: bool,
+}
+
+impl Default for HostConfig {
+    fn default() -> Self {
+        Self {
+            server_name: "PLAYER 1'S GAME".to_string(),
+            family: GameFamily::Swbf1,
+            map: "nab2".to_string(),
+            side: "rep".to_string(),
+            era: "cw".to_string(),
+            mode: DEFAULT_MODE.to_string(),
+            max_players: 32,
+            bots: 16,
+            lan_only: false,
+            relay_policy: "auto".to_string(),
+            ai_difficulty: "medium".to_string(),
+            reinforcements_pct: 100,
+            victory_timer_sec: 0,
+            friendly_fire: false,
+            heroes_enabled: true,
+            auto_assign_teams: false,
+            auto_spawn: false,
+        }
+    }
 }
 
 /// Resolved multiplayer join or host target launched by the shell.
@@ -278,9 +321,15 @@ pub fn direct_connect_entry(address: &str) -> Result<ServerEntry, String> {
 /// [`HostConfig`] so hosting uses the same `resolve_server_join` pipeline as
 /// joining (`host()` in `src/shell/screens.js`).
 pub fn hosted_server_entry(config: &HostConfig) -> ServerEntry {
-    // Default starting side is Republic (`"rep"`) in Clone Wars or Rebel
-    // Alliance (`"all"`) in Galactic Civil War.
-    let side = if config.era == "cw" { "rep" } else { "all" };
+    // Use the configured side when non-empty; otherwise default to Republic
+    // (`"rep"`) in Clone Wars or Rebel Alliance (`"all"`) in Galactic Civil War.
+    let side = if !config.side.is_empty() {
+        config.side.as_str()
+    } else if config.era == "cw" {
+        "rep"
+    } else {
+        "all"
+    };
     let mode = if config.mode.is_empty() {
         DEFAULT_MODE
     } else {
@@ -293,6 +342,7 @@ pub fn hosted_server_entry(config: &HostConfig) -> ServerEntry {
         port: Some(DEFAULT_DIRECT_PORT),
         players: 1,
         max_players: config.max_players,
+        relay_policy: Some(config.relay_policy.clone()),
         battle: Some(BattleSummary {
             map: config.map.clone(),
             side: side.to_string(),
@@ -310,7 +360,6 @@ pub fn hosted_server_entry(config: &HostConfig) -> ServerEntry {
         ..ServerEntry::default()
     }
 }
-
 
 impl ShellApp {
     /// Adds the currently highlighted map in `AVAILABLE MAPS` to `SELECTED MAPS`
@@ -452,7 +501,8 @@ impl ShellApp {
     /// primary click), driving `browser` (`ServerBrowserService`) for multiplayer
     /// screens.
     pub fn accept(&mut self, browser: &mut dyn ServerBrowserService) {
-        // 1. Active modal popup (`Notice` `OK` or `ConfirmExit` `YES`/`NO`).
+        // 1. Active modal popup (`Notice` `OK`, `ConfirmExit` `YES`/`NO`, or
+        //    `HostClosePrompt` 3-button decision).
         if let Some(popup) = self.popup.clone() {
             match popup {
                 PopupState::Notice { .. } => {
@@ -470,6 +520,16 @@ impl ShellApp {
                         self.sound_queue.push("shell_menu_cancel");
                     }
                 }
+                // 3-button host server close prompt (`KeepServer` = 0, `StopServer` = 1, `Cancel` = 2).
+                PopupState::HostClosePrompt { selected, .. } => {
+                    self.popup = None;
+                    if selected == 2 {
+                        self.sound_queue.push("shell_menu_cancel");
+                    } else {
+                        self.sound_queue.push("shell_menu_exit");
+                    }
+                    self.pending_action = Some(ShellAction::HostCloseDecision(selected));
+                }
             }
             return;
         }
@@ -485,7 +545,9 @@ impl ShellApp {
             if let Some(pending) = self.pending_mp_after_profile.take() {
                 if self.profile.has_profile() {
                     match pending {
-                        PendingMpAction::Host => self.execute_host(),
+                        PendingMpAction::Host => {
+                            self.open_host_dialog();
+                        }
                         PendingMpAction::Join(server, kind) => {
                             let launch = resolve_server_join(&server, kind, &self.profile.name);
                             self.pending_action = Some(ShellAction::LaunchMultiplayer(launch));
@@ -672,19 +734,21 @@ impl ShellApp {
                     _ => {}
                 }
             }
-            // `MULTIPLAYER`: `HOST` checks `require_profile_for` before hosting;
-            // `LAN` and `ONLINE` open the corresponding server list.
+            // `MULTIPLAYER`: `HOST` checks `require_profile_for` before opening
+            // `SET GAME OPTIONS` (`ScreenId::HostDialog`); `LAN` and `ONLINE`
+            // open the corresponding server list.
             ScreenId::Multiplayer => {
                 let rows = self.rows_for(screen);
                 let idx = self.selected_row_index(screen);
                 let Some(row) = rows.get(idx) else { return };
                 match row.id.as_str() {
-                    // Hosting requires a non-default profile (`hasProfile()`).
+                    // Hosting requires a non-default profile (`hasProfile()`),
+                    // then pushes `SET GAME OPTIONS` (`ScreenId::HostDialog`).
                     "host" => {
                         if !self.require_profile_for(PendingMpAction::Host) {
                             return;
                         }
-                        self.execute_host();
+                        self.open_host_dialog();
                     }
                     // `LAN` opens the local discovery and direct-connection list.
                     "lan" => {
@@ -738,9 +802,10 @@ impl ShellApp {
                             self.mp_servers.iter().find(|s| s.id == server_id).cloned()
                         {
                             browser.select(Some(&server.id));
-                            if !self
-                                .require_profile_for(PendingMpAction::Join(Box::new(server.clone()), kind))
-                            {
+                            if !self.require_profile_for(PendingMpAction::Join(
+                                Box::new(server.clone()),
+                                kind,
+                            )) {
                                 return;
                             }
                             let launch = resolve_server_join(&server, kind, &self.profile.name);
@@ -775,12 +840,53 @@ impl ShellApp {
                     }
                 }
             }
-            // `HostDialog`: launches the hosted session via `execute_host`.
+            // `HostDialog` (`SET GAME OPTIONS`): pressing `Enter` on `"launch"`
+            // starts the hosted session via `execute_host`; pressing `Enter` on
+            // any option row steps that option forward (`+1`).
             ScreenId::HostDialog => {
-                self.execute_host();
+                let rows = self.rows_for(screen);
+                let idx = self.selected_row_index(screen);
+                if let Some(row) = rows.get(idx) {
+                    if row.id == "launch" {
+                        self.execute_host();
+                    } else {
+                        self.adjust_host_option(1);
+                    }
+                } else {
+                    self.execute_host();
+                }
             }
             ScreenId::Popup => {}
         }
+    }
+
+    /// Initializes `self.host_config` defaults from the current profile and
+    /// extracted maps, then pushes `ScreenId::HostDialog` (`SET GAME OPTIONS`).
+    pub fn open_host_dialog(&mut self) {
+        self.host_config.server_name = format!("{}'S GAME", self.profile.name);
+        if self.host_config.map.is_empty()
+            || !self
+                .data
+                .maps
+                .iter()
+                .any(|m| m.extracted != Some(false) && m.id == self.host_config.map)
+        {
+            if let Some(first_map) = self.data.maps.iter().find(|m| m.extracted != Some(false)) {
+                self.host_config.family = first_map.family;
+                self.host_config.map = first_map.id.clone();
+                let choices = Self::map_choices(first_map);
+                if let Some(first_era) = choices.first() {
+                    self.host_config.era = first_era.clone();
+                    self.host_config.side = if first_era == "gcw" {
+                        "all".to_string()
+                    } else {
+                        "rep".to_string()
+                    };
+                }
+            }
+        }
+        self.sound_queue.push("shell_menu_enter");
+        self.push_screen(ScreenId::HostDialog);
     }
 
     /// Ensures the player has a custom profile (`name != "PLAYER 1"`) before
@@ -800,29 +906,20 @@ impl ShellApp {
         false
     }
 
-    /// Builds a default local [`HostConfig`] for the first extracted map and
-    /// sets `pending_action = Some(ShellAction::LaunchMultiplayer(launch))`.
-    fn execute_host(&mut self) {
-        // Pick the first extracted map from `data.maps` (falling back to
-        // `swbf1/nab2`) and launch a 32-player / 16-bot local Conquest session.
-        let first_map = self
-            .data
-            .maps
-            .iter()
-            .find(|m| m.extracted != Some(false))
-            .map(|m| (m.family, m.id.clone()))
-            .unwrap_or_else(|| (GameFamily::Swbf1, "nab2".to_string()));
-        let cfg = HostConfig {
-            server_name: format!("{}'S GAME", self.profile.name),
-            family: first_map.0,
-            map: first_map.1,
-            era: "cw".to_string(),
-            mode: DEFAULT_MODE.to_string(),
-            max_players: 32,
-            bots: 16,
-            lan_only: false,
-        };
-        let server = hosted_server_entry(&cfg);
+    /// Builds a [`ServerEntry`] from `self.host_config` and sets
+    /// `pending_action = Some(ShellAction::LaunchMultiplayer(launch))`.
+    pub fn execute_host(&mut self) {
+        self.host_config.server_name = format!("{}'S GAME", self.profile.name);
+        if self.host_config.map.is_empty() {
+            if let Some(first_map) = self.data.maps.iter().find(|m| m.extracted != Some(false)) {
+                self.host_config.family = first_map.family;
+                self.host_config.map = first_map.id.clone();
+            } else {
+                self.host_config.family = GameFamily::Swbf1;
+                self.host_config.map = "nab2".to_string();
+            }
+        }
+        let server = hosted_server_entry(&self.host_config);
         let launch = resolve_server_join(&server, MultiplayerKind::Lan, &self.profile.name);
         self.sound_queue.push("shell_menu_accept");
         self.pending_action = Some(ShellAction::LaunchMultiplayer(launch));
@@ -987,4 +1084,3 @@ impl ShellApp {
 pub fn default_server_browser() -> ServerBrowser {
     ServerBrowser::default()
 }
-

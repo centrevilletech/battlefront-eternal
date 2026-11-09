@@ -30,7 +30,7 @@ pub mod battles; // matrix-b
 mod before;
 mod capture;
 mod content;
-pub use content::{content_tables, content_tables_from_registry};
+pub use content::{content_tables, content_tables_files, content_tables_from_registry};
 mod drain;
 mod edges;
 pub mod journal;
@@ -69,6 +69,7 @@ pub struct Content {
 struct Client {
     player: u32,
     edges: u32,
+    epoch: f64,
     generation: f64,
     unit: Option<u32>,
     presses: [Option<f64>; 2],

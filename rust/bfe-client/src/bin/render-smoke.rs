@@ -383,7 +383,9 @@ fn kind_code(kind: bfe_render::shader::Kind) -> u32 {
 /// Checking both the on-disk manifests and the compiled-in `programs::specs()`
 /// slice guarantees that no manifest entry is missing from `bfe-render`'s
 /// generated table and no extra compiled-in spec is absent from the manifests.
-fn load_shader_manifests() -> Result<Vec<(String, Vec<String>, BTreeMap<String, usize>)>, String> {
+type ShaderManifest = (String, Vec<String>, BTreeMap<String, usize>);
+
+fn load_shader_manifests() -> Result<Vec<ShaderManifest>, String> {
     let shaders_root = std::env::var_os("BFE_SHADERS_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../bfe-render/shaders"));
@@ -952,7 +954,7 @@ fn run() -> Result<(), String> {
 fn collect_frame_pass_draws(scene: &Scene) -> [u64; 15] {
     use bfe_render::frame_plan::layout::stats as T;
     let mut out = [0u64; 15];
-    for row in scene.bridge.r.frames.stats.chunks_exact(T::LEN) {
+    for row in scene.bridge.r.frames.stats.as_chunks::<{ T::LEN }>().0 {
         for (i, v) in row[T::PASS_DRAWS..T::PASS_DRAWS + 15].iter().enumerate() {
             out[i] += *v as u64;
         }
@@ -1544,7 +1546,7 @@ fn analyze_pixels(pixels: &[u8]) -> PixelMetrics {
     let mut sample = clear;
     let mut non_clear_pixels = 0usize;
     let mut unique = BTreeSet::new();
-    for px in pixels.chunks_exact(4) {
+    for px in pixels.as_chunks::<4>().0 {
         let rgba: [u8; 4] = [px[0], px[1], px[2], px[3]];
         unique.insert(u32::from_le_bytes(rgba));
         let diff = (rgba[0] as i32 - clear[0] as i32)

@@ -102,6 +102,8 @@ pub struct Admitted {
     /// welcome) and the initial publication's packet bytes that follow them.
     pub welcome: [String; 2],
     pub publication: Vec<u8>,
+    /// Exact spans and reliable records produced with the welcome byte arena.
+    pub publication_output: crate::gen::WirePublicationOutput,
 }
 
 /// Why admission did not produce a world. Every variant names the stage, so

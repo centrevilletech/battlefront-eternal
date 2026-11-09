@@ -3682,3 +3682,113 @@ fn operator_status_answers_while_content_loading_is_blocked() {
     drop(writer);
     service.wait_status("running");
 }
+
+
+#[test]
+fn native_finished_empty_battle_restarts_before_next_join() {
+    let Some(content) = std::env::var_os("BFE_CONTENT_DIR") else {
+        return;
+    };
+    let mut host = NativeWorldHost::load_from_content(
+        Path::new(&content),
+        "?map=nab2&side=rep&ai=classic&seed=1",
+        1,
+    )
+    .expect("admit dedicated world");
+    assert!(!host.restart_finished_empty().unwrap());
+    // The host observes this flag only after exporting SimBattle.finished.
+    // Exercise its cold replacement boundary without waiting for a real war.
+    host.ended = true;
+    assert!(host.restart_finished_empty().unwrap());
+    assert_eq!(host.epoch, 2);
+    assert!(!host.ended);
+    assert!(host.world_admitted);
+    host.add_player("later", "Later", false, true, false)
+        .expect("join fresh match after idle victory");
+    host.ended = true;
+    assert!(
+        !host.restart_finished_empty().unwrap(),
+        "keep connected players' world"
+    );
+    assert_eq!(host.epoch, 2);
+    host.remove_player("later");
+    assert!(host.restart_finished_empty().unwrap());
+    assert_eq!(host.epoch, 3);
+}
+
+
+#[test]
+fn native_empty_server_ticks_before_first_player_joins() {
+    let Some(content) = std::env::var_os("BFE_CONTENT_DIR") else {
+        return;
+    };
+    let mut host = NativeWorldHost::load_from_content(
+        Path::new(&content),
+        "?map=nab2&side=rep&ai=classic&seed=1",
+        2,
+    )
+    .expect("admit dedicated world");
+    assert!(host.world_admitted);
+    for tick in 1..=1800 {
+        host.step(1000. + tick as f64 * (1000. / 60.), 1_700_000_001_000 + tick * 17)
+            .expect("advance empty server");
+    }
+    assert_eq!(host.tick_input.clock.tick, 1800.);
+    let welcome = host.add_player("first", "First", false, false, false)
+        .expect("join after idle battle");
+    let native = host.native_by_client["first"];
+    let player = host.player_by_native[&native];
+    let edges = host.edges_by_native[&native];
+    let class = host.registry_descriptor["classes"].as_array().unwrap().iter()
+        .find(|row| row[1].as_str() == Some(&welcome.class_name)).unwrap()[0].as_f64().unwrap();
+    let queue = |host: &NativeWorldHost, edge: bfe_sim::gen::WeEdge| {
+        let input = bfe_sim::gen::WeCall { op: 1., epoch: 2., generation: edge.generation,
+            tick: host.tick as f64, capacity: 256., edges: vec![edge], ..Default::default() };
+        let mut call = bfe_sim::world::admit::Call { args: vec![edges as f64],
+            row: vec![0.; bfe_sim::gen::WeCall::WORDS], ..Default::default() };
+        input.put(&mut call.row, &mut call.heap);
+        host.context.invoke_export("wire_edges_run", &call).unwrap();
+    };
+    queue(&host, bfe_sim::gen::WeEdge { epoch: 2., generation: welcome.generation as f64,
+        id: 1., tick: 1801., kind: host.edge_kind_str_ids[3], class_id: Some(class),
+        post_id: Some(0.), ..Default::default() });
+    host.step(31_017., 1_700_000_031_017).expect("dispatch reliable spawn");
+    let unit = host.context.world_host_views(|views| views.iter().find(|v| v.handle == player)
+        .and_then(|v| v.unit)).unwrap().expect("spawned player view");
+    let words = host.context.export(u32::from(bfe_sim::gen::KIND_UNIT), 0).unwrap();
+    let stride = words[bfe_sim::gen::BlockHeader::STRIDE] as usize;
+    let at = words[bfe_sim::gen::BlockHeader::HEAP] as usize;
+    let rows = words[bfe_sim::gen::BlockHeader::ROWS] as usize;
+    let row = words[bfe_sim::gen::BlockHeader::WORDS..].chunks_exact(stride).take(rows)
+        .find(|row| row[0] == unit.slot as f64).unwrap();
+    let mut body = bfe_sim::gen::Unit::default();
+    body.take_export(row, &words[at..]);
+    assert!(body.alive, "reliable spawn must create a living player");
+    // The following host advance resets the reliable receiver to the new
+    // life, as it does before accepting a client's repeated trigger packet.
+    host.step(31_034., 1_700_000_031_034).expect("advance new player life");
+    queue(&host, bfe_sim::gen::WeEdge { epoch: 2., generation: body.generation,
+        id: 2., tick: 1803., kind: host.edge_kind_str_ids[1],
+        button: Some(host.fire_primary_str_id), pressed: Some(true), ..Default::default() });
+    host.step(31_051., 1_700_000_031_051).expect("dispatch reliable fire");
+    let received = host.context.players_lanes(player, 1, 0, |words| {
+        let words = words.unwrap();
+        words[bfe_sim::gen::BlockHeader::WORDS + bfe_sim::gen::PlayerLanes::FIRE_RECEIVED]
+    }).unwrap();
+    assert_eq!(received, 1., "reliable trigger must reach the player's fire lane");
+    for tick in 1804..=1863 {
+        let at = 1000. + tick as f64 * (1000. / 60.);
+        host.context.players_input(player, at, 0., 1).unwrap();
+        if let Some(publication) = host.step(at, 1_700_000_001_000 + tick * 17)
+            .expect("advance held reliable trigger")
+        {
+            assert_eq!(publication.epoch, 2, "publish the admitted match epoch");
+        }
+    }
+    let fired = host.context.world_host_journal(|journal| journal.records().any(|record| {
+        matches!(&record.event, bfe_sim::host::journal::Event::Shot { source, .. }
+            if source.id == unit.slot && source.generation == body.generation)
+    })).unwrap();
+    assert!(fired, "a reliable trigger must fire the admitted player's weapon");
+    host.remove_player("first");
+}

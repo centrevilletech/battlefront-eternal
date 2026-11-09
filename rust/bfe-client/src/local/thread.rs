@@ -10,27 +10,25 @@
 //! - Steady-state battle frames must perform zero heap allocations, so both the
 //!   command ring and publication slots are pre-allocated before the first frame
 //!   and swapped in place.
-//! - Pause, focus suspension, spawn, respawn, restart, and shutdown travel as
-//!   explicit `WorldMessage` variants rather than shared mutable flags.
+//! - Pause, focus suspension, spawn, respawn, and shutdown travel as explicit
+//!   `WorldMessage` variants rather than shared mutable flags.
 
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use bfe_presentation::network_layout::{net_kind as k, net_record as r};
+use bfe_content_native::setup::admission::{CLOCK_START_MS, CLOCK_UNIX_MS};
 use bfe_sim::store::block::Block;
 use bfe_sim::wire::publisher::Publisher;
 
-use bfe_client::generated_input::{
-    ClientAction, ClientCommand, ClientFlightCommand, ClientHeld, ClientLook,
-};
-use bfe_client::host::STEP;
+use bfe_client::generated_input::{ClientCommand, ClientFlightCommand, ClientLook};
 use bfe_client::input::ViewActions;
-use bfe_client::online::receiver::{Own, Receiver};
+use bfe_client::online::receiver::Receiver;
 
 use super::publication::Publication;
-use super::runtime::{Engine, Runtime};
+use super::runtime::{Engine, HostCounters, Runtime};
 
 /// Capacity of the bounded command ring from the render thread to the 60 Hz world thread.
 ///
@@ -38,13 +36,71 @@ use super::runtime::{Engine, Runtime};
 pub const COMMAND_CAPACITY: usize = 64;
 
 /// Number of pre-allocated publication slots recycled between the world and render threads.
-pub const PUBLICATION_SLOTS: usize = 4;
+///
+/// 64 slots cover over a second of 60 Hz world ticks so no delta publication is ever
+/// dropped between render frames.
+pub const PUBLICATION_SLOTS: usize = 64;
 
-/// Maximum number of command posts tracked in a fallback local snapshot.
-pub const MAX_FALLBACK_POSTS: usize = 16;
+/// Capacity of the lock-free ring buffer recording recent 60 Hz tick durations in nanoseconds.
+const RECENT_TICK_SAMPLES: usize = 4096;
 
-/// Maximum number of AI + human combatant slots tracked in a fallback local snapshot.
-pub const MAX_FALLBACK_PLAYERS: usize = 32;
+/// Number of initial 60 Hz world ticks excluded as warm-up before measuring steady-state
+/// world-thread heap allocations (`60` ticks = 1.0 second of simulation warm-up).
+const WORLD_THREAD_WARMUP_TICKS: u64 = 60;
+
+/// Cold admission metadata returned to the main thread after `Context::world_admit`
+/// succeeds on the dedicated 60 Hz world thread.
+#[derive(Clone, Debug)]
+pub struct AdmittedWorldInfo {
+    /// Canonical battle query string (`?map=...&side=...&era=...&ai=...&seed=...`).
+    pub query: String,
+    /// Entity registry descriptor emitted by `wire_registry_run`.
+    pub registry: serde_json::Value,
+    /// Admitted local human player's unit slot ID.
+    pub player_id: f64,
+}
+
+/// Summary of the 60 Hz world thread's tick-time distribution in milliseconds and
+/// the host proof counts gathered from `Context::world_tick` and `world_publish_into`.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct WorldTickStats {
+    /// Total number of 60 Hz ticks executed on the world thread.
+    pub count: u64,
+    /// Minimum observed 60 Hz world tick duration in milliseconds.
+    pub min_ms: f64,
+    /// Arithmetic mean of all 60 Hz world tick durations in milliseconds.
+    pub mean_ms: f64,
+    /// Median (50th percentile) 60 Hz world tick duration in milliseconds.
+    pub p50_ms: f64,
+    /// 95th percentile 60 Hz world tick duration in milliseconds.
+    pub p95_ms: f64,
+    /// 99th percentile 60 Hz world tick duration in milliseconds.
+    pub p99_ms: f64,
+    /// Maximum observed 60 Hz world tick duration in milliseconds.
+    pub max_ms: f64,
+    /// Number of 60 Hz ticks exceeding the 16.67 ms interval budget.
+    pub over_budget_16_67ms: u64,
+    /// Latest sequence cursor in `Context::world_host_journal`.
+    pub journal_seq: u64,
+    /// Total AI hearing records (`Hearing::Shot` + `Hearing::Damage`) fed by the host.
+    pub ai_hearing_records_total: u64,
+    /// AI hearing records broken down by hearing kind (`shot`, `damage`).
+    pub ai_hearing_records_by_kind: BTreeMap<String, u64>,
+    /// `Context::world_host_journal` records broken down by event kind (`spawn`, `vo`, `shot`, `damage`, `board`, `unboard`).
+    pub journal_records_by_kind: BTreeMap<String, u64>,
+    /// Total schema-8 presentation records published to the local client.
+    pub presentation_records_published: u64,
+    /// Total reliable combat records (all schemas) published to the local client.
+    pub combat_records_published: u64,
+    /// Whether `Context` ever reported `ErrorKind::Poisoned` during the battle.
+    pub context_poisoned: bool,
+    /// Total heap allocations on the 60 Hz world thread after the initial warm-up window.
+    pub world_thread_steady_allocs_after_warmup: u64,
+    /// Number of steady-state 60 Hz world ticks measured after warm-up.
+    pub world_thread_steady_ticks: u64,
+    /// Average heap allocations per steady-state 60 Hz world tick after warm-up.
+    pub world_thread_steady_allocs_per_tick: f64,
+}
 
 /// Explicit message sent from the render/window thread to the 60 Hz world thread.
 ///
@@ -67,13 +123,11 @@ pub enum WorldMessage {
     /// Commits a spawn selection from the classic spawn screen (`src/spawn-screen/index.js`).
     Spawn {
         team: u8,
-        class_index: usize,
-        post_index: usize,
+        class_name: String,
+        post_name: String,
     },
     /// Kills the current player life so the spawn screen reopens (`game.pause.suicide`).
     Respawn,
-    /// Restarts the current Instant Action mission from tick 0 (`common.restart`).
-    Restart,
     /// Terminates the 60 Hz world thread cleanly.
     Shutdown,
 }
@@ -98,12 +152,7 @@ struct CommandRing {
 impl CommandRing {
     fn new() -> Self {
         Self {
-            entries: (0..COMMAND_CAPACITY)
-                .map(|_| WorldMessage::default())
-                .collect::<Vec<_>>()
-                .into_boxed_slice()
-                .try_into()
-                .unwrap(),
+            entries: Box::new(std::array::from_fn(|_| WorldMessage::default())),
             head: 0,
             len: 0,
             refused: 0,
@@ -146,152 +195,24 @@ impl CommandRing {
     }
 }
 
-/// Per-post state published by the fallback 60 Hz local authority when
-/// `Context::world_admit` is not yet compiled in.
-#[derive(Clone, Copy, Debug)]
-pub struct FallbackPostState {
-    pub id: usize,
-    pub team: u8,
-    pub toward: u8,
-    pub progress: f64,
-    pub neutralize: f64,
-    pub contested: bool,
-    pub active: bool,
-    pub position: [f64; 3],
-}
-
-impl Default for FallbackPostState {
-    fn default() -> Self {
-        Self {
-            id: 1,
-            team: 0,
-            toward: 0,
-            progress: 1.0,
-            neutralize: 0.0,
-            contested: false,
-            active: true,
-            position: [0.0; 3],
-        }
-    }
-}
-
-/// Per-combatant state published by the fallback 60 Hz local authority for
-/// scoreboard and radar display.
-#[derive(Clone, Copy, Debug)]
-pub struct FallbackPlayerState {
-    pub slot: usize,
-    pub team: u8,
-    pub is_human: bool,
-    pub class_id: usize,
-    pub alive: bool,
-    pub position: [f64; 3],
-    pub yaw: f64,
-    pub health: f64,
-    pub kills: i32,
-    pub deaths: i32,
-    pub captures: i32,
-    pub ping: i32,
-}
-
-impl Default for FallbackPlayerState {
-    fn default() -> Self {
-        Self {
-            slot: 0,
-            team: 1,
-            is_human: false,
-            class_id: 1,
-            alive: true,
-            position: [0.0; 3],
-            yaw: 0.0,
-            health: 300.0,
-            kills: 0,
-            deaths: 0,
-            captures: 0,
-            ping: 0,
-        }
-    }
-}
-
-/// Copyable state snapshot published by the fallback 60 Hz local authority.
-#[derive(Clone, Copy)]
-pub struct FallbackSnapshot {
-    pub tick: f64,
-    pub own: Own,
-    pub awaiting_spawn: bool,
-    pub teams_tickets: [i32; 2],
-    pub teams_start: [i32; 2],
-    pub teams_bleed: [bool; 2],
-    pub post_count: usize,
-    pub posts: [FallbackPostState; MAX_FALLBACK_POSTS],
-    pub player_count: usize,
-    pub players: [FallbackPlayerState; MAX_FALLBACK_PLAYERS],
-    pub game_over: bool,
-    pub losing: bool,
-    pub winner: u8,
-    pub countdown: f64,
-    pub primary_clip: f64,
-    pub primary_reserve: f64,
-    pub primary_heat: f64,
-    pub primary_reload_left: f64,
-}
-
-impl Default for FallbackSnapshot {
-    fn default() -> Self {
-        Self {
-            tick: 0.0,
-            own: Own {
-                id: 1.0,
-                generation: 1.0,
-                class: 1,
-                team: 1,
-                position: [0.0, 2.0, 0.0],
-                yaw: 0.0,
-                pitch: 0.0,
-                alive: false,
-                tick: 0.0,
-                body_schema: 6,
-                health: 300.0,
-                vehicle: 0.0,
-                vehicle_generation: 0.0,
-                posture: 0,
-                air: 0,
-                zoom: 1.0,
-                dive: 0.0,
-                lock: 0.0,
-                mount: None,
-                flight: None,
-            },
-            awaiting_spawn: true,
-            teams_tickets: [150, 150],
-            teams_start: [150, 150],
-            teams_bleed: [false, false],
-            post_count: 0,
-            posts: [FallbackPostState::default(); MAX_FALLBACK_POSTS],
-            player_count: 0,
-            players: [FallbackPlayerState::default(); MAX_FALLBACK_PLAYERS],
-            game_over: false,
-            losing: false,
-            winner: 0,
-            countdown: f64::NAN,
-            primary_clip: 1.0,
-            primary_reserve: 5.0,
-            primary_heat: 0.0,
-            primary_reload_left: 0.0,
-        }
-    }
-}
-
 /// Pre-allocated publication slot recycled between the 60 Hz world thread and the render thread.
 ///
-/// Holds both the native `Block` + wire byte buffer (used when `Runtime<E>` runs)
-/// and the fixed-size `FallbackSnapshot` (used when `FallbackAuthority` runs).
+/// Holds the native `Block` and wire byte buffer produced by `Context::world_publish_into`.
 pub struct PublicationSlot {
     pub tick: f64,
     pub client: u32,
-    pub is_native: bool,
     pub block: Block,
     pub bytes: Vec<u8>,
-    pub fallback: Box<FallbackSnapshot>,
+}
+
+impl std::fmt::Debug for PublicationSlot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PublicationSlot")
+            .field("tick", &self.tick)
+            .field("client", &self.client)
+            .field("bytes_len", &self.bytes.len())
+            .finish()
+    }
 }
 
 impl PublicationSlot {
@@ -300,39 +221,36 @@ impl PublicationSlot {
         Self {
             tick: 0.0,
             client: 1,
-            is_native: false,
             block: Block {
                 words: Vec::with_capacity(policy.block.words.capacity().max(4096)),
                 heap: Vec::new(),
             },
             bytes: Vec::with_capacity(policy.bytes.capacity().max(65536)),
-            fallback: Box::new(FallbackSnapshot::default()),
         }
     }
 }
 
 /// Bounded ring of pre-allocated [`PublicationSlot`]s shared between the world and render threads.
 struct PublicationQueue {
-    ready: [Option<PublicationSlot>; PUBLICATION_SLOTS],
+    ready: Box<[Option<PublicationSlot>; PUBLICATION_SLOTS]>,
     head: usize,
     len: usize,
-    free: [Option<PublicationSlot>; PUBLICATION_SLOTS],
+    free: Box<[Option<PublicationSlot>; PUBLICATION_SLOTS]>,
     free_len: usize,
     refused: u64,
 }
 
 impl PublicationQueue {
     fn new() -> Self {
+        let ready: Box<[Option<PublicationSlot>; PUBLICATION_SLOTS]> =
+            Box::new(std::array::from_fn(|_| None));
+        let free: Box<[Option<PublicationSlot>; PUBLICATION_SLOTS]> =
+            Box::new(std::array::from_fn(|_| Some(PublicationSlot::new_preallocated())));
         Self {
-            ready: [None, None, None, None],
+            ready,
             head: 0,
             len: 0,
-            free: [
-                Some(PublicationSlot::new_preallocated()),
-                Some(PublicationSlot::new_preallocated()),
-                Some(PublicationSlot::new_preallocated()),
-                Some(PublicationSlot::new_preallocated()),
-            ],
+            free,
             free_len: PUBLICATION_SLOTS,
             refused: 0,
         }
@@ -388,6 +306,10 @@ impl PublicationQueue {
 }
 
 /// Shared synchronization state between the render thread and the 60 Hz world thread.
+///
+/// All diagnostic counters (`journal_seq`, `hearing_*`, `kind_*`, `presentation_records_published`,
+/// `world_thread_steady_allocs`) use lock-free atomics so the render thread can snapshot
+/// [`WorldTickStats`] at battle end without contending with the world thread.
 struct SharedState {
     commands: Mutex<CommandRing>,
     wake: Condvar,
@@ -397,11 +319,38 @@ struct SharedState {
     shutdown: AtomicBool,
     latest_tick_bits: AtomicU64,
     renderer_blocks: AtomicU64,
+    tick_count: AtomicU64,
+    tick_sum_ns: AtomicU64,
+    tick_min_ns: AtomicU64,
+    tick_max_ns: AtomicU64,
+    tick_over_budget: AtomicU64,
+    recent_tick_ns: Box<[AtomicU64; RECENT_TICK_SAMPLES]>,
+    journal_seq: AtomicU64,
+    hearing_shot: AtomicU64,
+    hearing_damage: AtomicU64,
+    kind_spawn: AtomicU64,
+    kind_vo: AtomicU64,
+    kind_shot: AtomicU64,
+    kind_damage: AtomicU64,
+    kind_board: AtomicU64,
+    kind_unboard: AtomicU64,
+    kind_other: AtomicU64,
+    presentation_records_published: AtomicU64,
+    combat_records_published: AtomicU64,
+    context_poisoned: AtomicBool,
+    world_thread_steady_allocs: AtomicU64,
+    world_thread_steady_ticks: AtomicU64,
     fault: Mutex<Option<String>>,
 }
 
 impl SharedState {
     fn new() -> Self {
+        let recent_tick_ns: Box<[AtomicU64; RECENT_TICK_SAMPLES]> = (0..RECENT_TICK_SAMPLES)
+            .map(|_| AtomicU64::new(0))
+            .collect::<Vec<_>>()
+            .into_boxed_slice()
+            .try_into()
+            .unwrap();
         Self {
             commands: Mutex::new(CommandRing::new()),
             wake: Condvar::new(),
@@ -411,376 +360,163 @@ impl SharedState {
             shutdown: AtomicBool::new(false),
             latest_tick_bits: AtomicU64::new(0.0_f64.to_bits()),
             renderer_blocks: AtomicU64::new(0),
+            tick_count: AtomicU64::new(0),
+            tick_sum_ns: AtomicU64::new(0),
+            tick_min_ns: AtomicU64::new(u64::MAX),
+            tick_max_ns: AtomicU64::new(0),
+            tick_over_budget: AtomicU64::new(0),
+            recent_tick_ns,
+            journal_seq: AtomicU64::new(0),
+            hearing_shot: AtomicU64::new(0),
+            hearing_damage: AtomicU64::new(0),
+            kind_spawn: AtomicU64::new(0),
+            kind_vo: AtomicU64::new(0),
+            kind_shot: AtomicU64::new(0),
+            kind_damage: AtomicU64::new(0),
+            kind_board: AtomicU64::new(0),
+            kind_unboard: AtomicU64::new(0),
+            kind_other: AtomicU64::new(0),
+            presentation_records_published: AtomicU64::new(0),
+            combat_records_published: AtomicU64::new(0),
+            context_poisoned: AtomicBool::new(false),
+            world_thread_steady_allocs: AtomicU64::new(0),
+            world_thread_steady_ticks: AtomicU64::new(0),
             fault: Mutex::new(None),
         }
     }
-}
 
-/// Initial authored command-post configuration passed to [`FallbackAuthority`].
-#[derive(Clone, Debug)]
-pub struct InitialPostConfig {
-    pub id: usize,
-    pub team: u8,
-    pub position: [f64; 3],
-}
-
-/// Initial authored mission configuration passed to [`FallbackAuthority`].
-#[derive(Clone, Debug)]
-pub struct FallbackMissionConfig {
-    pub posts: Vec<InitialPostConfig>,
-    pub tickets: [i32; 2],
-    pub team_classes: [Vec<usize>; 2],
-    pub seed: u32,
-}
-
-impl Default for FallbackMissionConfig {
-    fn default() -> Self {
-        Self {
-            posts: vec![
-                InitialPostConfig {
-                    id: 1,
-                    team: 1,
-                    position: [-40.0, 2.0, -40.0],
-                },
-                InitialPostConfig {
-                    id: 2,
-                    team: 1,
-                    position: [-15.0, 2.0, 10.0],
-                },
-                InitialPostConfig {
-                    id: 3,
-                    team: 2,
-                    position: [15.0, 2.0, -10.0],
-                },
-                InitialPostConfig {
-                    id: 4,
-                    team: 2,
-                    position: [40.0, 2.0, 40.0],
-                },
-            ],
-            tickets: [150, 150],
-            team_classes: [vec![1, 2, 3, 4, 5], vec![6, 7, 8, 9, 10]],
-            seed: 1,
-        }
-    }
-}
-
-/// Lightweight 60 Hz local authority used when `Context::world_admit` returns
-/// `Unavailable` (while lane `admit` is in flight).
-///
-/// Steps on the dedicated 60 Hz world thread behind the exact same `CommandRing`
-/// and `PublicationQueue` boundary as `Runtime<Native>`.
-pub struct FallbackAuthority {
-    config: FallbackMissionConfig,
-    state: Box<FallbackSnapshot>,
-    rng: u32,
-}
-
-impl FallbackAuthority {
-    pub fn new(config: FallbackMissionConfig) -> Self {
-        let mut authority = Self {
-            rng: config.seed.max(1),
-            config,
-            state: Box::new(FallbackSnapshot::default()),
-        };
-        authority.reset_mission();
-        authority
-    }
-
-    fn next_rand_01(&mut self) -> f64 {
-        let mut x = self.rng;
-        x ^= x << 13;
-        x ^= x >> 17;
-        x ^= x << 5;
-        self.rng = x.max(1);
-        (x as f64) / (u32::MAX as f64)
-    }
-
-    pub fn reset_mission(&mut self) {
-        let mut snap = Box::new(FallbackSnapshot {
-            teams_tickets: self.config.tickets,
-            teams_start: self.config.tickets,
-            post_count: self.config.posts.len().min(MAX_FALLBACK_POSTS),
-            ..FallbackSnapshot::default()
-        });
-        for (i, post) in self
-            .config
-            .posts
-            .iter()
-            .take(MAX_FALLBACK_POSTS)
-            .enumerate()
-        {
-            snap.posts[i] = FallbackPostState {
-                id: post.id,
-                team: post.team,
-                toward: 0,
-                progress: 1.0,
-                neutralize: 0.0,
-                contested: false,
-                active: true,
-                position: post.position,
-            };
-        }
-        if snap.post_count == 0 {
-            snap.post_count = 2;
-            snap.posts[0] = FallbackPostState {
-                id: 1,
-                team: 1,
-                position: [-20.0, 2.0, 0.0],
-                ..Default::default()
-            };
-            snap.posts[1] = FallbackPostState {
-                id: 2,
-                team: 2,
-                position: [20.0, 2.0, 0.0],
-                ..Default::default()
-            };
-        }
-
-        let mut count = 0usize;
-        for team in [1u8, 2u8] {
-            let classes = &self.config.team_classes[(team - 1) as usize];
-            for idx in 0..16usize {
-                if count >= MAX_FALLBACK_PLAYERS {
-                    break;
-                }
-                let is_human = team == 1 && idx == 0;
-                let class_id = classes
-                    .get(idx % classes.len().max(1))
-                    .copied()
-                    .unwrap_or(1);
-                let post_pos = snap.posts[idx % snap.post_count].position;
-                let angle = (idx as f64) * 0.4;
-                snap.players[count] = FallbackPlayerState {
-                    slot: count,
-                    team,
-                    is_human,
-                    class_id,
-                    alive: !is_human,
-                    position: [
-                        post_pos[0] + angle.cos() * 6.0,
-                        post_pos[1],
-                        post_pos[2] + angle.sin() * 6.0,
-                    ],
-                    yaw: angle,
-                    health: 300.0,
-                    kills: 0,
-                    deaths: 0,
-                    captures: 0,
-                    ping: 0,
-                };
-                count += 1;
-            }
-        }
-        snap.player_count = count;
-        snap.own.position = snap.posts[0].position;
-        snap.own.alive = false;
-        snap.awaiting_spawn = true;
-        self.state = snap;
-    }
-
-    pub fn spawn_human(&mut self, team: u8, class_index: usize, post_index: usize) {
-        let team = team.clamp(1, 2);
-        let classes = &self.config.team_classes[(team - 1) as usize];
-        let class_id = classes.get(class_index).copied().unwrap_or(1);
-        let post_idx = post_index.min(self.state.post_count.saturating_sub(1));
-        let pos = self.state.posts[post_idx].position;
-        self.state.own.team = team;
-        self.state.own.class = class_id;
-        self.state.own.generation += 1.0;
-        self.state.own.position = [pos[0], pos[1] + 1.8, pos[2]];
-        self.state.own.health = 300.0;
-        self.state.own.alive = true;
-        self.state.own.posture = 0;
-        self.state.own.air = 0;
-        self.state.awaiting_spawn = false;
-        self.state.primary_clip = 1.0;
-        self.state.primary_reserve = 5.0;
-        self.state.primary_heat = 0.0;
-        self.state.primary_reload_left = 0.0;
-        if let Some(human) = self.state.players[..self.state.player_count]
-            .iter_mut()
-            .find(|p| p.is_human)
-        {
-            human.team = team;
-            human.class_id = class_id;
-            human.alive = true;
-            human.position = self.state.own.position;
-            human.health = 300.0;
-        }
-    }
-
-    pub fn respawn_human(&mut self) {
-        if self.state.own.alive {
-            self.state.own.alive = false;
-            self.state.own.health = 0.0;
-            self.state.awaiting_spawn = true;
-            if let Some(human) = self.state.players[..self.state.player_count]
-                .iter_mut()
-                .find(|p| p.is_human)
-            {
-                human.alive = false;
-                human.health = 0.0;
-                human.deaths += 1;
-            }
-        }
-    }
-
-    pub fn step(
-        &mut self,
-        command: &ClientCommand,
-        look: &ClientLook,
-        _flight: &ClientFlightCommand,
-        _actions: &ViewActions,
+    #[inline]
+    fn record_tick_ns(
+        &self,
+        elapsed_ns: u64,
+        counters: HostCounters,
+        measure_steady_allocs: bool,
+        steady_alloc_delta: u64,
     ) {
-        self.state.tick += 1.0;
-        self.state.own.tick = self.state.tick;
-        let dt = STEP;
-
-        if self.state.game_over {
-            return;
+        let idx = self.tick_count.fetch_add(1, Ordering::Relaxed) as usize;
+        self.tick_sum_ns.fetch_add(elapsed_ns, Ordering::Relaxed);
+        self.tick_min_ns.fetch_min(elapsed_ns, Ordering::Relaxed);
+        self.tick_max_ns.fetch_max(elapsed_ns, Ordering::Relaxed);
+        if elapsed_ns > 16_666_667 {
+            self.tick_over_budget.fetch_add(1, Ordering::Relaxed);
         }
-
-        if self.state.own.alive {
-            let safe = |v: f64| {
-                if v.is_finite() {
-                    v.clamp(-1e4, 1e4)
-                } else {
-                    0.0
-                }
-            };
-            let scale = if command.mouse_scale.is_finite() && command.mouse_scale > 0.0 {
-                command.mouse_scale
-            } else {
-                1.0
-            };
-            self.state.own.yaw = (self.state.own.yaw - safe(look.x) * 0.0022 * scale)
-                .rem_euclid(std::f64::consts::TAU);
-            let pitch_sign = if command.invert.unwrap_or(false) {
-                1.0
-            } else {
-                -1.0
-            };
-            self.state.own.pitch =
-                (self.state.own.pitch + pitch_sign * safe(look.y) * 0.0022 * scale).clamp(-1.4, 1.4);
-
-            let held = |key: ClientHeld| f64::from(u8::from(command.held & (1 << (key as u8)) != 0));
-            let forward = held(ClientHeld::Forward) - held(ClientHeld::Backward);
-            let right = held(ClientHeld::Right) - held(ClientHeld::Left);
-            let norm = (forward * forward + right * right).sqrt().max(1.0);
-            let speed = 7.5 * dt / norm;
-            let yaw = self.state.own.yaw;
-            self.state.own.position[0] += (-yaw.sin() * forward + yaw.cos() * right) * speed;
-            self.state.own.position[2] += (-yaw.cos() * forward - yaw.sin() * right) * speed;
-
-            if command.actions & (1 << (ClientAction::Crouch as u8)) != 0 {
-                self.state.own.posture = if self.state.own.posture == 1 { 0 } else { 1 };
-            }
-            if command.actions & (1 << (ClientAction::Prone as u8)) != 0 {
-                self.state.own.posture = if self.state.own.posture == 2 { 0 } else { 2 };
-            }
-
-            if self.state.primary_reload_left > 0.0 {
-                self.state.primary_reload_left = (self.state.primary_reload_left - dt).max(0.0);
-                if self.state.primary_reload_left == 0.0 {
-                    self.state.primary_clip = 1.0;
-                }
-            } else if command.actions & (1 << (ClientAction::Reload as u8)) != 0
-                && self.state.primary_clip < 1.0
-                && self.state.primary_reserve > 0.0
-            {
-                self.state.primary_reload_left = 1.5;
-                self.state.primary_reserve = (self.state.primary_reserve - 1.0).max(0.0);
-            } else if (command.held & (1 << (ClientHeld::Primary as u8)) != 0
-                || command.primary_count > 0)
-                && self.state.primary_clip > 0.0
-            {
-                self.state.primary_clip = (self.state.primary_clip - 0.02).max(0.0);
-                self.state.primary_heat = (self.state.primary_heat + 0.015).min(1.0);
-                if self.state.primary_clip == 0.0 && self.state.primary_reserve > 0.0 {
-                    self.state.primary_reload_left = 1.5;
-                    self.state.primary_reserve = (self.state.primary_reserve - 1.0).max(0.0);
-                }
-            } else {
-                self.state.primary_heat = (self.state.primary_heat - 0.25 * dt).max(0.0);
-            }
-
-            let px = self.state.own.position[0];
-            let pz = self.state.own.position[2];
-            let own_team = self.state.own.team;
-            let mut captured_any = false;
-            for i in 0..self.state.post_count {
-                let post = &mut self.state.posts[i];
-                let dx = px - post.position[0];
-                let dz = pz - post.position[2];
-                if dx * dx + dz * dz <= 144.0 && post.team != own_team {
-                    post.toward = own_team;
-                    post.progress = (post.progress + dt * 0.25).min(1.0);
-                    if post.progress >= 1.0 {
-                        post.team = own_team;
-                        post.toward = 0;
-                        captured_any = true;
-                    }
-                }
-            }
-            if captured_any {
-                if let Some(human) = self.state.players[..self.state.player_count]
-                    .iter_mut()
-                    .find(|p| p.is_human)
-                {
-                    human.captures += 1;
-                }
-            }
-
-            if let Some(human) = self.state.players[..self.state.player_count]
-                .iter_mut()
-                .find(|p| p.is_human)
-            {
-                human.position = self.state.own.position;
-                human.yaw = self.state.own.yaw;
-                human.health = self.state.own.health;
-            }
+        self.recent_tick_ns[idx & (RECENT_TICK_SAMPLES - 1)].store(elapsed_ns, Ordering::Relaxed);
+        self.journal_seq
+            .store(counters.journal_seq, Ordering::Relaxed);
+        self.hearing_shot
+            .store(counters.hearing_shot, Ordering::Relaxed);
+        self.hearing_damage
+            .store(counters.hearing_damage, Ordering::Relaxed);
+        self.kind_spawn
+            .store(counters.kind_spawn, Ordering::Relaxed);
+        self.kind_vo.store(counters.kind_vo, Ordering::Relaxed);
+        self.kind_shot.store(counters.kind_shot, Ordering::Relaxed);
+        self.kind_damage
+            .store(counters.kind_damage, Ordering::Relaxed);
+        self.kind_board
+            .store(counters.kind_board, Ordering::Relaxed);
+        self.kind_unboard
+            .store(counters.kind_unboard, Ordering::Relaxed);
+        self.kind_other
+            .store(counters.kind_other, Ordering::Relaxed);
+        self.presentation_records_published
+            .store(counters.presentation_records_published, Ordering::Relaxed);
+        self.combat_records_published
+            .store(counters.combat_records_published, Ordering::Relaxed);
+        if counters.context_poisoned {
+            self.context_poisoned.store(true, Ordering::Relaxed);
         }
-
-        let tick = self.state.tick;
-        let player_count = self.state.player_count;
-        for i in 0..player_count {
-            if self.state.players[i].is_human {
-                continue;
-            }
-            let phase = tick * 0.02 + (i as f64) * 0.7;
-            self.state.players[i].yaw = phase.rem_euclid(std::f64::consts::TAU);
-            self.state.players[i].position[0] += phase.cos() * 2.5 * dt;
-            self.state.players[i].position[2] += phase.sin() * 2.5 * dt;
-        }
-
-        if (self.state.tick as u64).is_multiple_of(180) && player_count >= 2 {
-            let attacker = ((self.next_rand_01() * (player_count as f64)) as usize)
-                .min(player_count.saturating_sub(1));
-            let victim = ((attacker + 1 + (self.next_rand_01() * 8.0) as usize) % player_count)
-                .min(player_count.saturating_sub(1));
-            if self.state.players[attacker].team != self.state.players[victim].team {
-                self.state.players[attacker].kills += 1;
-                if !self.state.players[victim].is_human {
-                    self.state.players[victim].deaths += 1;
-                    let v_team = (self.state.players[victim].team.saturating_sub(1) as usize).min(1);
-                    self.state.teams_tickets[v_team] =
-                        (self.state.teams_tickets[v_team] - 1).max(0);
-                    if self.state.teams_tickets[v_team] == 0 {
-                        self.state.game_over = true;
-                        self.state.winner = if v_team == 0 { 2 } else { 1 };
-                        self.state.losing = self.state.winner != self.state.own.team;
-                    }
-                }
-            }
+        if measure_steady_allocs {
+            self.world_thread_steady_ticks
+                .fetch_add(1, Ordering::Relaxed);
+            self.world_thread_steady_allocs
+                .fetch_add(steady_alloc_delta, Ordering::Relaxed);
         }
     }
-}
 
-/// Internal authority stepped at 60 Hz on the world thread.
-enum ThreadAuthority<E: Engine> {
-    Native(Box<Runtime<E>>),
-    Fallback(Box<FallbackAuthority>),
+    fn tick_stats(&self) -> WorldTickStats {
+        let count = self.tick_count.load(Ordering::Relaxed);
+        if count == 0 {
+            return WorldTickStats::default();
+        }
+        let sum_ns = self.tick_sum_ns.load(Ordering::Relaxed);
+        let min_ns = self.tick_min_ns.load(Ordering::Relaxed);
+        let max_ns = self.tick_max_ns.load(Ordering::Relaxed);
+        let over_budget = self.tick_over_budget.load(Ordering::Relaxed);
+        let sample_len = (count as usize).min(RECENT_TICK_SAMPLES);
+        let mut samples = Vec::with_capacity(sample_len);
+        for i in 0..sample_len {
+            samples.push(self.recent_tick_ns[i].load(Ordering::Relaxed));
+        }
+        samples.sort_unstable();
+        let percentile = |q: f64| -> f64 {
+            if samples.is_empty() {
+                return 0.0;
+            }
+            let idx = ((samples.len() - 1) as f64 * q).round() as usize;
+            samples[idx.min(samples.len() - 1)] as f64 / 1_000_000.0
+        };
+        let hearing_shot = self.hearing_shot.load(Ordering::Relaxed);
+        let hearing_damage = self.hearing_damage.load(Ordering::Relaxed);
+        let mut ai_hearing_records_by_kind = BTreeMap::new();
+        ai_hearing_records_by_kind.insert("shot".to_string(), hearing_shot);
+        ai_hearing_records_by_kind.insert("damage".to_string(), hearing_damage);
+
+        let mut journal_records_by_kind = BTreeMap::new();
+        journal_records_by_kind.insert(
+            "spawn".to_string(),
+            self.kind_spawn.load(Ordering::Relaxed),
+        );
+        journal_records_by_kind.insert("vo".to_string(), self.kind_vo.load(Ordering::Relaxed));
+        journal_records_by_kind.insert("shot".to_string(), self.kind_shot.load(Ordering::Relaxed));
+        journal_records_by_kind.insert(
+            "damage".to_string(),
+            self.kind_damage.load(Ordering::Relaxed),
+        );
+        journal_records_by_kind.insert(
+            "board".to_string(),
+            self.kind_board.load(Ordering::Relaxed),
+        );
+        journal_records_by_kind.insert(
+            "unboard".to_string(),
+            self.kind_unboard.load(Ordering::Relaxed),
+        );
+        let other = self.kind_other.load(Ordering::Relaxed);
+        if other > 0 {
+            journal_records_by_kind.insert("other".to_string(), other);
+        }
+
+        let steady_allocs = self.world_thread_steady_allocs.load(Ordering::Relaxed);
+        let steady_ticks = self.world_thread_steady_ticks.load(Ordering::Relaxed);
+        let steady_per_tick = if steady_ticks > 0 {
+            (steady_allocs as f64) / (steady_ticks as f64)
+        } else {
+            0.0
+        };
+
+        WorldTickStats {
+            count,
+            min_ms: (if min_ns == u64::MAX { 0 } else { min_ns }) as f64 / 1_000_000.0,
+            mean_ms: (sum_ns as f64 / count as f64) / 1_000_000.0,
+            p50_ms: percentile(0.50),
+            p95_ms: percentile(0.95),
+            p99_ms: percentile(0.99),
+            max_ms: max_ns as f64 / 1_000_000.0,
+            over_budget_16_67ms: over_budget,
+            journal_seq: self.journal_seq.load(Ordering::Relaxed),
+            ai_hearing_records_total: hearing_shot.saturating_add(hearing_damage),
+            ai_hearing_records_by_kind,
+            journal_records_by_kind,
+            presentation_records_published: self
+                .presentation_records_published
+                .load(Ordering::Relaxed),
+            combat_records_published: self.combat_records_published.load(Ordering::Relaxed),
+            context_poisoned: self.context_poisoned.load(Ordering::Relaxed),
+            world_thread_steady_allocs_after_warmup: steady_allocs,
+            world_thread_steady_ticks: steady_ticks,
+            world_thread_steady_allocs_per_tick: steady_per_tick,
+        }
+    }
 }
 
 /// Handle held by the render/window thread to communicate with the 60 Hz world thread.
@@ -790,9 +526,7 @@ enum ThreadAuthority<E: Engine> {
 pub struct WorldThread {
     shared: Arc<SharedState>,
     join: Option<JoinHandle<()>>,
-    pub latest_fallback: Option<Box<FallbackSnapshot>>,
     pub delivered: u64,
-    pub native_admitted: bool,
 }
 
 impl WorldThread {
@@ -812,7 +546,7 @@ impl WorldThread {
                     thread_shared
                         .latest_tick_bits
                         .store(runtime.tick().to_bits(), Ordering::Release);
-                    run_world_loop(ThreadAuthority::Native(Box::new(runtime)), thread_shared);
+                    run_world_loop(Box::new(runtime), thread_shared);
                 }
                 Err(err) => {
                     if let Ok(mut fg) = thread_shared.fault.lock() {
@@ -824,58 +558,95 @@ impl WorldThread {
         Self {
             shared,
             join: Some(join),
-            latest_fallback: None,
             delivered: 0,
-            native_admitted: true,
-        }
-    }
-
-    /// Spawns a dedicated 60 Hz world thread driving [`FallbackAuthority`].
-    pub fn spawn_fallback(authority: FallbackAuthority) -> Self {
-        let initial = authority.state.clone();
-        let shared = Arc::new(SharedState::new());
-        shared
-            .latest_tick_bits
-            .store(initial.tick.to_bits(), Ordering::Release);
-        let thread_shared = Arc::clone(&shared);
-        let join = thread::Builder::new()
-            .name("bfe-world-60hz".to_string())
-            .spawn(move || {
-                run_world_loop::<super::context::Native>(
-                    ThreadAuthority::Fallback(Box::new(authority)),
-                    thread_shared,
-                )
-            })
-            .expect("spawn 60 Hz fallback world thread");
-        Self {
-            shared,
-            join: Some(join),
-            latest_fallback: Some(initial),
-            delivered: 0,
-            native_admitted: false,
         }
     }
 
     /// Single admission entry point for Instant Action local authority (`task-integration.md`).
     ///
-    /// Calls `Context::world_admit` (via [`super::launch::Prepared::new`]) whenever
-    /// `bfe_sim::world::admit::provided()` is `true`; when `world_admit` returns `Unavailable`,
-    /// falls back cleanly to [`FallbackAuthority`] on the same 60 Hz thread boundary.
+    /// Admits the world exclusively through `Context::world_admit` (via [`super::launch::Prepared::new`])
+    /// on the dedicated 60 Hz world thread. If admission fails, returns `Err` immediately so
+    /// the caller displays the error to the player.
     pub fn admit_instant_action(
         options: &super::options::Options,
-        fallback_config: FallbackMissionConfig,
-    ) -> Result<(Self, Option<super::launch::Prepared>), String> {
-        if bfe_sim::world::admit::provided() {
-            let prepared = super::launch::Prepared::new(options)?;
-            return Ok((
-                Self::spawn_fallback(FallbackAuthority::new(fallback_config)),
-                Some(prepared),
-            ));
+    ) -> Result<(Self, AdmittedWorldInfo), String> {
+        let owned_options = super::options::Options {
+            root: options.root.clone(),
+            battle: options.battle.clone(),
+            audio: options.audio,
+            duration: options.duration,
+        };
+        let shared = Arc::new(SharedState::new());
+        shared.paused.store(true, Ordering::Release);
+        let thread_shared = Arc::clone(&shared);
+        let (admit_tx, admit_rx) =
+            std::sync::mpsc::sync_channel::<Result<AdmittedWorldInfo, String>>(1);
+
+        let join = thread::Builder::new()
+            .name("bfe-world-60hz".to_string())
+            .spawn(move || {
+                let build_res = (|| -> Result<
+                    (Runtime<super::context::Native>, AdmittedWorldInfo),
+                    String,
+                > {
+                    let prepared = super::launch::Prepared::new(&owned_options)?;
+                    let info = AdmittedWorldInfo {
+                        query: prepared.admission.query.clone(),
+                        registry: prepared.admission.registry.clone(),
+                        player_id: prepared.admission.player_id,
+                    };
+                    let mut slot0 = thread_shared
+                        .publications
+                        .lock()
+                        .map_err(|_| "publication queue poisoned".to_string())?
+                        .acquire_slot();
+                    let runtime = Runtime::new_into_slot(
+                        *prepared.engine,
+                        *prepared.admission,
+                        CLOCK_START_MS,
+                        CLOCK_UNIX_MS,
+                        &mut slot0,
+                    )?;
+                    thread_shared
+                        .latest_tick_bits
+                        .store(runtime.tick().to_bits(), Ordering::Release);
+                    thread_shared
+                        .publications
+                        .lock()
+                        .map_err(|_| "publication queue poisoned".to_string())?
+                        .publish_slot(slot0);
+                    Ok((runtime, info))
+                })();
+                match build_res {
+                    Ok((runtime, info)) => {
+                        let _ = admit_tx.send(Ok(info));
+                        run_world_loop(Box::new(runtime), thread_shared);
+                    }
+                    Err(err) => {
+                        let _ = admit_tx.send(Err(err));
+                    }
+                }
+            })
+            .map_err(|e| format!("failed to spawn 60 Hz world thread: {e}"))?;
+
+        match admit_rx.recv() {
+            Ok(Ok(info)) => Ok((
+                Self {
+                    shared,
+                    join: Some(join),
+                    delivered: 0,
+                },
+                info,
+            )),
+            Ok(Err(err)) => {
+                let _ = join.join();
+                Err(err)
+            }
+            Err(_) => {
+                let _ = join.join();
+                Err("60 Hz world thread terminated during admission".to_string())
+            }
         }
-        Ok((
-            Self::spawn_fallback(FallbackAuthority::new(fallback_config)),
-            None,
-        ))
     }
 
     /// Queues a [`WorldMessage`] to the 60 Hz world thread without blocking the renderer.
@@ -887,7 +658,6 @@ impl WorldThread {
                 | WorldMessage::Suspend(false)
                 | WorldMessage::Spawn { .. }
                 | WorldMessage::Respawn
-                | WorldMessage::Restart
                 | WorldMessage::Shutdown
         );
         if let Ok(mut guard) = self.shared.commands.try_lock() {
@@ -936,19 +706,9 @@ impl WorldThread {
         };
         let mut count = 0usize;
         while let Some(slot) = queue.pop_ready() {
-            let result = if slot.is_native {
-                Publication::new(&slot.block, &slot.bytes)
-                    .map_err(str::to_string)
-                    .and_then(|pub_view| pub_view.deliver(slot.client, receiver, now_ms))
-            } else {
-                apply_fallback_snapshot(&slot.fallback, receiver);
-                if let Some(existing) = &mut self.latest_fallback {
-                    **existing = *slot.fallback;
-                } else {
-                    self.latest_fallback = Some(slot.fallback.clone());
-                }
-                Ok(())
-            };
+            let result = Publication::new(&slot.block, &slot.bytes)
+                .map_err(str::to_string)
+                .and_then(|pub_view| pub_view.deliver(slot.client, receiver, now_ms));
             queue.release_slot(slot);
             result?;
             self.delivered += 1;
@@ -975,6 +735,11 @@ impl WorldThread {
         self.shared.renderer_blocks.load(Ordering::Acquire)
     }
 
+    /// Returns the 60 Hz world thread's tick-time distribution summary and host proof counts.
+    pub fn tick_stats(&self) -> WorldTickStats {
+        self.shared.tick_stats()
+    }
+
     /// Whether the 60 Hz world thread is currently paused.
     #[inline]
     pub fn is_paused(&self) -> bool {
@@ -998,39 +763,12 @@ impl Drop for WorldThread {
     }
 }
 
-/// Applies a [`FallbackSnapshot`] into `Receiver` so the online HUD, radar,
-/// camera, and sound passes consume the fallback 60 Hz state through the
-/// same `Receiver` fields as an online or native-admitted battle.
-fn apply_fallback_snapshot(snap: &FallbackSnapshot, receiver: &mut Receiver) {
-    receiver.welcomed = true;
-    receiver.registry = true;
-    receiver.complete = true;
-    receiver.latest = snap.tick;
-    receiver.own = snap.own;
-    receiver.corrections = if snap.own.alive { receiver.corrections.max(1) } else { 0 };
-    let _ = receiver.clock.arrive(snap.tick, snap.tick * STEP, STEP);
-
-    receiver.own_fact.fill(0.0);
-    receiver.own_fact[r::KIND] = k::SOLDIER as f64;
-    receiver.own_fact[r::ID] = snap.own.id;
-    receiver.own_fact[r::GENERATION] = snap.own.generation;
-    receiver.own_fact[r::CLASS_ID] = snap.own.class as f64;
-    receiver.own_fact[r::TEAM] = snap.own.team as f64;
-    receiver.own_fact[r::POSITION..r::POSITION + 3].copy_from_slice(&snap.own.position);
-    receiver.own_fact[r::YAW] = snap.own.yaw;
-    receiver.own_fact[r::PITCH] = snap.own.pitch;
-    receiver.own_fact[r::POSTURE] = snap.own.posture as f64;
-    receiver.own_fact[r::STATE] = snap.own.air as f64;
-    receiver.own_fact[r::HEALTH] = snap.own.health;
-    receiver.own_fact[r::DEAD] = (!snap.own.alive) as u8 as f64;
-}
-
 /// Main loop executed on the dedicated 60 Hz world thread.
-fn run_world_loop<E: Engine>(mut authority: ThreadAuthority<E>, shared: Arc<SharedState>) {
+fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedState>) {
     let tick_duration = Duration::from_nanos(16_666_667);
     let mut next_deadline = Instant::now() + tick_duration;
-    let mut paused = false;
-    let mut suspended = false;
+    let mut paused = shared.paused.load(Ordering::Acquire);
+    let mut suspended = shared.suspended.load(Ordering::Acquire);
     let mut latest_cmd = ClientCommand::default();
     let mut latest_look: ClientLook;
     let mut latest_flight = ClientFlightCommand::default();
@@ -1038,6 +776,7 @@ fn run_world_loop<E: Engine>(mut authority: ThreadAuthority<E>, shared: Arc<Shar
     let mut latest_ack = [1.0, 0.0];
     let mut accum_look_x = 0.0;
     let mut accum_look_y = 0.0;
+    let mut next_seq: f64 = 1.0;
 
     loop {
         if shared.shutdown.load(Ordering::Acquire) {
@@ -1089,25 +828,29 @@ fn run_world_loop<E: Engine>(mut authority: ThreadAuthority<E>, shared: Arc<Shar
                     }
                     WorldMessage::Spawn {
                         team,
-                        class_index,
-                        post_index,
+                        class_name,
+                        post_name,
                     } => {
-                        if let ThreadAuthority::Fallback(ref mut fb) = authority {
-                            fb.spawn_human(team, class_index, post_index);
+                        if let Err(err) = runtime.spawn_human(team, &class_name, &post_name) {
+                            if let Ok(mut fg) = shared.fault.lock() {
+                                *fg = Some(err);
+                            }
+                            runtime.close();
+                            return;
                         }
                     }
                     WorldMessage::Respawn => {
-                        if let ThreadAuthority::Fallback(ref mut fb) = authority {
-                            fb.respawn_human();
-                        }
-                    }
-                    WorldMessage::Restart => {
-                        if let ThreadAuthority::Fallback(ref mut fb) = authority {
-                            fb.reset_mission();
+                        if let Err(err) = runtime.respawn_human() {
+                            if let Ok(mut fg) = shared.fault.lock() {
+                                *fg = Some(err);
+                            }
+                            runtime.close();
+                            return;
                         }
                     }
                     WorldMessage::Shutdown => {
                         shared.shutdown.store(true, Ordering::Release);
+                        runtime.close();
                         return;
                     }
                 }
@@ -1145,55 +888,63 @@ fn run_world_loop<E: Engine>(mut authority: ThreadAuthority<E>, shared: Arc<Shar
             latest_cmd.primary_count = 0;
             latest_cmd.secondary_count = 0;
         }
+        if latest_cmd.sequence < next_seq {
+            latest_cmd.sequence = next_seq;
+        }
+        next_seq = latest_cmd.sequence + 1.0;
 
-        match authority {
-            ThreadAuthority::Native(ref mut runtime) => {
-                let mut slot = if let Ok(mut q) = shared.publications.lock() {
-                    q.acquire_slot()
-                } else {
-                    break;
-                };
-                let step_res = runtime.step_into_slot(
-                    &latest_cmd,
-                    &latest_look,
-                    &latest_flight,
-                    &step_actions,
-                    latest_ack,
-                    &mut slot,
-                );
-                match step_res {
-                    Ok(tick) => {
-                        shared
-                            .latest_tick_bits
-                            .store(tick.to_bits(), Ordering::Release);
-                        if let Ok(mut q) = shared.publications.lock() {
-                            q.publish_slot(slot);
-                        }
-                    }
-                    Err(err) => {
-                        if let Ok(mut q) = shared.publications.lock() {
-                            q.release_slot(slot);
-                        }
-                        if let Ok(mut fg) = shared.fault.lock() {
-                            *fg = Some(err);
-                        }
-                        break;
-                    }
-                }
-            }
-            ThreadAuthority::Fallback(ref mut fb) => {
-                fb.step(&latest_cmd, &latest_look, &latest_flight, &step_actions);
-                let tick = fb.state.tick;
+        let mut slot = if let Ok(mut q) = shared.publications.lock() {
+            q.acquire_slot()
+        } else {
+            break;
+        };
+        // After the initial 60-tick warm-up window, sample this thread's TLS allocation
+        // counter around `step_into_slot` so steady-state world-thread allocations are
+        // reported per battle without interfering with render-thread allocation checks.
+        let measure_steady_allocs = runtime.ticks >= WORLD_THREAD_WARMUP_TICKS;
+        let allocs_before = if measure_steady_allocs {
+            crate::app::render_thread_alloc_count()
+        } else {
+            0
+        };
+        let tick_start = Instant::now();
+        let step_res = runtime.step_into_slot(
+            &latest_cmd,
+            &latest_look,
+            &latest_flight,
+            &step_actions,
+            latest_ack,
+            &mut slot,
+        );
+        let tick_elapsed_ns = tick_start.elapsed().as_nanos() as u64;
+        let steady_alloc_delta = if measure_steady_allocs {
+            crate::app::render_thread_alloc_count().saturating_sub(allocs_before)
+        } else {
+            0
+        };
+        shared.record_tick_ns(
+            tick_elapsed_ns,
+            runtime.host_counters(),
+            measure_steady_allocs,
+            steady_alloc_delta,
+        );
+        match step_res {
+            Ok(tick) => {
                 shared
                     .latest_tick_bits
                     .store(tick.to_bits(), Ordering::Release);
                 if let Ok(mut q) = shared.publications.lock() {
-                    let mut slot = q.acquire_slot();
-                    slot.tick = tick;
-                    slot.is_native = false;
-                    *slot.fallback = *fb.state;
                     q.publish_slot(slot);
                 }
+            }
+            Err(err) => {
+                if let Ok(mut q) = shared.publications.lock() {
+                    q.release_slot(slot);
+                }
+                if let Ok(mut fg) = shared.fault.lock() {
+                    *fg = Some(err);
+                }
+                break;
             }
         }
 
@@ -1205,4 +956,5 @@ fn run_world_loop<E: Engine>(mut authority: ThreadAuthority<E>, shared: Arc<Shar
             next_deadline = now + tick_duration;
         }
     }
+    runtime.close();
 }

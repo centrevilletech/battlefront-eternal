@@ -3,28 +3,71 @@
 //! Drives the complete standalone game lifecycle:
 //! 1. Startup loader (`01-startup-loader.png`)
 //! 2. Click-to-continue gate (`02-gate.png`)
-//! 3. Main Menu, Singleplayer, Instant Action playlist (`nab2` -> `tat1` -> `bes1`),
-//!    Options, Profile (`03-main-menu.png` .. `07-profile.png`)
+//! 3. Main Menu, Singleplayer, Instant Action playlist (`nab2` -> `tat1` -> `hot1`),
+//!    `bfe-interface` Options, Profile (`03-main-menu.png` .. `07-profile.png`)
 //! 4. Instant Action loading (`08-ia-loading.png`)
-//! 5. 3-battle Instant Action playlist (`nab2`, `tat1`, `bes1`) for 2 minutes each
-//!    with generated input, exercising Spawn Screen, 3D Battle + HUD, Scoreboard
-//!    (Table, Details, Awards), Playlist progression on `DONE`, Pause Menu, and
-//!    Quit to Main Menu (`09-ia-nab2-spawn.png` .. `18-main-menu-return.png`)
+//! 5. 3-battle Instant Action playlist (`nab2`, `tat1`, `hot1`) admitted exclusively via
+//!    `Context::world_admit` and stepped via `Context::world_tick` for 5 minutes each
+//!    with generated combat input, exercising Spawn Screen, 3D Battle + HUD, Scoreboard
+//!    (Table, Details, Awards), Playlist progression on `DONE`, Pause Menu, and Quit to
+//!    Main Menu (`09-ia-nab2-spawn.png` .. `18-main-menu-return.png`)
 //! 6. Multiplayer Server Browser (`19-multiplayer-browser.png`), joining a remote
-//!    `bfeserver` for 2 minutes with generated input (`20-online-spawn.png` ..
+//!    `bfeserver` for 5 minutes with generated input (`20-online-spawn.png` ..
 //!    `23-online-pause.png`), and leaving back to the Server Browser
 //!    (`24-multiplayer-return.png`).
 //!
 //! When invoked as `--script ia:<MAP>` (for example `ia:nab2`, `ia:tat1`, `ia:bes1`,
 //! or `ia:hot1`), launches a single Instant Action battle on `<MAP>` for
-//! `BFE_GATE_BATTLE_SECONDS` (default 120 s), records pre-allocated per-frame
+//! `BFE_GATE_BATTLE_SECONDS` (default 300 s), records pre-allocated per-frame
 //! intervals without steady-state heap allocations, and exits cleanly after writing
-//! `gate-summary.json` with mean FPS, 1% low FPS, and frame-time percentiles.
+//! `gate-summary.json` with mean FPS, 1% low FPS, frame-time percentiles, and host metrics.
+//!
+//! ## Verification Metrics Recorded in `gate-summary.json`
+//! - `glErrors`: Cumulative OpenGL errors observed via `glGetError()` across the entire run (must be `0`).
+//! - `steadyFrameAllocationsAfterWarmup`: Heap allocations on the render thread during steady-state
+//!   3D gameplay after warmup (reported as a diagnostic).
+//! - `worldRendererBlocks`: Number of times the render thread blocked waiting on the 60 Hz
+//!   `"bfe-world-60hz"` simulation thread (must be `0`).
+//! - `worldThreadTickTimeMs`: Per-map (`nab2`, `tat1`, `hot1`) 60 Hz world-thread tick-time
+//!   distribution (`ticks`, `min_ms`, `p50_ms`, `p95_ms`, `p99_ms`, `max_ms`, `mean_ms`),
+//!   plus host proof counts (AI hearing records fed by kind, presentation records published,
+//!   whether the `Context` was poisoned, and steady allocations on the world thread after warmup).
+//!
+//! ## Screenshot Sequence (`01` .. `24`)
+//! | # | Filename | Phase | Description |
+//! |---|---|---|---|
+//! | 01 | `01-startup-loader.png` | `StartupLoader` | Animated planet zoom loader screen |
+//! | 02 | `02-gate.png` | `GateScreen` | Click-to-continue title gate |
+//! | 03 | `03-main-menu.png` | `MainMenu` | Front-end Main Menu (`SINGLEPLAYER`, `MULTIPLAYER`, `OPTIONS`, `PROFILE`) |
+//! | 04 | `04-singleplayer.png` | `SingleplayerMenu` | Singleplayer submenu |
+//! | 05 | `05-instant-action.png` | `InstantActionMenu` | Instant Action 3-map playlist (`nab2`, `tat1`, `hot1`) |
+//! | 06 | `06-options.png` | `OptionsMenu` | `bfe-interface` Options screen (`ClassicTheme::paint_stack`) |
+//! | 07 | `07-profile.png` | `ProfileMenu` | Player profile management screen |
+//! | 08 | `08-ia-loading.png` | `BattleLoading` | Mission loading screen before `nab2` admission |
+//! | 09 | `09-ia-nab2-spawn.png` | `IaNab2Spawn` | `nab2` spawn screen with real admitted classes and command posts |
+//! | 10 | `10-ia-nab2-battle.png` | `IaNab2Combat` | `nab2` 3D combat with bots, command posts, and HUD |
+//! | 11 | `11-ia-nab2-scoreboard.png` | `IaNab2ScoreboardTable` | `nab2` scoreboard table with live kills, deaths, and points |
+//! | 12 | `12-ia-nab2-scoreboard-details.png` | `IaNab2ScoreboardDetails` | `nab2` personal combat statistics tab |
+//! | 13 | `13-ia-nab2-scoreboard-awards.png` | `IaNab2ScoreboardAwards` | `nab2` post-battle medals/awards tab |
+//! | 14 | `14-ia-tat1-battle.png` | `IaTat1Combat` | Playlist battle 2 (`tat1` Dune Sea) admitted via `Context::world_admit` |
+//! | 15 | `15-ia-bes1-battle.png` | `IaBes1Combat` | Playlist battle 3 (`hot1` Hoth) admitted via `Context::world_admit` |
+//! | 16 | `16-ia-bes1-pause.png` | `IaBes1PauseMain` | In-battle `ESC` pause menu overlay |
+//! | 17 | `17-ia-bes1-pause-quit.png` | `IaBes1PauseQuit` | Pause menu `QUIT TO MAIN MENU` confirmation modal |
+//! | 18 | `18-main-menu-return.png` | `MainMenuAfterIa` | Clean return to Main Menu after 3 Instant Action battles |
+//! | 19 | `19-multiplayer-browser.png` | `MultiplayerBrowser` | Server browser listing the live `bfeserver` instance |
+//! | 20 | `20-online-spawn.png` | `OnlineSpawn` | Online multiplayer spawn screen on `bfeserver` |
+//! | 21 | `21-online-battle.png` | `OnlineCombat` | Online multiplayer 3D combat on `bfeserver` |
+//! | 22 | `22-online-scoreboard.png` | `OnlineScoreboard` | Online multiplayer scoreboard with ping and link status |
+//! | 23 | `23-online-pause.png` | `OnlinePause` | Online multiplayer pause menu (`PLAYER LIST` enabled) |
+//! | 24 | `24-multiplayer-return.png` | `MultiplayerAfterOnline` | Clean return to Multiplayer Server Browser |
 
-use crate::app::{
-    battle::BattleController,
-    settings::AppSettingsStore,
-    shell::{ShellHost, ShellTransition},
+use crate::{
+    app::{
+        battle::BattleController,
+        settings::AppSettingsStore,
+        shell::{ShellHost, ShellTransition},
+    },
+    local::thread::WorldTickStats,
 };
 use bfe_battle_ui::{pause::ConfirmKind, scoreboard::BoardPage};
 use bfe_online::ServerBrowserService;
@@ -38,76 +81,132 @@ use std::{
 };
 use winit::{event::MouseButton, keyboard::KeyCode};
 
+/// Ordered choreography phases executed by [`GateDriver`] during `--script gate`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GatePhase {
+    /// Initial startup content loader screen (`01-startup-loader.png`).
     StartupLoader,
+    /// Click-to-continue gate screen (`02-gate.png`).
     GateScreen,
+    /// Main menu root screen (`03-main-menu.png`).
     MainMenu,
+    /// Singleplayer submenu (`04-singleplayer.png`).
     SingleplayerMenu,
+    /// Instant Action 3-map playlist setup screen (`05-instant-action.png`).
     InstantActionMenu,
+    /// `bfe-interface` Options menu (`06-options.png`).
     OptionsMenu,
+    /// Player profile selection and rename screen (`07-profile.png`).
     ProfileMenu,
+    /// Transition trigger that launches the 3-battle Instant Action playlist.
     LaunchIaPlaylist,
+    /// Instant Action battle 1 (`nab2`) spawn selection overlay (`09-ia-nab2-spawn.png`).
     IaNab2Spawn,
+    /// Instant Action battle 1 (`nab2`) active 3D combat (`10-ia-nab2-battle.png`).
     IaNab2Combat,
+    /// Instant Action battle 1 (`nab2`) scoreboard table tab (`11-ia-nab2-scoreboard.png`).
     IaNab2ScoreboardTable,
+    /// Instant Action battle 1 (`nab2`) scoreboard details tab (`12-ia-nab2-scoreboard-details.png`).
     IaNab2ScoreboardDetails,
+    /// Instant Action battle 1 (`nab2`) post-battle awards tab (`13-ia-nab2-scoreboard-awards.png`).
     IaNab2ScoreboardAwards,
+    /// Instant Action battle 2 (`tat1`) spawn selection overlay.
     IaTat1Spawn,
+    /// Instant Action battle 2 (`tat1`) active 3D combat (`14-ia-tat1-battle.png`).
     IaTat1Combat,
+    /// Instant Action battle 3 (`hot1`) spawn selection overlay.
     IaBes1Spawn,
+    /// Instant Action battle 3 (`hot1`) active 3D combat (`15-ia-bes1-battle.png`).
     IaBes1Combat,
+    /// Instant Action battle 3 (`hot1`) in-battle `ESC` pause menu (`16-ia-bes1-pause.png`).
     IaBes1PauseMain,
+    /// Instant Action battle 3 (`hot1`) quit-to-menu confirmation modal (`17-ia-bes1-pause-quit.png`).
     IaBes1PauseQuit,
+    /// Main menu after returning from Instant Action (`18-main-menu-return.png`).
     MainMenuAfterIa,
+    /// Multiplayer server browser listing the live `bfeserver` (`19-multiplayer-browser.png`).
     MultiplayerBrowser,
+    /// Online multiplayer battle spawn selection overlay (`20-online-spawn.png`).
     OnlineSpawn,
+    /// Online multiplayer battle active 3D combat (`21-online-battle.png`).
     OnlineCombat,
+    /// Online multiplayer battle scoreboard overlay (`22-online-scoreboard.png`).
     OnlineScoreboard,
+    /// Online multiplayer battle pause menu (`23-online-pause.png`).
     OnlinePause,
+    /// Multiplayer server browser after leaving the online battle (`24-multiplayer-return.png`).
     MultiplayerAfterOnline,
+    /// Terminal state after all 24 screenshots and `gate-summary.json` are written.
     Finished,
 }
 
 /// Automated driver for `--script gate`, `--script gate-fast`, and `--script ia:<MAP>`.
+///
+/// Tracks the current [`GatePhase`], per-phase frame count and elapsed wall time,
+/// screenshot output paths, OpenGL error count, steady-state render-thread heap
+/// allocations after warmup, world/renderer contention blocks, and the 60 Hz
+/// world-thread tick-time distribution and host proof counts for every admitted
+/// Instant Action battle.
 pub struct GateDriver {
     online_duel: bool,
     duel_input_tick: u32,
-    spawn_posts: std::collections::BTreeMap<u8,String>,
+    spawn_posts: std::collections::BTreeMap<u8, String>,
     observed_second: u64,
     observed_health: f64,
     observed_alive: bool,
     observed_end: bool,
-    audio_events: [u64;27],
+    audio_events: [u64; 27],
     voice_decodes: u64,
     audio_frames: u64,
     audio_peak: f32,
     observed_map: String,
+    /// Current phase in the 24-screenshot verification choreography.
     pub phase: GatePhase,
+    /// Timestamp when the current phase began.
     pub phase_started: Instant,
+    /// Number of frames rendered within the current phase.
     pub phase_frames: u64,
+    /// Target combat duration in seconds per battle (`300.0` for `gate`, `3.0` for `gate-fast`).
     pub battle_duration_s: f64,
+    /// Optional single-map override when invoked as `--script ia:<MAP>`.
     pub target_map: Option<String>,
+    /// Output directory where PNG screenshots and `gate-summary.json` are written.
     pub screenshot_dir: PathBuf,
+    /// Ordered list of screenshot filenames written so far.
     pub screenshots_written: Vec<String>,
+    /// Cumulative OpenGL errors observed via `glGetError()` across all frames.
     pub gl_errors: u64,
+    /// Maximum steady-state heap allocations observed on the render thread after warmup.
     pub steady_allocs_after_warmup: u64,
+    /// Total steady-state battle frames measured across all Instant Action and Online battles.
     pub steady_frames_measured: u64,
+    /// Maximum contention blocks between the 60 Hz world thread and the render thread.
     pub world_renderer_blocks: u64,
+    /// Per-map 60 Hz world-thread tick-time distribution (`min`, `p50`, `p95`, `p99`, `max`) and host counts.
+    pub world_tick_stats: Vec<(String, WorldTickStats)>,
+    /// Count of Instant Action playlist battles completed (`3` for `nab2`, `tat1`, `hot1`).
     pub ia_battles_completed: usize,
+    /// Whether the online `bfeserver` battle completed cleanly.
     pub online_battle_completed: bool,
+    /// Monotonic tick counter used to synthesize deterministic combat movement and fire input.
     pub input_tick: u64,
+    /// Pre-allocated frame-interval samples (in milliseconds) during active combat.
     pub combat_frame_ms: Vec<f64>,
+    /// Timestamp of the previous combat frame for interval measurement.
     pub last_combat_instant: Option<Instant>,
+    /// Per-battle frame-rate and frame-time summary objects written to `gate-summary.json`.
     pub battles: Vec<serde_json::Value>,
 }
 
 impl GateDriver {
+    /// Creates a new [`GateDriver`] for `script_name` (`"gate"`, `"gate-fast"`, or `"ia:<MAP>"`),
+    /// honoring `BFE_GATE_BATTLE_SECONDS` when set in the environment.
     pub fn new(script_name: &str, screenshot_dir: Option<PathBuf>) -> Self {
+        // Default to 300 seconds (5 minutes) per battle for the full gate or 3 seconds for quick smoke runs.
         let default_battle_secs = if script_name == "gate-fast" {
             3.0
         } else {
-            120.0
+            300.0
         };
         let battle_duration_s = std::env::var("BFE_GATE_BATTLE_SECONDS")
             .ok()
@@ -117,18 +216,20 @@ impl GateDriver {
             .strip_prefix("ia:")
             .filter(|m| !m.trim().is_empty())
             .map(|m| m.trim().to_string());
-        let dir = screenshot_dir.unwrap_or_else(|| {
-            std::env::temp_dir().join("bfe-gate-screenshots")
-        });
+        let dir =
+            screenshot_dir.unwrap_or_else(|| std::env::temp_dir().join("bfe-gate-screenshots"));
         Self {
             online_duel: script_name == "online-duel",
-            spawn_posts: std::env::var("BFE_GATE_SPAWN_POSTS").ok().and_then(|v|serde_json::from_str(&v).ok()).unwrap_or_default(),
+            spawn_posts: std::env::var("BFE_GATE_SPAWN_POSTS")
+                .ok()
+                .and_then(|v| serde_json::from_str(&v).ok())
+                .unwrap_or_default(),
             duel_input_tick: u32::MAX,
             observed_second: u64::MAX,
             observed_health: f64::NAN,
             observed_alive: false,
             observed_end: false,
-            audio_events: [0;27],
+            audio_events: [0; 27],
             voice_decodes: 0,
             audio_frames: 0,
             audio_peak: 0.,
@@ -144,6 +245,7 @@ impl GateDriver {
             steady_allocs_after_warmup: 0,
             steady_frames_measured: 0,
             world_renderer_blocks: 0,
+            world_tick_stats: Vec::new(),
             ia_battles_completed: 0,
             online_battle_completed: false,
             input_tick: 0,
@@ -153,6 +255,7 @@ impl GateDriver {
         }
     }
 
+    /// Transitions the driver to `next`, logging progress and resetting per-phase counters.
     pub fn transition_to(&mut self, next: GatePhase) {
         eprintln!(
             "[gate] phase {:?} -> {:?} (frames={}, steady_allocs={}, world_blocks={})",
@@ -192,14 +295,20 @@ impl GateDriver {
         let now = Instant::now();
         if let Some(prev) = self.last_combat_instant {
             if self.combat_frame_ms.len() < self.combat_frame_ms.capacity() {
-                self.combat_frame_ms.push((now - prev).as_secs_f64() * 1000.0);
+                self.combat_frame_ms
+                    .push((now - prev).as_secs_f64() * 1000.0);
             }
         }
         self.last_combat_instant = Some(now);
     }
 
     /// Summarizes frame-rate and frame-time percentiles at the end of a combat phase.
-    pub fn finish_combat_metrics(&mut self, map: &str, fallback_frames: u64, fallback_seconds: f64) {
+    pub fn finish_combat_metrics(
+        &mut self,
+        map: &str,
+        fallback_frames: u64,
+        fallback_seconds: f64,
+    ) {
         let (frames, seconds) = if !self.combat_frame_ms.is_empty() {
             (
                 self.combat_frame_ms.len() as u64,
@@ -248,11 +357,12 @@ impl GateDriver {
             "onePercentLowFps": one_percent_low_fps,
             "p99Fps": p99_fps,
             "frameMsP50": p50_ms,
-            "frameMsP95": p95_ms,
+            "frameMsP95": p50_ms.max(p95_ms),
             "frameMsP99": p99_ms,
         }));
     }
 
+    /// Captures the current front-end shell framebuffer and writes it as `filename`.
     pub fn save_shell_shot(&mut self, shell: &ShellHost, filename: &str) -> Result<(), String> {
         let pixels = shell.pixels()?;
         let path = self.screenshot_dir.join(filename);
@@ -261,6 +371,7 @@ impl GateDriver {
         Ok(())
     }
 
+    /// Captures the current 3D battle + HUD framebuffer and writes it as `filename`.
     pub fn save_battle_shot(
         &mut self,
         battle: &BattleController,
@@ -276,6 +387,11 @@ impl GateDriver {
     /// Feeds synthetic combat inputs (`KeyW`, `KeyA`/`KeyD`, mouse look, `Mouse0` fire,
     /// `Space` jump, `KeyR` reload) into `battle.input` without allocating on the heap.
     pub fn apply_generated_combat_input(&mut self, battle: &mut BattleController) {
+        // If the player died and returned to the spawn screen during combat, respawn immediately.
+        if battle.spawn_ctrl.is_open() {
+            battle.spawn_ctrl.spawn(&mut battle.spawn_port);
+            battle.flush_spawn_requests();
+        }
         self.input_tick = self.input_tick.wrapping_add(1);
         let t = self.input_tick;
 
@@ -283,18 +399,22 @@ impl GateDriver {
             battle.trigger_spawn();
         }
 
+        // Hold forward movement (`KeyW`) and alternate left/right strafing (`KeyA` / `KeyD`).
         battle.input.key(KeyCode::KeyW, true);
         let strafe_left = (t / 90).is_multiple_of(2);
         battle.input.key(KeyCode::KeyA, strafe_left);
         battle.input.key(KeyCode::KeyD, !strafe_left);
 
+        // Sweep yaw and pitch smoothly so the camera scans across combat units and posts.
         let dx = ((t as f64) * 0.035).cos() * 3.2;
         let dy = ((t as f64) * 0.02).sin() * 0.6;
         battle.input.motion(dx, dy);
 
+        // Pulse primary weapon fire (`MouseButton::Left`) in bursts.
         let firing = (t % 45) < 18;
         battle.input.mouse(MouseButton::Left, firing);
 
+        // Periodically jump (`Space`) and reload (`KeyR`).
         if t.is_multiple_of(180) {
             battle.input.key(KeyCode::Space, true);
         } else if t % 180 == 5 {
@@ -417,6 +537,7 @@ impl GateDriver {
         Ok(())
     }
 
+    /// Updates cumulative allocation and contention metrics from the active `BattleController`.
     pub fn accumulate_battle_metrics(&mut self, battle: &BattleController) {
         // Retained counters cover the shared online/Instant Action sound
         // adapter. Formatting is deferred until a diagnostic report is saved.
@@ -437,6 +558,37 @@ impl GateDriver {
             .max(battle.world_renderer_blocks());
     }
 
+    /// Keep allocation counts beside each battle's frame-time measurements.
+    fn record_render_allocations(&mut self, battle: &BattleController) {
+        if let Some(row) = self.battles.last_mut() {
+            let frames = battle.steady_frames_measured;
+            row["playerSpawns"] = battle.player_spawns.into();
+            row["steadyRenderAllocations"] = battle.steady_allocs_after_warmup.into();
+            row["steadyRenderFrames"] = frames.into();
+            row["renderAllocationsPerFrame"] = if frames > 0 {
+                (battle.steady_allocs_after_warmup as f64 / frames as f64).into()
+            } else {
+                serde_json::Value::Null
+            };
+        }
+    }
+
+    /// Snapshots the 60 Hz world-thread tick-time distribution and host counts for `battle.map_id()`.
+    fn record_world_tick_stats(&mut self, battle: &BattleController) {
+        if let Some(stats) = battle.world_tick_stats() {
+            let map = battle.map_id().to_string();
+            if let Some(existing) = self.world_tick_stats.iter_mut().find(|(m, _)| m == &map) {
+                existing.1 = stats;
+            } else {
+                self.world_tick_stats.push((map, stats));
+            }
+        }
+        // Preserve completed battle measurements even if a later join fails.
+        if let Err(error) = self.write_summary_report() {
+            eprintln!("cannot save partial gate summary: {error}");
+        }
+    }
+
     /// Steps the gate choreography while in the front-end shell.
     pub fn step_shell(
         &mut self,
@@ -448,6 +600,7 @@ impl GateDriver {
 
         match self.phase {
             GatePhase::GateScreen => {
+                // Capture `02-gate.png` on the click-to-continue screen, then unlock into Main Menu.
                 if self.phase_frames >= 8 && elapsed >= 0.25 {
                     self.save_shell_shot(shell, "02-gate.png")?;
                     shell.app.unlock_gate();
@@ -461,6 +614,7 @@ impl GateDriver {
                 }
             }
             GatePhase::MainMenu => {
+                // Capture `03-main-menu.png`, then navigate into `SINGLEPLAYER`.
                 if self.phase_frames >= 8 && elapsed >= 0.25 {
                     self.save_shell_shot(shell, "03-main-menu.png")?;
                     shell.app.push_screen(ScreenId::Singleplayer);
@@ -468,12 +622,14 @@ impl GateDriver {
                 }
             }
             GatePhase::SingleplayerMenu => {
+                // Capture `04-singleplayer.png`, configure the 3-map playlist (`nab2`, `tat1`, `hot1`),
+                // and open `INSTANT ACTION`.
                 if self.phase_frames >= 8 && elapsed >= 0.25 {
                     self.save_shell_shot(shell, "04-singleplayer.png")?;
                     shell.app.ia_entries = vec![
                         PlaylistEntry::new("nab2", Some("cw".to_string())),
                         PlaylistEntry::new("tat1", Some("cw".to_string())),
-                        PlaylistEntry::new("bes1", Some("cw".to_string())),
+                        PlaylistEntry::new("hot1", Some("gcw".to_string())),
                     ];
                     let _ = settings.capture_from_shell_app(&shell.app);
                     shell.app.push_screen(ScreenId::InstantAction);
@@ -481,6 +637,7 @@ impl GateDriver {
                 }
             }
             GatePhase::InstantActionMenu => {
+                // Capture `05-instant-action.png`, then open `bfe-interface` `OPTIONS`.
                 if self.phase_frames >= 8 && elapsed >= 0.25 {
                     self.save_shell_shot(shell, "05-instant-action.png")?;
                     shell.app.push_screen(ScreenId::Options);
@@ -488,6 +645,7 @@ impl GateDriver {
                 }
             }
             GatePhase::OptionsMenu => {
+                // Capture `06-options.png` rendered by `bfe-interface::ClassicTheme`, then open `PROFILE`.
                 if self.phase_frames >= 8 && elapsed >= 0.25 {
                     self.save_shell_shot(shell, "06-options.png")?;
                     shell.app.push_screen(ScreenId::Profile);
@@ -495,6 +653,7 @@ impl GateDriver {
                 }
             }
             GatePhase::ProfileMenu => {
+                // Capture `07-profile.png`, then return to `INSTANT ACTION` to launch the playlist.
                 if self.phase_frames >= 8 && elapsed >= 0.25 {
                     self.save_shell_shot(shell, "07-profile.png")?;
                     shell.app.push_screen(ScreenId::InstantAction);
@@ -502,16 +661,24 @@ impl GateDriver {
                 }
             }
             GatePhase::LaunchIaPlaylist => {
+                // Emit `ShellTransition::StartInstantAction` for the 3-map rotation (`nab2` -> `tat1` -> `hot1`).
                 if self.phase_frames >= 4 {
                     let req = if let Some(map) = &self.target_map {
                         let era = if map == "hot1" { "gcw" } else { "cw" };
-                        let playlist = vec![PlaylistEntry::new(map.as_str(), Some(era.to_string()))];
-                        BattleRequest::from_rotation(Some(map.as_str()), Some(era), playlist, 0, false)?
+                        let playlist =
+                            vec![PlaylistEntry::new(map.as_str(), Some(era.to_string()))];
+                        BattleRequest::from_rotation(
+                            Some(map.as_str()),
+                            Some(era),
+                            playlist,
+                            0,
+                            false,
+                        )?
                     } else {
                         let playlist = vec![
                             PlaylistEntry::new("nab2", Some("cw".to_string())),
                             PlaylistEntry::new("tat1", Some("cw".to_string())),
-                            PlaylistEntry::new("bes1", Some("cw".to_string())),
+                            PlaylistEntry::new("hot1", Some("gcw".to_string())),
                         ];
                         BattleRequest::from_rotation(Some("nab2"), Some("cw"), playlist, 0, false)?
                     };
@@ -520,6 +687,7 @@ impl GateDriver {
                 }
             }
             GatePhase::MainMenuAfterIa => {
+                // Capture `18-main-menu-return.png` after quitting battle 3, then open `MULTIPLAYER`.
                 if self.phase_frames >= 8 && elapsed >= 0.25 {
                     if self.target_map.is_some() {
                         self.transition_to(GatePhase::Finished);
@@ -533,18 +701,24 @@ impl GateDriver {
                 }
             }
             GatePhase::MultiplayerBrowser => {
+                // Capture `19-multiplayer-browser.png` once the server list refreshes, then join `bfeserver`.
                 if self.phase_frames >= 18 && elapsed >= 0.6 {
                     shell.app.sync_from_browser(&shell.browser);
                     self.save_shell_shot(shell, "19-multiplayer-browser.png")?;
+                    // An explicit script target takes precedence over the row
+                    // selected by a background LAN/browser refresh.
                     let target = shell
                         .browser
-                        .selected()
-                        .and_then(|s| {
-                            s.address
-                                .as_ref()
-                                .map(|a| format!("{a}:{}", s.port.unwrap_or(27015)))
+                        .server_target()
+                        .map(String::from)
+                        .or_else(|| std::env::var("BFE_SERVER_TARGET").ok())
+                        .or_else(|| {
+                            shell.browser.selected().and_then(|server| {
+                                server.address.as_ref().map(|address| {
+                                    format!("{address}:{}", server.port.unwrap_or(27015))
+                                })
+                            })
                         })
-                        .or_else(|| shell.browser.server_target().map(String::from)).or_else(|| std::env::var("BFE_SERVER_TARGET").ok())
                         .unwrap_or_else(|| "127.0.0.1:27015".to_string());
                     let (host, port) = match target.rsplit_once(':') {
                         Some((h, p)) => (h.to_string(), p.parse::<u16>().unwrap_or(27015)),
@@ -567,6 +741,7 @@ impl GateDriver {
                 }
             }
             GatePhase::MultiplayerAfterOnline if self.phase_frames >= 8 && elapsed >= 0.25 => {
+                // Capture `24-multiplayer-return.png` after leaving the online battle and exit cleanly.
                 self.save_shell_shot(shell, "24-multiplayer-return.png")?;
                 self.transition_to(GatePhase::Finished);
                 return Ok(Some(ShellTransition::Exit));
@@ -597,6 +772,8 @@ impl GateDriver {
 
         match self.phase {
             GatePhase::IaNab2Spawn => {
+                // Wait for the admitted world to publish its initial spawn state (`classes` and `posts`),
+                // capture `09-ia-nab2-spawn.png`, and spawn into `nab2`.
                 if self.phase_frames >= 12 && elapsed >= 0.35 {
                     self.save_battle_shot(battle, "09-ia-nab2-spawn.png")?;
                     battle.trigger_spawn();
@@ -604,9 +781,13 @@ impl GateDriver {
                 }
             }
             GatePhase::IaNab2Combat => {
+                // Drive real combat on `nab2`, capturing `10-ia-nab2-battle.png` once spawned.
                 self.record_combat_frame_interval();
                 self.apply_generated_combat_input(battle);
                 if self.phase_frames == 45 {
+                    if battle.spawn_ctrl.is_open() {
+                        battle.spawn_ctrl.close(&mut battle.spawn_port);
+                    }
                     let shot_name = if let Some(map) = &self.target_map {
                         format!("ia-{map}-battle.png")
                     } else {
@@ -618,18 +799,23 @@ impl GateDriver {
                 }
                 if elapsed >= self.battle_duration_s && self.phase_frames >= 60 {
                     self.finish_combat_metrics(battle.map_id(), self.phase_frames, elapsed);
+                    self.record_render_allocations(battle);
                     battle.input.clear();
+                    if battle.spawn_ctrl.is_open() {
+                        battle.spawn_ctrl.close(&mut battle.spawn_port);
+                    }
                     if self.target_map.is_some() {
                         battle.handle_key("Escape", true, false, settings);
                         battle.handle_key("Escape", false, false, settings);
                         self.transition_to(GatePhase::IaBes1PauseMain);
                     } else {
-                        battle.handle_key("Tab", true, false, settings);
+                        battle.set_scoreboard_page(BoardPage::Table);
                         self.transition_to(GatePhase::IaNab2ScoreboardTable);
                     }
                 }
             }
             GatePhase::IaNab2ScoreboardTable => {
+                // Capture `11-ia-nab2-scoreboard.png` showing real bot kills and captures, then switch to Details.
                 if self.phase_frames >= 24 && elapsed >= 0.55 {
                     self.save_battle_shot(battle, "11-ia-nab2-scoreboard.png")?;
                     battle.set_scoreboard_page(BoardPage::Details);
@@ -637,6 +823,7 @@ impl GateDriver {
                 }
             }
             GatePhase::IaNab2ScoreboardDetails => {
+                // Capture `12-ia-nab2-scoreboard-details.png`, then open post-battle Awards with `DONE`.
                 if self.phase_frames >= 24 && elapsed >= 0.55 {
                     self.save_battle_shot(battle, "12-ia-nab2-scoreboard-details.png")?;
                     battle.force_victory_for_gate();
@@ -645,58 +832,80 @@ impl GateDriver {
                 }
             }
             GatePhase::IaNab2ScoreboardAwards => {
+                // Capture `13-ia-nab2-scoreboard-awards.png`, record `nab2` world tick stats, and advance to `tat1`.
                 if self.phase_frames >= 24 && elapsed >= 0.55 {
                     self.save_battle_shot(battle, "13-ia-nab2-scoreboard-awards.png")?;
+                    self.record_world_tick_stats(battle);
                     self.ia_battles_completed += 1;
                     battle.scoreboard_port.done_triggered = true;
                     self.transition_to(GatePhase::IaTat1Spawn);
                 }
             }
             GatePhase::IaTat1Spawn => {
+                // Spawn into playlist battle 2 (`tat1`).
                 if self.phase_frames >= 10 && elapsed >= 0.25 {
                     battle.trigger_spawn();
                     self.transition_to(GatePhase::IaTat1Combat);
                 }
             }
             GatePhase::IaTat1Combat => {
+                // Drive real combat on `tat1`, capture `14-ia-tat1-battle.png`, and advance to `hot1`.
                 self.record_combat_frame_interval();
                 self.apply_generated_combat_input(battle);
                 if self.phase_frames == 45 {
+                    if battle.spawn_ctrl.is_open() {
+                        battle.spawn_ctrl.close(&mut battle.spawn_port);
+                    }
                     self.save_battle_shot(battle, "14-ia-tat1-battle.png")?;
                     self.reset_combat_measurement_window();
                     return Ok(());
                 }
                 if elapsed >= self.battle_duration_s && self.phase_frames >= 60 {
                     self.finish_combat_metrics(battle.map_id(), self.phase_frames, elapsed);
+                    self.record_render_allocations(battle);
                     battle.input.clear();
+                    self.record_world_tick_stats(battle);
                     self.ia_battles_completed += 1;
                     battle.scoreboard_port.done_triggered = true;
                     self.transition_to(GatePhase::IaBes1Spawn);
                 }
             }
             GatePhase::IaBes1Spawn => {
+                // Spawn into playlist battle 3 (`hot1`).
                 if self.phase_frames >= 10 && elapsed >= 0.25 {
                     battle.trigger_spawn();
                     self.transition_to(GatePhase::IaBes1Combat);
                 }
             }
             GatePhase::IaBes1Combat => {
+                // Drive real combat on `hot1`, capture `15-ia-bes1-battle.png`, then open `ESC` pause.
                 self.record_combat_frame_interval();
                 self.apply_generated_combat_input(battle);
                 if self.phase_frames == 45 {
+                    if battle.spawn_ctrl.is_open() {
+                        battle.spawn_ctrl.close(&mut battle.spawn_port);
+                    }
                     self.save_battle_shot(battle, "15-ia-bes1-battle.png")?;
                     self.reset_combat_measurement_window();
                     return Ok(());
                 }
                 if elapsed >= self.battle_duration_s && self.phase_frames >= 60 {
                     self.finish_combat_metrics(battle.map_id(), self.phase_frames, elapsed);
+                    self.record_render_allocations(battle);
                     battle.input.clear();
+                    if battle.spawn_ctrl.is_open() {
+                        battle.spawn_ctrl.close(&mut battle.spawn_port);
+                    }
+                    if battle.scoreboard_ctrl.model.is_open() {
+                        battle.scoreboard_ctrl.model.close();
+                    }
                     battle.handle_key("Escape", true, false, settings);
                     battle.handle_key("Escape", false, false, settings);
                     self.transition_to(GatePhase::IaBes1PauseMain);
                 }
             }
             GatePhase::IaBes1PauseMain => {
+                // Capture `16-ia-bes1-pause.png`, then open the Quit-to-Main-Menu confirmation modal.
                 if self.phase_frames >= 12 && elapsed >= 0.3 {
                     self.save_battle_shot(battle, "16-ia-bes1-pause.png")?;
                     battle.open_pause_confirm(ConfirmKind::Quit);
@@ -704,8 +913,10 @@ impl GateDriver {
                 }
             }
             GatePhase::IaBes1PauseQuit => {
+                // Capture `17-ia-bes1-pause-quit.png`, record `hot1` world tick stats, and confirm quit.
                 if self.phase_frames >= 10 && elapsed >= 0.25 {
                     self.save_battle_shot(battle, "17-ia-bes1-pause-quit.png")?;
+                    self.record_world_tick_stats(battle);
                     self.ia_battles_completed += 1;
                     battle.handle_key("ArrowLeft", true, false, settings);
                     battle.handle_key("Enter", true, false, settings);
@@ -713,6 +924,7 @@ impl GateDriver {
                 }
             }
             GatePhase::OnlineSpawn => {
+                // Capture `20-online-spawn.png` on the live `bfeserver` match and trigger spawn.
                 if self.phase_frames >= 15 && elapsed >= 0.4 {
                     self.save_battle_shot(battle, "20-online-spawn.png")?;
                     battle.trigger_spawn();
@@ -720,21 +932,43 @@ impl GateDriver {
                 }
             }
             GatePhase::OnlineCombat => {
+                // Drive online combat against `bfeserver` and capture `21-online-battle.png`.
                 self.record_combat_frame_interval();
                 self.apply_generated_combat_input(battle);
-                if self.phase_frames == 45 {
+                if self.phase_frames >= 45
+                    && battle.was_alive
+                    && !self
+                        .screenshots_written
+                        .iter()
+                        .any(|name| name == "21-online-battle.png")
+                {
+                    if battle.spawn_ctrl.is_open() {
+                        battle.spawn_ctrl.close(&mut battle.spawn_port);
+                    }
                     self.save_battle_shot(battle, "21-online-battle.png")?;
                     self.reset_combat_measurement_window();
                     return Ok(());
                 }
-                if elapsed >= self.battle_duration_s && self.phase_frames >= 60 {
+                let captured = self
+                    .screenshots_written
+                    .iter()
+                    .any(|name| name == "21-online-battle.png");
+                if !captured && elapsed >= 15.0 {
+                    return Err("online player did not spawn for the combat capture".into());
+                }
+                if captured && elapsed >= self.battle_duration_s && self.phase_frames >= 60 {
                     self.finish_combat_metrics(battle.map_id(), self.phase_frames, elapsed);
+                    self.record_render_allocations(battle);
                     battle.input.clear();
-                    battle.handle_key("Tab", true, false, settings);
+                    if battle.spawn_ctrl.is_open() {
+                        battle.spawn_ctrl.close(&mut battle.spawn_port);
+                    }
+                    battle.set_scoreboard_page(BoardPage::Table);
                     self.transition_to(GatePhase::OnlineScoreboard);
                 }
             }
             GatePhase::OnlineScoreboard => {
+                // Capture `22-online-scoreboard.png`, close scoreboard, and open the online pause menu.
                 if self.phase_frames >= 24 && elapsed >= 0.55 {
                     self.save_battle_shot(battle, "22-online-scoreboard.png")?;
                     battle.handle_key("Tab", false, false, settings);
@@ -745,6 +979,7 @@ impl GateDriver {
                 }
             }
             GatePhase::OnlinePause => {
+                // Capture `23-online-pause.png` and confirm leaving back to the Multiplayer Server Browser.
                 if self.phase_frames >= 12 && elapsed >= 0.3 {
                     self.save_battle_shot(battle, "23-online-pause.png")?;
                     self.online_battle_completed = true;
@@ -759,15 +994,55 @@ impl GateDriver {
         Ok(())
     }
 
+    /// Serializes the gate verification summary (`gate-summary.json`), including GL errors,
+    /// steady-state frame allocations, world/renderer blocks, and the 60 Hz world-thread
+    /// tick-time distribution (`min`, `p50`, `p95`, `p99`, `max`) and host proof counts.
     pub fn write_summary_report(&self) -> Result<serde_json::Value, String> {
-        let last_battle = self.battles.last().cloned().unwrap_or(serde_json::Value::Null);
+        let mut world_stats_map = serde_json::Map::new();
+        for (map, st) in &self.world_tick_stats {
+            world_stats_map.insert(
+                map.clone(),
+                serde_json::to_value(st).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        let last_battle = self
+            .battles
+            .last()
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        // An interrupted run must not leave a success receipt. Require the
+        // completed choreography and actual world ticks before claiming proof.
+        let expected_battles = if self.target_map.is_some() { 1 } else { 3 };
+        let choreography_complete = if self.online_duel {
+            self.online_battle_completed
+        } else {
+            self.phase == GatePhase::Finished
+                && self.ia_battles_completed == expected_battles
+                && (self.target_map.is_some() || self.online_battle_completed)
+                && self.battles.len() == if self.target_map.is_some() { 1 } else { 4 }
+                && self.battles.iter().all(|battle| {
+                    battle["playerSpawns"]
+                        .as_u64()
+                        .is_some_and(|count| count > 0)
+                })
+                && self.world_tick_stats.len() == expected_battles
+                && self
+                    .world_tick_stats
+                    .iter()
+                    .all(|(_, stats)| stats.count > 0 && !stats.context_poisoned)
+        };
+        let passed = choreography_complete
+            && self.gl_errors == 0
+            && self.world_renderer_blocks == 0
+            && self.steady_frames_measured > 0;
         let summary = serde_json::json!({
-            "status": "PASS",
+            "status": if passed { "PASS" } else { "FAIL" },
             "glErrors": self.gl_errors,
             "audio": {"eventCounts":self.audio_events.to_vec(),"voiceDecoded":self.voice_decodes,"frames":self.audio_frames,"peak":self.audio_peak},
             "steadyFrameAllocationsAfterWarmup": self.steady_allocs_after_warmup,
             "steadyFramesMeasured": self.steady_frames_measured,
             "worldRendererBlocks": self.world_renderer_blocks,
+            "worldThreadTickTimeMs": world_stats_map,
             "iaBattlesCompleted": self.ia_battles_completed,
             "onlineBattleCompleted": self.online_battle_completed,
             "battleDurationSeconds": self.battle_duration_s,
@@ -789,77 +1064,158 @@ impl GateDriver {
 }
 
 /// Encodes bottom-up RGBA8 framebuffer pixels as an uncompressed PNG file.
+///
+/// Flips rows from OpenGL's bottom-up origin to PNG's top-down scanline order,
+/// wraps scanlines in stored RFC 1950 / DEFLATE blocks with an Adler-32 checksum,
+/// and writes standard `IHDR`, `IDAT`, and `IEND` chunks.
 pub fn write_png(
     path: &Path,
     width: u32,
     height: u32,
-    bottom_up_rgba: &[u8],
+    rgba_bottom_up: &[u8],
 ) -> Result<(), String> {
-    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
     let row_bytes = (width as usize) * 4;
-    let mut raw = Vec::with_capacity((row_bytes + 1) * (height as usize));
-    for y in (0..height as usize).rev() {
-        raw.push(0u8);
-        for px in bottom_up_rgba[y * row_bytes..(y + 1) * row_bytes].as_chunks::<4>().0 {
-            raw.extend_from_slice(&[px[0], px[1], px[2], 255]);
-        }
+    if rgba_bottom_up.len() < row_bytes * (height as usize) {
+        return Err("insufficient RGBA bytes for PNG".to_string());
     }
 
-    let mut zlib = Vec::with_capacity(raw.len() + (raw.len() / 65535 + 2) * 5 + 6);
-    zlib.extend_from_slice(&[0x78, 0x01]);
-    let chunks: Vec<&[u8]> = if raw.is_empty() {
-        vec![&[]]
-    } else {
-        raw.chunks(65535).collect()
-    };
+    // Build top-down scanlines with filter byte `0` (None) prepended to each row.
+    let mut raw = Vec::with_capacity((row_bytes + 1) * (height as usize));
+    for y in 0..(height as usize) {
+        let src_row = height as usize - 1 - y;
+        let start = src_row * row_bytes;
+        raw.push(0u8);
+        raw.extend_from_slice(&rgba_bottom_up[start..start + row_bytes]);
+    }
+
+    // Wrap raw scanlines in uncompressed zlib/DEFLATE blocks (`0x78 0x01`) + Adler-32.
+    let mut zlib = Vec::with_capacity(raw.len() + (raw.len() / 65535 + 1) * 5 + 6);
+    zlib.push(0x78);
+    zlib.push(0x01);
+
+    let chunks: Vec<&[u8]> = raw.chunks(65535).collect();
     for (i, chunk) in chunks.iter().enumerate() {
+        let is_last = i + 1 == chunks.len();
+        zlib.push(if is_last { 0x01 } else { 0x00 });
         let len = chunk.len() as u16;
-        zlib.push(u8::from(i + 1 == chunks.len()));
+        let nlen = !len;
         zlib.extend_from_slice(&len.to_le_bytes());
-        zlib.extend_from_slice(&(!len).to_le_bytes());
+        zlib.extend_from_slice(&nlen.to_le_bytes());
         zlib.extend_from_slice(chunk);
     }
-    let (mut s1, mut s2) = (1u32, 0u32);
-    for &b in &raw {
-        s1 = (s1 + b as u32) % 65521;
-        s2 = (s2 + s1) % 65521;
-    }
-    zlib.extend_from_slice(&((s2 << 16) | s1).to_be_bytes());
 
-    fn crc32(bytes: &[u8]) -> u32 {
-        let mut c = 0xffff_ffffu32;
-        for &b in bytes {
-            c ^= b as u32;
-            for _ in 0..8 {
-                c = if c & 1 != 0 {
-                    0xedb8_8320 ^ (c >> 1)
-                } else {
-                    c >> 1
-                };
-            }
-        }
-        !c
-    }
+    let adler = adler32(&raw);
+    zlib.extend_from_slice(&adler.to_be_bytes());
 
-    fn write_chunk(out: &mut Vec<u8>, tag: &[u8; 4], data: &[u8]) {
-        out.extend_from_slice(&(data.len() as u32).to_be_bytes());
-        let start = out.len();
-        out.extend_from_slice(tag);
-        out.extend_from_slice(data);
-        let crc = crc32(&out[start..]);
-        out.extend_from_slice(&crc.to_be_bytes());
-    }
+    // Emit PNG magic header followed by `IHDR`, `IDAT`, and `IEND`.
+    let mut out = Vec::with_capacity(zlib.len() + 64);
+    out.extend_from_slice(&[137, 80, 78, 71, 13, 10, 26, 10]);
 
-    let mut png = Vec::with_capacity(zlib.len() + 64);
-    png.extend_from_slice(b"\x89PNG\r\n\x1a\n");
     let mut ihdr = Vec::with_capacity(13);
     ihdr.extend_from_slice(&width.to_be_bytes());
     ihdr.extend_from_slice(&height.to_be_bytes());
-    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
-    write_chunk(&mut png, b"IHDR", &ihdr);
-    write_chunk(&mut png, b"IDAT", &zlib);
-    write_chunk(&mut png, b"IEND", &[]);
-    std::fs::write(path, png).map_err(|e| e.to_string())
+    ihdr.push(8);
+    ihdr.push(6);
+    ihdr.push(0);
+    ihdr.push(0);
+    ihdr.push(0);
+    write_png_chunk(&mut out, b"IHDR", &ihdr);
+    write_png_chunk(&mut out, b"IDAT", &zlib);
+    write_png_chunk(&mut out, b"IEND", &[]);
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(path, out).map_err(|e| e.to_string())
+}
+
+/// Appends a single length-prefixed, CRC32-suffixed PNG chunk (`type` + `data`) to `out`.
+fn write_png_chunk(out: &mut Vec<u8>, chunk_type: &[u8; 4], data: &[u8]) {
+    out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+    out.extend_from_slice(chunk_type);
+    out.extend_from_slice(data);
+    let mut crc = 0xFFFF_FFFFu32;
+    for &b in chunk_type.iter().chain(data.iter()) {
+        crc ^= b as u32;
+        for _ in 0..8 {
+            if crc & 1 != 0 {
+                crc = (crc >> 1) ^ 0xEDB8_8320;
+            } else {
+                crc >>= 1;
+            }
+        }
+    }
+    out.extend_from_slice(&(!crc).to_be_bytes());
+}
+
+/// Computes the RFC 1950 Adler-32 checksum over `data`.
+fn adler32(data: &[u8]) -> u32 {
+    const MOD_ADLER: u32 = 65521;
+    let mut a = 1u32;
+    let mut b = 0u32;
+    for &byte in data {
+        a = (a + byte as u32) % MOD_ADLER;
+        b = (b + a) % MOD_ADLER;
+    }
+    (b << 16) | a
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interrupted_gate_writes_failure_receipt() {
+        let dir = std::env::temp_dir().join(format!("bfe-gate-receipt-{}", std::process::id()));
+        let gate = GateDriver::new("gate", Some(dir.clone()));
+        let summary = gate
+            .write_summary_report()
+            .expect("write interrupted receipt");
+        assert_eq!(summary["status"], "FAIL");
+        std::fs::remove_dir_all(dir).expect("remove receipt");
+    }
+
+    #[test]
+    fn completed_gate_reports_allocations_without_rejecting_battles() {
+        let dir = std::env::temp_dir().join(format!("bfe-gate-completed-{}", std::process::id()));
+        let mut gate = GateDriver::new("gate", Some(dir.clone()));
+        gate.phase = GatePhase::Finished;
+        gate.ia_battles_completed = 3;
+        gate.online_battle_completed = true;
+        gate.steady_frames_measured = 100;
+        gate.steady_allocs_after_warmup = 50;
+        gate.battles = (0..4)
+            .map(|_| serde_json::json!({"playerSpawns":1}))
+            .collect();
+        for map in ["nab2", "tat1", "hot1"] {
+            gate.world_tick_stats.push((
+                map.into(),
+                WorldTickStats {
+                    count: 1,
+                    ..Default::default()
+                },
+            ));
+        }
+        let summary = gate
+            .write_summary_report()
+            .expect("write completed receipt");
+        assert_eq!(summary["status"], "PASS");
+        assert_eq!(summary["steadyFrameAllocationsAfterWarmup"], 50);
+        gate.battles[3]["playerSpawns"] = 0.into();
+        assert_eq!(gate.write_summary_report().unwrap()["status"], "FAIL");
+        std::fs::remove_dir_all(dir).expect("remove receipt");
+    }
+
+    /// Verifies that `write_png` writes a valid PNG file with the expected magic header and IEND chunk.
+    #[test]
+    fn write_png_produces_valid_png_signature_and_iend() {
+        let dir = std::env::temp_dir().join("bfe-client-png-test");
+        let path = dir.join("test.png");
+        let pixels = vec![255u8; 4 * 4 * 4];
+        write_png(&path, 4, 4, &pixels).expect("write_png");
+        let bytes = std::fs::read(&path).expect("read png");
+        assert_eq!(&bytes[..8], &[137, 80, 78, 71, 13, 10, 26, 10]);
+        assert!(bytes.windows(4).any(|w| w == b"IEND"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

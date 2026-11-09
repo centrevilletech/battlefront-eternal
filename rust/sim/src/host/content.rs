@@ -20,7 +20,7 @@ use crate::world::admit::Options;
 use bfe_content::battle::{Battle, Loader};
 use bfe_content::content::Content;
 use bfe_content::defs::identity;
-use bfe_content::files::DirFiles;
+use bfe_content::files::{DirFiles, Files};
 use bfe_content::registry::{combat_registry, registry_content};
 use bfe_content::value::Value;
 
@@ -62,7 +62,17 @@ pub fn content_tables(
     store_source: u32,
 ) -> Result<(Vec<u32>, HostContent), String> {
     let files = DirFiles::new(content_dir);
-    let loader = Loader::new(&files);
+    content_tables_files(context, &files, options, store_source)
+}
+
+/// Resolve the same tables through the native client's selected content provider.
+pub fn content_tables_files(
+    context: &Context,
+    files: &dyn Files,
+    options: &Options,
+    store_source: u32,
+) -> Result<(Vec<u32>, HostContent), String> {
+    let loader = Loader::new(files);
     let battle = Battle::load(&loader, &options.map, &query(options))?;
     let content = Content::build(battle)?;
     // One tree for the walk and the lookups: the registry names objects.

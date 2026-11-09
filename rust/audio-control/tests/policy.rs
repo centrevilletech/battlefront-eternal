@@ -44,6 +44,35 @@ fn tick(p: &mut Phase, dt: f64, events: &[[f64;event::STRIDE]]) {
 }
 fn started(p: &Phase, sound: usize) -> usize { p.engine.voices.iter().filter(|v|v.serial>0 && v.sound==sound).count() }
 fn live(p: &Phase, sound: usize) -> usize { p.engine.voices.iter().filter(|v|!v.done && v.sound==sound).count() }
+
+#[test]
+fn pending_release_tails_keep_new_voices_virtual_until_slots_return() {
+    let mut p = phase();
+    // Two batches can replace all real voices before a slow or suspended
+    // device clock reaches the old voices' release deadlines.
+    for _ in 0..64 {
+        let handle = p.play(Ask::new(0, EFFECTS));
+        assert_ne!(handle, SILENT);
+        let id = p.engine.voices.iter().position(|v| !v.done).unwrap();
+        p.engine.set_real(id, true);
+        p.stop(handle, 0.03);
+    }
+    let handle = p.play(Ask::new(0, EFFECTS));
+    assert_ne!(handle, SILENT);
+    let id = p.engine.voices.iter().position(|v| !v.done).unwrap();
+    let commands = p.engine.commands.len();
+    p.engine.set_real(id, true);
+    assert!(!p.engine.voices[id].real);
+    assert_eq!(p.engine.voices[id].slot, NONE);
+    assert_eq!(p.engine.commands.len(), commands);
+    // Keep the logical voice alive and admit it once the device catches up.
+    p.engine.wall_now = 1.0;
+    p.engine.reclaim();
+    p.engine.set_real(id, true);
+    assert!(p.engine.voices[id].real);
+    assert_ne!(p.engine.voices[id].slot, NONE);
+}
+
 #[test]
 fn salvo_is_once_per_frame_and_fire_stop_cuts_the_preceding_shot() {
     let mut p=phase(); actor(&mut p,0,emitter_kind::SOLDIER); weapon(&mut p,0,0); p.classes[0][class::FIRE]=0.0; p.classes[0][class::FIRE_STOP]=1.0;

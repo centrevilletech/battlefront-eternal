@@ -310,7 +310,8 @@ impl Receiver {
             }
             // Read only the shared correction prefix needed for the own
             // camera. Opaque arsenal state remains in the native receiver.
-            if kind == k::CORRECTION && row[r::ID] == self.own.id {
+            if kind == k::CORRECTION && (!self.spectator || row[r::ID] == self.own.id) {
+                self.own.id = row[r::ID];
                 let offset = row[r::PAYLOAD_OFFSET] as usize;
                 let length = row[r::PAYLOAD_LENGTH] as usize;
                 let Some(bytes) = owner.leases.payloads.get(offset..offset + length) else {

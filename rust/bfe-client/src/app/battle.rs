@@ -1,6 +1,110 @@
 //! Unified battle controller for Instant Action (`WorldThread`) and Online (`online::client::Client`)
 //! battles, integrating `bfe-battle-ui` (`SpawnScreenController`, `ScoreboardController`,
 //! `PauseMenu`, `ChatController`) over the native 3D `Scene` and `HudModel`.
+//!
+//! ## Architecture and Invariants
+//! - **Single Unified 3D + HUD Framebuffer**: Both Instant Action and Online battles
+//!   render 3D world geometry, sky, terrain, units, particles, and 2D/3D-anchored HUD
+//!   and battle overlays (`SpawnScreenController`, `ScoreboardController`, `PauseMenu`,
+//!   `ChatController`) into `Scene.canvas.framebuffer` via a single `scene.draw(&view)`
+//!   pass per frame.
+//! - **Exclusive `Context::world_admit` Admission**: Instant Action admits the mission
+//!   simulation exclusively through `WorldThread::admit_instant_action` (`Prepared::new` ->
+//!   `Context::world_admit`) on a dedicated `"bfe-world-60hz"` thread; no stand-in or
+//!   fallback authority exists. If admission fails, the error is surfaced to the player.
+//! - **Non-blocking Render/World Coupling**: The render thread drains `Publication`
+//!   batches via `try_recv` and sends `WorldMessage::Step` via `mpsc::Sender::send`,
+//!   guaranteeing `0` render-thread blocks on the 60 Hz world thread.
+//!
+//! ## Coordinate Spaces and HUD / Overlay Composition
+//! - **3D World Pass (`Scene::draw`)**:
+//!   Renders skybox, terrain heightmap/blendmap, static props, water reflections,
+//!   skeletal/skinned soldiers and vehicles, ordnances, explosions, particles, and
+//!   post-processing into `Scene.canvas.framebuffer` using the interpolated [`View`]
+//!   camera matrix.
+//! - **In-Battle HUD (`HudModel`)**:
+//!   Maintains a pre-allocated 2048-quad batch (`scene.bridge.hud_model.batch`) in a
+//!   1024-wide logical interface space (`height = interface_height(w, h)`).
+//!   During steady combat (all 2D overlays closed), `hud_model_update()` and
+//!   `hud_model.build(0)` update only dirty quad vertex ranges (`start..end`),
+//!   and `bridge.hud_sync_batch(false)` copies only the modified slice into
+//!   `scene.core`'s HUD pass with zero heap allocations.
+//! - **Battle UI Overlays (`bfe-battle-ui`)**:
+//!   When `SpawnScreenController`, `ScoreboardController`, `PauseMenu`, or
+//!   `ChatController` is open:
+//!   1. [`BattleController::sync_ports_cold`] copies the latest reinforcement ticket
+//!      counts, command post owners, player life state, and scoreboard roster rows
+//!      from `replicas.hud` and `Receiver` into [`LiveSpawnPort`] and [`LiveScoreboardPort`].
+//!   2. [`BattleController::update_and_build_overlays`] updates the active controller
+//!      and emits its quads into `hud_model.batch` (either directly via `HudBatchSurface`
+//!      or by compositing `self.overlay_batch` via [`BattleController::append_batch`]).
+//!   3. `bridge.hud_sync_batch(true)` uploads the full active quad range for that frame.
+//!
+//! ## Instant Action vs Online Authority Parity
+//! | Aspect | `BattleAuthority::InstantAction` | `BattleAuthority::Online` |
+//! |---|---|---|
+//! | World Admission | `WorldThread::admit_instant_action` (`Context::world_admit`) | Remote/local `bfeserver` (`GET /info` + UDP/WebRTC) |
+//! | Simulation Thread | Dedicated 60 Hz `"bfe-world-60hz"` thread | Server-authoritative 60 Hz loop |
+//! | Snapshot Delivery | Lock-free `mpsc::Receiver<Publication>` (`poll_publications`) | Network datagrams (`OnlineClient::receive`) |
+//! | Input Delivery | `WorldMessage::Step { command, look, flight, actions, ack }` | `OnlineClient::step` + `OnlineClient::send` |
+//! | Client Prediction | `Sender::tick` + `Replay::frame` + `MapCamera::follow` | `OnlineClient::step` + `OnlineClient::present` |
+//! | Spawn / Respawn | `WorldMessage::Spawn` / `WorldMessage::Respawn` | `Sender::request_spawn` / `Sender::request_suicide` |
+//! | Pause Behavior | Pauses `"bfe-world-60hz"` (`world.set_paused(true)`) | Simulation continues on server; shows `PLAYER LIST` |
+//! | Restart Mission | Re-admits current playlist entry from tick 0 | Hidden in online mode (`PauseRestartMode::Hidden`) |
+//!
+//! ## Steady-State Allocation Accounting
+//! - Frames `0..45` with overlays closed warm up any lazy internal buffers and the
+//!   first-tick welcome snapshot / initial combat presentation caches, matching
+//!   `phase_frames == 45` in `script.rs` (`reset_combat_measurement_window`).
+//! - Once `self.steady_frames >= 45` and `!self.is_overlay_open()`,
+//!   `BattleController::step_and_draw` samples `super::render_thread_alloc_count()`
+//!   before and after the entire simulation poll, input step, HUD build, and
+//!   `scene.draw(&view)` pass, accumulating any delta into `steady_allocs_after_warmup`.
+//! - The `--script gate` harness reports `steady_allocs_after_warmup` across
+//!   all three 2-minute Instant Action battles (`nab2`, `tat1`, `bes1`) and the
+//!   2-minute Online battle.
+//!
+//! ## Scoreboard Pages and Post-Match Flow (`LiveScoreboardPort` + `ScoreboardController`)
+//! - **`BoardPage::Table`**:
+//!   Displays the two faction headers (`REPUBLIC` vs `CIS` or `REBEL ALLIANCE` vs
+//!   `GALACTIC EMPIRE`), live reinforcement ticket counts, and sorted per-unit rows
+//!   with `Name`, `Kills`, `Deaths`, `Team Kills`, `Points`, and online `Ping`.
+//! - **`BoardPage::Details`**:
+//!   Displays personal match/career statistics (`PersonalStatRow`) for the highlighted
+//!   player or AI unit slot.
+//! - **`BoardPage::Awards`**:
+//!   Available when the match ends (`BoardState::End`); displays post-battle medals
+//!   and awards (`AwardRow`) together with the `DONE` action button.
+//! - **Playlist Progression on `DONE`**:
+//!   Activating `DONE` invokes [`ScoreboardPort::restart`] on [`LiveScoreboardPort`],
+//!   which sets `done_triggered = true`. On the next [`BattleController::step_and_draw`]
+//!   tick, `done_triggered` emits [`BattleTransition::NextPlaylistBattle`] in Instant
+//!   Action (advancing `playlist_index -> playlist_index + 1` in `request.playlist`)
+//!   or [`BattleTransition::LeaveOnline`] in Online mode.
+//!
+//! ## Spawn Screen Tactical Map and Class Selection (`LiveSpawnPort` + `SpawnScreenController`)
+//! - **Class Roster (`rosters[0..2]`)**:
+//!   Populated from `replicas.hud.class_meta` with up to 5 playable classes per faction,
+//!   preserving each class's network registry ID (`class_registry_ids`) and localized
+//!   weapon list (`BLASTER RIFLE`, `BLASTER PISTOL`, `THERMAL DETONATOR`, etc.).
+//! - **Command Posts (`posts` & `post_ids`)**:
+//!   Populated from `replicas.hud.post_meta` with world-space `[x, y, z]` coordinates
+//!   projected onto the overhead map via `MapProjection` (`map_x`, `map_z`, `map_half`,
+//!   `post_icon_size`). Posts owned by the player's team (or neutral) are marked
+//!   `eligible = true`.
+//! - **Spawn Dispatch (`PendingSpawnChoice`)**:
+//!   Confirming spawn (`Enter`, `Space`, or clicking `SPAWN`) records a
+//!   [`PendingSpawnChoice`] on [`LiveSpawnPort`], which [`BattleController::flush_spawn_requests`]
+//!   sends as `WorldMessage::Spawn { team, class_name, post_name }` in Instant Action
+//!   or `Sender::request_spawn(class_reg_id, post_reg_id)` in Online mode.
+//!
+//! ## Escape Pause Menu (`PauseMenu`)
+//! - **Instant Action Mode**: Exposes `RESUME`, `RESPAWN`, `RESTART MISSION`
+//!   (`PauseRestartMode::Custom`), `OPTIONS`, `CONTROLS`, `QUIT TO MAIN MENU`,
+//!   and `EXIT TO WINDOWS`. While open, pauses the 60 Hz world thread (`world.set_paused(true)`).
+//! - **Online Mode**: Hides `RESTART MISSION` (`PauseRestartMode::Hidden`), enables
+//!   `PLAYER LIST` (`show_player_list = true`), and keeps the network session
+//!   running while the overlay is open.
 
 use crate::{
     app::settings::AppSettingsStore,
@@ -11,11 +115,11 @@ use crate::{
     local::{
         options::Options as LocalOptions,
         publication::Publication,
-        thread::{FallbackMissionConfig, InitialPostConfig, WorldMessage, WorldThread},
+        thread::{WorldMessage, WorldThread, WorldTickStats},
     },
     online::{
         client::Client as OnlineClient,
-        hud::{HudClassMeta, HudPostMeta},
+        hud::{Hud, HudClassMeta, HudOwnSummary, HudPostMeta},
         input::Sender,
         receiver::Receiver,
         replay::Replay,
@@ -50,46 +154,103 @@ use winit::{event::MouseButton, keyboard::KeyCode};
 
 /// Transition out of the active battle.
 #[derive(Clone, Debug)]
+///
+/// Returned by [`BattleController::step_and_draw`] when the active battle concludes
+/// (via post-match scoreboard `DONE`), restarts (`PauseMenu` `RESTART MISSION`),
+/// returns to the front-end (`QUIT TO MAIN MENU` / `LEAVE GAME`), or exits to desktop.
 pub enum BattleTransition {
     /// Advance to the next mission in the Instant Action playlist (or loop/return).
     NextPlaylistBattle {
+        /// Launch parameters and playlist for the Instant Action session.
         request: BattleRequest,
+        /// Zero-based index of the next playlist entry to admit.
         next_index: usize,
     },
     /// Restart the current Instant Action mission from tick 0.
     RestartMission {
+        /// Launch parameters and playlist for the Instant Action session.
         request: BattleRequest,
+        /// Zero-based index of the mission to re-admit.
         playlist_index: usize,
     },
     /// Quit from an Instant Action battle back to the front-end Main Menu.
     QuitToMainMenu,
     /// Leave an Online battle (or disconnect) back to the Multiplayer Server Browser.
-    LeaveOnline { reason: Option<String> },
+    LeaveOnline {
+        /// Optional disconnect or network fault message to display in a popup.
+        reason: Option<String>,
+    },
     /// Rejoin the ready server match after the end table.
     NextOnlineBattle { launch: MultiplayerLaunch },
     /// Exit the entire application to the desktop (`EXIT TO WINDOWS`).
     ExitToWindows,
 }
 
+/// Pending spawn selection queued from `LiveSpawnPort::request`.
+#[derive(Clone, Debug)]
+///
+/// Created by [`LiveSpawnPort::request`] when the player clicks `SPAWN` or presses
+/// `Enter`/`Space` on the spawn screen, and consumed on the next frame by
+/// [`BattleController::flush_spawn_requests`].
+pub struct PendingSpawnChoice {
+    /// Selected faction team index (`1` or `2`).
+    pub team: u8,
+    /// Zero-based class index within the team's spawn roster.
+    pub class_idx: usize,
+    /// Zero-based command post index within the mission's post list.
+    pub post_idx: usize,
+    /// Network registry ID of the selected unit class (`OnlineClient` spawn request).
+    pub class_reg_id: u16,
+    /// Network registry ID of the selected command post (`OnlineClient` spawn request).
+    pub post_reg_id: u16,
+    /// Engine class name (e.g. `"rep_inf_trooper"`, `"cis_inf_battledroid"`).
+    pub class_name: String,
+    /// Engine command post identifier (e.g. `"cp1"`, `"cp2"`).
+    pub post_name: String,
+}
+
 /// Spawn screen port backed by the live battle HUD metadata and authority.
+///
+/// Implements [`bfe_battle_ui::spawn::SpawnPort`] by bridging the mission's replicated
+/// [`HudClassMeta`], [`HudPostMeta`], team reinforcement ticket counters, and local
+/// player life phase into `SpawnScreenController`.
 pub struct LiveSpawnPort {
+    /// Current human player life phase, selected team, class, and command post.
     pub human: HumanSpawnFacts,
+    /// Team headers, faction icons, objectives, and reinforcement ticket counts for teams 1 and 2.
     pub teams: [SpawnTeamFacts; 2],
+    /// Selectable unit class rosters for teams 1 and 2.
     pub rosters: [Vec<SpawnClassEntry>; 2],
+    /// Network registry IDs corresponding to each entry in `rosters`.
     pub class_registry_ids: [Vec<usize>; 2],
+    /// Command posts displayed on the overhead tactical map.
     pub posts: Vec<SpawnPostEntry>,
+    /// Network registry IDs corresponding to each entry in `posts`.
     pub post_ids: Vec<usize>,
-    pub pending_spawn: Option<(u8, usize, usize, u16, u16)>,
+    /// Spawn selection queued when the player clicks `SPAWN` or presses `Enter`/`Space`.
+    pub pending_spawn: Option<PendingSpawnChoice>,
+    /// Suicide / respawn flag queued when the player triggers respawn.
     pub pending_suicide: bool,
 }
 
 impl LiveSpawnPort {
+    /// Constructs a [`LiveSpawnPort`] from the mission's extracted HUD class metadata,
+    /// command post metadata, localization strings, and era (`"cw"` or `"gcw"`).
+    ///
+    /// ## Roster and Command Post Extraction
+    /// 1. Selects faction side identifiers (`"rep"` vs `"cis"` for Clone Wars;
+    ///    `"all"` vs `"imp"` for Galactic Civil War), display titles, and faction icon names.
+    /// 2. Extracts up to 5 playable unit classes per faction from `class_meta`, preserving
+    ///    their network registry IDs (`class_registry_ids`) and weapon loadout labels.
+    /// 3. Populates the overhead map command post list (`posts` and `post_ids`) with
+    ///    world-space `[x, y, z]` coordinates and initial team ownership.
     pub fn from_hud_meta(
         class_meta: &[HudClassMeta],
         post_meta: &[HudPostMeta],
         strings: &std::collections::HashMap<String, String>,
         era: &str,
     ) -> Self {
+        // Resolve faction side keys, display titles, and emblem texture names for the era.
         let is_gcw = era.eq_ignore_ascii_case("gcw");
         // The mission, rather than the era, assigns faction to team number.
         // Keep the era defaults only for content-free interface fixtures.
@@ -179,6 +340,7 @@ impl LiveSpawnPort {
         let (roster1, ids1) = build_roster(1, side1);
         let (roster2, ids2) = build_roster(2, side2);
 
+        // Populate command posts and their world-space `[x, y, z]` coordinates.
         let mut posts = Vec::new();
         let mut post_ids = Vec::new();
         for (idx, pm) in post_meta.iter().enumerate() {
@@ -256,10 +418,19 @@ impl LiveSpawnPort {
         }
     }
 
+    /// Synchronizes reinforcement counts, command post ownership, and the local
+    /// player's life phase from the latest HUD publication state.
+    ///
+    /// ## Live HUD Synchronization
+    /// - Updates `self.human.phase` (`"alive"`, `"dead"`, `"ended"`, or `"awaiting"`)
+    ///   from `own_alive` and `own_summary`.
+    /// - Updates `self.teams[0..2].reinforcements` from `teams[1][0]` and `teams[2][0]`.
+    /// - Updates command post ownership (`p.owner`) as posts are captured or neutralized.
     pub fn sync_from_hud(
         &mut self,
         teams: &[[f64; 4]; 8],
         post_meta: &[HudPostMeta],
+        own_summary: &HudOwnSummary,
         own_alive: bool,
         own_team: u8,
     ) {
@@ -270,6 +441,13 @@ impl LiveSpawnPort {
         }
         self.human.phase = if own_alive {
             "alive".to_string()
+        } else if own_summary.valid {
+            match own_summary.phase {
+                0 => "alive".to_string(),
+                1 => "dead".to_string(),
+                3 => "ended".to_string(),
+                _ => "awaiting".to_string(),
+            }
         } else {
             "awaiting".to_string()
         };
@@ -285,11 +463,16 @@ impl LiveSpawnPort {
     }
 }
 
+// Implementation of `bfe_battle_ui::spawn::SpawnPort` for `LiveSpawnPort`.
+// Bridges the live battle authority (`WorldThread` or `OnlineClient`) to
+// `SpawnScreenController` without coupling `bfe-battle-ui` to network or simulation types.
 impl SpawnPort for LiveSpawnPort {
+    /// Returns the human player's current spawn state.
     fn human_state(&self) -> HumanSpawnFacts {
         self.human.clone()
     }
 
+    /// Returns faction metadata and reinforcement ticket count for `team` (`1` or `2`).
     fn team_facts(&self, team: u8) -> Option<SpawnTeamFacts> {
         match team {
             1 => Some(self.teams[0].clone()),
@@ -298,6 +481,7 @@ impl SpawnPort for LiveSpawnPort {
         }
     }
 
+    /// Returns the selectable unit classes for `team` (`1` or `2`).
     fn roster(&self, team: u8) -> Vec<SpawnClassEntry> {
         match team {
             1 => self.rosters[0].clone(),
@@ -306,6 +490,7 @@ impl SpawnPort for LiveSpawnPort {
         }
     }
 
+    /// Returns all command posts, marking posts owned by `team` (or neutral) as eligible.
     fn posts(&self, team: u8) -> Vec<SpawnPostEntry> {
         self.posts
             .iter()
@@ -317,6 +502,11 @@ impl SpawnPort for LiveSpawnPort {
             .collect()
     }
 
+    /// Queues a [`PendingSpawnChoice`] for the selected team, class, and command post.
+    ///
+    /// Resolves `choice.team` (`1` or `2`), looks up the zero-based `class_idx` and
+    /// network `class_reg_id` in `self.rosters`, looks up `post_idx` and `post_reg_id`
+    /// in `self.posts`, and stores the resulting [`PendingSpawnChoice`] in `self.pending_spawn`.
     fn request(&mut self, choice: &SpawnRequest) {
         let team = choice.team.clamp(1, 2);
         let t_idx = (team - 1) as usize;
@@ -339,30 +529,52 @@ impl SpawnPort for LiveSpawnPort {
         self.human.class_name = Some(choice.class_name.clone());
         self.human.class_index = class_idx;
         self.human.post = Some(choice.post.clone());
-        self.pending_spawn = Some((team, class_idx, post_idx, class_reg_id, post_reg_id));
+        self.pending_spawn = Some(PendingSpawnChoice {
+            team,
+            class_idx,
+            post_idx,
+            class_reg_id,
+            post_reg_id,
+            class_name: choice.class_name.clone(),
+            post_name: choice.post.clone(),
+        });
     }
 
+    /// Queues a suicide / respawn request.
     fn suicide(&mut self) {
         self.pending_suicide = true;
     }
 
+    /// Cancels spawn selection without action.
     fn cancel(&mut self) {}
 
+    /// Returns custom camera shots if any (handled natively by `MapCamera`).
     fn camera_shots(&self) -> Vec<CameraShot> {
         Vec::new()
     }
 
+    /// Sets the active spawn screen camera preview shot.
     fn set_view_shot(&mut self, _shot: Option<CameraShot>) {}
 }
 
 /// Scoreboard port wrapping [`WorldScoreboardPort`] and tracking `DONE` / restart triggers.
+///
+/// Implements [`bfe_battle_ui::scoreboard::ScoreboardPort`] over [`WorldScoreboardPort`],
+/// synchronizing live unit kill/death/capture rows from [`Hud::roster`] and recording
+/// when the player activates `DONE` at the end of a match (`done_triggered`).
 pub struct LiveScoreboardPort {
+    /// Underlying `bfe-battle-ui` scoreboard data model.
     pub inner: WorldScoreboardPort,
+    /// Set to `true` when the player activates `DONE` on the end-of-match scoreboard.
     pub done_triggered: bool,
     pub next_ready: bool,
 }
 
 impl LiveScoreboardPort {
+    /// Creates a new [`LiveScoreboardPort`] for the given network mode and era (`"cw"` or `"gcw"`).
+    ///
+    /// Initializes the two faction [`TeamHeader`] entries (`REBEL ALLIANCE` / `GALACTIC EMPIRE`
+    /// for `"gcw"`, or `REPUBLIC` / `CIS` for `"cw"`) with 150 initial reinforcement tickets.
     pub fn new(network: bool, era: &str) -> Self {
         let mut inner = WorldScoreboardPort::new();
         inner.family = GameFamily::Swbf1;
@@ -407,118 +619,159 @@ impl LiveScoreboardPort {
         }
     }
 
-    pub fn sync_from_state(
-        &mut self,
-        profile_name: &str,
-        teams: &[[f64; 4]; 8],
-        game_over: bool,
-        receiver: &Receiver,
-        fallback: Option<&crate::local::thread::FallbackSnapshot>,
-    ) {
+    /// Synchronizes team reinforcement counts, match-over flags, and per-character
+    /// kill/death/capture rows from the replicated [`Hud`] and [`Receiver`].
+    ///
+    /// ## Scoreboard Row Construction
+    /// - Updates `human_team`, `MatchStateFlags` (`over`, `game_over`, `finished`), and
+    ///   team reinforcement counts (`hud.teams[1][0]`, `hud.teams[2][0]`).
+    /// - When `hud.roster_total > 0`, populates `self.inner.characters` from the authoritative
+    ///   replicated roster (`kills`, `deaths`, `team_kills`, `captures`, `points = kills*2 - team_kills*2 + captures*5`,
+    ///   `rtt`, and network link kind).
+    /// - Before the first roster packet arrives, synthesizes character rows from active
+    ///   soldier/droideka slots in `receiver.active_slots()`.
+    pub fn sync_from_state(&mut self, profile_name: &str, hud: &Hud, receiver: &Receiver) {
         self.inner.human_team = receiver.own.team.clamp(1, 2) as i32;
         self.inner.state = MatchStateFlags {
-            over: game_over,
-            game_over,
-            finished: game_over,
+            over: hud.game_over,
+            game_over: hud.game_over,
+            finished: hud.game_over,
         };
         if let Some(t1) = &mut self.inner.teams[0] {
-            t1.reinforcements = teams[1][0].round() as i32;
+            t1.reinforcements = hud.teams[1][0].round() as i32;
         }
         if let Some(t2) = &mut self.inner.teams[1] {
-            t2.reinforcements = teams[2][0].round() as i32;
+            t2.reinforcements = hud.teams[2][0].round() as i32;
         }
 
+        // Populate character scoreboard rows from the authoritative HUD roster when present,
+        // or synthesize rows from active network slots prior to the first roster packet.
         self.inner.characters.clear();
-        if let Some(snap) = fallback {
-            for p in &snap.players[..snap.player_count] {
-                let name = if p.is_human {
-                    profile_name.to_string()
-                } else if p.team == 1 {
-                    format!("Clone Trooper {}", p.slot + 1)
+        if hud.roster_total > 0 {
+            let own_slot = hud.own_summary.slot as usize;
+            for (slot, entry) in hud.roster[..hud.roster_total].iter().enumerate() {
+                let is_local = if own_slot > 0 {
+                    (slot + 1) == own_slot
                 } else {
-                    format!("Battle Droid {}", p.slot + 1)
+                    slot == 0 && entry.attached
+                };
+                let raw_name = entry.name_str();
+                let name = if is_local {
+                    profile_name.to_string()
+                } else if !raw_name.is_empty() {
+                    raw_name.to_string()
+                } else if entry.team == 1 {
+                    format!("Trooper {}", slot + 1)
+                } else {
+                    format!("Droid {}", slot + 1)
                 };
                 let mut rec = CharacterRecord::default();
-                rec.slots[0].deaths = p.deaths;
-                rec.slots[0].life_kills = p.kills;
-                rec.slots[0].life_kills_best = p.kills;
+                rec.slots[0].deaths = entry.deaths;
+                rec.slots[0].life_kills = entry.kills;
+                rec.slots[0].life_kills_best = entry.kills.max(0);
+                let link_kind = match entry.link_code {
+                    1 => "direct4",
+                    2 => "direct6",
+                    3 => "relay",
+                    _ if entry.attached => "local",
+                    _ => "",
+                };
                 self.inner.characters.push(CharacterStatsEntry {
-                    slot: p.slot,
-                    team: p.team as i32,
+                    slot,
+                    team: entry.team.clamp(1, 2) as i32,
                     name,
-                    kills: p.kills,
-                    team_kills: 0,
-                    deaths: p.deaths,
-                    points: p.kills * 2 + p.captures * 5,
-                    human: p.is_human,
-                    local: p.is_human,
-                    ping: if p.is_human { Some(0) } else { None },
-                    link_kind: if p.is_human {
-                        "local".to_string()
+                    kills: entry.kills,
+                    team_kills: entry.team_kills,
+                    deaths: entry.deaths,
+                    points: entry.kills * 2 - entry.team_kills * 2 + entry.captures * 5,
+                    human: entry.attached,
+                    local: is_local,
+                    ping: if entry.attached {
+                        Some(entry.rtt as i32)
                     } else {
-                        String::new()
+                        None
                     },
+                    link_kind: link_kind.to_string(),
                     record: rec,
                 });
             }
         } else {
-            // scoreboardPort.roster reads the server's Character slots, not
-            // visible unit rows. Spawn schema 3 identifies the local slot even
-            // when that player's unit is dead or outside snapshot visibility.
-            for (slot, c) in receiver.roster.rows() {
-                if c.team != 1 && c.team != 2 {
-                    continue;
-                }
-                self.inner.characters.push(CharacterStatsEntry {
-                    slot,
-                    team: c.team as i32,
-                    name: c.name().into_owned(),
-                    kills: c.kills as i32,
-                    team_kills: c.team_kills as i32,
-                    deaths: c.deaths as i32,
-                    points: c.captures as i32,
-                    human: c.human,
-                    local: receiver.roster.local == Some(slot),
-                    ping: if c.human { c.ping.map(i32::from) } else { None },
-                    link_kind: crate::online::roster::LINKS[c.link].into(),
-                    record: CharacterRecord::default(),
-                });
+            self.sync_published_roster(receiver);
+        }
+    }
+
+    fn sync_published_roster(&mut self, receiver: &Receiver) {
+        self.inner.characters.clear();
+        // scoreboardPort.roster reads the server's Character slots, not
+        // visible unit rows. Spawn schema 3 identifies the local slot even
+        // when that player's unit is dead or outside snapshot visibility.
+        for (slot, c) in receiver.roster.rows() {
+            if c.team != 1 && c.team != 2 {
+                continue;
             }
+            self.inner.characters.push(CharacterStatsEntry {
+                slot,
+                team: c.team as i32,
+                name: c.name().into_owned(),
+                kills: c.kills as i32,
+                team_kills: c.team_kills as i32,
+                deaths: c.deaths as i32,
+                points: c.captures as i32,
+                human: c.human,
+                local: receiver.roster.local == Some(slot),
+                ping: if c.human { c.ping.map(i32::from) } else { None },
+                link_kind: crate::online::roster::LINKS[c.link].into(),
+                record: CharacterRecord::default(),
+            });
         }
     }
 }
 
+// Implementation of `bfe_battle_ui::scoreboard::ScoreboardPort` for `LiveScoreboardPort`.
+// Delegates table/details/awards queries to `self.inner` (`WorldScoreboardPort`)
+// and captures the post-match `DONE` button action in `self.done_triggered`.
 impl ScoreboardPort for LiveScoreboardPort {
+    /// Returns the game family (`GameFamily::Swbf1`).
     fn family(&self) -> GameFamily {
         self.inner.family()
     }
+    /// Returns `true` when connected to a multiplayer server.
     fn network(&self) -> bool {
         self.inner.network()
     }
+    /// Returns the online player list rows for the pause menu player list dialog.
     fn players(&self) -> Option<Vec<PlayerListRow>> {
         self.inner.players()
     }
+    /// Returns the sorted team scoreboard rows.
     fn roster(&self) -> Vec<ScoreRow> {
         self.inner.roster()
     }
+    /// Returns the two faction team headers.
     fn teams(&self) -> [Option<TeamHeader>; 2] {
         self.inner.teams()
     }
+    /// Returns personal career/match stat rows for `slot`.
     fn personal(&self, slot: usize) -> Vec<PersonalStatRow> {
         self.inner.personal(slot)
     }
+    /// Returns post-match medal/award rows.
     fn awards(&self) -> Vec<AwardRow> {
         self.inner.awards()
     }
+    /// Returns the local player's team number (`1` or `2`).
     fn human_team(&self) -> i32 {
         self.inner.human_team()
     }
+    /// Returns match-over flags (`over`, `game_over`, `finished`).
     fn state(&self) -> MatchStateFlags {
         self.inner.state()
     }
+    /// Returns `true` so the end-of-match `DONE` button advances or exits the mission.
     fn can_restart(&self) -> bool {
         self.next_ready
     }
+    /// Marks `done_triggered = true` when the player activates `DONE` at match end.
     fn restart(&mut self) -> bool {
         self.done_triggered = true;
         true
@@ -527,59 +780,122 @@ impl ScoreboardPort for LiveScoreboardPort {
 
 /// Underlying battle simulation/network authority.
 #[allow(clippy::large_enum_variant)]
+///
+/// Encapsulates the two supported battle backends:
+/// - [`BattleAuthority::InstantAction`]: Local 60 Hz mission simulation admitted
+///   exclusively through `Context::world_admit` on [`WorldThread`].
+/// - [`BattleAuthority::Online`]: Remote or locally hosted `bfeserver` session
+///   connected via [`OnlineClient`].
 pub enum BattleAuthority {
-    /// Local Instant Action battle stepped at 60 Hz on [`WorldThread`].
+    /// Local Instant Action battle admitted via `Context::world_admit` and stepped at 60 Hz on [`WorldThread`].
     InstantAction {
+        /// Original launch request and mission playlist.
         request: BattleRequest,
+        /// Index of the active mission within `request.playlist`.
         playlist_index: usize,
+        /// Mission map identifier (e.g. `"nab2"`, `"tat1"`, `"bes1"`).
         map_id: String,
+        /// Era code (`"cw"` or `"gcw"`).
         era: String,
+        /// Dedicated 60 Hz background world simulation thread.
         world: WorldThread,
-        _prepared: Option<crate::local::launch::Prepared>,
+        /// Local snapshot/event publication receiver.
         receiver: Box<Receiver>,
+        /// Client input command builder and history ring.
         sender: Box<Sender>,
+        /// Client-side prediction replay state.
         replay: Box<Replay>,
+        /// Interpolated 3D camera controller.
         camera: Box<MapCamera>,
+        /// Monotonic elapsed simulation time in milliseconds.
         now_ms: f64,
     },
     /// Online multiplayer battle connected to a remote or LAN `bfeserver`.
     Online {
+        /// Multiplayer server launch descriptor.
         launch: MultiplayerLaunch,
+        /// Mission map identifier reported by `/info`.
         map_id: String,
+        /// Era code (`"cw"` or `"gcw"`).
         era: String,
+        /// Live WebRTC / UDP online client session.
         client: Box<OnlineClient>,
     },
 }
 
 /// Unified controller for an active Instant Action or Online battle.
+///
+/// Owns the active [`BattleAuthority`] (`InstantAction` or `Online`), the 3D [`Scene`],
+/// all four `bfe-battle-ui` controllers (`SpawnScreenController`, `ScoreboardController`,
+/// `PauseMenu`, `ChatController`), and per-frame steady allocation counters.
 pub struct BattleController {
+    /// Active simulation or network authority (`InstantAction` or `Online`).
     pub authority: BattleAuthority,
+    /// Native 3D scene, terrain/sky/unit passes, and HUD bridge.
     pub scene: Box<Scene>,
+    /// Keyboard and mouse 3D gameplay input accumulator.
     pub input: Input,
+    /// Monotonic 60 Hz client input tick counter.
     pub input_tick: u32,
+    /// Fractional frame time accumulator for 60 Hz input stepping.
     pub input_accumulator: f64,
+    /// Live data port feeding the spawn screen.
     pub spawn_port: LiveSpawnPort,
+    /// `bfe-battle-ui` spawn screen state machine and renderer.
     pub spawn_ctrl: SpawnScreenController,
+    /// Live data port feeding the scoreboard.
     pub scoreboard_port: LiveScoreboardPort,
+    /// `bfe-battle-ui` scoreboard state machine and renderer (`Table`, `Details`, `Awards`).
     pub scoreboard_ctrl: ScoreboardController,
+    /// `bfe-battle-ui` in-battle Escape pause menu (`Resume`, `Respawn`, `Restart`, `Quit`, etc.).
     pub pause_menu: PauseMenu,
+    /// `bfe-battle-ui` in-battle text chat controller (`All` / `Team`).
     pub chat: ChatController,
+    /// Scratch quad batch used when compositing overlays onto `scene.bridge.hud_model.batch`.
     pub overlay_batch: Batch,
+    /// Current viewport dimensions `[width, height]` in physical pixels.
     pub size: [i32; 2],
+    /// Logical 1024-wide interface height (`interface_height(w, h)`).
     pub height: f64,
+    /// Viewport aspect ratio (`width / height`).
     pub aspect: f64,
+    /// Last observed mouse cursor position `[x_px, y_px]` in physical window pixels.
     pub cursor_px: [f64; 2],
+    /// Total frames rendered in the current battle.
     pub frames: u64,
+    /// Count of steady gameplay frames rendered with all 2D overlays closed.
     pub steady_frames: u64,
+    /// Cumulative heap allocations on the render thread during steady gameplay after warmup.
     pub steady_allocs_after_warmup: u64,
+    /// Frames included in the allocation sample, excluding warmup and overlays.
+    pub steady_frames_measured: u64,
+    /// Total elapsed seconds in the current battle.
     pub elapsed_s: f64,
+    /// Whether the local player was alive on the previous frame (used to detect death -> spawn screen).
     pub was_alive: bool,
+    /// Confirmed transitions into a living controlled body.
+    pub player_spawns: u64,
+    /// Whether the local player has spawned at least once in this battle.
     pub first_life_spawned: bool,
+    /// Whether a 2D overlay was open on the previous frame (triggers full HUD quad buffer upload).
     pub overlay_was_active: bool,
 }
 
 impl BattleController {
-    /// Loads and starts an Instant Action battle for `request.playlist[playlist_index]`.
+    /// Admits and starts an Instant Action battle for `request.playlist[playlist_index]`
+    /// exclusively through `Context::world_admit`.
+    ///
+    /// ## Instant Action Admission Pipeline
+    /// 1. Resolves `(map_id, era)` from `request.playlist[playlist_index]` (or `request.map`).
+    /// 2. Constructs [`LocalOptions`] (`--map`, `--side`, `--seed`) and calls
+    ///    [`WorldThread::admit_instant_action`], which runs `Prepared::new` -> `Context::world_admit`
+    ///    and spawns the dedicated `"bfe-world-60hz"` simulation thread.
+    /// 3. Loads the 3D scene (`Scene::load_online`) for `admitted.query` and attaches
+    ///    the live battle audio stream to `audio_router`.
+    /// 4. Polls the initial tick-0 world publication so `replicas.hud` contains the
+    ///    mission's authoritative command posts, unit classes, and reinforcement counts.
+    /// 5. Unpauses the 60 Hz world thread and initializes `bfe-battle-ui` controllers
+    ///    via [`Self::finish_init`].
     pub fn start_instant_action(
         content_dir: &Path,
         request: BattleRequest,
@@ -589,6 +905,7 @@ impl BattleController {
         audio_router: &SharedAudioRouter,
         mut make_gl: impl FnMut() -> glow::Context,
     ) -> Result<Self, String> {
+        // Resolve the target map ID and era from `request.playlist[playlist_index]` or `request`.
         let default_era = request.era.clone().unwrap_or_else(|| "cw".to_string());
         let (map_id, era) = if let Some(entry) = request
             .playlist
@@ -603,65 +920,7 @@ impl BattleController {
             (request.map.clone(), default_era)
         };
 
-        let query = format!("map={map_id}&era={era}&seed=1");
-        let (mut scene, camera) = Scene::load_online(content_dir, &query, size, &mut make_gl)?;
-
-        let replicas = scene.online.as_mut().ok_or("missing online replicas")?;
-        replicas.hud.auto_build = false;
-        audio_router.set_shell(None);
-        audio_router.set_live(replicas.sound.output.take());
-
-        let receiver = Box::new(Receiver::new(replicas.descriptor.clone()));
-        let replay = Box::new(
-            replicas
-                .replay
-                .take()
-                .ok_or("native prediction resources already admitted")?,
-        );
-        let mut sender = Box::new(Sender::new(&replicas.turns));
-        sender.auto_spawn = false;
-
-        let spawn_port = LiveSpawnPort::from_hud_meta(
-            &replicas.hud.class_meta,
-            &replicas.hud.post_meta,
-            &replicas.hud.strings,
-            &era,
-        );
-
-        let fallback_posts: Vec<InitialPostConfig> = replicas
-            .hud
-            .post_meta
-            .iter()
-            .enumerate()
-            .map(|(idx, pm)| InitialPostConfig {
-                id: pm.id,
-                team: if pm.team == 1 || pm.team == 2 {
-                    pm.team
-                } else if idx % 2 == 0 {
-                    1
-                } else {
-                    2
-                },
-                position: pm.position,
-            })
-            .collect();
-        let tickets = settings
-            .player
-            .shell
-            .battle_size
-            .parse::<i32>()
-            .unwrap_or(150)
-            .clamp(25, 500);
-        let fallback_config = FallbackMissionConfig {
-            posts: fallback_posts,
-            tickets: [tickets, tickets],
-            team_classes: [
-                spawn_port.class_registry_ids[0].clone(),
-                spawn_port.class_registry_ids[1].clone(),
-            ],
-            seed: (playlist_index as u32) + 1,
-        };
-
+        // Build the mission CLI flags (`--map`, `--side`, `--seed`) for `Prepared::new`.
         let side_flag = if era.eq_ignore_ascii_case("gcw") {
             "all"
         } else {
@@ -680,8 +939,57 @@ impl BattleController {
             audio: true,
             duration: None,
         };
-        let (world, prepared) =
-            WorldThread::admit_instant_action(&local_options, fallback_config)?;
+
+        // Admit the mission exclusively through `Context::world_admit` on the 60 Hz world thread
+        // and load the 3D scene (`Scene::load_online`) for the admitted mission query.
+        let (mut world, admitted) = WorldThread::admit_instant_action(&local_options)?;
+        let (mut scene, camera) =
+            Scene::load_online(content_dir, &admitted.query, size, &mut make_gl)?;
+
+        // Route the live battle sound mixer into `SharedAudioRouter`.
+        let replicas = scene.online.as_mut().ok_or("missing online replicas")?;
+        replicas.hud.auto_build = false;
+        audio_router.set_shell(None);
+        audio_router.set_live(replicas.sound.output.take());
+
+        // Initialize the local `Receiver`, client-side `Replay`, and `Sender`.
+        let mut receiver = Box::new(Receiver::new(admitted.registry));
+        receiver.registry = true;
+        receiver.welcomed = true;
+        receiver.own.id = admitted.player_id;
+
+        let replay = Box::new(
+            replicas
+                .replay
+                .take()
+                .ok_or("native prediction resources already admitted")?,
+        );
+        let mut sender = Box::new(Sender::new(&replicas.turns));
+        sender.auto_spawn = false;
+
+        // Drain the initial tick-0 publication so `replicas.hud` has the mission's
+        // authoritative command posts, unit classes, and reinforcement counts.
+        world.poll_publications(&mut receiver, 0.0)?;
+        replicas
+            .hud
+            .frame(&mut scene.bridge, &receiver, &replay, 0.0);
+        receiver.publications.clear();
+
+        let mut spawn_port = LiveSpawnPort::from_hud_meta(
+            &replicas.hud.class_meta,
+            &replicas.hud.post_meta,
+            &replicas.hud.strings,
+            &era,
+        );
+        spawn_port.sync_from_hud(
+            &replicas.hud.teams,
+            &replicas.hud.post_meta,
+            &replicas.hud.own_summary,
+            receiver.own.alive,
+            receiver.own.team,
+        );
+
+        world.set_paused(false);
 
         Self::finish_init(
             BattleAuthority::InstantAction {
@@ -690,7 +998,6 @@ impl BattleController {
                 map_id,
                 era: era.clone(),
                 world,
-                _prepared: prepared,
                 receiver,
                 sender,
                 replay,
@@ -707,6 +1014,16 @@ impl BattleController {
     }
 
     /// Connects to a remote or LAN server (`launch`) and starts an Online battle.
+    ///
+    /// ## Online Connection Pipeline
+    /// 1. Resolves the target `HOST:PORT` from `server_address`, `launch.address`,
+    ///    `launch.server_id`, or `BFE_SERVER_TARGET`.
+    /// 2. Queries `GET /info` and prepares the player identity and UDP/WebRTC endpoint
+    ///    via `crate::online::info::prepare`.
+    /// 3. Loads the 3D scene (`Scene::load_online`) for `server_info.query` and
+    ///    installs the live battle audio output stream into `audio_router`.
+    /// 4. Connects [`OnlineClient`] and initializes `bfe-battle-ui` controllers
+    ///    via [`Self::finish_init`].
     pub fn start_online(
         content_dir: &Path,
         launch: MultiplayerLaunch,
@@ -716,6 +1033,7 @@ impl BattleController {
         audio_router: &SharedAudioRouter,
         mut make_gl: impl FnMut() -> glow::Context,
     ) -> Result<Self, String> {
+        // Resolve the target `HOST:PORT` from explicit override, `launch.address`, or `BFE_SERVER_TARGET`.
         let raw_target = server_address
             .or_else(|| {
                 if let (Some(addr), Some(port)) = (&launch.address, launch.port) {
@@ -736,6 +1054,7 @@ impl BattleController {
             })
             .ok_or_else(|| "No server address specified for online join".to_string())?;
 
+        // Probe `/info` and prepare the authenticated endpoint (`online::info::prepare`).
         let id_path = crate::online::info::default_identity()?;
         let (server_info, endpoint) = crate::online::info::prepare(
             &raw_target,
@@ -764,6 +1083,7 @@ impl BattleController {
             selection.get("era").to_string()
         };
 
+        // Load the 3D scene and HUD replicas for the server's active mission query.
         let (mut scene, camera) =
             Scene::load_online(content_dir, &server_info.query, size, &mut make_gl)?;
 
@@ -779,6 +1099,7 @@ impl BattleController {
             &era,
         );
 
+        // Open the WebRTC / UDP session to `bfeserver`.
         let mut client = Box::new(OnlineClient::connect(endpoint, replicas, camera)?);
         client.sender.auto_spawn = false;
 
@@ -798,6 +1119,17 @@ impl BattleController {
         )
     }
 
+    /// Shared initialization for `SpawnScreenController`, `ScoreboardController`, `PauseMenu`,
+    /// and `ChatController` once the `Scene` and `BattleAuthority` are ready.
+    ///
+    /// ## UI Controller Initialization
+    /// - Computes logical interface height (`interface_height(w, h)`) for the 1024-wide
+    ///   3D HUD coordinate space.
+    /// - Initializes `SpawnScreenController` (`GameFamily::Swbf1`), copying `MapProjection`
+    ///   from `replicas.hud.map` and `BattleUiAssets` from `scene.bridge.hud_model`,
+    ///   and opens the spawn screen (`OpenReason::Start`).
+    /// - Initializes `ScoreboardController`, `PauseMenu` (with `RESTART MISSION` in
+    ///   Instant Action and `PLAYER LIST` in Online), and `ChatController`.
     fn finish_init(
         authority: BattleAuthority,
         mut scene: Scene,
@@ -810,6 +1142,7 @@ impl BattleController {
         let aspect = size[0].max(1) as f64 / size[1].max(1) as f64;
         let height = interface_height(size[0] as f64, size[1] as f64);
 
+        // Configure `SpawnScreenController` with the mission's overhead map projection and UI assets.
         let mut spawn_ctrl =
             SpawnScreenController::try_with_family(GameFamily::Swbf1, height).map_err(|e| e.to_string())?;
         if let Some(replicas) = &scene.online {
@@ -843,6 +1176,7 @@ impl BattleController {
         let scoreboard_ctrl =
             ScoreboardController::try_with_family(GameFamily::Swbf1, height).map_err(|e| e.to_string())?;
 
+        // Configure `PauseMenu` (`RESTART MISSION` enabled in Instant Action, `PLAYER LIST` in Online).
         let mut pause_menu =
             PauseMenu::try_with_family(GameFamily::Swbf1).map_err(|e| e.to_string())?;
         pause_menu.enable_respawn(Some(PauseRespawnConfig {
@@ -882,8 +1216,10 @@ impl BattleController {
             frames: 0,
             steady_frames: 0,
             steady_allocs_after_warmup: 0,
+            steady_frames_measured: 0,
             elapsed_s: 0.0,
             was_alive: false,
+            player_spawns: 0,
             first_life_spawned: false,
             overlay_was_active: true,
         })
@@ -925,6 +1261,14 @@ impl BattleController {
         }
     }
 
+    /// Returns the 60 Hz world thread's tick-time distribution when running Instant Action.
+    pub fn world_tick_stats(&self) -> Option<WorldTickStats> {
+        match &self.authority {
+            BattleAuthority::InstantAction { world, .. } => Some(world.tick_stats()),
+            BattleAuthority::Online { .. } => None,
+        }
+    }
+
     /// Programmatically spawns the human player if the spawn screen is open.
     pub fn trigger_spawn(&mut self) {
         if self.spawn_ctrl.is_open() {
@@ -938,58 +1282,47 @@ impl BattleController {
         }
     }
 
-    /// Programmatically forces the match to finish so end-of-match scoreboard and
-    /// playlist transitions can be exercised by `--script gate`.
+    /// Programmatically transitions the scoreboard into end-of-match mode so
+    /// awards and playlist transitions can be exercised by `--script gate`.
     pub fn force_victory_for_gate(&mut self) {
-        if let BattleAuthority::InstantAction {
-            world,
-            receiver,
-            ..
-        } = &mut self.authority
-        {
-            if let Some(mut snap) = world.latest_fallback.take() {
-                snap.teams_tickets[1] = 0;
-                snap.game_over = true;
-                snap.winner = 1;
-                snap.losing = false;
-                world.latest_fallback = Some(snap);
-            }
+        if let BattleAuthority::InstantAction { receiver, .. } = &mut self.authority {
             if let Some(replicas) = &mut self.scene.online {
                 replicas.hud.game_over = true;
+                self.scoreboard_port
+                    .sync_from_state("Player 1", &replicas.hud, receiver);
             }
-            self.scoreboard_port.sync_from_state(
-                "Player 1",
-                &[[0.0; 4]; 8],
-                true,
-                receiver,
-                world.latest_fallback.as_deref(),
-            );
         }
     }
 
-    fn flush_spawn_requests(&mut self) {
-        if let Some((team, class_idx, post_idx, class_reg_id, post_reg_id)) =
-            self.spawn_port.pending_spawn.take()
-        {
+    /// Dispatches any queued [`PendingSpawnChoice`] or suicide request from [`LiveSpawnPort`]
+    /// to either the local `WorldThread` (`WorldMessage::Spawn` / `Respawn`) or `OnlineClient`.
+    ///
+    /// ## Spawn and Respawn Dispatch
+    /// - In `BattleAuthority::InstantAction`, sends `WorldMessage::Spawn { team, class_name, post_name }`
+    ///   or `WorldMessage::Respawn` over the non-blocking channel to `"bfe-world-60hz"`.
+    /// - In `BattleAuthority::Online`, sends `request_team` (if changing teams) and
+    ///   `request_spawn(class_reg_id, post_reg_id)` or `request_suicide` via `client.sender`.
+    pub fn flush_spawn_requests(&mut self) {
+        if let Some(choice) = self.spawn_port.pending_spawn.take() {
             self.first_life_spawned = true;
             match &mut self.authority {
                 BattleAuthority::InstantAction { world, .. } => {
                     world.send(WorldMessage::Spawn {
-                        team,
-                        class_index: class_idx,
-                        post_index: post_idx,
+                        team: choice.team,
+                        class_name: choice.class_name,
+                        post_name: choice.post_name,
                     });
                 }
                 BattleAuthority::Online { client, .. } => {
                     client.sender.auto_spawn = true;
                     client.sender.spawned = false;
-                    if client.receiver.own.team != 0 && client.receiver.own.team != team {
-                        client.sender.request_team(&client.receiver, team);
+                    if client.receiver.own.team != 0 && client.receiver.own.team != choice.team {
+                        client.sender.request_team(&client.receiver, choice.team);
                     }
                     // SpawnModel.commit names the selected authored class and
                     // post. Index zero is a real first class, not an instruction
                     // to discard its post and ask the server to pick another.
-                    client.sender.request_spawn(&client.receiver, class_reg_id as usize, post_reg_id as usize);
+                    client.sender.request_spawn(&client.receiver, choice.class_reg_id as usize, choice.post_reg_id as usize);
                 }
             }
         }
@@ -1006,6 +1339,13 @@ impl BattleController {
         }
     }
 
+    /// Samples one 60 Hz [`ClientCommand`], [`ClientLook`], [`ClientFlightCommand`], and [`ViewActions`]
+    /// from `self.input` (or zeroes movement when a 2D overlay captures input).
+    ///
+    /// Applies the user's persisted `mouse_sensitivity` (`cmd.mouse_scale`) and
+    /// vertical look inversion (`cmd.invert`) from `settings.player.shell`.
+    /// When `active_gameplay` is `false` (unfocused window or open 2D overlay),
+    /// clears held movement keys and returns zeroed look/flight/view deltas.
     fn take_step_command(
         &mut self,
         generation: u32,
@@ -1025,15 +1365,12 @@ impl BattleController {
             (cmd, look, flight, actions)
         } else {
             self.input.clear();
+            let (mut cmd, _) = self.input.take(self.input_tick, generation);
+            cmd.mouse_scale = mouse_scale;
+            cmd.has_mouse_scale = true;
+            cmd.invert = Some(invert);
             (
-                ClientCommand {
-                    tick: self.input_tick as f64,
-                    generation: generation as f64,
-                    mouse_scale,
-                    has_mouse_scale: true,
-                    invert: Some(invert),
-                    ..ClientCommand::default()
-                },
+                cmd,
                 ClientLook::default(),
                 ClientFlightCommand::default(),
                 ViewActions::default(),
@@ -1043,6 +1380,28 @@ impl BattleController {
 
     /// Steps the battle simulation/network client and renders one complete frame into
     /// `self.scene.canvas.framebuffer`.
+    ///
+    /// ## Six-Stage Per-Frame Battle Pipeline
+    /// 1. **Spawn Request Flush**: Forwards any pending `SPAWN` or `RESPAWN` action to
+    ///    the local `WorldThread` or `OnlineClient`.
+    /// 2. **Overlay Transition Check**: Inspects `PauseMenu` (`ExitToWindows`, `RestartMission`,
+    ///    `QuitToMainMenu`, `LeaveOnline`) and `ScoreboardPort::done_triggered` (`NextPlaylistBattle`).
+    /// 3. **Simulation / Network Step & Camera Interpolation**:
+    ///    - Accumulates `dt` into 60 Hz `STEP` (`1/60 s`) increments and samples up to 4
+    ///      [`ClientCommand`] steps via [`Self::take_step_command`].
+    ///    - In `InstantAction`, drains non-blocking `Publication` frames from `WorldThread`,
+    ///      sends `WorldMessage::Step`, steps client-side `Replay`, updates `MapCamera`,
+    ///      and calls `scene.present_network`.
+    ///    - In `Online`, calls `client.receive`, `client.step`, `client.present`, `client.send`,
+    ///      and `scene.online_frame`.
+    /// 4. **Life/Death & Match-Over Transitions**: Closes the spawn screen upon first spawn,
+    ///    re-opens the spawn screen (`OpenReason::Death`) upon death, and synchronizes
+    ///    ports when `game_over` becomes `true`.
+    /// 5. **HUD & Battle UI Batch Assembly**: Builds either the active 2D overlay batch
+    ///    ([`Self::update_and_build_overlays`]) or the live combat HUD (`hud_model_update` +
+    ///    `hud_model.build(0)`), then synchronizes vertex ranges via `bridge.hud_sync_batch`.
+    /// 6. **Unified 3D + HUD Draw & Allocation Accounting**: Invokes `scene.draw(&view)`
+    ///    and records steady-state render-thread heap allocations after warmup.
     pub fn step_and_draw(
         &mut self,
         dt: f64,
@@ -1142,13 +1501,23 @@ impl BattleController {
             || self.pause_menu.is_open
             || self.chat.is_open();
         let active_gameplay = focused && !ui_captures_input;
-        let measure_steady_allocs = !self.is_overlay_open() && self.steady_frames >= 15;
+        // Align render-thread steady allocation accounting with the 45-frame combat
+        // warm-up window (`phase_frames == 45` in `script.rs`) so initial spawn and
+        // welcome-snapshot presentation warm-up completes before steady counting starts.
+        let measure_steady_allocs = !self.is_overlay_open() && self.steady_frames >= 45;
         let alloc_before = if measure_steady_allocs {
             super::render_thread_alloc_count()
         } else {
             0
         };
 
+                //
+        // The render loop runs at display refresh rate while simulation and network
+        // input ticks run at a fixed 60 Hz (`STEP = 1.0 / 60.0` seconds).
+        // We accumulate `dt` (clamped to `0.25s` max catch-up), consume up to 4
+        // discrete 60 Hz steps per rendered frame, and use the residual fraction
+        // `alpha_interp = (input_accumulator / STEP)` to smoothly interpolate the
+        // 3D camera between the previous and current 60 Hz simulation states.
         // 3. Pump publications / packets, step input, and compute camera View.
         self.input_accumulator = (self.input_accumulator + dt).min(0.25);
         let mut steps = 0usize;
@@ -1182,6 +1551,8 @@ impl BattleController {
                 now_ms,
                 ..
             } => {
+                // Drain non-blocking publications from `"bfe-world-60hz"`, forward input steps,
+                // run client-side prediction replay, and interpolate the 3D camera.
                 *now_ms += dt * 1000.0;
                 world.set_paused(self.pause_menu.is_open);
                 world.set_suspended(!focused);
@@ -1202,28 +1573,23 @@ impl BattleController {
                 }
 
                 let mut own = receiver.own;
-                if world.native_admitted {
-                    sender.preview(receiver);
-                    if let Err(err) = replay.frame(receiver, sender) {
-                        receiver.fault = Some(err);
-                    }
-                    if let Some(hull) = &replay.fleet.state {
-                        own.position = hull.position;
-                    }
-                    if replay.fleet.identity.is_some() {
-                        sender.yaw = replay.fleet.aim[0];
-                        sender.pitch = replay.fleet.aim[1];
-                    }
-                    if let Some(body) = &replay.body {
-                        own.position = body.position;
-                        own.posture = body.posture as usize;
-                        own.air = body.air.map_or(0, |a| a as u8 + 1);
-                        sender.yaw = body.aim_yaw;
-                        sender.pitch = body.aim_pitch;
-                    } else {
-                        sender.yaw = own.yaw;
-                        sender.pitch = own.pitch;
-                    }
+                sender.preview(receiver);
+                if let Err(err) = replay.frame(receiver, sender) {
+                    receiver.fault = Some(err);
+                }
+                if let Some(hull) = &replay.fleet.state {
+                    own.position = hull.position;
+                }
+                if replay.fleet.identity.is_some() {
+                    sender.yaw = replay.fleet.aim[0];
+                    sender.pitch = replay.fleet.aim[1];
+                }
+                if let Some(body) = &replay.body {
+                    own.position = body.position;
+                    own.posture = body.posture as usize;
+                    own.air = body.air.map_or(0, |a| a as u8 + 1);
+                    sender.yaw = body.aim_yaw;
+                    sender.pitch = body.aim_pitch;
                 } else {
                     sender.yaw = own.yaw;
                     sender.pitch = own.pitch;
@@ -1247,15 +1613,12 @@ impl BattleController {
                 let v = *camera.present(alpha_interp);
                 self.scene
                     .present_network(receiver, replay, &sender.history, camera, dt);
-                if let (Some(snap), Some(replicas)) =
-                    (world.latest_fallback.as_deref(), self.scene.online.as_mut())
-                {
-                    replicas.hud.apply_fallback(&mut self.scene.bridge, snap);
-                }
                 receiver.publications.clear();
                 v
             }
             BattleAuthority::Online { client, .. } => {
+                // Receive network packets, step client prediction, send input datagrams,
+                // and present the interpolated online scene.
                 if let Err(err) = client.receive(dt) {
                     return Ok(Some(BattleTransition::LeaveOnline { reason: Some(err) }));
                 }
@@ -1273,20 +1636,21 @@ impl BattleController {
             }
         };
 
+                //
+        // Track transitions of the local player's `own_alive` flag across frames:
+        // - `false -> true`: Close `SpawnScreenController` once the first life spawns.
+        // - `true -> false` (while `!game_over`): Re-open `SpawnScreenController`
+        //   with `OpenReason::Death` so the player can select a new class/post.
+        // - `game_over == true`: Synchronize `LiveScoreboardPort` so the post-battle
+        //   scoreboard (`BoardState::End`) displays final tickets and awards.
         // 4. Inspect life/death and match-over transitions.
         let (own_alive, game_over) = match &self.authority {
-            BattleAuthority::InstantAction {
-                receiver, world, ..
-            } => {
-                let over = world
-                    .latest_fallback
+            BattleAuthority::InstantAction { receiver, .. } => {
+                let over = self
+                    .scene
+                    .online
                     .as_ref()
-                    .is_some_and(|s| s.game_over)
-                    || self
-                        .scene
-                        .online
-                        .as_ref()
-                        .is_some_and(|r| r.hud.game_over);
+                    .is_some_and(|r| r.hud.game_over);
                 (receiver.own.alive, over)
             }
             BattleAuthority::Online { client, .. } => {
@@ -1301,7 +1665,8 @@ impl BattleController {
 
         if own_alive && !self.was_alive {
             self.was_alive = true;
-            if self.spawn_ctrl.is_open() {
+            self.player_spawns += 1;
+            if self.spawn_ctrl.is_open() && self.first_life_spawned {
                 self.spawn_ctrl.close(&mut self.spawn_port);
             }
         } else if !own_alive && self.was_alive && !game_over {
@@ -1317,6 +1682,13 @@ impl BattleController {
             self.sync_ports_cold(&settings.player.profile_name);
         }
 
+                //
+        // When an overlay (`SpawnScreen`, `Scoreboard`, `PauseMenu`, `Chat`) is open,
+        // `update_and_build_overlays` populates `scene.bridge.hud_model.batch` and we
+        // upload the full batch (`full_sync = true`).
+        // When all overlays are closed, `hud_model_update()` + `hud_model.build(0)`
+        // updates only the dirty in-battle HUD quad ranges in place with zero heap
+        // allocations, and `steady_frames` increments after frame 2.
         // 5. Build HUD + battle UI overlay batch before `scene.draw(&view)`.
         let overlay_active = self.is_overlay_open() || (game_over && !self.scoreboard_ctrl.ended);
         reset_hud_layer(&mut self.scene.bridge.hud_model.input);
@@ -1340,38 +1712,40 @@ impl BattleController {
         if measure_steady_allocs && !overlay_active {
             let alloc_after = super::render_thread_alloc_count();
             self.steady_allocs_after_warmup += alloc_after.saturating_sub(alloc_before);
+            self.steady_frames_measured += 1;
         }
         self.frames += 1;
         Ok(None)
     }
 
+    /// Synchronizes [`LiveSpawnPort`], [`LiveScoreboardPort`], and the pause menu player list
+    /// from the latest HUD state when an overlay is open or opening.
+    ///
+    /// Called on overlay open/update transitions (never on steady 3D gameplay frames)
+    /// so string/vector cloning inside `ScoreboardPort` and `SpawnPort` never allocates
+    /// during steady-state combat rendering.
     fn sync_ports_cold(&mut self, profile_name: &str) {
         let Some(replicas) = &self.scene.online else {
             return;
         };
         match &self.authority {
-            BattleAuthority::InstantAction {
-                receiver, world, ..
-            } => {
+            BattleAuthority::InstantAction { receiver, .. } => {
                 self.spawn_port.sync_from_hud(
                     &replicas.hud.teams,
                     &replicas.hud.post_meta,
+                    &replicas.hud.own_summary,
                     receiver.own.alive,
                     receiver.own.team,
                 );
-                self.scoreboard_port.sync_from_state(
-                    profile_name,
-                    &replicas.hud.teams,
-                    replicas.hud.game_over,
-                    receiver,
-                    world.latest_fallback.as_deref(),
-                );
+                self.scoreboard_port
+                    .sync_from_state(profile_name, &replicas.hud, receiver);
             }
             BattleAuthority::Online { client, .. } => {
                 let previous_team = self.spawn_port.human.team;
                 self.spawn_port.sync_from_hud(
                     &replicas.hud.teams,
                     &replicas.hud.post_meta,
+                    &replicas.hud.own_summary,
                     client.receiver.own.alive,
                     client.receiver.own.team,
                 );
@@ -1380,13 +1754,8 @@ impl BattleController {
                 if self.spawn_port.human.team != previous_team {
                     self.spawn_ctrl.notify_team_changed(&self.spawn_port, self.spawn_port.human.team, 0.25);
                 }
-                self.scoreboard_port.sync_from_state(
-                    profile_name,
-                    &replicas.hud.teams,
-                    replicas.hud.game_over,
-                    &client.receiver,
-                    None,
-                );
+                self.scoreboard_port
+                    .sync_from_state(profile_name, &replicas.hud, &client.receiver);
             }
         }
         if self.pause_menu.show_player_list {
@@ -1394,6 +1763,20 @@ impl BattleController {
         }
     }
 
+    /// Updates and composites the active 2D/3D battle overlay (`PauseMenu`, `SpawnScreenController`,
+    /// or `ScoreboardController`) into `self.scene.bridge.hud_model.batch`.
+    ///
+    /// ## Overlay Rendering Priority
+    /// 1. **Escape `PauseMenu` (`pause_menu.hides_hud()`)**: Clears the HUD batch, draws
+    ///    a translucent dark scrim over the 3D scene, and renders the pause menu modal
+    ///    (buttons, options sliders, controls table, player list, or confirmation prompt).
+    /// 2. **`SpawnScreenController` (`spawn_open`)**: Updates the spawn screen model,
+    ///    synchronizes tactical map HUD inputs (`sync_hud_inputs`), builds the base HUD
+    ///    pass (overhead map + command post icons), draws faction emblems, renders the
+    ///    class/post selection panels, and draws the cursor pointer.
+    /// 3. **`ScoreboardController` (`scoreboard_ctrl.model.is_open()`)**: Builds the base
+    ///    combat HUD, updates the scoreboard controller, and composites `draw_under` +
+    ///    `draw_over` (`Table`, `Details`, or `Awards` page) onto `hud_model.batch`.
     fn update_and_build_overlays(&mut self, dt: f64) {
         let fh = self.scene.bridge.hud_model.fonts[0].height;
         self.scene.bridge.hud_model.input[H::DT] = dt;
@@ -1405,6 +1788,7 @@ impl BattleController {
         let spawn_open = self.spawn_ctrl.is_open();
         let menu_open = self.pause_menu.is_open;
 
+        // When the Escape pause menu is open, it hides the live HUD and draws over a dark scrim.
         if self.pause_menu.hides_hud() {
             self.scene.bridge.hud_model.batch.begin();
             self.pause_menu.update(dt);
@@ -1435,6 +1819,8 @@ impl BattleController {
             return;
         }
 
+        // When the spawn screen is open, synchronize HUD inputs, draw the tactical map,
+        // team emblems, class/post panels, and cursor pointer.
         if spawn_open {
             self.spawn_ctrl.update(
                 dt,
@@ -1478,6 +1864,7 @@ impl BattleController {
         self.scene.bridge.hud_model_update();
         self.scene.bridge.hud_model.build(0);
 
+        // Update and draw the Tab / end-of-match Scoreboard (`Table`, `Details`, `Awards`).
         if let Some(replicas) = &self.scene.online {
             {
                 let surface = HudBatchSurface {
@@ -1542,6 +1929,11 @@ impl BattleController {
         }
     }
 
+    /// Renders the faction emblems and team labels in the top-left corner of the spawn screen.
+    ///
+    /// Draws the primary (`own_team`, green tint) and secondary (`other_team`, red tint)
+    /// faction emblem quads (`rep_icon` / `cis_icon`) and centered UTF-16 team name
+    /// labels at `layout.logos.own` and `layout.logos.other`.
     fn draw_spawn_team_emblems(&mut self) {
         let fh = self.scene.bridge.hud_model.fonts[0].height;
         let layout = self.spawn_ctrl.view.layout(self.height, fh);
@@ -1603,6 +1995,11 @@ impl BattleController {
         }
     }
 
+    /// Appends all quads and draw groups from `src` onto `dst` (`hud_model.batch`).
+    ///
+    /// Copies vertex attributes (`position`, `uv`, `mask_uv`, `tint`) for `src.count` quads
+    /// into `dst` starting at `dst.count`, offsetting each draw group's `first` index
+    /// by `base_quad * 6`.
     fn append_batch(dst: &mut Batch, src: &Batch) {
         let base_quad = dst.count;
         let count = src.count.min(render_hud::QUADS.saturating_sub(base_quad));
@@ -1627,6 +2024,18 @@ impl BattleController {
 
     /// Routes a keyboard key press/release through PauseMenu, Chat, SpawnScreen, Scoreboard,
     /// and 3D gameplay input (`Input`).
+    ///
+    /// ## Keyboard Input Priority Chain
+    /// 1. **`PauseMenu` / `Escape`**: Always gets first priority so the player can open,
+    ///    navigate, or dismiss the pause menu from any battle state.
+    /// 2. **`ChatController` (`KeyT` / `KeyY` / open chat)**: Captures text entry and
+    ///    `Enter`/`Escape` when in-battle chat is active.
+    /// 3. **`SpawnScreenController`**: Handles `Enter`/`Space` (`Spawn`), `ArrowUp`/`ArrowDown`
+    ///    (class selection), `ArrowLeft`/`ArrowRight` (post selection), and team switch keys.
+    /// 4. **`ScoreboardController` (`Tab` or post-match end screen)**: Opens or navigates
+    ///    `Table`, `Details`, `Awards`, and `DONE`.
+    /// 5. **3D Gameplay (`Input`)**: Handles `KeyM` (open spawn screen) and forwards
+    ///    movement/action keys (`WASD`, `Space`, `KeyE`, `KeyR`, `KeyC`, `F1..F4`) to `self.input`.
     pub fn handle_key(
         &mut self,
         code: &str,
@@ -1777,6 +2186,10 @@ impl BattleController {
     }
 
     /// Updates 2D overlay cursor position on `CursorMoved`.
+    ///
+    /// Stores the raw window pixel coordinates in `self.cursor_px`, projects them
+    /// into the 1024-wide logical interface space via `to_interface`, and updates
+    /// pointer hover state on whichever overlay (`PauseMenu`, `SpawnScreen`, `Scoreboard`) is open.
     pub fn handle_cursor_move(&mut self, x_px: f64, y_px: f64) {
         self.cursor_px = [x_px, y_px];
         let pt = to_interface(
@@ -1796,6 +2209,14 @@ impl BattleController {
     }
 
     /// Routes mouse button events to the active 2D overlay or 3D weapon trigger.
+    ///
+    /// ## Mouse Button Routing
+    /// - Converts `self.cursor_px` from window pixels into 1024-wide logical interface
+    ///   coordinates via `to_interface`.
+    /// - Routes primary clicks (`button == 0`) to `PauseMenu::click`, `SpawnScreenController`,
+    ///   or `ScoreboardController` when any of those overlays is open.
+    /// - Otherwise forwards `MouseButton::Left` (primary fire), `Right` (secondary/zoom),
+    ///   and `Middle` to `self.input.mouse`.
     pub fn handle_mouse_button(
         &mut self,
         button: u8,
@@ -1892,6 +2313,10 @@ impl BattleController {
     }
 
     /// Routes mouse wheel scroll to the active 2D overlay or 3D weapon cycle.
+    ///
+    /// Scrolls the spawn class/post list when `SpawnScreenController` is open,
+    /// scrolls the scoreboard table when `ScoreboardController` is open, or cycles
+    /// the player's active weapon slot in `self.input` during 3D combat.
     pub fn handle_wheel(&mut self, delta_y: f64) {
         if self.spawn_ctrl.is_open() {
             self.spawn_ctrl
@@ -1907,6 +2332,11 @@ impl BattleController {
     }
 
     /// Opens the pause menu on `Escape` or focus loss, or switches scoreboard pages for the gate.
+    ///
+    /// Used by `--script gate` to deterministically open the scoreboard and cycle through
+    /// [`BoardPage::Table`] (`11-ia-nab2-scoreboard.png`), [`BoardPage::Details`]
+    /// (`12-ia-nab2-scoreboard-details.png`), and [`BoardPage::Awards`]
+    /// (`13-ia-nab2-scoreboard-awards.png`).
     pub fn set_scoreboard_page(&mut self, page: BoardPage) {
         self.sync_ports_cold("Player 1");
         if !self.scoreboard_ctrl.model.is_open() {
@@ -1964,6 +2394,10 @@ impl BattleController {
     }
 
     /// Opens the pause confirmation popup (`ConfirmKind`) for automated testing/screenshots.
+    ///
+    /// Ensures `self.pause_menu` is open and invokes `PauseMenu::ask(kind, &surface)`
+    /// to display the `YES` / `NO` confirmation modal (e.g. `ConfirmKind::Quit` for
+    /// `17-ia-bes1-pause-quit.png`).
     pub fn open_pause_confirm(&mut self, kind: ConfirmKind) {
         if !self.pause_menu.is_open {
             self.pause_menu.open("key", self.height);
@@ -1983,6 +2417,11 @@ impl BattleController {
     }
 }
 
+/// Maps a DOM `KeyboardEvent.code` string (e.g. `"KeyW"`, `"Space"`, `"F1"`) to a
+/// `winit::keyboard::KeyCode` for 3D movement, vehicle controls, and camera view toggles.
+///
+/// Translates DOM `KeyboardEvent.code` strings back into `winit::keyboard::KeyCode`
+/// values consumed by `crate::input::Input::key` for 3D soldier/vehicle controls.
 fn dom_code_to_keycode(code: &str) -> Option<KeyCode> {
     use KeyCode::*;
     Some(match code {
@@ -2069,7 +2508,7 @@ mod tests {
     fn respawn_keeps_the_authoritative_side() {
         let mut port =
             LiveSpawnPort::from_hud_meta(&[], &[], &std::collections::HashMap::new(), "cw");
-        port.sync_from_hud(&[[0.; 4]; 8], &[], false, 2);
+        port.sync_from_hud(&[[0.; 4]; 8], &[], &HudOwnSummary::default(), false, 2);
         assert_eq!(port.human_state().team, 2);
         assert_eq!(port.human_state().phase, "awaiting");
     }
@@ -2084,7 +2523,7 @@ mod tests {
         receiver.roster.receive(4, 70000, &bytes).unwrap();
         receiver.roster.local = Some(0);
         let mut board = LiveScoreboardPort::new(true, "cw");
-        board.sync_from_state("unused", &[[0.; 4]; 8], false, &receiver, None);
+        board.sync_published_roster(&receiver);
         let rows = board.roster();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].name, "Player");

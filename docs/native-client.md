@@ -3,11 +3,13 @@
 `bfe-client` is the standalone native Battlefront Eternal executable. Running
 `bfe-client` with no sub-mode arguments opens a single `winit` window, creates
 its OpenGL ES 3.0 (or `--desktop-gl` OpenGL 4.5) context and `cpal` audio stream,
-loads persisted settings and profiles through `bfe-desktop`, and drives the full
-game lifecycle natively in Rust:
+loads persisted settings (`bfe_interface::Settings`) and desktop state through
+`bfe-desktop`, attaches any already-running hosted server via
+`bfe_desktop::host::HostController::attach()`, and drives the full game
+lifecycle natively in Rust:
 
 ```text
-Startup -> StartupLoader -> Gate -> Shell -> InstantAction / Online -> Shell -> Exit
+Startup -> StartupLoader -> Gate -> Shell -> HostStarting / BattleLoading -> InstantAction / Online -> Shell -> Exit
 ```
 
 Build and run with:
@@ -30,7 +32,8 @@ USAGE:
 
 - **Default (`bfe-client [CONTENT_DIR]`)**: Runs the standalone native game
   through the startup loader, first-run content/update gate (when needed), main
-  menu shell, Instant Action playlists, and multiplayer server browser.
+  menu shell, `bfe-interface` options pages, Instant Action playlists, and
+  multiplayer server browser / local server hosting.
 - **`--local [<MISSION>]`**: Skips the shell menu and launches an Instant Action
   battle directly (for example `--local nab2` or `--local "map=nab2&era=cw"`).
   Pressing `Quit to Main Menu` from the in-battle pause menu returns to the
@@ -47,8 +50,7 @@ USAGE:
   - `--no-audio`: Disables `cpal` audio device initialization.
   - `--desktop-gl`: Requests a desktop OpenGL 4.5 context instead of GLES 3.0.
   - `--width <PX>`, `--height <PX>`, `--fullscreen`: Initial window geometry and
-    borderless fullscreen mode (`F11` or `Alt+Enter` toggles fullscreen at
-    runtime; `F12` saves a PNG screenshot to the user's screenshots directory).
+    borderless fullscreen mode (`F11` toggles fullscreen at runtime).
   - `--skip-update-check`: Skips the startup master-server version check.
   - `--script gate` (`--shots-dir <DIR>`, `--server <HOST:PORT>`): Drives the
     end-to-end automated verification sequence across all shell pages, a
@@ -61,24 +63,33 @@ USAGE:
 `rust/bfe-client/rust/app/` owns the top-level state machine:
 
 1. **`Startup` / `StartupLoader`**: Initializes platform directories, loads
-   `settings.json` via `bfe-desktop::settings`, starts non-blocking Steam/Discord
-   rich presence (`bfe-desktop::presence`) and the asynchronous update check
-   (`bfe-desktop::updater`), and renders the startup progress bar while scanning
-   prepared content (`bfe-desktop::content_gate::verify_content_dir`) and
+   the 59-key gameplay/audio/video/controls schema via `bfe_interface::Settings`
+   together with `desktop-settings.json` (`bfe-desktop`), calls
+   `HostController::attach()` on a background thread to re-attach any running
+   local `bfeserver`, starts non-blocking Discord rich presence
+   (`bfe-desktop::presence`), and renders the startup progress bar while scanning
+   prepared content (`bfe-desktop::content::verify_prepared_content`) and
    loading `ui_common.font` + shell audio (`ui.loaded`).
 2. **`Gate`**: Shown when no valid prepared content directory is configured or
    when a newer release is available. Allows selecting a content folder,
-   triggering raw CD/ISO asset extraction via `bfe-desktop::extractor`, or
-   continuing to the main menu.
+   extracting raw CD/ISO assets (`bfe-desktop::prepare`), or continuing to the
+   main menu.
 3. **`Shell`**: Runs `bfe-shell::ShellApp` and `ShellRenderer` inside the shared
    GL context, backed by `LiveServerBrowser` (`bfe-online::ServerBrowser` on
    background worker threads for master HTTPS queries, LAN UDP broadcast
    discovery on port `18452`, and concurrent TCP ping/info probes).
-   > **Swap point (`bfe-interface`)**: Option pages, hotkeys, and `Settings`
-   > persistence in `bfe-client/rust/app/settings.rs` and `shell.rs` currently
-   > bridge `bfe-shell`'s option models and `bfe-desktop::settings`; `bfe-interface`
-   > provides the unified 59-key schema and `ClassicTheme` menu framework ready
-   > to replace the shell option page bridge in a follow-up swap.
+   - **`bfe-interface` Options and `Settings`**: Selecting `OPTIONS` from the
+     Main Menu delegates rendering and input to `bfe_interface::OptionsController`
+     and `bfe_interface::ClassicTheme::paint_stack`, persisting all 59
+     settings keys through `bfe_interface::Settings` (`AppSettingsStore`
+     in `rust/bfe-client/src/app/settings.rs`).
+   - **`MULTIPLAYER -> HOST` (`SET GAME OPTIONS`)**: Selecting `CREATE` ->
+     `LAUNCH` on `ScreenId::HostDialog` maps the user's configured server name,
+     visibility (`LAN ONLY` / `PUBLIC`), max players, AI count/difficulty,
+     team auto-assign, and playlist rotation into `bfe_desktop::host::HostOptions`,
+     transitions to `AppState::HostStarting` while `HostController::start` waits
+     for `/admin` and `/info`, and then joins the local player through the
+     normal online path (`BattleController::start_online`).
 4. **`InstantAction` and `Online` (`BattleController`)**: Both battle modes run
    through the same `BattleController` (`rust/bfe-client/rust/app/battle.rs`),
    `Scene` (`bfe-render` + `bfe-presentation`), and `bfe-battle-ui` overlays
@@ -94,10 +105,16 @@ enabled) without recreating the OS audio stream.
 ## Local 60 Hz world thread (`InstantAction`)
 
 In `InstantAction`, `BattleController` spawns a dedicated 60 Hz simulation
-thread (`rust/bfe-client/rust/local/thread.rs`, `WorldThread::spawn`) that owns
-the local battle authority behind the same command and publication boundary used
-by the online path:
+thread (`rust/bfe-client/src/local/thread.rs`, `WorldThread::spawn`, named
+`"bfe-world-60hz"`) that owns the local battle authority behind the same command
+and publication boundary used by the online path:
 
+- **Exclusive `Context::world_admit` admission**: `Prepared::new`
+  (`rust/bfe-client/src/local/runtime.rs`) admits the mission world exclusively
+  through `bfe_sim::abi::context::Context::world_admit(&files, &options.admit())`
+  before any OpenGL scene or audio stream is created. No stand-in or fallback
+  authority exists; if `Context::world_admit` fails, the error is surfaced
+  directly to the player.
 - **Render -> World (`CommandRing`)**: Pre-allocated 64-entry ring buffer of
   `WorldMessage` (`Step`, `Pause`, `Suspend`, `Spawn`, `Respawn`, `Restart`,
   `Shutdown`). If the ring fills, the oldest `Step` is evicted so control
@@ -105,12 +122,9 @@ by the online path:
 - **World -> Render (`PublicationQueue`)**: Pre-allocated 4-slot pool of
   `Publication` records recycled between the world thread and render thread. The
   render thread drains published slots exclusively via `try_lock()`, guaranteeing
-  `worldRendererBlocks == 0`.
-- **Single swap point (`Context::world_admit`)**: `rust/bfe-client/rust/local/runtime.rs`
-  attempts `bfe_sim::context::Context::world_admit` first and runs
-  `WorldAuthority` (`world_Frame` + `Publisher::capture_in` into `BlockView`
-  wire words) when admitted, falling back cleanly to the self-contained 60 Hz
-  `FallbackAuthority` when native map runtime tables are not yet populated.
+  `worldRendererBlocks == 0`, while the world thread records its per-tick
+  execution time distribution (`WorldTickStats`: `min_ms`, `p50_ms`, `p95_ms`,
+  `p99_ms`, `max_ms`, `mean_ms`).
 - **Zero steady-state render allocations**: After initial warmup frames, active
   battle frames (without cold UI overlays open) perform zero heap allocations on
   the render thread (`steadyFrameAllocationsAfterWarmup == 0`), tracked by the
@@ -141,8 +155,9 @@ water or Classic ocean surfaces.
 
 ## Hosting from the native client (`HostController`)
 
-`bfe_desktop::host::HostController` (`rust/bfe-desktop/rust/host/mod.rs`) manages
-a detached `bfeserver` instance from the native client and via `desktop-tool host`:
+`bfe_desktop::host::HostController` (`rust/bfe-desktop/src/host/mod.rs`) manages
+a detached `bfeserver` instance from the native client (`MULTIPLAYER -> CREATE ->
+SET GAME OPTIONS -> LAUNCH`) and via `desktop-tool host`:
 
 - **What runs**: `HostController::start` writes `<state>/config.json` (mode
   `0600`, where `<state>` defaults to `<userData>/server` and can be overridden
@@ -167,10 +182,12 @@ a detached `bfeserver` instance from the native client and via `desktop-tool hos
   `0600`) authenticates `POST http://127.0.0.1:18460/admin` requests (`status`,
   `stop`, `restart`, `kick`, `ban`, `unban`).
 - **Keep-running and attach behavior**: When the user closes the client while a
-  hosted server is active, `HostController::close_prompt` supplies the confirmation
-  dialog (`"Hosted server is running"`, `"Other players can keep playing after you
-  close the app."`) with choices `CloseChoice::KeepRunning` (`"Keep server
-  running"`), `CloseChoice::StopAndQuit` (`"Stop server and quit"`), and
+  hosted server is active, `HostController::close_prompt` supplies the 3-button
+  confirmation dialog (`"Hosted server is running"`, `"Other players can keep
+  playing after you close the app."`) rendered as `PopupState::HostClosePrompt`
+  in `bfe-shell`, mapping button selections via `ClosePrompt::choice_for_index`
+  to `CloseChoice::KeepRunning` (`"Keep server running and quit"`),
+  `CloseChoice::StopAndQuit` (`"Stop server and quit"`), and
   `CloseChoice::Cancel` (`"Cancel"`). Choosing `KeepRunning` leaves `bfeserver`
   alive and records `<state>/attach.json`. On the next client startup (or a
   subsequent `HostController::start` / `HostController::attach` call), the

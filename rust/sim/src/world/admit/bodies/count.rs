@@ -17,6 +17,30 @@ impl World {
             })
         }).count() as u32
     }
+
+    /// preparePhase supplies qualified identities and retained intents, not only
+    /// a count. Dead bodies can outlive their AI controller in the warm pool.
+    #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+    pub(crate) fn prepare_foreign_unit_rows(&mut self) -> Option<u32> {
+        use crate::{gen::{F3PhaseInput, F3UnitKey}, units::f3};
+        if !f3::active_in(&self.units) { return Some(0); }
+        let mut count = 0;
+        for index in 0..f3::built_in(&self.units).len() {
+            let reference = f3::built_in(&self.units)[index];
+            let Some(unit) = self.sim.store.unit.get(reference) else { continue; };
+            if unit.removed || unit.network_human == Some(true) && self.input.players.active
+                || f3::native_intent_owned_in(&self.units, reference) { continue; }
+            let row = F3PhaseInput {
+                key: F3UnitKey::of(reference, unit),
+                intent: Some(unit.intent.clone()),
+                ..Default::default()
+            };
+            if !f3::prepare_foreign_row_in(&mut self.units, count, &row) { return None; }
+            count += 1;
+        }
+        Some(count as u32)
+    }
+
 }
 
 // The counter consumes membership and ownership facts independently of

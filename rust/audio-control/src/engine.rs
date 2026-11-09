@@ -392,7 +392,12 @@ impl Engine {
         if !want {
             self.release(id, 0.03, self.now); self.voices[id].real = false; self.stats[3] += 1; return;
         }
-        if self.free_slots == 0 { panic!("sound render capacity exhausted"); }
+        // Release tails still own their slots when a slow or suspended device
+        // has not reached their deadlines. Keep this voice virtual until a
+        // later frame reclaims a slot; audio pressure must not stop the game.
+        if self.free_slots == 0 {
+            return;
+        }
         self.free_slots -= 1; let slot = self.slots[self.free_slots];
         let v = &mut self.voices[id]; let sample = v.sample_info;
         let offset = if v.looping { v.elapsed % sample.duration } else { v.elapsed } * sample.scale;

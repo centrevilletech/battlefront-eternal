@@ -21,9 +21,9 @@ pub fn dispatch() -> bool {
 }
 
 pub struct Prepared {
-    engine: Box<Native>,
-    admission: Box<Admitted>,
-    root: std::path::PathBuf,
+    pub engine: Box<Native>,
+    pub admission: Box<Admitted>,
+    pub root: std::path::PathBuf,
 }
 
 impl Prepared {

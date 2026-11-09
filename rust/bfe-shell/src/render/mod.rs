@@ -813,8 +813,8 @@ pub(super) fn draw_scroll_bar(
     );
 }
 
-/// Draws a modal popup (`Notice` `OK` or `ConfirmExit` `YES`/`NO`) or text input
-/// modal (`Profile` callsign or `DirectConnect` address) without heap allocation.
+/// Draws a modal popup (`Notice` `OK`, `ConfirmExit` `YES`/`NO`, or `HostClosePrompt`)
+/// or text input modal (`Profile` callsign or `DirectConnect` address) without heap allocation.
 #[allow(clippy::too_many_arguments)]
 fn draw_popup_box(
     batch: &mut Batch,
@@ -826,16 +826,22 @@ fn draw_popup_box(
     buttons: &[(&str, bool)],
     pulse: f64,
 ) {
-    // Centered `360 x 190` 9-slice popup window frame (`border_3_pieces`).
+    // Centered `360 x 190` 9-slice popup window frame (`border_3_pieces`),
+    // widened to `520 x 210` when 3 buttons (`HostClosePrompt`) are present.
     let m = anchor(0.5, 0.5, false, height);
+    let (box_w, box_h) = if buttons.len() >= 3 {
+        (520.0, 210.0)
+    } else {
+        (360.0, 190.0)
+    };
     draw_frame(
         batch,
         textures,
         m,
         0.0,
         0.0,
-        360.0,
-        190.0,
+        box_w,
+        box_h,
         "border_3_pieces",
         WHITE,
     );
@@ -855,22 +861,36 @@ fn draw_popup_box(
 
     // Horizontal popup buttons (`paintHorizontal` in `src/menus/themes/classic/index.js`):
     // centered at `x = 0` when `count == 1`, or spaced 85 units apart (`-40` and `45`)
-    // at `y = 63` below center.
+    // at `y = 63` below center; for 3 buttons (`HostClosePrompt`), stack vertically
+    // or space across the wider dialog.
     let count = buttons.len();
-    let by = 63.0 - fonts.medium.caps_middle();
-    for (i, &(label, focused)) in buttons.iter().enumerate() {
-        // Place a single button at `x = 0`, or pair buttons at `-40` and `45`.
-        let x = if count == 1 {
-            0.0
-        } else {
-            -40.0 + (i as f64) * 85.0 - ((count as f64) - 2.0) * 42.5
-        };
-        let color = if focused {
-            selected_color(pulse)
-        } else {
-            WHITE
-        };
-        draw_str(&fonts.medium, batch, m, x, by, label, color, 2);
+    if count >= 3 {
+        let mut by = 10.0;
+        for &(label, focused) in buttons {
+            let color = if focused {
+                selected_color(pulse)
+            } else {
+                WHITE
+            };
+            draw_str(&fonts.medium, batch, m, 0.0, by, label, color, 2);
+            by += fonts.medium.height + 4.0;
+        }
+    } else {
+        let by = 63.0 - fonts.medium.caps_middle();
+        for (i, &(label, focused)) in buttons.iter().enumerate() {
+            // Place a single button at `x = 0`, or pair buttons at `-40` and `45`.
+            let x = if count == 1 {
+                0.0
+            } else {
+                -40.0 + (i as f64) * 85.0 - ((count as f64) - 2.0) * 42.5
+            };
+            let color = if focused {
+                selected_color(pulse)
+            } else {
+                WHITE
+            };
+            draw_str(&fonts.medium, batch, m, x, by, label, color, 2);
+        }
     }
 }
 
@@ -884,7 +904,7 @@ fn draw_popup_box(
 ///    `InstantActionEra`, `Options`, `OptionsPage`, `Profile`, `Multiplayer`,
 ///    `MultiplayerList`, `DirectConnect`, or `HostDialog`).
 /// 4. Modal overlay (`profile.editing` callsign editor or `PopupState` notice /
-///    `EXIT TO WINDOWS?` confirmation) over a dimmed backdrop.
+///    `EXIT TO WINDOWS?` confirmation / `HostClosePrompt`) over a dimmed backdrop.
 ///
 /// Performs zero heap allocations per frame.
 pub fn draw_shell(
@@ -1081,19 +1101,22 @@ pub fn draw_shell(
             );
         }
         // Standard angled row screens (`OPTIONS`, `OptionsPage`, `PROFILE
-        // MANAGEMENT`, `MULTIPLAYER`, and `LAN`/`ONLINE` server lists).
+        // MANAGEMENT`, `MULTIPLAYER`, `LAN`/`ONLINE` server lists, and `SET GAME OPTIONS`).
         ScreenId::Options
         | ScreenId::OptionsPage(_)
         | ScreenId::Profile
         | ScreenId::Multiplayer
-        | ScreenId::MultiplayerList(_) => {
+        | ScreenId::MultiplayerList(_)
+        | ScreenId::HostDialog => {
             let rows = app.active_rows();
             let sel = app.selected_cached_row_index(base_screen);
-            // Server lists (`LAN`/`ONLINE`) and option sub-pages use a wider
-            // `620`-unit bar stack so server names, player counts, and option
-            // values fit on one line; top-level menus use `350` units.
+            // Server lists (`LAN`/`ONLINE`), option sub-pages, and `SET GAME OPTIONS`
+            // (`HostDialog`) use a wider `620`-unit bar stack so labels and values
+            // fit on one line; top-level menus use `350` units.
             let width = match base_screen {
-                ScreenId::MultiplayerList(_) | ScreenId::OptionsPage(_) => 620.0,
+                ScreenId::MultiplayerList(_)
+                | ScreenId::OptionsPage(_)
+                | ScreenId::HostDialog => 620.0,
                 _ => 350.0,
             };
             draw_rows(
@@ -1120,6 +1143,18 @@ pub fn draw_shell(
                 true,
                 pulse,
             );
+            if base_screen == ScreenId::HostDialog {
+                draw_bottom_button(
+                    batch,
+                    fonts,
+                    height,
+                    "accept",
+                    app.say("ifs.mp.create.launch", "LAUNCH"),
+                    sel == 0,
+                    true,
+                    pulse,
+                );
+            }
         }
         // `DIRECT CONNECTION`: address entry modal with `CONNECT` / `CANCEL`.
         ScreenId::DirectConnect => {
@@ -1131,19 +1166,6 @@ pub fn draw_shell(
                 "DIRECT CONNECTION",
                 Some(&app.direct_connect_draft),
                 &[("CONNECT", true), ("CANCEL", false)],
-                pulse,
-            );
-        }
-        // `HOST GAME`: host confirmation modal with `LAUNCH` / `CANCEL`.
-        ScreenId::HostDialog => {
-            draw_popup_box(
-                batch,
-                fonts,
-                textures,
-                height,
-                "HOST GAME",
-                None,
-                &[("LAUNCH", true), ("CANCEL", false)],
                 pulse,
             );
         }
@@ -1190,7 +1212,8 @@ pub fn draw_shell(
             0.0,
             0,
         );
-        // Single-button `Notice` (`OK`) or two-button `ConfirmExit` (`YES` / `NO`).
+        // Single-button `Notice` (`OK`), two-button `ConfirmExit` (`YES` / `NO`),
+        // or three-button `HostClosePrompt`.
         match popup {
             PopupState::Notice { message } => {
                 draw_popup_box(
@@ -1219,6 +1242,27 @@ pub fn draw_shell(
                     pulse,
                 );
             }
+            PopupState::HostClosePrompt {
+                title,
+                message,
+                buttons,
+                selected,
+            } => {
+                draw_popup_box(
+                    batch,
+                    fonts,
+                    textures,
+                    height,
+                    title,
+                    Some(message),
+                    &[
+                        (&buttons[0], *selected == 0),
+                        (&buttons[1], *selected == 1),
+                        (&buttons[2], *selected == 2),
+                    ],
+                    pulse,
+                );
+            }
         }
     }
 }
@@ -1226,10 +1270,10 @@ pub fn draw_shell(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::loading::LookId;
     use crate::data::ShellData;
     use crate::launch::GameFamily;
     use crate::loading::LoadingTimeline;
+    use crate::loading::LookId;
 
     #[test]
     fn rows_shift_and_row_bar_at_match_classic_theme() {

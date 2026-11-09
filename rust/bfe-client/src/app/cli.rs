@@ -11,10 +11,13 @@
 
 use std::path::PathBuf;
 
-/// Version string for `bfe-client`.
+/// Version string for `bfe-client`, embedded from Cargo package metadata at compile time.
 pub const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Usage text printed for `--help` / `-h`.
+///
+/// Covers both the default standalone game mode and the legacy diagnostic sub-modes
+/// (`--map`, `--join`, `--local`, and `<SESSION_DIR>`).
 pub const HELP_TEXT: &str = "\
 Battlefront Eternal Native Client (bfe-client)
 
@@ -45,21 +48,34 @@ SUB-MODES:
     --local [<MISSION>]       Direct local battle host (e.g. nab2 or map=nab2&era=cw)
 ";
 
-/// Options for the default standalone native game mode.
+/// Options for the default standalone native game mode (`CliDispatch::Standalone`).
+///
+/// Controls window geometry, OpenGL context profile selection, audio device
+/// opening, startup content overrides, and automated `--script gate` choreography.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StandaloneOptions {
+    /// Optional explicit prepared content directory (`--content-dir` or positional `CONTENT_DIR`).
     pub content_dir: Option<PathBuf>,
+    /// Whether to open a live `cpal` audio output stream (`false` when `--no-audio` is passed).
     pub audio: bool,
+    /// Whether to request a desktop OpenGL 3.3+ core context instead of GLES 3.0 (`--desktop-gl`).
     pub desktop_gl: bool,
+    /// Initial physical window dimensions `[width, height]` in pixels (`1280x720` by default).
     pub size: [i32; 2],
+    /// Whether to start the window in borderless fullscreen mode (`--fullscreen`).
     pub fullscreen: bool,
+    /// Whether to skip the bounded startup update check (`--skip-update-check`).
     pub skip_update_check: bool,
+    /// Optional automated verification script name (`--script gate` or `--script gate-fast`).
     pub script: Option<String>,
+    /// Optional directory where `--script gate` writes PNG screenshots and `gate-summary.json`.
     pub shots_dir: Option<PathBuf>,
+    /// Optional `HOST:PORT` target for the online leg of `--script gate` (`--server`).
     pub server_target: Option<String>,
 }
 
 impl Default for StandaloneOptions {
+    /// Returns the default standalone options (`1280x720` windowed, audio enabled, GLES 3.0).
     fn default() -> Self {
         Self {
             content_dir: None,
@@ -75,20 +91,20 @@ impl Default for StandaloneOptions {
     }
 }
 
-/// Top-level CLI dispatch target.
+/// Top-level CLI dispatch target returned by [`parse_args`].
 #[derive(Debug)]
 pub enum CliDispatch {
-    /// Print help text to stdout and exit 0 immediately.
+    /// Print help text to stdout and exit 0 immediately before opening a window.
     Help(String),
-    /// Print version string to stdout and exit 0 immediately.
+    /// Print version string to stdout and exit 0 immediately before opening a window.
     Version(String),
-    /// Run the standalone full native game (`App`).
+    /// Run the standalone full native game (`Startup` -> `Loader` -> `Shell` -> `Battle`).
     Standalone(StandaloneOptions),
-    /// Run the legacy `--local` battle host.
+    /// Run the legacy `--local` single-battle CLI host (`crate::local::launch`).
     LegacyLocal(Vec<String>),
-    /// Run the legacy `--join` online battle host.
+    /// Run the legacy `--join` direct online battle window (`crate::session_window`).
     LegacyJoin(Vec<String>),
-    /// Run the legacy `--map` or `SESSION_DIR` static/replay viewer.
+    /// Run the legacy `--map` static viewer or `SESSION_DIR` replay viewer (`crate::session_window`).
     LegacyWindow(Vec<String>),
 }
 
@@ -99,6 +115,7 @@ pub fn parse_args<I>(args: I) -> Result<CliDispatch, String>
 where
     I: IntoIterator<Item = String>,
 {
+    // Collect the raw argument strings so we can scan for priority flags before consuming tokens.
     let raw: Vec<String> = args.into_iter().collect();
 
     // Check `--help` / `-h` and `--version` / `-V` first so they always succeed
@@ -115,7 +132,7 @@ where
         }
     }
 
-    // Dispatch legacy sub-modes when their selector flags are present.
+    // Dispatch legacy sub-modes when their selector flags are present anywhere on the command line.
     if raw.iter().any(|a| a == "--local") {
         return Ok(CliDispatch::LegacyLocal(raw));
     }
@@ -126,7 +143,8 @@ where
         return Ok(CliDispatch::LegacyWindow(raw));
     }
 
-    // Check if a positional argument is a recorded session or legacy capture directory.
+    // Check if a positional argument is a recorded session or legacy capture directory
+    // containing `session.json` or `calls.json`.
     if raw.iter().any(|a| {
         if a.starts_with('-') {
             return false;
@@ -137,15 +155,18 @@ where
         return Ok(CliDispatch::LegacyWindow(raw));
     }
 
+    // Seed standalone options with `BFE_CONTENT_DIR` from the environment if present.
     let mut opts = StandaloneOptions {
         content_dir: std::env::var_os("BFE_CONTENT_DIR").map(PathBuf::from),
         ..StandaloneOptions::default()
     };
 
+    // Parse standalone option flags and at most one positional content directory path.
     let mut it = raw.into_iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--content-dir" => {
+                // Explicit `--content-dir <DIR>` overrides both `BFE_CONTENT_DIR` and persisted settings.
                 let dir = it.next().ok_or("missing value for --content-dir")?;
                 opts.content_dir = Some(PathBuf::from(dir));
             }
@@ -167,18 +188,23 @@ where
                 || s.starts_with("--query=")
                 || s.starts_with("--network-family-autoselection-attempt-timeout=") => {}
             "--no-audio" => {
+                // Run with headless audio pumping instead of opening a hardware `cpal` stream.
                 opts.audio = false;
             }
             "--desktop-gl" => {
+                // Request a desktop OpenGL 3.3+ context instead of OpenGL ES 3.0.
                 opts.desktop_gl = true;
             }
             "--fullscreen" => {
+                // Start the window in borderless fullscreen mode.
                 opts.fullscreen = true;
             }
             "--skip-update-check" => {
+                // Bypass the startup release-feed check.
                 opts.skip_update_check = true;
             }
             "--width" => {
+                // Parse and validate horizontal window resolution in physical pixels (`320..=8192`).
                 let w: i32 = it
                     .next()
                     .ok_or("missing value for --width")?
@@ -190,6 +216,7 @@ where
                 opts.size[0] = w;
             }
             "--height" => {
+                // Parse and validate vertical window resolution in physical pixels (`240..=8192`).
                 let h: i32 = it
                     .next()
                     .ok_or("missing value for --height")?
@@ -201,21 +228,26 @@ where
                 opts.size[1] = h;
             }
             "--script" => {
+                // Enable automated gate choreography (`gate` or `gate-fast`).
                 let s = it.next().ok_or("missing value for --script")?;
                 opts.script = Some(s);
             }
             "--shots-dir" => {
+                // Override output directory for gate PNG screenshots and `gate-summary.json`.
                 let d = it.next().ok_or("missing value for --shots-dir")?;
                 opts.shots_dir = Some(PathBuf::from(d));
             }
             "--server" => {
+                // Override target `bfeserver` address (`HOST:PORT`) for the online gate phase.
                 let t = it.next().ok_or("missing value for --server")?;
                 opts.server_target = Some(t);
             }
             other if other.starts_with('-') => {
+                // Reject unrecognized flags with a clear diagnostic and the full help text.
                 return Err(format!("unknown option: {other}\n\n{HELP_TEXT}"));
             }
             positional => {
+                // Accept a single positional `CONTENT_DIR` argument if `--content-dir` was not already set.
                 if opts.content_dir.is_some()
                     && std::env::var_os("BFE_CONTENT_DIR")
                         .map(PathBuf::from)
@@ -236,6 +268,7 @@ where
 mod tests {
     use super::*;
 
+    /// Verifies `--help`, `-h`, `--version`, and `-V` return `CliDispatch::Help` / `Version`.
     #[test]
     fn help_and_version_exit_cleanly() {
         let h = parse_args(vec!["--help".to_string()]).expect("help");
@@ -251,18 +284,21 @@ mod tests {
         assert!(matches!(v_short, CliDispatch::Version(_)));
     }
 
+    /// Verifies unknown flags fail fast with an error message containing the offending flag.
     #[test]
     fn unknown_flag_returns_err() {
         let err = parse_args(vec!["--bogus-flag".to_string()]).unwrap_err();
         assert!(err.contains("unknown option: --bogus-flag"));
     }
 
+    /// Verifies invoking `bfe-client` with no arguments selects `CliDispatch::Standalone`.
     #[test]
     fn default_no_args_selects_standalone() {
         let res = parse_args(Vec::<String>::new()).expect("standalone");
         assert!(matches!(res, CliDispatch::Standalone(_)));
     }
 
+    /// Verifies `--map`, `--join`, and `--local` route to their respective legacy handlers.
     #[test]
     fn bootstrap_and_launcher_flags_are_ignored() {
         let res = parse_args(vec![

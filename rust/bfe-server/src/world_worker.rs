@@ -1142,6 +1142,9 @@ impl NativeWorldHost {
                 admitted_player_id = (admitted.player_id as u32).max(1);
                 publication_session = admitted.handles.publication;
                 host_handle = admitted.handles.host;
+                context
+                    .world_network_epoch(host_handle, epoch)
+                    .map_err(|e| e.to_string())?;
                 initial_units = admitted.units;
                 if !admitted.registry.is_null() {
                     registry_descriptor = admitted.registry;
@@ -1405,6 +1408,22 @@ impl NativeWorldHost {
         let _ =
             self.context
                 .run_operation_into(self.op_host_op, &self.op_words, &mut self.op_block);
+    }
+
+    /// Restart a completed, empty battle so a later visitor can join a live match.
+    /// No connected player's publication baseline may cross this replacement.
+    pub fn restart_finished_empty(&mut self) -> Result<bool, String> {
+        if !self.ended || !self.native_by_client.is_empty() {
+            return Ok(false);
+        }
+        let mut next = Self::load_from_content(
+            &self.content_root,
+            &self.query,
+            self.epoch.checked_add(1).ok_or("battle epoch exhausted")?,
+        )?;
+        next.last_now_ms = self.last_now_ms;
+        *self = next;
+        Ok(true)
     }
 
     /// Admits a player into the world roster (`world.addPlayer` and `entityHost.addClient` in
@@ -1928,6 +1947,9 @@ impl NativeWorldHost {
         // When `world_admit` initialized a live publication session, run `world_tick` and
         // publish into the pre-allocated `self.published` buffer (`world_tick` + `world_publish_into`).
         if self.publication_session != 0 {
+            // preparePhase's foreign rows change when bots or connected players
+            // spawn and die. Admission's count only describes the initial world.
+            self.tick_input.units = self.context.world_prepare_units().map_err(|e| e.to_string())?;
             let output = self
                 .context
                 .world_tick(self.tick_input.clone())
@@ -1942,7 +1964,10 @@ impl NativeWorldHost {
             self.tick_input.clock.step_cost = output.clock.step_cost;
             // WorldTick.complete never publishes a refused authority step.
             if !output.accepted {
-                return Err("native world refused authoritative tick".into());
+                return Err(format!(
+                    "native world refused authoritative tick {} (clock {}, foreign rows {})",
+                    self.tick_input.tick, output.clock.tick, self.tick_input.units,
+                ));
             }
 
             if let Ok(words) = self.context.export(u32::from(gen::KIND_BATTLE), 0) {

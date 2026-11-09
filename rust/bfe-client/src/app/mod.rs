@@ -1,11 +1,75 @@
 //! Standalone native game application (`bfe-client` with no arguments).
 //!
 //! Coordinates the complete lifecycle:
-//! `Startup` (bounded update handoff/check) -> `StartupLoader` (`bfe-desktop` content
-//! discovery and preparation) -> `Shell` (`bfe-shell` + `bfe-online`) ->
-//! `BattleLoading` -> `Battle` (`InstantAction` on `WorldThread` or `Online` on
-//! `online::client::Client` with `bfe-battle-ui` overlays) -> `Shell` -> `Exit`.
+//! `Startup` (bounded update handoff/check + hosted server `attach()`) ->
+//! `StartupLoader` (`bfe-desktop` content discovery and preparation) ->
+//! `Shell` (`bfe-shell` + `bfe-interface` options + `bfe-online` + `HostController`) ->
+//! `HostStarting` (progress until `/info` answers) ->
+//! `BattleLoading` -> `Battle` (`InstantAction` on `WorldThread` via `Context::world_admit`
+//! or `Online` on `online::client::Client` with `bfe-battle-ui` overlays) -> `Shell` -> `Exit`.
+//!
+//! ## Threading and Allocation Invariants
+//! - The main (`winit`) thread owns the OpenGL context, the front-end [`ShellHost`],
+//!   and the 3D battle [`BattleController`].
+//! - During an Instant Action battle, the authoritative simulation runs on a dedicated
+//!   60 Hz thread (`"bfe-world-60hz"`) admitted via `Context::world_admit`, exchanging
+//!   inputs and frame publications over lock-free bounded channels without ever blocking
+//!   the render thread.
+//! - A thread-local allocation counter (`RENDER_THREAD_ALLOCS`) is incremented by the
+//!   global allocator in `main.rs` so `--script gate` can verify zero steady-state
+//!   heap allocations on the render thread after initial warmup.
+//!
+//! ## Subsystem Ownership Summary
+//! | Subsystem | Crate / Module | Responsibility |
+//! |---|---|---|
+//! | Window & GL Context | `winit` + `glutin` + `glow` | OS windowing, EGL/GLX surface, GLES 3.0 / GL 3.3 context |
+//! | Desktop Lifecycle | `bfe_desktop` | Paths, atomic settings, self-update check, `PrepareSession`, `HostController`, Discord Rich Presence |
+//! | Front-End Shell | `bfe_shell` | Gate, Main Menu, Singleplayer, Instant Action playlist, Profile, Multiplayer browser, Host dialog |
+//! | Options & Settings | `bfe_interface` | 59-key `Settings` schema, `OptionsController`, `ClassicTheme::paint_stack` (`GAME`, `VIDEO`, `AUDIO`, `CONTROLS`) |
+//! | Server Browser | `bfe_online` | Master directory queries, LAN UDP broadcast discovery, direct `/info` probes |
+//! | Battle UI Overlays | `bfe_battle_ui` | `SpawnScreenController`, `ScoreboardController`, `PauseMenu`, `ChatController` |
+//! | Local Simulation | `WorldThread` (`Context::world_admit`) | Dedicated 60 Hz mission simulation thread (`"bfe-world-60hz"`) |
+//! | Online Client | `crate::online::client::Client` | Authenticated UDP/WebRTC session, snapshot receiver, client-side prediction replay |
+//! | 3D Scene & HUD | `crate::scene::Scene` + `bfe_render` | Terrain, sky, water, skeletal/skinned models, particles, and 3D-anchored HUD batch |
+//! | Audio Routing | `SharedAudioRouter` | Lock-free switch between front-end `ShellAudioMixer` and in-battle 3D `Stream` |
+//!
+//! ## Hosted Server Lifecycle (`bfe_desktop::host::HostController`)
+//! - **Startup Re-Attach**: `run_standalone_game` constructs `HostController` pointing at
+//!   `<user_data>/server` and calls `attach()` so any detached `bfeserver` left running
+//!   from a previous session (`CloseChoice::KeepRunning`) is adopted automatically.
+//! - **Create & Launch**: Selecting `CREATE` on `ScreenId::HostDialog` maps `HostConfig`
+//!   into `HostOptions` (`host_options_from_shell`) and transitions to `AppState::HostStarting`,
+//!   which spawns `bfeserver` and polls `/admin` and `/info` on `"bfe-host-start"` while
+//!   rendering the loading screen. Once `/info` answers, the local player joins through
+//!   the standard `BattleLoadTarget::Online` path (`BattleController::start_online`).
+//! - **Close Prompt**: Closing the window while a hosted server is active opens the
+//!   3-button `ClosePrompt` modal (`KeepRunning`, `StopAndQuit`, `Cancel`).
 
+//! ## State Machine Transitions
+//! ```text
+//! [Startup: run_bounded_update_check + HostController::attach]
+//!        |
+//!        v
+//! [AppState::StartupLoader] --(content ready)--> [AppState::Shell]
+//!                                                   |          ^
+//!                    +------------------------------+          |
+//!                    | (LAUNCH / JOIN / CREATE)                | (Quit / Leave / Playlist end)
+//!                    v                                         |
+//!        [AppState::HostStarting]                              |
+//!                    | (/info answers)                         |
+//!                    v                                         |
+//!        [AppState::BattleLoading] ----------------------------> [AppState::Battle]
+//! ```
+//!
+//! ## Key Handling and Coordinate Spaces
+//! - **Front-end Shell (`AppState::Shell`)**: Logical keys (`Key::Named` / `Key::Character`)
+//!   are mapped via [`map_shell_key`]. When `ScreenId::Options` or `ScreenId::OptionsPage(_)`
+//!   is active, pointer and keyboard events route through `bfe_interface::OptionsController`
+//!   and `bfe_interface::ClassicTheme::paint_stack`.
+//! - **In-Battle (`AppState::Battle`)**: Physical key codes (`PhysicalKey::Code`) are mapped
+//!   to DOM `KeyboardEvent.code` strings via [`keycode_to_dom_code`] so `bfe-battle-ui`
+//!   (`PauseMenu`, `ChatController`, `SpawnScreenController`, `ScoreboardController`)
+//!   and 3D movement (`Input`) share identical key identifiers with the web reference.
 pub mod battle;
 pub mod cli;
 pub mod script;
@@ -24,7 +88,13 @@ use crate::{
     },
     audio::{AudioDevice, SharedAudioRouter, Status as AudioStatus},
 };
-use bfe_desktop::presence::{activity::RawPresenceInput, PresenceController};
+use bfe_desktop::{
+    host::{
+        resolve_server_executable, ClosePrompt, HostController, HostControllerConfig,
+        HostJoinInfo, HostOptions,
+    },
+    presence::{activity::RawPresenceInput, PresenceController},
+};
 use bfe_online::ServerBrowserService;
 use bfe_shell::{
     audio::ShellAudioMixer,
@@ -43,9 +113,10 @@ use glutin_winit::{DisplayBuilder, GlWindow};
 use raw_window_handle::HasWindowHandle;
 use std::{
     cell::Cell,
+    collections::BTreeMap,
     num::NonZeroU32,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{mpsc, Arc, Mutex},
     time::Instant,
 };
 use winit::{
@@ -58,6 +129,8 @@ use winit::{
 };
 
 thread_local! {
+    /// Per-thread cumulative heap allocation counter updated by the global `CountingAlloc`
+    /// in `main.rs` without locks or re-entrant allocations.
     static RENDER_THREAD_ALLOCS: Cell<u64> = const { Cell::new(0) };
 }
 
@@ -77,16 +150,22 @@ pub fn render_thread_alloc_count() -> u64 {
 /// Target battle to load during [`AppState::BattleLoading`].
 #[derive(Clone, Debug)]
 pub enum BattleLoadTarget {
+    /// Local Instant Action battle (`BattleRequest` and current index in its playlist rotation).
     InstantAction {
+        /// Mission and playlist configuration selected on `ScreenId::InstantAction`.
         request: BattleRequest,
+        /// Zero-based index into `request.playlist` for the battle being loaded.
         playlist_index: usize,
     },
+    /// Online or locally hosted multiplayer battle joined over UDP (`online::client::Client`).
     Online {
+        /// Target server address, port, map, era, and player name.
         launch: MultiplayerLaunch,
     },
 }
 
 impl BattleLoadTarget {
+    /// Returns the map identifier (`"nab2"`, `"tat1"`, `"bes1"`, etc.) for the battle being loaded.
     pub fn map_id(&self) -> &str {
         match self {
             Self::InstantAction {
@@ -111,28 +190,52 @@ impl BattleLoadTarget {
 
 /// Top-level standalone game state machine.
 pub enum AppState {
+    /// Startup content discovery and background preparation loader screen.
     StartupLoader(StartupContentState),
+    /// Front-end shell (`Gate`, `Main`, `InstantAction`, `bfe-interface` `Options`, `Multiplayer`, `HostDialog`).
     Shell,
-    BattleLoading {
-        target: BattleLoadTarget,
+    /// Progress screen displayed while `HostController::start` spawns `bfeserver` and polls `/info`.
+    HostStarting {
+        /// Validated host configuration from `SET GAME OPTIONS`.
+        options: HostOptions,
+        /// Online launch descriptor that will be updated with `HostJoinInfo` once `/info` responds.
+        launch: MultiplayerLaunch,
+        /// One-shot receiver delivering `Result<HostJoinInfo, String>` from the `"bfe-host-start"` thread.
+        rx: mpsc::Receiver<Result<HostJoinInfo, String>>,
+        /// Number of loading frames rendered while waiting for `/info`.
         frames_drawn: u32,
     },
+    /// Animated planet zoom loading screen rendered before admitting/connecting a battle.
+    BattleLoading {
+        /// Instant Action or Online battle target to initialize once loading frames complete.
+        target: BattleLoadTarget,
+        /// Number of loading frames rendered so far.
+        frames_drawn: u32,
+    },
+    /// Active 3D battle with `bfe-battle-ui` overlays (`Spawn`, `HUD`, `Scoreboard`, `Pause`).
     Battle(Box<BattleController>),
 }
 
 /// Main entry point for `bfe-client`.
+///
+/// Parses command-line arguments first so `--help` / `--version` exit 0 immediately
+/// before touching any display server or audio device, and routes either to legacy
+/// diagnostic sub-modes (`--local`, `--join`, `--map`) or to [`run_standalone_game`].
 pub fn run(with_audio: bool) {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match parse_args(args) {
         Ok(CliDispatch::Help(text)) => {
+            // Print usage text to stdout and exit 0 cleanly.
             println!("{text}");
             std::process::exit(0);
         }
         Ok(CliDispatch::Version(ver)) => {
+            // Print package version to stdout and exit 0 cleanly.
             println!("{ver}");
             std::process::exit(0);
         }
         Ok(CliDispatch::LegacyLocal(raw)) => {
+            // Dispatch legacy `--local` single-battle CLI mode.
             if !crate::local::launch::dispatch() {
                 let result = crate::local::options::Options::parse(
                     &raw,
@@ -147,15 +250,18 @@ pub fn run(with_audio: bool) {
             }
         }
         Ok(CliDispatch::LegacyJoin(_)) | Ok(CliDispatch::LegacyWindow(_)) => {
+            // Dispatch legacy `--join`, `--map`, or recorded `SESSION_DIR` window.
             crate::session_window::run_with_audio(with_audio);
         }
         Ok(CliDispatch::Standalone(opts)) => {
+            // Launch the default standalone native game lifecycle.
             if let Err(err) = run_standalone_game(opts, with_audio) {
                 eprintln!("{err}");
                 std::process::exit(1);
             }
         }
         Err(err) => {
+            // Report invalid CLI arguments to stderr and exit 1.
             eprintln!("{err}");
             std::process::exit(1);
         }
@@ -163,20 +269,61 @@ pub fn run(with_audio: bool) {
 }
 
 /// Runs the standalone native game (`Startup` -> `StartupLoader` -> `Shell` -> `Battle`).
+///
+/// ## Initialization Sequence
+/// 1. **Paths & Settings**: Resolves [`DesktopPaths`] (`current_desktop_paths`) and loads
+///    `DesktopSettings`, `bfe_interface::Settings` (all 59 keys), and `PersistedPlayerSettings`
+///    via [`AppSettingsStore::load`].
+/// 2. **Bounded Update Check**: Executes [`run_bounded_update_check`] with a hard `<= 1.5s`
+///    timeout so offline environments proceed immediately.
+/// 3. **Startup Content Resolution**: Invokes [`StartupContentState::resolve`] to locate
+///    prepared content (`common/common.json`) or start a background `PrepareSession`.
+/// 4. **`HostController::attach`**: Initializes [`bfe_desktop::host::HostController`] pointing
+///    at `<user_data>/server` and calls `attach()` so any detached `bfeserver` left running
+///    from a prior session (`CloseChoice::KeepRunning`) is adopted automatically.
+/// 5. **Dynamic Audio Router**: Opens a hardware `cpal` stream via [`AudioDevice::open_dynamic`]
+///    or falls back to deterministic headless quantum pumping (`pump_headless_audio`).
+/// 6. **Event Loop Execution**: Enters `winit`'s `ControlFlow::Poll` loop via `event_loop.run_app`.
 pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<(), String> {
+    // 1. Resolve application data paths and load `DesktopSettings`, `bfe_interface::Settings`,
+    //    and `PersistedPlayerSettings`.
     let paths = current_desktop_paths();
     let mut settings = AppSettingsStore::load(paths);
 
-    // Deliverable 1: Bounded startup update handoff/check before opening the window.
+    // 2. Bounded startup update handoff/check before opening the window (<= 1.5s timeout).
     if let UpdateCheckOutcome::UpdateAvailable { version, kind } =
         run_bounded_update_check(&settings, opts.skip_update_check)
     {
         eprintln!("update available: {version} ({kind})");
     }
 
+    // 3. Resolve prepared content or start a background `PrepareSession`.
     let startup_content =
         StartupContentState::resolve(opts.content_dir.as_deref(), &mut settings);
 
+    // 4. Wire `bfe_desktop::host::HostController` and re-attach to any surviving hosted
+    //    server (`attach()`) at startup.
+    let env_map: BTreeMap<String, String> = std::env::vars().collect();
+    let current_exe = std::env::current_exe().ok();
+    let mut host_cfg = HostControllerConfig::new(
+        settings.paths.user_data.join("server"),
+        settings.paths.content_root.clone(),
+    );
+    host_cfg.executable = resolve_server_executable(
+        &env_map,
+        current_exe.as_deref(),
+        Some(&settings.paths.project_root),
+    );
+    host_cfg.online_consent = settings.player.privacy_notice_accepted;
+    let host_controller =
+        HostController::new(host_cfg).map_err(|e| format!("host controller init: {e}"))?;
+    if let Err(err) = host_controller.attach() {
+        eprintln!("host controller attach warning: {err}");
+    }
+    let host_controller = Arc::new(Mutex::new(host_controller));
+
+    // 5. Initialize the shared audio router (`ShellAudioMixer` <-> live battle `Stream`),
+    //    falling back to headless quantum pumping if no audio output device is available.
     let audio_status = Arc::new(AudioStatus::default());
     let audio_router = SharedAudioRouter::new();
     let audio_device = if with_audio && opts.audio {
@@ -191,17 +338,20 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         None
     };
 
+    // 6. Construct the automated `--script gate` driver if requested on the command line.
     let gate = opts
         .script
         .as_deref()
         .map(|name| GateDriver::new(name, opts.shots_dir.clone()));
 
+    // 7. Create the `winit` event loop in continuous `Poll` mode for 60 Hz rendering.
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let mut app = StandaloneWindowApp {
         opts,
         settings,
+        host_controller,
         audio_status,
         audio_router,
         _audio_device: audio_device,
@@ -229,30 +379,65 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
     Ok(())
 }
 
+/// Top-level `winit` [`ApplicationHandler`] owning the OS window, EGL/GLX surface,
+/// OpenGL context, [`ShellHost`], [`HostController`], [`PresenceController`], and [`AppState`].
 struct StandaloneWindowApp {
+    /// Parsed command-line options (`--width`, `--height`, `--script`, `--server`, etc.).
     opts: StandaloneOptions,
+    /// Persistent desktop, `bfe-interface`, and player settings store.
     settings: AppSettingsStore,
+    /// Thread-safe handle to `bfe_desktop::host::HostController` for local server hosting.
+    host_controller: Arc<Mutex<HostController>>,
+    /// Atomic audio callback health status.
     audio_status: Arc<AudioStatus>,
+    /// Shared audio router switching cleanly between `ShellAudioMixer` and battle `Stream`.
     audio_router: Arc<SharedAudioRouter>,
+    /// Active hardware `cpal` stream handle when audio output is enabled and available.
     _audio_device: Option<AudioDevice>,
+    /// Pre-allocated stereo scratch buffer used to pump audio quantums when running headless.
     headless_scratch: Box<[f32; ::audio::FRAMES * 2]>,
+    /// Active top-level state (`StartupLoader`, `Shell`, `HostStarting`, `BattleLoading`, `Battle`).
     state: AppState,
+    /// Front-end shell and loading screen renderer (`bfe-shell` + `bfe-interface`).
     shell: Option<Box<ShellHost>>,
+    /// Native OS window handle.
     window: Option<Window>,
+    /// `glutin` window surface for buffer swaps.
     surface: Option<Surface<WindowSurface>>,
+    /// Current OpenGL / OpenGL ES context.
     context: Option<PossiblyCurrentContext>,
+    /// `glow` function pointer table bound to the current GL context.
     gl: Option<glow::Context>,
+    /// Whether the OS window currently has input focus.
     focused: bool,
+    /// Whether the cursor is currently locked and hidden for 3D combat mouselook.
     pointer_locked: bool,
+    /// Whether borderless fullscreen mode is currently active (`F11`).
     fullscreen: bool,
+    /// Timestamp of the previous rendered frame for computing `dt`.
     last_frame: Instant,
+    /// Discord Rich Presence controller (`bfe-desktop`).
     presence: PresenceController,
+    /// Cached key of the last Rich Presence payload to avoid redundant IPC updates.
     last_presence_key: String,
+    /// Optional automated `--script gate` driver.
     gate: Option<GateDriver>,
+    /// Fatal error message captured during frame stepping or GL initialization.
     error: Option<String>,
 }
 
 impl StandaloneWindowApp {
+    /// Synchronizes OS cursor grab (`Locked` / `Confined` vs `None`) and cursor visibility
+    /// with the active state: locked during 3D combat when no battle UI overlay is open,
+    /// and unlocked whenever the shell, spawn screen, scoreboard, or pause menu is active.
+    ///
+    /// ## Pointer Grab Rules
+    /// - In `AppState::Battle`, pointer lock is requested if and only if `self.focused` is
+    ///   `true` and `battle.wants_pointer_lock()` is `true` (all 2D overlays closed).
+    /// - Attempts `CursorGrabMode::Locked` first (relative raw motion via `DeviceEvent::MouseMotion`)
+    ///   and falls back to `CursorGrabMode::Confined` on window managers that disallow lock.
+    /// - In all other states (`StartupLoader`, `Shell`, `HostStarting`, `BattleLoading`),
+    ///   releases cursor grab and restores OS cursor visibility.
     fn sync_pointer_lock(&mut self) {
         let Some(window) = &self.window else {
             return;
@@ -278,6 +463,10 @@ impl StandaloneWindowApp {
         }
     }
 
+    /// Toggles borderless fullscreen mode on the active window (`F11`).
+    ///
+    /// Flips `self.fullscreen` and applies `Fullscreen::Borderless(None)` (or `None` for
+    /// windowed mode) on the active `winit::window::Window`.
     fn toggle_fullscreen(&mut self) {
         self.fullscreen = !self.fullscreen;
         if let Some(window) = &self.window {
@@ -288,6 +477,11 @@ impl StandaloneWindowApp {
         }
     }
 
+    /// Re-runs startup content resolution when the user selects a content or SWBF1 install
+    /// folder (`F9` on the waiting-for-folder loader screen).
+    ///
+    /// Checks `BFE_CONTENT_SOURCE` or `settings.desktop.game_dir`, persists the chosen
+    /// directory to `desktop-settings.json`, and re-enters `AppState::StartupLoader`.
     fn choose_content_folder(&mut self) {
         let picked = std::env::var("BFE_CONTENT_SOURCE")
             .ok()
@@ -309,6 +503,17 @@ impl StandaloneWindowApp {
         }
     }
 
+    /// Updates Discord Rich Presence (`PresenceController::set_activity`) whenever the
+    /// high-level application phase, map, era, or multiplayer room changes.
+    ///
+    /// ## Activity Mapping
+    /// - `StartupLoader` -> `phase = "preparing"`
+    /// - `Shell` (`Multiplayer` screen) -> `phase = "lobby"`
+    /// - `Shell` (all other screens) -> `phase = "menu"`
+    /// - `HostStarting` -> `phase = "loading"`, `room_name = options.name`
+    /// - `BattleLoading` -> `phase = "loading"`, `map_id = target.map_id()`
+    /// - `Battle` (`InstantAction`) -> `phase = "match"`, `mode = "instant-action"`
+    /// - `Battle` (`Online`) -> `phase = "match"`, `mode = "multiplayer"`, `party_size = 1`
     fn update_rich_presence(&mut self) {
         let raw = match &self.state {
             AppState::StartupLoader(_) => RawPresenceInput {
@@ -325,6 +530,17 @@ impl StandaloneWindowApp {
                     ..RawPresenceInput::default()
                 }
             }
+                        // Poll the background `"bfe-host-start"` worker thread (`rx.try_recv()`)
+            // while rendering the animated planet loading screen (`draw_host_starting`).
+            // Once `HostController::start` confirms `/admin` (`status == "running"`)
+            // and `GET /info` on the game port, transition into `AppState::BattleLoading`
+            // with `BattleLoadTarget::Online` so the local host player joins through
+            // the normal online multiplayer client path (`BattleController::start_online`).
+            AppState::HostStarting { options, .. } => RawPresenceInput {
+                phase: Some("loading".to_string()),
+                room_name: Some(options.name.clone()),
+                ..RawPresenceInput::default()
+            },
             AppState::BattleLoading { target, .. } => RawPresenceInput {
                 phase: Some("loading".to_string()),
                 map_id: Some(target.map_id().to_string()),
@@ -363,6 +579,12 @@ impl StandaloneWindowApp {
         }
     }
 
+    /// Disconnects the live battle audio stream and re-installs a [`ShellAudioMixer`]
+    /// when returning from a battle to the front-end shell.
+    ///
+    /// Detaches the battle `Stream` (`audio_router.set_live(None)`) and constructs a
+    /// fresh [`ShellAudioMixer`] configured with the user's persisted `master_volume`,
+    /// `music_volume`, and `interface_volume`.
     fn restore_shell_audio(&self, content_dir: &Path) {
         if let Some(shell) = &self.shell {
             let mut mixer = ShellAudioMixer::new(&shell.app.data, Some(content_dir));
@@ -376,6 +598,56 @@ impl StandaloneWindowApp {
         }
     }
 
+    /// Handles window/application close requests, consulting `HostController::close_prompt()`
+    /// first when a hosted server is active.
+    ///
+    /// ## Hosted Server Close-Prompt Flow
+    /// 1. Queries `HostController::close_prompt()`, which returns `Some(ClosePrompt)` when
+    ///    the local `bfeserver` child process is still running (`status == "running"`).
+    /// 2. If active (and not running headless `--script gate`), transitions to `AppState::Shell`
+    ///    and opens the 3-button `PopupState::HostClosePrompt` modal:
+    ///    - `[0]` `"Keep server running and quit"` -> `CloseChoice::KeepRunning` (`detach()`)
+    ///    - `[1]` `"Stop server and quit"` -> `CloseChoice::StopAndQuit` (`stop()`)
+    ///    - `[2]` `"Cancel"` -> `CloseChoice::Cancel` (remain in app)
+    /// 3. If no hosted server is running, writes any `--script gate` summary report and
+    ///    calls `event_loop.exit()`.
+    fn request_app_close(&mut self, event_loop: &ActiveEventLoop) {
+        // When not running an automated gate script, check if `HostController` has a running
+        // hosted server that requires the 3-choice close prompt (`KeepRunning`, `StopAndQuit`, `Cancel`).
+        if self.gate.is_none() {
+            let maybe_prompt = self
+                .host_controller
+                .lock()
+                .ok()
+                .and_then(|hc| hc.close_prompt());
+            if let Some(prompt) = maybe_prompt {
+                let content_dir = self
+                    .shell
+                    .as_ref()
+                    .and_then(|s| s.content_dir.clone())
+                    .unwrap_or_else(|| self.settings.paths.content_root.clone());
+                if !matches!(self.state, AppState::Shell) {
+                    self.restore_shell_audio(&content_dir);
+                    self.state = AppState::Shell;
+                }
+                if let Some(shell) = &mut self.shell {
+                    shell.show_host_close_prompt(&prompt);
+                }
+                return;
+            }
+        }
+        if let Some(gate) = &self.gate {
+            let _ = gate.write_summary_report();
+        }
+        event_loop.exit();
+    }
+
+    /// Blits the offscreen FBO (`src_fb`) of the active shell or battle pass into the
+    /// default window framebuffer (`0`) and swaps buffers.
+    ///
+    /// Uses `glBlitFramebuffer` with `GL_LINEAR` filtering from `READ_FRAMEBUFFER = src_fb`
+    /// to `DRAW_FRAMEBUFFER = 0` (the default window surface) and immediately swaps the
+    /// window backbuffer via `glutin::surface::Surface::swap_buffers`.
     fn blit_framebuffer_to_window(&self, src_fb: glow::Framebuffer, src_size: [i32; 2]) {
         let (Some(gl), Some(surface), Some(context)) = (&self.gl, &self.surface, &self.context)
         else {
@@ -401,6 +673,11 @@ impl StandaloneWindowApp {
         let _ = surface.swap_buffers(context);
     }
 
+    /// Polls `glGetError()` after each frame and increments `gate.gl_errors` if non-zero.
+    ///
+    /// Invoked at the end of every rendered frame in [`Self::step_frame`]. Any non-zero
+    /// `glGetError()` code increments `gate.gl_errors` so `--script gate` can assert
+    /// `glErrors == 0` across all 24 shell and battle phases.
     fn check_gl_errors(&mut self) {
         if let Some(gl) = &self.gl {
             let err = unsafe { gl.get_error() };
@@ -414,6 +691,17 @@ impl StandaloneWindowApp {
 }
 
 impl ApplicationHandler for StandaloneWindowApp {
+    /// Initializes the OS window, GL surface/context, and [`ShellHost`] on first resume.
+    ///
+    /// ## GL Context Creation Strategy
+    /// 1. Builds the native OS window at `self.opts.size` (`1280x720` default) and
+    ///    selects a single-sample `RGBA8 + D24S8` `glutin` surface configuration.
+    /// 2. Requests an OpenGL ES 3.0 context by default (matching `bfe-render`'s `#version 300 es`
+    ///    shaders), falling back transparently to Desktop OpenGL 3.3 Core if GLES is unavailable.
+    /// 3. Sets `SwapInterval::DontWait` so the 60 Hz simulation and gate script never
+    ///    stall on compositor vsync throttling.
+    /// 4. Constructs [`ShellHost`] with the built-in 5x7 ASCII fallback font so frame 1
+    ///    renders the startup loader immediately.
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -431,6 +719,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                 attrs = attrs.with_fullscreen(Some(Fullscreen::Borderless(None)));
             }
 
+            // Request an 8-bit RGBA, 24-bit depth, 8-bit stencil single-sample config.
             let template = ConfigTemplateBuilder::new()
                 .with_alpha_size(8)
                 .with_depth_size(24)
@@ -453,6 +742,7 @@ impl ApplicationHandler for StandaloneWindowApp {
             let raw_handle = window.window_handle().map_err(|e| e.to_string())?.as_raw();
             let display = config.display();
 
+            // Prefer OpenGL ES 3.0 by default (matching WebGL2 shaders), falling back to OpenGL 3.3.
             let context_api = if self.opts.desktop_gl {
                 ContextApi::OpenGl(Some(Version::new(3, 3)))
             } else {
@@ -508,6 +798,10 @@ impl ApplicationHandler for StandaloneWindowApp {
         }
     }
 
+    /// Routes raw hardware mouse motion deltas into `battle.input` while pointer-locked.
+    ///
+    /// Forwards raw hardware mouse motion deltas `(dx, dy)` to `battle.input.motion(dx, dy)`
+    /// when `self.pointer_locked` and `self.focused` are both `true`.
     fn device_event(
         &mut self,
         _event_loop: &ActiveEventLoop,
@@ -523,6 +817,21 @@ impl ApplicationHandler for StandaloneWindowApp {
         }
     }
 
+    /// Routes window lifecycle, focus, resize, pointer, and keyboard events to the active state.
+    ///
+    /// ## Event Routing Table
+    /// - `WindowEvent::CloseRequested`: Invokes [`Self::request_app_close`].
+    /// - `WindowEvent::Focused`: Updates `self.focused`, auto-opens `PauseMenu` when
+    ///   focus is lost during active 3D combat, and updates pointer lock.
+    /// - `WindowEvent::Resized`: Resizes the `glutin` window surface (`NonZeroU32`).
+    /// - `WindowEvent::CursorMoved`: Routes pointer hover to `ShellHost` (including
+    ///   `bfe-interface` hit regions) or `BattleController` overlays.
+    /// - `WindowEvent::MouseInput`: Routes clicks to `ShellHost`, `BattleController`,
+    ///   or the folder-picker fallback.
+    /// - `WindowEvent::MouseWheel`: Scrolls `SpawnScreen`, `Scoreboard`, or weapon cycle.
+    /// - `WindowEvent::KeyboardInput`: Handles `F11` (fullscreen) and `F9` (content folder),
+    ///   then forwards logical keys to `ShellHost` or physical DOM codes to `BattleController`.
+    /// - `WindowEvent::RedrawRequested`: Steps and draws one frame via [`Self::step_frame`].
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -531,9 +840,12 @@ impl ApplicationHandler for StandaloneWindowApp {
     ) {
         match event {
             WindowEvent::CloseRequested => {
-                event_loop.exit();
+                // Consult `HostController::close_prompt()` before exiting the event loop.
+                self.request_app_close(event_loop);
             }
             WindowEvent::Focused(focused) => {
+                // Keep focus active during headless Xorg `--script gate` runs; otherwise
+                // clear held combat inputs and open the pause menu on focus loss.
                 let focused = if self.gate.is_some() { true } else { focused };
                 self.focused = focused;
                 if !focused {
@@ -550,6 +862,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                 self.sync_pointer_lock();
             }
             WindowEvent::Resized(phys) => {
+                // Resize the EGL/GLX window surface when physical dimensions change.
                 if phys.width > 0 && phys.height > 0 {
                     let new_size = [phys.width as i32, phys.height as i32];
                     self.opts.size = new_size;
@@ -564,6 +877,8 @@ impl ApplicationHandler for StandaloneWindowApp {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
+                // Forward cursor coordinates to `ShellHost` (including `bfe-interface` hit regions)
+                // or to the active `BattleController` overlays.
                 match &mut self.state {
                     AppState::Shell => {
                         if let Some(shell) = &mut self.shell {
@@ -614,6 +929,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
+                // Convert line or pixel scroll deltas into scoreboard / spawn scroll offsets.
                 let dy = match delta {
                     MouseScrollDelta::LineDelta(_, y) => -y as f64 * 100.0,
                     MouseScrollDelta::PixelDelta(p) => p.y,
@@ -624,6 +940,7 @@ impl ApplicationHandler for StandaloneWindowApp {
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 let down = event.state == ElementState::Pressed;
+                // Handle global function hotkeys (`F11` fullscreen toggle, `F9` folder picker).
                 if down && !event.repeat {
                     if let PhysicalKey::Code(code) = event.physical_key {
                         match code {
@@ -683,6 +1000,7 @@ impl ApplicationHandler for StandaloneWindowApp {
         }
     }
 
+    /// Requests a continuous redraw on every event loop iteration (`ControlFlow::Poll`).
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         if let Some(window) = &self.window {
             window.request_redraw();
@@ -691,6 +1009,20 @@ impl ApplicationHandler for StandaloneWindowApp {
 }
 
 impl StandaloneWindowApp {
+    /// Applies a [`ShellTransition`] emitted by [`ShellHost`] (`StartInstantAction`,
+    /// `StartOnline`, `StartHost`, `HostCloseDecision`, or `Exit`).
+    ///
+    /// ## Transition Handling
+    /// - `StartInstantAction(req)`: Prepares map loading screen (`ShellHost::prepare_map_loading`)
+    ///   and enters `AppState::BattleLoading` for `playlist_index = 0`.
+    /// - `StartOnline(launch)`: Prepares map loading screen and enters `AppState::BattleLoading`
+    ///   for `BattleLoadTarget::Online`.
+    /// - `StartHost(options, launch)`: Synchronizes `content_root` and `online_consent` on
+    ///   `HostController`, spawns the `"bfe-host-start"` background thread to execute
+    ///   `HostController::start(&options)`, and enters `AppState::HostStarting` until `/info` answers.
+    /// - `HostCloseDecision(idx)`: Converts button index `0..=2` via `ClosePrompt::choice_for_index`
+    ///   and calls `HostController::apply_close_choice`, exiting when `Ok(true)`.
+    /// - `Exit`: Invokes [`Self::request_app_close`].
     fn apply_shell_transition(
         &mut self,
         transition: Option<ShellTransition>,
@@ -701,6 +1033,7 @@ impl StandaloneWindowApp {
         };
         match transition {
             ShellTransition::StartInstantAction(request) => {
+                // Configure the planet loading screen and transition to `AppState::BattleLoading`.
                 if let Some(shell) = &mut self.shell {
                     let map_id = request
                         .playlist
@@ -719,6 +1052,7 @@ impl StandaloneWindowApp {
                 };
             }
             ShellTransition::StartOnline(launch) => {
+                // Configure the planet loading screen for the selected online server and transition.
                 if let Some(shell) = &mut self.shell {
                     let map_id = if launch.map.is_empty() {
                         "nab2"
@@ -732,20 +1066,92 @@ impl StandaloneWindowApp {
                     frames_drawn: 0,
                 };
             }
-            ShellTransition::Exit => {
-                if let Some(gate) = &self.gate {
-                    let _ = gate.write_summary_report();
+            ShellTransition::StartHost(options, launch) => {
+                // Synchronize `content_root` and `online_consent` on `HostController`, then spawn
+                // `"bfe-host-start"` to run `HostController::start(&options)` until `/info` answers.
+                let content_dir = self
+                    .shell
+                    .as_ref()
+                    .and_then(|s| s.content_dir.clone())
+                    .unwrap_or_else(|| self.settings.paths.content_root.clone());
+                let consent = self
+                    .shell
+                    .as_ref()
+                    .map(|s| !s.app.mp_needs_notice)
+                    .unwrap_or(self.settings.player.privacy_notice_accepted);
+                if let Ok(mut hc) = self.host_controller.lock() {
+                    hc.set_content_root(content_dir);
+                    hc.set_online_consent(consent);
                 }
-                event_loop.exit();
+                let hc_arc = self.host_controller.clone();
+                let opts_for_thread = options.clone();
+                let (tx, rx) = mpsc::channel();
+                let _ = std::thread::Builder::new()
+                    .name("bfe-host-start".to_string())
+                    .spawn(move || {
+                        let res = hc_arc
+                            .lock()
+                            .map_err(|e| format!("host controller lock poisoned: {e}"))
+                            .and_then(|hc| hc.start(&opts_for_thread).map_err(|e| e.to_string()));
+                        let _ = tx.send(res);
+                    });
+                self.state = AppState::HostStarting {
+                    options,
+                    launch,
+                    rx,
+                    frames_drawn: 0,
+                };
+            }
+            ShellTransition::HostCloseDecision(index) => {
+                // Map the 3-button close dialog index (`0` = KeepRunning, `1` = StopAndQuit, `2` = Cancel)
+                // via `ClosePrompt::choice_for_index` and apply it on `HostController`.
+                let choice = ClosePrompt::new().choice_for_index(index);
+                let decision = self
+                    .host_controller
+                    .lock()
+                    .map_err(|e| format!("host controller lock poisoned: {e}"))
+                    .and_then(|hc| hc.apply_close_choice(choice).map_err(|e| e.to_string()));
+                match decision {
+                    Ok(true) => {
+                        if let Some(gate) = &self.gate {
+                            let _ = gate.write_summary_report();
+                        }
+                        event_loop.exit();
+                    }
+                    Ok(false) => {}
+                    Err(err) => {
+                        if let Some(shell) = &mut self.shell {
+                            shell.app.popup = Some(PopupState::Notice {
+                                message: format!("HOST STOP ERROR: {err}"),
+                            });
+                        }
+                    }
+                }
+            }
+            ShellTransition::Exit => {
+                self.request_app_close(event_loop);
             }
         }
     }
 
+    /// Advances the active [`AppState`] by one frame, renders into the offscreen FBO,
+    /// blits to the window surface, and checks for OpenGL errors.
+    ///
+    /// ## Per-Frame Pipeline
+    /// 1. Computes clamped frame delta `dt` (`0.001..=0.1` seconds).
+    /// 2. Pumps 6 stereo 128-frame audio quantums (`pump_headless_audio`) when running
+    ///    without a hardware `cpal` output stream.
+    /// 3. Updates Discord Rich Presence (`update_rich_presence`) and OS cursor grab (`sync_pointer_lock`).
+    /// 4. Dispatches the active [`AppState`] variant (`StartupLoader`, `Shell`, `HostStarting`,
+    ///    `BattleLoading`, or `Battle`), blitting the resulting FBO to the window.
+    /// 5. Polls `glGetError()` via [`Self::check_gl_errors`] to enforce the zero-GL-error gate.
     fn step_frame(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
         let dt = (now - self.last_frame).as_secs_f64().clamp(0.001, 0.1);
         self.last_frame = now;
 
+        // If no hardware `cpal` audio device is open, pump headless audio quantums so
+        // `ShellAudioMixer` and battle `Stream` queues drain identically to hardware playback.
         if self._audio_device.is_none() {
             pump_headless_audio(
                 &self.audio_router,
@@ -760,6 +1166,7 @@ impl StandaloneWindowApp {
         let frame_res: Result<(), String> = (|| {
             match &mut self.state {
                 AppState::StartupLoader(loader_state) => {
+                    // Poll background `PrepareSession` progress and render the loader screen.
                     loader_state.poll(&mut self.settings);
                     let blit_info = if let Some(shell) = &mut self.shell {
                         shell.draw_startup_loader(dt, loader_state);
@@ -774,7 +1181,13 @@ impl StandaloneWindowApp {
                     if let Some((fb, sz)) = blit_info {
                         self.blit_framebuffer_to_window(fb, sz);
                     }
+                    // Once content is ready, load `common.json` / `shell.json` into `ShellHost`
+                    // and transition into `AppState::Shell`.
                     if let Some(content_dir) = ready_dir {
+                        if let Ok(mut hc) = self.host_controller.lock() {
+                            hc.set_content_root(content_dir.clone());
+                            hc.set_online_consent(self.settings.player.privacy_notice_accepted);
+                        }
                         if let Some(shell) = &mut self.shell {
                             shell.load_prepared_content(
                                 &content_dir,
@@ -796,6 +1209,7 @@ impl StandaloneWindowApp {
                     }
                 }
                 AppState::Shell => {
+                    // Render the active shell or `bfe-interface` options screen and step `--script gate`.
                     let mut transition = if let Some(shell) = &mut self.shell {
                         let t = shell.step_and_draw(dt, &mut self.settings, &self.audio_router);
                         let fb = shell.canvas.framebuffer;
@@ -812,10 +1226,74 @@ impl StandaloneWindowApp {
                     }
                     self.apply_shell_transition(transition, event_loop);
                 }
+                AppState::HostStarting {
+                    options,
+                    launch,
+                    rx,
+                    frames_drawn,
+                } => {
+                    // Render progress while `HostController::start` waits for `/admin` and `/info`.
+                    *frames_drawn += 1;
+                    let server_name = options.name.clone();
+                    let launch_clone = launch.clone();
+                    let poll_res = rx.try_recv();
+                    if let Some(shell) = &mut self.shell {
+                        shell.draw_host_starting(dt, &server_name);
+                        let fb = shell.canvas.framebuffer;
+                        let sz = shell.size;
+                        self.blit_framebuffer_to_window(fb, sz);
+                    }
+                    match poll_res {
+                        Ok(Ok(join_info)) => {
+                            // `/info` answered! Join the local player through the normal online path.
+                            let mut join_launch = launch_clone;
+                            join_launch.address = Some(join_info.address.clone());
+                            join_launch.port = Some(join_info.port);
+                            join_launch.server_id =
+                                format!("{}:{}", join_info.address, join_info.port);
+                            if let Some(shell) = &mut self.shell {
+                                let map_id = if join_launch.map.is_empty() {
+                                    "nab2"
+                                } else {
+                                    join_launch.map.as_str()
+                                };
+                                shell.prepare_map_loading(map_id, &self.audio_router);
+                            }
+                            self.state = AppState::BattleLoading {
+                                target: BattleLoadTarget::Online {
+                                    launch: join_launch,
+                                },
+                                frames_drawn: 0,
+                            };
+                        }
+                        Ok(Err(err)) => {
+                            // Surface any startup/readiness error on `ScreenId::HostDialog`.
+                            if let Some(shell) = &mut self.shell {
+                                shell.app.push_screen(ScreenId::HostDialog);
+                                shell.app.popup = Some(PopupState::Notice {
+                                    message: format!("HOST ERROR: {err}"),
+                                });
+                            }
+                            self.state = AppState::Shell;
+                        }
+                        Err(mpsc::TryRecvError::Empty) => {}
+                        Err(mpsc::TryRecvError::Disconnected) => {
+                            if let Some(shell) = &mut self.shell {
+                                shell.app.push_screen(ScreenId::HostDialog);
+                                shell.app.popup = Some(PopupState::Notice {
+                                    message: "HOST ERROR: host start worker disconnected"
+                                        .to_string(),
+                                });
+                            }
+                            self.state = AppState::Shell;
+                        }
+                    }
+                }
                 AppState::BattleLoading {
                     target,
                     frames_drawn,
                 } => {
+                    // Render the animated planet loading screen before admitting or joining the battle.
                     *frames_drawn += 1;
                     let current_frames = *frames_drawn;
                     let target_clone = target.clone();
@@ -856,7 +1334,9 @@ impl StandaloneWindowApp {
                                 request,
                                 playlist_index,
                             } => {
-                                let battle = BattleController::start_instant_action(
+                                // Admit the Instant Action battle exclusively via `Context::world_admit`.
+                                // If admission fails, surface the error directly to the player.
+                                match BattleController::start_instant_action(
                                     &content_dir,
                                     request,
                                     playlist_index,
@@ -864,10 +1344,29 @@ impl StandaloneWindowApp {
                                     &self.settings,
                                     &self.audio_router,
                                     make_gl,
-                                )?;
-                                self.state = AppState::Battle(Box::new(battle));
+                                ) {
+                                    Ok(battle) => {
+                                        self.state = AppState::Battle(Box::new(battle));
+                                    }
+                                    Err(err) => {
+                                        if self.gate.is_some() {
+                                            return Err(format!(
+                                                "Instant Action admission failed during gate: {err}"
+                                            ));
+                                        }
+                                        self.restore_shell_audio(&content_dir);
+                                        if let Some(shell) = &mut self.shell {
+                                            shell.app.push_screen(ScreenId::InstantAction);
+                                            shell.app.popup = Some(PopupState::Notice {
+                                                message: format!("ADMISSION FAILED: {err}"),
+                                            });
+                                        }
+                                        self.state = AppState::Shell;
+                                    }
+                                }
                             }
                             BattleLoadTarget::Online { launch } => {
+                                // Connect to the remote or locally hosted `bfeserver` via `BattleController::start_online`.
                                 let selected_addr = self.shell.as_ref().and_then(|s| {
                                     s.browser.selected().and_then(|entry| {
                                         entry.address.as_ref().map(|a| {
@@ -875,10 +1374,16 @@ impl StandaloneWindowApp {
                                         })
                                     })
                                 });
+                                let target_override = launch
+                                    .address
+                                    .as_ref()
+                                    .map(|a| format!("{a}:{}", launch.port.unwrap_or(27015)))
+                                    .or_else(|| self.opts.server_target.clone())
+                                    .or(selected_addr);
                                 match BattleController::start_online(
                                     &content_dir,
                                     launch,
-                                    self.opts.server_target.clone().or(selected_addr),
+                                    target_override,
                                     self.opts.size,
                                     &self.settings,
                                     &self.audio_router,
@@ -906,6 +1411,8 @@ impl StandaloneWindowApp {
                     }
                 }
                 AppState::Battle(battle) => {
+                    // Step `--script gate` combat inputs, render the 3D battle + HUD overlays,
+                    // and handle post-battle playlist progression or pause menu exits.
                     if let Some(gate) = &mut self.gate {
                         gate.step_battle(battle, &mut self.settings)?;
                     }
@@ -926,6 +1433,9 @@ impl StandaloneWindowApp {
                             .and_then(|s| s.content_dir.clone())
                             .unwrap_or_else(|| self.settings.paths.content_root.clone());
                         match t {
+                                                        // When the player activates `DONE` on the post-match scoreboard (`done_triggered`),
+                            // advance to `next_index` in `request.playlist` if another mission remains,
+                            // or return to `ScreenId::InstantAction` when the playlist finishes.
                             BattleTransition::NextPlaylistBattle {
                                 request,
                                 next_index,
@@ -963,6 +1473,9 @@ impl StandaloneWindowApp {
                                     self.state = AppState::Shell;
                                 }
                             }
+                                                        // When the player confirms `RESTART MISSION` in the Escape pause menu,
+                            // re-enter `AppState::BattleLoading` for the same `playlist_index` so
+                            // `BattleController::start_instant_action` re-admits the mission from tick 0.
                             BattleTransition::RestartMission {
                                 request,
                                 playlist_index,
@@ -984,6 +1497,8 @@ impl StandaloneWindowApp {
                                     frames_drawn: 0,
                                 };
                             }
+                                                        // Restore front-end shell audio, reset the screen stack to `ScreenId::Main`,
+                            // and transition back to `AppState::Shell`.
                             BattleTransition::QuitToMainMenu => {
                                 self.restore_shell_audio(&content_dir);
                                 if let Some(shell) = &mut self.shell {
@@ -1001,7 +1516,14 @@ impl StandaloneWindowApp {
                                     frames_drawn: 0,
                                 };
                             }
+                                                        // Restore front-end shell audio, return to `ScreenId::Multiplayer`, and
+                            // display a `DISCONNECTED` notice popup if the session ended with a network fault.
                             BattleTransition::LeaveOnline { reason } => {
+                                if self.gate.is_some() {
+                                    if let Some(message) = reason.as_ref() {
+                                        return Err(format!("Online battle failed during gate: {message}"));
+                                    }
+                                }
                                 self.restore_shell_audio(&content_dir);
                                 if let Some(shell) = &mut self.shell {
                                     shell.app.push_screen(ScreenId::Multiplayer);
@@ -1014,7 +1536,7 @@ impl StandaloneWindowApp {
                                 self.state = AppState::Shell;
                             }
                             BattleTransition::ExitToWindows => {
-                                event_loop.exit();
+                                self.request_app_close(event_loop);
                             }
                         }
                     }
@@ -1032,6 +1554,15 @@ impl StandaloneWindowApp {
     }
 }
 
+/// Maps a `winit` logical [`Key`] to the string key identifier expected by `bfe-shell`
+/// and `bfe-interface` (`"ArrowUp"`, `"Enter"`, `"Escape"`, or printable character).
+///
+/// ## Key Mapping Rules
+/// - Navigation keys (`ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Enter`,
+///   `Escape`, `Backspace`, `Delete`, `Tab`) map to their canonical key names.
+/// - `NamedKey::Space` maps to `" "`.
+/// - Printable characters (`Key::Character`) map to their first non-control Unicode scalar
+///   for profile name entry and hotkey rebinding.
 fn map_shell_key(key: &Key) -> Option<String> {
     match key {
         Key::Named(NamedKey::ArrowUp) => Some("ArrowUp".to_string()),
@@ -1056,6 +1587,15 @@ fn map_shell_key(key: &Key) -> Option<String> {
     }
 }
 
+/// Maps a physical [`KeyCode`] to its DOM `KeyboardEvent.code` string (`"KeyW"`, `"Space"`,
+/// `"ArrowUp"`, etc.) for `BattleController::handle_key` and `bfe-battle-ui`.
+///
+/// ## Supported Physical Key Codes
+/// - Movement & posture: `KeyW`, `KeyA`, `KeyS`, `KeyD`, `Space`, `KeyC`, `KeyX`, `KeyZ`
+/// - Weapons & interaction: `KeyE`, `KeyR`, `KeyF`, `KeyQ`, `KeyV`, `Digit1..Digit4`
+/// - Overlays & chat: `KeyM` (Spawn), `Tab` (Scoreboard), `Escape` (Pause), `KeyT`/`KeyY` (Chat)
+/// - Navigation & camera: `ArrowUp..ArrowRight`, `PageUp`, `PageDown`, `Home`, `End`, `F1..F4`
+/// - Modifiers: `ShiftLeft`, `ShiftRight`, `ControlLeft`, `ControlRight`
 fn keycode_to_dom_code(code: KeyCode) -> Option<&'static str> {
     match code {
         KeyCode::KeyW => Some("KeyW"),

@@ -124,7 +124,7 @@ pub fn run_into(world: &mut World, content: &Content, files: &dyn Files, options
 /// (`points[Math.floor(gameplayRandom() * points.length)]`), the lazy
 /// grenade-spin and seat-weapons streams absent at their mixed seeds
 /// (RandomStreams' `initialState`) until the world first draws them.
-fn push_page_streams(world: &mut World, cx: &mut Cx) -> Result<(), AdmitError> {
+pub(crate) fn push_page_streams(world: &mut World, cx: &mut Cx) -> Result<(), AdmitError> {
     use crate::gen::{F3RandomGlobals, F3RandomState};
     use rows::battle::streams;
     let seed = cx.options.seed;
@@ -211,6 +211,7 @@ pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut 
                 let initial = super::session::publish_initial(world, cx, &mut session, at, unix_ms)?;
                 admitted.welcome = session.packets.clone();
                 admitted.publication = initial.bytes;
+                admitted.publication_output = initial.output;
                 admitted.handles = session.handles;
                 admitted.player_id = session.player_id;
                 admitted.registry = session.registry;

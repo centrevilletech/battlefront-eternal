@@ -77,6 +77,7 @@ fn dispatch(
     edge: &gen::WeEdge,
     id: f64,
     fire: bool,
+    epoch: f64,
     tick: f64,
     at: f64,
     source: Option<u32>,
@@ -116,7 +117,7 @@ fn dispatch(
                         aim_pitch: edge.aim_pitch,
                         view_tick: edge.view_tick,
                     },
-                    epoch_one: edge.epoch == 1.,
+                    epoch_one: edge.epoch == epoch,
                     pressed_valid: edge.pressed.is_some(),
                     tick,
                     at,
@@ -130,7 +131,7 @@ fn dispatch(
     actions.entry.generation = edge.generation;
     actions.entry.actions.clear();
     actions.human.clear();
-    actions.same_epoch = edge.epoch == 1.;
+    actions.same_epoch = edge.epoch == epoch;
     actions.payload_valid = true;
     actions.human_valid = true;
     actions.tick = tick;
@@ -207,6 +208,7 @@ impl Authority {
         self.args.run(context, gen::OPERATION_WIRE_EDGES_RUN)?;
         let (row, heap) = self.args.answer();
         let result = WeResult::take(row, heap);
+        self.clients[client].epoch = result.epoch;
         self.clients[client].generation = result.generation;
         Ok(result)
     }
@@ -238,6 +240,7 @@ impl Authority {
         self.clients.push(Client {
             player,
             edges,
+            epoch: 0.0,
             generation: 0.0,
             unit,
             presses: [None, None],
@@ -260,7 +263,7 @@ impl Authority {
             let player = self.clients[index].player;
             if unit_generation != self.clients[index].generation {
                 let mut reset = call(0.0);
-                reset.epoch = 1.0;
+                reset.epoch = self.clients[index].epoch;
                 reset.generation = unit_generation;
                 reset.action_received = lanes(context, player, 0, false)?.actions_received;
                 reset.fire_received = lanes(context, player, 1, false)?.fire_received;
@@ -288,6 +291,7 @@ impl Authority {
                     &edge,
                     prepared.id,
                     prepared.fire,
+                    prepared.epoch,
                     tick,
                     at,
                     self.capture.as_ref().map(|c| c.store_source),

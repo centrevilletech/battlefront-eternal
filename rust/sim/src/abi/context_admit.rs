@@ -47,6 +47,13 @@ impl Context {
         self.owned(|w| w.foreign_unit_rows())
     }
 
+    /// Native preparePhase writes the generated foreign rows and returns their
+    /// count for the immediately following tick. The row bank is preallocated.
+    pub fn world_prepare_units(&self) -> Result<u32, Error> {
+        self.owned(|w| w.prepare_foreign_unit_rows())?
+            .ok_or_else(|| Error::host("foreign unit row capacity exceeded"))
+    }
+
     /// Builds the battle's owners from `files` (the content folder, or the
     /// recording's bytes) for `options`, then admits the local human and the
     /// publication host. One call a battle, before `world_step_init`.

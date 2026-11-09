@@ -245,6 +245,7 @@ impl LocalDedicatedServer {
         let tick_c = Arc::clone(&tick);
         let world_ticks_c = Arc::clone(&world_ticks);
         let stop_c = Arc::clone(&tick_stop);
+        let ready_c = Arc::clone(&ready);
         let server_id = identity.id.clone();
         let server_name = config.name.clone();
         let content_for_tick = content_id.clone();
@@ -303,6 +304,20 @@ impl LocalDedicatedServer {
 
                 let events = {
                     let mut u = udp_c.lock().unwrap();
+                    // Bots can finish a match while the server is empty. Replace
+                    // that finished authority before admitting the next visitor;
+                    // spawning into its game-over state is correctly refused.
+                    if u.peers.is_empty() {
+                        match w.restart_finished_empty() {
+                            Ok(true) => eprintln!("restarted finished empty battle at epoch {}", w.epoch),
+                            Ok(false) => {}
+                            Err(error) => {
+                                ready_c.store(false, Ordering::SeqCst);
+                                eprintln!("empty battle restart failed: {error}");
+                                break;
+                            }
+                        }
+                    }
                     let banned_fn = Arc::clone(&is_banned);
                     u.poll(|peer_id| banned_fn(peer_id))
                 };

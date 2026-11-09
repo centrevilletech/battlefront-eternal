@@ -22,6 +22,24 @@ pub(crate) struct Network {
 }
 
 impl Context {
+    /// Set the dedicated world's publication epoch before any peers attach.
+    /// Admission's tick-zero probe uses epoch one; later matches must publish
+    /// the same epoch their welcome and input receivers advertise.
+    pub fn world_network_epoch(&self, host: u32, epoch: u32) -> Result<(), Error> {
+        self.owned(|w| {
+            let host = w
+                .wire
+                .as_deref_mut()
+                .and_then(|wire| wire.hosts.get_mut(host as usize))
+                .ok_or_else(|| Error::host("unknown publication host"))?;
+            if epoch == 0 || !host.clients.is_empty() {
+                return Err(Error::host("publication epoch requires an empty host"));
+            }
+            host.epoch = f64::from(epoch);
+            Ok(())
+        })?
+    }
+
     /// Same construction as world_admit, retaining the cold factory catalog.
     pub fn world_network_admit(
         &self,
@@ -55,6 +73,9 @@ impl Context {
                 &mut admitted,
                 &sequence::ORDER,
             )?;
+            // Both admission entries hand the host the same gameplay, grenade
+            // spin, drop and seat streams before any dedicated tick can draw.
+            sequence::push_page_streams(w, &mut cx)?;
             admitted.units = spawn::units(w)?;
             let state = (cx.ids, cx.definitions, cx.holders, cx.player);
             // The local admission exercises the shared construction path, but its

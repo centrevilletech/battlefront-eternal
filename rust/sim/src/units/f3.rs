@@ -143,6 +143,17 @@ pub(crate) fn command_row_in(units: &mut super::owner::Units) -> &mut [f64] {
 pub(crate) fn native_intent_owned_in(units: &super::owner::Units, reference: Ref<Unit>) -> bool {
     units.state.as_ref().expect("prepared unit service").native_intents.get(reference.slot as usize) == Some(&Some(reference))
 }
+/// preparePhase writes the retained foreign row bank before the native tick.
+/// Generated phase inputs contain only scalar and fixed-size intent fields.
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+pub(crate) fn prepare_foreign_row_in(units: &mut super::owner::Units, index: usize, input: &F3PhaseInput) -> bool {
+    let state = units.state.as_mut().expect("prepared unit service");
+    let at = index * F3PhaseInput::WORDS;
+    let Some(row) = state.input.get_mut(at..at + F3PhaseInput::WORDS) else { return false; };
+    input.put(row, &mut Vec::new());
+    true
+}
+
 /// The connections' rows for this tick (players::rows), bounded by the
 /// reserved room; the next unit phase reads them after the host's rows.
 /// Returns how many rows did not fit (a degraded tick, counted by the caller).
@@ -2677,6 +2688,27 @@ mod native_banks {
         let state = w.units.state.as_ref().unwrap();
         assert_eq!(state.ordnance_depth, 0);
         assert_eq!(state.ordnance_refused, 4);
+    }
+
+    #[test]
+    fn native_foreign_preparation_keeps_warm_body_identity_and_intent() {
+        let mut w = crate::world::owner::World::new();
+        assert_eq!(w.prepare_foreign_unit_rows(), Some(0));
+        f3_init_in(&mut w, 0, f64::NAN, 0);
+        reserve_native_slots_in(&mut w, 8);
+        let key = with_owner_rows(&mut w, |store, owner| owner.build(store, Unit {
+            generation: 7., intent: Intent { forward: 0.5, ..Default::default() },
+            ..Default::default()
+        }));
+        let native = with_owner_rows(&mut w, |store, owner| owner.build(store, Unit::default()));
+        native_intent_in(&mut w, native.reference(), true);
+        assert_eq!(w.prepare_foreign_unit_rows(), Some(1));
+        let state = w.units.state.as_ref().unwrap();
+        let row = F3PhaseInput::take(&state.input[..F3PhaseInput::WORDS], &[]);
+        assert_eq!(row.key, key);
+        assert_eq!(row.intent.unwrap().forward, 0.5);
+        w.sim.store.unit.get_mut(key.reference()).unwrap().removed = true;
+        assert_eq!(w.prepare_foreign_unit_rows(), Some(0));
     }
 
     #[test]
