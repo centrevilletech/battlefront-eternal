@@ -346,6 +346,11 @@ impl Turrets {
         x[f::TURRET_PITCH] = input[t::PITCH];
         Some(index)
     }
+    // Shadow storage covers the largest admitted rig, including models that
+    // have not appeared in a snapshot yet.
+    pub fn max_bones(&self) -> usize {
+        self.rows.iter().map(|turret| turret.inverses.len()).max().unwrap_or(1)
+    }
     pub fn record_budget(&self) -> usize {
         self.rows.iter().filter(|t| t.shown).map(|t| t.parts.len()).sum()
     }

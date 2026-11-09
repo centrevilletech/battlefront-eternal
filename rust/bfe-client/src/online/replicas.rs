@@ -491,6 +491,17 @@ impl Replicas {
     }
     // Static admission leaves room for every live recipe, including held
     // models and multipart hulls. Counting actors alone starves large seats.
+    pub fn max_bones(&self) -> usize {
+        self.models
+            .iter()
+            .map(|model| model.inverses.len())
+            .chain(self.held.iter().flatten().flat_map(|model| {
+                model.rows.iter().map(|row| row[draw::REC_BONES] as usize)
+            }))
+            .chain([self.hulls.max_bones(), self.turrets.max_bones()])
+            .max()
+            .unwrap_or(1)
+    }
     pub fn record_budget(&self) -> usize {
         let actors: usize = self
             .slots

@@ -680,7 +680,10 @@ impl Scene {
         } else {
             None
         };
-        let bones = content.content.actors.iter().map(|(_, actor)| actor.bones.len() + 3).chain(static_content.records.iter().map(|row| row[bfe_render::instances::REC_BONES] as usize)).max().unwrap_or(1).max(1);
+        let bones = static_content.records.iter()
+            .map(|row| row[bfe_render::instances::REC_BONES] as usize)
+            .chain([online.as_ref().map_or(1, |resources| resources.max_bones())])
+            .max().unwrap_or(1).max(1);
         let shadows = if live { Some(crate::shadows::Shadows::new(&mut bridge, &mut resources, bones)?) } else { None };
         bridge.frame_reserve_frame();
         Ok((

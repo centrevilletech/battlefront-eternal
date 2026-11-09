@@ -622,6 +622,11 @@ impl Hulls {
             }
         }
     }
+    // Shadow storage covers the largest admitted rig, including models that
+    // have not appeared in a snapshot yet.
+    pub fn max_bones(&self) -> usize {
+        self.models.iter().map(|model| model.inverses.len()).max().unwrap_or(1)
+    }
     pub fn record_budget(&self) -> usize {
         self.slots.iter().filter(|s| s.active && self.hidden != Some(s.rig)).map(|s| self.models[s.model].rows.len()).sum()
     }
