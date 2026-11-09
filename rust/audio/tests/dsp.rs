@@ -55,6 +55,12 @@
 //!     unweighted stereo and ITU-R BS.1770 weighted 5.1 (`[1, 1, 1, 0, 1.41, 1.41]`).
 
 use audio::FRAMES;
+use std::sync::Mutex;
+
+// The C ABI models one audio worklet's module-local staging store. Serialize
+// complete test sessions, including access through returned buffer pointers;
+// locking individual calls would still let sessions race on the handle tables.
+static C_ABI: Mutex<()> = Mutex::new(());
 
 /// Default device sample rate for the recorded DSP golden suite.
 const RATE: f64 = 48000.0;
@@ -391,6 +397,7 @@ unsafe fn set_mixer_layout(
 // including mid-stream parameter updates and layout switches.
 #[test]
 fn mixer_matches_recorded_goldens() {
+    let _abi = C_ABI.lock().unwrap();
     // OpenAL Soft 1.20.1 stereo decoder matrix: 1.5x front azimuth widening
     // and first-order 2D ambisonic weights (W, Y, X) for left and right speakers.
     let alsoft_stereo = Some((
@@ -574,6 +581,7 @@ unsafe fn run_staged(
 // Reverb, stabilizer, clarity, and multi-rate golden parity.
 #[test]
 fn reverb_stabilizer_clarity_and_rates_match_recorded_goldens() {
+    let _abi = C_ABI.lock().unwrap();
     unsafe {
         // Reverb scenarios at 48 kHz: enhanced room, 6ch wet hall, and dry small room.
         // Parameter indices 0..=10 map to room, roomHF, decay, hfRatio, reflections,
@@ -743,6 +751,7 @@ fn reverb_stabilizer_clarity_and_rates_match_recorded_goldens() {
 // Limiter golden output hashes, gain-reduction reports, and loudness meter readings.
 #[test]
 fn limiter_and_meter_match_recorded_goldens_and_readings() {
+    let _abi = C_ABI.lock().unwrap();
     unsafe {
         // Expected gain-reduction telemetry sequence (in dB) for the 6-channel
         // `night` dynamics profile driven by a 0.9-amplitude square wave over
