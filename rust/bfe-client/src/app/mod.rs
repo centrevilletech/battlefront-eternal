@@ -139,6 +139,9 @@ use winit::{
     window::{CursorGrabMode, Fullscreen, Window, WindowId},
 };
 
+#[cfg(target_os = "linux")]
+mod x11_pointer;
+
 thread_local! {
     /// Per-thread cumulative heap allocation counter updated by the global `CountingAlloc`
     /// in `main.rs` without locks or re-entrant allocations.
@@ -372,6 +375,8 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
             .unwrap(),
         state: AppState::StartupLoader(startup_content),
         shell: None,
+        #[cfg(target_os = "linux")]
+        x11_grab: None,
         window: None,
         surface: None,
         context: None,
@@ -426,6 +431,9 @@ struct StandaloneWindowApp {
     state: AppState,
     /// Front-end shell and loading screen renderer (`bfe-shell` + `bfe-interface`).
     shell: Option<Box<ShellHost>>,
+    /// Release the X11 device grab before dropping its borrowed window connection.
+    #[cfg(target_os = "linux")]
+    x11_grab: Option<x11_pointer::Grab>,
     /// Native OS window handle.
     window: Option<Window>,
     /// `glutin` window surface for buffer swaps.
@@ -609,6 +617,12 @@ impl StandaloneWindowApp {
             AppState::Battle(battle) => self.focused && battle.wants_pointer_lock(),
             _ => false,
         };
+        #[cfg(target_os = "linux")]
+        if let Some(grab) = &self.x11_grab {
+            if let Err(error) = grab.keep_inside(window, self.cursor_physical, self.opts.size) {
+                eprintln!("cursor recenter failed: {error}");
+            }
+        }
         if want_lock == self.pointer_locked {
             return;
         }
@@ -617,9 +631,27 @@ impl StandaloneWindowApp {
                 .set_cursor_grab(CursorGrabMode::Locked)
                 .or_else(|_| window.set_cursor_grab(CursorGrabMode::Confined))
                 .is_ok();
+            #[cfg(target_os = "linux")]
+            let locked = if locked {
+                match x11_pointer::correct_grab(window) {
+                    Ok(grab) => {
+                        self.x11_grab = grab;
+                        true
+                    }
+                    Err(error) => {
+                        let _ = window.set_cursor_grab(CursorGrabMode::None);
+                        eprintln!("cursor confinement failed: {error}");
+                        false
+                    }
+                }
+            } else {
+                false
+            };
             window.set_cursor_visible(!locked);
             self.pointer_locked = locked;
         } else {
+            #[cfg(target_os = "linux")]
+            self.x11_grab.take();
             let _ = window.set_cursor_grab(CursorGrabMode::None);
             window.set_cursor_visible(true);
             self.pointer_locked = false;

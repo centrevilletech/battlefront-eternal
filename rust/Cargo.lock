@@ -245,6 +245,7 @@ dependencies = [
  "sim",
  "three",
  "winit",
+ "x11-dl",
 ]
 
 [[package]]

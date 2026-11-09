@@ -45,3 +45,7 @@ bfe-desktop = { path = "../bfe-desktop" }
 
 # Native clipboard text only; image support is unnecessary for single-line fields.
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Reuse the Xlib connection behind winit's X11 window; other backends do not load it.
+x11-dl = "2.21"
