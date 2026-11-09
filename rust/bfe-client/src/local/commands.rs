@@ -143,6 +143,7 @@ impl Commands {
         entry.look_total = Some([values[out::LOOK_X], values[out::LOOK_Y]]);
         let mut flags = MOUSE_SCALE | ASPECT | FLIGHT | SENSITIVITY | CURVE;
         if first_person { flags |= FIRST_PERSON; }
+        if command.invert == Some(true) { flags |= bfe_sim::input::owner::view_flags::INVERT_MOUSE; }
         if flight.invert { flags |= FLIGHT_INVERT; }
         if view_tick.is_some() { flags |= VIEW_TICK; }
         if flight.pad_buttons != 0 || flight.pad_axes.iter().any(|v| *v != 0.) { flags |= GAMEPAD; }

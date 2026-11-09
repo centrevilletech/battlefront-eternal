@@ -35,6 +35,7 @@ pub struct Views {
     views: Vec<View>,
     weapons: Vec<Option<Model>>,
     pub active: Option<usize>,
+    pub enabled: bool,
     pub frames: u64,
 }
 impl Prepared {
@@ -126,7 +127,7 @@ impl Prepared {
             let name = def["HighResGeometry"].as_str().or_else(|| def["GeometryName"].as_str()).unwrap_or("");
             weapons.push(Model::new(content, bridge, textures, name, 0)?);
         }
-        Ok(Views { views, weapons, active: None, frames: 0 })
+        Ok(Views { views, weapons, active: None, enabled: false, frames: 0 })
     }
 }
 impl Views {
@@ -134,14 +135,23 @@ impl Views {
     // The units owner selects clips, samples bones and places its attachment
     // beneath the view camera. Neither weapon timers nor animation time is
     // advanced by the native resource shell.
-    pub fn frame(&mut self, units: &mut Units, receiver: &Receiver, prediction: &Replay, camera: &[f64; 16]) {
+    pub fn frame(&mut self, units: &mut Units, receiver: &Receiver, prediction: &Replay, camera: &[f64; 16], cue: f64) {
         self.active = self.views.iter().position(|view| view.classes.contains(&receiver.own.class));
         let index = self.active.map_or(-1., |i| self.views[i].id as f64);
         units.input[f::FIRST_PERSON] = index;
-        units.input[f::FIRST_PERSON_ACTIVE] = (receiver.own.alive && receiver.own.mount.is_none()) as u8 as f64;
+        units.input[f::FIRST_PERSON_ACTIVE] = (self.enabled && receiver.own.alive && receiver.own.mount.is_none()) as u8 as f64;
         units.input[f::FIRST_PERSON_ZOOMED] = (receiver.own.zoom > 1.) as u8 as f64;
         units.input[f::FIRST_PERSON_CAMERA..f::FIRST_PERSON_CAMERA + 16].copy_from_slice(camera);
         units.input[f::FIRST_PERSON_SHOWN] = -1.;
+        if cue > 0. {
+            let at = units.input[f::COMMANDS] as usize * c::STRIDE;
+            if let Some(row) = units.commands.get_mut(at..at + c::STRIDE) {
+                row.fill(0.);
+                row[c::KIND] = kind::FIRST_PERSON_CUE as f64;
+                row[c::SECONDS] = cue;
+                units.input[f::COMMANDS] += 1.;
+            }
+        }
         let selected = prediction.selected();
         let mut primary = 0;
         for weapon in prediction.weapons() {

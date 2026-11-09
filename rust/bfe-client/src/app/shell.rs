@@ -1393,9 +1393,31 @@ impl ShellHost {
     /// - Otherwise forwards `key` to `ShellApp::handle_key`, resetting `self.options_ctrl`
     ///   when entering `ScreenId::Options` and triggering an initial server browser refresh
     ///   as soon as the online privacy notice is accepted.
+    /// Returns `true` when the `CONTROL OPTIONS` key-capture popup (`rebind`) is open.
+    pub fn is_key_capture_active(&self) -> bool {
+        self.is_interface_options_active()
+            && self
+                .options_ctrl
+                .stack
+                .top()
+                .is_some_and(|s| s.key_capture.is_some())
+    }
+
+    /// Handles a keyboard input event in the front-end shell (`shift = false`).
     pub fn handle_key(
         &mut self,
         key: &str,
+        settings: &mut AppSettingsStore,
+        audio_router: &SharedAudioRouter,
+    ) -> Option<ShellTransition> {
+        self.handle_key_with_shift(key, false, settings, audio_router)
+    }
+
+    /// Handles a keyboard input event in the front-end shell with explicit `shift` state.
+    pub fn handle_key_with_shift(
+        &mut self,
+        key: &str,
+        shift: bool,
         settings: &mut AppSettingsStore,
         audio_router: &SharedAudioRouter,
     ) -> Option<ShellTransition> {
@@ -1443,7 +1465,7 @@ impl ShellHost {
                 self.step_discord_detail(settings, key == "ArrowLeft");
                 return self.flush_events(settings, audio_router);
             }
-            self.options_ctrl.on_key_down(key, false);
+            self.options_ctrl.on_key_down(key, shift);
             self.flush_options_controller(settings);
             return self.flush_events(settings, audio_router);
         }
@@ -1589,6 +1611,35 @@ impl ShellHost {
     ///   and flushes modified settings via [`Self::flush_options_controller`].
     /// - Otherwise checks the bottom-left `BACK` footer zone (`iy >= 690 && ix < 220`),
     ///   unlocks the title gate on `ScreenId::Gate`, or invokes `ShellApp::accept`.
+    /// Handles a mouse button press (`0..=4`) at `(x_px, y_px)`.
+    ///
+    /// When the `CONTROL OPTIONS` key-capture popup is open, binds `"Mouse0"`..`"Mouse4"`;
+    /// otherwise routes primary button (`0`) clicks to [`Self::handle_mouse_click`].
+    pub fn handle_mouse_button(
+        &mut self,
+        button: u8,
+        x_px: f64,
+        y_px: f64,
+        settings: &mut AppSettingsStore,
+        audio_router: &SharedAudioRouter,
+    ) -> Option<ShellTransition> {
+        if self.is_key_capture_active() {
+            self.sync_options_controller(settings);
+            let ev = self
+                .options_ctrl
+                .input
+                .on_mouse_button(&mut self.options_ctrl.stack, button);
+            self.options_ctrl.apply_event(ev);
+            self.flush_options_controller(settings);
+            return self.flush_events(settings, audio_router);
+        }
+        if button == 0 {
+            self.handle_mouse_click(x_px, y_px, settings, audio_router)
+        } else {
+            None
+        }
+    }
+
     pub fn handle_mouse_click(
         &mut self,
         x_px: f64,

@@ -25,12 +25,12 @@ pub enum KeyCaptureOutcome {
     Bound {
         /// Controls tab (`"infantry"`, `"vehicle"`, or `"starfighter"`).
         tab: String,
-        /// Action identifier within `tab` (`"forward"`, `"fire"`, etc.).
+        /// Action identifier within `tab` (`"axes.forward+"`, `"holds.firePrimary"`, etc.).
         action: String,
         /// Captured input code (`"KeyW"`, `"Mouse0"`, `"WheelUp"`, etc.).
         code: String,
     },
-    /// Player cleared `(tab, action)` via `Delete` or `Backspace`.
+    /// Player cleared `(tab, action)` explicitly.
     Cleared {
         /// Controls tab (`"infantry"`, `"vehicle"`, or `"starfighter"`).
         tab: String,
@@ -48,13 +48,13 @@ pub enum KeyCaptureOutcome {
 pub struct KeyCaptureModal {
     /// Controls tab identifier (`"infantry"`, `"vehicle"`, or `"starfighter"`).
     pub tab: String,
-    /// Action identifier being rebound (`"forward"`, `"fire"`, `"pitchUp"`, etc.).
+    /// Action identifier being rebound (`"axes.forward+"`, `"holds.firePrimary"`, `"throttle"`, etc.).
     pub action: String,
     /// Localized action label shown above the prompt (`"MOVE FORWARD"`, `"PRIMARY FIRE"`, etc.).
     pub label: String,
     /// Localized prompt string (`ifs.GameOpt.pc_keybindpopup`: `"PRESS NEW KEY, ESC TO CANCEL"`).
     pub prompt: String,
-    /// Secondary footer hint (`"DELETE: CLEAR     ESC: CANCEL"`).
+    /// Secondary footer hint (`"ESC: CANCEL"`).
     pub hint: String,
 }
 
@@ -76,24 +76,17 @@ impl KeyCaptureModal {
                 Some("ifs.GameOpt.pc_keybindpopup"),
                 "PRESS NEW KEY, ESC TO CANCEL",
             ),
-            hint: "DELETE: CLEAR     ESC: CANCEL".to_string(),
+            hint: "ESC: CANCEL".to_string(),
         }
     }
 
     /// Processes a key or mouse button code (`keyPopup`'s `onKey` and `take` in `src/menus/popup.js`).
     ///
     /// - `Escape` cancels the modal without changing the binding.
-    /// - `Delete` or `Backspace` clears the binding for `(tab, action)`.
-    /// - Any code accepted by [`bindable`] binds `(tab, action)` to `code`.
+    /// - Any code accepted by [`bindable`] (including `Delete` and `Backspace`) binds `(tab, action)` to `code`.
     pub fn on_key(&self, code: &str) -> KeyCaptureOutcome {
         if code == "Escape" {
             return KeyCaptureOutcome::Cancelled;
-        }
-        if code == "Delete" || code == "Backspace" {
-            return KeyCaptureOutcome::Cleared {
-                tab: self.tab.clone(),
-                action: self.action.clone(),
-            };
         }
         if bindable(code) {
             return KeyCaptureOutcome::Bound {

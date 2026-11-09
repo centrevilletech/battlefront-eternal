@@ -80,9 +80,10 @@ impl History {
             row[c::LOOK_AT] = n as f64;
             row[c::LOOK_COUNT] = 1.;
             row[c::LOOK_SENT] = 1.;
-            row[c::HAS_SCALE] = 1.;
-            row[c::SCALE] = 1.;
-            row[c::HAS_INVERT] = 1.;
+            row[c::HAS_SCALE] = self.rows[index].has_mouse_scale as u8 as f64;
+            row[c::SCALE] = self.rows[index].mouse_scale;
+            row[c::HAS_INVERT] = self.rows[index].invert.is_some() as u8 as f64;
+            row[c::INVERT] = self.rows[index].invert.unwrap_or(false) as u8 as f64;
             phase.looks[n * l::STRIDE + l::X] = self.looks[index].x;
             phase.looks[n * l::STRIDE + l::Y] = self.looks[index].y;
         }
@@ -109,9 +110,6 @@ impl History {
             c.look_at = (looks + n * ClientLook::WORDS) as u32;
             c.look_count = 1;
             c.flight_at = (flights + n * ClientFlightCommand::WORDS) as u32;
-            c.has_mouse_scale = true;
-            c.mouse_scale = 1.;
-            c.invert = Some(false);
             c.put(&mut words[start + n * ClientCommand::WORDS..], &mut empty);
         }
         (start as u32, self.count as u32)
@@ -129,6 +127,11 @@ pub struct Replay {
     words: Vec<f64>,
     class: usize,
     pub body: Option<Soldier>,
+    pub displayed: Option<Soldier>,
+    before: Option<Soldier>,
+    look_yaw: f64,
+    display: super::own_view::Display,
+    life: [f64; 3],
     pub fleet: Box<super::hull_replay::Fleet>,
     pub ticks: u64,
     weapon_at: usize,
@@ -187,7 +190,7 @@ impl Replay {
             classes,
             words: Vec::with_capacity(16384),
             class: usize::MAX,
-            body: None,
+            body: None, displayed: None, before: None, look_yaw: 0., display: Default::default(), life: [0.; 3],
             ticks: 0,
             weapon_at: 0,
             weapon_count: 0,
@@ -214,12 +217,18 @@ impl Replay {
         let at = self.weapon_at + 1 + self.weapon_count * bfe_sim::gen::Weapon::WORDS;
         self.owner.output.get(at..at + 2).map_or([0.; 2], |v| [v[0], v[1]])
     }
+    pub fn present(&mut self, alpha: f64, dt: f64) {
+        self.displayed = self.body.as_ref().map(|body| self.display.sample(body, self.before.as_ref(), self.look_yaw, self.life, alpha, dt));
+    }
     pub fn frame(&mut self, r: &Receiver, sender: &Sender) -> Result<(), &'static str> {
         // Clear result presence before examining the new correction. A dead
         // or mounted player must never keep the previous infantry position.
         // The retained numerical owners keep their allocations, but their
         // publications are admitted only by this frame's qualified mode.
         self.body = None;
+        self.displayed = None;
+        self.before = None;
+        self.life = [r.epoch, r.own.id, r.own.generation];
         self.weapon_count = 0;
         self.fleet.frame(r, sender, &mut self.words, &mut collision_mut(&self.collision))?;
         if r.own.alive
@@ -355,6 +364,11 @@ impl Replay {
             self.weapon_count = self.owner.output.get(self.weapon_at).copied().unwrap_or(0.) as usize;
             if result.actor_words as usize == Soldier::WORDS {
                 self.body = Some(Soldier::take(&self.owner.output[result.actor_at as usize..], &[]));
+                if result.ticks != 0 {
+                    let at = result.before_at as usize;
+                    self.before = self.owner.output.get(at..at + Soldier::WORDS).map(|row| Soldier::take(row, &[]));
+                }
+                self.look_yaw = result.look_yaw;
                 self.ticks += result.ticks as u64;
             }
         }
@@ -364,4 +378,40 @@ impl Replay {
 
 fn collision_mut(c: &Collision) -> std::cell::RefMut<'_, Box<CollisionOwner>> {
     c.borrow_mut()
+}
+
+#[cfg(test)]
+mod control_settings_tests {
+    use super::*;
+
+    #[test]
+    fn replay_and_preview_preserve_the_submitted_mouse_profile() {
+        use bfe_presentation::network_layout::net_preview_command as c;
+        let command = ClientCommand {
+            mouse_scale: 0.6,
+            has_mouse_scale: true,
+            invert: Some(true),
+            first_person: Some(false),
+            ..Default::default()
+        };
+        let mut history = History::default();
+        history.push(&command, &ClientLook { x: 50., y: 20. },
+            &ClientFlightCommand::default(), 3., 1., 7.);
+        let mut words = Vec::new();
+        let (at, count) = history.write(&mut words);
+        assert_eq!(count, 1);
+        let actual = ClientCommand::take(&words[at as usize..], &[]);
+        assert_eq!(actual.mouse_scale, command.mouse_scale);
+        assert_eq!(actual.invert, command.invert);
+        assert_eq!(actual.first_person, command.first_person);
+        let mut phase = bfe_presentation::network::preview::Phase::new();
+        history.preview(&mut phase);
+        assert_eq!(phase.commands[c::SCALE], command.mouse_scale);
+        assert_eq!(phase.commands[c::INVERT], 1.);
+        // Applied authority checkpoints retire only the named command tail.
+        history.acknowledge(6.);
+        assert_eq!(history.write(&mut words).1, 1);
+        history.acknowledge(7.);
+        assert_eq!(history.write(&mut words).1, 0);
+    }
 }

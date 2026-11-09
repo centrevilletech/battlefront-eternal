@@ -121,7 +121,11 @@ impl World for Client {
     fn generation(&self) -> u32 {
         self.receiver.own.generation as u32
     }
-    fn step(&mut self, c: &ClientCommand, look: &ClientLook, flight: &ClientFlightCommand, _: &ViewActions, _: f64) -> Result<(), String> {
+    fn step(&mut self, c: &ClientCommand, look: &ClientLook, flight: &ClientFlightCommand, actions: &ViewActions, _: f64) -> Result<(), String> {
+        if actions.perspective { self.camera.first_person = !self.camera.first_person; }
+        let mut command = c.clone();
+        command.first_person = Some(self.camera.first_person);
+        let c = &command;
         if !self.receiver.own.alive && c.actions & 1 != 0 {
             self.sender.spawned = false;
         }
@@ -135,6 +139,7 @@ impl World for Client {
         if let Err(error) = self.replay.frame(&self.receiver, &self.sender) {
             self.receiver.fault = Some(error);
         }
+        self.replay.present(alpha, self.dt);
         let mut own = self.receiver.own;
         if let Some(hull) = &self.replay.fleet.state {
             own.position = hull.position;
@@ -143,7 +148,7 @@ impl World for Client {
             self.sender.yaw = self.replay.fleet.aim[0];
             self.sender.pitch = self.replay.fleet.aim[1];
         }
-        if let Some(body) = &self.replay.body {
+        if let Some(body) = &self.replay.displayed {
             own.position = body.position;
             own.posture = body.posture as usize;
             own.air = body.air.map_or(0, |a| a as u8 + 1);

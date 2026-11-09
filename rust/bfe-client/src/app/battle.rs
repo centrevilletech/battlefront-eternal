@@ -854,6 +854,9 @@ pub struct BattleController {
     pub chat: ChatController,
     // Retained UTF-16 storage for the native chat text field.
     chat_text: Vec<u16>,
+    stats_text: String,
+    stats_utf16: Vec<u16>,
+    frame_seconds: f64,
     /// Scratch quad batch used when compositing overlays onto `scene.bridge.hud_model.batch`.
     pub overlay_batch: Batch,
     /// Current viewport dimensions `[width, height]` in physical pixels.
@@ -882,6 +885,12 @@ pub struct BattleController {
     pub first_life_spawned: bool,
     /// Whether a 2D overlay was open on the previous frame (triggers full HUD quad buffer upload).
     pub overlay_was_active: bool,
+    /// Last synced `settings.interface.revision` for zero-allocation binding/flight updates.
+    pub settings_revision: u64,
+    /// True when `Shift` or `Ctrl` is held (`overlayChord` guard for `Backquote`).
+    pub modifiers_shift_or_ctrl: bool,
+    /// True when `Ctrl`, `Alt`, or `Meta` is held (chat open guard).
+    pub modifiers_chat: bool,
 }
 
 impl BattleController {
@@ -1191,7 +1200,7 @@ impl BattleController {
         let chat = ChatController::new(&settings.player.profile_name);
         let pause_page = super::page_pause::PagePause::admit(&mut scene,size,settings)?;
 
-        Ok(Self {
+        let mut ctrl = Self {
             authority,
             scene: Box::new(scene),
             input: Input::default(),
@@ -1205,6 +1214,9 @@ impl BattleController {
             pause_page,
             chat,
             chat_text: Vec::with_capacity(512),
+            stats_text: String::with_capacity(256),
+            stats_utf16: Vec::with_capacity(256),
+            frame_seconds: 0.,
             overlay_batch: Batch::new(),
             size,
             height,
@@ -1219,7 +1231,12 @@ impl BattleController {
             player_spawns: 0,
             first_life_spawned: false,
             overlay_was_active: true,
-        })
+            settings_revision: u64::MAX,
+            modifiers_shift_or_ctrl: false,
+            modifiers_chat: false,
+        };
+        ctrl.sync_input_settings(settings);
+        Ok(ctrl)
     }
 
     /// Returns the active map ID (`"nab2"`, `"tat1"`, `"bes1"`, etc.).
@@ -1344,36 +1361,55 @@ impl BattleController {
     /// vertical look inversion (`cmd.invert`) from `settings.player.shell`.
     /// When `active_gameplay` is `false` (unfocused window or open 2D overlay),
     /// clears held movement keys and returns zeroed look/flight/view deltas.
+    /// Updates cached modifier state (`Shift`/`Ctrl` for `Backquote`, `Ctrl`/`Alt`/`Meta` for chat).
+    pub fn set_modifiers(&mut self, shift_or_ctrl: bool, chat_modifiers: bool) {
+        self.modifiers_shift_or_ctrl = shift_or_ctrl;
+        self.modifiers_chat = chat_modifiers;
+    }
+
+    /// Synchronizes `keyBindings`, `flightBindings`, and starfighter response settings into
+    /// `self.input` whenever `settings.interface.revision` advances (zero steady-frame allocations).
+    fn sync_input_settings(&mut self, settings: &AppSettingsStore) {
+        let rev = settings.interface.revision;
+        if self.settings_revision == rev {
+            return;
+        }
+        self.settings_revision = rev;
+        let empty = std::collections::BTreeMap::new();
+        let kb = settings
+            .interface
+            .get_bindings_ref("keyBindings")
+            .unwrap_or(&empty);
+        let fb = settings
+            .interface
+            .get_bindings_ref("flightBindings")
+            .unwrap_or(&empty);
+        self.input.set_bindings(kb, fb);
+        let f_scale = settings.interface.get_f64("flightSensitivity");
+        self.input.flight_scale = if f_scale.is_finite() && f_scale > 0.0 {
+            f_scale.clamp(0.2, 3.0)
+        } else {
+            1.0
+        };
+        let f_curve = settings.interface.get_f64("flightResponseCurve");
+        self.input.flight_curve = if f_curve.is_finite() && f_curve > 0.0 {
+            f_curve.clamp(1.0, 3.0)
+        } else {
+            1.35
+        };
+        self.input.flight_invert = settings.interface.get_bool("flightInvertY");
+    }
+
     fn take_step_command(
         &mut self,
         generation: u32,
         active_gameplay: bool,
         settings: &AppSettingsStore,
     ) -> (ClientCommand, ClientLook, ClientFlightCommand, ViewActions) {
-        let mouse_scale = settings.player.shell.mouse_sensitivity as f64;
-        let invert = settings.player.shell.invert_y;
+        self.sync_input_settings(settings);
         self.input_tick = self.input_tick.wrapping_add(1);
-        if active_gameplay {
-            let (mut cmd, look) = self.input.take(self.input_tick, generation);
-            cmd.mouse_scale = mouse_scale;
-            cmd.has_mouse_scale = true;
-            cmd.invert = Some(invert);
-            let flight = self.input.take_flight();
-            let actions = self.input.take_view();
-            (cmd, look, flight, actions)
-        } else {
-            self.input.clear();
-            let (mut cmd, _) = self.input.take(self.input_tick, generation);
-            cmd.mouse_scale = mouse_scale;
-            cmd.has_mouse_scale = true;
-            cmd.invert = Some(invert);
-            (
-                cmd,
-                ClientLook::default(),
-                ClientFlightCommand::default(),
-                ViewActions::default(),
-            )
-        }
+        self.input.sample(self.input_tick, generation, active_gameplay,
+            self.aspect, settings.interface.mouse_scale(), settings.player.shell.invert_y)
     }
 
     /// Steps the battle simulation/network client and renders one complete frame into
@@ -1408,6 +1444,7 @@ impl BattleController {
         settings: &mut AppSettingsStore,
         _audio_router: &SharedAudioRouter,
     ) -> Result<Option<BattleTransition>, String> {
+        if dt.is_finite() && dt >= 0. { self.frame_seconds += dt; }
         let dt = dt.clamp(0.0, 0.1);
         self.pause_page.save(settings);
         self.elapsed_s += dt;
@@ -1527,10 +1564,15 @@ impl BattleController {
         }
         let alpha_interp = (self.input_accumulator / STEP).clamp(0.0, 1.0);
 
-        let generation = match &self.authority {
-            BattleAuthority::InstantAction { receiver, .. } => receiver.own.generation as u32,
-            BattleAuthority::Online { client, .. } => client.generation(),
+        let (generation, flight_mode) = match &self.authority {
+            BattleAuthority::InstantAction { receiver, .. } => {
+                (receiver.own.generation as u32, receiver.own.body_schema == 7)
+            }
+            BattleAuthority::Online { client, .. } => {
+                (client.generation(), client.receiver.own.body_schema == 7)
+            }
         };
+        self.input.flight_mode = flight_mode;
         let mut step_cmds: [Option<(
             ClientCommand,
             ClientLook,
@@ -1539,6 +1581,22 @@ impl BattleController {
         )>; 4] = [None, None, None, None];
         for slot in step_cmds.iter_mut().take(steps) {
             *slot = Some(self.take_step_command(generation, active_gameplay, settings));
+        }
+        for (_, _, _, actions) in step_cmds.iter().flatten() {
+            if actions.map {
+                self.scene.bridge.hud_model_observe(
+                    bfe_render::hud_model::layout::HudCommand::TOGGLE_MAP,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                );
+            }
+            if actions.stats {
+                let next = !settings.interface.get_bool("showStats");
+                settings.interface.set("showStats", next);
+                self.settings_revision = settings.interface.revision;
+            }
         }
 
         let view: View = match &mut self.authority {
@@ -1566,8 +1624,13 @@ impl BattleController {
                 receiver.clock.advance(dt).map_err(str::to_string)?;
 
                 let ack = Publication::acknowledgement(receiver);
-                for (cmd, look, flight, actions) in step_cmds.into_iter().flatten() {
+                for (mut cmd, look, flight, actions) in step_cmds.into_iter().flatten() {
+                    if actions.perspective { camera.first_person = !camera.first_person; }
+                    cmd.first_person = Some(camera.first_person);
                     sender.tick(&cmd, &look, &flight, receiver, 0.0, *now_ms);
+                    // Corrections acknowledge the sender's command identities,
+                    // not the render clock or an independently advancing world tick.
+                    cmd.sequence = sender.command_sequence();
                     world.send(WorldMessage::Step {
                         command: cmd,
                         look,
@@ -1582,6 +1645,7 @@ impl BattleController {
                 if let Err(err) = replay.frame(receiver, sender) {
                     receiver.fault = Some(err);
                 }
+                replay.present(alpha_interp, dt);
                 if let Some(hull) = &replay.fleet.state {
                     own.position = hull.position;
                 }
@@ -1589,15 +1653,12 @@ impl BattleController {
                     sender.yaw = replay.fleet.aim[0];
                     sender.pitch = replay.fleet.aim[1];
                 }
-                if let Some(body) = &replay.body {
+                if let Some(body) = &replay.displayed {
                     own.position = body.position;
                     own.posture = body.posture as usize;
                     own.air = body.air.map_or(0, |a| a as u8 + 1);
                     sender.yaw = body.aim_yaw;
                     sender.pitch = body.aim_pitch;
-                } else {
-                    sender.yaw = own.yaw;
-                    sender.pitch = own.pitch;
                 }
                 if receiver.corrections != 0 {
                     let pos =
@@ -1615,11 +1676,11 @@ impl BattleController {
                     .sample::<V8>();
                     camera.follow([aim.eye.x, aim.eye.y, aim.eye.z], sender.yaw, sender.pitch, dt);
                 }
-                let v = *camera.present(alpha_interp);
+                camera.present(alpha_interp);
                 self.scene
                     .present_network(receiver, replay, &sender.history, camera, dt);
                 receiver.publications.clear();
-                v
+                *camera.snapshot()
             }
             BattleAuthority::Online { client, .. } => {
                 // Receive network packets, step client prediction, send input datagrams,
@@ -1632,7 +1693,7 @@ impl BattleController {
                         return Ok(Some(BattleTransition::LeaveOnline { reason: Some(err) }));
                     }
                 }
-                let v = *client.present(alpha_interp);
+                client.present(alpha_interp);
                 if let Err(err) = client.send() {
                     return Ok(Some(BattleTransition::LeaveOnline { reason: Some(err) }));
                 }
@@ -1643,7 +1704,7 @@ impl BattleController {
                         client.receiver.own.alive, client.receiver.active().count(),
                         self.scene.online.as_ref().map_or(0, |r| r.visible));
                 }
-                v
+                *client.camera.snapshot()
             }
         };
 
@@ -1723,7 +1784,9 @@ impl BattleController {
 
         let full_sync = self.frames == 0 || self.overlay_was_active || overlay_active;
         self.overlay_was_active = overlay_active;
-        self.scene.bridge.hud_sync_batch(full_sync);
+        let show_stats = settings.interface.get_bool("showStats");
+        if show_stats { self.draw_stats_line(); }
+        self.scene.bridge.hud_sync_batch(full_sync || show_stats);
 
         // PageTheme is a compositor over the finished battle, just as its
         // CSS overlay is over the canvas. Defer only the pause UI until its
@@ -2062,6 +2125,34 @@ impl BattleController {
         dst.end = v1;
     }
 
+    // The stats hotkey is a visual preference. Reuse admitted text storage;
+    // enabling the line must not allocate in the steady render loop.
+    fn draw_stats_line(&mut self) {
+        use std::fmt::Write;
+        self.stats_text.clear();
+        let mean = self.frame_seconds / self.frames.max(1) as f64;
+        let fps = if mean > 0. { 1. / mean } else { 0. };
+        let _ = write!(&mut self.stats_text, "{fps:.0} fps | mean frame {:.2} ms | {}x{} Native", mean * 1000., self.size[0], self.size[1]);
+        self.stats_utf16.clear();
+        self.stats_utf16.extend(self.stats_text.encode_utf16());
+        let hud = &mut self.scene.bridge.hud_model;
+        hud.fonts[0].draw(&mut hud.batch, root_anchor(self.height), 8., self.height - 8.,
+            &self.stats_utf16, [1.; 4], 0, 0.65, 1., 0.);
+    }
+
+    // Pausing is a cold diagnostic boundary: record the actual displayed view
+    // and input acknowledgement without formatting on the steady render path.
+    fn log_control_snapshot(&self) {
+        let (receiver, sender, camera) = match &self.authority {
+            BattleAuthority::InstantAction { receiver, sender, camera, .. } => (receiver, sender, camera),
+            BattleAuthority::Online { client, .. } => (&client.receiver, &client.sender, &client.camera),
+        };
+        eprintln!("battle controls: frames={} meanFrameMs={:.3} authorityPosition={:?} authorityAim={:?} cameraPosition={:?} displayAim={:?} firstPerson={} inputSequence={} appliedSequence={}",
+            self.frames, 1000. * self.frame_seconds / self.frames.max(1) as f64,
+            receiver.own.position, [receiver.own.yaw, receiver.own.pitch], camera.position,
+            camera.aim(), camera.first_person, sender.command_sequence(), receiver.corrected_sequence);
+    }
+
     /// Routes a keyboard key press/release through PauseMenu, Chat, SpawnScreen, Scoreboard,
     /// and 3D gameplay input (`Input`).
     ///
@@ -2083,8 +2174,87 @@ impl BattleController {
         repeat: bool,
         settings: &mut AppSettingsStore,
     ) {
-        if self.pause_menu.is_open&&down&&self.pause_page.key(code){return;}
-        // 1. Escape or open PauseMenu always gets priority.
+
+        self.sync_input_settings(settings);
+
+        // Always update held-key tracking on keyup for SpawnScreen (`Space`/`Tab`) and
+        // Scoreboard (`TabHold`) even when another overlay is active.
+        if !down {
+            let _ = self.spawn_ctrl.input.key(
+                &self.spawn_ctrl.model,
+                code,
+                false,
+                false,
+                false,
+                |_, _| None,
+            );
+            let _ = self.scoreboard_ctrl.input.key(
+                code,
+                false,
+                false,
+                false,
+                false,
+                |_, _| None,
+            );
+        }
+
+        // 1. Chat overlay runs first in capture order (`src/chat.js`): when open, `Escape`
+        // closes chat rather than opening `PauseMenu`, and all keys are swallowed.
+        if self.chat.is_open() {
+            if down {
+                let _ = self.chat.handle_key(
+                    code,
+                    repeat,
+                    self.modifiers_chat,
+                    !self.pause_menu.is_open,
+                    self.elapsed_s * 1000.0,
+                );
+            }
+            self.input.clear();
+            return;
+        }
+        if down
+            && !repeat
+            && !self.modifiers_chat
+            && !self.pause_menu.is_open
+            && matches!(code, "KeyT" | "KeyY")
+        {
+            let act = route_battle_key(
+                code,
+                repeat,
+                self.modifiers_chat,
+                &mut self.chat,
+                self.spawn_ctrl.is_open(),
+                self.scoreboard_ctrl.model.is_open(),
+                self.pause_menu.is_open,
+                self.elapsed_s * 1000.0,
+            );
+            if act == BattleKeyAction::ChatHandled {
+                self.input.clear();
+                return;
+            }
+        }
+
+        // Scoreboard bindDom owns Escape while its table or a detail page is
+        // visible. Back closes a peek table or returns from details; the same
+        // press must not open the pause menu behind it.
+        if !self.pause_menu.is_open
+            && self.scoreboard_ctrl.model.is_open()
+            && code == "Escape"
+        {
+            if down && !repeat {
+                self.scoreboard_ctrl
+                    .back(&self.scoreboard_port, self.height);
+            }
+            return;
+        }
+
+        // 3. Escape or open PauseMenu gets priority over gameplay and `Table`/spawn overlays.
+        if code == "Escape" && down && !repeat && !self.pause_menu.is_open {
+            self.log_control_snapshot();
+        }
+
+        if self.pause_menu.is_open && down && self.pause_page.key(code) { return; }
         if self.pause_menu.is_open || code == "Escape" {
             self.sync_ports_cold(&settings.player.profile_name);
             if let Some(replicas) = &self.scene.online {
@@ -2108,27 +2278,13 @@ impl BattleController {
                     return;
                 }
             }
-        }
-
-        // 2. Chat overlay when open or activated via Enter/T/Y.
-        if down && !repeat && (self.chat.is_open() || matches!(code, "KeyT" | "KeyY")) {
-            let act = route_battle_key(
-                code,
-                repeat,
-                false,
-                &mut self.chat,
-                self.spawn_ctrl.is_open(),
-                self.scoreboard_ctrl.model.is_open(),
-                self.pause_menu.is_open,
-                self.elapsed_s * 1000.0,
-            );
-            if act == BattleKeyAction::ChatHandled {
+            if self.pause_menu.is_open {
                 self.input.clear();
                 return;
             }
         }
 
-        // 3. Spawn screen input when open.
+        // 4. Spawn screen input when open.
         if self.spawn_ctrl.is_open() {
             let fh = self.scene.bridge.hud_model.fonts[0].height;
             let (height, model, view, port) = (
@@ -2152,7 +2308,7 @@ impl BattleController {
             return;
         }
 
-        // 4. Scoreboard toggle on Tab or navigation when open.
+        // 5. Scoreboard toggle on Tab or navigation when open.
         if code == "Tab" && down && !repeat && !self.scoreboard_ctrl.model.is_open() {
             self.sync_ports_cold(&settings.player.profile_name);
             if let Some(replicas) = &self.scene.online {
@@ -2171,6 +2327,15 @@ impl BattleController {
                     false,
                     self.pause_menu.is_open,
                 ) {
+                    // Record `Tab` as held so `TabHold::step` distinguishes hold (>= 0.5s) from tap (< 0.5s).
+                    let _ = self.scoreboard_ctrl.input.key(
+                        "Tab",
+                        true,
+                        false,
+                        false,
+                        false,
+                        |_, _| None,
+                    );
                     self.input.clear();
                     return;
                 }
@@ -2211,17 +2376,24 @@ impl BattleController {
             return;
         }
 
-        // 5. Normal 3D gameplay input (`M` opens spawn screen).
-        if code == "KeyM" && down && !repeat {
-            self.sync_ports_cold(&settings.player.profile_name);
-            self.spawn_ctrl
-                .open(&mut self.spawn_port, OpenReason::Start, self.height);
-            self.input.clear();
-            return;
+        // 6. Track held `Space` while inactive so holding `Space` during the death camera
+        // spawns on the first frame `SpawnScreen` opens (`src/spawn-screen/input.js`).
+        if down {
+            let _ = self.spawn_ctrl.input.key(
+                &self.spawn_ctrl.model,
+                code,
+                true,
+                repeat,
+                false,
+                |_, _| None,
+            );
         }
+
+        // 7. Normal 3D gameplay input (`self.input`).
         if !repeat {
             if let Some(kc) = dom_code_to_keycode(code) {
-                self.input.key(kc, down);
+                self.input
+                    .key_with_modifiers(kc, down, self.modifiers_shift_or_ctrl);
             }
         }
     }
@@ -2291,7 +2463,7 @@ impl BattleController {
             return;
         }
         if self.spawn_ctrl.is_open() {
-            if button == 0 && down {
+            if (button == 0 || button == 2) && down {
                 let fh = self.scene.bridge.hud_model.fonts[0].height;
                 let (height, model, view, port) = (
                     self.height,
@@ -2299,11 +2471,11 @@ impl BattleController {
                     &mut self.spawn_ctrl.view,
                     &self.spawn_port,
                 );
-                let (_, action) = self.spawn_ctrl.input.click(
+                self.spawn_ctrl.input.move_cursor(pt[0], pt[1], height);
+                let (_, action) = self.spawn_ctrl.input.button(
                     model,
-                    pt[0],
-                    pt[1],
-                    height,
+                    button,
+                    true,
                     true,
                     |x, y| view.hit(x, y, height, fh, model, port),
                 );
@@ -2345,10 +2517,13 @@ impl BattleController {
             return;
         }
 
+        self.sync_input_settings(settings);
         let mb = match button {
             0 => MouseButton::Left,
             1 => MouseButton::Middle,
             2 => MouseButton::Right,
+            3 => MouseButton::Back,
+            4 => MouseButton::Forward,
             _ => return,
         };
         self.input.mouse(mb, down);
@@ -2369,7 +2544,9 @@ impl BattleController {
                 .model
                 .scroll(if delta_y > 0.0 { 1 } else { -1 });
         } else if !self.pause_menu.is_open {
-            self.input.wheel(delta_y);
+            // `delta_y` follows DOM `WheelEvent.deltaY` (`< 0` up, `> 0` down), whereas
+            // `Input::wheel(y)` expects `> 0` for `WheelUp` (`NextPrimary`) and `< 0` for `WheelDown`.
+            self.input.wheel(-delta_y);
         }
     }
 
@@ -2465,42 +2642,7 @@ impl BattleController {
 /// Translates DOM `KeyboardEvent.code` strings back into `winit::keyboard::KeyCode`
 /// values consumed by `crate::input::Input::key` for 3D soldier/vehicle controls.
 fn dom_code_to_keycode(code: &str) -> Option<KeyCode> {
-    use KeyCode::*;
-    Some(match code {
-        "KeyW" => KeyW,
-        "KeyA" => KeyA,
-        "KeyS" => KeyS,
-        "KeyD" => KeyD,
-        "KeyE" => KeyE,
-        "KeyF" => KeyF,
-        "KeyG" => KeyG,
-        "KeyC" => KeyC,
-        "KeyX" => KeyX,
-        "KeyZ" => KeyZ,
-        "KeyR" => KeyR,
-        "KeyQ" => KeyQ,
-        "KeyV" => KeyV,
-        "KeyM" => KeyM,
-        "Space" => Space,
-        "Enter" => Enter,
-        "ArrowUp" => ArrowUp,
-        "ArrowDown" => ArrowDown,
-        "ArrowLeft" => ArrowLeft,
-        "ArrowRight" => ArrowRight,
-        "ShiftLeft" => ShiftLeft,
-        "ShiftRight" => ShiftRight,
-        "ControlLeft" => ControlLeft,
-        "ControlRight" => ControlRight,
-        "AltLeft" => AltLeft,
-        "AltRight" => AltRight,
-        "CapsLock" => CapsLock,
-        "Backquote" => Backquote,
-        "F1" => F1,
-        "F2" => F2,
-        "F3" => F3,
-        "F4" => F4,
-        _ => return None,
-    })
+    crate::input::dom_code_to_keycode(code)
 }
 
 // HudInput.facts in src/hud-input.js rewrites layer facts every frame. A

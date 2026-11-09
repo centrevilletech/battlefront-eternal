@@ -1071,9 +1071,18 @@ impl ApplicationHandler for StandaloneWindowApp {
                         }
                     }
                     AppState::Shell => {
-                        if down && button == MouseButton::Left {
-                            if let Some(shell) = &mut self.shell {
-                                let transition = shell.handle_mouse_click(
+                        if down {
+                            let code = match button {
+                                MouseButton::Left => Some(0),
+                                MouseButton::Middle => Some(1),
+                                MouseButton::Right => Some(2),
+                                MouseButton::Back => Some(3),
+                                MouseButton::Forward => Some(4),
+                                _ => None,
+                            };
+                            if let (Some(b), Some(shell)) = (code, &mut self.shell) {
+                                let transition = shell.handle_mouse_button(
+                                    b,
                                     x,
                                     y,
                                     &mut self.settings,
@@ -1088,6 +1097,8 @@ impl ApplicationHandler for StandaloneWindowApp {
                             MouseButton::Left => Some(0),
                             MouseButton::Middle => Some(1),
                             MouseButton::Right => Some(2),
+                            MouseButton::Back => Some(3),
+                            MouseButton::Forward => Some(4),
                             _ => None,
                         };
                         if let Some(b) = code {
@@ -1113,7 +1124,13 @@ impl ApplicationHandler for StandaloneWindowApp {
             }
             WindowEvent::KeyboardInput { event, is_synthetic, .. } => {
                 let down = event.state == ElementState::Pressed;
+                let key_capture_active = matches!(self.state, AppState::Shell)
+                    && self
+                        .shell
+                        .as_ref()
+                        .is_some_and(|s| s.is_key_capture_active());
                 // Handle global function hotkeys (`F11` fullscreen toggle, `F9` folder picker).
+                // When `KeyCaptureModal` is open, `F9` is a bindable key and must reach the modal.
                 if down && !event.repeat {
                     if let PhysicalKey::Code(code) = event.physical_key {
                         match code {
@@ -1121,7 +1138,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                                 self.toggle_fullscreen();
                                 return;
                             }
-                            KeyCode::F9 => {
+                            KeyCode::F9 if !key_capture_active && !matches!(&self.state, AppState::Battle(_)) => {
                                 self.choose_content_folder();
                                 return;
                             }
@@ -1143,22 +1160,43 @@ impl ApplicationHandler for StandaloneWindowApp {
                         }
                     }
                     AppState::Shell => {
-                        // Focus recovery synthesizes held keys; those are not a
-                        // fresh press on the title gate or another menu row.
                         if down && !is_synthetic {
-                            if let Some(key_str) = map_shell_key(&event.logical_key) {
-                                if let Some(shell) = &mut self.shell {
-                                    let transition = shell.handle_key(
-                                        &key_str,
-                                        &mut self.settings,
-                                        &self.audio_router,
-                                    );
-                                    self.apply_shell_transition(transition, event_loop);
+                            let shift = self.modifiers.shift_key();
+                            let options_active = self
+                                .shell
+                                .as_ref()
+                                .is_some_and(|s| s.is_interface_options_active());
+                            if key_capture_active && event.repeat {
+                                return;
+                            }
+                            let key_str = if options_active {
+                                match event.physical_key {
+                                    PhysicalKey::Code(code) => keycode_to_dom_code(code)
+                                        .map(str::to_string)
+                                        .or_else(|| map_shell_key(&event.logical_key)),
+                                    _ => map_shell_key(&event.logical_key),
                                 }
+                            } else {
+                                map_shell_key(&event.logical_key)
+                            };
+                            if let (Some(key_str), Some(shell)) = (key_str, &mut self.shell) {
+                                let transition = shell.handle_key_with_shift(
+                                    &key_str,
+                                    shift,
+                                    &mut self.settings,
+                                    &self.audio_router,
+                                );
+                                self.apply_shell_transition(transition, event_loop);
                             }
                         }
                     }
                     AppState::Battle(battle) => {
+                        battle.set_modifiers(
+                            self.modifiers.shift_key() || self.modifiers.control_key(),
+                            self.modifiers.control_key()
+                                || self.modifiers.alt_key()
+                                || self.modifiers.super_key(),
+                        );
                         if let PhysicalKey::Code(code) = event.physical_key {
                             if let Some(dom_code) = keycode_to_dom_code(code) {
                                 battle.handle_key(dom_code, down, event.repeat, &mut self.settings);
@@ -1747,6 +1785,8 @@ fn map_shell_key(key: &Key) -> Option<String> {
         Key::Named(NamedKey::Backspace) => Some("Backspace".to_string()),
         Key::Named(NamedKey::Home) => Some("Home".to_string()),
         Key::Named(NamedKey::End) => Some("End".to_string()),
+        Key::Named(NamedKey::PageUp) => Some("PageUp".to_string()),
+        Key::Named(NamedKey::PageDown) => Some("PageDown".to_string()),
         Key::Named(NamedKey::Delete) => Some("Delete".to_string()),
         Key::Named(NamedKey::Tab) => Some("Tab".to_string()),
         Key::Named(NamedKey::Space) => Some(" ".to_string()),
@@ -1772,48 +1812,5 @@ fn map_shell_key(key: &Key) -> Option<String> {
 /// - Navigation & camera: `ArrowUp..ArrowRight`, `PageUp`, `PageDown`, `Home`, `End`, `F1..F4`
 /// - Modifiers: `ShiftLeft`, `ShiftRight`, `ControlLeft`, `ControlRight`
 fn keycode_to_dom_code(code: KeyCode) -> Option<&'static str> {
-    match code {
-        KeyCode::KeyW => Some("KeyW"),
-        KeyCode::KeyA => Some("KeyA"),
-        KeyCode::KeyS => Some("KeyS"),
-        KeyCode::KeyD => Some("KeyD"),
-        KeyCode::KeyE => Some("KeyE"),
-        KeyCode::KeyR => Some("KeyR"),
-        KeyCode::KeyC => Some("KeyC"),
-        KeyCode::KeyX => Some("KeyX"),
-        KeyCode::KeyZ => Some("KeyZ"),
-        KeyCode::KeyV => Some("KeyV"),
-        KeyCode::KeyF => Some("KeyF"),
-        KeyCode::KeyQ => Some("KeyQ"),
-        KeyCode::KeyM => Some("KeyM"),
-        KeyCode::KeyT => Some("KeyT"),
-        KeyCode::KeyY => Some("KeyY"),
-        KeyCode::Space => Some("Space"),
-        KeyCode::ShiftLeft => Some("ShiftLeft"),
-        KeyCode::ShiftRight => Some("ShiftRight"),
-        KeyCode::ControlLeft => Some("ControlLeft"),
-        KeyCode::ControlRight => Some("ControlRight"),
-        KeyCode::Tab => Some("Tab"),
-        KeyCode::Enter => Some("Enter"),
-        KeyCode::NumpadEnter => Some("NumpadEnter"),
-        KeyCode::Escape => Some("Escape"),
-        KeyCode::Backspace => Some("Backspace"),
-        KeyCode::ArrowUp => Some("ArrowUp"),
-        KeyCode::ArrowDown => Some("ArrowDown"),
-        KeyCode::ArrowLeft => Some("ArrowLeft"),
-        KeyCode::ArrowRight => Some("ArrowRight"),
-        KeyCode::PageUp => Some("PageUp"),
-        KeyCode::PageDown => Some("PageDown"),
-        KeyCode::Home => Some("Home"),
-        KeyCode::End => Some("End"),
-        KeyCode::Digit1 => Some("Digit1"),
-        KeyCode::Digit2 => Some("Digit2"),
-        KeyCode::Digit3 => Some("Digit3"),
-        KeyCode::Digit4 => Some("Digit4"),
-        KeyCode::F1 => Some("F1"),
-        KeyCode::F2 => Some("F2"),
-        KeyCode::F3 => Some("F3"),
-        KeyCode::F4 => Some("F4"),
-        _ => None,
-    }
+    crate::input::keycode_to_dom_code(code)
 }

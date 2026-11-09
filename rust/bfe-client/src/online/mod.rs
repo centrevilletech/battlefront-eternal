@@ -52,4 +52,5 @@ pub mod rotation;
 
 mod sound_events;
 
+mod own_view;
 mod radar;

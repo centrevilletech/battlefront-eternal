@@ -52,6 +52,7 @@ pub struct Sender {
     pointer_count: usize,
     mouse_scale: f64,
     invert: bool,
+    first_person: bool,
     pub yaw: f64,
     pub pitch: f64,
     pub sent: u64,
@@ -95,6 +96,7 @@ impl Default for Sender {
             pointer_count: 0,
             mouse_scale: 1.,
             invert: false,
+            first_person: false,
             yaw: 0.,
             pitch: 0.,
             sent: 0,
@@ -109,6 +111,9 @@ impl Default for Sender {
     }
 }
 impl Sender {
+    pub fn command_sequence(&self) -> f64 {
+        self.sequence as f64
+    }
     pub fn new(turns: &[(f64, [f64; 2])]) -> Self {
         Self { turns: turns.to_vec(), ..Self::default() }
     }
@@ -175,6 +180,7 @@ impl Sender {
         // twice as far as the default desktop prediction requested.
         self.mouse_scale = if c.has_mouse_scale && c.mouse_scale.is_finite() && c.mouse_scale > 0. { c.mouse_scale.min(2.) } else { 1. };
         self.invert = c.invert.unwrap_or(false);
+        self.first_person = c.first_person.unwrap_or(false);
         self.sequence = self.sequence.wrapping_add(1).max(1);
         // TargetLead uses the same transit estimate and future bound as the
         // page. Sequences remain distinct even when that bound holds a tick.
@@ -396,7 +402,7 @@ impl Sender {
             }
             let start = at;
             at += v::STRIDE;
-            x[start + v::FLAGS] = 2. + 32. + 64. + 128. + self.invert as u8 as f64;
+            x[start + v::FLAGS] = 32. + 64. + 128. + 2. * self.first_person as u8 as f64 + self.invert as u8 as f64;
             x[start + v::PROFILE_FOUND] = 1.;
             x[start + v::MOUSE_SCALE] = self.mouse_scale;
             x[start + v::ASPECT] = 1280. / 720.;

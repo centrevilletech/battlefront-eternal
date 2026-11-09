@@ -960,6 +960,8 @@ pub struct Settings {
     pub fresh: bool,
     /// True if the backing desktop record is complete (`this.complete` in `src/settings.js`).
     pub complete: bool,
+    /// Monotonic counter incremented whenever settings are mutated, allowing zero-allocation polling.
+    pub revision: u64,
     /// Optional backing file path for automatic persistence.
     file_path: Option<PathBuf>,
 }
@@ -984,6 +986,7 @@ impl Settings {
             changed: BTreeMap::new(),
             fresh: true,
             complete: true,
+            revision: 0,
             file_path: None,
         }
     }
@@ -1206,6 +1209,15 @@ impl Settings {
         self.get(key).as_str().unwrap_or("").to_string()
     }
 
+    /// Borrows a `Bindings` map (`keyBindings` or `flightBindings`) without cloning.
+    #[inline]
+    pub fn get_bindings_ref(&self, key: &str) -> Option<&BTreeMap<String, Vec<String>>> {
+        if let Some(v) = self.overrides.get(key) {
+            return v.as_bindings();
+        }
+        self.values.get(key).and_then(SettingValue::as_bindings)
+    }
+
     /// Sets `key` to `value` (clearing any session override on `key` and cascading
     /// `performancePreset` changes across [`PRESET_KEYS`]), matching `Settings.set(key, value)`
     /// in `src/settings.js`.
@@ -1214,6 +1226,7 @@ impl Settings {
             return;
         }
         let val = value.into();
+        self.revision = self.revision.wrapping_add(1);
         self.overrides.remove(key);
         self.values.insert(key.to_string(), val.clone());
         self.saved.insert(key.to_string(), true);
@@ -1266,6 +1279,7 @@ impl Settings {
             return;
         }
         let val = value.into();
+        self.revision = self.revision.wrapping_add(1);
         self.overrides.insert(key.to_string(), val.clone());
         if key == "performancePreset" {
             if let Some(preset_id) = val.as_str() {
@@ -1282,6 +1296,7 @@ impl Settings {
 
     /// Clears all transient session overrides (`Settings.clearOverrides()` in `src/settings.js`).
     pub fn clear_overrides(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
         self.overrides.clear();
     }
 
@@ -1290,6 +1305,7 @@ impl Settings {
     /// Clears all session overrides, marks all 59 keys as saved and changed, marks
     /// the record as `complete = true`, and flushes to disk if file-backed.
     pub fn reset(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
         self.overrides.clear();
         for entry in DEFAULTS {
             self.values
@@ -1319,6 +1335,7 @@ impl Settings {
             self.saved.insert(key.to_string(), true);
             self.changed.insert(key.to_string(), true);
         }
+        self.revision = self.revision.wrapping_add(1);
         self.persist_if_backed();
     }
 

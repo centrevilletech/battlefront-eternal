@@ -34,6 +34,7 @@ pub struct View {
 }
 pub struct MapCamera {
     pub position: [f64; 3],
+    pub first_person: bool,
     yaw: f64,
     pitch: f64,
     time: f64,
@@ -88,12 +89,16 @@ impl MapCamera {
         });
         Ok(Self {
             position,
+            first_person: false,
             yaw: 0.0,
             pitch: -0.4,
             time: 0.0,
             view,
             slots,
         })
+    }
+    pub fn aim(&self) -> [f64; 2] {
+        [self.yaw - std::f64::consts::PI, self.pitch]
     }
     pub fn snapshot(&self)->&View{&self.view}
     pub fn aspect(&self)->f64{let projection=&self.view.values[..16];projection[5]/projection[0]}
@@ -720,9 +725,11 @@ impl Scene {
             let mut world=Matrix4::default();
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
             resources.frame(receiver,receiver.clock.shown,dt.min(8./60.),camera.position,
-                replay,history,&world.elements,&mut self.bridge);
-            resources.cameras.frame(receiver,replay,&mut resources.hulls,&mut resources.turrets,camera,dt);
+                replay,history,&mut self.bridge);
+            let cue = resources.cameras.frame(receiver,replay,&mut resources.hulls,&mut resources.turrets,camera,dt);
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
+            resources.first_person.enabled = resources.cameras.eye_view;
+            resources.finish_frame(receiver, replay, &world.elements, cue);
             resources.sound.bleed = [resources.hud.teams[1][3], resources.hud.teams[2][3]];
             resources.sound.frame(receiver,&world.elements,dt,replay,resources.hud.audio_facts());
         }

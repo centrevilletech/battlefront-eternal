@@ -14,6 +14,8 @@ pub struct Cameras {
     life: Option<(u32, u32, usize)>,
     body: Option<(f64, f64, usize)>,
     definitions: Vec<usize>,
+    zoom_eyes: Vec<bool>,
+    pub eye_view: bool,
 }
 struct Queries {
     collision: Collision,
@@ -29,6 +31,16 @@ impl Cameras {
     pub fn new(content: &bfe_content_native::BattleContent, collision: Collision, world: u32) -> Result<Self, String> {
         let defs = bfe_content::defs::Defs::build(&content.content)?;
         let mut cameras = Content::default();
+        // game.js constructs SoldierCamera with common.cameraMotions. These
+        // curves belong to visual motion, never authority or prediction replay.
+        for name in ["RollLeft", "RollRight", "StandToProne", "CrouchToProne", "ProneToStand", "CrouchToStand", "Land"] {
+            let keys = content.content.battle.common.get("cameraMotions").and_then(|tables| tables.get(name));
+            cameras.motions.push(match keys {
+                Some(keys) => serde_json::from_value(bfe_content_native::loader::authored_json(keys))
+                    .map_err(|error| format!("camera motion {name}: {error}"))?,
+                None => Default::default(),
+            });
+        }
         let mut definitions = vec![usize::MAX; defs.registry.classes.len() + 1];
         for class in &defs.classes {
             if let Some(id) = class.registry_id {
@@ -36,7 +48,8 @@ impl Cameras {
                 cameras.definitions.push(definition(&class.record));
             }
         }
-        Ok(Self { owner: Phase::new(cameras), collision, world, life: None, body: None, definitions })
+        let zoom_eyes = defs.weapons.iter().map(|weapon| weapon.record.get("ZoomFirstPerson").is_some_and(|value| value.truthy())).collect();
+        Ok(Self { owner: Phase::new(cameras), collision, world, life: None, body: None, definitions, zoom_eyes, eye_view: false })
     }
     pub fn frame(
         &mut self,
@@ -46,8 +59,15 @@ impl Cameras {
         turrets: &mut super::turrets::Turrets,
         camera: &mut crate::scene::MapCamera,
         dt: f64,
-    ) {
+    ) -> f64 {
         let lease = receiver.own.mount;
+        // PlayerCombat.usesEyeView also selects eyes for an authored scoped
+        // weapon; zooming must not change the player's saved perspective.
+        let scoped_eye = receiver.own.zoom > 1. && prediction.weapons()
+            .nth(prediction.selected()[0] as usize)
+            .and_then(|weapon| self.zoom_eyes.get(weapon.def.0.saturating_sub(1) as usize))
+            .copied().unwrap_or(false);
+        self.eye_view = receiver.own.alive && (camera.first_person || scoped_eye);
         hulls.hidden = None;
         turrets.hidden = None;
         let view = camera.snapshot();
@@ -60,8 +80,8 @@ impl Cameras {
         x.fill(0.);
         x[f::VERSION] = VERSION as f64;
         x[f::DT] = dt;
-        x[f::FIRST_PERSON] = 1.;
-        x[f::OWN_EYES] = 1.;
+        x[f::FIRST_PERSON] = camera.first_person as u8 as f64;
+        x[f::OWN_EYES] = (self.eye_view && lease.is_none()) as u8 as f64;
         x[f::ZOOM] = receiver.own.zoom.max(1.);
         x[f::CAMERA_POSITION..f::CAMERA_POSITION + 3].copy_from_slice(&camera.position);
         x[f::CAMERA_QUATERNION..f::CAMERA_QUATERNION + 4].copy_from_slice(&[q.x, q.y, q.z, q.w]);
@@ -77,13 +97,19 @@ impl Cameras {
         x[f::HAS_EYE] = 1.;
         x[f::EYE..f::EYE + 3].copy_from_slice(&camera.position);
         x[f::FEET..f::FEET + 3].copy_from_slice(&receiver.own.position);
-        x[f::YAW] = receiver.own.yaw;
-        x[f::PITCH] = receiver.own.pitch;
+        x[f::YAW] = camera.aim()[0];
+        x[f::PITCH] = camera.aim()[1];
         x[f::POSTURE] = receiver.own.posture as f64;
-        if let Some(body) = &prediction.body {
+        x[f::BODY_POSTURE] = receiver.own.posture as f64;
+        x[f::AIR] = receiver.own.air as f64;
+        x[f::DIVE] = receiver.own.dive;
+        if let Some(body) = &prediction.displayed {
             x[f::FEET..f::FEET + 3].copy_from_slice(&body.position);
             x[f::YAW] = body.aim_yaw;
             x[f::PITCH] = body.aim_pitch;
+            x[f::BODY_POSTURE] = body.posture as u8 as f64;
+            x[f::AIR] = body.air.map_or(0., |air| air as u8 as f64 + 1.);
+            x[f::DIVE] = body.dive;
             x[f::POSTURE] = if body.air.is_some() { 0. } else { body.posture as u8 as f64 };
             x[f::VELOCITY..f::VELOCITY + 3].copy_from_slice(&body.velocity);
         }
@@ -103,6 +129,7 @@ impl Cameras {
                 turrets.hidden = turret;
             }
         }
+        if self.owner.output[o::STATUS] == 0. { self.owner.output[o::CUE] } else { 0. }
     }
 }
 

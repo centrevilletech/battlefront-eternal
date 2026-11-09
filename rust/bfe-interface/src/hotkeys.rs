@@ -1,216 +1,123 @@
-//! Control binding tables, key names, and `CONTROL OPTIONS` tab rows
-//! (`src/menus/hotkeys.js`, `src/input.js`, `src/flight/controls.js`).
+//! Control tabs, default bindings, key label formatting, and exclusive rebinding
+//! (`src/menus/hotkeys.js`, `src/input.js`, `src/flight/controls.js`,
+//! `src/runtime/network-entity-input.js`).
 //!
-//! Provides the keyboard and mouse input code registry (`INPUT_CODES`, `RESERVED`,
-//! `bindable`), human-readable key label formatting (`key_name`, `keys_text`),
-//! default and player-overridden binding maps for ground/vehicle (`flat_bindings`,
-//! `player_bindings`) and starfighter controls (`default_flight_bindings`,
-//! `flight_bindings`), single-key exclusive rebinding (`rebind`), and row table
-//! builders (`hotkey_rows`) for the `INFANTRY`, `VEHICLE`, and `STARFIGHTER` tabs
-//! on the `CONTROL OPTIONS` menu page.
+//! Ports:
+//! - [`TABS`]: the three control tabs (`infantry`, `vehicle`, `starfighter`).
+//! - [`INFANTRY_ROWS`] (32 rows), [`VEHICLE_ROWS`] (19 rows), and [`FLIGHT_BINDINGS`] (16 rows).
+//! - [`INPUT_CODES`] and [`RESERVED`] (`bindable(code)`).
+//! - [`key_name`] and [`keys_text`] for formatting key codes into uppercase Battlefront UI labels.
+//! - [`flat_bindings`], [`player_bindings`], [`default_flight_bindings`], [`flight_bindings`],
+//!   and [`rebind`] for exclusive key reassignment (`rebind` removes `code` from any other
+//!   action in the same table and returns only the diff from `defaults`).
 
+use crate::options::say;
 use std::collections::{BTreeMap, HashMap};
 
-/// Control tab definition (`TABS` in `src/menus/hotkeys.js`).
+/// Metadata for one of the three `CONTROL OPTIONS` tabs (`TABS` in `src/menus/hotkeys.js`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HotkeyTab {
     /// Internal tab identifier (`"infantry"`, `"vehicle"`, or `"starfighter"`).
     pub id: &'static str,
-    /// Fallback uppercase English label shown on the tab button.
-    pub label: &'static str,
-    /// Localization string key looked up in `common.json` (`strings`).
+    /// Localization string key (`"ifs.Controls.SoldierTab"`, etc.).
     pub label_key: &'static str,
+    /// Fallback English tab label (`"INFANTRY"`, `"VEHICLES"`, `"STARFIGHTERS"`).
+    pub label: &'static str,
 }
 
-/// The three `CONTROL OPTIONS` binding tabs (`TABS` in `src/menus/hotkeys.js`).
-///
-/// The player switches between these tabs in `CONTROL OPTIONS` using the tab bar
-/// or the Left/Right arrow keys while the bindings list is focused.
+/// The three `CONTROL OPTIONS` tabs (`TABS` in `src/menus/hotkeys.js`).
 pub const TABS: [HotkeyTab; 3] = [
-    // On-foot soldier movement, combat, view, and squad order bindings.
+    // Ground soldier controls (`INFANTRY`).
     HotkeyTab {
         id: "infantry",
+        label_key: "ifs.Controls.SoldierTab",
         label: "INFANTRY",
-        label_key: "ifs.controls.Infantry",
     },
-    // Ground vehicle and walker movement, turret, and boarding bindings.
+    // Ground and walker vehicle controls (`VEHICLES`).
     HotkeyTab {
         id: "vehicle",
-        label: "VEHICLE",
-        label_key: "ifs.controls.Vehicle",
+        label_key: "ifs.Controls.VehicleTab",
+        label: "VEHICLES",
     },
-    // Starfighter attitude, throttle, boost, weapon, and landing bindings.
+    // Starfighter and gunship flight controls (`STARFIGHTERS`).
     HotkeyTab {
         id: "starfighter",
-        label: "STARFIGHTER",
-        label_key: "ifs.controls.Flyer",
+        label_key: "ifs.Controls.FlyerTab",
+        label: "STARFIGHTERS",
     },
 ];
 
-/// Axis actions that are split into `<action>-` and `<action>+` in `flat_bindings()`.
-///
-/// Mirrors the two-sided directional axes in `src/input.js` (`AXES` / `WORLD_AXES`),
-/// where negative and positive directions are bound as separate rows on the
-/// `CONTROL OPTIONS` screen.
-pub const WORLD_AXES: [&str; 4] = ["moveX", "moveY", "yaw", "pitch"];
-
-/// Keys reserved for global shell/HUD shortcuts that cannot be rebound
-/// (`RESERVED` in `src/input.js`).
-///
-/// Includes `Escape` (pause menu), `Tab` (player list), `KeyT` / `KeyY` (chat and
-/// team chat), `F11` (fullscreen toggle), and `F12` (developer tools).
-pub const RESERVED: [&str; 6] = ["Escape", "Tab", "KeyT", "KeyY", "F11", "F12"];
-
-/// All 90 recognized keyboard and mouse input codes (`INPUT_CODES` in
-/// `src/runtime/network-entity-input.js`, re-exported by `src/input.js`).
-///
-/// Only codes present in this list (and not in [`RESERVED`]) are accepted by
-/// [`bindable`] when capturing a new key on the `CONTROL OPTIONS` page.
-pub const INPUT_CODES: [&str; 90] = [
-    // Alphabetic keys (A..Z).
-    "KeyA",
-    "KeyB",
-    "KeyC",
-    "KeyD",
-    "KeyE",
-    "KeyF",
-    "KeyG",
-    "KeyH",
-    "KeyI",
-    "KeyJ",
-    "KeyK",
-    "KeyL",
-    "KeyM",
-    "KeyN",
-    "KeyO",
-    "KeyP",
-    "KeyQ",
-    "KeyR",
-    "KeyS",
-    "KeyT",
-    "KeyU",
-    "KeyV",
-    "KeyW",
-    "KeyX",
-    "KeyY",
-    "KeyZ",
-    // Top-row number keys (0..9).
-    "Digit0",
-    "Digit1",
-    "Digit2",
-    "Digit3",
-    "Digit4",
-    "Digit5",
-    "Digit6",
-    "Digit7",
-    "Digit8",
-    "Digit9",
-    // Function keys (F1..F12).
-    "F1",
-    "F2",
-    "F3",
-    "F4",
-    "F5",
-    "F6",
-    "F7",
-    "F8",
-    "F9",
-    "F10",
-    "F11",
-    "F12",
-    // Arrow navigation keys.
-    "ArrowUp",
-    "ArrowDown",
-    "ArrowLeft",
-    "ArrowRight",
-    // Whitespace, control, and navigation cluster keys.
-    "Space",
-    "Enter",
-    "Escape",
-    "Tab",
-    "Backspace",
-    "Delete",
-    "Insert",
-    "Home",
-    "End",
-    "PageUp",
-    "PageDown",
-    // Left and right modifier keys plus Caps Lock.
-    "ShiftLeft",
-    "ShiftRight",
-    "ControlLeft",
-    "ControlRight",
-    "AltLeft",
-    "AltRight",
-    "CapsLock",
-    // Punctuation and symbol keys.
-    "Minus",
-    "Equal",
-    "BracketLeft",
-    "BracketRight",
-    "Backslash",
-    "Semicolon",
-    "Quote",
-    "Backquote",
-    "Comma",
-    "Period",
-    "Slash",
-    // Mouse buttons, scroll wheel directions, and look axes.
-    "MouseLeft",
-    "MouseRight",
-    "MouseMiddle",
-    "MouseBack",
-    "MouseForward",
-    "WheelUp",
-    "WheelDown",
-    "MouseX",
-    "MouseY",
+/// Fixed mouse-axis movement bindings (`WORLD_AXES` in `src/menus/hotkeys.js`),
+/// displayed as read-only rows (`disabled: true`) in the infantry and vehicle tables.
+pub const WORLD_AXES: [(&str, &[&str]); 6] = [
+    ("Look Up", &["MouseY"]),
+    ("Look Down", &["MouseY"]),
+    ("Turn Left", &["MouseX"]),
+    ("Turn Right", &["MouseX"]),
+    ("Pitch Up", &["MouseY"]),
+    ("Pitch Down", &["MouseY"]),
 ];
 
-/// Returns true if `code` can be bound by the player (`bindable(code)` in `src/input.js`).
+/// Reserved keys that cannot be bound to gameplay actions (`RESERVED` in `src/input.js`).
 ///
-/// A code is bindable when it is a recognized network/input code in [`INPUT_CODES`]
-/// and is not reserved for shell or HUD shortcuts in [`RESERVED`].
-#[inline]
+/// `Escape` opens the pause menu, `Tab` opens the scoreboard, `F11` toggles fullscreen,
+/// `T`/`Y` open chat, and `F12` is reserved for screenshots/dev tools.
+pub const RESERVED: [&str; 6] = ["Escape", "Tab", "KeyT", "KeyY", "F11", "F12"];
+
+/// Canonical set of 104 bindable DOM `KeyboardEvent.code` and mouse/wheel tokens
+/// (`INPUT_CODES` in `src/runtime/network-entity-input.js` and `BINDABLE` in `src/input.js`).
+#[path = "input_codes.rs"]
+mod input_codes;
+pub use input_codes::INPUT_CODES;
+
+/// Returns `true` if `code` is in [`INPUT_CODES`] and not in [`RESERVED`]
+/// (`bindable(code)` in `src/input.js`).
 pub fn bindable(code: &str) -> bool {
-    INPUT_CODES.contains(&code) && !RESERVED.contains(&code)
+    // Reject reserved UI keys and chat keys first, then verify
+    // that `code` appears in the canonical `INPUT_CODES` allowlist.
+    !RESERVED.contains(&code) && INPUT_CODES.contains(&code)
 }
 
-/// Converts a key/mouse code (`"KeyW"`, `"MouseLeft"`, `"WheelUp"`) into its uppercase
-/// display label (`"W"`, `"MOUSE 1"`, `"MOUSE WHEEL UP"`), matching `keyName(code)` in
-/// `src/menus/hotkeys.js`.
+/// Converts a raw input code (`"KeyW"`, `"Digit1"`, `"Mouse0"`, `"WheelUp"`) into its
+/// uppercase Battlefront UI display string (`keyName(code)` in `src/menus/hotkeys.js`).
 pub fn key_name(code: &str) -> String {
-    // Empty input codes format to an empty string so `keys_text` can skip them.
-    if code.is_empty() {
-        return String::new();
-    }
-    // Single-letter `KeyA`..`KeyZ` codes strip the `"Key"` prefix.
+    // Strip `"Key"` prefix for letter keys (`"KeyA"` -> `"A"`).
     if let Some(letter) = code.strip_prefix("Key") {
-        if letter.len() == 1 && letter.as_bytes()[0].is_ascii_uppercase() {
+        if letter.len() == 1 {
             return letter.to_string();
         }
     }
-    // Top-row `Digit0`..`Digit9` codes strip the `"Digit"` prefix.
+    // Strip `"Digit"` prefix for top-row numbers (`"Digit1"` -> `"1"`).
     if let Some(digit) = code.strip_prefix("Digit") {
-        if digit.len() == 1 && digit.as_bytes()[0].is_ascii_digit() {
+        if digit.len() == 1 {
             return digit.to_string();
         }
     }
-    // Numeric keypad digits format as `"NUM 0"`..`"NUM 9"`.
-    if let Some(num) = code.strip_prefix("Numpad") {
-        if num.len() == 1 && num.as_bytes()[0].is_ascii_digit() {
-            return format!("NUM {num}");
+    // Format numpad digits as `"KP_INSERT"` (`Numpad0`) or `"KP_1"`..`"KP_9"` (`src/menus/hotkeys.js`).
+    if let Some(numpad) = code.strip_prefix("Numpad") {
+        if numpad.len() == 1 && numpad.chars().all(|c| c.is_ascii_digit()) {
+            return if numpad == "0" {
+                "KP_INSERT".to_string()
+            } else {
+                format!("KP_{numpad}")
+            };
         }
     }
+    // Map named special keys, modifiers, punctuation, mouse buttons, and wheel axes (`NAMES` in `src/menus/hotkeys.js`).
     match code {
-        // Directional arrow keys.
-        "ArrowUp" => "UP".to_string(),
-        "ArrowDown" => "DOWN".to_string(),
-        "ArrowLeft" => "LEFT".to_string(),
-        "ArrowRight" => "RIGHT".to_string(),
-        // Editing and navigation cluster keys.
+        // Whitespace & Enter/Escape
         "Space" => "SPACE".to_string(),
-        "Enter" => "ENTER".to_string(),
+        "Enter" => "RETURN".to_string(),
+        "NumpadEnter" => "KP_ENTER".to_string(),
+        "Escape" => "ESC".to_string(),
+        "Tab" => "TAB".to_string(),
+        // Left/Right modifier keys collapse to `"SHIFT"`, `"CONTROL"`, `"ALT"` (`src/menus/hotkeys.js`).
+        "ShiftLeft" | "ShiftRight" => "SHIFT".to_string(),
+        "ControlLeft" | "ControlRight" => "CONTROL".to_string(),
+        "AltLeft" | "AltRight" => "ALT".to_string(),
+        // Lock & editing keys
+        "Backquote" => "TILDE".to_string(),
+        "CapsLock" => "CAPS LOCK".to_string(),
         "Backspace" => "BACKSPACE".to_string(),
         "Delete" => "DELETE".to_string(),
         "Insert" => "INSERT".to_string(),
@@ -218,15 +125,12 @@ pub fn key_name(code: &str) -> String {
         "End" => "END".to_string(),
         "PageUp" => "PAGE UP".to_string(),
         "PageDown" => "PAGE DOWN".to_string(),
-        // Modifier keys.
-        "ShiftLeft" => "LEFT SHIFT".to_string(),
-        "ShiftRight" => "RIGHT SHIFT".to_string(),
-        "ControlLeft" => "LEFT CTRL".to_string(),
-        "ControlRight" => "RIGHT CTRL".to_string(),
-        "AltLeft" => "LEFT ALT".to_string(),
-        "AltRight" => "RIGHT ALT".to_string(),
-        "CapsLock" => "CAPS LOCK".to_string(),
-        // Punctuation keys displayed as their literal symbol characters.
+        // Arrow keys
+        "ArrowUp" => "UP ARROW".to_string(),
+        "ArrowDown" => "DOWN ARROW".to_string(),
+        "ArrowLeft" => "LEFT ARROW".to_string(),
+        "ArrowRight" => "RIGHT ARROW".to_string(),
+        // Punctuation keys
         "Minus" => "-".to_string(),
         "Equal" => "=".to_string(),
         "BracketLeft" => "[".to_string(),
@@ -234,261 +138,270 @@ pub fn key_name(code: &str) -> String {
         "Backslash" => "\\".to_string(),
         "Semicolon" => ";".to_string(),
         "Quote" => "'".to_string(),
-        "Backquote" => "`".to_string(),
         "Comma" => ",".to_string(),
         "Period" => ".".to_string(),
         "Slash" => "/".to_string(),
-        // Mouse buttons, wheel directions, and continuous look axes.
-        "MouseLeft" => "MOUSE 1".to_string(),
-        "MouseRight" => "MOUSE 2".to_string(),
-        "MouseMiddle" => "MOUSE 3".to_string(),
-        "MouseBack" => "MOUSE 4".to_string(),
-        "MouseForward" => "MOUSE 5".to_string(),
+        // Numpad operators
+        "NumpadAdd" => "KP_PLUS".to_string(),
+        "NumpadSubtract" => "KP_MINUS".to_string(),
+        "NumpadMultiply" => "KP_MULTIPLY".to_string(),
+        "NumpadDivide" => "KP_DIVIDE".to_string(),
+        "NumpadDecimal" => "KP_DELETE".to_string(),
+        // Mouse buttons, wheel, and fixed mouse look axes (`NAMES` in `src/menus/hotkeys.js`)
+        "Mouse0" | "MouseLeft" => "MOUSE BUTTON 1".to_string(),
+        "Mouse2" | "MouseRight" => "MOUSE BUTTON 2".to_string(),
+        "Mouse1" | "MouseMiddle" => "MOUSE BUTTON 3".to_string(),
+        "Mouse3" | "MouseBack" => "MOUSE BUTTON 4".to_string(),
+        "Mouse4" | "MouseForward" => "MOUSE BUTTON 5".to_string(),
         "WheelUp" => "MOUSE WHEEL UP".to_string(),
         "WheelDown" => "MOUSE WHEEL DOWN".to_string(),
-        "MouseX" => "MOUSE X".to_string(),
-        "MouseY" => "MOUSE Y".to_string(),
-        // Any other code (such as `F1`..`F12`) is uppercased directly.
+        "MouseX" => "MOUSE X-AXIS".to_string(),
+        "MouseY" => "MOUSE Y-AXIS".to_string(),
+        // Fallback: uppercase the raw code (`F1`..`F12`, etc.).
         other => other.to_ascii_uppercase(),
     }
 }
 
-/// Formats a list of bound codes as `"KEY1, KEY2"` or `"---"` when empty
+/// Formats a slice of key codes as a comma-separated display string
 /// (`keysText(codes)` in `src/menus/hotkeys.js`).
 ///
-/// Empty key codes are ignored; when no valid bound keys remain, returns `"---"`
-/// to indicate an unbound action row in the `CONTROL OPTIONS` list.
+/// Deduplicates mapped key names while preserving order (`[...new Set(codes.map(keyName))].join(", ")`),
+/// and returns `""` when `codes` is empty.
 pub fn keys_text<S: AsRef<str>>(codes: &[S]) -> String {
-    let mut parts = Vec::new();
+    if codes.is_empty() {
+        return String::new();
+    }
+    let mut unique: Vec<String> = Vec::with_capacity(codes.len());
     for c in codes {
         let name = key_name(c.as_ref());
-        if !name.is_empty() {
-            parts.push(name);
+        if !unique.contains(&name) {
+            unique.push(name);
         }
     }
-    if parts.is_empty() {
-        "---".to_string()
-    } else {
-        parts.join(", ")
-    }
+    unique.join(", ")
 }
 
 /// Starfighter binding definition (`FLIGHT_BINDINGS` in `src/flight/controls.js`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FlightBindingDef {
-    /// Action key stored in the `flightBindings` setting map.
-    pub action: &'static str,
-    /// Human-readable action label displayed on the `STARFIGHTER` tab.
+    /// Action identifier in `flightBindings` (`"throttle"`, `"brake"`, `"rollLeft"`, etc.).
+    pub id: &'static str,
+    /// Localization string key (`"ifs.controls.General.ThrottleUp"`, etc.).
+    pub label_key: &'static str,
+    /// Fallback English label (`"Throttle"`, `"Brake"`, etc.).
     pub label: &'static str,
-    /// Default input codes bound to this starfighter action.
+    /// Default key codes bound to this flight action.
     pub keys: &'static [&'static str],
 }
 
-/// All 16 starfighter actions and their default keys (corresponding to
-/// `FLIGHT_BINDINGS` in `src/flight/controls.js`).
+/// All 16 starfighter control rows and their default bindings
+/// (`FLIGHT_BINDINGS` in `src/flight/controls.js`).
 pub const FLIGHT_BINDINGS: [FlightBindingDef; 16] = [
-    // Pitch and roll attitude controls.
+    // Increase starfighter engine throttle (`throttle`).
     FlightBindingDef {
-        action: "pitchUp",
-        label: "Pitch Up",
-        keys: &["KeyS", "ArrowDown"],
+        id: "throttle",
+        label_key: "ifs.controls.General.ThrottleUp",
+        label: "Throttle",
+        keys: &["KeyW"],
     },
+    // Decrease starfighter engine throttle / brake (`brake`).
     FlightBindingDef {
-        action: "pitchDown",
-        label: "Pitch Down",
-        keys: &["KeyW", "ArrowUp"],
+        id: "brake",
+        label_key: "ifs.controls.General.ThrottleDown",
+        label: "Brake",
+        keys: &["KeyS"],
     },
+    // Roll starfighter counter-clockwise (`rollLeft`).
     FlightBindingDef {
-        action: "rollLeft",
+        id: "rollLeft",
+        label_key: "ifs.controls.Flyer.RollLeft",
         label: "Roll Left",
-        keys: &["KeyA", "ArrowLeft"],
+        keys: &["KeyA"],
     },
+    // Roll starfighter clockwise (`rollRight`).
     FlightBindingDef {
-        action: "rollRight",
+        id: "rollRight",
+        label_key: "ifs.controls.Flyer.RollRight",
         label: "Roll Right",
-        keys: &["KeyD", "ArrowRight"],
+        keys: &["KeyD"],
     },
-    // Rudder yaw controls.
+    // Engage afterburner boost (`boost`).
     FlightBindingDef {
-        action: "yawLeft",
-        label: "Yaw Left",
-        keys: &["KeyQ"],
-    },
-    FlightBindingDef {
-        action: "yawRight",
-        label: "Yaw Right",
-        keys: &["KeyC"],
-    },
-    // Engine throttle, boost afterburner, and airbrake controls.
-    FlightBindingDef {
-        action: "throttleUp",
-        label: "Throttle Up",
+        id: "boost",
+        label_key: "ifs.controls.Flyer.Boost",
+        label: "Boost",
         keys: &["ShiftLeft", "ShiftRight"],
     },
+    // Perform evasive roll / flip maneuver (`trick`).
     FlightBindingDef {
-        action: "throttleDown",
-        label: "Throttle Down",
-        keys: &["ControlLeft", "ControlRight"],
+        id: "trick",
+        label_key: "ifs.controls.Flyer.Trick",
+        label: "Trick",
+        keys: &["AltLeft", "ControlRight"],
     },
+    // Perform Immelmann turn (`immelmann`).
     FlightBindingDef {
-        action: "boost",
-        label: "Boost",
+        id: "immelmann",
+        label_key: "ifs.controls.Flyer.Immelmann",
+        label: "Immelmann",
+        keys: &["CapsLock"],
+    },
+    // Hold roll lock (`rollLock`).
+    FlightBindingDef {
+        id: "rollLock",
+        label_key: "ifs.controls.Flyer.RollLock",
+        label: "Roll Lock",
+        keys: &["KeyZ", "Mouse1"],
+    },
+    // Vertical takeoff or landing in hangar (`takeoff`).
+    FlightBindingDef {
+        id: "takeoff",
+        label_key: "ifs.controls.General.LandTakeoff",
+        label: "Take Off / Land",
         keys: &["Space"],
     },
+    // Lock onto enemy target (`targetLock`).
     FlightBindingDef {
-        action: "airbrake",
-        label: "Airbrake",
-        keys: &["KeyX"],
+        id: "targetLock",
+        label_key: "ifs.controls.Flyer.TargetLock",
+        label: "Target Lock",
+        keys: &["KeyQ", "Mouse3"],
     },
-    // Starfighter weapon fire, secondary cycling, and reload controls.
+    // Fire primary laser cannons (`firePrimary`).
     FlightBindingDef {
-        action: "firePrimary",
-        label: "Primary Weapon",
-        keys: &["MouseLeft", "Enter"],
+        id: "firePrimary",
+        label_key: "ifs.controls.General.Primary",
+        label: "Fire Primary",
+        keys: &["Mouse0"],
     },
+    // Fire proton torpedoes / concussion missiles (`fireSecondary`).
     FlightBindingDef {
-        action: "fireSecondary",
-        label: "Secondary Weapon",
-        keys: &["MouseRight"],
+        id: "fireSecondary",
+        label_key: "ifs.controls.General.Secondary",
+        label: "Fire Secondary",
+        keys: &["Mouse2"],
     },
+    // Toggle 1st-person cockpit / 3rd-person chase camera (`perspective`).
     FlightBindingDef {
-        action: "switchWeapon",
-        label: "Switch Secondary",
-        keys: &["KeyF"],
+        id: "perspective",
+        label_key: "ifs.controls.General.FirstThirdPerson",
+        label: "Perspective",
+        keys: &["KeyV"],
     },
+    // Enter or exit landed starfighter (`use`).
     FlightBindingDef {
-        action: "reload",
-        label: "Reload",
-        keys: &["KeyR"],
-    },
-    // Hangar landing gear and cockpit exit controls.
-    FlightBindingDef {
-        action: "landTakeoff",
-        label: "Land / Take Off",
-        keys: &["KeyL"],
-    },
-    FlightBindingDef {
-        action: "exit",
-        label: "Exit Craft",
+        id: "use",
+        label_key: "ifs.controls.General.Action",
+        label: "Use",
         keys: &["KeyE"],
     },
+    // Cycle to next primary weapon (`nextPrimary`).
+    FlightBindingDef {
+        id: "nextPrimary",
+        label_key: "ifs.controls.Soldier.NextPrimary",
+        label: "Next Primary",
+        keys: &["Digit1", "WheelUp"],
+    },
+    // Cycle to previous primary weapon (`previousPrimary`).
+    FlightBindingDef {
+        id: "previousPrimary",
+        label_key: "ifs.controls.Soldier.PrevPrimary",
+        label: "Previous Primary",
+        keys: &["Digit2", "WheelDown"],
+    },
 ];
 
-/// Default flat bindings (`flatBindings()` in `src/input.js`), including split axis keys
-/// (`moveX-`, `moveX+`, `moveY-`, `moveY+`, `yaw-`, `yaw+`, `pitch-`, `pitch+`),
-/// discrete press actions, continuous hold actions, and squad orders.
-pub const DEFAULT_FLAT_BINDINGS: [(&str, &[&str]); 37] = [
-    // Split movement and keyboard turn/look axis directions.
-    ("moveX-", &["KeyA", "ArrowLeft"]),
-    ("moveX+", &["KeyD", "ArrowRight"]),
-    ("moveY-", &["KeyW", "ArrowUp"]),
-    ("moveY+", &["KeyS", "ArrowDown"]),
-    ("yaw-", &[]),
-    ("yaw+", &[]),
-    ("pitch-", &[]),
-    ("pitch+", &[]),
-    // Stance and movement actions.
-    ("jump", &["Space"]),
-    ("crouch", &["KeyC"]),
-    ("prone", &["KeyX", "ControlLeft"]),
-    // Weapon reload and primary/secondary cycling.
-    ("reload", &["KeyR"]),
-    ("switchPrimary", &["KeyF", "MouseMiddle"]),
-    ("switchSecondary", &["KeyQ", "ControlRight"]),
-    ("nextPrimary", &["WheelUp"]),
-    ("nextSecondary", &["WheelDown"]),
-    // Vehicle boarding, camera view, tactical map, zoom, and target lock.
-    ("enter", &["KeyE", "Enter"]),
-    ("exit", &["KeyE"]),
-    ("view", &["KeyV"]),
-    ("dropFlag", &["KeyZ"]),
-    ("map", &["KeyM"]),
-    ("zoom", &["ShiftRight"]),
-    ("target", &["KeyG"]),
-    // Primary/secondary weapon triggers and sprint hold.
-    ("fire", &["MouseLeft"]),
-    ("secondary", &["MouseRight"]),
-    ("sprint", &["ShiftLeft"]),
-    // Function-key squad selection and quick radio calls.
-    ("squad1", &["F1"]),
-    ("squad2", &["F2"]),
-    ("squad3", &["F3"]),
-    ("squad4", &["F4"]),
-    ("spot", &["F4"]),
-    ("medic", &["F6"]),
-    ("repair", &["F7"]),
-    ("ammo", &["F8"]),
-    ("pickup", &["F9"]),
-    ("backup", &["F10"]),
-    ("attack", &["Digit1"]),
-];
-
-/// Additional squad command bindings merged into [`flat_bindings`].
+/// Default flat ground/vehicle bindings (`flatBindings(DEFAULT_BINDINGS)` in `src/input.js`).
 ///
-/// Covers `defend`, `follow`, `hold`, `getIn`, and `getOut` on `Digit2`..`Digit6`.
-pub const EXTRA_DEFAULT_FLAT_BINDINGS: [(&str, &[&str]); 5] = [
-    ("defend", &["Digit2"]),
-    ("follow", &["Digit3"]),
-    ("hold", &["Digit4"]),
-    ("getIn", &["Digit5"]),
-    ("getOut", &["Digit6"]),
+/// Contains all 24 canonical `axes.*`, `presses.*`, and `holds.*` entries from `DEFAULT_BINDINGS`
+/// in `src/input.js`.
+pub const DEFAULT_FLAT_BINDINGS: [(&str, &[&str]); 24] = [
+    // Movement axes (`DEFAULT_BINDINGS.axes`)
+    ("axes.forward+", &["KeyW", "ArrowUp"]),
+    ("axes.forward-", &["KeyS", "ArrowDown"]),
+    ("axes.right+", &["KeyD", "ArrowRight"]),
+    ("axes.right-", &["KeyA", "ArrowLeft"]),
+    ("axes.turn+", &[]),
+    ("axes.turn-", &[]),
+    // Discrete press actions (`DEFAULT_BINDINGS.presses`)
+    ("presses.jump", &["Space"]),
+    ("presses.crouch", &["KeyC", "ControlLeft", "ControlRight"]),
+    ("presses.prone", &["KeyX"]),
+    ("presses.reload", &["KeyR", "Enter"]),
+    ("presses.use", &["KeyE", "Numpad0"]),
+    ("presses.nextPrimary", &["KeyF", "WheelUp"]),
+    ("presses.previousPrimary", &["WheelDown"]),
+    ("presses.nextSecondary", &["KeyG"]),
+    ("presses.zoom", &["KeyZ", "Mouse1"]),
+    ("presses.perspective", &["KeyQ", "Mouse3"]),
+    ("presses.map", &["KeyM"]),
+    ("presses.stats", &["Backquote"]),
+    ("presses.squadMoveOut", &["F3"]),
+    ("presses.squadHold", &["F4"]),
+    ("presses.squadFollow", &["F2"]),
+    ("presses.squadAtEase", &["F1"]),
+    // Continuous hold actions (`DEFAULT_BINDINGS.holds`)
+    ("holds.firePrimary", &["Mouse0"]),
+    ("holds.fireSecondary", &["Mouse2", "AltLeft", "AltRight"]),
 ];
 
-/// Builds the complete default flat bindings map (`flatBindings()` in `src/input.js`).
+/// Additional default flat bindings (empty in `src/input.js`; retained as a const slice for API compatibility).
+pub const EXTRA_DEFAULT_FLAT_BINDINGS: [(&str, &[&str]); 0] = [];
+
+/// Builds the complete default ground/vehicle bindings map (`flatBindings()` in `src/input.js`).
 ///
-/// Combines [`DEFAULT_FLAT_BINDINGS`] and [`EXTRA_DEFAULT_FLAT_BINDINGS`] into an
-/// owned `BTreeMap` keyed by action name.
+/// Converts [`DEFAULT_FLAT_BINDINGS`] into an owned `BTreeMap<String, Vec<String>>`
+/// used as the baseline for [`player_bindings`] and [`rebind`].
 pub fn flat_bindings() -> BTreeMap<String, Vec<String>> {
-    let mut out = BTreeMap::new();
+    let mut map = BTreeMap::new();
     for &(action, codes) in DEFAULT_FLAT_BINDINGS
         .iter()
         .chain(EXTRA_DEFAULT_FLAT_BINDINGS.iter())
     {
-        out.insert(
+        map.insert(
             action.to_string(),
-            codes.iter().map(|c| (*c).to_string()).collect(),
+            codes.iter().map(|s| (*s).to_string()).collect(),
         );
     }
-    out
+    map
 }
 
 /// Merges saved player bindings onto `flat_bindings()`, filtering through [`bindable`]
 /// (`playerBindings(saved)` in `src/input.js`).
 ///
-/// Unknown action keys in `saved` are ignored, and any unbindable or reserved key
-/// codes inside a saved action's list are stripped out.
+/// Only keys present in [`flat_bindings`] are overridden, and any reserved or unknown
+/// key codes in `saved` are stripped out.
 pub fn player_bindings(
     saved: Option<&BTreeMap<String, Vec<String>>>,
 ) -> BTreeMap<String, Vec<String>> {
     let mut out = flat_bindings();
-    let Some(saved_map) = saved else {
+    let Some(saved) = saved else {
         return out;
     };
-    for (action, codes) in saved_map {
-        if out.contains_key(action) {
-            out.insert(
-                action.clone(),
-                codes
-                    .iter()
-                    .filter(|c| bindable(c.as_str()))
-                    .cloned()
-                    .collect(),
-            );
+    // Overlay each known action's saved key list after filtering through `bindable(code)`.
+    for (action, default_codes) in &mut out {
+        if let Some(list) = saved.get(action) {
+            *default_codes = list
+                .iter()
+                .filter(|c| bindable(c.as_str()))
+                .cloned()
+                .collect();
         }
     }
     out
 }
 
-/// Builds the default starfighter bindings map from [`FLIGHT_BINDINGS`].
+/// Builds the default starfighter bindings map from [`FLIGHT_BINDINGS`]
+/// (`defaultFlightBindings()` in `src/flight/controls.js`).
 pub fn default_flight_bindings() -> BTreeMap<String, Vec<String>> {
-    let mut out = BTreeMap::new();
+    let mut map = BTreeMap::new();
     for entry in FLIGHT_BINDINGS {
-        out.insert(
-            entry.action.to_string(),
-            entry.keys.iter().map(|c| (*c).to_string()).collect(),
+        map.insert(
+            entry.id.to_string(),
+            entry.keys.iter().map(|s| (*s).to_string()).collect(),
         );
     }
-    out
+    map
 }
 
 /// Merges saved starfighter bindings onto [`default_flight_bindings`], filtering through [`bindable`]
@@ -497,15 +410,14 @@ pub fn flight_bindings(
     saved: Option<&BTreeMap<String, Vec<String>>>,
 ) -> BTreeMap<String, Vec<String>> {
     let mut out = default_flight_bindings();
-    let Some(saved_map) = saved else {
+    let Some(saved) = saved else {
         return out;
     };
     for entry in FLIGHT_BINDINGS {
-        if let Some(codes) = saved_map.get(entry.action) {
+        if let Some(list) = saved.get(entry.id) {
             out.insert(
-                entry.action.to_string(),
-                codes
-                    .iter()
+                entry.id.to_string(),
+                list.iter()
                     .filter(|c| bindable(c.as_str()))
                     .cloned()
                     .collect(),
@@ -515,8 +427,8 @@ pub fn flight_bindings(
     out
 }
 
-/// Rebinds `action` to `code` (`Some(code)` binds `[code]` and removes `code` from any other
-/// action; `None` clears `action` to `[]`), returning only the diff against `defaults`
+/// Rebinds `action` to `code` (or clears `action` when `code` is `None`), removing `code`
+/// from any other action in the table and returning only the entries that differ from `defaults`
 /// (`rebind(defaults, saved, action, code)` in `src/input.js`).
 pub fn rebind(
     defaults: &BTreeMap<String, Vec<String>>,
@@ -524,47 +436,49 @@ pub fn rebind(
     action: &str,
     code: Option<&str>,
 ) -> BTreeMap<String, Vec<String>> {
-    // Ignore unknown actions so stray identifiers never corrupt saved bindings.
+    // Reject unknown actions or non-bindable key codes without modifying the saved diff.
     if !defaults.contains_key(action) {
         return saved.cloned().unwrap_or_default();
     }
-    // Reject reserved or unrecognized key codes without mutating existing bindings.
     if let Some(c) = code {
         if !bindable(c) {
             return saved.cloned().unwrap_or_default();
         }
     }
-    // Materialize the full current binding map by overlaying `saved` onto `defaults`.
-    let mut merged: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for (k, def_codes) in defaults {
-        let cur = saved.and_then(|s| s.get(k)).unwrap_or(def_codes);
-        merged.insert(
-            k.clone(),
-            cur.iter()
-                .filter(|c| bindable(c.as_str()))
-                .cloned()
-                .collect(),
-        );
-    }
-    // Enforce one-key-per-action exclusivity by removing `code` from all other actions.
-    if let Some(c) = code {
-        for (other, codes) in merged.iter_mut() {
-            if other != action {
-                codes.retain(|existing| existing != c);
-            }
-        }
-        merged.insert(action.to_string(), vec![c.to_string()]);
-    } else {
-        // Passing `None` (e.g. Delete/Backspace in the key capture popup) clears the binding.
-        merged.insert(action.to_string(), Vec::new());
+
+    // 1. Reconstruct the full current binding table by overlaying `saved` onto `defaults`.
+    let mut full: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (k, def_list) in defaults {
+        let cur = saved.and_then(|s| s.get(k)).unwrap_or(def_list);
+        let filtered: Vec<String> = cur
+            .iter()
+            .filter(|c| bindable(c.as_str()))
+            .cloned()
+            .collect();
+        full.insert(k.clone(), filtered);
     }
 
-    // Return only the entries whose bound key list differs from `defaults`.
+    // 2. Remove `code` from every action so a key is never bound to two actions at once.
+    if let Some(c) = code {
+        for list in full.values_mut() {
+            list.retain(|item| item != c);
+        }
+    }
+
+    // 3. Assign `[code]` (or `[]` when clearing) to the target `action`.
+    let assigned = match code {
+        Some(c) => vec![c.to_string()],
+        None => Vec::new(),
+    };
+    full.insert(action.to_string(), assigned);
+
+    // 4. Return only the sparse diff of actions whose key lists differ from `defaults`.
     let mut diff = BTreeMap::new();
-    for (k, codes) in merged {
-        let def_codes = defaults.get(&k).map(Vec::as_slice).unwrap_or(&[]);
-        if codes.as_slice() != def_codes {
-            diff.insert(k, codes);
+    for (k, def_list) in defaults {
+        if let Some(cur_list) = full.get(k) {
+            if cur_list != def_list {
+                diff.insert(k.clone(), cur_list.clone());
+            }
         }
     }
     diff
@@ -574,205 +488,365 @@ pub fn rebind(
 /// (`ROWS.infantry` and `ROWS.vehicle` in `src/menus/hotkeys.js`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HotkeyRowSpec {
-    /// Mutable binding action key (`Some`), or `None` for read-only fixed-key rows.
+    /// Action key in [`flat_bindings`], or `None` for fixed read-only rows (`Mouse X-Axis`, `ESC`, etc.).
     pub action: Option<&'static str>,
-    /// Fixed input codes displayed when `action` is `None` (such as `MouseX` / `MouseY`).
-    pub fixed: &'static [&'static str],
-    /// Fallback uppercase English action label.
+    /// Localization key in `common.json` (`"ifs.controls.General.Forward"`, etc.).
+    pub label_key: &'static str,
+    /// Fallback English label (`"Move Forward"`, `"Look Up"`, etc.).
     pub label: &'static str,
-    /// Optional localization key looked up in `common.json` (`strings`).
-    pub label_key: Option<&'static str>,
+    /// Fixed key codes or literal display string for read-only rows (`action.is_none()`).
+    pub fixed: &'static [&'static str],
 }
 
 impl HotkeyRowSpec {
     /// Constructs a rebindable row tied to `action` in the flat bindings table.
-    const fn act(action: &'static str, label: &'static str, label_key: Option<&'static str>) -> Self {
+    pub const fn rebindable(
+        action: &'static str,
+        label_key: &'static str,
+        label: &'static str,
+    ) -> Self {
         Self {
             action: Some(action),
-            fixed: &[],
-            label,
             label_key,
+            label,
+            fixed: &[],
         }
     }
 
-    /// Constructs a read-only row showing fixed hardware axes or keys (`action: None`).
-    const fn fix(
-        fixed: &'static [&'static str],
+    /// Constructs a fixed (read-only) row displaying `fixed` key codes or text.
+    pub const fn fixed(
+        label_key: &'static str,
         label: &'static str,
-        label_key: Option<&'static str>,
+        fixed: &'static [&'static str],
     ) -> Self {
         Self {
             action: None,
-            fixed,
-            label,
             label_key,
+            label,
+            fixed,
         }
     }
 }
 
 /// The 32 infantry binding rows (`ROWS.infantry` in `src/menus/hotkeys.js`).
 pub const INFANTRY_ROWS: [HotkeyRowSpec; 32] = [
-    // Primary and secondary weapon triggers and cycling.
-    // Primary weapon trigger (`fire`, default `MouseLeft`).
-    HotkeyRowSpec::act("fire", "PRIMARY ATTACK", Some("ifs.controls.Fire")),
-    // Secondary weapon / grenade / mine trigger (`secondary`, default `MouseRight`).
-    HotkeyRowSpec::act(
-        "secondary",
-        "SECONDARY ATTACK",
-        Some("ifs.controls.Secondary"),
+    // 1. Primary Fire (`holds.firePrimary`)
+    HotkeyRowSpec::rebindable(
+        "holds.firePrimary",
+        "ifs.controls.General.Primary",
+        "Primary Fire",
     ),
-    // Cycle between carried primary weapons (`switchPrimary`, default `KeyF` / `MouseMiddle`).
-    HotkeyRowSpec::act(
-        "switchPrimary",
-        "SWITCH PRIMARY WEAPON",
-        Some("ifs.controls.Change"),
+    // 2. Secondary Fire (`holds.fireSecondary`)
+    HotkeyRowSpec::rebindable(
+        "holds.fireSecondary",
+        "ifs.controls.General.Secondary",
+        "Secondary Fire",
     ),
-    // Scroll forward through primary weapons (`nextPrimary`, default `WheelUp`).
-    HotkeyRowSpec::act(
-        "nextPrimary",
-        "NEXT PRIMARY WEAPON",
-        Some("ifs.controls.Next"),
+    // 3. Switch Primary (`presses.nextPrimary`)
+    HotkeyRowSpec::rebindable(
+        "presses.nextPrimary",
+        "ifs.controls.Soldier.NextPrimary",
+        "Switch Primary",
     ),
-    // Cycle between carried secondary items (`switchSecondary`, default `KeyQ` / `ControlRight`).
-    HotkeyRowSpec::act(
-        "switchSecondary",
-        "SWITCH SECONDARY",
-        Some("ifs.controls.ChangeSecondary"),
+    // 4. Switch Secondary (`presses.nextSecondary`)
+    HotkeyRowSpec::rebindable(
+        "presses.nextSecondary",
+        "ifs.controls.Soldier.NextSecondary",
+        "Switch Secondary",
     ),
-    // Scroll forward through secondary items (`nextSecondary`, default `WheelDown`).
-    HotkeyRowSpec::act(
-        "nextSecondary",
-        "NEXT SECONDARY",
-        Some("ifs.controls.NextSecondary"),
+    // 5. Zoom Scope (`presses.zoom`)
+    HotkeyRowSpec::rebindable(
+        "presses.zoom",
+        "ifs.controls.General.Zoom",
+        "Zoom Scope",
     ),
-    // Scope zoom, stances, sprint, reload, and vehicle entry.
-    // Toggle weapon scope magnification (`zoom`, default `ShiftRight`).
-    HotkeyRowSpec::act("zoom", "ZOOM", Some("ifs.controls.Zoom")),
-    // Jump, combat roll (with strafe), or jetpack thrust in air (`jump`, default `Space`).
-    HotkeyRowSpec::act("jump", "JUMP", Some("ifs.controls.Jump")),
-    // Toggle crouched stance (`crouch`, default `KeyC`).
-    HotkeyRowSpec::act("crouch", "CROUCH", Some("ifs.controls.Crouch")),
-    // Toggle prone stance (`prone`, default `KeyX` / `ControlLeft`).
-    HotkeyRowSpec::act("prone", "PRONE", Some("ifs.controls.Prone")),
-    // Hold to sprint (`sprint`, default `ShiftLeft`).
-    HotkeyRowSpec::act("sprint", "SPRINT", None),
-    // Reload active weapon (`reload`, default `KeyR`).
-    HotkeyRowSpec::act("reload", "RELOAD", Some("ifs.controls.Reload")),
-    // Board vehicle, man turret, or interact with command post (`enter`, default `KeyE` / `Enter`).
-    HotkeyRowSpec::act("enter", "USE / ENTER VEHICLE", Some("ifs.controls.Enter")),
-    // Foot movement, keyboard turning/pitching, and fixed mouse look axes.
-    // Negative Y movement axis (`moveY-`, default `KeyW` / `ArrowUp`).
-    HotkeyRowSpec::act("moveY-", "MOVE FORWARD", Some("ifs.controls.Move_Up")),
-    // Positive Y movement axis (`moveY+`, default `KeyS` / `ArrowDown`).
-    HotkeyRowSpec::act("moveY+", "MOVE BACK", Some("ifs.controls.Move_Down")),
-    // Negative X strafe axis (`moveX-`, default `KeyA` / `ArrowLeft`).
-    HotkeyRowSpec::act("moveX-", "STRAFE LEFT", Some("ifs.controls.Move_Left")),
-    // Positive X strafe axis (`moveX+`, default `KeyD` / `ArrowRight`).
-    HotkeyRowSpec::act("moveX+", "STRAFE RIGHT", Some("ifs.controls.Move_Right")),
-    // Optional keyboard yaw-left axis (`yaw-`, unbound by default).
-    HotkeyRowSpec::act("yaw-", "TURN LEFT", None),
-    // Optional keyboard yaw-right axis (`yaw+`, unbound by default).
-    HotkeyRowSpec::act("yaw+", "TURN RIGHT", None),
-    // Optional keyboard pitch-up axis (`pitch-`, unbound by default).
-    HotkeyRowSpec::act("pitch-", "LOOK UP", None),
-    // Optional keyboard pitch-down axis (`pitch+`, unbound by default).
-    HotkeyRowSpec::act("pitch+", "LOOK DOWN", None),
-    // Read-only horizontal mouse look axis (`MouseX`).
-    HotkeyRowSpec::fix(&["MouseX"], "LOOK HORIZONTAL", None),
-    // Read-only vertical mouse look axis (`MouseY`).
-    HotkeyRowSpec::fix(&["MouseY"], "LOOK VERTICAL", None),
-    // Camera toggle, map overlay, flag drop, target lock, and squad orders.
-    HotkeyRowSpec::act(
-        "view",
-        "FIRST / THIRD PERSON VIEW",
-        Some("ifs.controls.View"),
+    // 6. Look Up (Fixed Mouse Y-Axis)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.LookUp",
+        "Look Up",
+        &["MOUSE Y-AXIS"],
     ),
-    // Toggle tactical overview map (`map`, default `KeyM`).
-    HotkeyRowSpec::act("map", "VIEW MAP", Some("ifs.controls.ViewMap")),
-    // Drop carried objective item or flag (`dropFlag`, default `KeyZ`).
-    HotkeyRowSpec::act("dropFlag", "DROP ITEM", None),
-    // Lock onto highlighted enemy target (`target`, default `KeyG`).
-    HotkeyRowSpec::act("target", " LOCK TARGET", Some("ifs.controls.TargetLock")),
-    // Squad command: attack target (`attack`, default `Digit1`).
-    HotkeyRowSpec::act("attack", "ORDER: ATTACK", None),
-    // Squad command: defend position (`defend`, default `Digit2`).
-    HotkeyRowSpec::act("defend", "ORDER: DEFEND", None),
-    // Squad command: follow player (`follow`, default `Digit3`).
-    HotkeyRowSpec::act("follow", "ORDER: FOLLOW", None),
-    // Squad command: hold position (`hold`, default `Digit4`).
-    HotkeyRowSpec::act("hold", "ORDER: HOLD", None),
-    // Radio call for nearby friendly reinforcements (`backup`, default `F10`).
-    HotkeyRowSpec::act("backup", "CALL FOR BACKUP", None),
+    // 7. Look Down (Fixed Mouse Y-Axis)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.LookDown",
+        "Look Down",
+        &["MOUSE Y-AXIS"],
+    ),
+    // 8. Turn Left (Fixed Mouse X-Axis)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.TurnLeft",
+        "Turn Left",
+        &["MOUSE X-AXIS"],
+    ),
+    // 9. Turn Right (Fixed Mouse X-Axis)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.TurnRight",
+        "Turn Right",
+        &["MOUSE X-AXIS"],
+    ),
+    // 10. Move Forward (`axes.forward+`)
+    HotkeyRowSpec::rebindable(
+        "axes.forward+",
+        "ifs.controls.General.Forward",
+        "Move Forward",
+    ),
+    // 11. Move Backward (`axes.forward-`)
+    HotkeyRowSpec::rebindable(
+        "axes.forward-",
+        "ifs.controls.General.Back",
+        "Move Backward",
+    ),
+    // 12. Strafe Left (`axes.right-`)
+    HotkeyRowSpec::rebindable(
+        "axes.right-",
+        "ifs.controls.General.StrafeLeft",
+        "Strafe Left",
+    ),
+    // 13. Strafe Right (`axes.right+`)
+    HotkeyRowSpec::rebindable(
+        "axes.right+",
+        "ifs.controls.General.StrafeRight",
+        "Strafe Right",
+    ),
+    // 14. Jump / Jetpack (`presses.jump`)
+    HotkeyRowSpec::rebindable(
+        "presses.jump",
+        "ifs.controls.Soldier.Jump",
+        "Jump / Jetpack",
+    ),
+    // 15. Crouch / Roll (`presses.crouch`)
+    HotkeyRowSpec::rebindable(
+        "presses.crouch",
+        "ifs.controls.Soldier.Crouch",
+        "Crouch / Roll",
+    ),
+    // 16. Prone (`presses.prone`)
+    HotkeyRowSpec::rebindable(
+        "presses.prone",
+        "ifs.controls.Soldier.Prone",
+        "Prone",
+    ),
+    // 17. Reload (`presses.reload`)
+    HotkeyRowSpec::rebindable(
+        "presses.reload",
+        "ifs.controls.Soldier.Reload",
+        "Reload",
+    ),
+    // 18. Enter / Exit / Use (`presses.use`)
+    HotkeyRowSpec::rebindable(
+        "presses.use",
+        "ifs.controls.General.Action",
+        "Enter / Exit / Use",
+    ),
+    // 19. 1st / 3rd Person View (`presses.perspective`)
+    HotkeyRowSpec::rebindable(
+        "presses.perspective",
+        "ifs.controls.General.FirstThirdPerson",
+        "1st / 3rd Person View",
+    ),
+    // 20. Free Look (Fixed N/A)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.FreeLook",
+        "Free Look",
+        &["N/A"],
+    ),
+    // 21. View Tactical Map (`presses.map`)
+    HotkeyRowSpec::rebindable(
+        "presses.map",
+        "ifs.controls.General.Map",
+        "View Tactical Map",
+    ),
+    // 22.Menu / Cancel (Fixed ESC)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.BackMenu",
+        "Menu / Cancel",
+        &["ESC"],
+    ),
+    // 23. Say All (Fixed T)
+    HotkeyRowSpec::fixed("ifs.controls.General.Chat", "Say All", &["T"]),
+    // 24. Say Team (Fixed Y)
+    HotkeyRowSpec::fixed("ifs.controls.General.TeamChat", "Say Team", &["Y"]),
+    // 25. Squad Commands (Fixed F1 - F4)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.Squad",
+        "Squad Commands",
+        &["F1 - F4"],
+    ),
+    // 26. Voice Commands (Fixed F5 - F10)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.Voice",
+        "Voice Commands",
+        &["F5 - F10"],
+    ),
+    // 27. Select Spawn / Tooltips (Fixed TAB)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.Scoreboard",
+        "Select Spawn / Tooltips",
+        &["TAB"],
+    ),
+    // 28. Accept (Fixed RETURN)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.Accept",
+        "Accept",
+        &["RETURN"],
+    ),
+    // 29. Select 1st Choice (Fixed 1)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.Choice1",
+        "Select 1st Choice",
+        &["1"],
+    ),
+    // 30. Select 2nd Choice (Fixed 2)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.Choice2",
+        "Select 2nd Choice",
+        &["2"],
+    ),
+    // 31. Select 3rd Choice (Fixed 3)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.Choice3",
+        "Select 3rd Choice",
+        &["3"],
+    ),
+    // 32. Select 4th Choice (Fixed 4)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.Choice4",
+        "Select 4th Choice",
+        &["4"],
+    ),
 ];
 
 /// The 19 vehicle binding rows (`ROWS.vehicle` in `src/menus/hotkeys.js`).
 pub const VEHICLE_ROWS: [HotkeyRowSpec; 19] = [
-    // Vehicle weapon triggers, boost, boarding exit, and landing toggle.
-    HotkeyRowSpec::act("fire", "PRIMARY ATTACK", Some("ifs.controls.Fire")),
-    HotkeyRowSpec::act(
-        "secondary",
-        "SECONDARY ATTACK",
-        Some("ifs.controls.Secondary"),
+    // 1. Primary Fire (`holds.firePrimary`)
+    HotkeyRowSpec::rebindable(
+        "holds.firePrimary",
+        "ifs.controls.General.Primary",
+        "Primary Fire",
     ),
-    // Speeder/vehicle boost (`jump`, default `Space`).
-    HotkeyRowSpec::act("jump", "BOOST", None),
-    // Disembark from current vehicle or turret (`exit`, default `KeyE`).
-    HotkeyRowSpec::act("exit", "EXIT VEHICLE", Some("ifs.controls.Exit")),
-    // Toggle transport landing gear (`landTakeoff`, default `KeyL`).
-    HotkeyRowSpec::act("landTakeoff", "LAND / TAKE OFF", None),
-    // Throttle, strafe/roll, steering, pitch, and fixed mouse turret axes.
-    // Forward drive / throttle increase (`moveY-`, default `KeyW` / `ArrowUp`).
-    HotkeyRowSpec::act("moveY-", "THROTTLE UP", None),
-    // Reverse drive / throttle decrease (`moveY+`, default `KeyS` / `ArrowDown`).
-    HotkeyRowSpec::act("moveY+", "THROTTLE DOWN", None),
-    // Hovercraft strafe left or banking roll left (`moveX-`, default `KeyA` / `ArrowLeft`).
-    HotkeyRowSpec::act("moveX-", "STRAFE / ROLL LEFT", None),
-    // Hovercraft strafe right or banking roll right (`moveX+`, default `KeyD` / `ArrowRight`).
-    HotkeyRowSpec::act("moveX+", "STRAFE / ROLL RIGHT", None),
-    // Keyboard steering left (`yaw-`).
-    HotkeyRowSpec::act("yaw-", "STEER LEFT", None),
-    // Keyboard steering right (`yaw+`).
-    HotkeyRowSpec::act("yaw+", "STEER RIGHT", None),
-    // Keyboard turret/nose pitch up (`pitch-`).
-    HotkeyRowSpec::act("pitch-", "PITCH UP", None),
-    // Keyboard turret/nose pitch down (`pitch+`).
-    HotkeyRowSpec::act("pitch+", "PITCH DOWN", None),
-    // Read-only horizontal turret/craft aim axis (`MouseX`).
-    HotkeyRowSpec::fix(&["MouseX"], "TURN HORIZONTAL", None),
-    // Read-only vertical turret/craft aim axis (`MouseY`).
-    HotkeyRowSpec::fix(&["MouseY"], "PITCH VERTICAL", None),
-    // Camera perspective, target lock, and passenger boarding orders.
-    // Toggle between cockpit and exterior chase camera (`view`, default `KeyV`).
-    HotkeyRowSpec::act(
-        "view",
-        "FIRST / THIRD PERSON VIEW",
-        Some("ifs.controls.View"),
+    // 2. Secondary Fire (`holds.fireSecondary`)
+    HotkeyRowSpec::rebindable(
+        "holds.fireSecondary",
+        "ifs.controls.General.Secondary",
+        "Secondary Fire",
     ),
-    // Lock onto enemy vehicle target (`target`, default `KeyG`).
-    HotkeyRowSpec::act("target", "LOCK TARGET", Some("ifs.controls.TargetLock")),
-    // Order friendly bots to board vehicle (`getIn`, default `Digit5`).
-    HotkeyRowSpec::act("getIn", "ORDER: GET IN", None),
-    // Order friendly bots to disembark vehicle (`getOut`, default `Digit6`).
-    HotkeyRowSpec::act("getOut", "ORDER: GET OUT", None),
+    // 3. Boost (Fixed SHIFT)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.Flyer.Boost",
+        "Boost",
+        &["SHIFT"],
+    ),
+    // 4. Pitch Up (Fixed Mouse Y-Axis)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.LookUp",
+        "Pitch Up",
+        &["MOUSE Y-AXIS"],
+    ),
+    // 5. Pitch Down (Fixed Mouse Y-Axis)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.LookDown",
+        "Pitch Down",
+        &["MOUSE Y-AXIS"],
+    ),
+    // 6. Turn Left (Fixed Mouse X-Axis)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.TurnLeft",
+        "Turn Left",
+        &["MOUSE X-AXIS"],
+    ),
+    // 7. Turn Right (Fixed Mouse X-Axis)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.TurnRight",
+        "Turn Right",
+        &["MOUSE X-AXIS"],
+    ),
+    // 8. Throttle Up (`axes.forward+`)
+    HotkeyRowSpec::rebindable(
+        "axes.forward+",
+        "ifs.controls.General.ThrottleUp",
+        "Throttle Up",
+    ),
+    // 9. Throttle Down / Reverse (`axes.forward-`)
+    HotkeyRowSpec::rebindable(
+        "axes.forward-",
+        "ifs.controls.General.ThrottleDown",
+        "Throttle Down / Reverse",
+    ),
+    // 10. Strafe Left (`axes.right-`)
+    HotkeyRowSpec::rebindable(
+        "axes.right-",
+        "ifs.controls.General.StrafeLeft",
+        "Strafe Left",
+    ),
+    // 11. Strafe Right (`axes.right+`)
+    HotkeyRowSpec::rebindable(
+        "axes.right+",
+        "ifs.controls.General.StrafeRight",
+        "Strafe Right",
+    ),
+    // 12. Change Position (Fixed 1 - 5)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.Vehicle.NextPosition",
+        "Change Position",
+        &["1 - 5"],
+    ),
+    // 13. Exit Vehicle (`presses.use`)
+    HotkeyRowSpec::rebindable(
+        "presses.use",
+        "ifs.controls.General.Action",
+        "Exit Vehicle",
+    ),
+    // 14. Take Off / Land (`presses.jump`)
+    HotkeyRowSpec::rebindable(
+        "presses.jump",
+        "ifs.controls.General.LandTakeoff",
+        "Take Off / Land",
+    ),
+    // 15. Change View Mode (`presses.zoom`)
+    HotkeyRowSpec::rebindable(
+        "presses.zoom",
+        "ifs.controls.General.Zoom",
+        "Change View Mode",
+    ),
+    // 16. 1st / 3rd Person View (`presses.perspective`)
+    HotkeyRowSpec::rebindable(
+        "presses.perspective",
+        "ifs.controls.General.FirstThirdPerson",
+        "1st / 3rd Person View",
+    ),
+    // 17. View Tactical Map (`presses.map`)
+    HotkeyRowSpec::rebindable(
+        "presses.map",
+        "ifs.controls.General.Map",
+        "View Tactical Map",
+    ),
+    // 18. Free Look (Fixed N/A)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.General.FreeLook",
+        "Free Look",
+        &["N/A"],
+    ),
+    // 19. Droideka Transform (Fixed CONTROL)
+    HotkeyRowSpec::fixed(
+        "ifs.controls.Vehicle.Transform",
+        "Droideka Transform",
+        &["CONTROL"],
+    ),
 ];
 
 /// Returns the active key codes for `row` (`bindingCodes(row, bindings)` in `src/menus/hotkeys.js`).
 ///
 /// Fixed rows return their static `row.fixed` slice; rebindable rows look up
-/// `row.action` in `bindings`.
+/// `row.action` in `bindings` (or return an empty vector when unbound).
 pub fn binding_codes(
     row: &HotkeyRowSpec,
     bindings: &BTreeMap<String, Vec<String>>,
 ) -> Vec<String> {
-    if !row.fixed.is_empty() {
-        return row.fixed.iter().map(|s| (*s).to_string()).collect();
+    if let Some(action) = row.action {
+        bindings.get(action).cloned().unwrap_or_default()
+    } else {
+        row.fixed.iter().map(|s| (*s).to_string()).collect()
     }
-    if let Some(act) = row.action {
-        if let Some(codes) = bindings.get(act) {
-            return codes.clone();
-        }
-    }
-    Vec::new()
 }
 
 /// Formatted hotkey row returned by [`hotkey_rows`] (`hotkeyRows` in `src/menus/hotkeys.js`).
@@ -780,42 +854,35 @@ pub fn binding_codes(
 pub struct HotkeyRow {
     /// Action identifier for rebinding (`None` when the row is a fixed read-only axis).
     pub action: Option<String>,
-    /// Localized uppercase action label displayed in the left column.
+    /// Localized uppercase row label with trailing colon (`"MOVE FORWARD:"`, etc.).
     pub label: String,
-    /// Comma-separated uppercase key names (`"W, UP"`) or `"---"` displayed in the right column.
+    /// Formatted comma-separated key names (`"W, UP ARROW"`, `"MOUSE BUTTON 1"`, `""`).
     pub keys: String,
-    /// True when the row cannot be rebound (`action.is_none()`).
+    /// True when the row is a fixed axis and cannot be rebound.
     pub disabled: bool,
 }
 
-/// Builds the display rows for `tab` (`"infantry"`, `"vehicle"`, `"starfighter"`)
+/// Builds the formatted [`HotkeyRow`] list for `tab` (`"infantry"`, `"vehicle"`, or `"starfighter"`)
 /// (`hotkeyRows(tab, bindings, strings)` in `src/menus/hotkeys.js`).
 pub fn hotkey_rows(
     tab: &str,
     bindings: &BTreeMap<String, Vec<String>>,
     strings: &HashMap<String, String>,
 ) -> Vec<HotkeyRow> {
-    // Resolve localized string keys and collapse embedded line breaks to single spaces.
-    let say = |key: Option<&str>, fallback: &str| -> String {
-        let raw = key
-            .and_then(|k| strings.get(k))
-            .map(String::as_str)
-            .unwrap_or(fallback);
-        raw.replace("\r\n", " ").replace('\n', " ").trim().to_string()
-    };
-
     // Starfighter rows come from `FLIGHT_BINDINGS` with uppercase labels and all rows rebindable.
     if tab == "starfighter" {
         return FLIGHT_BINDINGS
             .iter()
             .map(|entry| {
+                let raw_label = say(strings, Some(entry.label_key), entry.label).to_uppercase();
+                let label = format!("{}:", raw_label.trim_end_matches(':'));
                 let codes = bindings
-                    .get(entry.action)
+                    .get(entry.id)
                     .cloned()
                     .unwrap_or_else(|| entry.keys.iter().map(|s| (*s).to_string()).collect());
                 HotkeyRow {
-                    action: Some(entry.action.to_string()),
-                    label: entry.label.to_ascii_uppercase(),
+                    action: Some(entry.id.to_string()),
+                    label,
                     keys: keys_text(&codes),
                     disabled: false,
                 }
@@ -823,21 +890,28 @@ pub fn hotkey_rows(
             .collect();
     }
 
-    // Infantry and vehicle rows read from their static `HotkeyRowSpec` tables.
-    let source: &[HotkeyRowSpec] = if tab == "vehicle" {
+    // Select the 19-row vehicle table or 32-row infantry table.
+    let spec_list: &[HotkeyRowSpec] = if tab == "vehicle" {
         &VEHICLE_ROWS
     } else {
         &INFANTRY_ROWS
     };
-    source
+    spec_list
         .iter()
-        .map(|row| {
-            let codes = binding_codes(row, bindings);
+        .map(|spec| {
+            let raw_label = say(strings, Some(spec.label_key), spec.label).to_uppercase();
+            let label = format!("{}:", raw_label.trim_end_matches(':'));
+            let keys = if spec.action.is_some() {
+                let codes = binding_codes(spec, bindings);
+                keys_text(&codes)
+            } else {
+                spec.fixed.join(", ")
+            };
             HotkeyRow {
-                action: row.action.map(str::to_string),
-                label: say(row.label_key, row.label),
-                keys: keys_text(&codes),
-                disabled: row.action.is_none(),
+                action: spec.action.map(str::to_string),
+                label,
+                keys,
+                disabled: spec.action.is_none(),
             }
         })
         .collect()
@@ -851,25 +925,55 @@ mod tests {
     #[test]
     fn hotkeys_and_bindings_match_js() {
         assert_eq!(TABS.len(), 3);
+        assert_eq!(TABS[0].label_key, "ifs.Controls.SoldierTab");
+        assert_eq!(TABS[1].label_key, "ifs.Controls.VehicleTab");
+        assert_eq!(TABS[2].label_key, "ifs.Controls.FlyerTab");
         assert_eq!(INFANTRY_ROWS.len(), 32);
         assert_eq!(VEHICLE_ROWS.len(), 19);
         assert_eq!(FLIGHT_BINDINGS.len(), 16);
+        assert_eq!(INPUT_CODES.len(), 104);
+        assert_eq!(DEFAULT_FLAT_BINDINGS.len(), 24);
 
         assert_eq!(key_name("KeyW"), "W");
         assert_eq!(key_name("Digit4"), "4");
-        assert_eq!(key_name("Numpad7"), "NUM 7");
-        assert_eq!(key_name("MouseLeft"), "MOUSE 1");
+        assert_eq!(key_name("Numpad0"), "KP_INSERT");
+        assert_eq!(key_name("Numpad7"), "KP_7");
+        assert_eq!(key_name("Mouse0"), "MOUSE BUTTON 1");
+        assert_eq!(key_name("Mouse2"), "MOUSE BUTTON 2");
+        assert_eq!(key_name("Mouse1"), "MOUSE BUTTON 3");
+        assert_eq!(key_name("Mouse3"), "MOUSE BUTTON 4");
+        assert_eq!(key_name("Mouse4"), "MOUSE BUTTON 5");
         assert_eq!(key_name("WheelUp"), "MOUSE WHEEL UP");
-        assert_eq!(keys_text(&["KeyW", "ArrowUp"]), "W, UP");
-        assert_eq!(keys_text::<&str>(&[]), "---");
+        assert_eq!(keys_text(&["KeyW", "ArrowUp"]), "W, UP ARROW");
+        assert_eq!(keys_text(&["ShiftLeft", "ShiftRight"]), "SHIFT");
+        assert_eq!(keys_text::<&str>(&[]), "");
 
-        assert!(bindable("KeyW"));
         assert!(!bindable("Escape"));
         assert!(!bindable("Tab"));
+        assert!(!bindable("F11"));
         assert!(!bindable("F12"));
+        assert!(bindable("KeyW"));
+        assert!(bindable("Mouse0"));
+        assert!(bindable("Delete"));
+        assert!(bindable("Backspace"));
+        assert!(bindable("Numpad0"));
 
         let defaults = flat_bindings();
-        let diff = rebind(&defaults, None, "jump", Some("KeyJ"));
-        assert_eq!(diff.get("jump"), Some(&vec!["KeyJ".to_string()]));
+        let diff = rebind(&defaults, None, "presses.jump", Some("KeyJ"));
+        assert_eq!(
+            diff.get("presses.jump").cloned(),
+            Some(vec!["KeyJ".to_string()])
+        );
+
+        // Rebinding KeyW to jump should remove KeyW from axes.forward+
+        let diff2 = rebind(&defaults, None, "presses.jump", Some("KeyW"));
+        assert_eq!(
+            diff2.get("presses.jump").cloned(),
+            Some(vec!["KeyW".to_string()])
+        );
+        assert_eq!(
+            diff2.get("axes.forward+").cloned(),
+            Some(vec!["ArrowUp".to_string()])
+        );
     }
 }

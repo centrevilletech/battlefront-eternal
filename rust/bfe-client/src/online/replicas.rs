@@ -274,7 +274,6 @@ impl Replicas {
         eye: [f64; 3],
         prediction: &super::replay::Replay,
         history: &super::replay::History,
-        camera: &[f64; 16],
         bridge: &mut Bridge,
     ) {
         self.hud.frame(bridge, receiver, prediction, dt);
@@ -438,13 +437,17 @@ impl Replicas {
                 input[i::PITCH] = row[r::PITCH];
                 input[i::POSTURE] = row[r::POSTURE];
                 input[i::AIR] = row[r::STATE];
-                if let Some(body) = &prediction.body {
+                input[i::DIVE] = receiver.own.dive;
+                input[i::DEAD] = (!receiver.own.alive) as u8 as f64;
+                if let Some(body) = &prediction.displayed {
                     input[i::POSITION..i::POSITION + 3].copy_from_slice(&body.position);
                     input[i::VELOCITY..i::VELOCITY + 3].copy_from_slice(&body.velocity);
                     input[i::YAW] = body.aim_yaw;
                     input[i::PITCH] = body.aim_pitch;
                     input[i::POSTURE] = body.posture as u8 as f64;
-                    input[i::AIR] = body.air.is_some() as u8 as f64;
+                    input[i::AIR] = body.air.map_or(0., |air| air as u8 as f64 + 1.);
+                    input[i::DIVE] = body.dive;
+                    input[i::DIVE_TIME] = body.dive_time;
                 }
             }
             self.visible += usize::from(input[i::PRESENT] != 0. && input[i::OWN] == 0.);
@@ -473,7 +476,11 @@ impl Replicas {
         self.units.input[f::CAMERA_POSITION..f::CAMERA_POSITION + 3].copy_from_slice(&eye);
         // Pose and placement publish skin once into the existing owner banks.
         // Renderer submission below borrows that storage synchronously.
-        self.first_person.frame(&mut self.units, receiver, prediction, camera);
+    }
+    // Finalize after the camera selector: FirstPersonView hangs below the
+    // selected view and consumes this frame's camera-motion cue.
+    pub fn finish_frame(&mut self, receiver: &Receiver, prediction: &super::replay::Replay, camera: &[f64; 16], cue: f64) {
+        self.first_person.frame(&mut self.units, receiver, prediction, camera, cue);
         self.units.frame();
         // Graphics.updateVisible places remote roots after the pose phase.
         // Units.frame deliberately leaves those matrices stale until this
@@ -520,7 +527,7 @@ impl Replicas {
                 continue;
             }
             let input = &self.units.input[f::STRIDE + slot.actor * i::STRIDE..];
-            if input[i::PRESENT] == 0. || input[i::OWN] != 0. {
+            if input[i::PRESENT] == 0. || (input[i::OWN] != 0. && self.first_person.enabled && input[i::DEAD] == 0.) {
                 continue;
             }
             let output = &self.units.output[slot.actor * o::STRIDE..];

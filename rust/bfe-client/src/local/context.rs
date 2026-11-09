@@ -64,6 +64,7 @@ pub struct Native {
     host_op: u32,
     edges_op: u32,
     journal_seen: usize,
+    last_input_sequence: f64,
     counters: HostCounters,
     host_content: bfe_sim::host::Content,
     explosions: Vec<u32>,
@@ -111,6 +112,7 @@ impl Native {
             accepted: arguments::mailbox_accepted()?,
             refused: 0,
             journal_seen: 0,
+            last_input_sequence: 0.,
             counters: HostCounters::default(),
             host_content: admission.host_content.clone(),
             explosions: admission.explosions.clone(),
@@ -199,7 +201,15 @@ impl Engine for Native {
     }
 
     fn input(&mut self, input: Input<'_>) -> Result<(), String> {
-        self.submit(input, |context, arguments, op| arguments.run(context, op))
+        // The mailbox retains held state between commands. Submitting a new
+        // synthetic identity here would acknowledge input the renderer never sent.
+        let sequence = input.command.sequence;
+        if sequence <= self.last_input_sequence {
+            return Ok(());
+        }
+        self.submit(input, |context, arguments, op| arguments.run(context, op))?;
+        self.last_input_sequence = sequence;
+        Ok(())
     }
 
     fn human_command(

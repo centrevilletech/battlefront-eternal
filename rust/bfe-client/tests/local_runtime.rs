@@ -997,13 +997,15 @@ fn operation_packing_uses_generated_records_and_retains_both_arenas() {
 }
 
 struct ThreadedBoundary {
+    sequence: std::sync::Arc<std::sync::atomic::AtomicU64>,
     block: bfe_sim::store::block::Block,
 }
 impl runtime::Engine for ThreadedBoundary {
     fn initialize(&mut self, _: bfe_sim::gen::WorldTickSetup) -> Result<(), String> {
         Ok(())
     }
-    fn input(&mut self, _: runtime::Input<'_>) -> Result<(), String> {
+    fn input(&mut self, input: runtime::Input<'_>) -> Result<(), String> {
+        self.sequence.store(input.command.sequence as u64, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
     fn step(&mut self, input: WorldTickInput) -> Result<WorldTickOutput, String> {
@@ -1035,8 +1037,11 @@ fn threaded_world_steps_at_60hz_without_blocking_or_allocating_on_render_thread(
     use bfe_client::generated_input::ClientHeld;
     use thread::{WorldMessage, WorldThread};
 
-    let mut world = WorldThread::spawn_native(|| {
+    let sequence = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let observed = sequence.clone();
+    let mut world = WorldThread::spawn_native(move || {
         let engine = ThreadedBoundary {
+            sequence,
             block: published(&bfe_sim::gen::WirePublicationOutput::default()),
         };
         let admission = setup::Admitted {
@@ -1074,6 +1079,10 @@ fn threaded_world_steps_at_60hz_without_blocking_or_allocating_on_render_thread(
     assert!(drained > 0);
     assert!(world.latest_tick() >= 1.0);
     assert!(world.tick_stats().count >= 1);
+
+    // Idle authority ticks must not acknowledge a command identity which
+    // the sender has not issued. This used to advance once per world tick.
+    assert_eq!(observed.load(std::sync::atomic::Ordering::SeqCst), 0);
 
     // Measure render-thread allocations across 200 non-blocking send + poll cycles.
     ALLOCATIONS.with(|count| count.set(0));
@@ -1201,4 +1210,34 @@ fn menu_admission_waits_for_the_players_class_and_post_before_spawning() {
     assert!(world.receiver.own.alive, "selected spawn reaches the authoritative body");
     assert!(world.receiver.own.generation > life, "spawn creates a new living generation");
     world.close();
+}
+
+#[test]
+fn native_local_controls_move_authority_and_keep_the_applied_heading() {
+    let Some(root) = std::env::var_os("BFE_CONTENT_DIR").map(std::path::PathBuf::from) else { return; };
+    std::thread::Builder::new().stack_size(8 << 20).spawn(move || {
+        let options = options::Options { root, battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into(), "--seed".into(), "1".into()], audio: false, duration: None };
+        let prepared = local::launch::Prepared::new(&options).unwrap();
+        let mut runtime = runtime::Runtime::new(*prepared.engine, *prepared.admission, 1000., 1_700_000_000_000.).unwrap();
+        let before = runtime.receiver.own;
+        assert!(before.alive);
+        let mut device = bfe_client::input::Input::default();
+        device.key(winit::keyboard::KeyCode::KeyW, true);
+        device.motion(160., 0.);
+        for sequence in 1..=30 {
+            let (command, look, flight, view) = device.sample(sequence, before.generation as u32, true, 16./9., 1., false);
+            runtime.step(&command, &look, &flight, &view).unwrap();
+        }
+        let moved = runtime.receiver.own;
+        eprintln!("authority controls: before={:?} after={:?} yaw={} -> {} ack={}", before.position, moved.position, before.yaw, moved.yaw, runtime.receiver.corrected_sequence);
+        assert_eq!(runtime.refusals(), 0, "valid device publication must be admitted");
+        assert!((moved.position[0]-before.position[0]).abs() + (moved.position[2]-before.position[2]).abs() > 0.1, "held movement must reach authority");
+        assert_ne!(moved.yaw, before.yaw, "relative look must reach authority");
+        device.key(winit::keyboard::KeyCode::KeyW, false);
+        for sequence in 31..=60 {
+            let (command, look, flight, view) = device.sample(sequence, before.generation as u32, true, 16./9., 1., false);
+            runtime.step(&command, &look, &flight, &view).unwrap();
+        }
+        assert_eq!(runtime.receiver.own.yaw, moved.yaw, "heading must persist after look stops");
+    }).unwrap().join().unwrap();
 }

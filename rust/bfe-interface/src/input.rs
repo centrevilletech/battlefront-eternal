@@ -7,7 +7,7 @@
 //!
 //! Key and pointer routing rules:
 //! - A key-capture modal (`KeyCaptureModal` on `CONTROL OPTIONS`) intercepts every key, mouse
-//!   button (`Mouse0`), and scroll wheel notch (`WheelUp`/`WheelDown`) before normal navigation.
+//!   button (`Mouse0`..`Mouse4`), and scroll wheel notch (`WheelUp`/`WheelDown`) before normal navigation.
 //! - Pointer hit-testing projects the 2D viewport cursor into WebGL NDC and intersects a 3D
 //!   camera ray with each hotspot's local `z = 0` plane (`space::local_point`) in reverse draw
 //!   order so frontmost widgets win.
@@ -103,6 +103,9 @@ impl MenuInput {
         code: &str,
         shift: bool,
     ) -> MenuInputEvent {
+        // Normalize literal `" "` from logical key mappers to `"Space"`.
+        let code = if code == " " { "Space" } else { code };
+
         // Only the topmost screen on the stack receives keyboard input (`ScreenStack.key` in `stack.js`).
         let Some(top) = stack.screens.last_mut() else {
             return MenuInputEvent::None;
@@ -120,7 +123,7 @@ impl MenuInput {
                     stack.sounds.play(SoundCue::MenuBack);
                     MenuInputEvent::KeyCapture(outcome)
                 }
-                // Binding a new key or clearing via `Delete`/`Backspace` plays `shell_menu_accept`.
+                // Binding a new key or clearing plays `shell_menu_accept`.
                 KeyCaptureOutcome::Bound { .. } | KeyCaptureOutcome::Cleared { .. } => {
                     stack.sounds.play(SoundCue::MenuAccept);
                     MenuInputEvent::KeyCapture(outcome)
@@ -426,6 +429,30 @@ impl MenuInput {
         }
     }
 
+    /// Processes a mouse button press (`button`: `0` = Left `Mouse0`, `1` = Middle `Mouse1`,
+    /// `2` = Right `Mouse2`, `3` = Back `Mouse3`, `4` = Forward `Mouse4`) when `KeyCaptureModal`
+    /// is open (`listenMouse` in `src/menus/popup.js`).
+    pub fn on_mouse_button(&mut self, stack: &mut ScreenStack, button: u8) -> MenuInputEvent {
+        if let Some(top) = stack.top() {
+            if let Some(modal) = &top.key_capture {
+                let code = match button {
+                    0 => "Mouse0",
+                    1 => "Mouse1",
+                    2 => "Mouse2",
+                    3 => "Mouse3",
+                    4 => "Mouse4",
+                    _ => return MenuInputEvent::None,
+                };
+                let outcome = modal.on_key(code);
+                if outcome != KeyCaptureOutcome::Ignored {
+                    stack.sounds.play(SoundCue::MenuAccept);
+                    return MenuInputEvent::KeyCapture(outcome);
+                }
+            }
+        }
+        MenuInputEvent::None
+    }
+
     /// Processes a left mouse button press at `(px, py)` in a `(vw, vh)` viewport
     /// (`ScreenStack.pointerDown` in `src/menus/stack.js` and `listenMouse` in `src/menus/popup.js`).
     pub fn on_pointer_down(
@@ -438,14 +465,9 @@ impl MenuInput {
         vh: f64,
     ) -> MenuInputEvent {
         // When the key-capture modal is open, a left click binds `"Mouse0"` (`listenMouse` in `popup.js`).
-        if let Some(top) = stack.top() {
-            if let Some(modal) = &top.key_capture {
-                let outcome = modal.on_key("Mouse0");
-                if outcome != KeyCaptureOutcome::Ignored {
-                    stack.sounds.play(SoundCue::MenuAccept);
-                    return MenuInputEvent::KeyCapture(outcome);
-                }
-            }
+        let captured = self.on_mouse_button(stack, 0);
+        if captured != MenuInputEvent::None {
+            return captured;
         }
 
         // Sync focus to the clicked hotspot first, then check whether the click landed inside a

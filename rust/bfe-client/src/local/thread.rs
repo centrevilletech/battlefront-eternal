@@ -780,7 +780,6 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
     let mut latest_ack = [1.0, 0.0];
     let mut accum_look_x = 0.0;
     let mut accum_look_y = 0.0;
-    let mut next_seq: f64 = 1.0;
     let mut spawn_reply_pending = false;
 
     loop {
@@ -793,12 +792,16 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
             while let Some(msg) = ring.pop() {
                 match msg {
                     WorldMessage::Step {
-                        command,
+                        mut command,
                         look,
-                        flight,
+                        mut flight,
                         actions,
                         ack,
                     } => {
+                        if step_queued {
+                            merge_press_edges(&latest_cmd, &mut command);
+                            flight.actions |= latest_flight.actions;
+                        }
                         latest_cmd = command;
                         accum_look_x += look.x;
                         accum_look_y += look.y;
@@ -896,10 +899,8 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
             latest_cmd.primary_count = 0;
             latest_cmd.secondary_count = 0;
         }
-        if latest_cmd.sequence < next_seq {
-            latest_cmd.sequence = next_seq;
-        }
-        next_seq = latest_cmd.sequence + 1.0;
+        // An authority tick can run without a new render command. Keep the
+        // original sequence so it cannot acknowledge future prediction input.
 
         let mut slot = if let Ok(mut q) = shared.publications.lock() {
             q.acquire_slot()
@@ -971,4 +972,38 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
         }
     }
     runtime.close();
+}
+
+// Multiple render commands may arrive before one authority step. Held state
+// and identity come from the last command; a later empty catch-up row must
+// not erase earlier presses in the same batch.
+fn merge_press_edges(previous: &ClientCommand, next: &mut ClientCommand) {
+    next.actions |= previous.actions;
+    next.primary_count = next.primary_count.saturating_add(previous.primary_count).min(32);
+    next.secondary_count = next.secondary_count.saturating_add(previous.secondary_count).min(32);
+}
+
+#[cfg(test)]
+mod command_batch_tests {
+    use super::*;
+    #[test]
+    fn catch_up_rows_keep_device_presses_and_latest_held_identity() {
+        use crate::{input::Input, generated_input::{ClientAction, ClientHeld}};
+        use winit::{keyboard::KeyCode, event::MouseButton};
+        let mut input = Input::default();
+        input.key(KeyCode::Space, true);
+        input.key(KeyCode::KeyR, true);
+        input.mouse(MouseButton::Left, true);
+        input.mouse(MouseButton::Left, false);
+        let (first, _) = input.take(1, 2);
+        input.key(KeyCode::Space, false);
+        input.key(KeyCode::KeyW, true);
+        let (mut last, _) = input.take(2, 2);
+        merge_press_edges(&first, &mut last);
+        assert_eq!(last.sequence, 2.);
+        assert_eq!(last.held, 1 << ClientHeld::Forward as u8);
+        assert_ne!(last.actions & (1 << ClientAction::Jump as u8), 0);
+        assert_ne!(last.actions & (1 << ClientAction::Reload as u8), 0);
+        assert_eq!(last.primary_count, 1);
+    }
 }
