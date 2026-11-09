@@ -591,7 +591,7 @@ impl WorldThread {
                     (Runtime<super::context::Native>, AdmittedWorldInfo),
                     String,
                 > {
-                    let prepared = super::launch::Prepared::new(&owned_options)?;
+                    let prepared = super::launch::Prepared::with_spawn_screen(&owned_options, true)?;
                     let info = AdmittedWorldInfo {
                         query: prepared.admission.query.clone(),
                         registry: prepared.admission.registry.clone(),

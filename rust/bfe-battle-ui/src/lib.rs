@@ -453,6 +453,21 @@ mod tests {
     // Verifies `SpawnModel` opening on the frontline command post (`cp_2`),
     // stepping classes, switching teams (`cp_3`), and committing a `SpawnRequest`.
     #[test]
+    fn spawn_hud_displays_tickets_instead_of_team_ids() {
+        use bfe_render::hud_model::{HudModel, layout::HudFrame as H};
+        let mut port = TestSpawnPort::new();
+        port.teams[0].reinforcements = 173;
+        port.teams[1].reinforcements = 142;
+        let mut model = SpawnModel::new();
+        model.open(&port, OpenReason::Start);
+        let view = ClassicSpawnView::default();
+        let mut hud = HudModel::new();
+        view.sync_hud_inputs(&model, &port, false, &mut hud.input);
+        assert_eq!(hud.input[H::OWN], 173.0);
+        assert_eq!(hud.input[H::FOE], 142.0);
+    }
+
+    #[test]
     fn test_spawn_model_team_class_post_and_commit() {
         let port = TestSpawnPort::new();
         let mut model = SpawnModel::new();

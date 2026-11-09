@@ -936,6 +936,7 @@ fn unavailable_world_admission_refuses_before_reading_assets_or_opening_devices(
     }
     let files = Missing(std::cell::Cell::<usize>::new(0));
     let source = setup::NativeSource {
+        spawn_screen: false,
         files: &files,
         options: battle_options(),
     };
@@ -1175,4 +1176,29 @@ fn cold_admission_delivers_welcome_publication_and_steps_three_maps() {
         );
         local.close();
     }
+}
+
+#[test]
+fn menu_admission_waits_for_the_players_class_and_post_before_spawning() {
+    let Some(root) = std::env::var_os("BFE_CONTENT_DIR") else { return };
+    let options = options::Options {
+        root: root.into(),
+        battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into()],
+        audio: false,
+        duration: None,
+    };
+    let prepared = local::launch::Prepared::with_spawn_screen(&options, true).unwrap();
+    let mut world = runtime::Runtime::new(*prepared.engine, *prepared.admission, 0.0, 0.0).unwrap();
+    assert!(world.receiver.complete, "menu receives the admitted welcome baseline");
+    assert!(!world.receiver.own.alive, "explicit side must not bypass menu selection");
+    let life = world.receiver.own.generation;
+    world.spawn_human(world.receiver.own.team, "rep_inf_clone_trooper", "cp6").unwrap();
+    for sequence in 1..=6 {
+        world.step(&ClientCommand { sequence: sequence as f64, mouse_scale: 1.0,
+            ..Default::default() }, &ClientLook::default(), &ClientFlightCommand::default(),
+            &ViewActions::default()).unwrap();
+    }
+    assert!(world.receiver.own.alive, "selected spawn reaches the authoritative body");
+    assert!(world.receiver.own.generation > life, "spawn creates a new living generation");
+    world.close();
 }
