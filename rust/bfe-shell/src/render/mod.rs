@@ -605,6 +605,110 @@ impl<'a> Default for RowsLayout<'a> {
     }
 }
 
+/// Shared row geometry for the main and singleplayer menu input paths.
+fn player_menu_layout(screen: ScreenId) -> RowsLayout<'static> {
+    match screen {
+        ScreenId::Main => RowsLayout {
+            at: [0.5, 0.65],
+            x: 0.0,
+            y: 30.0,
+            width: 250.0,
+            rot_x: -20.0,
+            rot_y: -30.0,
+            rot_z: 1.0,
+            xyz_order: true,
+            font: "gamefont_medium",
+            list_count: Some(7),
+        },
+        ScreenId::InstantActionEra => RowsLayout {
+            at: [0.25, 0.5],
+            width: 350.0,
+            ..Default::default()
+        },
+        ScreenId::Singleplayer => RowsLayout {
+            width: 650.0,
+            font: "gamefont_large",
+            ..Default::default()
+        },
+        _ => RowsLayout::default(),
+    }
+}
+
+/// Locate a visible map or playlist row on the same tilted list planes.
+pub fn hit_ia_list(app: &ShellApp, w: f64, h: f64, x: f64, y: f64) -> Option<(bool, usize)> {
+    let (_, _, height) = gate::gate_layout(w, h);
+    let box_h = (height - 210.0).clamp(160.0, 398.0);
+    let shown = (((box_h - 30.0) / 26.0).floor() as usize).max(1);
+    for (left, side, count, selected) in [
+        (true, -1.0, app.data.maps.len(), app.ia_available_selected),
+        (false, 1.0, app.ia_entries.len(), app.ia_selected_cursor),
+    ] {
+        let m = rotate_y(
+            translate(anchor(0.5, 0.5, true, height), side * 227.0, 0.0, 0.0),
+            (-side * 35.0_f64).to_radians(),
+        );
+        let Some([lx, ly]) =
+            bfe_interface::space::local_point(&m, 2.0 * x / w - 1.0, 1.0 - 2.0 * y / h)
+        else {
+            continue;
+        };
+        let top = -10.0 - box_h * 0.5 + 15.0;
+        if lx < -206.0 || lx > 206.0 || ly < top {
+            continue;
+        }
+        let k = ((ly - top) / 26.0).floor() as usize;
+        let first = if count > shown && selected >= shown {
+            (selected + 1 - shown).min(count - shown)
+        } else {
+            0
+        };
+        if k < shown && first + k < count {
+            return Some((left, first + k));
+        }
+    }
+    None
+}
+
+/// Hit the rendered row plane rather than an unrelated fixed 768-high grid.
+pub fn hit_player_menu(
+    app: &ShellApp,
+    fonts: &ShellFonts,
+    w: f64,
+    h: f64,
+    x: f64,
+    y: f64,
+) -> Option<usize> {
+    let screen = app.current_screen();
+    if !matches!(
+        screen,
+        ScreenId::Main | ScreenId::Singleplayer | ScreenId::InstantActionEra
+    ) {
+        return None;
+    }
+    let layout = player_menu_layout(screen);
+    let n = app.active_rows().len();
+    let p = fonts.get(layout.font).height + 5.0;
+    let (_, _, height) = gate::gate_layout(w, h);
+    let m = mul(
+        translate(
+            anchor(layout.at[0], layout.at[1], true, height),
+            rows_shift(layout.width, p, layout.list_count.unwrap_or(n)) + layout.x,
+            layout.y,
+            0.0,
+        ),
+        rotation_euler(layout.rot_x, layout.rot_y, layout.rot_z, layout.xyz_order),
+    );
+    let [lx, ly] = bfe_interface::space::local_point(&m, 2.0 * x / w - 1.0, 1.0 - 2.0 * y / h)?;
+    for k in 0..n {
+        let cy = -(n as f64 * p) * 0.5 + k as f64 * p;
+        let (bar_w, _) = row_bar_at(layout.width, p, n, k);
+        if lx >= BAR_X && lx <= BAR_X + bar_w + 5.0 && ly >= cy - p * 0.5 && ly <= cy + p * 0.5 {
+            return Some(k);
+        }
+    }
+    None
+}
+
 /// Draws an angled stack of menu rows under an orange header bar.
 /// Mirrors `paintRows` in `src/menus/themes/classic/index.js`.
 #[allow(clippy::too_many_arguments)]
@@ -979,18 +1083,7 @@ pub fn draw_shell(
                 rows,
                 sel,
                 pulse,
-                RowsLayout {
-                    at: [0.5, 0.65],
-                    x: 0.0,
-                    y: 30.0,
-                    width: 250.0,
-                    rot_x: -20.0,
-                    rot_y: -30.0,
-                    rot_z: 1.0,
-                    xyz_order: true,
-                    font: "gamefont_medium",
-                    list_count: Some(7),
-                },
+                player_menu_layout(ScreenId::Main),
             );
             // Bottom-right version text (`src/shell/screens.js`: `at: [1, 1], x: -8, y: -18, align: 1, alpha: 0.7`).
             let ver_m = anchor(1.0, 1.0, true, height);
@@ -1019,11 +1112,7 @@ pub fn draw_shell(
                 rows,
                 sel,
                 pulse,
-                RowsLayout {
-                    width: 650.0,
-                    font: "gamefont_large",
-                    ..RowsLayout::default()
-                },
+                player_menu_layout(ScreenId::Singleplayer),
             );
             draw_bottom_button(
                 batch,
@@ -1274,6 +1363,30 @@ mod tests {
     use crate::launch::GameFamily;
     use crate::loading::LoadingTimeline;
     use crate::loading::LookId;
+
+    #[test]
+    fn pointer_hits_rendered_menu_rows_in_wide_and_standard_windows() {
+        let mut app = ShellApp::new(ShellData::default(), None);
+        let fonts = ShellFonts::default();
+        for screen in [ScreenId::Main, ScreenId::Singleplayer] {
+            app.stack = vec![screen];
+            app.rebuild_cached_rows();
+            for (w, h) in [(1280.0, 720.0), (1024.0, 768.0)] {
+                let (_, _, height) = gate::gate_layout(w, h);
+                let layout = player_menu_layout(screen);
+                let p = fonts.get(layout.font).height + 5.0;
+                let n = app.active_rows().len();
+                let m = mul(translate(anchor(layout.at[0], layout.at[1], true, height),
+                    rows_shift(layout.width, p, layout.list_count.unwrap_or(n)) + layout.x, layout.y, 0.0),
+                    rotation_euler(layout.rot_x, layout.rot_y, layout.rot_z, layout.xyz_order));
+                for k in 0..n {
+                    let cy = -(n as f64*p)*0.5 + k as f64*p;
+                    let [x, y] = bfe_interface::space::plane_point(&m, 50.0, cy, 0.0, height);
+                    assert_eq!(hit_player_menu(&app, &fonts, w, h, x*w/1024.0, y*h/height), Some(k));
+                }
+            }
+        }
+    }
 
     #[test]
     fn rows_shift_and_row_bar_at_match_classic_theme() {

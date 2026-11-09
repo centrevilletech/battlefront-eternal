@@ -12,6 +12,7 @@ audio-control = { path = "../audio-control" }
 audio-decode = { path = "../audio-decode" }
 bfe-content-native = { path = "../bfe-content-native" }
 bfe-online = { path = "../bfe-online" }
+bfe-interface = { path = "../bfe-interface" }
 bfe-render = { path = "../bfe-render" }
 content = { path = "../content" }
 jsrt = { path = "../jsrt" }

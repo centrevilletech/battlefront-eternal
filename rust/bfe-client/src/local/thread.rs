@@ -543,12 +543,14 @@ impl WorldThread {
             .name("bfe-world-60hz".to_string())
             .spawn(move || match build() {
                 Ok(runtime) => {
+                    eprintln!("native world admission succeeded; starting world ticks");
                     thread_shared
                         .latest_tick_bits
                         .store(runtime.tick().to_bits(), Ordering::Release);
                     run_world_loop(Box::new(runtime), thread_shared);
                 }
                 Err(err) => {
+                    eprintln!("native world admission failed: {err}");
                     if let Ok(mut fg) = thread_shared.fault.lock() {
                         *fg = Some(err);
                     }
@@ -589,7 +591,7 @@ impl WorldThread {
                     (Runtime<super::context::Native>, AdmittedWorldInfo),
                     String,
                 > {
-                    let prepared = super::launch::Prepared::new(&owned_options)?;
+                    let prepared = super::launch::Prepared::with_spawn_screen(&owned_options, true)?;
                     let info = AdmittedWorldInfo {
                         query: prepared.admission.query.clone(),
                         registry: prepared.admission.registry.clone(),
@@ -619,10 +621,12 @@ impl WorldThread {
                 })();
                 match build_res {
                     Ok((runtime, info)) => {
+                        eprintln!("native world admission succeeded: player={} welcome queued", info.player_id);
                         let _ = admit_tx.send(Ok(info));
                         run_world_loop(Box::new(runtime), thread_shared);
                     }
                     Err(err) => {
+                        eprintln!("native world admission failed: {err}");
                         let _ = admit_tx.send(Err(err));
                     }
                 }
@@ -777,6 +781,7 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
     let mut accum_look_x = 0.0;
     let mut accum_look_y = 0.0;
     let mut next_seq: f64 = 1.0;
+    let mut spawn_reply_pending = false;
 
     loop {
         if shared.shutdown.load(Ordering::Acquire) {
@@ -831,7 +836,10 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
                         class_name,
                         post_name,
                     } => {
+                        spawn_reply_pending = true;
+                        eprintln!("world spawn request: team={team} class={class_name} post={post_name}");
                         if let Err(err) = runtime.spawn_human(team, &class_name, &post_name) {
+                            eprintln!("world spawn request refused: {err}");
                             if let Ok(mut fg) = shared.fault.lock() {
                                 *fg = Some(err);
                             }
@@ -930,6 +938,12 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
         );
         match step_res {
             Ok(tick) => {
+                if runtime.ticks == 1 || spawn_reply_pending {
+                    eprintln!("world publication: tick={} welcomed={} corrections={} alive={} generation={}",
+                        tick, runtime.receiver.welcomed, runtime.receiver.corrections,
+                        runtime.receiver.own.alive, runtime.receiver.own.generation);
+                    spawn_reply_pending = false;
+                }
                 shared
                     .latest_tick_bits
                     .store(tick.to_bits(), Ordering::Release);
