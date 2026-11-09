@@ -11,6 +11,8 @@ pub mod gate;
 pub mod launch;
 pub mod loading;
 pub mod media;
+pub mod movies;
+pub mod movie_gpu;
 pub mod mission;
 pub mod music;
 pub mod profile;

@@ -148,6 +148,8 @@ pub enum GatePhase {
 /// world-thread tick-time distribution and host proof counts for every admitted
 /// Instant Action battle.
 pub struct GateDriver {
+    movie_verification: bool,
+    movie_stage: usize,
     online_duel: bool,
     duel_input_tick: u32,
     spawn_posts: std::collections::BTreeMap<u8, String>,
@@ -219,6 +221,8 @@ impl GateDriver {
         let dir =
             screenshot_dir.unwrap_or_else(|| std::env::temp_dir().join("bfe-gate-screenshots"));
         Self {
+            movie_verification: script_name == "movies",
+            movie_stage: 0,
             online_duel: script_name == "online-duel",
             spawn_posts: std::env::var("BFE_GATE_SPAWN_POSTS")
                 .ok()
@@ -589,6 +593,68 @@ impl GateDriver {
         }
     }
 
+    // Exercise the same ShellHost used by interactive menus, with enough time
+    // for a full intro and a 60-second loop measurement before navigating.
+    fn step_movies(&mut self, shell: &mut ShellHost) -> Result<Option<ShellTransition>, String> {
+        let elapsed = self.phase_started.elapsed().as_secs_f64();
+        let deadlines = [1., 0.35, 63., 0.2, 2.5, 0.2, 2., 3.];
+        if self.movie_stage >= deadlines.len() || elapsed < deadlines[self.movie_stage] {
+            return Ok(None);
+        }
+        match self.movie_stage {
+            0 => {
+                self.save_shell_shot(shell, "movie-gate.png")?;
+                shell.app.unlock_gate();
+            }
+            1 => {
+                self.save_shell_shot(shell, "movie-main-intro.png")?;
+            }
+            2 => {
+                self.save_shell_shot(shell, "movie-main-loop.png")?;
+                shell.app.push_screen(ScreenId::Singleplayer);
+            }
+            3 => {
+                self.save_shell_shot(shell, "movie-forward-crossfade.png")?;
+            }
+            4 => {
+                self.save_shell_shot(shell, "movie-singleplayer-loop.png")?;
+                shell.app.back();
+            }
+            5 => {
+                self.save_shell_shot(shell, "movie-back-crossfade.png")?;
+            }
+            6 => {
+                self.save_shell_shot(shell, "movie-back-loop.png")?;
+                shell.app.push_screen(ScreenId::InstantAction);
+            }
+            7 => {
+                self.save_shell_shot(shell, "movie-flyover.png")?;
+                let stats = &shell.movies.stats;
+                let preview = &shell.preview_movies.stats;
+                let summary = serde_json::json!({
+                    "decodedFrames": stats.decoded, "droppedFrames": stats.dropped,
+                    "decodeMsPerFrame": stats.decode_ms / stats.decoded.max(1) as f64,
+                    "previewFrames": preview.decoded, "previewDropped": preview.dropped,
+                    "glErrors": self.gl_errors,
+                });
+                std::fs::write(
+                    self.screenshot_dir.join("movie-summary.json"),
+                    serde_json::to_vec_pretty(&summary).unwrap(),
+                )
+                .map_err(|e| e.to_string())?;
+                if stats.decoded < 1000 || preview.decoded < 10 {
+                    return Err("Movie verification did not present enough decoded frames".into());
+                }
+                self.transition_to(GatePhase::Finished);
+                return Ok(Some(ShellTransition::Exit));
+            }
+            _ => (),
+        }
+        self.movie_stage += 1;
+        self.phase_started = Instant::now();
+        Ok(None)
+    }
+
     /// Steps the gate choreography while in the front-end shell.
     pub fn step_shell(
         &mut self,
@@ -597,6 +663,10 @@ impl GateDriver {
     ) -> Result<Option<ShellTransition>, String> {
         self.phase_frames += 1;
         let elapsed = self.phase_started.elapsed().as_secs_f64();
+
+        if self.movie_verification {
+            return self.step_movies(shell);
+        }
 
         match self.phase {
             GatePhase::GateScreen => {
@@ -1013,7 +1083,9 @@ impl GateDriver {
         // An interrupted run must not leave a success receipt. Require the
         // completed choreography and actual world ticks before claiming proof.
         let expected_battles = if self.target_map.is_some() { 1 } else { 3 };
-        let choreography_complete = if self.online_duel {
+        let choreography_complete = if self.movie_verification {
+            self.phase == GatePhase::Finished
+        } else if self.online_duel {
             self.online_battle_completed
         } else {
             self.phase == GatePhase::Finished

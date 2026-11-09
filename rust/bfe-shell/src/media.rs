@@ -10,11 +10,8 @@
 //!   whoosh sound effects, `shellmusic` bus dips (`fadeBus("shellmusic", 0, 1)`
 //!   on forward moves into a screen whose music isn't already playing, restoring
 //!   `fadeBus("shellmusic", 1, 1)` when the intro finishes), and `ShellMusic`.
-//! - `StillMoviePlayer`: native backdrop state machine that tracks intro/loop
-//!   fade timings and resolves each clip's `common.json` poster still texture
-//!   (`main`, `atat_screen`, `coreship_screen`, `generic2_screen`,
-//!   `generic3_screen`, `gc_screen`, `hoth_screen`, `atte_screen`, `map_<id>`)
-//!   when VP9 video playback is not active.
+//!
+//! Native video decoding and compositing live in `movies` and `movie_gpu`.
 
 use crate::{
     data::{poster_still_for_movie, MovieClip, ScreenMovie, ShellData},

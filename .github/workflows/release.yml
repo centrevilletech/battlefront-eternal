@@ -109,7 +109,7 @@ jobs:
 
       - name: Run native Rust test suites
         working-directory: rust
-        run: cargo test --locked -p sim -p sim-replay -p bfe-render -p bfe-presentation -p bfe-pose -p content -p v8math -p jsrt -p three -p audio -p audio-decode -p basis-transcode -p texture-codec -p image-codec -p bfe-environment -p audio-control -p bfe-client -p bfe-content-native -p bfe-transport -p bfe-online -p bfe-shell -p bfe-desktop -p bfe-interface -p bfe-battle-ui -p bfe-server -p xtask --features sim/replay
+        run: cargo test --locked -p sim -p sim-replay -p bfe-render -p bfe-presentation -p bfe-pose -p content -p v8math -p jsrt -p three -p audio -p audio-decode -p basis-transcode -p texture-codec -p image-codec -p bfe-environment -p audio-control -p bfe-client -p bfe-content-native -p bfe-transport -p bfe-online -p bfe-shell -p bfe-video -p bfe-desktop -p bfe-interface -p bfe-battle-ui -p bfe-server -p xtask --features sim/replay
 
       - name: Signed distribution and native packaging regression checks
         run: python3 -m unittest discover -s tests -p "test_distribution.py"
@@ -270,7 +270,7 @@ jobs:
 
       - name: Run native Rust test suites
         working-directory: rust
-        run: cargo test --locked -p sim -p sim-replay -p bfe-render -p bfe-presentation -p bfe-pose -p content -p v8math -p jsrt -p three -p audio -p audio-decode -p basis-transcode -p texture-codec -p image-codec -p bfe-environment -p audio-control -p bfe-client -p bfe-content-native -p bfe-transport -p bfe-online -p bfe-shell -p bfe-desktop -p bfe-interface -p bfe-battle-ui -p bfe-server -p xtask --features sim/replay
+        run: cargo test --locked -p sim -p sim-replay -p bfe-render -p bfe-presentation -p bfe-pose -p content -p v8math -p jsrt -p three -p audio -p audio-decode -p basis-transcode -p texture-codec -p image-codec -p bfe-environment -p audio-control -p bfe-client -p bfe-content-native -p bfe-transport -p bfe-online -p bfe-shell -p bfe-video -p bfe-desktop -p bfe-interface -p bfe-battle-ui -p bfe-server -p xtask --features sim/replay
 
       - name: Build native bfe-client and bfeserver (release, locked)
         id: build
@@ -353,6 +353,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install libvpx source configuration tools
+        shell: bash
+        run: choco install make --no-progress -y
+
       - name: The Rust toolchain rust/rust-toolchain.toml pins
         working-directory: rust
         shell: bash
@@ -395,7 +399,7 @@ jobs:
       - name: Run native Rust test suites
         working-directory: rust
         shell: bash
-        run: cargo test --locked --target x86_64-pc-windows-msvc -p bfe-client -p bfe-content-native -p bfe-transport -p bfe-online -p bfe-shell -p bfe-desktop -p bfe-interface -p bfe-battle-ui -p bfe-server --lib --tests
+        run: cargo test --locked --target x86_64-pc-windows-msvc -p bfe-client -p bfe-content-native -p bfe-transport -p bfe-online -p bfe-shell -p bfe-video -p bfe-desktop -p bfe-interface -p bfe-battle-ui -p bfe-server --lib --tests
 
       - name: Build native bfe-client.exe and bfeserver.exe (release, locked)
         id: build

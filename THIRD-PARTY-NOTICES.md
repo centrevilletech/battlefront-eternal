@@ -51,6 +51,7 @@ across the shipped native targets (`x86_64-unknown-linux-gnu`,
 | `ahash` | `0.8.12` | MIT OR Apache-2.0 | Tom Kaitchuck &lt;Tom.Kaitchuck@gmail.com&gt; | <https://github.com/tkaitchuck/ahash> |
 | `alsa` | `0.9.1` | Apache-2.0/MIT | David Henningsson &lt;coding@diwic.se&gt; | <https://github.com/diwic/alsa-rs> |
 | `alsa-sys` | `0.3.1` | MIT | Pierre Krieger &lt;pierre.krieger1708@gmail.com&gt;, David Henningsson &lt;coding@diwic.se&gt; | <https://github.com/diwic/alsa-sys> |
+| `arboard` | `3.7.0` | MIT OR Apache-2.0 | The crate authors | <https://github.com/1Password/arboard> |
 | `as-raw-xcb-connection` | `1.0.1` | MIT OR Apache-2.0 | The crate authors | <https://github.com/psychon/as-raw-xcb-connection> |
 | `base64` | `0.22.1` | MIT OR Apache-2.0 | Marshall Pierce &lt;marshall@mpierce.org&gt; | <https://github.com/marshallpierce/rust-base64> |
 | `base64` | `0.23.1` | MIT OR Apache-2.0 | Marshall Pierce &lt;marshall@mpierce.org&gt; | <https://github.com/marshallpierce/rust-base64> |
@@ -61,11 +62,13 @@ across the shipped native targets (`x86_64-unknown-linux-gnu`,
 | `byteorder-lite` | `0.1.0` | Unlicense OR MIT | The crate authors | <https://github.com/image-rs/byteorder-lite> |
 | `bytes` | `1.12.1` | MIT | Carl Lerche &lt;me@carllerche.com&gt;, Sean McArthur &lt;sean@seanmonstar.com&gt; | <https://github.com/tokio-rs/bytes> |
 | `calloop` | `0.13.0` | MIT | Elinor Berger &lt;elinor@safaradeg.net&gt; | <https://github.com/Smithay/calloop> |
+| `calloop-wayland-source` | `0.3.0` | MIT | Kirill Chibisov &lt;contact@kchibisov.com&gt; | <https://github.com/smithay/calloop-wayland-source> |
 | `cc` | `1.11.0` | MIT OR Apache-2.0 | The crate authors | <https://github.com/rust-lang/cc-rs> |
 | `cfg-if` | `1.0.5` | MIT OR Apache-2.0 | Alex Crichton &lt;alex@alexcrichton.com&gt; | <https://github.com/rust-lang/cfg-if> |
 | `cfg_aliases` | `0.2.2` | MIT | Zicklag &lt;zicklag@katharostech.com&gt; | <https://github.com/katharostech/cfg_aliases> |
 | `cipher` | `0.4.4` | MIT OR Apache-2.0 | RustCrypto Developers | <https://github.com/RustCrypto/traits> |
 | `claxon` | `0.4.3` | Apache-2.0 | Ruud van Asseldonk &lt;dev@veniogames.com&gt; | <https://github.com/ruuda/claxon> |
+| `clipboard-win` | `5.4.3` | BSL-1.0 | Douman &lt;douman@gmx.se&gt; | <https://github.com/DoumanAsh/clipboard-win> |
 | `concurrent-queue` | `2.5.0` | Apache-2.0 OR MIT | Stjepan Glavina &lt;stjepang@gmail.com&gt;, Taiki Endo &lt;te316e89@gmail.com&gt;, John Nunley &lt;dev@notgull.net&gt; | <https://github.com/smol-rs/concurrent-queue> |
 | `const-oid` | `0.9.6` | Apache-2.0 OR MIT | RustCrypto Developers | <https://github.com/RustCrypto/formats/tree/master/const-oid> |
 | `cpal` | `0.15.3` | Apache-2.0 | The crate authors | <https://github.com/rustaudio/cpal> |
@@ -82,15 +85,20 @@ across the shipped native targets (`x86_64-unknown-linux-gnu`,
 | `der` | `0.7.10` | Apache-2.0 OR MIT | RustCrypto Developers | <https://github.com/RustCrypto/formats/tree/master/der> |
 | `digest` | `0.10.7` | MIT OR Apache-2.0 | RustCrypto Developers | <https://github.com/RustCrypto/traits> |
 | `dlib` | `0.5.3` | MIT | Elinor Berger &lt;elinor@safaradeg.net&gt; | <https://github.com/elinorbgr/dlib> |
+| `downcast-rs` | `1.2.1` | MIT/Apache-2.0 | Ashish Myles &lt;marcianx@gmail.com&gt;, Runji Wang &lt;wangrunji0408@163.com&gt; | <https://github.com/marcianx/downcast-rs> |
 | `dpi` | `0.1.2` | Apache-2.0 AND MIT | The crate authors | <https://github.com/rust-windowing/winit> |
 | `ed25519` | `2.2.3` | Apache-2.0 OR MIT | RustCrypto Developers | <https://github.com/RustCrypto/signatures/tree/master/ed25519> |
 | `ed25519-dalek` | `2.2.0` | BSD-3-Clause | isis lovecruft &lt;isis@patternsinthevoid.net&gt;, Tony Arcieri &lt;bascule@gmail.com&gt;, Michael Rosenberg &lt;michael@mrosenberg.pub&gt; | <https://github.com/dalek-cryptography/curve25519-dalek/tree/main/ed25519-dalek> |
+| `equivalent` | `1.0.3` | Apache-2.0 OR MIT | The crate authors | <https://github.com/indexmap-rs/equivalent> |
 | `errno` | `0.3.14` | MIT OR Apache-2.0 | Chris Wong &lt;lambda.fairy@gmail.com&gt;, Dan Gohman &lt;dev@sunfishcode.online&gt; | <https://github.com/lambda-fairy/rust-errno> |
+| `error-code` | `3.4.0` | BSL-1.0 | Douman &lt;douman@gmx.se&gt; | <https://github.com/DoumanAsh/error-code> |
 | `fallible-iterator` | `0.3.0` | MIT/Apache-2.0 | Steven Fackler &lt;sfackler@gmail.com&gt; | <https://github.com/sfackler/rust-fallible-iterator> |
 | `fallible-streaming-iterator` | `0.1.9` | MIT/Apache-2.0 | Steven Fackler &lt;sfackler@gmail.com&gt; | <https://github.com/sfackler/fallible-streaming-iterator> |
 | `fdeflate` | `0.3.7` | MIT OR Apache-2.0 | The image-rs Developers | <https://github.com/image-rs/fdeflate> |
 | `find-msvc-tools` | `0.1.15` | MIT OR Apache-2.0 | The crate authors | <https://github.com/rust-lang/cc-rs> |
+| `fixedbitset` | `0.5.9` | MIT OR Apache-2.0 | bluss | <https://github.com/petgraph/fixedbitset> |
 | `flate2` | `1.1.10` | MIT OR Apache-2.0 | Alex Crichton &lt;alex@alexcrichton.com&gt;, Josh Triplett &lt;josh@joshtriplett.org&gt; | <https://github.com/rust-lang/flate2-rs> |
+| `foldhash` | `0.1.5` | Zlib | Orson Peters &lt;orsonpeters@gmail.com&gt; | <https://github.com/orlp/foldhash> |
 | `generic-array` | `0.14.7` | MIT | Bartłomiej Kamiński &lt;fizyk20@gmail.com&gt;, Aaron Trent &lt;novacrazy@gmail.com&gt; | <https://github.com/fizyk20/generic-array.git> |
 | `gethostname` | `1.1.0` | Apache-2.0 | Sebastian Wiesner &lt;sebastian@swsnr.de&gt; | <https://codeberg.org/swsnr/gethostname.rs.git> |
 | `getrandom` | `0.2.17` | MIT OR Apache-2.0 | The Rand Project Developers | <https://github.com/rust-random/getrandom> |
@@ -105,12 +113,15 @@ across the shipped native targets (`x86_64-unknown-linux-gnu`,
 | `glutin_glx_sys` | `0.6.1` | Apache-2.0 | Kirill Chibisov &lt;contact@kchibisov.com&gt; | <https://github.com/rust-windowing/glutin> |
 | `glutin_wgl_sys` | `0.6.1` | Apache-2.0 | Kirill Chibisov &lt;contact@kchibisov.com&gt; | <https://github.com/rust-windowing/glutin> |
 | `hashbrown` | `0.14.5` | MIT OR Apache-2.0 | Amanieu d'Antras &lt;amanieu@gmail.com&gt; | <https://github.com/rust-lang/hashbrown> |
+| `hashbrown` | `0.15.5` | MIT OR Apache-2.0 | Amanieu d'Antras &lt;amanieu@gmail.com&gt; | <https://github.com/rust-lang/hashbrown> |
+| `hashbrown` | `0.17.1` | MIT OR Apache-2.0 | The crate authors | <https://github.com/rust-lang/hashbrown> |
 | `hashlink` | `0.9.1` | MIT OR Apache-2.0 | kyren &lt;kerriganw@gmail.com&gt; | <https://github.com/kyren/hashlink> |
 | `hkdf` | `0.12.4` | MIT OR Apache-2.0 | RustCrypto Developers | <https://github.com/RustCrypto/KDFs/> |
 | `hmac` | `0.12.1` | MIT OR Apache-2.0 | RustCrypto Developers | <https://github.com/RustCrypto/MACs> |
 | `http` | `1.5.0` | MIT OR Apache-2.0 | Alex Crichton &lt;alex@alexcrichton.com&gt;, Carl Lerche &lt;me@carllerche.com&gt;, Sean McArthur &lt;sean@seanmonstar.com&gt; | <https://github.com/hyperium/http> |
 | `httparse` | `1.10.1` | MIT OR Apache-2.0 | Sean McArthur &lt;sean@seanmonstar.com&gt; | <https://github.com/seanmonstar/httparse> |
 | `image-webp` | `0.2.4` | MIT OR Apache-2.0 | The crate authors | <https://github.com/image-rs/image-webp> |
+| `indexmap` | `2.14.2` | Apache-2.0 OR MIT | The crate authors | <https://github.com/indexmap-rs/indexmap> |
 | `inout` | `0.1.4` | MIT OR Apache-2.0 | RustCrypto Developers | <https://github.com/RustCrypto/utils> |
 | `itoa` | `1.0.18` | MIT OR Apache-2.0 | David Tolnay &lt;dtolnay@gmail.com&gt; | <https://github.com/dtolnay/itoa> |
 | `jobserver` | `0.1.35` | MIT OR Apache-2.0 | Alex Crichton &lt;alex@alexcrichton.com&gt; | <https://github.com/rust-lang/jobserver-rs> |
@@ -120,14 +131,21 @@ across the shipped native targets (`x86_64-unknown-linux-gnu`,
 | `libsqlite3-sys` | `0.30.1` | MIT | The rusqlite developers | <https://github.com/rusqlite/rusqlite> |
 | `linux-raw-sys` | `0.12.1` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | Dan Gohman &lt;dev@sunfishcode.online&gt; | <https://github.com/sunfishcode/linux-raw-sys> |
 | `linux-raw-sys` | `0.4.15` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | Dan Gohman &lt;dev@sunfishcode.online&gt; | <https://github.com/sunfishcode/linux-raw-sys> |
+| `lock_api` | `0.4.14` | MIT OR Apache-2.0 | Amanieu d'Antras &lt;amanieu@gmail.com&gt; | <https://github.com/Amanieu/parking_lot> |
 | `log` | `0.4.35` | MIT OR Apache-2.0 | The Rust Project Developers | <https://github.com/rust-lang/log> |
 | `memchr` | `2.8.3` | Unlicense OR MIT | Andrew Gallant &lt;jamslam@gmail.com&gt;, bluss | <https://github.com/BurntSushi/memchr> |
+| `memmap2` | `0.9.12` | MIT OR Apache-2.0 | Dan Burkert &lt;dan@danburkert.com&gt;, Yevhenii Reizner &lt;razrfalcon@gmail.com&gt;, The Contributors | <https://github.com/RazrFalcon/memmap2-rs> |
 | `miniz_oxide` | `0.8.9` | MIT OR Zlib OR Apache-2.0 | Frommi &lt;daniil.liferenko@gmail.com&gt;, oyvindln &lt;oyvindln@users.noreply.github.com&gt;, Rich Geldreich richgel99@gmail.com | <https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide> |
 | `miniz_oxide` | `0.9.1` | MIT OR Zlib OR Apache-2.0 | Frommi &lt;daniil.liferenko@gmail.com&gt;, oyvindln &lt;oyvindln@users.noreply.github.com&gt;, Rich Geldreich richgel99@gmail.com | <https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide> |
+| `nom` | `8.0.0` | MIT | contact@geoffroycouprie.com | <https://github.com/rust-bakery/nom> |
 | `once_cell` | `1.21.4` | MIT OR Apache-2.0 | Aleksey Kladov &lt;aleksey.kladov@gmail.com&gt; | <https://github.com/matklad/once_cell> |
 | `opaque-debug` | `0.3.1` | MIT OR Apache-2.0 | RustCrypto Developers | <https://github.com/RustCrypto/utils> |
 | `opus-pure` | `0.2.2` | BSD-3-Clause | The crate authors | <https://github.com/stephenberry/opus-pure> |
+| `os_pipe` | `1.2.3` | MIT | Jack O'Connor | <https://github.com/oconnor663/os_pipe.rs> |
+| `parking_lot` | `0.12.5` | MIT OR Apache-2.0 | Amanieu d'Antras &lt;amanieu@gmail.com&gt; | <https://github.com/Amanieu/parking_lot> |
+| `parking_lot_core` | `0.9.12` | MIT OR Apache-2.0 | Amanieu d'Antras &lt;amanieu@gmail.com&gt; | <https://github.com/Amanieu/parking_lot> |
 | `percent-encoding` | `2.3.2` | MIT OR Apache-2.0 | The rust-url developers | <https://github.com/servo/rust-url/> |
+| `petgraph` | `0.8.3` | MIT OR Apache-2.0 | bluss, mitchmindtree | <https://github.com/petgraph/petgraph> |
 | `pin-project-lite` | `0.2.17` | Apache-2.0 OR MIT | The crate authors | <https://github.com/taiki-e/pin-project-lite> |
 | `pkcs8` | `0.10.2` | Apache-2.0 OR MIT | RustCrypto Developers | <https://github.com/RustCrypto/formats/tree/master/pkcs8> |
 | `pkg-config` | `0.3.34` | MIT OR Apache-2.0 | Alex Crichton &lt;alex@alexcrichton.com&gt; | <https://github.com/rust-lang/pkg-config-rs> |
@@ -137,6 +155,7 @@ across the shipped native targets (`x86_64-unknown-linux-gnu`,
 | `ppv-lite86` | `0.2.21` | MIT OR Apache-2.0 | The CryptoCorrosion Contributors | <https://github.com/cryptocorrosion/cryptocorrosion> |
 | `proc-macro2` | `1.0.107` | MIT OR Apache-2.0 | David Tolnay &lt;dtolnay@gmail.com&gt;, Alex Crichton &lt;alex@alexcrichton.com&gt; | <https://github.com/dtolnay/proc-macro2> |
 | `quick-error` | `2.0.1` | MIT/Apache-2.0 | Paul Colomiets &lt;paul@colomiets.name&gt;, Colin Kiegel &lt;kiegel@gmx.de&gt; | <http://github.com/tailhook/quick-error> |
+| `quick-xml` | `0.41.0` | MIT | The crate authors | <https://github.com/tafia/quick-xml> |
 | `quote` | `1.0.47` | MIT OR Apache-2.0 | David Tolnay &lt;dtolnay@gmail.com&gt; | <https://github.com/dtolnay/quote> |
 | `rand` | `0.9.5` | MIT OR Apache-2.0 | The Rand Project Developers, The Rust Project Developers | <https://github.com/rust-random/rand> |
 | `rand_chacha` | `0.9.0` | MIT OR Apache-2.0 | The Rand Project Developers, The Rust Project Developers, The CryptoCorrosion Contributors | <https://github.com/rust-random/rand> |
@@ -152,6 +171,8 @@ across the shipped native targets (`x86_64-unknown-linux-gnu`,
 | `rustls-pki-types` | `1.15.1` | MIT OR Apache-2.0 | The crate authors | <https://github.com/rustls/pki-types> |
 | `rustls-webpki` | `0.103.16` | ISC | The crate authors | <https://github.com/rustls/webpki> |
 | `same-file` | `1.0.6` | Unlicense/MIT | Andrew Gallant &lt;jamslam@gmail.com&gt; | <https://github.com/BurntSushi/same-file> |
+| `scoped-tls` | `1.0.1` | MIT/Apache-2.0 | Alex Crichton &lt;alex@alexcrichton.com&gt; | <https://github.com/alexcrichton/scoped-tls> |
+| `scopeguard` | `1.2.0` | MIT OR Apache-2.0 | bluss | <https://github.com/bluss/scopeguard> |
 | `semver` | `1.0.28` | MIT OR Apache-2.0 | David Tolnay &lt;dtolnay@gmail.com&gt; | <https://github.com/dtolnay/semver> |
 | `serde` | `1.0.229` | MIT OR Apache-2.0 | Erick Tryzelaar &lt;erick.tryzelaar@gmail.com&gt;, David Tolnay &lt;dtolnay@gmail.com&gt; | <https://github.com/serde-rs/serde> |
 | `serde_core` | `1.0.229` | MIT OR Apache-2.0 | Erick Tryzelaar &lt;erick.tryzelaar@gmail.com&gt;, David Tolnay &lt;dtolnay@gmail.com&gt; | <https://github.com/serde-rs/serde> |
@@ -164,7 +185,9 @@ across the shipped native targets (`x86_64-unknown-linux-gnu`,
 | `simd-adler32` | `0.3.10` | MIT | Marvin Countryman &lt;me@maar.vin&gt; | <https://github.com/mcountryman/simd-adler32> |
 | `slab` | `0.4.12` | MIT | Carl Lerche &lt;me@carllerche.com&gt; | <https://github.com/tokio-rs/slab> |
 | `smallvec` | `1.16.5` | MIT OR Apache-2.0 | The Servo Project Developers | <https://github.com/servo/rust-smallvec> |
+| `smithay-client-toolkit` | `0.19.2` | MIT | Elinor Berger &lt;elinor@safaradeg.net&gt;, i509VCB &lt;mail@i509.me&gt;, Ashley Wulber &lt;ashley@system76.com&gt; | <https://github.com/smithay/client-toolkit> |
 | `smol_str` | `0.2.2` | MIT OR Apache-2.0 | Aleksey Kladov &lt;aleksey.kladov@gmail.com&gt; | <https://github.com/rust-analyzer/smol_str> |
+| `socket2` | `0.6.5` | MIT OR Apache-2.0 | Alex Crichton &lt;alex@alexcrichton.com&gt;, Thomas de Zeeuw &lt;thomasdezeeuw@gmail.com&gt; | <https://github.com/rust-lang/socket2> |
 | `spki` | `0.7.3` | Apache-2.0 OR MIT | RustCrypto Developers | <https://github.com/RustCrypto/formats/tree/master/spki> |
 | `subtle` | `2.6.1` | BSD-3-Clause | Isis Lovecruft &lt;isis@patternsinthevoid.net&gt;, Henry de Valence &lt;hdevalence@hdevalence.ca&gt; | <https://github.com/dalek-cryptography/subtle> |
 | `syn` | `2.0.119` | MIT OR Apache-2.0 | David Tolnay &lt;dtolnay@gmail.com&gt; | <https://github.com/dtolnay/syn> |
@@ -175,6 +198,7 @@ across the shipped native targets (`x86_64-unknown-linux-gnu`,
 | `thiserror-impl` | `2.0.21` | MIT OR Apache-2.0 | David Tolnay &lt;dtolnay@gmail.com&gt; | <https://github.com/dtolnay/thiserror> |
 | `tracing` | `0.1.44` | MIT | Eliza Weisman &lt;eliza@buoyant.io&gt;, Tokio Contributors &lt;team@tokio.rs&gt; | <https://github.com/tokio-rs/tracing> |
 | `tracing-core` | `0.1.36` | MIT | Tokio Contributors &lt;team@tokio.rs&gt; | <https://github.com/tokio-rs/tracing> |
+| `tree_magic_mini` | `3.2.2` | MIT | Matt Brubeck &lt;mbrubeck@limpet.net&gt;, Allison Hancock &lt;aahancoc@umich.edu&gt; | <https://github.com/mbrubeck/tree_magic/> |
 | `tungstenite` | `0.26.2` | MIT OR Apache-2.0 | Alexey Galakhov, Daniel Abramov | <https://github.com/snapview/tungstenite-rs> |
 | `typenum` | `1.20.1` | MIT OR Apache-2.0 | The crate authors | <https://github.com/paholg/typenum> |
 | `unicode-ident` | `1.0.27` | (MIT OR Apache-2.0) AND Unicode-3.0 | David Tolnay &lt;dtolnay@gmail.com&gt; | <https://github.com/dtolnay/unicode-ident> |
@@ -187,6 +211,15 @@ across the shipped native targets (`x86_64-unknown-linux-gnu`,
 | `utf8-zero` | `0.8.1` | MIT OR Apache-2.0 | Simon Sapin &lt;simon.sapin@exyr.org&gt;, Martin Algesten &lt;martin@algesten.se&gt; | <https://github.com/algesten/utf8-zero> |
 | `vcpkg` | `0.2.15` | MIT/Apache-2.0 | Jim McGrath &lt;jimmc2@gmail.com&gt; | <https://github.com/mcgoo/vcpkg-rs> |
 | `version_check` | `0.9.5` | MIT/Apache-2.0 | Sergio Benitez &lt;sb@sergio.bz&gt; | <https://github.com/SergioBenitez/version_check> |
+| `wayland-backend` | `0.3.17` | MIT | Elinor Berger &lt;elinor@safaradeg.net&gt; | <https://github.com/smithay/wayland-rs> |
+| `wayland-client` | `0.31.15` | MIT | Elinor Berger &lt;elinor@safaradeg.net&gt; | <https://github.com/smithay/wayland-rs> |
+| `wayland-csd-frame` | `0.3.0` | MIT | Kirill Chibisov &lt;contact@kchibisov.com&gt; | <https://github.com/rust-windowing/wayland-csd-frame> |
+| `wayland-cursor` | `0.31.14` | MIT | Elinor Berger &lt;elinor@safaradeg.net&gt; | <https://github.com/smithay/wayland-rs> |
+| `wayland-protocols` | `0.32.13` | MIT | Elinor Berger &lt;elinor@safaradeg.net&gt; | <https://github.com/smithay/wayland-rs> |
+| `wayland-protocols-plasma` | `0.3.12` | MIT | Elinor Berger &lt;elinor@safaradeg.net&gt; | <https://github.com/smithay/wayland-rs> |
+| `wayland-protocols-wlr` | `0.3.12` | MIT | Elinor Berger &lt;elinor@safaradeg.net&gt; | <https://github.com/smithay/wayland-rs> |
+| `wayland-scanner` | `0.31.11` | MIT | Elinor Berger &lt;elinor@safaradeg.net&gt; | <https://github.com/smithay/wayland-rs> |
+| `wayland-sys` | `0.31.11` | MIT | Elinor Berger &lt;elinor@safaradeg.net&gt; | <https://github.com/smithay/wayland-rs> |
 | `webpki-roots` | `0.26.11` | CDLA-Permissive-2.0 | The crate authors | <https://github.com/rustls/webpki-roots> |
 | `webpki-roots` | `1.0.11` | CDLA-Permissive-2.0 | The crate authors | <https://github.com/rustls/webpki-roots> |
 | `winapi-util` | `0.1.11` | Unlicense OR MIT | Andrew Gallant &lt;jamslam@gmail.com&gt; | <https://github.com/BurntSushi/winapi-util> |
@@ -200,10 +233,12 @@ across the shipped native targets (`x86_64-unknown-linux-gnu`,
 | `windows_x86_64_gnu` | `0.52.6` | MIT OR Apache-2.0 | Microsoft | <https://github.com/microsoft/windows-rs> |
 | `windows_x86_64_msvc` | `0.52.6` | MIT OR Apache-2.0 | Microsoft | <https://github.com/microsoft/windows-rs> |
 | `winit` | `0.30.13` | Apache-2.0 | The winit contributors, Pierre Krieger &lt;pierre.krieger1708@gmail.com&gt; | <https://github.com/rust-windowing/winit> |
+| `wl-clipboard-rs` | `0.9.5` | MIT OR Apache-2.0 | Ivan Molodetskikh &lt;yalterz@gmail.com&gt; | <https://github.com/YaLTeR/wl-clipboard-rs> |
 | `x11-dl` | `2.21.0` | MIT | daggerbot &lt;daggerbot@gmail.com&gt;, Erle Pereira &lt;erle@erlepereira.com&gt;, AltF02 &lt;contact@altf2.dev&gt; | <https://github.com/AltF02/x11-rs.git> |
 | `x11rb` | `0.13.2` | MIT OR Apache-2.0 | Uli Schlachter &lt;psychon@znc.in&gt;, Eduardo Sánchez Muñoz &lt;eduardosm-dev@e64.io&gt;, notgull &lt;jtnunley01@gmail.com&gt; | <https://github.com/psychon/x11rb> |
 | `x11rb-protocol` | `0.13.2` | MIT OR Apache-2.0 | Uli Schlachter &lt;psychon@znc.in&gt;, Eduardo Sánchez Muñoz &lt;eduardosm-dev@e64.io&gt;, notgull &lt;jtnunley01@gmail.com&gt; | <https://github.com/psychon/x11rb> |
 | `x25519-dalek` | `2.0.1` | BSD-3-Clause | Isis Lovecruft &lt;isis@patternsinthevoid.net&gt;, DebugSteven &lt;debugsteven@gmail.com&gt;, Henry de Valence &lt;hdevalence@hdevalence.ca&gt; | <https://github.com/dalek-cryptography/curve25519-dalek/tree/main/x25519-dalek> |
+| `xcursor` | `0.3.11` | MIT | Samuele Esposito | <https://github.com/esposm03/xcursor-rs> |
 | `xkbcommon-dl` | `0.4.2` | MIT | Francesca Frangipane &lt;francesca@comfysoft.net&gt; | <https://github.com/rust-windowing/xkbcommon-dl> |
 | `xkeysym` | `0.2.1` | MIT OR Apache-2.0 OR Zlib | John Nunley &lt;jtnunley01@gmail.com&gt; | <https://github.com/notgull/xkeysym> |
 | `xml-rs` | `0.8.29` | MIT | Vladimir Matveev &lt;vmatveev@citrine.cc&gt; | <https://github.com/kornelski/xml-rs> |
@@ -213,6 +248,72 @@ across the shipped native targets (`x86_64-unknown-linux-gnu`,
 | `zlib-rs` | `0.6.8` | Zlib | The crate authors | <https://github.com/trifectatechfoundation/zlib-rs> |
 | `zmij` | `1.0.23` | MIT | David Tolnay &lt;dtolnay@gmail.com&gt; | <https://github.com/dtolnay/zmij> |
 <!-- END CARGO METADATA CRATES -->
+
+<!-- BEGIN LIBVPX -->
+## libvpx 1.17.0
+
+The native movie decoder statically links libvpx (BSD-3-Clause).
+Source: <https://github.com/webmproject/libvpx/tree/v1.17.0>.
+
+```text
+Copyright (c) 2010, The WebM Project authors. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+  * Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+
+  * Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions and the following disclaimer in
+    the documentation and/or other materials provided with the
+    distribution.
+
+  * Neither the name of Google, nor the WebM Project, nor the names
+    of its contributors may be used to endorse or promote products
+    derived from this software without specific prior written
+    permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+```text
+Additional IP Rights Grant (Patents)
+------------------------------------
+
+"These implementations" means the copyrightable works that implement the WebM
+codecs distributed by Google as part of the WebM Project.
+
+Google hereby grants to you a perpetual, worldwide, non-exclusive, no-charge,
+royalty-free, irrevocable (except as stated in this section) patent license to
+make, have made, use, offer to sell, sell, import, transfer, and otherwise
+run, modify and propagate the contents of these implementations of WebM, where
+such license applies only to those patent claims, both currently owned by
+Google and acquired in the future, licensable by Google that are necessarily
+infringed by these implementations of WebM. This grant does not include claims
+that would be infringed only as a consequence of further modification of these
+implementations. If you or your agent or exclusive licensee institute or order
+or agree to the institution of patent litigation or any other patent
+enforcement activity against any entity (including a cross-claim or
+counterclaim in a lawsuit) alleging that any of these implementations of WebM
+or any code incorporated within any of these implementations of WebM
+constitute direct or contributory patent infringement, or inducement of
+patent infringement, then any patent rights granted to you under this License
+for these implementations of WebM shall terminate as of the date such
+litigation is filed.
+```
+<!-- END LIBVPX -->
 
 ## Tools bundled in desktop packages
 

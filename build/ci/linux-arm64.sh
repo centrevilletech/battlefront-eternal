@@ -43,6 +43,7 @@ base_test_crates=(
 wave_crates=(
   bfe-interface
   bfe-shell
+  bfe-video
   bfe-battle-ui
   bfe-desktop
   bfe-server

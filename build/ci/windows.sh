@@ -34,6 +34,7 @@ test_crates=(
 optional_crates=(
   bfe-interface
   bfe-shell
+  bfe-video
   bfe-battle-ui
   bfe-desktop
   bfe-server

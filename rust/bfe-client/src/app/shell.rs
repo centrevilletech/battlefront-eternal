@@ -584,6 +584,10 @@ impl ServerBrowserService for LiveServerBrowser {
 /// Front-end renderer and controller for the startup loader, click gate, shell menus,
 /// and `bfe-interface` options pages.
 pub struct ShellHost {
+    pub movies: bfe_shell::movies::MoviePlayer,
+    pub preview_movies: bfe_shell::movies::MoviePlayer,
+    movie_texture: bfe_shell::movie_gpu::MovieTexture,
+    preview_texture: bfe_shell::movie_gpu::MovieTexture,
     /// Offscreen RGBA8 + Depth/Stencil framebuffer target.
     pub canvas: Canvas,
     /// `bfe-render` GL core owning compiled shader programs and textures.
@@ -658,7 +662,13 @@ impl ShellHost {
         let font_tex = Self::upload_rgba(&core.gl, fw as i32, fh as i32, &font_rgba)?;
         core.add_texture(font_tex);
 
+        let movie_texture = bfe_shell::movie_gpu::MovieTexture::new(make_gl())?;
+        let preview_texture = bfe_shell::movie_gpu::MovieTexture::new(make_gl())?;
+        let movie_handle = core.add_texture(movie_texture.texture);
+        let preview_handle = core.add_texture(preview_texture.texture);
         let textures = ShellTextures {
+            movie: movie_handle,
+            movie_preview: preview_handle,
             solid: 1,
             by_name: HashMap::new(),
             loading_stages: Vec::new(),
@@ -692,6 +702,10 @@ impl ShellHost {
             LiveServerBrowser::new(server_target, settings.player.privacy_notice_accepted);
 
         Ok(Self {
+            movies: Default::default(),
+            preview_movies: Default::default(),
+            movie_texture,
+            preview_texture,
             canvas,
             core,
             hud,
@@ -761,6 +775,8 @@ impl ShellHost {
         }
 
         let mut textures = ShellTextures {
+            movie: self.textures.movie,
+            movie_preview: self.textures.movie_preview,
             solid: 1,
             by_name: HashMap::new(),
             loading_stages: Vec::new(),
@@ -1161,13 +1177,30 @@ impl ShellHost {
             self.app.gate_elapsed += dt;
             self.app.pulse_elapsed += dt;
         }
+        let root = self
+            .content_dir
+            .as_deref()
+            .unwrap_or_else(|| Path::new("."));
+        self.movies.update(root, dt);
+        self.preview_movies.update(root, dt);
+        if std::mem::take(&mut self.movies.intro_ended) {
+            let (_, events) = self.app.media.finish_intro(None);
+            self.app.media_events.extend(events);
+        }
+        self.movie_texture.draw(&self.movies, self.size);
+        let rect = bfe_shell::media::preview_rect(self.size[0] as f64, self.size[1] as f64);
+        self.preview_texture.draw(
+            &self.preview_movies,
+            [rect[2].max(1.) as i32, rect[3].max(1.) as i32],
+        );
+        self.core.state.reset();
         if self.is_interface_options_active() {
             // Render `OPTIONS` and its sub-pages using `bfe_interface::ClassicTheme::paint_stack`.
             self.sync_options_controller(settings);
             if dt.is_finite() && dt > 0.0 {
                 self.options_ctrl.stack.update(dt);
             }
-            let bg_tex = self.interface_surface.options_backdrop();
+            let bg_tex = self.textures.movie;
             ClassicTheme::paint_stack(
                 &mut self.batch,
                 &self.interface_fonts,
@@ -1209,6 +1242,72 @@ impl ShellHost {
     ) -> Option<ShellTransition> {
         let sounds = self.app.drain_sounds();
         let media = self.app.drain_media_events();
+        let root = self
+            .content_dir
+            .as_deref()
+            .unwrap_or_else(|| Path::new("."));
+        for event in &media {
+            use bfe_shell::{data::ScreenMovie, media::MediaEvent};
+            match event {
+                MediaEvent::PlayMovie {
+                    intro_url,
+                    loop_url,
+                    play_intro,
+                } => {
+                    let find = |url: &Option<String>| {
+                        url.as_ref().and_then(|url| {
+                            self.app
+                                .data
+                                .movies
+                                .values()
+                                .flat_map(|m| [m.intro.as_ref(), m.loop_clip.as_ref()])
+                                .flatten()
+                                .find(|clip| clip.url == *url)
+                                .cloned()
+                        })
+                    };
+                    self.movies.play(
+                        root,
+                        ScreenMovie {
+                            intro: find(intro_url),
+                            loop_clip: find(loop_url),
+                        },
+                        *play_intro,
+                        0.,
+                    );
+                    self.preview_movies.play(
+                        root,
+                        ScreenMovie {
+                            intro: None,
+                            loop_clip: None,
+                        },
+                        false,
+                        0.,
+                    );
+                }
+                MediaEvent::PreviewMovie { loop_url, delay } => {
+                    let clip = loop_url.as_ref().and_then(|url| {
+                        self.app
+                            .data
+                            .maps
+                            .iter()
+                            .filter_map(|m| m.fly.as_ref())
+                            .find(|c| c.url == *url)
+                            .cloned()
+                    });
+                    self.preview_movies.play(
+                        root,
+                        ScreenMovie {
+                            intro: None,
+                            loop_clip: clip,
+                        },
+                        false,
+                        *delay,
+                    );
+                }
+                _ => (),
+            }
+        }
         let _ = settings.capture_from_shell_app(&self.app);
 
         if !sounds.is_empty() || !media.is_empty() {
