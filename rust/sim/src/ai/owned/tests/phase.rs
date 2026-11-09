@@ -2000,6 +2000,12 @@ fn native_combat_row_scope_reads_and_writes_one_canonical_body() {
     rows.state.controllers.write(&rows.state.entities,controller).unwrap().unit=None;
     assert_eq!(output.publish(rows.state,&rows.w.sim.store,rows.w.fleet.seats_owner(),rows.buildings.rows_in(crate::battle::f4::live_ref(&rows.w.battle)))[1],0);
     assert!(rows.state.births.read(gun).is_none());
+    let retained = rows.state.mounts
+        .lease(&rows.w.sim.store, &rows.state.entities, lease)
+        .unwrap();
+    assert!(retained.released);
+    assert_eq!(retained.controllable, None);
+    assert_eq!(retained.vehicle, Some(raw_hull));
     ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
     for _ in 0..1000 {
         rows.w.sim.store.seat_lease.get_mut(lease).unwrap().released=false;
@@ -2012,6 +2018,11 @@ fn native_combat_row_scope_reads_and_writes_one_canonical_body() {
         rows.w.fleet.seats_owner().hulls.controls.remove(&bfe_sim::seats::lease::control_key(next));
         let retired=output.publish(rows.state,&rows.w.sim.store,rows.w.fleet.seats_owner(),rows.buildings.rows_in(crate::battle::f4::live_ref(&rows.w.battle)));output.acknowledge(retired[2]);
         assert!(rows.state.births.read(next).is_none());
+        assert_eq!(
+            rows.state.mounts.lease(&rows.w.sim.store, &rows.state.entities, lease)
+                .unwrap().controllable,
+            None
+        );
     }
     COUNTING.with(|c|c.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
     rows.state.control_views=output;

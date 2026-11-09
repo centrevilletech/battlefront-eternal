@@ -164,8 +164,19 @@ pub fn admit_with_rows(world: &mut World, files: &dyn Files, options: &Options) 
 /// `admit_with_rows` keeping the rows in the caller's buffer, so a driver
 /// still has the calls dispatched before a failure.
 pub fn admit_into(world: &mut World, files: &dyn Files, options: &Options, rows: &mut Rows) -> Result<Admitted, AdmitError> {
+    admit_policy(world, files, options, rows, false)
+}
+
+/// Menu launches keep their admitted player parked until class/post selection.
+pub fn admit_spawn_screen(world: &mut World, files: &dyn Files, options: &Options) -> Result<Admitted, AdmitError> {
+    admit_policy(world, files, options, &mut Rows::default(), true)
+}
+
+fn admit_policy(world: &mut World, files: &dyn Files, options: &Options, rows: &mut Rows, screen: bool) -> Result<Admitted, AdmitError> {
     let loader = bfe_content::battle::Loader::new(files);
-    let battle = bfe_content::battle::Battle::load(&loader, &options.map, &options.query())
+    let mut query = options.query();
+    if screen { query.push_str("&spawnscreen=1"); }
+    let battle = bfe_content::battle::Battle::load(&loader, &options.map, &query)
         .map_err(|message| AdmitError::Content { stage: Stage::Content, message })?;
     let content = bfe_content::content::Content::build(battle)
         .map_err(|message| AdmitError::Content { stage: Stage::Content, message })?;

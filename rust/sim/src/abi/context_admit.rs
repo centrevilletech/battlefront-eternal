@@ -54,6 +54,13 @@ impl Context {
             .ok_or_else(|| Error::host("foreign unit row capacity exceeded"))
     }
 
+    /// Admit a menu-selected battle with the native spawn screen policy.
+    pub fn world_admit_spawn_screen(&self, files: &dyn Files, options: &Options) -> Result<Admitted, Error> {
+        let admitted = self.owned(|w| admit::admit_spawn_screen(w, files, options))?.map_err(admit_error)?;
+        self.world_host_admitted_random(options.seed, admitted.handles.player)?;
+        Ok(admitted)
+    }
+
     /// Builds the battle's owners from `files` (the content folder, or the
     /// recording's bytes) for `options`, then admits the local human and the
     /// publication host. One call a battle, before `world_step_init`.

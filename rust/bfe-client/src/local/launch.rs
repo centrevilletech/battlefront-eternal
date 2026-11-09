@@ -28,6 +28,10 @@ pub struct Prepared {
 
 impl Prepared {
     pub fn new(options: &Options) -> Result<Self, String> {
+        Self::with_spawn_screen(options, false)
+    }
+
+    pub fn with_spawn_screen(options: &Options, spawn_screen: bool) -> Result<Self, String> {
         let world_options = options.world()?;
         if !bfe_sim::world::admit::provided() {
             return Err(super::setup::describe(bfe_sim::abi::context::Error::new(
@@ -36,7 +40,7 @@ impl Prepared {
             )));
         }
         let files = DirFiles::new(&options.root);
-        let source = NativeSource { files: &files, options: world_options };
+        let source = NativeSource { spawn_screen, files: &files, options: world_options };
         let context = Context::new();
         // Admission refuses before creating GL/audio devices when construction is
         // unavailable. Dispose explicitly so even a retained diagnostic alias

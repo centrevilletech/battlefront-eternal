@@ -972,6 +972,8 @@ impl BattleController {
         // Drain the initial tick-0 publication so `replicas.hud` has the mission's
         // authoritative command posts, unit classes, and reinforcement counts.
         world.poll_publications(&mut receiver, 0.0)?;
+        eprintln!("local welcome received: welcomed={} packets={} corrections={} alive={}",
+            receiver.welcomed, receiver.packets, receiver.corrections, receiver.own.alive);
         replicas
             .hud
             .frame(&mut scene.bridge, &receiver, &replay, 0.0);
@@ -1156,6 +1158,7 @@ impl BattleController {
             spawn_ctrl.view.assets = BattleUiAssets::from_surface(&surface);
         }
         spawn_ctrl.open(&mut spawn_port, OpenReason::Start, height);
+        eprintln!("spawn screen shown: initial class and post selection");
 
         let mut scoreboard_port = LiveScoreboardPort::new(is_online, era);
         for (header, team) in scoreboard_port.inner.teams.iter_mut().zip(&spawn_port.teams) {
@@ -1295,6 +1298,7 @@ impl BattleController {
     ///   `request_spawn(class_reg_id, post_reg_id)` or `request_suicide` via `client.sender`.
     pub fn flush_spawn_requests(&mut self) {
         if let Some(choice) = self.spawn_port.pending_spawn.take() {
+            eprintln!("spawn requested: team={} class={} post={}", choice.team, choice.class_name, choice.post_name);
             self.first_life_spawned = true;
             match &mut self.authority {
                 BattleAuthority::InstantAction { world, .. } => {
@@ -1548,6 +1552,11 @@ impl BattleController {
                 world.set_paused(self.pause_menu.is_open);
                 world.set_suspended(!focused);
                 world.poll_publications(receiver, *now_ms)?;
+                if self.frames == 60 {
+                    eprintln!("local HUD publications: focused={} welcomed={} packets={} corrections={} alive={} active={} visible={}",
+                        focused, receiver.welcomed, receiver.packets, receiver.corrections, receiver.own.alive,
+                        receiver.active().count(), self.scene.online.as_ref().map_or(0, |r| r.visible));
+                }
                 sender.feedback(receiver);
                 receiver.clock.advance(dt).map_err(str::to_string)?;
 
@@ -1623,6 +1632,12 @@ impl BattleController {
                     return Ok(Some(BattleTransition::LeaveOnline { reason: Some(err) }));
                 }
                 self.scene.online_frame(client, dt);
+                if self.frames == 60 {
+                    eprintln!("online HUD publications: welcomed={} packets={} corrections={} alive={} active={} visible={}",
+                        client.receiver.welcomed, client.receiver.packets, client.receiver.corrections,
+                        client.receiver.own.alive, client.receiver.active().count(),
+                        self.scene.online.as_ref().map_or(0, |r| r.visible));
+                }
                 v
             }
         };
@@ -1654,6 +1669,13 @@ impl BattleController {
             }
         };
 
+        // Admission may already publish a living first body before the user
+        // commits the screen. A real click must close it even without a new
+        // false-to-true alive edge (the scripted driver used to close it itself).
+        if own_alive && self.first_life_spawned && self.spawn_ctrl.is_open() {
+            eprintln!("spawn answer: authoritative player alive; closing spawn screen");
+            self.spawn_ctrl.close(&mut self.spawn_port);
+        }
         if own_alive && !self.was_alive {
             self.was_alive = true;
             self.player_spawns += 1;

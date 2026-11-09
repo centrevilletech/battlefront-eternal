@@ -381,6 +381,7 @@ dependencies = [
  "audio-control",
  "audio-decode",
  "bfe-content-native",
+ "bfe-interface",
  "bfe-online",
  "bfe-render",
  "content",

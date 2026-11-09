@@ -417,8 +417,10 @@ impl ClassicSpawnView {
         hud_input[H::HIDE_TEAMS] = 0.0;
         let own = model.team;
         let foe = if own == 1 { 2 } else { 1 };
-        hud_input[H::OWN] = own as f64;
-        hud_input[H::FOE] = foe as f64;
+        // HUD OWN/FOE are reinforcement counts, not team identifiers.
+        // Team ids here made a healthy spawn screen misleadingly show 1 / 2.
+        hud_input[H::OWN] = port.team_facts(own).map_or(0.0, |t| t.reinforcements as f64);
+        hud_input[H::FOE] = port.team_facts(foe).map_or(0.0, |t| t.reinforcements as f64);
         hud_input[H::FLIP] = self.flip;
 
         // Emit up to 128 active selection rings into the HUD shared-memory `RINGS` table

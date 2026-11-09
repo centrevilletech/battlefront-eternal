@@ -80,6 +80,7 @@ impl Admitted {
 }
 
 pub struct NativeSource<'a> {
+    pub spawn_screen: bool,
     pub files: &'a dyn Files,
     pub options: admit::Options,
 }
@@ -96,10 +97,13 @@ impl Source for NativeSource<'_> {
     // Propagate it unchanged before making a window or loading display assets;
     // a launch never substitutes a recording or another simulation host.
     fn admit(&self, context: &Context) -> Result<Admitted, String> {
-        let world = context
-            .world_admit(self.files, &self.options)
-            .map_err(describe)?;
+        let world = if self.spawn_screen {
+            context.world_admit_spawn_screen(self.files, &self.options)
+        } else {
+            context.world_admit(self.files, &self.options)
+        }.map_err(describe)?;
         let mut admitted = Admitted::from_world(world, &self.options)?;
+        if self.spawn_screen { admitted.query.push_str("&spawnscreen=1"); }
         let (explosions, content) = bfe_sim::host::content_tables_files(
             context,
             self.files,
