@@ -255,7 +255,7 @@ export component GameUi inherits Window {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
         }
 
-        MultiplayerScreen {
+        if root.shell-visible && !root.gameplay: MultiplayerScreen {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
         }
 
@@ -323,15 +323,15 @@ export component GameUi inherits Window {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
         }
 
-        HostDialogModal {
+        if root.shell-visible && !root.gameplay: HostDialogModal {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
         }
 
-        DirectConnectModal {
+        if root.shell-visible && !root.gameplay: DirectConnectModal {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
         }
 
-        OnlineNoticeModal {
+        if root.shell-visible && !root.gameplay: OnlineNoticeModal {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
         }
 

@@ -562,6 +562,8 @@ impl SlintHost {
         self.set_shell_visible(visible);
         super::slint_ia::sync_ia(&self.root, &self.ia_actions, shell, visible);
         if !visible {
+            // The shell's multiplayer screens are not on screen while a battle loads, runs or is hosted.
+            self.hide_mp();
             return;
         }
         let (menu_theme, theme_idx) = match shell.app.settings.menu_theme.as_str() {

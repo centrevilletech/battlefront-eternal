@@ -349,6 +349,22 @@ impl SlintHost {
         self.root.global::<MpModel>().get_any_input_focused()
     }
 
+    /// The shell is not drawn (a battle is loading, running or being hosted): none of the multiplayer
+    /// screens or dialogs may stay on, and their state starts fresh the next time the shell shows.
+    pub(super) fn hide_mp(&mut self) {
+        let mp = self.root.global::<MpModel>();
+        mp.set_browser_active(false);
+        mp.set_modal_open(false);
+        mp.set_host_active(false);
+        mp.set_direct_active(false);
+        mp.set_notice_active(false);
+        mp.set_notice_busy(false);
+        mp.set_notice_status_text("".into());
+        mp.set_notice_status_error(false);
+        mp.set_has_selected_server(false);
+        mp.set_has_preview_image(false);
+    }
+
     pub(super) fn sync_mp(&mut self, shell: &mut ShellHost) {
         let current = shell.app.current_screen();
         let top_non_popup = if current == ScreenId::Popup {
