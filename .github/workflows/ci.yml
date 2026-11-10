@@ -13,9 +13,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request replaces its running check. A run on a branch always finishes and
+# the next one waits, so a commit whose run started gets a result on every platform.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
