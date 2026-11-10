@@ -541,7 +541,9 @@ export component BattlePauseScreen inherits Rectangle {
             clicked => { BattleModel.theme-picker-open = false; }
         }
 
-        ThemePicker {
+        // Under the confirmation popup the picker is drawn sharp on the modal layer instead (BattleModalScreen),
+        // as the browser keeps it above the blurred page.
+        if BattleModel.pause-subscreen != "confirm" : ThemePicker {
             x: parent.width - Theme.bfe-edge - self.width;
             y: 18px;
             current-index <=> BattleModel.theme-index;
@@ -564,6 +566,14 @@ export component BattleModalScreen inherits Rectangle {
         TouchArea {
             width: 100%;
             height: 100%;
+        }
+
+        ThemePicker {
+            x: parent.width - Theme.bfe-edge - self.width;
+            y: 18px;
+            current-index <=> BattleModel.theme-index;
+            open <=> BattleModel.theme-picker-open;
+            theme-selected(idx) => { BattleModel.pause-theme-changed(idx); }
         }
 
         PopupBox {

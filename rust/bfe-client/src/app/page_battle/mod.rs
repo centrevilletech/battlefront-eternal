@@ -32,6 +32,8 @@ pub(super) struct PageBattle {
     pulse: f64,
     walker: bool,
     strength: f64,
+    // A cut to another shot dips the battle behind to dark, fading at 3 per second (stage.js changed("cut")).
+    dip: f64,
     pub age: f64,
     pub class_age: f64,
     pub team_age: f64,
@@ -85,6 +87,7 @@ impl PageBattle {
             pulse: 1.,
             walker: false,
             strength: 0.,
+            dip: 0.,
             age: 0.,
             class_age: 0.,
             team_age: 0.,
@@ -141,13 +144,15 @@ impl PageBattle {
         };
         let input = &mut hud.input;
         input[H::VIEWER_TEAM] = team as f64;
+        // The HUD's relation words are 0 neutral, 1 friendly and 2 enemy (radar.rs color_relation); the
+        // map icons are tinted by index, so an enemy post must read 2 to come out red.
         let relation = |other: f64| {
             if other == 0. {
                 0.
             } else if other == team as f64 {
                 1.
             } else {
-                -1.
+                2.
             }
         };
         for other in 0..MAX_TEAMS {
@@ -255,6 +260,10 @@ impl PageBattle {
         self.building += dt;
         self.pulse = (self.pulse - dt * 1.6).max(0.);
         self.shot = self.director.update(dt);
+        if self.director.take_cut() && self.strength > 0.5 && theme != "bf1" {
+            self.dip = 1.;
+        }
+        self.dip = (self.dip - dt * 3.).max(0.);
         let look = BattleLook::new(theme).index;
         if !self.framed || previous_layout != self.layout || self.framing_look != look {
             self.rig.frame(self.layout, theme == "bf2");
@@ -403,6 +412,7 @@ impl PageBattle {
             aspect,
             look.index,
             self.strength,
+            self.dip,
         );
         unsafe {
             scene.bridge.r.core.gl.depth_mask(true);
@@ -466,20 +476,47 @@ impl PageBattle {
                 x,
                 y,
                 *height,
+                // The HUD's relation colours (GREEN, RED, LIGHT_GRAY in src/hud.js), as the browser's pins take
+                // them from hud.postColor.
                 if own {
-                    [0.2, 1., 0.2, 1.]
+                    [32. / 255., 223. / 255., 32. / 255., 1.]
+                } else if post.owner == 0 {
+                    [192. / 255., 192. / 255., 192. / 255., 1.]
                 } else {
-                    [1., 0.2, 0.2, 1.]
+                    [223. / 255., 32. / 255., 32. / 255., 1.]
                 },
             );
         }
         let sides = &port.teams;
+        // The other team's emblem wakes (larger, opaque, spinning the other way) while the pointer is over
+        // its plate or emblem and the player may switch to it (view.js hoverTeam / woken).
+        let woken = if model.can_switch_teams(port) {
+            let l = self.layout;
+            let boxed = (l.height * 0.074).clamp(46., 80.) + l.width * 0.007;
+            (0..2).find(|&i| {
+                let plate = l.teams[i];
+                let (left, right) = if i == 0 {
+                    (plate[0] - boxed, plate[2])
+                } else {
+                    (plate[0], plate[2] + boxed)
+                };
+                i as u8 + 1 != model.team
+                    && self.cursor[0] >= left
+                    && self.cursor[0] <= right
+                    && self.cursor[1] >= plate[1]
+                    && self.cursor[1] <= plate[3]
+            })
+        } else {
+            None
+        };
         self.gpu.logos(
             &mut scene.bridge,
             &self.rig,
             self.layout,
             model.team,
             self.logo_spin,
+            self.logo_swap / 0.4,
+            woken,
             [sides[0].side.as_str(), sides[1].side.as_str()],
         );
         scene.bridge.r.core.state.reset();

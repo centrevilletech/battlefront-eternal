@@ -329,7 +329,15 @@ impl Gpu {
         bridge.r.core.state.reset();
         bridge.r.interface.draw(&mut bridge.r.core, count);
     }
-    pub fn before(&self, bridge: &mut Bridge, rig: &Rig, aspect: f64, look: usize, strength: f64) {
+    pub fn before(
+        &self,
+        bridge: &mut Bridge,
+        rig: &Rig,
+        aspect: f64,
+        look: usize,
+        strength: f64,
+        dip: f64,
+    ) {
         let mut count = 0;
         let identity = Matrix4::default();
         let tint = if look == 2 {
@@ -356,7 +364,10 @@ impl Gpu {
             let mut l = self.vignette.look;
             l[L::STRENGTH] = strength;
             l[L::ASPECT] = aspect;
-            l[L::CENTER..L::CENTER + 2].copy_from_slice(&[0.5, 0.42]);
+            let pivot = rig.pivot_clip();
+            l[L::CENTER..L::CENTER + 2]
+                .copy_from_slice(&[(pivot[0] + 1.) * 0.5, (pivot[1] + 1.) * 0.5]);
+            l[L::DIP] = dip * strength;
             l[L::SHADE..L::SHADE + 3].copy_from_slice(&if look == 2 {
                 [2. / 255., 3. / 255., 6. / 255.]
             } else {
@@ -374,7 +385,12 @@ impl Gpu {
             floor.scale(&V::new(7.5, 7.5, 7.5));
             floor.elements[13] = -0.005;
             let mut l = self.floor.look;
-            l[L::COLOR..L::COLOR + 3].copy_from_slice(&tint);
+            // The looks' --bfe-spawn-floor: rgb(255,150,50) for Eternal, rgb(110,160,255) for BF2.
+            l[L::COLOR..L::COLOR + 3].copy_from_slice(&if look == 2 {
+                [1., 150. / 255., 50. / 255.]
+            } else {
+                [110. / 255., 160. / 255., 1.]
+            });
             l[L::TIME] = rig.time;
             l[L::STRENGTH] = strength;
             self.floor.simple(
@@ -611,6 +627,8 @@ impl Gpu {
         l: bfe_shell::page::SpawnLayout,
         own: u8,
         spin: f64,
+        grow: f64,
+        woken: Option<usize>,
         sides: [&str; 2],
     ) {
         let mut count = 0;
@@ -644,15 +662,27 @@ impl Gpu {
             };
             let picked = i as u8 + 1 == own;
             let plate = l.teams[i];
-            let size = (l.height * 0.074).clamp(46., 80.) * if picked { 1. } else { 0.8 };
+            // The emblem's box beside its plate; the model fills it, the other team's smaller, and both grow
+            // in over the swap (view.js renderAfter: size * (own ? 1 : 0.8) * (0.8 + 0.2 * min(t, 1))).
+            let boxed = (l.height * 0.074).clamp(46., 80.);
+            let awake = woken == Some(i);
+            let size = boxed
+                * if picked {
+                    1.
+                } else if awake {
+                    0.92
+                } else {
+                    0.8
+                }
+                * (0.8 + 0.2 * grow.min(1.));
             let x = if i == 0 {
-                plate[0] - l.width * 0.007 - size * 0.5
+                plate[0] - l.width * 0.007 - boxed * 0.5
             } else {
-                plate[2] + l.width * 0.007 + size * 0.5
+                plate[2] + l.width * 0.007 + boxed * 0.5
             };
             let y = (plate[1] + plate[3]) * 0.5;
             let mut model = Matrix4::default();
-            model.make_rotation_y(spin * if picked { 1. } else { -0.6 });
+            model.make_rotation_y(spin * if picked { 1. } else if awake { -2.5 } else { -0.6 });
             let size = size * 768. / l.height;
             model
                 .scale(&V::new(size, size, size))
@@ -672,7 +702,7 @@ impl Gpu {
                 } else {
                     [223. / 255., 32. / 255., 32. / 255.]
                 });
-                look[L::OPACITY] = if picked { 1. } else { 0.55 };
+                look[L::OPACITY] = if picked || awake { 1. } else { 0.55 };
                 logo.appearance.simple(
                     bridge,
                     &mut count,

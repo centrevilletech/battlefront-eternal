@@ -162,6 +162,12 @@ impl Rig {
             .apply_matrix4(&self.projection);
         p
     }
+    /// Where the camera has the soldier's pivot (stage.js before(): the vignette's pool is centred there),
+    /// in clip space.
+    pub fn pivot_clip(&self) -> [f64; 2] {
+        let p = self.project(V::new(0., 0.95, 0.));
+        [p.x, p.y]
+    }
     pub fn frame(&mut self, l: SpawnLayout, cone: bool) {
         let aspect = l.width / l.height;
         let x = l.center / l.width * 2. - 1.;

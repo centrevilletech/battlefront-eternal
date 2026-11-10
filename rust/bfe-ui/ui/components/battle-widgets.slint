@@ -218,8 +218,8 @@ export component BattleTeamCard inherits Rectangle {
         ? Theme.bfe-team-own
         : (root.model.interactive && root.hovered ? Theme.bfe-accent : Theme.bfe-team-card-border);
     property <length> pad-x: 1.1 * Theme.vw;
-    property <length> name-size: clamp(13px, 2.0 * Theme.vh, 22px);
-    property <length> count-size: clamp(18px, 3.0 * Theme.vh, 34px);
+    property <length> name-size: clamp(16px, 2.6 * Theme.vh, 28px);
+    property <length> count-size: clamp(18px, 2.8 * Theme.vh, 30px);
     property <length> top-y: 0.16 * root.height;
     property <length> badge-size: clamp(9px, 1.15 * Theme.vh, 11px);
     property <length> badge-y: 0.62 * root.height;
@@ -264,7 +264,7 @@ export component BattleTeamCard inherits Rectangle {
             font-family: Theme.font-family;
             font-size: root.name-size;
             font-weight: 800;
-            letter-spacing: 0.08 * root.name-size;
+            letter-spacing: 0.12 * root.name-size;
             color: root.model.own ? Theme.bfe-team-own : Theme.bfe-team-foe;
             horizontal-alignment: root.right-aligned ? right : left;
             vertical-alignment: center;
@@ -355,6 +355,19 @@ export component BattleTeamCard inherits Rectangle {
             horizontal-alignment: root.right-aligned ? right : left;
             vertical-alignment: center;
         }
+    }
+
+    // The glow behind the renderer-drawn emblem (the browser's .bfe-spawn-emblem: its side colour at 18%
+    // fading out by 70% of the way to the corner).
+    Rectangle {
+        x: (root.model.logo-x - root.model.logo-size * 0.5 - root.model.plate-x) * 1px;
+        y: (root.model.logo-y - root.model.logo-size * 0.5 - root.model.plate-y) * 1px;
+        width: root.model.logo-size * 1px;
+        height: root.model.logo-size * 1px;
+        border-radius: self.width * 0.5;
+        background: @radial-gradient(circle,
+            (root.model.own ? Theme.bfe-team-own : Theme.bfe-team-foe).with-alpha(0.18) 0%,
+            transparent 70%);
     }
 
     touch := TouchArea {
@@ -676,6 +689,19 @@ export component BattleClassBanner inherits Rectangle {
     height: self.title-size * 1.9;
     background: transparent;
 
+    // The dark pool behind the caption (.bfe-spawn-caption::before: an ellipse of black at 50% fading out by 75%,
+    // inset 1.2vh / 4vw / .6vh). A round gradient on a square, stretched sideways.
+    Rectangle {
+        property <length> side: root.height + 1.8 * Theme.vh;
+        x: (parent.width - self.side) * 0.5;
+        y: -1.2 * Theme.vh;
+        width: self.side;
+        height: self.side;
+        border-radius: self.side * 0.5;
+        transform-scale-x: (root.width + 8 * Theme.vw) / self.side;
+        background: @radial-gradient(circle, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0.25) 55%, transparent 75%);
+    }
+
     title-measure := Text {
         x: 0px;
         y: 0px;
@@ -685,8 +711,10 @@ export component BattleClassBanner inherits Rectangle {
         font-family: Theme.font-family;
         font-size: root.title-size;
         font-weight: 900;
-        letter-spacing: 0.1 * root.title-size;
-        color: Theme.bfe-text;
+        // The browser stretches this face to 116%; only the 125% face is baked (weight 900), so the tracking is
+        // tightened from the CSS .1em until the caption measures the same width.
+        letter-spacing: 0.064 * root.title-size;
+        color: Theme.bfe-spawn-title;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -723,7 +751,7 @@ export component BattleClassBanner inherits Rectangle {
             font-size: root.meta-size;
             font-weight: 700;
             letter-spacing: 0.08 * root.meta-size;
-            color: root.post-name != "" ? Theme.bfe-accent : Theme.bfe-text-faint;
+            color: root.post-name != "" ? Theme.bfe-text : Theme.bfe-text-faint;
             vertical-alignment: center;
         }
 
@@ -743,7 +771,7 @@ export component BattleClassBanner inherits Rectangle {
             font-size: root.meta-size;
             font-weight: 700;
             letter-spacing: 0.08 * root.meta-size;
-            color: Theme.bfe-text-dim;
+            color: Theme.bfe-text;
             vertical-alignment: center;
         }
     }
