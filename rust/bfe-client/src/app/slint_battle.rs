@@ -192,7 +192,10 @@ pub(super) fn battle_overlay_visible(root: &GameUi) -> bool {
 
 pub(super) fn battle_modal_open(root: &GameUi) -> bool {
     let bm = root.global::<BattleModel>();
-    bm.get_pause_open() && bm.get_pause_subscreen() == "confirm"
+    let options = root.global::<super::slint_ui::OptionsModel>();
+    bm.get_pause_open()
+        && (bm.get_pause_subscreen() == "confirm"
+            || (options.get_battle_open() && options.get_modal_open()))
 }
 
 pub(super) fn spawn_battle_status(battle: &BattleController) -> SpawnBattleStatus {
@@ -926,6 +929,8 @@ pub(super) fn drain_battle_actions(
                     *focused_row = idx;
                     battle.pause_menu.back_focused = false;
                     battle.pause_menu.sounds.push("shell_menu_enter");
+                    // The client opens the chosen page over the paused battle.
+                    battle.pause_menu.options_request = Some(idx);
                 }
             }
             BattleUiAction::PausePlayerSelected(idx) => {

@@ -324,6 +324,9 @@ pub struct PauseMenu {
     /// True while the DOM `#audio-panel` modal is open (`audioPanelOpen()` in `src/pause/index.js`),
     /// which takes precedence over pause menu `Escape` handling.
     pub audio_panel_open: bool,
+    /// The `OPTIONS` hub row (`0..4`: game, video, audio, controls) the player just chose, taken by the
+    /// client, which opens that option page over the paused battle.
+    pub options_request: Option<usize>,
     /// True while another screen in `setEscapeOwners` (spawn screen or scoreboard) owns `Escape`.
     pub escape_owner_open: bool,
     /// Most recent navigation triggered by `RESTART MISSION`, `QUIT`, or `EXIT TO WINDOWS`.
@@ -383,6 +386,7 @@ impl PauseMenu {
             show_player_list: false,
             players: Vec::new(),
             audio_panel_open: false,
+            options_request: None,
             escape_owner_open: false,
             leaving: None,
             respawn_triggered: 0,
@@ -821,6 +825,11 @@ impl PauseMenu {
                     self.sounds.push("shell_select_change");
                     true
                 }
+                "Enter" | "NumpadEnter" | "Space" if !repeat => {
+                    self.options_request = Some(*focused_row);
+                    self.sounds.push("shell_menu_enter");
+                    true
+                }
                 "Backspace" if !repeat => {
                     self.stack.pop();
                     self.sounds.push("shell_menu_exit");
@@ -923,6 +932,7 @@ impl PauseMenu {
             PauseHitTarget::OptionRow(idx) => {
                 if let Some(PauseScreenState::Options { focused_row }) = self.stack.last_mut() {
                     *focused_row = idx;
+                    self.options_request = Some(idx);
                 }
             }
             PauseHitTarget::PlayerRow(idx) => {

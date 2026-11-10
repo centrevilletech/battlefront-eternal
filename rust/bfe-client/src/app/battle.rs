@@ -856,6 +856,8 @@ pub struct BattleController {
     pub scoreboard_ctrl: ScoreboardController,
     /// `bfe-battle-ui` in-battle Escape pause menu (`Resume`, `Respawn`, `Restart`, `Quit`, etc.).
     pub pause_menu: PauseMenu,
+    /// True while an option page (opened from the pause menu's OPTIONS) is drawn over the paused battle.
+    pub(super) options_open: bool,
     pub(super) pause_page: super::page_pause::PagePause,
     pub(super) page_battle: super::page_battle::PageBattle,
     /// `bfe-battle-ui` in-battle text chat controller (`All` / `Team`).
@@ -1276,6 +1278,7 @@ impl BattleController {
             scoreboard_port,
             scoreboard_ctrl,
             pause_menu,
+            options_open: false,
             pause_page,
             page_battle,
             chat,
@@ -1358,6 +1361,22 @@ impl BattleController {
             && !self.scoreboard_ctrl.model.is_open()
             && !self.pause_menu.is_open
             && !self.chat.is_open()
+    }
+
+    /// Whether the battle camera is in the first person (the GAME OPTIONS VIEWPOINT row).
+    pub(super) fn first_person(&self) -> bool {
+        match &self.authority {
+            BattleAuthority::InstantAction { camera, .. } => camera.first_person,
+            BattleAuthority::Online { client, .. } => client.camera.first_person,
+        }
+    }
+
+    /// Sets the battle camera's perspective; the next step command carries it, as the `V` key's does.
+    pub(super) fn set_first_person(&mut self, first: bool) {
+        match &mut self.authority {
+            BattleAuthority::InstantAction { camera, .. } => camera.first_person = first,
+            BattleAuthority::Online { client, .. } => client.camera.first_person = first,
+        }
     }
 
     /// Number of times the render thread blocked on the 60 Hz world thread (invariant: `0`).

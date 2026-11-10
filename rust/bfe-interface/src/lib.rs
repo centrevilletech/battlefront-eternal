@@ -16,6 +16,7 @@
 // 2D/3D interface primitives (`src/interface/`), menu framework (`src/menus/`), and settings (`src/settings.js`).
 pub mod flashy;
 pub mod fonts;
+pub mod gpu_note;
 pub mod hotkeys;
 pub mod input;
 pub mod option_pages;

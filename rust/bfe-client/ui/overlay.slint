@@ -285,7 +285,8 @@ export component GameUi inherits Window {
 
     // Pass 2: modal / popup dialogs and their dimmed backdrop (drawn sharp after PageBlur).
     modal-layer := Rectangle {
-        visible: root.modal-open;
+        // The battle's dialogs (BattleModalScreen) gate themselves; the shell's are covered by modal-open.
+        visible: root.modal-open || root.gameplay;
         x: 0px; y: 0px; width: parent.width; height: parent.height;
         background: transparent;
         opacity: root.render-pass == 1 ? 0.0 : 1.0;
@@ -376,36 +377,24 @@ export component GameUi inherits Window {
         visible: root.proof-controls && !root.gameplay;
         x: 16px; y: 16px; width: 300px; height: 174px;
         background: #0c1119e8; border-color: #ffa51d; border-width: 1px;
-        Text { x: 14px; y: 10px; text: "SLINT GPU OVERLAY"; color: #ffa51d; font-size: 13px; }
-        edit := TextInput {
-            x: 14px; y: 36px; width: 272px; height: 28px;
-            text <=> root.draft; color: #f3f6fa; font-size: 14px;
-            TouchArea {
-                mouse-cursor: text;
-                clicked => { edit.focus(); }
-            }
+        Text { x: 12px; y: 10px; text: "INPUT AND COMPOSITING"; color: #e9edf2; font-size: 14px; }
+        Rectangle {
+            x: 12px; y: 40px; width: 276px; height: 40px;
+            border-width: 1px; border-color: edit.has-focus ? #ffa51d : #7a8290;
+            background: #040608;
+            edit := TextInput { x: 8px; width: parent.width - 16px; text <=> root.draft; color: white; font-size: 18px; vertical-alignment: center; }
         }
         Rectangle {
-            x: 14px; y: 74px; width: 128px; height: 30px;
-            background: action-touch.has-hover ? #ff9a1f : #253447;
-            Text { text: "ACTIVATE"; color: #090d12; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
-            action-touch := TouchArea {
-                mouse-cursor: pointer;
-                clicked => { root.activations += 1; }
-            }
+            x: 12px; y: 94px; width: 130px; height: 32px;
+            background: button.pressed ? #cc7e10 : button.has-hover ? #ffd17a : #ffa51d;
+            Text { text: root.activations == 0 ? "ACTIVATE" : "ACTIVATED " + root.activations; color: #090b10; horizontal-alignment: center; vertical-alignment: center; }
+            button := TouchArea { mouse-cursor: pointer; clicked => { root.activations += 1; } }
         }
         Rectangle {
-            x: 158px; y: 74px; width: 128px; height: 30px;
-            background: #1b2636;
-            Text { text: "DRAG"; color: #d5dde7; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
-            drag-touch := TouchArea {
-                mouse-cursor: self.pressed ? grabbing : grab;
-            }
+            x: 158px; y: 94px; width: 130px; height: 32px; background: #273442;
+            Text { text: "DRAG"; color: white; horizontal-alignment: center; vertical-alignment: center; }
+            TouchArea { mouse-cursor: self.pressed ? grabbing : grab; }
         }
-        Text {
-            x: 14px; y: 118px;
-            text: "activations: " + root.activations;
-            color: #9fb0c3; font-size: 12px;
-        }
+        Text { x: 12px; y: 142px; text: "Input stays in this window"; color: #c1c8d0; font-size: 12px; }
     }
 }

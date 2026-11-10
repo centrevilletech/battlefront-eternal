@@ -820,6 +820,16 @@ impl SlintHost {
             && !self.root.get_proof_controls()
             && self.root.get_modal_open()
     }
+    /// Projects the option page opened over a paused battle into the Options screens' model.
+    pub fn sync_battle_options(&mut self, shell: &mut ShellHost, open: bool) {
+        let model = self.root.global::<OptionsModel>();
+        if model.get_battle_open() != open {
+            model.set_battle_open(open);
+        }
+        if open {
+            super::slint_options::sync(&self.root, shell, &self.options_models);
+        }
+    }
     pub fn battle_modal_open(&self) -> bool {
         self.root.get_gameplay()
             && !self.root.get_proof_controls()

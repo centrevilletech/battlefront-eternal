@@ -131,6 +131,8 @@ pub struct OptionsContext {
     pub surface_height: f64,
     /// Current physical viewport pixel dimensions `[width, height]` used by `renderScale` notes.
     pub viewport: Option<[u32; 2]>,
+    /// The GL renderer string, for the QUALITY PRESET row's `GPU:` note (empty when unknown).
+    pub gpu_renderer: String,
 }
 
 impl Default for OptionsContext {
@@ -153,6 +155,7 @@ impl Default for OptionsContext {
             top_layout: TOP_LAYOUT,
             surface_height: 768.0,
             viewport: Some([1024, 768]),
+            gpu_renderer: String::new(),
         }
     }
 }
@@ -314,13 +317,18 @@ fn build_option_items(page: &str, settings: &Settings, ctx: &OptionsContext) -> 
             0.0
         };
         let dim = spec.key == "enhancedSound" && settings.get_string("soundEngine") != "rebuilt";
-        let note = option_note(
-            spec.key,
-            settings,
-            &ctx.strings,
-            ctx.in_battle,
-            ctx.viewport,
-        );
+        let note = if spec.key == "performancePreset" {
+            // `note: () => gpuNote(pageGpu())`: the GPU, never the generic timing note.
+            crate::gpu_note::gpu_note(&ctx.gpu_renderer).unwrap_or_default()
+        } else {
+            option_note(
+                spec.key,
+                settings,
+                &ctx.strings,
+                ctx.in_battle,
+                ctx.viewport,
+            )
+        };
         items.push(OptionsItem {
             id: spec.key.to_string(),
             label,

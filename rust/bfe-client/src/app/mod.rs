@@ -1176,6 +1176,9 @@ impl ApplicationHandler for StandaloneWindowApp {
         }
         if let (Some(ui), AppState::Battle(battle)) = (&mut self.slint_ui, &mut self.state) {
             ui.drain_battle_actions(battle, &mut self.settings);
+        }
+        self.sync_battle_options();
+        if let (Some(ui), AppState::Battle(battle)) = (&mut self.slint_ui, &mut self.state) {
             ui.sync_battle(battle);
         }
         if consumed {
@@ -1413,6 +1416,24 @@ impl ApplicationHandler for StandaloneWindowApp {
                             }
                         }
                     }
+                    AppState::Battle(battle) if battle.options_open => {
+                        // An option page is open over the paused battle: its keys belong to the page
+                        // (the key-capture prompt included), not to the pause menu or to combat.
+                        if down && !is_synthetic {
+                            if let (PhysicalKey::Code(code), Some(shell)) =
+                                (event.physical_key, &mut self.shell)
+                            {
+                                if let Some(dom_code) = keycode_to_dom_code(code) {
+                                    shell
+                                        .options_ctrl
+                                        .on_key_down(dom_code, self.modifiers.shift_key());
+                                    shell.flush_options_controller(&mut self.settings);
+                                }
+                            }
+                        }
+                        self.sync_battle_options();
+                        self.sync_pointer_lock();
+                    }
                     AppState::Battle(battle) => {
                         battle.set_modifiers(
                             self.modifiers.shift_key() || self.modifiers.control_key(),
@@ -1425,6 +1446,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                                 battle.handle_key(dom_code, down, event.repeat, &mut self.settings);
                             }
                         }
+                        self.sync_battle_options();
                         self.sync_pointer_lock();
                     }
                     _ => {}
@@ -1446,6 +1468,45 @@ impl ApplicationHandler for StandaloneWindowApp {
 }
 
 impl StandaloneWindowApp {
+    /// Opens the option page the pause menu's OPTIONS asked for, over the paused battle, and closes it
+    /// again once the page's stack is empty (BACK or Escape), returning to the pause menu's hub.
+    fn sync_battle_options(&mut self) {
+        if let AppState::Battle(battle) = &mut self.state {
+            Self::sync_battle_options_of(battle, &mut self.shell, &mut self.slint_ui, &self.settings);
+        }
+    }
+
+    fn sync_battle_options_of(
+        battle: &mut BattleController,
+        shell: &mut Option<Box<ShellHost>>,
+        ui: &mut Option<slint_ui::SlintHost>,
+        settings: &AppSettingsStore,
+    ) {
+        let Some(shell) = shell.as_mut() else {
+            return;
+        };
+        if let Some(row) = battle.pause_menu.options_request.take() {
+            if let Some(page) = ["game", "video", "audio", "controls"].get(row) {
+                shell.open_battle_options(page, battle.first_person(), settings);
+                battle.options_open = true;
+            }
+        }
+        if battle.options_open {
+            if shell.options_ctrl.stack.is_empty() {
+                if let Some(first) = shell.close_battle_options() {
+                    battle.set_first_person(first);
+                }
+                battle.options_open = false;
+            } else if let Some(first) = shell.options_ctrl.context.viewpoint {
+                // The VIEWPOINT row takes effect at once, as `viewpoint.set` does in the browser.
+                battle.set_first_person(first);
+            }
+        }
+        if let Some(ui) = ui.as_mut() {
+            ui.sync_battle_options(shell, battle.options_open);
+        }
+    }
+
     /// Applies a [`ShellTransition`] emitted by [`ShellHost`] (`StartInstantAction`,
     /// `StartOnline`, `StartHost`, `HostCloseDecision`, or `Exit`).
     ///
@@ -2073,6 +2134,14 @@ impl StandaloneWindowApp {
                     )?;
                     if let Some(ui) = &mut self.slint_ui {
                         ui.drain_battle_actions(battle, &mut self.settings);
+                    }
+                    Self::sync_battle_options_of(
+                        battle,
+                        &mut self.shell,
+                        &mut self.slint_ui,
+                        &self.settings,
+                    );
+                    if let Some(ui) = &mut self.slint_ui {
                         ui.sync_battle(battle);
                     }
                     let fb = battle.scene.canvas.framebuffer;

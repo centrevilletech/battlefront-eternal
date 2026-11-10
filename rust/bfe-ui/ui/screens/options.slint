@@ -50,6 +50,8 @@ export global OptionsModel {
     in property <string> middle-label: "";
     in property <bool> left-focused: false;
     in property <bool> middle-focused: false;
+    // True while an option page is drawn over a paused battle (opened from the pause menu's OPTIONS).
+    in property <bool> battle-open: false;
     in property <bool> modal-open: false;
     in property <bool> key-capture-open: false;
     in property <string> modal-message: "";
@@ -305,14 +307,16 @@ export component OptionsModalOverlay inherits Rectangle {
 export component OptionsScreenHost inherits Rectangle {
     in property <bool> use-underlay: true;
     in property <image> movie-frame;
+    // False when the screen it sits on already draws the page backdrop (the pause menu over a battle).
+    in property <bool> backdrop: true;
 
-    BackdropMovies {
+    if root.backdrop: BackdropMovies {
         x: 0px; y: 0px; width: parent.width; height: parent.height;
         current-frame: root.movie-frame;
         use-underlay: root.use-underlay;
     }
-    if !root.use-underlay: PagePattern { x: 0px; y: 0px; width: parent.width; height: parent.height; }
-    if !root.use-underlay: PageScrim { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    if root.backdrop && !root.use-underlay: PagePattern { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    if root.backdrop && !root.use-underlay: PageScrim { x: 0px; y: 0px; width: parent.width; height: parent.height; }
     PageDim {
         x: 0px; y: 0px; width: parent.width; height: parent.height;
         dimmed: OptionsModel.dim-behind;

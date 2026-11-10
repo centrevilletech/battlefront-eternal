@@ -12,6 +12,7 @@ import { PagePattern, PageScrim, PageDim } from "../components/scrim.slint";
 import { PageTitle, PageText, TextRole } from "../components/typography.slint";
 import { PopupBox } from "../components/dialog.slint";
 import { ThemePicker } from "main.slint";
+import { OptionsModel, OptionsScreenHost, OptionsModalOverlay } from "options.slint";
 import {
     BattleTeamModel,
     BattleClassModel,
@@ -438,7 +439,7 @@ export component BattleScoreboardScreen inherits Rectangle {
 
 export component BattlePauseScreen inherits Rectangle {
     property <length> button-width: min(400px, 30 * Theme.vw) - 16px;
-    property <int> row-count: BattleModel.pause-subscreen == "options" ? 5 : BattleModel.pause-main-rows.length;
+    property <int> row-count: BattleModel.pause-subscreen == "options" ? 4 : BattleModel.pause-main-rows.length;
     property <length> rows-height: root.row-count * Theme.button-height + max(0, root.row-count - 1) * Theme.bfe-gap + 8px;
     width: 100%;
     height: 100%;
@@ -468,7 +469,15 @@ export component BattlePauseScreen inherits Rectangle {
             dimmed: BattleModel.pause-subscreen == "playerlist";
         }
 
-        ScreenFrame {
+        if OptionsModel.battle-open : OptionsScreenHost {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            backdrop: false;
+        }
+
+        if !OptionsModel.battle-open : ScreenFrame {
             x: 0px;
             y: 0px;
             width: parent.width;
@@ -513,7 +522,6 @@ export component BattlePauseScreen inherits Rectangle {
                     "VIDEO OPTIONS",
                     "AUDIO OPTIONS",
                     "CONTROL OPTIONS",
-                    "ONLINE OPTIONS",
                 ] : PageButton {
                     width: parent.width;
                     label: label;
@@ -559,6 +567,14 @@ export component BattleModalScreen inherits Rectangle {
     width: 100%;
     height: 100%;
     background: transparent;
+
+    // Dialogs of an option page opened over the paused battle (key capture, credits-style notices).
+    if BattleModel.pause-open && OptionsModel.battle-open && OptionsModel.modal-open : OptionsModalOverlay {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+    }
 
     if BattleModel.pause-open && BattleModel.pause-subscreen == "confirm" : Rectangle {
         width: 100%;

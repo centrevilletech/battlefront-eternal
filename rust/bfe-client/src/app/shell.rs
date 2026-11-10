@@ -507,6 +507,11 @@ pub struct ShellHost {
     pub interface_surface: InterfaceSurfaceState,
     /// Stateful `bfe-interface` controller driving `OPTIONS` and its 4 sub-pages (`GAME`, `VIDEO`, `AUDIO`, `CONTROLS`).
     pub options_ctrl: OptionsController,
+    /// The front-end options context set aside while the same controller serves an option page opened
+    /// over a paused battle (`open_battle_options` / `close_battle_options`).
+    front_end_options: Option<OptionsContext>,
+    /// The GL renderer string, for the `GPU:` note under QUALITY PRESET.
+    gpu_renderer: String,
     /// Front-end shell state machine (`Gate`, `Main`, `Singleplayer`, `InstantAction`, `Profile`, `Multiplayer`, `HostDialog`).
     pub app: ShellApp,
     pub page: bfe_shell::page::Page,
@@ -589,8 +594,10 @@ impl ShellHost {
 
         // Initialize `bfe-interface` fonts, surface, and `OptionsController` from `settings.interface`.
         let interface_surface = shell_textures_to_interface_surface(&textures, size);
+        let gpu_renderer = unsafe { core.gl.get_parameter_string(glow::RENDERER) };
         let mut opt_ctx = OptionsContext::default();
         opt_ctx.has_integrations = true;
+        opt_ctx.gpu_renderer = gpu_renderer.clone();
         opt_ctx.surface_height = interface_surface.height;
         opt_ctx.viewport = Some([size[0].max(1) as u32, size[1].max(1) as u32]);
         let options_ctrl = OptionsController::new(settings.interface.clone(), opt_ctx);
@@ -639,6 +646,8 @@ impl ShellHost {
             textures,
             interface_surface,
             options_ctrl,
+            front_end_options: None,
+            gpu_renderer,
             app,
             browser,
             loading_timeline,
@@ -911,6 +920,7 @@ impl ShellHost {
         self.interface_surface = shell_textures_to_interface_surface(&self.textures, self.layout_size);
         let mut opt_ctx = OptionsContext::default();
         opt_ctx.has_integrations = true;
+        opt_ctx.gpu_renderer = self.gpu_renderer.clone();
         opt_ctx.strings = data
             .strings
             .iter()
@@ -1000,6 +1010,52 @@ impl ShellHost {
                 self.options_ctrl.refresh_active_screen();
             }
         }
+    }
+
+    /// Opens option page `page` (`"game"`, `"video"`, `"audio"`, `"controls"`) over a paused battle, as the
+    /// pause menu's OPTIONS does (`optionsMenu({ inBattle: true, viewpoint })` in `src/pause/index.js`).
+    ///
+    /// The controller is rebuilt from the live settings with `in_battle` set, so the notes and the VIEWPOINT
+    /// row read as they do in the browser; the page is its root, so BACK or Escape empties the stack.
+    pub(super) fn open_battle_options(
+        &mut self,
+        page: &str,
+        first_person: bool,
+        settings: &AppSettingsStore,
+    ) {
+        let front_end = self.options_ctrl.context.clone();
+        let mut ctx = front_end.clone();
+        ctx.in_battle = true;
+        ctx.viewpoint = Some(first_person);
+        // The in-battle hub offers only the four pages (no online, Steam and Discord, or credits rows).
+        ctx.has_online = false;
+        ctx.has_integrations = false;
+        ctx.has_credits = false;
+        ctx.surface_height = self.interface_surface.height;
+        ctx.viewport = Some([self.layout_size[0].max(1) as u32, self.layout_size[1].max(1) as u32]);
+        self.front_end_options.get_or_insert(front_end);
+        self.options_ctrl = OptionsController::new(settings.interface.clone(), ctx);
+        self.options_ctrl.open_page(page);
+        if self.options_ctrl.stack.screens.len() > 1 {
+            self.options_ctrl.stack.screens.remove(0);
+        }
+        self.options_ctrl.stack.sounds.drain();
+    }
+
+    /// Puts the front-end options context back once the battle's option page is closed, and returns the
+    /// camera viewpoint the player left it on.
+    pub(super) fn close_battle_options(&mut self) -> Option<bool> {
+        let viewpoint = self.options_ctrl.context.viewpoint;
+        if let Some(front_end) = self.front_end_options.take() {
+            self.options_ctrl.context = front_end;
+        }
+        self.options_ctrl.stack.clear();
+        viewpoint
+    }
+
+    /// Whether an option page is open over a paused battle.
+    pub(super) fn battle_options_open(&self) -> bool {
+        self.front_end_options.is_some()
     }
 
     /// Drains sound cues and named actions from [`Self::options_ctrl`] and persists

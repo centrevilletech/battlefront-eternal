@@ -415,6 +415,7 @@ impl MenuScene {
             top_layout,
             surface_height: 768.0 + ((size[1] as f64) / (size[0].max(1) as f64) - 0.75) * 768.0,
             viewport: Some([size[0] as u32, size[1] as u32]),
+            gpu_renderer: String::new(),
         };
         let mut ctrl = OptionsController::new(Settings::new(), ctx);
         match screen {
