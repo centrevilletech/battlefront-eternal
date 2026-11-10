@@ -1489,6 +1489,16 @@ impl BattleController {
             return;
         }
         self.settings_revision = rev;
+        // Graphics settings the browser applies as they change.
+        if let Err(err) = self
+            .scene
+            .set_antialiasing(&settings.interface.get_string("antialiasing"), &settings.interface.get_string("upscaler"))
+        {
+            eprintln!("battle settings: antialiasing not applied: {err}");
+        }
+        if let Err(err) = self.scene.set_anisotropy(settings.interface.get_f64("anisotropy")) {
+            eprintln!("battle settings: anisotropy not applied: {err}");
+        }
         // The effect looks the browser reads the same two settings for.
         if let Some(online) = &mut self.scene.online {
             let enhanced = |name: &str| settings.interface.get_string(name) != "classic";
@@ -2511,7 +2521,9 @@ impl BattleController {
             eprintln!("[battle-observation] {}", serde_json::json!({
                 "position":receiver.own.position,"yaw":receiver.own.yaw,"pitch":receiver.own.pitch,
                 "team":receiver.own.team,"health":receiver.own.health,"alive":receiver.own.alive,
-                "spawnScreen":self.spawn_ctrl.is_open(),"targets":targets,"posts":posts,
+                "remote":receiver.own.remote.map(|_| (receiver.own.remote_position, receiver.own.remote_velocity, receiver.own.remote_yaw, receiver.own.remote_pitch)),
+                "spawnScreen":self.spawn_ctrl.is_open(),"spawnTeam":self.spawn_ctrl.model.team,
+                "spawnPost":self.spawn_ctrl.model.post,"targets":targets,"posts":posts,
                 "items":items,"itemViews":self.scene.online.as_ref().map_or(0, |scene| scene.items.visible)
             }));
         }

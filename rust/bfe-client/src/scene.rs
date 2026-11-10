@@ -148,6 +148,17 @@ impl MapCamera {
         [self.yaw - std::f64::consts::PI, self.pitch]
     }
     pub fn snapshot(&self)->&View{&self.view}
+    /// The far plane's distance, which bounds the lights the camera packs.
+    pub fn far(&self) -> f64 {
+        self.far_plane
+    }
+    /// The frame's point lights, eight floats each, as the shaders read
+    /// them from the frame's values.
+    pub fn set_lights(&mut self, lights: &[f64], count: usize) {
+        let count = count.min(shader::MAX_LIGHTS).min(lights.len() / 8);
+        self.view.values[shader::FRAME_LIGHT_COUNT] = count as f64;
+        self.view.values[shader::FRAME_LIGHTS..shader::FRAME_LIGHTS + count * 8].copy_from_slice(&lights[..count * 8]);
+    }
     pub fn aspect(&self)->f64{let projection=&self.view.values[..16];projection[5]/projection[0]}
     /// A camera phase has already selected and obstructed this view. Publish
     /// its exact matrices instead of deriving them again from yaw and pitch.
@@ -303,7 +314,46 @@ pub struct Scene {
     far_projection: [f64; 16],
     far_world_slots: Vec<usize>,
     near_world_ids: Vec<u32>,
+    // A battle's own frame; an inspected map draws straight on the canvas.
+    frame: Option<SceneFrame>,
+    // Graphics.textures: the content's images, which follow the anisotropy
+    // setting, and the value they were last given.
+    filtered: Vec<u32>,
+    anisotropy: f64,
     pub online: Option<Box<crate::online::replicas::Replicas>>,
+}
+// Graphics.sceneTarget: the near scene is drawn over the far scene's image
+// into a target of its own, which the antialiasing setting multisamples,
+// and the post chain puts the resolved image on the canvas. The HUD and
+// the pages are drawn on the canvas after it, at one sample.
+struct SceneFrame {
+    source: u32,
+    sample: u32,
+    target: u32,
+    texture: u32,
+    // The samples of the near scene's target and of the far scene's.
+    samples: i32,
+    far_samples: i32,
+    // The post chain's antialiasing pass (post_chain aa).
+    aa: usize,
+    // Where aaSamples and farAaSamples sit in the frame's values.
+    slots: [usize; 2],
+}
+// A frame-sized colour image a target draws into.
+fn frame_image(size: [i32; 2]) -> String {
+    serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1009,"srgb":false,"renderTarget":true}).to_string()
+}
+// A target over `color` with a depth buffer of its own. `stencil` gives the
+// depth buffer the canvas's format, which a depth copy between them needs.
+fn frame_target(size: [i32; 2], color: u32, stencil: bool, samples: i32) -> String {
+    serde_json::json!({"width":size[0],"height":size[1],"color":color,"depth":null,"depthBuffer":true,"stencil":stencil,"samples":samples,"resolveDepth":false,"resolveStencil":false,"cube":false}).to_string()
+}
+// How a content image is sampled (game.js loadTexture: repeating, trilinear)
+// at an anisotropy. The driver's limit is applied where the value is set.
+fn content_sampling(anisotropy: f64) -> String {
+    format!(
+        r#"{{"wrapS":1000,"wrapT":1000,"wrapR":1000,"min":1008,"mag":1006,"anisotropy":{anisotropy},"flip":false,"premultiply":false,"alignment":1,"mipmaps":true,"compare":null}}"#
+    )
 }
 impl Scene {
     pub fn load(
@@ -693,8 +743,9 @@ impl Scene {
         resources.canvas = Some(canvas.framebuffer);
         let mut bridge = Bridge::new_boxed(load(), Ranges::new(load()));
         bridge.r.core.canvas_framebuffer = Some(canvas.framebuffer);
-        let sampling = r#"{"wrapS":1000,"wrapT":1000,"wrapR":1000,"min":1008,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":true,"compare":null}"#;
+        let sampling = &content_sampling(1.);
         let mut textures = vec![u32::MAX; content.textures.images.len()];
+        let mut filtered = Vec::new();
         for (i, image) in content.textures.images.iter().enumerate() {
             // Battle admission has already decoded side resources. Inspection
             // uploads only the images used by the admitted world descriptors.
@@ -708,6 +759,7 @@ impl Scene {
             resources.source_pixels(source, &image.data)?;
             let sample = resources.sample(source, sampling)?;
             resources.upload(sample)?;
+            filtered.push(sample);
             textures[i] = bridge.r.core.add_texture(resources.texture(sample)?);
             if i % 8 == 7 {
                 crate::loading_work::frame().await;
@@ -939,6 +991,23 @@ impl Scene {
         // must stay outside the live program bank, never alias world shader 0.
         use bfe_render::post_chain::layout::{facts as pf, program as pp};
         bridge.r.post_chain.input[pf::PROGRAMS..pf::PROGRAMS + pp::COUNT].fill(u32::MAX as f64);
+        let frame = if live {
+            let source = resources.source(&frame_image(size))?;
+            let sample = resources.sample(source, r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
+            let target = resources.target(&frame_target(size, sample, true, 0))?;
+            let texture = bridge.r.core.add_texture(resources.texture(sample)?);
+            // The chain's programs that need no target of their own: the
+            // composite, and FXAA over a frame with nothing to composite.
+            for (program, key) in [(pp::COMPOSITE, "post-hud/composite"), (pp::FXAA, "post-hud/fxaa"), (pp::FXAA_FAST, "post-hud/fxaa-fast")] {
+                bridge.r.post_chain.input[pf::PROGRAMS + program] = bridge.add_owned_program(key)? as f64;
+            }
+            let slots = ["aaSamples", "farAaSamples"].map(|name| {
+                shader::FRAME_OFFSETS[shader::FRAME_MEMBERS.iter().position(|(n, _)| *n == name).expect("frame catalog member")]
+            });
+            Some(SceneFrame { source, sample, target, texture, samples: 0, far_samples: 0, aa: 0, slots })
+        } else {
+            None
+        };
         // WorldPass.prepareNative seals the opaque draw order after admission.
         // Adding descriptors alone leaves the retained submission list empty.
         bridge.r.world.sort(false);
@@ -1045,9 +1114,67 @@ impl Scene {
                 far_projection: projection.elements,
                 far_world_slots,
                 near_world_ids,
+                frame,
+                filtered,
+                anisotropy: 1.,
             },
             camera,
         ))
+    }
+    /// Graphics.applyAntialiasing for the antialiasing setting: the near
+    /// scene's target takes the setting's samples (as many as the driver
+    /// has), and the far scene's the same unless the temporal upscaler is
+    /// chosen, whose jittered history antialiases the far scene's few
+    /// silhouettes by itself. FXAA follows every choice but "off" while
+    /// the upscaler is not the temporal one (Graphics.render), so it runs
+    /// over the multisampled choices too.
+    pub fn set_antialiasing(&mut self, choice: &str, upscaler: &str) -> Result<(), String> {
+        use bfe_render::post_chain::layout::aa;
+        let Some(frame) = &mut self.frame else {
+            return Ok(());
+        };
+        // settings.js ANTIALIASING; an unknown choice is the default's four.
+        let wanted = match choice {
+            "off" | "fxaa-fast" | "fxaa" => 0,
+            "2x" => 2,
+            "8x" => 8,
+            _ => 4,
+        };
+        let samples = wanted.min(unsafe { self.bridge.r.core.gl.get_parameter_i32(glow::MAX_SAMPLES) }.max(0));
+        let temporal = !matches!(upscaler, "off" | "bilinear" | "spatial");
+        let far_samples = if temporal { 0 } else { samples };
+        frame.aa = match choice {
+            _ if temporal => aa::OFF,
+            "off" => aa::OFF,
+            "fxaa-fast" => aa::FAST,
+            _ => aa::FXAA,
+        };
+        if samples != frame.samples {
+            frame.samples = samples;
+            self.resources.resize_target(frame.target, &frame_target(self.size, frame.sample, true, samples))?;
+        }
+        if far_samples != frame.far_samples {
+            frame.far_samples = far_samples;
+            self.resources.resize_target(self.far_target, &frame_target(self.size, self.far_sample, false, far_samples))?;
+        }
+        self.bridge.r.core.state.reset();
+        Ok(())
+    }
+    /// Graphics.filter for the anisotropy setting: every content image takes
+    /// the new value at once, with no decode and no upload. A value that is
+    /// no number, or below 1, is 1.
+    pub fn set_anisotropy(&mut self, value: f64) -> Result<(), String> {
+        let value = if value.is_finite() { value.max(1.) } else { 1. };
+        if value == self.anisotropy {
+            return Ok(());
+        }
+        self.anisotropy = value;
+        let sampling = content_sampling(value);
+        for &sample in &self.filtered {
+            self.resources.sampling(sample, &sampling)?;
+        }
+        self.bridge.r.core.state.reset();
+        Ok(())
     }
     pub fn resize(
         &mut self,
@@ -1068,8 +1195,12 @@ impl Scene {
         )?;
         self.resources.resize_target(
             self.far_target,
-            &serde_json::json!({"width":new_size[0],"height":new_size[1],"color":self.far_sample,"depth":null,"depthBuffer":true,"stencil":false,"samples":0,"resolveDepth":false,"resolveStencil":false,"cube":false}).to_string(),
+            &frame_target(new_size, self.far_sample, false, self.frame.as_ref().map_or(0, |frame| frame.far_samples)),
         )?;
+        if let Some(frame) = &self.frame {
+            self.resources.source_desc(frame.source, &frame_image(new_size))?;
+            self.resources.resize_target(frame.target, &frame_target(new_size, frame.sample, true, frame.samples))?;
+        }
         self.image_step[bfe_render::post::STEP_WIDTH] = new_size[0] as f64;
         self.image_step[bfe_render::post::STEP_HEIGHT] = new_size[1] as f64;
         let mut projection = Matrix4::default();
@@ -1141,6 +1272,9 @@ impl Scene {
             resources.finish_frame(receiver, replay, &world.elements, cue);
             resources.present_arcs(receiver, replay, dt.min(8./60.), &world, &camera.snapshot().values[..16], self.size[1] as f64, &mut self.bridge);
             resources.present_shields(dt.min(8./60.), camera.position, &camera.snapshot().values, self.size, self.depth_texture, &mut self.bridge);
+            resources.present_holograms(receiver, dt.min(8./60.), camera.position, &camera.snapshot().values, &world.elements, &mut self.bridge);
+            resources.lights.frame(dt.min(8./60.), camera.position, camera.far());
+            camera.set_lights(&resources.lights.packed, resources.lights.count);
             let mounted = resources.cameras.mounted_aim(camera);
             // Seated, the target search looks from the camera along the
             // seat's view; on foot, from the gun along its aim.
@@ -1183,10 +1317,12 @@ impl Scene {
         for role in [r::FAR, r::NEAR, r::IMAGE, r::TRANSPARENT, r::HUD0] {
             let row = &mut self.bridge.r.frames.bindings[role * b::LEN..(role + 1) * b::LEN];
             row.fill(0.);
-            row[b::TARGET] = if role == r::FAR {
-                self.far_target as f64
-            } else {
-                -1.
+            row[b::TARGET] = match (role, &self.frame) {
+                (r::FAR, _) => self.far_target as f64,
+                // The HUD draws on the canvas, where the post chain leaves
+                // the frame bound.
+                (r::HUD0, _) | (_, None) => -1.,
+                (_, Some(frame)) => frame.target as f64,
             };
             row[b::SAMPLE] = -1.;
             row[b::WIDTH] = self.size[0] as f64;
@@ -1207,6 +1343,27 @@ impl Scene {
             row[b::HEIGHT] = self.size[1] as f64;
             self.bridge.r.frames.meta[r::DEPTH * m::LEN + m::BOUND] = 1.;
             self.bridge.r.frames.plan.facts[f::DEPTH_LATE] = 1.;
+        }
+        if let Some(frame) = &self.frame {
+            use bfe_render::post_chain::layout::{facts as pf, mode, resource as pr};
+            view.values[frame.slots[0]] = frame.samples as f64;
+            view.values[frame.slots[1]] = frame.far_samples as f64;
+            // Graphics.postSteps' facts. The 3D frame is the window's size
+            // and no upscaler runs: with nothing to composite the chain is
+            // one copy of the scene to the canvas, or FXAA reading it.
+            let (width, height) = (self.size[0] as f64, self.size[1] as f64);
+            let facts = &mut self.bridge.r.post_chain.input;
+            facts[pf::MODE] = mode::OFF as f64;
+            facts[pf::AA] = frame.aa as f64;
+            for at in [pf::INPUT_WIDTH, pf::OUTPUT_WIDTH, pf::CANVAS_WIDTH] {
+                facts[at] = width;
+                facts[at + 1] = height;
+            }
+            let scene = &mut facts[pf::RESOURCES + pr::SCENE * pr::STRIDE..][..pr::STRIDE];
+            scene[pr::TEXTURE] = frame.texture as f64;
+            scene[pr::WIDTH] = width;
+            scene[pr::HEIGHT] = height;
+            self.bridge.post_chain_begin_frame();
         }
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         crate::static_scene::update(&mut self.static_content, &mut self.bridge, &view.values);

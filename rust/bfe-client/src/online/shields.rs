@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use three::{Matrix4, Quaternion, Vector3};
 
 // Droidekas drawn at once; a battle fields a handful.
-const BUBBLES: usize = 64;
+pub const BUBBLES: usize = 64;
 
 // A class's shield weapon: where the bubble sits over the body, its size
 // when the class sets one, the charge it holds, and its look.
@@ -264,6 +264,10 @@ impl Shields {
             flared: 0,
             draws: 0,
         })
+    }
+    /// One past the last float of effect data this owner writes.
+    pub fn end(&self) -> usize {
+        self.data + BUBBLES * self.fields.length
     }
     /// A bubble for a droideka of this class as its body is first drawn, None
     /// for a class without a shield look or when every bubble is out.

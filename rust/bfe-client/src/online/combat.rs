@@ -416,7 +416,7 @@ impl Combat {
         let at = self.pending.partition_point(|kept| kept.2 <= id);
         self.pending.insert(at, (group, position, id, tick, rail));
     }
-    pub fn frame(&mut self, receiver: &Receiver, tick: f64, dt: f64, bridge: &mut Bridge) {
+    pub fn frame(&mut self, receiver: &Receiver, tick: f64, dt: f64, lights: &mut super::lights::SceneLights, bridge: &mut Bridge) {
         use bfe_presentation::layout::frame as ef;
         self.frame += 1;
         self.tick = tick;
@@ -773,6 +773,17 @@ impl Combat {
         self.clock += dt;
         self.rail_touches.clear();
         for call in self.ordnance.calls().chunks_exact(call::STRIDE).take(self.ordnance.header[h::CALLS] as usize) {
+            // ordnance.js lights.add: a bolt, round or beam asks for one of
+            // the pool's lights where it is drawn this frame.
+            if call[call::KIND] == ck::LIGHT as f64 {
+                lights.add(
+                    [call[call::A], call[call::A + 1], call[call::A + 2]],
+                    [call[call::B], call[call::B + 1], call[call::B + 2]],
+                    call[call::S0],
+                    call[call::S1],
+                );
+                continue;
+            }
             let slot = call[call::SOURCE] as usize;
             // Ordnance.drawBolt's `sniperTrace().touch(...)`: kept for the
             // trace's turn, which needs the frame's camera.

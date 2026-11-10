@@ -113,6 +113,10 @@ pub struct Replicas {
     collision: super::replay::Collision,
     world: u32,
     shields: Box<super::shields::Shields>,
+    holograms: Box<super::holograms::Holograms>,
+    /// The frame's point lights, packed for the camera once the owners
+    /// have asked for theirs.
+    pub lights: Box<super::lights::SceneLights>,
     held: Vec<Option<super::models::Model>>,
     weapon_classes: Vec<Option<usize>>,
     pub replay: Option<super::replay::Replay>,
@@ -454,6 +458,18 @@ impl Replicas {
             combat.particles.words + super::lightning::FLOATS,
         )?);
         bridge.r.core.state.reset();
+        // The holograms' values follow the bubbles' in the effect data, and
+        // their matrices sit just before the bubbles' at the bank's end.
+        let holograms = Box::new(super::holograms::Holograms::new(
+            content,
+            bridge,
+            renderer,
+            textures,
+            &arc_images,
+            shields.end(),
+            bfe_render::effects::MAX_DRAWS - super::shields::BUBBLES - super::holograms::MATRICES,
+        )?);
+        bridge.r.core.state.reset();
         // Weapon actions resolve their clips once, per body and bank.
         let sets = content.content.battle.anim_meta.get("sets");
         fn text<'a>(weapon: &'a bfe_content::defs::WeaponDef, key: &str) -> Option<&'a str> {
@@ -487,6 +503,8 @@ impl Replicas {
             collision,
             world,
             shields,
+            holograms,
+            lights: Box::new(super::lights::SceneLights::new()),
             held,
             weapon_classes,
             replay,
@@ -521,7 +539,7 @@ impl Replicas {
     ) {
         self.tick = tick;
         self.hud.frame(bridge, receiver, prediction, dt);
-        self.combat.frame(receiver, tick, dt, bridge);
+        self.combat.frame(receiver, tick, dt, &mut self.lights, bridge);
         // SnapshotPresentation samples once for the whole display batch.
         // The unit links then borrow its output by identity and generation.
         receiver.network.borrow_mut().present(tick, -1., prediction.fleet.identity.map_or(-1., |p| p.0));
@@ -1107,6 +1125,33 @@ impl Replicas {
         self.presented.shown[7] = self.arcs.vertices + self.arcs.capsules;
         self.presented.shown[8] = self.shields.draws;
         self.presented.shown[9] = bridge.fx_clipped() as u64;
+    }
+    /// The command posts' holograms, after the bubbles: each post's owner
+    /// from the HUD's summary, coloured as the player's team sees it.
+    /// `camera` is the frame's projection, then view matrix; `world` the
+    /// camera's own matrix.
+    pub fn present_holograms(
+        &mut self,
+        receiver: &Receiver,
+        dt: f64,
+        eye: [f64; 3],
+        camera: &[f64],
+        world: &[f64; 16],
+        bridge: &mut Bridge,
+    ) {
+        let hud = &self.hud;
+        let viewer = receiver.own.team;
+        self.holograms.present(
+            dt,
+            eye,
+            camera,
+            world,
+            &|name| hud.post_meta.iter().find(|post| post.name == name).map(|post| (post.team, post.active)),
+            &|team| hud.team_look(viewer, team),
+            &mut self.lights,
+            bridge,
+        );
+        self.presented.shown[14] = self.holograms.draws;
     }
     /// Pausing is a cold observation point; the canonical clocks and blend
     /// layers stay in Units rather than a second client animation model.

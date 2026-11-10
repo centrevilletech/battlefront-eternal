@@ -246,6 +246,24 @@ impl GpuResources {
                     glow::TEXTURE_MAG_FILTER,
                     filter(p.sampling.mag),
                 );
+                // The same rule as at upload: only a mipmapped, filtered
+                // image takes the setting, and one that never rose above 1
+                // is left alone.
+                if !render_target
+                    && p.sampling.mag != 1003
+                    && [1005, 1008].contains(&p.sampling.min)
+                    && (p.sampling.anisotropy > 1.0 || p.anisotropy_set)
+                    && self
+                        .gl
+                        .supported_extensions()
+                        .iter()
+                        .any(|s| s.ends_with("texture_filter_anisotropic"))
+                {
+                    let max = self.gl.get_parameter_f32(0x84ff);
+                    self.gl
+                        .tex_parameter_f32(d.target, 0x84fe, p.sampling.anisotropy.max(1.0).min(max));
+                    p.anisotropy_set = true;
+                }
                 if render_target {
                     let level = if p.sampling.mipmaps {
                         (d.width.max(d.height) as u32).ilog2()

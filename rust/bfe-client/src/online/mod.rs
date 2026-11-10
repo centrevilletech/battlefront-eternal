@@ -34,6 +34,8 @@ mod effects;
 pub mod jetpacks;
 pub mod lightning;
 mod shields;
+mod holograms;
+mod lights;
 pub mod particles;
 
 pub mod turrets;

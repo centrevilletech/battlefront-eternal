@@ -806,6 +806,11 @@ impl Prepared {
     }
 }
 impl Hud {
+    /// How a team looks to the viewer's: 0 neutral, 1 friendly, 2 enemy, 3
+    /// locals (radarRelation in hud-units.js).
+    pub fn team_look(&self, viewer: u8, team: usize) -> usize {
+        self.radar.color_relation(viewer, team) as usize
+    }
     // BattleHud.promptLine uses the first physical key of the flight binding.
     // This cold update follows settings changes; no text is built per frame.
     pub fn set_flight_key(&mut self, bridge: &mut Bridge, key: &str) {

@@ -39,6 +39,8 @@ impl Prepared {
         names.extend(super::lightning::definitions(content).into_iter().map(|(_, _, texture)| texture));
         // A droideka's shield bubble may carry a field texture.
         names.extend(super::shields::textures(content));
+        // The command posts' holograms: their flare and the logos' texture.
+        names.extend(super::holograms::textures(content));
         for (_, effects) in &content.effects {
             for d in effects.descriptor["definitions"].as_array().into_iter().flatten() {
                 if let Some(name) = d["geometry"]["texture"].as_str() {

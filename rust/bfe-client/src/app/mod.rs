@@ -95,6 +95,7 @@ pub(crate) mod page_battle;
 mod page_pause;
 mod page_browser;
 mod page_surfaces;
+mod frame_pacer;
 mod resize_guard;
 pub mod startup;
 
@@ -140,7 +141,7 @@ use std::{
     path::{Path, PathBuf},
     rc::Rc,
     sync::{mpsc, Arc, Mutex},
-    time::Instant,
+    time::{Duration, Instant},
 };
 use winit::{
     application::ApplicationHandler,
@@ -377,6 +378,8 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
 
     let platform_smoke = (opts.script.as_deref() == Some("platform-smoke"))
         .then(|| platform_smoke::Smoke::new(opts.shots_dir.clone()));
+    // A scripted run and a measurement draw every frame they can.
+    let unpaced = std::env::var_os("BFE_FRAME_UNPACED").is_some() || opts.script.is_some();
     let mut app = StandaloneWindowApp {
         platform_smoke,
         folder_dialog: None,
@@ -412,6 +415,17 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         resize_guard: Default::default(),
         started: Instant::now(),
         last_frame: Instant::now(),
+        pacer: frame_pacer::FramePacer::new(0.),
+        display: Default::default(),
+        unpaced,
+        pace_revision: u64::MAX,
+        paced: false,
+        swap_waits: false,
+        wayland: false,
+        last_chance: Instant::now(),
+        last_present: Instant::now(),
+        redraw_asked: None,
+        refresh_read: None,
         presence: PresenceController::default(),
         last_presence_key: String::new(),
         gate,
@@ -498,6 +512,27 @@ struct StandaloneWindowApp {
     started: Instant,
     /// Timestamp of the previous rendered frame for computing `dt`.
     last_frame: Instant,
+    /// The frameLimit setting's deadlines, and the settings revision they
+    /// were read at.
+    pacer: frame_pacer::FramePacer,
+    pace_revision: u64,
+    /// Whether the display is seen to pace the frames presented.
+    display: frame_pacer::Display,
+    /// Draw every frame the machine can: `BFE_FRAME_UNPACED`, or a script.
+    unpaced: bool,
+    /// Whether the last chance to present fell under the frame limit.
+    paced: bool,
+    /// Whether the surface's swap waits for the display now.
+    swap_waits: bool,
+    /// A Wayland surface, whose compositor says when a frame can be shown.
+    wayland: bool,
+    /// The last chance to present a frame and the last frame presented.
+    last_chance: Instant,
+    last_present: Instant,
+    /// When the window was asked for a redraw it has not delivered yet.
+    redraw_asked: Option<Instant>,
+    /// When the monitor's refresh rate was last read.
+    refresh_read: Option<Instant>,
     /// Discord Rich Presence controller (`bfe-desktop`).
     presence: PresenceController,
     /// Cached key of the last Rich Presence payload to avoid redundant IPC updates.
@@ -1026,6 +1061,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                 .map_err(|e| e.to_string())?;
             let window = window.ok_or("window was not created")?;
             let raw_handle = window.window_handle().map_err(|e| e.to_string())?.as_raw();
+            self.wayland = matches!(raw_handle, raw_window_handle::RawWindowHandle::Wayland(_));
             let display = config.display();
 
             // Prefer OpenGL ES 3.0 by default (matching WebGL2 shaders), falling back to OpenGL 3.3.
@@ -1453,21 +1489,135 @@ impl ApplicationHandler for StandaloneWindowApp {
                 }
             }
             WindowEvent::RedrawRequested => {
-                self.step_frame(event_loop);
+                self.redraw(event_loop);
             }
             _ => {}
         }
     }
 
-    /// Requests a continuous redraw on every event loop iteration (`ControlFlow::Poll`).
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        if let Some(window) = &self.window {
+    /// Asks for the next frame when it can be shown. While something loads,
+    /// and in an unpaced run, that is at once, every turn of the loop.
+    /// Otherwise the loop sleeps until the frame limit's deadline, and until
+    /// the next refresh where the loop counts those itself.
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(window) = &self.window else {
+            return;
+        };
+        if self.unpaced || self.loading() {
+            event_loop.set_control_flow(ControlFlow::Poll);
             window.request_redraw();
+            return;
+        }
+        let now = Instant::now();
+        let mut due = now;
+        if self.paced {
+            due = due.max(self.last_chance + Duration::from_secs_f64(self.pacer.wait()));
+        }
+        if self.display.timed {
+            // Half a millisecond early: a timer that fires a hair late must
+            // not cost a refresh.
+            due = due.max(self.last_present + Duration::from_secs_f64((self.display.interval() - 0.0005).max(0.)));
+        }
+        if now < due {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(due));
+            return;
+        }
+        match self.redraw_asked {
+            None => {
+                window.request_redraw();
+                self.redraw_asked = Some(now);
+                event_loop.set_control_flow(ControlFlow::WaitUntil(now + HIDDEN_FRAME));
+            }
+            // A surface that is not on screen is sent no redraw (a Wayland
+            // compositor holds its frame callbacks back). The battle still
+            // has packets to read and sound to feed, so it steps without one.
+            Some(asked) if now.duration_since(asked) >= HIDDEN_FRAME => self.redraw(event_loop),
+            Some(asked) => event_loop.set_control_flow(ControlFlow::WaitUntil(asked + HIDDEN_FRAME)),
         }
     }
 }
 
+/// How long a frame is waited for before one is stepped unseen.
+const HIDDEN_FRAME: Duration = Duration::from_millis(100);
+
 impl StandaloneWindowApp {
+    /// Whether the loading screens are up. Their frames are slices of the
+    /// load's own work, so they are never held back for the display.
+    fn loading(&self) -> bool {
+        matches!(self.state, AppState::StartupLoader(_) | AppState::HostStarting { .. } | AppState::BattleLoading { .. })
+    }
+
+    /// A chance to present a frame: the window's redraw, or the loop's own
+    /// step for a hidden window. In a battle the frameLimit setting may let
+    /// the chance pass (game.js frameBody).
+    fn redraw(&mut self, event_loop: &ActiveEventLoop) {
+        let now = Instant::now();
+        self.redraw_asked = None;
+        let free = self.unpaced || self.loading();
+        // Where the loop counts the refreshes itself the swap must not wait
+        // for one as well: the two together can halve the frame rate.
+        self.set_swap_wait(!free && !self.wayland && !self.display.timed);
+        if !free {
+            // Where the loop counts the refreshes, a redraw that comes
+            // before the next one is no chance to present: the interface
+            // layer and the window system ask for redraws of their own.
+            if self.display.timed
+                && now < self.last_present + Duration::from_secs_f64((self.display.interval() - 0.0005).max(0.))
+            {
+                return;
+            }
+            let revision = self.settings.interface.revision;
+            if revision != self.pace_revision {
+                self.pace_revision = revision;
+                let limit = self.settings.interface.get_string("frameLimit").parse().unwrap_or(0.);
+                if limit != self.pacer.limit {
+                    self.pacer.set_limit(limit);
+                }
+            }
+            let battle = matches!(self.state, AppState::Battle(_));
+            if battle && !self.paced {
+                self.pacer.reset();
+            }
+            self.paced = battle;
+            let wall = now.duration_since(self.last_chance).as_secs_f64();
+            self.last_chance = now;
+            if battle && self.pacer.advance(wall).is_none() {
+                return;
+            }
+            if let Some(window) = &self.window {
+                // The monitor is asked once a second: the answer is a copy
+                // of its record, and it only changes when the window moves.
+                if self.refresh_read.is_none_or(|read| now.duration_since(read) >= Duration::from_secs(1)) {
+                    self.refresh_read = Some(now);
+                    self.display.set_refresh(window.current_monitor().and_then(|monitor| monitor.refresh_rate_millihertz()));
+                }
+                // The compositor's next frame callback is the next chance.
+                window.pre_present_notify();
+            }
+            self.display.presented(now.duration_since(self.last_present).as_secs_f64());
+        } else {
+            self.paced = false;
+            self.last_chance = now;
+        }
+        self.last_present = now;
+        self.step_frame(event_loop);
+    }
+
+    /// Has the surface's swap wait for the display's refresh, or not. On
+    /// Wayland it never waits: a swap that waits blocks for as long as the
+    /// window is hidden, and the frame callbacks already pace the redraws.
+    fn set_swap_wait(&mut self, wait: bool) {
+        if wait == self.swap_waits {
+            return;
+        }
+        if let (Some(surface), Some(context)) = (&self.surface, &self.context) {
+            let interval = if wait { SwapInterval::Wait(NonZeroU32::MIN) } else { SwapInterval::DontWait };
+            // A driver that refuses is caught by the display's own count.
+            let _ = surface.set_swap_interval(context, interval);
+            self.swap_waits = wait;
+        }
+    }
+
     /// Opens the option page the pause menu's OPTIONS asked for, over the paused battle, and closes it
     /// again once the page's stack is empty (BACK or Escape), returning to the pause menu's hub.
     fn sync_battle_options(&mut self) {

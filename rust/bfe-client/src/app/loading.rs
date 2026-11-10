@@ -109,6 +109,8 @@ impl Work {
         }
         if let Some(opening) = &mut self.opening {
             if let Poll::Ready(result) = crate::loading_work::poll(opening.as_mut()) {
+                // The shell shows the reason in a dialog; the log keeps it too.
+                let result = result.inspect_err(|err| eprintln!("battle loading: display admission failed: {err}"));
                 self.ready = Some(Box::new(result?));
                 self.opening = None;
                 eprintln!("battle loading: display admission complete");
