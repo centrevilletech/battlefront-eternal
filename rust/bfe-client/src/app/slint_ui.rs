@@ -242,6 +242,7 @@ impl slint::platform::Platform for Platform {
 use super::{
     settings::AppSettingsStore,
     shell::{ShellHost, ShellTransition},
+    slint_models::sync_rows,
 };
 use crate::audio::SharedAudioRouter;
 use bfe_shell::screens::{PopupState, ScreenId};
@@ -271,8 +272,9 @@ pub(super) struct SlintHost {
     actions: Rc<RefCell<Vec<UiAction>>>,
     was_profile_editing: bool,
     last_shell_dropdown: bool,
-    last_rows: Vec<MenuRowItem>,
-    last_steam_paragraphs: Vec<String>,
+    // The lists the screens repeat over live as long as the host does (slint_models.rs).
+    rows: Rc<slint::VecModel<MenuRowItem>>,
+    steam_paragraphs: Rc<slint::VecModel<slint::SharedString>>,
     cursor_position: slint::LogicalPosition,
     pressed: u8,
     pub frames: Cell<u64>,
@@ -310,6 +312,11 @@ impl SlintHost {
         }))
         .map_err(|e| e.to_string())?;
         let root = GameUi::new().map_err(|e| e.to_string())?;
+        // Handed to the screens once; `sync_shell` only edits their rows afterwards.
+        let rows = Rc::new(slint::VecModel::<MenuRowItem>::default());
+        root.set_rows(slint::ModelRc::from(rows.clone()));
+        let steam_paragraphs = Rc::new(slint::VecModel::<slint::SharedString>::default());
+        root.set_steam_paragraphs(slint::ModelRc::from(steam_paragraphs.clone()));
         root.set_proof_controls(proof);
         let actions: Rc<RefCell<Vec<UiAction>>> = Rc::new(RefCell::new(Vec::new()));
         {
@@ -459,8 +466,8 @@ impl SlintHost {
             actions,
             was_profile_editing: false,
             last_shell_dropdown: false,
-            last_rows: Vec::new(),
-            last_steam_paragraphs: Vec::new(),
+            rows,
+            steam_paragraphs,
             cursor_position: slint::LogicalPosition::default(),
             pressed: 0,
             frames: Cell::new(0),
@@ -561,11 +568,7 @@ impl SlintHost {
                     disabled: r.disabled,
                 })
                 .collect();
-            if self.last_rows != model {
-                self.root
-                    .set_rows(slint::ModelRc::new(slint::VecModel::from(model.clone())));
-                self.last_rows = model;
-            }
+            sync_rows(&self.rows, &model);
             self.root
                 .set_selected_row(shell.app.selected_cached_row_index(id) as i32);
         }
@@ -592,17 +595,13 @@ impl SlintHost {
 
         self.root.set_steam_offer_open(shell.steam_offer.open);
         if shell.steam_offer.open {
-            if self.last_steam_paragraphs != shell.steam_offer.paragraphs {
-                let paras: Vec<slint::SharedString> = shell
-                    .steam_offer
-                    .paragraphs
-                    .iter()
-                    .map(|s| s.as_str().into())
-                    .collect();
-                self.root
-                    .set_steam_paragraphs(slint::ModelRc::new(slint::VecModel::from(paras)));
-                self.last_steam_paragraphs = shell.steam_offer.paragraphs.clone();
-            }
+            let paras: Vec<slint::SharedString> = shell
+                .steam_offer
+                .paragraphs
+                .iter()
+                .map(|s| s.as_str().into())
+                .collect();
+            sync_rows(&self.steam_paragraphs, &paras);
             self.root
                 .set_steam_status_text(shell.steam_offer.status_text.as_str().into());
             self.root

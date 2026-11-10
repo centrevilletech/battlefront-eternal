@@ -15,6 +15,12 @@ Every native menu, setup, browser, and battle screen port follows the single pat
   - Row lists (`ModelRc<MenuRowItem>`) and selection indices (`selected-row`, `*-selected-button`) bind directly from `ShellApp`. **Important**: Cache the previous `Vec<...>` in Rust and only call `set_rows(ModelRc::new(VecModel::from(...)))` when the slice contents change; replacing a `ModelRc` on every `PointerPressed` event tears down Slint `for` repeaters mid-click and drops `clicked` callbacks.
 - Callbacks emitted by Slint push typed `UiAction` variants into `SlintHost::actions`, which `SlintHost::drain_actions` applies back onto `ShellHost` / `ShellApp` / `AppSettingsStore`.
 
+### List models stay alive
+A `for` repeater destroys and rebuilds every delegate when its model is replaced or reset, and each delegate's hover, press in progress, double click timer and text cursor go with it. The screens are projected every frame, so a list model rebuilt on each projection gives rows and dropdown options that cannot be clicked at human speed.
+- Keep one `Rc<VecModel<T>>` per list for the life of the screen and hand it to the screen once.
+- Bring it up to date with `sync_rows` (`rust/bfe-client/src/app/slint_models.rs`): it rewrites only the rows that differ and appends or trims at the tail, without a reset.
+- Check a ported list with real input at human timing (press, hold 150 ms, release; two clicks 250 ms apart): a press and release inside one frame hides this fault.
+
 ## 3. Input, Focus, Escape, and Sounds
 - **Pointer Hit-Testing**: `GameUi.controls-at(x, y)` returns `true` whenever a visible Slint screen, modal, or dropdown contains the cursor. `SlintHost::event` consumes pointer presses, releases, and wheel scrolling over active Slint controls while leaving 3D combat mouselook (`pointer_locked == true`) untouched.
 - **Keyboard & Focus**:

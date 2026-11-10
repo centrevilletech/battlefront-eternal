@@ -76,6 +76,7 @@ mod loading;
 mod folder_dialog;
 mod first_run;
 mod platform_smoke;
+mod slint_models;
 mod slint_ui;
 pub mod script;
 pub mod settings;
