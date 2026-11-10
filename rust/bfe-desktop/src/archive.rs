@@ -1,24 +1,24 @@
-//! Portable prepared content archive (`.bfecontent`) export, verification,
-//! atomic import, and game-install relocation.
+//! Portable prepared content archive export, verification, atomic import and
+//! game-install relocation.
 //!
-//! Mirrors the desktop host.
+//! Ports `electron/content-archive.js` of the browser build: the archives players
+//! already hold (`.bfepack`, or `.zip`) are the standard, so this module reads and
+//! writes that one dialect and nothing else.
 //!
-//! A `.bfecontent` file is an uncompressed ZIP64-capable archive containing:
-//! - `bfe-content-manifest.json` (`format: "battlefront-eternal-content"`, `version: 1`)
-//! - Prepared content files under `common/`, `sides/`, `maps/`, `audio/`, and `.prepare.json`
-//! - Deduplicated `linkTo` metadata for hardlinked and case-folded alias files
-//! - Source `.lvl` SHA-256 fingerprints (`source.files`) so `relocate_preparation`
-//!   can verify that a local Star Wars Battlefront (2004) install matches the
-//!   files the archive was prepared from.
+//! An archive is a ZIP64-capable file holding:
+//! - `bfe-content-manifest.json` (`format: "battlefront-eternal-content"`,
+//!   `version: 1`, `created`, `source`, `files`), the first entry the exporter writes;
+//! - prepared content files under `common/`, `sides/`, `maps/`, `audio/`, and `.prepare.json`;
+//! - `linkTo` manifest records (no payload) for hardlinks and case-variant duplicates;
+//! - `source`, SHA-256 fingerprints of the original `.lvl` files, so
+//!   [`relocate_preparation`] can check that a local install matches what the
+//!   content was prepared from.
 //!
-//! ## Binary Archive Layout
-//! Because prepared content already consists of compressed audio, textures, and
-//! packed asset blobs, `.bfecontent` archives store entries with ZIP compression
-//! method `0` (`STORE`). When any individual entry or the archive as a whole
-//! reaches `0xffff_ffff` bytes (4 GiB) or `0xffff` entries, standard ZIP64
-//! extended information extra blocks (`0x0001`), the 56-byte ZIP64 End of Central
-//! Directory record (`PK\x06\x06`), and the 20-byte ZIP64 EOCD Locator (`PK\x06\x07`)
-//! are emitted automatically.
+//! Each `files` record is `{path, size, mtime, [linkTo, hardlink,] sha256}` exactly as
+//! the browser exporter writes it. The importer accepts deflated entries (the browser
+//! compresses at level 3) as well as stored ones, and streams both; the exporter stores
+//! its entries, which every ZIP reader accepts, because prepared content is already
+//! compressed audio, textures and packed blobs.
 //!
 //! ## Safety Invariants
 //! Every archive entry path and manifest path is validated through [`safe_path`]
@@ -28,7 +28,7 @@
 //! - No Windows reserved device stems (`CON`, `PRN`, `AUX`, `NUL`, `COM1..9`, `LPT1..9`).
 //! - Content entries must live under `common/`, `sides/`, `maps/`, `audio/`, or `.prepare.json`.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -37,11 +37,10 @@ use crc32fast::Hasher as Crc32Hasher;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::discover::{inspect_content, inspect_install, walk_ignore_case};
+use crate::discover::{inspect_install, walk_ignore_case};
 use crate::paths::resolve_from;
 use crate::prepare::{
     checkout_content_version, prepared_content_current, read_content_version, read_prepare_state,
-    ContentVersion,
 };
 
 /// Manifest entry filename inside `.bfecontent` ZIP archives.
@@ -84,34 +83,37 @@ pub const MAX_BYTES: u64 = 256 * 1024 * 1024 * 1024;
 /// Mirrors `MAX_MANIFEST` in the desktop host.
 pub const MAX_MANIFEST: u64 = 64 * 1024 * 1024;
 
-/// Single file entry inside `bfe-content-manifest.json`.
+/// Single file record inside `bfe-content-manifest.json`.
 ///
-/// Each entry records the forward-slash path, uncompressed byte size, and
-/// lowercase SHA-256 hex digest. When a file is a hardlink or case-folded
-/// duplicate of an earlier entry, `link_to` names the canonical entry and
-/// `hardlink` distinguishes hardlinks (`Some(true)`) from case-folded copies (`Some(false)`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// The field order is the browser exporter's: `path`, `size`, `mtime`, then
+/// `linkTo` and `hardlink` for an alias, and `sha256` last (`exportContent` adds the
+/// hash after the stat fields). A source fingerprint record carries only
+/// `path`, `size` and `sha256`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ManifestFileEntry {
     /// Forward-slash relative path inside the content directory.
     pub path: String,
     /// Uncompressed file size in bytes.
     pub size: u64,
+    /// Modification time in milliseconds since the epoch (`stat.mtimeMs`); restored on import.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtime: Option<f64>,
+    /// Canonical relative path when this entry is a hardlink or case-variant alias.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_to: Option<String>,
+    /// Whether this alias was a filesystem hardlink (`true`) or a case variant (`false`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hardlink: Option<bool>,
     /// Lowercase hex SHA-256 digest of the file payload.
     pub sha256: String,
-    /// Canonical relative path when this entry is a hardlink or case-folded alias.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub link_to: Option<String>,
-    /// Whether this alias was a filesystem hardlink (`Some(true)`) or a case-folded copy (`Some(false)`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hardlink: Option<bool>,
 }
 
 /// Source `.lvl` fingerprint record stored under `manifest.source`.
 ///
 /// Used by [`relocate_preparation`] to verify that a local `GameData` folder
 /// contains the exact same `.lvl` files the archive was originally built from.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SourceReceipt {
     /// Base subdirectory inside the game install (`"GameData"`).
     pub base: String,
@@ -119,27 +121,22 @@ pub struct SourceReceipt {
     pub files: Vec<ManifestFileEntry>,
 }
 
-/// Deserialized representation of `bfe-content-manifest.json`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// Deserialized representation of `bfe-content-manifest.json`: the browser build's
+/// manifest, field for field. Unknown fields (an older native dialect wrote several)
+/// are ignored, like the browser importer ignores them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ArchiveManifest {
     /// Must equal [`ARCHIVE_FORMAT`] (`"battlefront-eternal-content"`).
     pub format: String,
     /// Must equal [`ARCHIVE_VERSION`] (`1`).
     pub version: u32,
-    /// Copy of `tools/content-version.json` active when the archive was exported.
-    pub content_version: ContentVersion,
-    /// ISO-8601 timestamp or epoch string of export creation.
-    pub created_at: String,
-    /// Sorted list of map directory names included in the archive.
-    pub maps: Vec<String>,
-    /// Sorted list of add-on IDs recorded in `.prepare.json`.
-    pub add_ons: Vec<String>,
-    /// Optional source `.lvl` fingerprints for relocating against a local install.
+    /// ISO-8601 timestamp of the export (`new Date().toISOString()`).
+    #[serde(default, alias = "createdAt", skip_serializing_if = "Option::is_none")]
+    pub created: Option<String>,
+    /// Source `.lvl` fingerprints for relocating against a local install, or `null`.
+    #[serde(default)]
     pub source: Option<SourceReceipt>,
-    /// Total uncompressed bytes across all files in `files`.
-    pub total_bytes: u64,
-    /// Manifest file entries (both stored entries and `linkTo` aliases).
+    /// Manifest file records (stored entries and `linkTo` aliases).
     pub files: Vec<ManifestFileEntry>,
 }
 
@@ -149,74 +146,42 @@ pub struct ArchiveManifest {
 /// Returns the normalized path segments on success.
 /// Mirrors `safePath` in the desktop host.
 pub fn safe_path(name: &str, content_only: bool) -> Result<Vec<String>, String> {
-    // Reject empty or overly long entry names (> 1024 bytes).
-    if name.is_empty() || name.len() > 1024 {
-        return Err("Archive contains an unsafe file path.".to_string());
-    }
-    // Reject ASCII control characters, Windows backslashes, and drive colons.
-    if name
-        .chars()
-        .any(|c| (c as u32) <= 0x1f || c == '\\' || c == ':')
+    // Ports `safePath`: a name over 1024 characters, or with a backslash, a colon or a control
+    // character, is an invalid path before it is split.
+    if name.len() > 1024
+        || name
+            .chars()
+            .any(|c| (c as u32) <= 0x1f || c == '\\' || c == ':')
     {
-        return Err(format!("Archive contains an unsafe file path: {}", name));
+        return Err("Invalid archive path".to_string());
     }
+    let unsafe_path = || format!("Unsafe archive path: {}", name);
     let parts: Vec<&str> = name.split('/').collect();
-    if parts.is_empty() {
-        return Err(format!("Archive contains an unsafe file path: {}", name));
-    }
     for part in &parts {
-        // Reject empty path components, `.`, and `..` directory traversal segments.
+        // Empty components, `.` and `..`, trailing dots or spaces (Windows strips them), and
+        // Windows reserved device names before any extension.
         if part.is_empty() || *part == "." || *part == ".." {
-            return Err(format!("Archive contains an unsafe file path: {}", name));
+            return Err(unsafe_path());
         }
-        // Reject trailing dots or spaces that Windows filesystems strip silently.
         if part.ends_with('.') || part.ends_with(' ') {
-            return Err(format!("Archive contains an unsafe file path: {}", name));
+            return Err(unsafe_path());
         }
-        // Check Windows reserved device names (CON, PRN, AUX, NUL, COM1..9, LPT1..9)
-        // before any dot extension.
         let stem = part.split('.').next().unwrap_or("").to_ascii_lowercase();
-        let reserved = matches!(
-            stem.as_str(),
-            "con"
-                | "prn"
-                | "aux"
-                | "nul"
-                | "com1"
-                | "com2"
-                | "com3"
-                | "com4"
-                | "com5"
-                | "com6"
-                | "com7"
-                | "com8"
-                | "com9"
-                | "lpt1"
-                | "lpt2"
-                | "lpt3"
-                | "lpt4"
-                | "lpt5"
-                | "lpt6"
-                | "lpt7"
-                | "lpt8"
-                | "lpt9"
-        );
+        let reserved = matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
+            || ((stem.starts_with("com") || stem.starts_with("lpt"))
+                && stem.len() == 4
+                && stem.as_bytes()[3].is_ascii_digit()
+                && stem.as_bytes()[3] != b'0');
         if reserved {
-            return Err(format!("Archive contains an unsafe file path: {}", name));
+            return Err(unsafe_path());
         }
     }
-    // When validating prepared content entries, only allow `.prepare.json` at the
-    // root or files nested inside `common/`, `sides/`, `maps/`, and `audio/`.
-    if content_only {
-        if name == ".prepare.json" {
-            return Ok(parts.into_iter().map(|s| s.to_string()).collect());
-        }
-        if parts.len() < 2 || !CONTENT_ROOTS.contains(&parts[0]) {
-            return Err(format!(
-                "Archive contains an unexpected file path: {}",
-                name
-            ));
-        }
+    // Prepared content lives under the four roots (with something inside) or is `.prepare.json`.
+    if content_only
+        && name != ".prepare.json"
+        && !(CONTENT_ROOTS.contains(&parts[0]) && parts.len() > 1)
+    {
+        return Err(format!("Not prepared game content: {}", name));
     }
     Ok(parts.into_iter().map(|s| s.to_string()).collect())
 }
@@ -362,32 +327,20 @@ fn walk_content_dir(
 
 /// Resolves the `GameData` directory from the `game` path recorded in `.prepare.json`.
 ///
-/// Walks up to 4 parent directories from `<game>/GameData/Data/_LVL_PC` looking
-/// for the directory named `GameData` (case-insensitively).
-/// Mirrors the `GameData` ancestor lookup inside `sourceFingerprint` in the desktop host.
+/// Ports the check at the top of `provenance` in `electron/content-archive.js`: the recorded
+/// path must end in `_LVL_PC` (any case), and `GameData` is two levels above it.
 fn game_data_root(state_game: Option<&str>) -> Option<PathBuf> {
     let game_str = state_game.filter(|s| !s.is_empty())?;
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let mut dir = resolve_from(&cwd, Path::new(game_str));
-    // Walk up at most four parent levels (`_LVL_PC` -> `Data` -> `GameData`).
-    for _ in 0..4 {
-        if dir
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map(|s| s.eq_ignore_ascii_case("gamedata"))
-            .unwrap_or(false)
-        {
-            return Some(dir);
-        }
-        let Some(parent) = dir.parent().map(|p| p.to_path_buf()) else {
-            break;
-        };
-        if parent == dir {
-            break;
-        }
-        dir = parent;
+    let game = resolve_from(&cwd, Path::new(game_str));
+    let is_lvl_pc = game
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.eq_ignore_ascii_case("_lvl_pc"));
+    if !is_lvl_pc {
+        return None;
     }
-    None
+    Some(game.parent()?.parent()?.to_path_buf())
 }
 
 /// Collects SHA-256 fingerprints of `.lvl` files inside `GameData`, or falls back
@@ -395,12 +348,13 @@ fn game_data_root(state_game: Option<&str>) -> Option<PathBuf> {
 ///
 /// Mirrors `provenance` and `sourceFingerprint` in the desktop host.
 pub fn source_manifest(root: &Path, state_game: Option<&str>) -> Option<SourceReceipt> {
-    // Prefer hashing `.lvl` files from the live `GameData` directory when it exists on disk.
-    if let Some(game_data) = game_data_root(state_game).filter(|d| d.exists()) {
+    // A live `GameData` directory decides the answer, as `provenance` returns
+    // `sourceFingerprint(...)` outright: its `.lvl` hashes, or `null` when it has none.
+    if let Some(game_data) = game_data_root(state_game).filter(|d| d.is_dir()) {
         let mut files = Vec::new();
-        if walk_lvl_files(&game_data, "", &mut files).is_ok() && !files.is_empty() {
+        if walk_lvl_files(&game_data, "", &mut files).is_ok() {
             files.sort_by(|a, b| a.path.cmp(&b.path));
-            return Some(SourceReceipt {
+            return (!files.is_empty()).then_some(SourceReceipt {
                 base: "GameData".to_string(),
                 files,
             });
@@ -453,9 +407,10 @@ fn walk_lvl_files(
             files.push(ManifestFileEntry {
                 path: rel,
                 size,
-                sha256,
+                mtime: None,
                 link_to: None,
                 hardlink: None,
+                sha256,
             });
         }
     }
@@ -491,12 +446,14 @@ struct CentralRecord {
     size: u64,
     /// Byte offset of the local file header from the start of the archive.
     offset: u64,
+    /// Unix file mode kept in the high half of the external attributes (`0o100644`).
+    mode: u32,
 }
 
 /// Streaming uncompressed (`method = 0`) ZIP / ZIP64 archive writer.
 ///
-/// Produces uncompressed store-mode ZIP/ZIP64 archives identical to `yazl`
-/// with `{ compress: false }` in `exportContent` in the desktop host.
+/// Produces store-mode ZIP/ZIP64 archives the browser build's `yauzl` importer reads: regular-file
+/// modes in the external attributes, UTF-8 names, ZIP64 records past 4 GiB.
 struct ZipStoreWriter {
     /// Underlying output file handle.
     file: File,
@@ -575,7 +532,7 @@ impl ZipStoreWriter {
     ///
     /// Computes the IEEE CRC-32 of `data`, writes the local file header and raw bytes,
     /// and records a [`CentralRecord`] for the trailing central directory.
-    fn add_bytes(&mut self, name: &str, data: &[u8]) -> Result<(), String> {
+    fn add_bytes(&mut self, name: &str, data: &[u8], mode: u32) -> Result<(), String> {
         let mut crc_hasher = Crc32Hasher::new();
         crc_hasher.update(data);
         let crc = crc_hasher.finalize();
@@ -588,6 +545,7 @@ impl ZipStoreWriter {
             crc,
             size,
             offset,
+            mode,
         });
         Ok(())
     }
@@ -602,6 +560,7 @@ impl ZipStoreWriter {
         file_path: &Path,
         expected_size: u64,
         crc: u32,
+        mut progress: impl FnMut(u64) -> Result<(), String>,
     ) -> Result<(), String> {
         let name_bytes = name.as_bytes().to_vec();
         let offset = self.write_local_header(&name_bytes, crc, expected_size)?;
@@ -618,6 +577,9 @@ impl ZipStoreWriter {
             }
             self.write_all_bytes(&buf[..n])?;
             written += n as u64;
+            // Reports each chunk so progress moves through a multi-gigabyte file and a
+            // cancel is seen within one chunk.
+            progress(n as u64)?;
         }
         // Fail fast if a concurrent process modified or truncated the file during export.
         if written != expected_size {
@@ -628,6 +590,7 @@ impl ZipStoreWriter {
             crc,
             size: expected_size,
             offset,
+            mode: 0o100644,
         });
         Ok(())
     }
@@ -681,7 +644,7 @@ impl ZipStoreWriter {
             rec.extend_from_slice(&0u16.to_le_bytes()); // comment len
             rec.extend_from_slice(&0u16.to_le_bytes()); // disk number
             rec.extend_from_slice(&0u16.to_le_bytes()); // internal attrs
-            rec.extend_from_slice(&0u32.to_le_bytes()); // external attrs
+            rec.extend_from_slice(&(entry.mode << 16).to_le_bytes()); // external attrs: unix mode
             rec.extend_from_slice(&off32.to_le_bytes());
             rec.extend_from_slice(&entry.name);
             if zip64 {
@@ -765,6 +728,10 @@ pub struct ZipEntryInfo {
     pub size: u64,
     /// Byte offset of the local file header.
     pub offset: u64,
+    /// General-purpose bit flags (bit 0 marks an encrypted entry).
+    pub flags: u16,
+    /// External attributes; the high half holds the Unix file type and mode.
+    pub external_attrs: u32,
 }
 
 /// Returns a bounds-checked subslice of `buf` of length `len` starting at `offset`.
@@ -919,6 +886,7 @@ pub fn read_zip_entries(file: &mut File) -> Result<BTreeMap<String, ZipEntryInfo
         if read_u32(&central, pos, "Archive central directory is damaged.")? != ZIP_CENTRAL_SIG {
             return Err("Archive central directory is damaged.".to_string());
         }
+        let flags = read_u16(&central, pos + 8, "Archive central directory is damaged.")?;
         let method = read_u16(&central, pos + 10, "Archive central directory is damaged.")?;
         let crc = read_u32(&central, pos + 16, "Archive central directory is damaged.")?;
         let mut compressed_size =
@@ -931,6 +899,7 @@ pub fn read_zip_entries(file: &mut File) -> Result<BTreeMap<String, ZipEntryInfo
             read_u16(&central, pos + 30, "Archive central directory is damaged.")? as usize;
         let comment_len =
             read_u16(&central, pos + 32, "Archive central directory is damaged.")? as usize;
+        let external_attrs = read_u32(&central, pos + 38, "Archive central directory is damaged.")?;
         let mut offset =
             read_u32(&central, pos + 42, "Archive central directory is damaged.")? as u64;
 
@@ -1011,6 +980,8 @@ pub fn read_zip_entries(file: &mut File) -> Result<BTreeMap<String, ZipEntryInfo
                 compressed_size,
                 size,
                 offset,
+                flags,
+                external_attrs,
             },
         );
         pos = entry_end;
@@ -1037,9 +1008,10 @@ fn entry_data_offset(file: &mut File, entry: &ZipEntryInfo) -> Result<u64, Strin
         .ok_or(err)
 }
 
-/// Reads and verifies the full byte payload of a ZIP entry (supporting store `0` and deflate `8`).
+/// Reads and verifies the whole payload of a small ZIP entry (the manifest), stored or deflated.
 ///
-/// Mirrors `readEntryBuffer` in the desktop host.
+/// Ports the manifest read of `importContent`: the entry may not exceed `max_bytes`
+/// uncompressed, and its recorded size and CRC-32 must match what was read.
 fn read_entry_bytes(
     file: &mut File,
     entry: &ZipEntryInfo,
@@ -1047,26 +1019,28 @@ fn read_entry_bytes(
 ) -> Result<Vec<u8>, String> {
     // Enforce the caller's upper bound (`MAX_MANIFEST`) before allocating a buffer.
     if entry.size > max_bytes || entry.compressed_size > max_bytes {
-        return Err(format!("Archive entry is too large: {}", entry.name));
+        return Err("Invalid content manifest".to_string());
     }
     let data_offset = entry_data_offset(file, entry)?;
     let raw = read_exact_at(file, data_offset, entry.compressed_size as usize)?;
-    let data = if entry.method == 0 {
-        raw
-    } else if entry.method == 8 {
-        let mut decoder = flate2::read::DeflateDecoder::new(&raw[..]);
-        let mut out = Vec::new();
-        decoder
-            .read_to_end(&mut out)
-            .map_err(|e| format!("Failed decompressing {}: {}", entry.name, e))?;
-        out
-    } else {
-        return Err(format!(
-            "Unsupported archive compression method for {}",
-            entry.name
-        ));
+    let data = match entry.method {
+        0 => raw,
+        8 => {
+            let mut out = Vec::new();
+            // One byte past the recorded size catches an entry that inflates larger.
+            flate2::read::DeflateDecoder::new(&raw[..])
+                .take(entry.size + 1)
+                .read_to_end(&mut out)
+                .map_err(|e| format!("Failed decompressing {}: {}", entry.name, e))?;
+            out
+        }
+        _ => {
+            return Err(format!(
+                "Unsupported archive compression method for {}",
+                entry.name
+            ))
+        }
     };
-
     // Verify both the uncompressed byte length and the ZIP CRC-32 checksum.
     if data.len() as u64 != entry.size {
         return Err(format!("Archive entry size mismatch: {}", entry.name));
@@ -1079,193 +1053,269 @@ fn read_entry_bytes(
     Ok(data)
 }
 
-/// Extracts a single ZIP entry to `dest` on disk while verifying both its CRC-32
-/// and its expected SHA-256 digest.
+/// Streams one ZIP entry (stored or deflated) to `dest`, verifying its CRC-32 and its
+/// manifest SHA-256 as the bytes pass, and calls `on_bytes` for every chunk.
 ///
-/// Mirrors `extractEntry` in the desktop host.
+/// Ports the per-entry loop of `importContent`: the target is created exclusively
+/// (`wx`), the hash is checked after the last byte (`Checksum mismatch: ...`), and the
+/// manifest's `mtime` is applied when it is finite. The callback runs every 64 KiB at
+/// most, so progress follows the bytes and an `Err` (a cancel) stops the copy at once.
 fn extract_entry_to_file(
     file: &mut File,
     entry: &ZipEntryInfo,
     dest: &Path,
-    expected_sha256: &str,
+    record: &ManifestFileEntry,
+    mut on_bytes: impl FnMut(u64) -> Result<(), String>,
 ) -> Result<(), String> {
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create {}: {}", parent.display(), e))?;
     }
-    // Handle Deflate-compressed entries (`method == 8`) via `read_entry_bytes`.
-    if entry.method == 8 {
-        let data = read_entry_bytes(file, entry, MAX_MANIFEST)?;
-        let mut hasher = Sha256::new();
-        hasher.update(&data);
-        if hex_encode(&hasher.finalize()) != expected_sha256 {
-            return Err(format!("Content hash mismatch: {}", entry.name));
-        }
-        fs::write(dest, &data).map_err(|e| format!("Failed to write {}: {}", dest.display(), e))?;
-        return Ok(());
-    }
-    if entry.method != 0 {
-        return Err(format!(
-            "Unsupported archive compression method for {}",
-            entry.name
-        ));
-    }
-
-    // Stream uncompressed (`method == 0`) entries directly to disk while computing CRC-32 and SHA-256.
     let data_offset = entry_data_offset(file, entry)?;
     file.seek(SeekFrom::Start(data_offset))
         .map_err(|e| format!("Seek failed: {}", e))?;
-    let mut out =
-        File::create(dest).map_err(|e| format!("Failed to create {}: {}", dest.display(), e))?;
+    let limited = (&mut *file).take(entry.compressed_size);
+    let mut reader: Box<dyn Read + '_> = match entry.method {
+        0 => Box::new(limited),
+        8 => Box::new(flate2::read::DeflateDecoder::new(
+            std::io::BufReader::with_capacity(65536, limited),
+        )),
+        _ => {
+            return Err(format!(
+                "Unsupported archive compression method for {}",
+                entry.name
+            ))
+        }
+    };
+    let mut out = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dest)
+        .map_err(|e| format!("Failed to create {}: {}", dest.display(), e))?;
 
     let mut crc_hasher = Crc32Hasher::new();
     let mut sha_hasher = Sha256::new();
-    let mut remaining = entry.size;
+    let mut written = 0u64;
     let mut buf = [0u8; 65536];
-
-    while remaining > 0 {
-        let to_read = (remaining as usize).min(buf.len());
-        let n = file
-            .read(&mut buf[..to_read])
+    loop {
+        let n = reader
+            .read(&mut buf)
             .map_err(|e| format!("Read error extracting {}: {}", entry.name, e))?;
         if n == 0 {
-            return Err(format!("Archive is truncated at {}", entry.name));
+            break;
+        }
+        written += n as u64;
+        // An entry that inflates past its recorded size is a damaged or hostile archive.
+        if written > entry.size {
+            return Err(format!("Archive entry size mismatch: {}", entry.name));
         }
         crc_hasher.update(&buf[..n]);
         sha_hasher.update(&buf[..n]);
         out.write_all(&buf[..n])
             .map_err(|e| format!("Write error for {}: {}", dest.display(), e))?;
-        remaining -= n as u64;
+        on_bytes(n as u64)?;
+    }
+    if written != entry.size {
+        return Err(format!("Archive is truncated at {}", entry.name));
+    }
+    if crc_hasher.finalize() != entry.crc || hex_encode(&sha_hasher.finalize()) != record.sha256 {
+        return Err(format!(
+            "Checksum mismatch: {}. The export is damaged or incomplete.",
+            record.path
+        ));
+    }
+    if let Some(mtime) = record.mtime.filter(|m| m.is_finite() && *m >= 0.0) {
+        let _ = out.set_modified(
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs_f64(mtime / 1000.0),
+        );
     }
     out.flush()
         .map_err(|e| format!("Flush error for {}: {}", dest.display(), e))?;
-
-    // Reject the extracted entry if either the ZIP CRC-32 or the manifest SHA-256 fails.
-    if crc_hasher.finalize() != entry.crc {
-        return Err(format!("Archive checksum mismatch: {}", entry.name));
-    }
-    if hex_encode(&sha_hasher.finalize()) != expected_sha256 {
-        return Err(format!("Content hash mismatch: {}", entry.name));
-    }
     Ok(())
 }
 
-/// Validates a parsed [`ArchiveManifest`] against the active [`ContentVersion`]
-/// and the central directory entries of the ZIP file.
-///
-/// Mirrors `validateManifest` in the desktop host.
-///
-/// Checks performed:
-/// 1. `manifest.format == "battlefront-eternal-content"` and `manifest.version == 1`.
-/// 2. `manifest.content_version == expected_version` (from `tools/content-version.json`).
-/// 3. `1 <= manifest.files.len() <= MAX_FILES` and total bytes `<= MAX_BYTES`.
-/// 4. Every file path passes [`safe_path`], is unique, has a lowercase 64-hex SHA-256,
-///    and (unless it is a `linkTo` alias) exists in the ZIP central directory with matching size.
-/// 5. Every `linkTo` alias references a primary (non-alias) manifest entry with matching size and SHA-256.
-/// 6. `common/common.json` is present and the ZIP contains no unlisted entries.
-pub fn validate_manifest(
-    manifest: &ArchiveManifest,
-    entries: &BTreeMap<String, ZipEntryInfo>,
-    expected_version: &ContentVersion,
-) -> Result<(), String> {
-    // Reject archives with unknown format identifiers or incompatible schema versions.
-    if manifest.format != ARCHIVE_FORMAT || manifest.version != ARCHIVE_VERSION {
-        return Err(
-            "That file is not a compatible Battlefront Eternal content archive.".to_string(),
-        );
-    }
-    // Reject archives whose `contentVersion` does not match `tools/content-version.json`.
-    if &manifest.content_version != expected_version {
-        return Err(
-            "That content archive was made for a different content version and must be prepared again."
-                .to_string(),
-        );
-    }
-    // Enforce non-empty file count within MAX_FILES.
-    if manifest.files.is_empty() || manifest.files.len() > MAX_FILES {
-        return Err("Content archive file list is invalid.".to_string());
-    }
-    let mut total = 0u64;
-    let mut seen = BTreeSet::new();
-    let mut has_common = false;
-    let mut by_path = BTreeMap::new();
+/// True for `maps/<id>/map.json`, the file the browser importer looks for as proof of a
+/// playable prepared map (`/^maps\/[^/]+\/map\.json$/`).
+fn is_map_record(path: &str) -> bool {
+    let mut parts = path.split('/');
+    parts.next() == Some("maps")
+        && parts.next().is_some_and(|id| !id.is_empty())
+        && parts.next() == Some("map.json")
+        && parts.next().is_none()
+}
 
-    // First pass: check each manifest item's path safety, uniqueness, SHA-256 syntax,
-    // cumulative byte budget, and presence in the ZIP central directory.
-    for item in &manifest.files {
-        safe_path(&item.path, true)?;
-        if !seen.insert(item.path.clone()) {
-            return Err(format!(
-                "Content archive lists {} more than once.",
-                item.path
-            ));
+/// Map folder names a manifest carries, sorted.
+fn manifest_maps(manifest: &ArchiveManifest) -> Vec<String> {
+    let mut maps: Vec<String> = manifest
+        .files
+        .iter()
+        .filter(|f| is_map_record(&f.path))
+        .filter_map(|f| f.path.split('/').nth(1).map(str::to_string))
+        .collect();
+    maps.sort();
+    maps.dedup();
+    maps
+}
+
+/// Checks a sha256 string the way the browser does (`/^[a-f0-9]{64}$/`).
+fn valid_sha256(sha: &str) -> bool {
+    sha.len() == 64
+        && sha
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+}
+
+/// Validates a parsed [`ArchiveManifest`] and returns the total byte count of its records.
+///
+/// Ports `validateManifest` in `electron/content-archive.js`, rule for rule and in its order:
+/// 1. `format`, `version` and a non-empty file list within `MAX_FILES`.
+/// 2. Per record: a content-only safe path, no duplicate path, no case variant that is not a
+///    `linkTo` alias with the same hash and size, a safe-integer size and a lowercase SHA-256,
+///    and a running total within `MAX_BYTES`.
+/// 3. Every `linkTo` names a stored (non-alias) record with the same hash and size.
+/// 4. `common/common.json` and at least one `maps/<id>/map.json` are present.
+/// 5. `source`, when present, is a `GameData` fingerprint of at most `MAX_FILES` safe records.
+pub fn validate_manifest(manifest: &ArchiveManifest) -> Result<u64, String> {
+    if manifest.format != ARCHIVE_FORMAT
+        || manifest.version != ARCHIVE_VERSION
+        || manifest.files.is_empty()
+        || manifest.files.len() > MAX_FILES
+    {
+        return Err("Unsupported or invalid content export".to_string());
+    }
+    let mut bytes = 0u64;
+    let mut seen: BTreeMap<&str, &ManifestFileEntry> = BTreeMap::new();
+    let mut folded: BTreeMap<String, &ManifestFileEntry> = BTreeMap::new();
+    for file in &manifest.files {
+        safe_path(&file.path, true)?;
+        // The browser folds with NFC then lower case; content names are ASCII, so lower case alone.
+        let key = file.path.to_lowercase();
+        if seen.contains_key(file.path.as_str()) {
+            return Err(format!("Duplicate archive path: {}", file.path));
         }
-        if item.sha256.len() != 64
-            || !item
-                .sha256
-                .chars()
-                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
-        {
-            return Err(format!("Content archive entry is invalid: {}", item.path));
-        }
-        total = total.saturating_add(item.size);
-        if total > MAX_BYTES {
-            return Err("Content archive is larger than supported.".to_string());
-        }
-        by_path.insert(item.path.clone(), item);
-        if item.link_to.is_none() {
-            let Some(entry) = entries.get(&item.path) else {
-                return Err(format!("Content archive is missing {}", item.path));
-            };
-            if entry.size != item.size {
-                return Err(format!("Content archive size mismatch for {}", item.path));
+        seen.insert(&file.path, file);
+        let previous = folded.get(&key).copied();
+        if let Some(prev) = previous {
+            let alias = file.link_to.as_deref() == Some(prev.path.as_str())
+                && file.sha256 == prev.sha256
+                && file.size == prev.size;
+            if !alias {
+                return Err(format!("Conflicting case variants: {}", file.path));
             }
+        } else {
+            folded.insert(key, file);
         }
-        if item.path == "common/common.json" {
-            has_common = true;
+        if !valid_sha256(&file.sha256) {
+            return Err(format!("Invalid checksum record: {}", file.path));
+        }
+        bytes = bytes.saturating_add(file.size);
+        if bytes > MAX_BYTES {
+            return Err("Content export is too large".to_string());
         }
     }
-
-    // Second pass: verify that every `linkTo` alias points to a primary stored entry
-    // (no chained `linkTo -> linkTo`) with matching byte size and SHA-256 digest.
-    for item in &manifest.files {
-        let Some(link_to) = &item.link_to else {
+    for file in &manifest.files {
+        let Some(link) = &file.link_to else {
             continue;
         };
-        safe_path(link_to, true)?;
-        let Some(target) = by_path.get(link_to) else {
-            return Err(format!(
-                "Content archive link target is invalid: {}",
-                item.path
-            ));
-        };
-        if target.link_to.is_some() {
-            return Err(format!(
-                "Content archive link target is invalid: {}",
-                item.path
-            ));
-        };
-        if target.size != item.size || target.sha256 != item.sha256 {
-            return Err(format!("Content archive link mismatch for {}", item.path));
+        safe_path(link, true)?;
+        let valid = seen.get(link.as_str()).is_some_and(|target| {
+            target.link_to.is_none()
+                && !std::ptr::eq(*target, file)
+                && target.sha256 == file.sha256
+                && target.size == file.size
+        });
+        if !valid {
+            return Err(format!("Invalid content alias: {}", file.path));
         }
     }
+    if !seen.contains_key("common/common.json")
+        || !manifest.files.iter().any(|f| is_map_record(&f.path))
+    {
+        return Err("Export has no playable prepared maps".to_string());
+    }
+    if let Some(source) = &manifest.source {
+        if source.base != "GameData" || source.files.len() > MAX_FILES {
+            return Err("Invalid source fingerprint".to_string());
+        }
+        for file in &source.files {
+            safe_path(&file.path, false)?;
+            if !valid_sha256(&file.sha256) {
+                return Err("Invalid source checksum".to_string());
+            }
+        }
+    }
+    Ok(bytes)
+}
 
-    if !has_common {
-        return Err("Content archive is missing common/common.json.".to_string());
-    }
-    // Reject archives that smuggle unlisted entries outside `bfe-content-manifest.json`.
-    for name in entries.keys() {
-        if name != MANIFEST_NAME && !seen.contains(name) {
-            return Err(format!(
-                "Content archive contains an unlisted file: {}",
-                name
-            ));
+/// Refuses an import that cannot fit: free space on the destination volume must cover the
+/// content plus 32 MiB. Ports `diskSpace`; only Unix reports free space without extra
+/// dependencies, so elsewhere the check is skipped.
+#[cfg(unix)]
+fn check_disk_space(dir: &Path, needed: u64) -> Result<(), String> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(path) = CString::new(dir.as_os_str().as_bytes()) else {
+        return Ok(());
+    };
+    // SAFETY: `path` is a valid NUL-terminated string and `stat` is written by the call.
+    let free = unsafe {
+        let mut stat: libc::statvfs = std::mem::zeroed();
+        if libc::statvfs(path.as_ptr(), &mut stat) != 0 {
+            return Ok(());
         }
+        (stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64)
+    };
+    if free < needed.saturating_add(32 * 1024 * 1024) {
+        return Err(format!(
+            "Not enough free disk space. About {} GB is needed.",
+            needed.div_ceil(1024 * 1024 * 1024)
+        ));
     }
     Ok(())
 }
 
-/// Summary returned when exporting a `.bfecontent` archive via [`export_content`].
+#[cfg(not(unix))]
+fn check_disk_space(_dir: &Path, _needed: u64) -> Result<(), String> {
+    Ok(())
+}
+
+/// Formats a time as `YYYY-MM-DDTHH:MM:SS.mmmZ`, the shape of JavaScript's `toISOString`.
+fn iso_timestamp(time: std::time::SystemTime) -> String {
+    let since = time
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = since.as_secs() as i64;
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60,
+        since.subsec_millis()
+    )
+}
+
+/// The modification time of a file in milliseconds since the epoch, like `stat.mtimeMs`.
+fn mtime_ms(meta: &fs::Metadata) -> Option<f64> {
+    let since = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    Some(since.as_secs_f64() * 1000.0)
+}
+
+/// Summary returned when exporting an archive via [`export_content`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportSummary {
@@ -1275,21 +1325,34 @@ pub struct ExportSummary {
     pub files: usize,
     /// Total logical uncompressed bytes across all manifest entries.
     pub bytes: u64,
-    /// Final `.bfecontent` file size on disk.
+    /// Final archive file size on disk.
     pub archive_bytes: u64,
     /// Sorted list of exported map IDs.
     pub maps: Vec<String>,
 }
 
-/// Exports a prepared content directory (`content_dir`) to a `.bfecontent` archive
-/// at `archive_path`.
+/// Exports a prepared content directory to an archive the browser build imports.
 ///
-/// Writes to a temporary sibling file first and atomically renames on completion.
-/// Mirrors `exportContent` in the desktop host.
+/// Writes to a temporary sibling file first and renames it on completion.
 pub fn export_content(
     content_dir: &Path,
     archive_path: &Path,
     tools_dir: Option<&Path>,
+) -> Result<ExportSummary, String> {
+    export_content_with_progress(content_dir, archive_path, tools_dir, |_, _, _, _| Ok(()))
+}
+
+/// Like [`export_content`], reporting `(phase, file, done, total)` in bytes as the browser
+/// does (`Checking content`, `Recording original source hashes`, `Exporting content`).
+/// An `Err` from the callback cancels the export and removes the partial file.
+///
+/// Ports `exportContent` in `electron/content-archive.js`: hash every file first, build the
+/// manifest, then write the manifest entry followed by the stored files in sorted order.
+pub fn export_content_with_progress(
+    content_dir: &Path,
+    archive_path: &Path,
+    tools_dir: Option<&Path>,
+    mut progress: impl FnMut(&str, &str, u64, u64) -> Result<(), String>,
 ) -> Result<ExportSummary, String> {
     // Load the expected content version from `tools/content-version.json`.
     let content_version = match tools_dir {
@@ -1301,10 +1364,8 @@ pub fn export_content(
     let out = resolve_from(&cwd, archive_path);
     // Prevent exporting an archive inside the very content directory being archived.
     if out.starts_with(&root) {
-        return Err("Choose an archive location outside the prepared content folder.".to_string());
+        return Err("Save the export outside the game data folder".to_string());
     }
-    let inspected = inspect_content(&root)
-        .ok_or_else(|| "That folder does not contain prepared game content.".to_string())?;
     let state = read_prepare_state(Some(&root));
     if !prepared_content_current(state.as_ref(), &content_version) {
         return Err(
@@ -1317,145 +1378,147 @@ pub fn export_content(
     if files.is_empty() {
         return Err("No prepared content files were found to export.".to_string());
     }
+    let total: u64 = files.iter().map(|f| f.2).sum();
 
+    // Pass 1: size, mtime and hashes of every file, aliasing hardlinks and case variants.
+    let mut records: Vec<ManifestFileEntry> = Vec::new();
+    let mut crcs: BTreeMap<String, u32> = BTreeMap::new();
+    let mut inodes: BTreeMap<(u64, u64), usize> = BTreeMap::new();
+    let mut cases: BTreeMap<String, usize> = BTreeMap::new();
+    let mut done = 0u64;
+    for (rel, full, size, hl_key) in &files {
+        let meta = fs::symlink_metadata(full)
+            .map_err(|e| format!("Content changed while exporting: {} ({})", rel, e))?;
+        if !meta.is_file() || meta.len() != *size {
+            return Err(format!("Content changed while exporting: {}", rel));
+        }
+        let linked = hl_key.and_then(|k| inodes.get(&k).copied());
+        let variant = cases.get(&rel.to_lowercase()).copied();
+        let original = linked.or(variant);
+        let (sha256, crc) = if let Some(index) = linked {
+            // A hardlink shares its first path's bytes, so its hash is copied, not re-read.
+            done += *size;
+            progress("Checking content", rel, done, total)?;
+            (records[index].sha256.clone(), 0)
+        } else {
+            let (sha, crc) = hash_and_crc_file(full, |n| {
+                done += n;
+                progress("Checking content", rel, done, total)
+            })?;
+            (sha, crc)
+        };
+        let mut record = ManifestFileEntry {
+            path: rel.clone(),
+            size: *size,
+            mtime: mtime_ms(&meta),
+            link_to: None,
+            hardlink: None,
+            sha256,
+        };
+        if let Some(index) = original {
+            // `file.linkTo = original.linkTo || original.path; file.hardlink = !!linked`
+            let target = &records[index];
+            record.link_to = Some(
+                target
+                    .link_to
+                    .clone()
+                    .unwrap_or_else(|| target.path.clone()),
+            );
+            record.hardlink = Some(linked.is_some());
+        } else {
+            if let Some(key) = hl_key {
+                inodes.insert(*key, records.len());
+            }
+            cases.insert(rel.to_lowercase(), records.len());
+            crcs.insert(rel.clone(), crc);
+        }
+        records.push(record);
+    }
+
+    progress("Recording original source hashes", "", done, total)?;
+    let state_game = state.as_ref().and_then(|s| s.game.as_deref());
+    let manifest = ArchiveManifest {
+        format: ARCHIVE_FORMAT.to_string(),
+        version: ARCHIVE_VERSION,
+        created: Some(iso_timestamp(std::time::SystemTime::now())),
+        source: source_manifest(&root, state_game),
+        files: records,
+    };
+    // `validateManifest(manifest)` runs before anything is written, so a bad tree fails early.
+    validate_manifest(&manifest)?;
+    let manifest_bytes =
+        serde_json::to_vec(&manifest).map_err(|e| format!("Failed serializing manifest: {}", e))?;
+    if manifest_bytes.len() as u64 > MAX_MANIFEST {
+        return Err("Content manifest is too large".to_string());
+    }
     if let Some(parent) = out.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| format!("Failed creating {}: {}", parent.display(), e))?;
+        check_disk_space(parent, total)?;
     }
 
-    // Write into a hidden `.part` sibling file first so interrupted exports never leave
-    // a half-written `.bfecontent` archive at the target path.
-    let rand_suffix = random_hex_suffix();
+    // Write into a hidden `.part` sibling first so an interrupted export never leaves a
+    // half-written archive at the target path.
     let temp_path = out.with_file_name(format!(
         ".{}.{}.part",
         out.file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("archive"),
-        rand_suffix
+        random_hex_suffix()
     ));
-
     let result = (|| -> Result<ExportSummary, String> {
         let mut writer = ZipStoreWriter::create(&temp_path)?;
-        let mut manifest_files: Vec<ManifestFileEntry> = Vec::new();
-        let mut hardlink_targets: BTreeMap<(u64, u64), ManifestFileEntry> = BTreeMap::new();
-        let mut case_targets: BTreeMap<String, ManifestFileEntry> = BTreeMap::new();
-        let mut total_bytes = 0u64;
-
-        for (rel, full, size, hl_key) in &files {
-            // Deduplicate Unix hardlinks by linking subsequent paths to the first stored inode.
-            if let Some(key) = hl_key {
-                if let Some(target) = hardlink_targets.get(key) {
-                    manifest_files.push(ManifestFileEntry {
-                        path: rel.clone(),
-                        size: target.size,
-                        sha256: target.sha256.clone(),
-                        link_to: Some(target.path.clone()),
-                        hardlink: Some(true),
-                    });
-                    total_bytes += target.size;
-                    continue;
-                }
-            }
-
-            // Compute both CRC32 and SHA-256 in a single pass.
-            let (actual_size, crc, sha256) = hash_and_crc_file(full)?;
-            if actual_size != *size {
-                return Err(format!("File size changed while exporting: {}", rel));
-            }
-            let folded = rel.to_lowercase();
-            // Deduplicate identical case-folded filenames so importing onto a
-            // case-insensitive Windows/macOS filesystem never collides or fails.
-            if let Some(case_target) = case_targets.get(&folded) {
-                if case_target.size != actual_size || case_target.sha256 != sha256 {
-                    return Err(format!(
-                        "Prepared content has conflicting files that differ only by letter case: {} and {}",
-                        case_target.path, rel
-                    ));
-                }
-                manifest_files.push(ManifestFileEntry {
-                    path: rel.clone(),
-                    size: actual_size,
-                    sha256: sha256.clone(),
-                    link_to: Some(case_target.path.clone()),
-                    hardlink: Some(false),
-                });
-                total_bytes += actual_size;
+        // The manifest is the first entry, as `zip.addBuffer(encoded, MANIFEST)` comes first.
+        writer.add_bytes(MANIFEST_NAME, &manifest_bytes, 0o100664)?;
+        let mut written = 0u64;
+        let by_path: BTreeMap<&str, &ContentFileRecord> =
+            files.iter().map(|f| (f.0.as_str(), f)).collect();
+        for record in &manifest.files {
+            if record.link_to.is_some() {
+                written += record.size;
                 continue;
             }
-
-            writer.add_file(rel, full, actual_size, crc)?;
-            let entry = ManifestFileEntry {
-                path: rel.clone(),
-                size: actual_size,
-                sha256,
-                link_to: None,
-                hardlink: None,
-            };
-            if let Some(key) = hl_key {
-                hardlink_targets.insert(*key, entry.clone());
-            }
-            case_targets.insert(folded, entry.clone());
-            manifest_files.push(entry);
-            total_bytes += actual_size;
+            let (_, full, size, _) = by_path
+                .get(record.path.as_str())
+                .copied()
+                .ok_or_else(|| format!("Content changed while exporting: {}", record.path))?;
+            let crc = crcs.get(&record.path).copied().unwrap_or(0);
+            writer.add_file(&record.path, full, *size, crc, |n| {
+                written += n;
+                progress("Exporting content", &record.path, written, total)
+            })?;
         }
-
-        // Capture source `.lvl` fingerprints from the live `GameData` install (or preserve
-        // them from an earlier `.bfe-import.json` receipt) so `relocate_preparation` works.
-        let state_game = state.as_ref().and_then(|s| s.game.as_deref());
-        let source = source_manifest(&root, state_game);
-        let add_ons = state.and_then(|s| s.add_ons).unwrap_or_default();
-
-        // Build and append `bfe-content-manifest.json` as the final entry before the central directory.
-        let manifest = ArchiveManifest {
-            format: ARCHIVE_FORMAT.to_string(),
-            version: ARCHIVE_VERSION,
-            content_version,
-            created_at: "2026-01-01T00:00:00.000Z".to_string(),
-            maps: inspected.maps.clone(),
-            add_ons,
-            source,
-            total_bytes,
-            files: manifest_files.clone(),
-        };
-
-        let mut manifest_bytes = serde_json::to_vec_pretty(&manifest)
-            .map_err(|e| format!("Failed serializing manifest: {}", e))?;
-        manifest_bytes.push(b'\n');
-        writer.add_bytes(MANIFEST_NAME, &manifest_bytes)?;
         let archive_bytes = writer.finish()?;
-
-        // Atomically rename the finished `.part` file to the target `.bfecontent` path.
         fs::rename(&temp_path, &out)
             .map_err(|e| format!("Failed renaming archive into place: {}", e))?;
-
         Ok(ExportSummary {
             archive_path: out.clone(),
-            files: manifest_files.len(),
-            bytes: total_bytes,
+            files: manifest.files.len(),
+            bytes: total,
             archive_bytes,
-            maps: inspected.maps,
+            maps: manifest_maps(&manifest),
         })
     })();
 
-    // Clean up the temporary `.part` file if any step failed before the atomic rename.
+    // Clean up the temporary `.part` file if any step failed before the rename.
     if result.is_err() {
         let _ = fs::remove_file(&temp_path);
     }
     result
 }
 
-/// Computes `(size, crc32, sha256_hex)` of `path` in a single streaming read.
+/// Computes `(sha256_hex, crc32)` of `path` in a single streaming read, reporting each chunk.
 ///
-/// Reading each exported content file once for both CRC-32 (needed by the ZIP
-/// local and central headers) and SHA-256 (needed by `bfe-content-manifest.json`)
-/// halves disk I/O during `.bfecontent` archive creation.
-fn hash_and_crc_file(path: &Path) -> Result<(u64, u32, String), String> {
-    // Stream the file in 64 KiB chunks and update both CRC-32 and SHA-256 hashers simultaneously.
+/// Reading each exported content file once for both the manifest SHA-256 and the ZIP
+/// CRC-32 halves the disk I/O of an export. Ports `hashFile` with its `onBytes` callback.
+fn hash_and_crc_file(
+    path: &Path,
+    mut on_bytes: impl FnMut(u64) -> Result<(), String>,
+) -> Result<(String, u32), String> {
     let mut f =
         File::open(path).map_err(|e| format!("Failed opening {}: {}", path.display(), e))?;
     let mut crc = Crc32Hasher::new();
     let mut sha = Sha256::new();
-    let mut total = 0u64;
     let mut buf = [0u8; 65536];
     loop {
         let n = f
@@ -1464,14 +1527,14 @@ fn hash_and_crc_file(path: &Path) -> Result<(u64, u32, String), String> {
         if n == 0 {
             break;
         }
-        total += n as u64;
         crc.update(&buf[..n]);
         sha.update(&buf[..n]);
+        on_bytes(n as u64)?;
     }
-    Ok((total, crc.finalize(), hex_encode(&sha.finalize())))
+    Ok((hex_encode(&sha.finalize()), crc.finalize()))
 }
 
-/// Summary returned when inspecting a `.bfecontent` archive via [`inspect_archive`].
+/// Summary returned when inspecting an archive via [`inspect_archive`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InspectArchiveResult {
@@ -1483,48 +1546,68 @@ pub struct InspectArchiveResult {
     pub total_bytes: u64,
     /// Sorted list of map IDs inside the archive.
     pub maps: Vec<String>,
-    /// Sorted list of add-on IDs inside the archive.
-    pub add_ons: Vec<String>,
     /// Archive creation timestamp string.
-    pub created_at: String,
+    pub created: Option<String>,
 }
 
-/// Validates a `.bfecontent` archive's central directory and manifest without extracting files.
+/// What the central directory and manifest of an archive say, checked the way the import
+/// checks them before it writes anything: entry kinds, the manifest, and that the stored
+/// entries and the stored manifest records are the same set.
+fn read_archive(
+    file: &mut File,
+) -> Result<(BTreeMap<String, ZipEntryInfo>, ArchiveManifest, u64), String> {
+    let entries = read_zip_entries(file)?;
+    for entry in entries.values() {
+        // Only regular files: the high half of the external attributes is the Unix mode.
+        let kind = (entry.external_attrs >> 16) & 0o170000;
+        if kind != 0 && kind != 0o100000 {
+            return Err("Only regular files are allowed in content exports".to_string());
+        }
+        if entry.flags & 1 != 0 {
+            return Err("Encrypted content exports are not supported".to_string());
+        }
+        if entry.name != MANIFEST_NAME {
+            safe_path(&entry.name, true)?;
+        }
+    }
+    let manifest_entry = entries
+        .get(MANIFEST_NAME)
+        .ok_or_else(|| "This file is not a Battlefront Eternal content export".to_string())?;
+    let raw = read_entry_bytes(file, manifest_entry, MAX_MANIFEST)?;
+    let manifest: ArchiveManifest = serde_json::from_slice(&raw)
+        .map_err(|_| "Unsupported or invalid content export".to_string())?;
+    let total = validate_manifest(&manifest)?;
+    let stored = manifest
+        .files
+        .iter()
+        .filter(|f| f.link_to.is_none())
+        .count();
+    // The manifest entry is not a content file, so it is not counted among `entries`.
+    if entries.len() - 1 != stored {
+        return Err("Archive files do not match the manifest".to_string());
+    }
+    Ok((entries, manifest, total))
+}
+
+/// Validates an archive's central directory and manifest without extracting files.
 ///
-/// Mirrors the manifest inspection step of `importContent` and `validateManifest` in the desktop host.
-pub fn inspect_archive(
-    archive_path: &Path,
-    tools_dir: Option<&Path>,
-) -> Result<InspectArchiveResult, String> {
-    // Load the active `tools/content-version.json` and verify the archive's manifest against it.
-    let content_version = match tools_dir {
-        Some(dir) => read_content_version(dir)?,
-        None => checkout_content_version()?,
-    };
+/// Mirrors the manifest inspection step of `importContent` in `electron/content-archive.js`.
+pub fn inspect_archive(archive_path: &Path) -> Result<InspectArchiveResult, String> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let resolved = resolve_from(&cwd, archive_path);
     let mut file = File::open(&resolved)
         .map_err(|e| format!("Failed to open archive {}: {}", resolved.display(), e))?;
-    let entries = read_zip_entries(&mut file)?;
-    let manifest_entry = entries
-        .get(MANIFEST_NAME)
-        .ok_or_else(|| "That file is not a Battlefront Eternal content archive.".to_string())?;
-    let raw = read_entry_bytes(&mut file, manifest_entry, MAX_MANIFEST)?;
-    let manifest: ArchiveManifest = serde_json::from_slice(&raw)
-        .map_err(|_| "Content archive manifest is damaged.".to_string())?;
-    validate_manifest(&manifest, &entries, &content_version)?;
-
+    let (_, manifest, total) = read_archive(&mut file)?;
     Ok(InspectArchiveResult {
         archive_path: resolved,
         files: manifest.files.len(),
-        total_bytes: manifest.total_bytes,
-        maps: manifest.maps,
-        add_ons: manifest.add_ons,
-        created_at: manifest.created_at,
+        total_bytes: total,
+        maps: manifest_maps(&manifest),
+        created: manifest.created,
     })
 }
 
-/// Summary returned when importing a `.bfecontent` archive via [`import_content`].
+/// Summary returned when importing an archive via [`import_content`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportSummary {
@@ -1538,49 +1621,37 @@ pub struct ImportSummary {
     pub maps: Vec<String>,
 }
 
-/// Extracts and verifies a `.bfecontent` archive into a new sibling directory under
+/// Extracts and verifies an archive into a new `content-<id>` directory under
 /// `destination_parent`.
-///
-/// Extracts into a temporary `.import-<id>` staging directory, verifies every
-/// file's CRC-32 and SHA-256, restores `linkTo` hardlinks/copies, validates
-/// `.prepare.json` against `tools/content-version.json`, writes `.bfe-import.json`,
-/// and renames the directory to `<destination_parent>/content-<id>`.
-///
-/// Mirrors `importContent` in the desktop host.
 pub fn import_content(
     archive_path: &Path,
     destination_parent: &Path,
-    tools_dir: Option<&Path>,
 ) -> Result<ImportSummary, String> {
-    import_content_with_progress(
-        archive_path,
-        destination_parent,
-        tools_dir,
-        |_, _, _| Ok(()),
-    )
+    import_content_with_progress(archive_path, destination_parent, |_, _, _, _| Ok(()))
 }
 
-/// Publishes verified-file progress and checks cancellation before committing
-/// the staging directory. Callback failures use the same rollback as bad data.
+/// Like [`import_content`], reporting `(phase, file, done, total)` in bytes while it works
+/// (`Importing and verifying`, then `Restoring shared content`), as `onProgress` does in the
+/// browser build. The callback runs at least every 64 KiB of data; an `Err` from it cancels
+/// the import, removes the staging directory and is returned unchanged.
+///
+/// Ports `importContent`: stage into `.import-<id>`, extract and verify every stored file,
+/// restore the `linkTo` aliases, keep the manifest as `.bfe-import.json`, then rename the
+/// staging directory to `content-<id>`. Whether the content is current for this version is
+/// decided afterwards by the startup check, exactly as for a content folder.
 pub fn import_content_with_progress(
     archive_path: &Path,
     destination_parent: &Path,
-    tools_dir: Option<&Path>,
-    mut progress: impl FnMut(&str, u64, u64) -> Result<(), String>,
+    mut progress: impl FnMut(&str, &str, u64, u64) -> Result<(), String>,
 ) -> Result<ImportSummary, String> {
-    // Load the active `tools/content-version.json` before reading the archive.
-    let content_version = match tools_dir {
-        Some(dir) => read_content_version(dir)?,
-        None => checkout_content_version()?,
-    };
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let resolved_archive = resolve_from(&cwd, archive_path);
     let parent = resolve_from(&cwd, destination_parent);
     fs::create_dir_all(&parent)
         .map_err(|e| format!("Failed creating {}: {}", parent.display(), e))?;
 
-    // Stage into `.import-<id>` first and atomically rename to `content-<id>` only after
-    // every file hash, link target, and `.prepare.json` state record has been verified.
+    // Stage into `.import-<id>` first and rename to `content-<id>` only after every file
+    // hash, alias and the receipt are in place.
     let id = random_hex_suffix();
     let staging = parent.join(format!(".import-{}", id));
     let target = parent.join(format!("content-{}", id));
@@ -1594,22 +1665,14 @@ pub fn import_content_with_progress(
     })?;
 
     let result = (|| -> Result<ImportSummary, String> {
-        let entries = read_zip_entries(&mut file)?;
-        let manifest_entry = entries
-            .get(MANIFEST_NAME)
-            .ok_or_else(|| "That file is not a Battlefront Eternal content archive.".to_string())?;
-        let raw = read_entry_bytes(&mut file, manifest_entry, MAX_MANIFEST)?;
-        let manifest: ArchiveManifest = serde_json::from_slice(&raw)
-            .map_err(|_| "Content archive manifest is damaged.".to_string())?;
-        validate_manifest(&manifest, &entries, &content_version)?;
-
+        let (entries, manifest, total) = read_archive(&mut file)?;
+        check_disk_space(&parent, total)?;
         fs::create_dir_all(&staging).map_err(|e| format!("Failed creating staging dir: {}", e))?;
 
-        // Extract primary stored entries first and defer `linkTo` aliases until their targets exist.
+        // Stored files first, in manifest order; aliases wait until their targets exist.
+        let mut done = 0u64;
+        progress("Starting…", "", 0, total)?;
         let mut linked = Vec::new();
-        let total = manifest.files.len() as u64;
-        let mut done = 0;
-        progress("", 0, total)?;
         for item in &manifest.files {
             if item.link_to.is_some() {
                 linked.push(item);
@@ -1617,51 +1680,39 @@ pub fn import_content_with_progress(
             }
             let entry = entries
                 .get(&item.path)
-                .ok_or_else(|| format!("Content archive is missing {}", item.path))?;
-            let parts = safe_path(&item.path, true)?;
+                .filter(|e| e.size == item.size)
+                .ok_or_else(|| format!("Unexpected archive entry: {}", item.path))?;
             let mut dest = staging.clone();
-            for p in parts {
-                dest.push(p);
-            }
-            progress(&item.path, done, total)?;
-            extract_entry_to_file(&mut file, entry, &dest, &item.sha256)?;
-            done += 1;
-            progress(&item.path, done, total)?;
+            dest.extend(safe_path(&item.path, true)?);
+            extract_entry_to_file(&mut file, entry, &dest, item, |n| {
+                done += n;
+                progress("Importing and verifying", &item.path, done, total)
+            })?;
         }
 
-        // Restore hardlinked or case-folded alias entries after all primary files are on disk.
+        // Restore hardlinked and case-variant aliases from their stored targets.
         for item in linked {
-            progress(&item.path, done, total)?;
             let Some(link_to) = item.link_to.as_ref() else {
                 continue;
             };
-            let src_parts = safe_path(link_to, true)?;
-            let dst_parts = safe_path(&item.path, true)?;
             let mut src = staging.clone();
-            for p in src_parts {
-                src.push(p);
-            }
+            src.extend(safe_path(link_to, true)?);
             let mut dst = staging.clone();
-            for p in dst_parts {
-                dst.push(p);
-            }
+            dst.extend(safe_path(&item.path, true)?);
             if let Some(p) = dst.parent() {
                 fs::create_dir_all(p).map_err(|e| e.to_string())?;
             }
             if dst.exists() {
-                // On case-insensitive filesystems (`APFS`, `NTFS`), a case-only alias resolves
-                // to the same underlying inode as `src` and requires no copy.
-                if same_file::is_same_file(&src, &dst).unwrap_or(false) {
-                    done += 1;
-                    progress(&item.path, done, total)?;
-                    continue;
+                // A case-insensitive filesystem already resolves a case variant to its target
+                // file; accept it only after checking the bytes.
+                let same = same_file::is_same_file(&src, &dst).unwrap_or(false)
+                    || hash_file(&dst)
+                        .map(|(_, sha)| sha == item.sha256)
+                        .unwrap_or(false);
+                if !same {
+                    return Err(format!("Conflicting content alias: {}", item.path));
                 }
-                return Err(format!(
-                    "Content archive link target collided: {}",
-                    item.path
-                ));
-            }
-            if item.hardlink != Some(false) {
+            } else if item.hardlink == Some(true) {
                 if fs::hard_link(&src, &dst).is_err() {
                     fs::copy(&src, &dst).map_err(|e| {
                         format!("Failed restoring linked file {}: {}", item.path, e)
@@ -1671,43 +1722,22 @@ pub fn import_content_with_progress(
                 fs::copy(&src, &dst)
                     .map_err(|e| format!("Failed copying alias file {}: {}", item.path, e))?;
             }
-            done += 1;
-            progress(&item.path, done, total)?;
+            done += item.size;
+            progress("Restoring shared content", &item.path, done, total)?;
         }
 
-        progress("", total, total)?;
-        let inspected = inspect_content(&staging).ok_or_else(|| {
-            "Imported archive did not produce a valid content folder.".to_string()
-        })?;
-        let state = read_prepare_state(Some(&staging));
-        if !prepared_content_current(state.as_ref(), &content_version) {
-            return Err("Imported archive is missing a current preparation record.".to_string());
-        }
-
-        // Write `.bfe-import.json` so subsequent exports or game-install relocations
-        // can read the provenance and source `.lvl` hashes.
-        let receipt = serde_json::json!({
-            "importedAt": "2026-01-01T00:00:00.000Z",
-            "archiveName": resolved_archive.file_name().and_then(|n| n.to_str()).unwrap_or(""),
-            "createdAt": manifest.created_at,
-            "contentVersion": manifest.content_version,
-            "source": manifest.source,
-            "files": manifest.files.len(),
-            "bytes": manifest.total_bytes,
-        });
-        let mut receipt_bytes = serde_json::to_vec_pretty(&receipt).map_err(|e| e.to_string())?;
-        receipt_bytes.push(b'\n');
-        fs::write(staging.join(RECEIPT_NAME), receipt_bytes)
+        // Retain provenance outside the playable roots, as the manifest itself: the browser's
+        // `relocatePreparation` reads `source` from this receipt.
+        let receipt = serde_json::to_vec(&manifest).map_err(|e| e.to_string())?;
+        fs::write(staging.join(RECEIPT_NAME), receipt)
             .map_err(|e| format!("Failed writing {}: {}", RECEIPT_NAME, e))?;
-
         fs::rename(&staging, &target)
             .map_err(|e| format!("Failed moving imported content into place: {}", e))?;
-
         Ok(ImportSummary {
-            content_dir: target,
+            content_dir: target.clone(),
             files: manifest.files.len(),
-            bytes: manifest.total_bytes,
-            maps: inspected.maps,
+            bytes: total,
+            maps: manifest_maps(&manifest),
         })
     })();
 

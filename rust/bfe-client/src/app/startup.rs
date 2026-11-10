@@ -351,9 +351,22 @@ impl StartupContentState {
             if let Some(result) = work.poll() {
                 match result {
                     Ok(root) => {
+                        // main.js keeps the imported folder as the chosen content either way, then
+                        // lets the startup check decide: content made for another version of the
+                        // importers gets the outdated screen instead of the game.
                         store.desktop.chosen_content_dir =
                             Some(root.to_string_lossy().into_owned());
                         let _ = store.save_desktop();
+                        let current = bfe_desktop::prepare::checkout_content_version().is_ok_and(|version| {
+                            bfe_desktop::prepare::prepared_content_current(
+                                bfe_desktop::prepare::read_prepare_state(Some(&root)).as_ref(),
+                                &version,
+                            )
+                        });
+                        if !current {
+                            *self = Self::FirstRun(Box::new(super::first_run::Setup::missing(true)));
+                            return None;
+                        }
                         *self = Self::Ready(root.clone());
                         return Some(root);
                     }

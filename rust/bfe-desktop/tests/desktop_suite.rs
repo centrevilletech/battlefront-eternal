@@ -126,6 +126,7 @@ use bfe_desktop::update::state::{
 };
 use bfe_desktop::update::tree::{safe_relative_path, sha256_bytes};
 use bfe_desktop::update::version::{compare_versions, is_newer_version, parse_version};
+use sha2::{Digest, Sha256};
 
 /// Scoped temporary directory that cleans itself up on drop.
 ///
@@ -186,6 +187,8 @@ fn make_content(root: &Path, maps: &[&str], current: bool, game: Option<&Path>) 
         let mdir = root.join("maps").join(map);
         fs::create_dir_all(&mdir).unwrap();
         fs::write(mdir.join("scene.json"), format!("{{\"id\":\"{}\"}}\n", map)).unwrap();
+        // The browser importer treats `maps/<id>/map.json` as the proof of a playable map.
+        fs::write(mdir.join("map.json"), format!("{{\"id\":\"{}\"}}\n", map)).unwrap();
     }
     // Write `.prepare.json` with either the current `ver.state` or an outdated `1`.
     let state = json!({
@@ -1854,13 +1857,13 @@ fn content_archive_exports_imports_deduplicates_hardlinks_and_relocates() {
     assert!(archive.exists());
 
     // Inspect the archive's central directory and manifest without extracting files.
-    let info = inspect_archive(&archive, None).unwrap();
+    let info = inspect_archive(&archive).unwrap();
     assert_eq!(info.maps, vec!["bes1a", "tat1i"]);
     assert_eq!(info.total_bytes, exported.bytes);
 
     // Cancelling after verified extraction must leave no installed or staging data.
     let cancelled_dest = tmp.path().join("cancelled");
-    let result = import_content_with_progress(&archive, &cancelled_dest, None, |_, done, _| {
+    let result = import_content_with_progress(&archive, &cancelled_dest, |_, _, done, _| {
         if done > 0 {
             Err("cancelled".into())
         } else {
@@ -1871,7 +1874,7 @@ fn content_archive_exports_imports_deduplicates_hardlinks_and_relocates() {
     assert!(fs::read_dir(&cancelled_dest).unwrap().next().is_none());
 
     // Import the archive into a fresh parent directory and verify `.bfe-import.json`.
-    let imported = import_content(&archive, &dest, None).unwrap();
+    let imported = import_content(&archive, &dest).unwrap();
     assert_eq!(imported.maps, vec!["bes1a", "tat1i"]);
     assert!(imported.content_dir.join(RECEIPT_NAME).exists());
 
@@ -1898,6 +1901,442 @@ fn content_archive_exports_imports_deduplicates_hardlinks_and_relocates() {
     assert!(safe_path("maps/bes1a/scene.json", true).is_ok());
 }
 
+// ---------------------------------------------------------------------------
+// Browser-build archive interop. The fixtures are synthetic bytes made here; the
+// archive layout is `electron/content-archive.js`'s (manifest first, `{path, size,
+// mtime, [linkTo, hardlink,] sha256}` records, deflated entries, `.prepare.json`).
+// ---------------------------------------------------------------------------
+
+/// One synthetic archive entry: name, payload, whether to deflate it (the browser
+/// exporter does, level 3), general-purpose flags and the Unix mode in the attributes.
+struct ZipItem {
+    name: String,
+    data: Vec<u8>,
+    deflate: bool,
+    flags: u16,
+    mode: u32,
+}
+
+impl ZipItem {
+    fn file(name: &str, data: Vec<u8>, deflate: bool) -> Self {
+        Self {
+            name: name.into(),
+            data,
+            deflate,
+            flags: 0x0800,
+            mode: 0o100644,
+        }
+    }
+}
+
+/// Writes a plain ZIP (no ZIP64: the fixtures stay far under 4 GiB) the way `yazl` lays one
+/// out: a local header and payload per entry, then the central directory and end record.
+fn write_zip(path: &Path, items: &[ZipItem]) {
+    use std::io::Write;
+    let mut out = Vec::new();
+    let mut central = Vec::new();
+    for item in items {
+        let crc = crc32fast::hash(&item.data);
+        let payload = if item.deflate {
+            let mut enc =
+                flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::new(3));
+            enc.write_all(&item.data).unwrap();
+            enc.finish().unwrap()
+        } else {
+            item.data.clone()
+        };
+        let method: u16 = if item.deflate { 8 } else { 0 };
+        let offset = out.len() as u32;
+        let name = item.name.as_bytes();
+        // Fields shared by the local and central headers, from the flags on.
+        let mut common = Vec::new();
+        common.extend_from_slice(&item.flags.to_le_bytes());
+        common.extend_from_slice(&method.to_le_bytes());
+        common.extend_from_slice(&0u16.to_le_bytes());
+        common.extend_from_slice(&0x21u16.to_le_bytes());
+        common.extend_from_slice(&crc.to_le_bytes());
+        common.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        common.extend_from_slice(&(item.data.len() as u32).to_le_bytes());
+        common.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        common.extend_from_slice(&0u16.to_le_bytes()); // extra length
+        out.extend_from_slice(&0x04034b50u32.to_le_bytes());
+        out.extend_from_slice(&20u16.to_le_bytes());
+        out.extend_from_slice(&common);
+        out.extend_from_slice(name);
+        out.extend_from_slice(&payload);
+        central.extend_from_slice(&0x02014b50u32.to_le_bytes());
+        central.extend_from_slice(&0x031eu16.to_le_bytes()); // made by Unix, version 3.0
+        central.extend_from_slice(&20u16.to_le_bytes());
+        central.extend_from_slice(&common);
+        central.extend_from_slice(&[0u8; 6]); // comment length, disk, internal attributes
+        central.extend_from_slice(&(item.mode << 16).to_le_bytes());
+        central.extend_from_slice(&offset.to_le_bytes());
+        central.extend_from_slice(name);
+    }
+    let central_offset = out.len() as u32;
+    out.extend_from_slice(&central);
+    out.extend_from_slice(&0x06054b50u32.to_le_bytes());
+    out.extend_from_slice(&[0u8; 4]);
+    out.extend_from_slice(&(items.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(items.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(central.len() as u32).to_le_bytes());
+    out.extend_from_slice(&central_offset.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    fs::write(path, out).unwrap();
+}
+
+fn sha_hex(data: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(data))
+}
+
+/// A browser-form manifest record: `path`, `size`, `mtime`, `sha256`, plus `linkTo` and
+/// `hardlink` for an alias.
+fn record(path: &str, data: &[u8], mtime: f64, alias: Option<(&str, bool)>) -> Value {
+    let mut r = json!({"path": path, "size": data.len(), "mtime": mtime, "sha256": sha_hex(data)});
+    if let Some((target, hardlink)) = alias {
+        r["linkTo"] = json!(target);
+        r["hardlink"] = json!(hardlink);
+    }
+    r
+}
+
+/// Writes a synthetic archive in the browser's form and returns the payload of the big file.
+fn browser_archive(path: &Path, big_len: usize, deflate: bool) -> Vec<u8> {
+    let common = br#"{"ok":true}"#.to_vec();
+    let map = br#"{"meshes":[{}]}"#.to_vec();
+    let state = br#"{"version":2}"#.to_vec();
+    // Zeros deflate to almost nothing, so a 70 MiB entry keeps the test quick while still
+    // being past the old importer's 64 MiB in-memory limit.
+    let big = vec![0u8; big_len];
+    let manifest = json!({
+        "format": "battlefront-eternal-content",
+        "version": 1,
+        "created": "2026-11-09T12:00:00.000Z",
+        "source": {"base": "GameData", "files": [{"path": "Data/_LVL_PC/all.lvl", "size": 3, "sha256": sha_hex(b"lvl")}]},
+        "files": [
+            record(".prepare.json", &state, 1700000000000.5, None),
+            record("audio/music/big.bin", &big, 1700000001000.0, None),
+            record("common/common.json", &common, 1700000002000.0, None),
+            record("common/Alias.json", &common, 1700000002000.0, Some(("common/common.json", false))),
+            record("maps/bes1/map.json", &map, 1700000003000.0, None),
+            record("maps/bes1/map-link.json", &map, 1700000003000.0, Some(("maps/bes1/map.json", true))),
+        ],
+    });
+    write_zip(
+        path,
+        &[
+            ZipItem {
+                mode: 0o100664,
+                ..ZipItem::file(
+                    "bfe-content-manifest.json",
+                    serde_json::to_vec(&manifest).unwrap(),
+                    deflate,
+                )
+            },
+            ZipItem::file(".prepare.json", state, deflate),
+            ZipItem::file("audio/music/big.bin", big.clone(), deflate),
+            ZipItem::file("common/common.json", common, deflate),
+            ZipItem::file("maps/bes1/map.json", map, deflate),
+        ],
+    );
+    big
+}
+
+#[test]
+fn content_archive_imports_the_browser_builds_archive_form() {
+    for deflate in [true, false] {
+        let tmp = TempDir::new("browser-archive");
+        let archive = tmp.path().join("export.bfepack");
+        let dest = tmp.path().join("dest");
+        let big = browser_archive(&archive, 70 * 1024 * 1024, deflate);
+
+        let info = inspect_archive(&archive).unwrap();
+        assert_eq!(info.files, 6);
+        assert_eq!(info.maps, vec!["bes1"]);
+        assert_eq!(info.created.as_deref(), Some("2026-11-09T12:00:00.000Z"));
+
+        // Progress is in bytes, moves through the big file chunk by chunk, and ends at the total.
+        let total_bytes = big.len() as u64 + 11 + 15 + 13 + 11 + 15;
+        let mut calls = 0usize;
+        let mut last = (String::new(), 0u64, 0u64);
+        let imported =
+            import_content_with_progress(&archive, &dest, |phase, _file, done, total| {
+                calls += 1;
+                assert!(
+                    done >= last.1 || phase != last.0,
+                    "bytes only go forward within a phase"
+                );
+                last = (phase.to_string(), done, total);
+                Ok(())
+            })
+            .unwrap();
+        assert!(
+            calls > 1000,
+            "a 70 MiB file reports about every 64 KiB, got {calls} calls"
+        );
+        assert_eq!(
+            last,
+            (
+                "Restoring shared content".to_string(),
+                total_bytes,
+                total_bytes
+            )
+        );
+        assert_eq!(imported.maps, vec!["bes1"]);
+
+        let dir = &imported.content_dir;
+        assert_eq!(fs::read(dir.join("audio/music/big.bin")).unwrap(), big);
+        assert_eq!(
+            fs::read(dir.join("common/Alias.json")).unwrap(),
+            br#"{"ok":true}"#
+        );
+        assert_eq!(
+            fs::read(dir.join("maps/bes1/map-link.json")).unwrap(),
+            br#"{"meshes":[{}]}"#
+        );
+        // The manifest's mtime is restored on the stored files.
+        let mtime = fs::metadata(dir.join("common/common.json"))
+            .unwrap()
+            .modified()
+            .unwrap();
+        assert_eq!(
+            mtime
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+            1700000002000
+        );
+        // The receipt is the manifest, so the browser build's `relocatePreparation` can read it.
+        let receipt: Value =
+            serde_json::from_slice(&fs::read(dir.join(RECEIPT_NAME)).unwrap()).unwrap();
+        assert_eq!(receipt["format"], "battlefront-eternal-content");
+        assert_eq!(receipt["source"]["base"], "GameData");
+        assert_eq!(receipt["files"].as_array().unwrap().len(), 6);
+    }
+}
+
+#[test]
+fn content_archive_import_cancels_within_a_chunk_and_cleans_up() {
+    let tmp = TempDir::new("cancel-archive");
+    let archive = tmp.path().join("export.bfepack");
+    let dest = tmp.path().join("dest");
+    browser_archive(&archive, 70 * 1024 * 1024, true);
+    let mut after_cancel = 0usize;
+    let mut cancelled = false;
+    let result = import_content_with_progress(&archive, &dest, |_, _, done, _| {
+        if cancelled {
+            after_cancel += 1;
+        }
+        if done > 1024 * 1024 {
+            cancelled = true;
+            return Err("cancelled".into());
+        }
+        Ok(())
+    });
+    assert_eq!(result.unwrap_err(), "cancelled");
+    // The callback is not called again once it refused: the copy stops at that chunk.
+    assert_eq!(after_cancel, 0);
+    assert!(
+        fs::read_dir(&dest).unwrap().next().is_none(),
+        "no staging directory is left"
+    );
+}
+
+#[test]
+fn content_archive_export_is_the_browser_builds_form() {
+    let tmp = TempDir::new("export-form");
+    let game = tmp.path().join("game");
+    let source = tmp.path().join("source");
+    let archive = tmp.path().join("out.bfepack");
+    make_install(&game, false);
+    make_content(&source, &["bes1a"], true, Some(&game));
+    fs::create_dir_all(source.join("audio")).unwrap();
+    fs::write(source.join("audio/a.bin"), vec![7u8; 100_000]).unwrap();
+    fs::hard_link(source.join("audio/a.bin"), source.join("audio/b-link.bin")).unwrap();
+    fs::write(source.join("audio/Case.json"), "{}").unwrap();
+    fs::write(source.join("audio/case.json"), "{}").unwrap();
+
+    let exported = export_content(&source, &archive, None).unwrap();
+    assert_eq!(exported.maps, vec!["bes1a"]);
+
+    let mut file = File::open(&archive).unwrap();
+    let entries = read_zip_entries(&mut file).unwrap();
+    // The manifest is the first entry in the file, then the stored files (aliases have none).
+    assert_eq!(entries["bfe-content-manifest.json"].offset, 0);
+    assert_eq!(
+        entries["bfe-content-manifest.json"].external_attrs >> 16,
+        0o100664
+    );
+    for name in [
+        ".prepare.json",
+        "common/common.json",
+        "sides/all/manifest.json",
+        "audio/a.bin",
+    ] {
+        assert_eq!(entries[name].external_attrs >> 16, 0o100644, "{name}");
+        assert!(entries[name].offset > 0, "{name}");
+    }
+    assert!(
+        !entries.contains_key("audio/b-link.bin"),
+        "a hardlink has no payload entry"
+    );
+    assert!(entries.contains_key("audio/Case.json") != entries.contains_key("audio/case.json"));
+
+    // The manifest is stored, so its text sits right after its local header (30 bytes + name).
+    let raw = fs::read(&archive).unwrap();
+    let start = 30 + "bfe-content-manifest.json".len();
+    let text = std::str::from_utf8(
+        &raw[start..start + entries["bfe-content-manifest.json"].size as usize],
+    )
+    .unwrap();
+    assert!(
+        text.starts_with(r#"{"format":"battlefront-eternal-content","version":1,"created":""#),
+        "compact JSON in the browser's key order, got {text:.80}"
+    );
+    assert!(
+        text.contains(r#""path":".prepare.json","size":"#),
+        "records start with path, then size"
+    );
+    let manifest: Value = serde_json::from_str(text).unwrap();
+    let mut keys: Vec<_> = manifest.as_object().unwrap().keys().cloned().collect();
+    keys.sort();
+    assert_eq!(keys, ["created", "files", "format", "source", "version"]);
+    assert_eq!(manifest["source"]["base"], "GameData");
+    for rec in manifest["files"].as_array().unwrap() {
+        let mut keys: Vec<_> = rec.as_object().unwrap().keys().cloned().collect();
+        keys.sort();
+        let alias = rec.get("linkTo").is_some();
+        let want: &[&str] = if alias {
+            &["hardlink", "linkTo", "mtime", "path", "sha256", "size"]
+        } else {
+            &["mtime", "path", "sha256", "size"]
+        };
+        assert_eq!(keys, want, "{rec}");
+        assert!(rec["mtime"].is_f64() || rec["mtime"].is_u64(), "{rec}");
+    }
+    let link = manifest["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["path"] == "audio/b-link.bin")
+        .unwrap();
+    assert_eq!(link["linkTo"], "audio/a.bin");
+    assert_eq!(link["hardlink"], true);
+    let created = manifest["created"].as_str().unwrap();
+    assert_eq!(created.len(), 24);
+    assert!(
+        created.ends_with('Z') && created.as_bytes()[10] == b'T',
+        "{created}"
+    );
+
+    // The archive imports back, and a re-export of the import is the same set of records.
+    let imported = import_content(&archive, &tmp.path().join("dest")).unwrap();
+    assert_eq!(
+        fs::read(imported.content_dir.join("audio/b-link.bin")).unwrap(),
+        vec![7u8; 100_000]
+    );
+}
+
+#[test]
+fn content_archive_rejects_what_the_browser_build_rejects() {
+    let tmp = TempDir::new("reject-archive");
+    let dest = tmp.path().join("dest");
+    let common = b"{}".to_vec();
+    let map = b"{}".to_vec();
+    let rec = |p: &str, d: &[u8]| record(p, d, 1.0, None);
+    let manifest = |files: Vec<Value>| {
+        serde_json::to_vec(&json!({"format": "battlefront-eternal-content", "version": 1, "created": "x", "source": null, "files": files})).unwrap()
+    };
+    let good = vec![
+        rec("common/common.json", &common),
+        rec("maps/m/map.json", &map),
+    ];
+    let items = |manifest: Vec<u8>| {
+        vec![
+            ZipItem::file("bfe-content-manifest.json", manifest, true),
+            ZipItem::file("common/common.json", common.clone(), true),
+            ZipItem::file("maps/m/map.json", map.clone(), true),
+        ]
+    };
+    let attempt = |name: &str, items: Vec<ZipItem>| -> String {
+        let path = tmp.path().join(format!("{name}.bfepack"));
+        write_zip(&path, &items);
+        import_content(&path, &dest).unwrap_err()
+    };
+    // Not an export at all.
+    assert_eq!(
+        attempt(
+            "plain",
+            vec![ZipItem::file("common/x.json", b"x".to_vec(), true)]
+        ),
+        "This file is not a Battlefront Eternal content export"
+    );
+    // An entry outside the content roots is refused before the manifest is even looked for.
+    assert_eq!(
+        attempt(
+            "readme",
+            vec![ZipItem::file("readme.txt", b"x".to_vec(), true)]
+        ),
+        "Not prepared game content: readme.txt"
+    );
+    // No playable map.
+    let no_map = vec![rec("common/common.json", &common)];
+    assert_eq!(
+        attempt(
+            "nomap",
+            vec![
+                ZipItem::file("bfe-content-manifest.json", manifest(no_map), true),
+                ZipItem::file("common/common.json", common.clone(), true)
+            ]
+        ),
+        "Export has no playable prepared maps"
+    );
+    // A wrong hash.
+    let mut bad = good.clone();
+    bad[1]["sha256"] = json!(sha_hex(b"other"));
+    assert_eq!(
+        attempt("hash", items(manifest(bad))),
+        "Checksum mismatch: maps/m/map.json. The export is damaged or incomplete."
+    );
+    // A path outside the content roots, and a traversal.
+    let mut outside = good.clone();
+    outside.push(rec("tools/x.py", b"x"));
+    assert_eq!(
+        attempt("outside", items(manifest(outside))),
+        "Not prepared game content: tools/x.py"
+    );
+    let mut up = good.clone();
+    up.push(rec("common/../x", b"x"));
+    assert_eq!(
+        attempt("up", items(manifest(up))),
+        "Unsafe archive path: common/../x"
+    );
+    // Encrypted and non-regular entries.
+    let mut enc = items(manifest(good.clone()));
+    enc[1].flags |= 1;
+    assert_eq!(
+        attempt("enc", enc),
+        "Encrypted content exports are not supported"
+    );
+    let mut link = items(manifest(good.clone()));
+    link[2].mode = 0o120777;
+    assert_eq!(
+        attempt("symlink", link),
+        "Only regular files are allowed in content exports"
+    );
+    // An entry the manifest does not list.
+    let mut extra = items(manifest(good.clone()));
+    extra.push(ZipItem::file("common/extra.json", b"{}".to_vec(), true));
+    assert_eq!(
+        attempt("extra", extra),
+        "Archive files do not match the manifest"
+    );
+    assert!(
+        fs::read_dir(&dest).unwrap().next().is_none(),
+        "failed imports leave nothing behind"
+    );
+}
+
 /// Verifies `read_zip_entries`, `inspect_archive`, and `import_content` return errors
 /// and never panic when fed a truncated archive, a garbage file, or an archive whose
 /// central directory points outside the file.
@@ -1916,22 +2355,22 @@ fn content_archive_rejects_truncated_garbage_and_out_of_bounds_archives() {
     let short_garbage = tmp.path().join("short.bfecontent");
     fs::write(&short_garbage, b"not a zip").unwrap();
     assert!(read_zip_entries(&mut File::open(&short_garbage).unwrap()).is_err());
-    assert!(inspect_archive(&short_garbage, None).is_err());
-    assert!(import_content(&short_garbage, &dest, None).is_err());
+    assert!(inspect_archive(&short_garbage).is_err());
+    assert!(import_content(&short_garbage, &dest).is_err());
 
     let long_garbage = tmp.path().join("garbage.bfecontent");
     fs::write(&long_garbage, [0xdeu8; 256]).unwrap();
     assert!(read_zip_entries(&mut File::open(&long_garbage).unwrap()).is_err());
-    assert!(inspect_archive(&long_garbage, None).is_err());
-    assert!(import_content(&long_garbage, &dest, None).is_err());
+    assert!(inspect_archive(&long_garbage).is_err());
+    assert!(import_content(&long_garbage, &dest).is_err());
 
     // 2. Truncated archive: slice off the trailing EOCD and central directory bytes,
     // and also test an archive with a valid EOCD whose central directory entry is truncated mid-header.
     let truncated = tmp.path().join("truncated.bfecontent");
     fs::write(&truncated, &valid_bytes[..valid_bytes.len() / 2]).unwrap();
     assert!(read_zip_entries(&mut File::open(&truncated).unwrap()).is_err());
-    assert!(inspect_archive(&truncated, None).is_err());
-    assert!(import_content(&truncated, &dest, None).is_err());
+    assert!(inspect_archive(&truncated).is_err());
+    assert!(import_content(&truncated, &dest).is_err());
 
     // Build an archive whose EOCD claims 1 entry in a 10-byte central directory (smaller than 46-byte header).
     let mut trunc_cd = vec![0u8; 10];
@@ -1947,8 +2386,8 @@ fn content_archive_rejects_truncated_garbage_and_out_of_bounds_archives() {
     let trunc_cd_file = tmp.path().join("truncated-cd.bfecontent");
     fs::write(&trunc_cd_file, &trunc_cd).unwrap();
     assert!(read_zip_entries(&mut File::open(&trunc_cd_file).unwrap()).is_err());
-    assert!(inspect_archive(&trunc_cd_file, None).is_err());
-    assert!(import_content(&trunc_cd_file, &dest, None).is_err());
+    assert!(inspect_archive(&trunc_cd_file).is_err());
+    assert!(import_content(&trunc_cd_file, &dest).is_err());
 
     // 3. Archive with a central directory pointing outside the file (both standard EOCD and ZIP64 locator).
     let mut oob_bytes = valid_bytes.clone();
@@ -1960,8 +2399,8 @@ fn content_archive_rejects_truncated_garbage_and_out_of_bounds_archives() {
     fs::write(&oob_archive, &oob_bytes).unwrap();
     let oob_err = read_zip_entries(&mut File::open(&oob_archive).unwrap()).unwrap_err();
     assert!(oob_err.contains("out of bounds"));
-    assert!(inspect_archive(&oob_archive, None).is_err());
-    assert!(import_content(&oob_archive, &dest, None).is_err());
+    assert!(inspect_archive(&oob_archive).is_err());
+    assert!(import_content(&oob_archive, &dest).is_err());
 
     // Also test a hostile ZIP64 EOCD locator whose 64-bit `eocd64_offset` points outside the file.
     let mut zip64_oob = Vec::new();
@@ -1974,8 +2413,8 @@ fn content_archive_rejects_truncated_garbage_and_out_of_bounds_archives() {
     let zip64_oob_file = tmp.path().join("oob-zip64.bfecontent");
     fs::write(&zip64_oob_file, &zip64_oob).unwrap();
     assert!(read_zip_entries(&mut File::open(&zip64_oob_file).unwrap()).is_err());
-    assert!(inspect_archive(&zip64_oob_file, None).is_err());
-    assert!(import_content(&zip64_oob_file, &dest, None).is_err());
+    assert!(inspect_archive(&zip64_oob_file).is_err());
+    assert!(import_content(&zip64_oob_file, &dest).is_err());
 }
 
 #[test]

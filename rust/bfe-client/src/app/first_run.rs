@@ -855,9 +855,19 @@ pub fn clock(seconds: f64) -> String {
 /// final checksum. The window receives progress without blocking on disk I/O.
 pub struct ImportWork {
     result: std::sync::mpsc::Receiver<Result<PathBuf, String>>,
-    progress: std::sync::mpsc::Receiver<(String, u64, u64)>,
+    progress: std::sync::mpsc::Receiver<ImportProgress>,
     cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    current: (String, u64, u64),
+    current: ImportProgress,
+}
+
+/// One progress report from the archive import: the phase the browser's `onProgress` names
+/// ("Importing and verifying", "Restoring shared content"), the file, and bytes done of total.
+#[derive(Clone, Debug, Default)]
+struct ImportProgress {
+    phase: String,
+    file: String,
+    done: u64,
+    total: u64,
 }
 impl ImportWork {
     pub fn start(file: PathBuf, store: &AppSettingsStore) -> Self {
@@ -866,19 +876,26 @@ impl ImportWork {
         let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let flag = cancelled.clone();
         let parent = store.paths.user_data.join("content-imports");
-        let tools = application_resources()
-            .map(|r| r.join("tools"))
-            .unwrap_or_else(|| store.paths.project_root.join("tools"));
         std::thread::spawn(move || {
+            // The archive code calls back every chunk (64 KiB), so a cancel lands within a
+            // chunk; the UI only needs a report about every 50 ms.
+            let mut last_sent = std::time::Instant::now() - std::time::Duration::from_secs(1);
             let out = bfe_desktop::archive::import_content_with_progress(
                 &file,
                 &parent,
-                Some(&tools),
-                |name, done, total| {
+                |phase, name, done, total| {
                     if flag.load(std::sync::atomic::Ordering::Acquire) {
                         return Err("Transfer cancelled. Your current content is unchanged.".into());
                     }
-                    let _ = progress_tx.send((name.into(), done, total));
+                    if last_sent.elapsed() >= std::time::Duration::from_millis(50) || done >= total {
+                        last_sent = std::time::Instant::now();
+                        let _ = progress_tx.send(ImportProgress {
+                            phase: phase.into(),
+                            file: name.into(),
+                            done,
+                            total,
+                        });
+                    }
                     Ok(())
                 },
             )
@@ -894,7 +911,7 @@ impl ImportWork {
             result,
             progress,
             cancelled,
-            current: (String::new(), 0, 0),
+            current: ImportProgress::default(),
         }
     }
     pub fn cancel(&self) {
@@ -916,27 +933,38 @@ impl ImportWork {
             }
         })
     }
+    /// The transfer view of prepare.js: the title, the phase as the detail line (or "Starting…"),
+    /// the file under it, a bar of bytes done over total, the phase beside a percentage, CANCEL.
     pub fn view(&self) -> SetupView {
+        let progress = &self.current;
+        let phase = if progress.phase.is_empty() {
+            "Starting…".to_string()
+        } else {
+            progress.phase.clone()
+        };
         let mut view = SetupView {
             title: "IMPORTING YOUR CONTENT".into(),
-            detail: "Importing".into(),
+            detail: phase.clone(),
             actions: vec!["CANCEL".into()],
             ..Default::default()
         };
-        let (file, done, total) = &self.current;
-        view.code = (!file.is_empty()).then(|| file.clone());
-        let fraction = if *total > 0 {
-            *done as f64 / *total as f64
+        view.code = (!progress.file.is_empty()).then(|| progress.file.clone());
+        let fraction = if progress.total > 0 {
+            (progress.done as f64 / progress.total as f64).min(1.)
         } else {
             0.
         };
         view.progress = Some(SetupProgress {
             fraction,
-            label: "Importing".into(),
-            numbers: format!("{}%", (fraction * 100.).floor() as u64),
+            label: if progress.phase.is_empty() { String::new() } else { phase },
+            numbers: if progress.total > 0 {
+                format!("{}%", (fraction * 100.).floor() as u64)
+            } else {
+                String::new()
+            },
             phases: [0; 7],
             show_phases: false,
-            estimating: false,
+            estimating: progress.total == 0,
         });
         view
     }
