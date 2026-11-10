@@ -11,11 +11,21 @@ import { BackdropMovies, PreviewFrame } from "components/media.slint";
 import { PageScrim, PageDim, PagePattern } from "components/scrim.slint";
 import { ScreenFrame, ScreenLayout } from "components/screen-frame.slint";
 import { Surface } from "components/surface.slint";
+import { BattleObjectivesCard } from "components/battle-widgets.slint";
 import { IaModel, SingleplayerScreen, InstantActionScreen, InstantActionEraScreen, LoadingPageOverlay } from "screens/ia.slint";
 export { Theme, MenuSound, ControlState, Pattern, MovieFilter } from "theme.slint";
 export { ListEntry } from "components/list.slint";
 export { MenuRowItem } from "screens/main.slint";
 export { IaModel, SingleplayerScreen, InstantActionScreen, InstantActionEraScreen, LoadingPageOverlay } from "screens/ia.slint";
+export {
+    BattleModel,
+    BattleTeamModel,
+    BattleClassModel,
+    BattlePinModel,
+    BattleScorePlayerModel,
+    BattleStatLineModel,
+    BattlePauseActionModel,
+} from "screens/battle.slint";
 
 component Caption inherits PageText {
     role: TextRole.corner;
@@ -177,6 +187,13 @@ export component ComponentGallery inherits Window {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
             use-underlay: false;
             movie-frame: root.movie-frame;
+        }
+        BattleObjectivesCard {
+            x: root.width - 378px;
+            y: 470px;
+            width: 340px;
+            height: 88px;
+            objectives: ["CAPTURE ALL COMMAND POSTS", "ELIMINATE HOSTILE REINFORCEMENTS"];
         }
     }
 }

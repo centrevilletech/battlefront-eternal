@@ -1,4 +1,5 @@
 import { Theme, ControlState, MenuSound } from "theme.slint";
+import { ListEntry } from "components/list.slint";
 import {
     MenuRowItem,
     ThemePicker,
@@ -11,6 +12,17 @@ import {
     ShellPopupModal
 } from "screens/main.slint";
 import {
+    BattleModel,
+    BattleTeamModel,
+    BattleClassModel,
+    BattlePinModel,
+    BattleScorePlayerModel,
+    BattleStatLineModel,
+    BattlePauseActionModel,
+    BattleScreen,
+    BattleModalScreen
+} from "screens/battle.slint";
+import {
     IaModel,
     SingleplayerScreen,
     InstantActionScreen,
@@ -19,8 +31,17 @@ import {
 } from "screens/ia.slint";
 
 export { Theme, MenuSound, ControlState } from "theme.slint";
-export { MenuRowItem } from "screens/main.slint";
 export { ListEntry } from "components/list.slint";
+export { MenuRowItem } from "screens/main.slint";
+export {
+    BattleModel,
+    BattleTeamModel,
+    BattleClassModel,
+    BattlePinModel,
+    BattleScorePlayerModel,
+    BattleStatLineModel,
+    BattlePauseActionModel
+} from "screens/battle.slint";
 export { IaModel } from "screens/ia.slint";
 
 export component GameUi inherits Window {
@@ -100,7 +121,7 @@ export component GameUi inherits Window {
 
     public function controls-at(x: length, y: length) -> bool {
         if (root.gameplay) {
-            return false;
+            return battle-screen.controls-at(x, y);
         }
         if (root.proof-controls && x >= panel.x && x < panel.x + panel.width && y >= panel.y && y < panel.y + panel.height) {
             return true;
@@ -185,6 +206,11 @@ export component GameUi inherits Window {
             open <=> root.theme-picker-open;
             theme-selected(idx) => { root.theme-changed(idx); }
         }
+
+        battle-screen := BattleScreen {
+            visible: root.gameplay;
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+        }
     }
 
     // Pass 2: modal / popup dialogs and their dimmed backdrop (drawn sharp after PageBlur).
@@ -232,6 +258,10 @@ export component GameUi inherits Window {
             selected-button: root.steam-selected-button;
             declined => { root.steam-declined(); }
             accepted => { root.steam-accepted(); }
+        }
+
+        if root.gameplay : BattleModalScreen {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
         }
     }
 

@@ -1,0 +1,624 @@
+// Page-look battle screens: spawn screen, scoreboard, and pause menu.
+// The 3D turntable, hologram map, and faction emblems are rendered by the game
+// renderer into the GL framebuffer before Slint renders, showing through
+// transparent regions here (see SCREENS.md section 4).
+
+import { Theme } from "../theme.slint";
+import { PageButton, ButtonVariant } from "../components/button.slint";
+import { PageTab, TabStrip } from "../components/tab.slint";
+import { PageList, ListEntry } from "../components/list.slint";
+import { ScreenFrame, ScreenLayout } from "../components/screen-frame.slint";
+import { PagePattern, PageScrim, PageDim } from "../components/scrim.slint";
+import { PageTitle, PageText, TextRole } from "../components/typography.slint";
+import { PopupBox } from "../components/dialog.slint";
+import { ThemePicker } from "main.slint";
+import {
+    BattleTeamModel,
+    BattleClassModel,
+    BattlePinModel,
+    BattleScorePlayerModel,
+    BattleStatLineModel,
+    BattlePauseActionModel,
+    BattleTeamCard,
+    BattleSwapControl,
+    BattleRosterHeader,
+    BattleClassCard,
+    BattleTurntableArea,
+    BattleClassBanner,
+    BattleSpawnButton,
+    BattleObjectivesCard,
+    ScoreTeamPanel,
+    ScoreStatSheet,
+} from "../components/battle-widgets.slint";
+
+export {
+    BattleTeamModel,
+    BattleClassModel,
+    BattlePinModel,
+    BattleScorePlayerModel,
+    BattleStatLineModel,
+    BattlePauseActionModel,
+}
+
+export global BattleModel {
+    in-out property <bool> page-spawn-look: false;
+    in-out property <bool> page-score-look: false;
+    in-out property <bool> spawn-visible: false;
+    in-out property <bool> scoreboard-visible: false;
+    in-out property <bool> pause-open: false;
+    in-out property <bool> waiting-prompt-visible: false;
+    in-out property <float> waiting-prompt-opacity: 1.0;
+
+    in-out property <int> theme-index: 2;
+    in-out property <bool> theme-picker-open: false;
+
+    // Spawn screen properties
+    in-out property <BattleTeamModel> team-one;
+    in-out property <BattleTeamModel> team-two;
+    in-out property <bool> can-switch-teams: false;
+    in-out property <float> swap-x: 0.0;
+    in-out property <float> swap-y: 0.0;
+    in-out property <float> swap-size: 40.0;
+    in-out property <float> switch-hint-y: 0.0;
+    in-out property <bool> countdown-visible: false;
+    in-out property <string> countdown-text: "";
+    in-out property <bool> countdown-winning: false;
+    in-out property <float> countdown-y: 0.0;
+    in-out property <float> pulse-alpha: 1.0;
+
+    in-out property <float> roster-x: 0.0;
+    in-out property <float> roster-y: 0.0;
+    in-out property <float> roster-w: 260.0;
+    in-out property <[BattleClassModel]> classes: [];
+
+    in-out property <float> figure-x: 0.0;
+    in-out property <float> figure-y: 0.0;
+    in-out property <float> figure-w: 300.0;
+    in-out property <float> figure-h: 300.0;
+    in-out property <bool> figure-dragging: false;
+    in-out property <bool> figure-turned: false;
+    in-out property <string> selected-class-title: "";
+    in-out property <string> selected-post-name: "";
+    in-out property <string> selected-vehicles: "";
+    in-out property <float> title-y: 0.0;
+    in-out property <float> title-x: 0.0;
+    in-out property <float> title-w: 300.0;
+
+    in-out property <float> spawn-x: 0.0;
+    in-out property <float> spawn-y: 0.0;
+    in-out property <float> spawn-w: 220.0;
+    in-out property <float> spawn-h: 48.0;
+    in-out property <string> spawn-label: "SPAWN [ENTER]";
+    in-out property <bool> can-spawn: false;
+
+    in-out property <float> objectives-x: 0.0;
+    in-out property <float> objectives-y: 0.0;
+    in-out property <float> objectives-w: 300.0;
+    in-out property <float> objectives-h: 120.0;
+    in-out property <[string]> objectives: [];
+
+    in-out property <float> map-x: 0.0;
+    in-out property <float> map-y: 0.0;
+    in-out property <float> map-w: 300.0;
+    in-out property <float> map-h: 300.0;
+    in-out property <[BattlePinModel]> pins: [];
+
+    // Scoreboard properties
+    in-out property <string> score-page: "table"; // "table" | "details" | "awards"
+    in-out property <bool> score-is-end: false;
+    in-out property <bool> score-show-ping: false;
+    in-out property <string> score-sort-key: "kills";
+    in-out property <bool> score-sort-asc: false;
+
+    in-out property <string> score-team1-name: "REBELS";
+    in-out property <string> score-team1-tickets: "150";
+    in-out property <int> score-team1-tone: 1;
+    in-out property <[BattleScorePlayerModel]> score-team1-rows: [];
+    in-out property <int> score-team1-scroll: 0;
+    in-out property <int> score-team1-total: 0;
+    in-out property <int> score-team1-visible: 12;
+
+    in-out property <string> score-team2-name: "EMPIRE";
+    in-out property <string> score-team2-tickets: "150";
+    in-out property <int> score-team2-tone: 2;
+    in-out property <[BattleScorePlayerModel]> score-team2-rows: [];
+    in-out property <int> score-team2-scroll: 0;
+    in-out property <int> score-team2-total: 0;
+    in-out property <int> score-team2-visible: 12;
+
+    in-out property <string> score-subject-name: "";
+    in-out property <string> score-subject-team: "";
+    in-out property <int> score-subject-tone: 1;
+    in-out property <string> score-subject-kills: "0";
+    in-out property <string> score-subject-deaths: "0";
+    in-out property <string> score-subject-cp: "0";
+    in-out property <[BattleStatLineModel]> score-detail-lines: [];
+    in-out property <[BattleStatLineModel]> score-award-lines: [];
+
+    in-out property <bool> score-show-left-foot: true;
+    in-out property <string> score-left-foot-label: "BACK";
+    in-out property <bool> score-show-mid-foot: true;
+    in-out property <bool> score-show-right-foot: false;
+
+    // Pause menu properties
+    in-out property <string> pause-subscreen: "main"; // "main" | "options" | "playerlist" | "confirm"
+    in-out property <[BattlePauseActionModel]> pause-main-rows: [];
+    in-out property <int> pause-option-focused: 0;
+    in-out property <[ListEntry]> pause-players: [];
+    in-out property <int> pause-selected-player: 0;
+    in-out property <bool> pause-back-focused: false;
+    in-out property <string> pause-confirm-message: "";
+    in-out property <int> pause-confirm-focused-button: 1;
+
+    // Spawn callbacks
+    callback select-team(int);
+    callback toggle-team();
+    callback select-class(int);
+    callback select-pin(string);
+    callback spawn-clicked();
+    callback figure-pointer-down(float, float);
+    callback figure-pointer-move(float, float);
+    callback figure-pointer-up();
+
+    // Scoreboard callbacks
+    callback score-select-page(string);
+    callback score-sort-clicked(string);
+    callback score-row-clicked(int, int);
+    callback score-row-double-clicked(int, int);
+    callback score-team-scrolled(int, int);
+    callback score-left-foot-clicked();
+    callback score-mid-foot-clicked();
+    callback score-right-foot-clicked();
+
+    // Pause callbacks
+    callback pause-row-hovered(int);
+    callback pause-row-activated(int);
+    callback pause-option-hovered(int);
+    callback pause-option-activated(int);
+    callback pause-player-selected(int);
+    callback pause-back-hovered();
+    callback pause-back-activated();
+    callback pause-confirm-hovered(int);
+    callback pause-confirm-accepted();
+    callback pause-confirm-cancelled();
+    callback pause-theme-changed(int);
+}
+
+export component BattleSpawnScreen inherits Rectangle {
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    BattleTeamCard {
+        model: BattleModel.team-one;
+        right-aligned: false;
+        pulse-alpha: BattleModel.pulse-alpha;
+        clicked => { BattleModel.select-team(BattleModel.team-one.id); }
+    }
+
+    BattleTeamCard {
+        model: BattleModel.team-two;
+        right-aligned: true;
+        pulse-alpha: BattleModel.pulse-alpha;
+        clicked => { BattleModel.select-team(BattleModel.team-two.id); }
+    }
+
+    BattleSwapControl {
+        active: BattleModel.can-switch-teams;
+        swap-x: BattleModel.swap-x;
+        swap-y: BattleModel.swap-y;
+        swap-size: BattleModel.swap-size;
+        switch-hint-y: BattleModel.switch-hint-y;
+        toggled => { BattleModel.toggle-team(); }
+    }
+
+    if BattleModel.countdown-visible : PageText {
+        x: 0px;
+        y: BattleModel.countdown-y * 1px;
+        width: parent.width;
+        role: TextRole.heading;
+        text: BattleModel.countdown-text;
+        color: BattleModel.countdown-winning ? Theme.bfe-team-own : Theme.bfe-team-foe;
+        opacity: BattleModel.countdown-winning ? 1.0 : BattleModel.pulse-alpha;
+        horizontal-alignment: center;
+    }
+
+    BattleRosterHeader {
+        x: BattleModel.roster-x * 1px;
+        y: BattleModel.roster-y * 1px;
+        width: BattleModel.roster-w * 1px;
+        label: "SELECT SOLDIER";
+    }
+
+    for cls in BattleModel.classes : BattleClassCard {
+        model: cls;
+        clicked => { BattleModel.select-class(cls.index); }
+    }
+
+    BattleTurntableArea {
+        x: BattleModel.figure-x * 1px;
+        y: BattleModel.figure-y * 1px;
+        width: BattleModel.figure-w * 1px;
+        height: BattleModel.figure-h * 1px;
+        dragging: BattleModel.figure-dragging;
+        turned: BattleModel.figure-turned;
+        pointer-down(x, y) => { BattleModel.figure-pointer-down(x, y); }
+        pointer-move(x, y) => { BattleModel.figure-pointer-move(x, y); }
+        pointer-up => { BattleModel.figure-pointer-up(); }
+    }
+
+    if BattleModel.selected-class-title != "" : BattleClassBanner {
+        x: BattleModel.title-x * 1px;
+        y: BattleModel.title-y * 1px;
+        width: BattleModel.title-w * 1px;
+        class-title: BattleModel.selected-class-title;
+        post-name: BattleModel.selected-post-name;
+        vehicles: BattleModel.selected-vehicles;
+    }
+
+    BattleSpawnButton {
+        x: BattleModel.spawn-x * 1px;
+        y: BattleModel.spawn-y * 1px;
+        width: BattleModel.spawn-w * 1px;
+        height: BattleModel.spawn-h * 1px;
+        can-spawn: BattleModel.can-spawn;
+        clicked => { BattleModel.spawn-clicked(); }
+    }
+
+    BattleObjectivesCard {
+        x: BattleModel.objectives-x * 1px;
+        y: BattleModel.objectives-y * 1px;
+        width: BattleModel.objectives-w * 1px;
+        height: BattleModel.objectives-h * 1px;
+        objectives: BattleModel.objectives;
+    }
+
+    for pin in BattleModel.pins : TouchArea {
+        x: (pin.x - 14.0) * 1px;
+        y: (pin.y - 14.0) * 1px;
+        width: 28px;
+        height: 28px;
+        mouse-cursor: pointer;
+        clicked => { BattleModel.select-pin(pin.id); }
+    }
+}
+
+export component BattleScoreboardScreen inherits Rectangle {
+    width: 100%;
+    height: 100%;
+    background: Theme.bfe-overlay;
+
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 22 * Theme.vh;
+        background: Theme.bfe-score-top-vignette;
+    }
+
+    Rectangle {
+        x: 0px;
+        y: 80 * Theme.vh;
+        width: 100%;
+        height: 20 * Theme.vh;
+        background: Theme.bfe-score-bottom-vignette;
+    }
+
+    PageTitle {
+        x: (parent.width - self.width) * 0.5;
+        y: 5.0 * Theme.vh;
+        title: "STATS";
+    }
+
+    property <length> edge: 3.0 * Theme.vw;
+    property <length> tab-y: 12.2 * Theme.vh;
+    property <length> body-y: self.tab-y + 49px + 1.6 * Theme.vh;
+    property <length> body-h: 89.0 * Theme.vh - self.body-y;
+    property <length> col-gap: 1.6 * Theme.vw;
+    property <length> col-w: (self.width - self.edge * 2 - self.col-gap) * 0.5;
+
+    TabStrip {
+        x: root.edge;
+        y: root.tab-y;
+        width: root.width - root.edge * 2;
+
+        PageTab {
+            label: "TABLE";
+            selected-tab: BattleModel.score-page == "table";
+            activated => { BattleModel.score-select-page("table"); }
+        }
+
+        PageTab {
+            label: "DETAILS";
+            selected-tab: BattleModel.score-page == "details";
+            activated => { BattleModel.score-select-page("details"); }
+        }
+
+        if BattleModel.score-is-end : PageTab {
+            label: "AWARDS";
+            selected-tab: BattleModel.score-page == "awards";
+            activated => { BattleModel.score-select-page("awards"); }
+        }
+    }
+
+    if BattleModel.score-page == "table" : ScoreTeamPanel {
+        x: root.edge;
+        y: root.body-y;
+        width: root.col-w;
+        height: root.body-h;
+        team-id: 1;
+        team-name: BattleModel.score-team1-name;
+        tickets: BattleModel.score-team1-tickets;
+        tone: BattleModel.score-team1-tone;
+        show-ping: BattleModel.score-show-ping;
+        sort-key: BattleModel.score-sort-key;
+        sort-asc: BattleModel.score-sort-asc;
+        rows: BattleModel.score-team1-rows;
+        scroll-offset: BattleModel.score-team1-scroll;
+        total-rows: BattleModel.score-team1-total;
+        visible-rows: BattleModel.score-team1-visible;
+        sort-clicked(k) => { BattleModel.score-sort-clicked(k); }
+        row-clicked(slot, tid) => { BattleModel.score-row-clicked(slot, tid); }
+        row-double-clicked(slot, tid) => { BattleModel.score-row-double-clicked(slot, tid); }
+        scrolled(tid, dir) => { BattleModel.score-team-scrolled(tid, dir); }
+    }
+
+    if BattleModel.score-page == "table" : ScoreTeamPanel {
+        x: root.edge + root.col-w + root.col-gap;
+        y: root.body-y;
+        width: root.col-w;
+        height: root.body-h;
+        team-id: 2;
+        team-name: BattleModel.score-team2-name;
+        tickets: BattleModel.score-team2-tickets;
+        tone: BattleModel.score-team2-tone;
+        show-ping: BattleModel.score-show-ping;
+        sort-key: BattleModel.score-sort-key;
+        sort-asc: BattleModel.score-sort-asc;
+        rows: BattleModel.score-team2-rows;
+        scroll-offset: BattleModel.score-team2-scroll;
+        total-rows: BattleModel.score-team2-total;
+        visible-rows: BattleModel.score-team2-visible;
+        sort-clicked(k) => { BattleModel.score-sort-clicked(k); }
+        row-clicked(slot, tid) => { BattleModel.score-row-clicked(slot, tid); }
+        row-double-clicked(slot, tid) => { BattleModel.score-row-double-clicked(slot, tid); }
+        scrolled(tid, dir) => { BattleModel.score-team-scrolled(tid, dir); }
+    }
+
+    if BattleModel.score-page == "details" : ScoreStatSheet {
+        x: root.edge;
+        y: root.body-y;
+        width: root.width - root.edge * 2;
+        height: root.body-h;
+        heading: "PERSONAL STATS";
+        show-subject: true;
+        subject-name: BattleModel.score-subject-name;
+        subject-team: BattleModel.score-subject-team;
+        subject-tone: BattleModel.score-subject-tone;
+        subject-kills: BattleModel.score-subject-kills;
+        subject-deaths: BattleModel.score-subject-deaths;
+        subject-cp: BattleModel.score-subject-cp;
+        lines: BattleModel.score-detail-lines;
+    }
+
+    if BattleModel.score-page == "awards" : ScoreStatSheet {
+        x: root.edge;
+        y: root.body-y;
+        width: root.width - root.edge * 2;
+        height: root.body-h;
+        heading: "PLAYER AWARDS";
+        show-subject: false;
+        lines: BattleModel.score-award-lines;
+    }
+
+    if BattleModel.score-show-left-foot : PageButton {
+        x: root.edge;
+        y: 97.0 * Theme.vh - self.height;
+        variant: ButtonVariant.small;
+        label: BattleModel.score-left-foot-label;
+        activated => { BattleModel.score-left-foot-clicked(); }
+    }
+
+    if BattleModel.score-show-mid-foot : PageButton {
+        x: (root.width - self.width) * 0.5;
+        y: 97.0 * Theme.vh - self.height;
+        variant: ButtonVariant.small;
+        label: "DETAILS";
+        activated => { BattleModel.score-mid-foot-clicked(); }
+    }
+
+    if BattleModel.score-show-right-foot : PageButton {
+        x: root.width - root.edge - self.width;
+        y: 97.0 * Theme.vh - self.height;
+        variant: ButtonVariant.small;
+        label: "AWARDS";
+        activated => { BattleModel.score-right-foot-clicked(); }
+    }
+}
+
+export component BattlePauseScreen inherits Rectangle {
+    property <length> button-width: min(400px, 30 * Theme.vw) - 16px;
+    property <int> row-count: BattleModel.pause-subscreen == "options" ? 5 : BattleModel.pause-main-rows.length;
+    property <length> rows-height: root.row-count * Theme.button-height + max(0, root.row-count - 1) * Theme.bfe-gap + 8px;
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    if !BattleModel.pause-open && BattleModel.waiting-prompt-visible : PageText {
+        x: 0px;
+        y: (parent.height - self.height) * 0.5;
+        width: parent.width;
+        role: TextRole.prompt;
+        text: "CLICK TO RESUME";
+        opacity: BattleModel.waiting-prompt-opacity;
+    }
+
+    if BattleModel.pause-open : Rectangle {
+        width: 100%;
+        height: 100%;
+        background: transparent;
+
+        PagePattern { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+        PageScrim { x: 0px; y: 0px; width: parent.width; height: parent.height; overlay: true; }
+        PageDim {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            dimmed: BattleModel.pause-subscreen == "playerlist";
+        }
+
+        ScreenFrame {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            title: BattleModel.pause-subscreen == "options"
+                ? "OPTIONS"
+                : BattleModel.pause-subscreen == "playerlist" ? "PLAYER LIST" : "GAME PAUSED";
+            layout: BattleModel.pause-subscreen == "playerlist"
+                ? ScreenLayout.regular
+                : ScreenLayout.rows;
+            body-content-height: root.rows-height;
+            brand-visible: true;
+            left-label: "BACK";
+            left-activated => { BattleModel.pause-back-activated(); }
+
+            if BattleModel.pause-subscreen == "main" || BattleModel.pause-subscreen == "confirm" : VerticalLayout {
+                x: (parent.width - root.button-width) * 0.5;
+                y: 4px;
+                width: root.button-width;
+                spacing: Theme.bfe-gap;
+
+                for item[idx] in BattleModel.pause-main-rows : PageButton {
+                    width: root.button-width;
+                    label: item.label;
+                    disabled: !item.enabled;
+                    highlighted: item.highlighted;
+                    selected => { BattleModel.pause-row-hovered(idx); }
+                    activated => { BattleModel.pause-row-activated(idx); }
+                }
+            }
+
+            if BattleModel.pause-subscreen == "options" : VerticalLayout {
+                x: (parent.width - root.button-width) * 0.5;
+                y: 4px;
+                width: root.button-width;
+                spacing: Theme.bfe-gap;
+
+                for label[idx] in [
+                    "GAME OPTIONS",
+                    "VIDEO OPTIONS",
+                    "AUDIO OPTIONS",
+                    "CONTROL OPTIONS",
+                    "ONLINE OPTIONS",
+                ] : PageButton {
+                    width: root.button-width;
+                    label: label;
+                    highlighted: BattleModel.pause-option-focused == idx && !BattleModel.pause-back-focused;
+                    selected => { BattleModel.pause-option-hovered(idx); }
+                    activated => { BattleModel.pause-option-activated(idx); }
+                }
+            }
+
+            if BattleModel.pause-subscreen == "playerlist" : PageList {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                columns: [1];
+                entries: BattleModel.pause-players;
+                selected-index: BattleModel.pause-selected-player;
+                chosen(idx) => { BattleModel.pause-player-selected(idx); }
+            }
+        }
+
+        if BattleModel.theme-picker-open : TouchArea {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            clicked => { BattleModel.theme-picker-open = false; }
+        }
+
+        ThemePicker {
+            x: parent.width - Theme.bfe-edge - self.width;
+            y: 18px;
+            current-index <=> BattleModel.theme-index;
+            open <=> BattleModel.theme-picker-open;
+            theme-selected(idx) => { BattleModel.pause-theme-changed(idx); }
+        }
+    }
+}
+
+export component BattleModalScreen inherits Rectangle {
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    if BattleModel.pause-open && BattleModel.pause-subscreen == "confirm" : Rectangle {
+        width: 100%;
+        height: 100%;
+        background: Theme.popup-backdrop;
+
+        TouchArea {
+            width: 100%;
+            height: 100%;
+        }
+
+        PopupBox {
+            x: (parent.width - self.width) * 0.5;
+            y: (parent.height - self.height) * 0.5;
+            message: BattleModel.pause-confirm-message;
+            accept-label: "YES";
+            cancel-label: "NO";
+            selected-button: BattleModel.pause-confirm-focused-button;
+            button-hovered(i) => { BattleModel.pause-confirm-hovered(i); }
+            accepted => { BattleModel.pause-confirm-accepted(); }
+            cancelled => { BattleModel.pause-confirm-cancelled(); }
+        }
+    }
+}
+
+export component BattleScreen inherits Rectangle {
+    public pure function controls-at(px: length, py: length) -> bool {
+        if (BattleModel.pause-open) {
+            return true;
+        }
+        if (BattleModel.scoreboard-visible && BattleModel.page-score-look) {
+            return true;
+        }
+        if (BattleModel.spawn-visible && BattleModel.page-spawn-look) {
+            return true;
+        }
+        return false;
+    }
+
+    background: transparent;
+
+    if BattleModel.spawn-visible
+        && BattleModel.page-spawn-look
+        && !BattleModel.scoreboard-visible
+        && !BattleModel.pause-open : BattleSpawnScreen {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+    }
+
+    if BattleModel.scoreboard-visible
+        && BattleModel.page-score-look
+        && !BattleModel.pause-open : BattleScoreboardScreen {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+    }
+
+    if BattleModel.pause-open || BattleModel.waiting-prompt-visible : BattlePauseScreen {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+    }
+}

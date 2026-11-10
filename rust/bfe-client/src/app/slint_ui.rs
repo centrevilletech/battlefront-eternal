@@ -230,7 +230,7 @@ impl slint::platform::Platform for Platform {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            if source == slint::platform::Clipboard::DefaultClipboard {
+            if source == slint::platform::DefaultClipboard {
                 c.get_text().ok()
             } else {
                 None
@@ -270,6 +270,8 @@ pub(super) struct SlintHost {
     pending: Pending,
     quit: Arc<AtomicBool>,
     actions: Rc<RefCell<Vec<UiAction>>>,
+    battle_actions: Rc<RefCell<Vec<super::slint_battle::BattleUiAction>>>,
+    battle_lists: super::slint_battle::BattleLists,
     ia_actions: super::slint_ia::IaActionQueue,
     was_profile_editing: bool,
     last_shell_dropdown: bool,
@@ -320,6 +322,9 @@ impl SlintHost {
         root.set_steam_paragraphs(slint::ModelRc::from(steam_paragraphs.clone()));
         root.set_proof_controls(proof);
         let actions: Rc<RefCell<Vec<UiAction>>> = Rc::new(RefCell::new(Vec::new()));
+        let battle_actions = Rc::new(RefCell::new(Vec::new()));
+        super::slint_battle::register_battle_callbacks(&root, &battle_actions);
+        let battle_lists = super::slint_battle::BattleLists::new(&root);
         let ia_actions = super::slint_ia::register_ia(&root);
         {
             let theme = root.global::<Theme>();
@@ -466,6 +471,8 @@ impl SlintHost {
             pending,
             quit,
             actions,
+            battle_actions,
+            battle_lists,
             ia_actions,
             was_profile_editing: false,
             last_shell_dropdown: false,
@@ -519,6 +526,18 @@ impl SlintHost {
             self.was_profile_editing = false;
         }
         self.root.set_shell_visible(visible);
+    }
+
+    pub fn sync_battle(&mut self, battle: &mut super::battle::BattleController) {
+        super::slint_battle::sync_battle(&self.root, &self.battle_lists, battle);
+    }
+
+    pub fn drain_battle_actions(
+        &mut self,
+        battle: &mut super::battle::BattleController,
+        settings: &mut AppSettingsStore,
+    ) {
+        super::slint_battle::drain_battle_actions(&self.battle_actions, battle, settings);
     }
 
     pub fn sync_shell(&mut self, shell: &mut ShellHost, visible: bool) {
@@ -768,6 +787,11 @@ impl SlintHost {
             && !self.root.get_proof_controls()
             && self.root.get_modal_open()
     }
+    pub fn battle_modal_open(&self) -> bool {
+        self.root.get_gameplay()
+            && !self.root.get_proof_controls()
+            && super::slint_battle::battle_modal_open(&self.root)
+    }
     pub fn render(&self, fb: glow::Framebuffer, size: [i32; 2]) -> Result<(), String> {
         self.render_pass(fb, size, 0)
     }
@@ -784,11 +808,13 @@ impl SlintHost {
         if pass != 0 {
             self.root.set_render_pass(0);
         }
-        if (self.root.get_shell_visible()
+        let copy_back = ((self.root.get_shell_visible()
             || self.root.global::<IaModel>().get_loading_visible())
             && !self.root.get_gameplay()
-            && !self.root.get_proof_controls()
-        {
+            && !self.root.get_proof_controls())
+            || (self.root.get_gameplay()
+                && super::slint_battle::battle_overlay_visible(&self.root));
+        if copy_back {
             unsafe {
                 let read = self.gl.get_parameter_i32(glow::READ_FRAMEBUFFER_BINDING);
                 let draw = self.gl.get_parameter_i32(glow::DRAW_FRAMEBUFFER_BINDING);
@@ -1029,14 +1055,14 @@ impl SlintHost {
         self.root.set_proof_controls(true);
         self.root.invoke_focus_editor();
         self.event(
-            &WindowEvent::Ime(Ime::Preedit("候補".into(), Some((0, 6)))),
+            &WindowEvent::Ime(Ime::Preedit("\u{5019}\u{88dc}".into(), Some((0, 6)))),
             false,
         );
         if !self.root.get_draft().is_empty() {
             return Err("IME preedit committed too early".into());
         }
-        self.event(&WindowEvent::Ime(Ime::Commit("入力é".into())), false);
-        if self.root.get_draft().as_str() != "入力é" {
+        self.event(&WindowEvent::Ime(Ime::Commit("\u{5165}\u{529b}\u{00e9}".into())), false);
+        if self.root.get_draft().as_str() != "\u{5165}\u{529b}\u{00e9}" {
             return Err("IME composition commit lost Unicode".into());
         }
         let mut shapes = Vec::new();

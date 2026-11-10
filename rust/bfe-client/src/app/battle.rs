@@ -841,8 +841,8 @@ pub struct BattleController {
     pub scoreboard_ctrl: ScoreboardController,
     /// `bfe-battle-ui` in-battle Escape pause menu (`Resume`, `Respawn`, `Restart`, `Quit`, etc.).
     pub pause_menu: PauseMenu,
-    pause_page: super::page_pause::PagePause,
-    page_battle: super::page_battle::PageBattle,
+    pub(super) pause_page: super::page_pause::PagePause,
+    pub(super) page_battle: super::page_battle::PageBattle,
     /// `bfe-battle-ui` in-battle text chat controller (`All` / `Team`).
     pub chat: ChatController,
     // Retained UTF-16 storage for the native chat text field.
@@ -1934,26 +1934,16 @@ impl BattleController {
             if page_spawn {
                 let class = self.page_battle.class_id;
                 self.page_battle.draw(&mut self.scene,class,&self.pause_page.theme,self.spawn_ctrl.view.map_proj,&self.spawn_ctrl.model,&self.spawn_port);
-            } else {self.pause_page.blur.apply(&self.scene.bridge.r.core.gl,self.scene.canvas.framebuffer,4.);}
+            } else {
+                self.pause_page.blur.apply(&self.scene.bridge.r.core.gl,self.scene.canvas.framebuffer,4.);
+            }
             self.scene.bridge.r.core.state.reset();
             self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=pause_groups;
-            let end=self.scene.bridge.hud_model.batch.count;
-            super::page_pause::PagePause::draw_range(&mut self.scene,0,end);
         }
         if self.pause_menu.is_open {
             self.pause_page.blur.apply(&self.scene.bridge.r.core.gl,self.scene.canvas.framebuffer,6.);
             self.scene.bridge.r.core.state.reset();
             self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=pause_groups;
-            self.scene.bridge.r.hud.input[render_hud::IN_UPLOAD]=0.;
-            self.scene.bridge.r.hud.input[render_hud::IN_UPLOAD+1]=(self.scene.bridge.hud_model.batch.count*4)as f64;
-            if let Some(modal) = self.pause_page.page.modal_start {
-                super::page_pause::PagePause::draw_range(&mut self.scene,0,modal);
-                self.pause_page.blur.apply(&self.scene.bridge.r.core.gl,self.scene.canvas.framebuffer,4.);
-                let end=self.scene.bridge.hud_model.batch.count;
-                super::page_pause::PagePause::draw_range(&mut self.scene,modal,end);
-            } else {
-                self.scene.bridge.r.hud.draw(&mut self.scene.bridge.r.core);
-            }
         }
         if measure_steady_allocs && !overlay_active {
             let alloc_after = super::render_thread_alloc_count();
@@ -2038,20 +2028,7 @@ impl BattleController {
         if self.pause_menu.hides_hud() {
             self.scene.bridge.hud_model.batch.begin();
             self.pause_menu.update(dt);
-            self.overlay_batch.begin();
-            if let Some(replicas) = &self.scene.online {
-                let surface = HudBatchSurface {
-                    height: self.height,
-                    aspect: self.aspect,
-                    batch: &mut self.scene.bridge.hud_model.batch,
-                    fonts: &self.scene.bridge.hud_model.fonts,
-                    assets: &self.scene.bridge.hud_model.assets,
-                    textures: Some(&replicas.hud.names),
-                    strings: Some(&replicas.hud.strings),
-                };
-                self.pause_page.page.draw_pause(&mut self.overlay_batch,&self.pause_page.textures,&mut self.pause_menu,&surface,self.page_size[0] as f64,self.page_size[1] as f64,&self.pause_page.theme);
-            }
-            Self::append_batch(&mut self.scene.bridge.hud_model.batch, &self.overlay_batch);
+            super::slint_battle::sync_pause_hotspots(self);
             return;
         }
 
@@ -2075,31 +2052,11 @@ impl BattleController {
             if self.page_battle.spawn {super::page_battle::PageBattle::map_team(&mut self.scene.bridge.hud_model,self.spawn_ctrl.model.team);}
             self.scene.bridge.hud_model_update();
             if self.page_battle.spawn {
-                let status = self.scene.online.as_ref().map_or_else(
-                    bfe_shell::page::SpawnBattleStatus::default,
-                    |r| bfe_shell::page::SpawnBattleStatus {
-                        countdown: r.hud.countdown.is_finite().then_some((r.hud.countdown.floor().max(0.) as u32, r.hud.losing)),
-                        start: [r.hud.teams[1][1], r.hud.teams[2][1]],
-                        bleeding: [r.hud.teams[1][3] > 0., r.hud.teams[2][3] > 0.],
-                    },
-                );
+                let status = super::slint_battle::spawn_battle_status(self);
                 self.page_battle.update(dt,&self.spawn_ctrl.model,&self.spawn_port,self.page_size,&self.pause_page.theme,status.countdown.is_some());
                 self.page_battle.map_texture(&mut self.scene,&self.spawn_ctrl.view,self.height);
                 self.scene.bridge.hud_model.batch.begin();
-                let turned=self.page_battle.turned();
-                if self.page_battle.cache.spawn_changed(&self.spawn_ctrl.model,&self.spawn_port,self.page_size,&self.pause_page.theme,turned,status) {
-                    self.page_battle.cache.panels.begin();
-                    self.pause_page.page.draw_spawn(&mut self.page_battle.cache.panels,&self.pause_page.textures,
-                        &self.spawn_ctrl.model,&self.spawn_port,self.page_battle.layout,self.height,&self.pause_page.theme,turned,status,&mut self.page_battle.cache.hits);
-                }
-                Self::append_batch(&mut self.scene.bridge.hud_model.batch,&self.page_battle.cache.panels);
-                if let Some(regions)=&mut self.spawn_ctrl.view.theme_hotspots {
-                    regions.clone_from(&self.page_battle.cache.hits);
-                    self.pause_page.page.animate_spawn(&mut self.scene.bridge.hud_model.batch,regions,
-                        self.page_battle.age,self.page_battle.class_age,self.page_battle.team_age,
-                        self.page_size[0]as f64,self.page_size[1]as f64,self.height,self.spawn_ctrl.input.cursor);
-                    self.page_battle.post_regions(&self.spawn_ctrl.model,&self.spawn_port,self.spawn_ctrl.view.map_proj,self.height,regions);
-                }
+                super::slint_battle::sync_spawn_hotspots(self);
                 return;
             }
             self.scene.bridge.hud_model.build(0);
@@ -2151,26 +2108,11 @@ impl BattleController {
                 );
             }
             if self.scoreboard_ctrl.model.is_open() {
-                self.overlay_batch.begin();
                 if self.page_battle.scoreboard {
                     self.scene.bridge.hud_model.batch.begin();
-                    let cursor = self.scoreboard_ctrl.input.cursor;
-                    let hover = self.scoreboard_ctrl.view.theme_hotspots.as_ref()
-                        .and_then(|regions| regions.iter().position(|(r, _)|
-                            cursor[0] >= r[0] && cursor[0] <= r[2]
-                                && cursor[1] >= r[1] && cursor[1] <= r[3]));
-                    if self.page_battle.cache.score_changed(&self.scoreboard_ctrl.model,&self.scoreboard_ctrl.view,&self.scoreboard_port,self.page_size,&self.pause_page.theme,hover) {
-                        self.page_battle.cache.scoreboard.begin();
-                        let mut regions=self.scoreboard_ctrl.view.theme_hotspots.take().unwrap_or_default();
-                        self.pause_page.page.draw_scoreboard(&mut self.page_battle.cache.scoreboard,&self.pause_page.textures,
-                            &self.scoreboard_ctrl.model,&self.scoreboard_port,&self.scoreboard_ctrl.view,
-                            self.page_size[0]as f64,self.page_size[1]as f64,self.height,&self.pause_page.theme,&mut regions,hover);
-                        self.scoreboard_ctrl.view.theme_hotspots=Some(regions);
-                    }
-                    Self::append_batch(&mut self.overlay_batch,&self.page_battle.cache.scoreboard);
-                    let h=self.page_size[1]as f64;
-                    self.scoreboard_ctrl.model.shown=((h*0.94-(h*0.046).clamp(34.,46.)-(h*0.122+110.+h*0.029))/((h*0.034).clamp(26.,38.)+2.)).floor().max(1.)as usize;
+                    super::slint_battle::sync_scoreboard_hotspots(self);
                 } else {
+                    self.overlay_batch.begin();
                     let surface = HudBatchSurface {
                         height: self.height,
                         aspect: self.aspect,
@@ -2190,25 +2132,11 @@ impl BattleController {
                         &self.scoreboard_port,
                         Some(self.scoreboard_ctrl.input.cursor),
                     );
+                    Self::append_batch(&mut self.scene.bridge.hud_model.batch, &self.overlay_batch);
                 }
-                Self::append_batch(&mut self.scene.bridge.hud_model.batch, &self.overlay_batch);
             }
             if self.pause_menu.waiting() {
                 self.pause_menu.update(dt);
-                self.overlay_batch.begin();
-                {
-                    let surface = HudBatchSurface {
-                        height: self.height,
-                        aspect: self.aspect,
-                        batch: &mut self.scene.bridge.hud_model.batch,
-                        fonts: &self.scene.bridge.hud_model.fonts,
-                        assets: &self.scene.bridge.hud_model.assets,
-                        textures: Some(&replicas.hud.names),
-                        strings: Some(&replicas.hud.strings),
-                    };
-                    self.pause_page.page.draw_pause(&mut self.overlay_batch,&self.pause_page.textures,&mut self.pause_menu,&surface,self.page_size[0] as f64,self.page_size[1] as f64,&self.pause_page.theme);
-                }
-                Self::append_batch(&mut self.scene.bridge.hud_model.batch, &self.overlay_batch);
             }
         }
     }
@@ -2587,9 +2515,6 @@ impl BattleController {
             self.log_control_snapshot();
         }
 
-        if self.pause_menu.is_open && down && self.pause_page.key(code) {
-            return;
-        }
         if self.pause_menu.is_open || code == "Escape" {
             self.sync_ports_cold(&settings.player.profile_name);
             if let Some(replicas) = &self.scene.online {
@@ -2793,7 +2718,6 @@ impl BattleController {
             self.height,
         );
         if self.pause_menu.is_open {
-            if button==0&&down&&self.pause_page.pointer(self.page_cursor()[0],self.page_cursor()[1]){return;}
             if button == 0 && down {
                 if let Some(replicas) = &self.scene.online {
                     let surface = HudBatchSurface {

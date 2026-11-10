@@ -3,15 +3,12 @@
 mod battle;
 mod setup;
 pub use setup::{SetupView,SetupProgress,SetupSound};
-mod battle_chrome;
-mod battle_motion;
 mod browser;
 mod forms;
 mod heading;
 mod host;
 mod media;
 mod motion;
-mod pause;
 mod widgets;
 use crate::{
     render::ShellTextures,
@@ -51,12 +48,8 @@ struct Paragraph {
     lines: Vec<Vec<u16>>,
 }
 pub struct Page {
-    battle: battle_motion::BattlePaintState,
     pub browser: BrowserView,
     pub media: MediaTextures,
-    pub pause_backdrops: [u32; 3],
-    pause_hits: Vec<bfe_battle_ui::pause::PauseHotspot>,
-    pause_rows: Vec<(bfe_battle_ui::pause::PauseRowId, String)>,
     input_state: Option<(ScreenId, u8)>,
     pub body: Font,
     pub logo: Font,
@@ -118,7 +111,6 @@ impl Page {
             glyphs: body.glyphs.clone(),
         };
         Self {
-            battle: battle_motion::BattlePaintState::default(),
             prose: Font {height: regular.height,glyphs:regular.glyphs.clone()},
             mono: Font {height: regular.height,glyphs:regular.glyphs.clone()},
             regular,
@@ -128,9 +120,6 @@ impl Page {
             button_text: HashMap::new(),
             browser: BrowserView::default(),
             media: MediaTextures::default(),
-            pause_backdrops: [0; 3],
-            pause_hits: Vec::with_capacity(16),
-            pause_rows: Vec::new(),
             input_state: None,
             title,
             body,
@@ -751,7 +740,7 @@ impl Page {
             true,
         );
     }
-    #[allow(clippy::too_many_arguments)]
+    #[allow(dead_code, clippy::too_many_arguments)]
     pub(super) fn picker(
         &mut self,
         b: &mut Batch,

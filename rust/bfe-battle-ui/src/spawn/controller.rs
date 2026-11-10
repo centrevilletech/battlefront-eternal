@@ -243,7 +243,7 @@ impl SpawnScreenController {
 
     /// Drains [`SpawnEvent`]s emitted by [`SpawnModel`] and forwards them to
     /// [`ClassicSpawnView`] animations and the controller's sound effect queue.
-    fn sync_model_events(&mut self) {
+    pub fn sync_model_events(&mut self) {
         for ev in self.model.drain_events() {
             match ev {
                 SpawnEvent::Open { first, .. } => {

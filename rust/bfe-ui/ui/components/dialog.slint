@@ -12,6 +12,8 @@ export component PopupBox inherits Surface {
     callback accepted();
     callback middle-activated();
     callback cancelled();
+    // A button the pointer arrived on, by position (additive: screens that keep focus on the keyboard ignore it).
+    callback button-hovered(int);
     property <int> active-button: root.selected-button >= 0 ? root.selected-button : (root.cancel-label != "" ? 1 : 0);
     preferred-width: min(700px, min(92 * Theme.vw, max(480px, 48 * Theme.vw)));
     width: self.preferred-width;
@@ -31,17 +33,20 @@ export component PopupBox inherits Surface {
             PageButton {
                 label: root.accept-label; variant: ButtonVariant.small;
                 highlighted: root.active-button == 0;
+                selected => { root.button-hovered(0); }
                 activated => { root.accepted(); }
             }
             if root.middle-label != "": PageButton {
                 label: root.middle-label; variant: ButtonVariant.small;
                 highlighted: root.active-button == 1;
+                selected => { root.button-hovered(1); }
                 activated => { root.middle-activated(); }
             }
             if root.cancel-label != "": PageButton {
                 label: root.cancel-label; variant: ButtonVariant.small;
                 highlighted: root.active-button == (root.middle-label != "" ? 2 : 1);
                 accept-sound: MenuSound.back;
+                selected => { root.button-hovered(root.middle-label != "" ? 2 : 1); }
                 activated => { root.cancelled(); }
             }
         }

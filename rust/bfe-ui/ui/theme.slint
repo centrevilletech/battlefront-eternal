@@ -175,4 +175,37 @@ export global Theme {
     out property <duration> backdrop-transform-duration: 1600ms;
     out property <duration> movie-crossfade-duration: 1200ms;
     out property <duration> dim-duration: 450ms;
+
+    // Battle spawn & scoreboard tokens (src/spawn-screen/page/view.js, src/scoreboard/page/view.js).
+    out property <color> bfe-team-own: #4ff07a;
+    out property <color> bfe-team-foe: #ff5a4a;
+    out property <color> bfe-team-own-header: #5fe08a;
+    out property <color> bfe-team-foe-header: #ff6a5a;
+    out property <color> bfe-team-own-glow: rgba(79, 240, 122, 0.14);
+    out property <color> bfe-team-card-border: rgba(90, 100, 115, 0.30);
+    out property <color> bfe-ticket-track: rgba(255, 255, 255, 0.06);
+    out property <color> bfe-ping-ok: #4ff07a;
+    out property <color> bfe-ping-warn: #ffbe3c;
+    out property <color> bfe-ping-bad: #ff5a4a;
+    out property <color> bfe-ping-off: rgba(255, 255, 255, 0.16);
+    out property <color> bfe-class-border: rgba(102, 102, 102, 0.20);
+    out property <color> bfe-class-hover-border: rgba(255, 255, 255, 0.32);
+    out property <color> bfe-class-picked-border: self.bf1 ? rgba(190, 230, 255, 0.90) : self.bf2 ? #cf2a1d : self.bfe-accent;
+    out property <length> bfe-battle-card-radius: self.bf2 ? 12px : self.bfe-panel-radius;
+    out property <color> bfe-bar-ink: self.bf1 || self.bf2 ? #0b0e12 : self.bfe-text;
+    out property <color> bfe-bar-dim-ink: self.bf1 || self.bf2 ? #0b0e12 : self.bfe-text-dim;
+    out property <color> bfe-bar-active-ink: self.bf1 || self.bf2 ? #000000 : self.bfe-accent;
+    out property <brush> bfe-bar-bg: self.bf2 ? @linear-gradient(180deg, #c9d4e2 0%, #9aa9bd 50%, #8496ad 52%, #b3c0d0 100%) : self.bf1 ? @linear-gradient(180deg, rgba(255, 196, 92, 0.78) 0%, rgba(220, 110, 10, 0.70) 100%) : rgba(255, 255, 255, 0.06);
+    out property <brush> bfe-stat-header-bg: self.bf2 ? @linear-gradient(180deg, #59616b 0%, #2b3036 100%) : self.bfe-accent-fill;
+    out property <color> bfe-stat-header-ink: self.bf2 ? #ffffff : self.bfe-accent-ink;
+    out property <color> bfe-stat-header-line: self.bf2 ? #b31d12 : transparent;
+    out property <brush> bfe-score-top-vignette: @linear-gradient(180deg, rgba(0, 0, 0, 0.30) 0%, transparent 100%);
+    out property <brush> bfe-score-bottom-vignette: @linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.34) 100%);
+    out property <brush> bfe-accent-rule: @linear-gradient(90deg, self.bfe-accent 0%, transparent 100%);
+    out property <brush> bfe-accent-center-rule: @linear-gradient(90deg, transparent 0%, self.bfe-accent 50%, transparent 100%);
+    out property <color> bfe-pill-bg: rgba(8, 12, 18, 0.55);
+    out property <color> bfe-pill-border: rgba(255, 255, 255, 0.14);
+    out property <color> bfe-kbd-bg: rgba(255, 255, 255, 0.07);
+    out property <color> bfe-kbd-border: rgba(255, 255, 255, 0.18);
+    out property <color> bfe-swap-border: rgba(255, 255, 255, 0.22);
 }

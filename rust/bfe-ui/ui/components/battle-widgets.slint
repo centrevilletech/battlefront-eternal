@@ -1,0 +1,1524 @@
+// Battle spawn and scoreboard widgets shared between the gallery and battle.slint.
+// Uses Theme tokens and Surface; draws arrows/diamonds via Path so Saira's
+// Latin subset never falls back to missing-glyph boxes.
+
+import { Theme } from "../theme.slint";
+import { Surface } from "surface.slint";
+import { PageButton } from "button.slint";
+
+export struct BattleTeamModel {
+    id: int,
+    name: string,
+    tickets: string,
+    fill-ratio: float,
+    own: bool,
+    interactive: bool,
+    bleeding: bool,
+    badge-mode: string, // "own" | "switch" | "auto"
+    badge-text: string,
+    plate-x: float,
+    plate-y: float,
+    plate-w: float,
+    plate-h: float,
+    logo-x: float,
+    logo-y: float,
+    logo-size: float,
+}
+
+export struct BattleClassModel {
+    index: int,
+    name: string,
+    picked: bool,
+    w0: string,
+    w1: string,
+    w2: string,
+    w3: string,
+    rect-x: float,
+    rect-y: float,
+    rect-w: float,
+    rect-h: float,
+}
+
+export struct BattlePinModel {
+    id: string,
+    x: float,
+    y: float,
+    selected: bool,
+}
+
+export struct BattleScorePlayerModel {
+    slot: int,
+    team-id: int,
+    rank: string,
+    name: string,
+    kills: string,
+    deaths: string,
+    cp: string,
+    ping-text: string,
+    ping-bars: int,
+    ping-tone: int, // 0 none, 1 ok, 2 warn, 3 bad
+    local: bool,
+    human: bool,
+    selected: bool,
+}
+
+export struct BattleStatLineModel {
+    label: string,
+    value: string,
+    empty: bool,
+    tag: string,
+    tag-tone: int, // 0 neutral, 1 friend, 2 foe
+}
+
+export struct BattlePauseActionModel {
+    id: string,
+    label: string,
+    enabled: bool,
+    highlighted: bool,
+}
+
+component BattleDiamond inherits Rectangle {
+    in property <color> ink: Theme.bfe-accent;
+    width: 6px;
+    height: 6px;
+    background: transparent;
+
+    Path {
+        width: 100%;
+        height: 100%;
+        fill: root.ink;
+        MoveTo { x: 3; y: 0; }
+        LineTo { x: 6; y: 3; }
+        LineTo { x: 3; y: 6; }
+        LineTo { x: 0; y: 3; }
+        Close {}
+    }
+}
+
+component BattleArrow inherits Rectangle {
+    in property <bool> right: false;
+    in property <color> ink: Theme.bfe-text-dim;
+    width: 10px;
+    height: 8px;
+    background: transparent;
+
+    Path {
+        width: 100%;
+        height: 100%;
+        stroke: root.ink;
+        stroke-width: 1.5px;
+        fill: transparent;
+        MoveTo { x: root.right ? 1 : 9; y: 4; }
+        LineTo { x: root.right ? 9 : 1; y: 4; }
+        MoveTo { x: root.right ? 6 : 4; y: 1; }
+        LineTo { x: root.right ? 9 : 1; y: 4; }
+        LineTo { x: root.right ? 6 : 4; y: 7; }
+    }
+}
+
+component BattleSwapIcon inherits Rectangle {
+    in property <color> ink: Theme.bfe-text;
+    width: 16px;
+    height: 14px;
+    background: transparent;
+
+    Path {
+        width: 100%;
+        height: 100%;
+        stroke: root.ink;
+        stroke-width: 1.6px;
+        fill: transparent;
+        MoveTo { x: 2; y: 4; }
+        LineTo { x: 14; y: 4; }
+        MoveTo { x: 10; y: 1; }
+        LineTo { x: 14; y: 4; }
+        LineTo { x: 10; y: 7; }
+        MoveTo { x: 14; y: 10; }
+        LineTo { x: 2; y: 10; }
+        MoveTo { x: 6; y: 7; }
+        LineTo { x: 2; y: 10; }
+        LineTo { x: 6; y: 13; }
+    }
+}
+
+component BattleTurnIcon inherits Rectangle {
+    in property <color> ink: Theme.bfe-text-dim;
+    width: 11px;
+    height: 11px;
+    background: transparent;
+
+    Path {
+        width: 100%;
+        height: 100%;
+        stroke: root.ink;
+        stroke-width: 1.4px;
+        fill: transparent;
+        MoveTo { x: 8.5; y: 2.5; }
+        LineTo { x: 5.5; y: 1.2; }
+        LineTo { x: 2.0; y: 3.0; }
+        LineTo { x: 1.5; y: 6.5; }
+        LineTo { x: 4.0; y: 9.5; }
+        LineTo { x: 8.0; y: 9.0; }
+        MoveTo { x: 6.2; y: 0.8; }
+        LineTo { x: 9.0; y: 2.5; }
+        LineTo { x: 6.8; y: 4.5; }
+    }
+}
+
+component BattleSortArrow inherits Rectangle {
+    in property <bool> asc: false;
+    in property <color> ink: Theme.bfe-accent;
+    width: 8px;
+    height: 6px;
+    background: transparent;
+
+    Path {
+        width: 100%;
+        height: 100%;
+        fill: root.ink;
+        MoveTo { x: 4; y: root.asc ? 0 : 6; }
+        LineTo { x: 8; y: root.asc ? 6 : 0; }
+        LineTo { x: 0; y: root.asc ? 6 : 0; }
+        Close {}
+    }
+}
+
+component BattleBarFill inherits Rectangle {
+    in property <bool> active: false;
+    in property <bool> left-accent: false;
+
+    border-radius: Theme.bf2 ? 999px : 0px;
+    background: root.active
+        ? (Theme.bf2 ? Theme.button-active-bg : Theme.bfe-accent-fill)
+        : Theme.bfe-bar-bg;
+
+    if Theme.eternal && root.left-accent && !root.active : Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 3px;
+        height: parent.height;
+        background: Theme.bfe-accent;
+    }
+}
+
+export component BattleTeamCard inherits Rectangle {
+    in property <BattleTeamModel> model;
+    in property <bool> right-aligned: false;
+    in property <float> pulse-alpha: 1.0;
+    callback clicked();
+
+    x: root.model.plate-x * 1px;
+    y: root.model.plate-y * 1px;
+    width: root.model.plate-w * 1px;
+    height: root.model.plate-h * 1px;
+    background: transparent;
+
+    property <bool> hovered: touch.has-hover || logo-touch.has-hover;
+    property <color> border-col: root.model.own
+        ? Theme.bfe-team-own
+        : (root.model.interactive && root.hovered ? Theme.bfe-accent : Theme.bfe-team-card-border);
+    property <length> pad-x: 1.1 * Theme.vw;
+    property <length> name-size: clamp(13px, 2.0 * Theme.vh, 22px);
+    property <length> count-size: clamp(18px, 3.0 * Theme.vh, 34px);
+    property <length> top-y: 0.16 * root.height;
+    property <length> badge-size: clamp(9px, 1.15 * Theme.vh, 11px);
+    property <length> badge-y: 0.62 * root.height;
+
+    Surface {
+        width: 100%;
+        height: 100%;
+        fill: Theme.bfe-panel-bg;
+        chamfer: 0px;
+        radius: Theme.bfe-panel-radius;
+        edge: {
+            width: Theme.bfe-panel-border.width,
+            color: root.border-col,
+        };
+        shadows: root.model.own
+            ? [{ x: 0px, y: 0px, blur: 14px, color: Theme.bfe-team-own-glow, inset: false }]
+            : [];
+
+        Rectangle {
+            x: 0px;
+            y: parent.height - 3px;
+            width: parent.width;
+            height: 3px;
+            background: Theme.bfe-ticket-track;
+
+            Rectangle {
+                property <length> fill-w: parent.width * clamp(root.model.fill-ratio, 0.0, 1.0);
+                x: root.right-aligned ? parent.width - self.fill-w : 0px;
+                y: 0px;
+                width: self.fill-w;
+                height: 100%;
+                background: root.model.own ? Theme.bfe-team-own : Theme.bfe-team-foe;
+            }
+        }
+
+        Text {
+            x: root.pad-x;
+            y: root.top-y;
+            width: parent.width - root.pad-x * 2;
+            height: root.name-size * 1.3;
+            text: root.model.name;
+            font-family: Theme.font-family;
+            font-size: root.name-size;
+            font-weight: 800;
+            letter-spacing: 0.08 * root.name-size;
+            color: root.model.own ? Theme.bfe-team-own : Theme.bfe-team-foe;
+            horizontal-alignment: root.right-aligned ? right : left;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        Text {
+            x: root.pad-x;
+            y: root.top-y - 2px;
+            width: parent.width - root.pad-x * 2;
+            height: root.count-size * 1.15;
+            text: root.model.tickets;
+            font-family: Theme.font-family;
+            font-size: root.count-size;
+            font-weight: 800;
+            color: root.model.bleeding ? Theme.bfe-team-foe : Theme.bfe-text;
+            opacity: root.model.bleeding ? root.pulse-alpha : 1.0;
+            horizontal-alignment: root.right-aligned ? left : right;
+            vertical-alignment: center;
+        }
+
+        if root.model.badge-mode == "own" : HorizontalLayout {
+            x: root.pad-x;
+            y: root.badge-y;
+            width: parent.width - root.pad-x * 2;
+            height: root.badge-size + 6px;
+            alignment: root.right-aligned ? end : start;
+            spacing: 6px;
+
+            Rectangle {
+                width: 5px;
+                height: 5px;
+                y: (parent.height - self.height) / 2;
+                border-radius: 2.5px;
+                background: Theme.bfe-team-own;
+            }
+
+            Text {
+                text: root.model.badge-text;
+                font-family: Theme.font-family;
+                font-size: root.badge-size;
+                font-weight: 700;
+                letter-spacing: 0.12 * root.badge-size;
+                color: Theme.bfe-team-own;
+                vertical-alignment: center;
+            }
+        }
+
+        if root.model.badge-mode == "switch" : HorizontalLayout {
+            x: root.pad-x;
+            y: root.badge-y - 1px;
+            width: parent.width - root.pad-x * 2;
+            height: root.badge-size + 6px;
+            alignment: root.right-aligned ? end : start;
+
+            Rectangle {
+                width: switch-label.preferred-width + 12px;
+                height: parent.height;
+                border-radius: 2px;
+                background: Theme.bfe-accent;
+
+                switch-label := Text {
+                    width: 100%;
+                    height: 100%;
+                    text: root.model.badge-text;
+                    font-family: Theme.font-family;
+                    font-size: root.badge-size;
+                    font-weight: 700;
+                    letter-spacing: 0.12 * root.badge-size;
+                    color: Theme.bfe-accent-ink;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        if root.model.badge-mode == "auto" : Text {
+            x: root.pad-x;
+            y: root.badge-y;
+            width: parent.width - root.pad-x * 2;
+            height: root.badge-size + 6px;
+            text: root.model.badge-text;
+            font-family: Theme.font-family;
+            font-size: root.badge-size;
+            font-weight: 700;
+            letter-spacing: 0.12 * root.badge-size;
+            color: Theme.bfe-text-faint;
+            horizontal-alignment: root.right-aligned ? right : left;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        enabled: root.model.interactive;
+        mouse-cursor: root.model.interactive ? pointer : default;
+        clicked => { root.clicked(); }
+    }
+
+    logo-touch := TouchArea {
+        x: (root.model.logo-x - root.model.logo-size * 0.5 - root.model.plate-x) * 1px;
+        y: (root.model.logo-y - root.model.logo-size * 0.5 - root.model.plate-y) * 1px;
+        width: root.model.logo-size * 1px;
+        height: root.model.logo-size * 1px;
+        enabled: root.model.interactive;
+        mouse-cursor: root.model.interactive ? pointer : default;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component BattleSwapControl inherits Rectangle {
+    in property <bool> active: false;
+    in property <float> swap-x: 0.0;
+    in property <float> swap-y: 0.0;
+    in property <float> swap-size: 40.0;
+    in property <float> switch-hint-y: 0.0;
+    callback toggled();
+
+    property <length> hint-size: clamp(9px, 1.2 * Theme.vh, 11px);
+
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    if root.active : Rectangle {
+        x: (root.swap-x - root.swap-size * 0.5) * 1px;
+        y: (root.swap-y - root.swap-size * 0.5) * 1px;
+        width: root.swap-size * 1px;
+        height: root.swap-size * 1px;
+        border-radius: (root.swap-size * 0.5) * 1px;
+        background: Theme.bfe-panel-bg;
+        border-width: 1px;
+        border-color: swap-touch.has-hover ? Theme.bfe-accent : Theme.bfe-swap-border;
+
+        BattleSwapIcon {
+            x: (parent.width - self.width) * 0.5;
+            y: (parent.height - self.height) * 0.5;
+            ink: swap-touch.has-hover ? Theme.bfe-accent : Theme.bfe-text;
+        }
+
+        swap-touch := TouchArea {
+            width: 100%;
+            height: 100%;
+            mouse-cursor: pointer;
+            clicked => { root.toggled(); }
+        }
+    }
+
+    if root.active : HorizontalLayout {
+        x: 0px;
+        y: root.switch-hint-y * 1px;
+        width: parent.width;
+        height: root.hint-size + 8px;
+        alignment: center;
+        spacing: 5px;
+
+        Rectangle {
+            width: 16px;
+            height: parent.height;
+            border-radius: 2px;
+            background: Theme.bfe-kbd-bg;
+            border-width: 1px;
+            border-color: Theme.bfe-kbd-border;
+
+            BattleArrow {
+                x: (parent.width - self.width) * 0.5;
+                y: (parent.height - self.height) * 0.5;
+                right: false;
+                ink: Theme.bfe-text-dim;
+            }
+        }
+
+        Rectangle {
+            width: 16px;
+            height: parent.height;
+            border-radius: 2px;
+            background: Theme.bfe-kbd-bg;
+            border-width: 1px;
+            border-color: Theme.bfe-kbd-border;
+
+            BattleArrow {
+                x: (parent.width - self.width) * 0.5;
+                y: (parent.height - self.height) * 0.5;
+                right: true;
+                ink: Theme.bfe-text-dim;
+            }
+        }
+
+        Text {
+            text: "OR CLICK TO SWITCH TEAM";
+            font-family: Theme.font-family;
+            font-size: root.hint-size;
+            font-weight: 600;
+            letter-spacing: 0.12 * root.hint-size;
+            color: Theme.bfe-text-faint;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component BattleRosterHeader inherits Rectangle {
+    in property <string> label: "SELECT SOLDIER";
+    property <length> sec-size: clamp(11px, 1.45 * Theme.vh, 14px);
+    height: self.sec-size * 1.8;
+    background: transparent;
+
+    label-text := Text {
+        x: 2px;
+        y: 0px;
+        height: root.sec-size * 1.3;
+        text: root.label;
+        font-family: Theme.font-family;
+        font-size: root.sec-size;
+        font-weight: 800;
+        letter-spacing: 0.28 * root.sec-size;
+        color: Theme.bfe-text-dim;
+        vertical-alignment: center;
+    }
+
+    Rectangle {
+        x: label-text.x + label-text.preferred-width + 0.8 * root.sec-size;
+        y: root.sec-size * 0.65;
+        width: parent.width - self.x;
+        height: 1px;
+        opacity: 0.7;
+        background: Theme.bfe-accent-rule;
+    }
+}
+
+export component BattleClassCard inherits Rectangle {
+    in property <BattleClassModel> model;
+    callback clicked();
+
+    x: root.model.rect-x * 1px;
+    y: root.model.rect-y * 1px;
+    width: root.model.rect-w * 1px;
+    height: root.model.rect-h * 1px;
+    background: transparent;
+    opacity: (root.model.picked || touch.has-hover) ? 1.0 : 0.82;
+
+    property <length> head-h: 0.36 * root.height;
+    property <length> head-size: clamp(13px, 1.9 * Theme.vh, 19px);
+    property <length> wep-size: clamp(10px, 1.3 * Theme.vh, 12px);
+    property <length> body-y: root.head-h + 2px;
+    property <length> row-h: (root.height - root.head-h - 4px) * 0.5;
+    property <length> col-w: (root.width - 20px) * 0.5;
+
+    Surface {
+        width: 100%;
+        height: 100%;
+        fill: Theme.bfe-panel-bg;
+        chamfer: 0px;
+        radius: Theme.bfe-battle-card-radius;
+        edge: {
+            width: Theme.bfe-panel-border.width,
+            color: root.model.picked
+                ? Theme.bfe-class-picked-border
+                : (touch.has-hover ? Theme.bfe-class-hover-border : Theme.bfe-class-border),
+        };
+
+        BattleBarFill {
+            x: Theme.bf2 ? 6px : 0px;
+            y: Theme.bf2 ? 3px : 0px;
+            width: Theme.bf2 ? parent.width - 12px : parent.width;
+            height: Theme.bf2 ? root.head-h - 6px : root.head-h;
+            active: root.model.picked;
+            left-accent: true;
+        }
+
+        Text {
+            x: 10px;
+            y: 0px;
+            width: parent.width - 20px;
+            height: root.head-h;
+            text: root.model.name;
+            font-family: Theme.font-family;
+            font-size: root.head-size;
+            font-weight: 800;
+            letter-spacing: 0.12 * root.head-size;
+            color: root.model.picked ? Theme.bfe-accent-ink : Theme.bfe-bar-ink;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        for slot in [
+            { text: root.model.w0, col: 0, row: 0 },
+            { text: root.model.w1, col: 1, row: 0 },
+            { text: root.model.w2, col: 0, row: 1 },
+            { text: root.model.w3, col: 1, row: 1 },
+        ] : Rectangle {
+            x: 10px + slot.col * root.col-w;
+            y: root.body-y + slot.row * root.row-h;
+            width: root.col-w - 4px;
+            height: root.row-h;
+            background: transparent;
+            visible: slot.text != "";
+
+            if root.model.picked : BattleDiamond {
+                x: 0px;
+                y: (parent.height - self.height) * 0.5;
+                ink: Theme.bfe-accent;
+            }
+
+            Text {
+                x: root.model.picked ? 11px : 0px;
+                y: 0px;
+                width: parent.width - (root.model.picked ? 11px : 0px);
+                height: 100%;
+                text: slot.text;
+                font-family: Theme.font-family;
+                font-size: root.wep-size;
+                font-weight: 700;
+                letter-spacing: 0.08 * root.wep-size;
+                color: root.model.picked ? Theme.bfe-text : Theme.bfe-text-faint;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component BattleTurntableArea inherits Rectangle {
+    in property <bool> dragging: false;
+    in property <bool> turned: false;
+    callback pointer-down(float, float);
+    callback pointer-move(float, float);
+    callback pointer-up();
+
+    property <length> hint-size: clamp(9px, 1.15 * Theme.vh, 11px);
+
+    background: transparent;
+
+    if !root.turned : Rectangle {
+        property <length> pill-w: turn-label.preferred-width + 30px;
+        property <length> pill-h: root.hint-size + 8px;
+        x: parent.width - self.pill-w - 8px;
+        y: 8px;
+        width: self.pill-w;
+        height: self.pill-h;
+        border-radius: self.pill-h * 0.5;
+        background: Theme.bfe-pill-bg;
+        border-width: 1px;
+        border-color: Theme.bfe-pill-border;
+
+        BattleTurnIcon {
+            x: 9px;
+            y: (parent.height - self.height) * 0.5;
+            ink: Theme.bfe-text-dim;
+        }
+
+        turn-label := Text {
+            x: 23px;
+            y: 0px;
+            height: 100%;
+            text: "DRAG TO TURN";
+            font-family: Theme.font-family;
+            font-size: root.hint-size;
+            font-weight: 600;
+            letter-spacing: 0.14 * root.hint-size;
+            color: Theme.bfe-text-dim;
+            vertical-alignment: center;
+        }
+    }
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: root.dragging ? grabbing : grab;
+        pointer-event(event) => {
+            if event.button == PointerEventButton.left {
+                if event.kind == PointerEventKind.down {
+                    root.pointer-down(
+                        (root.x + self.mouse-x) / 1px,
+                        (root.y + self.mouse-y) / 1px
+                    );
+                } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
+                    root.pointer-up();
+                }
+            }
+        }
+        moved => {
+            if self.pressed {
+                root.pointer-move(
+                    (root.x + self.mouse-x) / 1px,
+                    (root.y + self.mouse-y) / 1px
+                );
+            }
+        }
+    }
+}
+
+export component BattleClassBanner inherits Rectangle {
+    in property <string> class-title: "";
+    in property <string> post-name: "";
+    in property <string> vehicles: "";
+
+    property <length> title-size: clamp(22px, 4.2 * Theme.vh, 46px);
+    property <length> meta-size: clamp(11px, 1.45 * Theme.vh, 14px);
+    property <length> line-w: min(root.width * 0.72, max(title-measure.preferred-width + 24px, 120px));
+
+    height: self.title-size * 1.9;
+    background: transparent;
+
+    title-measure := Text {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: root.title-size * 1.15;
+        text: root.class-title;
+        font-family: Theme.font-family;
+        font-size: root.title-size;
+        font-weight: 900;
+        letter-spacing: 0.1 * root.title-size;
+        color: Theme.bfe-text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    Rectangle {
+        x: (parent.width - root.line-w) * 0.5;
+        y: root.title-size * 1.15;
+        width: root.line-w;
+        height: 3px;
+        background: Theme.bfe-accent-center-rule;
+    }
+
+    HorizontalLayout {
+        x: 0px;
+        y: root.title-size * 1.15 + 0.8 * Theme.vh;
+        width: 100%;
+        height: root.meta-size * 1.4;
+        alignment: center;
+        spacing: 6px;
+
+        Text {
+            text: "COMMAND POST";
+            font-family: Theme.font-family;
+            font-size: root.meta-size;
+            font-weight: 700;
+            letter-spacing: 0.08 * root.meta-size;
+            color: Theme.bfe-text-faint;
+            vertical-alignment: center;
+        }
+
+        Text {
+            text: root.post-name != "" ? root.post-name : "PICK A COMMAND POST";
+            font-family: Theme.font-family;
+            font-size: root.meta-size;
+            font-weight: 700;
+            letter-spacing: 0.08 * root.meta-size;
+            color: root.post-name != "" ? Theme.bfe-accent : Theme.bfe-text-faint;
+            vertical-alignment: center;
+        }
+
+        Text {
+            text: "  VEHICLES";
+            font-family: Theme.font-family;
+            font-size: root.meta-size;
+            font-weight: 700;
+            letter-spacing: 0.08 * root.meta-size;
+            color: Theme.bfe-text-faint;
+            vertical-alignment: center;
+        }
+
+        Text {
+            text: root.vehicles != "" ? root.vehicles : "NONE";
+            font-family: Theme.font-family;
+            font-size: root.meta-size;
+            font-weight: 700;
+            letter-spacing: 0.08 * root.meta-size;
+            color: Theme.bfe-text-dim;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component BattleSpawnButton inherits Rectangle {
+    in property <bool> can-spawn: true;
+    callback clicked();
+
+    property <length> main-size: clamp(20px, 3.0 * Theme.vh, 32px);
+    property <length> key-size: clamp(9px, 1.2 * Theme.vh, 12px);
+
+    background: transparent;
+    opacity: root.can-spawn ? 1.0 : 0.45;
+
+    PageButton {
+        width: 100%;
+        height: 100%;
+        label: "";
+        disabled: !root.can-spawn;
+        highlighted: true;
+        activated => { root.clicked(); }
+    }
+
+    HorizontalLayout {
+        width: 100%;
+        height: 100%;
+        alignment: center;
+        spacing: 14px;
+
+        Text {
+            text: Theme.bf2 ? "Spawn" : "SPAWN";
+            font-family: Theme.font-family;
+            font-size: root.main-size;
+            font-weight: 900;
+            letter-spacing: (Theme.bf2 ? 0.04 : 0.28) * root.main-size;
+            color: Theme.bfe-accent-ink;
+            vertical-alignment: center;
+        }
+
+        Rectangle {
+            width: key-lbl.preferred-width + 12px;
+            height: root.key-size + 6px;
+            y: (parent.height - self.height) * 0.5;
+            border-radius: 3px;
+            border-width: 1px;
+            border-color: Theme.bfe-accent-ink;
+            background: transparent;
+            opacity: 0.65;
+
+            key-lbl := Text {
+                width: 100%;
+                height: 100%;
+                text: "ENTER";
+                font-family: Theme.font-family;
+                font-size: root.key-size;
+                font-weight: 700;
+                letter-spacing: 0.10 * root.key-size;
+                color: Theme.bfe-accent-ink;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+export component BattleObjectivesCard inherits Surface {
+    in property <[string]> objectives: [];
+
+    fill: Theme.bfe-panel-bg;
+    chamfer: 0px;
+    radius: Theme.bfe-battle-card-radius;
+    edge: Theme.bfe-panel-border;
+
+    property <length> head-h: 0.34 * root.height;
+    property <length> head-size: clamp(12px, 1.6 * Theme.vh, 15px);
+    property <length> obj-size: clamp(12px, 1.6 * Theme.vh, 16px);
+
+    BattleBarFill {
+        x: Theme.bf2 ? 6px : 0px;
+        y: Theme.bf2 ? 3px : 0px;
+        width: Theme.bf2 ? parent.width - 12px : parent.width;
+        height: Theme.bf2 ? root.head-h - 6px : root.head-h;
+        active: false;
+        left-accent: true;
+    }
+
+    Text {
+        x: 12px;
+        y: 0px;
+        width: parent.width - 24px;
+        height: root.head-h;
+        text: "OBJECTIVES";
+        font-family: Theme.font-family;
+        font-size: root.head-size;
+        font-weight: 700;
+        letter-spacing: 0.14 * root.head-size;
+        color: Theme.bfe-bar-ink;
+        vertical-alignment: center;
+    }
+
+    property <length> list-y: root.head-h + 0.16 * (root.height - root.head-h);
+    property <length> line-h: (root.height - root.head-h) * 0.38;
+
+    for line[idx] in root.objectives : Rectangle {
+        x: 12px;
+        y: root.list-y + idx * root.line-h;
+        width: parent.width - 24px;
+        height: root.line-h;
+        background: transparent;
+
+        BattleDiamond {
+            x: 0px;
+            y: (parent.height - self.height) * 0.5;
+            ink: Theme.bfe-accent;
+        }
+
+        Text {
+            x: 12px;
+            y: 0px;
+            width: parent.width - 12px;
+            height: 100%;
+            text: line;
+            font-family: Theme.font-family;
+            font-size: root.obj-size;
+            font-weight: 600;
+            letter-spacing: 0.04 * root.obj-size;
+            color: Theme.bfe-text;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+component ScoreSignalMeter inherits Rectangle {
+    in property <int> bars: 0;
+    in property <int> tone: 0;
+    in property <string> label: "";
+    in property <length> font-size: 12px;
+
+    background: transparent;
+
+    property <color> bar-color: root.tone == 1
+        ? Theme.bfe-ping-ok
+        : root.tone == 2 ? Theme.bfe-ping-warn : root.tone == 3 ? Theme.bfe-ping-bad : Theme.bfe-text-faint;
+
+    for b[idx] in [1, 2, 3, 4] : Rectangle {
+        property <length> bh: (4 + idx * 3) * 1px;
+        x: idx * 4px;
+        y: (parent.height - self.bh) * 0.5;
+        width: 3px;
+        height: self.bh;
+        background: idx < root.bars ? root.bar-color : Theme.bfe-ping-off;
+    }
+
+    Text {
+        x: 20px;
+        y: 0px;
+        width: parent.width - 20px;
+        height: 100%;
+        text: root.label;
+        font-family: Theme.font-family;
+        font-size: max(10px, root.font-size * 0.88);
+        font-weight: 700;
+        color: root.bar-color;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+// The header bar of a scoreboard list or stat sheet: the page's accent fill (the 2005 look's steel capsule with
+// its red line, the 2004 look's right-hand cut), the same bar the browser draws over the table and the sheets.
+component BoardBar inherits Rectangle {
+    in property <length> cut: 0px;
+    background: transparent;
+
+    if !Theme.bf1 : Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        background: Theme.bfe-stat-header-bg;
+    }
+
+    if Theme.bf1 : Path {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        viewbox-width: root.width / 1px;
+        viewbox-height: root.height / 1px;
+        fill: Theme.bfe-stat-header-bg;
+        MoveTo { x: 0; y: 0; }
+        LineTo { x: (root.width - root.cut) / 1px; y: 0; }
+        LineTo { x: root.width / 1px; y: root.height / 1px; }
+        LineTo { x: 0; y: root.height / 1px; }
+        Close {}
+    }
+
+    if Theme.bf2 : Rectangle {
+        x: 0px;
+        y: parent.height - 2px;
+        width: 100%;
+        height: 2px;
+        background: Theme.bfe-stat-header-line;
+    }
+}
+
+// One bordered figure of a stat sheet's subject: a team tag, or a label with its number.
+component BoardChip inherits Rectangle {
+    in property <string> label: "";
+    in property <string> value: "";
+    in property <color> ink: Theme.bfe-accent;
+    in property <length> font-size: 10px;
+
+    preferred-width: chip-row.preferred-width + self.font-size * 1.8;
+    height: self.font-size * 2.4;
+    background: transparent;
+    border-width: 1px;
+    border-color: root.ink;
+
+    chip-row := HorizontalLayout {
+        x: root.font-size * 0.9;
+        width: parent.width - root.font-size * 1.8;
+        alignment: center;
+        spacing: root.font-size * 0.6;
+
+        Text {
+            text: root.label;
+            font-family: Theme.font-family;
+            font-size: root.font-size;
+            font-weight: 800;
+            letter-spacing: 0.12 * root.font-size;
+            color: root.ink;
+            vertical-alignment: center;
+        }
+
+        if root.value != "" : Text {
+            text: root.value;
+            font-family: Theme.font-family;
+            font-size: root.font-size * 1.15;
+            font-weight: 800;
+            letter-spacing: 0.04 * root.font-size;
+            color: Theme.bfe-text;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component ScoreTeamPanel inherits Rectangle {
+    in property <int> team-id: 1;
+    in property <string> team-name: "";
+    in property <string> tickets: "0";
+    in property <int> tone: 0; // 0 neutral, 1 friend, 2 foe
+    in property <bool> show-ping: false;
+    in property <string> sort-key: "kills";
+    in property <bool> sort-asc: false;
+    in property <[BattleScorePlayerModel]> rows: [];
+    in property <int> scroll-offset: 0;
+    in property <int> total-rows: 0;
+    in property <int> visible-rows: 12;
+
+    callback sort-clicked(string);
+    callback row-clicked(int, int);
+    callback row-double-clicked(int, int);
+    callback scrolled(int, int);
+
+    background: transparent;
+
+    property <color> team-color: root.tone == 1
+        ? Theme.bfe-team-own-header
+        : root.tone == 2 ? Theme.bfe-team-foe-header : Theme.bfe-text-dim;
+    property <length> head-h: 4.2 * Theme.vh;
+    property <length> head-gap: 0.9 * Theme.vh;
+    property <length> col-h: clamp(30px, 3.8 * Theme.vh, 40px);
+    property <length> row-h: clamp(26px, 3.4 * Theme.vh, 38px);
+    property <length> team-font: clamp(16px, 2.5 * Theme.vh, 26px);
+    property <length> sub-font: clamp(10px, 1.3 * Theme.vh, 13px);
+    // The table's columns are set in multiples of the rows' text size (u) for the bar and the rows alike, and
+    // the numbers keep the sort arrow's room (mark) so they end where their labels do.
+    property <length> u: clamp(12px, 1.6 * Theme.vh, 16px);
+    property <length> hs: clamp(12px, 1.75 * Theme.vh, 16px);
+    property <length> mark: root.hs * 1.2;
+    property <length> pad: 1.1 * Theme.vw;
+    property <length> inset: 0.3 * Theme.vw;
+    property <length> scroll-gutter: 9.4px;
+    property <length> col-gap: 1.0 * Theme.vw;
+
+    property <length> content-l: root.pad + root.inset + 2px;
+    property <length> content-r: root.width - root.pad - root.inset - root.scroll-gutter - 2px;
+    property <length> cp-w: root.u * 8.4;
+    property <length> deaths-w: root.u * 6.6;
+    property <length> kills-w: root.u * 5.4;
+    property <length> ping-w: root.show-ping ? root.u * 4.6 : 0px;
+    property <length> cp-x: root.content-r - root.cp-w;
+    property <length> deaths-x: root.cp-x - root.col-gap - root.deaths-w;
+    property <length> kills-x: root.deaths-x - root.col-gap - root.kills-w;
+    property <length> ping-x: root.kills-x - (root.show-ping ? root.col-gap + root.ping-w : 0px);
+    property <length> name-x: root.content-l;
+    property <length> name-w: root.ping-x - (root.show-ping ? root.col-gap : root.col-gap) - root.content-l;
+
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: root.head-h;
+        background: transparent;
+
+        HorizontalLayout {
+            x: 0.2 * Theme.vw;
+            y: 0px;
+            width: parent.width * 0.55;
+            height: 100%;
+            alignment: start;
+            spacing: root.team-font * 0.55;
+
+            Rectangle {
+                width: root.team-font * 0.24;
+                height: root.team-font * 0.95;
+                y: (parent.height - self.height) * 0.5;
+                background: root.team-color;
+            }
+
+            Text {
+                text: root.team-name;
+                font-family: Theme.font-family;
+                font-size: root.team-font;
+                font-weight: 800;
+                letter-spacing: 0.12 * root.team-font;
+                color: root.team-color;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+
+        HorizontalLayout {
+            x: 0px;
+            y: 0px;
+            width: parent.width - 0.2 * Theme.vw;
+            height: 100%;
+            alignment: end;
+            spacing: root.sub-font * 0.8;
+
+            Text {
+                text: "REINFORCEMENTS";
+                font-family: Theme.font-family;
+                font-size: root.sub-font;
+                font-weight: 700;
+                letter-spacing: 0.2 * root.sub-font;
+                color: Theme.bfe-text-dim;
+                vertical-alignment: center;
+            }
+
+            Text {
+                text: root.tickets;
+                font-family: Theme.font-family;
+                font-size: root.team-font;
+                font-weight: 800;
+                letter-spacing: 0.04 * root.team-font;
+                color: Theme.bfe-text;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    Surface {
+        x: 0px;
+        y: root.head-h + root.head-gap;
+        width: 100%;
+        height: parent.height - self.y;
+        fill: Theme.bfe-panel-bg;
+        chamfer: 0px;
+        radius: Theme.bfe-battle-card-radius;
+        edge: Theme.bfe-panel-border;
+
+        BoardBar {
+            x: 1px;
+            y: 1px;
+            width: parent.width - 2px;
+            height: root.col-h;
+            cut: root.hs * 1.6;
+        }
+
+        Text {
+            x: root.name-x;
+            y: 1px;
+            width: root.name-w;
+            height: root.col-h;
+            text: "NAME";
+            font-family: Theme.font-family;
+            font-size: root.hs;
+            font-weight: 600;
+            letter-spacing: 0.14 * root.hs;
+            color: Theme.bfe-stat-header-ink;
+            vertical-alignment: center;
+        }
+
+        if root.show-ping : Text {
+            x: root.ping-x;
+            y: 1px;
+            width: root.ping-w;
+            height: root.col-h;
+            text: "PING";
+            font-family: Theme.font-family;
+            font-size: root.hs;
+            font-weight: 600;
+            letter-spacing: 0.14 * root.hs;
+            color: Theme.bfe-stat-header-ink;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+
+        for col in [
+            { key: "kills", label: "KILLS", x: root.kills-x, w: root.kills-w },
+            { key: "deaths", label: "DEATHS", x: root.deaths-x, w: root.deaths-w },
+            { key: "cp", label: "CP POINTS", x: root.cp-x, w: root.cp-w },
+        ] : col-box := Rectangle {
+            property <bool> active: root.sort-key == col.key;
+            x: col.x;
+            y: 1px;
+            width: col.w;
+            height: root.col-h;
+            background: transparent;
+
+            col-label := Text {
+                x: 0px;
+                y: 0px;
+                width: parent.width - root.mark;
+                height: 100%;
+                text: col.label;
+                font-family: Theme.font-family;
+                font-size: root.hs;
+                font-weight: 600;
+                letter-spacing: 0.14 * root.hs;
+                color: Theme.bfe-stat-header-ink;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+            }
+
+            // The browser underlines a hovered sort header (2px, .3em below the text).
+            if col-touch.has-hover : Rectangle {
+                x: parent.width - root.mark - col-label.preferred-width;
+                y: parent.height * 0.5 + root.hs * 0.7;
+                width: col-label.preferred-width;
+                height: 2px;
+                background: Theme.bfe-stat-header-ink;
+            }
+
+            if col-box.active || col-touch.has-hover : Rectangle {
+                x: parent.width - root.hs * 0.15 - root.hs * 0.7;
+                y: (parent.height - root.hs * 0.45) * 0.5;
+                width: root.hs * 0.7;
+                height: root.hs * 0.45;
+                opacity: col-box.active ? 0.9 : 0.35;
+                background: transparent;
+
+                BattleSortArrow {
+                    width: parent.width;
+                    height: parent.height;
+                    asc: root.sort-asc && col-box.active;
+                    ink: Theme.bfe-stat-header-ink;
+                }
+            }
+
+            col-touch := TouchArea {
+                width: 100%;
+                height: 100%;
+                mouse-cursor: pointer;
+                clicked => { root.sort-clicked(col.key); }
+            }
+        }
+
+        Rectangle {
+            x: 0px;
+            y: root.col-h + 2px;
+            width: parent.width;
+            height: parent.height - root.col-h - 4px;
+            clip: true;
+            background: transparent;
+
+            for row[idx] in root.rows : row-box := Rectangle {
+                property <bool> hovered: row-touch.has-hover;
+                property <color> row-ink: row.local ? Theme.bfe-text : (row.human ? Theme.bfe-value-focus : Theme.bfe-text-dim);
+
+                x: 1px + root.inset;
+                y: 0.4 * Theme.vh + idx * (root.row-h + 2px);
+                width: parent.width - 2px - root.inset * 2 - root.scroll-gutter;
+                height: root.row-h;
+                background: row.selected && !row.local
+                    ? Theme.bfe-list-selected
+                    : row.local
+                        ? Theme.bfe-row-focus
+                        : self.hovered ? Theme.bfe-list-hover : transparent;
+                border-width: row.selected ? 1px : 0px;
+                border-color: row.selected ? Theme.bfe-accent : transparent;
+
+                if row.local : Rectangle {
+                    x: 0px;
+                    y: 0px;
+                    width: 3px;
+                    height: 100%;
+                    background: Theme.bfe-accent;
+                }
+
+                Text {
+                    x: root.name-x - root.inset - 1px;
+                    y: 0px;
+                    width: root.name-w;
+                    height: 100%;
+                    text: row.name;
+                    font-family: Theme.font-family;
+                    font-size: root.u;
+                    font-weight: 700;
+                    letter-spacing: 0.04 * root.u;
+                    color: row-box.row-ink;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                if root.show-ping && row.ping-bars > 0 : ScoreSignalMeter {
+                    x: root.ping-x - root.inset - 1px;
+                    y: 0px;
+                    width: root.ping-w;
+                    height: 100%;
+                    bars: row.ping-bars;
+                    tone: row.ping-tone;
+                    label: row.ping-text;
+                    font-size: root.u;
+                }
+
+                if root.show-ping && row.ping-bars <= 0 : Text {
+                    x: root.ping-x - root.inset - 1px;
+                    y: 0px;
+                    width: root.ping-w;
+                    height: 100%;
+                    text: row.ping-text;
+                    font-family: Theme.font-family;
+                    font-size: root.u * 0.85;
+                    font-weight: 700;
+                    color: Theme.bfe-text-faint;
+                    vertical-alignment: center;
+                }
+
+                for cell in [
+                    { text: row.kills, x: root.kills-x, w: root.kills-w },
+                    { text: row.deaths, x: root.deaths-x, w: root.deaths-w },
+                    { text: row.cp, x: root.cp-x, w: root.cp-w },
+                ] : Text {
+                    x: cell.x - root.inset - 1px;
+                    y: 0px;
+                    width: cell.w - root.mark;
+                    height: 100%;
+                    text: cell.text;
+                    font-family: Theme.font-family;
+                    font-size: root.u;
+                    font-weight: 700;
+                    letter-spacing: 0.06 * root.u;
+                    color: row-box.row-ink;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+
+                row-touch := TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    mouse-cursor: pointer;
+                    clicked => { root.row-clicked(row.slot, row.team-id); }
+                    double-clicked => { root.row-double-clicked(row.slot, row.team-id); }
+                    scroll-event(event) => {
+                        if event.delta-y < 0px {
+                            root.scrolled(root.team-id, 1);
+                            return accept;
+                        } else if event.delta-y > 0px {
+                            root.scrolled(root.team-id, -1);
+                            return accept;
+                        }
+                        return reject;
+                    }
+                }
+            }
+
+            if root.total-rows > root.visible-rows && root.total-rows > 0 : Rectangle {
+                property <float> ratio: clamp(root.visible-rows * 1.0 / root.total-rows, 0.1, 1.0);
+                property <length> thumb-h: max(22px, parent.height * self.ratio);
+                property <int> max-off: max(1, root.total-rows - root.visible-rows);
+                property <float> pos: clamp(root.scroll-offset * 1.0 / self.max-off, 0.0, 1.0);
+                x: parent.width - 5px;
+                y: (parent.height - self.thumb-h) * self.pos;
+                width: 4px;
+                height: self.thumb-h;
+                background: Theme.bfe-scroll;
+            }
+        }
+    }
+}
+
+export component ScoreStatSheet inherits Surface {
+    in property <string> heading: "PERSONAL STATS";
+    in property <bool> show-subject: false;
+    in property <string> subject-name: "";
+    in property <string> subject-team: "";
+    in property <int> subject-tone: 0; // 0 neutral, 1 friend, 2 foe
+    in property <string> subject-kills: "0";
+    in property <string> subject-deaths: "0";
+    in property <string> subject-cp: "0";
+    in property <[BattleStatLineModel]> lines: [];
+
+    fill: Theme.bfe-panel-bg;
+    chamfer: 0px;
+    radius: Theme.bfe-battle-card-radius;
+    edge: Theme.bfe-panel-border;
+
+    property <length> bar-font: clamp(11px, 1.45 * Theme.vh, 14px);
+    property <length> bar-h: self.bar-font * 1.65 + 1.1 * Theme.vh;
+    property <length> name-size: clamp(20px, 3.3 * Theme.vh, 34px);
+    property <length> chip-size: clamp(10px, 1.3 * Theme.vh, 12px);
+    property <length> row-min: root.show-subject ? clamp(30px, 4.2 * Theme.vh, 44px) : clamp(34px, 5.0 * Theme.vh, 50px);
+    property <length> label-size: clamp(12px, 1.65 * Theme.vh, 17px);
+    property <length> value-size: clamp(13px, 1.8 * Theme.vh, 18px);
+    property <color> subj-tag-col: root.subject-tone == 1
+        ? Theme.bfe-team-own-header
+        : root.subject-tone == 2 ? Theme.bfe-team-foe-header : Theme.bfe-text-dim;
+
+    BoardBar {
+        x: 1px;
+        y: 1px;
+        width: parent.width - 2px;
+        height: root.bar-h;
+        cut: root.bar-font * 1.6;
+    }
+
+    Text {
+        x: 1.1 * Theme.vw;
+        y: 1px;
+        width: parent.width - 2.2 * Theme.vw;
+        height: root.bar-h;
+        text: root.heading;
+        font-family: Theme.font-family;
+        font-size: root.bar-font;
+        font-weight: 800;
+        letter-spacing: 0.2 * root.bar-font;
+        color: Theme.bfe-stat-header-ink;
+        vertical-alignment: center;
+    }
+
+    VerticalLayout {
+        x: 2.0 * Theme.vw;
+        y: root.bar-h + 1px + 3.0 * Theme.vh;
+        width: parent.width - 4.0 * Theme.vw;
+        height: parent.height - self.y - 3.0 * Theme.vh;
+        alignment: center;
+        spacing: 2.4 * Theme.vh;
+
+        if root.show-subject : VerticalLayout {
+            alignment: start;
+            spacing: 1.4 * Theme.vh;
+
+            Text {
+                text: root.subject-name;
+                font-family: Theme.font-family;
+                font-size: root.name-size;
+                font-weight: 800;
+                letter-spacing: 0.1 * root.name-size;
+                color: Theme.bfe-text;
+                horizontal-alignment: center;
+            }
+
+            HorizontalLayout {
+                alignment: center;
+                spacing: root.chip-size * 0.6;
+
+                if root.subject-team != "" : BoardChip {
+                    label: root.subject-team;
+                    ink: root.subj-tag-col;
+                    font-size: root.chip-size;
+                }
+
+                BoardChip {
+                    label: "KILLS";
+                    value: root.subject-kills;
+                    font-size: root.chip-size;
+                }
+
+                BoardChip {
+                    label: "DEATHS";
+                    value: root.subject-deaths;
+                    font-size: root.chip-size;
+                }
+
+                BoardChip {
+                    label: "CP POINTS";
+                    value: root.subject-cp;
+                    font-size: root.chip-size;
+                }
+            }
+        }
+
+        stats-box := Rectangle {
+            property <length> stats-w: min(self.width, 980px);
+            property <length> row-h: min(root.row-min, (self.height - 2px) / max(1, root.lines.length));
+            preferred-height: root.lines.length * root.row-min + 2px;
+            background: transparent;
+
+            for line[idx] in root.lines : line-row := Rectangle {
+                property <color> tag-col: line.tag-tone == 1
+                    ? Theme.bfe-team-own-header
+                    : line.tag-tone == 2 ? Theme.bfe-team-foe-header : Theme.bfe-text-dim;
+
+                x: (parent.width - stats-box.stats-w) * 0.5;
+                y: 1px + idx * stats-box.row-h;
+                width: stats-box.stats-w;
+                height: stats-box.row-h;
+                background: transparent;
+
+                if idx == 0 : Rectangle {
+                    x: 0px;
+                    y: -1px;
+                    width: 100%;
+                    height: 1px;
+                    background: Theme.bfe-row-line;
+                }
+
+                Rectangle {
+                    x: 0px;
+                    y: parent.height - 1px;
+                    width: 100%;
+                    height: 1px;
+                    background: Theme.bfe-row-line;
+                }
+
+                Text {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width * 0.5 - 1.5 * Theme.vw;
+                    height: parent.height - 1px;
+                    text: line.label;
+                    font-family: Theme.font-family;
+                    font-size: root.label-size;
+                    font-weight: 700;
+                    letter-spacing: 0.16 * root.label-size;
+                    color: Theme.bfe-text-dim;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                HorizontalLayout {
+                    x: parent.width * 0.5 + 1.5 * Theme.vw;
+                    y: 0px;
+                    width: parent.width * 0.5 - 1.5 * Theme.vw;
+                    height: parent.height - 1px;
+                    alignment: start;
+                    spacing: root.value-size * 0.8;
+
+                    if line.tag != "" : Text {
+                        text: line.tag;
+                        font-family: Theme.font-family;
+                        font-size: root.value-size * 0.72;
+                        font-weight: 800;
+                        letter-spacing: 0.14 * root.value-size;
+                        color: line-row.tag-col;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        text: line.value;
+                        font-family: Theme.font-family;
+                        font-size: root.value-size;
+                        font-weight: 700;
+                        letter-spacing: 0.06 * root.value-size;
+                        color: line.empty ? Theme.bfe-text-faint : Theme.bfe-text;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,7 +1,6 @@
 //! Page battle compositor. The existing controllers own actions and the HUD
 //! owns map contents; this host supplies the independent preview camera/target.
 pub(crate) mod appearance;
-mod cache;
 mod director;
 mod gpu;
 mod rig;
@@ -10,7 +9,7 @@ use super::settings::AppSettingsStore;
 use crate::scene::Scene;
 use bfe_battle_ui::{
     shapes::{root_anchor, scale_xyz},
-    spawn::{ClassicSpawnView, MapProjection, SpawnHitTarget, SpawnModel},
+    spawn::{ClassicSpawnView, MapProjection, SpawnHitTarget, SpawnModel, SpawnPostEntry},
 };
 use bfe_render::{
     hud as draw,
@@ -19,7 +18,6 @@ use bfe_render::{
 use bfe_shell::page::{BattleLook, SpawnLayout};
 use glow::HasContext;
 pub(super) struct PageBattle {
-    pub cache: cache::Cache,
     pub spawn: bool,
     pub scoreboard: bool,
     rig: rig::Rig,
@@ -73,7 +71,6 @@ impl PageBattle {
         scene.menu_models.clear();
         scene.bridge.r.core.state.reset();
         Ok(Self {
-            cache: cache::Cache::new(),
             spawn: page_view(front, &settings.interface.get_string("spawnScreenView")),
             scoreboard: page_view(front, &settings.interface.get_string("scoreboardView")),
             rig: rig::Rig::new(),
@@ -105,6 +102,35 @@ impl PageBattle {
     }
     pub fn dragging(&self) -> bool {
         self.rig.dragging
+    }
+    pub fn drag_start(&mut self, p: [f64; 2]) {
+        self.rig.dragging = true;
+        self.rig.turned = true;
+        self.drag = p;
+    }
+    pub fn drag_move(&mut self, p: [f64; 2]) {
+        self.cursor = p;
+        self.rig.pointer(
+            p[0] / self.layout.width * 2. - 1.,
+            1. - p[1] / self.layout.height * 2.,
+        );
+        if self.rig.dragging {
+            let k = 1080. / self.layout.height;
+            self.rig.drag(
+                (p[0] - self.drag[0]) * k,
+                (p[1] - self.drag[1]) * k,
+                self.dt.max(1. / 60.),
+            );
+            self.drag = p;
+        }
+    }
+    pub fn drag_end(&mut self) {
+        self.rig.release();
+    }
+    pub fn pin_point(&self, post: &SpawnPostEntry, projection: MapProjection) -> [f64; 2] {
+        let x = (post.position[0] - projection.map_x) / projection.map_half;
+        let y = -(post.position[2] - projection.map_z) / projection.map_half;
+        self.rig.map_point(x, y, self.layout)
     }
     /// The map is drawn as the selected team sees it. These UI relations
     /// are refreshed from authority facts before the next ordinary HUD frame.

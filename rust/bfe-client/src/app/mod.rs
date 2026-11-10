@@ -76,6 +76,7 @@ mod loading;
 mod folder_dialog;
 mod first_run;
 mod platform_smoke;
+mod slint_battle;
 mod slint_ia;
 mod slint_models;
 mod slint_ui;
@@ -1149,6 +1150,10 @@ impl ApplicationHandler for StandaloneWindowApp {
         if let (Some(ui), Some(shell)) = (&mut self.slint_ui, &mut self.shell) {
             ui.sync_shell(shell, in_shell);
         }
+        if let (Some(ui), AppState::Battle(battle)) = (&mut self.slint_ui, &mut self.state) {
+            ui.drain_battle_actions(battle, &mut self.settings);
+            ui.sync_battle(battle);
+        }
         if consumed {
             self.sync_pointer_lock();
             return;
@@ -1934,9 +1939,37 @@ impl StandaloneWindowApp {
                         &mut self.settings,
                         &self.audio_router,
                     )?;
+                    if let Some(ui) = &mut self.slint_ui {
+                        ui.drain_battle_actions(battle, &mut self.settings);
+                        ui.sync_battle(battle);
+                    }
                     let fb = battle.scene.canvas.framebuffer;
                     let sz = battle.size;
-                    self.blit_framebuffer_to_window(fb, sz)?;
+                    let two_pass = self
+                        .slint_ui
+                        .as_ref()
+                        .is_some_and(|ui| ui.battle_modal_open());
+                    if two_pass {
+                        if let Some(ui) = &self.slint_ui {
+                            ui.render_pass(fb, sz, 1)?;
+                        }
+                        battle
+                            .pause_page
+                            .blur
+                            .apply(&battle.scene.bridge.r.core.gl, fb, 4.0);
+                        battle.scene.bridge.r.core.state.reset();
+                        let (Some(ui), Some(surface), Some(context)) =
+                            (&self.slint_ui, &self.surface, &self.context)
+                        else {
+                            return Err("window presentation resources missing".into());
+                        };
+                        ui.render_pass(fb, sz, 2)?;
+                        surface
+                            .swap_buffers(context)
+                            .map_err(|e| format!("window presentation failed: {e}"))?;
+                    } else {
+                        self.blit_framebuffer_to_window(fb, sz)?;
+                    }
 
                     if let Some(t) = transition {
                         let content_dir = self
