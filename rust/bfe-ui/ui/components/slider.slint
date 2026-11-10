@@ -7,7 +7,8 @@ export component PageSlider inherits Interaction {
     in-out property <float> value: 0.5;
     in property <float> step: 0.05;
     callback value-changed(float);
-    cursor: ew-resize;
+    // The browser's slider (.bfe-slider) uses the pointer cursor; the host maps no resize cursors.
+    cursor: pointer;
     min-width: 110px;
     preferred-width: 220px;
     preferred-height: 32px;

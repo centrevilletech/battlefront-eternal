@@ -82,6 +82,12 @@ export { MpModel, BrowserRowItem, FactItem } from "screens/mp.slint";
 export component GameUi inherits Window {
     background: transparent;
     default-font-family: "Saira Thin";
+    // The viewport units follow the window. A `changed` handler does not run for the size the window already has
+    // when the component is created, so init sets both once and the handlers keep them current after.
+    init => {
+        Theme.viewport-width = root.width;
+        Theme.viewport-height = root.height;
+    }
     changed width => { Theme.viewport-width = root.width; }
     changed height => { Theme.viewport-height = root.height; }
 
@@ -214,7 +220,7 @@ export component GameUi inherits Window {
         if root.shell-visible && !root.gameplay && root.active-screen == "main": MainMenuScreen {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
             rows: root.rows;
-            selected-index: root.selected-row;
+            selected-index: root.popup-open ? -1 : root.selected-row;
             version-text: root.version-text;
             use-underlay: true;
             row-selected(idx) => { root.row-selected(idx); }
@@ -225,7 +231,7 @@ export component GameUi inherits Window {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
             title: root.screen-title;
             rows: root.rows;
-            selected-index: root.selected-row;
+            selected-index: root.popup-open ? -1 : root.selected-row;
             use-underlay: true;
             row-selected(idx) => { root.row-selected(idx); }
             row-activated(idx) => { root.row-activated(idx); }
@@ -263,7 +269,7 @@ export component GameUi inherits Window {
         }
 
         theme-picker := ThemePicker {
-            visible: root.shell-visible && !root.gameplay;
+            visible: root.shell-visible && !root.gameplay && !root.modal-open;
             x: parent.width - Theme.bfe-edge - self.width;
             y: 18px;
             current-index <=> root.theme-index;
@@ -339,6 +345,17 @@ export component GameUi inherits Window {
             accepted => { root.popup-button-activated(0); }
             middle-activated => { root.popup-button-activated(1); }
             cancelled => { root.popup-button-activated(root.popup-middle-label != "" ? 2 : 1); }
+        }
+
+        // The browser keeps the THEME picker above every dialog's blur and dim (it sits at z-index 10, over the
+        // popup layer), so while a dialog is open the picker is drawn here, sharp, instead of in the blurred
+        // base layer. It shares its state with the base copy.
+        if root.shell-visible && !root.gameplay: ThemePicker {
+            x: parent.width - Theme.bfe-edge - self.width;
+            y: 18px;
+            current-index <=> root.theme-index;
+            open <=> root.theme-picker-open;
+            theme-selected(idx) => { root.theme-changed(idx); }
         }
 
         if root.gameplay : BattleModalScreen {

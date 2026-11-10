@@ -1582,6 +1582,9 @@ impl ShellHost {
         audio_router: &SharedAudioRouter,
     ) -> Option<ShellTransition> {
         let sounds = self.app.drain_sounds();
+        if !sounds.is_empty() && std::env::var_os("BFE_MENU_INPUT_TRACE").is_some() {
+            eprintln!("[menu sound] {sounds:?}");
+        }
         let mut media = self.app.drain_media_events();
         // PAGE_MEDIA starts music immediately; there is no blocking screen intro.
         if media.iter().any(|event| {

@@ -115,13 +115,14 @@ export component SingleplayerScreen inherits Rectangle {
         brand-visible: true;
         left-selected => { IaModel.sp-back-focused = true; }
         left-activated => { IaModel.sp-back(); }
+        m-sp := VerticalLayout { visible: false; x: 0px; y: 0px; for item in IaModel.sp-rows: PageButton { label: item.label; } }
         VerticalLayout {
-            x: (parent.width - root.button-width) / 2;
+            x: (parent.width - self.width) / 2;
             y: 4px;
-            width: root.button-width;
+            width: min(max(root.button-width, m-sp.preferred-width), 86 * Theme.vw - 16px);
             spacing: Theme.bfe-gap;
             for item[index] in IaModel.sp-rows: PageButton {
-                width: root.button-width;
+                width: parent.width;
                 label: item.label;
                 disabled: item.disabled;
                 focus-on-hover: false;
@@ -189,7 +190,8 @@ export component InstantActionScreen inherits Rectangle {
                     text: "AVAILABLE MAPS:";
                 }
                 SelectField {
-                    width: max(120px, min(self.preferred-width, parent.width - avail-label.preferred-width - 1 * Theme.vw));
+                    // The label keeps its width and the dropdown shrinks toward its arrow, as the browser's flex row does.
+                    width: max(4.5 * Theme.field-font-size, min(self.preferred-width, parent.width - avail-label.preferred-width - 1 * Theme.vw));
                     x: parent.width - self.width;
                     y: 0px;
                     fit-widest: true;
@@ -231,7 +233,10 @@ export component InstantActionScreen inherits Rectangle {
             height: frame.body-height;
             property <length> hbuttons-gap: 1.2 * Theme.vw;
             property <length> hbuttons-w: add-btn.width + remove-btn.width + self.hbuttons-gap;
-            property <length> stack-h: preview.height + 2.4 * Theme.vh + add-btn.height;
+            // The browser's .bfe-hbuttons wraps: when the pair does not fit the column, REMOVE drops under ADD.
+            property <bool> wrapped: self.hbuttons-w > self.width;
+            property <length> stack-h: preview.height + 2.4 * Theme.vh + add-btn.height
+                + (self.wrapped ? add-btn.height + self.hbuttons-gap : 0px);
             property <length> stack-y: max(0px, (self.height - self.stack-h) / 2);
 
             preview := PreviewFrame {
@@ -243,7 +248,7 @@ export component InstantActionScreen inherits Rectangle {
                 caption: IaModel.preview-caption;
             }
             add-btn := PageButton {
-                x: (parent.width - parent.hbuttons-w) / 2;
+                x: parent.wrapped ? (parent.width - self.width) / 2 : (parent.width - parent.hbuttons-w) / 2;
                 y: parent.stack-y + preview.height + 2.4 * Theme.vh;
                 variant: ButtonVariant.small;
                 label: "ADD";
@@ -253,8 +258,8 @@ export component InstantActionScreen inherits Rectangle {
                 activated => { IaModel.ia-add(); }
             }
             remove-btn := PageButton {
-                x: add-btn.x + add-btn.width + parent.hbuttons-gap;
-                y: add-btn.y;
+                x: parent.wrapped ? (parent.width - self.width) / 2 : add-btn.x + add-btn.width + parent.hbuttons-gap;
+                y: parent.wrapped ? add-btn.y + add-btn.height + parent.hbuttons-gap : add-btn.y;
                 variant: ButtonVariant.small;
                 label: "REMOVE";
                 focus-on-hover: false;
@@ -328,13 +333,14 @@ export component InstantActionEraScreen inherits Rectangle {
         brand-visible: true;
         left-selected => { IaModel.era-back-focused = true; }
         left-activated => { IaModel.era-back(); }
+        m-era := VerticalLayout { visible: false; x: 0px; y: 0px; for item in IaModel.era-rows: PageButton { label: item.label; } }
         VerticalLayout {
-            x: (parent.width - root.button-width) / 2;
+            x: (parent.width - self.width) / 2;
             y: 4px;
-            width: root.button-width;
+            width: min(max(root.button-width, m-era.preferred-width), 86 * Theme.vw - 16px);
             spacing: Theme.bfe-gap;
             for item[index] in IaModel.era-rows: PageButton {
-                width: root.button-width;
+                width: parent.width;
                 label: item.label;
                 disabled: item.disabled;
                 focus-on-hover: false;

@@ -121,6 +121,9 @@ impl WindowAdapterInternal for Adapter {
         };
         // The host arbitrates this UI request with the battle's turntable/map
         // cursor. Writing the OS cursor here would bypass its cached owner.
+        if self.cursor.get() != icon && std::env::var_os("BFE_MENU_INPUT_TRACE").is_some() {
+            eprintln!("[menu cursor] {icon:?}");
+        }
         self.cursor.set(icon);
     }
     // winit converts logical caret geometry for the active compositor scale.

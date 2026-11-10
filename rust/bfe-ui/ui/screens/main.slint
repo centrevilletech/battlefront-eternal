@@ -97,13 +97,16 @@ export component MainMenuScreen inherits Rectangle {
         x: (parent.width - self.width) / 2;
         y: 16 * Theme.vh;
     }
+    // The browser's .bfe-rows is as wide as its widest button (never under min(400px, 30vw), never over 86vw), and
+    // every button fills it: a layout's preferred width is its widest child's.
+    m-main := VerticalLayout { visible: false; x: 0px; y: 0px; for item in root.rows: PageButton { label: item.label; } }
     VerticalLayout {
-        x: (parent.width - root.button-width) / 2;
+        x: (parent.width - self.width) / 2;
         y: logo.y + logo.height + 6.5 * Theme.vh + 4px;
-        width: root.button-width;
+        width: min(max(root.button-width, m-main.preferred-width), 86 * Theme.vw - 16px);
         spacing: Theme.bfe-gap;
         for item[index] in root.rows: PageButton {
-            width: root.button-width;
+            width: parent.width;
             label: item.label;
             disabled: item.disabled;
             highlighted: index == root.selected-index && !item.disabled;
@@ -148,13 +151,14 @@ export component ProfileScreen inherits Rectangle {
         left-label: "BACK";
         brand-visible: true;
         left-activated => { root.back-activated(); }
+        m-profile := VerticalLayout { visible: false; x: 0px; y: 0px; for item in root.rows: PageButton { label: item.label; } }
         VerticalLayout {
-            x: (parent.width - root.button-width) / 2;
+            x: (parent.width - self.width) / 2;
             y: 4px;
-            width: root.button-width;
+            width: min(max(root.button-width, m-profile.preferred-width), 86 * Theme.vw - 16px);
             spacing: Theme.bfe-gap;
             for item[index] in root.rows: PageButton {
-                width: root.button-width;
+                width: parent.width;
                 label: item.label;
                 disabled: item.disabled;
                 highlighted: index == root.selected-index && !item.disabled;

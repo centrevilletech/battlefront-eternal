@@ -484,14 +484,15 @@ export component BattlePauseScreen inherits Rectangle {
             left-label: "BACK";
             left-activated => { BattleModel.pause-back-activated(); }
 
+            m-pause := VerticalLayout { visible: false; x: 0px; y: 0px; for item in BattleModel.pause-main-rows: PageButton { label: item.label; } }
             if BattleModel.pause-subscreen == "main" || BattleModel.pause-subscreen == "confirm" : VerticalLayout {
-                x: (parent.width - root.button-width) * 0.5;
+                x: (parent.width - self.width) * 0.5;
                 y: 4px;
-                width: root.button-width;
+                width: min(max(root.button-width, m-pause.preferred-width), 86 * Theme.vw - 16px);
                 spacing: Theme.bfe-gap;
 
                 for item[idx] in BattleModel.pause-main-rows : PageButton {
-                    width: root.button-width;
+                    width: parent.width;
                     label: item.label;
                     disabled: !item.enabled;
                     highlighted: item.highlighted;
@@ -500,10 +501,11 @@ export component BattlePauseScreen inherits Rectangle {
                 }
             }
 
+            m-popt := VerticalLayout { visible: false; x: 0px; y: 0px; for label in ["GAME OPTIONS", "VIDEO OPTIONS", "AUDIO OPTIONS", "CONTROL OPTIONS", "ONLINE OPTIONS"]: PageButton { label: label; } }
             if BattleModel.pause-subscreen == "options" : VerticalLayout {
-                x: (parent.width - root.button-width) * 0.5;
+                x: (parent.width - self.width) * 0.5;
                 y: 4px;
-                width: root.button-width;
+                width: min(max(root.button-width, m-popt.preferred-width), 86 * Theme.vw - 16px);
                 spacing: Theme.bfe-gap;
 
                 for label[idx] in [
@@ -513,7 +515,7 @@ export component BattlePauseScreen inherits Rectangle {
                     "CONTROL OPTIONS",
                     "ONLINE OPTIONS",
                 ] : PageButton {
-                    width: root.button-width;
+                    width: parent.width;
                     label: label;
                     highlighted: BattleModel.pause-option-focused == idx && !BattleModel.pause-back-focused;
                     selected => { BattleModel.pause-option-hovered(idx); }
