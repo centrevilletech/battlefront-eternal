@@ -220,6 +220,7 @@ export component DiscordOfferModal inherits Rectangle {
         PageButton {
             label: "No thanks";
             variant: ButtonVariant.dialog;
+            dialog-font-size: 16px;
             width: 174px;
             height: 48px;
             highlighted: root.selected-button == 0;
@@ -229,6 +230,7 @@ export component DiscordOfferModal inherits Rectangle {
         PageButton {
             label: "Game only";
             variant: ButtonVariant.dialog;
+            dialog-font-size: 16px;
             width: 174px;
             height: 48px;
             highlighted: root.selected-button == 1;
@@ -237,6 +239,7 @@ export component DiscordOfferModal inherits Rectangle {
         PageButton {
             label: "Map and server";
             variant: ButtonVariant.accept;
+            dialog-font-size: 16px;
             width: 199px;
             height: 48px;
             highlighted: root.selected-button == 2;
@@ -271,6 +274,7 @@ export component SteamOfferModal inherits Rectangle {
         PageButton {
             label: "Not now";
             variant: ButtonVariant.dialog;
+            dialog-font-size: 16px;
             width: 283px;
             height: 48px;
             disabled: root.busy;
@@ -281,6 +285,7 @@ export component SteamOfferModal inherits Rectangle {
         PageButton {
             label: root.accept-label;
             variant: ButtonVariant.accept;
+            dialog-font-size: 16px;
             width: 283px;
             height: 48px;
             disabled: root.busy;

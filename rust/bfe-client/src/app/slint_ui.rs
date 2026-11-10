@@ -242,12 +242,13 @@ impl slint::platform::Platform for Platform {
 use super::{
     settings::AppSettingsStore,
     shell::{ShellHost, ShellTransition},
+    slint_mp::MpAction,
     slint_models::sync_rows,
 };
 use crate::audio::SharedAudioRouter;
 use bfe_shell::screens::{PopupState, ScreenId};
 
-enum UiAction {
+pub(super) enum UiAction {
     GateUnlocked,
     RowSelected(usize),
     RowActivated(usize),
@@ -261,20 +262,22 @@ enum UiAction {
     SteamAccepted,
     PopupButtonActivated(usize),
     SoundRequested(&'static str),
+    Mp(MpAction),
 }
 
 pub(super) struct SlintHost {
-    root: GameUi,
+    pub(super) root: GameUi,
     adapter: Rc<Adapter>,
     underlay: Rc<Cell<Option<(glow::Framebuffer, [i32; 2])>>>,
     pending: Pending,
     quit: Arc<AtomicBool>,
-    actions: Rc<RefCell<Vec<UiAction>>>,
+    pub(super) actions: Rc<RefCell<Vec<UiAction>>>,
     battle_actions: Rc<RefCell<Vec<super::slint_battle::BattleUiAction>>>,
     battle_lists: super::slint_battle::BattleLists,
     ia_actions: super::slint_ia::IaActionQueue,
     was_profile_editing: bool,
     last_shell_dropdown: bool,
+    pub(super) mp_models: super::slint_mp::MpModels,
     // The lists the screens repeat over live as long as the host does (slint_models.rs).
     rows: Rc<slint::VecModel<MenuRowItem>>,
     steam_paragraphs: Rc<slint::VecModel<slint::SharedString>>,
@@ -464,6 +467,7 @@ impl SlintHost {
             })
             .map_err(|e| format!("UI rendering notifier: {e:?}"))?;
         root.show().map_err(|e| e.to_string())?;
+        let mp_models = super::slint_mp::MpModels::install(&root);
         let mut host = Self {
             root,
             adapter,
@@ -476,6 +480,7 @@ impl SlintHost {
             ia_actions,
             was_profile_editing: false,
             last_shell_dropdown: false,
+            mp_models,
             rows,
             steam_paragraphs,
             cursor_position: slint::LogicalPosition::default(),
@@ -485,6 +490,7 @@ impl SlintHost {
             context,
             composited_frames,
         };
+        host.register_mp_callbacks();
         host.resize();
         Ok(host)
     }
@@ -678,6 +684,7 @@ impl SlintHost {
                 self.root.set_popup_open(false);
             }
         }
+        self.sync_mp(shell);
     }
 
     pub fn drain_actions(
@@ -773,6 +780,9 @@ impl SlintHost {
                     }
                     shell.flush_events(settings, audio_router)
                 }
+                UiAction::Mp(mp_action) => {
+                    self.drain_mp_action(mp_action, shell, settings, audio_router)
+                }
             };
             if next.is_some() {
                 transition = next;
@@ -859,6 +869,7 @@ impl SlintHost {
     fn in_panel(&self) -> bool {
         self.root
             .invoke_controls_at(self.cursor_position.x, self.cursor_position.y)
+            || self.mp_controls_active()
     }
     fn text_event(&mut self, event: InternalKeyEvent) {
         self.root.window().dispatch_event(UiEvent::internal(event));
@@ -944,7 +955,9 @@ impl SlintHost {
                 });
                 return true;
             }
-            WindowEvent::Ime(ime) if self.root.get_text_focused() && !locked => {
+            WindowEvent::Ime(ime)
+                if (self.root.get_text_focused() || self.mp_text_focused()) && !locked =>
+            {
                 match ime {
                     Ime::Preedit(text, range) => {
                         self.text_event(InternalKeyEvent {
@@ -971,12 +984,16 @@ impl SlintHost {
                 is_synthetic,
                 ..
             } if !locked
-                && !(self.root.get_profile_editing()
+                && !((self.root.get_profile_editing() || self.mp_text_focused())
                     && matches!(event.logical_key, WinitKey::Named(NamedKey::Escape)))
                 && (self.root.get_text_focused()
                     || self.root.get_profile_editing()
-                    || is_modifier(&event.logical_key)) => {
-                let focused = self.root.get_text_focused() || self.root.get_profile_editing();
+                    || self.mp_text_focused()
+                    || is_modifier(&event.logical_key)) =>
+            {
+                let focused = self.root.get_text_focused()
+                    || self.root.get_profile_editing()
+                    || self.mp_text_focused();
                 // Focus acquisition replays held keys. Only modifiers belong in
                 // the UI state; replayed character keys must not insert text.
                 if *is_synthetic && !is_modifier(&event.logical_key) {

@@ -6,7 +6,6 @@ pub use setup::{SetupView,SetupProgress,SetupSound};
 mod browser;
 mod forms;
 mod heading;
-mod host;
 mod media;
 mod motion;
 mod widgets;
@@ -27,17 +26,7 @@ pub enum Hit {
     Theme,
     Look(usize),
     Popup(usize),
-    BrowserTab(usize),
-    BrowserFilter(usize),
-    BrowserChoice(usize, usize),
-    BrowserSort(usize),
-    BrowserServer(usize),
-    BrowserFooter(usize),
-    BrowserNotice,
     OptionBack(usize, usize),
-    DirectField(usize),
-    Host(crate::screens::HostControl),
-    DirectButton(bool),
 }
 
 struct Paragraph {
@@ -904,24 +893,14 @@ impl Page {
         let mut m = anchor(0., 0., false, h);
         m[0] *= 1024. / w;
         let solid = t.solid;
-        let (accent, ink, bg) = match a.settings.menu_theme.as_str() {
-            "bf1" => (
-                [1., 0.64, 0.16, 1.],
-                [0.07, 0.13, 0.29, 1.],
-                [0.01, 0.03, 0.09, 1.],
-            ),
+        let (ink, bg) = match a.settings.menu_theme.as_str() {
+            "bf1" => ([0.07, 0.13, 0.29, 1.], [0.01, 0.03, 0.09, 1.]),
             "bf2" => (
-                [210. / 255., 40. / 255., 28. / 255., 1.],
                 [1., 1., 1., 1.],
                 [16. / 255., 40. / 255., 79. / 255., 1.],
             ),
-            _ => (
-                [1., 0.60, 0.12, 1.],
-                [0.09, 0.05, 0.01, 1.],
-                [0.012, 0.016, 0.024, 1.],
-            ),
+            _ => ([0.09, 0.05, 0.01, 1.], [0.012, 0.016, 0.024, 1.]),
         };
-        let white = [0.91, 0.93, 0.95, 1.];
         Self::rect(b, m, [0., 0., w, h], solid, bg);
         // MovieBackdrop's current left/right textures. Arrival, fade and depth
         // belong to Page; the provider owns playback and can change either
@@ -1065,6 +1044,10 @@ impl Page {
             ScreenId::Gate
                 | ScreenId::Main
                 | ScreenId::Profile
+                | ScreenId::Multiplayer
+                | ScreenId::MultiplayerList(_)
+                | ScreenId::HostDialog
+                | ScreenId::DirectConnect
                 | ScreenId::Singleplayer
                 | ScreenId::InstantAction
                 | ScreenId::InstantActionEra
@@ -1084,15 +1067,7 @@ impl Page {
                 a.pulse_elapsed - self.entered,
                 self.forward,
             );
-            if matches!(
-                id,
-                ScreenId::Multiplayer
-                    | ScreenId::MultiplayerList(_)
-                    | ScreenId::HostDialog
-                    | ScreenId::DirectConnect
-            ) {
-                self.browser_draw(b, m, t, a, w, h, accent, ink, white);
-            } else if matches!(id, ScreenId::Options | ScreenId::OptionsPage(_)) {
+            if matches!(id, ScreenId::Options | ScreenId::OptionsPage(_)) {
                 // Existing interface widgets are painted by paint_widgets.
             } else {
                 let rows = a.active_rows();
@@ -1155,24 +1130,6 @@ impl Page {
                 self.hits.push((r, Hit::Back));
             }
         }
-        let look = match a.settings.menu_theme.as_str() {
-            "bf1" => 0,
-            "bf2" => 1,
-            _ => 2,
-        };
-        if id == ScreenId::HostDialog {
-            self.host_draw(b, m, t, a, w, h, accent, ink, white);
-        }
-        if matches!(a.popup, Some(PopupState::OnlineNotice { .. }))
-            || a.current_screen() == ScreenId::DirectConnect
-        {
-            self.modal_start = Some(b.count);
-        }
-        if let Some(PopupState::OnlineNotice { message, .. }) = &a.popup {
-            self.online_notice_form(b, m, t, a, w, h, message, ink, white);
-        } else if a.current_screen() == ScreenId::DirectConnect {
-            self.direct_form(b, m, t, a, w, h, look, accent, ink, white);
-        }
     }
 }
 
@@ -1207,27 +1164,6 @@ mod tests {
             .draws
             .iter()
             .any(|d| [99, 101, 102, 201, 202].contains(&d.texture)));
-    }
-    #[test]
-    fn pointer_targets_follow_the_page_viewport() {
-        let mut app = ShellApp::new(crate::data::ShellData::default(), None);
-        app.unlock_gate();
-        app.mp_needs_notice = false;
-        app.push_screen(ScreenId::Multiplayer);
-        let mut page = Page::new(Font::default(), Font::default());
-        let textures = ShellTextures::default();
-        let mut batch = Batch::default();
-        page.draw(&mut batch, &textures, &app, 1280., 720.);
-        app.pulse_elapsed += 1.;
-        for (w, h) in [(1280., 720.), (1920., 1080.)] {
-            page.draw(&mut batch, &textures, &app, w, h);
-            let edge = (w * 0.03).clamp(20., 56.);
-            assert_eq!(
-                page.hit(edge + 40., h * 0.946),
-                Some(Hit::BrowserFooter(0))
-            );
-            assert_eq!(page.hit(1., h * 0.8), None);
-        }
     }
     #[test]
     fn discord_offer_keys_and_dismissal() {

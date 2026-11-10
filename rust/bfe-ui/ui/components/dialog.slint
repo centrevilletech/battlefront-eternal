@@ -137,7 +137,14 @@ export component OfferDialog inherits Surface {
     in property <[string]> paragraphs;
     in property <string> status-text;
     in property <bool> status-error: false;
-    preferred-width: min(660px, Theme.viewport-width - 32px);
+    // `.label` is `var(--bfe-note, #94cce9)`: the look's note colour; the online notice fixes its own.
+    in property <color> eyebrow-color: Theme.bfe-note;
+    in property <length> width-limit: 660px;
+    in property <length> pad-x: 33px;
+    in property <length> pad-y: 29px;
+    in property <length> footer-gap: 31px;
+    in property <length> button-spacing: 20px;
+    preferred-width: min(root.width-limit, Theme.viewport-width - 32px);
     width: self.preferred-width;
     preferred-height: body-layout.preferred-height;
     height: self.preferred-height;
@@ -145,8 +152,8 @@ export component OfferDialog inherits Surface {
     chamfer: 0px;
     body-layout := VerticalLayout {
         x: 0px; y: 0px; width: parent.width;
-        padding-top: 29px; padding-bottom: 29px;
-        padding-left: 33px; padding-right: 33px;
+        padding-top: root.pad-y; padding-bottom: root.pad-y;
+        padding-left: root.pad-x; padding-right: root.pad-x;
         spacing: 0px;
         if root.eyebrow != "": Text {
             height: 20px;
@@ -155,7 +162,7 @@ export component OfferDialog inherits Surface {
             font-size: 13px;
             font-weight: 400;
             letter-spacing: 1.3px;
-            color: Theme.bfe-note;
+            color: root.eyebrow-color;
             horizontal-alignment: left;
             vertical-alignment: center;
         }
@@ -187,13 +194,13 @@ export component OfferDialog inherits Surface {
             font-family: Theme.font-family;
             font-size: 15px;
             font-weight: 600;
-            color: root.status-error ? Theme.bfe-note : Theme.bfe-text-dim;
+            color: root.status-error ? Theme.offer-error : Theme.bfe-text-dim;
             wrap: word-wrap;
         }
-        Rectangle { height: 31px; background: transparent; }
+        Rectangle { height: root.footer-gap; background: transparent; }
         HorizontalLayout {
-            padding-right: 8px;
-            spacing: 20px;
+            padding-right: root.width-limit == 660px ? 8px : 0px;
+            spacing: root.button-spacing;
             @children
         }
     }

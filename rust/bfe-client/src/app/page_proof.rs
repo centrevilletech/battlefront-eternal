@@ -105,11 +105,11 @@ impl PageProof {
             15 => {
                 shell.app.back();
                 shell.app.push_screen(ScreenId::Multiplayer);
-                shell.page_browser_hit(bfe_shell::page::Hit::BrowserNotice);
+                shell.app.popup = Some(bfe_shell::screens::ShellApp::online_notice());
             }
             16 => {
                 shell.app.back();
-                shell.page_browser_hit(bfe_shell::page::Hit::BrowserFooter(2));
+                shell.browser_footer_action(2);
             }
             17 => {
                 shell.app.back();

@@ -1,0 +1,609 @@
+// Reusable Server Browser components for the Multiplayer screen (`src/shell/server-browser-view.js`).
+import { Theme, ControlState, MenuSound } from "../theme.slint";
+import { Interaction } from "interaction.slint";
+
+// Data record for a single row in the 7-column server browser table.
+export struct BrowserRowItem {
+    id: string,
+    name: string,
+    players-text: string,
+    fill-ratio: float,
+    map-name: string,
+    mode-label: string,
+    era-label: string,
+    ping-text: string,
+    ping-bars: int,
+    location: string,
+    country: string,
+    compatible: bool,
+}
+
+// Key/value fact pair in the `GAME INFO` inspector grid (`PLAYERS`, `PING`, `LOCATION`,
+// `NEXT`, `ROTATION`, `UP FOR`, `VERSION`, `LINK`).
+export struct FactItem {
+    label: string,
+    value: string,
+}
+
+// Sortable column header button inside `.bfe-browser-head`.
+export component BrowserColHeader inherits Interaction {
+    in property <string> label;
+    in property <bool> sorted: false;
+    in property <int> sort-dir: 1;
+    height: min(40px, max(30px, 3.8 * Theme.vh));
+
+    property <color> text-ink: Theme.browser-head-ink;
+
+    HorizontalLayout {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        spacing: 5px;
+        alignment: start;
+
+        Text {
+            text: root.label.to-uppercase();
+            font-family: Theme.font-family;
+            // `.bfe-browser-col` is a button: `.bfe-page button { font: inherit }` resets its size
+            // and weight to the page's 16px / 400, keeping only its letter spacing.
+            font-size: 16px;
+            font-weight: 400;
+            letter-spacing: 0.14 * self.font-size;
+            color: root.text-ink;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        if root.sorted: Rectangle {
+            width: 8px;
+            height: parent.height;
+            opacity: 0.9;
+            if root.sort-dir >= 0: Path {
+                x: 0px;
+                y: (parent.height - 5px) / 2;
+                width: 8px;
+                height: 5px;
+                fill: root.text-ink;
+                MoveTo { x: 4; y: 0; }
+                LineTo { x: 8; y: 5; }
+                LineTo { x: 0; y: 5; }
+                Close {}
+            }
+            if root.sort-dir < 0: Path {
+                x: 0px;
+                y: (parent.height - 5px) / 2;
+                width: 8px;
+                height: 5px;
+                fill: root.text-ink;
+                MoveTo { x: 0; y: 0; }
+                LineTo { x: 8; y: 0; }
+                LineTo { x: 4; y: 5; }
+                Close {}
+            }
+        }
+    }
+}
+
+// Look-aware section header bar used by both the server table header and `GAME INFO`.
+// - Eternal & BF1: `Theme.browser-head-bg` with BF1's right-edge diagonal clip
+//   (`polygon(0 0, calc(100% - 1.6em) 0, 100% 100%, 0 100%)`).
+// - BF2: Steel gradient (`Theme.browser-head-bg`) with `2px solid Theme.browser-head-rule`
+//   bottom rule and `Theme.browser-head-ink` ink.
+export component BrowserHeaderBar inherits Rectangle {
+    in property <string> label;
+    height: min(40px, max(30px, 3.8 * Theme.vh));
+    clip: true;
+
+    property <float> bar-w: max(1, root.width / 1px);
+    property <float> bar-h: max(1, root.height / 1px);
+    property <float> bar-cut: min(root.bar-w * 0.25, 22.0);
+
+    if !Theme.bf1 && !Theme.bf2: Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        background: Theme.browser-head-bg;
+    }
+
+    if Theme.bf1: Path {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        viewbox-width: root.bar-w;
+        viewbox-height: root.bar-h;
+        fill: Theme.browser-head-bg;
+        MoveTo { x: 0; y: 0; }
+        LineTo { x: root.bar-w - root.bar-cut; y: 0; }
+        LineTo { x: root.bar-w; y: root.bar-h; }
+        LineTo { x: 0; y: root.bar-h; }
+        Close {}
+    }
+
+    if Theme.bf2: Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        background: Theme.browser-head-bg;
+        Rectangle {
+            x: 0px;
+            y: parent.height - 2px;
+            width: parent.width;
+            height: 2px;
+            background: Theme.browser-head-rule;
+        }
+    }
+
+    if root.label != "": Text {
+        x: 1.1 * Theme.vw;
+        y: 0px;
+        width: parent.width - 2 * self.x;
+        height: parent.height;
+        text: root.label.to-uppercase();
+        font-family: Theme.font-family;
+        font-size: min(14px, max(11px, 1.45 * Theme.vh));
+        font-weight: 800;
+        letter-spacing: 0.2 * self.font-size;
+        color: Theme.browser-head-ink;
+        vertical-alignment: center;
+    }
+
+    @children
+}
+
+// 4-bar signal quality indicator matching `quality(latencyMs)` in `server-browser-view.js`.
+export component PingSignalBars inherits Rectangle {
+    in property <int> bars: 0;
+    width: 18px;
+    height: 11px;
+
+    property <color> bar-color: root.bars >= 4 ? Theme.ping-bar-q4
+        : root.bars == 3 ? Theme.ping-bar-q3
+        : root.bars == 2 ? Theme.ping-bar-q2
+        : root.bars == 1 ? Theme.ping-bar-q1
+        : Theme.bfe-text-faint;
+
+    for pct[i] in [0.30, 0.55, 0.78, 1.0]: Rectangle {
+        x: i * 5px;
+        y: parent.height - parent.height * pct;
+        width: 3px;
+        height: parent.height * pct;
+        background: i < root.bars ? root.bar-color : Theme.bfe-text-faint;
+        opacity: i < root.bars ? 1.0 : 0.45;
+    }
+}
+
+// 2-letter ISO country code badge matching `.bfe-country` (`color: var(--bfe-accent-ink); background: var(--bfe-accent-fill)`).
+export component FlagCodeBadge inherits Rectangle {
+    in property <string> code;
+    width: 20px;
+    height: 14px;
+    border-radius: 2px;
+    background: Theme.bfe-accent-fill;
+
+    Text {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        text: root.code.to-uppercase();
+        font-family: Theme.font-family;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.6px;
+        color: Theme.bfe-accent-ink;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// Single row in the 7-column server browser list (`.bfe-browser-row`).
+export component BrowserServerRow inherits Interaction {
+    in property <BrowserRowItem> item;
+    in property <bool> selected-row: false;
+    in property <bool> browser-focused: true;
+    // Every click on the row (a use site that sets `activated` would replace the double-click logic below).
+    callback picked();
+    callback double-clicked();
+
+    height: min(40px, max(28px, 3.7 * Theme.vh));
+
+    property <length> pad-x: 1.1 * Theme.vw;
+    property <length> col-gap: 1.0 * Theme.vw;
+    property <length> avail-w: max(1px, root.width - 2 * root.pad-x - 6 * root.col-gap);
+    // Column weights: 3.1fr 0.95fr 1.9fr 1fr 1.55fr 0.85fr 1.35fr (sum = 10.7)
+    property <length> w-name: root.avail-w * (3.1 / 10.7);
+    property <length> w-players: root.avail-w * (0.95 / 10.7);
+    property <length> w-map: root.avail-w * (1.9 / 10.7);
+    property <length> w-mode: root.avail-w * (1.0 / 10.7);
+    property <length> w-era: root.avail-w * (1.55 / 10.7);
+    property <length> w-ping: root.avail-w * (0.85 / 10.7);
+    property <length> w-loc: root.avail-w * (1.35 / 10.7);
+
+    property <color> text-ink: root.item.compatible ? Theme.bfe-text : Theme.bfe-text-faint;
+    property <length> cell-font: min(16px, max(12px, 1.6 * Theme.vh));
+    property <int> last-click-ms: -1000;
+
+    activated => {
+        root.picked();
+        if (animation-tick() / 1ms) - root.last-click-ms <= 400 {
+            root.last-click-ms = -1000;
+            if root.item.compatible {
+                root.double-clicked();
+            }
+        } else {
+            root.last-click-ms = animation-tick() / 1ms;
+        }
+    }
+
+    // Row background fill (`.bfe-browser-row.selected` uses `var(--bfe-list-selected)` or `var(--bfe-row-focus)` + `1px solid var(--bfe-accent)`)
+    Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        background: root.selected-row ? (root.browser-focused ? Theme.bfe-row-focus : Theme.bfe-list-selected)
+            : root.hovered ? Theme.bfe-list-hover
+            : transparent;
+        border-width: root.selected-row ? 1px : 0px;
+        border-color: root.selected-row ? Theme.bfe-accent : transparent;
+    }
+
+    // Left 3px accent bar when the selected row is inside the focused browser list
+    if root.selected-row && root.browser-focused: Rectangle {
+        x: 0px; y: 0px; width: 3px; height: parent.height;
+        background: Theme.bfe-accent;
+    }
+
+    HorizontalLayout {
+        x: root.pad-x;
+        y: 0px;
+        width: parent.width - 2 * root.pad-x;
+        height: parent.height;
+        spacing: root.col-gap;
+
+        // Column 0: GAME NAME + optional OTHER VERSION badge
+        HorizontalLayout {
+            width: root.w-name;
+            spacing: 8px;
+            alignment: start;
+
+            Text {
+                text: root.item.name;
+                font-family: Theme.font-family;
+                font-size: root.cell-font;
+                font-weight: 700;
+                letter-spacing: 0.02 * self.font-size;
+                color: root.text-ink;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+
+            if !root.item.compatible: Rectangle {
+                width: tag-txt.preferred-width + 10px;
+                height: 16px;
+                y: (parent.height - self.height) / 2;
+                border-width: 1px;
+                border-color: Theme.tag-warn-ink;
+                background: transparent;
+
+                tag-txt := Text {
+                    x: 5px; y: 0px;
+                    width: parent.width - 10px;
+                    height: parent.height;
+                    text: "OTHER VERSION";
+                    font-family: Theme.font-family;
+                    font-size: 9px;
+                    font-weight: 700;
+                    letter-spacing: 1px;
+                    color: Theme.tag-warn-ink;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Column 1: PLAYERS (`12/32` stacked above the 3px `.bfe-meter` bar)
+        VerticalLayout {
+            width: root.w-players;
+            spacing: 2px;
+            alignment: center;
+
+            Text {
+                text: root.item.players-text.to-uppercase();
+                font-family: Theme.font-family;
+                font-size: root.cell-font;
+                font-weight: 700;
+                letter-spacing: 0.06 * self.font-size;
+                color: root.text-ink;
+            }
+
+            Rectangle {
+                width: 50px;
+                height: 3px;
+                background: Theme.bfe-track;
+                clip: true;
+
+                Rectangle {
+                    x: 0px; y: 0px;
+                    width: parent.width * clamp(root.item.fill-ratio, 0.0, 1.0);
+                    height: parent.height;
+                    background: Theme.bfe-accent;
+                }
+            }
+        }
+
+        // Column 2: MAP
+        Text {
+            width: root.w-map;
+            text: root.item.map-name.to-uppercase();
+            font-family: Theme.font-family;
+            font-size: root.cell-font;
+            font-weight: 700;
+            letter-spacing: 0.06 * self.font-size;
+            color: root.text-ink;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        // Column 3: MODE
+        Text {
+            width: root.w-mode;
+            text: root.item.mode-label.to-uppercase();
+            font-family: Theme.font-family;
+            font-size: root.cell-font;
+            font-weight: 700;
+            letter-spacing: 0.06 * self.font-size;
+            color: root.text-ink;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        // Column 4: ERA
+        Text {
+            width: root.w-era;
+            text: root.item.era-label.to-uppercase();
+            font-family: Theme.font-family;
+            font-size: root.cell-font;
+            font-weight: 700;
+            letter-spacing: 0.06 * self.font-size;
+            color: root.text-ink;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        // Column 5: PING + 4-bar signal meter
+        HorizontalLayout {
+            width: root.w-ping;
+            spacing: 7px;
+            alignment: start;
+
+            PingSignalBars {
+                y: (parent.height - self.height) / 2;
+                bars: root.item.ping-bars;
+            }
+
+            Text {
+                text: root.item.ping-text.to-uppercase();
+                font-family: Theme.font-family;
+                font-size: root.cell-font;
+                font-weight: 700;
+                letter-spacing: 0.06 * self.font-size;
+                color: root.text-ink;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+
+        // Column 6: LOCATION + optional 2-letter flag badge
+        HorizontalLayout {
+            width: root.w-loc;
+            spacing: 6px;
+            alignment: start;
+
+            if root.item.country != "": FlagCodeBadge {
+                y: (parent.height - self.height) / 2;
+                code: root.item.country;
+            }
+
+            Text {
+                text: root.item.location.to-uppercase();
+                font-family: Theme.font-family;
+                font-size: root.cell-font;
+                font-weight: 700;
+                letter-spacing: 0.06 * self.font-size;
+                color: root.text-ink;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+        }
+    }
+}
+
+// A label of the `GAME INFO` facts (`.bfe-facts dt`).
+component BrowserFactLabel inherits Text {
+    font-family: Theme.font-family;
+    font-size: min(14px, max(11px, 1.45 * Theme.vh));
+    font-weight: 700;
+    letter-spacing: 0.08 * self.font-size;
+    color: Theme.bfe-text-faint;
+    vertical-alignment: center;
+}
+
+// A value of the `GAME INFO` facts (`.bfe-facts dd`), with the flag badge before it when `country` is set.
+component BrowserFactValue inherits HorizontalLayout {
+    in property <string> text;
+    in property <string> country: "";
+    spacing: 8px;
+    horizontal-stretch: 1;
+    if root.country != "": FlagCodeBadge {
+        y: (parent.height - self.height) / 2;
+        code: root.country;
+    }
+    Text {
+        text: root.text;
+        font-family: Theme.font-family;
+        font-size: min(14px, max(11px, 1.45 * Theme.vh));
+        font-weight: 700;
+        letter-spacing: 0.08 * self.font-size;
+        color: Theme.bfe-text;
+        vertical-alignment: center;
+        overflow: elide;
+        horizontal-stretch: 1;
+    }
+}
+
+// The `GAME INFO` facts (`.bfe-facts`): `grid-template-columns: repeat(3, max-content minmax(0, 1fr))`
+// with `gap: .45vh 1vw`. The three label columns each take their widest label, so every row's values
+// line up. Facts fill the grid row by row (PLAYERS, PING, LOCATION; NEXT, ROTATION, UP FOR; ...);
+// `country` is the flag badge shown before the value of the third fact.
+export component BrowserFactsGrid inherits GridLayout {
+    in property <[FactItem]> facts;
+    in property <string> country: "";
+    spacing-horizontal: 1 * Theme.vw;
+    spacing-vertical: 0.45 * Theme.vh;
+
+    pure function label-at(i: int) -> string {
+        return root.facts.length > i ? root.facts[i].label : "";
+    }
+    pure function value-at(i: int) -> string {
+        return root.facts.length > i ? root.facts[i].value : "";
+    }
+
+    Row {
+        BrowserFactLabel { text: root.label-at(0); }
+        BrowserFactValue { text: root.value-at(0); }
+        BrowserFactLabel { text: root.label-at(1); }
+        BrowserFactValue { text: root.value-at(1); }
+        BrowserFactLabel { text: root.label-at(2); }
+        BrowserFactValue { text: root.value-at(2); country: root.country; }
+    }
+    Row {
+        BrowserFactLabel { text: root.label-at(3); }
+        BrowserFactValue { text: root.value-at(3); }
+        BrowserFactLabel { text: root.label-at(4); }
+        BrowserFactValue { text: root.value-at(4); }
+        BrowserFactLabel { text: root.label-at(5); }
+        BrowserFactValue { text: root.value-at(5); }
+    }
+    Row {
+        BrowserFactLabel { text: root.label-at(6); }
+        BrowserFactValue { text: root.value-at(6); }
+        BrowserFactLabel { text: root.label-at(7); }
+        BrowserFactValue { text: root.value-at(7); }
+    }
+}
+
+// Loading scan bar (`.bfe-scan`: `width: min(320px, 40%); height: 3px; background: var(--bfe-track)`).
+export component BrowserScanBar inherits Rectangle {
+    width: min(320px, 30 * Theme.vw);
+    height: 3px;
+    border-radius: 2px;
+    background: Theme.bfe-track;
+    clip: true;
+
+    Rectangle {
+        x: parent.width * 0.275;
+        y: 0px;
+        width: parent.width * 0.35;
+        height: parent.height;
+        background: Theme.bfe-accent-fill;
+    }
+}
+
+// Map preview frame + caption inside `.bfe-browser-info` (`.bfe-preview`).
+export component BrowserPreviewCard inherits VerticalLayout {
+    in property <bool> has-image: false;
+    in property <image> preview-image;
+    in property <string> caption: "";
+    spacing: 0.6 * Theme.vh;
+    alignment: center;
+
+    // The browser gives the frame `height: 0; flex: 1 1 auto; aspect-ratio: 3 / 2`, so the column is as
+    // wide as its caption and the frame fills the height left over.
+    property <length> frame-h: max(40px, root.height - caption-text.preferred-height - 0.6 * Theme.vh);
+    width: caption-text.preferred-width;
+
+    Rectangle {
+        height: root.frame-h;
+        background: Theme.preview-frame-bg;
+        border-width: Theme.bfe-preview-border.width;
+        border-color: Theme.bfe-preview-border.color;
+        border-radius: Theme.bfe-panel-radius;
+        clip: true;
+
+        if root.has-image: Image {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            source: root.preview-image;
+            image-fit: cover;
+        }
+    }
+
+    caption-text := Text {
+        text: root.caption.to-uppercase();
+        font-family: Theme.font-family;
+        font-size: min(14px, max(11px, 1.45 * Theme.vh));
+        font-weight: 800;
+        letter-spacing: 0.14 * self.font-size;
+        color: Theme.bfe-text;
+        horizontal-alignment: center;
+    }
+}
+
+// Sponsor column inside `.bfe-browser-info` (`.bfe-sponsor`).
+export component BrowserSponsorBox inherits Rectangle {
+    in property <string> sponsor-title: "";
+    in property <string> sponsor-display-link: "";
+    in property <string> sponsor-url: "";
+    in property <bool> disabled: false;
+    callback open-url(string);
+
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 1px;
+        height: parent.height;
+        background: Theme.bfe-row-line;
+    }
+
+    VerticalLayout {
+        x: 1.2 * Theme.vw;
+        y: 4px;
+        width: parent.width - self.x - 4px;
+        height: parent.height - 8px;
+        spacing: 1 * Theme.vh;
+        alignment: center;
+
+        Text {
+            // The page balances the label over two lines in its 15em column: after GENEROUSLY.
+            text: "Hosting Generously\nDonated By".to-uppercase();
+            font-family: Theme.font-family;
+            font-size: min(11px, max(10px, 1.2 * Theme.vh));
+            font-weight: 700;
+            letter-spacing: 0.18 * self.font-size;
+            color: Theme.bfe-text-faint;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+
+        if root.sponsor-title != "": Text {
+            text: root.sponsor-title;
+            font-family: Theme.font-family;
+            font-size: min(17px, max(13px, 1.8 * Theme.vh));
+            font-weight: 700;
+            letter-spacing: 0.06 * self.font-size;
+            color: Theme.bfe-text;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+
+        if root.sponsor-url != "": sponsor-link := Interaction {
+            height: 22px;
+            disabled: root.disabled;
+            activated => { root.open-url(root.sponsor-url); }
+
+            Text {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                text: root.sponsor-display-link != ""
+                    ? root.sponsor-display-link
+                    : root.sponsor-url;
+                font-family: Theme.font-family;
+                // `.bfe-sponsor-link` is a button: `.bfe-page button { font: inherit; color: inherit }`
+                // wins over its own size, weight and colour (hover restores the accent).
+                font-size: 16px;
+                font-weight: 400;
+                letter-spacing: 0.03 * self.font-size;
+                color: sponsor-link.hovered ? Theme.bfe-accent : Theme.bfe-text;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+}

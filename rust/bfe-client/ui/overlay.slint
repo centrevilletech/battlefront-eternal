@@ -23,6 +23,15 @@ import {
     BattleModalScreen
 } from "screens/battle.slint";
 import {
+    MpModel,
+    BrowserRowItem,
+    FactItem,
+    MultiplayerScreen,
+    HostDialogModal,
+    DirectConnectModal,
+    OnlineNoticeModal
+} from "screens/mp.slint";
+import {
     IaModel,
     SingleplayerScreen,
     InstantActionScreen,
@@ -43,6 +52,7 @@ export {
     BattlePauseActionModel
 } from "screens/battle.slint";
 export { IaModel } from "screens/ia.slint";
+export { MpModel, BrowserRowItem, FactItem } from "screens/mp.slint";
 
 export component GameUi inherits Window {
     background: transparent;
@@ -92,13 +102,21 @@ export component GameUi inherits Window {
     in property <string> popup-cancel-label: "";
     in property <int> popup-selected-button: 0;
 
-    out property <bool> modal-open: root.profile-editing || root.discord-offer-open || root.steam-offer-open || root.popup-open;
+    out property <bool> modal-open:
+        root.profile-editing
+        || root.discord-offer-open
+        || root.steam-offer-open
+        || root.popup-open
+        || MpModel.host-active
+        || MpModel.direct-active
+        || MpModel.notice-active;
     out property <bool> screen-ported: root.active-screen == "gate"
         || root.active-screen == "main"
         || root.active-screen == "profile"
         || root.active-screen == "sp"
         || root.active-screen == "ia"
-        || root.active-screen == "ia-era";
+        || root.active-screen == "ia-era"
+        || MpModel.browser-active;
 
     callback gate-unlocked();
     callback row-selected(int);
@@ -123,7 +141,7 @@ export component GameUi inherits Window {
         if (root.gameplay) {
             return battle-screen.controls-at(x, y);
         }
-        if (root.proof-controls && x >= panel.x && x < panel.x + panel.width && y >= panel.y && y < panel.y + panel.height) {
+        if (root.proof-controls && x >= panel.x && x < panel.width + panel.x && y >= panel.y && y < panel.y + panel.height) {
             return true;
         }
         if (!root.shell-visible) {
@@ -189,6 +207,10 @@ export component GameUi inherits Window {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
         }
 
+        MultiplayerScreen {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+        }
+
         if IaModel.loading-visible && !root.gameplay: LoadingPageOverlay {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
         }
@@ -219,18 +241,6 @@ export component GameUi inherits Window {
         background: transparent;
         opacity: root.render-pass == 1 ? 0.0 : 1.0;
 
-        if root.shell-visible && !root.gameplay && root.popup-open: ShellPopupModal {
-            x: 0px; y: 0px; width: parent.width; height: parent.height;
-            message: root.popup-message;
-            accept-label: root.popup-accept-label;
-            middle-label: root.popup-middle-label;
-            cancel-label: root.popup-cancel-label;
-            selected-button: root.popup-selected-button;
-            accepted => { root.popup-button-activated(0); }
-            middle-activated => { root.popup-button-activated(1); }
-            cancelled => { root.popup-button-activated(root.popup-middle-label != "" ? 2 : 1); }
-        }
-
         // Profile callsign editor modal (always mounted so focus-profile-input() works when opened).
         profile-modal := ProfileModal {
             visible: root.shell-visible && !root.gameplay && root.profile-editing;
@@ -258,6 +268,30 @@ export component GameUi inherits Window {
             selected-button: root.steam-selected-button;
             declined => { root.steam-declined(); }
             accepted => { root.steam-accepted(); }
+        }
+
+        HostDialogModal {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+        }
+
+        DirectConnectModal {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+        }
+
+        OnlineNoticeModal {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+        }
+
+        if root.shell-visible && !root.gameplay && root.popup-open: ShellPopupModal {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            message: root.popup-message;
+            accept-label: root.popup-accept-label;
+            middle-label: root.popup-middle-label;
+            cancel-label: root.popup-cancel-label;
+            selected-button: root.popup-selected-button;
+            accepted => { root.popup-button-activated(0); }
+            middle-activated => { root.popup-button-activated(1); }
+            cancelled => { root.popup-button-activated(root.popup-middle-label != "" ? 2 : 1); }
         }
 
         if root.gameplay : BattleModalScreen {

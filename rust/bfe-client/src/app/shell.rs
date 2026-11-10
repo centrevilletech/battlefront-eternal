@@ -177,7 +177,7 @@ pub struct LiveServerBrowser {
     /// Optional explicit `HOST:PORT` target injected from `--server` or `BFE_SERVER_TARGET`.
     server_target: Option<String>,
     /// Consent survives source changes, which reset the browser presentation state.
-    privacy_accepted: bool,
+    pub privacy_accepted: bool,
 }
 
 impl LiveServerBrowser {
@@ -200,6 +200,10 @@ impl LiveServerBrowser {
     /// Returns the explicit `--server` target (`HOST:PORT`), if configured.
     pub fn server_target(&self) -> Option<&str> {
         self.server_target.as_deref()
+    }
+
+    pub fn is_refresh_in_flight(&self) -> bool {
+        self.rx.is_some()
     }
 
     /// Starts an asynchronous refresh of either the LAN broadcast list or the Internet
@@ -484,7 +488,7 @@ pub struct ShellHost {
     movie_clock: std::time::Instant,
     pub movie_allocs_max: u64,
     movie_texture: bfe_shell::movie_gpu::MovieTexture,
-    pub(super) preview_texture: bfe_shell::movie_gpu::MovieTexture,
+    pub preview_texture: bfe_shell::movie_gpu::MovieTexture,
     /// Offscreen RGBA8 + Depth/Stencil framebuffer target.
     pub canvas: Canvas,
     /// `bfe-render` GL core owning compiled shader programs and textures.
@@ -1906,9 +1910,6 @@ impl ShellHost {
         if self.page_active() {
             match self.page.hit(x_px, y_px) {
                 Some(bfe_shell::page::Hit::Look(i)) => self.page.dropdown_cursor = i,
-                Some(bfe_shell::page::Hit::BrowserChoice(_, i)) => {
-                    self.page.browser.choice_cursor = i
-                }
                 _ => {}
             }
             if let Some(bfe_shell::page::Hit::Row(row)) = self.page.hit(x_px, y_px) {
@@ -2038,16 +2039,6 @@ impl ShellHost {
             Some(previous) == hit && time.elapsed().as_secs_f64() < 0.35
         });
         self.last_page_click = hit.map(|hit| (hit, Instant::now()));
-        if self.browser_page() {
-            if let Some(hit) = self.page.hit(x_px, y_px) {
-                if self.page_browser_hit(hit) {
-                    if double && matches!(hit, bfe_shell::page::Hit::BrowserServer(_)) {
-                        self.page_browser_hit(bfe_shell::page::Hit::BrowserFooter(3));
-                    }
-                    return self.flush_events(settings, audio_router);
-                }
-            }
-        }
         if self.page_active() {
             let was_notice = self.app.mp_needs_notice;
             use bfe_shell::page::Hit;
@@ -2057,10 +2048,6 @@ impl ShellHost {
                     self.app.settings.menu_theme = ["bf1", "bf2", "eternal"][i].into();
                     self.page.dropdown = false;
                 }
-                Some(Hit::DirectField(index)) => self.app.direct_field = index,
-                Some(Hit::Host(control)) => self.app.host_control(control),
-                Some(Hit::DirectButton(true)) => self.app.accept(&mut self.browser),
-                Some(Hit::DirectButton(false)) => self.app.back(),
                 Some(Hit::Back) => self.app.back(),
                 Some(Hit::Popup(index)) => {
                     match self.app.popup.as_mut() {

@@ -30,6 +30,9 @@ pub struct MovieTexture {
     sharpen_uniforms: [Option<glow::UniformLocation>; 3],
 }
 impl MovieTexture {
+    pub fn size(&self) -> [i32; 2] {
+        self.size
+    }
     pub fn new(gl: glow::Context) -> Result<Self, String> {
         unsafe {
             let yuv = program(&gl, include_str!("movie_shaders/yuv.glsl"))?;

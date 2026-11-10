@@ -1,19 +1,8 @@
 //! Page browser interactions dispatch to the shell's existing service and actions.
 use super::shell::ShellHost;
-use bfe_online::browser::{
-    BrowserKey, FilterUpdate, PingFilter, ServerBrowserService, SortColumn, Source,
-};
-use bfe_shell::{
-    page::Hit,
-    screens::{MultiplayerKind, ScreenId},
-};
+use bfe_online::browser::{BrowserKey, ServerBrowserService, Source};
+use bfe_shell::screens::{MultiplayerKind, ScreenId};
 impl ShellHost {
-    /// Publish the shared text editor's search draft to the browser owner.
-    pub(super) fn refresh_page_search(&mut self) {
-        let name = self.page.browser.filters.name.clone();
-        self.browser.set_filter(FilterUpdate::Name(name));
-        self.sync_page_browser();
-    }
     pub(super) fn sync_page_browser(&mut self) {
         self.app.sync_from_browser(&self.browser);
         let previous = self
@@ -55,165 +44,37 @@ impl ShellHost {
                 ScreenId::Multiplayer | ScreenId::MultiplayerList(_)
             )
     }
-    fn browser_choice(&mut self, field: usize, index: usize) {
-        let Some((value, _)) = self.page.browser.choices.get(index) else {
-            return;
-        };
-        match field {
-            0 => {
-                self.browser.set_source(if value == "lan" {
-                    Source::Lan
-                } else {
-                    Source::Internet
-                });
+    pub(super) fn browser_footer_action(&mut self, index: usize) -> bool {
+        match index {
+            0 => self.app.back(),
+            1 => {
+                self.browser.trigger_refresh();
+                self.sync_page_browser();
             }
-            2 => {
-                self.browser.set_filter(FilterUpdate::Map(value.clone()));
-            }
+            2 => self.app.push_screen(ScreenId::DirectConnect),
             3 => {
-                self.browser.set_filter(FilterUpdate::Era(value.clone()));
-            }
-            4 => {
-                self.browser.set_filter(FilterUpdate::Ping(
-                    PingFilter::from_id(value).unwrap_or_default(),
-                ));
-            }
-            _ => {}
-        }
-        self.page.browser.choice = None;
-        self.sync_page_browser();
-    }
-    pub(super) fn page_browser_hit(&mut self, hit: Hit) -> bool {
-        match hit {
-            Hit::BrowserTab(1) => {
-                self.app.request_host();
-            }
-            Hit::BrowserTab(_) => {}
-            Hit::BrowserFilter(field) => {
-                self.page.browser.search = field == 1;
-                self.page.browser.choice = None;
-                if field == 5 || field == 6 {
-                    let f = self.browser.filters();
-                    let update = if field == 5 {
-                        FilterUpdate::HideFull(!f.hide_full)
+                if let Some(server) = self.browser.selected().cloned() {
+                    let kind = if self.browser.source() == Source::Lan {
+                        MultiplayerKind::Lan
                     } else {
-                        FilterUpdate::HideEmpty(!f.hide_empty)
+                        MultiplayerKind::Online
                     };
-                    self.browser.set_filter(update);
-                    self.sync_page_browser();
-                } else if field != 1 {
-                    self.page.browser.choices = match field {
-                        0 => vec![
-                            ("internet".into(), "INTERNET".into()),
-                            ("lan".into(), "LAN".into()),
-                        ],
-                        2 => std::iter::once(("all".into(), "ALL MAPS".into()))
-                            .chain(
-                                self.app
-                                    .data
-                                    .maps
-                                    .iter()
-                                    .filter(|m| m.extracted != Some(false))
-                                    .map(|m| (m.id.clone(), m.name.clone())),
-                            )
-                            .collect(),
-                        3 => vec![
-                            ("all".into(), "ALL ERAS".into()),
-                            ("cw".into(), "CLONE WARS".into()),
-                            ("gcw".into(), "GALACTIC CIVIL WAR".into()),
-                        ],
-                        4 => PingFilter::ALL
-                            .iter()
-                            .map(|p| (p.id().into(), p.label().into()))
-                            .collect(),
-                        _ => Vec::new(),
-                    };
-                    self.page.browser.choice = Some(field);
-                    self.page.browser.choice_cursor = 0;
+                    self.app
+                        .join_browser_server(server, kind, &mut self.browser);
                 }
-            }
-            Hit::BrowserChoice(field, index) => self.browser_choice(field, index),
-            Hit::BrowserSort(index) => {
-                self.browser.sort_by(SortColumn::ALL[index]);
-                self.sync_page_browser();
-            }
-            Hit::BrowserServer(index) => {
-                if let Some(server) = self.app.mp_servers.get(index) {
-                    self.browser.select(Some(&server.id));
-                }
-                self.page.browser.focus = 0;
-                self.sync_page_browser();
-            }
-            Hit::BrowserFooter(index) => match index {
-                0 => self.app.back(),
-                1 => {
-                    self.browser.trigger_refresh();
-                    self.sync_page_browser();
-                }
-                2 => self.app.push_screen(ScreenId::DirectConnect),
-                3 => {
-                    if let Some(server) = self.browser.selected().cloned() {
-                        let kind = if self.browser.source() == Source::Lan {
-                            MultiplayerKind::Lan
-                        } else {
-                            MultiplayerKind::Online
-                        };
-                        self.app
-                            .join_browser_server(server, kind, &mut self.browser);
-                    }
-                }
-                _ => {}
-            },
-            Hit::BrowserNotice => {
-                self.app.popup = Some(bfe_shell::screens::ShellApp::online_notice());
             }
             _ => return false,
         }
         true
     }
     pub(super) fn page_browser_key(&mut self, key: &str) -> bool {
-        if let Some(field) = self.page.browser.choice {
-            let view = &mut self.page.browser;
-            let last = view.choices.len().saturating_sub(1);
-            match key {
-                "ArrowUp" => view.choice_cursor = view.choice_cursor.saturating_sub(1),
-                "ArrowDown" => view.choice_cursor = (view.choice_cursor + 1).min(last),
-                "Home" => view.choice_cursor = 0,
-                "End" => view.choice_cursor = last,
-                "Enter" | " " => {
-                    let index = view.choice_cursor;
-                    self.browser_choice(field, index);
-                }
-                "Escape" | "Tab" => view.choice = None,
-                _ => {}
-            }
-            return true;
-        }
-        if self.page.browser.search {
-            let mut value = self.browser.filters().name.clone();
-            match key {
-                "Escape" | "Enter" | "Tab" => self.page.browser.search = false,
-                "Backspace" => {
-                    value.pop();
-                }
-                k if k.chars().count() == 1 => value.push_str(k),
-                _ => {}
-            }
-            self.browser.set_filter(FilterUpdate::Name(value));
-            self.sync_page_browser();
-            return true;
-        }
         if key == "Tab" {
             self.page.browser.focus = (self.page.browser.focus + 1) % 5;
             return true;
         }
         if key == "Enter" || key == " " {
             let focus = self.page.browser.focus;
-            return self.page_browser_hit(Hit::BrowserFooter(if focus == 0 {
-                3
-            } else {
-                focus - 1
-            }));
+            return self.browser_footer_action(if focus == 0 { 3 } else { focus - 1 });
         }
         let navigation = match key {
             "ArrowUp" => Some(BrowserKey::ArrowUp),

@@ -9,10 +9,14 @@ export component PageButton inherits Interaction {
     in property <string> label;
     in property <ButtonVariant> variant: ButtonVariant.menu;
     in property <bool> highlighted: false;
+    // Dialog buttons: 13.333px in the page's own dialogs, 16px in the offer and notice dialogs.
+    in property <length> dialog-font-size: Theme.dialog-button-font-size;
+    // The ring around a highlighted dialog button (the look's value focus unless a dialog says otherwise).
+    in property <color> focus-ring-color: Theme.bfe-value-focus;
     property <bool> small: root.variant == ButtonVariant.small;
     property <bool> dialog: root.variant == ButtonVariant.dialog || root.variant == ButtonVariant.accept;
     property <bool> lit: (!root.dialog && (root.active || root.highlighted)) || root.variant == ButtonVariant.accept;
-    property <length> size: root.dialog ? 16px : root.small ? Theme.button-small-font-size : Theme.button-font-size;
+    property <length> size: root.dialog ? root.dialog-font-size : root.small ? Theme.button-small-font-size : Theme.button-font-size;
     property <length> pad-x: root.dialog ? Theme.dialog-button-pad-x : 1.4 * root.size;
     preferred-height: root.dialog ? 43px : root.small ? Theme.button-small-height : Theme.button-height;
     height: self.preferred-height;
@@ -28,7 +32,7 @@ export component PageButton inherits Interaction {
         height: parent.height + 12px;
         background: transparent;
         border-width: 3px;
-        border-color: Theme.bfe-value-focus;
+        border-color: root.focus-ring-color;
         border-radius: Theme.bfe-dialog-button-radius + 3px;
     }
     skin := Surface {

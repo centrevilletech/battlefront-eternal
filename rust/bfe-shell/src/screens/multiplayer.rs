@@ -40,6 +40,9 @@ pub const GAME_PICKER_OPTIONS: [(GameFamily, &str, bool); 2] = [
     (GameFamily::Swbf2, "BATTLEFRONT II (2005), PLANNED", false),
 ];
 
+/// Default operator name displayed in the online privacy notice (`src/shell/online-notice.js`).
+pub const ONLINE_NOTICE_OPERATOR: &str = "Josh Lambert";
+
 /// Source kind for a multiplayer session (`"LAN"` or `"ONLINE"`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MultiplayerKind {
@@ -582,7 +585,17 @@ impl ShellApp {
 
     /// The review action can always reopen a dismissed notice without accepting it.
     pub fn online_notice() -> PopupState {
-        PopupState::OnlineNotice { message: "Before you play online\n\nOnline services are operated by the directory operator.\n\nThe service sees your IP address and public player identity. Reports are retained for 30 days. TURN relay traffic is forwarded.\n\nAccept to contact https://online.battlefronteternal.com. Your choice is saved on this computer.".into(), selected_accept: false }
+        Self::online_notice_for(&bfe_online::resolve_master_url())
+    }
+
+    /// Builds the online privacy notice popup for `master_url` (`src/shell/online-notice.js`).
+    pub fn online_notice_for(master_url: &str) -> PopupState {
+        PopupState::OnlineNotice {
+            message: format!(
+                "Before you play online\n\nOnline services are operated by {ONLINE_NOTICE_OPERATOR}.\n\nThe service sees your IP address and public player identity. Reports are retained for 30 days. TURN relay traffic is forwarded.\n\nAccept to contact {master_url}. Your choice is saved on this computer."
+            ),
+            selected_accept: false,
+        }
     }
 
     /// Adds the currently highlighted map in `AVAILABLE MAPS` to `SELECTED MAPS`

@@ -87,6 +87,16 @@ export global Theme {
     out property <length> dialog-input-font-size: 16px;
     out property <length> dialog-input-pad-x: 10px;
     out property <length> dialog-button-pad-x: 18px;
+    // Buttons of the page's dialogs sit outside `.bfe-page`, so `font: inherit` does not reach them
+    // and they keep the browser's 13.333px default (`html[data-bfe-theme] dialog button`).
+    out property <length> dialog-button-font-size: 13.333px;
+    // The online notice (`online-notice.js`) hard-codes its eyebrow (#94cce9) and focus ring (#7bdbff).
+    // The Discord and Steam offers (`integrations.js`) use `var(--bfe-note, #94cce9)` and
+    // `var(--bfe-value-focus, #7bdbff)`, and those variables reach them, so they take the look's tokens.
+    // `.error` is `#ffb7a8` in both.
+    out property <color> notice-eyebrow: #94cce9;
+    out property <color> notice-focus-ring: #7bdbff;
+    out property <color> offer-error: #ffb7a8;
     out property <length> button-small-min-width: min(200px, max(120px, 11 * self.vw));
     out property <color> page-theme-label: rgba(255, 255, 255, 0.7);
     out property <color> page-theme-select-bg: rgba(8, 10, 16, 0.78);
@@ -96,6 +106,15 @@ export global Theme {
     out property <length> page-theme-select-radius: 4px;
     out property <length> page-theme-select-font-size: 13px;
     out property <color> bfe-overlay: self.bf1 ? rgba(4, 16, 46, 0.5) : self.bf2 ? rgba(8, 20, 42, 0.5) : rgba(3, 4, 7, 0.52);
+    out property <brush> browser-head-bg: self.bf2 ? @linear-gradient(180deg, #59616b 0%, #3d434b 50%, #2b3036 100%) : self.bfe-accent-fill;
+    out property <color> browser-head-ink: self.bf2 ? #ffffff : self.bfe-accent-ink;
+    out property <color> browser-head-rule: #b31d12;
+    out property <color> ping-bar-q4: #5fe08a;
+    out property <color> ping-bar-q3: #b5e05f;
+    out property <color> ping-bar-q2: #ffc24a;
+    out property <color> ping-bar-q1: #ff6a5a;
+    out property <color> tag-warn-ink: #ff8a7a;
+    out property <color> preview-frame-bg: rgba(0, 0, 0, 0.55);
 
     // Responsive layout from style.js. Lengths are logical pixels, so the
     // same viewport contract covers both compositor scale factors.

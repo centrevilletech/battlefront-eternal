@@ -80,6 +80,7 @@ mod slint_battle;
 mod slint_ia;
 mod slint_models;
 mod slint_ui;
+mod slint_mp;
 pub mod script;
 pub mod settings;
 pub mod shell;
@@ -498,31 +499,6 @@ impl StandaloneWindowApp {
 
     fn text_field(&mut self) -> Option<(&'static str, &mut String, usize)> {
         match &mut self.state {
-            AppState::Shell => {
-                let shell = self.shell.as_mut()?;
-                if shell.browser_page() && shell.page.browser.search {
-                    return Some(("browser-search", &mut shell.page.browser.filters.name, 255));
-                }
-                let app = &mut shell.app;
-                if app.popup.is_some() {
-                    return None;
-                }
-                if app.current_screen() == ScreenId::DirectConnect {
-                    return if app.direct_field == 1 {
-                        Some(("direct-port", &mut app.direct_port_draft, 5))
-                    } else {
-                        Some(("direct-address", &mut app.direct_connect_draft, 255))
-                    };
-                }
-                if app.current_screen() == ScreenId::HostDialog {
-                    return match app.host_form.focus {
-                        0 => Some(("host-name", &mut app.host_config.server_name, 80)),
-                        4 => Some(("host-players", &mut app.host_form.players, 2)),
-                        _ => None,
-                    };
-                }
-                None
-            }
             AppState::Battle(battle) if battle.chat.is_open() => Some((
                 "chat",
                 &mut battle.chat.draft,
@@ -544,16 +520,7 @@ impl StandaloneWindowApp {
         self.refresh_text_field();
     }
 
-    fn refresh_text_field(&mut self) {
-        if let Some(shell) = &mut self.shell {
-            if shell.browser_page() && shell.page.browser.search {
-                shell.refresh_page_search();
-            }
-            if shell.app.current_screen() == ScreenId::HostDialog {
-                shell.app.rebuild_cached_rows();
-            }
-        }
-    }
+    fn refresh_text_field(&mut self) {}
 
     fn edit_key(&mut self, event: &winit::event::KeyEvent) -> bool {
         let Some(key) = map_shell_key(&event.logical_key) else {

@@ -6,9 +6,14 @@ export component PageTab inherits Interaction {
     in property <string> label;
     in property <string> badge;
     in property <bool> selected-tab: false;
+    property <color> text-color: root.selected-tab ? Theme.bfe-tab-active-ink : Theme.bfe-text;
+    property <length> badge-font-size: 0.7 * Theme.tab-font-size;
+    property <length> badge-pad-x: 0.45 * root.badge-font-size;
+    property <length> badge-w: root.badge == "" ? 0px : badge-text.preferred-width + 2 * root.badge-pad-x;
+    property <length> badge-gap: root.badge == "" ? 0px : 0.8 * Theme.tab-font-size;
     preferred-height: (1.5625 + 1.5) * Theme.tab-font-size;
     height: self.preferred-height;
-    preferred-width: text.preferred-width + 3.6 * Theme.tab-font-size;
+    preferred-width: text.preferred-width + root.badge-gap + root.badge-w + 3.6 * Theme.tab-font-size;
     opacity: root.visual-state == ControlState.disabled ? Theme.tab-disabled-opacity : 1;
     accessible-role: tab;
     accessible-label: root.label;
@@ -22,19 +27,43 @@ export component PageTab inherits Interaction {
             color: root.visual-state == ControlState.focused ? Theme.bfe-accent : #23272d };
     }
     text := Text {
-        x: 0px; y: 0px; width: parent.width; height: parent.height;
-        text: Theme.format-label(root.label, !Theme.bf2) + (root.badge == "" ? "" : "  " + root.badge);
+        x: root.badge == "" ? 0px : (parent.width - (self.preferred-width + root.badge-gap + root.badge-w)) / 2;
+        y: 0px;
+        width: root.badge == "" ? parent.width : self.preferred-width;
+        height: parent.height;
+        text: Theme.format-label(root.label, !Theme.bf2);
         font-family: Theme.font-family;
         font-size: Theme.tab-font-size;
         font-weight: 400;
         letter-spacing: 0.16 * self.font-size;
-        color: root.selected-tab ? Theme.bfe-tab-active-ink : Theme.bfe-text;
+        color: root.text-color;
         horizontal-alignment: center;
         vertical-alignment: center;
         overflow: elide;
         stroke: Theme.bf2 ? #111 : transparent;
         stroke-width: Theme.bf2 ? 1px : 0px;
         stroke-style: outside;
+    }
+    badge-box := Rectangle {
+        visible: root.badge != "";
+        x: text.x + text.preferred-width + root.badge-gap;
+        y: (parent.height - self.height) / 2;
+        width: root.badge-w;
+        height: 1.55 * root.badge-font-size;
+        border-width: 1px;
+        border-color: root.text-color;
+        opacity: 0.8;
+        badge-text := Text {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            text: Theme.format-label(root.badge, true);
+            font-family: Theme.font-family;
+            font-size: root.badge-font-size;
+            font-weight: 600;
+            letter-spacing: 0.12 * self.font-size;
+            color: root.text-color;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
     }
 }
 

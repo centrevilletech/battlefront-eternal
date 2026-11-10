@@ -11,11 +11,13 @@ import { BackdropMovies, PreviewFrame } from "components/media.slint";
 import { PageScrim, PageDim, PagePattern } from "components/scrim.slint";
 import { ScreenFrame, ScreenLayout } from "components/screen-frame.slint";
 import { Surface } from "components/surface.slint";
+import { FlagCodeBadge, PingSignalBars } from "components/mp-browser.slint";
 import { BattleObjectivesCard } from "components/battle-widgets.slint";
 import { IaModel, SingleplayerScreen, InstantActionScreen, InstantActionEraScreen, LoadingPageOverlay } from "screens/ia.slint";
 export { Theme, MenuSound, ControlState, Pattern, MovieFilter } from "theme.slint";
 export { ListEntry } from "components/list.slint";
 export { MenuRowItem } from "screens/main.slint";
+export { BrowserRowItem, FactItem } from "components/mp-browser.slint";
 export { IaModel, SingleplayerScreen, InstantActionScreen, InstantActionEraScreen, LoadingPageOverlay } from "screens/ia.slint";
 export {
     BattleModel,
@@ -119,6 +121,8 @@ export component ComponentGallery inherits Window {
                     padding-top: 8px; padding-left: 14px; spacing: 24px;
                     PageToggle { label: "HIDE FULL"; checked: true; }
                     PageToggle { label: "HIDE EMPTY"; checked: false; }
+                    PingSignalBars { bars: 4; }
+                    FlagCodeBadge { code: "US"; }
                 }
                 PageText { role: TextRole.note; text: "THE BATTLE ALWAYS RUNS AT 60 HZ"; }
             }

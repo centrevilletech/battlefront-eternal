@@ -1,0 +1,1293 @@
+// Multiplayer screens port (`src/shell/server-browser.js`, `src/shell/server-browser-view.js`,
+// `src/shell/host-dialog.js`, `src/shell/direct-connect.js`, `src/shell/online-notice.js`).
+//
+// Uses only `bfe-ui` components (`Surface`, `PageTitle`, `PageBrand`, `TabStrip`, `PageTab`,
+// `InputField`, `SelectField`, `PageToggle`, `PageButton`, `ButtonVariant`, `OfferDialog`,
+// `BackdropMovies`, `Interaction`, `BrowserColHeader`, `BrowserHeaderBar`, `BrowserServerRow`,
+// `BrowserFactsGrid`, `BrowserScanBar`, `BrowserPreviewCard`, `BrowserSponsorBox`) and
+// `Theme` tokens (`rust/bfe-ui/ui/theme.slint`).
+import { Theme, ControlState, MenuSound } from "../theme.slint";
+import { Surface } from "../components/surface.slint";
+import { Interaction } from "../components/interaction.slint";
+import { PageText, PageTitle, PageBrand, TextRole } from "../components/typography.slint";
+import { PageButton, ButtonVariant } from "../components/button.slint";
+import { TabStrip, PageTab } from "../components/tab.slint";
+import { InputField, SelectField } from "../components/field.slint";
+import { PageToggle } from "../components/option-row.slint";
+import { OfferDialog } from "../components/dialog.slint";
+import { BackdropMovies } from "../components/media.slint";
+import {
+    BrowserRowItem,
+    FactItem,
+    BrowserColHeader,
+    BrowserHeaderBar,
+    BrowserServerRow,
+    BrowserFactsGrid,
+    BrowserScanBar,
+    BrowserPreviewCard,
+    BrowserSponsorBox,
+} from "../components/mp-browser.slint";
+
+export { BrowserRowItem, FactItem } from "../components/mp-browser.slint";
+
+// Shared multiplayer screen state and callbacks owned by the `screens-mp` lane.
+// Read and written from Rust via `ui.global::<MpModel>()`.
+export global MpModel {
+    // Server browser state
+    in property <bool> browser-active: false;
+    in property <bool> modal-open: false;
+    in property <[string]> source-options: ["INTERNET", "LAN"];
+    in-out property <int> source-index: 0;
+    in-out property <string> search-value: "";
+    in property <[string]> map-options: ["ALL MAPS"];
+    in-out property <int> map-index: 0;
+    in property <[string]> era-options: ["ALL ERAS", "CLONE WARS", "GALACTIC CIVIL WAR"];
+    in-out property <int> era-index: 0;
+    in property <[string]> ping-options: ["ANY PING", "UNDER 50 MS", "UNDER 100 MS", "UNDER 150 MS"];
+    in-out property <int> ping-index: 0;
+    in-out property <bool> hide-full: false;
+    in-out property <bool> hide-empty: false;
+    in property <bool> is-filtered: false;
+    in property <int> sort-column: 5;
+    in property <int> sort-dir: 1;
+    in property <string> browser-state: "ready";
+    in property <string> browser-error: "";
+    in property <[BrowserRowItem]> server-rows: [];
+    in property <int> selected-row-index: -1;
+    in property <string> count-label: "0 SERVERS  \u{00b7}  0 PLAYERS";
+    in property <string> updated-label: "UPDATED JUST NOW";
+    in property <bool> has-selected-server: false;
+    in property <image> preview-image;
+    in property <bool> has-preview-image: false;
+    in property <string> preview-caption: "";
+    in property <string> info-name: "";
+    in property <string> info-description: "";
+    in property <[string]> info-chips: [];
+    in property <[FactItem]> info-facts: [];
+    in property <string> info-country: "";
+    in property <bool> info-has-sponsor: false;
+    in property <string> info-sponsor-title: "";
+    in property <string> info-sponsor-display-link: "";
+    in property <string> info-sponsor-url: "";
+    in property <bool> join-enabled: false;
+    in property <int> footer-focus: 0;
+
+    // Host dialog state
+    in property <bool> host-active: false;
+    in-out property <string> host-name: "My Battlefront server";
+    in property <[string]> host-visibility-options: [
+        "LAN only",
+        "Public online",
+    ];
+    in-out property <int> host-visibility-index: 0;
+    in property <[string]> host-map-options: ["Naboo: Theed"];
+    in-out property <int> host-map-index: 0;
+    in property <[string]> host-side-options: ["Republic", "CIS", "Alliance", "Empire"];
+    in-out property <int> host-side-index: 0;
+    in-out property <string> host-players: "8";
+    in property <int> max-team-size: 32;
+    in property <[string]> host-connection-options: ["Automatic", "Relay only", "Direct only"];
+    in-out property <int> host-connection-index: 0;
+    in property <string> host-status-text: "Hosting uses this computer and your imported game. It keeps running when minimized.";
+    in property <bool> host-status-error: false;
+    in property <bool> host-busy: false;
+    in property <int> host-focus: 0;
+
+    // Direct connection dialog state
+    in property <bool> direct-active: false;
+    in-out property <string> direct-address: "";
+    in-out property <string> direct-port: "18451";
+    in property <string> direct-status-text: "";
+    in property <bool> direct-status-error: false;
+    in property <int> direct-focus: 0;
+
+    // Online privacy notice state
+    in property <bool> notice-active: false;
+    in property <int> notice-selected: 0;
+    in property <[string]> notice-paragraphs: [];
+    in property <string> notice-version: "";
+    in property <string> notice-status-text: "";
+    in property <bool> notice-status-error: false;
+    in property <bool> notice-busy: false;
+
+    // Focus tracking for Rust keyboard pass-through
+    in-out property <bool> search-focused: false;
+    in-out property <bool> host-name-focused: false;
+    in-out property <bool> host-players-focused: false;
+    in-out property <bool> direct-addr-focused: false;
+    in-out property <bool> direct-port-focused: false;
+    out property <bool> any-input-focused:
+        (root.browser-active && root.search-focused)
+        || (root.host-active && (root.host-name-focused || root.host-players-focused))
+        || (root.direct-active && (root.direct-addr-focused || root.direct-port-focused));
+
+    // Callbacks to Rust
+    callback tab-create();
+    callback source-selected(int);
+    callback search-edited(string);
+    callback search-submitted(string);
+    callback map-selected(int);
+    callback era-selected(int);
+    callback ping-selected(int);
+    callback toggle-hide-full();
+    callback toggle-hide-empty();
+    callback sort-by(int);
+    callback row-selected(int);
+    callback row-double-clicked(int);
+    callback review-notice();
+    callback refresh();
+    callback direct-connect();
+    callback join-selected();
+    callback back();
+    callback open-sponsor-url(string);
+
+    callback host-name-edited(string);
+    callback host-visibility-selected(int);
+    callback host-map-selected(int);
+    callback host-side-selected(int);
+    callback host-players-edited(string);
+    callback host-connection-selected(int);
+    callback host-submit();
+    callback host-close();
+
+    callback direct-address-edited(string);
+    callback direct-port-edited(string);
+    callback direct-submit();
+    callback direct-cancel();
+
+    callback notice-accept(string);
+    callback notice-decline();
+}
+
+// Full-screen Multiplayer Server Browser (`ScreenId::Multiplayer` and `ScreenId::MultiplayerList(_)`).
+export component MultiplayerScreen inherits Rectangle {
+    visible: MpModel.browser-active;
+
+    property <bool> search-has-focus: search-input.focused;
+    changed search-has-focus => {
+        MpModel.search-focused = self.search-has-focus;
+    }
+
+    // `.bfe-screen[data-screen="mp"] { padding-top: 5vh; }`
+    property <length> pad-top: 5 * Theme.vh;
+    property <length> pad-bottom: 6 * Theme.vh + max(34px, min(46px, 4.6 * Theme.vh));
+    property <length> pad-side: Theme.bfe-edge;
+    property <length> inner-w: Theme.bfe-frame;
+
+    // Header column geometry matching `BrowserServerRow` (`padding: 0 1.1vw; column-gap: 1vw`)
+    property <length> head-pad-x: 1.1 * Theme.vw;
+    property <length> col-gap: 1.0 * Theme.vw;
+    property <length> avail-w: max(1px, root.inner-w - 2 * root.head-pad-x - 6 * root.col-gap);
+    property <length> w-name: root.avail-w * (3.1 / 10.7);
+    property <length> w-players: root.avail-w * (0.95 / 10.7);
+    property <length> w-map: root.avail-w * (1.9 / 10.7);
+    property <length> w-mode: root.avail-w * (1.0 / 10.7);
+    property <length> w-era: root.avail-w * (1.55 / 10.7);
+    property <length> w-ping: root.avail-w * (0.85 / 10.7);
+    property <length> w-loc: root.avail-w * (1.35 / 10.7);
+
+    // 1. Backdrop movies come from the native GL underlay (same pattern as MainMenuScreen/ProfileScreen)
+    BackdropMovies {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        use-underlay: true;
+    }
+
+    // 2. Top-left small BATTLEFRONT ETERNAL wordmark (`PageBrand`)
+    PageBrand {
+        x: Theme.bfe-edge;
+        y: 2.6 * Theme.vh + 9px;
+    }
+
+    // 3. Centred `MULTIPLAYER` title (`.bfe-screen[data-screen="mp"] .bfe-screen-head { margin-bottom: 1.2vh; }`)
+    heading := PageTitle {
+        x: (root.width - self.width) / 2;
+        y: root.pad-top;
+        title: "MULTIPLAYER";
+    }
+
+    // 4. Main wide browser body (`.bfe-screen-body { gap: 1vh; }`, `.bfe-browser { gap: 1vh; }`)
+    property <length> head-gap: 1.2 * Theme.vh;
+    property <length> v-gap: 1.0 * Theme.vh;
+    property <length> footer-h: Theme.button-small-height;
+    property <length> footer-top: root.height - Theme.footer-bottom - root.footer-h;
+    property <length> body-bottom: root.height - root.pad-bottom;
+
+    // Top mode tabs: JOIN (active), CREATE, LEADERBOARD PLANNED (disabled)
+    tabs := TabStrip {
+        x: root.pad-side;
+        y: heading.y + heading.height + root.head-gap;
+        width: root.inner-w;
+
+        PageTab {
+            label: "JOIN";
+            selected-tab: true;
+            disabled: MpModel.modal-open;
+        }
+
+        PageTab {
+            label: "CREATE";
+            selected-tab: false;
+            disabled: MpModel.modal-open;
+            activated => { MpModel.tab-create(); }
+        }
+
+        PageTab {
+            label: "LEADERBOARD";
+            badge: "PLANNED";
+            selected-tab: false;
+            disabled: true;
+        }
+    }
+
+    // Filter bar (`.bfe-browser-bar`, `Surface { chamfer: 0px; }`)
+    property <length> bar-y: tabs.y + tabs.height + root.v-gap;
+    property <length> bar-pad-x: 0.9 * Theme.vw;
+    property <length> bar-pad-y: 0.9 * Theme.vh;
+    property <length> ctrl-h: Theme.field-height;
+    property <length> bar-h: root.ctrl-h + 2 * root.bar-pad-y;
+    property <length> filters-y: root.bar-y + root.bar-pad-y;
+
+    Surface {
+        x: root.pad-side;
+        y: root.bar-y;
+        width: root.inner-w;
+        height: root.bar-h;
+        chamfer: 0px;
+    }
+
+    // Controls inside the filter bar (`SEARCH SERVERS`, `HIDE FULL`, `HIDE EMPTY`)
+    property <length> source-x: root.pad-side + root.bar-pad-x;
+    property <length> source-w: 115px;
+    property <length> filter-gap: 0.8 * Theme.vw;
+    property <length> map-w: 180px;
+    property <length> era-w: 164px;
+    property <length> ping-w: 128px;
+    property <length> toggle-full-w: full-toggle.preferred-width;
+    property <length> toggle-empty-w: empty-toggle.preferred-width;
+    property <length> search-x: root.source-x + root.source-w + root.filter-gap;
+    property <length> search-w: max(
+        110px,
+        root.inner-w - 2 * root.bar-pad-x - root.source-w - root.map-w - root.era-w - root.ping-w - root.toggle-full-w - root.toggle-empty-w - 6 * root.filter-gap
+    );
+    property <length> map-x: root.search-x + root.search-w + root.filter-gap;
+    property <length> era-x: root.map-x + root.map-w + root.filter-gap;
+    property <length> ping-x: root.era-x + root.era-w + root.filter-gap;
+    property <length> full-x: root.ping-x + root.ping-w + root.filter-gap;
+    property <length> empty-x: root.full-x + root.toggle-full-w + root.filter-gap;
+
+    search-input := InputField {
+        x: root.search-x;
+        y: root.filters-y;
+        width: root.search-w;
+        height: root.ctrl-h;
+        font-size: Theme.field-font-size;
+        text <=> MpModel.search-value;
+        placeholder: "SEARCH SERVERS";
+        disabled: MpModel.modal-open;
+        edited(val) => { MpModel.search-edited(val); }
+        accepted(val) => { MpModel.search-submitted(val); }
+    }
+
+    // The page's search input shows the browser's clear button once it holds text.
+    if MpModel.search-value != "": search-clear := Interaction {
+        x: root.search-x + root.search-w - 26px;
+        y: root.filters-y;
+        width: 22px;
+        height: root.ctrl-h;
+        disabled: MpModel.modal-open;
+        activated => {
+            MpModel.search-value = "";
+            MpModel.search-edited("");
+        }
+        Text {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            text: "\u{00d7}";
+            font-family: Theme.font-family;
+            font-size: 18px;
+            font-weight: 700;
+            color: search-clear.hovered ? Theme.bfe-text : Theme.bfe-text-dim;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    full-toggle := PageToggle {
+        x: root.full-x;
+        y: root.filters-y;
+        width: root.toggle-full-w;
+        height: root.ctrl-h;
+        label: "HIDE FULL";
+        checked <=> MpModel.hide-full;
+        disabled: MpModel.modal-open;
+        toggled(val) => { MpModel.toggle-hide-full(); }
+    }
+
+    empty-toggle := PageToggle {
+        x: root.empty-x;
+        y: root.filters-y;
+        width: root.toggle-empty-w;
+        height: root.ctrl-h;
+        label: "HIDE EMPTY";
+        checked <=> MpModel.hide-empty;
+        disabled: MpModel.modal-open;
+        toggled(val) => { MpModel.toggle-hide-empty(); }
+    }
+
+    // Layout geometry for server table, status line, and GAME INFO inspector
+    // (`.bfe-browser-info { height: clamp(160px, 26vh, 300px); }`)
+    property <length> table-y: root.bar-y + root.bar-h + root.v-gap;
+    property <length> info-h: min(300px, max(160px, 26 * Theme.vh));
+    property <length> info-y: root.body-bottom - root.info-h;
+    property <length> status-h: 16px;
+    property <length> status-y: root.info-y - root.v-gap - root.status-h;
+    property <length> table-h: max(120px, root.status-y - root.v-gap - root.table-y);
+    property <length> row-h: min(40px, max(28px, 3.7 * Theme.vh));
+    property <length> row-pitch: root.row-h + 2px;
+
+    // 5. Server table (`.bfe-browser-table`)
+    Surface {
+        x: root.pad-side;
+        y: root.table-y;
+        width: root.inner-w;
+        height: root.table-h;
+        chamfer: 0px;
+        clip: true;
+
+        // Sortable 7-column header bar (`.bfe-browser-head`)
+        table-head := BrowserHeaderBar {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            label: "";
+
+            HorizontalLayout {
+                x: root.head-pad-x;
+                y: 0px;
+                width: parent.width - 2 * root.head-pad-x;
+                height: parent.height;
+                spacing: root.col-gap;
+
+                BrowserColHeader {
+                    width: root.w-name;
+                    label: "GAME NAME";
+                    sorted: MpModel.sort-column == 0;
+                    sort-dir: MpModel.sort-dir;
+                    disabled: MpModel.modal-open;
+                    activated => { MpModel.sort-by(0); }
+                }
+
+                BrowserColHeader {
+                    width: root.w-players;
+                    label: "PLAYERS";
+                    sorted: MpModel.sort-column == 1;
+                    sort-dir: MpModel.sort-dir;
+                    disabled: MpModel.modal-open;
+                    activated => { MpModel.sort-by(1); }
+                }
+
+                BrowserColHeader {
+                    width: root.w-map;
+                    label: "MAP";
+                    sorted: MpModel.sort-column == 2;
+                    sort-dir: MpModel.sort-dir;
+                    disabled: MpModel.modal-open;
+                    activated => { MpModel.sort-by(2); }
+                }
+
+                BrowserColHeader {
+                    width: root.w-mode;
+                    label: "MODE";
+                    sorted: MpModel.sort-column == 3;
+                    sort-dir: MpModel.sort-dir;
+                    disabled: MpModel.modal-open;
+                    activated => { MpModel.sort-by(3); }
+                }
+
+                BrowserColHeader {
+                    width: root.w-era;
+                    label: "ERA";
+                    sorted: MpModel.sort-column == 4;
+                    sort-dir: MpModel.sort-dir;
+                    disabled: MpModel.modal-open;
+                    activated => { MpModel.sort-by(4); }
+                }
+
+                BrowserColHeader {
+                    width: root.w-ping;
+                    label: "PING";
+                    sorted: MpModel.sort-column == 5;
+                    sort-dir: MpModel.sort-dir;
+                    disabled: MpModel.modal-open;
+                    activated => { MpModel.sort-by(5); }
+                }
+
+                BrowserColHeader {
+                    width: root.w-loc;
+                    label: "LOCATION";
+                    sorted: MpModel.sort-column == 6;
+                    sort-dir: MpModel.sort-dir;
+                    disabled: MpModel.modal-open;
+                    activated => { MpModel.sort-by(6); }
+                }
+            }
+        }
+
+        // Server rows list (`overflow-y: auto; padding: .4vh .3vw`) or empty/loading/error/notice state
+        Rectangle {
+            x: 0.3 * Theme.vw;
+            y: table-head.height + 0.4 * Theme.vh;
+            width: parent.width - 0.6 * Theme.vw;
+            height: max(0px, parent.height - table-head.height - 0.8 * Theme.vh);
+            clip: true;
+
+            if MpModel.server-rows.length > 0 && MpModel.browser-state == "ready": Flickable {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                content-width: self.width;
+                content-height: 2px + MpModel.server-rows.length * root.row-pitch;
+
+                for row[idx] in MpModel.server-rows: BrowserServerRow {
+                    x: 0px;
+                    y: 2px + idx * root.row-pitch;
+                    width: parent.width;
+                    item: row;
+                    selected-row: idx == MpModel.selected-row-index;
+                    browser-focused: MpModel.footer-focus == 0 && !MpModel.modal-open;
+                    disabled: MpModel.modal-open;
+                    picked => { MpModel.row-selected(idx); }
+                    double-clicked => { MpModel.row-double-clicked(idx); }
+                }
+            }
+
+            if MpModel.server-rows.length == 0 || MpModel.browser-state != "ready": VerticalLayout {
+                x: 24px;
+                y: 0px;
+                width: parent.width - 48px;
+                height: parent.height;
+                alignment: center;
+                spacing: 1.2 * Theme.vh;
+
+                if MpModel.browser-state == "loading": VerticalLayout {
+                    alignment: center;
+                    spacing: 1.2 * Theme.vh;
+
+                    HorizontalLayout {
+                        alignment: center;
+                        BrowserScanBar {}
+                    }
+
+                    Text {
+                        text: MpModel.source-index == 1
+                            ? "LOOKING FOR SERVERS ON YOUR NETWORK\u{2026}"
+                            : "SEARCHING FOR SERVERS\u{2026}";
+                        font-family: Theme.font-family;
+                        font-size: min(17px, max(13px, 1.8 * Theme.vh));
+                        font-weight: 800;
+                        letter-spacing: 0.16 * self.font-size;
+                        color: Theme.bfe-text-dim;
+                        horizontal-alignment: center;
+                    }
+                }
+
+                if MpModel.browser-state == "notice": VerticalLayout {
+                    alignment: center;
+                    spacing: 1.2 * Theme.vh;
+
+                    Text {
+                        text: "ONLINE PLAY NEEDS YOUR OK FIRST";
+                        font-family: Theme.font-family;
+                        font-size: min(17px, max(13px, 1.8 * Theme.vh));
+                        font-weight: 800;
+                        letter-spacing: 0.16 * self.font-size;
+                        color: Theme.bfe-text-dim;
+                        horizontal-alignment: center;
+                    }
+
+                    Text {
+                        text: "Read how the online service handles your connection, then accept to see the servers.";
+                        font-family: Theme.font-family;
+                        font-size: 13px;
+                        font-weight: 600;
+                        letter-spacing: 0.04 * self.font-size;
+                        color: Theme.bfe-text-faint;
+                        horizontal-alignment: center;
+                    }
+
+                    HorizontalLayout {
+                        alignment: center;
+                        PageButton {
+                            label: "Review notice";
+                            variant: ButtonVariant.small;
+                            disabled: MpModel.modal-open;
+                            activated => { MpModel.review-notice(); }
+                        }
+                    }
+                }
+
+                if MpModel.browser-state == "error": VerticalLayout {
+                    alignment: center;
+                    spacing: 1.2 * Theme.vh;
+
+                    Text {
+                        text: MpModel.browser-error != "" ? MpModel.browser-error : "THE SERVER LIST COULD NOT BE LOADED";
+                        font-family: Theme.font-family;
+                        font-size: min(17px, max(13px, 1.8 * Theme.vh));
+                        font-weight: 800;
+                        letter-spacing: 0.16 * self.font-size;
+                        color: Theme.bfe-text-dim;
+                        horizontal-alignment: center;
+                    }
+
+                    HorizontalLayout {
+                        alignment: center;
+                        PageButton {
+                            label: "Try again";
+                            variant: ButtonVariant.small;
+                            disabled: MpModel.modal-open;
+                            activated => { MpModel.refresh(); }
+                        }
+                    }
+                }
+
+                if MpModel.browser-state == "ready" && MpModel.server-rows.length == 0: VerticalLayout {
+                    alignment: center;
+                    spacing: 1.2 * Theme.vh;
+
+                    Text {
+                        text: MpModel.is-filtered
+                            ? "NO SERVERS MATCH THESE FILTERS"
+                            : MpModel.source-index == 1
+                                ? "NO SERVERS ON YOUR NETWORK"
+                                : "NO SERVERS ONLINE RIGHT NOW";
+                        font-family: Theme.font-family;
+                        font-size: min(17px, max(13px, 1.8 * Theme.vh));
+                        font-weight: 800;
+                        letter-spacing: 0.16 * self.font-size;
+                        color: Theme.bfe-text-dim;
+                        horizontal-alignment: center;
+                    }
+
+                    Text {
+                        text: MpModel.is-filtered
+                            ? "Clear a filter to see more."
+                            : "Host one with CREATE, or reach one by its address with DIRECT CONNECT.";
+                        font-family: Theme.font-family;
+                        font-size: 13px;
+                        font-weight: 600;
+                        letter-spacing: 0.04 * self.font-size;
+                        color: Theme.bfe-text-faint;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+
+    // 6. Status line (`.bfe-browser-status`: server/player count on left, updated timestamp on right)
+    HorizontalLayout {
+        x: root.pad-side + 0.4 * Theme.vw;
+        y: root.status-y;
+        width: root.inner-w - 0.8 * Theme.vw;
+        height: root.status-h;
+
+        Text {
+            text: MpModel.count-label.to-uppercase();
+            font-family: Theme.font-family;
+            font-size: min(13px, max(11px, 1.4 * Theme.vh));
+            font-weight: 700;
+            letter-spacing: 0.16 * self.font-size;
+            color: Theme.bfe-text-dim;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+
+        Text {
+            text: MpModel.updated-label.to-uppercase();
+            font-family: Theme.font-family;
+            font-size: min(13px, max(11px, 1.4 * Theme.vh));
+            font-weight: 700;
+            letter-spacing: 0.16 * self.font-size;
+            color: Theme.bfe-text-dim;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+        }
+    }
+
+    // 7. `GAME INFO` inspector panel (`.bfe-browser-info`)
+    Surface {
+        x: root.pad-side;
+        y: root.info-y;
+        width: root.inner-w;
+        height: root.info-h;
+        chamfer: 0px;
+        clip: true;
+
+        info-head := BrowserHeaderBar {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: min(32px, max(24px, 3.3 * Theme.vh));
+            label: "GAME INFO";
+        }
+
+        Rectangle {
+            x: 0px;
+            y: info-head.height;
+            width: parent.width;
+            height: max(0px, parent.height - info-head.height);
+
+            if !MpModel.has-selected-server: Text {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                text: "PICK A SERVER TO SEE ITS GAME INFO";
+                font-family: Theme.font-family;
+                font-size: min(17px, max(13px, 1.8 * Theme.vh));
+                font-weight: 800;
+                letter-spacing: 0.16 * self.font-size;
+                color: Theme.bfe-text-faint;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            if MpModel.has-selected-server: HorizontalLayout {
+                x: 1.2 * Theme.vw;
+                y: 1.4 * Theme.vh;
+                width: parent.width - 2 * self.x;
+                height: parent.height - 2 * self.y;
+                spacing: 1.6 * Theme.vw;
+
+                // 3:2 Map Preview Frame + caption below (`.bfe-browser-info .bfe-preview`)
+                BrowserPreviewCard {
+                    height: parent.height;
+                    has-image: MpModel.has-preview-image;
+                    preview-image: MpModel.preview-image;
+                    caption: MpModel.preview-caption;
+                }
+
+                // Details column (`.bfe-browser-details`)
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 0.7 * Theme.vh;
+                    alignment: start;
+
+                    Text {
+                        text: MpModel.info-name;
+                        font-family: Theme.font-family;
+                        font-size: min(22px, max(15px, 2.2 * Theme.vh));
+                        font-weight: 800;
+                        letter-spacing: 0.02 * self.font-size;
+                        color: Theme.bfe-text;
+                        overflow: elide;
+                    }
+
+                    if MpModel.info-description != "": Text {
+                        text: MpModel.info-description;
+                        font-family: Theme.font-family;
+                        font-size: min(15px, max(12px, 1.55 * Theme.vh));
+                        font-weight: 500;
+                        color: Theme.bfe-text-dim;
+                        overflow: elide;
+                    }
+
+                    // Chips row (`.bfe-chips` / `.bfe-chip`)
+                    if MpModel.info-chips.length > 0: HorizontalLayout {
+                        spacing: 6px;
+                        height: 22px;
+                        alignment: start;
+
+                        for chip in MpModel.info-chips: Rectangle {
+                            width: chip-txt.preferred-width + 14px;
+                            height: 20px;
+                            background: transparent;
+                            border-width: 1px;
+                            border-color: Theme.bfe-accent;
+
+                            chip-txt := Text {
+                                x: 7px; y: 0px;
+                                width: parent.width - 14px;
+                                height: parent.height;
+                                text: chip.to-uppercase();
+                                font-family: Theme.font-family;
+                                font-size: min(12px, max(10px, 1.3 * Theme.vh));
+                                font-weight: 800;
+                                letter-spacing: 0.12 * self.font-size;
+                                color: Theme.bfe-accent;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    // 3-column facts grid (`.bfe-facts`)
+                    BrowserFactsGrid {
+                        facts: MpModel.info-facts;
+                        country: MpModel.info-country;
+                    }
+                }
+
+                // Optional sponsor column (`.bfe-sponsor`)
+                if MpModel.info-has-sponsor: BrowserSponsorBox {
+                    width: 15 * 16px;
+                    height: parent.height;
+                    sponsor-title: MpModel.info-sponsor-title;
+                    sponsor-display-link: MpModel.info-sponsor-display-link;
+                    sponsor-url: MpModel.info-sponsor-url;
+                    disabled: MpModel.modal-open;
+                    open-url(url) => { MpModel.open-sponsor-url(url); }
+                }
+            }
+        }
+    }
+
+    // 8. Footer row (`grid-row: 3`, `.bfe-footer`: `BACK` left, `REFRESH` + `DIRECT CONNECT` center, `JOIN` right)
+    Rectangle {
+        x: root.pad-side;
+        y: root.footer-top;
+        width: root.inner-w;
+        height: root.footer-h;
+
+        // Left: BACK
+        PageButton {
+            x: 0px;
+            y: 0px;
+            label: "BACK";
+            variant: ButtonVariant.small;
+            accept-sound: MenuSound.back;
+            highlighted: MpModel.footer-focus == 1;
+            disabled: MpModel.modal-open;
+            activated => { MpModel.back(); }
+        }
+
+        // Center: REFRESH + DIRECT CONNECT
+        HorizontalLayout {
+            x: (parent.width - self.preferred-width) / 2;
+            y: 0px;
+            height: parent.height;
+            spacing: Theme.footer-gap;
+
+            PageButton {
+                label: "REFRESH";
+                variant: ButtonVariant.small;
+                highlighted: MpModel.footer-focus == 2;
+                disabled: MpModel.modal-open;
+                activated => { MpModel.refresh(); }
+            }
+
+            PageButton {
+                label: "DIRECT CONNECT";
+                variant: ButtonVariant.small;
+                highlighted: MpModel.footer-focus == 3;
+                disabled: MpModel.modal-open;
+                activated => { MpModel.direct-connect(); }
+            }
+        }
+
+        // Right: JOIN
+        PageButton {
+            x: parent.width - self.width;
+            y: 0px;
+            label: "JOIN";
+            variant: ButtonVariant.small;
+            highlighted: MpModel.footer-focus == 4;
+            disabled: !MpModel.join-enabled || MpModel.modal-open;
+            activated => { MpModel.join-selected(); }
+        }
+    }
+
+    // 9. Filter dropdowns placed last in tree order so their open menus paint on top of the server table.
+    SelectField {
+        x: root.source-x;
+        y: root.filters-y;
+        width: root.source-w;
+        height: root.ctrl-h;
+        font-size: Theme.field-font-size;
+        choices: MpModel.source-options;
+        current-index <=> MpModel.source-index;
+        accent-style: true;
+        disabled: MpModel.modal-open;
+        selection-changed(idx) => { MpModel.source-selected(idx); }
+    }
+
+    SelectField {
+        x: root.map-x;
+        y: root.filters-y;
+        width: root.map-w;
+        height: root.ctrl-h;
+        font-size: Theme.field-font-size;
+        choices: MpModel.map-options;
+        current-index <=> MpModel.map-index;
+        disabled: MpModel.modal-open;
+        selection-changed(idx) => { MpModel.map-selected(idx); }
+    }
+
+    SelectField {
+        x: root.era-x;
+        y: root.filters-y;
+        width: root.era-w;
+        height: root.ctrl-h;
+        font-size: Theme.field-font-size;
+        choices: MpModel.era-options;
+        current-index <=> MpModel.era-index;
+        disabled: MpModel.modal-open;
+        selection-changed(idx) => { MpModel.era-selected(idx); }
+    }
+
+    SelectField {
+        x: root.ping-x;
+        y: root.filters-y;
+        width: root.ping-w;
+        height: root.ctrl-h;
+        font-size: Theme.field-font-size;
+        choices: MpModel.ping-options;
+        current-index <=> MpModel.ping-index;
+        disabled: MpModel.modal-open;
+        selection-changed(idx) => { MpModel.ping-selected(idx); }
+    }
+}
+
+// Host Dialog (`src/shell/host-dialog.js`, `ScreenId::HostDialog`).
+// Modal overlay over the server browser when the user selects `CREATE`.
+export component HostDialogModal inherits Rectangle {
+    visible: MpModel.host-active;
+
+    property <bool> is-active: MpModel.host-active;
+    changed is-active => {
+        if self.is-active {
+            name-input.focus-at-end();
+        }
+    }
+    property <bool> name-has-focus: name-input.focused;
+    changed name-has-focus => {
+        MpModel.host-name-focused = self.name-has-focus;
+    }
+    property <bool> players-has-focus: players-input.focused;
+    changed players-has-focus => {
+        MpModel.host-players-focused = self.players-has-focus;
+    }
+
+    background: Theme.dialog-backdrop;
+
+    // Swallow background pointer events
+    TouchArea {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+    }
+
+    property <length> card-w: min(747px, root.width * 0.92);
+    property <length> card-h: min(624px, root.height * 0.94);
+    property <length> card-x: (root.width - root.card-w) / 2;
+    property <length> card-y: (root.height - root.card-h) / 2;
+    property <float> sx: (root.card-w / 1px) / 747.0;
+    property <float> sy: (root.card-h / 1px) / 624.0;
+    property <length> inner-x: 32px * root.sx;
+
+    Surface {
+        x: root.card-x;
+        y: root.card-y;
+        width: root.card-w;
+        height: root.card-h;
+        fill: Theme.bfe-dialog-bg;
+        chamfer: 0px;
+
+        // Title: HOST A BATTLE
+        Text {
+            x: root.inner-x;
+            y: 42px * root.sy;
+            text: "HOST A BATTLE";
+            font-family: Theme.font-family;
+            font-size: 24px * root.sy;
+            font-weight: 800;
+            letter-spacing: 0.06 * self.font-size;
+            color: Theme.bfe-text;
+        }
+
+        // Field 0: Server name
+        Text {
+            x: root.inner-x;
+            y: 110px * root.sy;
+            height: 44px * root.sy;
+            text: "Server name";
+            font-family: Theme.font-family;
+            font-size: 17px * root.sy;
+            font-weight: 400;
+            color: Theme.bfe-text;
+            vertical-alignment: center;
+        }
+
+        name-input := InputField {
+            x: 143px * root.sx;
+            y: 110px * root.sy;
+            width: 240px * root.sx;
+            height: 44px * root.sy;
+            text <=> MpModel.host-name;
+            disabled: MpModel.host-busy;
+            edited(val) => { MpModel.host-name-edited(val); }
+            accepted(val) => { MpModel.host-submit(); }
+        }
+
+        // Field 1: Visibility (label only; SelectField is placed at end of Surface for z-order)
+        Text {
+            x: root.inner-x;
+            y: 166px * root.sy;
+            height: 44px * root.sy;
+            text: "Visibility";
+            font-family: Theme.font-family;
+            font-size: 17px * root.sy;
+            font-weight: 400;
+            color: Theme.bfe-text;
+            vertical-alignment: center;
+        }
+
+        // Field 2: Map
+        Text {
+            x: root.inner-x;
+            y: 223px * root.sy;
+            height: 44px * root.sy;
+            text: "Map";
+            font-family: Theme.font-family;
+            font-size: 17px * root.sy;
+            font-weight: 400;
+            color: Theme.bfe-text;
+            vertical-alignment: center;
+        }
+
+        // Field 3: Side
+        Text {
+            x: root.inner-x;
+            y: 280px * root.sy;
+            height: 44px * root.sy;
+            text: "Side";
+            font-family: Theme.font-family;
+            font-size: 17px * root.sy;
+            font-weight: 400;
+            color: Theme.bfe-text;
+            vertical-alignment: center;
+        }
+
+        // Field 4: Human players (total)
+        Text {
+            x: root.inner-x;
+            y: 337px * root.sy;
+            height: 44px * root.sy;
+            text: "Human players (total)";
+            font-family: Theme.font-family;
+            font-size: 17px * root.sy;
+            font-weight: 400;
+            color: Theme.bfe-text;
+            vertical-alignment: center;
+        }
+
+        players-input := InputField {
+            x: 215px * root.sx;
+            y: 337px * root.sy;
+            width: 80px * root.sx;
+            height: 44px * root.sy;
+            text <=> MpModel.host-players;
+            disabled: MpModel.host-busy;
+            edited(val) => { MpModel.host-players-edited(val); }
+            accepted(val) => { MpModel.host-submit(); }
+        }
+
+        // Population note (`MAX_TEAM_SIZE` from `bfe_sim::battle::roster::MAX_TEAM_SIZE`)
+        Text {
+            x: root.inner-x;
+            y: 394px * root.sy;
+            width: root.card-w - 2 * root.inner-x;
+            text: "Up to " + MpModel.max-team-size + " per team, including bots. Human players replace bots.";
+            font-family: Theme.font-family;
+            font-size: 17px * root.sy;
+            font-weight: 400;
+            color: Theme.bfe-text;
+        }
+
+        // Field 5: Connection
+        Text {
+            x: root.inner-x;
+            y: 440px * root.sy;
+            height: 44px * root.sy;
+            text: "Connection";
+            font-family: Theme.font-family;
+            font-size: 17px * root.sy;
+            font-weight: 400;
+            color: Theme.bfe-text;
+            vertical-alignment: center;
+        }
+
+        // Status / error message
+        Text {
+            x: root.inner-x;
+            y: 498px * root.sy;
+            width: root.card-w - 2 * root.inner-x;
+            text: MpModel.host-status-text;
+            font-family: Theme.font-family;
+            font-size: 17px * root.sy;
+            font-weight: 400;
+            color: MpModel.host-status-error ? Theme.bfe-note : Theme.bfe-text;
+            overflow: elide;
+        }
+
+        // Action buttons (`HOST AND JOIN`, `CLOSE`)
+        HorizontalLayout {
+            x: root.inner-x;
+            y: 550px * root.sy;
+            height: 44px * root.sy;
+            spacing: 12px * root.sx;
+            alignment: start;
+
+            PageButton {
+                height: 44px * root.sy;
+                label: "HOST AND JOIN";
+                variant: ButtonVariant.accept;
+                highlighted: MpModel.host-focus == 6;
+                disabled: MpModel.host-busy;
+                activated => { MpModel.host-submit(); }
+            }
+
+            PageButton {
+                height: 44px * root.sy;
+                label: "CLOSE";
+                variant: ButtonVariant.dialog;
+                accept-sound: MenuSound.back;
+                highlighted: MpModel.host-focus == 7;
+                disabled: MpModel.host-busy;
+                activated => { MpModel.host-close(); }
+            }
+        }
+
+        // SelectFields placed last inside the card (reverse row order) so open dropdowns layer above lower rows
+        SelectField {
+            x: 132px * root.sx;
+            y: 440px * root.sy;
+            fit-widest: true;
+            height: 44px * root.sy;
+            font-size: Theme.dialog-input-font-size;
+            uppercase: false;
+            choices: MpModel.host-connection-options;
+            current-index <=> MpModel.host-connection-index;
+            disabled: MpModel.host-busy;
+            selection-changed(idx) => { MpModel.host-connection-selected(idx); }
+        }
+
+        SelectField {
+            x: 80px * root.sx;
+            y: 280px * root.sy;
+            fit-widest: true;
+            height: 44px * root.sy;
+            font-size: Theme.dialog-input-font-size;
+            uppercase: false;
+            choices: MpModel.host-side-options;
+            current-index <=> MpModel.host-side-index;
+            disabled: MpModel.host-busy;
+            selection-changed(idx) => { MpModel.host-side-selected(idx); }
+        }
+
+        SelectField {
+            x: 80px * root.sx;
+            y: 223px * root.sy;
+            fit-widest: true;
+            height: 44px * root.sy;
+            font-size: Theme.dialog-input-font-size;
+            uppercase: false;
+            choices: MpModel.host-map-options;
+            current-index <=> MpModel.host-map-index;
+            disabled: MpModel.host-busy;
+            selection-changed(idx) => { MpModel.host-map-selected(idx); }
+        }
+
+        SelectField {
+            x: 112px * root.sx;
+            y: 166px * root.sy;
+            fit-widest: true;
+            height: 44px * root.sy;
+            font-size: Theme.dialog-input-font-size;
+            uppercase: false;
+            choices: MpModel.host-visibility-options;
+            current-index <=> MpModel.host-visibility-index;
+            disabled: MpModel.host-busy;
+            selection-changed(idx) => { MpModel.host-visibility-selected(idx); }
+        }
+    }
+}
+
+// Direct Connection Dialog (`src/shell/direct-connect.js`, `ScreenId::DirectConnect`).
+export component DirectConnectModal inherits Rectangle {
+    visible: MpModel.direct-active;
+
+    property <bool> is-active: MpModel.direct-active;
+    changed is-active => {
+        if self.is-active {
+            addr-input.focus-and-select();
+        }
+    }
+    property <bool> addr-has-focus: addr-input.focused;
+    changed addr-has-focus => {
+        MpModel.direct-addr-focused = self.addr-has-focus;
+    }
+    property <bool> port-has-focus: port-input.focused;
+    changed port-has-focus => {
+        MpModel.direct-port-focused = self.port-has-focus;
+    }
+
+    background: Theme.dialog-backdrop;
+
+    TouchArea {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+    }
+
+    property <length> card-w: min(688px, root.width * 0.92);
+    property <length> card-h: 257px;
+    property <float> sx: (root.card-w / 1px) / 688.0;
+
+    Surface {
+        x: (root.width - root.card-w) / 2;
+        y: (root.height - root.card-h) / 2;
+        width: root.card-w;
+        height: root.card-h;
+        fill: Theme.bfe-dialog-bg;
+        chamfer: 0px;
+
+        Text {
+            x: 32px * root.sx;
+            y: 44px;
+            text: "DIRECT CONNECTION";
+            font-family: Theme.font-family;
+            font-size: 27px;
+            font-weight: 800;
+            letter-spacing: 0.06 * self.font-size;
+            color: Theme.bfe-text;
+        }
+
+        Text {
+            x: 32px * root.sx;
+            y: 116px;
+            height: 44px;
+            text: "Server IPv4 or IPv6 address";
+            font-family: Theme.font-family;
+            font-size: 18px;
+            font-weight: 400;
+            color: Theme.bfe-text;
+            vertical-alignment: center;
+        }
+
+        addr-input := InputField {
+            x: 274px * root.sx;
+            y: 116px;
+            width: 218px * root.sx;
+            height: 44px;
+            placeholder: "192.168.1.10";
+            text <=> MpModel.direct-address;
+            edited(val) => { MpModel.direct-address-edited(val); }
+            accepted(val) => { MpModel.direct-submit(); }
+        }
+
+        Text {
+            x: 497px * root.sx;
+            y: 116px;
+            height: 44px;
+            text: "Port";
+            font-family: Theme.font-family;
+            font-size: 18px;
+            font-weight: 400;
+            color: Theme.bfe-text;
+            vertical-alignment: center;
+        }
+
+        port-input := InputField {
+            x: 544px * root.sx;
+            y: 116px;
+            width: 112px * root.sx;
+            height: 44px;
+            text <=> MpModel.direct-port;
+            edited(val) => { MpModel.direct-port-edited(val); }
+            accepted(val) => { MpModel.direct-submit(); }
+        }
+
+        if MpModel.direct-status-text != "": Text {
+            x: 32px * root.sx;
+            y: 162px;
+            width: root.card-w - 64px * root.sx;
+            height: 20px;
+            text: MpModel.direct-status-text;
+            font-family: Theme.font-family;
+            font-size: 14px;
+            font-weight: 400;
+            color: MpModel.direct-status-error ? Theme.bfe-note : Theme.bfe-text-dim;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        HorizontalLayout {
+            x: 33px * root.sx;
+            y: 185px;
+            height: 43px;
+            spacing: 9px * root.sx;
+            alignment: start;
+
+            PageButton {
+                height: 43px;
+                label: "CONNECT";
+                variant: ButtonVariant.accept;
+                highlighted: MpModel.direct-focus == 2;
+                activated => { MpModel.direct-submit(); }
+            }
+
+            PageButton {
+                height: 43px;
+                label: "CANCEL";
+                variant: ButtonVariant.dialog;
+                accept-sound: MenuSound.back;
+                highlighted: MpModel.direct-focus == 3;
+                activated => { MpModel.direct-cancel(); }
+            }
+        }
+    }
+}
+
+// Online Privacy Notice (`src/shell/online-notice.js`, `PopupState::OnlineNotice`).
+// Uses `bfe-ui`'s `OfferDialog` (`600px` max-width, `253x48` buttons) with the
+// exact strings from `ShellApp::online_notice()`.
+export component OnlineNoticeModal inherits Rectangle {
+    visible: MpModel.notice-active;
+    background: Theme.dialog-backdrop;
+
+    TouchArea {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+    }
+
+    OfferDialog {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width-limit: 600px;
+        pad-x: 24px;
+        pad-y: 20px;
+        footer-gap: 18px;
+        button-spacing: 12px;
+        eyebrow: "ONLINE PRIVACY";
+        eyebrow-color: Theme.notice-eyebrow;
+        title: "BEFORE YOU PLAY ONLINE";
+        paragraphs: MpModel.notice-paragraphs;
+        status-text: MpModel.notice-status-text;
+        status-error: MpModel.notice-status-error;
+
+        PageButton {
+            label: "NOT NOW";
+            variant: ButtonVariant.dialog;
+            dialog-font-size: 16px;
+            focus-ring-color: Theme.notice-focus-ring;
+            width: 253px;
+            height: 48px;
+            highlighted: MpModel.notice-selected == 0;
+            disabled: MpModel.notice-busy;
+            accept-sound: MenuSound.back;
+            activated => { MpModel.notice-decline(); }
+        }
+
+        PageButton {
+            label: "ACCEPT AND CONTINUE";
+            variant: ButtonVariant.accept;
+            dialog-font-size: 16px;
+            focus-ring-color: Theme.notice-focus-ring;
+            width: 253px;
+            height: 48px;
+            highlighted: MpModel.notice-selected == 1;
+            disabled: MpModel.notice-busy;
+            activated => { MpModel.notice-accept(MpModel.notice-version); }
+        }
+    }
+}
