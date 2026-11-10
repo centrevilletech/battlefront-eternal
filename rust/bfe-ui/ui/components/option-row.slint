@@ -6,12 +6,13 @@ export enum OptionKind { choice, slider, fixed, action, binding, toggle }
 export component OptionArrow inherits Interaction {
     in property <bool> previous: false;
     in property <bool> row-active: false;
+    accept-sound: MenuSound.select;
     preferred-width: 14px;
+    // No fixed height: the row's layout stretches the arrow so the glyph centres on the value.
     preferred-height: 21px;
-    height: self.preferred-height;
     Text {
         x: 0px; y: 0px; width: parent.width; height: parent.height;
-        text: root.previous ? "‹" : "›";
+        text: root.previous ? "\u{2039}" : "\u{203a}";
         font-family: Theme.font-family;
         font-size: Theme.option-font-size;
         font-weight: 700;
@@ -31,6 +32,7 @@ export component OptionRow inherits Interaction {
     callback value-changed(float);
     callback action();
     property <bool> bare: root.label == "";
+    accept-sound: root.kind == OptionKind.choice || root.kind == OptionKind.toggle ? MenuSound.select : MenuSound.accept;
     preferred-height: Theme.option-height;
     height: self.preferred-height;
     preferred-width: 600px;
@@ -66,12 +68,20 @@ export component OptionRow inherits Interaction {
         spacing: 0.7 * Theme.option-font-size;
         alignment: root.bare ? center : end;
         if root.kind == OptionKind.slider: PageSlider {
+            // The browser's slider grows to 300px and shrinks to 110px.
+            preferred-width: 300px;
+            max-width: 300px;
+            horizontal-stretch: 1;
             value <=> root.fraction;
             disabled: root.disabled;
+            focus-on-hover: root.focus-on-hover;
+            selected => { root.selected(); }
             value-changed(value) => { root.value-changed(value); }
         }
         if root.kind == OptionKind.choice || root.kind == OptionKind.toggle: OptionArrow {
             previous: true; disabled: root.disabled; row-active: root.active;
+            focus-on-hover: root.focus-on-hover;
+            selected => { root.selected(); }
             activated => { root.stepped(-1); }
         }
         if root.kind != OptionKind.action: Text {
@@ -108,6 +118,8 @@ export component OptionRow inherits Interaction {
         }
         if root.kind == OptionKind.choice || root.kind == OptionKind.toggle: OptionArrow {
             disabled: root.disabled; row-active: root.active;
+            focus-on-hover: root.focus-on-hover;
+            selected => { root.selected(); }
             activated => { root.stepped(1); }
         }
     }

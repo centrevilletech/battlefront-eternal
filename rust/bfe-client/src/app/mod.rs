@@ -81,6 +81,7 @@ mod slint_ia;
 mod slint_models;
 mod slint_setup;
 mod slint_ui;
+mod slint_options;
 mod slint_mp;
 pub mod script;
 pub mod settings;

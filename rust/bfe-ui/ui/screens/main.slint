@@ -180,8 +180,9 @@ export component ProfileModal inherits Rectangle {
         field.release-focus();
     }
     background: Theme.dialog-backdrop;
-    TouchArea { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    if root.visible: TouchArea { x: 0px; y: 0px; width: parent.width; height: parent.height; }
     PageDialog {
+        visible: root.visible;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         title: "PROFILE";

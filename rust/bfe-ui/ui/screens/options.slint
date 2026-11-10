@@ -1,0 +1,352 @@
+import { Theme, ControlState } from "../theme.slint";
+import { PageButton } from "../components/button.slint";
+import { PopupBox } from "../components/dialog.slint";
+import { PageList, ListEntry } from "../components/list.slint";
+import { BackdropMovies } from "../components/media.slint";
+import { OptionRow, OptionKind } from "../components/option-row.slint";
+import { ScreenFrame, ScreenLayout } from "../components/screen-frame.slint";
+import { PageScrim, PageDim, PagePattern } from "../components/scrim.slint";
+import { Surface } from "../components/surface.slint";
+import { PageTab, TabStrip } from "../components/tab.slint";
+import { PageText, PageTitle, TextRole } from "../components/typography.slint";
+import { MenuRowItem } from "main.slint";
+
+export struct OptionsRowItem {
+    id: string,
+    label: string,
+    value-text: string,
+    kind: OptionKind,
+    fraction: float,
+    disabled: bool,
+    dim-value: bool,
+}
+
+export struct OptionsTabItem {
+    id: string,
+    label: string,
+}
+
+export global OptionsModel {
+    in property <string> subscreen: "";
+    in property <string> title: "OPTIONS";
+    in property <bool> dim-behind: false;
+    in property <[MenuRowItem]> hub-rows;
+    in property <int> selected-hub-row: 0;
+    in property <bool> hub-rows-focused: true;
+    in property <[OptionsRowItem]> option-rows;
+    in property <int> selected-option: 0;
+    in property <int> first-option: 0;
+    in property <bool> options-focused: true;
+    in property <string> option-note: "";
+    in property <[OptionsTabItem]> tabs;
+    in property <string> active-tab: "infantry";
+    in property <int> selected-tab: 0;
+    in property <bool> tabs-focused: false;
+    in property <string> controls-heading: "CONFIG BINDINGS";
+    in property <[ListEntry]> binding-entries;
+    in-out property <int> selected-binding: 0;
+    in property <bool> bindings-focused: false;
+    in property <string> left-label: "BACK";
+    in property <string> middle-label: "";
+    in property <bool> left-focused: false;
+    in property <bool> middle-focused: false;
+    in property <bool> modal-open: false;
+    in property <bool> key-capture-open: false;
+    in property <string> modal-message: "";
+    in property <string> modal-accept-label: "OK";
+    in property <string> modal-cancel-label: "";
+    in property <int> modal-selected-button: 0;
+
+    callback hub-row-selected(int);
+    callback hub-row-activated(int);
+    callback option-selected(int);
+    callback option-activated(int);
+    callback option-stepped(int, int);
+    callback option-slider-changed(int, float);
+    callback tab-selected(int);
+    callback binding-hovered(int);
+    callback binding-selected(int);
+    callback binding-activated(int);
+    callback left-selected();
+    callback middle-selected();
+    callback left-activated();
+    callback middle-activated();
+    callback modal-button-activated(int);
+}
+
+component OptionsHubBody inherits Rectangle {
+    property <length> button-width: min(400px, min(86 * Theme.vw, 30 * Theme.vw)) - 16px;
+    // The browser puts 5.55vh between the title and the first button and keeps 0.55vh more
+    // clear above the foot than the shared frame does.
+    property <length> title-gap: 5.55 * Theme.vh;
+    property <length> stack-height: title-el.height + root.title-gap
+        + max(0, OptionsModel.hub-rows.length) * Theme.button-height
+        + max(0, OptionsModel.hub-rows.length - 1) * Theme.bfe-gap;
+    property <length> top-y: max(7 * Theme.vh, (7 * Theme.vh + root.height - 6.55 * Theme.vh - max(34px, min(46px, 4.6 * Theme.vh)) - root.stack-height) / 2);
+
+    title-el := PageTitle {
+        x: (root.width - self.width) / 2;
+        y: root.top-y;
+        title: OptionsModel.title;
+    }
+    VerticalLayout {
+        x: (root.width - root.button-width) / 2;
+        y: title-el.y + title-el.height + root.title-gap;
+        width: root.button-width;
+        spacing: Theme.bfe-gap;
+        for item[index] in OptionsModel.hub-rows: PageButton {
+            width: root.button-width;
+            label: item.label;
+            disabled: item.disabled;
+            focus-on-hover: false;
+            highlighted: OptionsModel.hub-rows-focused && index == OptionsModel.selected-hub-row && !item.disabled;
+            selected => { OptionsModel.hub-row-selected(index); }
+            activated => { OptionsModel.hub-row-activated(index); }
+        }
+    }
+}
+
+component OptionsRowsPanel inherits Rectangle {
+    in property <int> first-index: 0;
+    in property <int> selected-index: OptionsModel.selected-option;
+    property <length> pad-x: 2.2 * Theme.vw;
+    property <length> pad-y: 2.4 * Theme.vh;
+    property <length> note-reserve: 1.4 * Theme.note-font-size + 1.2 * Theme.vh;
+    property <length> available-height: max(80px, root.height - root.note-reserve);
+    property <length> natural-height: OptionsModel.option-rows.length * Theme.option-height + 2 * root.pad-y + 2px;
+    property <length> panel-height: min(root.available-height, root.natural-height);
+    property <length> panel-y: (root.available-height - root.panel-height) / 2;
+
+    changed first-index => {
+        if (root.first-index <= 0 && root.selected-index <= 0) {
+            scroll.content-y = 0px;
+        } else if (root.selected-index * Theme.option-height < -scroll.content-y) {
+            scroll.content-y = -root.selected-index * Theme.option-height;
+        } else if ((root.selected-index + 1) * Theme.option-height > -scroll.content-y + scroll.height) {
+            scroll.content-y = -((root.selected-index + 1) * Theme.option-height - scroll.height);
+        }
+    }
+    changed selected-index => {
+        if (root.selected-index <= 0 && root.first-index <= 0) {
+            scroll.content-y = 0px;
+        } else if (root.selected-index >= 0) {
+            if (root.selected-index * Theme.option-height < -scroll.content-y) {
+                scroll.content-y = -root.selected-index * Theme.option-height;
+            } else if ((root.selected-index + 1) * Theme.option-height > -scroll.content-y + scroll.height) {
+                scroll.content-y = -((root.selected-index + 1) * Theme.option-height - scroll.height);
+            }
+        }
+    }
+
+    panel := Surface {
+        x: 0px;
+        y: root.panel-y;
+        width: root.width;
+        height: root.panel-height;
+        scroll := Flickable {
+            x: root.pad-x;
+            y: root.pad-y;
+            width: parent.width - 2 * root.pad-x;
+            height: parent.height - 2 * root.pad-y;
+            interactive: false;
+            content-width: self.width;
+            content-height: OptionsModel.option-rows.length * Theme.option-height;
+            VerticalLayout {
+                x: 0px;
+                y: 0px;
+                width: scroll.width;
+                height: scroll.content-height;
+                spacing: 0px;
+                for item[index] in OptionsModel.option-rows: OptionRow {
+                    width: scroll.width;
+                    label: item.label;
+                    value-text: item.value-text;
+                    kind: item.kind;
+                    fraction: item.fraction;
+                    disabled: item.disabled;
+                    dim-value: item.dim-value;
+                    focus-on-hover: false;
+                    visual-state: item.disabled ? ControlState.disabled
+                        : (OptionsModel.options-focused && index == OptionsModel.selected-option) ? ControlState.focused
+                        : ControlState.idle;
+                    selected => { OptionsModel.option-selected(index); }
+                    action => { OptionsModel.option-activated(index); }
+                    stepped(dir) => { OptionsModel.option-stepped(index, dir); }
+                    value-changed(val) => { OptionsModel.option-slider-changed(index, val); }
+                }
+            }
+        }
+        if scroll.content-height > scroll.height: Rectangle {
+            x: parent.width - 7px;
+            y: root.pad-y + clamp(-scroll.content-y / max(1px, scroll.content-height - scroll.height), 0, 1) * (scroll.height - self.height);
+            width: 4px;
+            height: max(16px, scroll.height * (scroll.height / max(1px, scroll.content-height)));
+            background: Theme.bfe-scroll;
+        }
+    }
+
+    note-el := PageText {
+        x: 0px;
+        y: root.panel-y + root.panel-height + 1.2 * Theme.vh;
+        width: root.width;
+        role: TextRole.note;
+        text: OptionsModel.option-note;
+    }
+}
+
+component ControlsOptionsPanel inherits Rectangle {
+    property <length> pad-x: 2.2 * Theme.vw;
+    property <length> pad-y: 2.4 * Theme.vh;
+    property <length> note-reserve: 1.4 * Theme.note-font-size + 1.2 * Theme.vh;
+    property <length> panel-height: max(180px, root.height - root.note-reserve);
+
+    panel := Surface {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.panel-height;
+        property <length> inner-w: self.width - 2 * root.pad-x;
+        property <length> tabs-y: root.pad-y;
+        property <length> rows-y: self.tabs-y + tabs-bar.height + 1 * Theme.vh;
+        property <length> top-options-h: OptionsModel.option-rows.length * Theme.option-height;
+        property <length> heading-y: self.rows-y + self.top-options-h + 2.4 * Theme.vh;
+        property <length> list-y: self.heading-y + heading-el.preferred-height + 1.2 * Theme.vh;
+
+        tabs-bar := TabStrip {
+            x: root.pad-x;
+            y: parent.tabs-y;
+            width: parent.inner-w;
+            for tab[index] in OptionsModel.tabs: PageTab {
+                label: tab.label;
+                selected-tab: tab.id == OptionsModel.active-tab;
+                focus-on-hover: false;
+                visual-state: OptionsModel.tabs-focused && index == OptionsModel.selected-tab ? ControlState.focused
+                    : self.pressed ? ControlState.pressed : self.hovered ? ControlState.hover : ControlState.idle;
+                activated => { OptionsModel.tab-selected(index); }
+            }
+        }
+
+        VerticalLayout {
+            x: root.pad-x;
+            y: parent.rows-y;
+            width: parent.inner-w;
+            height: parent.top-options-h;
+            spacing: 0px;
+            for item[index] in OptionsModel.option-rows: OptionRow {
+                width: parent.width;
+                label: item.label;
+                value-text: item.value-text;
+                kind: item.kind;
+                fraction: item.fraction;
+                disabled: item.disabled;
+                dim-value: item.dim-value;
+                focus-on-hover: false;
+                visual-state: item.disabled ? ControlState.disabled
+                    : (OptionsModel.options-focused && index == OptionsModel.selected-option) ? ControlState.focused
+                    : ControlState.idle;
+                selected => { OptionsModel.option-selected(index); }
+                action => { OptionsModel.option-activated(index); }
+                stepped(dir) => { OptionsModel.option-stepped(index, dir); }
+                value-changed(val) => { OptionsModel.option-slider-changed(index, val); }
+            }
+        }
+
+        heading-el := PageText {
+            x: root.pad-x;
+            y: parent.heading-y;
+            width: parent.inner-w;
+            role: TextRole.heading;
+            text: OptionsModel.controls-heading;
+        }
+
+        PageList {
+            x: root.pad-x;
+            y: parent.list-y;
+            width: parent.inner-w;
+            height: max(120px, parent.height - parent.list-y - root.pad-y);
+            columns: [2, 3];
+            entries: OptionsModel.binding-entries;
+            model-focus: true;
+            list-focused: OptionsModel.bindings-focused;
+            selected-index <=> OptionsModel.selected-binding;
+            list-entered => { OptionsModel.binding-hovered(OptionsModel.selected-binding); }
+            row-selected(index) => { OptionsModel.binding-selected(index); }
+            row-activated(index) => { OptionsModel.binding-activated(index); }
+        }
+    }
+
+    note-el := PageText {
+        x: 0px;
+        y: root.panel-height + 1.2 * Theme.vh;
+        width: root.width;
+        role: TextRole.note;
+        text: OptionsModel.option-note;
+    }
+}
+
+export component OptionsModalOverlay inherits Rectangle {
+    background: Theme.popup-backdrop;
+    if !OptionsModel.key-capture-open: TouchArea {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+    }
+    PopupBox {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        fit-text: true;
+        message: OptionsModel.modal-message;
+        accept-label: OptionsModel.key-capture-open ? "" : OptionsModel.modal-accept-label;
+        cancel-label: OptionsModel.modal-cancel-label;
+        selected-button: OptionsModel.modal-selected-button;
+        accepted => { OptionsModel.modal-button-activated(0); }
+        cancelled => { OptionsModel.modal-button-activated(1); }
+    }
+}
+
+export component OptionsScreenHost inherits Rectangle {
+    in property <bool> use-underlay: true;
+    in property <image> movie-frame;
+
+    BackdropMovies {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        current-frame: root.movie-frame;
+        use-underlay: root.use-underlay;
+    }
+    if !root.use-underlay: PagePattern { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    if !root.use-underlay: PageScrim { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    PageDim {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        dimmed: OptionsModel.dim-behind;
+    }
+
+    frame := ScreenFrame {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        title: OptionsModel.subscreen == "options" ? "" : OptionsModel.title;
+        layout: OptionsModel.subscreen == "options" ? ScreenLayout.rows : ScreenLayout.options;
+        footer-focus-on-hover: false;
+        left-label: OptionsModel.left-label;
+        middle-label: OptionsModel.middle-label;
+        left-highlighted: OptionsModel.left-focused;
+        middle-highlighted: OptionsModel.middle-focused;
+        brand-visible: true;
+        left-selected => { OptionsModel.left-selected(); }
+        middle-selected => { OptionsModel.middle-selected(); }
+        left-activated => { OptionsModel.left-activated(); }
+        middle-activated => { OptionsModel.middle-activated(); }
+
+        if OptionsModel.subscreen == "options-game"
+            || OptionsModel.subscreen == "options-video"
+            || OptionsModel.subscreen == "options-audio"
+            || OptionsModel.subscreen == "options-integrations": OptionsRowsPanel {
+            x: 0px; y: 0px; width: frame.body-width; height: frame.body-height;
+            first-index: OptionsModel.first-option;
+        }
+
+        if OptionsModel.subscreen == "options-controls": ControlsOptionsPanel {
+            x: 0px; y: 0px; width: frame.body-width; height: frame.body-height;
+        }
+    }
+
+    if OptionsModel.subscreen == "options": OptionsHubBody {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+    }
+}

@@ -24,16 +24,8 @@ pub enum Hit {
     Theme,
     Look(usize),
     Popup(usize),
-    OptionBack(usize, usize),
 }
 
-struct Paragraph {
-    source: String,
-    width: f64,
-    size: f64,
-    spacing: f64,
-    lines: Vec<Vec<u16>>,
-}
 pub struct Page {
     pub browser: BrowserView,
     pub media: MediaTextures,
@@ -63,12 +55,6 @@ pub struct Page {
     pub entered: f64,
     row_spans: Vec<motion::RowSpan>,
     leaving: Vec<motion::LeavingQuad>,
-    widget_screen: String,
-    widget_spans: Vec<motion::RowSpan>,
-    widget_snapshot: Vec<motion::LeavingQuad>,
-    widget_leaving: Vec<motion::LeavingQuad>,
-    widget_depth: usize,
-    widget_forward: bool,
     stack_depth: usize,
     forward: bool,
     brand_from: f64,
@@ -76,7 +62,6 @@ pub struct Page {
     brand_started: f64,
     depth_from: f64,
     depth_target: f64,
-    paragraphs: Vec<Paragraph>,
 }
 impl Page {
     pub fn new(body: Font, logo: Font) -> Self {
@@ -125,12 +110,6 @@ impl Page {
             entered: 0.,
             row_spans: Vec::with_capacity(16),
             leaving: Vec::with_capacity(256),
-            widget_screen: String::new(),
-            widget_spans: Vec::with_capacity(16),
-            widget_snapshot: Vec::with_capacity(512),
-            widget_leaving: Vec::with_capacity(512),
-            widget_depth: 0,
-            widget_forward: true,
             stack_depth: 1,
             forward: true,
             brand_from: 1.,
@@ -138,7 +117,6 @@ impl Page {
             brand_started: 0.,
             depth_from: 0.,
             depth_target: 0.,
-            paragraphs: Vec::with_capacity(8),
         }
     }
     /// Native select keyboard behavior stays local to the theme control;
@@ -482,151 +460,6 @@ impl Page {
         b.start = b.start.min(first * 4);
         b.end = b.end.max(b.count * 4);
     }
-    fn paragraph_index(&mut self, text: &str, width: f64, size: f64, spacing: f64) -> usize {
-        if let Some(i) = self.paragraphs.iter().position(|p| {
-            p.source == text && p.width == width && p.size == size && p.spacing == spacing
-        }) {
-            return i;
-        }
-        if self.paragraphs.len() >= 32 {
-            self.paragraphs.clear();
-        }
-        let mut lines = Vec::new();
-        for block in text.split('\n') {
-            let mut line = Vec::new();
-            for word in block.split_whitespace() {
-                let old = line.len();
-                if old != 0 {
-                    line.push(32);
-                }
-                line.extend(word.encode_utf16());
-                if old != 0 && self.body.width(&line, size / self.body.height, spacing) > width {
-                    let next = line.split_off(old + 1);
-                    line.truncate(old);
-                    lines.push(line);
-                    line = next;
-                }
-            }
-            lines.push(line);
-        }
-        self.paragraphs.push(Paragraph {
-            source: text.into(),
-            width,
-            size,
-            spacing,
-            lines,
-        });
-        self.paragraphs.len() - 1
-    }
-    #[allow(clippy::too_many_arguments)]
-    fn paragraph(
-        &mut self,
-        b: &mut Batch,
-        m: Matrix,
-        x: f64,
-        y: f64,
-        text: &str,
-        width: f64,
-        size: f64,
-        spacing: f64,
-        color: Color,
-    ) -> f64 {
-        let i = self.paragraph_index(text, width, size, spacing);
-        for (row, line) in self.paragraphs[i].lines.iter().enumerate() {
-            self.body.draw(
-                b,
-                m,
-                x,
-                y + row as f64 * size * 1.45,
-                line,
-                color,
-                2,
-                size / self.body.height,
-                spacing,
-                0.,
-            );
-        }
-        self.paragraphs[i].lines.len() as f64 * size * 1.45
-    }
-    fn panel(b: &mut Batch, m: Matrix, t: &ShellTextures, r: [f64; 4], look: usize) {
-        let (top, bottom) = match look {
-            0 => (
-                [20. / 255., 60. / 255., 140. / 255., 0.55],
-                [6. / 255., 22. / 255., 60. / 255., 0.8],
-            ),
-            1 => (
-                [22. / 255., 46. / 255., 86. / 255., 0.84],
-                [10. / 255., 24. / 255., 48. / 255., 0.92],
-            ),
-            _ => (
-                [14. / 255., 17. / 255., 24. / 255., 0.88],
-                [8. / 255., 10. / 255., 15. / 255., 0.92],
-            ),
-        };
-        let height = r[3] - r[1];
-        let cut = if look == 2 {
-            18.
-        } else if look == 0 {
-            4.
-        } else {
-            8.
-        };
-        let color =
-            |y: f64| std::array::from_fn::<_, 4, _>(|i| top[i] + (bottom[i] - top[i]) * y / height);
-        for row in 0..cut as usize {
-            let y = row as f64;
-            let inset = if look == 2 {
-                cut - y - 0.5
-            } else {
-                cut - (cut * cut - (cut - y - 0.5).powi(2)).max(0.).sqrt()
-            };
-            let l = if look == 2 { inset } else { inset.max(0.) };
-            let right = if look == 2 { 0. } else { inset.max(0.) };
-            Self::gradient(
-                b,
-                m,
-                [r[0] + l, r[1] + y, r[2] - right, r[1] + y + 1.],
-                t.solid,
-                UV,
-                [color(y), color(y + 1.), color(y), color(y + 1.)],
-            );
-            Self::gradient(
-                b,
-                m,
-                [r[0] + right, r[3] - y - 1., r[2] - l, r[3] - y],
-                t.solid,
-                UV,
-                [
-                    color(height - y - 1.),
-                    color(height - y),
-                    color(height - y - 1.),
-                    color(height - y),
-                ],
-            );
-        }
-        Self::gradient(
-            b,
-            m,
-            [r[0], r[1] + cut, r[2], r[3] - cut],
-            t.solid,
-            UV,
-            [
-                color(cut),
-                color(height - cut),
-                color(cut),
-                color(height - cut),
-            ],
-        );
-        let border = [1., 1., 1., if look == 0 { 0.5 } else { 0.12 }];
-        for line in [
-            [r[0] + cut, r[1], r[2] - cut, r[1] + 1.],
-            [r[0] + cut, r[3] - 1., r[2] - cut, r[3]],
-            [r[0], r[1] + cut, r[0] + 1., r[3] - cut],
-            [r[2] - 1., r[1] + cut, r[2], r[3] - cut],
-        ] {
-            Self::rect(b, m, line, t.solid, border);
-        }
-    }
     #[allow(clippy::too_many_arguments)]
     pub(super) fn brand(
         &mut self,
@@ -846,16 +679,7 @@ impl Page {
             id
         };
         if self.screen != id {
-            if matches!(self.screen, ScreenId::Options | ScreenId::OptionsPage(_))
-                && !self.widget_snapshot.is_empty()
-            {
-                std::mem::swap(&mut self.leaving, &mut self.widget_snapshot);
-            } else {
-                motion::retain_rows(b, &self.row_spans, &mut self.leaving);
-            }
-            self.widget_screen.clear();
-            self.widget_snapshot.clear();
-            self.widget_leaving.clear();
+            motion::retain_rows(b, &self.row_spans, &mut self.leaving);
             self.forward = a.stack.len() >= self.stack_depth;
             self.stack_depth = a.stack.len();
             let flight = motion::ease(
@@ -878,7 +702,6 @@ impl Page {
             self.screen = id;
             self.entered = a.pulse_elapsed;
             self.text.clear();
-            self.paragraphs.clear();
             self.dropdown = false;
             self.discord_offer = false;
         }
@@ -1029,6 +852,8 @@ impl Page {
             id,
             ScreenId::Gate
                 | ScreenId::Main
+                | ScreenId::Options
+                | ScreenId::OptionsPage(_)
                 | ScreenId::Singleplayer
                 | ScreenId::InstantAction
                 | ScreenId::InstantActionEra
@@ -1040,6 +865,8 @@ impl Page {
             ScreenId::Gate
                 | ScreenId::Main
                 | ScreenId::Profile
+                | ScreenId::Options
+                | ScreenId::OptionsPage(_)
                 | ScreenId::Multiplayer
                 | ScreenId::MultiplayerList(_)
                 | ScreenId::HostDialog
@@ -1063,9 +890,7 @@ impl Page {
                 a.pulse_elapsed - self.entered,
                 self.forward,
             );
-            if matches!(id, ScreenId::Options | ScreenId::OptionsPage(_)) {
-                // Existing interface widgets are painted by paint_widgets.
-            } else {
+            {
                 let rows = a.active_rows();
                 let n = rows.len();
                 let look = match a.settings.menu_theme.as_str() {

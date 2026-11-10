@@ -39,33 +39,35 @@ impl ShellHost {
             } else {
                 "off"
             });
-        let item = |id: &str, label: &str, value: &str, kind, disabled, action| OptionsItem {
-            id: id.into(),
-            label: label.into(),
-            value_text: value.into(),
-            kind,
-            ratio: 0.,
-            min: 0.,
-            max: 1.,
-            step: 1.,
-            disabled,
-            dim: false,
-            hidden: false,
-            note: String::new(),
-            action,
-        };
+        let item =
+            |id: &str, label: &str, value: &str, kind, disabled, note: &str, action| OptionsItem {
+                id: id.into(),
+                label: label.into(),
+                value_text: value.into(),
+                kind,
+                ratio: 0.,
+                min: 0.,
+                max: 1.,
+                step: 1.,
+                disabled,
+                dim: false,
+                hidden: false,
+                note: note.into(),
+                action,
+            };
         let activity = match detail {
             "full" => "MAP AND SERVER",
             "game" => "GAME ONLY",
             _ => "OFF",
         };
-        let items = vec![
+        let mut items = vec![
             item(
                 "discord-activity",
                 "DISCORD ACTIVITY",
                 activity,
-                OptionKind::Action,
+                OptionKind::Choice,
                 false,
+                "WHAT DISCORD FRIENDS SEE WHILE YOU PLAY",
                 Some(WidgetAction::Named("discord-cycle".into())),
             ),
             item(
@@ -74,29 +76,40 @@ impl ShellHost {
                 if detail == "off" {
                     "OFF"
                 } else if discord {
-                    "AVAILABLE"
+                    "CONNECTED"
                 } else {
                     "DISCORD NOT RUNNING"
                 },
                 OptionKind::Fixed,
                 true,
+                "",
                 None,
             ),
-            // The Electron shortcut launcher is not a native executable target.
-            // Keep that service unavailable until the desktop host supplies one.
             item(
                 "steam",
                 "STEAM LIBRARY",
                 if steam {
-                    "NOT IN THIS BUILD"
+                    "ADD TO STEAM"
                 } else {
                     "STEAM NOT FOUND"
                 },
-                OptionKind::Fixed,
-                true,
-                None,
+                OptionKind::Action,
+                !steam,
+                "STEAM SHOWS FRIENDS WHAT YOU PLAY WHEN THE GAME STARTS THROUGH IT",
+                steam.then(|| WidgetAction::Named("steam-offer".into())),
             ),
         ];
+        if steam && cfg!(target_os = "linux") {
+            items.push(item(
+                "steam-overlay-linux",
+                "STEAM OVERLAY",
+                "NOT ON LINUX",
+                OptionKind::Fixed,
+                true,
+                "",
+                None,
+            ));
+        }
         let widgets = vec![
             Widget::Text(TextWidget::title("title", "STEAM & DISCORD", 10.)),
             Widget::Options(OptionsWidget::with_layout(
@@ -115,9 +128,9 @@ impl ShellHost {
         {
             self.options_ctrl.stack.pop();
         }
-        self.options_ctrl
-            .stack
-            .push(MenuScreen::new("options-integrations", widgets));
+        let mut screen = MenuScreen::new("options-integrations", widgets);
+        screen.dim_behind = true;
+        self.options_ctrl.stack.push(screen);
     }
     pub(super) fn step_discord_detail(&mut self, settings: &mut AppSettingsStore, back: bool) {
         let record = settings

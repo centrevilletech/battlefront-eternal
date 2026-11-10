@@ -1,6 +1,5 @@
 //! Page server-browser presentation. Discovery, filters and joins use the
 //! existing ServerBrowserService and ShellApp; no network state lives here.
-use super::Page;
 use bfe_online::browser::{
     BrowserState, Filters, GameInfo, ServerBrowserService, SortSpec, Source,
 };
@@ -58,19 +57,5 @@ impl BrowserView {
                 ]
             })
             .collect();
-    }
-}
-impl Page {
-    pub(super) fn text_width(&self, text: &str, size: f64, spacing: f64) -> f64 {
-        text.encode_utf16()
-            .map(|ch| {
-                self.body
-                    .glyphs
-                    .get(&ch)
-                    .map(|g| g.advance * size / self.body.height + spacing)
-                    .unwrap_or(0.)
-            })
-            .sum::<f64>()
-            - spacing
     }
 }

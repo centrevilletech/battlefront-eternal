@@ -25,12 +25,10 @@ use i_slint_core::{
     items::BuiltInMouseCursor,
     window::{InputMethodRequest, WindowAdapterInternal},
 };
-use slint::{
-    platform::{
-        femtovg_renderer::{FemtoVGRenderer, OpenGLInterface},
-        WindowAdapter, WindowEvent as UiEvent,
-    },
-    ComponentHandle,
+pub(super) use slint::ComponentHandle;
+use slint::platform::{
+    femtovg_renderer::{FemtoVGRenderer, OpenGLInterface},
+    WindowAdapter, WindowEvent as UiEvent,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -244,6 +242,7 @@ use super::{
     shell::{ShellHost, ShellTransition},
     slint_mp::MpAction,
     slint_models::sync_rows,
+    slint_options::{OptionsModels, OptionsUiAction},
 };
 use crate::audio::SharedAudioRouter;
 use bfe_shell::screens::{PopupState, ScreenId};
@@ -273,6 +272,8 @@ pub(super) struct SlintHost {
     pending: Pending,
     quit: Arc<AtomicBool>,
     pub(super) actions: Rc<RefCell<Vec<UiAction>>>,
+    options_actions: Rc<RefCell<Vec<OptionsUiAction>>>,
+    options_models: OptionsModels,
     battle_actions: Rc<RefCell<Vec<super::slint_battle::BattleUiAction>>>,
     battle_lists: super::slint_battle::BattleLists,
     ia_actions: super::slint_ia::IaActionQueue,
@@ -326,6 +327,9 @@ impl SlintHost {
         root.set_steam_paragraphs(slint::ModelRc::from(steam_paragraphs.clone()));
         root.set_proof_controls(proof);
         let actions: Rc<RefCell<Vec<UiAction>>> = Rc::new(RefCell::new(Vec::new()));
+        let options_actions: Rc<RefCell<Vec<OptionsUiAction>>> = Rc::new(RefCell::new(Vec::new()));
+        super::slint_options::register_callbacks(&root, options_actions.clone());
+        let options_models = OptionsModels::install(&root);
         let battle_actions = Rc::new(RefCell::new(Vec::new()));
         super::slint_battle::register_battle_callbacks(&root, &battle_actions);
         let battle_lists = super::slint_battle::BattleLists::new(&root);
@@ -477,6 +481,8 @@ impl SlintHost {
             pending,
             quit,
             actions,
+            options_actions,
+            options_models,
             battle_actions,
             battle_lists,
             ia_actions,
@@ -580,6 +586,7 @@ impl SlintHost {
             ScreenId::Gate => "gate",
             ScreenId::Main => "main",
             ScreenId::Profile => "profile",
+            ScreenId::Options | ScreenId::OptionsPage(_) => "options",
             ScreenId::Singleplayer => "sp",
             ScreenId::InstantAction => "ia",
             ScreenId::InstantActionEra => "ia-era",
@@ -606,6 +613,8 @@ impl SlintHost {
             sync_rows(&self.rows, &model);
             self.root
                 .set_selected_row(shell.app.selected_cached_row_index(id) as i32);
+        } else if matches!(id, ScreenId::Options | ScreenId::OptionsPage(_)) {
+            super::slint_options::sync(&self.root, shell, &self.options_models);
         }
 
         let editing = shell.app.profile.editing;
@@ -696,8 +705,14 @@ impl SlintHost {
         settings: &mut AppSettingsStore,
         audio_router: &SharedAudioRouter,
     ) -> Option<ShellTransition> {
-        let mut transition =
-            super::slint_ia::drain_ia(&self.ia_actions, shell, settings, audio_router);
+        let mut transition = super::slint_options::drain_actions(
+            &self.options_actions,
+            shell,
+            settings,
+            audio_router,
+        );
+        transition = transition.or(
+            super::slint_ia::drain_ia(&self.ia_actions, shell, settings, audio_router));
         let pending: Vec<UiAction> = self.actions.borrow_mut().drain(..).collect();
         if pending.is_empty() {
             return transition;
@@ -907,9 +922,14 @@ impl SlintHost {
                     MouseButton::Right => (slint::platform::PointerEventButton::Right, 4),
                     _ => return false,
                 };
-                let inside = self.in_panel() || self.pressed & mask != 0;
+                let down = *state == ElementState::Pressed;
+                let inside = if down {
+                    self.in_panel()
+                } else {
+                    self.pressed & mask != 0
+                };
                 if !inside {
-                    if *state == ElementState::Pressed {
+                    if down {
                         self.root.invoke_release_editor();
                         // Existing native fields own IME until their views move
                         // to Slint. A click returns text ownership to that host.
@@ -917,7 +937,6 @@ impl SlintHost {
                     }
                     return false;
                 }
-                let down = *state == ElementState::Pressed;
                 self.pressed = if down {
                     self.pressed | mask
                 } else {
@@ -1166,7 +1185,6 @@ fn key_text(key: &WinitKey) -> Option<slint::SharedString> {
         _ => return None,
     })
 }
-
 fn is_modifier(key: &WinitKey) -> bool {
     matches!(
         key,
@@ -1174,8 +1192,8 @@ fn is_modifier(key: &WinitKey) -> bool {
             NamedKey::Shift
                 | NamedKey::Control
                 | NamedKey::Alt
-                | NamedKey::AltGraph
                 | NamedKey::Super
+                | NamedKey::AltGraph
         )
     )
 }

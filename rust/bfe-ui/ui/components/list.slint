@@ -39,6 +39,8 @@ export component PageListRow inherits Interaction {
             spacing: Theme.list-font-size;
             for cell[index] in root.cells: Text {
                 min-width: 0px;
+                // Column weights decide the widths, not the text's own size.
+                preferred-width: 0px;
                 horizontal-stretch: index < root.columns.length ? root.columns[index] : 1;
                 text: root.uppercase ? cell.to-uppercase() : cell;
                 font-family: Theme.font-family;

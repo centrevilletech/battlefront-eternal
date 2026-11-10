@@ -25,7 +25,7 @@ use bfe_desktop::host::{
     ClosePrompt, HostMode, HostOptions, RelayPolicy,
 };
 use bfe_interface::{
-    HitRegion, OptionsContext, OptionsController, Surface as InterfaceSurfaceState,
+    OptionsContext, OptionsController, Surface as InterfaceSurfaceState,
 };
 use bfe_online::{
     default_identity_path, discover_lan, ping_host_port, resolve_host_port, resolve_master_url,
@@ -505,8 +505,6 @@ pub struct ShellHost {
     pub interface_surface: InterfaceSurfaceState,
     /// Stateful `bfe-interface` controller driving `OPTIONS` and its 4 sub-pages (`GAME`, `VIDEO`, `AUDIO`, `CONTROLS`).
     pub options_ctrl: OptionsController,
-    /// Interactive pointer hit regions emitted by `ClassicTheme::paint_stack` during `OPTIONS` rendering.
-    pub options_hits: Vec<HitRegion>,
     /// Front-end shell state machine (`Gate`, `Main`, `Singleplayer`, `InstantAction`, `Profile`, `Multiplayer`, `HostDialog`).
     pub app: ShellApp,
     pub page: bfe_shell::page::Page,
@@ -639,7 +637,6 @@ impl ShellHost {
             textures,
             interface_surface,
             options_ctrl,
-            options_hits: Vec::new(),
             app,
             browser,
             loading_timeline,
@@ -1013,9 +1010,12 @@ impl ShellHost {
     /// 3. Handles named navigation actions (such as `"online"` -> `ScreenId::MultiplayerList`).
     /// 4. Pops `ScreenId::Options` / `ScreenId::OptionsPage(_)` from `self.app.stack` when
     ///    the user backs out of the root `bfe-interface` options screen.
-    fn flush_options_controller(&mut self, settings: &mut AppSettingsStore) {
+    pub(super) fn flush_options_controller(&mut self, settings: &mut AppSettingsStore) {
         for cue in self.options_ctrl.stack.sounds.drain() {
-            self.app.sound_queue.push(cue.cue_name());
+            let name = cue.cue_name();
+            if self.app.sound_queue.last().copied() != Some(name) {
+                self.app.sound_queue.push(name);
+            }
         }
         let _ =
             settings.capture_from_interface_settings(&self.options_ctrl.settings, &mut self.app);
@@ -1025,6 +1025,8 @@ impl ShellHost {
                 self.open_integrations(settings);
             } else if action == "discord-cycle" {
                 self.step_discord_detail(settings, false);
+            } else if action == "steam-offer" {
+                self.open_steam_offer(None, false, false);
             } else if action == "online" {
                 self.app
                     .refresh_multiplayer_list(MultiplayerKind::Online, &mut self.browser);
@@ -1506,7 +1508,6 @@ impl ShellHost {
                 self.layout_size[1] as f64,
             );
         } else if self.is_interface_options_active() {
-            // Paint the existing options stack in the selected page look.
             self.sync_options_controller(settings);
             if dt.is_finite() && dt > 0.0 {
                 self.options_ctrl.stack.update(dt);
@@ -1518,15 +1519,9 @@ impl ShellHost {
                 self.layout_size[0] as f64,
                 self.layout_size[1] as f64,
             );
-            self.page.paint_widgets(
-                &mut self.batch,
-                &self.textures,
-                &mut self.options_ctrl.stack,
-                self.layout_size[0] as f64,
-                self.layout_size[1] as f64,
-                &self.app.settings.menu_theme,
-                &mut self.options_hits,
-            );
+            if super::slint_options::panel_rect(self).is_some() {
+                self.page.modal_start = Some(self.batch.count);
+            }
         } else {
             let w = self.layout_size[0] as f64;
             let h = self.layout_size[1] as f64;
@@ -1553,13 +1548,7 @@ impl ShellHost {
         if let Some(modal) = self.page.modal_start {
             if let Some(rect) = self
                 .is_interface_options_active()
-                .then(|| {
-                    bfe_shell::page::Page::options_panel_rect(
-                        &self.options_ctrl.stack,
-                        self.layout_size[0] as f64,
-                        self.layout_size[1] as f64,
-                    )
-                })
+                .then(|| super::slint_options::panel_rect(self))
                 .flatten()
             {
                 self.draw_options_backdrop(modal, rect);
@@ -1872,20 +1861,6 @@ impl ShellHost {
             return;
         }
         if self.is_interface_options_active() {
-            let vw = self.layout_size[0].max(1) as f64;
-            let vh = self.layout_size[1].max(1) as f64;
-            let ev = self.options_ctrl.input.on_pointer_move(
-                &mut self.options_ctrl.stack,
-                &self.options_hits,
-                x_px,
-                y_px,
-                vw,
-                vh,
-            );
-            self.options_ctrl.apply_event(ev);
-            for cue in self.options_ctrl.stack.sounds.drain() {
-                self.app.sound_queue.push(cue.cue_name());
-            }
             return;
         }
         if self.app.popup.is_some() || self.app.profile.editing {
@@ -1954,19 +1929,6 @@ impl ShellHost {
             return self.flush_events(settings, audio_router);
         }
         match self.page.hit(x_px, y_px) {
-            Some(bfe_shell::page::Hit::OptionBack(widget, item)) => {
-                if let Some(top) = self.options_ctrl.stack.top_mut() {
-                    top.focused = Some(widget);
-                    if let Some(bfe_interface::widgets::Widget::Options(options)) =
-                        top.widgets.get_mut(widget)
-                    {
-                        options.selected = item;
-                    }
-                }
-                self.options_ctrl.on_key_down("ArrowLeft", false);
-                self.flush_options_controller(settings);
-                return self.flush_events(settings, audio_router);
-            }
             Some(bfe_shell::page::Hit::Theme) => {
                 self.page.dropdown = !self.page.dropdown;
                 self.page.dropdown_cursor = match self.app.settings.menu_theme.as_str() {
@@ -2039,20 +2001,6 @@ impl ShellHost {
             return self.flush_events(settings, audio_router);
         }
         if self.is_interface_options_active() {
-            self.sync_options_controller(settings);
-            let vw = self.layout_size[0].max(1) as f64;
-            let vh = self.layout_size[1].max(1) as f64;
-            let ev = self.options_ctrl.input.on_pointer_down(
-                &mut self.options_ctrl.stack,
-                &self.options_hits,
-                x_px,
-                y_px,
-                vw,
-                vh,
-            );
-            self.options_ctrl.apply_event(ev);
-            self.options_ctrl.input.on_pointer_up();
-            self.flush_options_controller(settings);
             return self.flush_events(settings, audio_router);
         }
         self.handle_cursor_move(x_px, y_px);

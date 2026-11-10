@@ -39,6 +39,8 @@ export component ScreenFrame inherits Rectangle {
         y: root.center-rows
             ? root.pad-top + (root.avail-height - (self.height + root.head-body-gap + root.body-content-height)) / 2
             : root.pad-top;
+        // A page without a title of its own (the Options hub draws its own) shows no stray underline.
+        visible: root.title != "";
         title: root.title;
     }
     body := Rectangle {
