@@ -139,9 +139,11 @@ impl SoundCollision for Queries {
 // another mixer or sound policy. Class ids resolve while loading. Emitter
 // slots retain explicit qualified lives, and the runtime detects changes in
 // the resulting facts, including scope, charge, reload and engine transitions.
+// One borrowed view covers every audible presentation kind; fields a kind
+// doesn't carry keep their defaults, and unknown fields are skipped.
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ShotInput<'a> {
+struct EventInput<'a> {
     kind: &'a str,
     #[serde(default)]
     owner_id: u32,
@@ -155,6 +157,22 @@ struct ShotInput<'a> {
     position: Option<[f64; 3]>,
     #[serde(default)]
     repair: bool,
+    #[serde(default)]
+    definition_id: usize,
+    #[serde(default, borrow)]
+    property: std::borrow::Cow<'a, str>,
+    #[serde(default = "positional")]
+    positional: bool,
+    #[serde(default = "no_building")]
+    building: usize,
+}
+// attachPresentationCapture writes `positional: record.positional !== false`.
+fn positional() -> bool {
+    true
+}
+// Only a "serve" record names a building; no other kind may select one.
+fn no_building() -> usize {
+    usize::MAX
 }
 #[derive(Clone, Copy)]
 struct Shot {
@@ -176,6 +194,7 @@ pub struct Sound {
     pending_effects: Vec<[f64; event::STRIDE]>,
     cosmetic: bfe_sim::wire::cosmetics::Compact,
     combat_classes: Vec<usize>,
+    stations: Vec<(usize, [f64; 3])>,
     pub event_counts: [u64; 27],
     pub bleed: [f64; 2],
     epoch: f64,
@@ -213,6 +232,7 @@ impl Sound {
             pending_effects: Vec::with_capacity(2048),
             cosmetic: Default::default(),
             combat_classes: prepared.combat_classes,
+            stations: prepared.stations,
             event_counts: [0;27],
             bleed: [0.;2],
             epoch: f64::NAN,
@@ -288,6 +308,83 @@ impl Sound {
         row[event::VALUE] = value;
         row[event::SECONDS] = seconds;
         self.pending_effects.push(row);
+    }
+
+    // presentEntityEvent "vo" hands Chatter.say (src/audio/chatter.js) the
+    // speaker and the property. The line is the speaker's class sound for
+    // that property; a hull speaks with its occupant's class. A speaker this
+    // client doesn't know, or one whose class has no sounds, says nothing.
+    // Only the local player's own line may be 2D; everyone else's is always
+    // placed where it was said.
+    fn chatter(&self, receiver: &Receiver, source: &EventInput) -> Option<[f64; event::STRIDE]> {
+        if source.owner_id == 0 || source.property.is_empty() {
+            return None;
+        }
+        let own = source.owner_id as f64 == receiver.own.id
+            && source.owner_generation as f64 == receiver.own.generation;
+        let class = if own {
+            receiver.own.class
+        } else {
+            let row = unit(receiver, source.owner_id, source.owner_generation)?;
+            let row = if row[r::KIND] == k::VEHICLE as f64 {
+                receiver
+                    .active()
+                    .find(|p| {
+                        p[r::SEAT_PRESENT] != 0.
+                            && p[r::SEAT_INDEX] == 0.
+                            && p[r::SEAT_VEHICLE_ID] == row[r::ID]
+                            && p[r::SEAT_VEHICLE_GENERATION] == row[r::GENERATION]
+                    })
+                    .unwrap_or(row)
+            } else {
+                row
+            };
+            row[r::CLASS_ID] as usize
+        };
+        let class = registered(&self.actors, class).filter(|c| *c != usize::MAX)?;
+        let key = super::sound_data::key_hash(&source.property);
+        Some(super::sound_events::chatter(class, key, source.position, !own || source.positional))
+    }
+
+    // presentEntityEvent "bounce"/"pickup": GameAudio's bounce and pickup
+    // handlers (src/audio/game.js) play the combat definition's class sound,
+    // CollisionOtherSound or PowerupSound, where it happened. An unknown
+    // definition or a missing point plays nothing.
+    fn ordnance(&self, source: &EventInput) -> Option<[f64; event::STRIDE]> {
+        let class = *self.combat_classes.get(source.definition_id).filter(|_| source.definition_id != 0)?;
+        let kind = if source.kind == "bounce" {
+            event_kind::BOUNCE
+        } else {
+            event_kind::POWERUP
+        };
+        Some(super::sound_events::placed(kind, class, source.position?))
+    }
+
+    // presentEntityEvent "serve": SceneSounds.served (src/audio/scene.js)
+    // plays the station's class PowerupSound at the station. The record
+    // names it by its place among the live buildings.
+    fn serve(&self, source: &EventInput) -> Option<[f64; event::STRIDE]> {
+        let (class, position) = *self.stations.get(source.building)?;
+        Some(super::sound_events::placed(event_kind::POWERUP, class, position))
+    }
+
+    // presentEntityEvent "towAttach"/"towRelease": GameAudio.towSound
+    // (src/audio/game.js) plays the cable weapon's attach or release sound
+    // at the hull, the snowspeeder's when the weapon's bank has none. The
+    // browser finds the weapon among the hull's seats; the record's registry
+    // id names the same weapon here.
+    fn tow(&self, receiver: &Receiver, source: &EventInput) -> Option<[f64; event::STRIDE]> {
+        let hull = unit(receiver, source.owner_id, source.owner_generation)
+            .filter(|row| row[r::KIND] == k::VEHICLE as f64)?;
+        let class = registered(&self.weapons, source.weapon_id)?;
+        let kind = if source.kind == "towAttach" {
+            event_kind::TOW_ATTACH
+        } else {
+            event_kind::TOW_RELEASE
+        };
+        let mut position = [0.; 3];
+        position.copy_from_slice(&hull[r::POSITION..r::POSITION + 3]);
+        Some(super::sound_events::placed(kind, class, position))
     }
 
     pub fn frame(
@@ -372,26 +469,43 @@ impl Sound {
             if field.row[r::KIND] != k::COMBAT as f64 || field.row[r::SCHEMA] != 8. {
                 continue;
             }
-            let Ok(source) = serde_json::from_slice::<ShotInput>(&field.bytes[..field.length])
+            let Ok(source) = serde_json::from_slice::<EventInput>(&field.bytes[..field.length])
             else {
                 continue;
             };
-            if source.kind != "shot" {
-                continue;
+            // presentEntityEvent's audible branches. "shot" waits for the
+            // emitter rows below; the others carry every fact they need and
+            // join the scalar event queue in arrival order.
+            let event = match source.kind {
+                "shot" => {
+                    if self.pending.len() == self.pending.capacity() {
+                        self.pending.remove(0);
+                        self.refused += 1;
+                    }
+                    self.pending.push(Shot {
+                        owner_id: source.owner_id,
+                        owner_generation: source.owner_generation,
+                        weapon_id: source.weapon_id,
+                        channel: source.channel,
+                        position: source.position,
+                        repair: source.repair,
+                    });
+                    self.events += 1;
+                    continue;
+                }
+                "vo" => self.chatter(receiver, &source),
+                "bounce" | "pickup" => self.ordnance(&source),
+                "serve" => self.serve(&source),
+                "towAttach" | "towRelease" => self.tow(receiver, &source),
+                _ => None,
+            };
+            if let Some(event) = event {
+                if self.pending_effects.len() == self.pending_effects.capacity() {
+                    self.pending_effects.remove(0);
+                    self.refused += 1;
+                }
+                self.pending_effects.push(event);
             }
-            if self.pending.len() == self.pending.capacity() {
-                self.pending.remove(0);
-                self.refused += 1;
-            }
-            self.pending.push(Shot {
-                owner_id: source.owner_id,
-                owner_generation: source.owner_generation,
-                weapon_id: source.weapon_id,
-                channel: source.channel,
-                position: source.position,
-                repair: source.repair,
-            });
-            self.events += 1;
         }
         // Preserve control state while the device is stopped or its bounded
         // queue is full. Advancing it after dropping START would orphan a loop.
@@ -880,4 +994,17 @@ fn retire_weapon(phase: &mut audio_control::phase::Phase, id: usize) {
     row[weapon::ID] = id as f64;
     row[weapon::OWNER] = -1.;
     phase.observe_weapon(&row);
+}
+
+// presentEntityEvent's `game.units.byId(id)` with its generation check.
+fn unit(receiver: &Receiver, id: u32, generation: u32) -> Option<&[f64; r::STRIDE]> {
+    receiver
+        .active()
+        .find(|row| row[r::ID] == id as f64 && row[r::GENERATION] == generation as f64)
+}
+
+// Wire registries are one-based; zero and ids past the table name nothing.
+// A present entry may still be the sound manifest's missing-class sentinel.
+fn registered(table: &[usize], id: usize) -> Option<usize> {
+    table.get(id.checked_sub(1)?).copied()
 }

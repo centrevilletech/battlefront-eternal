@@ -44,6 +44,35 @@ pub fn impact(source: &bfe_sim::wire::cosmetics::Compact, class: usize) -> [f64;
     out[v::X..v::X + 3].copy_from_slice(&source.view.position.unwrap_or_default());
     out
 }
+// SoundControl.enqueue's defaults: no owner and no weapon (-1), positional,
+// unplaced unless a point is given. A class absent from the sound manifest
+// stays -1, which the runtime treats as silent, as resources.class does.
+fn enqueue(kind: usize, class: usize, position: Option<[f64; 3]>) -> [f64; v::STRIDE] {
+    let mut out = [0.; v::STRIDE];
+    out[v::KIND] = kind as f64;
+    out[v::OWNER] = -1.;
+    out[v::WEAPON] = -1.;
+    out[v::CLASS] = if class == usize::MAX { -1. } else { class as f64 };
+    out[v::POSITIONAL] = 1.;
+    if let Some(position) = position {
+        out[v::PLACED] = 1.;
+        out[v::X..v::X + 3].copy_from_slice(&position);
+    }
+    out
+}
+// SoundControl.event's class-at-a-point kinds: bounce, pickup (POWERUP) and
+// the tow cable's attach and release.
+pub fn placed(kind: usize, class: usize, position: [f64; 3]) -> [f64; v::STRIDE] {
+    enqueue(kind, class, Some(position))
+}
+// SoundControl.event "vo": the speaker's class, the property's hash in the
+// sound field, and whether the line is heard in 3D at its point.
+pub fn chatter(class: usize, property: u32, position: Option<[f64; 3]>, positional: bool) -> [f64; v::STRIDE] {
+    let mut out = enqueue(k::CHATTER, class, position);
+    out[v::SOUND] = property as f64;
+    out[v::POSITIONAL] = positional as u8 as f64;
+    out
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,5 +109,23 @@ mod tests {
         assert_eq!(row[v::KIND], k::SPLASH as f64);
         assert_eq!(row[v::CLASS], 7.);
         assert_eq!(&row[v::X..v::X + 3], &[1., 2., 3.]);
+    }
+    #[test]
+    fn chatter_rows_carry_class_property_and_placement() {
+        let row = chatter(4, 0xdeadbeef, Some([5., 6., 7.]), true);
+        assert_eq!(row[v::KIND], k::CHATTER as f64);
+        assert_eq!(row[v::CLASS], 4.);
+        assert_eq!(row[v::SOUND], 0xdeadbeef_u32 as f64);
+        assert_eq!((row[v::PLACED], row[v::POSITIONAL]), (1., 1.));
+        assert_eq!((row[v::OWNER], row[v::WEAPON]), (-1., -1.));
+        let flat = chatter(4, 1, None, false);
+        assert_eq!((flat[v::PLACED], flat[v::POSITIONAL]), (0., 0.));
+    }
+    #[test]
+    fn placed_rows_keep_missing_classes_silent() {
+        let row = placed(k::BOUNCE, usize::MAX, [1., 2., 3.]);
+        assert_eq!(row[v::CLASS], -1.);
+        assert_eq!(row[v::PLACED], 1.);
+        assert_eq!(placed(k::POWERUP, 9, [0.; 3])[v::CLASS], 9.);
     }
 }

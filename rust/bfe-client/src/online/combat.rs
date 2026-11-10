@@ -72,7 +72,8 @@ struct Net {
 pub struct Combat {
     pub ordnance: Ordnance,
     pub particles: Particles,
-    effects: bfe_presentation::Presentation,
+    pub debris: super::debris::Debris,
+    effects: super::effects::Spawner,
     gpu_indices: Vec<Option<usize>>,
     definitions: Vec<Option<usize>>,
     styles: Vec<Style>,
@@ -84,12 +85,9 @@ pub struct Combat {
     net_bound: Index,
     net_free: Vec<usize>,
     scratch: bfe_sim::wire::cosmetics::Compact,
-    effect_active: Vec<bool>,
-    effect_generation: Vec<u32>,
-    effect_free: Vec<usize>,
-    effect_sequence: u32,
     frame: u64,
     epoch: f64,
+    tick: f64,
     pub visible: usize,
     pub refused: u64,
     pub effect_names: Vec<(String, usize)>,
@@ -114,6 +112,8 @@ impl Combat {
         bridge: &mut Bridge,
         textures: &[u32],
         resources: &mut Resources,
+        collision: super::replay::Collision,
+        world: u32,
     ) -> Result<Self, String> {
         let defs = bfe_content::defs::Defs::build(&content.content)?;
         let library = content.effects.iter().find(|(name, _)| name == "battle").map(|(_, e)| e).ok_or("missing battle effect library")?;
@@ -212,12 +212,14 @@ impl Combat {
             bfe_presentation::Limits { effects: 1024, emitters: 4096, particles: 16384, commands: 2048, events: 32768 },
         );
         let particles = prepared.admit(content, bridge, textures, resources)?;
+        let debris = super::debris::Debris::new(content, bridge, textures, &effect_names, collision, world)?;
         let mut scratch = bfe_sim::wire::cosmetics::Compact::default();
         scratch.offset.reserve(3);
         Ok(Self {
             ordnance,
             particles,
-            effects,
+            debris,
+            effects: super::effects::Spawner::new(effects),
             gpu_indices: library.gpu_indices.clone(),
             definitions,
             styles,
@@ -229,12 +231,9 @@ impl Combat {
             net_bound: Index::new(limits::NET_SLOTS),
             net_free: (0..limits::NET_SLOTS).rev().collect(),
             scratch,
-            effect_active: vec![false; 1024],
-            effect_generation: vec![0; 1024],
-            effect_free: (1..1024).rev().collect(),
-            effect_sequence: 0,
             frame: 0,
             epoch: 0.,
+            tick: 0.,
             visible: 0,
             refused: 0,
             effect_names,
@@ -245,43 +244,22 @@ impl Combat {
             pending: Vec::with_capacity(2048),
         })
     }
-    // Effects.play is a bounded spawn command into Presentation. Generation
-    // distinguishes reuse of a host effect slot; completion returns that slot
-    // only when both id and generation match the outstanding visual life.
-    // The event's stable seed keeps its particle draw order deterministic.
+    // Effects.play for a one-shot: its handle is never used again. A missing
+    // group plays nothing; a full batch or pool is counted and dropped.
     fn play(&mut self, group: Option<usize>, position: [f64; 3], seed: u32) {
-        use bfe_presentation::layout::{command as c, command_kind as k, frame as f};
         let Some(group) = group else {
             return;
         };
-        let count = self.effects.input[f::COMMANDS] as usize;
-        if count == 2048 {
+        if self.effects.start(group, position, [0.; 3], seed).is_some() {
+            self.total_effects += 1;
+        } else {
             self.refused += 1;
-            return;
         }
-        let Some(id) = self.effect_free.pop() else {
-            self.refused += 1;
-            return;
-        };
-        self.effect_active[id] = true;
-        self.total_effects += 1;
-        self.effect_generation[id] = self.effect_generation[id].wrapping_add(1).max(1);
-        self.effect_sequence = self.effect_sequence.wrapping_add(1);
-        let tick = self.effects.input[f::PLAYOUT_TICK];
-        let row = &mut self.effects.input[f::STRIDE + count * c::STRIDE..][..c::STRIDE];
-        row.fill(0.);
-        row[c::SEQUENCE] = self.effect_sequence as f64;
-        row[c::KIND] = k::SPAWN as f64;
-        row[c::ID] = id as f64;
-        row[c::GENERATION] = self.effect_generation[id] as f64;
-        row[c::TICK] = tick;
-        row[c::CONTENT] = group as f64;
-        row[c::SEED] = seed as f64;
-        row[c::POSITION..c::POSITION + 3].copy_from_slice(&position);
-        row[c::QUATERNION + 3] = 1.;
-        row[c::TINT] = 1.;
-        row[c::SCALE] = 1.;
-        self.effects.input[f::COMMANDS] = (count + 1) as f64;
+    }
+    // An effect another owner asks for between two frames (a droid's death
+    // blast). It joins the next frame's spawn batch, as any deferred impact.
+    pub fn present_effect(&mut self, group: Option<usize>, position: [f64; 3], seed: u32) {
+        self.defer(group, position, seed, self.tick);
     }
     fn defer(&mut self, group: Option<usize>, position: [f64; 3], id: u32, tick: f64) {
         if group.is_none() {
@@ -296,18 +274,19 @@ impl Combat {
         self.pending.push((group, position, id, tick));
     }
     pub fn frame(&mut self, receiver: &Receiver, tick: f64, dt: f64, bridge: &mut Bridge) {
-        use bfe_presentation::layout::{effect as eo, frame as ef, header as eh};
+        use bfe_presentation::layout::frame as ef;
         self.frame += 1;
+        self.tick = tick;
         self.visible = 0;
-        self.effects.input[ef::VERSION] = bfe_presentation::layout::VERSION as f64;
-        self.effects.input[ef::FRAME] = self.frame as f64;
-        self.effects.input[ef::EPOCH] = receiver.epoch;
-        self.effects.input[ef::TICK] = tick;
-        self.effects.input[ef::PLAYOUT_TICK] = tick;
-        self.effects.input[ef::INPUT_CLOCK] = tick;
-        self.effects.input[ef::DT] = dt;
-        self.effects.input[ef::PRESENT] = 1.;
-        self.effects.input[ef::COMMANDS] = 0.;
+        self.effects.owner.input[ef::VERSION] = bfe_presentation::layout::VERSION as f64;
+        self.effects.owner.input[ef::FRAME] = self.frame as f64;
+        self.effects.owner.input[ef::EPOCH] = receiver.epoch;
+        self.effects.owner.input[ef::TICK] = tick;
+        self.effects.owner.input[ef::PLAYOUT_TICK] = tick;
+        self.effects.owner.input[ef::INPUT_CLOCK] = tick;
+        self.effects.owner.input[ef::DT] = dt;
+        self.effects.owner.input[ef::PRESENT] = 1.;
+        self.effects.owner.input[ef::COMMANDS] = 0.;
         let mut net_count = 0;
         // Epoch reset releases visual identities without reconstructing their
         // resource banks. Pending effects from another battle cannot cross
@@ -316,6 +295,7 @@ impl Combat {
         if self.epoch != receiver.epoch {
             self.epoch = receiver.epoch;
             self.pending.clear();
+            self.debris.clear();
             self.bound.clear();
             self.free.clear();
             self.free.extend((0..BOLTS).rev());
@@ -600,18 +580,10 @@ impl Combat {
                 self.net_free.push(slot);
             }
         }
+        // Debris.update runs before Effects.update: a piece's trail moves
+        // and its bounce plays in this frame's batch.
+        self.debris.step(dt, &mut self.effects, &mut self.total_effects, &mut self.refused);
         self.effects.frame();
-        for row in self.effects.effect_output.chunks_exact(eo::STRIDE).take(self.effects.header[eh::EFFECTS] as usize) {
-            let id = row[eo::ID] as usize;
-            if row[eo::DONE] != 0.
-                && id < self.effect_active.len()
-                && self.effect_active[id]
-                && row[eo::GENERATION] == self.effect_generation[id] as f64
-            {
-                self.effect_active[id] = false;
-                self.effect_free.push(id);
-            }
-        }
         // The owners publish planar quad attributes and analytic particle
         // records. The retained renderer batches consume those publications;
         // creating one mesh per round would reintroduce resource admission
@@ -632,11 +604,12 @@ impl Combat {
                 self.total_quads += 1;
             }
         }
-        self.particles.effects(bridge, &self.effects, &self.gpu_indices);
+        self.particles.effects(bridge, &self.effects.owner, &self.gpu_indices);
         self.particles.finish(bridge);
     }
     pub fn record_budget(&self) -> usize {
-        self.net.iter().filter(|n| n.active && n.shown).filter_map(|n| self.styles[n.style].model.as_ref()).map(|m| m.rows.len()).sum()
+        self.net.iter().filter(|n| n.active && n.shown).filter_map(|n| self.styles[n.style].model.as_ref()).map(|m| m.rows.len()).sum::<usize>()
+            + self.debris.record_budget()
     }
     pub fn append(&self, bridge: &mut Bridge, mut records: usize, mut bones: usize) -> (usize, usize) {
         for net in &self.net {
@@ -646,6 +619,6 @@ impl Combat {
                 }
             }
         }
-        (records, bones)
+        self.debris.append(bridge, records, bones)
     }
 }

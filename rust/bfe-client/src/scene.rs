@@ -1029,6 +1029,8 @@ impl Scene {
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
             resources.first_person.enabled = resources.cameras.eye_view;
             resources.finish_frame(receiver, replay, &world.elements, cue);
+            resources.present_arcs(dt.min(8./60.), camera.position, &mut self.bridge);
+            resources.present_shields(dt.min(8./60.), camera.position, &camera.snapshot().values, &mut self.bridge);
             let reticle = resources.cameras.mounted_aim(camera).or_else(||
                 resources.reticle_point(receiver).map(|point| crate::online::hud::Aim { point, project_x: false }));
             resources.hud.aim(&mut self.bridge, camera.snapshot(), reticle);

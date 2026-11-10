@@ -144,6 +144,32 @@ fn sound_id(names: &BTreeMap<String, usize>, v: Option<&Value>) -> f64 {
         names.get(&key(name)).map_or(-1., |id| *id as f64)
     }
 }
+// keyOf (src/audio/hash.js) as a number: a `0x`-prefixed hash names itself,
+// anything else hashes. A chatter line's property crosses the presentation
+// boundary by name and finds its class sound through this hash.
+pub(super) fn key_hash(s: &str) -> u32 {
+    u32::from_str_radix(&key(s)[2..], 16).unwrap_or_default()
+}
+// A class sound key the data keeps only as its hash: eight bare hex digits,
+// as Chatter.line asks for them (`hashKey(property).slice(2)`).
+fn is_hex_key(k: &str) -> bool {
+    k.len() == 8 && k.bytes().all(|b| b.is_ascii_hexdigit())
+}
+// A JavaScript Map's set: a repeated key keeps its slot, the last value wins.
+fn set_property(properties: &mut Vec<(u32, f64)>, key: u32, sound: f64) {
+    match properties.iter_mut().find(|(k, _)| *k == key) {
+        Some(slot) => slot.1 = sound,
+        None => properties.push((key, sound)),
+    }
+}
+// `String(name).replace(/_[a-z0-9]+$/i, "")`: only the last underscore can
+// begin an all-alphanumeric tail, so the rule strips at most that segment.
+fn tow_stem(name: &str) -> &str {
+    match name.rfind('_') {
+        Some(at) if at + 1 < name.len() && name[at + 1..].bytes().all(|b| b.is_ascii_alphanumeric()) => &name[..at],
+        _ => name,
+    }
+}
 fn track(
     data: &Data,
     names: &BTreeMap<String, usize>,
@@ -189,6 +215,7 @@ pub struct Prepared {
     pub actor_classes: Vec<usize>,
     pub weapon_classes: Vec<usize>,
     pub combat_classes: Vec<usize>,
+    pub stations: Vec<(usize, [f64; 3])>,
     pub posts: Vec<(usize,[f64;post::STRIDE])>,
     pub voice_segments: Vec<bool>,
     pub prediction_weapons: Vec<([f64; weapon::STRIDE], usize)>,
@@ -596,7 +623,41 @@ impl Prepared {
                         first(o.get(k))
                     });
                 }
+                // GameAudio.towSound names a tow cable's sounds by the bank
+                // alone: the class name without its last `_word`
+                // (`replace(/_[a-z0-9]+$/i, "")`) plus `_towcable_attach` or
+                // `_towcable_release`. The 2004 data has no ODF key for them.
+                let stem = tow_stem(name);
+                row[class::TOW_ATTACH] = sound_id(&names, Some(&Value::str(&format!("{stem}_towcable_attach"))));
+                row[class::TOW_RELEASE] = sound_id(&names, Some(&Value::str(&format!("{stem}_towcable_release"))));
                 import(&mut runtime, import::CLASS, &row)?;
+            }
+            // Chatter.line: every class sound by the hash of its key, which a
+            // chatter line ("vo" record) looks up by its property name. The
+            // key by its name comes first; an eight-digit hex key (the squad
+            // command bank's, which the data keeps only as hashes) answers
+            // for a name that is absent or names no sound.
+            for (id, (_, o)) in table.entries().enumerate() {
+                let Some(props) = o.as_object() else {
+                    continue;
+                };
+                let mut properties: Vec<(u32, f64)> = Vec::new();
+                for (k, v) in props.entries() {
+                    if !is_hex_key(k) {
+                        set_property(&mut properties, key_hash(k), resolve(Some(v)));
+                    }
+                }
+                for (k, v) in props.entries() {
+                    if is_hex_key(k) {
+                        let key = u32::from_str_radix(k, 16).unwrap_or_default();
+                        if properties.iter().find(|(h, _)| *h == key).map_or(-1., |(_, s)| *s) < 0. {
+                            set_property(&mut properties, key, resolve(Some(v)));
+                        }
+                    }
+                }
+                for (key, sound) in properties {
+                    import(&mut runtime, import::PROPERTY, &[id as f64, key as f64, sound])?;
+                }
             }
         }
         // Mission rows describe alternatives. The shared director alone
@@ -662,6 +723,10 @@ impl Prepared {
         config[config::SPACE_SEND] = 0.;
         config[config::OWN_SCOPE_IN] = resolve(mission.and_then(|m| m.get("effects")).and_then(|e| e.get("ScopeDisplayZoomIn")));
         config[config::OWN_SCOPE_OUT] = resolve(mission.and_then(|m| m.get("effects")).and_then(|e| e.get("ScopeDisplayZoomOut")));
+        // GameAudio.towSound's fallback: a cable whose class bank has no
+        // towcable sound plays the snowspeeder's.
+        config[config::TOW_ATTACH] = sound_id(&names, Some(&Value::str("all_weap_fly_snowspeeder_towcable_attach")));
+        config[config::TOW_RELEASE] = sound_id(&names, Some(&Value::str("all_weap_fly_snowspeeder_towcable_release")));
         for team in 1..=2 {
             let key = team.to_string();
             config[if team == 1 { config::VICTORY1 } else { config::VICTORY2 }] =
@@ -802,12 +867,25 @@ impl Prepared {
             }}
             posts.push((slot+1,row));
         }
+        // LiveObjects.buildings (src/props.js), in the order a "serve" record
+        // counts them: each building's sound class and where it stands
+        // (`setFromMatrixPosition`). A class the manifest lacks stays silent.
+        let instances = content.content.battle.props.as_ref().and_then(|p| p.get("instances")).and_then(Value::as_array).unwrap_or(&[]);
+        let stations = bfe_sim::world::admit::rows::props::live_sources(&content.content.battle)
+            .into_iter()
+            .map(|source| {
+                let desc = &instances[source];
+                let class = classes.get(text(desc.get("class"))).copied().unwrap_or(usize::MAX);
+                (class, std::array::from_fn(|axis| number(desc.get("matrix").and_then(|m| m.at(12 + axis)))))
+            })
+            .collect();
         Ok(Self {
             runtime,
             output,
             actor_classes,
             weapon_classes,
             combat_classes,
+            stations,
             posts,
             voice_segments,
             prediction_weapons,
@@ -815,5 +893,28 @@ impl Prepared {
             music,
             streams: super::stream_assets::Assets::new(segments),
         })
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn tow_stem_strips_only_an_alphanumeric_tail() {
+        assert_eq!(tow_stem("all_weap_fly_snowspeeder_reargun"), "all_weap_fly_snowspeeder");
+        assert_eq!(tow_stem("plain"), "plain");
+        assert_eq!(tow_stem("ends_"), "ends_");
+        assert_eq!(tow_stem("a_b-c"), "a_b-c");
+    }
+    #[test]
+    fn property_keys_hash_like_control_resources() {
+        assert_eq!(key_hash("0x1064c0a7"), 0x1064c0a7);
+        assert_eq!(key_hash("FleeSound"), hash("FleeSound"));
+        assert_eq!(key_hash("fleesound"), key_hash("FleeSound"));
+        assert!(is_hex_key("1064c0a7") && !is_hex_key("0x1064c0a7") && !is_hex_key("FleeSoun"));
+        let mut properties = vec![];
+        set_property(&mut properties, 1, -1.);
+        set_property(&mut properties, 2, 4.);
+        set_property(&mut properties, 1, 3.);
+        assert_eq!(properties, vec![(1, 3.), (2, 4.)]);
     }
 }

@@ -136,12 +136,16 @@ impl<E: Engine> Running<E> {
     fn summary(&self) -> Result<serde_json::Value, String> {
         let local = &self.host.world.runtime;
         let resources = self.scene.online.as_ref().ok_or("missing local presentation")?;
+        let presented: serde_json::Map<String, serde_json::Value> = bfe_client::online::replicas::presented::SHOWN
+            .iter().zip(resources.presented.shown).map(|(name, count)| (name.to_string(), count.into())).collect();
         Ok(serde_json::json!({"ticks":local.ticks,"frames":self.host.world.frames,
             "generation":local.receiver.own.generation,"alive":local.receiver.own.alive,
             "position":local.receiver.own.position,"hulls":resources.hulls.visible,"items":resources.items.visible,
             "hudQuads":resources.hud.quads,"projectileQuads":resources.combat.total_quads,
             "effects":resources.combat.total_effects,"audioFrames":resources.sound.device_frames(),
-            "audioPeak":resources.sound.peak(),"refused":local.refusals()+local.receiver.refused,
+            "audioPeak":resources.sound.peak(),"audioEvents":resources.sound.event_counts.to_vec(),
+            "combatRecords":resources.combat.received.to_vec(),"presented":presented,
+            "refused":local.refusals()+local.receiver.refused,
             "pixelHash":self.scene.hash()?}))
     }
 }

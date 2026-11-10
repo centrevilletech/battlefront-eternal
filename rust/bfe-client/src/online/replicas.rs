@@ -1,6 +1,7 @@
 //! Native resource admission and the remote-body display batch. Snapshot
 //! samples remain in the shared Rust ring; no scalar facade sits between the
 //! receiver, animation phase and renderer's existing instance/bone banks.
+pub mod presented;
 mod preview;
 use super::index::Index;
 use crate::{online::receiver::Receiver, render_bridge::Bridge};
@@ -34,6 +35,10 @@ struct Model {
     head: Option<usize>,
     clips: Vec<(String, f64)>,
     death_clip: f64,
+    // The clip of each weapon action, by bank, posture and action.
+    weapon_clips: Vec<presented::BankClips>,
+    // Bone names in lower case, as a class's chunks name them.
+    bones: Vec<String>,
 }
 struct Slot {
     actor: usize,
@@ -48,6 +53,21 @@ struct Slot {
     // Latest death can precede the historical display's death sample.
     dead: bool,
     death_pending: bool,
+    // A droideka's animator takes no weapon actions.
+    walker: bool,
+    // The registry class of the body's current life, for its chunks.
+    class: usize,
+    // The registry weapon in his hands, the bank he throws with while a
+    // throw is under way, and whether his state says he was blown apart.
+    primary: usize,
+    throwing: Option<usize>,
+    blown: bool,
+    // A droideka's shield bubble, with its shield's charge, whether it is
+    // up and whether the droideka is rolled into a ball.
+    bubble: Option<usize>,
+    shield: (f64, bool, bool),
+    // Unit.goUp: seconds since this life's body went up, None while drawn.
+    gone: Option<f64>,
 }
 pub struct Replicas {
     pub first_person: super::first_person::Views,
@@ -58,6 +78,9 @@ pub struct Replicas {
     pub cameras: Box<super::cameras::Cameras>,
     pub combat: Box<super::combat::Combat>,
     pub sound: Box<super::sound::Sound>,
+    pub presented: presented::Presented,
+    pub arcs: Box<super::lightning::Arcs>,
+    shields: Box<super::shields::Shields>,
     held: Vec<Option<super::models::Model>>,
     weapon_classes: Vec<Option<usize>>,
     pub replay: Option<super::replay::Replay>,
@@ -204,6 +227,8 @@ impl Replicas {
             models.push(Model {
                 row,
                 death_clip: -1.,
+                weapon_clips: Vec::new(),
+                bones: actor.bones.iter().map(|bone| bone.name.to_lowercase()).collect(),
                 preview,
                 preview_parts,
                 preview_animation,
@@ -286,6 +311,14 @@ impl Replicas {
                     source: 0.,
                     dead: false,
                     death_pending: false,
+                    walker: false,
+                    class: 0,
+                    primary: 0,
+                    throwing: None,
+                    blown: false,
+                    bubble: None,
+                    shield: (0., false, false),
+                    gone: None,
                 });
             }
         }
@@ -342,7 +375,16 @@ impl Replicas {
         let cameras = Box::new(super::cameras::Cameras::new(content, resources.collision.clone(), resources.world)?);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
-        let combat = Box::new(super::combat::Combat::new(content, particles, bridge, textures, renderer)?);
+        let arc_images = particles.textures.clone();
+        let combat = Box::new(super::combat::Combat::new(
+            content,
+            particles,
+            bridge,
+            textures,
+            renderer,
+            resources.collision.clone(),
+            resources.world,
+        )?);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         let sound = Box::new(super::sound::Sound::new(
@@ -360,6 +402,29 @@ impl Replicas {
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         let hud = Box::new(hud.admit(bridge, textures, solid, size)?);
+        let arcs = Box::new(super::lightning::Arcs::new(content, bridge, textures, &arc_images, combat.particles.words)?);
+        bridge.r.core.state.reset();
+        let shields = Box::new(super::shields::Shields::new(
+            content,
+            bridge,
+            textures,
+            &arc_images,
+            combat.particles.words + super::lightning::FLOATS,
+        )?);
+        bridge.r.core.state.reset();
+        // Weapon actions resolve their clips once, per body and bank.
+        let sets = content.content.battle.anim_meta.get("sets");
+        fn text<'a>(weapon: &'a bfe_content::defs::WeaponDef, key: &str) -> Option<&'a str> {
+            weapon.record.get(key).and_then(bfe_content::Value::as_str)
+        }
+        let weapon_banks = defs
+            .weapons
+            .iter()
+            .map(|w| (w.registry_id.map_or(0, usize::from), text(w, "AnimationBank").unwrap_or("rifle"), text(w, "base").unwrap_or("")));
+        let presented = presented::Presented::new(sets, weapon_banks, registry.weapons.len(), &combat.effect_names);
+        for model in &mut models {
+            model.weapon_clips = presented.clips(sets, &model.clips);
+        }
         eprintln!("native unit admission: models={} classes={} slots={} nodes={nodes}", models.len(), classes.iter().flatten().count(), slots.len());
         Ok(Self {
             first_person,
@@ -370,6 +435,9 @@ impl Replicas {
             cameras,
             combat,
             sound,
+            presented,
+            arcs,
+            shields,
             held,
             weapon_classes,
             replay,
@@ -434,6 +502,9 @@ impl Replicas {
                     }
                     self.units.network.unbind(slot.actor);
                 }
+                if let Some(bubble) = slot.bubble.take() {
+                    self.shields.release(bubble);
+                }
             }
         }
         for row in receiver.active() {
@@ -456,11 +527,18 @@ impl Replicas {
                 };
                 self.slots[slot].dead = false;
                 self.slots[slot].death_pending = false;
+                self.slots[slot].gone = None;
+                self.slots[slot].throwing = None;
+                self.slots[slot].blown = false;
                 self.slots[slot].mount = None;
                 self.slots[slot].rider_resource = None;
                 self.slots[slot].rider = (-1., false, None, false);
                 self.slots[slot].identity = Some(key);
                 self.slots[slot].active = true;
+                // units.js: a walker with a shield look has a bubble.
+                if kind == k::DROIDEKA {
+                    self.slots[slot].bubble = self.shields.take(row[r::CLASS_ID] as usize);
+                }
                 self.bound.insert(key, slot);
                 let actor = self.slots[slot].actor;
                 self.units.reset_binding(actor);
@@ -479,6 +557,13 @@ impl Replicas {
                 slot
             };
             self.slots[slot].weapon = self.weapon_classes.get(row[r::WEAPON] as usize).copied().flatten();
+            self.slots[slot].walker = kind == k::DROIDEKA;
+            self.slots[slot].class = row[r::CLASS_ID] as usize;
+            self.slots[slot].primary = row[r::WEAPON] as usize;
+            if kind == k::DROIDEKA {
+                // Droideka.rolled: folding, rolling or unfolding (mode 11 on).
+                self.slots[slot].shield = (row[r::SHIELD], row[r::SHIELD_ON] != 0., row[r::MODE] >= 11.);
+            }
             let lease = (row[r::SEAT_PRESENT] != 0.).then_some((
                 row[r::SEAT_VEHICLE_ID] as u32,
                 row[r::SEAT_VEHICLE_GENERATION] as u32,
@@ -613,6 +698,12 @@ impl Replicas {
             }
             self.visible += usize::from(input[i::PRESENT] != 0. && input[i::OWN] == 0.);
         }
+        // Every body of this frame is bound: show what the server said of them.
+        self.present_states(receiver, prediction);
+        self.present_events(receiver, tick);
+        let bound = &self.bound;
+        self.arcs.receive(receiver, |id, generation| bound.get(&(id, generation)).is_some());
+        self.presented.shown[5] = self.arcs.shown;
         // Network-linked rows receive motion from Rust. The retained parent
         // matrices describe placement only and do not reapply network motion.
         let identity = Matrix4::default().elements;
@@ -621,6 +712,11 @@ impl Replicas {
             if !slot.active {
                 input[i::PRESENT] = 0.;
             }
+            // Unit.presentGone: a slot is one life, so its generation is the
+            // gone body's own.
+            input[i::GONE] = slot.gone.is_some() as u8 as f64;
+            input[i::GONE_GENERATION] = input[i::GENERATION];
+            input[i::GONE_TIME] = slot.gone.unwrap_or(0.);
             input[i::ACTOR] = slot.actor as f64;
             input[i::ALPHA] = 1.;
             input[i::HELD_CLIP] = -1.;
@@ -680,6 +776,11 @@ impl Replicas {
             if slot.active && out[o::DEAD] != 0. && out[o::DEATH_PENDING] == 0. {
                 slot.death_pending = false;
             }
+            // Unit.presentGone keeps the body's clock; a droideka whose death
+            // clip played out goes up by itself (goneUp, src/droideka.js).
+            if slot.active && (slot.gone.is_some() || out[o::GONE_BIRTH] != 0.) {
+                slot.gone = Some(out[o::GONE_TIME]);
+            }
         }
         // Graphics.updateVisible places remote roots after the pose phase.
         // Units.frame deliberately leaves those matrices stale until this
@@ -694,6 +795,59 @@ impl Replicas {
         }
         self.units.place_actors(places);
 
+    }
+    /// Lightning.update, once the frame's bodies are posed: a bolt held to
+    /// its shooter starts at his gun origin as he is drawn now
+    /// (PlayerCombat.drawnGunOrigin: nowhere while he is dead or mounted).
+    pub fn present_arcs(&mut self, dt: f64, eye: [f64; 3], bridge: &mut Bridge) {
+        let (bound, slots, units) = (&self.bound, &self.slots, &self.units);
+        self.arcs.frame(
+            dt,
+            eye,
+            |shooter| {
+                let slot = &slots[*bound.get(&shooter)?];
+                let out = &units.output[slot.actor * o::STRIDE..];
+                (slot.active && !slot.dead && slot.mount.is_none()).then(|| std::array::from_fn(|axis| out[o::COMBAT_BASIS + axis]))
+            },
+            bridge,
+        );
+    }
+    // ShieldBubble.facts for a slot's droideka, from its drawn body.
+    fn shield_facts(&self, slot: usize) -> super::shields::Facts {
+        let slot = &self.slots[slot];
+        let out = &self.units.output[slot.actor * o::STRIDE..];
+        super::shields::Facts {
+            class: slot.class,
+            position: std::array::from_fn(|axis| out[o::POSITION + axis]),
+            yaw: out[o::YAW],
+            value: slot.shield.0,
+            on: slot.shield.1,
+            dead: slot.dead,
+            rolled: slot.shield.2,
+        }
+    }
+    /// Unit.present's bubble for every droideka drawn, once the frame's
+    /// bodies are posed: updated where the body is, hidden with a body that
+    /// has gone up. `camera` is the frame's projection, then view matrix.
+    pub fn present_shields(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], bridge: &mut Bridge) {
+        self.combat.particles.project(bridge, camera);
+        self.shields.begin();
+        for at in 0..self.slots.len() {
+            let Some(bubble) = self.slots[at].bubble.filter(|_| self.slots[at].active) else {
+                continue;
+            };
+            if self.units.output[self.slots[at].actor * o::STRIDE + o::GONE] == -1. {
+                self.shields.hide(bubble);
+                continue;
+            }
+            let facts = self.shield_facts(at);
+            self.shields.update(bubble, &facts, dt, eye, camera, bridge);
+        }
+        // The summary's proof that the frame's draws reached the renderer:
+        // what was handed over, and what the effect pass turned away.
+        self.presented.shown[7] = self.arcs.vertices;
+        self.presented.shown[8] = self.shields.draws;
+        self.presented.shown[9] = bridge.fx_clipped() as u64;
     }
     /// Pausing is a cold observation point; the canonical clocks and blend
     /// layers stay in Units rather than a second client animation model.
@@ -793,6 +947,10 @@ impl Replicas {
                 continue;
             }
             let output = &self.units.output[slot.actor * o::STRIDE..];
+            // A body gone up is undrawn for the rest of its life.
+            if output[o::GONE] == -1. {
+                continue;
+            }
             let count = output[o::SKIN_COUNT] as usize;
             let mut matrix = [0.; 16];
             matrix.copy_from_slice(&output[o::ROOT_WORLD..o::ROOT_WORLD + 16]);

@@ -6,6 +6,8 @@ use bfe_render::effects as render;
 use serde_json::json;
 use std::collections::BTreeMap;
 const CAPACITY: usize = 1024;
+// Model particles drawn in one frame, each part of a model counting one.
+const MODEL_DRAWS: usize = 256;
 // A particle recipe names existing renderer programs and one texture.
 // CPU effects, analytic effects and ordnance quads have distinct attribute
 // layouts even when they name the same image. The complete key below keeps
@@ -20,6 +22,8 @@ pub struct Prepared {
     pub recipes: Vec<Recipe>,
     keys: BTreeMap<(usize, bool, bool, bool), usize>,
     pub effect_batches: Vec<Option<usize>>,
+    // The model each GEOMETRY definition draws its particles with.
+    pub effect_models: Vec<Option<String>>,
     pub textures: BTreeMap<String, usize>,
 }
 impl Prepared {
@@ -31,6 +35,10 @@ impl Prepared {
                 names.push(name.into());
             }
         }
+        // The arc caster's ribbons draw with a texture of their own.
+        names.extend(super::lightning::definitions(content).into_iter().map(|(_, _, texture)| texture));
+        // A droideka's shield bubble may carry a field texture.
+        names.extend(super::shields::textures(content));
         for (_, effects) in &content.effects {
             for d in effects.descriptor["definitions"].as_array().into_iter().flatten() {
                 if let Some(name) = d["geometry"]["texture"].as_str() {
@@ -51,7 +59,7 @@ impl Prepared {
                 textures.insert(name, content.textures.load(path)?);
             }
         }
-        let mut prepared = Self { recipes: vec![], keys: BTreeMap::new(), effect_batches: vec![], textures };
+        let mut prepared = Self { recipes: vec![], keys: BTreeMap::new(), effect_batches: vec![], effect_models: vec![], textures };
         if let Some((_, effects)) = content.effects.iter().find(|(n, _)| n == "battle") {
             for d in effects.descriptor["definitions"].as_array().into_iter().flatten() {
                 let name = d["geometry"]["texture"].as_str().unwrap_or("");
@@ -60,6 +68,9 @@ impl Prepared {
                         prepared.batch(image, d["gpu"].as_bool().unwrap_or(false), false, d["geometry"]["blend"] == "additive")
                     });
                 prepared.effect_batches.push(batch);
+                // effects.js: a GEOMETRY particle draws its model, never a quad.
+                let model = (d["geometry"]["type"] == "geometry").then(|| d["geometry"]["model"].as_str()).flatten();
+                prepared.effect_models.push(model.map(str::to_string));
             }
         }
         Ok(prepared)
@@ -143,9 +154,105 @@ impl Prepared {
             words += CAPACITY * stride;
             batches.push(Batch { handle, analytic: recipe.analytic, at, stride, count: 0 });
         }
+        // game.js glowModel: each model a GEOMETRY definition names, drawn
+        // additive and double-sided with its first part's texture, tinted
+        // by the particle. One renderer model serves every particle of a
+        // part; a model the content lacks draws nothing.
+        let shadows = crate::shadows::COUNT > 0;
+        let mut fields = GlowFields::default();
+        for &(name, size) in bfe_render::effect_layout::PRODUCERS[bfe_render::effect_layout::ACTOR_GLOW].1 {
+            match name {
+                "projectionMatrix" => fields.projection = fields.length,
+                "diffuse" => fields.diffuse = fields.length,
+                "opacity" => fields.opacity = fields.length,
+                _ => {}
+            }
+            fields.length += size as usize;
+        }
+        let mut glows: Vec<(String, Glow)> = Vec::new();
+        let mut effect_glows = Vec::new();
+        for name in &self.effect_models {
+            let Some(name) = name else {
+                effect_glows.push(None);
+                continue;
+            };
+            if let Some(known) = glows.iter().position(|(known, _)| known == name) {
+                effect_glows.push(Some(known));
+                continue;
+            }
+            let prefix = format!("{name}/");
+            let meshes: Vec<_> = content.models.iter().filter(|m| m.name.starts_with(&prefix)).collect();
+            let Some(first) = meshes.first() else {
+                effect_glows.push(None);
+                continue;
+            };
+            let texture = first.material.texture.map_or(-1, |t| textures[t] as i32);
+            let policy = bfe_render::actor_effects::Policy::new(bfe_render::effect_layout::ACTOR_GLOW, shadows, false, texture, &Default::default())?;
+            if policy.defaults.len() != fields.length {
+                return Err("glow model values differ from the catalog".into());
+            }
+            let mut parts = Vec::new();
+            for mesh in meshes {
+                let model = bridge.fx_add_model(texture, &policy.blend, 1, glow::LEQUAL, &policy.values, &bounds(&mesh.geometry));
+                for (key, side) in &policy.keys {
+                    let program = bridge.add_owned_program(key)?;
+                    let geometry = mesh.geometry.register(&mut bridge.r, key)?;
+                    bridge.fx_model_pass(model, program, *side, geometry);
+                }
+                parts.push(model);
+            }
+            glows.push((name.clone(), Glow { parts, values: policy.defaults.iter().map(|v| *v as f32).collect() }));
+            effect_glows.push(Some(glows.len() - 1));
+        }
+        let model_at = words;
+        words += MODEL_DRAWS * fields.length;
         bridge.fx_reserve(words as u32);
-        Ok(Particles { batches, effect_batches: self.effect_batches, owner, words, epochs: vec![0.; 1024] })
+        Ok(Particles {
+            batches,
+            effect_batches: self.effect_batches,
+            glows: glows.into_iter().map(|(_, glow)| glow).collect(),
+            effect_glows,
+            fields,
+            model_at,
+            model_rows: Vec::with_capacity(MODEL_DRAWS),
+            owner,
+            words,
+            epochs: vec![0.; 1024],
+        })
     }
+}
+// The sphere three would cull a part by: its box's middle and the farthest
+// vertex from it. Positions lead each 32-byte vertex.
+fn bounds(geometry: &bfe_content_native::geometry::Geometry) -> [f64; 4] {
+    let points: Vec<[f64; 3]> = geometry.buffers[0]
+        .chunks_exact(32)
+        .map(|v| std::array::from_fn(|axis| f32::from_le_bytes(v[axis * 4..axis * 4 + 4].try_into().unwrap()) as f64))
+        .collect();
+    let mut low = [f64::INFINITY; 3];
+    let mut high = [f64::NEG_INFINITY; 3];
+    for point in &points {
+        for axis in 0..3 {
+            low[axis] = low[axis].min(point[axis]);
+            high[axis] = high[axis].max(point[axis]);
+        }
+    }
+    let center: [f64; 3] = std::array::from_fn(|axis| if points.is_empty() { 0. } else { (low[axis] + high[axis]) / 2. });
+    let radius = points.iter().map(|p| (0..3).map(|axis| (p[axis] - center[axis]).powi(2)).sum::<f64>().sqrt()).fold(0., f64::max);
+    [center[0], center[1], center[2], radius]
+}
+// A model's renderer models, one a part, and the material values they
+// start from.
+struct Glow {
+    parts: Vec<u32>,
+    values: Vec<f32>,
+}
+// Where the live values sit in a glow model's material values.
+#[derive(Default)]
+struct GlowFields {
+    projection: usize,
+    diffuse: usize,
+    opacity: usize,
+    length: usize,
 }
 struct Batch {
     handle: u32,
@@ -157,6 +264,13 @@ struct Batch {
 pub struct Particles {
     batches: Vec<Batch>,
     pub effect_batches: Vec<Option<usize>>,
+    glows: Vec<Glow>,
+    effect_glows: Vec<Option<usize>>,
+    fields: GlowFields,
+    // Where the frame's model values start in the effect data, and the
+    // frame's model draws: renderer model, then the particle's position.
+    model_at: usize,
+    model_rows: Vec<(u32, [f64; 3])>,
     owner: u32,
     pub words: usize,
     epochs: Vec<f64>,
@@ -166,6 +280,7 @@ impl Particles {
         for b in &mut self.batches {
             b.count = 0;
         }
+        self.model_rows.clear();
         bridge.r.effects.input[render::IN_DRAWS] = 0.;
         bridge.r.effects.input[render::IN_OWNERS] = 0.;
         bridge.r.effects.input[render::IN_SOFT..render::IN_SOFT + 6].copy_from_slice(&[0., 1., 1., 0.3, 20000., -1.]);
@@ -203,6 +318,36 @@ impl Particles {
         }
         for row in owner.draws.chunks_exact(d::STRIDE).take(owner.header[h::DRAWS] as usize) {
             let definition = row[d::DEFINITION] as usize;
+            // effects.js drawModel: the model at the particle, turned by its
+            // quaternion (the owner has already spun it about its own up),
+            // scaled by its size, in its colour and opacity.
+            if row[d::KIND] == kind::MODEL as f64 {
+                let Some(glow) = self.effect_glows.get(definition).copied().flatten().map(|glow| &self.glows[glow]) else {
+                    continue;
+                };
+                let position = three::Vector3::new(row[d::POSITION], row[d::POSITION + 1], row[d::POSITION + 2]);
+                let mut matrix = three::Matrix4::default();
+                matrix.compose(
+                    &position,
+                    &three::Quaternion::new(row[d::TURN], row[d::TURN + 1], row[d::TURN + 2], row[d::TURN + 3]),
+                    &three::Vector3::new(row[d::SIZE], row[d::SIZE], row[d::SIZE]),
+                );
+                for part in &glow.parts {
+                    let at = self.model_rows.len();
+                    if at == MODEL_DRAWS {
+                        break;
+                    }
+                    bridge.r.effects.matrices[at * 16..at * 16 + 16].copy_from_slice(&matrix.elements);
+                    let values = &mut bridge.r.effects.data[self.model_at + at * self.fields.length..][..self.fields.length];
+                    values.copy_from_slice(&glow.values);
+                    for k in 0..3 {
+                        values[self.fields.diffuse + k] = row[d::COLOR + k] as f32;
+                    }
+                    values[self.fields.opacity] = row[d::COLOR + 3] as f32;
+                    self.model_rows.push((*part, [position.x, position.y, position.z]));
+                }
+                continue;
+            }
             let Some(batch) = self.effect_batches.get(definition).copied().flatten() else {
                 continue;
             };
@@ -263,6 +408,35 @@ impl Particles {
             row[render::DRAW_KEY + 5] = b.handle as f64;
             draws += 1;
         }
+        // The frame's model particles, each sorted by where it is, as three
+        // sorts a transparent mesh.
+        for (at, (model, position)) in self.model_rows.iter().enumerate() {
+            if draws == render::MAX_DRAWS {
+                break;
+            }
+            let row = &mut bridge.r.effects.input[render::DRAW_AT + draws * render::DRAW_STRIDE..][..render::DRAW_STRIDE];
+            row.fill(0.);
+            row[..4].copy_from_slice(&[
+                render::KIND_MODEL as f64,
+                *model as f64,
+                (at * 16) as f64,
+                (self.model_at + at * self.fields.length) as f64,
+            ]);
+            row[render::DRAW_KEY + 2..render::DRAW_KEY + 5].copy_from_slice(position);
+            row[render::DRAW_KEY + 5] = *model as f64;
+            draws += 1;
+        }
         bridge.r.effects.input[render::IN_DRAWS] = draws as f64;
+    }
+    /// The frame's camera for the model particles: their material reads the
+    /// projection matrix (`camera`'s first sixteen values), which is known
+    /// only once the frame's view is chosen.
+    pub fn project(&self, bridge: &mut Bridge, camera: &[f64]) {
+        for at in 0..self.model_rows.len() {
+            let values = &mut bridge.r.effects.data[self.model_at + at * self.fields.length + self.fields.projection..][..16];
+            for (slot, value) in values.iter_mut().zip(camera) {
+                *slot = *value as f32;
+            }
+        }
     }
 }

@@ -157,6 +157,12 @@ pub struct GateDriver {
     page_proof: Option<super::page_proof::PageProof>,
     pub(super) page_capture_done: bool,
     online_duel: bool,
+    /// `BFE_GATE_SPECTATE`: the online duel never spawns, so its camera stays
+    /// on the spawn screen's view of the selected command post.
+    spectate: bool,
+    /// `BFE_GATE_HOLD`: the online duel turns to its target and fires but
+    /// stands where it spawned, so walls between them never trap it.
+    hold: bool,
     duel_input_tick: u32,
     spawn_posts: std::collections::BTreeMap<u8, String>,
     observed_second: u64,
@@ -164,6 +170,8 @@ pub struct GateDriver {
     observed_alive: bool,
     observed_end: bool,
     audio_events: [u64; 27],
+    /// Unit presentation events shown, by `presented::SHOWN`'s names.
+    presented: [u64; crate::online::replicas::presented::SHOWN.len()],
     voice_decodes: u64,
     audio_frames: u64,
     audio_peak: f32,
@@ -237,6 +245,8 @@ impl GateDriver {
             page_proof: (script_name == "page-parity").then(super::page_proof::PageProof::new),
             page_capture_done: false,
             online_duel: script_name == "online-duel",
+            spectate: std::env::var_os("BFE_GATE_SPECTATE").is_some(),
+            hold: std::env::var_os("BFE_GATE_HOLD").is_some(),
             spawn_posts: std::env::var("BFE_GATE_SPAWN_POSTS")
                 .ok()
                 .and_then(|v| serde_json::from_str(&v).ok())
@@ -247,6 +257,7 @@ impl GateDriver {
             observed_alive: false,
             observed_end: false,
             audio_events: [0; 27],
+            presented: [0; crate::online::replicas::presented::SHOWN.len()],
             voice_decodes: 0,
             audio_frames: 0,
             audio_peak: 0.,
@@ -513,7 +524,9 @@ impl GateDriver {
                         .select_post(&battle.spawn_port, post);
                 }
             }
-            battle.trigger_spawn();
+            if !self.spectate {
+                battle.trigger_spawn();
+            }
             return Ok(());
         }
         // The driver runs at render frequency, while pointer counts are
@@ -550,7 +563,7 @@ impl GateDriver {
                     -delta.clamp(-0.04, 0.04) / scale,
                     -(pitch - client.sender.pitch).clamp(-0.04, 0.04) / scale,
                 );
-                battle.input.key(KeyCode::KeyW, range > 12.);
+                battle.input.key(KeyCode::KeyW, !self.hold && range > 12.);
                 battle.input.key(KeyCode::Space, second.is_multiple_of(7));
                 // Alternate the firing side, leaving a visible victim HUD.
                 // Preserve ammunition while walking between distant spawns.
@@ -570,6 +583,9 @@ impl GateDriver {
         // adapter. Formatting is deferred until a diagnostic report is saved.
         if let Some(scene) = &battle.scene.online {
             for (total, count) in self.audio_events.iter_mut().zip(scene.sound.event_counts) {
+                *total = (*total).max(count);
+            }
+            for (total, count) in self.presented.iter_mut().zip(scene.presented.shown) {
                 *total = (*total).max(count);
             }
             self.voice_decodes = self.voice_decodes.max(scene.sound.voice_decoded);
@@ -1237,6 +1253,7 @@ impl GateDriver {
             "captureOnly": self.page_proof.is_some() || self.movie_verification,
             "glErrors": self.gl_errors,
             "audio": {"eventCounts":self.audio_events.to_vec(),"voiceDecoded":self.voice_decodes,"frames":self.audio_frames,"peak":self.audio_peak},
+            "presented": crate::online::replicas::presented::SHOWN.iter().zip(self.presented).map(|(name, count)| (name.to_string(), serde_json::Value::from(count))).collect::<serde_json::Map<_, _>>(),
             "steadyFrameAllocationsAfterWarmup": self.steady_allocs_after_warmup,
             "steadyFramesMeasured": self.steady_frames_measured,
             "worldRendererBlocks": self.world_renderer_blocks,
