@@ -174,6 +174,8 @@ fn positional() -> bool {
 fn no_building() -> usize {
     usize::MAX
 }
+// The record kinds that make a sound.
+const AUDIBLE: [&str; 7] = ["shot", "vo", "bounce", "pickup", "serve", "towAttach", "towRelease"];
 #[derive(Clone, Copy)]
 struct Shot {
     owner_id: u32,
@@ -183,6 +185,17 @@ struct Shot {
     position: Option<[f64; 3]>,
     repair: bool,
 }
+// A record whose unit this client did not know yet, kept as it arrived:
+// the tick it stops being worth playing, and its payload.
+#[derive(Clone, Copy)]
+struct Held {
+    expiry: f64,
+    length: usize,
+    bytes: [u8; PAYLOAD],
+}
+// presentationRecord refuses a payload over 900 bytes.
+const PAYLOAD: usize = 900;
+const HELD: usize = 64;
 pub struct Sound {
     assets: super::stream_assets::Assets,
     pub decoded: u64,
@@ -192,10 +205,15 @@ pub struct Sound {
     runtime: Runtime,
     pending: Vec<Shot>,
     pending_effects: Vec<[f64; event::STRIDE]>,
+    held: Vec<Held>,
     cosmetic: bfe_sim::wire::cosmetics::Compact,
     combat_classes: Vec<usize>,
-    stations: Vec<(usize, [f64; 3])>,
+    stations: Vec<(usize, [f64; 3], bool)>,
+    // Whether each live building stands ("built"), as the server last said.
+    built: Vec<bool>,
     pub event_counts: [u64; 27],
+    /// How many supply stations play their ambient loop now.
+    pub station_loops: u64,
     pub bleed: [f64; 2],
     epoch: f64,
     mail: Arc<Mailbox>,
@@ -230,10 +248,13 @@ impl Sound {
             runtime: prepared.runtime,
             pending: Vec::with_capacity(2048),
             pending_effects: Vec::with_capacity(2048),
+            held: Vec::with_capacity(HELD),
             cosmetic: Default::default(),
             combat_classes: prepared.combat_classes,
+            built: vec![true; prepared.stations.len()],
             stations: prepared.stations,
             event_counts: [0;27],
+            station_loops: 0,
             bleed: [0.;2],
             epoch: f64::NAN,
             mail,
@@ -364,7 +385,7 @@ impl Sound {
     // plays the station's class PowerupSound at the station. The record
     // names it by its place among the live buildings.
     fn serve(&self, source: &EventInput) -> Option<[f64; event::STRIDE]> {
-        let (class, position) = *self.stations.get(source.building)?;
+        let (class, position, _) = *self.stations.get(source.building)?;
         Some(super::sound_events::placed(event_kind::POWERUP, class, position))
     }
 
@@ -387,6 +408,49 @@ impl Sound {
         Some(super::sound_events::placed(kind, class, position))
     }
 
+    // presentEntityEvent: `event.ownerId && (!u || u.generation !==
+    // event.ownerGeneration)`. A record naming nobody is never waited for.
+    fn known(&self, receiver: &Receiver, source: &EventInput) -> bool {
+        source.owner_id == 0
+            || (source.owner_id as f64 == receiver.own.id && source.owner_generation as f64 == receiver.own.generation)
+            || unit(receiver, source.owner_id, source.owner_generation).is_some()
+    }
+    // presentEntityEvent's audible branches. "shot" waits for the emitter
+    // rows of the next audio step; the others carry every fact they need and
+    // join the scalar event queue in arrival order.
+    fn audible(&mut self, receiver: &Receiver, source: &EventInput) {
+        let event = match source.kind {
+            "shot" => {
+                if self.pending.len() == self.pending.capacity() {
+                    self.pending.remove(0);
+                    self.refused += 1;
+                }
+                self.pending.push(Shot {
+                    owner_id: source.owner_id,
+                    owner_generation: source.owner_generation,
+                    weapon_id: source.weapon_id,
+                    channel: source.channel,
+                    position: source.position,
+                    repair: source.repair,
+                });
+                self.events += 1;
+                return;
+            }
+            "vo" => self.chatter(receiver, source),
+            "bounce" | "pickup" => self.ordnance(source),
+            "serve" => self.serve(source),
+            "towAttach" | "towRelease" => self.tow(receiver, source),
+            _ => None,
+        };
+        if let Some(event) = event {
+            if self.pending_effects.len() == self.pending_effects.capacity() {
+                self.pending_effects.remove(0);
+                self.refused += 1;
+            }
+            self.pending_effects.push(event);
+        }
+    }
+
     pub fn frame(
         &mut self,
         receiver: &Receiver,
@@ -406,6 +470,7 @@ impl Sound {
             self.epoch = receiver.epoch;
             self.pending.clear();
             self.pending_effects.clear();
+            self.held.clear();
         }
         for field in receiver.publications.iter() {
             // applyWorldSummary publishes post ownership before the audio
@@ -441,6 +506,20 @@ impl Sound {
                     p[post::NEUTRALIZE] = f64::from_le_bytes(b[12..20].try_into().unwrap());
                 }
             }
+            // applyWorldPresentation, schema 7: a building's state leads its
+            // record, after its place among the live buildings. Only "built"
+            // is alive (props.js Building.alive).
+            if field.row[r::KIND] == k::SUMMARY as f64 && field.row[r::SCHEMA] == 7. {
+                use serde::de::IgnoredAny as Rest;
+                type State<'a> = (usize, &'a str, Rest, Rest, Rest, Rest, Rest, Rest, Rest, Rest, Rest);
+                if let Ok(state) = serde_json::from_slice::<State>(&field.bytes[..field.length]) {
+                    if field.row[r::ID] == 200000. + state.0 as f64 {
+                        if let Some(built) = self.built.get_mut(state.0) {
+                            *built = state.1 == "built";
+                        }
+                    }
+                }
+            }
             // NetworkCombatViews dispatches the terminal's sound as well as
             // its visual effect. Retain it if the audio clock has not moved.
             if field.row[r::KIND] == k::COMBAT as f64 && field.row[r::SCHEMA] == 2. {
@@ -469,44 +548,43 @@ impl Sound {
             if field.row[r::KIND] != k::COMBAT as f64 || field.row[r::SCHEMA] != 8. {
                 continue;
             }
-            let Ok(source) = serde_json::from_slice::<EventInput>(&field.bytes[..field.length])
-            else {
+            let bytes = &field.bytes[..field.length];
+            let Ok(source) = serde_json::from_slice::<EventInput>(bytes) else {
                 continue;
             };
-            // presentEntityEvent's audible branches. "shot" waits for the
-            // emitter rows below; the others carry every fact they need and
-            // join the scalar event queue in arrival order.
-            let event = match source.kind {
-                "shot" => {
-                    if self.pending.len() == self.pending.capacity() {
-                        self.pending.remove(0);
+            // presentEntityEvent returns false for a record whose unit is
+            // not known here yet, and CombatPresentation asks again until
+            // the record's tick + 120. Keep the payload for those asks.
+            if !self.known(receiver, &source) {
+                if AUDIBLE.contains(&source.kind) && bytes.len() <= PAYLOAD {
+                    if self.held.len() == HELD {
+                        self.held.remove(0);
                         self.refused += 1;
                     }
-                    self.pending.push(Shot {
-                        owner_id: source.owner_id,
-                        owner_generation: source.owner_generation,
-                        weapon_id: source.weapon_id,
-                        channel: source.channel,
-                        position: source.position,
-                        repair: source.repair,
-                    });
-                    self.events += 1;
-                    continue;
+                    let mut held = Held { expiry: field.row[r::TICK] + 120., length: bytes.len(), bytes: [0; PAYLOAD] };
+                    held.bytes[..bytes.len()].copy_from_slice(bytes);
+                    self.held.push(held);
                 }
-                "vo" => self.chatter(receiver, &source),
-                "bounce" | "pickup" => self.ordnance(&source),
-                "serve" => self.serve(&source),
-                "towAttach" | "towRelease" => self.tow(receiver, &source),
-                _ => None,
-            };
-            if let Some(event) = event {
-                if self.pending_effects.len() == self.pending_effects.capacity() {
-                    self.pending_effects.remove(0);
-                    self.refused += 1;
-                }
-                self.pending_effects.push(event);
+                continue;
             }
+            self.audible(receiver, &source);
         }
+        // The kept ones after the new ones, oldest first; each leaves once
+        // its unit is known or its time is up. Taking the list out lends its
+        // payloads while the events they name are queued; it keeps its
+        // storage.
+        let mut held = std::mem::take(&mut self.held);
+        held.retain(|held| {
+            let Ok(source) = serde_json::from_slice::<EventInput>(&held.bytes[..held.length]) else {
+                return false;
+            };
+            if self.known(receiver, &source) {
+                self.audible(receiver, &source);
+                return false;
+            }
+            held.expiry >= receiver.latest
+        });
+        self.held = held;
         // Preserve control state while the device is stopped or its bounded
         // queue is full. Advancing it after dropping START would orphan a loop.
         let clock = self.mail.clock.load(Ordering::Acquire);
@@ -740,6 +818,22 @@ impl Sound {
             }
         }
         runtime.phase.observe_emitter(&own_row);
+        // SceneSounds.updateStations: every supply station is an emitter the
+        // shared scene keeps humming with its class AmbientSound while it
+        // stands, and silences when it is destroyed. They sit past the
+        // bodies' slots and never change place.
+        for (index, (class, position, station)) in self.stations.iter().enumerate() {
+            if !station || *class == usize::MAX {
+                continue;
+            }
+            let mut row = [0.; emitter::STRIDE];
+            row[emitter::ID] = (OWN + 1 + index) as f64;
+            row[emitter::KIND] = audio_control::layout::emitter_kind::STATION as f64;
+            row[emitter::CLASS] = *class as f64;
+            row[emitter::X..emitter::X + 3].copy_from_slice(position);
+            row[emitter::ALIVE] = self.built[index] as u8 as f64;
+            runtime.phase.observe_emitter(&row);
+        }
         for (id, present) in seen.into_iter().enumerate().skip(1) {
             if !present && self.lives[id].take().is_some() {
                 retire(&mut runtime.phase, id);
@@ -871,6 +965,13 @@ impl Sound {
             }
         }
         runtime.step(&mut self.queries);
+        // For a battle's summary: the supply stations humming after this step.
+        self.station_loops = self
+            .stations
+            .iter()
+            .enumerate()
+            .filter(|(index, (_, _, station))| *station && runtime.phase.playing(runtime.phase.entity_state[OWN + 1 + index].primary))
+            .count() as u64;
         // Publish one complete command boundary after control selection.
         // Reservations cover all 512 voices plus bounded stream readiness;
         // placement records keep the shared six-word mixer format.

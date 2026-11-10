@@ -21,7 +21,7 @@ const EXPIRY: f64 = 120.;
 const PENDING: usize = 256;
 
 /// What each `Presented::shown` count is, for a battle's summary.
-pub const SHOWN: [&str; 10] = [
+pub const SHOWN: [&str; 11] = [
     "weaponActions",
     "weaponActionEnds",
     "deathBlasts",
@@ -29,9 +29,10 @@ pub const SHOWN: [&str; 10] = [
     "soldierShots",
     "lightningBolts",
     "shieldHits",
-    "lightningVertices",
+    "lightningPrimitives",
     "shieldBubbleDraws",
     "effectDrawsRefused",
+    "muzzleFlashDraws",
 ];
 
 /// One clip per posture and action for a weapon bank, -1 where none plays.
@@ -56,6 +57,15 @@ struct Event {
     expiry: f64,
     seed: u32,
     act: Act,
+}
+// A unit-state record kept until its unit is drawn: the unit's id and
+// generation, the record's tick, and the two facts read from it.
+#[derive(Clone, Copy)]
+struct State {
+    owner: (u32, u32),
+    tick: f64,
+    blown: bool,
+    throwing: Option<(usize, bool)>,
 }
 // The payload's own names, borrowed. A field a kind doesn't carry is absent
 // or null; both read as None.
@@ -95,13 +105,18 @@ pub struct Presented {
     // Each registry weapon's bank (an index into `banks`) and whether it is
     // thrown (src/weapons.js: a grenade, dispenser or remote).
     weapons: Vec<Option<(usize, bool)>>,
-    // The same two facts for each weapon definition, in the definitions'
-    // own order, which the local player's predicted arsenal names.
-    definitions: Vec<(usize, bool)>,
+    // The same two facts for each weapon definition, with its registry id,
+    // in the definitions' own order, which the local player's predicted
+    // arsenal names.
+    definitions: Vec<(usize, bool, usize)>,
     // The death blasts' effect groups, None where the library lacks one.
     blasts: [Option<usize>; BLASTS.len()],
     // Records whose unit was not drawn yet, oldest first.
     pending: Vec<Event>,
+    // Unit-state records waiting for their unit, the newest of each unit.
+    states: Vec<State>,
+    // The server epoch the kept records belong to.
+    epoch: f64,
     // `Math.random()` for the blast and its bone; it decides nothing shared.
     rng: jsrt::rng::ClassicRandom,
     /// Events shown so far, counted under the names in `SHOWN`.
@@ -131,7 +146,7 @@ impl Presented {
                 banks.len() - 1
             });
             let facts = (known, ["grenade", "dispenser", "remote"].contains(&base));
-            definitions.push(facts);
+            definitions.push((facts.0, facts.1, id));
             if let Some(entry) = table.get_mut(id).filter(|entry| id != 0 && entry.is_none()) {
                 *entry = Some(facts);
             }
@@ -142,6 +157,8 @@ impl Presented {
             definitions,
             blasts: BLASTS.map(|name| effects.iter().find(|(n, _)| n == name).map(|(_, id)| *id)),
             pending: Vec::with_capacity(PENDING),
+            states: Vec::with_capacity(PENDING),
+            epoch: f64::NAN,
             rng: jsrt::rng::ClassicRandom::new(
                 std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0., |t| t.as_nanos() as u32 as f64),
             ),
@@ -217,7 +234,7 @@ impl Presented {
 // needs it: whose state it is, whether a dead droid was blown apart, and
 // the selected secondary weapon while a throw is under way (`throwTime >=
 // 0`, the replicated part of Weapon.busy). None for a malformed payload.
-fn unit_state(payload: &[u8]) -> Option<(u32, bool, Option<usize>)> {
+fn unit_state(payload: &[u8]) -> Option<(u32, bool, Option<(usize, bool)>)> {
     let u8_at = |at: usize| payload.get(at).copied();
     let u16_at = |at: usize| Some(u16::from_le_bytes(payload.get(at..at + 2)?.try_into().ok()?));
     let id = u32::from_le_bytes(payload.get(..4)?.try_into().ok()?);
@@ -228,6 +245,8 @@ fn unit_state(payload: &[u8]) -> Option<(u32, bool, Option<usize>)> {
     let mut throwing = None;
     for _ in 0..count {
         let weapon = u16_at(at)? as usize;
+        // FLAGS' third bit: the thrown thing has left the hand (`hidden`).
+        let hidden = u8_at(at + 3)? & 4 != 0;
         let mask = u8_at(at + 4)?;
         at += 5;
         // Seven optional numbers follow in NUMBERS' order; throwTime is the
@@ -236,7 +255,7 @@ fn unit_state(payload: &[u8]) -> Option<(u32, bool, Option<usize>)> {
             if mask & (1 << number) != 0 {
                 let value = f32::from_le_bytes(payload.get(at..at + 4)?.try_into().ok()?);
                 if number == 3 && value >= 0. && weapon == secondary {
-                    throwing = Some(weapon);
+                    throwing = Some((weapon, hidden));
                 }
                 at += 4;
             }
@@ -256,7 +275,16 @@ impl Replicas {
     // arsenal, everyone else's from their replicated state. A state whose
     // body is not drawn yet is dropped, where the browser keeps it for 120
     // ticks.
-    pub(super) fn present_states(&mut self, receiver: &Receiver, prediction: &crate::online::replay::Replay) {
+    // NetworkEntityGame.apply keeps each unit's newest state record
+    // (`pendingState`) and asks applyUnitState again with every packet until
+    // the unit is known or the record is more than 120 ticks old.
+    pub(super) fn present_states(&mut self, receiver: &Receiver, prediction: &crate::online::replay::Replay, tick: f64) {
+        // A new epoch renumbers ticks and bodies: nothing kept still applies.
+        if self.presented.epoch != receiver.epoch {
+            self.presented.epoch = receiver.epoch;
+            self.presented.pending.clear();
+            self.presented.states.clear();
+        }
         for field in receiver.publications.iter() {
             if field.row[r::KIND] != k::SUMMARY as f64 || field.row[r::SCHEMA] != 6. {
                 continue;
@@ -267,19 +295,39 @@ impl Replicas {
             if field.row[r::ID] != 100000. + id as f64 {
                 continue;
             }
-            let Some(&slot) = self.bound.get(&(id, field.row[r::GENERATION] as u32)) else {
+            let state = State { owner: (id, field.row[r::GENERATION] as u32), tick: field.row[r::TICK], blown, throwing };
+            let states = &mut self.presented.states;
+            if let Some(held) = states.iter_mut().find(|held| held.owner.0 == id) {
+                *held = state;
+            } else {
+                if states.len() == PENDING {
+                    states.remove(0);
+                    self.refused += 1;
+                }
+                states.push(state);
+            }
+        }
+        let mut at = 0;
+        while at < self.presented.states.len() {
+            let state = self.presented.states[at];
+            if let Some(&slot) = self.bound.get(&state.owner) {
+                self.slots[slot].blown = state.blown;
+                self.slots[slot].throwing = state
+                    .throwing
+                    .and_then(|(weapon, hidden)| Some((self.presented.weapons.get(weapon).copied().flatten()?.0, weapon, hidden)));
+            } else if tick - state.tick <= EXPIRY {
+                at += 1;
                 continue;
-            };
-            self.slots[slot].blown = blown;
-            self.slots[slot].throwing = throwing.and_then(|weapon| self.presented.weapons.get(weapon).copied().flatten()).map(|(bank, _)| bank);
+            }
+            self.presented.states.remove(at);
         }
         let own = (receiver.own.id as u32, receiver.own.generation as u32);
         let own_throw = prediction
             .weapons()
             .filter(|weapon| weapon.busy())
-            .filter_map(|weapon| self.presented.definitions.get((weapon.def.0 as usize).checked_sub(1)?).copied())
-            .find(|(_, thrown)| *thrown)
-            .map(|(bank, _)| bank);
+            .filter_map(|weapon| Some((self.presented.definitions.get((weapon.def.0 as usize).checked_sub(1)?).copied()?, weapon.hand_empty())))
+            .find(|((_, thrown, _), _)| *thrown)
+            .map(|((bank, _, id), hidden)| (bank, id, hidden));
         for at in 0..self.slots.len() {
             let slot = &mut self.slots[at];
             if !slot.active {
@@ -288,12 +336,18 @@ impl Replicas {
             if slot.dead && slot.blown {
                 slot.gone.get_or_insert(0.);
             }
+            slot.held = slot.weapon;
             if slot.walker {
                 continue;
             }
             let throwing = if slot.identity == Some(own) { own_throw } else { slot.throwing };
+            // updateHeld: the grenade is the model in the hand for the
+            // whole throw, gone once it has left the hand; the gun waits.
+            if let Some((_, weapon, hidden)) = throwing {
+                slot.held = if hidden { None } else { self.weapon_classes.get(weapon).copied().flatten() };
+            }
             let primary = self.presented.weapons.get(slot.primary).copied().flatten().map_or(0, |(bank, _)| bank);
-            let bank = self.presented.banks[throwing.unwrap_or(primary)].1;
+            let bank = self.presented.banks[throwing.map_or(primary, |(bank, _, _)| bank)].1;
             let actor = slot.actor;
             if self.units.actor_animation(actor).is_some_and(|animator| animator.bank != bank) {
                 if let Some(row) = self.command(actor, kind::BANK) {
@@ -397,6 +451,11 @@ impl Replicas {
                 }
                 if repair || melee || !thrown {
                     self.command(actor, kind::FIRE);
+                }
+                // combat.js flash: each round restarts its gun's flash.
+                if !repair && !melee {
+                    let (length, color) = self.guns.flashes.get(weapon).copied().unwrap_or((0.1, [1.; 4]));
+                    self.slots[slot].flash = (weapon, self.tick.floor(), length, color);
                 }
                 self.presented.shown[4] += 1;
             }
@@ -517,7 +576,11 @@ mod tests {
         payload.extend([3, 0, 0, 0, 8 | 128]);
         payload.extend(0.25f32.to_le_bytes());
         payload.extend([9, 0, 0, 0, 1, 0]);
-        assert_eq!(unit_state(&payload), Some((7, true, Some(3))));
+        assert_eq!(unit_state(&payload), Some((7, true, Some((3, false)))));
+        // Its `hidden` flag says the grenade has left the hand.
+        let bits = payload.len() - 12;
+        payload[bits] = 4;
+        assert_eq!(unit_state(&payload), Some((7, true, Some((3, true)))));
         // A throw of a weapon that is not the selected secondary shows nothing.
         payload[17] = 4;
         assert_eq!(unit_state(&payload), Some((7, true, None)));

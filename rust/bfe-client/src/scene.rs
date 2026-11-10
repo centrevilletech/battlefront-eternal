@@ -285,6 +285,11 @@ pub struct Scene {
     far_source: u32,
     far_sample: u32,
     far_target: u32,
+    // ParticleDepth's target and its depth texture in the renderer's table:
+    // the opaque scene's depth, copied once a frame before anything blends,
+    // for soft particles and arcs to fade against.
+    depth_target: u32,
+    depth_texture: u32,
     far_reach: f64,
     shadows: Option<crate::shadows::Shadows>,
     image_step: [f64; bfe_render::post::STEP],
@@ -906,6 +911,15 @@ impl Scene {
         let far_source=resources.source(&serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1009,"srgb":false,"renderTarget":true}).to_string())?;
         let far_sample=resources.sample(far_source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
         let far_target=resources.target(&serde_json::json!({"width":size[0],"height":size[1],"color":far_sample,"depth":null,"depthBuffer":true,"stencil":false,"samples":0,"resolveDepth":false,"resolveStencil":false,"cube":false}).to_string())?;
+        // The canvas keeps its depth in a 24-bit depth and stencil buffer; a
+        // depth copy needs the same format on the other side. The target's
+        // colour is one byte a pixel and never drawn.
+        let depth_source=resources.source(&serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1027,"dataType":1020,"srgb":false,"renderTarget":true}).to_string())?;
+        let depth_sample=resources.sample(depth_source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1003,"mag":1003,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
+        let depth_color=resources.source(&serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1028,"dataType":1009,"srgb":false,"renderTarget":true}).to_string())?;
+        let depth_color=resources.sample(depth_color,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1003,"mag":1003,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
+        let depth_target=resources.target(&serde_json::json!({"width":size[0],"height":size[1],"color":depth_color,"depth":depth_sample,"depthBuffer":true,"stencil":true,"samples":0,"resolveDepth":false,"resolveStencil":false,"cube":false}).to_string())?;
+        let depth_texture = bridge.r.core.add_texture(resources.texture(depth_sample)?);
         let far_texture = bridge.r.core.add_texture(resources.texture(far_sample)?);
         bridge.set_far_map(far_texture);
         let image_program = bridge.add_owned_program("effects/far-image")?;
@@ -1011,6 +1025,8 @@ impl Scene {
                 far_source,
                 far_sample,
                 far_target,
+                depth_target,
+                depth_texture,
                 far_reach,
                 shadows,
                 image_step,
@@ -1123,8 +1139,8 @@ impl Scene {
                     0.
                 };
             resources.finish_frame(receiver, replay, &world.elements, cue);
-            resources.present_arcs(dt.min(8./60.), camera.position, &mut self.bridge);
-            resources.present_shields(dt.min(8./60.), camera.position, &camera.snapshot().values, &mut self.bridge);
+            resources.present_arcs(receiver, replay, dt.min(8./60.), &world, &camera.snapshot().values[..16], self.size[1] as f64, &mut self.bridge);
+            resources.present_shields(dt.min(8./60.), camera.position, &camera.snapshot().values, self.size, self.depth_texture, &mut self.bridge);
             let mounted = resources.cameras.mounted_aim(camera);
             // Seated, the target search looks from the camera along the
             // seat's view; on foot, from the gun along its aim.
@@ -1179,6 +1195,18 @@ impl Scene {
             row[b::SCISSOR + 3] = self.size[1] as f64;
             row[b::CLEAR..b::CLEAR + 4].copy_from_slice(&[0.04, 0.06, 0.09, 1.]);
             self.bridge.r.frames.meta[role * m::LEN + m::BOUND] = 1.;
+        }
+        // ParticleDepth: with soft particles on, the frame plan copies the
+        // opaque scene's depth into the depth target before the first blend.
+        if self.online.as_ref().is_some_and(|online| online.soft_particles()) {
+            let row = &mut self.bridge.r.frames.bindings[r::DEPTH * b::LEN..(r::DEPTH + 1) * b::LEN];
+            row.fill(0.);
+            row[b::TARGET] = self.depth_target as f64;
+            row[b::SAMPLE] = -1.;
+            row[b::WIDTH] = self.size[0] as f64;
+            row[b::HEIGHT] = self.size[1] as f64;
+            self.bridge.r.frames.meta[r::DEPTH * m::LEN + m::BOUND] = 1.;
+            self.bridge.r.frames.plan.facts[f::DEPTH_LATE] = 1.;
         }
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         crate::static_scene::update(&mut self.static_content, &mut self.bridge, &view.values);

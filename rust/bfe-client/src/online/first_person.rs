@@ -34,6 +34,8 @@ struct View {
 pub struct Views {
     views: Vec<View>,
     weapons: Vec<Option<Model>>,
+    // Each weapon definition's animation bank, as a record names it.
+    banks: Vec<String>,
     pub active: Option<usize>,
     pub enabled: bool,
     pub frames: u64,
@@ -110,6 +112,7 @@ impl Prepared {
         }
         let defs = Defs::build(&content.content)?;
         let mut weapons = Vec::new();
+        let mut banks = Vec::new();
         for (id, weapon) in defs.weapons.iter().enumerate() {
             if id >= units.weapon_input.len() / w::STRIDE {
                 break;
@@ -126,8 +129,9 @@ impl Prepared {
             units.weapon_input[id * w::STRIDE + w::MODEL] = id as f64;
             let name = def["HighResGeometry"].as_str().or_else(|| def["GeometryName"].as_str()).unwrap_or("");
             weapons.push(Model::new(content, bridge, textures, name, 0)?);
+            banks.push(bank.to_string());
         }
-        Ok(Views { views, weapons, active: None, enabled: false, frames: 0 })
+        Ok(Views { views, weapons, banks, active: None, enabled: false, frames: 0 })
     }
 }
 impl Views {
@@ -181,14 +185,37 @@ impl Views {
                 owner_id: u32,
                 #[serde(default)]
                 owner_generation: u32,
+                #[serde(default)]
+                bank: Option<&'a str>,
+                #[serde(default)]
+                prepare: bool,
             }
             let Ok(event) = serde_json::from_slice::<Event>(&field.bytes[..field.length]) else {
                 continue;
             };
-            if event.kind != "shot" || event.owner_id as f64 != receiver.own.id || event.owner_generation as f64 != receiver.own.generation
-            {
+            if event.owner_id as f64 != receiver.own.id || event.owner_generation as f64 != receiver.own.generation {
                 continue;
             }
+            // presentEntityEvent "weaponAction" with `prepare`: the player's
+            // own throw starts its windup in the first-person arms, with the
+            // busy weapon of the record's bank in hand
+            // (`weapons.find(w => w.bank === event.bank && w.busy)`). The
+            // view ignores it while it is not the one shown.
+            let (weapon, action) = match event.kind {
+                "shot" => (units.input[f::FIRST_PERSON_SHOWN], 0.),
+                "weaponAction" if event.prepare => {
+                    let held = prediction
+                        .weapons()
+                        .filter(|weapon| weapon.busy())
+                        .map(|weapon| weapon.def.0.saturating_sub(1) as usize)
+                        .find(|index| self.banks.get(*index).map(String::as_str) == event.bank);
+                    let Some(held) = held else {
+                        continue;
+                    };
+                    (held as f64, 2.)
+                }
+                _ => continue,
+            };
             let at = units.input[f::COMMANDS] as usize * c::STRIDE;
             if at + c::STRIDE > units.commands.len() {
                 break;
@@ -196,8 +223,9 @@ impl Views {
             let row = &mut units.commands[at..at + c::STRIDE];
             row.fill(0.);
             row[c::KIND] = kind::FIRST_PERSON_PLAY as f64;
-            row[c::WEAPON] = units.input[f::FIRST_PERSON_SHOWN];
-            row[c::SHOOTING] = 1.;
+            row[c::WEAPON] = weapon;
+            row[c::ACTION] = action;
+            row[c::SHOOTING] = (action == 0.) as u8 as f64;
             units.input[f::COMMANDS] += 1.;
         }
         self.frames += 1;

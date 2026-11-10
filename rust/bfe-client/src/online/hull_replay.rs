@@ -119,7 +119,7 @@ impl Fleet {
             let mut prediction = ClientPrediction::default();
             prediction.install_hull(owner);
             prediction.reserve_native(4096, 32);
-            let arsenal = super::checkpoint::Mounted::new(&defs, &mut prediction, Some(id as usize))?;
+            let arsenal = super::checkpoint::Mounted::new(&defs, &mut prediction, Some(id as usize), &[])?;
             classes[id as usize] = Some(index);
             hulls.push(Hull {
                 owner: prediction,

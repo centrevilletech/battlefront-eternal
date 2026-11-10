@@ -1,5 +1,6 @@
-//! The droidekas' shield bubbles (src/droideka-shield.js), in their Classic
-//! look. Each drawn droideka has one: it grows in when the shield goes up,
+//! The droidekas' shield bubbles (src/droideka-shield.js), Enhanced or
+//! Classic as the player's droidekaEffects setting says. Each drawn droideka
+//! has one: it grows in when the shield goes up,
 //! shows its charge, flares where a hit lands and shrinks away when the
 //! shield drops. The bubble's fade, pop, flash and hit history are the
 //! shared owner's (bfe_presentation::unit_effects::shield); this is its
@@ -34,6 +35,10 @@ struct Look {
     fade_out: f64,
     model: u32,
     values: Vec<f32>,
+    // The Enhanced look's emission veil just outside the field: a coarser
+    // sphere drawn additive from the front, with its own material values.
+    aura: u32,
+    aura_values: Vec<f32>,
 }
 // What a droideka shows this frame, read from its drawn body and its record.
 pub struct Facts {
@@ -64,12 +69,27 @@ struct Fields {
     blasts: usize,
     length: usize,
 }
+// The same for the aura's shorter list.
+#[derive(Default)]
+struct AuraFields {
+    projection: usize,
+    time: usize,
+    fade: usize,
+    birth: usize,
+    inside: usize,
+    flash: usize,
+    length: usize,
+}
 pub struct Shields {
     // Each class's shield, by the class's registry id; None for a class
     // without a shield weapon or whose look the library lacks.
     classes: Vec<Option<Class>>,
     looks: Vec<Look>,
     fields: Fields,
+    aura: AuraFields,
+    /// The Enhanced look (`droidekaEffects` is not "classic"): the shell
+    /// pops open and snaps shut, and the aura is drawn.
+    pub enhanced: bool,
     // A bounded pool: a droideka takes a bubble when its body is first
     // drawn and returns it when the body is no longer anyone's.
     bubbles: Vec<Shield>,
@@ -147,6 +167,19 @@ impl Shields {
                 _ => {}
             }
         }
+        let mut aura = AuraFields::default();
+        for &(name, size) in layout::PRODUCERS[layout::ACTOR_AURA].1 {
+            match name {
+                "projectionMatrix" => aura.projection = aura.length,
+                "shieldTime" => aura.time = aura.length,
+                "shieldFade" => aura.fade = aura.length,
+                "birth" => aura.birth = aura.length,
+                "inside" => aura.inside = aura.length,
+                "flash" => aura.flash = aura.length,
+                _ => {}
+            }
+            aura.length += size as usize;
+        }
         // units.js: a walker's bubble takes the look its shield weapon names.
         for class in &defs.classes {
             let Some(id) = class.registry_id else {
@@ -177,6 +210,14 @@ impl Shields {
                     if row.len() != 4 + fields.length {
                         return Err("shield model values differ from the catalog".into());
                     }
+                    // The aura's sphere is 48 by 24, as ShieldBubble makes it.
+                    let veil = bridge
+                        .actor_source(r#"{"kind":"sphere","radius":1,"widthSegments":48,"heightSegments":24}"#, &[], &[])?
+                        .ok_or("shield aura sphere refused")?;
+                    let veil = bridge.actor_effect(veil, layout::ACTOR_AURA as u32, crate::shadows::COUNT > 0, false, texture, &policy)?;
+                    if veil.len() != 4 + aura.length {
+                        return Err("shield aura values differ from the catalog".into());
+                    }
                     list.push(Look {
                         radius: number(look, "Radius"),
                         height: number(look, "Height"),
@@ -184,6 +225,8 @@ impl Shields {
                         fade_out: number(look, "FadeOut").unwrap_or(0.),
                         model: row[0] as u32,
                         values: row[4..].iter().map(|v| *v as f32).collect(),
+                        aura: veil[0] as u32,
+                        aura_values: veil[4..].iter().map(|v| *v as f32).collect(),
                     });
                     made.push((source, list.len() - 1));
                     list.len() - 1
@@ -199,7 +242,7 @@ impl Shields {
                 look,
             });
         }
-        bridge.fx_reserve((data + BUBBLES * fields.length) as u32);
+        bridge.fx_reserve((data + BUBBLES * (fields.length + aura.length)) as u32);
         // The sun as the scene's lighting sets it for every lit material.
         let lighting = &content.map["lighting"];
         let mut sun = Vector3::new(0., -1., 0.);
@@ -211,6 +254,8 @@ impl Shields {
             classes,
             looks: list,
             fields,
+            aura,
+            enhanced: true,
             bubbles: (0..BUBBLES).map(|_| Shield::default()).collect(),
             free: (0..BUBBLES).rev().collect(),
             sun: ([sun.x, sun.y, sun.z], color),
@@ -247,7 +292,7 @@ impl Shields {
         x[f::ON] = facts.on as u8 as f64;
         x[f::DEAD] = facts.dead as u8 as f64;
         x[f::ROLLED] = facts.rolled as u8 as f64;
-        x[f::ENHANCED] = 0.;
+        x[f::ENHANCED] = self.enhanced as u8 as f64;
         x[f::FADE_IN] = look.fade_in;
         x[f::FADE_OUT] = look.fade_out;
         Some(class.look)
@@ -268,6 +313,13 @@ impl Shields {
         owner.input[f::EXPLOSION] = explosion as u8 as f64;
         owner.frame();
         self.flared += 1;
+    }
+    /// The shell as last drawn, while any of it shows: its centre and its
+    /// radii, which an arc that strikes the droideka lands on.
+    pub fn shell(&self, bubble: usize) -> Option<([f64; 3], [f64; 3])> {
+        let x = &self.bubbles[bubble].input;
+        (x[f::ON] != 0. && x[f::VISIBLE] != 0.)
+            .then(|| (std::array::from_fn(|axis| x[f::CENTER + axis]), std::array::from_fn(|axis| x[f::SCALE + axis])))
     }
     /// Unit.undraw: a body no longer drawn shows no bubble.
     pub fn hide(&mut self, bubble: usize) {
@@ -295,7 +347,7 @@ impl Shields {
             return;
         }
         let draws = bridge.r.effects.input[render::IN_DRAWS] as usize;
-        if self.drawn == BUBBLES || draws == render::MAX_DRAWS {
+        if self.drawn == BUBBLES || draws + 2 > render::MAX_DRAWS {
             return;
         }
         // ShieldBubble.prepareActor: whether the camera is inside the shell.
@@ -305,7 +357,7 @@ impl Shields {
         let x = &owner.input;
         let look = &self.looks[look];
         let fields = &self.fields;
-        let at = self.data + self.drawn * fields.length;
+        let at = self.data + self.drawn * (fields.length + self.aura.length);
         let values = &mut bridge.r.effects.data[at..at + fields.length];
         // The look's standing values (its colours, whether it has a map),
         // then what this bubble shows now.
@@ -319,7 +371,7 @@ impl Shields {
         values[fields.time] = x[f::TIME] as f32;
         values[fields.fade] = x[f::FADE] as f32;
         values[fields.charge] = x[f::CHARGE] as f32;
-        values[fields.enhanced] = 0.;
+        values[fields.enhanced] = self.enhanced as u8 as f32;
         values[fields.birth] = x[f::BIRTH] as f32;
         values[fields.inside] = x[f::INSIDE] as f32;
         values[fields.flash] = x[f::FLASH] as f32;
@@ -337,9 +389,9 @@ impl Shields {
         let center = Vector3::new(x[f::CENTER], x[f::CENTER + 1], x[f::CENTER + 2]);
         let mut matrix = Matrix4::default();
         matrix.compose(&center, &Quaternion::default(), &Vector3::new(x[f::SCALE], x[f::SCALE + 1], x[f::SCALE + 2]));
-        // The last matrices of the frame's bank; model particles fill it
-        // from the front.
-        let matrix_at = (render::MAX_DRAWS - BUBBLES + self.drawn) * 16;
+        // The last matrices of the frame's bank, two a bubble; model
+        // particles fill it from the front.
+        let matrix_at = (render::MAX_DRAWS - 2 * BUBBLES + 2 * self.drawn) * 16;
         bridge.r.effects.matrices[matrix_at..matrix_at + 16].copy_from_slice(&matrix.elements);
         // The mesh sorts as three sorts it: render order 4, by its centre.
         let row = &mut bridge.r.effects.input[render::DRAW_AT + draws * render::DRAW_STRIDE..][..render::DRAW_STRIDE];
@@ -349,7 +401,35 @@ impl Shields {
         row[render::DRAW_KEY + 1] = 4.;
         row[render::DRAW_KEY + 2..render::DRAW_KEY + 5].copy_from_slice(&[center.x, center.y, center.z]);
         row[render::DRAW_KEY + 5] = (self.drawn + 1) as f64;
-        bridge.r.effects.input[render::IN_DRAWS] = (draws + 1) as f64;
+        let mut draws = draws + 1;
+        // The aura hangs on the shell, a little larger (`scale.setScalar
+        // (1.035)`), and reads the shell's own inside test.
+        if x[f::AURA] != 0. {
+            let scale = Vector3::new(x[f::SCALE] * 1.035, x[f::SCALE + 1] * 1.035, x[f::SCALE + 2] * 1.035);
+            matrix.compose(&center, &Quaternion::default(), &scale);
+            bridge.r.effects.matrices[matrix_at + 16..matrix_at + 32].copy_from_slice(&matrix.elements);
+            let aura = &self.aura;
+            let values_at = at + fields.length;
+            let values = &mut bridge.r.effects.data[values_at..values_at + aura.length];
+            values.copy_from_slice(&look.aura_values);
+            for (slot, value) in values[aura.projection..aura.projection + 16].iter_mut().zip(&camera[..16]) {
+                *slot = *value as f32;
+            }
+            values[aura.time] = x[f::TIME] as f32;
+            values[aura.fade] = x[f::FADE] as f32;
+            values[aura.birth] = x[f::BIRTH] as f32;
+            values[aura.inside] = x[f::INSIDE] as f32;
+            values[aura.flash] = x[f::FLASH] as f32;
+            let row = &mut bridge.r.effects.input[render::DRAW_AT + draws * render::DRAW_STRIDE..][..render::DRAW_STRIDE];
+            row.fill(0.);
+            row[..3].copy_from_slice(&[render::KIND_MODEL as f64, look.aura as f64, (matrix_at + 16) as f64]);
+            row[3] = values_at as f64;
+            row[render::DRAW_KEY + 1] = 4.;
+            row[render::DRAW_KEY + 2..render::DRAW_KEY + 5].copy_from_slice(&[center.x, center.y, center.z]);
+            row[render::DRAW_KEY + 5] = (BUBBLES + self.drawn + 1) as f64;
+            draws += 1;
+        }
+        bridge.r.effects.input[render::IN_DRAWS] = draws as f64;
         self.drawn += 1;
         self.draws += 1;
     }

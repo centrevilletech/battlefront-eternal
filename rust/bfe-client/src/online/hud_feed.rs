@@ -185,7 +185,9 @@ pub struct Tables {
 }
 
 impl Tables {
-    pub fn new(defs: &Defs) -> Self {
+    // `buildings`: the props that are live buildings, in the order a
+    // turret record counts them (LiveObjects.buildings, src/props.js).
+    pub fn new(defs: &Defs, buildings: &[usize]) -> Self {
         let delay = |record: &bfe_content::Value| record.get("ShotDelay").and_then(bfe_content::Value::as_f64).unwrap_or(0.);
         let mut labels = vec![String::new(); defs.registry.classes.len() + 1];
         let mut soldier_shots = HashMap::new();
@@ -219,8 +221,8 @@ impl Tables {
         }
         let mut turret_shots = HashMap::new();
         for prop in &defs.props {
-            if let Some(record) = prop.record.get("weapon") {
-                turret_shots.insert(prop.index, delay(record));
+            if let (Some(record), Some(building)) = (prop.record.get("weapon"), buildings.iter().position(|source| *source == prop.index)) {
+                turret_shots.insert(building, delay(record));
             }
         }
         Self { labels, soldier_shots, seat_shots, turret_shots, posts }

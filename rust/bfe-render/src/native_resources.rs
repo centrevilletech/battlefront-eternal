@@ -992,6 +992,22 @@ impl GpuResources {
         }
         self.bind_current()
     }
+    // The canvas as a copy's source (a negative id names it): a frame drawn
+    // straight to the canvas snapshots its depth for the soft particles, as
+    // one drawn to a target does. The canvas is the destination's size.
+    // Without a canvas there is nothing to read and nothing is copied.
+    pub fn copy_canvas(&mut self, dest: u32, mask: u32) -> Result<(), String> {
+        let Some(canvas) = self.canvas else {
+            return Ok(());
+        };
+        let b = self.target_ref(dest)?;
+        unsafe {
+            self.gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(canvas));
+            self.gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, b.faces.first().copied());
+            self.gl.blit_framebuffer(0, 0, b.desc.width, b.desc.height, 0, 0, b.desc.width, b.desc.height, mask, glow::NEAREST);
+        }
+        self.bind_current()
+    }
     pub fn mipmap(&mut self, id: u32) -> Result<(), String> {
         let p = &self.physical[self.sample_ref(id)?.physical];
         let source = self.source_ref(p.source as u32)?;
@@ -1054,8 +1070,10 @@ impl crate::frame::FrameTargets for GpuResources {
         }
     }
     fn copy(&mut self, from: i32, to: i32, mask: u32) -> Result<(), String> {
-        if from < 0 || to < 0 {
+        if to < 0 {
             Ok(())
+        } else if from < 0 {
+            self.copy_canvas(to as u32, mask)
         } else {
             self.copy(from as u32, to as u32, mask)
         }

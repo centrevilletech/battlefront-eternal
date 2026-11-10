@@ -77,13 +77,13 @@ impl flight::World for Page<'_> {
     // smoke or a bounce's impact. The effect group travels in the name's
     // place; the piece's id seeds its particles.
     fn play(&mut self, piece: &Piece, name: StrId, point: &Vector3, velocity: Option<&Vector3>, _: bool) -> Option<u32> {
-        let handle = self.effects.start(name.0 as usize, array(point), velocity.map_or([0.; 3], array), piece.id);
+        let handle = self.effects.start(name.0 as usize, array(point), velocity.map_or([0.; 3], array), None, piece.id);
         *if handle.is_some() { &mut *self.played } else { &mut *self.refused } += 1;
         handle
     }
     // Effect.move: a trail takes the piece's velocity, a smoke keeps its own.
     fn move_effect(&mut self, piece: &Piece, effect: u32, velocity: bool) {
-        self.effects.sync(effect, array(&piece.position), velocity.then(|| array(&piece.velocity)));
+        self.effects.sync(effect, array(&piece.position), None, velocity.then(|| array(&piece.velocity)));
     }
     fn stop_effect(&mut self, effect: u32) {
         self.effects.stop(effect);

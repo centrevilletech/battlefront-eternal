@@ -1459,6 +1459,14 @@ impl BattleController {
             return;
         }
         self.settings_revision = rev;
+        // The effect looks the browser reads the same two settings for.
+        if let Some(online) = &mut self.scene.online {
+            online.set_looks(
+                settings.interface.get_string("arcCasterEffects") != "classic",
+                settings.interface.get_string("droidekaEffects") != "classic",
+                settings.interface.get_bool("softParticles"),
+            );
+        }
         let empty = std::collections::BTreeMap::new();
         let kb = settings
             .interface

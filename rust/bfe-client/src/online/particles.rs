@@ -152,7 +152,7 @@ impl Prepared {
             let stride = if recipe.analytic { 18 } else { 21 };
             let at = words;
             words += CAPACITY * stride;
-            batches.push(Batch { handle, analytic: recipe.analytic, at, stride, count: 0 });
+            batches.push(Batch { handle, analytic: recipe.analytic, at, stride, count: 0, order: 0 });
         }
         // game.js glowModel: each model a GEOMETRY definition names, drawn
         // additive and double-sided with its first part's texture, tinted
@@ -171,7 +171,10 @@ impl Prepared {
         }
         let mut glows: Vec<(String, Glow)> = Vec::new();
         let mut effect_glows = Vec::new();
-        for name in &self.effect_models {
+        // game.js hands combat `glowModel("muzzleflash")` for the flash at a
+        // held gun's muzzle: the same kind of model, listed last here.
+        let flash = Some(FLASH.to_string());
+        for name in self.effect_models.iter().chain([&flash]) {
             let Some(name) = name else {
                 effect_glows.push(None);
                 continue;
@@ -204,14 +207,17 @@ impl Prepared {
             glows.push((name.clone(), Glow { parts, values: policy.defaults.iter().map(|v| *v as f32).collect() }));
             effect_glows.push(Some(glows.len() - 1));
         }
+        let flash = effect_glows.pop().flatten();
         let model_at = words;
         words += MODEL_DRAWS * fields.length;
         bridge.fx_reserve(words as u32);
         Ok(Particles {
             batches,
+            sequence: 0,
             effect_batches: self.effect_batches,
             glows: glows.into_iter().map(|(_, glow)| glow).collect(),
             effect_glows,
+            flash,
             fields,
             model_at,
             model_rows: Vec::with_capacity(MODEL_DRAWS),
@@ -240,6 +246,8 @@ fn bounds(geometry: &bfe_content_native::geometry::Geometry) -> [f64; 4] {
     let radius = points.iter().map(|p| (0..3).map(|axis| (p[axis] - center[axis]).powi(2)).sum::<f64>().sqrt()).fold(0., f64::max);
     [center[0], center[1], center[2], radius]
 }
+// The model game.js draws at a held gun's muzzle when it fires.
+const FLASH: &str = "muzzleflash";
 // A model's renderer models, one a part, and the material values they
 // start from.
 struct Glow {
@@ -260,12 +268,31 @@ struct Batch {
     at: usize,
     stride: usize,
     count: usize,
+    // Its place among the batches by first use, from one; zero until then.
+    order: u32,
+}
+impl Batch {
+    // particles.js ParticleRenderer.batch makes a batch the first time a
+    // particle asks for it, and three draws transparent meshes that tie on
+    // render order and depth in the order they were made. So a batch first
+    // used earlier in the battle draws under one first used later: the
+    // dirt an impact throws up sits under the blast's glow, not over it.
+    fn add(&mut self, sequence: &mut u32) {
+        if self.order == 0 {
+            *sequence += 1;
+            self.order = *sequence;
+        }
+        self.count += 1;
+    }
 }
 pub struct Particles {
     batches: Vec<Batch>,
+    sequence: u32,
     pub effect_batches: Vec<Option<usize>>,
     glows: Vec<Glow>,
     effect_glows: Vec<Option<usize>>,
+    // The muzzle flash's glow model, when the content has one.
+    flash: Option<usize>,
     fields: GlowFields,
     // Where the frame's model values start in the effect data, and the
     // frame's model draws: renderer model, then the particle's position.
@@ -283,6 +310,7 @@ impl Particles {
         self.model_rows.clear();
         bridge.r.effects.input[render::IN_DRAWS] = 0.;
         bridge.r.effects.input[render::IN_OWNERS] = 0.;
+        // Hard-edged until `project` hears of the frame's depth copy.
         bridge.r.effects.input[render::IN_SOFT..render::IN_SOFT + 6].copy_from_slice(&[0., 1., 1., 0.3, 20000., -1.]);
     }
     pub fn quad(&mut self, bridge: &mut Bridge, batch: usize, values: &[f32]) {
@@ -292,7 +320,7 @@ impl Particles {
         }
         let at = b.at + b.count * b.stride;
         bridge.r.effects.data[at..at + 21].copy_from_slice(values);
-        b.count += 1;
+        b.add(&mut self.sequence);
     }
     pub fn effects(&mut self, bridge: &mut Bridge, owner: &bfe_presentation::Presentation, indices: &[Option<usize>]) {
         use bfe_presentation::layout::{draw as d, draw_kind as kind, effect as e, header as h};
@@ -322,30 +350,16 @@ impl Particles {
             // quaternion (the owner has already spun it about its own up),
             // scaled by its size, in its colour and opacity.
             if row[d::KIND] == kind::MODEL as f64 {
-                let Some(glow) = self.effect_glows.get(definition).copied().flatten().map(|glow| &self.glows[glow]) else {
+                let Some(glow) = self.effect_glows.get(definition).copied().flatten() else {
                     continue;
                 };
-                let position = three::Vector3::new(row[d::POSITION], row[d::POSITION + 1], row[d::POSITION + 2]);
                 let mut matrix = three::Matrix4::default();
                 matrix.compose(
-                    &position,
+                    &three::Vector3::new(row[d::POSITION], row[d::POSITION + 1], row[d::POSITION + 2]),
                     &three::Quaternion::new(row[d::TURN], row[d::TURN + 1], row[d::TURN + 2], row[d::TURN + 3]),
                     &three::Vector3::new(row[d::SIZE], row[d::SIZE], row[d::SIZE]),
                 );
-                for part in &glow.parts {
-                    let at = self.model_rows.len();
-                    if at == MODEL_DRAWS {
-                        break;
-                    }
-                    bridge.r.effects.matrices[at * 16..at * 16 + 16].copy_from_slice(&matrix.elements);
-                    let values = &mut bridge.r.effects.data[self.model_at + at * self.fields.length..][..self.fields.length];
-                    values.copy_from_slice(&glow.values);
-                    for k in 0..3 {
-                        values[self.fields.diffuse + k] = row[d::COLOR + k] as f32;
-                    }
-                    values[self.fields.opacity] = row[d::COLOR + 3] as f32;
-                    self.model_rows.push((*part, [position.x, position.y, position.z]));
-                }
+                self.model(bridge, glow, &matrix.elements, &row[d::COLOR..d::COLOR + 3], row[d::COLOR + 3]);
                 continue;
             }
             let Some(batch) = self.effect_batches.get(definition).copied().flatten() else {
@@ -392,8 +406,61 @@ impl Particles {
                 x[9] = row[d::SHAPE] as f32;
                 x[10] = row[d::LENGTH] as f32;
             }
-            b.count += 1;
+            b.add(&mut self.sequence);
         }
+    }
+    // One glow model of the frame: each of its parts at `matrix`, in a
+    // colour and an opacity. Returns the model rows it took, none once the
+    // frame's rows are spent.
+    fn model(&mut self, bridge: &mut Bridge, glow: usize, matrix: &[f64; 16], color: &[f64], opacity: f64) -> std::ops::Range<usize> {
+        let first = self.model_rows.len();
+        let glow = &self.glows[glow];
+        for part in &glow.parts {
+            let at = self.model_rows.len();
+            if at == MODEL_DRAWS {
+                break;
+            }
+            bridge.r.effects.matrices[at * 16..at * 16 + 16].copy_from_slice(matrix);
+            let values = &mut bridge.r.effects.data[self.model_at + at * self.fields.length..][..self.fields.length];
+            values.copy_from_slice(&glow.values);
+            for k in 0..3 {
+                values[self.fields.diffuse + k] = color[k] as f32;
+            }
+            values[self.fields.opacity] = opacity as f32;
+            self.model_rows.push((*part, [matrix[12], matrix[13], matrix[14]]));
+        }
+        first..self.model_rows.len()
+    }
+    // The draw row of one model row, sorted by where the model is, as three
+    // sorts a transparent mesh.
+    fn model_draw(&self, bridge: &mut Bridge, draw: usize, at: usize) {
+        let (model, position) = &self.model_rows[at];
+        let row = &mut bridge.r.effects.input[render::DRAW_AT + draw * render::DRAW_STRIDE..][..render::DRAW_STRIDE];
+        row.fill(0.);
+        row[..4].copy_from_slice(&[render::KIND_MODEL as f64, *model as f64, (at * 16) as f64, (self.model_at + at * self.fields.length) as f64]);
+        row[render::DRAW_KEY + 2..render::DRAW_KEY + 5].copy_from_slice(position);
+        row[render::DRAW_KEY + 5] = *model as f64;
+    }
+    /// combat.js updateFlashes: the muzzle flash model at `matrix`, in the
+    /// weapon's flash colour. It is asked for after the frame's bodies are
+    /// posed, when the particle draws are already listed, so it adds its
+    /// own. False when there is no such model or no room left for it.
+    pub fn flash(&mut self, bridge: &mut Bridge, matrix: &[f64; 16], color: &[f64], opacity: f64) -> bool {
+        let Some(glow) = self.flash else {
+            return false;
+        };
+        let rows = self.model(bridge, glow, matrix, color, opacity);
+        let mut draws = bridge.r.effects.input[render::IN_DRAWS] as usize;
+        let drawn = !rows.is_empty();
+        for at in rows {
+            if draws == render::MAX_DRAWS {
+                break;
+            }
+            self.model_draw(bridge, draws, at);
+            draws += 1;
+        }
+        bridge.r.effects.input[render::IN_DRAWS] = draws as f64;
+        drawn
     }
     pub fn finish(&self, bridge: &mut Bridge) {
         let mut draws = 0;
@@ -405,25 +472,14 @@ impl Particles {
             row.fill(0.);
             row[..6].copy_from_slice(&[render::KIND_BATCH as f64, b.handle as f64, b.count as f64, 0., b.at as f64, b.count as f64]);
             row[render::DRAW_KEY + 1] = 10.;
-            row[render::DRAW_KEY + 5] = b.handle as f64;
+            row[render::DRAW_KEY + 5] = b.order as f64;
             draws += 1;
         }
-        // The frame's model particles, each sorted by where it is, as three
-        // sorts a transparent mesh.
-        for (at, (model, position)) in self.model_rows.iter().enumerate() {
+        for at in 0..self.model_rows.len() {
             if draws == render::MAX_DRAWS {
                 break;
             }
-            let row = &mut bridge.r.effects.input[render::DRAW_AT + draws * render::DRAW_STRIDE..][..render::DRAW_STRIDE];
-            row.fill(0.);
-            row[..4].copy_from_slice(&[
-                render::KIND_MODEL as f64,
-                *model as f64,
-                (at * 16) as f64,
-                (self.model_at + at * self.fields.length) as f64,
-            ]);
-            row[render::DRAW_KEY + 2..render::DRAW_KEY + 5].copy_from_slice(position);
-            row[render::DRAW_KEY + 5] = *model as f64;
+            self.model_draw(bridge, draws, at);
             draws += 1;
         }
         bridge.r.effects.input[render::IN_DRAWS] = draws as f64;
@@ -431,7 +487,16 @@ impl Particles {
     /// The frame's camera for the model particles: their material reads the
     /// projection matrix (`camera`'s first sixteen values), which is known
     /// only once the frame's view is chosen.
-    pub fn project(&self, bridge: &mut Bridge, camera: &[f64]) {
+    /// `soft` is the frame's size and its depth copy when the softParticles
+    /// setting is on (particle-depth.js): the particle and arc shaders then
+    /// fade against the scene's depth, which they turn into metres with the
+    /// lens's near and far planes.
+    pub fn project(&self, bridge: &mut Bridge, camera: &[f64], soft: Option<([i32; 2], u32)>) {
+        if let Some((size, depth)) = soft {
+            let (near, far) = (camera[14] / (camera[10] - 1.), camera[14] / (camera[10] + 1.));
+            bridge.r.effects.input[render::IN_SOFT..render::IN_SOFT + 6]
+                .copy_from_slice(&[1., size[0] as f64, size[1] as f64, near, far, depth as f64]);
+        }
         for at in 0..self.model_rows.len() {
             let values = &mut bridge.r.effects.data[self.model_at + at * self.fields.length + self.fields.projection..][..16];
             for (slot, value) in values.iter_mut().zip(camera) {

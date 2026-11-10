@@ -19,13 +19,13 @@ pub struct Spawner {
     free: Vec<usize>,
     // Commands apply in the order they were written.
     sequence: u32,
-    // Where each effect was last put and how fast it moved, which a move
-    // without a velocity and a stop both keep.
-    placed: Vec<[f64; 6]>,
+    // Where each effect was last put, how fast it moved and how it is
+    // turned, which a move without a velocity and a stop all keep.
+    placed: Vec<[f64; 10]>,
 }
 impl Spawner {
     pub fn new(owner: Presentation) -> Self {
-        Self { owner, active: vec![false; SLOTS], generation: vec![0; SLOTS], free: (1..SLOTS).rev().collect(), sequence: 0, placed: vec![[0.; 6]; SLOTS] }
+        Self { owner, active: vec![false; SLOTS], generation: vec![0; SLOTS], free: (1..SLOTS).rev().collect(), sequence: 0, placed: vec![[0.; 10]; SLOTS] }
     }
     // The slot's number and the low bits of its life, in one word.
     fn handle(&self, id: usize) -> u32 {
@@ -59,10 +59,21 @@ impl Spawner {
         row[c::SCALE] = 1.;
         Some(row)
     }
-    /// Effects.play: the effect group at a point, moving at `velocity`. The
-    /// seed keeps its particle draws deterministic. None when the frame's
-    /// batch or the pool is full.
-    pub fn start(&mut self, group: usize, position: [f64; 3], velocity: [f64; 3], seed: u32) -> Option<u32> {
+    /// Effects.play: the effect group at a point, moving at `velocity`, its
+    /// up axis along `normal` (straight up without one). The seed keeps its
+    /// particle draws deterministic. None when the frame's batch or the pool
+    /// is full.
+    pub fn start(&mut self, group: usize, position: [f64; 3], velocity: [f64; 3], normal: Option<[f64; 3]>, seed: u32) -> Option<u32> {
+        // `new THREE.Quaternion().setFromUnitVectors(UP, normal || UP)`.
+        let mut turn = three::Quaternion::default();
+        if let Some(normal) = normal {
+            turn.set_from_unit_vectors(&three::Vector3::new(0., 1., 0.), &three::Vector3::new(normal[0], normal[1], normal[2]));
+        }
+        self.start_turned(group, position, velocity, [turn.x, turn.y, turn.z, turn.w], seed)
+    }
+    /// Effects.play with a `quaternion`: the effect turned as its owner is
+    /// (a round's trail).
+    pub fn start_turned(&mut self, group: usize, position: [f64; 3], velocity: [f64; 3], turn: [f64; 4], seed: u32) -> Option<u32> {
         if self.owner.input[f::COMMANDS] as usize == COMMANDS {
             return None;
         }
@@ -71,23 +82,28 @@ impl Spawner {
         self.active[id] = true;
         self.generation[id] = self.generation[id].wrapping_add(1).max(1);
         self.placed[id][..3].copy_from_slice(&position);
-        self.placed[id][3..].copy_from_slice(&velocity);
+        self.placed[id][3..6].copy_from_slice(&velocity);
+        self.placed[id][6..].copy_from_slice(&turn);
         let row = self.command(k::SPAWN, id)?;
         row[c::CONTENT] = group as f64;
         row[c::SEED] = seed as f64;
         row[c::POSITION..c::POSITION + 3].copy_from_slice(&position);
+        row[c::QUATERNION..c::QUATERNION + 4].copy_from_slice(&turn);
         row[c::VELOCITY..c::VELOCITY + 3].copy_from_slice(&velocity);
         Some(self.handle(id))
     }
-    /// Effect.move: the effect follows its owner. Without a velocity it
-    /// keeps the one it had.
-    pub fn sync(&mut self, handle: u32, position: [f64; 3], velocity: Option<[f64; 3]>) {
+    /// Effect.move: the effect follows its owner. Without a turn or a
+    /// velocity it keeps the one it had.
+    pub fn sync(&mut self, handle: u32, position: [f64; 3], turn: Option<[f64; 4]>, velocity: Option<[f64; 3]>) {
         let Some(id) = self.live(handle) else {
             return;
         };
         self.placed[id][..3].copy_from_slice(&position);
+        if let Some(turn) = turn {
+            self.placed[id][6..].copy_from_slice(&turn);
+        }
         if let Some(velocity) = velocity {
-            self.placed[id][3..].copy_from_slice(&velocity);
+            self.placed[id][3..6].copy_from_slice(&velocity);
         }
         self.place(id, false);
     }
@@ -101,7 +117,8 @@ impl Spawner {
         let placed = self.placed[id];
         if let Some(row) = self.command(k::SYNC, id) {
             row[c::POSITION..c::POSITION + 3].copy_from_slice(&placed[..3]);
-            row[c::VELOCITY..c::VELOCITY + 3].copy_from_slice(&placed[3..]);
+            row[c::QUATERNION..c::QUATERNION + 4].copy_from_slice(&placed[6..]);
+            row[c::VELOCITY..c::VELOCITY + 3].copy_from_slice(&placed[3..6]);
             row[c::STOPPED] = stopped as u8 as f64;
         }
     }

@@ -164,6 +164,10 @@ pub struct GateDriver {
     /// stands where it spawned, so walls between them never trap it.
     hold: bool,
     duel_input_tick: u32,
+    /// `BFE_GATE_HUNT` (`droideka` or `soldier`): in a local battle the
+    /// player walks up to the nearest living enemy of that kind and fires,
+    /// so a recording of the run has what happens to it in view.
+    hunt: Option<String>,
     spawn_posts: std::collections::BTreeMap<u8, String>,
     observed_second: u64,
     observed_health: f64,
@@ -173,6 +177,7 @@ pub struct GateDriver {
     /// Unit presentation events shown, by `presented::SHOWN`'s names.
     presented: [u64; crate::online::replicas::presented::SHOWN.len()],
     voice_decodes: u64,
+    station_loops: u64,
     audio_frames: u64,
     audio_peak: f32,
     observed_map: String,
@@ -247,6 +252,7 @@ impl GateDriver {
             online_duel: script_name == "online-duel",
             spectate: std::env::var_os("BFE_GATE_SPECTATE").is_some(),
             hold: std::env::var_os("BFE_GATE_HOLD").is_some(),
+            hunt: std::env::var("BFE_GATE_HUNT").ok(),
             spawn_posts: std::env::var("BFE_GATE_SPAWN_POSTS")
                 .ok()
                 .and_then(|v| serde_json::from_str(&v).ok())
@@ -259,6 +265,7 @@ impl GateDriver {
             audio_events: [0; 27],
             presented: [0; crate::online::replicas::presented::SHOWN.len()],
             voice_decodes: 0,
+            station_loops: 0,
             audio_frames: 0,
             audio_peak: 0.,
             observed_map: String::new(),
@@ -468,6 +475,59 @@ impl GateDriver {
 
     // A diagnostic driver uses the same pointer counts and trigger edges as
     // a human. It never changes authoritative positions, health or scores.
+    // The hunt: turn to the nearest living enemy of the wanted kind with
+    // ordinary pointer motion, walk until it is a few metres off, and fire
+    // while it is in range. Once an input step, as the duel below.
+    fn hunt_frame(&mut self, battle: &mut BattleController, settings: &AppSettingsStore) {
+        use super::battle::BattleAuthority;
+        use bfe_presentation::network_layout::{net_kind as k, net_record as r};
+        if self.duel_input_tick == battle.input_tick {
+            return;
+        }
+        self.duel_input_tick = battle.input_tick;
+        // Killed, he spawns again as soon as the screen lets him.
+        if battle.spawn_ctrl.is_open() {
+            battle.input.key(KeyCode::KeyW, false);
+            battle.input.mouse(MouseButton::Left, false);
+            battle.trigger_spawn();
+            return;
+        }
+        let BattleAuthority::InstantAction { receiver, sender, replay, .. } = &battle.authority else {
+            return;
+        };
+        let own = receiver.own;
+        // The wanted kind counts as three times nearer than the other, so
+        // a droideka across the square is chosen over a droid at his side.
+        let wanted = if self.hunt.as_deref() == Some("droideka") { k::DROIDEKA } else { k::SOLDIER } as f64;
+        let nearest = receiver
+            .active()
+            .filter(|row| {
+                (row[r::KIND] == k::DROIDEKA as f64 || row[r::KIND] == k::SOLDIER as f64)
+                    && (row[r::TEAM] == 1. || row[r::TEAM] == 2.)
+                    && row[r::TEAM] != own.team as f64
+                    && row[r::HEALTH] > 0.
+            })
+            .map(|row| ((row[r::POSITION] - own.position[0]).hypot(row[r::POSITION + 2] - own.position[2]), row))
+            .min_by(|a, b| {
+                let weight = |(range, row): &(f64, &[f64; r::STRIDE])| if row[r::KIND] == wanted { *range } else { *range * 3. };
+                weight(a).total_cmp(&weight(b))
+            });
+        let Some((range, target)) = nearest else {
+            battle.input.key(KeyCode::KeyW, false);
+            battle.input.mouse(MouseButton::Left, false);
+            return;
+        };
+        // AimView.Basis faces (sin(yaw), cos(yaw)) in the XZ plane; the eye
+        // is about as far above his feet as the target's middle is above its.
+        let yaw = (target[r::POSITION] - own.position[0]).atan2(target[r::POSITION + 2] - own.position[2]);
+        let pitch = (target[r::POSITION + 1] - own.position[1] - 0.6).atan2(range);
+        let delta = (yaw - sender.yaw + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU) - std::f64::consts::PI;
+        let turn = replay.body.as_ref().map_or(4., |b| b.max_turn);
+        let scale = settings.player.shell.mouse_sensitivity as f64 * turn / 2048.;
+        battle.input.motion(-delta.clamp(-0.04, 0.04) / scale, -(pitch - sender.pitch).clamp(-0.04, 0.04) / scale);
+        battle.input.key(KeyCode::KeyW, range > 9.);
+        battle.input.mouse(MouseButton::Left, range < 40. && delta.abs() < 0.2);
+    }
     fn duel_frame(
         &mut self,
         battle: &mut BattleController,
@@ -589,6 +649,7 @@ impl GateDriver {
                 *total = (*total).max(count);
             }
             self.voice_decodes = self.voice_decodes.max(scene.sound.voice_decoded);
+            self.station_loops = self.station_loops.max(scene.sound.station_loops);
             self.audio_frames = self.audio_frames.max(scene.sound.device_frames());
             self.audio_peak = self.audio_peak.max(scene.sound.peak());
         }
@@ -971,7 +1032,11 @@ impl GateDriver {
                 }
                 // Drive real combat on `nab2`, capturing `10-ia-nab2-battle.png` once spawned.
                 self.record_combat_frame_interval();
-                self.apply_generated_combat_input(battle);
+                if self.hunt.is_some() {
+                    self.hunt_frame(battle, settings);
+                } else {
+                    self.apply_generated_combat_input(battle);
+                }
                 if self.phase_frames == 45 {
                     if battle.spawn_ctrl.is_open() {
                         battle.spawn_ctrl.close(&mut battle.spawn_port);
@@ -1252,7 +1317,7 @@ impl GateDriver {
             "status": if self.page_proof.is_some() { if self.gl_errors != 0 { "FAIL" } else if self.page_capture_done { "CAPTURED" } else { "INCOMPLETE" } } else if movie_captured { "CAPTURED" } else if passed { "PASS" } else { "FAIL" },
             "captureOnly": self.page_proof.is_some() || self.movie_verification,
             "glErrors": self.gl_errors,
-            "audio": {"eventCounts":self.audio_events.to_vec(),"voiceDecoded":self.voice_decodes,"frames":self.audio_frames,"peak":self.audio_peak},
+            "audio": {"eventCounts":self.audio_events.to_vec(),"stationLoops":self.station_loops,"voiceDecoded":self.voice_decodes,"frames":self.audio_frames,"peak":self.audio_peak},
             "presented": crate::online::replicas::presented::SHOWN.iter().zip(self.presented).map(|(name, count)| (name.to_string(), serde_json::Value::from(count))).collect::<serde_json::Map<_, _>>(),
             "steadyFrameAllocationsAfterWarmup": self.steady_allocs_after_warmup,
             "steadyFramesMeasured": self.steady_frames_measured,

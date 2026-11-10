@@ -18,7 +18,8 @@ struct Part {
     node: usize,
 }
 struct Turret {
-    instance: usize,
+    // Its place among the live buildings, which records name it by.
+    building: Option<usize>,
     start: usize,
     bones: Vec<usize>,
     inverses: Vec<Matrix4>,
@@ -71,6 +72,12 @@ impl Turrets {
         let props = content.content.battle.props.as_ref();
         let mut owner = Box::new(Props::new());
         let mut rows = Vec::new();
+        // A turret record names its building by its place in
+        // LiveObjects.buildings (src/props.js): traps, power-up stations,
+        // armed buildings and command posts whose model exists, in order.
+        // That is not its place in props.json wherever a door or an
+        // animated prop comes first (Cloud City).
+        let buildings = bfe_sim::world::admit::rows::props::live_sources(&content.content.battle);
         for (instance, desc) in
             props.and_then(|p| p.get("instances")).and_then(bfe_content::Value::as_array).unwrap_or(&[]).iter().enumerate()
         {
@@ -228,7 +235,7 @@ impl Turrets {
                 camera[at] = view[key].as_f64().unwrap_or(0.);
             }
             rows.push(Turret {
-                instance,
+                building: buildings.iter().position(|source| *source == instance),
                 start,
                 bones,
                 skin: vec![0.; inverses.len() * 16],
@@ -254,7 +261,7 @@ impl Turrets {
     }
     pub fn frame(&mut self, receiver: &Receiver, history: &super::replay::History, dt: f64) {
         for row in receiver.active().filter(|r| r[r::KIND] == k::TURRET as f64) {
-            if let Some((index, turret)) = self.rows.iter_mut().enumerate().find(|(_, t)| t.instance == row[r::BUILDING] as usize) {
+            if let Some((index, turret)) = self.rows.iter_mut().enumerate().find(|(_, t)| t.building == Some(row[r::BUILDING] as usize)) {
                 turret.id = row[r::ID];
                 turret.generation = row[r::GENERATION];
                 turret.shown = row[r::STATE] == 1.;

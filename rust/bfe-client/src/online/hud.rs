@@ -249,7 +249,7 @@ impl Prepared {
             strings: common["strings"].clone(),radar:super::radar::Teams::new(content),map:None,posts:vec![],max_health:vec![],unit_defs:vec![],
             class_meta: vec![],
             post_meta: vec![],
-            feed: super::hud_feed::Tables::new(&defs),
+            feed: super::hud_feed::Tables::new(&defs, &bfe_sim::world::admit::rows::props::live_sources(&content.content.battle)),
             reticles: vec![],
             target_classes: vec![],
             target_icons: vec![],
@@ -444,6 +444,7 @@ impl Prepared {
                 seats,
             });
         }
+        let buildings = bfe_sim::world::admit::rows::props::live_sources(&content.content.battle);
         for prop in &defs.props {
             if prop.base.map(|name| defs.names.text(name)) != Some("armedbuilding") {
                 continue;
@@ -456,10 +457,15 @@ impl Prepared {
                     .unwrap_or("hud_vehiclehealth"),
                 &mut result,
             )?;
+            // A turret record names its building by its place among the
+            // live buildings (online/turrets.rs), not in props.json.
+            let Some(building) = buildings.iter().position(|source| *source == prop.index) else {
+                continue;
+            };
             let target_icon = asset(settings.get("HealthTexture").and_then(bfe_content::Value::as_str).unwrap_or(""), &mut result)?;
             result.mounts.push(MountHud {
                 kind: k::TURRET as f64,
-                source: prop.index,
+                source: building,
                 health: bfe_content::odf::num(settings.get("MaxHealth"), 1000.),
                 icon,
                 target_icon,
@@ -477,23 +483,25 @@ impl Prepared {
                 *value = prop.record.get("matrix").and_then(|m| m.at(at)).and_then(bfe_content::Value::as_f64).unwrap_or(0.);
             }
             let (center, radius) = super::hud_target::turret_sphere(model_box, &matrix);
-            result.turrets.push((prop.index, center, radius));
+            result.turrets.push((building, center, radius));
         }
         // Each class as the reticle's target search sees it, and the icon
         // an enemy of that class shows by (enemyHealth, src/hud.js).
         result.target_classes = vec![super::hud_target::Class { scale: 1., category: 0 }; defs.registry.classes.len() + 1];
         result.target_icons = vec![0; defs.registry.classes.len() + 1];
-        // What a repair weapon can lock among the placed props, by the
-        // prop's number: its MaxHealth (a Building's is unbounded without
-        // one) and its own HealthTexture, 0 for none.
+        // What a repair weapon can lock among the live buildings, by the
+        // building's place among them (a lock and a state record both name
+        // it so): its MaxHealth (a Building's is unbounded without one) and
+        // its own HealthTexture, 0 for none.
         result.repair_icon = asset("hud_active_repair_icon", &mut result)?;
+        result.buildings = vec![(f64::INFINITY, 0); buildings.len()];
         for prop in &defs.props {
+            let Some(building) = buildings.iter().position(|source| *source == prop.index) else {
+                continue;
+            };
             let settings = prop.record.get("settings").unwrap_or(&prop.record);
             let icon = asset(settings.get("HealthTexture").and_then(bfe_content::Value::as_str).unwrap_or(""), &mut result)?;
-            if result.buildings.len() <= prop.index {
-                result.buildings.resize(prop.index + 1, (f64::INFINITY, 0));
-            }
-            result.buildings[prop.index] = (bfe_content::odf::num(settings.get("MaxHealth"), f64::INFINITY), icon);
+            result.buildings[building] = (bfe_content::odf::num(settings.get("MaxHealth"), f64::INFINITY), icon);
         }
         // A droideka's shield is its weapon of base "shield": the bar is
         // the shield over that weapon's MaxShield (Droideka, src/droideka.js).

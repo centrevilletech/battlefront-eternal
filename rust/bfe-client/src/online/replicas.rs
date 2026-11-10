@@ -22,6 +22,8 @@ use three::Matrix4;
 use crate::app::page_battle::appearance::{self,Appearance};
 use bfe_render::interface_resource_layout::look as UI;
 const POOL: usize = lim::ACTORS;
+// combat.js FLASH_SCALE: the flash model's size at a muzzle.
+const FLASH_SCALE: f64 = 0.6;
 struct Model {
     row: [f64; draw::REC_STRIDE],
     // The preview borrows immutable GPU geometry, but owns animation clocks
@@ -58,17 +60,26 @@ struct Slot {
     walker: bool,
     // The registry class of the body's current life, for its chunks.
     class: usize,
-    // The registry weapon in his hands, the bank he throws with while a
-    // throw is under way, and whether his state says he was blown apart.
+    // The registry weapon in his hands; while a throw is under way, the
+    // bank he throws with, the registry weapon thrown and whether it has
+    // left his hand; and whether his state says he was blown apart.
     primary: usize,
-    throwing: Option<usize>,
+    throwing: Option<(usize, usize, bool)>,
     blown: bool,
+    // The held model drawn in his hand this frame, if any.
+    held: Option<usize>,
     // A droideka's shield bubble, with its shield's charge, whether it is
     // up and whether the droideka is rolled into a ball.
     bubble: Option<usize>,
     shield: (f64, bool, bool),
+    // The record's charge step of the weapon in his hands (0 to 63).
+    charge: f64,
     // Unit.goUp: seconds since this life's body went up, None while drawn.
     gone: Option<f64>,
+    // The muzzle flash of his last round: the registry weapon that fired,
+    // the tick it fired on (negative: none), how long the flash lasts and
+    // its colour and alpha.
+    flash: (usize, f64, f64, [f64; 4]),
 }
 pub struct Replicas {
     pub first_person: super::first_person::Views,
@@ -81,6 +92,13 @@ pub struct Replicas {
     pub sound: Box<super::sound::Sound>,
     pub presented: presented::Presented,
     pub arcs: Box<super::lightning::Arcs>,
+    guns: super::lightning::Guns,
+    soft: bool,
+    // The tick of the frame being drawn.
+    tick: f64,
+    // The world's collision, for an arc that meets a surface.
+    collision: super::replay::Collision,
+    world: u32,
     shields: Box<super::shields::Shields>,
     held: Vec<Option<super::models::Model>>,
     weapon_classes: Vec<Option<usize>>,
@@ -317,10 +335,13 @@ impl Replicas {
                     class: 0,
                     primary: 0,
                     throwing: None,
+                    held: None,
                     blown: false,
                     bubble: None,
                     shield: (0., false, false),
+                    charge: 0.,
                     gone: None,
+                    flash: (0, -1., 0., [0.; 4]),
                 });
             }
         }
@@ -405,6 +426,8 @@ impl Replicas {
         bridge.r.core.state.reset();
         let hud = Box::new(hud.admit(bridge, textures, solid, size)?);
         let arcs = Box::new(super::lightning::Arcs::new(content, bridge, textures, &arc_images, combat.particles.words)?);
+        let guns = super::lightning::Guns::new(content)?;
+        let (collision, world) = (resources.collision.clone(), resources.world);
         bridge.r.core.state.reset();
         let shields = Box::new(super::shields::Shields::new(
             content,
@@ -439,6 +462,12 @@ impl Replicas {
             sound,
             presented,
             arcs,
+            guns,
+            // The browser's defaults, until the player's settings arrive.
+            soft: true,
+            tick: 0.,
+            collision,
+            world,
             shields,
             held,
             weapon_classes,
@@ -472,6 +501,7 @@ impl Replicas {
         history: &super::replay::History,
         bridge: &mut Bridge,
     ) {
+        self.tick = tick;
         self.hud.frame(bridge, receiver, prediction, dt);
         self.combat.frame(receiver, tick, dt, bridge);
         // SnapshotPresentation samples once for the whole display batch.
@@ -530,6 +560,7 @@ impl Replicas {
                 self.slots[slot].dead = false;
                 self.slots[slot].death_pending = false;
                 self.slots[slot].gone = None;
+                self.slots[slot].flash.1 = -1.;
                 self.slots[slot].throwing = None;
                 self.slots[slot].blown = false;
                 self.slots[slot].mount = None;
@@ -562,6 +593,7 @@ impl Replicas {
             self.slots[slot].walker = kind == k::DROIDEKA;
             self.slots[slot].class = row[r::CLASS_ID] as usize;
             self.slots[slot].primary = row[r::WEAPON] as usize;
+            self.slots[slot].charge = row[r::CHARGE];
             if kind == k::DROIDEKA {
                 // Droideka.rolled: folding, rolling or unfolding (mode 11 on).
                 self.slots[slot].shield = (row[r::SHIELD], row[r::SHIELD_ON] != 0., row[r::MODE] >= 11.);
@@ -711,10 +743,20 @@ impl Replicas {
             self.visible += usize::from(input[i::PRESENT] != 0. && input[i::OWN] == 0.);
         }
         // Every body of this frame is bound: show what the server said of them.
-        self.present_states(receiver, prediction);
+        self.present_states(receiver, prediction, tick);
         self.present_events(receiver, tick);
-        let bound = &self.bound;
-        self.arcs.receive(receiver, |id, generation| bound.get(&(id, generation)).is_some());
+        // A bolt's shooter, if he is drawn: his gun origin as last posed.
+        let (bound, slots, units) = (&self.bound, &self.slots, &self.units);
+        let mut casts = super::lightning::Casts { collision: &self.collision, world: self.world };
+        self.arcs.receive(
+            receiver,
+            |id, generation| {
+                let slot = &slots[*bound.get(&(id, generation))?];
+                let out = &units.output[slot.actor * o::STRIDE..];
+                Some((slot.active && !slot.dead && slot.mount.is_none()).then(|| std::array::from_fn(|axis| out[o::COMBAT_BASIS + axis])))
+            },
+            &mut casts,
+        );
         self.presented.shown[5] = self.arcs.shown;
         // Network-linked rows receive motion from Rust. The retained parent
         // matrices describe placement only and do not reapply network motion.
@@ -808,21 +850,164 @@ impl Replicas {
         self.units.place_actors(places);
 
     }
-    /// Lightning.update, once the frame's bodies are posed: a bolt held to
+    /// Lightning.update, once the frame's bodies are posed. A bolt held to
     /// its shooter starts at his gun origin as he is drawn now
     /// (PlayerCombat.drawnGunOrigin: nowhere while he is dead or mounted).
-    pub fn present_arcs(&mut self, dt: f64, eye: [f64; 3], bridge: &mut Bridge) {
+    /// The Enhanced look also reads every drawn body: who is charging an
+    /// arc caster, where guns and shields are, and the bones of the ones
+    /// a bolt strikes. `camera` is the view's world matrix, `projection`
+    /// its projection matrix and `height` the frame's height in pixels.
+    pub fn present_arcs(
+        &mut self,
+        receiver: &Receiver,
+        prediction: &super::replay::Replay,
+        dt: f64,
+        camera: &Matrix4,
+        projection: &[f64],
+        height: f64,
+        bridge: &mut Bridge,
+    ) {
+        let mut turn = three::Quaternion::default();
+        turn.set_from_rotation_matrix(camera);
+        let eye = [camera.elements[12], camera.elements[13], camera.elements[14]];
+        self.arcs.begin(dt, eye, [turn.x, turn.y, turn.z, turn.w]);
+        if self.arcs.reads_units() {
+            let own = (receiver.own.id as u32, receiver.own.generation as u32);
+            // The local player's charge is his predicted weapon's; everyone
+            // else's is their record's charge step (applyChargeStep: 63
+            // steps of the weapon's longest hold).
+            let own_hold = prediction.weapons().nth(prediction.selected()[0] as usize).filter(|weapon| weapon.charging).map(|weapon| weapon.held);
+            for at in 0..self.slots.len() {
+                let slot = &self.slots[at];
+                if !slot.active {
+                    continue;
+                }
+                let out = &self.units.output[slot.actor * o::STRIDE..];
+                let mine = slot.identity == Some(own);
+                let hand = self.models[slot.model].hand.map(|hand| {
+                    let node = (self.units.actor_node_start(slot.actor) + hand) * bfe_presentation::layout::unit_node::STRIDE
+                        + bfe_presentation::layout::unit_node::WORLD;
+                    let mut matrix = Matrix4::default();
+                    matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
+                    matrix
+                });
+                // combat.firePoint: the muzzle of a gun in his hand.
+                let fire_point = |weapon: usize| {
+                    let local = self.guns.muzzles.get(weapon).copied().flatten()?;
+                    let mut point = three::Vector3::new(local[0], local[1], local[2]);
+                    point.apply_matrix4(hand.as_ref()?);
+                    Some([point.x, point.y, point.z])
+                };
+                let caster = self.guns.casters.get(slot.class).copied().flatten();
+                let color = self.guns.colors.get(slot.primary).copied().flatten();
+                let most = self.guns.holds.get(slot.primary).copied().unwrap_or(0.);
+                let pressed = if mine { own_hold.unwrap_or(0.) } else { slot.charge / 63. * most };
+                let seated = slot.mount.is_some();
+                let hidden = out[o::GONE] == -1. || (mine && self.first_person.enabled && !slot.dead);
+                let bubble = slot.bubble.and_then(|bubble| self.shields.shell(bubble));
+                let facts = super::lightning::Unit {
+                    generation: slot.identity.map_or(0., |identity| identity.1 as f64),
+                    dead: slot.dead,
+                    mounted: seated,
+                    walker: slot.walker,
+                    first_person: mine && self.first_person.enabled,
+                    shown: !hidden,
+                    root: std::array::from_fn(|axis| out[o::POSITION + axis]),
+                    origin: (!slot.dead && !seated).then(|| std::array::from_fn(|axis| out[o::COMBAT_BASIS + axis])),
+                    muzzle: caster.and_then(|(weapon, _)| fire_point(weapon)),
+                    current_muzzle: fire_point(slot.primary),
+                    cone: caster.map(|(_, cone)| cone),
+                    color,
+                    charging: color.is_some() && most > 0. && pressed > 0.,
+                    pressed,
+                    max_pressed: if most > 0. { most } else { 1. },
+                    shield: bubble,
+                };
+                self.arcs.list(at, &facts);
+            }
+        }
         let (bound, slots, units) = (&self.bound, &self.slots, &self.units);
-        self.arcs.frame(
-            dt,
-            eye,
-            |shooter| {
-                let slot = &slots[*bound.get(&shooter)?];
-                let out = &units.output[slot.actor * o::STRIDE..];
-                (slot.active && !slot.dead && slot.mount.is_none()).then(|| std::array::from_fn(|axis| out[o::COMBAT_BASIS + axis]))
-            },
-            bridge,
-        );
+        self.arcs.prepare(|shooter| {
+            let slot = &slots[*bound.get(&shooter)?];
+            let out = &units.output[slot.actor * o::STRIDE..];
+            (slot.active && !slot.dead && slot.mount.is_none()).then(|| std::array::from_fn(|axis| out[o::COMBAT_BASIS + axis]))
+        });
+        for at in 0..self.slots.len() {
+            if !self.slots[at].active || !self.arcs.wants_pose(at) {
+                continue;
+            }
+            // Bone i is node i + 2 of the actor's posed tree.
+            let slot = &self.slots[at];
+            let start = self.units.actor_node_start(slot.actor) + 2;
+            let nodes = &self.units.nodes;
+            self.arcs.pose(at, &self.models[slot.model].bones, |bone| {
+                let node = (start + bone) * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
+                nodes[node..node + 16].try_into().unwrap()
+            });
+        }
+        let mut casts = super::lightning::Casts { collision: &self.collision, world: self.world };
+        self.arcs.finish(&mut casts, projection, height, bridge);
+        self.present_flashes(receiver, bridge);
+    }
+    // combat.js updateFlashes, for every body: the flash model sits at the
+    // muzzle of the gun in his hand (0.6 of its size, FLASH_SCALE) while the
+    // flash lasts and that gun is the one drawn, at full alpha for the
+    // first half of its time and fading through the second. The browser
+    // counts the flash down once a simulation tick (Combat.update), the
+    // first time on the tick of the shot, so a rifle's 0.025 s flash shows
+    // for one tick however fast frames are drawn; the time left here is
+    // counted from the ticks gone by the same way. The browser also lights
+    // the scene from it; there are no such lights here.
+    fn present_flashes(&mut self, receiver: &Receiver, bridge: &mut Bridge) {
+        let own = (receiver.own.id as u32, receiver.own.generation as u32);
+        let tick = self.tick.floor();
+        for at in 0..self.slots.len() {
+            let slot = &mut self.slots[at];
+            if !slot.active || slot.flash.1 < 0. {
+                continue;
+            }
+            let (weapon, fired, length, color) = slot.flash;
+            let left = length - ((tick - fired).max(0.) + 1.) / 60.;
+            if left <= 0. {
+                slot.flash.1 = -1.;
+                continue;
+            }
+            let out = &self.units.output[slot.actor * o::STRIDE..];
+            let hidden = out[o::GONE] == -1. || (slot.identity == Some(own) && self.first_person.enabled && !slot.dead);
+            if hidden || slot.held.is_none() || slot.held != self.weapon_classes.get(weapon).copied().flatten() {
+                continue;
+            }
+            let (Some(hand), Some(point)) = (self.models[slot.model].hand, self.guns.muzzles.get(weapon).copied().flatten()) else {
+                continue;
+            };
+            let node = (self.units.actor_node_start(slot.actor) + hand) * bfe_presentation::layout::unit_node::STRIDE
+                + bfe_presentation::layout::unit_node::WORLD;
+            let mut matrix = Matrix4::default();
+            matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
+            let mut local = Matrix4::default();
+            local.compose(
+                &three::Vector3::new(point[0], point[1], point[2]),
+                &three::Quaternion::default(),
+                &three::Vector3::new(FLASH_SCALE, FLASH_SCALE, FLASH_SCALE),
+            );
+            matrix.multiply(&local);
+            let opacity = color[3] * (2. * left / length.max(1e-3)).min(1.);
+            if self.combat.particles.flash(bridge, &matrix.elements, &color[..3], opacity) {
+                self.presented.shown[10] += 1;
+            }
+        }
+    }
+    /// The looks the player's settings choose, as the browser reads them:
+    /// arcCasterEffects and droidekaEffects, each Enhanced unless "classic".
+    pub fn set_looks(&mut self, arcs_enhanced: bool, shields_enhanced: bool, soft_particles: bool) {
+        self.arcs.enhanced = arcs_enhanced;
+        self.shields.enhanced = shields_enhanced;
+        self.soft = soft_particles;
+    }
+    /// The softParticles setting: particles and arcs fade where they meet
+    /// the scene, which needs the frame's depth copy.
+    pub fn soft_particles(&self) -> bool {
+        self.soft
     }
     // ShieldBubble.facts for a slot's droideka, from its drawn body.
     fn shield_facts(&self, slot: usize) -> super::shields::Facts {
@@ -841,8 +1026,10 @@ impl Replicas {
     /// Unit.present's bubble for every droideka drawn, once the frame's
     /// bodies are posed: updated where the body is, hidden with a body that
     /// has gone up. `camera` is the frame's projection, then view matrix.
-    pub fn present_shields(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], bridge: &mut Bridge) {
-        self.combat.particles.project(bridge, camera);
+    /// `size` is the frame's size in pixels and `depth` the renderer's
+    /// texture of the opaque scene's depth, which soft particles read.
+    pub fn present_shields(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], size: [i32; 2], depth: u32, bridge: &mut Bridge) {
+        self.combat.particles.project(bridge, camera, self.soft.then_some((size, depth)));
         self.shields.begin();
         for at in 0..self.slots.len() {
             let Some(bubble) = self.slots[at].bubble.filter(|_| self.slots[at].active) else {
@@ -857,7 +1044,7 @@ impl Replicas {
         }
         // The summary's proof that the frame's draws reached the renderer:
         // what was handed over, and what the effect pass turned away.
-        self.presented.shown[7] = self.arcs.vertices;
+        self.presented.shown[7] = self.arcs.vertices + self.arcs.capsules;
         self.presented.shown[8] = self.shields.draws;
         self.presented.shown[9] = bridge.fx_clipped() as u64;
     }
@@ -987,7 +1174,7 @@ impl Replicas {
             .slots
             .iter()
             .filter(|s| s.active)
-            .map(|s| 1 + s.weapon.and_then(|id| self.held.get(id)).and_then(Option::as_ref).map_or(0, |m| m.rows.len()))
+            .map(|s| 1 + s.held.and_then(|id| self.held.get(id)).and_then(Option::as_ref).map_or(0, |m| m.rows.len()))
             .sum();
         actors + self.hulls.record_budget() + self.turrets.record_budget() + self.items.record_budget() + self.combat.record_budget()
     }
@@ -1041,7 +1228,7 @@ impl Replicas {
             records += 1;
             bones += count;
             if let (Some(hand), Some(model)) =
-                (self.models[slot.model].hand, slot.weapon.and_then(|i| self.held.get(i)).and_then(Option::as_ref))
+                (self.models[slot.model].hand, slot.held.and_then(|i| self.held.get(i)).and_then(Option::as_ref))
             {
                 let node = (self.units.actor_node_start(slot.actor) + hand) * bfe_presentation::layout::unit_node::STRIDE
                     + bfe_presentation::layout::unit_node::WORLD;

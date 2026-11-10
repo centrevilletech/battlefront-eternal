@@ -129,7 +129,9 @@ pub struct Mounted {
     advance: [bool; 2],
 }
 impl Mounted {
-    pub fn new(defs: &Defs, owner: &mut ClientPrediction, only: Option<usize>) -> Result<Self, String> {
+    // `buildings`: the props.json instances that are live buildings, in the
+    // order a turret record counts them (online/turrets.rs).
+    pub fn new(defs: &Defs, owner: &mut ClientPrediction, only: Option<usize>, buildings: &[usize]) -> Result<Self, String> {
         let mut seats = Vec::new();
         let mut id = defs.weapons.len() + 1;
         let mut words = Vec::new();
@@ -173,7 +175,9 @@ impl Mounted {
                 owner.configure_weapon(&words).map_err(str::to_string)?;
                 let weapon = owner.initial_weapon(DefId(id as u32)).ok_or("missing turret definition")?;
                 id += 1;
-                seats.push(Seat { kind: 4, class: prop.index, index: 0, definitions: vec![weapon], advance: vec![true] });
+                // A turret no record can name still takes its weapon's id.
+                let building = buildings.iter().position(|source| *source == prop.index).unwrap_or(usize::MAX);
+                seats.push(Seat { kind: 4, class: building, index: 0, definitions: vec![weapon], advance: vec![true] });
             }
         }
         Ok(Self { seats, rows: Vec::with_capacity(2), barrels: [0.; 2], advance: [false; 2] })

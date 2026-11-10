@@ -178,7 +178,8 @@ impl Replay {
         owner.configure_actor(&[0.], &mut collision.borrow_mut().state).map_err(str::to_string)?;
         owner.prepare_actor_collision(&collision.borrow().state, installed.world);
         let arsenal = Box::new(super::checkpoint::Arsenal::new(&defs, &mut owner)?);
-        let mounted = Box::new(super::checkpoint::Mounted::new(&defs, &mut owner, None)?);
+        let buildings = bfe_sim::world::admit::rows::props::live_sources(&content.content.battle);
+        let mounted = Box::new(super::checkpoint::Mounted::new(&defs, &mut owner, None, &buildings)?);
         owner.reserve_native(4096, 32);
         Ok(Self {
             fleet,

@@ -13,7 +13,7 @@ use bfe_presentation::{
     network_layout::{net_kind as wk, net_record as wire},
     ordnance::Ordnance,
     ordnance_layout::{
-        call_kind as ck, net_command as n, net_flag as nf, net_kind as nk, ordnance_call as call, ordnance_flag as flag,
+        call_kind as ck, net_command as n, net_flag as nf, net_kind as nk, net_type as nt, ordnance_call as call, ordnance_flag as flag,
         ordnance_frame as f, ordnance_header as h, ordnance_kind as kind, ordnance_limits as limits, ordnance_record as r,
         ordnance_style as s, VERSION,
     },
@@ -50,6 +50,8 @@ struct Style {
     model: Option<Model>,
     impact: [Option<usize>; 6],
     explosion: [Option<usize>; 2],
+    // The effect a round of it trails as it flies (TrailEffect).
+    trail: Option<usize>,
 }
 #[derive(Clone, Copy, Default)]
 // Dynamic projectiles carry samples only. The shared Ordnance net owner
@@ -64,6 +66,8 @@ struct Net {
     style: usize,
     matrix: [f64; 16],
     shown: bool,
+    // Its trail effect's handle, while it flies.
+    trail: Option<u32>,
 }
 // Native admission joins network records to the existing visual owners.
 // Ordnance owns bolt and dynamic-projectile drawing; Presentation owns effect
@@ -205,7 +209,8 @@ impl Combat {
             ]
             .map(|name| name.and_then(effect));
             let name = def.get("GeometryName").and_then(bfe_content::Value::as_str).unwrap_or("");
-            styles.push(Style { model: Model::new(content, bridge, textures, name, crate::shadows::COUNT)?, impact, explosion });
+            let trail = def.get("TrailEffect").and_then(bfe_content::Value::as_str).and_then(effect);
+            styles.push(Style { model: Model::new(content, bridge, textures, name, crate::shadows::COUNT)?, impact, explosion, trail });
         }
         let effects = bfe_presentation::Presentation::new(
             serde_json::from_value(library.descriptor.clone()).map_err(|e| e.to_string())?,
@@ -246,11 +251,11 @@ impl Combat {
     }
     // Effects.play for a one-shot: its handle is never used again. A missing
     // group plays nothing; a full batch or pool is counted and dropped.
-    fn play(&mut self, group: Option<usize>, position: [f64; 3], seed: u32) {
+    fn play(&mut self, group: Option<usize>, position: [f64; 3], normal: Option<[f64; 3]>, seed: u32) {
         let Some(group) = group else {
             return;
         };
-        if self.effects.start(group, position, [0.; 3], seed).is_some() {
+        if self.effects.start(group, position, [0.; 3], normal, seed).is_some() {
             self.total_effects += 1;
         } else {
             self.refused += 1;
@@ -271,7 +276,13 @@ impl Combat {
             self.pending.remove(0);
             self.refused += 1;
         }
-        self.pending.push((group, position, id, tick));
+        // NetworkCombatViews.present walks its records in the order their
+        // ids first arrived, and ids are handed out as events happen: a
+        // round's impact (its id from the launch) shows before the explosion
+        // it sets off (a later id) when both fall due together. Kept in id
+        // order, the effects due in one frame start in that order.
+        let at = self.pending.partition_point(|kept| kept.2 <= id);
+        self.pending.insert(at, (group, position, id, tick));
     }
     pub fn frame(&mut self, receiver: &Receiver, tick: f64, dt: f64, bridge: &mut Bridge) {
         use bfe_presentation::layout::frame as ef;
@@ -303,6 +314,10 @@ impl Combat {
             self.net_bound.clear();
             self.net_free.clear();
             self.net_free.extend((0..limits::NET_SLOTS).rev());
+            // A trail emits until it is stopped: none outlives its round.
+            for trail in self.net.iter().filter_map(|net| net.trail) {
+                self.effects.stop(trail);
+            }
             self.net.fill(Net::default());
             self.ordnance.net_input[..n::STRIDE].fill(0.);
             self.ordnance.net_input[n::KIND] = nk::RESET as f64;
@@ -416,6 +431,7 @@ impl Combat {
                     None
                 };
                 let key = (id, generation);
+                let mut fresh = false;
                 let slot = if let Some(&slot) = self.net_bound.get(&key) {
                     slot
                 } else {
@@ -428,6 +444,7 @@ impl Combat {
                     };
                     self.net_bound.insert(key, slot);
                     self.net[slot] = Net { active: true, id, generation, ..Default::default() };
+                    fresh = true;
                     slot
                 };
                 if net_count == limits::NET_COMMANDS {
@@ -448,7 +465,6 @@ impl Combat {
                     self.net[slot].style = style;
                     x[n::STYLE] = style as f64;
                     x[n::TYPE] = bytes[8] as f64;
-                    x[n::FLAGS] = if self.styles[style].model.is_some() { (1 << nf::MESH) as f64 } else { 0. };
                     let scalar = |at: usize| f32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()) as f64;
                     for i in 0..3 {
                         x[n::POSITION + i] = scalar(25 + i * 4);
@@ -459,6 +475,26 @@ impl Combat {
                         x[n::QUATERNION + i] = scalar(49 + i * 4);
                     }
                     x[n::LIFE] = scalar(77);
+                    // ProjectilePresentation.receive: a round or grenade new
+                    // to this client starts its TrailEffect where its first
+                    // sample puts it, moving and turned as it is. The owner
+                    // then says where the trail is each frame.
+                    if fresh && bytes[8] as u32 != nt::BEAM {
+                        if let Some(group) = self.styles[style].trail {
+                            let position = std::array::from_fn(|i| x[n::POSITION + i]);
+                            let velocity = std::array::from_fn(|i| x[n::VELOCITY + i]);
+                            let turn = std::array::from_fn(|i| x[n::QUATERNION + i]);
+                            self.net[slot].trail = self.effects.start_turned(group, position, velocity, turn, id);
+                        }
+                    }
+                    let mut flags = 0;
+                    if self.styles[style].model.is_some() {
+                        flags |= 1 << nf::MESH;
+                    }
+                    if self.net[slot].trail.is_some() {
+                        flags |= 1 << nf::TRAIL;
+                    }
+                    x[n::FLAGS] = flags as f64;
                 }
                 net_count += 1;
             } else if schema == 8 {
@@ -469,11 +505,16 @@ impl Combat {
                     name: Option<&'a str>,
                     #[serde(default)]
                     position: Option<[f64; 3]>,
+                    #[serde(default)]
+                    normal: Option<[f64; 3]>,
                 }
+                // presentEntityEvent "effect": the named effect at the
+                // record's point, its up axis along the record's normal. A
+                // record without a name or a point shows nothing.
                 if let Ok(event) = serde_json::from_slice::<Event>(bytes) {
-                    if event.kind == "effect" {
+                    if let ("effect", Some(position)) = (event.kind, event.position) {
                         let group = event.name.and_then(|name| self.effect_names.iter().find(|(n, _)| n == name).map(|(_, g)| *g));
-                        self.play(group, event.position.unwrap_or_default(), id);
+                        self.play(group, position, event.normal, id);
                     }
                 }
             }
@@ -538,7 +579,7 @@ impl Combat {
             if tick >= due {
                 self.pending.remove(pending);
                 if tick - due <= 18. {
-                    self.play(group, position, id);
+                    self.play(group, position, None, id);
                 }
             } else {
                 pending += 1;
@@ -567,13 +608,30 @@ impl Combat {
                     );
                     net.matrix = matrix.elements;
                     net.shown = true;
+                } else if call[call::KIND] == ck::NET_TRAIL as f64 {
+                    // drawProjectileView: `trail.move(drawnAt, quaternion, velocity)`.
+                    if let Some(trail) = net.trail {
+                        self.effects.sync(
+                            trail,
+                            std::array::from_fn(|i| call[call::A + i]),
+                            Some(std::array::from_fn(|i| call[call::D + i])),
+                            Some(std::array::from_fn(|i| call[call::E + i])),
+                        );
+                    }
                 } else if call[call::KIND] == ck::NET_REMOVE as f64 {
+                    // ProjectilePresentation.remove: `p.trail?.stop()`.
                     net.shown = false;
+                    if let Some(trail) = net.trail.take() {
+                        self.effects.stop(trail);
+                    }
                 }
             }
         }
         for (slot, net) in self.net.iter_mut().enumerate() {
             if net.active && tick > net.expiry + 24. {
+                if let Some(trail) = net.trail.take() {
+                    self.effects.stop(trail);
+                }
                 self.net_bound.remove(&(net.id, net.generation));
                 net.active = false;
                 net.shown = false;

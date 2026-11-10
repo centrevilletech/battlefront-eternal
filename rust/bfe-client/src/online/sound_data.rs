@@ -215,7 +215,7 @@ pub struct Prepared {
     pub actor_classes: Vec<usize>,
     pub weapon_classes: Vec<usize>,
     pub combat_classes: Vec<usize>,
-    pub stations: Vec<(usize, [f64; 3])>,
+    pub stations: Vec<(usize, [f64; 3], bool)>,
     pub posts: Vec<(usize,[f64;post::STRIDE])>,
     pub voice_segments: Vec<bool>,
     pub prediction_weapons: Vec<([f64; weapon::STRIDE], usize)>,
@@ -868,15 +868,21 @@ impl Prepared {
             posts.push((slot+1,row));
         }
         // LiveObjects.buildings (src/props.js), in the order a "serve" record
-        // counts them: each building's sound class and where it stands
-        // (`setFromMatrixPosition`). A class the manifest lacks stays silent.
+        // counts them: each building's sound class, where it stands
+        // (`setFromMatrixPosition`) and whether it is a supply station (a
+        // PowerupStation, the only building with `serve`). A class the
+        // manifest lacks stays silent.
         let instances = content.content.battle.props.as_ref().and_then(|p| p.get("instances")).and_then(Value::as_array).unwrap_or(&[]);
         let stations = bfe_sim::world::admit::rows::props::live_sources(&content.content.battle)
             .into_iter()
             .map(|source| {
                 let desc = &instances[source];
                 let class = classes.get(text(desc.get("class"))).copied().unwrap_or(usize::MAX);
-                (class, std::array::from_fn(|axis| number(desc.get("matrix").and_then(|m| m.at(12 + axis)))))
+                (
+                    class,
+                    std::array::from_fn(|axis| number(desc.get("matrix").and_then(|m| m.at(12 + axis)))),
+                    text(desc.get("base")) == "powerupstation",
+                )
             })
             .collect();
         Ok(Self {
