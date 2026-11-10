@@ -1935,9 +1935,30 @@ fn online_server_registers_with_master_and_relays_signaling_over_websocket() {
                             }
                         }
                     } else {
+                        // Read the whole request before answering: the body can arrive after the head, and closing
+                        // a socket that still holds unread bytes makes Windows reset the connection, which the
+                        // server under test reports as its registration being aborted.
+                        let mut request = Vec::new();
                         let mut buf = [0u8; 8192];
-                        let r = stream.read(&mut buf).unwrap_or(0);
-                        let req = String::from_utf8_lossy(&buf[..r]);
+                        loop {
+                            let r = stream.read(&mut buf).unwrap_or(0);
+                            if r == 0 {
+                                break;
+                            }
+                            request.extend_from_slice(&buf[..r]);
+                            if let Some(head_end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                                let head = String::from_utf8_lossy(&request[..head_end]).to_ascii_lowercase();
+                                let body_len = head
+                                    .lines()
+                                    .find_map(|line| line.strip_prefix("content-length:"))
+                                    .and_then(|value| value.trim().parse::<usize>().ok())
+                                    .unwrap_or(0);
+                                if request.len() >= head_end + 4 + body_len {
+                                    break;
+                                }
+                            }
+                        }
+                        let req = String::from_utf8_lossy(&request);
                         let first_line = req.lines().next().unwrap_or("");
                         let (status, body) = if first_line.starts_with("POST /v1/servers")
                             || first_line.starts_with("PUT /v1/servers/")
@@ -1957,6 +1978,9 @@ fn online_server_registers_with_master_and_relays_signaling_over_websocket() {
                             body.len()
                         );
                         let _ = stream.write_all(resp.as_bytes());
+                        // Finish sending, then wait for the peer to close so the reply is never cut short.
+                        let _ = stream.shutdown(std::net::Shutdown::Write);
+                        let _ = stream.read(&mut buf);
                     }
                 }
                 Err(_) => std::thread::sleep(Duration::from_millis(10)),

@@ -79,29 +79,35 @@ pub fn choose_export() -> Receiver<Result<Option<PathBuf>, String>> {
 
 #[cfg(target_os = "linux")]
 fn choose_native(import: bool) -> Result<Option<PathBuf>, String> {
-    use std::ffi::{c_void, CStr, CString};
+    use std::ffi::{c_char, c_void, CStr, CString};
     use std::os::unix::ffi::OsStrExt;
     // SAFETY: the GTK service thread owns the nested event loop and every C
     // string until it returns. The library and its registered callbacks stay loaded.
     unsafe {
         let gtk = gtk_library()?;
-        let init: libloading::Symbol<unsafe extern "C" fn(*mut i32, *mut *mut *mut i8) -> i32> =
+        let init: libloading::Symbol<unsafe extern "C" fn(*mut i32, *mut *mut *mut c_char) -> i32> =
             gtk.get(b"gtk_init_check\0").map_err(|e| e.to_string())?;
         if init(std::ptr::null_mut(), std::ptr::null_mut()) == 0 {
             return Err("Cannot open the folder chooser on this display.".into());
         }
         let new: libloading::Symbol<
-            unsafe extern "C" fn(*const i8, *mut c_void, i32, *const i8, *const i8) -> *mut c_void,
+            unsafe extern "C" fn(
+                *const c_char,
+                *mut c_void,
+                i32,
+                *const c_char,
+                *const c_char,
+            ) -> *mut c_void,
         > = gtk
             .get(b"gtk_file_chooser_native_new\0")
             .map_err(|e| e.to_string())?;
         let run: libloading::Symbol<unsafe extern "C" fn(*mut c_void) -> i32> = gtk
             .get(b"gtk_native_dialog_run\0")
             .map_err(|e| e.to_string())?;
-        let filename: libloading::Symbol<unsafe extern "C" fn(*mut c_void) -> *mut i8> = gtk
+        let filename: libloading::Symbol<unsafe extern "C" fn(*mut c_void) -> *mut c_char> = gtk
             .get(b"gtk_file_chooser_get_filename\0")
             .map_err(|e| e.to_string())?;
-        let folder: libloading::Symbol<unsafe extern "C" fn(*mut c_void, *const i8) -> i32> = gtk
+        let folder: libloading::Symbol<unsafe extern "C" fn(*mut c_void, *const c_char) -> i32> = gtk
             .get(b"gtk_file_chooser_set_current_folder\0")
             .map_err(|e| e.to_string())?;
         let modal: libloading::Symbol<unsafe extern "C" fn(*mut c_void, i32)> = gtk
@@ -182,17 +188,17 @@ fn choose_native(_: bool) -> Result<Option<PathBuf>, String> {
 
 #[cfg(target_os = "linux")]
 fn warning_native(path: &std::path::Path) -> Result<(), String> {
-    use std::ffi::{c_void, CString};
+    use std::ffi::{c_char, c_void, CString};
     // SAFETY: GTK owns the dialog for this nested event loop; both strings
     // remain alive until it returns and the widget is destroyed on this thread.
     unsafe {
         let gtk = gtk_library()?;
         let new: libloading::Symbol<
-            unsafe extern "C" fn(*mut c_void, i32, i32, i32, *const i8, ...) -> *mut c_void,
+            unsafe extern "C" fn(*mut c_void, i32, i32, i32, *const c_char, ...) -> *mut c_void,
         > = gtk
             .get(b"gtk_message_dialog_new\0")
             .map_err(|e| e.to_string())?;
-        let detail: libloading::Symbol<unsafe extern "C" fn(*mut c_void, *const i8, ...)> = gtk
+        let detail: libloading::Symbol<unsafe extern "C" fn(*mut c_void, *const c_char, ...)> = gtk
             .get(b"gtk_message_dialog_format_secondary_text\0")
             .map_err(|e| e.to_string())?;
         let run: libloading::Symbol<unsafe extern "C" fn(*mut c_void) -> i32> =
