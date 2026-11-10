@@ -86,6 +86,7 @@ pub(crate) fn recorded(admission: &Value) -> Result<(MemFiles, Options), Error> 
         seed: options["seed"].as_u64().and_then(|n| u32::try_from(n).ok()).ok_or_else(|| invalid("seed"))?,
         heroes: options["heroes"].as_bool().ok_or_else(|| invalid("heroes"))?,
         unit: match &options["unit"] { Value::Null => None, Value::String(unit) => Some(unit.clone()), _ => return Err(invalid("unit")) },
+        name: None,
     };
     let mut files = MemFiles::default();
     for asset in admission["assets"].as_array().ok_or_else(|| invalid("assets"))? {

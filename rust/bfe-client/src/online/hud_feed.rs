@@ -41,12 +41,23 @@ const NO_SLOT: u16 = 65535;
 // captureUnitState's header: id u32, flags u8, two f32 clocks, then the
 // roster slot.
 const UNIT_STATE_SLOT: usize = 13;
+// The repair key's length byte, after the slot, two selected weapons (u16
+// each) and the weapon count; its text follows.
+const UNIT_STATE_REPAIR: usize = 20;
+// entity-world-state.js: a building's state summary is 200000 plus its number.
+const BUILDING_STATE_ID: f64 = 200000.;
 // humanName() (src/bot-names.js) for the page's own player without a name.
 const HUMAN_NAME: &str = "Player 1";
 // killMessage's last name fallback (src/hud-units.js).
 const SOLDIER: &str = "Soldier";
 // A burst of fire from units this page has not built yet is bounded.
 const WAITING: usize = 64;
+// isCommandClass (src/mobile-posts.js): the vehicle bases that are command
+// posts while they live, and how many of them one frame may lose.
+const COMMAND_BASES: [&str; 2] = ["commandwalker", "commandhover"];
+const LOST: usize = 4;
+// A hull's record while it burns out (ENTITY_VEHICLE_STATES' "dying").
+const DYING: f64 = 6.;
 
 /// decodeFeedback's fields in wire order. Generations and ids stay integers
 /// so identity checks compare exactly what the server wrote.
@@ -96,6 +107,50 @@ struct Squad<'a> {
     label: &'a str,
 }
 
+/// A repair lock as PlayerCombat keeps it (repairLockKey, src/combat.js):
+/// "l3" is the building numbered 3, "v1" the vehicle in slot 1, "" none.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RepairLock {
+    Building(usize),
+    Vehicle(usize),
+}
+
+fn repair_lock(key: &[u8]) -> Option<RepairLock> {
+    let (kind, digits) = key.split_first()?;
+    let index = std::str::from_utf8(digits).ok()?.parse().ok()?;
+    match kind {
+        b'l' => Some(RepairLock::Building(index)),
+        b'v' => Some(RepairLock::Vehicle(index)),
+        _ => None,
+    }
+}
+
+// A building's persistent state (captureWorldPresentation,
+// src/runtime/entity-world-state.js): its number, its look and its health
+// (null for one that cannot be hurt), then eight facts the HUD does not read.
+#[derive(serde::Deserialize)]
+struct BuildingState<'a>(
+    usize,
+    &'a str,
+    Option<f64>,
+    serde::de::IgnoredAny,
+    serde::de::IgnoredAny,
+    serde::de::IgnoredAny,
+    serde::de::IgnoredAny,
+    serde::de::IgnoredAny,
+    serde::de::IgnoredAny,
+    serde::de::IgnoredAny,
+    serde::de::IgnoredAny,
+);
+
+// One living command vehicle, as MobilePost keeps its hull and team.
+struct CommandHull {
+    key: (u32, u32),
+    class: usize,
+    team: u8,
+    seen: bool,
+}
+
 // What applyUnitState (entity-unit-state.js) leaves on a unit that the kill
 // feed reads: its Character slot and the hero flag, for one life.
 #[derive(Clone, Copy)]
@@ -124,6 +179,9 @@ pub struct Tables {
     soldier_shots: HashMap<(usize, u32), f64>,
     seat_shots: HashMap<(usize, usize, u32), f64>,
     turret_shots: HashMap<usize, f64>,
+    // A command vehicle class's post label (MobilePost.refresh: the
+    // vehicle's label, else its class name), by registry class id.
+    posts: Vec<Option<String>>,
 }
 
 impl Tables {
@@ -144,8 +202,13 @@ impl Tables {
             }
         }
         let mut seat_shots = HashMap::new();
+        let mut posts = vec![None; defs.registry.classes.len() + 1];
         for vehicle in &defs.vehicles {
             let Some(id) = vehicle.registry_id else { continue };
+            if vehicle.base.is_some_and(|base| COMMAND_BASES.contains(&defs.names.text(base))) {
+                let label = vehicle.record.get("label").and_then(bfe_content::Value::as_str).filter(|label| !label.is_empty());
+                posts[id as usize] = Some(label.unwrap_or(defs.names.text(vehicle.name)).to_string());
+            }
             for (seat, def) in vehicle.seats.iter().enumerate() {
                 for (weapon, weapon_id) in def.weapons.iter().zip(&def.weapon_ids) {
                     if let (Some(record), Some(weapon_id)) = (weapon.get("def"), weapon_id) {
@@ -160,7 +223,7 @@ impl Tables {
                 turret_shots.insert(prop.index, delay(record));
             }
         }
-        Self { labels, soldier_shots, seat_shots, turret_shots }
+        Self { labels, soldier_shots, seat_shots, turret_shots, posts }
     }
 
     // presentEntityEvent's weapon: the mount's seat weapon of that name, a
@@ -185,6 +248,16 @@ pub struct Feed {
     texts: HashMap<String, u32>,
     // Shots whose unit this page does not have yet, with their expiry tick.
     waiting: Vec<(f64, Shot)>,
+    // The living command vehicles: each one's life, class and the team it
+    // had when last seen, in the battle (epoch) they belong to.
+    hulls: Vec<CommandHull>,
+    epoch: f64,
+    // The own soldier's repair lock, for the life it was reported for.
+    repair: Option<((u32, u32), RepairLock)>,
+    // Each building's health by its number (NaN until its state arrives),
+    // and the hull in each vehicle slot, from the mount records.
+    buildings: Vec<f64>,
+    slots: Vec<Option<(u32, u32)>>,
     // BFE_HUD_TRACE names each hit, arc, kill line and message on stderr as
     // it is raised, for checking a battle's HUD against its log.
     trace: bool,
@@ -199,12 +272,81 @@ impl Feed {
             units: HashMap::with_capacity(1024),
             texts: HashMap::with_capacity(256),
             waiting: Vec::with_capacity(WAITING),
+            hulls: Vec::with_capacity(16),
+            epoch: f64::NAN,
+            repair: None,
+            buildings: Vec::with_capacity(256),
+            slots: Vec::with_capacity(256),
             trace: std::env::var_os("BFE_HUD_TRACE").is_some(),
         }
     }
 
-    // One command to the HUD, named on stderr when tracing.
-    fn raise(&self, hud: &mut impl Sink, name: &str, kind: u32, values: [f64; 4]) {
+    /// MobilePosts.events (src/mobile-posts.js) as a page showing a server's
+    /// battle reads it: a command vehicle that was alive and no longer is
+    /// has lost its post. Each loss is the team the hull had and its class;
+    /// at most four a frame. A new battle forgets the old one's hulls.
+    pub fn lost_posts(&mut self, receiver: &Receiver) -> ([(u8, usize); LOST], usize) {
+        if self.epoch != receiver.epoch {
+            self.epoch = receiver.epoch;
+            self.hulls.clear();
+            self.repair = None;
+            self.buildings.clear();
+            self.slots.clear();
+        }
+        for hull in &mut self.hulls {
+            hull.seen = false;
+        }
+        for fact in receiver.active() {
+            let class = fact[r::CLASS_ID] as usize;
+            let command = fact[r::KIND] == k::VEHICLE as f64 && self.tables.posts.get(class).is_some_and(Option::is_some);
+            if !command || fact[r::DEAD] != 0. || fact[r::HEALTH] <= 0. || fact[r::STATE] == DYING {
+                continue;
+            }
+            let key = (fact[r::ID] as u32, fact[r::GENERATION] as u32);
+            let team = fact[r::TEAM] as u8;
+            if let Some(hull) = self.hulls.iter_mut().find(|hull| hull.key == key) {
+                hull.seen = true;
+                hull.team = team;
+            } else if self.hulls.len() < self.hulls.capacity() {
+                self.hulls.push(CommandHull { key, class, team, seen: true });
+            }
+        }
+        let mut lost = ([(0, 0); LOST], 0);
+        self.hulls.retain(|hull| {
+            if !hull.seen && lost.1 < LOST {
+                lost.0[lost.1] = (hull.team, hull.class);
+                lost.1 += 1;
+            }
+            hull.seen
+        });
+        lost
+    }
+
+    /// The own soldier's repair lock, while it is still the life it was
+    /// reported for (PlayerCombat.lockedTarget on a page showing a server's
+    /// battle).
+    pub fn repair(&self, receiver: &Receiver) -> Option<RepairLock> {
+        let (life, lock) = self.repair?;
+        Own::of(receiver).is(life).then_some(lock)
+    }
+
+    /// A building's health as its last state gave it; None before any.
+    pub fn building_health(&self, building: usize) -> Option<f64> {
+        self.buildings.get(building).copied().filter(|health| !health.is_nan())
+    }
+
+    /// The hull the mount records last named for a vehicle slot.
+    pub fn vehicle(&self, slot: usize) -> Option<(u32, u32)> {
+        self.slots.get(slot).copied().flatten()
+    }
+
+    /// The post label of a command vehicle class, empty for any other.
+    pub fn post_label(&self, class: usize) -> &str {
+        self.tables.posts.get(class).and_then(|label| label.as_deref()).unwrap_or("")
+    }
+
+    /// One command to the HUD, named on stderr when tracing.
+    pub fn raise(&self, hud: &mut impl Sink, name: &str, kind: u32, values: [f64; 4]) {
         if self.trace {
             eprintln!("hud feed: {name} {values:?}");
         }
@@ -232,7 +374,26 @@ impl Feed {
             let schema = field.row[r::SCHEMA];
             let tick = field.row[r::TICK];
             if kind == k::SUMMARY && schema == 6. {
-                self.unit_state(&field.row, bytes);
+                self.unit_state(&field.row, bytes, &own);
+            } else if kind == k::SUMMARY && schema == 7. {
+                // applyWorldPresentation: a building's health, by its number.
+                if let Ok(state) = serde_json::from_slice::<BuildingState>(bytes) {
+                    if field.row[r::ID] == BUILDING_STATE_ID + state.0 as f64 && state.0 < 65536 && !state.1.is_empty() {
+                        if self.buildings.len() <= state.0 {
+                            self.buildings.resize(state.0 + 1, f64::NAN);
+                        }
+                        self.buildings[state.0] = state.2.unwrap_or(f64::INFINITY);
+                    }
+                }
+            } else if kind == k::MOUNT && field.row[r::SLOT] >= 0. {
+                // A mount record names its hull's slot among the vehicles.
+                let slot = field.row[r::SLOT] as usize;
+                if slot < 256 {
+                    if self.slots.len() <= slot {
+                        self.slots.resize(slot + 1, None);
+                    }
+                    self.slots[slot] = Some((field.row[r::ID] as u32, field.row[r::GENERATION] as u32));
+                }
             } else if kind == k::COMBAT && (schema == 3. || schema == 4.) {
                 // A record older than its expiry is refused whole.
                 if let Some(event) = decode(bytes, tick).filter(|_| tick + FEEDBACK_EXPIRY >= receiver.latest) {
@@ -270,7 +431,7 @@ impl Feed {
     }
 
     // applyUnitState: the Character slot and hero flag of one unit life.
-    fn unit_state(&mut self, row: &[f64], bytes: &[u8]) {
+    fn unit_state(&mut self, row: &[f64], bytes: &[u8], own: &Own) {
         let (Some(id), Some(&flags), Some(slot)) =
             (bytes.get(0..4), bytes.get(4), bytes.get(UNIT_STATE_SLOT..UNIT_STATE_SLOT + 2))
         else {
@@ -281,7 +442,14 @@ impl Feed {
             return;
         }
         let slot = u16::from_le_bytes(slot.try_into().unwrap());
-        self.units.insert(id, UnitState { generation: row[r::GENERATION] as u32, slot, hero: flags & 1 != 0 });
+        let generation = row[r::GENERATION] as u32;
+        self.units.insert(id, UnitState { generation, slot, hero: flags & 1 != 0 });
+        // unit.combat.repairLock, for the page's own soldier: the key after
+        // the two selected weapons and the weapon count, with its length.
+        if own.is((id, generation)) {
+            let key = bytes.get(UNIT_STATE_REPAIR).and_then(|&size| bytes.get(UNIT_STATE_REPAIR + 1..UNIT_STATE_REPAIR + 1 + size as usize));
+            self.repair = key.and_then(repair_lock).map(|lock| ((id, generation), lock));
+        }
     }
 
     // presentFeedback. The browser also marks a sniper hit early from its

@@ -689,31 +689,6 @@ impl Receiver {
             _ => {}
         }
     }
-    /// A local world takes the player's squad orders itself and only says
-    /// which it took (the bits of WorldTickOutput.squads, in the order of
-    /// squadMoveOut, squadHold, squadFollow, squadAtEase). The browser's
-    /// local server publishes each as a "squad" presentation event of the
-    /// player's unit (src/runtime/multiplayer-world.js); the same event
-    /// enters the journal here, so the HUD has one way to hear of an order.
-    pub fn squad_orders(&mut self, orders: u32, tick: f64) {
-        for (index, label) in ["moveout", "hold", "follow", "atease"].into_iter().enumerate() {
-            if orders & (1 << index) == 0 {
-                continue;
-            }
-            let event = format!(
-                r#"{{"kind":"squad","ownerId":{},"ownerGeneration":{},"label":"{label}"}}"#,
-                self.own.id, self.own.generation
-            );
-            let mut row = [0.; r::STRIDE];
-            row[r::KIND] = k::COMBAT as f64;
-            // Above every id the world's own event counter reaches.
-            row[r::ID] = (u32::MAX - index as u32) as f64;
-            row[r::GENERATION] = 1.;
-            row[r::TICK] = tick;
-            row[r::SCHEMA] = 8.;
-            self.publications.push(&row, event.as_bytes());
-        }
-    }
     pub fn error(&self) -> Option<String> {
         self.fault.map(|error| if self.fault_detail.is_empty() { error.into() } else { self.fault_detail.clone() })
     }

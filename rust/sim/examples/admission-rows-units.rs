@@ -776,7 +776,7 @@ fn run() -> Result<(),String> {
     let root = args.first().ok_or("content directory required")?;
     let flag = |name: &str,default: &str| args.windows(2).find(|p|p[0]==name).map(|p|p[1].clone()).unwrap_or_else(||default.into());
     let options = Options {map:flag("--map","nab2"),side:flag("--side","rep"),enhanced:args.iter().any(|s|s=="--enhanced"),
-        heroes:args.iter().any(|s|s=="--heroes"),seed:flag("--seed","1").parse::<u32>().map_err(|e|e.to_string())?,unit:None};
+        heroes:args.iter().any(|s|s=="--heroes"),seed:flag("--seed","1").parse::<u32>().map_err(|e|e.to_string())?,unit:None,name:None};
     let files = DirFiles::new(root);
     let battle = Battle::load(&Loader::new(&files),&options.map,&options.query())?;
     let content = Content::build(battle)?; let defs = Defs::build(&content)?;

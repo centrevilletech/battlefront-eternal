@@ -5,7 +5,6 @@
 use super::{clock::Clock, publication::Publication, setup::Admitted, thread::PublicationSlot};
 use bfe_client::{
     generated_input::{ClientCommand, ClientFlightCommand, ClientLook},
-    input::ViewActions,
     online::receiver::Receiver,
 };
 use bfe_sim::gen::{
@@ -309,12 +308,11 @@ impl<E: Engine> Runtime<E> {
         command: &ClientCommand,
         look: &ClientLook,
         flight: &ClientFlightCommand,
-        view: &ViewActions,
     ) -> Result<(), String> {
         if self.closed {
             return Err("local battle is closed".into());
         }
-        let mut input = self.clock.input(view);
+        let mut input = self.clock.input();
         // The recorded local host adds the period, rather than multiplying
         // tick by period. Preserve that rounding and Date.now's integer slot.
         self.now_ms += 1000. / 60.;
@@ -337,9 +335,7 @@ impl<E: Engine> Runtime<E> {
             return Err(error.into());
         }
         self.ticks += 1;
-        self.publish()?;
-        self.receiver.squad_orders(output.squads, self.tick());
-        Ok(())
+        self.publish()
     }
 
     /// Steps one 60 Hz tick on the dedicated world thread and copies the
@@ -349,14 +345,13 @@ impl<E: Engine> Runtime<E> {
         command: &ClientCommand,
         look: &ClientLook,
         flight: &ClientFlightCommand,
-        view: &ViewActions,
         _render_ack: [f64; 2],
         slot: &mut PublicationSlot,
     ) -> Result<f64, String> {
         if self.closed {
             return Err("local battle is closed".into());
         }
-        let mut input = self.clock.input(view);
+        let mut input = self.clock.input();
         self.now_ms += 1000. / 60.;
         input.at = self.now_ms;
         input.mouse_scale = 1.;
@@ -378,7 +373,6 @@ impl<E: Engine> Runtime<E> {
         }
         self.ticks += 1;
         self.publish_into_slot(slot)?;
-        slot.squads = output.squads;
         Ok(self.tick())
     }
 

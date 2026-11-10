@@ -59,6 +59,7 @@ fn options(words: &[&str]) -> Result<Options, String> {
         seed,
         heroes: words.contains(&"--heroes"),
         unit: value("--unit").map(str::to_string),
+        name: None,
     })
 }
 

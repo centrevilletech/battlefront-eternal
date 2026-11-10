@@ -46,7 +46,7 @@ pub struct Sender {
     backup: Option<State>,
     use_backup: bool,
     held: [usize; 9],
-    actions: [usize; 11],
+    actions: [usize; ACTIONS.len()],
     pointers: [Pointer; 128],
     pointer_at: usize,
     pointer_count: usize,
@@ -66,8 +66,8 @@ pub struct Sender {
     turns: Vec<(f64, [f64; 2])>,
 }
 const KEYS: [&str; 9] = ["KeyW", "KeyS", "KeyD", "KeyA", "NumpadMultiply", "NumpadDivide", "Mouse0", "Mouse2", "Space"];
-const ACTIONS: [&str; 11] =
-    ["jump", "crouch", "prone", "use", "firePrimary", "fireSecondary", "reload", "nextPrimary", "previousPrimary", "nextSecondary", "zoom"];
+// ClientCommand.actions bit order (ClientAction).
+const ACTIONS: [&str; 15] = crate::generated_input::ClientAction::NAMES;
 fn put(x: &mut [f64], at: &mut usize, n: f64) {
     x[*at] = n;
     *at += 1;
@@ -227,7 +227,7 @@ impl Sender {
         let count = at;
         put(&mut x, &mut at, 0.);
         let start = at;
-        for bit in 0..11 {
+        for bit in 0..ACTIONS.len() {
             if c.actions & (1 << bit) != 0 && bit != 4 && bit != 5 {
                 put(&mut x, &mut at, self.actions[bit] as f64);
             }

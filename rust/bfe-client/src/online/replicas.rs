@@ -937,6 +937,18 @@ impl Replicas {
 
     // PlayerCombat.updateHud reads the displayed unit's existing aim basis.
     // Reusing it preserves posture, interpolation and the authored walker eye.
+    /// The gun's origin and aim direction of the page's own soldier on foot
+    /// (PlayerCombat.origin and aimDir), where the reticle's target search
+    /// starts whichever view he is drawn in.
+    pub fn aim_ray(&self, receiver: &Receiver) -> Option<([f64; 3], [f64; 3])> {
+        if !receiver.own.alive || receiver.own.mount.is_some() {
+            return None;
+        }
+        let identity = (receiver.own.id as u32, receiver.own.generation as u32);
+        let slot = self.slots.iter().find(|slot| slot.active && slot.identity == Some(identity))?;
+        let row = &self.units.output[slot.actor * o::STRIDE..];
+        Some((std::array::from_fn(|k| row[o::COMBAT_BASIS + k]), std::array::from_fn(|k| row[o::COMBAT_BASIS + 12 + k])))
+    }
     pub fn reticle_point(&self, receiver: &Receiver) -> Option<[f64; 3]> {
         if !receiver.own.alive || receiver.own.mount.is_some() {
             return None;

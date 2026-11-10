@@ -24,7 +24,6 @@ use bfe_sim::store::block::Block;
 use bfe_sim::wire::publisher::Publisher;
 
 use bfe_client::generated_input::{ClientCommand, ClientFlightCommand, ClientLook};
-use bfe_client::input::ViewActions;
 use bfe_client::online::receiver::Receiver;
 
 use super::publication::Publication;
@@ -113,7 +112,6 @@ pub enum WorldMessage {
         command: ClientCommand,
         look: ClientLook,
         flight: ClientFlightCommand,
-        actions: ViewActions,
         ack: [f64; 2],
     },
     /// Pauses (`true`) or resumes (`false`) the 60 Hz world simulation loop.
@@ -203,9 +201,6 @@ pub struct PublicationSlot {
     pub client: u32,
     pub block: Block,
     pub bytes: Vec<u8>,
-    /// The squad orders the world took from the player on this tick
-    /// (`WorldTickOutput::squads`), for the HUD's squad line.
-    pub squads: u32,
 }
 
 impl std::fmt::Debug for PublicationSlot {
@@ -229,7 +224,6 @@ impl PublicationSlot {
                 heap: Vec::new(),
             },
             bytes: Vec::with_capacity(policy.bytes.capacity().max(65536)),
-            squads: 0,
         }
     }
 }
@@ -583,6 +577,7 @@ impl WorldThread {
             battle: options.battle.clone(),
             audio: options.audio,
             duration: options.duration,
+            name: options.name.clone(),
         };
         let shared = Arc::new(SharedState::new());
         shared.paused.store(true, Ordering::Release);
@@ -719,12 +714,10 @@ impl WorldThread {
             return Ok(0);
         };
         let mut count = 0usize;
-        while let Some(mut slot) = queue.pop_ready() {
+        while let Some(slot) = queue.pop_ready() {
             let result = Publication::new(&slot.block, &slot.bytes)
                 .map_err(str::to_string)
                 .and_then(|pub_view| pub_view.deliver(slot.client, receiver, now_ms));
-            // Taken, so a recycled slot never repeats an order.
-            receiver.squad_orders(std::mem::take(&mut slot.squads), slot.tick);
             queue.release_slot(slot);
             result?;
             self.delivered += 1;
@@ -788,7 +781,6 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
     let mut latest_cmd = ClientCommand::default();
     let mut latest_look: ClientLook;
     let mut latest_flight = ClientFlightCommand::default();
-    let mut latest_actions = ViewActions::default();
     let mut latest_ack = [1.0, 0.0];
     let mut accum_look_x = 0.0;
     let mut accum_look_y = 0.0;
@@ -807,7 +799,6 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
                         mut command,
                         look,
                         mut flight,
-                        actions,
                         ack,
                     } => {
                         if step_queued {
@@ -818,9 +809,6 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
                         accum_look_x += look.x;
                         accum_look_y += look.y;
                         latest_flight = flight;
-                        if actions.squad.is_some() {
-                            latest_actions.squad = actions.squad;
-                        }
                         latest_ack = ack;
                         step_queued = true;
                     }
@@ -905,7 +893,6 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
         accum_look_x = 0.0;
         accum_look_y = 0.0;
 
-        let step_actions = std::mem::take(&mut latest_actions);
         if !step_queued {
             latest_cmd.actions = 0;
             latest_cmd.primary_count = 0;
@@ -933,7 +920,6 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
             &latest_cmd,
             &latest_look,
             &latest_flight,
-            &step_actions,
             latest_ack,
             &mut slot,
         );

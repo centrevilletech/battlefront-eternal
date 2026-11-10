@@ -4,7 +4,7 @@ use bfe_client::local;
 use bfe_client::{
     generated_input::{ClientCommand, ClientFlightCommand, ClientLook},
     host::{Host, World, STEP},
-    input::{SquadOrder, ViewActions},
+    input::ViewActions,
 };
 use bfe_sim::gen::{WorldClockState, WorldTickInput, WorldTickOutput};
 use local::{clock, commands, options, publication, runtime, setup, thread};
@@ -93,7 +93,6 @@ fn local_dispatch_preserves_other_modes_and_forwards_battle_policy() {
 
 #[test]
 /// Verifies `Clock::input` and `Clock::complete` invariants:
-/// - Encodes `SquadOrder` into the expected protocol bit (`1 << 0..3`).
 /// - Rejects `WorldTickOutput` when `accepted == false` or `clock.tick != self.tick() + 1.0`.
 /// - Copies only the eight mutable clock fields upon consecutive acceptance.
 fn only_an_accepted_consecutive_tick_can_publish_clock_completion() {
@@ -112,17 +111,8 @@ fn only_an_accepted_consecutive_tick_can_publish_clock_completion() {
         ..Default::default()
     };
     let mut clock = clock::Clock::new(template);
-    for (order, bit) in [
-        (SquadOrder::MoveOut, 0),
-        (SquadOrder::Hold, 1),
-        (SquadOrder::Follow, 2),
-        (SquadOrder::AtEase, 3),
-    ] {
-        let row = clock.input(&ViewActions {
-            squad: Some(order),
-            ..Default::default()
-        });
-        assert_eq!(row.squads, 1 << bit);
+    for _ in 0..4 {
+        let row = clock.input();
         assert_eq!(row.units, 37);
         assert_eq!(row.dt, STEP);
         let bad = WorldTickOutput {
@@ -145,7 +135,7 @@ fn only_an_accepted_consecutive_tick_can_publish_clock_completion() {
             ..Default::default()
         };
         clock.complete(&good).unwrap();
-        let next = clock.input(&ViewActions::default());
+        let next = clock.input();
         assert_eq!(next.clock.hz, 60.);
         assert_eq!(next.clock.budget, 0.035);
         assert_eq!(next.clock.debt, 2.);
@@ -479,15 +469,11 @@ fn local_tick_publishes_only_after_completion_and_close_is_once() {
             scale: 1.,
             ..Default::default()
         };
-        let view = ViewActions {
-            map: true,
-            ..Default::default()
-        };
-        assert_eq!(local.step(&command, &look, &flight, &view).is_err(), reject);
+        assert_eq!(local.step(&command, &look, &flight).is_err(), reject);
         assert_eq!(local.tick(), if reject { 0. } else { 1. });
         local.close();
         local.close();
-        assert!(local.step(&command, &look, &flight, &view).is_err());
+        assert!(local.step(&command, &look, &flight).is_err());
         drop(local);
         assert_eq!(
             *events.borrow(),
@@ -659,6 +645,7 @@ fn battle_options() -> bfe_sim::world::admit::Options {
         seed: 17,
         heroes: true,
         unit: Some("trooper".into()),
+        name: None,
     }
 }
 
@@ -885,7 +872,7 @@ fn local_engine_starts_host_with_admitted_capture_and_ticks_via_world_tick() {
     // then `before_step` writes `bank:F2_INPUT` (refused here because `f2_init`
     // is only prepared by full content admission). A bare `world_step` does neither.
     let clock = clock::Clock::new(admitted.tick);
-    let mut step1 = clock.input(&ViewActions::default());
+    let mut step1 = clock.input();
     step1.at = 1000.0 + 1000.0 / 60.0;
     step1.mouse_scale = 1.0;
     let err1 = engine.step(step1.clone()).unwrap_err();
@@ -1099,7 +1086,6 @@ fn threaded_world_steps_at_60hz_without_blocking_or_allocating_on_render_thread(
             command: cmd,
             look: ClientLook { x: 1.0, y: 0.0 },
             flight: ClientFlightCommand::default(),
-            actions: ViewActions::default(),
             ack: [1.0, receiver.latest],
         });
         let _ = world
@@ -1143,6 +1129,7 @@ fn cold_admission_delivers_welcome_publication_and_steps_three_maps() {
             ],
             audio: false,
             duration: None,
+            name: None,
         };
         let prepared = local::launch::Prepared::new(&opts)
             .unwrap_or_else(|e| panic!("cold admission failed on {map}/{side}: {e}"));
@@ -1173,7 +1160,6 @@ fn cold_admission_delivers_welcome_publication_and_steps_three_maps() {
                     &cmd,
                     &ClientLook::default(),
                     &ClientFlightCommand::default(),
-                    &ViewActions::default(),
                 )
                 .unwrap_or_else(|e| panic!("step {seq} failed on {map}/{side}: {e}"));
         }
@@ -1195,6 +1181,7 @@ fn menu_admission_waits_for_the_players_class_and_post_before_spawning() {
         battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into()],
         audio: false,
         duration: None,
+        name: None,
     };
     let prepared = local::launch::Prepared::with_spawn_screen(&options, true).unwrap();
     let mut world = runtime::Runtime::new(*prepared.engine, *prepared.admission, 0.0, 0.0).unwrap();
@@ -1204,8 +1191,7 @@ fn menu_admission_waits_for_the_players_class_and_post_before_spawning() {
     world.spawn_human(world.receiver.own.team, "rep_inf_clone_trooper", "cp6").unwrap();
     for sequence in 1..=6 {
         world.step(&ClientCommand { sequence: sequence as f64, mouse_scale: 1.0,
-            ..Default::default() }, &ClientLook::default(), &ClientFlightCommand::default(),
-            &ViewActions::default()).unwrap();
+            ..Default::default() }, &ClientLook::default(), &ClientFlightCommand::default()).unwrap();
     }
     assert!(world.receiver.own.alive, "selected spawn reaches the authoritative body");
     assert!(world.receiver.own.generation > life, "spawn creates a new living generation");
@@ -1216,7 +1202,7 @@ fn menu_admission_waits_for_the_players_class_and_post_before_spawning() {
 fn native_local_controls_move_authority_and_keep_the_applied_heading() {
     let Some(root) = std::env::var_os("BFE_CONTENT_DIR").map(std::path::PathBuf::from) else { return; };
     std::thread::Builder::new().stack_size(8 << 20).spawn(move || {
-        let options = options::Options { root, battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into(), "--seed".into(), "1".into()], audio: false, duration: None };
+        let options = options::Options { root, battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into(), "--seed".into(), "1".into()], audio: false, duration: None, name: None };
         let prepared = local::launch::Prepared::new(&options).unwrap();
         let mut runtime = runtime::Runtime::new(*prepared.engine, *prepared.admission, 1000., 1_700_000_000_000.).unwrap();
         let before = runtime.receiver.own;
@@ -1225,8 +1211,8 @@ fn native_local_controls_move_authority_and_keep_the_applied_heading() {
         device.key(winit::keyboard::KeyCode::KeyW, true);
         device.motion(160., 0.);
         for sequence in 1..=30 {
-            let (command, look, flight, view) = device.sample(sequence, before.generation as u32, true, 16./9., 1., false);
-            runtime.step(&command, &look, &flight, &view).unwrap();
+            let (command, look, flight, _) = device.sample(sequence, before.generation as u32, true, 16./9., 1., false);
+            runtime.step(&command, &look, &flight).unwrap();
         }
         let moved = runtime.receiver.own;
         eprintln!("authority controls: before={:?} after={:?} yaw={} -> {} ack={}", before.position, moved.position, before.yaw, moved.yaw, runtime.receiver.corrected_sequence);
@@ -1235,10 +1221,31 @@ fn native_local_controls_move_authority_and_keep_the_applied_heading() {
         assert_ne!(moved.yaw, before.yaw, "relative look must reach authority");
         device.key(winit::keyboard::KeyCode::KeyW, false);
         for sequence in 31..=60 {
-            let (command, look, flight, view) = device.sample(sequence, before.generation as u32, true, 16./9., 1., false);
-            runtime.step(&command, &look, &flight, &view).unwrap();
+            let (command, look, flight, _) = device.sample(sequence, before.generation as u32, true, 16./9., 1., false);
+            runtime.step(&command, &look, &flight).unwrap();
         }
         assert_eq!(runtime.receiver.own.yaw, moved.yaw, "heading must persist after look stops");
+    }).unwrap().join().unwrap();
+}
+
+#[test]
+fn native_local_battle_reserves_the_player_under_the_profile_name() {
+    let Some(root) = std::env::var_os("BFE_CONTENT_DIR").map(std::path::PathBuf::from) else { return; };
+    std::thread::Builder::new().stack_size(8 << 20).spawn(move || {
+        // The page's session strips control characters and outer spaces.
+        let options = options::Options { root, battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into(), "--seed".into(), "1".into()], audio: false, duration: None, name: Some(" Scout\u{7} One ".into()) };
+        let prepared = local::launch::Prepared::new(&options).unwrap();
+        let mut runtime = runtime::Runtime::new(*prepared.engine, *prepared.admission, 1000., 1_700_000_000_000.).unwrap();
+        let generation = runtime.receiver.own.generation as u32;
+        let mut device = bfe_client::input::Input::default();
+        for sequence in 1..=30 {
+            let (command, look, flight, _) = device.sample(sequence, generation, true, 16./9., 1., false);
+            runtime.step(&command, &look, &flight).unwrap();
+        }
+        let roster = &runtime.receiver.roster;
+        let names: Vec<String> = roster.rows().map(|(_, c)| c.name().into_owned()).collect();
+        assert_eq!(names.iter().filter(|name| *name == "Scout One").count(), 1, "the roster must carry the profile's name: {names:?}");
+        assert!(!names.iter().any(|name| name == "Player"), "the default name must not remain: {names:?}");
     }).unwrap().join().unwrap();
 }
 
@@ -1255,6 +1262,7 @@ fn native_menu_team_switch_keeps_publication_and_spawns_the_other_roster() {
                 battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into()],
                 audio: false,
                 duration: None,
+                name: None,
             };
             let prepared = local::launch::Prepared::with_spawn_screen(&options, true).unwrap();
             let registry = prepared.admission.registry.clone();
@@ -1272,7 +1280,7 @@ fn native_menu_team_switch_keeps_publication_and_spawns_the_other_roster() {
                 .unwrap();
             let mut device = bfe_client::input::Input::default();
             for tick in 1..=12 {
-                let (command, look, flight, view) = device.sample(
+                let (command, look, flight, _) = device.sample(
                     tick,
                     runtime.receiver.own.generation as u32,
                     true,
@@ -1280,7 +1288,7 @@ fn native_menu_team_switch_keeps_publication_and_spawns_the_other_roster() {
                     1.,
                     false,
                 );
-                runtime.step(&command, &look, &flight, &view).unwrap();
+                runtime.step(&command, &look, &flight).unwrap();
             }
             assert_eq!(runtime.refusals(), 0);
             assert_eq!(runtime.receiver.own.team, 1);

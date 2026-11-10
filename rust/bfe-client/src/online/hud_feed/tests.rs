@@ -22,6 +22,7 @@ fn tables() -> Tables {
         soldier_shots: HashMap::from([((1, 5), 0.2)]),
         seat_shots: HashMap::from([((3, 1, 9), 0.5)]),
         turret_shots: HashMap::from([(4, 0.75)]),
+        posts: vec![None, None, None, Some("AT-AT".into())],
     }
 }
 
@@ -162,13 +163,13 @@ fn kill_lines_name_characters_and_only_show_for_humans_and_heroes() {
     // The same kill once the killer is a hero: bots by their class labels,
     // the one without a label as "Soldier", in the enemy's colour.
     let (row, bytes) = state(8, NO_SLOT, 1);
-    feed.unit_state(&row, &bytes);
+    feed.unit_state(&row, &bytes, &own());
     feed.present(&mut hud, &own(), &world, &receiver, &teams, true, &feedback((9, 2), (8, 2), 1, 2, None));
     assert_eq!(hud.texts, ["REPUBLIC TROOPER", "SOLDIER"]);
     assert_eq!(hud.events, [[C::KILL as f64, 3., 1., 2., 2.]]);
     // The local player killed by a named bot of the enemy.
     let (row, bytes) = state(8, 1, 0);
-    feed.unit_state(&row, &bytes);
+    feed.unit_state(&row, &bytes, &own());
     feed.present(&mut hud, &own(), &world, &receiver, &teams, true, &feedback((7, 2), (8, 2), 1, 2, None));
     assert_eq!(hud.texts[2..], ["CODY", "REX"]);
     assert_eq!(hud.events[1], [C::KILL as f64, 3., 3., 4., 2.]);
@@ -188,7 +189,7 @@ fn kill_lines_name_characters_and_only_show_for_humans_and_heroes() {
     // A state for another life of a unit does not make it a hero.
     let (mut row, bytes) = state(9, NO_SLOT, 1);
     row[r::GENERATION] = 1.;
-    feed.unit_state(&row, &bytes);
+    feed.unit_state(&row, &bytes, &own());
     assert!(feed.state(&world(9).unwrap()).is_none());
 }
 
@@ -293,12 +294,82 @@ fn messages_and_the_player_s_own_squad_orders_reach_the_hud() {
     push(3., r#"{"kind":"squad","ownerId":7,"ownerGeneration":1,"label":"hold"}"#);
     feed.frame(&mut hud, &receiver, &teams());
     assert_eq!(hud.events[2..], [[C::SQUAD as f64, 2., 0., 0., 0.]]);
-    // A local world's taken orders arrive as the same event, once each.
-    receiver.publications.clear();
-    receiver.squad_orders(0b1010, 61.);
-    receiver.squad_orders(0b1010, 61.);
-    feed.frame(&mut hud, &receiver, &teams());
-    assert_eq!(hud.events[3..], [[C::SQUAD as f64, 1., 0., 0., 0.], [C::SQUAD as f64, 3., 0., 0., 0.]]);
+}
+
+#[test]
+fn a_command_vehicle_that_stops_living_loses_its_post_once() {
+    let mut feed = Feed::new(tables());
+    let mut receiver = Receiver::new(serde_json::Value::Null);
+    // The receiver's own record stands in for a hull: a living vehicle of
+    // the command class 3, on team 2.
+    receiver.corrections = 1;
+    receiver.own.id = 40.;
+    let fact = &mut receiver.own_fact;
+    fact[r::KIND] = k::VEHICLE as f64;
+    fact[r::ID] = 40.;
+    fact[r::GENERATION] = 5.;
+    fact[r::CLASS_ID] = 3.;
+    fact[r::TEAM] = 2.;
+    fact[r::HEALTH] = 900.;
+    assert_eq!(feed.lost_posts(&receiver).1, 0);
+    assert_eq!(feed.lost_posts(&receiver).1, 0);
+    // Burning out, it is no post any more: lost by the team it had.
+    receiver.own_fact[r::STATE] = DYING;
+    assert_eq!(feed.lost_posts(&receiver), ([(2, 3), (0, 0), (0, 0), (0, 0)], 1));
+    assert_eq!(feed.lost_posts(&receiver).1, 0);
+    assert_eq!((feed.post_label(3), feed.post_label(1)), ("AT-AT", ""));
+    // A vehicle of another class is never a post, and a new battle forgets
+    // the old one's hulls without announcing them.
+    receiver.own_fact[r::STATE] = 0.;
+    receiver.own_fact[r::CLASS_ID] = 1.;
+    assert_eq!(feed.lost_posts(&receiver).1, 0);
+    receiver.own_fact[r::CLASS_ID] = 3.;
+    assert_eq!(feed.lost_posts(&receiver).1, 0);
+    receiver.epoch = 2.;
+    receiver.own_fact[r::HEALTH] = 0.;
+    assert_eq!(feed.lost_posts(&receiver).1, 0);
+}
+
+#[test]
+fn the_own_soldier_s_repair_lock_building_health_and_vehicle_slots_are_kept() {
+    assert_eq!(repair_lock(b"l3"), Some(RepairLock::Building(3)));
+    assert_eq!(repair_lock(b"v12"), Some(RepairLock::Vehicle(12)));
+    assert_eq!([repair_lock(b""), repair_lock(b"x1"), repair_lock(b"l")], [None; 3]);
+    let (mut feed, mut hud, teams) = (Feed::new(tables()), Recorder::default(), teams());
+    let mut receiver = Receiver::new(serde_json::Value::Null);
+    receiver.corrections = 1;
+    receiver.own.id = 7.;
+    receiver.own.generation = 2.;
+    let mut push = |kind: u32, id: f64, generation: f64, schema: f64, slot: f64, bytes: &[u8]| {
+        let mut row = [0.; r::STRIDE];
+        row[r::KIND] = kind as f64;
+        row[r::ID] = id;
+        row[r::GENERATION] = generation;
+        row[r::SCHEMA] = schema;
+        row[r::SLOT] = slot;
+        receiver.publications.push(&row, bytes);
+    };
+    // His own unit state with the key "l3": id, flags, two clocks, no roster
+    // slot, two selected weapons, no weapons, then the key's length and text.
+    let mut state = vec![7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 0, 0, 0, 0, 0, 2];
+    state.extend(b"l3");
+    push(k::SUMMARY, UNIT_STATE_ID + 7., 2., 6., 0., &state);
+    // Another unit's lock is not his; building 3 at 450; slot 1 holds hull 40.
+    let mut other = state.clone();
+    other[0] = 8;
+    other[22] = b'9';
+    push(k::SUMMARY, UNIT_STATE_ID + 8., 2., 6., 0., &other);
+    push(k::SUMMARY, BUILDING_STATE_ID + 3., 1., 7., 0., br#"[3,"built",450,2,null,0,0,0,0,false,false]"#);
+    push(k::SUMMARY, BUILDING_STATE_ID + 4., 1., 7., 0., br#"[4,"built",null,0,"idle",0,0,0,0,false,false]"#);
+    push(k::MOUNT, 40., 5., 0., 1., &[]);
+    push(k::MOUNT, 41., 5., 0., -1., &[]);
+    feed.frame(&mut hud, &receiver, &teams);
+    assert_eq!(feed.repair(&receiver), Some(RepairLock::Building(3)));
+    assert_eq!((feed.building_health(3), feed.building_health(4), feed.building_health(5)), (Some(450.), Some(f64::INFINITY), None));
+    assert_eq!((feed.vehicle(1), feed.vehicle(0)), (Some((40, 5)), None));
+    // A new life of his has no lock until its own state says so.
+    receiver.own.generation = 3.;
+    assert_eq!(feed.repair(&receiver), None);
 }
 
 #[test]

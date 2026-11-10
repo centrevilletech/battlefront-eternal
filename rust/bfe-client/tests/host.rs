@@ -129,10 +129,7 @@ fn host_steps_before_presentation_and_drops_pause_backlog() {
 
 #[test]
 fn flyer_and_view_intentions_use_their_own_input_records() {
-    use bfe_client::{
-        generated_input::{ClientFlightAction as A, ClientFlightHeld as F},
-        input::SquadOrder,
-    };
+    use bfe_client::generated_input::{ClientAction, ClientFlightAction as A, ClientFlightHeld as F};
     let mut input = Input::default();
     input.flight_mode = true;
     for key in [KeyCode::KeyW, KeyCode::KeyA, KeyCode::ShiftRight, KeyCode::Space, KeyCode::CapsLock] {
@@ -146,16 +143,18 @@ fn flyer_and_view_intentions_use_their_own_input_records() {
     assert_eq!(flight.actions, (1 << A::Takeoff as u8) | (1 << A::Immelmann as u8) | (1 << A::TargetLock as u8));
     let view = input.take_view();
     assert!(!view.perspective);
-    assert_eq!(view.squad, None);
+    let squad = 1 << ClientAction::SquadMoveOut as u8;
+    assert_eq!(input.take(1, 1).0.actions & squad, 0);
     input.clear();
     input.flight_mode = false;
     input.key(KeyCode::KeyQ, true);
     input.key(KeyCode::F3, true);
     let view = input.take_view();
     assert!(view.perspective);
-    assert_eq!(view.squad, Some(SquadOrder::MoveOut));
+    // A squad order is a press in the command, taken once.
+    assert_ne!(input.take(2, 1).0.actions & squad, 0);
     assert_eq!(input.take_flight().actions, 0);
-    assert!(input.take_view().squad.is_none());
+    assert_eq!(input.take(3, 1).0.actions & squad, 0);
     input.clear();
     assert_eq!(input.take_flight().held, 0);
 }
@@ -311,7 +310,8 @@ fn saved_binding_aliases_are_not_truncated_and_flight_does_not_add_ground_keys()
     input.key(KeyCode::KeyQ, true);
     input.key(KeyCode::F3, true);
     assert!(!input.take_view().perspective);
-    assert!(input.take_view().squad.is_none());
+    let squad = 1 << bfe_client::generated_input::ClientAction::SquadMoveOut as u8;
+    assert_eq!(input.take(4, 1).0.actions & squad, 0);
     assert_ne!(input.take_flight().actions, 0);
 }
 

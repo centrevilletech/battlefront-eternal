@@ -133,6 +133,8 @@ struct MountHud {
     source: usize,
     health: f64,
     icon: u32,
+    // HealthTexture alone: the icon an enemy sees it by, hud_health without.
+    target_icon: u32,
     seats: Vec<u32>,
 }
 struct RemoteHud {
@@ -155,6 +157,14 @@ pub struct Prepared {
     post_meta: Vec<HudPostMeta>,
     feed: super::hud_feed::Tables,
     team_names: [String; 8],
+    reticles: Vec<super::hud_target::Reticle>,
+    target_classes: Vec<super::hud_target::Class>,
+    target_icons: Vec<u32>,
+    turrets: Vec<(usize, [f64; 3], f64)>,
+    shield_max: Vec<f64>,
+    shield_icon: u32,
+    buildings: Vec<(f64, u32)>,
+    repair_icon: u32,
 }
 #[derive(Clone, Copy)]
 pub struct Aim {
@@ -192,6 +202,22 @@ pub struct Hud {
     pub scoped: bool,
     feed: super::hud_feed::Feed,
     team_names: [String; 8],
+    // The reticle's target: each admitted weapon's reticle facts, the two
+    // channels' weapons this frame, and the correction last searched for.
+    targets: super::hud_target::Targets,
+    reticles: Vec<super::hud_target::Reticle>,
+    target_icons: Vec<u32>,
+    aimed: [Option<super::hud_target::Aimed>; 2],
+    corrected: u64,
+    // The score the HUD was last given.
+    score: Option<[f64; 4]>,
+    // Each class's MaxShield (0 without a shield) and the shield bar's icon.
+    shield_max: Vec<f64>,
+    shield_icon: u32,
+    // Each placed prop's maximum health and health icon, and the icon of a
+    // repair target that has none of its own.
+    buildings: Vec<(f64, u32)>,
+    repair_icon: u32,
 }
 impl Prepared {
     // Reserve the fixed art slots even if a map omits an image. Optional art
@@ -224,6 +250,14 @@ impl Prepared {
             class_meta: vec![],
             post_meta: vec![],
             feed: super::hud_feed::Tables::new(&defs),
+            reticles: vec![],
+            target_classes: vec![],
+            target_icons: vec![],
+            turrets: vec![],
+            shield_max: vec![],
+            shield_icon: 0,
+            buildings: vec![],
+            repair_icon: 0,
             // Battle.names (src/battle.js): each mission team's label, else
             // its name; a team the mission does not list has none.
             team_names: std::array::from_fn(|team| {
@@ -406,6 +440,7 @@ impl Prepared {
                 source: source as usize,
                 health: bfe_content::odf::num(settings.get("MaxHealth"), 1000.),
                 icon,
+                target_icon: 0,
                 seats,
             });
         }
@@ -421,13 +456,63 @@ impl Prepared {
                     .unwrap_or("hud_vehiclehealth"),
                 &mut result,
             )?;
+            let target_icon = asset(settings.get("HealthTexture").and_then(bfe_content::Value::as_str).unwrap_or(""), &mut result)?;
             result.mounts.push(MountHud {
                 kind: k::TURRET as f64,
                 source: prop.index,
                 health: bfe_content::odf::num(settings.get("MaxHealth"), 1000.),
                 icon,
+                target_icon,
                 seats: vec![],
             });
+            // Where the turret stands and how big its model is, for the
+            // reticle's target search.
+            let model_box = prop
+                .record
+                .get("model")
+                .and_then(bfe_content::Value::as_str)
+                .and_then(|model| content.content.battle.props.as_ref()?.get("models")?.get(model)?.get("box"));
+            let mut matrix = [0.; 16];
+            for (at, value) in matrix.iter_mut().enumerate() {
+                *value = prop.record.get("matrix").and_then(|m| m.at(at)).and_then(bfe_content::Value::as_f64).unwrap_or(0.);
+            }
+            let (center, radius) = super::hud_target::turret_sphere(model_box, &matrix);
+            result.turrets.push((prop.index, center, radius));
+        }
+        // Each class as the reticle's target search sees it, and the icon
+        // an enemy of that class shows by (enemyHealth, src/hud.js).
+        result.target_classes = vec![super::hud_target::Class { scale: 1., category: 0 }; defs.registry.classes.len() + 1];
+        result.target_icons = vec![0; defs.registry.classes.len() + 1];
+        // What a repair weapon can lock among the placed props, by the
+        // prop's number: its MaxHealth (a Building's is unbounded without
+        // one) and its own HealthTexture, 0 for none.
+        result.repair_icon = asset("hud_active_repair_icon", &mut result)?;
+        for prop in &defs.props {
+            let settings = prop.record.get("settings").unwrap_or(&prop.record);
+            let icon = asset(settings.get("HealthTexture").and_then(bfe_content::Value::as_str).unwrap_or(""), &mut result)?;
+            if result.buildings.len() <= prop.index {
+                result.buildings.resize(prop.index + 1, (f64::INFINITY, 0));
+            }
+            result.buildings[prop.index] = (bfe_content::odf::num(settings.get("MaxHealth"), f64::INFINITY), icon);
+        }
+        // A droideka's shield is its weapon of base "shield": the bar is
+        // the shield over that weapon's MaxShield (Droideka, src/droideka.js).
+        result.shield_max = vec![0.; defs.registry.classes.len() + 1];
+        result.shield_icon = asset("hud_shield_icon", &mut result)?;
+        for class in &defs.classes {
+            let Some(id) = class.registry_id else { continue };
+            let shield = class.weapons.iter().filter_map(|&index| defs.weapons.get(index)).find(|weapon| weapon.base.map(|base| defs.names.text(base)) == Some("shield"));
+            result.shield_max[id as usize] = shield.and_then(|weapon| weapon.record.get("MaxShield")).and_then(bfe_content::Value::as_f64).unwrap_or(0.);
+            result.target_classes[id as usize] = super::hud_target::Class::soldier(&class.record);
+            let icon = asset(class.record.get("HealthTexture").and_then(bfe_content::Value::as_str).unwrap_or(""), &mut result)?;
+            result.target_icons[id as usize] = icon;
+        }
+        for vehicle in &defs.vehicles {
+            let Some(id) = vehicle.registry_id else { continue };
+            let settings = vehicle.record.get("settings").unwrap_or(&vehicle.record);
+            result.target_classes[id as usize] = super::hud_target::Class::vehicle(settings);
+            let icon = asset(settings.get("HealthTexture").and_then(bfe_content::Value::as_str).unwrap_or(""), &mut result)?;
+            result.target_icons[id as usize] = icon;
         }
         // The posts a placed building stands for: its destruction takes the
         // post out of the battle (props.json instances naming a post).
@@ -489,6 +574,7 @@ impl Prepared {
             ] {
                 row[at] = d[key].as_f64().unwrap_or(0.);
             }
+            result.reticles.push(super::hud_target::Reticle::new(weapon));
             result.weapons.push(Weapon {
                 row,
                 channel: mounted_channel
@@ -691,6 +777,16 @@ impl Prepared {
             scoped: false,
             feed: super::hud_feed::Feed::new(self.feed),
             team_names: self.team_names,
+            targets: super::hud_target::Targets::new(self.target_classes, self.turrets),
+            reticles: self.reticles,
+            target_icons: self.target_icons,
+            aimed: [None; 2],
+            corrected: 0,
+            score: None,
+            shield_max: self.shield_max,
+            shield_icon: self.shield_icon,
+            buildings: self.buildings,
+            repair_icon: self.repair_icon,
         };
         let bindings = bfe_interface::default_flight_bindings();
         let code = bindings
@@ -736,6 +832,15 @@ impl Hud {
         // Received combat facts raise their HUD events first, as the browser
         // applies its packets before the frame's own HUD update.
         self.feed.frame(&mut bridge.hud_model, receiver, &self.radar);
+        // A command vehicle lost is announced from the hulls this client
+        // shows, as its post's loss is (announceLost, src/game.js): the
+        // server's post summaries carry only the placed posts.
+        let (lost, count) = self.feed.lost_posts(receiver);
+        for &(team, class) in &lost[..count] {
+            let name = self.team_names.get(team as usize).map_or("", String::as_str);
+            let line = super::hud_feed::fill(self.strings.get("game.infomsg.lost").map(String::as_str), &[name, self.feed.post_label(class)]);
+            self.feed.message(&mut bridge.hud_model, &line, self.radar.color_relation(receiver.own.team, team as usize));
+        }
         // Only summaries delivered since the previous frame are decoded.
         // Equal network baselines do not rebuild an object graph or text.
         for field in receiver.publications.iter() {
@@ -896,9 +1001,14 @@ impl Hud {
             receiver.own.health / self.max_health.get(receiver.own.class).copied().unwrap_or(300.)
         };
         // presentBattle (src/game.js) gives the HUD the local Character's
-        // score every frame; HudModel shows the popup when a number changes.
+        // score every frame, and BattleHud.stats does nothing with numbers
+        // it already has; so only a changed score is passed on, and the
+        // popup shows when one number moves.
         let score = super::hud_feed::score(&receiver.roster);
-        bridge.hud_model_observe(C::STATS, score[0], score[1], score[2], score[3]);
+        if self.score != Some(score) {
+            self.score = Some(score);
+            self.feed.raise(&mut bridge.hud_model, "stats", C::STATS, score);
+        }
         // PlayerCombat.updateHud: setVehicle first. Taking or leaving a
         // vehicle or turret brings every panel back in, as does the first
         // frame of a battle (BattleHud is woken once when the game is made).
@@ -920,25 +1030,55 @@ impl Hud {
         });
         let hull_fill = mount.map_or(0., |row| row[r::HEALTH] / mounted.map_or(1000., |m| m.health));
         bridge.hud_model_observe(C::HULL, mount.is_some() as u8 as f64, hull_fill, 0., 0.);
-        // The second bar on foot and alive: a jetpack's fuel as the page
-        // predicts it, red at or under the class's border and pulsing while
-        // he is still jetting on it. The browser shows a repair weapon's
-        // target or a droideka's shield there first; this client does not
-        // decode its own repair lock or droideka body yet, so those two
-        // never show.
-        let jet = prediction.body.as_ref().filter(|body| {
-            receiver.own.alive && receiver.own.mount.is_none() && body.jet.recharge > 0.
+        // The second bar on foot and alive (PlayerCombat.updateHud): a
+        // repair weapon's locked target, its health over its maximum, red at
+        // half or less; else a droideka's shield over its MaxShield, red at
+        // a quarter or less; else a jetpack's fuel as the page predicts it,
+        // red at or under the class's border and pulsing while he is still
+        // jetting on it.
+        let on_foot = receiver.own.alive && receiver.own.mount.is_none();
+        let repair = self.feed.repair(receiver).filter(|_| on_foot).and_then(|lock| {
+            let (health, max, icon) = match lock {
+                super::hud_feed::RepairLock::Building(building) => {
+                    let &(max, icon) = self.buildings.get(building)?;
+                    // A turret's health travels in its own record, any
+                    // other building's in its state summary.
+                    let turret = receiver
+                        .active()
+                        .find(|row| row[r::KIND] == k::TURRET as f64 && row[r::BUILDING] == building as f64)
+                        .map(|row| row[r::HEALTH]);
+                    (turret.or_else(|| self.feed.building_health(building))?, max, icon)
+                }
+                super::hud_feed::RepairLock::Vehicle(slot) => {
+                    let (id, generation) = self.feed.vehicle(slot)?;
+                    let row = receiver.active().find(|row| {
+                        row[r::KIND] == k::VEHICLE as f64 && row[r::ID] == id as f64 && row[r::GENERATION] == generation as f64
+                    })?;
+                    let class = row[r::CLASS_ID] as usize;
+                    (row[r::HEALTH], self.max_health.get(class).copied().unwrap_or(1000.), self.target_icons.get(class).copied().unwrap_or(0))
+                }
+            };
+            // The target's own HealthTexture, else hud_active_repair_icon.
+            let fill = (health / max).clamp(0., 1.);
+            Some((if icon == 0 { self.repair_icon } else { icon } as f64, fill, if fill <= 0.5 { 1. } else { 0. }))
         });
-        if let Some(body) = jet {
-            bridge.hud_model_observe(C::SECOND, 1., body.fuel, 0., 0.);
+        let shield = receiver.own.shield.filter(|_| on_foot && receiver.own.walker).map(|value| {
+            let max = self.shield_max.get(receiver.own.class).copied().unwrap_or(0.);
+            let fill = if max > 0. { value / max } else { 0. };
+            (self.shield_icon as f64, fill, if fill <= 0.25 { 1. } else { 0. })
+        });
+        let jet = prediction.body.as_ref().filter(|body| on_foot && body.jet.recharge > 0.).map(|body| {
+            let jetting = body.air == Some(bfe_sim::gen::Air::Jet);
+            (A::HUD_JETPACK_ICON as f64, body.fuel, second_look(body.fuel <= body.jet.min_border, jetting))
+        });
+        let second = repair.or(shield).or(jet);
+        if let Some((_, fill, _)) = second {
+            bridge.hud_model_observe(C::SECOND, 1., fill, 0., 0.);
         }
         let x = &mut bridge.hud_model.input;
-        x[H::SECOND_ICON] = jet.map_or(0., |_| A::HUD_JETPACK_ICON as f64);
-        x[H::SECOND_FILL] = jet.map_or(0., |body| body.fuel.clamp(0., 1.));
-        x[H::SECOND_LOOK] = jet.map_or(0., |body| {
-            let jetting = body.air == Some(bfe_sim::gen::Air::Jet);
-            second_look(body.fuel <= body.jet.min_border, jetting)
-        });
+        x[H::SECOND_ICON] = second.map_or(0., |bar| bar.0);
+        x[H::SECOND_FILL] = second.map_or(0., |bar| bar.1.clamp(0., 1.));
+        x[H::SECOND_LOOK] = second.map_or(0., |bar| bar.2);
         x[H::DT] = dt;
         x[H::HEIGHT] = (768. + (self.size[1] as f64 / self.size[0].max(1) as f64 - 0.75) * 768.).floor();
         x[H::DEAD] = (!receiver.own.alive) as u8 as f64;
@@ -1031,6 +1171,7 @@ impl Hud {
         x[hud_model::WEAPONS..hud_model::WEAPONS + W::WORDS * 4].fill(0.);
         // The predicted arsenal is a borrowed generated result. HUD input
         // carries state facts; HudModel decides priority, fades and reticles.
+        self.aimed = [None; 2];
         let mut any = false;
         self.scope = 0;
         self.zoom_first_person = false;
@@ -1098,6 +1239,8 @@ impl Hud {
                 if !chosen {
                     continue;
                 }
+                let reticle = self.reticles.get(weapon.def.0.saturating_sub(1) as usize).copied().unwrap_or_default();
+                self.aimed[channel] = Some(super::hud_target::Aimed { reticle, lock: (weapon.lock_target_id, weapon.lock_generation) });
                 if channel == 0 {
                     self.scope = def.scope;
                     self.zoom_first_person = def.zoom_first_person;
@@ -1161,6 +1304,43 @@ impl Hud {
         x[H::VEHICLE] = (receiver.own.mount_kind == k::VEHICLE) as u8 as f64;
         x[H::ARSENAL] = any as u8 as f64;
         x[H::RETICLE] = receiver.own.alive as u8 as f64;
+    }
+
+    // updateTargetHud (src/game.js), once for each applied correction: what
+    // each channel's reticle is on colours it, and an enemy under channel 0
+    // shows his health. `ray`: the gun's origin and aim on foot, the camera
+    // and the seat's view in a vehicle or turret; None hides nothing, the
+    // dead and the unspawned simply have no target.
+    pub fn target(&mut self, bridge: &mut Bridge, receiver: &Receiver, prediction: &Replay, ray: Option<([f64; 3], [f64; 3])>) {
+        if self.corrected == receiver.corrections {
+            return;
+        }
+        self.corrected = receiver.corrections;
+        let own = (receiver.own.id as u32, receiver.own.generation as u32);
+        let viewer = receiver.own.mount.map_or(own, |lease| (lease.0, lease.1));
+        // Only a vehicle's seat has a second reticle with a target of its own.
+        let seat = receiver.own.mount.is_some() && receiver.own.mount_kind == k::VEHICLE;
+        let weapons = [self.aimed[0], self.aimed[1].filter(|_| seat)];
+        let found = ray.filter(|_| receiver.own.alive).map(|ray| {
+            let mut collision = prediction.collision.borrow_mut();
+            self.targets.find(receiver, &self.radar, &prediction.fleet.bodies, &mut collision, prediction.world, ray, viewer, weapons)
+        });
+        let x = &mut bridge.hud_model.input;
+        x[H::TARGET_RELATION] = found.as_ref().map_or(4., |found| found.relations[0]);
+        x[H::SECOND_RELATION] = found.as_ref().map_or(4., |found| found.relations[1]);
+        if let Some((kind, source, health)) = found.and_then(|found| found.enemy) {
+            // enemyHealth (src/hud.js): his health over his class's maximum,
+            // by the class's HealthTexture, or hud_health without one.
+            let (max, icon) = if kind == k::TURRET {
+                let mount = self.mounts.iter().find(|m| m.kind == k::TURRET as f64 && m.source == source);
+                (mount.map_or(1000., |m| m.health), mount.map_or(0, |m| m.target_icon))
+            } else {
+                (self.max_health.get(source).copied().unwrap_or(300.), self.target_icons.get(source).copied().unwrap_or(0))
+            };
+            let max = if max == 0. || max.is_nan() { 1. } else { max };
+            let icon = if icon == 0 { A::HUD_HEALTH } else { icon };
+            self.feed.raise(&mut bridge.hud_model, "enemy", C::ENEMY, [(health / max.max(1.)).clamp(0., 1.), icon as f64, 0., 0.]);
+        }
     }
 
     // PlayerCombat.updateHud projects the point 1024 m along the displayed

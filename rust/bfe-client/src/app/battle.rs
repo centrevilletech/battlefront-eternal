@@ -909,6 +909,7 @@ impl BattleController {
         request: BattleRequest,
         playlist_index: usize,
         ai_enabled: bool,
+        player_name: &str,
     ) -> Result<InstantAdmission, String> {
         // Resolve the target map ID and era from `request.playlist[playlist_index]` or `request`.
         let default_era = request.era.clone().unwrap_or_else(|| "cw".to_string());
@@ -957,6 +958,7 @@ impl BattleController {
             ],
             audio: true,
             duration: None,
+            name: Some(player_name.to_string()),
         };
 
         let (world, admitted) = WorldThread::admit_instant_action(&local_options, ai_enabled)?;
@@ -1779,7 +1781,6 @@ impl BattleController {
                         command: cmd,
                         look,
                         flight,
-                        actions,
                         ack,
                     });
                 }

@@ -993,6 +993,7 @@ pub fn parse_admit_options(query: &str, fallback_map: &str) -> AdmitOptions {
         seed,
         heroes,
         unit,
+        name: None,
     }
 }
 

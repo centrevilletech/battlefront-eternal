@@ -48,13 +48,13 @@ impl<E: Engine> Battle<E> {
 impl<E: Engine> World for Battle<E> {
     type Frame = View;
     fn generation(&self) -> u32 { self.runtime.receiver.own.generation as u32 }
-    fn step(&mut self, command: &ClientCommand, look: &ClientLook, flight: &ClientFlightCommand, view: &ViewActions, _: f64) -> Result<(), String> {
+    fn step(&mut self, command: &ClientCommand, look: &ClientLook, flight: &ClientFlightCommand, _: &ViewActions, _: f64) -> Result<(), String> {
         let mut command = command.clone();
         // Scene's existing native lens is first person. Supply its actual
         // aspect to the authority rather than a desktop input default, so
         // aim/camera facts agree with the view this frame will draw.
         command.aspect = self.camera.aspect(); command.has_aspect = true; command.first_person = Some(true);
-        self.runtime.step(&command, look, flight, view)
+        self.runtime.step(&command, look, flight)
     }
 
     // Client::present uses AimView's canonical eye before the shared camera

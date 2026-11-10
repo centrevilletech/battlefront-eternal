@@ -204,7 +204,7 @@ fn service_fixture() -> (bfe_content::files::MemFiles,bfe_sim::world::admit::Opt
     for path in ["sides/rep/actors/person.bin","sides/rep/actors/person_index.bin","common/anims.bin","maps/test/collision.bin","maps/test/collision_index.bin","maps/test/collision_poly.bin","maps/test/terrain_collision.bin","maps/test/terrain_collision_index.bin","sides/rep/weapons.bin","sides/rep/weapons_index.bin","common/fxmodels.bin","common/fxmodels_index.bin"] {
         files.insert(path,Vec::new());
     }
-    let options=bfe_sim::world::admit::Options {map:"test".into(),side:"rep".into(),enhanced:false,seed:1,heroes:false,unit:Some("a".into())};
+    let options=bfe_sim::world::admit::Options {map:"test".into(),side:"rep".into(),enhanced:false,seed:1,heroes:false,unit:Some("a".into()),name:None};
     (files,options)
 }
 

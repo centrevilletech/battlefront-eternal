@@ -11,7 +11,7 @@ use bfe_sim::world::admit::{Options};
 
 fn value(text: &str) -> Value { parse(text).expect("synthetic JSON") }
 fn options() -> Options {
-    Options { map: "test".into(), side: "rep".into(), unit: Some("rep_test".into()), enhanced: false, seed: 1, heroes: false }
+    Options { map: "test".into(), side: "rep".into(), unit: Some("rep_test".into()), enhanced: false, seed: 1, heroes: false, name: None }
 }
 
 fn battle() -> Battle {
@@ -213,7 +213,7 @@ fn extracted_corpus_fleet_content_has_complete_packs_and_collider_shapes() {
         let get = |name| args.windows(2).find(|a| a[0] == name).map(|a| a[1]);
         let options = Options { map: get("--map").unwrap_or("nab2").into(), side: get("--side").unwrap_or("rep").into(),
             enhanced: get("--ai") == Some("enhanced"), seed: get("--seed").unwrap_or("1").parse().unwrap(),
-            heroes: args.contains(&"--heroes"), unit: get("--unit").map(String::from) };
+            heroes: args.contains(&"--heroes"), unit: get("--unit").map(String::from), name: None };
         let battle = Battle::load(&loader,&options.map,&options.query()).unwrap();
         let pack = Pack::from_battle(&battle).unwrap();
         let calls = fleet::content_calls(&battle,&options).unwrap();

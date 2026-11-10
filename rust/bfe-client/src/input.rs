@@ -496,17 +496,6 @@ pub struct ViewActions {
     pub perspective: bool,
     pub map: bool,
     pub stats: bool,
-    pub squad: Option<SquadOrder>,
-}
-
-// Keep squad intent semantic until a World supplies its qualified source and
-// target. The window has no battle ids with which to form a SquadCommand.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SquadOrder {
-    MoveOut,
-    AtEase,
-    Hold,
-    Follow,
 }
 
 struct KeyState([bool; KEYS]);
@@ -663,17 +652,20 @@ impl Input {
             {
                 self.view_actions.stats = true;
             }
+            // Squad orders go to the world in the command, as every other
+            // press does (Controls.command, src/input.js): the server takes
+            // them from the player's controls and answers with the order.
             if slot_matches(&self.ground.squad_at_ease, trig) {
-                self.view_actions.squad = Some(SquadOrder::AtEase);
+                self.action(Action::SquadAtEase);
             }
             if slot_matches(&self.ground.squad_follow, trig) {
-                self.view_actions.squad = Some(SquadOrder::Follow);
+                self.action(Action::SquadFollow);
             }
             if slot_matches(&self.ground.squad_move_out, trig) {
-                self.view_actions.squad = Some(SquadOrder::MoveOut);
+                self.action(Action::SquadMoveOut);
             }
             if slot_matches(&self.ground.squad_hold, trig) {
-                self.view_actions.squad = Some(SquadOrder::Hold);
+                self.action(Action::SquadHold);
             }
         }
         if self.flight_mode {

@@ -13,13 +13,14 @@ use crate::gen::{
     F3EffectNotice, F3HullEvent, F3HullNotice, F3OptionalState, F3OrdnanceEvent, F3OrdnanceNotice,
     F3PowerupEffect, F3PresentKind, F3Presentation, F3ProjectileKind, F3PropDamage, F3PropEffect,
     F3PropEffectKind, F3SeatNotice, F3ShieldNotice, F3ShotNotice, F3WeaponAction, F4Effect,
-    F4Serve, F4SpawnNotice, FfShot, PbStateName, PickupArgs, Posture, Unit, UnitSplash, WbEncode,
+    F4Serve, F4SpawnNotice, FfShot, PbStateName, PickupArgs, PlayerSquad, Posture, Unit, UnitSplash,
+    WbEncode,
     WireDynamicFact,
 };
 use crate::store::{Nullable, StrId};
 
 use super::capture::{Capture, Token};
-use super::journal::{Event, Journal, Life, Presentation, Presented};
+use super::journal::{Event, Journal, Life, Presentation, Presented, SQUAD_LABELS};
 
 /// One tick's drain: the world's clock for the records, the observers'
 /// handles, and the units' rows (`store.unit`) for the facts the page read
@@ -191,6 +192,16 @@ impl Drain<'_> {
                         ],
                     )?;
                 }
+                Presentation::Squad { label, .. } => {
+                    let label = SQUAD_LABELS.get(label as usize).copied().unwrap_or("");
+                    capture.emit(
+                        context,
+                        self.tick,
+                        "squad",
+                        0.0,
+                        &[owner_id, owner_generation, ("label", Token::Text(label))],
+                    )?;
+                }
             }
         }
         Ok(())
@@ -315,6 +326,17 @@ impl Drain<'_> {
         } // matrix-b
 
         match code {
+            // applyNetworkControls (src/runtime/multiplayer-world.js): a
+            // squad order the player gave is a `presentation` record of his
+            // unit life, which his own page's HUD shows.
+            gen::EVENT_PLAYER_SQUAD if record.len() >= PlayerSquad::WORDS => {
+                let e = PlayerSquad::take(&record[..PlayerSquad::WORDS], &record[PlayerSquad::WORDS..]);
+                let owner = Life {
+                    id: e.unit,
+                    generation: e.life,
+                };
+                self.present(context, Presentation::Squad { label: e.label, owner })?;
+            }
             // F4Tail.onSpawn (src/game.js): simEvents.emit("spawn", {target:
             // units.ref(event.unit), team, position, className, post}).
             gen::EVENT_F4_SPAWN if record.len() >= F4SpawnNotice::WORDS => {

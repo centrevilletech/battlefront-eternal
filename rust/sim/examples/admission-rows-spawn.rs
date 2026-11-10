@@ -14,7 +14,7 @@ fn options(args: &[String]) -> Result<Options, String> {
         .and_then(|i| args.get(i + 1)).cloned().unwrap_or_else(|| fallback.into());
     Ok(Options { map: opt("--map", "nab2"), side: opt("--side", "rep"), enhanced: opt("--ai", "classic") == "enhanced",
         seed: opt("--seed", "1").parse::<u32>().map_err(|e| e.to_string())?, heroes: args.iter().any(|a| a == "--heroes"),
-        unit: args.iter().position(|a| a == "--unit").and_then(|i| args.get(i + 1)).cloned() })
+        unit: args.iter().position(|a| a == "--unit").and_then(|i| args.get(i + 1)).cloned(), name: None })
 }
 fn bits(words: &[f64]) -> Vec<String> { words.iter().map(|w| format!("{:016x}", w.to_bits())).collect() }
 fn call(name: &str, arguments: &[f64], words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) {

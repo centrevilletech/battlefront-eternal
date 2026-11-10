@@ -64,7 +64,15 @@ pub enum Presentation {
         position: [f64; 3],
         owner: Option<Life>,
     },
+    /// A player's squad order (applyNetworkControls,
+    /// src/runtime/multiplayer-world.js): `{kind: 'squad', ownerId,
+    /// ownerGeneration, label}`, the label one of [`SQUAD_LABELS`].
+    Squad { label: u32, owner: Life },
 }
+
+/// The squad orders' labels in the key table's order (squadMoveOut,
+/// squadHold, squadFollow, squadAtEase), as the page's HUD names them.
+pub const SQUAD_LABELS: [&str; 4] = ["moveout", "hold", "follow", "atease"];
 
 impl Presentation {
     /// The unit life that owns the event (`ownerId`, `ownerGeneration`);
@@ -74,7 +82,8 @@ impl Presentation {
             Presentation::WeaponAction { owner, .. }
             | Presentation::EndWeaponAction { owner, .. }
             | Presentation::Lightning { owner, .. }
-            | Presentation::Presented { owner, .. } => Some(owner),
+            | Presentation::Presented { owner, .. }
+            | Presentation::Squad { owner, .. } => Some(owner),
             Presentation::Effect { owner, .. } => owner,
         }
     }

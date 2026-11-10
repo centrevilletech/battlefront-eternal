@@ -290,7 +290,7 @@ fn main() {
         let option=|name:&str|args.windows(2).find(|a|a[0]==name).map(|a|a[1].clone());
         let options=Options { map:option("--map").unwrap_or("nab2".into()), side:option("--side").unwrap_or("rep".into()),
             enhanced:option("--ai").is_some_and(|v|v=="enhanced"),seed:option("--seed").unwrap_or("1".into()).parse::<u32>().map_err(|e|e.to_string())?,
-            heroes:args.iter().any(|a|a=="--heroes"),unit:option("--unit") };
+            heroes:args.iter().any(|a|a=="--heroes"),unit:option("--unit"),name:None };
         let files=DirFiles::new(root);
         let battle=Battle::load(&Loader::new(&files),&options.map,&options.query())?;
         let calls=fleet::content_calls(&battle,&options).map_err(|e|e.to_string())?;

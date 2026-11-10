@@ -28,7 +28,7 @@ fn main() {
 fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let root = args.first().ok_or("content directory required")?;
-    let mut options = Options { map:"nab2".into(), side:"rep".into(), enhanced:false, seed:1, heroes:false, unit:None };
+    let mut options = Options { map:"nab2".into(), side:"rep".into(), enhanced:false, seed:1, heroes:false, unit:None,name:None };
     let mut check = false; let mut facts_file = None; let mut at = 1;
     while at < args.len() {
         let next = || args.get(at + 1).cloned().ok_or_else(|| format!("{} needs a value", args[at]));

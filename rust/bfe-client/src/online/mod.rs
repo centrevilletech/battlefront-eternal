@@ -19,6 +19,7 @@ pub mod publications;
 
 pub mod hud;
 mod hud_feed;
+mod hud_target;
 
 pub mod models;
 

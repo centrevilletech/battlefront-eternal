@@ -10,7 +10,8 @@ const HELD: [&str; 9] = ["KeyW", "KeyS", "KeyD", "KeyA", "NumpadMultiply", "Nump
 // ClientHeld and ClientAction use desktop bit positions. InputActions uses
 // wire action ids instead, so the cold name table resolves that difference;
 // casting a desktop action bit to a protocol id would bind the wrong action.
-const ACTIONS: [&str; 11] = ["jump", "crouch", "prone", "use", "firePrimary", "fireSecondary", "reload", "nextPrimary", "previousPrimary", "nextSecondary", "zoom"];
+// ClientCommand.actions bit order (ClientAction).
+const ACTIONS: [&str; 15] = bfe_client::generated_input::ClientAction::NAMES;
 const FIELDS: [&str; 7] = ["mouseScale", "invertMouse", "firstPerson", "aspect", "viewTick", "flightSettings", "gamepad"];
 // WiView's established presence bits keep false values separate from missing
 // properties. InputMailbox consumes this existing protocol record directly.
@@ -29,7 +30,7 @@ pub struct Names {
     pub actions: [StrId; INPUT_ACTIONS.len()],
     pub fields: [StrId; 7],
     pub extra_held: [StrId; 2],
-    pub outbound_actions: [u8; 11],
+    pub outbound_actions: [u8; ACTIONS.len()],
     pub flight_actions: [u8; 4],
 }
 impl Names {
@@ -43,7 +44,7 @@ impl Names {
             for (id, name) in ids.iter_mut().zip(source) { *id = intern(name)?; }
             Ok(ids)
         }
-        let mut outbound_actions = [0; 11]; let mut flight_actions = [0; 4];
+        let mut outbound_actions = [0; ACTIONS.len()]; let mut flight_actions = [0; 4];
         for (bit, (out, name)) in outbound_actions.iter_mut().zip(ACTIONS).enumerate() {
             // Desktop fire slots have no InputActions name: capture routes
             // their counts and transitions through the shared fire owner.

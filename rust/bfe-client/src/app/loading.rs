@@ -58,6 +58,7 @@ impl Work {
                             request,
                             playlist_index,
                             snapshot.interface.get_string("aiMode") != "off",
+                            &snapshot.player.profile_name,
                         )
                         .map(Admitted::Instant),
                         BattleLoadTarget::Online { launch } => BattleController::prepare_online(

@@ -45,6 +45,9 @@ pub struct Options {
     pub heroes: bool,
     /// `?unit=`: the player's class, else the side's first.
     pub unit: Option<String>,
+    /// The name createLocalServer gives its one player (the profile's
+    /// playerName); None is addPlayer's default, "Player".
+    pub name: Option<String>,
 }
 impl Options {
     /// world-hash.mjs: `['rep', 'cis'].includes(side) ? 'cw' : 'gcw'`.

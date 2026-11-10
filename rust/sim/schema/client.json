@@ -125,7 +125,11 @@
       "nextPrimary",
       "previousPrimary",
       "nextSecondary",
-      "zoom"
+      "zoom",
+      "squadMoveOut",
+      "squadHold",
+      "squadFollow",
+      "squadAtEase"
     ]
   },
   "records": {

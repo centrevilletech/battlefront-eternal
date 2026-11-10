@@ -263,7 +263,7 @@ mod tests {
         for path in ["sides/rep/actors/person_index.bin","common/anims.bin","maps/test/collision.bin","maps/test/collision_index.bin","maps/test/collision_poly.bin","maps/test/terrain_collision.bin","maps/test/terrain_collision_index.bin","sides/rep/weapons.bin","sides/rep/weapons_index.bin","common/fxmodels.bin","common/fxmodels_index.bin"] {files.insert(path,Vec::new());}
         let vertices:[f32;18]=[-1.,0.,-2.,0.,0.,0.,0.,0.,0.,3.,2.,4.,0.,0.,0.,0.,0.,0.];
         files.insert("sides/rep/actors/person.bin",vertices.iter().flat_map(|v|v.to_le_bytes()).collect());
-        let options=Options {map:"test".into(),side:"rep".into(),enhanced:false,seed:1,heroes:false,unit:Some("a".into())};
+        let options=Options {map:"test".into(),side:"rep".into(),enhanced:false,seed:1,heroes:false,unit:Some("a".into()),name:None};
         let mut content=Content::build(Battle::load(&Loader::new(&files),&options.map,&options.query()).unwrap()).unwrap();
         // A second authored name can share one definition identity. Combat
         // services stay shared while UnitFactory keeps the named pools apart.

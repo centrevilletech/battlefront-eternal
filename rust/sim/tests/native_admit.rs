@@ -10,7 +10,7 @@ use bfe_sim::world::owner::World;
 use serde_json::{json, Value};
 
 fn options() -> Options {
-    Options { map: "nab2".into(), side: "rep".into(), enhanced: false, seed: 1, heroes: false, unit: None }
+    Options { map: "nab2".into(), side: "rep".into(), enhanced: false, seed: 1, heroes: false, unit: None, name: None }
 }
 
 #[test]
@@ -27,7 +27,7 @@ fn native_admission_signatures_are_frozen() {
 #[test]
 fn options_compose_the_battle_query_as_the_page_does() {
     assert_eq!(options().query(), "?map=nab2&side=rep&era=cw&ai=classic&seed=1");
-    let geonosis = Options { map: "geo1".into(), side: "cis".into(), enhanced: true, seed: 2, heroes: true, unit: Some("cis_inf_droideka".into()) };
+    let geonosis = Options { map: "geo1".into(), side: "cis".into(), enhanced: true, seed: 2, heroes: true, unit: Some("cis_inf_droideka".into()), name: None };
     assert_eq!(geonosis.query(), "?map=geo1&side=cis&era=cw&ai=enhanced&seed=2&heroes=1&unit=cis_inf_droideka");
     assert_eq!(Options { side: "imp".into(), ..options() }.era(), "gcw");
 }

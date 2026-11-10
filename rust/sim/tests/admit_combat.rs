@@ -226,7 +226,7 @@ fn fixture()->(bfe_content::files::MemFiles,bfe_sim::world::admit::Options) {
     }
     // loadAIWeaponData forwards fetched bytes even if they are invalid JSON.
     files.insert("sides/rep/ai.json",b"  invalid policy\n".to_vec());
-    let options=bfe_sim::world::admit::Options {map:"test".into(),side:"rep".into(),enhanced:false,seed:1,heroes:false,unit:Some("a".into())};
+    let options=bfe_sim::world::admit::Options {map:"test".into(),side:"rep".into(),enhanced:false,seed:1,heroes:false,unit:Some("a".into()),name:None};
     (files,options)
 }
 

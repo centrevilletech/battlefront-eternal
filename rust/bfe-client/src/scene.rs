@@ -1125,7 +1125,15 @@ impl Scene {
             resources.finish_frame(receiver, replay, &world.elements, cue);
             resources.present_arcs(dt.min(8./60.), camera.position, &mut self.bridge);
             resources.present_shields(dt.min(8./60.), camera.position, &camera.snapshot().values, &mut self.bridge);
-            let reticle = resources.cameras.mounted_aim(camera).or_else(||
+            let mounted = resources.cameras.mounted_aim(camera);
+            // Seated, the target search looks from the camera along the
+            // seat's view; on foot, from the gun along its aim.
+            let ray = match mounted {
+                Some(aim) => Some((camera.position, std::array::from_fn(|k| aim.point[k] - camera.position[k]))),
+                None => resources.aim_ray(receiver),
+            };
+            resources.hud.target(&mut self.bridge, receiver, replay, ray);
+            let reticle = mounted.or_else(||
                 resources.reticle_point(receiver).map(|point| crate::online::hud::Aim { point, project_x: false }));
             resources.hud.aim(&mut self.bridge, camera.snapshot(), reticle);
             resources.sound.bleed = [resources.hud.teams[1][3], resources.hud.teams[2][3]];

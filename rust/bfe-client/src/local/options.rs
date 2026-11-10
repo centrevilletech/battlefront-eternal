@@ -8,6 +8,16 @@ pub struct Options {
     pub battle: Vec<String>,
     pub audio: bool,
     pub duration: Option<Duration>,
+    /// The profile's player name, when the launch has a profile.
+    pub name: Option<String>,
+}
+
+// NetworkSession: String(playerName || '').replace(/[\x00-\x1f\x7f]/g,'')
+// .trim().slice(0,32), the name the local server then gives its player.
+fn session_name(name: &str) -> String {
+    let kept: String = name.chars().filter(|c| !matches!(*c, '\0'..='\x1f' | '\x7f')).collect();
+    let units: Vec<u16> = kept.trim().encode_utf16().take(32).collect();
+    String::from_utf16_lossy(&units)
 }
 
 impl Options {
@@ -18,7 +28,7 @@ impl Options {
         use bfe_content_native::setup::{Ai, BattleOptions};
         let options = BattleOptions::from_args(&self.battle)?;
         Ok(bfe_sim::world::admit::Options { map: options.map, side: options.side,
-            enhanced: options.ai == Ai::Enhanced, seed: options.seed, heroes: options.heroes, unit: options.unit })
+            enhanced: options.ai == Ai::Enhanced, seed: options.seed, heroes: options.heroes, unit: options.unit, name: self.name.as_deref().map(session_name) })
     }
     // session_window::Options::read selects its mode before making a window.
     // Keep the existing online/archive parser authoritative for other modes;
@@ -56,6 +66,6 @@ impl Options {
             }
             at += 1;
         }
-        Ok(Some(Self { root: root.ok_or("content directory required (argument or BFE_CONTENT_DIR)")?, battle, audio, duration }))
+        Ok(Some(Self { root: root.ok_or("content directory required (argument or BFE_CONTENT_DIR)")?, battle, audio, duration, name: None }))
     }
 }

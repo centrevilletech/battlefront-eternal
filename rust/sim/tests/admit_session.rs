@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 fn value(text: &str) -> ContentValue { bfe_content::json::parse(text).unwrap() }
 fn empty() -> ContentValue { value("{}") }
-fn options() -> Options { Options { map: "test".into(), side: "a".into(), enhanced: false, seed: 1, heroes: false, unit: None } }
+fn options() -> Options { Options { map: "test".into(), side: "a".into(), enhanced: false, seed: 1, heroes: false, unit: None, name: None } }
 fn side(name: &str, units: &str) -> SideFiles {
     SideFiles { name: name.into(), dir: format!("/sides/{name}"), units_file: empty(), units: value(units), items: empty(),
         weapons: empty(), fire_points: empty(), weapon_buf: Rc::from([]), weapon_index_buf: Rc::from([]), fx: None }
@@ -217,7 +217,7 @@ macro_rules! session_host_oracle {
                 }
                 crate::players::module::players_init_in(&mut world);
                 let options = crate::world::admit::Options { map: row["map"].as_str().unwrap().into(), side: content.battle.side.clone(),
-                    enhanced: false, seed: 1, heroes: false, unit: None };
+                    enhanced: false, seed: 1, heroes: false, unit: None, name: None };
                 let mut cx = Cx::new(&content, &defs, &files, &options, world.sim.strings.clone());
                 let mut prior = Calls::new(); let mailbox = create_mailbox(&mut world, &mut cx, &mut prior).unwrap();
                 let p = &row["player"]; let c = &p["character"];

@@ -20,7 +20,7 @@ use bfe_sim::store::StrId;
 
 use super::host::Host;
 use super::json::Json;
-use bfe_sim::host::journal::{Event, Journal, Life, Presentation, Presented};
+use bfe_sim::host::journal::{Event, Journal, Life, Presentation, Presented, SQUAD_LABELS};
 
 /// One kind's export: every row decoded, by store slot.
 struct Rows<T> {
@@ -772,6 +772,13 @@ fn presentation_json(json: &mut Json, string: &dyn Fn(&mut Json, Option<StrId>),
                 json.number(channel);
             }
             owner(json, o);
+        }
+        Presentation::Squad { label, owner: o } => {
+            json.key("kind");
+            json.string("squad");
+            owner(json, o);
+            json.key("label");
+            json.string(SQUAD_LABELS.get(label as usize).copied().unwrap_or(""));
         }
     }
     json.end_object();

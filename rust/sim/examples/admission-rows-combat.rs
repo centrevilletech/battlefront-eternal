@@ -70,7 +70,7 @@ fn run()->Result<(),String> {
     };
     let options=Options {map:option("--map","nab2")?,side:option("--side","rep")?,enhanced:args.iter().any(|v|v=="--enhanced"),
         seed:option("--seed","1")?.parse().map_err(|_|"invalid seed")?,heroes:args.iter().any(|v|v=="--heroes"),
-        unit:if args.iter().any(|v|v=="--unit") {Some(option("--unit","")?)} else {None}};
+        unit:if args.iter().any(|v|v=="--unit") {Some(option("--unit","")?)} else {None},name:None};
     let files=DirFiles::new(root_dir);
     let battle=Battle::load(&Loader::new(&files),&options.map,&options.query())?;
     let content=Content::build(battle)?;

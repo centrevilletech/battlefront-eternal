@@ -48,10 +48,14 @@ pub enum ClientAction {
     PreviousPrimary = 8,
     NextSecondary = 9,
     Zoom = 10,
+    SquadMoveOut = 11,
+    SquadHold = 12,
+    SquadFollow = 13,
+    SquadAtEase = 14,
 }
 
 impl ClientAction {
-    pub const NAMES: [&'static str; 11] = ["jump", "crouch", "prone", "use", "firePrimary", "fireSecondary", "reload", "nextPrimary", "previousPrimary", "nextSecondary", "zoom"];
+    pub const NAMES: [&'static str; 15] = ["jump", "crouch", "prone", "use", "firePrimary", "fireSecondary", "reload", "nextPrimary", "previousPrimary", "nextSecondary", "zoom", "squadMoveOut", "squadHold", "squadFollow", "squadAtEase"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -66,6 +70,10 @@ impl ClientAction {
             8 => Some(ClientAction::PreviousPrimary),
             9 => Some(ClientAction::NextSecondary),
             10 => Some(ClientAction::Zoom),
+            11 => Some(ClientAction::SquadMoveOut),
+            12 => Some(ClientAction::SquadHold),
+            13 => Some(ClientAction::SquadFollow),
+            14 => Some(ClientAction::SquadAtEase),
             _ => None,
         }
     }

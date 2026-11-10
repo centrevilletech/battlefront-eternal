@@ -422,7 +422,10 @@ impl Default for PlayerBindings {
 fn reserve_call(cx: &mut Cx, team: f64) -> Call {
     let mut call = Call::default();
     let player_id = PlayerId::Str(cx.intern(&mut call, "local"));
-    let name = cx.intern(&mut call, "Player");
+    // addPlayer(id, {name = 'Player'}): the local server passes the name the
+    // page's session was opened with.
+    let name = cx.options.name.as_deref().unwrap_or("Player");
+    let name = cx.intern(&mut call, name);
     let reserve = F4RosterCommand { op: RoOperation::Reserve, target: None, team, player_id, name };
     call.row.resize(F4RosterCommand::WORDS, 0.0); reserve.put(&mut call.row, &mut call.heap); call
 }

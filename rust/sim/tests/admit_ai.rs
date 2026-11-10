@@ -16,6 +16,7 @@ fn options() -> Options {
         enhanced: false,
         heroes: true,
         unit: None,
+        name: None,
     }
 }
 fn text(strings: &Strings, id: StrId) -> String {

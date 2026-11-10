@@ -217,7 +217,7 @@ fn context_fixture() -> (bfe_content::files::MemFiles, bfe_sim::world::admit::Op
         "maps/synthetic/terrain_collision_index.bin", "sides/rep/weapons.bin", "sides/rep/weapons_index.bin", "common/fxmodels.bin", "common/fxmodels_index.bin"] {
         files.insert(path, vec![]);
     }
-    (files, bfe_sim::world::admit::Options { map: "synthetic".into(), side: "rep".into(), enhanced: false, seed: 1, heroes: false, unit: None })
+    (files, bfe_sim::world::admit::Options { map: "synthetic".into(), side: "rep".into(), enhanced: false, seed: 1, heroes: false, unit: None, name: None })
 }
 
 #[test]
