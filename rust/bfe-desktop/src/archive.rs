@@ -226,7 +226,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 ///
 /// Mirrors the `stat.nlink > 1 && stat.ino > 0` check in `walk` in the desktop host.
 #[cfg(unix)]
-fn hardlink_key(meta: &fs::Metadata) -> Option<(u64, u64)> {
+fn hardlink_key(_path: &Path, meta: &fs::Metadata) -> Option<(u64, u64)> {
     use std::os::unix::fs::MetadataExt;
     if meta.nlink() > 1 && meta.ino() > 0 {
         Some((meta.dev(), meta.ino()))
@@ -235,9 +235,32 @@ fn hardlink_key(meta: &fs::Metadata) -> Option<(u64, u64)> {
     }
 }
 
-/// Stub for non-Unix platforms where `(dev, ino)` metadata is not exposed on `fs::Metadata`.
-#[cfg(not(unix))]
-fn hardlink_key(_meta: &fs::Metadata) -> Option<(u64, u64)> {
+/// The same identity on Windows, which Node's `stat` also reports on NTFS: the volume serial
+/// number and the 64-bit file index of the open file, when the file has more than one link.
+/// `std`'s `MetadataExt` offers these only on nightly, so ask `GetFileInformationByHandle`.
+#[cfg(windows)]
+fn hardlink_key(path: &Path, _meta: &fs::Metadata) -> Option<(u64, u64)> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::{
+        Foundation::HANDLE,
+        Storage::FileSystem::{GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION},
+    };
+    let file = File::open(path).ok()?;
+    // SAFETY: `info` is plain data the call fills in, and the handle is open for the call.
+    let info = unsafe {
+        let mut info: BY_HANDLE_FILE_INFORMATION = std::mem::zeroed();
+        if GetFileInformationByHandle(file.as_raw_handle() as HANDLE, &mut info) == 0 {
+            return None;
+        }
+        info
+    };
+    let index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    (info.nNumberOfLinks > 1 && index > 0).then_some((u64::from(info.dwVolumeSerialNumber), index))
+}
+
+/// Other platforms report no link identity; every file is exported as its own payload.
+#[cfg(not(any(unix, windows)))]
+fn hardlink_key(_path: &Path, _meta: &fs::Metadata) -> Option<(u64, u64)> {
     None
 }
 
@@ -269,12 +292,8 @@ pub fn list_content_files(root: &Path) -> Result<Vec<ContentFileRecord>, String>
             );
         }
         if meta.is_file() {
-            out.push((
-                ".prepare.json".to_string(),
-                prep,
-                meta.len(),
-                hardlink_key(&meta),
-            ));
+            let key = hardlink_key(&prep, &meta);
+            out.push((".prepare.json".to_string(), prep, meta.len(), key));
         }
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));
@@ -319,7 +338,7 @@ fn walk_content_dir(
             walk_content_dir(&full, &rel, out)?;
         } else if meta.is_file() {
             safe_path(&rel, true)?;
-            out.push((rel, full, meta.len(), hardlink_key(&meta)));
+            out.push((rel, full.clone(), meta.len(), hardlink_key(&full, &meta)));
         }
     }
     Ok(())

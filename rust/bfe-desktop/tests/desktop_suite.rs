@@ -2153,8 +2153,13 @@ fn content_archive_export_is_the_browser_builds_form() {
     fs::create_dir_all(source.join("audio")).unwrap();
     fs::write(source.join("audio/a.bin"), vec![7u8; 100_000]).unwrap();
     fs::hard_link(source.join("audio/a.bin"), source.join("audio/b-link.bin")).unwrap();
-    fs::write(source.join("audio/Case.json"), "{}").unwrap();
-    fs::write(source.join("audio/case.json"), "{}").unwrap();
+    // Two files that differ only by letter case need a case-sensitive disk: on Windows the
+    // second write would replace the first, so the case-variant alias is checked off Windows.
+    #[cfg(not(windows))]
+    {
+        fs::write(source.join("audio/Case.json"), "{}").unwrap();
+        fs::write(source.join("audio/case.json"), "{}").unwrap();
+    }
 
     let exported = export_content(&source, &archive, None).unwrap();
     assert_eq!(exported.maps, vec!["bes1a"]);
@@ -2180,6 +2185,7 @@ fn content_archive_export_is_the_browser_builds_form() {
         !entries.contains_key("audio/b-link.bin"),
         "a hardlink has no payload entry"
     );
+    #[cfg(not(windows))]
     assert!(entries.contains_key("audio/Case.json") != entries.contains_key("audio/case.json"));
 
     // The manifest is stored, so its text sits right after its local header (30 bytes + name).
