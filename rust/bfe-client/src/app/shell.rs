@@ -161,6 +161,8 @@ pub enum ShellTransition {
     HostCloseDecision(usize),
     /// Close the application (`EXIT TO WINDOWS` confirmed).
     Exit,
+    /// `EXPORT CONTENT` or `IMPORT CONTENT` on the main menu.
+    ContentTransfer(bfe_shell::screens::TransferKind),
 }
 
 /// Asynchronous server browser refresh payload (`(refresh_token, Result<Vec<ServerEntry>, String>)`).
@@ -1676,6 +1678,9 @@ impl ShellHost {
                 }
                 ShellAction::ExitToWindows => {
                     return Some(ShellTransition::Exit);
+                }
+                ShellAction::ContentTransfer(kind) => {
+                    return Some(ShellTransition::ContentTransfer(kind));
                 }
             }
         }

@@ -1104,6 +1104,13 @@ impl ShellScene {
                 ShellAction::ExitToWindows => {
                     return true;
                 }
+                // The demo has no file dialogs or archive code; it reports the request.
+                ShellAction::ContentTransfer(kind) => {
+                    println!(
+                        "{}",
+                        serde_json::json!({"event": "content_transfer", "kind": format!("{kind:?}")})
+                    );
+                }
             }
         }
         false

@@ -1,6 +1,6 @@
 //! Slint adapter for the first-run setup and content preparation screens.
 //!
-//! All setup state lives in [`super::first_run::Setup`], [`super::first_run::ImportWork`],
+//! All setup state lives in [`super::first_run::Setup`], [`super::first_run::TransferWork`],
 //! and [`super::startup::StartupContentState`]; this module synchronizes that state into
 //! [`SetupModel`] and forwards user callbacks back to the host.
 use std::{cell::RefCell, rc::Rc};
@@ -145,7 +145,8 @@ impl SlintHost {
             StartupContentState::Preparing { latest, .. } => {
                 (first_run::progress_view(latest), 0, None)
             }
-            StartupContentState::Importing(work) => (work.view(), 0, None),
+            // prepare.js lights no button while a transfer runs: CANCEL carries no `primary` flag.
+            StartupContentState::Transfer(work) => (work.view(), NO_ACTION, None),
             StartupContentState::FirstRun(model) => (model.view(), model.cursor, model.focus),
         };
 
@@ -235,7 +236,7 @@ impl StandaloneWindowApp {
                     }
                 }
                 SetupUiAction::Activated(index) => match &mut self.state {
-                    AppState::StartupLoader(StartupContentState::Importing(work)) => {
+                    AppState::StartupLoader(StartupContentState::Transfer(work)) => {
                         work.cancel();
                     }
                     AppState::StartupLoader(StartupContentState::FirstRun(_)) => {
@@ -291,7 +292,7 @@ impl StandaloneWindowApp {
         if let WindowEvent::KeyboardInput { event, .. } = event {
             if event.state == ElementState::Pressed && !event.repeat {
                 match &mut self.state {
-                    AppState::StartupLoader(StartupContentState::Importing(work)) => {
+                    AppState::StartupLoader(StartupContentState::Transfer(work)) => {
                         if matches!(
                             &event.logical_key,
                             Key::Named(NamedKey::Escape | NamedKey::Enter | NamedKey::Space)

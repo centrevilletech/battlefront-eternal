@@ -9,6 +9,7 @@ use bfe_desktop::{
         toolchain_paths, PrepareSession, PrepareSnapshot, PrepareSpawnOptions, ToolchainOptions,
     },
 };
+use bfe_shell::screens::TransferKind;
 use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
@@ -73,6 +74,20 @@ pub struct SetupView {
     pub error: bool,
 }
 
+/// How a content transfer ended, for the notice screen (prepare.js `transfer-done` and
+/// `transfer-error`).
+#[derive(Clone, Debug)]
+pub struct TransferEnd {
+    /// The transfer stopped (an error or a cancel) rather than finished.
+    pub failed: bool,
+    /// Which way it went: an import or an export.
+    pub operation: TransferKind,
+    /// The file or folder the transfer wrote, shown under the message.
+    pub file: Option<String>,
+    /// The content folder the game uses now (`hasContent`), or none.
+    pub content: Option<PathBuf>,
+}
+
 pub const NO_ACTION: usize = usize::MAX;
 
 pub const MISSING_DETAIL: &str = "Battlefront Eternal plays the battles from your own copy of Star Wars: Battlefront (2004). Import a content export from your other computer, or install the original from Steam or GOG. If it is installed somewhere else, choose its folder.";
@@ -126,6 +141,7 @@ pub enum Action {
     Steam,
     Gog,
     Search,
+    MainMenu,
     Check,
     Prepare,
     Retry,
@@ -147,7 +163,8 @@ pub struct Setup {
     check_started: Instant,
     pub message: Option<String>,
     pub stopped: bool,
-    pub transfer_error: bool,
+    /// Set when this screen reports the end of a content transfer: done, cancelled or failed.
+    pub transfer: Option<TransferEnd>,
     pub outdated: bool,
     pub show_details: bool,
     pub logs: Vec<String>,
@@ -167,7 +184,7 @@ impl Setup {
             check_started: Instant::now(),
             message: None,
             stopped: false,
-            transfer_error: false,
+            transfer: None,
             outdated,
             show_details: false,
             logs: Vec::new(),
@@ -320,11 +337,18 @@ impl Setup {
             return actions;
         }
         if self.message.is_some() {
-            if self.transfer_error {
-                return vec![
-                    button("IMPORT CONTENT EXPORT", Action::Import),
-                    button("CHOOSE GAME FOLDER", Action::Choose),
-                ];
+            if let Some(end) = &self.transfer {
+                // prepare.js: MAIN MENU (primary) when there is content, IMPORT CONTENT EXPORT,
+                // CHOOSE GAME FOLDER when there is none.
+                let mut actions = Vec::new();
+                if end.content.is_some() {
+                    actions.push(button("MAIN MENU", Action::MainMenu));
+                }
+                actions.push(button("IMPORT CONTENT EXPORT", Action::Import));
+                if end.content.is_none() {
+                    actions.push(button("CHOOSE GAME FOLDER", Action::Choose));
+                }
+                return actions;
             }
             return vec![button("OK", Action::Dismiss)];
         }
@@ -394,14 +418,20 @@ impl Setup {
             return v;
         }
         if let Some(message) = &self.message {
-            v.title = if self.transfer_error {
-                "CONTENT TRANSFER STOPPED"
-            } else {
-                "SOMETHING WENT WRONG"
-            }
-            .into();
             v.detail = message.clone();
-            v.error = true;
+            if let Some(end) = &self.transfer {
+                v.title = match (end.failed, end.operation) {
+                    (true, _) => "CONTENT TRANSFER STOPPED",
+                    (false, TransferKind::Export) => "CONTENT EXPORTED",
+                    (false, TransferKind::Import) => "READY FOR BATTLE",
+                }
+                .into();
+                v.code = end.file.clone();
+                // prepare.js styles `error` for loader errors only; a stopped transfer keeps the plain title.
+            } else {
+                v.title = "SOMETHING WENT WRONG".into();
+                v.error = true;
+            }
             return v;
         }
         let Some(copy) = self.copies.get(self.selected) else {
@@ -853,66 +883,109 @@ pub fn clock(seconds: f64) -> String {
 
 /// File import uses the existing archive verifier and commits only after the
 /// final checksum. The window receives progress without blocking on disk I/O.
-pub struct ImportWork {
+pub struct TransferWork {
+    operation: TransferKind,
+    /// The content folder in use when the transfer began (none on a first run).
+    content: Option<PathBuf>,
     result: std::sync::mpsc::Receiver<Result<PathBuf, String>>,
-    progress: std::sync::mpsc::Receiver<ImportProgress>,
+    progress: std::sync::mpsc::Receiver<TransferProgress>,
     cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    current: ImportProgress,
+    current: TransferProgress,
 }
 
-/// One progress report from the archive import: the phase the browser's `onProgress` names
-/// ("Importing and verifying", "Restoring shared content"), the file, and bytes done of total.
+/// One progress report from an archive transfer: the phase the browser's `onProgress` names
+/// ("Importing and verifying", "Restoring shared content", "Exporting content"), the file, and
+/// bytes done of total.
 #[derive(Clone, Debug, Default)]
-struct ImportProgress {
+struct TransferProgress {
     phase: String,
     file: String,
     done: u64,
     total: u64,
 }
-impl ImportWork {
-    pub fn start(file: PathBuf, store: &AppSettingsStore) -> Self {
+
+/// The reporting callback the archive code takes: `(phase, file, done, total)`; an `Err`
+/// cancels the transfer and is its error.
+type Report<'a> = dyn FnMut(&str, &str, u64, u64) -> Result<(), String> + 'a;
+
+const CANCELLED: &str = "Transfer cancelled. Your current content is unchanged.";
+
+impl TransferWork {
+    /// Imports `file` into a new folder under the user data directory (`importContent`).
+    pub fn start_import(
+        file: PathBuf,
+        store: &AppSettingsStore,
+        content: Option<PathBuf>,
+    ) -> Self {
+        let parent = store.paths.user_data.join("content-imports");
+        Self::spawn(TransferKind::Import, content, move |report| {
+            bfe_desktop::archive::import_content_with_progress(&file, &parent, report)
+                .map(|result| result.content_dir)
+        })
+    }
+
+    /// Exports the content folder `content` to the archive `file` (`exportContent`).
+    pub fn start_export(content: PathBuf, file: PathBuf) -> Self {
+        let in_use = Some(content.clone());
+        Self::spawn(TransferKind::Export, in_use, move |report| {
+            bfe_desktop::archive::export_content_with_progress(&content, &file, None, report)
+                .map(|result| result.archive_path)
+        })
+    }
+
+    fn spawn(
+        operation: TransferKind,
+        content: Option<PathBuf>,
+        run: impl FnOnce(&mut Report<'_>) -> Result<PathBuf, String> + Send + 'static,
+    ) -> Self {
         let (tx, result) = std::sync::mpsc::channel();
         let (progress_tx, progress) = std::sync::mpsc::channel();
         let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let flag = cancelled.clone();
-        let parent = store.paths.user_data.join("content-imports");
         std::thread::spawn(move || {
             // The archive code calls back every chunk (64 KiB), so a cancel lands within a
             // chunk; the UI only needs a report about every 50 ms.
             let mut last_sent = std::time::Instant::now() - std::time::Duration::from_secs(1);
-            let out = bfe_desktop::archive::import_content_with_progress(
-                &file,
-                &parent,
-                |phase, name, done, total| {
-                    if flag.load(std::sync::atomic::Ordering::Acquire) {
-                        return Err("Transfer cancelled. Your current content is unchanged.".into());
-                    }
-                    if last_sent.elapsed() >= std::time::Duration::from_millis(50) || done >= total {
-                        last_sent = std::time::Instant::now();
-                        let _ = progress_tx.send(ImportProgress {
-                            phase: phase.into(),
-                            file: name.into(),
-                            done,
-                            total,
-                        });
-                    }
-                    Ok(())
-                },
-            )
-            .map(|result| result.content_dir);
+            let out = run(&mut |phase, name, done, total| {
+                if flag.load(std::sync::atomic::Ordering::Acquire) {
+                    return Err(CANCELLED.into());
+                }
+                if last_sent.elapsed() >= std::time::Duration::from_millis(50) || done >= total {
+                    last_sent = std::time::Instant::now();
+                    let _ = progress_tx.send(TransferProgress {
+                        phase: phase.into(),
+                        file: name.into(),
+                        done,
+                        total,
+                    });
+                }
+                Ok(())
+            });
+            // A cancel that came too late to stop the work still leaves nothing behind.
             if flag.load(std::sync::atomic::Ordering::Acquire) {
                 if let Ok(path) = &out {
-                    let _ = std::fs::remove_dir_all(path);
+                    remove_transferred(operation, path);
                 }
             }
             let _ = tx.send(out);
         });
         Self {
+            operation,
+            content,
             result,
             progress,
             cancelled,
-            current: ImportProgress::default(),
+            current: TransferProgress::default(),
         }
+    }
+
+    pub fn operation(&self) -> TransferKind {
+        self.operation
+    }
+
+    /// The content folder in use when the transfer began.
+    pub fn content(&self) -> Option<&Path> {
+        self.content.as_deref()
     }
     pub fn cancel(&self) {
         self.cancelled
@@ -925,9 +998,9 @@ impl ImportWork {
         self.result.try_recv().ok().map(|result| {
             if self.cancelled.load(std::sync::atomic::Ordering::Acquire) {
                 if let Ok(path) = result {
-                    let _ = std::fs::remove_dir_all(path);
+                    remove_transferred(self.operation, &path);
                 }
-                Err("Transfer cancelled. Your current content is unchanged.".into())
+                Err(CANCELLED.into())
             } else {
                 result
             }
@@ -943,7 +1016,11 @@ impl ImportWork {
             progress.phase.clone()
         };
         let mut view = SetupView {
-            title: "IMPORTING YOUR CONTENT".into(),
+            title: match self.operation {
+                TransferKind::Export => "EXPORTING YOUR CONTENT",
+                TransferKind::Import => "IMPORTING YOUR CONTENT",
+            }
+            .into(),
             detail: phase.clone(),
             actions: vec!["CANCEL".into()],
             ..Default::default()
@@ -969,7 +1046,15 @@ impl ImportWork {
         view
     }
 }
-impl Drop for ImportWork {
+/// Removes what a cancelled transfer finished writing: the imported folder or the archive.
+fn remove_transferred(operation: TransferKind, path: &Path) {
+    let _ = match operation {
+        TransferKind::Import => std::fs::remove_dir_all(path),
+        TransferKind::Export => std::fs::remove_file(path),
+    };
+}
+
+impl Drop for TransferWork {
     fn drop(&mut self) {
         self.cancel();
     }
@@ -1009,6 +1094,36 @@ mod tests {
         install.source = "folder".into();
         install.how = "a folder next to the game".into();
         assert_eq!(found_in(&install), "A folder next to the game");
+    }
+
+    fn notice(failed: bool, operation: TransferKind, content: Option<&str>) -> Setup {
+        let mut setup = Setup::missing(false);
+        setup.message = Some("message".into());
+        setup.transfer = Some(TransferEnd {
+            failed,
+            operation,
+            file: Some("/opt/example/out.bfepack".into()),
+            content: content.map(PathBuf::from),
+        });
+        setup
+    }
+
+    #[test]
+    fn a_finished_transfer_names_itself_and_offers_the_menus_actions() {
+        // prepare.js `transfer-done`: the title by operation, the file under the message,
+        // MAIN MENU first when there is content, and no folder choice then.
+        let done = notice(false, TransferKind::Export, Some("/opt/example/content"));
+        let view = done.view();
+        assert_eq!(view.title, "CONTENT EXPORTED");
+        assert_eq!(view.code.as_deref(), Some("/opt/example/out.bfepack"));
+        assert!(!view.error);
+        assert_eq!(view.actions, ["MAIN MENU", "IMPORT CONTENT EXPORT"]);
+        assert_eq!(notice(false, TransferKind::Import, Some("/x")).view().title, "READY FOR BATTLE");
+        // `transfer-error`: a plain title, and without content a way to choose a folder.
+        let stopped = notice(true, TransferKind::Import, None).view();
+        assert_eq!(stopped.title, "CONTENT TRANSFER STOPPED");
+        assert!(!stopped.error);
+        assert_eq!(stopped.actions, ["IMPORT CONTENT EXPORT", "CHOOSE GAME FOLDER"]);
     }
 
     #[test]

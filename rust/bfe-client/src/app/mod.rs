@@ -379,7 +379,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
     let mut app = StandaloneWindowApp {
         platform_smoke,
         folder_dialog: None,
-        folder_import:false,
+        dialog_use: DialogUse::Folder,
         opts,
         settings,
         host_controller,
@@ -424,6 +424,26 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
 
 /// Top-level `winit` [`ApplicationHandler`] owning the OS window, EGL/GLX surface,
 /// OpenGL context, [`ShellHost`], [`HostController`], [`PresenceController`], and [`AppState`].
+/// What the answer of the open chooser is for.
+enum DialogUse {
+    /// A game install or prepared content folder (first run, `CHOOSE GAME FOLDER`).
+    Folder,
+    /// An archive to import; the content folder in use is carried along (none on a first run).
+    Import(Option<PathBuf>),
+    /// Where to write the export of this content folder.
+    Export(PathBuf),
+}
+
+/// Whether a content folder was prepared by this version of the importers.
+fn content_is_current(dir: &Path) -> bool {
+    bfe_desktop::prepare::checkout_content_version().is_ok_and(|version| {
+        bfe_desktop::prepare::prepared_content_current(
+            bfe_desktop::prepare::read_prepare_state(Some(dir)).as_ref(),
+            &version,
+        )
+    })
+}
+
 struct StandaloneWindowApp {
     // Physical window coordinates are mapped once into the active interface plane.
     cursor_physical: [f64; 2],
@@ -479,7 +499,8 @@ struct StandaloneWindowApp {
     gate: Option<GateDriver>,
     platform_smoke: Option<platform_smoke::Smoke>,
     folder_dialog: Option<mpsc::Receiver<Result<Option<PathBuf>,String>>>,
-    folder_import:bool,
+    /// What the open chooser's answer is for.
+    dialog_use: DialogUse,
     /// Fatal error message captured during frame stepping or GL initialization.
     error: Option<String>,
 }
@@ -653,7 +674,7 @@ impl StandaloneWindowApp {
     /// the selected game or prepared-content directory is validated.
     fn choose_content_folder(&mut self) {
         if self.folder_dialog.is_none() {
-            self.folder_import = false;
+            self.dialog_use = DialogUse::Folder;
             self.folder_dialog = Some(folder_dialog::choose());
         }
     }
@@ -696,8 +717,21 @@ impl StandaloneWindowApp {
         match action {
             Action::Choose => self.choose_content_folder(),
             Action::Import => {
-                self.folder_import = true;
-                self.folder_dialog = Some(folder_dialog::choose_export());
+                // The content in use stays what MAIN MENU returns to if this import fails.
+                let content = model.transfer.as_ref().and_then(|t| t.content.clone());
+                self.dialog_use = DialogUse::Import(content);
+                self.folder_dialog = Some(folder_dialog::import_file());
+            }
+            Action::MainMenu => {
+                // prepare.js `play`: reload the menu, with the startup check deciding first.
+                let Some(content) = model.transfer.as_ref().and_then(|t| t.content.clone()) else {
+                    return;
+                };
+                self.state = AppState::StartupLoader(if content_is_current(&content) {
+                    StartupContentState::Ready(content)
+                } else {
+                    StartupContentState::FirstRun(Box::new(first_run::Setup::missing(true)))
+                });
             }
             Action::Search => {
                 self.state =
@@ -1510,7 +1544,80 @@ impl StandaloneWindowApp {
             ShellTransition::Exit => {
                 self.request_app_close(event_loop);
             }
+            ShellTransition::ContentTransfer(kind) => self.begin_content_transfer(kind),
         }
+    }
+
+    /// `EXPORT CONTENT` and `IMPORT CONTENT` on the main menu: ask for the file the way
+    /// `runContentTransfer` does (the menu keeps running behind the dialog; cancelling the
+    /// dialog changes nothing), then the work and its progress take over the window.
+    fn begin_content_transfer(&mut self, kind: bfe_shell::screens::TransferKind) {
+        use bfe_shell::screens::TransferKind;
+        if self.folder_dialog.is_some() {
+            return;
+        }
+        let content = self.shell.as_ref().and_then(|s| s.content_dir.clone());
+        match kind {
+            TransferKind::Import => {
+                let hosting = self
+                    .host_controller
+                    .lock()
+                    .map(|hc| hc.status().active)
+                    .unwrap_or(false);
+                if hosting {
+                    self.show_transfer_error(
+                        kind,
+                        content,
+                        "Stop your hosted server before importing content.".into(),
+                    );
+                    return;
+                }
+                self.dialog_use = DialogUse::Import(content);
+                self.folder_dialog = Some(folder_dialog::import_file());
+            }
+            TransferKind::Export => {
+                let Some(content) = content else {
+                    return;
+                };
+                self.dialog_use = DialogUse::Export(content);
+                self.folder_dialog = Some(folder_dialog::export_file());
+            }
+        }
+    }
+
+    /// The menu page is gone while a transfer runs, and its music with it; the music volume
+    /// comes back when the menu is loaded again (`load_prepared_content` sets the volumes).
+    fn silence_menu_music(&mut self) {
+        let Some(shell) = &self.shell else {
+            return;
+        };
+        if let Ok(mut guard) = self.audio_router.shell.lock() {
+            if let Some(mixer) = guard.as_mut() {
+                mixer.set_volumes(
+                    shell.app.settings.master_volume,
+                    0.0,
+                    shell.app.settings.interface_volume,
+                );
+            }
+        }
+    }
+
+    /// The transfer notice screen for a failure (`transfer-error`).
+    fn show_transfer_error(
+        &mut self,
+        operation: bfe_shell::screens::TransferKind,
+        content: Option<PathBuf>,
+        message: String,
+    ) {
+        let mut setup = first_run::Setup::missing(false);
+        setup.message = Some(message);
+        setup.transfer = Some(first_run::TransferEnd {
+            failed: true,
+            operation,
+            file: None,
+            content,
+        });
+        self.state = AppState::StartupLoader(StartupContentState::FirstRun(Box::new(setup)));
     }
 
     /// Advances the active [`AppState`] by one frame, renders into the offscreen FBO,
@@ -1546,24 +1653,46 @@ impl StandaloneWindowApp {
         {
             self.folder_dialog = None;
             match result {
-                Ok(Some(folder)) => {
-                    if self.folder_import {
-                        self.folder_import = false;
-                        self.state = AppState::StartupLoader(StartupContentState::Importing(
-                            Box::new(first_run::ImportWork::start(folder, &self.settings)),
+                Ok(Some(path)) => match std::mem::replace(&mut self.dialog_use, DialogUse::Folder) {
+                    DialogUse::Folder => self.selected_content_folder(path),
+                    DialogUse::Import(content) => {
+                        self.silence_menu_music();
+                        self.state = AppState::StartupLoader(StartupContentState::Transfer(
+                            Box::new(first_run::TransferWork::start_import(
+                                path,
+                                &self.settings,
+                                content,
+                            )),
                         ));
-                    } else {
-                        self.selected_content_folder(folder);
                     }
-                }
-                Err(error) => {
-                    if let AppState::StartupLoader(StartupContentState::FirstRun(model)) =
-                        &mut self.state
-                    {
-                        model.message = Some(error);
+                    DialogUse::Export(content) => {
+                        self.silence_menu_music();
+                        self.state = AppState::StartupLoader(StartupContentState::Transfer(
+                            Box::new(first_run::TransferWork::start_export(content, path)),
+                        ));
                     }
-                }
-                Ok(None) => {}
+                },
+                Err(error) => match std::mem::replace(&mut self.dialog_use, DialogUse::Folder) {
+                    // A dialog that cannot open ends a transfer like any other error (`beginTransfer`).
+                    DialogUse::Import(content) => self.show_transfer_error(
+                        bfe_shell::screens::TransferKind::Import,
+                        content,
+                        error,
+                    ),
+                    DialogUse::Export(content) => self.show_transfer_error(
+                        bfe_shell::screens::TransferKind::Export,
+                        Some(content),
+                        error,
+                    ),
+                    DialogUse::Folder => {
+                        if let AppState::StartupLoader(StartupContentState::FirstRun(model)) =
+                            &mut self.state
+                        {
+                            model.message = Some(error);
+                        }
+                    }
+                },
+                Ok(None) => self.dialog_use = DialogUse::Folder,
             }
         }
         self.update_rich_presence();

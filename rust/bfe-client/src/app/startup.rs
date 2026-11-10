@@ -176,7 +176,8 @@ pub enum StartupContentState {
         started_at: Instant,
     },
     /// A checked content export is staged without blocking the window.
-    Importing(Box<super::first_run::ImportWork>),
+    /// An import or export running on a worker thread (prepare.js `transfer`).
+    Transfer(Box<super::first_run::TransferWork>),
     /// Interactive first-run discovery, confirmation, validation or failure.
     FirstRun(Box<super::first_run::Setup>),
 }
@@ -347,36 +348,43 @@ impl StartupContentState {
             }
             return None;
         }
-        if let Self::Importing(work) = self {
+        if let Self::Transfer(work) = self {
             if let Some(result) = work.poll() {
-                match result {
-                    Ok(root) => {
-                        // main.js keeps the imported folder as the chosen content either way, then
-                        // lets the startup check decide: content made for another version of the
-                        // importers gets the outdated screen instead of the game.
+                use super::first_run::{Setup, TransferEnd};
+                use bfe_shell::screens::TransferKind;
+                let operation = work.operation();
+                let in_use = work.content().map(Path::to_path_buf);
+                let mut end = TransferEnd {
+                    failed: false,
+                    operation,
+                    file: None,
+                    content: in_use,
+                };
+                let message = match (result, operation) {
+                    (Ok(path), TransferKind::Import) => {
+                        // main.js makes the imported folder the content in use; whether it is
+                        // current is decided when MAIN MENU runs the startup check.
                         store.desktop.chosen_content_dir =
-                            Some(root.to_string_lossy().into_owned());
+                            Some(path.to_string_lossy().into_owned());
+                        store.desktop.preparing_content_dir = None;
                         let _ = store.save_desktop();
-                        let current = bfe_desktop::prepare::checkout_content_version().is_ok_and(|version| {
-                            bfe_desktop::prepare::prepared_content_current(
-                                bfe_desktop::prepare::read_prepare_state(Some(&root)).as_ref(),
-                                &version,
-                            )
-                        });
-                        if !current {
-                            *self = Self::FirstRun(Box::new(super::first_run::Setup::missing(true)));
-                            return None;
-                        }
-                        *self = Self::Ready(root.clone());
-                        return Some(root);
+                        end.file = Some(path.to_string_lossy().into_owned());
+                        end.content = Some(path);
+                        "Content verified and installed. You can play without installing or preparing the original game on this computer.".to_string()
                     }
-                    Err(error) => {
-                        let mut setup = super::first_run::Setup::missing(false);
-                        setup.message = Some(error);
-                        setup.transfer_error = true;
-                        *self = Self::FirstRun(Box::new(setup));
+                    (Ok(path), TransferKind::Export) => {
+                        end.file = Some(path.to_string_lossy().into_owned());
+                        "Your prepared maps, enhanced media and preparation records are ready to copy to another computer.".to_string()
                     }
-                }
+                    (Err(error), _) => {
+                        end.failed = true;
+                        error
+                    }
+                };
+                let mut setup = Setup::missing(false);
+                setup.message = Some(message);
+                setup.transfer = Some(end);
+                *self = Self::FirstRun(Box::new(setup));
             }
             return None;
         }

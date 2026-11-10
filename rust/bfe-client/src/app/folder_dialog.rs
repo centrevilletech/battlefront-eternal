@@ -10,8 +10,22 @@ pub const INVALID: &str =
     "That folder holds neither Star Wars Battlefront (2004) nor prepared game data.";
 
 type Reply = mpsc::Sender<Result<Option<PathBuf>, String>>;
+/// What a chooser picks.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// A game install or prepared content folder.
+    Folder,
+    /// The archive to import (`showOpenDialog` in `runContentTransfer`).
+    ImportFile,
+    /// Where to save the export (`showSaveDialog` in `runContentTransfer`).
+    ExportFile,
+}
+
+/// The archive name the browser build proposes for an export.
+pub const EXPORT_NAME: &str = "Battlefront-Eternal-content.bfepack";
+
 enum Request {
-    Choose(bool, Reply),
+    Choose(Kind, Reply),
     Warning(PathBuf, Reply),
 }
 
@@ -23,8 +37,8 @@ fn request(make: impl FnOnce(Reply) -> Request) -> Receiver<Result<Option<PathBu
         std::thread::spawn(move || {
             while let Ok(request) = rx.recv() {
                 match request {
-                    Request::Choose(import, reply) => {
-                        let _ = reply.send(choose_native(import));
+                    Request::Choose(kind, reply) => {
+                        let _ = reply.send(choose_native(kind));
                     }
                     Request::Warning(path, reply) => {
                         let _ = reply.send(warning_native(&path).map(|_| None));
@@ -39,7 +53,39 @@ fn request(make: impl FnOnce(Reply) -> Request) -> Receiver<Result<Option<PathBu
     rx
 }
 pub fn choose() -> Receiver<Result<Option<PathBuf>, String>> {
-    request(|reply| Request::Choose(false, reply))
+    request(|reply| Request::Choose(Kind::Folder, reply))
+}
+/// The open dialog for an archive to import: filtered to `.bfepack` and `.zip`.
+pub fn import_file() -> Receiver<Result<Option<PathBuf>, String>> {
+    request(|reply| Request::Choose(Kind::ImportFile, reply))
+}
+/// The save dialog for an export: proposes [`EXPORT_NAME`] in the downloads folder.
+pub fn export_file() -> Receiver<Result<Option<PathBuf>, String>> {
+    request(|reply| Request::Choose(Kind::ExportFile, reply))
+}
+
+/// The user's downloads folder (`app.getPath("downloads")`): `XDG_DOWNLOAD_DIR`, the
+/// `user-dirs.dirs` entry, or `~/Downloads`.
+fn downloads_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("XDG_DOWNLOAD_DIR") {
+        return Some(PathBuf::from(dir));
+    }
+    let home = PathBuf::from(std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?);
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".config"));
+    if let Ok(text) = std::fs::read_to_string(config.join("user-dirs.dirs")) {
+        for line in text.lines() {
+            if let Some(value) = line.trim().strip_prefix("XDG_DOWNLOAD_DIR=") {
+                let value = value
+                    .trim()
+                    .trim_matches('"')
+                    .replace("$HOME", &home.to_string_lossy());
+                return Some(PathBuf::from(value));
+            }
+        }
+    }
+    Some(home.join("Downloads"))
 }
 pub fn warning(path: PathBuf) -> Receiver<Result<Option<PathBuf>, String>> {
     request(|reply| Request::Warning(path, reply))
@@ -73,12 +119,8 @@ fn flush_dialog_changes(gtk: &libloading::Library) -> Result<(), String> {
     Ok(())
 }
 
-pub fn choose_export() -> Receiver<Result<Option<PathBuf>, String>> {
-    request(|reply| Request::Choose(true, reply))
-}
-
 #[cfg(target_os = "linux")]
-fn choose_native(import: bool) -> Result<Option<PathBuf>, String> {
+fn choose_native(kind: Kind) -> Result<Option<PathBuf>, String> {
     use std::ffi::{c_char, c_void, CStr, CString};
     use std::os::unix::ffi::OsStrExt;
     // SAFETY: the GTK service thread owns the nested event loop and every C
@@ -107,9 +149,9 @@ fn choose_native(import: bool) -> Result<Option<PathBuf>, String> {
         let filename: libloading::Symbol<unsafe extern "C" fn(*mut c_void) -> *mut c_char> = gtk
             .get(b"gtk_file_chooser_get_filename\0")
             .map_err(|e| e.to_string())?;
-        let folder: libloading::Symbol<unsafe extern "C" fn(*mut c_void, *const c_char) -> i32> = gtk
-            .get(b"gtk_file_chooser_set_current_folder\0")
-            .map_err(|e| e.to_string())?;
+        let folder: libloading::Symbol<unsafe extern "C" fn(*mut c_void, *const c_char) -> i32> =
+            gtk.get(b"gtk_file_chooser_set_current_folder\0")
+                .map_err(|e| e.to_string())?;
         let modal: libloading::Symbol<unsafe extern "C" fn(*mut c_void, i32)> = gtk
             .get(b"gtk_native_dialog_set_modal\0")
             .map_err(|e| e.to_string())?;
@@ -120,27 +162,77 @@ fn choose_native(import: bool) -> Result<Option<PathBuf>, String> {
             gtk.get(b"g_free\0").map_err(|e| e.to_string())?;
         let unref: libloading::Symbol<unsafe extern "C" fn(*mut c_void)> =
             gtk.get(b"g_object_unref\0").map_err(|e| e.to_string())?;
-        let title = CString::new(if import {
-            "Import prepared game content"
-        } else {
-            TITLE
+        let title = CString::new(match kind {
+            Kind::Folder => TITLE,
+            Kind::ImportFile => "Import prepared game content",
+            Kind::ExportFile => "Export prepared game content",
         })
         .unwrap();
+        // GTK_FILE_CHOOSER_ACTION_OPEN = 0, SAVE = 1, SELECT_FOLDER = 2.
         let dialog = new(
             title.as_ptr(),
             std::ptr::null_mut(),
-            if import { 0 } else { 2 },
-            c"Open".as_ptr(),
-            c"Cancel".as_ptr(),
+            match kind {
+                Kind::ImportFile => 0,
+                Kind::ExportFile => 1,
+                Kind::Folder => 2,
+            },
+            if kind == Kind::ExportFile {
+                c"_Save"
+            } else {
+                c"_Open"
+            }
+            .as_ptr(),
+            c"_Cancel".as_ptr(),
         );
         if dialog.is_null() {
             return Err("Cannot create the folder chooser.".into());
         }
         modal(dialog, 1);
-        if let Some(home) = std::env::var_os("HOME") {
-            if let Ok(home) = CString::new(home.as_bytes()) {
-                folder(dialog, home.as_ptr());
+        // The browser's filters: `.bfepack` for an export, `.bfepack` and `.zip` for an import.
+        if kind != Kind::Folder {
+            let new_filter: libloading::Symbol<unsafe extern "C" fn() -> *mut c_void> = gtk
+                .get(b"gtk_file_filter_new\0")
+                .map_err(|e| e.to_string())?;
+            let set_name: libloading::Symbol<unsafe extern "C" fn(*mut c_void, *const c_char)> =
+                gtk.get(b"gtk_file_filter_set_name\0")
+                    .map_err(|e| e.to_string())?;
+            let add_pattern: libloading::Symbol<unsafe extern "C" fn(*mut c_void, *const c_char)> =
+                gtk.get(b"gtk_file_filter_add_pattern\0")
+                    .map_err(|e| e.to_string())?;
+            let add_filter: libloading::Symbol<unsafe extern "C" fn(*mut c_void, *mut c_void)> =
+                gtk.get(b"gtk_file_chooser_add_filter\0")
+                    .map_err(|e| e.to_string())?;
+            let filter = new_filter();
+            if kind == Kind::ExportFile {
+                set_name(filter, c"Battlefront Eternal content".as_ptr());
+                add_pattern(filter, c"*.bfepack".as_ptr());
+            } else {
+                set_name(filter, c"Battlefront Eternal content export".as_ptr());
+                add_pattern(filter, c"*.bfepack".as_ptr());
+                add_pattern(filter, c"*.zip".as_ptr());
             }
+            add_filter(dialog, filter);
+        }
+        let start = if kind == Kind::ExportFile {
+            downloads_dir().map(PathBuf::into_os_string)
+        } else {
+            std::env::var_os("HOME")
+        };
+        if let Some(start) = start {
+            if let Ok(start) = CString::new(start.as_bytes()) {
+                folder(dialog, start.as_ptr());
+            }
+        }
+        if kind == Kind::ExportFile {
+            let set_name: libloading::Symbol<unsafe extern "C" fn(*mut c_void, *const c_char)> =
+                gtk.get(b"gtk_file_chooser_set_current_name\0")
+                    .map_err(|e| e.to_string())?;
+            let overwrite: libloading::Symbol<unsafe extern "C" fn(*mut c_void, i32)> = gtk
+                .get(b"gtk_file_chooser_set_do_overwrite_confirmation\0")
+                .map_err(|e| e.to_string())?;
+            set_name(dialog, CString::new(EXPORT_NAME).unwrap().as_ptr());
+            overwrite(dialog, 1);
         }
         let result = if run(dialog) == -3 {
             let path = filename(dialog);
@@ -163,15 +255,18 @@ fn choose_native(import: bool) -> Result<Option<PathBuf>, String> {
 }
 
 #[cfg(target_os = "windows")]
-fn choose_native(import: bool) -> Result<Option<PathBuf>, String> {
-    let script = r#"Add-Type -AssemblyName System.Windows.Forms; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); $d=New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description='Choose Star Wars Battlefront or prepared game data'; $d.ShowNewFolderButton=$false; if($d.ShowDialog() -eq 'OK'){[Console]::Write($d.SelectedPath)}"#;
-    let script = if import {
-        r#"Add-Type -AssemblyName System.Windows.Forms; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); $d=New-Object System.Windows.Forms.OpenFileDialog; $d.Title='Import prepared game content'; $d.Filter='Battlefront Eternal content export|*.bfepack;*.zip'; if($d.ShowDialog() -eq 'OK'){[Console]::Write($d.FileName)}"#
-    } else {
-        script
+fn choose_native(kind: Kind) -> Result<Option<PathBuf>, String> {
+    let prelude = "Add-Type -AssemblyName System.Windows.Forms; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); ";
+    let script = match kind {
+        Kind::Folder => format!("{prelude}$d=New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description='Choose Star Wars Battlefront or prepared game data'; $d.ShowNewFolderButton=$false; if($d.ShowDialog() -eq 'OK'){{[Console]::Write($d.SelectedPath)}}"),
+        Kind::ImportFile => format!("{prelude}$d=New-Object System.Windows.Forms.OpenFileDialog; $d.Title='Import prepared game content'; $d.Filter='Battlefront Eternal content export|*.bfepack;*.zip'; if($d.ShowDialog() -eq 'OK'){{[Console]::Write($d.FileName)}}"),
+        Kind::ExportFile => {
+            let start = downloads_dir().map(|d| d.to_string_lossy().replace('\'', "''")).unwrap_or_default();
+            format!("{prelude}$d=New-Object System.Windows.Forms.SaveFileDialog; $d.Title='Export prepared game content'; $d.Filter='Battlefront Eternal content|*.bfepack'; $d.FileName='{EXPORT_NAME}'; $d.InitialDirectory='{start}'; $d.OverwritePrompt=$true; if($d.ShowDialog() -eq 'OK'){{[Console]::Write($d.FileName)}}")
+        }
     };
     let output = std::process::Command::new("powershell.exe")
-        .args(["-NoProfile", "-STA", "-Command", script])
+        .args(["-NoProfile", "-STA", "-Command", &script])
         .output()
         .map_err(|e| e.to_string())?;
     if !output.status.success() {
@@ -182,7 +277,7 @@ fn choose_native(import: bool) -> Result<Option<PathBuf>, String> {
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-fn choose_native(_: bool) -> Result<Option<PathBuf>, String> {
+fn choose_native(_: Kind) -> Result<Option<PathBuf>, String> {
     Err("Folder selection is unavailable on this platform.".into())
 }
 

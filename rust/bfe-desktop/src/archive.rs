@@ -68,6 +68,11 @@ pub const ARCHIVE_VERSION: u32 = 1;
 /// Mirrors `CONTENT_ROOTS` in the desktop host.
 const CONTENT_ROOTS: &[&str] = &["common", "sides", "maps", "audio"];
 
+/// What `yauzl` says for a file that has no end-of-central-directory record, which the
+/// browser build shows as the failure of such an import.
+const EOCD_NOT_FOUND: &str =
+    "End of central directory record signature not found. Either not a zip file, or file is truncated.";
+
 /// Maximum allowed file count in an imported `.bfecontent` archive (`300_000`).
 ///
 /// Mirrors `MAX_FILES` in the desktop host.
@@ -826,7 +831,7 @@ pub fn read_zip_entries(file: &mut File) -> Result<BTreeMap<String, ZipEntryInfo
         .len();
     // Every valid ZIP file has at least a 22-byte End of Central Directory (EOCD) record.
     if total_size < 22 {
-        return Err("That file is not a Battlefront Eternal content archive.".to_string());
+        return Err(EOCD_NOT_FOUND.to_string());
     }
     // Read at most the trailing 65,557 bytes (22-byte EOCD + 65,535-byte max comment).
     let tail_size = total_size.min(65557) as usize;
@@ -837,10 +842,10 @@ pub fn read_zip_entries(file: &mut File) -> Result<BTreeMap<String, ZipEntryInfo
     let mut eocd_pos: Option<usize> = None;
     if let Some(max_start) = tail.len().checked_sub(22) {
         for i in (0..=max_start).rev() {
-            let sig = read_u32(&tail, i, "That file is not a valid content archive.")?;
+            let sig = read_u32(&tail, i, EOCD_NOT_FOUND)?;
             if sig == ZIP_EOCD_SIG {
                 let comment_len =
-                    read_u16(&tail, i + 20, "That file is not a valid content archive.")? as usize;
+                    read_u16(&tail, i + 20, EOCD_NOT_FOUND)? as usize;
                 if i.checked_add(22).and_then(|n| n.checked_add(comment_len)) == Some(tail.len()) {
                     eocd_pos = Some(i);
                     break;
@@ -849,23 +854,23 @@ pub fn read_zip_entries(file: &mut File) -> Result<BTreeMap<String, ZipEntryInfo
         }
     }
     let Some(eocd) = eocd_pos else {
-        return Err("That file is not a valid content archive.".to_string());
+        return Err(EOCD_NOT_FOUND.to_string());
     };
 
     let mut count = read_u16(
         &tail,
         eocd + 10,
-        "That file is not a valid content archive.",
+        EOCD_NOT_FOUND,
     )? as u64;
     let mut central_size = read_u32(
         &tail,
         eocd + 12,
-        "That file is not a valid content archive.",
+        EOCD_NOT_FOUND,
     )? as u64;
     let mut central_offset = read_u32(
         &tail,
         eocd + 16,
-        "That file is not a valid content archive.",
+        EOCD_NOT_FOUND,
     )? as u64;
 
     // Check for a preceding 20-byte ZIP64 EOCD Locator when the archive exceeds 32-bit limits.

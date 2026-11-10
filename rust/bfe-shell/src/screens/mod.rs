@@ -208,6 +208,18 @@ pub enum ShellAction {
     ExitToWindows,
     /// User decision on the 3-button `HostClosePrompt` (`0` = KeepServer, `1` = StopServer, `2` = Cancel).
     HostCloseDecision(usize),
+    /// `EXPORT CONTENT` or `IMPORT CONTENT` on the main menu: the client asks for the file,
+    /// runs the transfer and shows its progress (`transferContent` in `src/shell/screens.js`).
+    ContentTransfer(TransferKind),
+}
+
+/// Which way a content transfer goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransferKind {
+    /// Write the prepared content to an archive.
+    Export,
+    /// Read an archive into a new content folder.
+    Import,
 }
 
 /// Option value stored in [`ShellSettings`] for the `OPTIONS` pages.

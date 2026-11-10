@@ -14,7 +14,7 @@
 
 use super::{
     IaFocus, OptionsPageId, PendingMpAction, PopupState, ScreenId, ShellAction, ShellApp,
-    ShellSettings,
+    ShellSettings, TransferKind,
 };
 use crate::{
     data::ShellMap,
@@ -842,13 +842,17 @@ impl ShellApp {
                         self.sound_queue.push("shell_menu_enter");
                         self.push_screen(ScreenId::Profile);
                     }
-                    // Content transfer requires the desktop bridge (`transferContent`
-                    // in `src/shell/screens.js`).
+                    // Both rows hand the transfer to the client, which owns the file
+                    // dialogs and the work (`transferContent` in `src/shell/screens.js`).
                     "export-content" | "import-content" => {
                         self.sound_queue.push("shell_menu_accept");
-                        self.popup = Some(PopupState::Notice {
-                            message: "CONTENT TRANSFER REQUIRES THE DESKTOP CLIENT.".to_string(),
-                        });
+                        self.pending_action = Some(ShellAction::ContentTransfer(
+                            if row.id == "export-content" {
+                                TransferKind::Export
+                            } else {
+                                TransferKind::Import
+                            },
+                        ));
                     }
                     // `EXIT TO WINDOWS` opens the `YES`/`NO` confirmation dialog.
                     "quit" => {
