@@ -31,6 +31,7 @@ pub mod sound_data;
 pub mod combat;
 mod debris;
 mod effects;
+pub mod jetpacks;
 pub mod lightning;
 mod shields;
 pub mod particles;

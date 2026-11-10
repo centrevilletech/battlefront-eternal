@@ -21,7 +21,7 @@ const EXPIRY: f64 = 120.;
 const PENDING: usize = 256;
 
 /// What each `Presented::shown` count is, for a battle's summary.
-pub const SHOWN: [&str; 11] = [
+pub const SHOWN: [&str; 14] = [
     "weaponActions",
     "weaponActionEnds",
     "deathBlasts",
@@ -33,6 +33,9 @@ pub const SHOWN: [&str; 11] = [
     "shieldBubbleDraws",
     "effectDrawsRefused",
     "muzzleFlashDraws",
+    "enhancedBoltCapsules",
+    "sniperTraceDraws",
+    "jetpackDraws",
 ];
 
 /// One clip per posture and action for a weapon bank, -1 where none plays.

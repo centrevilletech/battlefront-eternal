@@ -81,6 +81,18 @@ struct Slot {
     // its colour and alpha.
     flash: (usize, f64, f64, [f64; 4]),
 }
+/// The player's VIDEO settings that pick a look here. Each effect setting is
+/// Enhanced unless it says "classic", as the browser reads it.
+#[derive(Clone, Copy)]
+pub struct Looks {
+    pub arcs: bool,
+    pub shields: bool,
+    pub soft_particles: bool,
+    pub bolts: bool,
+    pub sniper: bool,
+    /// jetpackEffects: Enhanced only when it says "enhanced".
+    pub jetpack: bool,
+}
 pub struct Replicas {
     pub first_person: super::first_person::Views,
     pub descriptor: serde_json::Value,
@@ -92,6 +104,7 @@ pub struct Replicas {
     pub sound: Box<super::sound::Sound>,
     pub presented: presented::Presented,
     pub arcs: Box<super::lightning::Arcs>,
+    jets: Box<super::jetpacks::Jetpacks>,
     guns: super::lightning::Guns,
     soft: bool,
     // The tick of the frame being drawn.
@@ -399,7 +412,7 @@ impl Replicas {
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         let arc_images = particles.textures.clone();
-        let combat = Box::new(super::combat::Combat::new(
+        let mut combat = Box::new(super::combat::Combat::new(
             content,
             particles,
             bridge,
@@ -425,6 +438,10 @@ impl Replicas {
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         let hud = Box::new(hud.admit(bridge, textures, solid, size)?);
+        // The jetpacks' floats sit after the particles', before the arcs'.
+        let jets_at = combat.particles.words;
+        combat.particles.words += super::jetpacks::FLOATS;
+        let jets = Box::new(super::jetpacks::Jetpacks::new(content, bridge, renderer, &combat.effect_names, jets_at)?);
         let arcs = Box::new(super::lightning::Arcs::new(content, bridge, textures, &arc_images, combat.particles.words)?);
         let guns = super::lightning::Guns::new(content)?;
         let (collision, world) = (resources.collision.clone(), resources.world);
@@ -462,6 +479,7 @@ impl Replicas {
             sound,
             presented,
             arcs,
+            jets,
             guns,
             // The browser's defaults, until the player's settings arrive.
             soft: true,
@@ -947,7 +965,45 @@ impl Replicas {
         }
         let mut casts = super::lightning::Casts { collision: &self.collision, world: self.world };
         self.arcs.finish(&mut casts, projection, height, bridge);
+        self.combat.present_sniper(camera, projection, height, bridge);
+        self.presented.shown[12] = self.combat.total_streaks;
         self.present_flashes(receiver, bridge);
+        self.present_jets(dt, bridge);
+    }
+    // game.js updateJetFlame for every body drawn: a soldier jetting and
+    // alive (`soldier.air === "jet"`) burns at his ribcage as posed this
+    // frame, with the Enhanced flame and wake or, in Classic, his class's
+    // JetExhaust effect.
+    fn present_jets(&mut self, dt: f64, bridge: &mut Bridge) {
+        self.jets.begin();
+        for at in 0..self.slots.len() {
+            let slot = &self.slots[at];
+            let (true, false, Some(unit), Some(chest)) = (slot.active, slot.walker, slot.identity, self.models[slot.model].chest) else {
+                continue;
+            };
+            let out = &self.units.output[slot.actor * o::STRIDE..];
+            // Air::Jet on the wire and in the own body's prediction.
+            let active = out[o::AIR] == 4. && !slot.dead && out[o::GONE] != -1.;
+            // Bone i is node i + 2 of the actor's posed tree.
+            let node = (self.units.actor_node_start(slot.actor) + 2 + chest) * bfe_presentation::layout::unit_node::STRIDE
+                + bfe_presentation::layout::unit_node::WORLD;
+            let mut matrix = Matrix4::default();
+            matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
+            let (mut position, mut turn, mut scale) = (three::Vector3::default(), three::Quaternion::default(), three::Vector3::default());
+            matrix.decompose(&mut position, &mut turn, &mut scale);
+            let position = [position.x, position.y, position.z];
+            let turn = [turn.x, turn.y, turn.z, turn.w];
+            let velocity = std::array::from_fn(|axis| out[o::VELOCITY + axis]);
+            let class = slot.class;
+            self.jets.update(unit, class, active, position, turn, velocity, dt);
+            if active && !self.jets.enhanced {
+                if let Some(group) = self.jets.classic(class) {
+                    self.combat.flame(unit, group, position, velocity, turn);
+                }
+            }
+        }
+        self.jets.finish(self.soft, bridge);
+        self.presented.shown[13] = self.jets.draws + self.combat.total_flames;
     }
     // combat.js updateFlashes, for every body: the flash model sits at the
     // muzzle of the gun in his hand (0.6 of its size, FLASH_SCALE) while the
@@ -997,12 +1053,14 @@ impl Replicas {
             }
         }
     }
-    /// The looks the player's settings choose, as the browser reads them:
-    /// arcCasterEffects and droidekaEffects, each Enhanced unless "classic".
-    pub fn set_looks(&mut self, arcs_enhanced: bool, shields_enhanced: bool, soft_particles: bool) {
-        self.arcs.enhanced = arcs_enhanced;
-        self.shields.enhanced = shields_enhanced;
-        self.soft = soft_particles;
+    /// The looks the player's settings choose, as the browser reads them.
+    pub fn set_looks(&mut self, looks: Looks) {
+        self.arcs.enhanced = looks.arcs;
+        self.shields.enhanced = looks.shields;
+        self.soft = looks.soft_particles;
+        self.combat.enhanced_bolts = looks.bolts;
+        self.combat.enhanced_sniper = looks.sniper;
+        self.jets.enhanced = looks.jetpack;
     }
     /// The softParticles setting: particles and arcs fade where they meet
     /// the scene, which needs the frame's depth copy.
@@ -1030,6 +1088,8 @@ impl Replicas {
     /// texture of the opaque scene's depth, which soft particles read.
     pub fn present_shields(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], size: [i32; 2], depth: u32, bridge: &mut Bridge) {
         self.combat.particles.project(bridge, camera, self.soft.then_some((size, depth)));
+        self.combat.project(bridge, camera, size[1] as f64);
+        self.presented.shown[11] = self.combat.total_blasters;
         self.shields.begin();
         for at in 0..self.slots.len() {
             let Some(bubble) = self.slots[at].bubble.filter(|_| self.slots[at].active) else {
