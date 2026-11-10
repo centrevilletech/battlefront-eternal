@@ -740,7 +740,7 @@ pub(super) fn drain_battle_actions(
                     battle.spawn_ctrl.model.switch_team(
                         &battle.spawn_port,
                         TeamSwitchSource::Mouse,
-                        0.25,
+                        super::battle::unit_random(),
                     );
                     battle.spawn_ctrl.sync_model_events();
                 }
@@ -750,7 +750,7 @@ pub(super) fn drain_battle_actions(
                     battle.spawn_ctrl.model.switch_team(
                         &battle.spawn_port,
                         TeamSwitchSource::Mouse,
-                        0.25,
+                        super::battle::unit_random(),
                     );
                     battle.spawn_ctrl.sync_model_events();
                 }

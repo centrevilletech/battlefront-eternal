@@ -95,6 +95,7 @@ pub(crate) mod page_battle;
 mod page_pause;
 mod page_browser;
 mod page_surfaces;
+mod resize_guard;
 pub mod startup;
 
 use crate::{
@@ -408,6 +409,8 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         ime_preedit: false,
         clipboard: arboard::Clipboard::new().ok(),
         fullscreen: false,
+        resize_guard: Default::default(),
+        started: Instant::now(),
         last_frame: Instant::now(),
         presence: PresenceController::default(),
         last_presence_key: String::new(),
@@ -489,6 +492,10 @@ struct StandaloneWindowApp {
     pointer_icon: winit::window::CursorIcon,
     /// Whether borderless fullscreen mode is currently active (`F11`).
     fullscreen: bool,
+    /// Ends a size the window and the compositor keep handing back and forth.
+    resize_guard: resize_guard::ResizeGuard,
+    /// When the window was made, for the guard's clock.
+    started: Instant,
     /// Timestamp of the previous rendered frame for computing `dt`.
     last_frame: Instant,
     /// Discord Rich Presence controller (`bfe-desktop`).
@@ -664,6 +671,11 @@ impl StandaloneWindowApp {
     /// Flips `self.fullscreen` and applies `Fullscreen::Borderless(None)` (or `None` for
     /// windowed mode) on the active `winit::window::Window`.
     fn toggle_fullscreen(&mut self) {
+        // The compositor can put the window in or out of fullscreen on its
+        // own (a tiling desktop's fullscreen key), so ask the window.
+        if let Some(window) = &self.window {
+            self.fullscreen = window.fullscreen().is_some();
+        }
         self.fullscreen = !self.fullscreen;
         if let Some(window) = &self.window {
             window.set_fullscreen(self.fullscreen.then_some(Fullscreen::Borderless(None)));
@@ -1197,7 +1209,21 @@ impl ApplicationHandler for StandaloneWindowApp {
                 }
                 self.sync_pointer_lock();
             }
-            WindowEvent::Resized(phys) => {
+            WindowEvent::Resized(mut phys) => {
+                // A compositor that sizes a floating window to its client's
+                // last frame can trade two sizes with it forever. Ask for the
+                // one kept in place of the one refused.
+                if let Some(window) = &self.window {
+                    let monitor = window
+                        .fullscreen()
+                        .and_then(|_| window.current_monitor())
+                        .map(|monitor| [monitor.size().width, monitor.size().height]);
+                    let now = self.started.elapsed().as_secs_f64();
+                    if let Some(keep) = self.resize_guard.observe(now, [phys.width, phys.height], monitor) {
+                        phys = winit::dpi::PhysicalSize::new(keep[0], keep[1]);
+                        let _ = window.request_inner_size(phys);
+                    }
+                }
                 // Resize the EGL/GLX window surface when physical dimensions change.
                 if phys.width > 0 && phys.height > 0 {
                     let new_size = [phys.width as i32, phys.height as i32];

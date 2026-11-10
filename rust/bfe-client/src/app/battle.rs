@@ -255,6 +255,17 @@ pub struct LiveSpawnPort {
     post_vehicles:std::collections::HashMap<String,[Vec<String>;2]>,
 }
 
+/// The spawn screen's Math.random (spawn-screen/index.js gives its model no
+/// other source): uniform in [0, 1) and different on every run, so a team
+/// switch lands on any of the new team's posts, as the page's does.
+pub(super) fn unit_random() -> f64 {
+    use std::hash::{BuildHasher, Hasher};
+    static DRAWS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u64(DRAWS.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    (hasher.finish() >> 11) as f64 / (1u64 << 53) as f64
+}
+
 impl LiveSpawnPort {
     /// Constructs a [`LiveSpawnPort`] from the mission's extracted HUD class metadata,
     /// command post metadata, localization strings, and era (`"cw"` or `"gcw"`).
@@ -2060,7 +2071,7 @@ impl BattleController {
                 // spawn-screen/index.js follows the authoritative teamChanged
                 // event even when its initial screen opened before welcome.
                 if self.spawn_port.human.team != previous_team {
-                    self.spawn_ctrl.notify_team_changed(&self.spawn_port, self.spawn_port.human.team, 0.25);
+                    self.spawn_ctrl.notify_team_changed(&self.spawn_port, self.spawn_port.human.team, unit_random());
                 }
                 self.scoreboard_port
                     .sync_from_state(profile_name, &replicas.hud, &client.receiver);
@@ -2113,7 +2124,7 @@ impl BattleController {
                 self.height,
                 fh,
                 false,
-                0.25,
+                unit_random(),
             );
             self.spawn_ctrl.view.sync_hud_inputs(
                 &self.spawn_ctrl.model,

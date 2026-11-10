@@ -1227,8 +1227,12 @@ impl Replicas {
             bridge.r.core.input[at..at + draw::REC_STRIDE].copy_from_slice(&row);
             records += 1;
             bones += count;
+            // PlayerCombat.updateHeld: a dead unit's weapon is not shown
+            // (`held.group.visible = !this.dead && ...`), so the death clip's
+            // hand does not fling a rifle across the floor.
+            let weapon = if output[o::DEAD] != 0. { None } else { slot.held };
             if let (Some(hand), Some(model)) =
-                (self.models[slot.model].hand, slot.held.and_then(|i| self.held.get(i)).and_then(Option::as_ref))
+                (self.models[slot.model].hand, weapon.and_then(|i| self.held.get(i)).and_then(Option::as_ref))
             {
                 let node = (self.units.actor_node_start(slot.actor) + hand) * bfe_presentation::layout::unit_node::STRIDE
                     + bfe_presentation::layout::unit_node::WORLD;
