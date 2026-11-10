@@ -337,7 +337,9 @@ impl<E: Engine> Runtime<E> {
             return Err(error.into());
         }
         self.ticks += 1;
-        self.publish()
+        self.publish()?;
+        self.receiver.squad_orders(output.squads, self.tick());
+        Ok(())
     }
 
     /// Steps one 60 Hz tick on the dedicated world thread and copies the
@@ -376,6 +378,7 @@ impl<E: Engine> Runtime<E> {
         }
         self.ticks += 1;
         self.publish_into_slot(slot)?;
+        slot.squads = output.squads;
         Ok(self.tick())
     }
 

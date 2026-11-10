@@ -203,6 +203,9 @@ pub struct PublicationSlot {
     pub client: u32,
     pub block: Block,
     pub bytes: Vec<u8>,
+    /// The squad orders the world took from the player on this tick
+    /// (`WorldTickOutput::squads`), for the HUD's squad line.
+    pub squads: u32,
 }
 
 impl std::fmt::Debug for PublicationSlot {
@@ -226,6 +229,7 @@ impl PublicationSlot {
                 heap: Vec::new(),
             },
             bytes: Vec::with_capacity(policy.bytes.capacity().max(65536)),
+            squads: 0,
         }
     }
 }
@@ -715,10 +719,12 @@ impl WorldThread {
             return Ok(0);
         };
         let mut count = 0usize;
-        while let Some(slot) = queue.pop_ready() {
+        while let Some(mut slot) = queue.pop_ready() {
             let result = Publication::new(&slot.block, &slot.bytes)
                 .map_err(str::to_string)
                 .and_then(|pub_view| pub_view.deliver(slot.client, receiver, now_ms));
+            // Taken, so a recycled slot never repeats an order.
+            receiver.squad_orders(std::mem::take(&mut slot.squads), slot.tick);
             queue.release_slot(slot);
             result?;
             self.delivered += 1;

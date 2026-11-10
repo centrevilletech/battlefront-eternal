@@ -8,7 +8,7 @@ use bfe_render::{
     hud as render,
     hud_model::{
         self,
-        layout::{HudArt as A, HudFrame as H, HudGlyph as G, HudWeapon as W, HudPost as P, HudPostCount as PC, HudUnit as U},
+        layout::{HudArt as A, HudCommand as C, HudFrame as H, HudGlyph as G, HudWeapon as W, HudPost as P, HudPostCount as PC, HudUnit as U},
     },
 };
 use serde_json::Value;
@@ -118,7 +118,12 @@ struct Weapon {
 // update its mutable capture facts in place. Capture regions and labels are
 // cold resources, while HudModel retains progress animation, icon state,
 // text layout, fades and radar selection across displayed frames.
-struct Post{id:usize,row:[f64;P::WORDS],label:String,region:Option<bfe_content::regions::BuiltRegion>,counts:[[f64;PC::WORDS];8],count:usize}
+struct Post{id:usize,row:[f64;P::WORDS],label:String,region:Option<bfe_content::regions::BuiltRegion>,counts:[[f64;PC::WORDS];8],count:usize,
+    // Whether a destructible building is the post (commandposts.js
+    // attachBuildings), and the team and standing its last summary gave.
+    building: bool,
+    seen: Option<(u8, bool)>,
+}
 // PlayerCombat.updateHud uses the mounted object's authored health/icon;
 // vehicle seats also name their position independently of their weapons.
 struct MountHud {
@@ -139,6 +144,8 @@ pub struct Prepared {
     radar: super::radar::Teams,map:Option<[f64;5]>,posts:Vec<Post>,max_health:Vec<f64>,unit_defs:Vec<[f64;U::WORDS]>,
     class_meta: Vec<HudClassMeta>,
     post_meta: Vec<HudPostMeta>,
+    feed: super::hud_feed::Tables,
+    team_names: [String; 8],
 }
 #[derive(Clone, Copy)]
 pub struct Aim {
@@ -152,7 +159,9 @@ pub struct Hud {
     pub quads: usize,
     pub frames: u64,
     pub teams: [[f64; 4]; 8],
-    health: f64,
+    // What he sat in when the HUD was last told (kind, id, life); the outer
+    // None is a battle whose HUD has not been woken yet.
+    seat: Option<Option<(u32, u32, u32)>>,
     radar: super::radar::Teams,pub map:Option<[f64;5]>,posts:Vec<Post>,max_health:Vec<f64>,unit_defs:Vec<[f64;U::WORDS]>,
     pub countdown:f64,
     pub losing:bool,
@@ -168,6 +177,8 @@ pub struct Hud {
     pub own_summary: HudOwnSummary,
     pub auto_build: bool,
     flight_key: String,
+    feed: super::hud_feed::Feed,
+    team_names: [String; 8],
 }
 impl Prepared {
     // Reserve the fixed art slots even if a map omits an image. Optional art
@@ -183,6 +194,7 @@ impl Prepared {
             .unwrap_or("")
             .to_string();
         let world = authored_json(&content.content.battle.world);
+        let defs = bfe_content::defs::Defs::build(&content.content)?;
         let mut result = Self {
             assets: vec![Asset {
                 image: None,
@@ -197,6 +209,17 @@ impl Prepared {
             strings: common["strings"].clone(),radar:super::radar::Teams::new(content),map:None,posts:vec![],max_health:vec![],unit_defs:vec![],
             class_meta: vec![],
             post_meta: vec![],
+            feed: super::hud_feed::Tables::new(&defs),
+            // Battle.names (src/battle.js): each mission team's label, else
+            // its name; a team the mission does not list has none.
+            team_names: std::array::from_fn(|team| {
+                let entry = content.content.battle.world.get("mission").and_then(|m| m.get("teams")).and_then(|t| t.get(&team.to_string()));
+                ["label", "name"]
+                    .into_iter()
+                    .find_map(|key| entry.and_then(|e| e.get(key)).and_then(bfe_content::Value::as_str).filter(|text| !text.is_empty()))
+                    .unwrap_or("")
+                    .to_string()
+            }),
         };
         let mut asset = |name: &str, result: &mut Self| -> Result<u32, String> {
             if name.is_empty() {
@@ -259,7 +282,6 @@ impl Prepared {
             }
             result.fonts.push((font["lineHeight"].as_f64().unwrap_or(0.), rows));
         }
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
         result.max_health=vec![300.;defs.registry.classes.len()+1];result.unit_defs=vec![[0.;U::WORDS];defs.registry.classes.len()+1];
         for c in &defs.classes {
             if let Some(reg_id) = c.registry_id {
@@ -393,7 +415,21 @@ impl Prepared {
                 seats: vec![],
             });
         }
-        for (index,desc) in content.content.battle.world.get("commandPosts").and_then(bfe_content::Value::as_array).unwrap_or(&[]).iter().enumerate().take(hud_model::MAX_POSTS){let name=desc.get("name").and_then(bfe_content::Value::as_str).map(str::to_string).unwrap_or_else(||format!("#{index}"));let Some(id)=defs.registry.posts.iter().position(|n|*n==name).map(|i|i+1)else{continue;};let d=authored_json(desc);let mut row=[0.;P::WORDS];row[P::X]=d["matrix"][12].as_f64().unwrap_or(0.);row[P::Z]=d["matrix"][14].as_f64().unwrap_or(0.);row[P::MAPPED]=(d.get("mapTexture").is_none()||(d["mapTexture"].as_str().is_some_and(|s|!s.is_empty())&&d["mapScale"].as_f64().unwrap_or(1.)>0.))as u8 as f64;row[P::ACTIVE]=1.;row[P::TEAM]=d["team"].as_f64().unwrap_or(0.);row[P::TEXTURE]=asset(d["mapTexture"].as_str().unwrap_or(""),&mut result)?as f64;row[P::SCALE]=d["mapScale"].as_f64().unwrap_or(2.5);let region=desc.get("capture").filter(|v|v.truthy()).map(bfe_content::regions::build_region);let label:String=d["displayName"].as_str().or_else(||d["label"].as_str()).unwrap_or("").into();let y=d["matrix"][13].as_f64().unwrap_or(0.);result.post_meta.push(HudPostMeta{id,name:name.clone(),display_name:if label.is_empty(){format!("COMMAND POST {}",index+1)}else{label.clone()},position:[row[P::X],y,row[P::Z]],team:row[P::TEAM]as u8,active:true});result.posts.push(Post{id,row,label,region,counts:[[0.;PC::WORDS];8],count:0});}
+        // The posts a placed building stands for: its destruction takes the
+        // post out of the battle (props.json instances naming a post).
+        let objectives: Vec<&str> = content
+            .content
+            .battle
+            .props
+            .as_ref()
+            .and_then(|props| props.get("instances"))
+            .and_then(bfe_content::Value::as_array)
+            .unwrap_or(&[])
+            .iter()
+            .filter_map(|instance| instance.get("post").and_then(bfe_content::Value::as_str))
+            .filter(|post| !post.is_empty())
+            .collect();
+        for (index,desc) in content.content.battle.world.get("commandPosts").and_then(bfe_content::Value::as_array).unwrap_or(&[]).iter().enumerate().take(hud_model::MAX_POSTS){let name=desc.get("name").and_then(bfe_content::Value::as_str).map(str::to_string).unwrap_or_else(||format!("#{index}"));let Some(id)=defs.registry.posts.iter().position(|n|*n==name).map(|i|i+1)else{continue;};let d=authored_json(desc);let mut row=[0.;P::WORDS];row[P::X]=d["matrix"][12].as_f64().unwrap_or(0.);row[P::Z]=d["matrix"][14].as_f64().unwrap_or(0.);row[P::MAPPED]=(d.get("mapTexture").is_none()||(d["mapTexture"].as_str().is_some_and(|s|!s.is_empty())&&d["mapScale"].as_f64().unwrap_or(1.)>0.))as u8 as f64;row[P::ACTIVE]=1.;row[P::TEAM]=d["team"].as_f64().unwrap_or(0.);row[P::TEXTURE]=asset(d["mapTexture"].as_str().unwrap_or(""),&mut result)?as f64;row[P::SCALE]=d["mapScale"].as_f64().unwrap_or(2.5);let region=desc.get("capture").filter(|v|v.truthy()).map(bfe_content::regions::build_region);let label:String=d["displayName"].as_str().or_else(||d["label"].as_str()).unwrap_or("").into();let y=d["matrix"][13].as_f64().unwrap_or(0.);result.post_meta.push(HudPostMeta{id,name:name.clone(),display_name:if label.is_empty(){format!("COMMAND POST {}",index+1)}else{label.clone()},position:[row[P::X],y,row[P::Z]],team:row[P::TEAM]as u8,active:true});let building=!name.starts_with('#')&&objectives.contains(&name.as_str());result.posts.push(Post{id,row,label,region,counts:[[0.;PC::WORDS];8],count:0,building,seen:None});}
         let definitions = defs
             .weapons
             .iter()
@@ -503,6 +539,21 @@ impl Prepared {
             let id = bridge.hud_model_text(text, false);
             bridge.hud_model.input[at] = id as f64;
         }
+        // killMessage's lines by type (died, suicide, teamkill, killed):
+        // the localized template, else its English fallback. The feed puts
+        // the whole line in capitals, as BattleHud.message does.
+        for (index, (key, fallback)) in [
+            ("game.infomsg.died", "%s DIED"),
+            ("game.infomsg.suicide", "%s KILLED HIMSELF"),
+            ("game.infomsg.teamkill", "%s KILLED TEAMMATE %s"),
+            ("game.infomsg.killed", "%s KILLED %s"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let text = self.strings[key].as_str().filter(|text| !text.is_empty()).unwrap_or(fallback);
+            bridge.hud_model.input[H::KILL_TEMPLATES + index] = bridge.hud_model_text(text, true) as f64;
+        }
         let indices: Vec<u32> = (0..render::QUADS as u32)
             .flat_map(|i| [i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 2, i * 4 + 1, i * 4 + 3])
             .collect();
@@ -546,7 +597,7 @@ impl Prepared {
             quads: 0,
             frames: 0,
             teams: [[0.; 4]; 8],
-            health: f64::NAN,radar:self.radar,map:self.map,posts,max_health:self.max_health,unit_defs:self.unit_defs,countdown:f64::NAN,losing:false,
+            seat: None,radar:self.radar,map:self.map,posts,max_health:self.max_health,unit_defs:self.unit_defs,countdown:f64::NAN,losing:false,
             over: false,
             game_over: false,
             finished: false,
@@ -559,6 +610,8 @@ impl Prepared {
             own_summary: HudOwnSummary::default(),
             auto_build: true,
             flight_key: String::new(),
+            feed: super::hud_feed::Feed::new(self.feed),
+            team_names: self.team_names,
         };
         let bindings = bfe_interface::default_flight_bindings();
         let code = bindings
@@ -598,6 +651,9 @@ impl Hud {
     // tickets and objective facts without an authoritative client world.
     // Geometry and glyph emission remain in the native HudModel owner.
     pub fn frame(&mut self, bridge: &mut Bridge, receiver: &Receiver, prediction: &Replay, dt: f64) {
+        // Received combat facts raise their HUD events first, as the browser
+        // applies its packets before the frame's own HUD update.
+        self.feed.frame(&mut bridge.hud_model, receiver, &self.radar);
         // Only summaries delivered since the previous frame are decoded.
         // Equal network baselines do not rebuild an object graph or text.
         for field in receiver.publications.iter() {
@@ -673,6 +729,15 @@ impl Hud {
             } else if field.row[r::SCHEMA] == 2. && bytes.len() >= 23 {
                 let id = u16::from_le_bytes([bytes[0], bytes[1]]) as usize;
                 if let Some(post) = self.posts.iter_mut().find(|p| p.id == id) {
+                    // A post that changed hands or was destroyed is announced
+                    // in the colour its team has for the player, before the
+                    // new state is taken, as applyWorldSummary does.
+                    let (team, active) = (bytes[2], bytes[21] != 0);
+                    if let Some((key, by)) = super::hud_feed::post_change(post.seen.replace((team, active)), team, active, post.building) {
+                        let name = self.team_names.get(by as usize).map_or("", String::as_str);
+                        let line = super::hud_feed::fill(self.strings.get(key).map(String::as_str), &[name, &post.label]);
+                        self.feed.message(&mut bridge.hud_model, &line, self.radar.color_relation(receiver.own.team, by as usize));
+                    }
                     post.row[P::TEAM] = bytes[2] as f64;
                     post.row[P::TOWARD] = bytes[3] as f64;
                     post.row[P::PROGRESS] = f64::from_le_bytes(bytes[4..12].try_into().unwrap());
@@ -739,16 +804,22 @@ impl Hud {
         // A mounted hull has its own class and damage scale, independent of
         // the occupant's infantry maximum and its separately displayed bar.
         let health=receiver.own.health/self.max_health.get(receiver.own.class).copied().unwrap_or(300.);
-        if health != self.health {
-            bridge.hud_model_observe(
-                bfe_render::hud_model::layout::HudCommand::HEALTH,
-                health,
-                0.,
-                0.,
-                0.,
-            );
-            self.health = health;
+        // presentBattle (src/game.js) gives the HUD the local Character's
+        // score every frame; HudModel shows the popup when a number changes.
+        let score = super::hud_feed::score(&receiver.roster);
+        bridge.hud_model_observe(C::STATS, score[0], score[1], score[2], score[3]);
+        // PlayerCombat.updateHud: setVehicle first. Taking or leaving a
+        // vehicle or turret brings every panel back in, as does the first
+        // frame of a battle (BattleHud is woken once when the game is made).
+        // Another seat of the same vehicle is not a change.
+        let seat = receiver.own.mount.map(|lease| (receiver.own.mount_kind, lease.0, lease.1));
+        if self.seat != Some(seat) {
+            self.seat = Some(seat);
+            bridge.hud_model_observe(C::WAKE, 0., 0., 0., 0.);
         }
+        // setPlayer runs every frame: HudModel compares against the health
+        // it last showed, which a wake has just forgotten.
+        bridge.hud_model_observe(C::HEALTH, health, 0., 0., 0.);
         let mount = receiver.own.mount.and_then(|lease| receiver.active().find(|row|
             row[r::ID] == lease.0 as f64 && row[r::GENERATION] == lease.1 as f64
                 && row[r::KIND] == receiver.own.mount_kind as f64));
@@ -757,9 +828,26 @@ impl Hud {
             self.mounts.iter().find(|m| m.kind == row[r::KIND] && m.source == source)
         });
         let hull_fill = mount.map_or(0., |row| row[r::HEALTH] / mounted.map_or(1000., |m| m.health));
-        bridge.hud_model_observe(bfe_render::hud_model::layout::HudCommand::HULL,
-            mount.is_some() as u8 as f64,hull_fill,0.,0.);
+        bridge.hud_model_observe(C::HULL, mount.is_some() as u8 as f64, hull_fill, 0., 0.);
+        // The second bar on foot and alive: a jetpack's fuel as the page
+        // predicts it, red at or under the class's border and pulsing while
+        // he is still jetting on it. The browser shows a repair weapon's
+        // target or a droideka's shield there first; this client does not
+        // decode its own repair lock or droideka body yet, so those two
+        // never show.
+        let jet = prediction.body.as_ref().filter(|body| {
+            receiver.own.alive && receiver.own.mount.is_none() && body.jet.recharge > 0.
+        });
+        if let Some(body) = jet {
+            bridge.hud_model_observe(C::SECOND, 1., body.fuel, 0., 0.);
+        }
         let x = &mut bridge.hud_model.input;
+        x[H::SECOND_ICON] = jet.map_or(0., |_| A::HUD_JETPACK_ICON as f64);
+        x[H::SECOND_FILL] = jet.map_or(0., |body| body.fuel.clamp(0., 1.));
+        x[H::SECOND_LOOK] = jet.map_or(0., |body| {
+            let jetting = body.air == Some(bfe_sim::gen::Air::Jet);
+            second_look(body.fuel <= body.jet.min_border, jetting)
+        });
         x[H::DT] = dt;
         x[H::HEIGHT] = (768. + (self.size[1] as f64 / self.size[0].max(1) as f64 - 0.75) * 768.).floor();
         x[H::DEAD] = (!receiver.own.alive) as u8 as f64;
@@ -783,7 +871,7 @@ impl Hud {
         // sequence. The board takes over only when finished is published.
         let defeat = self.loser == receiver.own.team;
         bridge.hud_model_observe(
-            bfe_render::hud_model::layout::HudCommand::BANNER,
+            C::BANNER,
             if self.over && !self.finished {
                 self.end_labels[defeat as usize] as f64
             } else {
@@ -923,6 +1011,16 @@ impl Hud {
     }
 }
 
+// setSecondBar's look for a jetpack (PlayerCombat.updateHud): 0 normal, 1
+// "low" solid red, 2 "pulse" toward red, as HudModel's health panel reads it.
+fn second_look(low: bool, jetting: bool) -> f64 {
+    match (low, jetting) {
+        (false, _) => 0.,
+        (true, false) => 1.,
+        (true, true) => 2.,
+    }
+}
+
 // Anchors are screen fractions, independent of the HUD's virtual height.
 // A point behind the displayed camera hides the cursor in updateHud.
 fn aim_anchor(view: &crate::scene::View, point: [f64; 3]) -> Option<[f64; 2]> {
@@ -986,6 +1084,14 @@ mod tests {
         assert_eq!(flight_status(&own), [1., 2., 3., 1.]);
         own.mount = Some((7, 2, 1));
         assert_eq!(flight_status(&own), [0.; 4]);
+    }
+
+    #[test]
+    fn a_jetpack_bar_is_red_under_its_border_and_pulses_while_jetting() {
+        assert_eq!(second_look(false, true), 0.);
+        assert_eq!(second_look(false, false), 0.);
+        assert_eq!(second_look(true, false), 1.);
+        assert_eq!(second_look(true, true), 2.);
     }
 
     #[test]

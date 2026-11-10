@@ -54,6 +54,11 @@ impl Teams {
             locals: std::array::from_fn(|t| teams[t].faction == bfe_sim::battle::names::LOCALS),
         }
     }
+    // Relations and local factions without parsing a mission.
+    #[cfg(test)]
+    pub fn fixture(relations: [[f64; 8]; 8], locals: [bool; 8]) -> Self {
+        Self { relations, locals }
+    }
     pub fn relation(&self, viewer: u8, team: usize) -> f64 {
         self.relations
             .get(viewer as usize)
