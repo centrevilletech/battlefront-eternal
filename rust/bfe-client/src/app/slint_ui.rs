@@ -230,7 +230,7 @@ impl slint::platform::Platform for Platform {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            if source == slint::platform::DefaultClipboard {
+            if source == slint::platform::Clipboard::DefaultClipboard {
                 c.get_text().ok()
             } else {
                 None
