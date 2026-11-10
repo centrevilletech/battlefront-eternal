@@ -46,8 +46,16 @@ export component PreviewFrame inherits Rectangle {
     in property <string> caption;
     preferred-width: 330px;
     width: self.preferred-width;
-    preferred-height: root.width / 1.5 + 1.2 * Theme.vh + 1.2 * caption-text.font-size;
+    preferred-height: root.width / 1.5 + 1.2 * Theme.vh + 1.5 * caption-text.font-size;
     height: self.preferred-height;
+    Rectangle {
+        x: 0px; y: 0px; width: root.width;
+        height: root.width / 1.5;
+        background: black;
+        drop-shadow-offset-y: 12px;
+        drop-shadow-blur: 44px;
+        drop-shadow-color: rgba(0, 0, 0, 0.6);
+    }
     Rectangle {
         x: 0px; y: 0px; width: root.width;
         height: root.width / 1.5;

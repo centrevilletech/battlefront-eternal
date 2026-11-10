@@ -1,0 +1,374 @@
+import { Theme } from "../theme.slint";
+import { ScreenFrame, ScreenLayout } from "../components/screen-frame.slint";
+import { PageButton, ButtonVariant } from "../components/button.slint";
+import { PageText, TextRole, LoadingPlanetText, LoadingWordText } from "../components/typography.slint";
+import { PageList, ListEntry } from "../components/list.slint";
+import { SelectField } from "../components/field.slint";
+import { BackdropMovies, PreviewFrame } from "../components/media.slint";
+import { PageScrim, PageDim, PagePattern } from "../components/scrim.slint";
+import { MenuRowItem } from "main.slint";
+
+export global IaModel {
+    // Singleplayer screen state (src/shell/screens.js sp())
+    in-out property <[MenuRowItem]> sp-rows: [
+        { id: "campaign", label: "HISTORICAL CAMPAIGN", disabled: true },
+        { id: "conquest", label: "GALACTIC CONQUEST", disabled: true },
+        { id: "instant", label: "INSTANT ACTION", disabled: false },
+    ];
+    in-out property <int> sp-selected: 2;
+    in-out property <bool> sp-back-focused: false;
+
+    // Instant Action screen state (src/shell/screens.js ia())
+    in-out property <[string]> game-choices: ["BATTLEFRONT (2004)", "BATTLEFRONT II (2005), PLANNED"];
+    in-out property <[bool]> game-disabled: [false, true];
+    in-out property <int> game-index: 0;
+    in-out property <bool> game-open: false;
+    callback game-selected(int);
+    in-out property <[ListEntry]> maps: [
+        { cells: ["BESPIN: PLATFORMS"], badge: "", disabled: false },
+        { cells: ["BESPIN: CLOUD CITY"], badge: "", disabled: false },
+        { cells: ["ENDOR: BUNKER"], badge: "", disabled: false },
+        { cells: ["GEONOSIS: SPIRE"], badge: "", disabled: false },
+        { cells: ["HOTH: ECHO BASE"], badge: "", disabled: false },
+        { cells: ["KAMINO: TIPOCA CITY"], badge: "", disabled: false },
+        { cells: ["KASHYYYK: DOCKS"], badge: "", disabled: false },
+        { cells: ["KASHYYYK: ISLANDS"], badge: "", disabled: false },
+        { cells: ["NABOO: PLAINS"], badge: "", disabled: false },
+        { cells: ["NABOO: THEED"], badge: "", disabled: false },
+        { cells: ["RHEN VAR: CITADEL"], badge: "", disabled: false },
+        { cells: ["RHEN VAR: HARBOR"], badge: "", disabled: false },
+        { cells: ["TATOOINE: DUNE SEA"], badge: "", disabled: false },
+        { cells: ["TATOOINE: JABBA"], badge: "", disabled: false },
+        { cells: ["TATOOINE: MOS EISLEY"], badge: "", disabled: false },
+        { cells: ["YAVIN 4: ARENA"], badge: "", disabled: false },
+        { cells: ["YAVIN 4: TEMPLE"], badge: "", disabled: false },
+    ];
+    in-out property <int> map-index: 0;
+    in-out property <[ListEntry]> playlist: [];
+    in-out property <int> playlist-index: 0;
+    in-out property <int> playlist-count: 0;
+    in-out property <string> preview-caption: "BESPIN: PLATFORMS";
+    in-out property <image> preview-frame;
+    in-out property <bool> preview-visible: false;
+    in-out property <string> ia-order-label: "PLAY IN ORDER";
+    // Focus slots matching IaFocus in bfe-shell:
+    // 0=Available, 1=Add, 2=Remove, 3=Selected, 4=Back, 5=Order, 6=Launch
+    in-out property <int> ia-focus: 0;
+
+    // Instant Action Era picker state (src/shell/screens.js iaEra())
+    in-out property <string> era-map-title: "BESPIN: PLATFORMS";
+    in-out property <[MenuRowItem]> era-rows: [
+        { id: "cw", label: "CLONE WARS", disabled: false },
+        { id: "gcw", label: "GALACTIC CIVIL WAR", disabled: false },
+    ];
+    in-out property <int> era-selected: 0;
+    in-out property <bool> era-back-focused: false;
+
+    // Loading screen page overlay state (eternal & bf2 Saira planet name + tilted LOADING)
+    in-out property <bool> loading-visible: false;
+    in-out property <string> loading-planet: "";
+    in-out property <string> loading-word: "LOADING";
+
+    // Callbacks to Rust host
+    callback sp-row-selected(int);
+    callback sp-row-activated(int);
+    callback sp-back();
+
+    callback ia-map-selected(int);
+    callback ia-map-activated(int);
+    callback ia-playlist-selected(int);
+    callback ia-playlist-activated(int);
+    callback ia-add();
+    callback ia-remove();
+    callback ia-order-toggled();
+    callback ia-launch();
+    callback ia-back();
+    callback ia-focused(int);
+
+    callback era-row-selected(int);
+    callback era-row-activated(int);
+    callback era-back();
+}
+
+export component SingleplayerScreen inherits Rectangle {
+    in property <bool> use-underlay: true;
+    in property <image> movie-frame;
+    property <length> button-width: min(400px, 30 * Theme.vw) - 16px;
+    property <length> rows-height: IaModel.sp-rows.length * Theme.button-height + max(0, IaModel.sp-rows.length - 1) * Theme.bfe-gap + 8px;
+    property <int> watch-sp: IaModel.sp-selected;
+    changed watch-sp => { IaModel.sp-back-focused = false; }
+    BackdropMovies {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        current-frame: root.movie-frame;
+        use-underlay: root.use-underlay;
+    }
+    if !root.use-underlay: PagePattern { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    if !root.use-underlay: PageScrim { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    ScreenFrame {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        title: "SINGLEPLAYER";
+        layout: ScreenLayout.rows;
+        body-content-height: root.rows-height;
+        left-label: "BACK";
+        footer-focus-on-hover: false;
+        left-highlighted: IaModel.sp-back-focused;
+        brand-visible: true;
+        left-selected => { IaModel.sp-back-focused = true; }
+        left-activated => { IaModel.sp-back(); }
+        VerticalLayout {
+            x: (parent.width - root.button-width) / 2;
+            y: 4px;
+            width: root.button-width;
+            spacing: Theme.bfe-gap;
+            for item[index] in IaModel.sp-rows: PageButton {
+                width: root.button-width;
+                label: item.label;
+                disabled: item.disabled;
+                focus-on-hover: false;
+                highlighted: !IaModel.sp-back-focused && index == IaModel.sp-selected && !item.disabled;
+                selected => { IaModel.sp-back-focused = false; IaModel.sp-selected = index; IaModel.sp-row-selected(index); }
+                activated => { IaModel.sp-back-focused = false; IaModel.sp-row-activated(index); }
+            }
+        }
+    }
+}
+
+export component InstantActionScreen inherits Rectangle {
+    in property <bool> use-underlay: true;
+    in property <image> movie-frame;
+    BackdropMovies {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        current-frame: root.movie-frame;
+        wide: true;
+        use-underlay: root.use-underlay;
+    }
+    if !root.use-underlay: PagePattern { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    if !root.use-underlay: PageScrim { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    PageDim { x: 0px; y: 0px; width: parent.width; height: parent.height; dimmed: true; }
+    frame := ScreenFrame {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        title: "INSTANT ACTION";
+        layout: ScreenLayout.wide;
+        left-label: "BACK";
+        middle-label: IaModel.ia-order-label;
+        right-label: "LAUNCH";
+        right-disabled: IaModel.playlist-count == 0;
+        footer-focus-on-hover: false;
+        left-highlighted: IaModel.ia-focus == 4;
+        middle-highlighted: IaModel.ia-focus == 5;
+        right-highlighted: IaModel.ia-focus == 6;
+        left-selected => { IaModel.ia-focus = 4; IaModel.ia-focused(4); }
+        middle-selected => { IaModel.ia-focus = 5; IaModel.ia-focused(5); }
+        right-selected => { IaModel.ia-focus = 6; IaModel.ia-focused(6); }
+        left-activated => { IaModel.ia-back(); }
+        middle-activated => { IaModel.ia-order-toggled(); }
+        right-activated => { IaModel.ia-launch(); }
+
+        // Left column: AVAILABLE MAPS: + game selector + map list
+        Rectangle {
+            property <length> col-gap: 2.2 * Theme.vw;
+            property <length> avail-w: max(360px, frame.body-width - 2 * self.col-gap);
+            property <length> side-col-w: self.avail-w * (1.0 / 3.25);
+            property <length> head-h: Theme.field-height;
+            property <length> list-y: self.head-h + 1.2 * Theme.vh;
+            property <length> list-h: max(80px, frame.body-height - self.list-y);
+            x: 0px;
+            y: 0px;
+            width: self.side-col-w;
+            height: frame.body-height;
+            Rectangle {
+                x: 0px; y: 0px;
+                width: parent.width;
+                height: parent.head-h;
+                z: 50;
+                avail-label := PageText {
+                    x: 0px;
+                    y: (parent.height - self.preferred-height) / 2;
+                    role: TextRole.label;
+                    letter-spacing: 0.16 * Theme.label-font-size;
+                    text: "AVAILABLE MAPS:";
+                }
+                SelectField {
+                    width: max(120px, min(self.preferred-width, parent.width - avail-label.preferred-width - 1 * Theme.vw));
+                    x: parent.width - self.width;
+                    y: 0px;
+                    fit-widest: true;
+                    popup-width: max(self.width, 280px);
+                    choices: IaModel.game-choices;
+                    disabled-choices: IaModel.game-disabled;
+                    current-index <=> IaModel.game-index;
+                    open <=> IaModel.game-open;
+                    selection-changed(index) => { IaModel.game-selected(index); }
+                }
+            }
+            PageList {
+                x: 0px;
+                y: parent.list-y;
+                width: parent.width;
+                height: parent.list-h;
+                entries: IaModel.maps;
+                columns: [1];
+                panel-surface: true;
+                row-spacing: 0px;
+                model-focus: true;
+                list-focused: IaModel.ia-focus == 0;
+                selected-index <=> IaModel.map-index;
+                list-entered => { IaModel.ia-focus = 0; IaModel.ia-focused(0); }
+                row-selected(index) => { IaModel.ia-map-selected(index); }
+                row-activated(index) => { IaModel.ia-map-activated(index); }
+            }
+        }
+
+        // Center column: PreviewFrame + ADD / REMOVE horizontal buttons
+        Rectangle {
+            property <length> col-gap: 2.2 * Theme.vw;
+            property <length> avail-w: max(360px, frame.body-width - 2 * self.col-gap);
+            property <length> side-col-w: self.avail-w * (1.0 / 3.25);
+            property <length> center-col-w: self.avail-w * (1.25 / 3.25);
+            x: self.side-col-w + self.col-gap;
+            y: 0px;
+            width: self.center-col-w;
+            height: frame.body-height;
+            property <length> hbuttons-gap: 1.2 * Theme.vw;
+            property <length> hbuttons-w: add-btn.width + remove-btn.width + self.hbuttons-gap;
+            property <length> stack-h: preview.height + 2.4 * Theme.vh + add-btn.height;
+            property <length> stack-y: max(0px, (self.height - self.stack-h) / 2);
+
+            preview := PreviewFrame {
+                x: 0px;
+                y: parent.stack-y;
+                width: parent.width;
+                movie-frame: IaModel.preview-frame;
+                image-visible: IaModel.preview-visible;
+                caption: IaModel.preview-caption;
+            }
+            add-btn := PageButton {
+                x: (parent.width - parent.hbuttons-w) / 2;
+                y: parent.stack-y + preview.height + 2.4 * Theme.vh;
+                variant: ButtonVariant.small;
+                label: "ADD";
+                focus-on-hover: false;
+                highlighted: IaModel.ia-focus == 1;
+                selected => { IaModel.ia-focus = 1; IaModel.ia-focused(1); }
+                activated => { IaModel.ia-add(); }
+            }
+            remove-btn := PageButton {
+                x: add-btn.x + add-btn.width + parent.hbuttons-gap;
+                y: add-btn.y;
+                variant: ButtonVariant.small;
+                label: "REMOVE";
+                focus-on-hover: false;
+                highlighted: IaModel.ia-focus == 2;
+                selected => { IaModel.ia-focus = 2; IaModel.ia-focused(2); }
+                activated => { IaModel.ia-remove(); }
+            }
+        }
+
+        // Right column: SELECTED MAPS: + playlist
+        Rectangle {
+            property <length> col-gap: 2.2 * Theme.vw;
+            property <length> avail-w: max(360px, frame.body-width - 2 * self.col-gap);
+            property <length> side-col-w: self.avail-w * (1.0 / 3.25);
+            property <length> center-col-w: self.avail-w * (1.25 / 3.25);
+            property <length> head-h: Theme.field-height;
+            property <length> list-y: self.head-h + 1.2 * Theme.vh;
+            property <length> list-h: max(80px, frame.body-height - self.list-y);
+            x: self.side-col-w + self.center-col-w + 2 * self.col-gap;
+            y: 0px;
+            width: self.side-col-w;
+            height: frame.body-height;
+            PageText {
+                x: 0px;
+                y: (parent.head-h - self.preferred-height) / 2;
+                role: TextRole.label;
+                text: "SELECTED MAPS:";
+            }
+            PageList {
+                x: 0px;
+                y: parent.list-y;
+                width: parent.width;
+                height: parent.list-h;
+                entries: IaModel.playlist;
+                columns: [1];
+                panel-surface: true;
+                row-spacing: 0px;
+                model-focus: true;
+                list-focused: IaModel.ia-focus == 3;
+                selected-index <=> IaModel.playlist-index;
+                list-entered => { IaModel.ia-focus = 3; IaModel.ia-focused(3); }
+                row-selected(index) => { IaModel.ia-playlist-selected(index); }
+                row-activated(index) => { IaModel.ia-playlist-activated(index); }
+            }
+        }
+    }
+}
+
+export component InstantActionEraScreen inherits Rectangle {
+    in property <bool> use-underlay: true;
+    in property <image> movie-frame;
+    property <length> button-width: min(400px, 30 * Theme.vw) - 16px;
+    property <length> rows-height: IaModel.era-rows.length * Theme.button-height + max(0, IaModel.era-rows.length - 1) * Theme.bfe-gap + 8px;
+    property <int> watch-era: IaModel.era-selected;
+    changed watch-era => { IaModel.era-back-focused = false; }
+    BackdropMovies {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        current-frame: root.movie-frame;
+        use-underlay: root.use-underlay;
+    }
+    if !root.use-underlay: PagePattern { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    if !root.use-underlay: PageScrim { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    ScreenFrame {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        title: IaModel.era-map-title;
+        layout: ScreenLayout.rows;
+        body-content-height: root.rows-height;
+        left-label: "BACK";
+        footer-focus-on-hover: false;
+        left-highlighted: IaModel.era-back-focused;
+        brand-visible: true;
+        left-selected => { IaModel.era-back-focused = true; }
+        left-activated => { IaModel.era-back(); }
+        VerticalLayout {
+            x: (parent.width - root.button-width) / 2;
+            y: 4px;
+            width: root.button-width;
+            spacing: Theme.bfe-gap;
+            for item[index] in IaModel.era-rows: PageButton {
+                width: root.button-width;
+                label: item.label;
+                disabled: item.disabled;
+                focus-on-hover: false;
+                highlighted: !IaModel.era-back-focused && index == IaModel.era-selected && !item.disabled;
+                selected => { IaModel.era-back-focused = false; IaModel.era-selected = index; IaModel.era-row-selected(index); }
+                activated => { IaModel.era-back-focused = false; IaModel.era-row-activated(index); }
+            }
+        }
+    }
+}
+
+// In eternal and bf2 looks, loading.js draws the planet name and the tilted
+// LOADING caption with 700/800 Saira over the GL loading underlay. BF1 uses
+// its bitmap font inside the GL loading screen instead.
+export component LoadingPageOverlay inherits Rectangle {
+    in property <string> planet-label: IaModel.loading-planet;
+    in property <string> loading-label: IaModel.loading-word;
+    property <length> name-unit: root.width / 1024;
+    property <length> disk-unit: min(root.width / 1024, root.height / 768);
+    property <length> disk-cx: root.width - 252 * self.disk-unit;
+    property <length> disk-cy: root.height - 223 * self.disk-unit;
+    background: transparent;
+
+    if !Theme.bf1 && root.planet-label != "": LoadingPlanetText {
+        x: 51.2 * root.name-unit;
+        y: 0.05 * root.height + 17 * root.name-unit - self.height / 2;
+        unit: root.name-unit;
+        label: root.planet-label;
+    }
+
+    if !Theme.bf1 && root.loading-label != "": LoadingWordText {
+        x: root.disk-cx - self.width / 2;
+        y: root.disk-cy - self.height / 2;
+        unit: root.disk-unit;
+        label: root.loading-label;
+    }
+}

@@ -270,6 +270,7 @@ pub(super) struct SlintHost {
     pending: Pending,
     quit: Arc<AtomicBool>,
     actions: Rc<RefCell<Vec<UiAction>>>,
+    ia_actions: super::slint_ia::IaActionQueue,
     was_profile_editing: bool,
     last_shell_dropdown: bool,
     // The lists the screens repeat over live as long as the host does (slint_models.rs).
@@ -319,6 +320,7 @@ impl SlintHost {
         root.set_steam_paragraphs(slint::ModelRc::from(steam_paragraphs.clone()));
         root.set_proof_controls(proof);
         let actions: Rc<RefCell<Vec<UiAction>>> = Rc::new(RefCell::new(Vec::new()));
+        let ia_actions = super::slint_ia::register_ia(&root);
         {
             let theme = root.global::<Theme>();
             theme.on_format_label(|text, uppercase| bfe_ui::format_label(&text, uppercase).into());
@@ -464,6 +466,7 @@ impl SlintHost {
             pending,
             quit,
             actions,
+            ia_actions,
             was_profile_editing: false,
             last_shell_dropdown: false,
             rows,
@@ -520,6 +523,7 @@ impl SlintHost {
 
     pub fn sync_shell(&mut self, shell: &mut ShellHost, visible: bool) {
         self.set_shell_visible(visible);
+        super::slint_ia::sync_ia(&self.root, &self.ia_actions, shell, visible);
         if !visible {
             return;
         }
@@ -548,6 +552,9 @@ impl SlintHost {
             ScreenId::Gate => "gate",
             ScreenId::Main => "main",
             ScreenId::Profile => "profile",
+            ScreenId::Singleplayer => "sp",
+            ScreenId::InstantAction => "ia",
+            ScreenId::InstantActionEra => "ia-era",
             _ => "other",
         };
         self.root.set_active_screen(screen_str.into());
@@ -660,11 +667,12 @@ impl SlintHost {
         settings: &mut AppSettingsStore,
         audio_router: &SharedAudioRouter,
     ) -> Option<ShellTransition> {
+        let mut transition =
+            super::slint_ia::drain_ia(&self.ia_actions, shell, settings, audio_router);
         let pending: Vec<UiAction> = self.actions.borrow_mut().drain(..).collect();
         if pending.is_empty() {
-            return None;
+            return transition;
         }
-        let mut transition = None;
         for action in pending {
             let next = match action {
                 UiAction::GateUnlocked => {
@@ -776,7 +784,8 @@ impl SlintHost {
         if pass != 0 {
             self.root.set_render_pass(0);
         }
-        if self.root.get_shell_visible()
+        if (self.root.get_shell_visible()
+            || self.root.global::<IaModel>().get_loading_visible())
             && !self.root.get_gameplay()
             && !self.root.get_proof_controls()
         {

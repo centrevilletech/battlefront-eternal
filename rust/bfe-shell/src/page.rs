@@ -15,7 +15,7 @@ mod pause;
 mod widgets;
 use crate::{
     render::ShellTextures,
-    screens::{IaFocus, PopupState, ScreenId, ShellApp},
+    screens::{PopupState, ScreenId, ShellApp},
 };
 pub use battle::{BattleLook, SpawnBattleStatus, SpawnLayout};
 use bfe_render::interface::{anchor, rotate_z, translate, Batch, Color, Font, Matrix, UV};
@@ -29,9 +29,6 @@ pub enum Hit {
     Back,
     Theme,
     Look(usize),
-    Map(usize),
-    Entry(usize),
-    Ia(IaFocus),
     Popup(usize),
     BrowserTab(usize),
     BrowserFilter(usize),
@@ -40,8 +37,6 @@ pub enum Hit {
     BrowserServer(usize),
     BrowserFooter(usize),
     BrowserNotice,
-    Game,
-    GameChoice(usize),
     OptionBack(usize, usize),
     DirectField(usize),
     Host(crate::screens::HostControl),
@@ -75,12 +70,9 @@ pub struct Page {
     button_text: HashMap<String, Vec<u16>>,
     pub dropdown: bool,
     pub dropdown_cursor: usize,
-    pub game_dropdown: bool,
     pub discord_offer: bool,
     pub discord_cursor: usize,
     pub discord_asked: bool,
-    ia_first: [usize; 2],
-    ia_last: [usize; 2],
     pub buttons: [u32; 6],
     pub button_source: [f64; 2],
     pub patterns: [u32; 3],
@@ -145,12 +137,9 @@ impl Page {
             logo,
             dropdown: false,
             dropdown_cursor: 2,
-            game_dropdown: false,
             discord_offer: false,
             discord_cursor: 0,
             discord_asked: false,
-            ia_first: [0; 2],
-            ia_last: [usize::MAX; 2],
             buttons: [0; 6],
             button_source: [368., 40.],
             patterns: [0; 3],
@@ -262,22 +251,6 @@ impl Page {
     }
     pub fn input_matches(&self, a: &ShellApp) -> bool {
         self.input_state == Some(Self::input_state(a))
-    }
-    pub fn scroll_ia(&mut self, x: f64, y: f64, delta: isize, a: &ShellApp) {
-        let which = match self.hit(x, y) {
-            Some(Hit::Map(_)) => 0,
-            Some(Hit::Entry(_)) => 1,
-            _ => return,
-        };
-        let count = if which == 0 {
-            a.data.maps.len()
-        } else {
-            a.ia_entries.len()
-        };
-        let shown = ((self.viewport[1] * 0.673) / (self.viewport[1] * 0.04).clamp(30., 42.)).floor()
-            as usize;
-        self.ia_first[which] = (self.ia_first[which] as isize + delta)
-            .clamp(0, count.saturating_sub(shown) as isize) as usize;
     }
     pub fn hit(&self, x: f64, y: f64) -> Option<Hit> {
         self.hits
@@ -1088,10 +1061,25 @@ impl Page {
             self.discord_offer = true;
             self.discord_cursor = 0;
         }
-        if !matches!(id, ScreenId::Gate | ScreenId::Main) {
+        if !matches!(
+            id,
+            ScreenId::Gate
+                | ScreenId::Main
+                | ScreenId::Singleplayer
+                | ScreenId::InstantAction
+                | ScreenId::InstantActionEra
+        ) {
             Self::rect(b, m, [0., 0., w, h], solid, [0., 0., 0., 0.5]);
         }
-        if !matches!(id, ScreenId::Gate | ScreenId::Main | ScreenId::Profile) {
+        if !matches!(
+            id,
+            ScreenId::Gate
+                | ScreenId::Main
+                | ScreenId::Profile
+                | ScreenId::Singleplayer
+                | ScreenId::InstantAction
+                | ScreenId::InstantActionEra
+        ) {
             let flight = motion::ease(
                 (a.pulse_elapsed - self.brand_started) / 0.62,
                 0.7,
@@ -1107,9 +1095,7 @@ impl Page {
                 a.pulse_elapsed - self.entered,
                 self.forward,
             );
-            if id == ScreenId::InstantAction {
-                self.instant_action(b, m, t, a, w, h, accent, ink, white);
-            } else if matches!(
+            if matches!(
                 id,
                 ScreenId::Multiplayer
                     | ScreenId::MultiplayerList(_)
@@ -1199,382 +1185,6 @@ impl Page {
             self.direct_form(b, m, t, a, w, h, look, accent, ink, white);
         }
     }
-
-    #[allow(clippy::too_many_arguments)]
-    fn instant_action(
-        &mut self,
-        b: &mut Batch,
-        m: Matrix,
-        t: &ShellTextures,
-        a: &ShellApp,
-        w: f64,
-        h: f64,
-        accent: Color,
-        ink: Color,
-        white: Color,
-    ) {
-        // PAGE_LAYOUTS.ia uses 1 : 1.25 : 1 columns in a shared page frame.
-        let edge = (w * 0.03).clamp(20., 56.);
-        let gap = w * 0.022;
-        let col = (w - 2. * edge - 2. * gap) / 3.25;
-        let mid = col * 1.25;
-        let center = edge + col + gap;
-        let right = center + mid + gap;
-        let top = h * 0.22;
-        let bottom = h * 0.893;
-        let look = match a.settings.menu_theme.as_str() {
-            "bf1" => 0,
-            "bf2" => 1,
-            _ => 2,
-        };
-        self.heading(
-            b,
-            m,
-            t,
-            w / 2.,
-            h * 0.109,
-            "INSTANT ACTION",
-            (h * 0.046).clamp(26., 50.),
-            look,
-        );
-        self.label(
-            b,
-            m,
-            edge,
-            top - 19.,
-            "AVAILABLE MAPS:",
-            12.,
-            2.,
-            white,
-            0,
-            false,
-        );
-        let field = [edge + col - 204., top - 39., edge + col, top - 9.];
-        Self::rect(b, m, field, t.solid, [0., 0., 0., 0.4]);
-        let field_border = if self.game_dropdown {
-            accent
-        } else {
-            [1., 1., 1., 0.22]
-        };
-        for r in [
-            [field[0], field[1], field[2], field[1] + 1.],
-            [field[0], field[3] - 1., field[2], field[3]],
-            [field[0], field[1], field[0] + 1., field[3]],
-            [field[2] - 1., field[1], field[2], field[3]],
-        ] {
-            Self::rect(b, m, r, t.solid, field_border);
-        }
-        self.label(
-            b,
-            m,
-            field[0] + 12.,
-            field[1] + 20.,
-            a.ia_selected_game_label(),
-            11.,
-            1.,
-            white,
-            0,
-            false,
-        );
-        let arrow_x = field[2] - 20.;
-        let arrow_y = (field[1] + field[3]) / 2. - 2.;
-        let l = rotate_z(
-            translate(m, arrow_x, arrow_y, 0.),
-            std::f64::consts::FRAC_PI_4,
-        );
-        let r = rotate_z(
-            translate(m, arrow_x + 5., arrow_y + 5., 0.),
-            -std::f64::consts::FRAC_PI_4,
-        );
-        Self::rect(b, l, [0., -1., 7.2, 1.], t.solid, accent);
-        Self::rect(b, r, [0., -1., 7.2, 1.], t.solid, accent);
-        self.hits.push((field, Hit::Game));
-        self.label(
-            b,
-            m,
-            right,
-            top - 19.,
-            "SELECTED MAPS:",
-            12.,
-            2.,
-            white,
-            0,
-            false,
-        );
-        for x in [edge, right] {
-            Self::rect(
-                b,
-                m,
-                [x, top, x + col, bottom],
-                t.solid,
-                [0.03, 0.04, 0.06, 0.6],
-            );
-            for r in [
-                [x, top, x + col, top + 1.],
-                [x, bottom - 1., x + col, bottom],
-                [x, top, x + 1., bottom],
-                [x + col - 1., top, x + col, bottom],
-            ] {
-                Self::rect(b, m, r, t.solid, [1., 1., 1., 0.12]);
-            }
-        }
-        let rh = (h * 0.04).clamp(30., 42.);
-        let shown = ((bottom - top) / rh).floor() as usize;
-        for (which, selected) in [a.ia_available_selected, a.ia_selected_cursor]
-            .into_iter()
-            .enumerate()
-        {
-            if self.ia_last[which] != selected {
-                self.ia_last[which] = selected;
-                if selected < self.ia_first[which] {
-                    self.ia_first[which] = selected;
-                }
-                if selected >= self.ia_first[which] + shown {
-                    self.ia_first[which] = selected + 1 - shown;
-                }
-            }
-        }
-        let first = self.ia_first[0];
-        for (row, map) in a.data.maps.iter().enumerate().skip(first).take(shown) {
-            let y = top + 4. + (row - first) as f64 * rh;
-            let focused = row == a.ia_available_selected;
-            if focused {
-                Self::rect(
-                    b,
-                    m,
-                    [edge + 4., y, edge + col - 4., (y + rh).min(bottom - 1.)],
-                    t.solid,
-                    if a.ia_focus == IaFocus::Available {
-                        accent
-                    } else {
-                        [accent[0], accent[1], accent[2], 0.20]
-                    },
-                );
-            }
-            self.label(
-                b,
-                m,
-                edge + 15.,
-                y + rh * 0.70,
-                &map.name,
-                12.,
-                0.96,
-                if focused && a.ia_focus == IaFocus::Available {
-                    ink
-                } else {
-                    white
-                },
-                0,
-                false,
-            );
-            self.hits
-                .push(([edge, y, edge + col, y + rh], Hit::Map(row)));
-        }
-        let first = self.ia_first[1];
-        for (row, entry) in a.ia_entries.iter().enumerate().skip(first).take(shown) {
-            let y = top + 4. + (row - first) as f64 * rh;
-            let row_focused = row == a.ia_selected_cursor && a.ia_focus == IaFocus::Selected;
-            if row == a.ia_selected_cursor {
-                Self::rect(
-                    b,
-                    m,
-                    [right + 4., y, right + col - 4., (y + rh).min(bottom - 1.)],
-                    t.solid,
-                    if row_focused {
-                        accent
-                    } else {
-                        [accent[0], accent[1], accent[2], 0.20]
-                    },
-                );
-            }
-            let fg = if row_focused { ink } else { white };
-            if let Some(map) = a.data.maps.iter().find(|map| map.id == entry.map) {
-                self.label(
-                    b,
-                    m,
-                    right + 15.,
-                    y + rh * 0.70,
-                    &map.name,
-                    12.,
-                    0.96,
-                    fg,
-                    0,
-                    false,
-                );
-            }
-            let badges = if entry.era.as_deref() == Some("cw") {
-                [("REP", right + col - 76., 29.), ("CIS", right + col - 42., 26.)]
-            } else {
-                [("IMP", right + col - 76., 29.), ("REB", right + col - 42., 26.)]
-            };
-            let by = (y + (rh - 18.) / 2.).round();
-            let border = [fg[0], fg[1], fg[2], 0.85];
-            for (tag, bx, bw) in badges {
-                for line in [
-                    [bx, by, bx + bw, by + 1.],
-                    [bx, by + 17., bx + bw, by + 18.],
-                    [bx, by, bx + 1., by + 18.],
-                    [bx + bw - 1., by, bx + bw, by + 18.],
-                ] {
-                    Self::rect(b, m, line, t.solid, border);
-                }
-                self.label(
-                    b,
-                    m,
-                    bx + bw / 2.,
-                    by + 13.,
-                    tag,
-                    9.,
-                    0.5,
-                    fg,
-                    2,
-                    false,
-                );
-            }
-            self.hits
-                .push(([right, y, right + col, y + rh], Hit::Entry(row)));
-        }
-        // MapPreview's 3:2 frame and caption stay between the two lists.
-        let py = h * 0.267;
-        Self::rect(
-            b,
-            m,
-            [center, py, center + mid, py + mid / 1.5],
-            t.solid,
-            [0., 0., 0., 1.],
-        );
-        if let Some(map) = a.data.maps.get(a.ia_available_selected) {
-            if let Some(frame) = self.media.preview {
-                b.quad(
-                    m,
-                    [center, py, center + mid, py + mid / 1.5],
-                    frame.texture,
-                    frame.uv,
-                    white,
-                    0.,
-                    0,
-                );
-            }
-            self.label(
-                b,
-                m,
-                center + mid / 2.,
-                py + mid / 1.5 + 28.,
-                &map.name,
-                16.,
-                2.,
-                white,
-                2,
-                false,
-            );
-        }
-        for (label, focus, x) in [
-            (
-                "ADD",
-                IaFocus::Add,
-                center + mid / 2. - ((w * 0.11).clamp(120., 200.) + w * 0.012) / 2.,
-            ),
-            (
-                "REMOVE",
-                IaFocus::Remove,
-                center + mid / 2. + ((w * 0.11).clamp(120., 200.) + w * 0.012) / 2.,
-            ),
-        ] {
-            let y = py + mid / 1.5 + 50.;
-            let width = (w * 0.11).clamp(120., 200.);
-            let r = [
-                x - width / 2.,
-                y,
-                x + width / 2.,
-                y + (h * 0.046).clamp(34., 46.),
-            ];
-            self.widget_button(
-                b,
-                m,
-                t,
-                r,
-                label,
-                look,
-                a.ia_focus == focus,
-                focus == IaFocus::Remove && a.ia_entries.is_empty(),
-            );
-            self.hits.push((r, Hit::Ia(focus)));
-        }
-        for (label, focus, x) in [
-            ("BACK", IaFocus::Back, edge + 70.),
-            (
-                if a.ia_random {
-                    "RANDOM ORDER"
-                } else {
-                    "PLAY IN ORDER"
-                },
-                IaFocus::Order,
-                w / 2.,
-            ),
-            ("LAUNCH", IaFocus::Launch, w - edge - 70.),
-        ] {
-            let width = if focus == IaFocus::Order { 180. } else { 140. };
-            let r = [x - width / 2., h * 0.923, x + width / 2., h * 0.97];
-            self.widget_button(
-                b,
-                m,
-                t,
-                r,
-                label,
-                look,
-                a.ia_focus == focus,
-                focus == IaFocus::Launch && a.ia_entries.is_empty(),
-            );
-            self.hits.push((r, Hit::Ia(focus)));
-        }
-        if self.game_dropdown {
-            let options = a.ia_game_picker_options();
-            let menu = [
-                field[0] - 44.,
-                field[3],
-                field[2],
-                field[3] + options.len() as f64 * 26.,
-            ];
-            for (i, (_, label, enabled)) in options.iter().enumerate() {
-                let y = field[3] + i as f64 * 26.;
-                let r = [menu[0], y, menu[2], y + 26.];
-                Self::rect(
-                    b,
-                    m,
-                    r,
-                    t.solid,
-                    if i == 0 {
-                        [25. / 255., 103. / 255., 210. / 255., 1.]
-                    } else {
-                        [0.047, 0.059, 0.082, 1.]
-                    },
-                );
-                self.label(
-                    b,
-                    m,
-                    r[0] + 10.,
-                    y + 18.,
-                    label,
-                    10.,
-                    0.4,
-                    if *enabled { white } else { [0.5, 0.5, 0.5, 1.] },
-                    0,
-                    false,
-                );
-                if *enabled {
-                    self.hits.push((r, Hit::GameChoice(i)));
-                }
-            }
-            for line in [
-                [menu[0], menu[1], menu[2], menu[1] + 1.],
-                [menu[0], menu[3] - 1., menu[2], menu[3]],
-                [menu[0], menu[1], menu[0] + 1., menu[3]],
-                [menu[2] - 1., menu[1], menu[2], menu[3]],
-            ] {
-                Self::rect(b, m, line, t.solid, [0.46, 0.46, 0.46, 1.]);
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -1613,7 +1223,8 @@ mod tests {
     fn pointer_targets_follow_the_page_viewport() {
         let mut app = ShellApp::new(crate::data::ShellData::default(), None);
         app.unlock_gate();
-        app.push_screen(ScreenId::Singleplayer);
+        app.mp_needs_notice = false;
+        app.push_screen(ScreenId::Multiplayer);
         let mut page = Page::new(Font::default(), Font::default());
         let textures = ShellTextures::default();
         let mut batch = Batch::default();
@@ -1621,13 +1232,16 @@ mod tests {
         app.pulse_elapsed += 1.;
         for (w, h) in [(1280., 720.), (1920., 1080.)] {
             page.draw(&mut batch, &textures, &app, w, h);
-            let (top, _, bh, gap) = Page::row_layout(h, app.active_rows().len(), 2);
-            assert_eq!(page.hit(w * 0.5, top + 2.0 * (bh + gap) + bh * 0.5), Some(Hit::Row(2)));
+            let edge = (w * 0.03).clamp(20., 56.);
+            assert_eq!(
+                page.hit(edge + 40., h * 0.946),
+                Some(Hit::BrowserFooter(0))
+            );
             assert_eq!(page.hit(1., h * 0.8), None);
         }
     }
     #[test]
-    fn discord_offer_profile_uppercase_and_ia_playlist_badges() {
+    fn discord_offer_keys_and_dismissal() {
         let mut app = ShellApp::new(crate::data::ShellData::default(), None);
         app.unlock_gate();
         let mut page = Page::new(Font::default(), Font::default());
@@ -1642,19 +1256,5 @@ mod tests {
         assert_eq!(page.discord_cursor, 1);
         assert_eq!(page.discord_key("Enter"), Some(Some("game")));
         assert!(!page.discord_offer);
-
-        app.push_screen(ScreenId::InstantAction);
-        app.ia_entries.push(crate::launch::PlaylistEntry {
-            family: crate::launch::GameFamily::Swbf1,
-            map: "nab2".into(),
-            era: Some("cw".into()),
-            mode: "conquest".into(),
-        });
-        app.ia_focus = IaFocus::Selected;
-        page.game_dropdown = true;
-        page.draw(&mut batch, &textures, &app, 1280., 720.);
-        assert!(page.text.contains_key("REP"));
-        assert!(page.text.contains_key("CIS"));
-        assert_eq!(page.hit(250., 162.), Some(Hit::GameChoice(0)));
     }
 }

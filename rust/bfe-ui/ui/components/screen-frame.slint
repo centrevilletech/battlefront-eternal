@@ -12,15 +12,26 @@ export component ScreenFrame inherits Rectangle {
     in property <string> left-label: "BACK";
     in property <string> middle-label;
     in property <string> right-label;
+    in property <bool> right-disabled: false;
+    in property <bool> left-highlighted: false;
+    in property <bool> middle-highlighted: false;
+    in property <bool> right-highlighted: false;
+    in property <bool> footer-focus-on-hover: true;
     in property <bool> brand-visible: true;
     callback left-activated();
     callback middle-activated();
     callback right-activated();
+    callback left-selected();
+    callback middle-selected();
+    callback right-selected();
     property <length> frame-width: root.layout == ScreenLayout.options ? Theme.options-frame : Theme.bfe-page-frame;
     property <length> pad-top: 7 * Theme.vh;
     property <length> pad-bottom: 6 * Theme.vh + max(34px, min(46px, 4.6 * Theme.vh));
     property <length> avail-height: root.height - root.pad-top - root.pad-bottom;
     property <length> head-body-gap: root.layout == ScreenLayout.rows ? 5 * Theme.vh : Theme.head-gap;
+    // The body's own size, for screens that lay out columns inside it (a child's `parent` is the frame, not the body).
+    out property <length> body-width: root.frame-width;
+    out property <length> body-height: body.height;
     property <bool> center-rows: root.layout == ScreenLayout.rows && root.body-content-height > 0px;
     PageBrand { x: Theme.bfe-edge; y: 2.6 * Theme.vh + 9px; visible: root.brand-visible; }
     heading := PageTitle {
@@ -32,7 +43,8 @@ export component ScreenFrame inherits Rectangle {
     }
     body := Rectangle {
         x: (root.width - root.frame-width) / 2;
-        y: heading.y + heading.height + root.head-body-gap;
+        // The browser's title block is a little taller than the drawn title in the side-by-side layout.
+        y: heading.y + heading.height + root.head-body-gap + (root.layout == ScreenLayout.wide ? (Theme.eternal ? 1px : 3px) : 0px);
         width: root.frame-width;
         height: root.center-rows ? root.body-content-height : (root.height - self.y - root.pad-bottom);
         @children
@@ -41,18 +53,29 @@ export component ScreenFrame inherits Rectangle {
         x: (root.width - root.frame-width) / 2;
         y: root.height - Theme.footer-bottom - self.height;
         label: root.left-label; variant: ButtonVariant.small;
-        accept-sound: MenuSound.back; activated => { root.left-activated(); }
+        focus-on-hover: root.footer-focus-on-hover;
+        highlighted: root.left-highlighted;
+        accept-sound: MenuSound.back;
+        selected => { root.left-selected(); }
+        activated => { root.left-activated(); }
     }
     if root.middle-label != "": PageButton {
         x: (root.width - self.width) / 2;
         y: root.height - Theme.footer-bottom - self.height;
         label: root.middle-label; variant: ButtonVariant.small;
+        focus-on-hover: root.footer-focus-on-hover;
+        highlighted: root.middle-highlighted;
+        selected => { root.middle-selected(); }
         activated => { root.middle-activated(); }
     }
     if root.right-label != "": PageButton {
         x: (root.width + root.frame-width) / 2 - self.width;
         y: root.height - Theme.footer-bottom - self.height;
         label: root.right-label; variant: ButtonVariant.small;
+        disabled: root.right-disabled;
+        focus-on-hover: root.footer-focus-on-hover;
+        highlighted: root.right-highlighted;
+        selected => { root.right-selected(); }
         activated => { root.right-activated(); }
     }
 }

@@ -10,9 +10,18 @@ import {
     SteamOfferModal,
     ShellPopupModal
 } from "screens/main.slint";
+import {
+    IaModel,
+    SingleplayerScreen,
+    InstantActionScreen,
+    InstantActionEraScreen,
+    LoadingPageOverlay
+} from "screens/ia.slint";
 
 export { Theme, MenuSound, ControlState } from "theme.slint";
 export { MenuRowItem } from "screens/main.slint";
+export { ListEntry } from "components/list.slint";
+export { IaModel } from "screens/ia.slint";
 
 export component GameUi inherits Window {
     background: transparent;
@@ -63,7 +72,12 @@ export component GameUi inherits Window {
     in property <int> popup-selected-button: 0;
 
     out property <bool> modal-open: root.profile-editing || root.discord-offer-open || root.steam-offer-open || root.popup-open;
-    out property <bool> screen-ported: root.active-screen == "gate" || root.active-screen == "main" || root.active-screen == "profile";
+    out property <bool> screen-ported: root.active-screen == "gate"
+        || root.active-screen == "main"
+        || root.active-screen == "profile"
+        || root.active-screen == "sp"
+        || root.active-screen == "ia"
+        || root.active-screen == "ia-era";
 
     callback gate-unlocked();
     callback row-selected(int);
@@ -140,6 +154,22 @@ export component GameUi inherits Window {
             row-selected(idx) => { root.row-selected(idx); }
             row-activated(idx) => { root.row-activated(idx); }
             back-activated => { root.back-activated(); }
+        }
+
+        if root.shell-visible && !root.gameplay && root.active-screen == "sp": SingleplayerScreen {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+        }
+
+        if root.shell-visible && !root.gameplay && root.active-screen == "ia": InstantActionScreen {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+        }
+
+        if root.shell-visible && !root.gameplay && root.active-screen == "ia-era": InstantActionEraScreen {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+        }
+
+        if IaModel.loading-visible && !root.gameplay: LoadingPageOverlay {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
         }
 
         if root.shell-visible && !root.gameplay && root.theme-picker-open: TouchArea {

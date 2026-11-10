@@ -137,6 +137,9 @@ impl Default for MoviePlayer {
     }
 }
 impl MoviePlayer {
+    pub fn has_frame(&self) -> bool {
+        self.layers.iter().flatten().any(|l| l.frame.is_some())
+    }
     pub fn play(&mut self, root: &Path, movie: ScreenMovie, intro: bool, delay: f64) {
         self.delayed = Some((movie, intro, delay));
         self.next = None;

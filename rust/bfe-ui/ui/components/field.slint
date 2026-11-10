@@ -66,35 +66,53 @@ export component InputField inherits Rectangle {
 
 export component SelectField inherits Interaction {
     in property <[string]> choices;
+    in property <[bool]> disabled-choices;
     in-out property <int> current-index: 0;
     in property <bool> uppercase: true;
     in-out property <bool> open: false;
+    in property <length> popup-width: self.width;
+    // A browser <select> is as wide as its widest option; a column header uses it so the box does not jump per choice.
+    in property <bool> fit-widest: false;
     callback selection-changed(int);
     preferred-height: Theme.field-height;
     height: self.preferred-height;
-    preferred-width: 230px;
+    preferred-width: root.uppercase ? max(120px, (root.fit-widest ? widest.preferred-width : label-text.preferred-width) + 3.1 * Theme.field-font-size) : 230px;
     width: self.preferred-width;
     opacity: root.visual-state == ControlState.disabled ? 0.4 : 1;
     activated => { root.open = !root.open; }
     stepped(delta) => {
         if (root.choices.length > 0) {
-            root.current-index = mod(root.current-index + delta + root.choices.length, root.choices.length);
-            root.selection-changed(root.current-index);
-            Theme.sound-requested(MenuSound.accept);
+            if (root.disabled-choices.length == 0) {
+                root.current-index = mod(root.current-index + delta + root.choices.length, root.choices.length);
+                root.selection-changed(root.current-index);
+                Theme.sound-requested(MenuSound.accept);
+            }
         }
     }
     Rectangle {
         x: 0px; y: 0px; width: parent.width; height: parent.height;
-        background: Theme.page-theme-select-bg;
+        background: root.uppercase ? Theme.dialog-input-bg : Theme.page-theme-select-bg;
         border-width: root.visual-state == ControlState.focused || root.open ? 2px : 1px;
         border-color: root.visual-state == ControlState.focused || root.open
-            ? Theme.dialog-input-focus-border
+            ? (root.uppercase ? Theme.bfe-accent : Theme.dialog-input-focus-border)
             : root.visual-state == ControlState.hover
             ? Theme.bfe-accent
-            : Theme.page-theme-select-border;
-        border-radius: Theme.page-theme-select-radius;
+            : (root.uppercase ? Theme.bfe-dialog-button-border : Theme.page-theme-select-border);
+        border-radius: root.uppercase ? Theme.bfe-dialog-button-radius : Theme.page-theme-select-radius;
     }
-    Text {
+    // Never drawn: a layout's preferred width is its widest child, which is the widest option text.
+    widest := VerticalLayout {
+        x: 0px; y: 0px; width: 0px; height: 0px;
+        for choice in root.choices: Text {
+            opacity: 0;
+            text: root.uppercase ? choice.to-uppercase() : choice;
+            font-family: Theme.font-family;
+            font-size: Theme.field-font-size;
+            font-weight: 700;
+            letter-spacing: 0.1 * self.font-size;
+        }
+    }
+    label-text := Text {
         x: 10px;
         y: 0px;
         width: parent.width - 28px;
@@ -103,10 +121,10 @@ export component SelectField inherits Interaction {
             ? (root.uppercase ? root.choices[root.current-index].to-uppercase() : root.choices[root.current-index])
             : "";
         font-family: Theme.font-family;
-        font-size: Theme.page-theme-select-font-size;
-        font-weight: 600;
+        font-size: root.uppercase ? Theme.field-font-size : Theme.page-theme-select-font-size;
+        font-weight: root.uppercase ? 700 : 600;
         letter-spacing: (root.uppercase ? 0.1 : 0.04) * self.font-size;
-        color: Theme.page-theme-select-ink;
+        color: root.uppercase ? Theme.bfe-text : Theme.page-theme-select-ink;
         vertical-alignment: center;
         overflow: elide;
     }
@@ -114,24 +132,27 @@ export component SelectField inherits Interaction {
         x: root.width - 17px;
         y: root.height / 2 - 2px;
         width: 8px; height: 5px;
-        stroke: Theme.page-theme-select-ink; stroke-width: 1.6px;
+        stroke: root.uppercase ? Theme.bfe-accent : Theme.page-theme-select-ink;
+        stroke-width: root.uppercase ? 2px : 1.6px;
         MoveTo { x: 0; y: 0; } LineTo { x: 4; y: 4; } LineTo { x: 8; y: 0; }
     }
     if root.open: Rectangle {
         x: 0px; y: root.height;
-        width: root.width;
+        width: root.popup-width;
         height: min(320px, root.choices.length * Theme.list-row-height + 8px);
         z: 100;
-        background: Theme.page-theme-option-bg;
+        background: root.uppercase ? Theme.bfe-dialog-bg : Theme.page-theme-option-bg;
         border-width: 1px;
-        border-color: Theme.page-theme-select-border;
+        border-color: root.uppercase ? Theme.bfe-dialog-button-border : Theme.page-theme-select-border;
         VerticalLayout {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
             padding: 4px; spacing: 0px;
             for choice[index] in root.choices: PageListRow {
                 cells: [choice];
                 uppercase: root.uppercase;
+                disabled: index < root.disabled-choices.length ? root.disabled-choices[index] : false;
                 selected-row: index == root.current-index;
+                accept-sound: MenuSound.accept;
                 activated => {
                     root.current-index = index;
                     root.open = false;

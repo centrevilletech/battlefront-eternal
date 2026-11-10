@@ -35,8 +35,7 @@ use bfe_render::interface::{
 };
 use std::collections::HashMap;
 mod screens;
-pub use self::screens::{draw_loading, draw_loading_with_typeface};
-use self::screens::draw_instant_action;
+pub use self::screens::draw_loading;
 
 /// White RGBA (`[1.0, 1.0, 1.0, 1.0]`).
 /// Mirrors `WHITE` in `src/menus/themes/classic/draw.js`.
@@ -342,13 +341,6 @@ pub(super) fn draw_str(
     font.draw(batch, m, x, y, slice, tint, align, 1.0, 0.0, 0.0);
 }
 
-/// Measures the advance width of `text` in `font` using a stack UTF-16 buffer.
-pub(super) fn str_width(font: &Font, text: &str) -> f64 {
-    let mut buf = [0u16; 160];
-    let slice = encode_utf16_stack(text, &mut buf);
-    font.width(slice, 1.0, 0.0)
-}
-
 /// Draws a UI piece quad (`name`) or its untextured stand-in (`FALLBACK` in
 /// `src/menus/themes/classic/draw.js`, including the 6-sliver diagonal
 /// triangle fallback for `buttonright` and `headerbuttonright`).
@@ -576,16 +568,6 @@ fn player_menu_layout(screen: ScreenId) -> RowsLayout<'static> {
             font: "gamefont_medium",
             list_count: Some(7),
         },
-        ScreenId::InstantActionEra => RowsLayout {
-            at: [0.25, 0.5],
-            width: 350.0,
-            ..Default::default()
-        },
-        ScreenId::Singleplayer => RowsLayout {
-            width: 650.0,
-            font: "gamefont_large",
-            ..Default::default()
-        },
         ScreenId::MultiplayerList(_) | ScreenId::OptionsPage(_) | ScreenId::HostDialog => {
             RowsLayout {
                 width: 620.0,
@@ -594,41 +576,6 @@ fn player_menu_layout(screen: ScreenId) -> RowsLayout<'static> {
         }
         _ => RowsLayout::default(),
     }
-}
-
-/// Locate a visible map or playlist row on the same tilted list planes.
-pub fn hit_ia_list(app: &ShellApp, w: f64, h: f64, x: f64, y: f64) -> Option<(bool, usize)> {
-    let (_, _, height) = gate::gate_layout(w, h);
-    let box_h = (height - 210.0).clamp(160.0, 398.0);
-    let shown = (((box_h - 30.0) / 26.0).floor() as usize).max(1);
-    for (left, side, count, selected) in [
-        (true, -1.0, app.data.maps.len(), app.ia_available_selected),
-        (false, 1.0, app.ia_entries.len(), app.ia_selected_cursor),
-    ] {
-        let m = rotate_y(
-            translate(anchor(0.5, 0.5, true, height), side * 227.0, 0.0, 0.0),
-            (-side * 35.0_f64).to_radians(),
-        );
-        let Some([lx, ly]) =
-            bfe_interface::space::local_point(&m, 2.0 * x / w - 1.0, 1.0 - 2.0 * y / h)
-        else {
-            continue;
-        };
-        let top = -10.0 - box_h * 0.5 + 15.0;
-        if lx < -206.0 || lx > 206.0 || ly < top {
-            continue;
-        }
-        let k = ((ly - top) / 26.0).floor() as usize;
-        let first = if count > shown && selected >= shown {
-            (selected + 1 - shown).min(count - shown)
-        } else {
-            0
-        };
-        if k < shown && first + k < count {
-            return Some((left, first + k));
-        }
-    }
-    None
 }
 
 /// Hit the rendered row plane rather than an unrelated fixed 768-high grid.
@@ -824,55 +771,6 @@ pub(super) fn draw_bottom_button(
     draw_str(&fonts.medium, batch, m, x, y, label, color, align);
 }
 
-/// Draws a vertical list scrollbar (`slider_bg` track at `0.5` alpha and
-/// `slider_fg` thumb at `0.33` alpha, minimum 6 units tall).
-/// Mirrors `scrollBar` in `src/menus/themes/classic/index.js`.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn draw_scroll_bar(
-    batch: &mut Batch,
-    textures: &ShellTextures,
-    m: Matrix,
-    x: f64,
-    top: f64,
-    height: f64,
-    first: usize,
-    shown: usize,
-    count: usize,
-) {
-    // Full-height scrollbar track (`slider_bg` at `TRACK_ALPHA = 0.5`).
-    piece_quad(
-        batch,
-        textures,
-        m,
-        "slider_bg",
-        x,
-        top,
-        x + 16.0,
-        top + height,
-        UV,
-        tint_color(WHITE, 0.5),
-    );
-    // Thumb span `[t0, t1]` proportional to `first .. first + shown` out of
-    // `count`, clamped to at least 6 interface units high.
-    let t0 = top + (first as f64 / count.max(1) as f64) * height;
-    let t1 = (top + ((first + shown) as f64 / count.max(1) as f64) * height)
-        .max(t0 + 6.0)
-        .min(top + height);
-    // Visible-window scrollbar thumb (`slider_fg` at `THUMB_ALPHA = 0.33`).
-    piece_quad(
-        batch,
-        textures,
-        m,
-        "slider_fg",
-        x,
-        t0,
-        x + 16.0,
-        t1,
-        UV,
-        tint_color(WHITE, 0.33),
-    );
-}
-
 /// Draws a modal popup (`Notice` `OK`, `ConfirmExit` `YES`/`NO`, or `HostClosePrompt`)
 /// or text input modal (`Profile` callsign or `DirectConnect` address) without heap allocation.
 #[allow(clippy::too_many_arguments)]
@@ -960,9 +858,9 @@ fn draw_popup_box(
 ///    dark space-blue fallback quad.
 /// 2. Initial click/key gate (`ScreenId::Gate`: pulsing `GATE_TEXT` at
 ///    `AT = 0.82` of interface height).
-/// 3. Active base screen (`Main`, `Singleplayer`, `InstantAction`,
-///    `InstantActionEra`, `Options`, `OptionsPage`, `Profile`, `Multiplayer`,
-///    `MultiplayerList`, `DirectConnect`, or `HostDialog`).
+/// 3. Active base screen (`Main`, `Options`, `OptionsPage`, `Profile`,
+///    `Multiplayer`, `MultiplayerList`, `DirectConnect`, or `HostDialog`).
+///    (`Singleplayer`, `InstantAction`, and `InstantActionEra` are rendered in Slint.)
 /// 4. Modal overlay (`profile.editing` callsign editor or `PopupState` notice /
 ///    `EXIT TO WINDOWS?` confirmation / `HostClosePrompt`) over a dimmed backdrop.
 ///
@@ -1062,83 +960,6 @@ pub fn draw_shell(
                 1,
             );
         }
-        // `SINGLEPLAYER`: 3 rows in `gamefont_large` with `width = 650` and a
-        // bottom-left `BACK` button (`src/shell/screens.js`).
-        ScreenId::Singleplayer => {
-            let rows = app.active_rows();
-            let sel = app.selected_cached_row_index(ScreenId::Singleplayer);
-            draw_rows(
-                batch,
-                fonts,
-                textures,
-                height,
-                app.screen_title_str(ScreenId::Singleplayer),
-                rows,
-                sel,
-                pulse,
-                player_menu_layout(ScreenId::Singleplayer),
-            );
-            draw_bottom_button(
-                batch,
-                fonts,
-                height,
-                "back",
-                app.say("common.back", "BACK"),
-                false,
-                true,
-                pulse,
-            );
-        }
-        // `INSTANT ACTION`: dual-list playlist builder (`draw_instant_action`).
-        ScreenId::InstantAction => {
-            draw_instant_action(
-                batch, fonts, textures, app, viewport_w, viewport_h, height, pulse,
-            );
-        }
-        // `InstantActionEra`: draws the underlying Instant Action screen, dims
-        // it with a half-alpha black quad, and overlays the `CLONE WARS` /
-        // `GALACTIC CIVIL WAR` picker rows at `at = [0.25, 0.5]`.
-        ScreenId::InstantActionEra => {
-            draw_instant_action(
-                batch, fonts, textures, app, viewport_w, viewport_h, height, pulse,
-            );
-            batch.quad(
-                full_m,
-                [0.0, 0.0, 1024.0, height],
-                textures.solid,
-                UV,
-                [0.0, 0.0, 0.0, 0.5],
-                0.0,
-                0,
-            );
-            let rows = app.active_rows();
-            let sel = app.selected_cached_row_index(ScreenId::InstantActionEra);
-            draw_rows(
-                batch,
-                fonts,
-                textures,
-                height,
-                app.screen_title_str(ScreenId::InstantActionEra),
-                rows,
-                sel,
-                pulse,
-                RowsLayout {
-                    at: [0.25, 0.5],
-                    width: 350.0,
-                    ..RowsLayout::default()
-                },
-            );
-            draw_bottom_button(
-                batch,
-                fonts,
-                height,
-                "back",
-                app.say("common.back", "BACK"),
-                false,
-                true,
-                pulse,
-            );
-        }
         // Standard angled row screens (`OPTIONS`, `OptionsPage`, `PROFILE
         // MANAGEMENT`, `MULTIPLAYER`, `LAN`/`ONLINE` server lists, and `SET GAME OPTIONS`).
         ScreenId::Options
@@ -1196,7 +1017,11 @@ pub fn draw_shell(
                 pulse,
             );
         }
-        ScreenId::Gate | ScreenId::Popup => {}
+        ScreenId::Gate
+        | ScreenId::Popup
+        | ScreenId::Singleplayer
+        | ScreenId::InstantAction
+        | ScreenId::InstantActionEra => {}
     }
 
     // 4. Profile editing modal or active popup over the current screen:
@@ -1298,7 +1123,6 @@ pub fn draw_shell(
 mod tests {
     use super::*;
     use crate::data::ShellData;
-    use crate::launch::GameFamily;
     use crate::loading::LoadingTimeline;
     use crate::loading::LookId;
 
@@ -1308,7 +1132,7 @@ mod tests {
         let fonts = ShellFonts::default();
         for screen in [
             ScreenId::Main,
-            ScreenId::Singleplayer,
+            ScreenId::Options,
             ScreenId::Multiplayer,
             ScreenId::HostDialog,
         ] {
@@ -1394,27 +1218,7 @@ mod tests {
             target: None,
         });
 
-        // Add one extracted Clone Wars map (`nab2`) so Instant Action can add
-        // and render a playlist entry with faction icons.
-        let mut data = ShellData::default();
-        data.maps.push(crate::data::ShellMap {
-            family: GameFamily::Swbf1,
-            id: "nab2".to_string(),
-            name: "Naboo: Theed".to_string(),
-            name_key: None,
-            extracted: Some(true),
-            eras: std::collections::BTreeMap::from([(
-                "cw".to_string(),
-                crate::data::MapEraInfo {
-                    teams: vec!["rep".to_string(), "cis".to_string()],
-                    ..Default::default()
-                },
-            )]),
-            fly: None,
-            load: None,
-        });
-
-        let mut app = ShellApp::new(data, None);
+        let mut app = ShellApp::new(ShellData::default(), None);
         // Gate screen
         draw_shell(&mut batch, &fonts, &textures, &app, 1280.0, 720.0);
         assert!(batch.count > 10);
@@ -1424,11 +1228,10 @@ mod tests {
         draw_shell(&mut batch, &fonts, &textures, &app, 1280.0, 720.0);
         assert!(batch.count > 50);
 
-        // Instant Action
-        app.push_screen(ScreenId::InstantAction);
-        app.ia_add();
+        // Options
+        app.push_screen(ScreenId::Options);
         draw_shell(&mut batch, &fonts, &textures, &app, 1280.0, 720.0);
-        assert!(batch.count > 40);
+        assert!(batch.count > 30);
 
         // Loading screen in track and zoom phases
         let tl = LoadingTimeline::new(3.5, 1.0, 0.0, vec![Some([0.25, 0.25, 0.75, 0.75]), None]);
@@ -1462,6 +1265,6 @@ mod tests {
             1280.0,
             720.0,
         );
-        assert!(batch.count > 35);
+        assert!(batch.count > 25);
     }
 }

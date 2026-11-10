@@ -6,6 +6,7 @@ import { Theme, MenuSound, ControlState } from "../theme.slint";
 export component Interaction inherits FocusScope {
     in property <bool> disabled: false;
     in property <bool> interactive: true;
+    in property <bool> focus-on-hover: true;
     in property <MouseCursor> cursor: pointer;
     in property <MenuSound> accept-sound: MenuSound.accept;
     in property <ControlState> visual-state: root.disabled ? ControlState.disabled : !root.interactive ? ControlState.idle
@@ -19,12 +20,14 @@ export component Interaction inherits FocusScope {
     property <bool> key-held: false;
     property <bool> keyboard-focus: false;
     callback activated();
+    callback double-activated();
+    callback pointer-entered();
     callback selected();
     callback stepped(int);
     callback pointer-down(length, length);
     callback pointer-moved(length, length);
     focus-on-click: false;
-    focus-on-tab-navigation: !root.disabled && root.interactive;
+    focus-on-tab-navigation: !root.disabled && root.interactive && root.focus-on-hover;
     focus-gained(reason) => {
         root.keyboard-focus = true;
         if (!root.disabled && root.interactive) { root.selected(); Theme.sound-requested(MenuSound.select); }
@@ -56,14 +59,17 @@ export component Interaction inherits FocusScope {
         changed has-hover => {
             if (self.has-hover && !root.disabled && root.interactive) {
                 root.keyboard-focus = false;
+                root.pointer-entered();
                 root.selected();
                 Theme.sound-requested(MenuSound.select);
             }
         }
         pointer-event(event) => {
             if (event.kind == PointerEventKind.down && !root.disabled && root.interactive) {
-                root.focus();
-                root.keyboard-focus = false;
+                if (root.focus-on-hover) {
+                    root.focus();
+                    root.keyboard-focus = false;
+                }
                 root.pointer-down(self.mouse-x, self.mouse-y);
             }
         }
@@ -71,6 +77,12 @@ export component Interaction inherits FocusScope {
         clicked => {
             if (root.disabled) { Theme.sound-requested(MenuSound.error); }
             else if (root.interactive) { root.activated(); Theme.sound-requested(root.accept-sound); }
+        }
+        double-clicked => {
+            if (!root.disabled && root.interactive) {
+                root.double-activated();
+                Theme.sound-requested(MenuSound.accept);
+            }
         }
     }
     @children

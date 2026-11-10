@@ -11,6 +11,20 @@ export component PageListRow inherits Interaction {
     in property <bool> selected-row: false;
     in property <bool> end-aligned: false;
     in property <bool> uppercase: true;
+    focus-on-hover: false;
+    accept-sound: MenuSound.select;
+    property <bool> dual-badge: root.badge == "REP|CIS" || root.badge == "CIS|REP"
+        || root.badge == "IMP|ALL" || root.badge == "ALL|IMP" || root.badge == "IMP|REB";
+    property <string> badge-first: root.badge == "REP|CIS" ? "REP"
+        : root.badge == "CIS|REP" ? "CIS"
+        : root.badge == "IMP|ALL" || root.badge == "IMP|REB" ? "IMP"
+        : root.badge == "ALL|IMP" ? "ALL" : root.badge;
+    property <string> badge-second: root.badge == "REP|CIS" ? "CIS"
+        : root.badge == "CIS|REP" ? "REP"
+        : root.badge == "IMP|ALL" ? "ALL"
+        : root.badge == "ALL|IMP" ? "IMP"
+        : root.badge == "IMP|REB" ? "REB" : "";
+    property <color> row-ink: root.selected-row && root.visual-state == ControlState.focused ? Theme.bfe-accent-ink : Theme.bfe-text;
     preferred-height: Theme.list-row-height;
     height: self.preferred-height;
     opacity: root.visual-state == ControlState.disabled ? 0.4 : 1;
@@ -31,27 +45,51 @@ export component PageListRow inherits Interaction {
                 font-size: Theme.list-font-size;
                 font-weight: 700;
                 letter-spacing: (root.uppercase ? 0.08 : 0.04) * self.font-size;
-                color: root.selected-row && root.visual-state == ControlState.focused ? Theme.bfe-accent-ink : Theme.bfe-text;
+                color: root.row-ink;
                 vertical-alignment: center;
                 horizontal-alignment: root.end-aligned && index == root.cells.length - 1 ? right : left;
                 overflow: elide;
             }
-            if root.badge != "": Rectangle {
-                width: badge.preferred-width + Theme.list-font-size;
-                height: Theme.list-font-size * 1.1;
-                y: (parent.height - self.height) / 2;
-                border-width: 1px;
-                border-color: Theme.bfe-text;
-                opacity: 0.85;
-                badge := Text {
-                    x: 0px; y: 0px; width: parent.width; height: parent.height;
-                    text: root.badge.to-uppercase();
-                    font-family: Theme.font-family;
-                    font-size: 0.72 * Theme.list-font-size;
-                    letter-spacing: 0.1 * self.font-size;
-                    color: Theme.bfe-text;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
+            if root.badge != "": HorizontalLayout {
+                spacing: 0.4 * Theme.list-font-size;
+                alignment: center;
+                Rectangle {
+                    width: badge1.preferred-width + Theme.list-font-size;
+                    height: Theme.list-font-size * 1.1;
+                    y: (parent.height - self.height) / 2;
+                    border-width: 1px;
+                    border-color: root.row-ink;
+                    opacity: 0.85;
+                    badge1 := Text {
+                        x: 0px; y: 0px; width: parent.width; height: parent.height;
+                        text: root.badge-first.to-uppercase();
+                        font-family: Theme.font-family;
+                        font-size: 0.72 * Theme.list-font-size;
+                        font-weight: 700;
+                        letter-spacing: 0.1 * self.font-size;
+                        color: root.row-ink;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+                if root.dual-badge: Rectangle {
+                    width: badge2.preferred-width + Theme.list-font-size;
+                    height: Theme.list-font-size * 1.1;
+                    y: (parent.height - self.height) / 2;
+                    border-width: 1px;
+                    border-color: root.row-ink;
+                    opacity: 0.85;
+                    badge2 := Text {
+                        x: 0px; y: 0px; width: parent.width; height: parent.height;
+                        text: root.badge-second.to-uppercase();
+                        font-family: Theme.font-family;
+                        font-size: 0.72 * Theme.list-font-size;
+                        font-weight: 700;
+                        letter-spacing: 0.1 * self.font-size;
+                        color: root.row-ink;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
                 }
             }
         }
@@ -62,49 +100,115 @@ export component PageList inherits FocusScope {
     in property <[ListEntry]> entries;
     in property <[float]> columns;
     in property <bool> disabled: false;
+    in property <bool> panel-surface: false;
+    in property <bool> list-focused: false;
+    // The screen's model owns which control is focused (its keys do not reach this list), so Slint's own focus is ignored.
+    in property <bool> model-focus: false;
+    in property <length> row-spacing: 0px;
     in-out property <int> selected-index: -1;
     callback chosen(int);
+    callback row-selected(int);
+    callback row-activated(int);
+    callback list-entered();
     focus-on-tab-navigation: !root.disabled;
+    property <length> stride: Theme.list-row-height + root.row-spacing;
+    function focus-from-pointer() {
+        if (!root.disabled) {
+            if (!root.has-focus && !root.list-focused) {
+                Theme.sound-requested(MenuSound.select);
+            }
+            root.focus();
+            root.list-entered();
+        }
+    }
+    changed selected-index => {
+        if (root.selected-index >= 0 && scroll.height > 0px) {
+            if (root.selected-index * root.stride < -scroll.viewport-y) {
+                scroll.viewport-y = -(root.selected-index * root.stride);
+            } else if ((root.selected-index + 1) * Theme.list-row-height + root.selected-index * root.row-spacing > -scroll.viewport-y + scroll.height) {
+                scroll.viewport-y = scroll.height - ((root.selected-index + 1) * Theme.list-row-height + root.selected-index * root.row-spacing);
+            }
+        }
+    }
+    focus-gained(reason) => {
+        if (!root.disabled) { root.list-entered(); }
+    }
     Rectangle {
         x: 0px; y: 0px; width: parent.width; height: parent.height;
-        background: Theme.bfe-list-bg;
+        background: root.panel-surface ? Theme.bfe-panel-bg : Theme.bfe-list-bg;
         border-width: Theme.bfe-panel-border.width;
         border-color: Theme.bfe-panel-border.color;
+    }
+    hover-area := TouchArea {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        changed has-hover => {
+            if (self.has-hover) {
+                root.focus-from-pointer();
+            }
+        }
     }
     scroll := Flickable {
         x: 4px; y: 4px;
         width: parent.width - 8px;
         height: parent.height - 8px;
-        content-width: self.width;
-        content-height: root.entries.length * Theme.list-row-height;
+        viewport-width: self.width;
+        viewport-height: max(self.height, root.entries.length * Theme.list-row-height + max(0, root.entries.length - 1) * root.row-spacing);
         rows := VerticalLayout {
             x: 0px; y: 0px;
             width: scroll.width;
-            spacing: 0px;
+            spacing: root.row-spacing;
             for entry[index] in root.entries: row := PageListRow {
                 cells: entry.cells;
                 columns: root.columns;
                 badge: entry.badge;
                 disabled: entry.disabled || root.disabled;
                 selected-row: index == root.selected-index;
-                visual-state: self.disabled ? ControlState.disabled : root.has-focus && self.selected-row ? ControlState.focused
+                visual-state: self.disabled ? ControlState.disabled : (root.model-focus ? root.list-focused : (root.has-focus || root.list-focused)) && self.selected-row ? ControlState.focused
                     : self.pressed ? ControlState.pressed : self.hovered ? ControlState.hover : ControlState.idle;
-                activated => { root.selected-index = index; root.focus(); root.chosen(index); }
+                pointer-entered => {
+                    root.focus-from-pointer();
+                }
+                activated => {
+                    root.selected-index = index;
+                    root.focus-from-pointer();
+                    root.chosen(index);
+                    root.row-selected(index);
+                }
+                double-activated => {
+                    root.selected-index = index;
+                    root.focus-from-pointer();
+                    root.row-activated(index);
+                }
             }
         }
+    }
+    // The browser's thin scrollbar (scrollbar-width: thin, --bfe-scroll thumb on a clear track), shown only when the rows overflow.
+    if scroll.viewport-height > scroll.height + 0.5px: Rectangle {
+        x: root.width - 7px;
+        y: scroll.y + (-scroll.viewport-y / scroll.viewport-height) * scroll.height;
+        width: 4px;
+        height: max(16px, scroll.height * scroll.height / scroll.viewport-height);
+        background: Theme.bfe-scroll;
+        border-radius: 2px;
     }
     key-pressed(event) => {
         if (root.disabled) { return reject; }
         if (event.text == Key.UpArrow || event.text == Key.DownArrow) {
             if (root.entries.length > 0) {
                 root.selected-index = min(root.entries.length - 1, max(0, root.selected-index + (event.text == Key.UpArrow ? -1 : 1)));
+                root.chosen(root.selected-index);
+                root.row-selected(root.selected-index);
                 Theme.sound-requested(MenuSound.select);
             }
             return accept;
         }
         if (event.text == Key.Return && root.selected-index >= 0) {
             if (root.entries[root.selected-index].disabled) { Theme.sound-requested(MenuSound.error); }
-            else { root.chosen(root.selected-index); Theme.sound-requested(MenuSound.accept); }
+            else {
+                root.chosen(root.selected-index);
+                root.row-activated(root.selected-index);
+                Theme.sound-requested(MenuSound.accept);
+            }
             return accept;
         }
         return reject;

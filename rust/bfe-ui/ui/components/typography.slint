@@ -41,7 +41,8 @@ export component PageTitle inherits Rectangle {
     }
     title-text := Text {
         x: (parent.width - self.preferred-width) / 2;
-        y: 0px;
+        // The browser's eternal title sits on a line box of one em with the underline below it.
+        y: Theme.eternal ? -0.2 * root.size : 0px;
         height: parent.height;
         text: root.title.to-uppercase();
         font-family: Theme.font-family;
@@ -123,4 +124,81 @@ export component Wordmark inherits Rectangle {
 
 export component PageBrand inherits Wordmark {
     size: min(32px, min(1.7 * Theme.vw, 3.2 * Theme.vh));
+}
+
+// Top-left planet name on the loading screen in eternal and bf2 looks
+// (src/shell/loading.js LOOKS.eternal.type / LOOKS.bf2.type).
+export component LoadingPlanetText inherits Rectangle {
+    in property <string> label;
+    in property <length> unit: 1px;
+    property <length> size: (Theme.bf2 ? 16 : 15) * root.unit;
+    property <length> track: self.size * (Theme.bf2 ? 0.04 : 0.24);
+    width: glyph.preferred-width;
+    height: glyph.preferred-height;
+    shadow := Text {
+        x: 0px;
+        y: root.unit;
+        text: root.label;
+        font-family: Theme.font-family;
+        font-size: root.size;
+        font-weight: Theme.bf2 ? 800 : 700;
+        letter-spacing: root.track;
+        color: Theme.bf2 ? rgba(0, 0, 0, 0.6) : rgba(0, 0, 0, 0.85);
+        vertical-alignment: center;
+    }
+    glyph := Text {
+        x: 0px;
+        y: 0px;
+        text: root.label;
+        font-family: Theme.font-family;
+        font-size: root.size;
+        font-weight: Theme.bf2 ? 800 : 700;
+        letter-spacing: root.track;
+        color: Theme.bf2 ? #ffffff : #e8ecf2;
+        stroke: Theme.bf2 ? #111111 : transparent;
+        stroke-width: Theme.bf2 ? 2 * root.unit : 0px;
+        stroke-style: outside;
+        vertical-alignment: center;
+    }
+}
+
+// Tilted -14deg LOADING text centered on the lower-right loading disk
+// in eternal and bf2 looks (src/shell/loading.js drawDisk / write).
+export component LoadingWordText inherits Rectangle {
+    in property <string> label: "LOADING";
+    in property <length> unit: 1px;
+    in property <angle> tilt: -14deg;
+    property <length> size: (Theme.bf2 ? 15 : 13) * root.unit;
+    property <length> track: self.size * (Theme.bf2 ? 0.04 : 0.24);
+    // The disk is turned about its vertical axis (loading.js DISK.turn), which squeezes the word with it.
+    property <float> turn: 0.866;
+    width: word.preferred-width;
+    height: word.preferred-height;
+    shadow := Text {
+        x: 0px;
+        y: root.unit;
+        text: root.label;
+        font-family: Theme.font-family;
+        font-size: root.size;
+        font-weight: Theme.bf2 ? 700 : 500;
+        letter-spacing: root.track;
+        color: Theme.bf2 ? rgba(0, 0, 0, 0.6) : rgba(0, 0, 0, 0.85);
+        transform-scale-x: root.turn;
+        transform-rotation: root.tilt;
+    }
+    word := Text {
+        x: 0px;
+        y: 0px;
+        text: root.label;
+        font-family: Theme.font-family;
+        font-size: root.size;
+        font-weight: Theme.bf2 ? 700 : 500;
+        letter-spacing: root.track;
+        color: Theme.bf2 ? #ffffff : #e8ecf2;
+        stroke: Theme.bf2 ? #111111 : transparent;
+        stroke-width: Theme.bf2 ? 2 * root.unit : 0px;
+        stroke-style: outside;
+        transform-scale-x: root.turn;
+        transform-rotation: root.tilt;
+    }
 }

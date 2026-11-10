@@ -5,15 +5,17 @@ import { PageList, PageListRow, ListEntry } from "components/list.slint";
 import { OptionRow, PageToggle, OptionKind } from "components/option-row.slint";
 import { PageSlider } from "components/slider.slint";
 import { InputField, SelectField } from "components/field.slint";
-import { PageText, PageTitle, Wordmark, PageBrand, TextRole } from "components/typography.slint";
+import { PageText, PageTitle, Wordmark, PageBrand, TextRole, LoadingPlanetText, LoadingWordText } from "components/typography.slint";
 import { PopupBox, PageDialog } from "components/dialog.slint";
 import { BackdropMovies, PreviewFrame } from "components/media.slint";
 import { PageScrim, PageDim, PagePattern } from "components/scrim.slint";
 import { ScreenFrame, ScreenLayout } from "components/screen-frame.slint";
 import { Surface } from "components/surface.slint";
+import { IaModel, SingleplayerScreen, InstantActionScreen, InstantActionEraScreen, LoadingPageOverlay } from "screens/ia.slint";
 export { Theme, MenuSound, ControlState, Pattern, MovieFilter } from "theme.slint";
 export { ListEntry } from "components/list.slint";
 export { MenuRowItem } from "screens/main.slint";
+export { IaModel, SingleplayerScreen, InstantActionScreen, InstantActionEraScreen, LoadingPageOverlay } from "screens/ia.slint";
 
 component Caption inherits PageText {
     role: TextRole.corner;
@@ -76,6 +78,8 @@ export component ComponentGallery inherits Window {
             PageSlider { x: 0px; y: 392px; width: parent.width; value: 0.8; visual-state: state; disabled: state == ControlState.disabled; }
             SelectField { x: 0px; y: 442px; width: parent.width; choices: ["Battlefront (2004)", "Battlefront II (2005)", "Eternal"]; visual-state: state; disabled: state == ControlState.disabled; }
             InputField { x: 0px; y: 498px; width: parent.width; text: "PLAYER 1"; visual-state: state; disabled: state == ControlState.disabled; }
+            if index == 0: LoadingPlanetText { x: 0px; y: 552px; unit: 1.2px; label: "BESPIN"; }
+            if index == 1: LoadingWordText { x: 0px; y: 552px; unit: 1.2px; label: "LOADING"; }
         }
     }
     if root.section == 1: Rectangle {
@@ -169,54 +173,10 @@ export component ComponentGallery inherits Window {
     }
     if root.section == 3: Rectangle {
         x: 0px; y: 84px; width: root.width; height: root.height - self.y;
-        BackdropMovies { x: 0px; y: 0px; width: parent.width; height: parent.height; current-frame: root.movie-frame; }
-        PagePattern { x: 0px; y: 0px; width: parent.width; height: parent.height; }
-        PageScrim { x: 0px; y: 0px; width: parent.width; height: parent.height; }
-        ScreenFrame {
+        InstantActionScreen {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
-            title: "INSTANT ACTION"; layout: ScreenLayout.wide;
-            left-label: "BACK";
-            middle-label: "PLAY IN ORDER";
-            right-label: "LAUNCH";
-            PageList {
-                x: 0px; y: 0px; width: 340px; height: 320px;
-                columns: [1]; selected-index: 0;
-                entries: [
-                    {cells:["BESPIN: PLATFORMS"],badge:"",disabled:false},
-                    {cells:["BESPIN: CLOUD CITY"],badge:"",disabled:false},
-                    {cells:["ENDOR: BUNKER"],badge:"",disabled:false},
-                    {cells:["HOTH: ECHO BASE"],badge:"",disabled:false},
-                    {cells:["KAMINO: TIPOCA CITY"],badge:"",disabled:false}
-                ];
-            }
-            PreviewFrame {
-                x: (parent.width - self.width) / 2;
-                y: 0px;
-                width: 360px;
-                movie-frame: root.movie-frame;
-                caption: "BESPIN: PLATFORMS";
-            }
-            HorizontalLayout {
-                x: (parent.width - 300px) / 2;
-                y: 286px;
-                width: 300px;
-                height: 34px;
-                spacing: 16px;
-                alignment: center;
-                PageButton { label: "ADD"; variant: ButtonVariant.small; }
-                PageButton { label: "REMOVE"; variant: ButtonVariant.small; }
-            }
-            PageList {
-                x: parent.width - 340px; y: 0px; width: 340px; height: 320px;
-                columns: [2, 1]; selected-index: 0;
-                entries: [
-                    {cells:["BESPIN: PLATFORMS","CONQUEST"],badge:"CW",disabled:false},
-                    {cells:["HOTH: ECHO BASE","CONQUEST"],badge:"GCW",disabled:false}
-                ];
-            }
+            use-underlay: false;
+            movie-frame: root.movie-frame;
         }
-        Wordmark { x: 38px; y: 470px; size: 34px; }
-        PageText { x: 38px; y: 530px; width: root.width - 76px; height: 28px; role: TextRole.prompt; text: "PRESS ANY KEY OR CLICK TO BEGIN"; }
-        PageDim { x: 0px; y: 0px; width: parent.width; height: parent.height; dimmed: false; }
     }
 }

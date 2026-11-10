@@ -48,9 +48,9 @@ use bfe_shell::{
     data::{load_shell_data_from_dir, ShellData},
     launch::BattleRequest,
     loading::{planet_name, LoadingTimeline, LookId},
-    render::{draw_loading_with_typeface, draw_shell, ShellFonts, ShellTextures, StageTexture},
+    render::{draw_loading, draw_shell, ShellFonts, ShellTextures, StageTexture},
     screens::{
-        HostConfig, IaFocus, MultiplayerKind, MultiplayerLaunch, OptionsPageId, PopupState,
+        HostConfig, MultiplayerKind, MultiplayerLaunch, OptionsPageId, PopupState,
         ScreenId, ShellAction, ShellApp,
     },
     version::{AboutInfo, DEFAULT_SIMULATION},
@@ -484,7 +484,7 @@ pub struct ShellHost {
     movie_clock: std::time::Instant,
     pub movie_allocs_max: u64,
     movie_texture: bfe_shell::movie_gpu::MovieTexture,
-    preview_texture: bfe_shell::movie_gpu::MovieTexture,
+    pub(super) preview_texture: bfe_shell::movie_gpu::MovieTexture,
     /// Offscreen RGBA8 + Depth/Stencil framebuffer target.
     pub canvas: Canvas,
     /// `bfe-render` GL core owning compiled shader programs and textures.
@@ -523,6 +523,7 @@ pub struct ShellHost {
     pub loading_time: f64,
     pub loading_frames: u64,
     pub loading_peak_ms: f64,
+    pub(super) loading_overlay: Option<(String, String)>,
     battle_loading_started: Instant,
     loading_stage_maps: HashMap<String, Vec<StageTexture>>,
     /// Path to the prepared content directory once loaded.
@@ -645,6 +646,7 @@ impl ShellHost {
             loading_time: 0.0,
             loading_frames: 0,
             loading_peak_ms: 0.,
+            loading_overlay: None,
             battle_loading_started: Instant::now(),
             loading_stage_maps: HashMap::new(),
             content_dir: None,
@@ -1363,7 +1365,8 @@ impl ShellHost {
         let at = self.loading_timeline.at(timeline_time);
         let w = self.layout_size[0] as f64;
         let h = self.layout_size[1] as f64;
-        draw_loading_with_typeface(
+        self.loading_overlay = Some((planet.clone(), text.clone()));
+        draw_loading(
             &mut self.batch,
             &self.fonts,
             &self.textures,
@@ -1374,12 +1377,12 @@ impl ShellHost {
             LookId::from_theme(Some(&self.app.settings.menu_theme)),
             w,
             h,
-            Some((&self.page.body, &self.page.bold)),
         );
         self.upload_and_draw_batch();
     }
 
     pub fn draw_first_run(&mut self, view: &bfe_shell::page::SetupView, cursor: usize) {
+        self.loading_overlay = None;
         let look = match self.app.settings.menu_theme.as_str() {
             "bf1" => 0,
             "bf2" => 1,
@@ -1413,7 +1416,8 @@ impl ShellHost {
         let at = self.loading_timeline.at(self.loading_time);
         let w = self.layout_size[0] as f64;
         let h = self.layout_size[1] as f64;
-        draw_loading_with_typeface(
+        self.loading_overlay = Some((self.loading_planet.clone(), self.loading_text.clone()));
+        draw_loading(
             &mut self.batch,
             &self.fonts,
             &self.textures,
@@ -1424,7 +1428,6 @@ impl ShellHost {
             LookId::from_theme(Some(&self.app.settings.menu_theme)),
             w,
             h,
-            Some((&self.page.body, &self.page.bold)),
         );
         self.upload_and_draw_batch();
     }
@@ -1437,7 +1440,8 @@ impl ShellHost {
         let w = self.layout_size[0] as f64;
         let h = self.layout_size[1] as f64;
         let status = format!("STARTING HOSTED SERVER: {server_name}");
-        draw_loading_with_typeface(
+        self.loading_overlay = Some((self.loading_planet.clone(), status.clone()));
+        draw_loading(
             &mut self.batch,
             &self.fonts,
             &self.textures,
@@ -1448,7 +1452,6 @@ impl ShellHost {
             LookId::from_theme(Some(&self.app.settings.menu_theme)),
             w,
             h,
-            Some((&self.page.body, &self.page.bold)),
         );
         self.upload_and_draw_batch();
     }
@@ -1480,6 +1483,7 @@ impl ShellHost {
         settings: &mut AppSettingsStore,
         audio_router: &SharedAudioRouter,
     ) -> Option<ShellTransition> {
+        self.loading_overlay = None;
         if self.browser.poll() || (self.browser_page() && self.page.browser.source.is_none()) {
             self.sync_page_browser();
         }
@@ -1804,12 +1808,6 @@ impl ShellHost {
             }
             return self.flush_events(settings, audio_router);
         }
-        if self.page.game_dropdown {
-            if matches!(key, "Escape" | "Tab" | "Enter" | " ") {
-                self.page.game_dropdown = false;
-            }
-            return self.flush_events(settings, audio_router);
-        }
         if key == "Tab"
             && matches!(
                 self.app.current_screen(),
@@ -1941,37 +1939,9 @@ impl ShellHost {
         }
         let w = self.layout_size[0].max(1) as f64;
         let h = self.layout_size[1].max(1) as f64;
-        let ix = (x_px / w) * 1024.0;
-        let iy = (y_px / h) * 768.0;
 
         let screen = self.app.current_screen();
         if matches!(screen, ScreenId::Gate | ScreenId::Main | ScreenId::Profile) {
-            return;
-        }
-        if screen == ScreenId::InstantAction {
-            if let Some((left, row)) = bfe_shell::render::hit_ia_list(&self.app, w, h, x_px, y_px) {
-                if left {
-                    self.app.ia_focus = IaFocus::Available;
-                    if self.app.ia_available_selected != row {
-                        self.app.ia_available_selected = row;
-                        let map_id = self.app.data.maps.get(row).map(|map| map.id.clone());
-                        let event = self.app.media.preview(&self.app.data, map_id.as_deref());
-                        self.app.media_events.push(event);
-                    }
-                } else {
-                    self.app.ia_focus = IaFocus::Selected;
-                    self.app.ia_selected_cursor = row;
-                }
-            }
-            if iy >= 690.0 {
-                if ix < 260.0 {
-                    self.app.ia_focus = IaFocus::Back;
-                } else if ix > 760.0 {
-                    self.app.ia_focus = IaFocus::Launch;
-                } else {
-                    self.app.ia_focus = IaFocus::Order;
-                }
-            }
             return;
         }
 
@@ -2091,13 +2061,6 @@ impl ShellHost {
                 Some(Hit::Host(control)) => self.app.host_control(control),
                 Some(Hit::DirectButton(true)) => self.app.accept(&mut self.browser),
                 Some(Hit::DirectButton(false)) => self.app.back(),
-                Some(Hit::Game) => self.page.game_dropdown = !self.page.game_dropdown,
-                Some(Hit::GameChoice(index)) => {
-                    if let Some((family, _, _)) = self.app.ia_game_picker_options().get(index) {
-                        self.app.ia_select_family(*family);
-                    }
-                    self.page.game_dropdown = false;
-                }
                 Some(Hit::Back) => self.app.back(),
                 Some(Hit::Popup(index)) => {
                     match self.app.popup.as_mut() {
@@ -2113,26 +2076,6 @@ impl ShellHost {
                         }) => *selected = index,
                         _ => {}
                     }
-                    self.app.accept(&mut self.browser);
-                }
-                Some(Hit::Map(i)) => {
-                    self.app.ia_focus = IaFocus::Available;
-                    let delta = i as isize - self.app.ia_available_selected as isize;
-                    self.app.move_vertical(delta);
-                    if double {
-                        self.app.accept(&mut self.browser);
-                    }
-                }
-                Some(Hit::Entry(i)) => {
-                    self.app.ia_focus = IaFocus::Selected;
-                    let delta = i as isize - self.app.ia_selected_cursor as isize;
-                    self.app.move_vertical(delta);
-                    if double {
-                        self.app.accept(&mut self.browser);
-                    }
-                }
-                Some(Hit::Ia(focus)) => {
-                    self.app.ia_focus = focus;
                     self.app.accept(&mut self.browser);
                 }
                 Some(Hit::Row(i)) => {
@@ -2260,7 +2203,7 @@ impl ShellHost {
         self.flush_events(settings, audio_router)
     }
 
-    pub fn handle_wheel(&mut self, x_px: f64, y_px: f64, dy: f64, settings: &mut AppSettingsStore) {
+    pub fn handle_wheel(&mut self, _x_px: f64, _y_px: f64, dy: f64, settings: &mut AppSettingsStore) {
         if self.is_interface_options_active() {
             let event = self
                 .options_ctrl
@@ -2268,9 +2211,6 @@ impl ShellHost {
                 .on_wheel(&mut self.options_ctrl.stack, if dy < 0. { -1 } else { 1 });
             self.options_ctrl.apply_event(event);
             self.flush_options_controller(settings);
-        } else if self.app.current_screen() == ScreenId::InstantAction {
-            self.page
-                .scroll_ia(x_px, y_px, if dy < 0. { -1 } else { 1 }, &self.app);
         } else if self.app.current_screen() == ScreenId::HostDialog && self.app.popup.is_none() {
             if self.app.host_form.choice.is_some() {
                 self.app.host_key(if dy < 0. { "ArrowUp" } else { "ArrowDown" }, false);

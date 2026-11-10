@@ -18,7 +18,7 @@ pub struct MovieTexture {
     gl: glow::Context,
     slots: [Slot; MAX_LAYERS],
     pub texture: glow::Texture,
-    size: [i32; 2],
+    pub size: [i32; 2],
     target: glow::Framebuffer,
     vao: glow::VertexArray,
     yuv: glow::Program,

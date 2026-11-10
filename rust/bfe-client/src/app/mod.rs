@@ -76,6 +76,7 @@ mod loading;
 mod folder_dialog;
 mod first_run;
 mod platform_smoke;
+mod slint_ia;
 mod slint_models;
 mod slint_ui;
 pub mod script;
@@ -1390,6 +1391,10 @@ impl ApplicationHandler for StandaloneWindowApp {
                                     ui.sync_shell(shell, in_shell);
                                 }
                             }
+                            let in_shell = matches!(self.state, AppState::Shell);
+                            if let (Some(ui), Some(shell)) = (&mut self.slint_ui, &mut self.shell) {
+                                ui.sync_shell(shell, in_shell);
+                            }
                         }
                     }
                     AppState::Battle(battle) => {
@@ -1644,6 +1649,9 @@ impl StandaloneWindowApp {
                     loader_state.poll(&mut self.settings);
                     let blit_info = if let Some(shell) = &mut self.shell {
                         shell.draw_startup_loader(dt, loader_state);
+                        if let Some(ui) = &mut self.slint_ui {
+                            ui.sync_shell(shell, false);
+                        }
                         Some((shell.canvas.framebuffer, shell.size))
                     } else {
                         None
@@ -1672,6 +1680,10 @@ impl StandaloneWindowApp {
                                 0.016,
                                 &StartupContentState::Ready(content_dir),
                             );
+                            if let Some(ui) = &mut self.slint_ui {
+                                ui.sync_shell(shell, false);
+                                let _ = ui.render(shell.canvas.framebuffer, shell.size);
+                            }
                             if let Some(smoke) = &mut self.platform_smoke {
                                 smoke.capture("startup", shell.size, &shell.pixels()?)?;
                                 smoke.startup = true;
@@ -1768,6 +1780,9 @@ impl StandaloneWindowApp {
                     let poll_res = rx.try_recv();
                     if let Some(shell) = &mut self.shell {
                         shell.draw_host_starting(dt, &server_name);
+                        if let Some(ui) = &mut self.slint_ui {
+                            ui.sync_shell(shell, false);
+                        }
                         let fb = shell.canvas.framebuffer;
                         let sz = shell.size;
                         self.blit_framebuffer_to_window(fb, sz)?;
@@ -1825,6 +1840,7 @@ impl StandaloneWindowApp {
                     work,
                 } => {
                     *frames_drawn += 1;
+                    let current_frames = *frames_drawn;
                     let error_screen = if matches!(target, BattleLoadTarget::Online { .. }) {
                         ScreenId::Multiplayer
                     } else {
@@ -1852,16 +1868,8 @@ impl StandaloneWindowApp {
                     let mut handover = None;
                     let frame = if let Some(shell) = &mut self.shell {
                         shell.draw_battle_loading(dt);
-                        if *frames_drawn == 6 {
-                            if let Some(gate) = &mut self.gate {
-                                if !gate
-                                    .screenshots_written
-                                    .iter()
-                                    .any(|s| s == "08-ia-loading.png")
-                                {
-                                    gate.save_shell_shot(shell, "08-ia-loading.png")?;
-                                }
-                            }
+                        if let Some(ui) = &mut self.slint_ui {
+                            ui.sync_shell(shell, false);
                         }
                         handover =
                             work.handover(shell.battle_loading_complete(), &self.audio_router);
@@ -1877,6 +1885,17 @@ impl StandaloneWindowApp {
                     };
                     if let Some((fb, size)) = frame {
                         self.blit_framebuffer_to_window(fb, size)?;
+                    }
+                    if current_frames == 6 {
+                        if let (Some(gate), Some(shell)) = (&mut self.gate, &mut self.shell) {
+                            if !gate
+                                .screenshots_written
+                                .iter()
+                                .any(|s| s == "08-ia-loading.png")
+                            {
+                                gate.save_shell_shot(shell, "08-ia-loading.png")?;
+                            }
+                        }
                     }
                     if let Err(error) = result {
                         if self.gate.is_some() {
