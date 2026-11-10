@@ -51,6 +51,7 @@ pub struct Sender {
     pointer_at: usize,
     pointer_count: usize,
     mouse_scale: f64,
+    aspect: f64,
     invert: bool,
     first_person: bool,
     pub yaw: f64,
@@ -95,6 +96,7 @@ impl Default for Sender {
             pointer_at: 0,
             pointer_count: 0,
             mouse_scale: 1.,
+            aspect: 1280. / 720.,
             invert: false,
             first_person: false,
             yaw: 0.,
@@ -179,6 +181,7 @@ impl Sender {
         // mouse settings. Advertising a fixed scale made the server turn
         // twice as far as the default desktop prediction requested.
         self.mouse_scale = if c.has_mouse_scale && c.mouse_scale.is_finite() && c.mouse_scale > 0. { c.mouse_scale.min(2.) } else { 1. };
+        self.aspect = if c.has_aspect && c.aspect.is_finite() && c.aspect > 0. { c.aspect } else { 1280. / 720. };
         self.invert = c.invert.unwrap_or(false);
         self.first_person = c.first_person.unwrap_or(false);
         self.sequence = self.sequence.wrapping_add(1).max(1);
@@ -302,17 +305,35 @@ impl Sender {
     // follows Soldier.lookRaw for each still-unapplied pointer event.
     pub fn preview(&mut self, receiver: &Receiver) {
         let own = &receiver.own;
-        let (max_turn, pitch_limits) = self.turns.get(own.class).copied().unwrap_or((2., [-0.8, 1.1]));
-        let mut body = Soldier {
-            aim_yaw: own.yaw,
-            aim_pitch: own.pitch,
-            max_turn,
-            pitch_limits,
-            posture: Posture::from_u8(own.posture as u8).unwrap_or_default(),
-            air: if own.air == 0 { None } else { Air::from_u8(own.air - 1) },
-            dive: own.dive,
-            lock: own.lock,
-            ..Default::default()
+        let (max_turn, pitch_limits) = if own.remote.is_some() {
+            (2., [-50_f64.to_radians(), 50_f64.to_radians()])
+        } else {
+            self.turns.get(own.class).copied().unwrap_or((2., [-0.8, 1.1]))
+        };
+        let mut body = if own.remote.is_some() {
+            Soldier {
+                aim_yaw: own.remote_yaw,
+                aim_pitch: own.remote_pitch,
+                max_turn,
+                pitch_limits,
+                posture: Posture::Stand,
+                air: None,
+                dive: 0.,
+                lock: 0.,
+                ..Default::default()
+            }
+        } else {
+            Soldier {
+                aim_yaw: own.yaw,
+                aim_pitch: own.pitch,
+                max_turn,
+                pitch_limits,
+                posture: Posture::from_u8(own.posture as u8).unwrap_or_default(),
+                air: if own.air == 0 { None } else { Air::from_u8(own.air - 1) },
+                dive: own.dive,
+                lock: own.lock,
+                ..Default::default()
+            }
         };
         for i in 0..self.pointer_count {
             let p = self.pointers[(self.pointer_at + i) % 128];
@@ -405,7 +426,7 @@ impl Sender {
             x[start + v::FLAGS] = 32. + 64. + 128. + 2. * self.first_person as u8 as f64 + self.invert as u8 as f64;
             x[start + v::PROFILE_FOUND] = 1.;
             x[start + v::MOUSE_SCALE] = self.mouse_scale;
-            x[start + v::ASPECT] = 1280. / 720.;
+            x[start + v::ASPECT] = self.aspect;
             x[start + v::VIEW_TICK] = (receiver.latest - 6.).max(0.);
             for state in &states[..commands] {
                 for n in [1., state.sequence, state.tick, 0.] {

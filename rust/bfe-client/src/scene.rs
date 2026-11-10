@@ -44,6 +44,7 @@ pub struct MapCamera {
     subject_eye: [f64; 3],
     flight_mode: bool,
     perspectives: [bool; 2],
+    far_plane: f64,
 }
 impl MapCamera {
     pub fn new(position: [f64; 3], size: [i32; 2]) -> Result<Self, String> {
@@ -103,7 +104,27 @@ impl MapCamera {
             subject_eye: position,
             flight_mode: false,
             perspectives: [false; 2],
+            far_plane: 20000.0,
         })
+    }
+    pub fn resize(&mut self, size: [i32; 2]) {
+        if size[0] <= 0 || size[1] <= 0 {
+            return;
+        }
+        let mut projection = Matrix4::default();
+        let top = 0.3 * (60.0f64.to_radians() * 0.5).tan();
+        let right = top * size[0] as f64 / size[1] as f64;
+        projection.make_perspective(
+            -right,
+            right,
+            top,
+            -top,
+            0.3,
+            self.far_plane,
+            CoordinateSystem::WebGL,
+        );
+        set(&mut self.view, "projectionMatrix", &projection.elements);
+        set(&mut self.view, "resolution", &[size[0] as f64, size[1] as f64]);
     }
     pub fn subject_eye(&self) -> [f64; 3] {
         self.subject_eye
@@ -235,7 +256,8 @@ pub(crate) struct Prepared {
     foliage_images: Vec<usize>,
     placed: bfe_content_native::placed::Placements,
     water_main: Option<usize>,
-    water_mask: Option<usize>,
+    /// The specular mask's frames in play order, and their frames per second.
+    water_mask: (Vec<usize>, f64),
     water_foam: Option<usize>,
     features: [u32; L::FEATURES_LENGTH],
     prepared_views: Option<crate::online::first_person::Prepared>,
@@ -260,7 +282,10 @@ pub struct Scene {
     pub spawn_shots: Vec<bfe_battle_ui::spawn::CameraShot>,
     pub bridge: Box<Bridge>,
     pub resources: Resources,
+    far_source: u32,
+    far_sample: u32,
     far_target: u32,
+    far_reach: f64,
     shadows: Option<crate::shadows::Shadows>,
     image_step: [f64; bfe_render::post::STEP],
     image_state: [f64; bfe_render::post::STATE],
@@ -507,12 +532,16 @@ impl Scene {
         } else {
             None
         };
-        let water_mask =
-            if let Some(name) = content.map["water"]["look"]["SpecularMaskTextures"][0].as_str() {
-                water_image(&format!("{name}0"))?
-            } else {
-                None
-            };
+        // Water.frames (water.js): a name prefix, a frame count and a rate;
+        // frames that are missing are left out, as there.
+        let mut water_mask = (Vec::new(), 0.);
+        let mask = &content.map["water"]["look"]["SpecularMaskTextures"];
+        if let (Some(name), Some(count), Some(fps)) = (mask[0].as_str(), mask[1].as_f64(), mask[2].as_f64()) {
+            for k in 0..count.round().max(0.) as usize {
+                water_mask.0.extend(water_image(&format!("{name}{k}"))?);
+            }
+            water_mask.1 = fps;
+        }
         let water_foam = if let Some(name) = content.map["water"]["look"]["FoamTexture"][0].as_str()
         {
             water_image(name)?
@@ -583,7 +612,7 @@ impl Scene {
             .iter()
             .copied()
             .chain(water_main)
-            .chain(water_mask)
+            .chain(water_mask.0.iter().copied())
             .chain(water_foam)
         {
             used[id] = true;
@@ -752,7 +781,8 @@ impl Scene {
                 &mut bridge,
                 &content.map["water"],
                 textures[main],
-                water_mask.map_or(u32::MAX, |i| textures[i]),
+                &water_mask.0.iter().map(|&i| textures[i]).collect::<Vec<_>>(),
+                water_mask.1,
                 empty,
                 water_foam.map_or(textures[main], |i| textures[i]),
                 ocean_mask,
@@ -873,8 +903,8 @@ impl Scene {
         // Graphics.farTarget and NearPass.writeImage retain separate images:
         // the shared schedule clears near depth/color before the far image's
         // depth-tested composite. A canvas alias cannot preserve that order.
-        let source=resources.source(&serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1009,"srgb":false,"renderTarget":true}).to_string())?;
-        let far_sample=resources.sample(source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
+        let far_source=resources.source(&serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1009,"srgb":false,"renderTarget":true}).to_string())?;
+        let far_sample=resources.sample(far_source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
         let far_target=resources.target(&serde_json::json!({"width":size[0],"height":size[1],"color":far_sample,"depth":null,"depthBuffer":true,"stencil":false,"samples":0,"resolveDepth":false,"resolveStencil":false,"cube":false}).to_string())?;
         let far_texture = bridge.r.core.add_texture(resources.texture(far_sample)?);
         bridge.set_far_map(far_texture);
@@ -922,19 +952,16 @@ impl Scene {
             let end = range[3].as_f64().filter(|v| v.is_finite() && *v > 0.3).unwrap_or(500.);
             let start = range[1].as_f64().filter(|v| v.is_finite() && *v >= 0. && *v < end).unwrap_or(300.);
             set(&mut camera.view, "fade", &[start, end]);
-            let mut projection = Matrix4::default();
-            let top = 0.3 * (60.0f64.to_radians() * 0.5).tan();
-            let right = top * size[0] as f64 / size[1] as f64;
-            projection.make_perspective(-right, right, top, -top, 0.3, end, CoordinateSystem::WebGL);
-            set(&mut camera.view, "projectionMatrix", &projection.elements);
+            camera.far_plane = end;
+            camera.resize(size);
         }
         let mut projection = Matrix4::default();
         let top = 2. * (60.0f64.to_radians() * 0.5).tan();
         let right = top * size[0] as f64 / size[1] as f64;
-        let reach = content.map["distance"]["farScene"][1]
+        let far_reach = content.map["distance"]["farScene"][1]
             .as_f64()
             .unwrap_or(3000.);
-        projection.make_perspective(-right, right, top, -top, 2., reach, CoordinateSystem::WebGL);
+        projection.make_perspective(-right, right, top, -top, 2., far_reach, CoordinateSystem::WebGL);
         deferred += static_content.deferred;
         eprintln!(
             "native static admission: props={}, foliage={}, water={}, sky={}",
@@ -981,7 +1008,10 @@ impl Scene {
                 online,
                 bridge,
                 resources,
+                far_source,
+                far_sample,
                 far_target,
+                far_reach,
                 shadows,
                 image_step,
                 image_state,
@@ -1003,6 +1033,49 @@ impl Scene {
             camera,
         ))
     }
+    pub fn resize(
+        &mut self,
+        new_size: [i32; 2],
+        mut load: impl FnMut() -> glow::Context,
+    ) -> Result<(), String> {
+        if new_size[0] <= 0 || new_size[1] <= 0 || new_size == self.size {
+            return Ok(());
+        }
+        self.size = new_size;
+        self.bridge.r.core.state.reset();
+        self.canvas = Canvas::new(load(), new_size)?;
+        self.resources.canvas = Some(self.canvas.framebuffer);
+        self.bridge.r.core.canvas_framebuffer = Some(self.canvas.framebuffer);
+        self.resources.source_desc(
+            self.far_source,
+            &serde_json::json!({"width":new_size[0],"height":new_size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1009,"srgb":false,"renderTarget":true}).to_string(),
+        )?;
+        self.resources.resize_target(
+            self.far_target,
+            &serde_json::json!({"width":new_size[0],"height":new_size[1],"color":self.far_sample,"depth":null,"depthBuffer":true,"stencil":false,"samples":0,"resolveDepth":false,"resolveStencil":false,"cube":false}).to_string(),
+        )?;
+        self.image_step[bfe_render::post::STEP_WIDTH] = new_size[0] as f64;
+        self.image_step[bfe_render::post::STEP_HEIGHT] = new_size[1] as f64;
+        let mut projection = Matrix4::default();
+        let top = 2. * (60.0f64.to_radians() * 0.5).tan();
+        let right = top * new_size[0] as f64 / new_size[1] as f64;
+        projection.make_perspective(
+            -right,
+            right,
+            top,
+            -top,
+            2.,
+            self.far_reach,
+            CoordinateSystem::WebGL,
+        );
+        self.far_projection = projection.elements;
+        self.bridge.r.hud.input[bfe_render::hud::IN_VIEWPORT..bfe_render::hud::IN_VIEWPORT + 2]
+            .copy_from_slice(&[new_size[0] as f64, new_size[1] as f64]);
+        if let Some(online) = &mut self.online {
+            online.hud.set_size(new_size);
+        }
+        Ok(())
+    }
     /// A direct join publishes all live owners together before the renderer
     /// borrows their frame banks. The window supplies only its elapsed clock.
     // Presentation borrows an already decoded session. Keeping this boundary
@@ -1014,9 +1087,18 @@ impl Scene {
         if let Some(resources)=&mut self.online {
             let mut world=Matrix4::default();
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
+            resources.items.hide_piloted_remote = receiver.own.remote.is_some()
+                && (camera.first_person || receiver.own.remote_zoom_step != 0);
             resources.frame(receiver,receiver.clock.shown,dt.min(8./60.),camera.position,
                 replay,history,&mut self.bridge);
             let rider_eye = resources.prepare_camera(receiver, replay, &world.elements);
+            let drawn = crate::online::cameras::DrawnDeath {
+                chest: resources.drawn_chest(receiver),
+                killer_feet: resources
+                    .cameras
+                    .killer()
+                    .and_then(|(id, generation)| resources.drawn_feet(id, generation)),
+            };
             let cue = resources.cameras.frame(
                 receiver,
                 replay,
@@ -1024,10 +1106,22 @@ impl Scene {
                 &mut resources.turrets,
                 camera,
                 rider_eye,
+                drawn,
                 dt,
             );
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
             resources.first_person.enabled = resources.cameras.eye_view;
+            let scope_view = if receiver.own.remote.is_some() {
+                camera.first_person
+            } else {
+                resources.cameras.eye_view
+            };
+            self.bridge.hud_model.input[bfe_render::hud_model::layout::HudFrame::SCOPE] =
+                if resources.hud.scoped && scope_view {
+                    resources.hud.scope as f64
+                } else {
+                    0.
+                };
             resources.finish_frame(receiver, replay, &world.elements, cue);
             resources.present_arcs(dt.min(8./60.), camera.position, &mut self.bridge);
             resources.present_shields(dt.min(8./60.), camera.position, &camera.snapshot().values, &mut self.bridge);
@@ -1149,7 +1243,15 @@ impl Scene {
         self.publish(r::IMAGE, k::SCREEN, 0, 0, 1);
         if let Some(online)=&self.online{self.bridge.r.frames.meta[r::TRANSPARENT*m::LEN+m::FX_WORDS]=online.combat.particles.words as f64;}
         self.publish(r::TRANSPARENT, k::TRANSPARENT, records, bones, 0);
-        if let Some(online)=&self.online{let (view_records,view_bones)=online.first_person.append(&online.units,&mut self.bridge);if view_records!=0{let mut projection=Matrix4::default();let top=0.3*(std::f64::consts::PI/6.).tan();let right=top*self.size[0]as f64/self.size[1]as f64;projection.make_perspective(-right,right,top,-top,0.3,10.,CoordinateSystem::WebGL);self.bridge.r.core.input[..16].copy_from_slice(&projection.elements);self.bridge.r.frames.plan.facts[f::VIEW_SHOWN]=1.;self.publish(r::VIEW,k::VIEW,view_records,view_bones,0);}}
+        if let Some(online)=&self.online{let (view_records,view_bones)=online.first_person.append(&online.units,&mut self.bridge);if view_records!=0{
+                // Graphics.render gives the view camera the drawn camera's own
+                // field of view and aspect each frame (near 0.3, far 10), so the
+                // arms narrow with the first-person lens instead of keeping 60 degrees.
+                let mut projection = Matrix4::default();
+                let top = 0.3 / view.values[5];
+                let right = 0.3 / view.values[0];
+                projection.make_perspective(-right, right, top, -top, 0.3, 10., CoordinateSystem::WebGL);
+                self.bridge.r.core.input[..16].copy_from_slice(&projection.elements);self.bridge.r.frames.plan.facts[f::VIEW_SHOWN]=1.;self.publish(r::VIEW,k::VIEW,view_records,view_bones,0);}}
         if self.online.is_some(){self.publish(r::HUD0,k::HUD,0,0,0);}
         let success = self.bridge.battle_frame(&mut self.resources);
         self.bridge.r.water.input[bfe_render::water::S_SHOWN] = water_shown;

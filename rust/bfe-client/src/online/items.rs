@@ -20,6 +20,14 @@ pub struct Views {
     pub owner: Items,
     definitions: Vec<Option<usize>>,
     models: Vec<Option<Model>>,
+    remote_models: Vec<Option<Model>>,
+    remotes: Vec<(usize, [f64; 3], f64)>,
+    pub hide_piloted_remote: bool,
+    /// The connection epoch the owner was last reset for.
+    epoch: Option<f64>,
+    /// By item id: the generation of the active row last forwarded, and
+    /// whether this frame's table still holds a row for the id.
+    lives: Vec<(Option<f64>, bool)>,
     collision: Collision,
     world: u32,
     water: Option<bfe_sim::units::water::WaterState>,
@@ -32,8 +40,14 @@ impl Views {
         let mut owner = Items::new();
         let mut definitions = vec![None; defs.registry.combat.len() + 1];
         let mut models = Vec::new();
+        let mut remote_models: Vec<Option<Model>> = (0..=defs.registry.combat.len()).map(|_| None).collect();
         for (i, (_, def)) in defs.registry.combat.iter().enumerate() {
             let base = def.get("base").and_then(bfe_content::Value::as_str).unwrap_or("");
+            if base == "droid" {
+                let name = def.get("GeometryName").and_then(bfe_content::Value::as_str).unwrap_or("");
+                remote_models[i + 1] = Model::new(content, bridge, textures, name, crate::shadows::COUNT)?;
+                continue;
+            }
             if base != "mine" && base != "powerupitem" {
                 continue;
             }
@@ -62,14 +76,38 @@ impl Views {
         for (axis, extent) in [super::receiver::BOUNDS[1], super::receiver::BOUNDS[5], super::receiver::BOUNDS[3]].iter().enumerate() {
             owner.frame[f::ROUND_X + axis] = extent / 65535. / 2. + 0.002;
         }
-        Ok(Self { owner, definitions, models, collision, world, water, last_water: 0., visible: 0 })
+        Ok(Self {
+            owner,
+            definitions,
+            models,
+            remote_models,
+            remotes: Vec::with_capacity(64),
+            hide_piloted_remote: false,
+            epoch: None,
+            lives: vec![(None, false); limit::SLOTS],
+            collision,
+            world,
+            water,
+            last_water: 0.,
+            visible: 0,
+        })
     }
     // Changed item records are applied before sampling. The retained owner
     // can suspend for all map and water queries, consume their answers and
     // resume without returning through an item object or allocating a result.
     // A long packet burst clips to the owner's existing record capacity.
     pub fn frame(&mut self, receiver: &Receiver, tick: f64) {
-        self.owner.reset_epoch(receiver.epoch);
+        // EntityItemPresentation.reset belongs to a new connection epoch. It
+        // forgets every life, and a life made again from this frame's row
+        // would start ahead of the shown clock and never be drawn.
+        if self.epoch != Some(receiver.epoch) {
+            self.epoch = Some(receiver.epoch);
+            self.owner.reset_epoch(receiver.epoch);
+            self.lives.fill((None, false));
+        }
+        for life in &mut self.lives {
+            life.1 = false;
+        }
         let mut count = 0;
         for row in receiver.active().filter(|r| r[net::KIND] == kind::ITEM as f64) {
             if count == limit::BATCH {
@@ -79,6 +117,9 @@ impl Views {
             let Some(definition) = self.definitions.get(row[net::DEFINITION_ID] as usize).copied().flatten() else {
                 continue;
             };
+            if let Some(life) = self.lives.get_mut(row[net::ID] as usize) {
+                *life = ((row[net::ACTIVE] != 0.).then_some(row[net::GENERATION]), true);
+            }
             let x = &mut self.owner.records[count * r::STRIDE..][..r::STRIDE];
             x[r::EPOCH] = receiver.epoch;
             x[r::ID] = row[net::ID];
@@ -90,6 +131,25 @@ impl Views {
             x[r::VELOCITY..r::VELOCITY + 3].copy_from_slice(&row[net::VELOCITY..net::VELOCITY + 3]);
             x[r::YAW] = row[net::YAW];
             x[r::UP..r::UP + 3].copy_from_slice(&row[net::UP..net::UP + 3]);
+            count += 1;
+        }
+        // A taken or expired item can leave the table in the frame that would
+        // have carried its inactive record. End that life as the record would.
+        for id in 0..self.lives.len() {
+            let (Some(generation), false) = self.lives[id] else {
+                continue;
+            };
+            self.lives[id].0 = None;
+            if count == limit::BATCH {
+                self.owner.apply_records(count);
+                count = 0;
+            }
+            let x = &mut self.owner.records[count * r::STRIDE..][..r::STRIDE];
+            x.fill(0.);
+            x[r::EPOCH] = receiver.epoch;
+            x[r::ID] = id as f64;
+            x[r::GENERATION] = generation;
+            x[r::TICK] = receiver.latest;
             count += 1;
         }
         self.owner.apply_records(count);
@@ -145,23 +205,52 @@ impl Views {
             }
             self.owner.resume(false);
         }
-        self.visible = self.owner.header[h::VIEWS] as usize;
+        self.remotes.clear();
+        for row in receiver
+            .active()
+            .filter(|r| r[net::KIND] == kind::REMOTE as f64 && r[net::ACTIVE] != 0. && r[net::HEALTH] > 0.)
+        {
+            let def_id = row[net::DEFINITION_ID] as usize;
+            if self.remote_models.get(def_id).and_then(Option::as_ref).is_none() {
+                continue;
+            }
+            if let Some((rid, rgen, _)) = receiver.own.remote {
+                if row[net::ID] == rid as f64 && row[net::GENERATION] == rgen as f64 {
+                    if !self.hide_piloted_remote {
+                        self.remotes.push((def_id, receiver.own.remote_position, receiver.own.remote_yaw));
+                    }
+                    continue;
+                }
+            }
+            self.remotes.push((
+                def_id,
+                [row[net::POSITION], row[net::POSITION + 1], row[net::POSITION + 2]],
+                row[net::YAW],
+            ));
+        }
+        self.visible = self.owner.header[h::VIEWS] as usize + self.remotes.len();
     }
     pub fn record_budget(&self) -> usize {
         self.owner
             .views
             .chunks_exact(v::STRIDE)
-            .take(self.visible)
+            .take(self.owner.header[h::VIEWS] as usize)
             .filter_map(|v| self.models.get(v[v::DEFINITION] as usize).and_then(Option::as_ref))
             .map(|m| m.rows.len())
-            .sum()
+            .sum::<usize>()
+            + self
+                .remotes
+                .iter()
+                .filter_map(|&(def_id, _, _)| self.remote_models.get(def_id).and_then(Option::as_ref))
+                .map(|m| m.rows.len())
+                .sum::<usize>()
     }
     // Published views already contain position and orientation. Compose the
     // rigid draw matrix without advancing bob, fall or water a second time.
     // Optional missing models consume no record or skin slot, and the common
     // model submission checks both renderer budgets before copying a row.
     pub fn append(&self, bridge: &mut Bridge, mut records: usize, mut bones: usize) -> (usize, usize) {
-        for view in self.owner.views.chunks_exact(v::STRIDE).take(self.visible) {
+        for view in self.owner.views.chunks_exact(v::STRIDE).take(self.owner.header[h::VIEWS] as usize) {
             let Some(model) = self.models.get(view[v::DEFINITION] as usize).and_then(Option::as_ref) else {
                 continue;
             };
@@ -173,6 +262,16 @@ impl Views {
                 &Quaternion::new(view[q], view[q + 1], view[q + 2], view[q + 3]),
                 &Vector3::new(1., 1., 1.),
             );
+            (records, bones) = model.append(bridge, &matrix.elements, records, bones);
+        }
+        for &(def_id, pos, yaw) in &self.remotes {
+            let Some(model) = self.remote_models.get(def_id).and_then(Option::as_ref) else {
+                continue;
+            };
+            let mut q = Quaternion::default();
+            q.set_from_axis_angle(&Vector3::new(0., 1., 0.), yaw);
+            let mut matrix = Matrix4::default();
+            matrix.compose(&Vector3::new(pos[0], pos[1], pos[2]), &q, &Vector3::new(1., 1., 1.));
             (records, bones) = model.append(bridge, &matrix.elements, records, bones);
         }
         (records, bones)

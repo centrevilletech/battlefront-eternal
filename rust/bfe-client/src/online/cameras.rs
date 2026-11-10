@@ -4,7 +4,8 @@
 use super::{hulls::Hulls, receiver::Receiver, replay::Collision};
 use bfe_presentation::{
     cameras::{math::V8, Cast, Content, Phase},
-    layout::{camera_frame as f, camera_output as o, VERSION},
+    layout::{camera_eye as eyes, camera_frame as f, camera_output as o, VERSION},
+    network_layout::{net_kind as k, net_record as r},
 };
 use three::{Matrix4, Quaternion, Vector3};
 pub struct Cameras {
@@ -13,10 +14,31 @@ pub struct Cameras {
     collision: Collision,
     world: u32,
     life: Option<(u32, u32, usize)>,
+    remote_life: Option<(u16, u32, usize)>,
     body: Option<(f64, f64, usize)>,
     definitions: Vec<usize>,
+    remote_defs: Vec<Option<(usize, [f64; 3], f64)>>,
+    remote_aim: Option<[f64; 3]>,
+    first_fovs: Vec<f64>,
+    eye_heights: Vec<f64>,
     zoom_eyes: Vec<bool>,
+    weapon_channels: Vec<usize>,
     pub eye_view: bool,
+    was_dead: bool,
+    death_serial: u32,
+    death_hfov: f64,
+    /// The deathCamera setting: Classic draws the original's rules, else Enhanced.
+    pub death_classic: bool,
+    killer: Option<(u32, u32, i32)>,
+    killer_tick: f64,
+}
+/// What DeathShot.frame reads from the bodies this client draws.
+#[derive(Clone, Copy, Default)]
+pub struct DrawnDeath {
+    /// The dead player's ribcage bone.
+    pub chest: Option<[f64; 3]>,
+    /// The killer's actor root, while he is drawn.
+    pub killer_feet: Option<[f64; 3]>,
 }
 struct Queries {
     collision: Collision,
@@ -43,14 +65,69 @@ impl Cameras {
             });
         }
         let mut definitions = vec![usize::MAX; defs.registry.classes.len() + 1];
+        let mut first_fovs = Vec::new();
+        let mut eye_heights = Vec::new();
         for class in &defs.classes {
             if let Some(id) = class.registry_id {
                 definitions[id as usize] = cameras.definitions.len();
-                cameras.definitions.push(definition(&class.record));
+                let def = definition(&class.record);
+                first_fovs.push(def.first);
+                // Droideka.eyeHeight: the standing camera section's EyePointOffset.
+                let eye_h = class
+                    .record
+                    .get("cameras")
+                    .and_then(|cameras| cameras.get("STAND"))
+                    .and_then(|stand| stand.get("EyePointOffset"))
+                    .and_then(bfe_content::Value::as_array)
+                    .and_then(|a| a.get(1))
+                    .map_or(1.8, |v| bfe_content::js::to_number(Some(v)));
+                eye_heights.push(eye_h);
+                cameras.definitions.push(def);
             }
         }
+        let mut remote_defs = vec![None; defs.registry.combat.len() + 1];
+        for (i, (_, def)) in defs.registry.combat.iter().enumerate() {
+            if def.get("base").and_then(bfe_content::Value::as_str) != Some("droid") {
+                continue;
+            }
+            let (cam_def, eye, zoom_min) = remote_definition(def);
+            let idx = cameras.definitions.len();
+            cameras.definitions.push(cam_def);
+            remote_defs[i + 1] = Some((idx, eye, zoom_min));
+        }
         let zoom_eyes = defs.weapons.iter().map(|weapon| weapon.record.get("ZoomFirstPerson").is_some_and(|value| value.truthy())).collect();
-        Ok(Self { owner: Phase::new(cameras), gunner: Default::default(), collision, world, life: None, body: None, definitions, zoom_eyes, eye_view: false })
+        let weapon_channels = defs
+            .weapons
+            .iter()
+            .map(|weapon| bfe_content::odf::num(weapon.record.get("channel"), 0.).min(1.) as usize)
+            .collect();
+        Ok(Self {
+            owner: Phase::new(cameras),
+            gunner: Default::default(),
+            collision,
+            world,
+            life: None,
+            remote_life: None,
+            body: None,
+            definitions,
+            remote_defs,
+            remote_aim: None,
+            first_fovs,
+            eye_heights,
+            zoom_eyes,
+            weapon_channels,
+            eye_view: false,
+            was_dead: false,
+            death_serial: 0,
+            death_hfov: 0.837758,
+            death_classic: false,
+            killer: None,
+            killer_tick: f64::NEG_INFINITY,
+        })
+    }
+    /// The unit the death camera turns to, for the caller to find where it is drawn.
+    pub fn killer(&self) -> Option<(u32, u32)> {
+        self.killer.map(|(id, generation, _)| (id, generation))
     }
     pub fn frame(
         &mut self,
@@ -60,25 +137,69 @@ impl Cameras {
         turrets: &mut super::turrets::Turrets,
         camera: &mut crate::scene::MapCamera,
         rider_eye: Option<[f64; 3]>,
+        drawn: DrawnDeath,
         dt: f64,
     ) -> f64 {
         let lease = receiver.own.mount;
         camera.set_flight_mode(receiver.own.flight.is_some());
         // PlayerCombat.usesEyeView also selects eyes for an authored scoped
         // weapon; zooming must not change the player's saved perspective.
-        let scoped_eye = receiver.own.zoom > 1. && prediction.weapons()
-            .nth(prediction.selected()[0] as usize)
-            .and_then(|weapon| self.zoom_eyes.get(weapon.def.0.saturating_sub(1) as usize))
-            .copied().unwrap_or(false);
-        self.eye_view = receiver.own.alive && (camera.first_person || scoped_eye);
+        let scoped_eye = receiver.own.zoom > 1.
+            && prediction
+                .weapons()
+                .filter(|weapon| {
+                    self.weapon_channels
+                        .get(weapon.def.0.saturating_sub(1) as usize)
+                        .copied()
+                        .unwrap_or(0)
+                        == 0
+                })
+                .nth(prediction.selected()[0] as usize)
+                .and_then(|weapon| self.zoom_eyes.get(weapon.def.0.saturating_sub(1) as usize))
+                .copied()
+                .unwrap_or(false);
+        self.eye_view = receiver.own.alive && receiver.own.remote.is_none() && (camera.first_person || scoped_eye);
         hulls.hidden = None;
         turrets.hidden = None;
+        let body = (receiver.own.id, receiver.own.generation, receiver.own.class);
+        if self.body != Some(body) {
+            self.killer = None;
+            self.killer_tick = f64::NEG_INFINITY;
+        }
+        // game.js noteAttacker tracks the last attacker from damage (schema 3)
+        // and death (schema 4) feedback so the death camera can frame the killer.
+        for field in receiver.publications.iter() {
+            if field.row[r::KIND] == k::COMBAT as f64
+                && (field.row[r::SCHEMA] == 3. || field.row[r::SCHEMA] == 4.)
+                && field.length >= 52
+            {
+                let b = &field.bytes[..field.length];
+                let tid = u32::from_le_bytes(b[4..8].try_into().unwrap());
+                let tgen = u32::from_le_bytes(b[8..12].try_into().unwrap());
+                let aid = u32::from_le_bytes(b[12..16].try_into().unwrap());
+                let agen = u32::from_le_bytes(b[16..20].try_into().unwrap());
+                let ateam = i32::from_le_bytes(b[48..52].try_into().unwrap());
+                let fatal = field.row[r::SCHEMA] == 4.;
+                let tick = field.row[r::TICK];
+                if tid as f64 == receiver.own.id && tgen as f64 == receiver.own.generation {
+                    if fatal || tick >= self.killer_tick {
+                        self.killer_tick = self.killer_tick.max(tick);
+                        self.killer = (aid != 0).then_some((aid, agen, ateam));
+                    }
+                }
+            }
+        }
         let view = camera.snapshot();
         let mut world = Matrix4::default();
         world.elements.copy_from_slice(&view.values[16..32]);
         world.invert();
         let mut q = Quaternion::default();
         q.set_from_rotation_matrix(&world);
+        let prev_fov = if self.owner.output[o::FOV] > 0. {
+            self.owner.output[o::FOV]
+        } else {
+            60.
+        };
         let x = &mut self.owner.input;
         x.fill(0.);
         x[f::VERSION] = VERSION as f64;
@@ -89,12 +210,12 @@ impl Cameras {
         x[f::CAMERA_POSITION..f::CAMERA_POSITION + 3].copy_from_slice(&camera.position);
         x[f::CAMERA_QUATERNION..f::CAMERA_QUATERNION + 4].copy_from_slice(&[q.x, q.y, q.z, q.w]);
         x[f::CAMERA_UP + 1] = 1.;
-        x[f::CAMERA_FOV] = 60.;
+        x[f::CAMERA_FOV] = prev_fov;
         x[f::CAMERA_ASPECT] = camera.aspect();
         x[f::CAMERA_NEAR] = 0.3;
         x[f::CAMERA_FAR] = 20000.;
-        let body = (receiver.own.id, receiver.own.generation, receiver.own.class);
-        x[f::SOLDIER_DEF] = self.definitions.get(receiver.own.class).copied().unwrap_or(usize::MAX) as f64;
+        let def_idx = self.definitions.get(receiver.own.class).copied().unwrap_or(usize::MAX);
+        x[f::SOLDIER_DEF] = def_idx as f64;
         x[f::SOLDIER_RESET] = (self.body != Some(body) || self.life != lease) as u8 as f64;
         x[f::RESPONSIVE] = 1.;
         x[f::HAS_EYE] = 1.;
@@ -108,6 +229,7 @@ impl Cameras {
         x[f::BODY_POSTURE] = receiver.own.posture as f64;
         x[f::AIR] = receiver.own.air as f64;
         x[f::DIVE] = receiver.own.dive;
+        x[f::VELOCITY..f::VELOCITY + 3].copy_from_slice(&receiver.own.velocity);
         if let Some(body) = &prediction.displayed {
             x[f::FEET..f::FEET + 3].copy_from_slice(&body.position);
             x[f::YAW] = body.aim_yaw;
@@ -118,6 +240,107 @@ impl Cameras {
             x[f::POSTURE] = if body.air.is_some() { 0. } else { body.posture as u8 as f64 };
             x[f::VELOCITY..f::VELOCITY + 3].copy_from_slice(&body.velocity);
         }
+        x.copy_within(f::FEET..f::FEET + 3, f::BODY_POSITION);
+        if receiver.own.walker {
+            x[f::EYE_KIND] = eyes::DROIDEKA as f64;
+            x[f::EYE_ROLLED] = (receiver.own.walker_mode >= 11) as u8 as f64;
+            x[f::EYE_HEIGHT] = self.eye_heights.get(def_idx).copied().unwrap_or(1.8);
+        } else {
+            x[f::EYE_KIND] = eyes::INFANTRY as f64;
+        }
+        // game.js startDeathCamera: while the dead soldier's corpse remains in
+        // the world (4 s linger, non-walker), DeathShot frames the body and killer.
+        let dead_active = receiver.own.dead && !receiver.own.removed && !receiver.own.walker;
+        if dead_active && !self.was_dead {
+            self.death_serial = self.death_serial.wrapping_add(1);
+            // startDeathCamera measures the world's camera (simulationCamera),
+            // not the drawn one. Only the drawn camera takes the class lens, so
+            // the world's is still at its 60 degree default when he dies and
+            // the shot settles wider than the chase view. Kept as the page has it.
+            let across = 2. * ((60_f64.to_radians() * 0.5).tan() * camera.aspect().max(1e-6)).atan();
+            let first = self.first_fovs.get(def_idx).copied().unwrap_or(70_f64.to_radians());
+            let base = if receiver.own.zoom > 1. { first } else { across };
+            // deadFov (camera.js): one world step of 1/60 s toward DEAD_FOV at FOV_RATE.
+            self.death_hfov = 0.837758 + (base - 0.837758) * (-25_f64 / 60.).exp();
+        }
+        self.was_dead = dead_active;
+        if dead_active {
+            x[f::DEATH_ACTIVE] = 1.;
+            x[f::DEATH_SERIAL] = self.death_serial as f64;
+            x[f::DEATH_HFOV] = self.death_hfov;
+            x[f::DEATH_CLASSIC] = self.death_classic as u8 as f64;
+            if let Some(chest) = drawn.chest {
+                x[f::HAS_CHEST] = 1.;
+                x[f::CHEST..f::CHEST + 3].copy_from_slice(&chest);
+            }
+            if let Some((kid, kgen, kteam)) = self.killer {
+                if let Some(row) = receiver.active().find(|row| {
+                    row[r::ID] == kid as f64 && row[r::GENERATION] == kgen as f64
+                }) {
+                    // drawnKiller (death-shot.js), for a killer on foot: his
+                    // eyes standing, crouched or prone, a walker's, or the
+                    // middle of a corpse, above the feet as drawn. A killer in
+                    // a seat is framed at his own row, not at the seat's eye.
+                    let living = row[r::DEAD] == 0. && row[r::HEALTH] > 0.;
+                    let walker = row[r::KIND] == k::DROIDEKA as f64;
+                    let eyes = if !living {
+                        0.5
+                    } else if walker {
+                        1.
+                    } else {
+                        match row[r::POSTURE] as u8 {
+                            2 => 0.6,
+                            1 => 1.2,
+                            _ => 1.7,
+                        }
+                    };
+                    let feet = drawn
+                        .killer_feet
+                        .unwrap_or([row[r::POSITION], row[r::POSITION + 1], row[r::POSITION + 2]]);
+                    x[f::KILLER_PRESENT] = 1.;
+                    x[f::KILLER_POINT..f::KILLER_POINT + 3].copy_from_slice(&[feet[0], feet[1] + eyes, feet[2]]);
+                    x[f::KILLER_SIZE] = if walker { 1.6 } else { 1.9 };
+                    x[f::KILLER_LIVING] = living as u8 as f64;
+                    x[f::KILLER_FRIENDLY] = (kteam == receiver.own.team as i32) as u8 as f64;
+                }
+            }
+        }
+        self.remote_aim = None;
+        if let Some((_, _, rdef)) = receiver.own.remote {
+            let (cam_def, eye_offset, zoom_min) = self
+                .remote_defs
+                .get(rdef)
+                .copied()
+                .flatten()
+                .unwrap_or((usize::MAX, [0., 0.5, 0.], 1.));
+            let zoom = if receiver.own.remote_zoom_step != 0 { zoom_min } else { 1. };
+            let own_eye = camera.first_person || zoom > 1.;
+            let ryaw = camera.aim()[0];
+            let rpitch = camera.aim()[1];
+            let pos = receiver.own.remote_position;
+            let eye = [pos[0] + eye_offset[0], pos[1] + eye_offset[1], pos[2] + eye_offset[2]];
+            let dir = [
+                bfe_pose::rig::math::sin(ryaw) * bfe_pose::rig::math::cos(rpitch),
+                bfe_pose::rig::math::sin(rpitch),
+                bfe_pose::rig::math::cos(ryaw) * bfe_pose::rig::math::cos(rpitch),
+            ];
+            x[f::REMOTE_ACTIVE] = 1.;
+            x[f::REMOTE_DEF] = cam_def as f64;
+            x[f::REMOTE_RESET] = (self.remote_life != receiver.own.remote) as u8 as f64;
+            x[f::REMOTE_FEET..f::REMOTE_FEET + 3].copy_from_slice(&pos);
+            x[f::REMOTE_YAW] = ryaw;
+            x[f::REMOTE_PITCH] = rpitch;
+            x[f::REMOTE_ZOOM] = zoom;
+            x[f::REMOTE_FIRST] = own_eye as u8 as f64;
+            if own_eye {
+                x[f::REMOTE_HAS_EYE] = 1.;
+                x[f::REMOTE_EYE..f::REMOTE_EYE + 3].copy_from_slice(&eye);
+                x[f::REMOTE_AIM..f::REMOTE_AIM + 3].copy_from_slice(&dir);
+                x[f::REMOTE_BACK] = if zoom > 1. { 0.5 } else { 0.3 };
+            }
+            self.remote_aim = Some(std::array::from_fn(|k| eye[k] + 1024. * dir[k]));
+        }
+        self.remote_life = receiver.own.remote;
         x[f::VEHICLE_RESET] = (self.life != lease) as u8 as f64;
         // A turret id can also name a live vehicle. The correction's mount
         // kind selects the camera owner before either resource bank is queried.
@@ -153,6 +376,9 @@ impl Cameras {
         use bfe_presentation::visual_effects_layout::gunner_frame as g;
         let a = &self.owner.input;
         let kind = self.owner.output[o::MODE] as u32;
+        if kind == mode::REMOTE {
+            return self.remote_aim.map(|point| super::hud::Aim { point, project_x: false });
+        }
         if kind == mode::VEHICLE {
             let pilot = a[f::VEHICLE_FLYING] != 0. && a[f::VEHICLE_SEAT] == 0.;
             let direction = if pilot {
@@ -228,6 +454,33 @@ impl Cameras {
     }
 }
 
+// RemoteDroids.enter builds a SoldierCamera from the droid's STAND parameters.
+fn remote_definition(def: &bfe_content::Value) -> (bfe_presentation::cameras::soldier::Def, [f64; 3], f64) {
+    use bfe_content::Value;
+    use bfe_presentation::cameras::soldier::{Def, Section};
+    let vector = |value: Option<&Value>, default: [f64; 3]| {
+        value
+            .and_then(Value::as_array)
+            .filter(|v| v.len() >= 3)
+            .map_or(default, |v| std::array::from_fn(|i| bfe_content::js::to_number(Some(&v[i]))))
+    };
+    let center = vector(def.get("TrackCenter").or_else(|| def.get("EyePointOffset")), [0., 0.5, 0.]);
+    let eye = vector(def.get("EyePointOffset"), center);
+    let offset = vector(def.get("TrackOffset"), [0., -0.25, 1.5]);
+    let tilt = bfe_content::odf::num(def.get("TiltValue"), 5.) * std::f64::consts::PI / 180.;
+    let section = Section { eye, center, offset, tilt };
+    let first = bfe_content::odf::num(def.get("FirstPersonFOV"), 48.) * std::f64::consts::PI / 180.;
+    let third = bfe_content::odf::num(def.get("ThirdPersonFOV"), 48.) * std::f64::consts::PI / 180.;
+    let zoom_min = def
+        .get("weapons")
+        .and_then(Value::as_array)
+        .and_then(|w| w.first())
+        .and_then(|w| w.get("ZoomMin"))
+        .map_or(1., |v| bfe_content::js::to_number(Some(v)))
+        .max(1.);
+    (Def { first, third, sections: [section; 6] }, eye, zoom_min)
+}
+
 // Cameras.definition resolves the class's six posture/zoom sections once.
 // SoldierCamera owns horizontal FOV conversion, zoom and eye/chase behavior;
 // entering or leaving a seat selects another branch of that same phase.
@@ -285,10 +538,22 @@ mod mounted_tests {
             collision: std::rc::Rc::new(std::cell::RefCell::new(collision)),
             world,
             life: None,
+            remote_life: None,
             body: None,
             definitions: vec![],
+            remote_defs: vec![],
+            remote_aim: None,
+            first_fovs: vec![],
+            eye_heights: vec![],
             zoom_eyes: vec![],
+            weapon_channels: vec![],
             eye_view: false,
+            was_dead: false,
+            death_serial: 0,
+            death_hfov: 0.837758,
+            death_classic: false,
+            killer: None,
+            killer_tick: f64::NEG_INFINITY,
         }
     }
 

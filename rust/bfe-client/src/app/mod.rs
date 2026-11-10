@@ -1182,7 +1182,16 @@ impl ApplicationHandler for StandaloneWindowApp {
                 // the pointer alone by scale_factor (that would apply scaling twice).
                 if let Some(window) = &self.window {
                     let size = window.inner_size();
-                    self.opts.size = [size.width.max(1) as i32, size.height.max(1) as i32];
+                    if size.width > 0 && size.height > 0 {
+                        self.opts.size = [size.width as i32, size.height as i32];
+                        if let (Some(surface), Some(context)) = (&self.surface, &self.context) {
+                            if let (Some(w), Some(h)) =
+                                (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
+                            {
+                                surface.resize(context, w, h);
+                            }
+                        }
+                    }
                 }
             }
             WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
@@ -1577,6 +1586,26 @@ impl StandaloneWindowApp {
             battle.scene.bridge.r.core.state.reset();
         }
 
+        if let Some(window) = &self.window {
+            let phys = window.inner_size();
+            if phys.width > 0 && phys.height > 0 {
+                let new_size = [phys.width as i32, phys.height as i32];
+                if new_size != self.opts.size {
+                    self.opts.size = new_size;
+                    if let (Some(surface), Some(context)) = (&self.surface, &self.context) {
+                        if let (Some(w), Some(h)) =
+                            (NonZeroU32::new(phys.width), NonZeroU32::new(phys.height))
+                        {
+                            surface.resize(context, w, h);
+                        }
+                    }
+                    if let Some(ui) = &mut self.slint_ui {
+                        ui.resize();
+                    }
+                }
+            }
+        }
+
         let frame_res: Result<(), String> = (|| {
             if let (Some(shell), Some(context), Some(window)) =
                 (&mut self.shell, &self.context, &self.window)
@@ -1586,10 +1615,13 @@ impl StandaloneWindowApp {
                     glow::Context::from_loader_function_cstr(|name| display.get_proc_address(name))
                 })?;
             }
-            if let (AppState::Battle(battle), Some(window)) = (&mut self.state, &self.window) {
-                battle.page_size = battle.size.map(|v| {
-                    (v as f64 / window.scale_factor()).round().max(1.) as i32
-                });
+            if let (AppState::Battle(battle), Some(context), Some(window)) =
+                (&mut self.state, &self.context, &self.window)
+            {
+                let display = context.display();
+                battle.resize(self.opts.size, window.scale_factor(), || unsafe {
+                    glow::Context::from_loader_function_cstr(|name| display.get_proc_address(name))
+                })?;
             }
             match &mut self.state {
                 AppState::StartupLoader(loader_state) => {

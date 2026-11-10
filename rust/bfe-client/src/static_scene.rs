@@ -26,7 +26,17 @@ pub struct Water {
     sun_from: usize,
     ocean: Option<Box<(bfe_environment::surfaces::Phase, usize, f64)>>,
     uniforms: Vec<(usize, usize, usize)>,
+    /// Where the frame's time is read from the view.
+    time_from: usize,
+    /// The specular mask's frames and rate, and where its two samplers and
+    /// their blend sit in the surface's uniform rows.
+    masks: Option<(Vec<u32>, f64, [usize; 3])>,
+    /// Where the bobbing surface's height goes: its world row and model uniform.
+    bob: Option<(usize, Option<usize>)>,
 }
+// Water.update (water.js): the surface bobs this far, this often.
+const BOB: f64 = 0.06;
+const BOB_RATE: f64 = 0.3;
 #[inline(never)]
 fn new_ocean_phase(
     model: usize,
@@ -449,6 +459,23 @@ pub fn update(a: &mut Admission, bridge: &mut Bridge, view: &[f64]) {
         for &(at, from, len) in &w.uniforms {
             bridge.r.water.input[at..at + len].copy_from_slice(&view[from..from + len]);
         }
+        // Water.update: the mask plays as a flip book, blended frame to frame.
+        let time = view[w.time_from];
+        if let Some((textures, fps, [a, b, mix])) = &w.masks {
+            let f = fps * time;
+            let k = f.floor();
+            let n = textures.len();
+            bridge.r.water.input[*a] = textures[k as usize % n] as f64;
+            bridge.r.water.input[*b] = textures[(k as usize + 1) % n] as f64;
+            bridge.r.water.input[*mix] = f - k;
+        }
+        if let Some((world, model)) = w.bob {
+            let wave = BOB * (2. * std::f64::consts::PI * BOB_RATE * time).sin();
+            bridge.r.water.input[world + 13] = wave;
+            if let Some(model) = model {
+                bridge.r.water.input[model + 13] = wave;
+            }
+        }
         let from = w.sun_from;
         let mut sun = three::Vector3::new(-view[from], -view[from + 1], -view[from + 2]);
         sun.normalize();
@@ -473,7 +500,8 @@ pub fn water(
     bridge: &mut Bridge,
     data: &Value,
     main: u32,
-    mask: u32,
+    masks: &[u32],
+    mask_fps: f64,
     empty: u32,
     foam: u32,
     ocean_mask: u32,
@@ -567,10 +595,12 @@ pub fn water(
     };
     let mut uniforms = Vec::new();
     // Resolve each catalog uniform into the existing WaterPass row format.
-    // Camera sources vary; texture ids, tint, mask frame and zero animation
-    // time stay fixed for this static inspection boundary.
+    // Camera sources vary, and time follows the view's clock with them;
+    // texture ids, tint and mask frame stay fixed.
     let mut sun = None;
     let mut model = base;
+    let mut model_uniform = None;
+    let mut mask_rows = [None; 3];
     let mut wind = three::Vector2::new(
         look["WindDirection"][0].as_f64().unwrap_or(1.),
         look["WindDirection"][1].as_f64().unwrap_or(0.),
@@ -585,10 +615,17 @@ pub fn water(
         v[at + 1] = *ty as f64;
         let values = match *name {
             "mainMap" => vec![main as f64],
-            "maskA" | "maskB" => vec![if mask == u32::MAX { empty } else { mask } as f64],
-            "maskMix" | "time" => vec![0.],
+            "maskA" | "maskB" => {
+                mask_rows[(*name == "maskB") as usize] = Some(base + at + 2);
+                vec![masks.first().copied().unwrap_or(empty) as f64]
+            }
+            "maskMix" => {
+                mask_rows[2] = Some(base + at + 2);
+                vec![0.]
+            }
             "modelMatrix" => {
                 model = base + at + 2;
+                model_uniform = Some(model);
                 Matrix4::default().elements.to_vec()
             }
             "waterMap" => vec![main as f64],
@@ -644,6 +681,14 @@ pub fn water(
             None
         },
         uniforms,
+        time_from: frame("time").ok_or("frame time missing")?.0,
+        masks: match mask_rows {
+            [Some(a), Some(b), Some(mix)] if !masks.is_empty() => Some((masks.to_vec(), mask_fps, [a, b, mix])),
+            _ => None,
+        },
+        // The ocean's surface follows the eye at its own height instead.
+        bob: (!classic_ocean && look["OscillationEnable"][0].as_f64().unwrap_or(1.) > 0.)
+            .then_some((base + W::S_WORLD, model_uniform)),
     }))
 }
 

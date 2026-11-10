@@ -7,7 +7,7 @@ use bfe_presentation::{
     network_layout::{net_header as h, net_kind as k, net_limits as l, net_record as r},
 };
 use bfe_sim::prediction::{
-    corrections::{decode_compact_soldier_fixed, decode_own_player_header},
+    corrections::{decode_compact_soldier_fixed, decode_droideka, decode_own_player_header},
     reconcile::EstimatorState,
 };
 use serde::Deserialize;
@@ -20,24 +20,51 @@ pub struct Own {
     pub class: usize,
     pub team: u8,
     pub position: [f64; 3],
+    pub velocity: [f64; 3],
     pub yaw: f64,
     pub pitch: f64,
     pub alive: bool,
+    pub dead: bool,
+    pub removed: bool,
     pub tick: f64,
     pub body_schema: u8,
+    /// The own body is a droideka. Its state shares schema 10 with a ground
+    /// vehicle's (DROIDEKA_BODY_SCHEMA and GROUND_CORRECTION_SCHEMA); the
+    /// header's vehicle id tells them apart, as network-entity-player.js does.
+    pub walker: bool,
     pub health: f64,
     pub vehicle: f64,
     pub vehicle_generation: f64,
     pub posture: usize,
     pub air: u8,
     pub zoom: f64,
+    pub zoom_step: u8,
     pub dive: f64,
+    pub fuel: f64,
     pub lock: f64,
+    pub walker_mode: u8,
+    pub walker_reverse: bool,
+    pub walker_time: f64,
+    pub walker_legs: f64,
+    pub walker_roll: f64,
+    pub walker_lean: f64,
+    pub walker_speed: f64,
+    pub shield: Option<f64>,
+    pub shield_on: bool,
     pub mount: Option<(u32, u32, usize)>,
     pub mount_kind: u32,
     pub flight: Option<u8>,
     pub flight_warning: u8,
     pub flight_can_land: bool,
+    pub remote: Option<(u16, u32, usize)>,
+    pub remote_position: [f64; 3],
+    pub remote_velocity: [f64; 3],
+    pub remote_yaw: f64,
+    pub remote_pitch: f64,
+    pub remote_health: f64,
+    pub remote_countdown: f64,
+    pub remote_zoom_step: u8,
+    pub remote_weapons: [Option<([f64; 20], u8, u8)>; 2],
 }
 // Server diagnostics are terminal observations, not retained JSON objects.
 // Keep at most the browser's 240 characters, including escaped JSON text;
@@ -339,10 +366,44 @@ impl Receiver {
                     }
                 });
                 self.own.mount = mount.map(|mount| (mount.id, mount.generation, mount.index as usize));
+                self.own.remote = None;
+                self.own.remote_weapons = [None, None];
+                if let Ok(own_state) = bfe_sim::prediction::corrections::decode_own_player(Some(bytes), true) {
+                    if let Some(rem) = own_state.remote {
+                        if let Some(rem_bytes) = rem.payload.get(bytes) {
+                            if let Ok(recon) = bfe_sim::prediction::corrections::decode_recon_header(Some(rem_bytes)) {
+                                if recon.bits & 2 != 0 && recon.bits & 1 == 0 {
+                                    self.own.remote = Some((rem.id, rem.generation, rem.definition_id as usize));
+                                    self.own.remote_yaw = recon.numbers[0];
+                                    self.own.remote_pitch = recon.numbers[1];
+                                    self.own.remote_health = recon.numbers[2];
+                                    self.own.remote_countdown = recon.numbers[3];
+                                    self.own.remote_zoom_step = recon.zoom_step;
+                                    self.own.remote_position = recon.position;
+                                    self.own.remote_velocity = recon.velocity;
+                                    let mut cursor = recon.cursor;
+                                    for slot in 0..(recon.weapon_count as usize).min(2) {
+                                        if let Ok(wp) =
+                                            bfe_sim::prediction::corrections::decode_recon_payload(rem_bytes, cursor)
+                                        {
+                                            cursor = wp.cursor;
+                                            if let Ok(w) = bfe_sim::prediction::corrections::decode_weapon(
+                                                wp.payload.get(rem_bytes),
+                                            ) {
+                                                self.own.remote_weapons[slot] = Some((w.numbers, w.flags, w.level));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 self.own.health = head.health;
                 self.own.vehicle = head.vehicle_id as f64;
                 self.own.vehicle_generation = head.vehicle_generation as f64;
                 self.own.body_schema = head.body_schema;
+                self.own.walker = head.body_schema == 10 && head.vehicle_id == 0;
                 self.own.flight = None;
                 self.own.flight_warning = 0;
                 self.own.flight_can_land = false;
@@ -357,18 +418,45 @@ impl Receiver {
                 self.own.generation = row[r::GENERATION];
                 self.own.class = head.class_id as usize;
                 self.own.team = head.team;
+                self.own.dead = head.dead != 0;
+                self.own.removed = head.removed != 0;
                 self.own.alive = head.dead == 0 && head.removed == 0;
                 self.own.tick = tick;
                 self.own.zoom = head.zoom;
+                self.own.zoom_step = head.zoom_step;
+                self.own.shield = None;
+                self.own.shield_on = false;
                 if head.body_schema == 6 {
                     if let Ok(body) = decode_compact_soldier_fixed(head.body.get(bytes), &[true; 6]) {
                         self.own.position = body.vectors[0];
+                        self.own.velocity = body.vectors[1];
                         self.own.yaw = body.numbers[1];
                         self.own.pitch = body.numbers[2];
                         self.own.posture = body.posture as usize;
                         self.own.air = body.air;
                         self.own.dive = body.numbers[3];
+                        self.own.fuel = body.numbers[4];
                         self.own.lock = body.numbers[5];
+                    }
+                } else if self.own.walker {
+                    if let Ok(body) = decode_droideka(head.body.get(bytes)) {
+                        self.own.position = body.vectors[0];
+                        self.own.velocity = body.vectors[1];
+                        self.own.yaw = body.numbers[0];
+                        self.own.pitch = body.numbers[1];
+                        self.own.walker_mode = body.mode;
+                        self.own.walker_reverse = body.flags & 2 != 0;
+                        self.own.walker_time = body.numbers[3];
+                        self.own.walker_legs = body.numbers[4];
+                        self.own.walker_roll = body.numbers[6];
+                        self.own.walker_lean = body.numbers[7];
+                        self.own.walker_speed = body.vectors[1][0].hypot(body.vectors[1][2]);
+                        self.own.shield = body.shield;
+                        self.own.shield_on = body.flags & 16 != 0;
+                        // Droideka.posture: "crouch" (its rolled camera section) from FOLD on.
+                        self.own.posture = (body.mode >= 11) as usize;
+                        self.own.air = 0;
+                        self.own.dive = 0.;
                     }
                 } else if head.body_schema == 7 {
                     if bfe_sim::prediction::corrections::decode_compact_flight_into(
@@ -381,6 +469,7 @@ impl Receiver {
                     .is_ok()
                     {
                         self.own.position = self.flight.vectors[0];
+                        self.own.velocity = self.flight.vectors[1];
                         self.own.yaw = self.flight.seat[0].value;
                         self.own.pitch = self.flight.seat[1].value;
                         use bfe_sim::gen::ClientFlightEnumField as field;
@@ -392,24 +481,36 @@ impl Receiver {
                 } else if head.body_schema == 10 {
                     if let Ok(body) = bfe_sim::prediction::corrections::decode_ground(head.body.get(bytes), true, [true; 2]) {
                         self.own.position = body.position;
+                        self.own.velocity = body.velocity;
                         self.own.yaw = body.seat[0].value;
                         self.own.pitch = body.seat[1].value;
                     }
                 }
                 self.own_fact.fill(0.);
                 let fact = &mut self.own_fact;
-                fact[r::KIND] = k::SOLDIER as f64;
+                fact[r::KIND] = if self.own.walker { k::DROIDEKA } else { k::SOLDIER } as f64;
                 fact[r::ID] = self.own.id;
                 fact[r::GENERATION] = self.own.generation;
                 fact[r::CLASS_ID] = self.own.class as f64;
                 fact[r::TEAM] = self.own.team as f64;
                 fact[r::POSITION..r::POSITION + 3].copy_from_slice(&self.own.position);
+                fact[r::VELOCITY..r::VELOCITY + 3].copy_from_slice(&self.own.velocity);
                 fact[r::YAW] = self.own.yaw;
                 fact[r::PITCH] = self.own.pitch;
                 fact[r::POSTURE] = self.own.posture as f64;
                 fact[r::STATE] = self.own.air as f64;
                 fact[r::HEALTH] = self.own.health;
                 fact[r::DEAD] = (!self.own.alive) as u8 as f64;
+                if self.own.walker {
+                    fact[r::MODE] = self.own.walker_mode as f64;
+                    fact[r::REVERSE] = self.own.walker_reverse as u8 as f64;
+                    fact[r::TIME] = self.own.walker_time;
+                    fact[r::LEGS] = self.own.walker_legs;
+                    fact[r::ROLL] = self.own.walker_roll;
+                    fact[r::LEAN] = self.own.walker_lean;
+                    fact[r::SHIELD] = self.own.shield.unwrap_or(-1.);
+                    fact[r::SHIELD_ON] = self.own.shield_on as u8 as f64;
+                }
                 // This row survives corrections. An exit must release the
                 // old rider binding as well as the own control checkpoint.
                 fact[r::SEAT_PRESENT..=r::SEAT_INDEX].fill(0.);

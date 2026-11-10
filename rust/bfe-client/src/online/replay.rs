@@ -231,6 +231,9 @@ impl Replay {
         self.life = [r.epoch, r.own.id, r.own.generation];
         self.weapon_count = 0;
         self.fleet.frame(r, sender, &mut self.words, &mut collision_mut(&self.collision))?;
+        if r.own.remote.is_some() {
+            return Ok(());
+        }
         if r.own.alive
             && r.checkpoint_length != 0
             && bfe_sim::prediction::corrections::own_mounted(&r.checkpoint[..r.checkpoint_length])?.is_some()
@@ -262,6 +265,17 @@ impl Replay {
             let result = ClientResult::take(&self.owner.output, &[]);
             self.weapon_at = result.weapons_at as usize;
             self.weapon_count = self.owner.output[self.weapon_at] as usize;
+            return Ok(());
+        }
+        // A droideka's own checkpoint carries an unmounted arsenal beside its
+        // walker body. Restore and publish those weapon rows so the HUD and
+        // audio owners see the active blaster and shield state.
+        if r.own.alive && r.own.walker && r.checkpoint_length != 0 {
+            self.arsenal.restore(&r.checkpoint[..r.checkpoint_length])?;
+            self.owner.output.clear();
+            let (at, _) = self.arsenal.write(&mut self.owner.output);
+            self.weapon_at = at as usize;
+            self.weapon_count = self.arsenal.rows.len();
             return Ok(());
         }
         if !r.own.alive || r.own.body_schema != 6 || r.own.vehicle != 0. {

@@ -33,6 +33,7 @@ struct Model {
     content: usize,
     hand: Option<usize>,
     head: Option<usize>,
+    chest: Option<usize>,
     clips: Vec<(String, f64)>,
     death_clip: f64,
     // The clip of each weapon action, by bank, posture and action.
@@ -241,6 +242,7 @@ impl Replicas {
                     .find(|(n, _)| n == body_key)
                     .map_or(vec![], |(_, c)| c.list.iter().map(|c| (c.name.clone(), c.fps)).collect()),
                 head: actor.bone_by_name("bone_head"),
+                chest: actor.bone_by_name("bone_ribcage"),
                 hand: actor.attach.as_ref().and_then(|name| actor.bone_by_name(name)).map(|i| i + 2),
             });
         }
@@ -679,12 +681,22 @@ impl Replicas {
             if row[r::ID] == receiver.own.id {
                 input[i::NETWORK] = 0.;
                 input[i::POSITION..i::POSITION + 3].copy_from_slice(&row[r::POSITION..r::POSITION + 3]);
+                input[i::VELOCITY..i::VELOCITY + 3].copy_from_slice(&row[r::VELOCITY..r::VELOCITY + 3]);
                 input[i::YAW] = row[r::YAW];
                 input[i::PITCH] = row[r::PITCH];
                 input[i::POSTURE] = row[r::POSTURE];
                 input[i::AIR] = row[r::STATE];
                 input[i::DIVE] = receiver.own.dive;
                 input[i::DEAD] = (!receiver.own.alive) as u8 as f64;
+                if kind == k::DROIDEKA {
+                    input[i::WALKER_MODE] = receiver.own.walker_mode as f64;
+                    input[i::WALKER_REVERSE] = receiver.own.walker_reverse as u8 as f64;
+                    input[i::WALKER_TIME] = receiver.own.walker_time;
+                    input[i::WALKER_LEGS] = receiver.own.walker_legs;
+                    input[i::WALKER_ROLL] = receiver.own.walker_roll;
+                    input[i::WALKER_LEAN] = receiver.own.walker_lean;
+                    input[i::WALKER_SPEED] = receiver.own.walker_speed;
+                }
                 if let Some(body) = &prediction.displayed {
                     input[i::POSITION..i::POSITION + 3].copy_from_slice(&body.position);
                     input[i::VELOCITY..i::VELOCITY + 3].copy_from_slice(&body.velocity);
@@ -876,9 +888,51 @@ impl Replicas {
             })
             .collect();
         eprintln!(
-            "motion pose: action={:?} gait={} time={} actionTime={} layers={:?}",
-            animation.action, animation.gait, animation.time, animation.action_time, layers
+            "motion pose: action={:?} gait={} time={} actionTime={} layers={:?} chest={:?}",
+            animation.action,
+            animation.gait,
+            animation.time,
+            animation.action_time,
+            layers,
+            self.drawn_chest(receiver)
         );
+        // The arms' slot, clip, clip time, blend, held weapon, visible, active.
+        use bfe_presentation::layout::unit_header as header;
+        eprintln!(
+            "first person arms: state={:?} model={}",
+            &self.units.header[header::FIRST_PERSON_STATE..header::FIRST_PERSON_STATE + 7],
+            self.units.header[header::FIRST_PERSON_MODEL]
+        );
+    }
+
+    // DeathShot.frame (death-shot.js) follows the dead player's ribcage bone
+    // where the page draws it. The camera owner runs before this frame's pose,
+    // so this is the node bank as the previous frame placed it; the shot's
+    // own spring follows the point, and a body at rest does not move.
+    pub fn drawn_chest(&self, receiver: &Receiver) -> Option<[f64; 3]> {
+        let identity = (receiver.own.id as u32, receiver.own.generation as u32);
+        let slot = self
+            .slots
+            .iter()
+            .find(|slot| slot.active && slot.identity == Some(identity))?;
+        let chest = self.models[slot.model].chest?;
+        let (_, rig) = self.units.rider_source(slot.actor)?;
+        let node = *rig.bones.get(chest)? as usize;
+        use bfe_presentation::layout::unit_node as node_row;
+        let at = (self.units.actor_node_start(slot.actor) + node) * node_row::STRIDE + node_row::WORLD;
+        let world = self.units.nodes.get(at..at + 16)?;
+        Some([world[12], world[13], world[14]])
+    }
+    // drawnKiller (death-shot.js) reads the killer's feet from his drawn
+    // actor root, not from the newest network row.
+    pub fn drawn_feet(&self, id: u32, generation: u32) -> Option<[f64; 3]> {
+        let slot = self
+            .slots
+            .iter()
+            .find(|slot| slot.active && slot.identity == Some((id, generation)))?;
+        let root = slot.actor * o::STRIDE + o::ROOT_WORLD;
+        let world = self.units.output.get(root..root + 16)?;
+        Some([world[12], world[13], world[14]])
     }
 
     // PlayerCombat.updateHud reads the displayed unit's existing aim basis.

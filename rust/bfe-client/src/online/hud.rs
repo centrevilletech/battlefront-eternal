@@ -113,6 +113,8 @@ struct Asset {
 struct Weapon {
     row: [f64; W::WORDS],
     channel: usize,
+    scope: u32,
+    zoom_first_person: bool,
 }
 // Command-post identity is authored and stable for a battle. Summary fields
 // update its mutable capture facts in place. Capture regions and labels are
@@ -133,12 +135,19 @@ struct MountHud {
     icon: u32,
     seats: Vec<u32>,
 }
+struct RemoteHud {
+    def_id: usize,
+    health: f64,
+    icon: u32,
+    weapons: [Option<usize>; 2],
+}
 pub struct Prepared {
     assets: Vec<Asset>,
     fonts: Vec<(f64, Vec<f64>)>,
     names: BTreeMap<String, u32>,
     weapons: Vec<Weapon>,
     mounts: Vec<MountHud>,
+    remotes: Vec<RemoteHud>,
     labels: Vec<String>,
     strings: Value,
     radar: super::radar::Teams,map:Option<[f64;5]>,posts:Vec<Post>,max_health:Vec<f64>,unit_defs:Vec<[f64;U::WORDS]>,
@@ -155,6 +164,7 @@ pub struct Aim {
 pub struct Hud {
     weapons: Vec<Weapon>,
     mounts: Vec<MountHud>,
+    remotes: Vec<RemoteHud>,
     size: [i32; 2],
     pub quads: usize,
     pub frames: u64,
@@ -177,6 +187,9 @@ pub struct Hud {
     pub own_summary: HudOwnSummary,
     pub auto_build: bool,
     flight_key: String,
+    pub scope: u32,
+    pub zoom_first_person: bool,
+    pub scoped: bool,
     feed: super::hud_feed::Feed,
     team_names: [String; 8],
 }
@@ -205,6 +218,7 @@ impl Prepared {
             names: BTreeMap::new(),
             weapons: vec![],
             mounts: vec![],
+            remotes: vec![],
             labels: vec![String::new()],
             strings: common["strings"].clone(),radar:super::radar::Teams::new(content),map:None,posts:vec![],max_health:vec![],unit_defs:vec![],
             class_meta: vec![],
@@ -455,6 +469,10 @@ impl Prepared {
             row[W::ID] = (index + 1) as f64;
             row[W::ICON] = asset(d["IconTexture"].as_str().unwrap_or(""), &mut result)? as f64;
             row[W::RETICLE] = asset(d["ReticuleTexture"].as_str().unwrap_or(""), &mut result)? as f64;
+            let scope = asset(d["ScopeTexture"].as_str().unwrap_or(""), &mut result)?;
+            let zoom_first_person = d["ZoomFirstPerson"]
+                .as_bool()
+                .unwrap_or_else(|| d["ZoomFirstPerson"].as_f64().unwrap_or(0.) != 0.);
             row[W::LABEL] = result.labels.len() as f64;
             result.labels.push(d["label"].as_str().unwrap_or("").into());
             for (at, key) in [
@@ -481,6 +499,63 @@ impl Prepared {
                             .unwrap_or(0) as usize
                     })
                     .min(1),
+                scope,
+                zoom_first_person,
+            });
+        }
+        for (i, (_, def)) in defs.registry.combat.iter().enumerate() {
+            if def.get("base").and_then(bfe_content::Value::as_str) != Some("droid") {
+                continue;
+            }
+            let icon = asset(
+                def.get("HealthTexture")
+                    .and_then(bfe_content::Value::as_str)
+                    .unwrap_or("hud_health"),
+                &mut result,
+            )?;
+            let mut rem_weapons = [None, None];
+            if let Some(w_list) = def.get("weapons").and_then(bfe_content::Value::as_array) {
+                for (slot, weapon) in w_list.iter().enumerate().take(2) {
+                    let d = authored_json(weapon);
+                    let index = result.weapons.len();
+                    let mut row = [0.; W::WORDS];
+                    row[W::ID] = (index + 1) as f64;
+                    row[W::ICON] = asset(d["IconTexture"].as_str().unwrap_or(""), &mut result)? as f64;
+                    row[W::RETICLE] = asset(d["ReticuleTexture"].as_str().unwrap_or(""), &mut result)? as f64;
+                    let scope = asset(d["ScopeTexture"].as_str().unwrap_or(""), &mut result)?;
+                    let zoom_first_person = d["ZoomFirstPerson"]
+                        .as_bool()
+                        .unwrap_or_else(|| d["ZoomFirstPerson"].as_f64().unwrap_or(0.) != 0.);
+                    row[W::LABEL] = result.labels.len() as f64;
+                    result.labels.push(d["label"].as_str().unwrap_or("").into());
+                    for (at, key) in [
+                        (W::LOCK_TIME, "LockTime"),
+                        (W::MAX_PRESSED, "MaxPressedTime"),
+                        (W::RELOAD_TIME, "ReloadTime"),
+                        (W::HEAT_PER_SHOT, "HeatPerShot"),
+                        (W::ROUNDS_PER_CLIP, "RoundsPerClip"),
+                        (W::SHOT_DELAY, "ShotDelay"),
+                        (W::LOCK_OFF_ANGLE, "LockOffAngle"),
+                        (W::STILL_SPREAD, "StandStillSpread"),
+                        (W::YAW_SPREAD, "YawSpread"),
+                        (W::PITCH_SPREAD, "PitchSpread"),
+                    ] {
+                        row[at] = d[key].as_f64().unwrap_or(0.);
+                    }
+                    result.weapons.push(Weapon {
+                        row,
+                        channel: slot,
+                        scope,
+                        zoom_first_person,
+                    });
+                    rem_weapons[slot] = Some(index);
+                }
+            }
+            result.remotes.push(RemoteHud {
+                def_id: i + 1,
+                health: bfe_content::odf::num(def.get("MaxHealth"), 40.),
+                icon,
+                weapons: rem_weapons,
             });
         }
         if let Some(map_def)=world.get("minimap").filter(|m|!m.is_null()){let image=if let Some(texture)=map_def["texture"].as_str(){let image=content.textures.load(&format!("maps/{map}/{texture}"))?;let source=&content.textures.images[image];let id=result.assets.len();result.assets.push(Asset{image:Some(image),width:source.width as f64,height:source.height as f64});id as f64}else{0.};result.map=Some([map_def["center"][0].as_f64().unwrap_or(0.),map_def["center"][1].as_f64().unwrap_or(0.),map_def["half"].as_f64().unwrap_or(1.),world["commandPost"]["mapScale"].as_f64().unwrap_or(1.),image]);}
@@ -593,6 +668,7 @@ impl Prepared {
         let mut hud = Hud {
             weapons,
             mounts,
+            remotes: self.remotes,
             size,
             quads: 0,
             frames: 0,
@@ -610,6 +686,9 @@ impl Prepared {
             own_summary: HudOwnSummary::default(),
             auto_build: true,
             flight_key: String::new(),
+            scope: 0,
+            zoom_first_person: false,
+            scoped: false,
             feed: super::hud_feed::Feed::new(self.feed),
             team_names: self.team_names,
         };
@@ -644,6 +723,9 @@ impl Hud {
             bridge.hud_model.input[H::PROMPT_TEXTS + index] =
                 bridge.hud_model_text(&text, false) as f64;
         }
+    }
+    pub fn set_size(&mut self, size: [i32; 2]) {
+        self.size = size;
     }
     pub fn audio_facts(&self)->([f64;4],bool){([self.teams[1][0],self.teams[2][0],self.teams[1][1],self.teams[2][1]],self.over)}
     // Hud.update contributes gameplay observations once per displayed frame.
@@ -803,7 +885,16 @@ impl Hud {
         // rules consume fractions, so retain class maximum health at admission.
         // A mounted hull has its own class and damage scale, independent of
         // the occupant's infantry maximum and its separately displayed bar.
-        let health=receiver.own.health/self.max_health.get(receiver.own.class).copied().unwrap_or(300.);
+        // A piloted recon droid shows its own health on the top bar.
+        let remote_hud = receiver
+            .own
+            .remote
+            .and_then(|(_, _, rdef)| self.remotes.iter().find(|r| r.def_id == rdef));
+        let health = if let Some(rem) = remote_hud {
+            receiver.own.remote_health / rem.health
+        } else {
+            receiver.own.health / self.max_health.get(receiver.own.class).copied().unwrap_or(300.)
+        };
         // presentBattle (src/game.js) gives the HUD the local Character's
         // score every frame; HudModel shows the popup when a number changes.
         let score = super::hud_feed::score(&receiver.roster);
@@ -853,7 +944,9 @@ impl Hud {
         x[H::DEAD] = (!receiver.own.alive) as u8 as f64;
         x[H::PLAYER] = receiver.own.alive as u8 as f64;
         x[H::HEALTH] = health;
-        x[H::HEALTH_ICON] = A::HUD_HEALTH as f64;
+        x[H::HEALTH_ICON] = remote_hud
+            .filter(|r| r.icon != 0)
+            .map_or(A::HUD_HEALTH as f64, |r| r.icon as f64);
         x[H::HULL_ICON] = mounted.map_or(if mount.is_some() { A::HUD_VEHICLEHEALTH as f64 } else { 0. }, |m| m.icon as f64);
         x[H::SEAT_NAME] = mounted.and_then(|m| receiver.own.mount.and_then(|lease| m.seats.get(lease.2))).copied().unwrap_or(0) as f64;
         x[H::HULL_FILL] = hull_fill;
@@ -887,9 +980,23 @@ impl Hud {
         x[H::CAPTURE_POST] = -1.;
         x[H::FOV] = 60.;
         x[H::ASPECT] = self.size[0] as f64 / self.size[1] as f64;
-        let position=prediction.body.as_ref().map_or_else(||prediction.fleet.state.as_ref().map_or(receiver.own.position,|h|h.position),|b|b.position);
+        let position = if receiver.own.remote.is_some() {
+            receiver.own.remote_position
+        } else {
+            prediction.body.as_ref().map_or_else(
+                || prediction.fleet.state.as_ref().map_or(receiver.own.position, |h| h.position),
+                |b| b.position,
+            )
+        };
         x[H::PLAYER_X] = position[0];x[H::PLAYER_Z] = position[2];
-        x[H::PLAYER_YAW] = prediction.body.as_ref().map_or_else(||if prediction.fleet.identity.is_some(){prediction.fleet.aim[0]}else{receiver.own.yaw},|b|b.aim_yaw);
+        x[H::PLAYER_YAW] = if receiver.own.remote.is_some() {
+            receiver.own.remote_yaw
+        } else {
+            prediction.body.as_ref().map_or_else(
+                || if prediction.fleet.identity.is_some() { prediction.fleet.aim[0] } else { receiver.own.yaw },
+                |b| b.aim_yaw,
+            )
+        };
         x[H::PLAYER_TEAM] = receiver.own.team as f64;
         self.radar.publish(x, receiver, &self.teams);
         // Radar sensors originate at the controlled body or mounted hull.
@@ -924,47 +1031,106 @@ impl Hud {
         x[hud_model::WEAPONS..hud_model::WEAPONS + W::WORDS * 4].fill(0.);
         // The predicted arsenal is a borrowed generated result. HUD input
         // carries state facts; HudModel decides priority, fades and reticles.
-        let mut counts = [0usize; 2];
-        let selected = prediction.selected();
         let mut any = false;
-        for weapon in prediction.weapons() {
-            let Some(def) = self.weapons.get(weapon.def.0.saturating_sub(1) as usize) else {
-                continue;
-            };
-            let channel = def.channel;
-            let chosen = counts[channel] as f64 == selected[channel];
-            counts[channel] += 1;
-            if !chosen {
-                continue;
+        self.scope = 0;
+        self.zoom_first_person = false;
+        if let Some(rem) = remote_hud {
+            for (slot, w_idx) in rem.weapons.iter().enumerate() {
+                let Some(def) = w_idx.and_then(|idx| self.weapons.get(idx)) else {
+                    continue;
+                };
+                if slot == 0 {
+                    self.scope = def.scope;
+                    self.zoom_first_person = false;
+                }
+                let mut row = def.row;
+                let bottomless = row[W::ROUNDS_PER_CLIP] <= 0.;
+                row[W::BOTTOMLESS] = bottomless as u8 as f64;
+                if let Some((n, flags, _)) = receiver.own.remote_weapons[slot] {
+                    let clip = n[1];
+                    let reserve = n[2];
+                    row[W::CHARGING] = ((flags & 32 != 0) || (slot == 1 && receiver.own.remote_countdown >= 0.)) as u8 as f64;
+                    row[W::HELD] = if slot == 1 && receiver.own.remote_countdown >= 0. {
+                        receiver.own.remote_countdown
+                    } else {
+                        n[11]
+                    };
+                    row[W::RELOADING] = n[9].gt(&0.) as u8 as f64;
+                    row[W::RELOAD_LEFT] = n[9];
+                    row[W::HEAT] = n[3];
+                    row[W::OVERHEATED] = (flags & 4 != 0) as u8 as f64;
+                    row[W::LOADED] = if bottomless {
+                        f64::INFINITY
+                    } else {
+                        (clip * row[W::ROUNDS_PER_CLIP] + 0.5).floor()
+                    };
+                    row[W::SPARE] = if reserve.is_infinite() {
+                        f64::INFINITY
+                    } else {
+                        (reserve * row[W::ROUNDS_PER_CLIP].max(1.) + 0.5).floor()
+                    };
+                    row[W::RESERVE] = reserve;
+                    row[W::WAIT] = n[8];
+                    row[W::KICK] = n[4];
+                    row[W::LOCK_TARGET] = n[16];
+                    row[W::LOCK_ELAPSED] = n[18];
+                } else {
+                    row[W::LOADED] = if bottomless { f64::INFINITY } else { row[W::ROUNDS_PER_CLIP] };
+                    row[W::SPARE] = f64::INFINITY;
+                    row[W::RESERVE] = f64::INFINITY;
+                }
+                for panel in [slot, slot + 2] {
+                    let at = hud_model::WEAPONS + panel * W::WORDS;
+                    x[at..at + W::WORDS].copy_from_slice(&row);
+                }
+                any = true;
             }
-            let mut row = def.row;
-            row[W::CHARGING] = weapon.charging as u8 as f64;
-            row[W::HELD] = weapon.held;
-            row[W::RELOADING] = weapon.reload_left.gt(&0.) as u8 as f64;
-            row[W::RELOAD_LEFT] = weapon.reload_left;
-            row[W::BOTTOMLESS] = weapon.bottomless as u8 as f64;
-            row[W::HEAT] = weapon.heat;
-            row[W::OVERHEATED] = weapon.overheated as u8 as f64;
-            row[W::LOADED] = if weapon.bottomless {
-                f64::INFINITY
-            } else {
-                (weapon.clip * row[W::ROUNDS_PER_CLIP] + 0.5).floor()
-            };
-            row[W::SPARE] = if weapon.reserve.is_infinite() {
-                f64::INFINITY
-            } else {
-                (weapon.reserve * row[W::ROUNDS_PER_CLIP].max(1.) + 0.5).floor()
-            };
-            row[W::RESERVE] = weapon.reserve;
-            row[W::WAIT] = weapon.wait;
-            row[W::KICK] = weapon.kick;
-            row[W::LOCK_TARGET] = weapon.lock_target_id;
-            row[W::LOCK_ELAPSED] = weapon.lock_elapsed;
-            for panel in [channel, channel + 2] {
-                let at = hud_model::WEAPONS + panel * W::WORDS;
-                x[at..at + W::WORDS].copy_from_slice(&row);
+        } else {
+            let mut counts = [0usize; 2];
+            let selected = prediction.selected();
+            for weapon in prediction.weapons() {
+                let Some(def) = self.weapons.get(weapon.def.0.saturating_sub(1) as usize) else {
+                    continue;
+                };
+                let channel = def.channel;
+                let chosen = counts[channel] as f64 == selected[channel];
+                counts[channel] += 1;
+                if !chosen {
+                    continue;
+                }
+                if channel == 0 {
+                    self.scope = def.scope;
+                    self.zoom_first_person = def.zoom_first_person;
+                }
+                let mut row = def.row;
+                row[W::CHARGING] = weapon.charging as u8 as f64;
+                row[W::HELD] = weapon.held;
+                row[W::RELOADING] = weapon.reload_left.gt(&0.) as u8 as f64;
+                row[W::RELOAD_LEFT] = weapon.reload_left;
+                row[W::BOTTOMLESS] = weapon.bottomless as u8 as f64;
+                row[W::HEAT] = weapon.heat;
+                row[W::OVERHEATED] = weapon.overheated as u8 as f64;
+                row[W::LOADED] = if weapon.bottomless {
+                    f64::INFINITY
+                } else {
+                    (weapon.clip * row[W::ROUNDS_PER_CLIP] + 0.5).floor()
+                };
+                row[W::SPARE] = if weapon.reserve.is_infinite() {
+                    f64::INFINITY
+                } else {
+                    (weapon.reserve * row[W::ROUNDS_PER_CLIP].max(1.) + 0.5).floor()
+                };
+                row[W::RESERVE] = weapon.reserve;
+                row[W::WAIT] = weapon.wait;
+                row[W::KICK] = weapon.kick;
+                row[W::LOCK_TARGET] = weapon.lock_target_id;
+                row[W::LOCK_ELAPSED] = weapon.lock_elapsed;
+                for panel in [channel, channel + 2] {
+                    let at = hud_model::WEAPONS + panel * W::WORDS;
+                    x[at..at + W::WORDS].copy_from_slice(&row);
+                }
+                any = true;
             }
-            any = true;
         }
         let flight = flight_status(&receiver.own);
         for (at, value) in [
@@ -978,6 +1144,19 @@ impl Hud {
         {
             x[at] = value;
         }
+        let turret = receiver.own.mount_kind == k::TURRET;
+        self.scoped = receiver.own.alive
+            && !turret
+            && if receiver.own.remote.is_some() {
+                receiver.own.remote_zoom_step != 0
+            } else {
+                receiver.own.zoom > 1.
+            };
+        x[H::SCOPE] = if self.scoped && self.zoom_first_person {
+            self.scope as f64
+        } else {
+            0.
+        };
         x[H::MOUNT] = receiver.own.mount.is_some() as u8 as f64;
         x[H::VEHICLE] = (receiver.own.mount_kind == k::VEHICLE) as u8 as f64;
         x[H::ARSENAL] = any as u8 as f64;

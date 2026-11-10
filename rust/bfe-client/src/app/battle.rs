@@ -467,11 +467,15 @@ impl LiveSpawnPort {
         self.human.phase = if own_alive {
             "alive".to_string()
         } else if own_summary.valid {
-            match own_summary.phase {
-                0 => "alive".to_string(),
-                1 => "dead".to_string(),
-                3 => "ended".to_string(),
-                _ => "awaiting".to_string(),
+            if own_summary.ended {
+                "ended".to_string()
+            } else {
+                match own_summary.phase {
+                    0 => "unspawned".to_string(),
+                    1 => "alive".to_string(),
+                    2 => "dying".to_string(),
+                    _ => "awaiting".to_string(),
+                }
             }
         } else {
             "awaiting".to_string()
@@ -874,6 +878,10 @@ pub struct BattleController {
     pub elapsed_s: f64,
     /// Whether the local player was alive on the previous frame (used to detect death -> spawn screen).
     pub was_alive: bool,
+    /// The player died and the spawn screen has not reopened for it yet.
+    pub death_screen_pending: bool,
+    /// The deathCamera setting as last read (`"classic"` or `"enhanced"`).
+    death_classic: bool,
     /// Confirmed transitions into a living controlled body.
     pub player_spawns: u64,
     /// Whether the local player has spawned at least once in this battle.
@@ -1274,6 +1282,8 @@ impl BattleController {
             steady_frames_measured: 0,
             elapsed_s: 0.0,
             was_alive: false,
+            death_screen_pending: false,
+            death_classic: false,
             player_spawns: 0,
             first_life_spawned: false,
             overlay_was_active: true,
@@ -1283,6 +1293,30 @@ impl BattleController {
         };
         ctrl.sync_input_settings(settings);
         Ok(ctrl)
+    }
+
+    pub fn resize(
+        &mut self,
+        new_size: [i32; 2],
+        scale_factor: f64,
+        make_gl: impl FnMut() -> glow::Context,
+    ) -> Result<(), String> {
+        let page_size = new_size.map(|v| (v as f64 / scale_factor).round().max(1.) as i32);
+        self.page_size = page_size;
+        if new_size[0] <= 0 || new_size[1] <= 0 || new_size == self.size {
+            return Ok(());
+        }
+        self.size = new_size;
+        self.aspect = new_size[0].max(1) as f64 / new_size[1].max(1) as f64;
+        self.height = interface_height(new_size[0] as f64, new_size[1] as f64);
+        self.pause_page.blur.resize(&self.scene.bridge.r.core.gl, new_size);
+        self.scene.resize(new_size, make_gl)?;
+        match &mut self.authority {
+            BattleAuthority::InstantAction { camera, .. } => camera.resize(new_size),
+            BattleAuthority::Online { client, .. } => client.camera.resize(new_size),
+        }
+        self.overlay_was_active = true;
+        Ok(())
     }
 
     /// Returns the active map ID (`"nab2"`, `"tat1"`, `"bes1"`, etc.).
@@ -1452,6 +1486,7 @@ impl BattleController {
             1.35
         };
         self.input.flight_invert = settings.interface.get_bool("flightInvertY");
+        self.death_classic = settings.interface.get_string("deathCamera") == "classic";
         let first = settings.interface.get_bool("flightFirstPerson");
         match &mut self.authority {
             BattleAuthority::InstantAction { camera, .. } => camera.set_flight_perspective(first),
@@ -1640,6 +1675,10 @@ impl BattleController {
         // Align render-thread steady allocation accounting with the 45-frame combat
         // warm-up window (`phase_frames == 45` in `script.rs`) so initial spawn and
         // welcome-snapshot presentation warm-up completes before steady counting starts.
+        // The cameras are admitted with the scene, after the settings were first read.
+        if let Some(online) = &mut self.scene.online {
+            online.cameras.death_classic = self.death_classic;
+        }
         let measure_steady_allocs = !self.is_overlay_open() && self.steady_frames >= 45;
         let alloc_before = if measure_steady_allocs {
             super::render_thread_alloc_count()
@@ -1824,14 +1863,14 @@ impl BattleController {
         // - `game_over == true`: Synchronize `LiveScoreboardPort` so the post-battle
         //   scoreboard (`BoardState::End`) displays final tickets and awards.
         // 4. Inspect life/death and match-over transitions.
-        let (own_alive, game_over) = match &self.authority {
+        let (own_alive, own_dead, own_removed, game_over) = match &self.authority {
             BattleAuthority::InstantAction { receiver, .. } => {
                 let over = self
                     .scene
                     .online
                     .as_ref()
                     .is_some_and(|r| r.hud.game_over);
-                (receiver.own.alive, over)
+                (receiver.own.alive, receiver.own.dead, receiver.own.removed, over)
             }
             BattleAuthority::Online { client, .. } => {
                 let over = self
@@ -1839,7 +1878,12 @@ impl BattleController {
                     .online
                     .as_ref()
                     .is_some_and(|r| r.hud.game_over);
-                (client.receiver.own.alive, over)
+                (
+                    client.receiver.own.alive,
+                    client.receiver.own.dead,
+                    client.receiver.own.removed,
+                    over,
+                )
             }
         };
 
@@ -1861,16 +1905,35 @@ impl BattleController {
         }
         if own_alive && !self.was_alive {
             self.was_alive = true;
+            self.death_screen_pending = false;
             self.player_spawns += 1;
             if self.spawn_ctrl.is_open() && self.first_life_spawned {
                 self.spawn_ctrl.close(&mut self.spawn_port);
             }
-        } else if !own_alive && self.was_alive && !self.scene.online.as_ref().is_some_and(|r| r.hud.over) {
+        } else if !own_alive && self.was_alive {
             self.was_alive = false;
-            if !self.spawn_ctrl.is_open() {
-                self.sync_ports_cold(&settings.player.profile_name);
-                self.spawn_ctrl
-                    .open(&mut self.spawn_port, OpenReason::Death, self.height);
+            self.death_screen_pending = true;
+        }
+        // human-spawn.js emits awaitingSpawn only after the 4 s dying hold
+        // completes (phase == Awaiting, corpse removed). Opening early hides
+        // DeathShot and causes COMMIT_WAIT (1.0 s) to cancel an early SPAWN click.
+        if self.death_screen_pending
+            && !own_alive
+            && !self.scene.online.as_ref().is_some_and(|r| r.hud.over)
+        {
+            let dying = (own_dead && !own_removed)
+                || self
+                    .scene
+                    .online
+                    .as_ref()
+                    .is_some_and(|r| r.hud.own_summary.valid && r.hud.own_summary.phase == 2);
+            if !dying {
+                self.death_screen_pending = false;
+                if !self.spawn_ctrl.is_open() {
+                    self.sync_ports_cold(&settings.player.profile_name);
+                    self.spawn_ctrl
+                        .open(&mut self.spawn_port, OpenReason::Death, self.height);
+                }
             }
         }
 
@@ -2363,8 +2426,10 @@ impl BattleController {
             self.input.pointer_metrics().0, self.input.pointer_metrics().1,
             self.scene.online.as_ref().and_then(|scene| scene.turns.get(receiver.own.class)).map_or(0., |turn| turn.0));
         eprintln!(
-            "motion view: fovY={} prediction={:?} displayed={:?} fault={:?}",
+            "motion view: fovY={} aspect={} size={:?} prediction={:?} displayed={:?} fault={:?}",
             (2. * (1. / camera.snapshot().values[5]).atan()).to_degrees(),
+            camera.snapshot().values[5] / camera.snapshot().values[0],
+            self.size,
             replay.body.as_ref().map(|body| (
                 body.position,
                 body.velocity,
@@ -2395,10 +2460,16 @@ impl BattleController {
                 .flat_map(|scene| scene.hud.post_meta.iter())
                 .map(|post| serde_json::json!({"name":post.name,"team":post.team,"position":post.position}))
                 .collect();
+            let items: Vec<_> = receiver.active()
+                .filter(|row| row[r::KIND] as u32 == k::ITEM)
+                .map(|row| serde_json::json!({"id":row[r::ID], "definition":row[r::DEFINITION_ID],
+                    "active":row[r::ACTIVE] != 0., "position":&row[r::POSITION..r::POSITION + 3]}))
+                .collect();
             eprintln!("[battle-observation] {}", serde_json::json!({
                 "position":receiver.own.position,"yaw":receiver.own.yaw,"pitch":receiver.own.pitch,
                 "team":receiver.own.team,"health":receiver.own.health,"alive":receiver.own.alive,
-                "spawnScreen":self.spawn_ctrl.is_open(),"targets":targets,"posts":posts
+                "spawnScreen":self.spawn_ctrl.is_open(),"targets":targets,"posts":posts,
+                "items":items,"itemViews":self.scene.online.as_ref().map_or(0, |scene| scene.items.visible)
             }));
         }
     }
@@ -2972,6 +3043,22 @@ mod tests {
         port.sync_from_hud(&[[0.; 4]; 8], &[], &HudOwnSummary::default(), false, 2);
         assert_eq!(port.human_state().team, 2);
         assert_eq!(port.human_state().phase, "awaiting");
+        for (phase, ended, expected) in [
+            (0, false, "unspawned"),
+            (1, false, "alive"),
+            (2, false, "dying"),
+            (3, false, "awaiting"),
+            (2, true, "ended"),
+        ] {
+            let summary = HudOwnSummary {
+                valid: true,
+                phase,
+                ended,
+                ..Default::default()
+            };
+            port.sync_from_hud(&[[0.; 4]; 8], &[], &summary, false, 1);
+            assert_eq!(port.human_state().phase, expected);
+        }
     }
 
     #[test]
