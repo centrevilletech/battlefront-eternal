@@ -1875,8 +1875,12 @@ impl ShellHost {
             self.options_ctrl.stack.clear();
             self.sync_options_controller(settings);
         }
+        // The page fetches the list as the screen is entered (`onEnter` in server-browser.js), not on a timer.
         let entered_list = prev_screen != self.app.current_screen()
-            && matches!(self.app.current_screen(), ScreenId::MultiplayerList(_));
+            && matches!(
+                self.app.current_screen(),
+                ScreenId::Multiplayer | ScreenId::MultiplayerList(_)
+            );
         self.browser.privacy_accepted = !self.app.mp_needs_notice;
         if (was_notice && !self.app.mp_needs_notice)
             || refresh_requested
@@ -2142,8 +2146,12 @@ impl ShellHost {
             self.options_ctrl.stack.clear();
             self.sync_options_controller(settings);
         }
+        // The page fetches the list as the screen is entered (`onEnter` in server-browser.js), not on a timer.
         let entered_list = prev_screen != self.app.current_screen()
-            && matches!(self.app.current_screen(), ScreenId::MultiplayerList(_));
+            && matches!(
+                self.app.current_screen(),
+                ScreenId::Multiplayer | ScreenId::MultiplayerList(_)
+            );
         self.browser.privacy_accepted = !self.app.mp_needs_notice;
         if (was_notice && !self.app.mp_needs_notice)
             || refresh_requested
