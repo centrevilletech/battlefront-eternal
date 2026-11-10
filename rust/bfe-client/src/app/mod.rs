@@ -79,6 +79,7 @@ mod platform_smoke;
 mod slint_battle;
 mod slint_ia;
 mod slint_models;
+mod slint_setup;
 mod slint_ui;
 mod slint_mp;
 pub mod script;
@@ -730,6 +731,7 @@ impl StandaloneWindowApp {
             Action::Dismiss => {
                 model.message = None;
                 model.cursor = 0;
+                model.focus = None;
             }
             Action::Steam | Action::Gog => {
                 let url = if matches!(action, Action::Steam) {
@@ -1103,6 +1105,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                 _ => {}
             }
         }
+        self.sync_slint_setup();
         let consumed = self.slint_ui.as_mut()
             .is_some_and(|ui| ui.event(&event, self.pointer_locked));
         let transition = if let (Some(ui), Some(shell)) = (&mut self.slint_ui, &mut self.shell) {
@@ -1113,9 +1116,16 @@ impl ApplicationHandler for StandaloneWindowApp {
         if transition.is_some() {
             self.apply_shell_transition(transition, event_loop);
         }
+        self.drain_slint_setup_actions();
         let in_shell = matches!(self.state, AppState::Shell);
         if let (Some(ui), Some(shell)) = (&mut self.slint_ui, &mut self.shell) {
             ui.sync_shell(shell, in_shell);
+        }
+        self.sync_slint_setup();
+        if self.handle_setup_window_event(&event) {
+            self.sync_slint_setup();
+            self.sync_pointer_lock();
+            return;
         }
         if let (Some(ui), AppState::Battle(battle)) = (&mut self.slint_ui, &mut self.state) {
             ui.drain_battle_actions(battle, &mut self.settings);
@@ -1187,24 +1197,6 @@ impl ApplicationHandler for StandaloneWindowApp {
                 // Forward cursor coordinates to `ShellHost` (including `bfe-interface` hit regions)
                 // or to the active `BattleController` overlays.
                 match &mut self.state {
-                    AppState::StartupLoader(StartupContentState::FirstRun(model)) => {
-                        // Leaving the choices restores the primary action, as
-                        // prepare.js's actions pointerleave handler does.
-                        model.cursor = self
-                            .shell
-                            .as_ref()
-                            .and_then(|shell| {
-                                shell.setup_hits.iter().position(|r| {
-                                    x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]
-                                })
-                            })
-                            .filter(|&index| {
-                                !model.actions().get(index).is_some_and(|(_, action)| {
-                                    matches!(action, first_run::Action::Sound)
-                                })
-                            })
-                            .unwrap_or_else(|| model.primary_action());
-                    }
                     AppState::Shell => {
                         if let Some(shell) = &mut self.shell {
                             shell.handle_cursor_move(x, y);
@@ -1228,12 +1220,6 @@ impl ApplicationHandler for StandaloneWindowApp {
                         self.cursor_physical, [x,y], self.window.as_ref().map_or(1., |window| window.scale_factor()));
                 }
                 match &mut self.state {
-                    AppState::StartupLoader(StartupContentState::Importing(work))=>{if down&&button==MouseButton::Left{if self.shell.as_ref().is_some_and(|s|s.setup_hits.iter().any(|r|x>=r[0]&&x<=r[2]&&y>=r[1]&&y<=r[3])){work.cancel();}}}
-                    AppState::StartupLoader(StartupContentState::FirstRun(_)) => {
-                        if down && button==MouseButton::Left {
-                            if let Some(index)=self.shell.as_ref().and_then(|s|s.setup_hits.iter().position(|r|x>=r[0]&&x<=r[2]&&y>=r[1]&&y<=r[3])) { self.first_run_action(index); }
-                        }
-                    }
                     AppState::Shell => {
                         if down {
                             let code = match button {
@@ -1318,18 +1304,6 @@ impl ApplicationHandler for StandaloneWindowApp {
                 }
 
                 match &mut self.state {
-                    AppState::StartupLoader(StartupContentState::Importing(work))=>{if down&&matches!(&event.logical_key,Key::Named(NamedKey::Escape|NamedKey::Enter|NamedKey::Space)){work.cancel();}}
-                    AppState::StartupLoader(StartupContentState::FirstRun(model)) => {
-                        if down && !event.repeat {
-                            match &event.logical_key {
-                                Key::Named(NamedKey::Enter|NamedKey::Space)=>{let index=model.cursor;self.first_run_action(index);}
-                                Key::Named(NamedKey::Tab|NamedKey::ArrowRight|NamedKey::ArrowDown)=>model.move_focus(false),
-                                Key::Named(NamedKey::ArrowLeft|NamedKey::ArrowUp)=>model.move_focus(true),
-                                Key::Named(NamedKey::Escape)=>{model.message=None;model.cursor=0;}
-                                _=>{}
-                            }
-                        }
-                    }
                     AppState::Shell => {
                         if down && !is_synthetic {
                             let shift = self.modifiers.shift_key();
@@ -1583,6 +1557,8 @@ impl StandaloneWindowApp {
             }
         }
         self.update_rich_presence();
+        self.drain_slint_setup_actions();
+        self.sync_slint_setup();
         if let Some(ui) = &mut self.slint_ui {
             if !matches!(&self.state, AppState::Shell) {
                 ui.set_shell_visible(false);
@@ -1622,6 +1598,7 @@ impl StandaloneWindowApp {
                     let blit_info = if let Some(shell) = &mut self.shell {
                         shell.draw_startup_loader(dt, loader_state);
                         if let Some(ui) = &mut self.slint_ui {
+                            ui.sync_setup(shell, loader_state);
                             ui.sync_shell(shell, false);
                         }
                         Some((shell.canvas.framebuffer, shell.size))

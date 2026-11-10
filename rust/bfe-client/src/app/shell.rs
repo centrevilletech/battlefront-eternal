@@ -497,7 +497,6 @@ pub struct ShellHost {
     pub hud: HudPass<glow::Context>,
     /// CPU-side quad batch populated each frame by `draw_shell`, `draw_loading`, or `ClassicTheme::paint_stack`.
     pub batch: Batch,
-    pub setup_hits: Vec<[f64;4]>,
     /// Bitmap fonts (`large`, `medium`, `small`, `tiny`) for `bfe-shell`.
     pub fonts: ShellFonts,
     /// Uploaded texture handles and map-loading zoom stages for `bfe-shell`.
@@ -633,7 +632,6 @@ impl ShellHost {
             core,
             hud,
             batch: Batch::new(),
-            setup_hits: Vec::new(),
             page: bfe_shell::page::Page::new(Font::default(), Font::default()),
             steam_offer: SteamOfferState::default(),
             last_page_click: None,
@@ -724,9 +722,6 @@ impl ShellHost {
             let rgba = super::page_surfaces::pattern(w, h, look);
             let texture = Self::upload_rgba(&self.core.gl, w as i32, h as i32, &rgba)?;
             self.page.patterns[look] = self.core.add_texture(texture);
-            let rgba = super::page_surfaces::setup_backdrop(w, h, look);
-            let texture = Self::upload_rgba(&self.core.gl, w as i32, h as i32, &rgba)?;
-            self.page.setup_backdrops[look] = self.core.add_texture(texture);
         }
         for look in 0..3 {
             for selected in [false, true] {
@@ -1336,34 +1331,12 @@ impl ShellHost {
     pub fn draw_startup_loader(&mut self, dt: f64, state: &StartupContentState) {
         self.loading_time += dt.clamp(0.0, 0.1);
         let (planet, text, timeline_time) = match state {
-            StartupContentState::Searching(_) => {
-                let view = bfe_shell::page::SetupView {
-                    title: "SEARCHING FOR STAR WARS BATTLEFRONT".into(),
-                    detail: "Looking through your Steam and GOG libraries.".into(),
-                    busy: true,
-                    ..Default::default()
-                };
-                self.draw_first_run(&view, 0);
-                return;
-            }
             StartupContentState::Ready(_) => (
                 self.loading_planet.clone(),
                 self.loading_text.clone(),
                 self.loading_time,
             ),
-            StartupContentState::Preparing { latest, .. } => {
-                self.draw_first_run(&super::first_run::progress_view(latest), 0);
-                return;
-            }
-            StartupContentState::Importing(work) => {
-                self.draw_first_run(&work.view(), 0);
-                return;
-            }
-            StartupContentState::FirstRun(model) => {
-                let view = model.view();
-                self.draw_first_run(&view, model.cursor);
-                return;
-            }
+            _ => return,
         };
 
         let at = self.loading_timeline.at(timeline_time);
@@ -1381,26 +1354,6 @@ impl ShellHost {
             LookId::from_theme(Some(&self.app.settings.menu_theme)),
             w,
             h,
-        );
-        self.upload_and_draw_batch();
-    }
-
-    pub fn draw_first_run(&mut self, view: &bfe_shell::page::SetupView, cursor: usize) {
-        self.loading_overlay = None;
-        let look = match self.app.settings.menu_theme.as_str() {
-            "bf1" => 0,
-            "bf2" => 1,
-            _ => 2,
-        };
-        self.setup_hits = self.page.draw_setup(
-            &mut self.batch,
-            &self.textures,
-            view,
-            self.layout_size[0] as f64,
-            self.layout_size[1] as f64,
-            look,
-            cursor,
-            self.loading_time,
         );
         self.upload_and_draw_batch();
     }

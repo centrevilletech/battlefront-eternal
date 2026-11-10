@@ -1,0 +1,23 @@
+// An elliptical radial brush. Slint radial gradients are circles whose 100% stop sits half a
+// diagonal from the centre; a square scaled to the wanted radii turns one into the CSS
+// `radial-gradient(ellipse RX RY at CX CY, ...)` the page's backdrop, scrim and vignette use.
+// Give it the area it paints in (x, y, width, height); the ellipse may reach beyond that area.
+export component EllipseBrush inherits Rectangle {
+    in property <length> cx;
+    in property <length> cy;
+    in property <length> rx;
+    in property <length> ry;
+    in property <brush> fill;
+    property <length> side: 200px;
+    // Half the diagonal of the square: where a circle gradient's 100% stop lies.
+    property <length> reach: root.side * 0.70710678;
+    Rectangle {
+        x: root.cx - root.side / 2;
+        y: root.cy - root.side / 2;
+        width: root.side;
+        height: root.side;
+        background: root.fill;
+        transform-scale-x: root.rx / root.reach;
+        transform-scale-y: root.ry / root.reach;
+    }
+}

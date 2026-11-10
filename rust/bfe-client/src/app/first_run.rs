@@ -9,12 +9,69 @@ use bfe_desktop::{
         toolchain_paths, PrepareSession, PrepareSnapshot, PrepareSpawnOptions, ToolchainOptions,
     },
 };
-use bfe_shell::page::SetupView;
 use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
     time::Instant,
 };
+
+#[derive(Clone, Debug)]
+pub struct SetupProgress {
+    pub fraction: f64,
+    pub label: String,
+    pub numbers: String,
+    pub phases: [u8; 7],
+    pub show_phases: bool,
+    pub estimating: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct SetupSound {
+    pub action: usize,
+    pub checked: bool,
+    pub description: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct SetupFact {
+    pub name: String,
+    pub value: String,
+    pub monospace: bool,
+    pub status: &'static str,
+}
+
+#[derive(Clone, Debug)]
+pub struct SetupCopy {
+    pub index: usize,
+    pub action: usize,
+    pub dir: String,
+    pub how: String,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SetupView {
+    pub planet: String,
+    pub title: String,
+    pub detail: String,
+    pub facts: Vec<SetupFact>,
+    pub problems: Vec<String>,
+    pub help: String,
+    pub repair: String,
+    pub other_copies: Vec<SetupCopy>,
+    pub actions: Vec<String>,
+    pub progress: Option<SetupProgress>,
+    pub code: Option<String>,
+    pub sound: Option<SetupSound>,
+    pub left_out_title: String,
+    pub left_out_items: Vec<String>,
+    pub left_out_help: String,
+    pub listing: bool,
+    pub busy: bool,
+    pub logs: Vec<String>,
+    pub link_action: Option<usize>,
+    pub warning: bool,
+    pub error: bool,
+}
 
 pub const NO_ACTION: usize = usize::MAX;
 
@@ -82,6 +139,9 @@ pub struct Setup {
     pub copies: Vec<GameInstall>,
     pub selected: usize,
     pub cursor: usize,
+    /// The action the keyboard's focus is on, if any (the page's `:focus-visible` element).
+    /// `cursor` is the lit button: the hovered one, the focused one, else the state's own choice.
+    pub focus: Option<usize>,
     pub check: Option<Value>,
     check_session: Option<PrepareSession>,
     check_started: Instant,
@@ -101,6 +161,7 @@ impl Setup {
             copies: Vec::new(),
             selected: 0,
             cursor: 0,
+            focus: None,
             check: None,
             check_session: None,
             check_started: Instant::now(),
@@ -140,6 +201,7 @@ impl Setup {
     pub fn recheck(&mut self, store: &AppSettingsStore) {
         self.check = None;
         self.cursor = NO_ACTION;
+        self.focus = None;
         self.timings = std::fs::read_to_string(&store.paths.timings_file)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -158,6 +220,7 @@ impl Setup {
             Err(error) => {
                 self.check = Some(unavailable(error));
                 self.cursor = 0;
+                self.focus = None;
             }
         }
     }
@@ -178,6 +241,7 @@ impl Setup {
             }
             if self.check.is_some() {
                 self.cursor = 0;
+                self.focus = None;
                 self.check_session = None;
             }
         }
@@ -190,19 +254,50 @@ impl Setup {
             0
         }
     }
-    /// Tab can focus a choice even when the checking view has no default.
+    /// Whether an action is one of the front end's lit-together buttons (`#actions`); the
+    /// sound option, the other-copy buttons and the details link sit outside that group.
+    pub fn is_group_button(&self, index: usize) -> bool {
+        !matches!(
+            self.actions().get(index),
+            Some((_, Action::Sound | Action::Pick(_) | Action::Details))
+        )
+    }
+    /// Tab order of the page: the sound option, the other-copy buttons, the actions, then the
+    /// details link, as prepare.js lays them out.
+    fn focus_order(&self) -> Vec<usize> {
+        let actions = self.actions();
+        let rank = |a: &Action| match a {
+            Action::Sound => 0,
+            Action::Pick(_) => 1,
+            Action::Details => 3,
+            _ => 2,
+        };
+        let mut order: Vec<usize> = (0..actions.len()).collect();
+        order.sort_by_key(|&i| rank(&actions[i].1));
+        order
+    }
+    /// Tab (and the arrow keys) move the keyboard's focus; nothing holds it until the first
+    /// press, which takes the first or, backwards, the last focusable item.
     pub fn move_focus(&mut self, backwards: bool) {
-        let count = self.actions().len().max(1);
-        self.cursor = if self.cursor >= count {
-            if backwards {
-                count - 1
-            } else {
-                0
-            }
-        } else if backwards {
-            (self.cursor + count - 1) % count
+        let order = self.focus_order();
+        if order.is_empty() {
+            return;
+        }
+        let at = self.focus.and_then(|f| order.iter().position(|&i| i == f));
+        let next = match (at, backwards) {
+            (None, false) => 0,
+            (None, true) => order.len() - 1,
+            (Some(p), false) => (p + 1) % order.len(),
+            (Some(p), true) => (p + order.len() - 1) % order.len(),
+        };
+        let target = order[next];
+        self.focus = Some(target);
+        // prepare.js lights a button when it takes the focus; focus leaving the
+        // button group lights the state's own choice again.
+        self.cursor = if self.is_group_button(target) {
+            target
         } else {
-            (self.cursor + 1) % count
+            self.primary_action()
         };
     }
     pub fn actions(&self) -> Vec<(String, Action)> {
@@ -279,13 +374,18 @@ impl Setup {
     }
     pub fn view(&self) -> SetupView {
         let mut v = SetupView::default();
-        v.actions = self.actions().into_iter().map(|(label, _)| label).collect();
+        let action_pairs = self.actions();
+        v.actions = action_pairs.iter().map(|(label, _)| label.clone()).collect();
         if self.stopped {
             v.title = "SOMETHING WENT WRONG".into();
             v.detail = self.message.clone().unwrap_or_default();
             v.error = true;
             if let Some(snapshot) = self.failed_snapshot.as_ref() {
-                v.progress = progress_view(snapshot).progress;
+                let pv = progress_view(snapshot);
+                v.progress = pv.progress;
+                v.left_out_title = pv.left_out_title;
+                v.left_out_items = pv.left_out_items;
+                v.left_out_help = pv.left_out_help;
             }
             v.link_action = (v.actions.len() > 2).then_some(2);
             if self.show_details {
@@ -371,54 +471,105 @@ impl Setup {
         }
         v.error = failed;
         v.warning = unchecked;
-        v.facts
-            .push(("FOLDER".into(), copy.dir.to_string_lossy().into_owned()));
-        v.facts.push((
-            "FOUND".into(),
-            if copy.source == "chosen" {
-                "The folder you chose".into()
-            } else {
-                format!("In {}", copy.how)
-            },
-        ));
-        let check_text = if let Some(check) = &self.check {
+        v.facts.push(SetupFact {
+            name: "FOLDER".into(),
+            value: copy.dir.to_string_lossy().into_owned(),
+            monospace: true,
+            status: "",
+        });
+        v.facts.push(SetupFact {
+            name: "FOUND".into(),
+            value: found_in(copy),
+            monospace: false,
+            status: "",
+        });
+        let (check_text, check_status) = if let Some(check) = &self.check {
             if check["ok"] == true {
-                "Everything preparation needs is there.".into()
+                ("Everything preparation needs is there.".into(), "good")
             } else if unchecked {
-                check["problems"][0]["message"]
-                    .as_str()
-                    .unwrap_or("The check couldn't run.")
-                    .into()
+                (
+                    check["problems"][0]["message"]
+                        .as_str()
+                        .unwrap_or("The check couldn't run.")
+                        .into(),
+                    "unchecked",
+                )
             } else {
                 let n = check["problems"].as_array().map_or(0, Vec::len);
-                if n == 1 {
+                let text = if n == 1 {
                     "A problem found.".into()
                 } else {
                     format!("{n} problems found.")
-                }
+                };
+                (text, "bad")
             }
         } else {
-            "Looking at what preparation needs.".into()
+            ("Looking at what preparation needs.".into(), "busy")
         };
-        v.facts.push(("CHECK".into(), check_text));
+        v.facts.push(SetupFact {
+            name: "CHECK".into(),
+            value: check_text,
+            monospace: false,
+            status: check_status,
+        });
         if let Some(check) = &self.check {
             if failed {
                 if let Some(problems) = check["problems"].as_array() {
                     for p in problems.iter().take(6) {
                         if let Some(text) = p["message"].as_str() {
-                            v.issues.push(text.into());
+                            v.problems.push(text.into());
                         }
                     }
+                    if problems.len() > 6 {
+                        v.problems.push(format!("and {} more", problems.len() - 6));
+                    }
                 }
-                v.issues
-                    .push("Repair this one and choose CHECK AGAIN.".into());
-                v.issues.push(REPAIR.into());
+                v.help = if self.copies.len() > 1 {
+                    "Use another copy below, or repair this one and choose CHECK AGAIN.".into()
+                } else {
+                    "Repair this one and choose CHECK AGAIN.".into()
+                };
+                if copy.source != "chosen" && !copy.chosen {
+                    v.repair = REPAIR.into();
+                }
             } else {
                 if check["ok"] == true {
-                    v.facts.push(("ADD-ON MAPS".into(), "None".into()));
+                    let add_on_text = check["addOns"]
+                        .as_array()
+                        .filter(|a| !a.is_empty())
+                        .map(|add_ons| {
+                            let names: Vec<_> = add_ons
+                                .iter()
+                                .take(4)
+                                .map(|item| {
+                                    let id = item["id"].as_str().unwrap_or("");
+                                    let name = item["name"].as_str().unwrap_or(id);
+                                    if !name.is_empty() && name != id {
+                                        format!("{name} ({id})")
+                                    } else {
+                                        id.to_string()
+                                    }
+                                })
+                                .collect();
+                            let more = if add_ons.len() > 4 {
+                                format!(" and {} more", add_ons.len() - 4)
+                            } else {
+                                String::new()
+                            };
+                            format!(
+                                "{}{more} \u{2014} included automatically",
+                                names.join(", ")
+                            )
+                        })
+                        .unwrap_or_else(|| "None".into());
+                    v.facts.push(SetupFact {
+                        name: "ADD-ON MAPS".into(),
+                        value: add_on_text,
+                        monospace: false,
+                        status: "",
+                    });
                 }
-                if let Some(index) = self
-                    .actions()
+                if let Some(index) = action_pairs
                     .iter()
                     .position(|(_, a)| matches!(a, Action::Sound))
                 {
@@ -432,19 +583,43 @@ impl Setup {
                     } else {
                         String::new()
                     };
-                    v.sound=Some(bfe_shell::page::SetupSound{action:index,checked:self.enhanced_sound,description:format!("The original sound, resampled and sharpened for modern speakers.{adds} Without it the game plays the original sound, and you can add it later.")});
+                    v.sound = Some(SetupSound {
+                        action: index,
+                        checked: self.enhanced_sound,
+                        description: format!("The original sound, resampled and sharpened for modern speakers.{adds} Without it the game plays the original sound, and you can add it later."),
+                    });
                 }
             }
         }
         for (i, other) in self.copies.iter().enumerate() {
             if i != self.selected {
-                v.facts.push((
-                    "ANOTHER COPY FOUND".into(),
-                    other.dir.to_string_lossy().into_owned(),
-                ));
+                let action_idx = action_pairs
+                    .iter()
+                    .position(|(_, a)| matches!(a, Action::Pick(idx) if *idx == i))
+                    .unwrap_or(NO_ACTION);
+                v.other_copies.push(SetupCopy {
+                    index: i,
+                    action: action_idx,
+                    dir: other.dir.to_string_lossy().into_owned(),
+                    how: found_in(other),
+                });
             }
         }
         v
+    }
+}
+/// Ports `foundIn` in electron/ui/prepare.js: where a copy of the game came from.
+fn found_in(copy: &GameInstall) -> String {
+    match copy.source.as_str() {
+        "chosen" => "The folder you chose".into(),
+        "steam" | "gog" => format!("In {}", copy.how),
+        _ => {
+            let mut letters = copy.how.chars();
+            letters
+                .next()
+                .map(|first| first.to_uppercase().chain(letters).collect())
+                .unwrap_or_default()
+        }
     }
 }
 fn unavailable(message: String) -> Value {
@@ -482,7 +657,7 @@ pub fn progress_view(snapshot: &PrepareSnapshot) -> SetupView {
     let mut v = SetupView::default();
     v.busy = true;
     v.title = if snapshot.playable {
-        "BATTLEFIELDS READY · FINISHING UP"
+        "BATTLEFIELDS READY \u{00b7} FINISHING UP"
     } else {
         "PREPARING YOUR BATTLEFRONT"
     }
@@ -592,6 +767,10 @@ pub fn progress_view(snapshot: &PrepareSnapshot) -> SetupView {
             .collect();
         if matching.iter().any(|s| s.status == "running") {
             phases[i] = 2;
+        } else if !matching.is_empty() && matching.iter().all(|s| s.status == "off") {
+            phases[i] = 3;
+        } else if !matching.is_empty() && matching.iter().all(|s| s.status == "unavailable") {
+            phases[i] = 4;
         } else if !matching.is_empty()
             && matching.iter().all(|s| {
                 ["done", "failed", "off", "unavailable", "left-out"].contains(&s.status.as_str())
@@ -600,16 +779,49 @@ pub fn progress_view(snapshot: &PrepareSnapshot) -> SetupView {
             phases[i] = 1;
         }
     }
-    v.progress = Some(bfe_shell::page::SetupProgress {
+    let left_out_steps: Vec<_> = snapshot
+        .steps
+        .iter()
+        .filter(|s| s.status == "left-out")
+        .collect();
+    if !left_out_steps.is_empty() {
+        v.left_out_title = if left_out_steps.len() == 1 {
+            "AN ADD-ON MAP WAS LEFT OUT".into()
+        } else {
+            format!("{} ADD-ON MAPS WERE LEFT OUT", left_out_steps.len())
+        };
+        for item in left_out_steps.iter().take(4) {
+            let short = item.id.strip_prefix("map:").unwrap_or(&item.id);
+            let mut text = if !item.label.is_empty() && item.label != short {
+                format!("{} ({short})", item.label)
+            } else {
+                short.to_string()
+            };
+            if let Some(reason) = item.detail.as_deref().filter(|r| !r.is_empty()) {
+                text.push_str(": ");
+                text.push_str(reason);
+            }
+            v.left_out_items.push(text);
+        }
+        if left_out_steps.len() > 4 {
+            v.left_out_items
+                .push(format!("and {} more", left_out_steps.len() - 4));
+        }
+        v.left_out_help = "The original battlefields are unaffected.".into();
+    }
+    v.progress = Some(SetupProgress {
         fraction,
         label,
         numbers: if known {
-            numbers.join("  ·  ")
+            // prepare.js joins with two spaces each side; the page's `white-space: nowrap`
+            // collapses them, so the drawn text has one.
+            numbers.join(" \u{00b7} ")
         } else {
             String::new()
         },
         phases,
         show_phases: true,
+        estimating: !known && !over,
     });
     v
 }
@@ -718,12 +930,13 @@ impl ImportWork {
         } else {
             0.
         };
-        view.progress = Some(bfe_shell::page::SetupProgress {
+        view.progress = Some(SetupProgress {
             fraction,
             label: "Importing".into(),
             numbers: format!("{}%", (fraction * 100.).floor() as u64),
             phases: [0; 7],
             show_phases: false,
+            estimating: false,
         });
         view
     }
@@ -731,5 +944,84 @@ impl ImportWork {
 impl Drop for ImportWork {
     fn drop(&mut self) {
         self.cancel();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn copy(dir: &str) -> GameInstall {
+        GameInstall {
+            dir: dir.into(),
+            source: "steam".into(),
+            how: "in your Steam library".into(),
+            chosen: false,
+        }
+    }
+
+    /// A checked copy with a second install: the sound option, the other copy's
+    /// button and the three actions, in the order prepare.js puts them in the page.
+    fn ready() -> Setup {
+        let mut setup = Setup::missing(false);
+        setup.copies = vec![copy("/opt/example/one"), copy("/opt/example/two")];
+        setup.check = Some(json!({"ok": true}));
+        setup.cursor = 0;
+        setup
+    }
+
+    #[test]
+    fn found_in_words_each_source_like_the_page() {
+        let mut install = copy("/opt/example/one");
+        install.how = "your Steam library".into();
+        assert_eq!(found_in(&install), "In your Steam library");
+        install.source = "chosen".into();
+        assert_eq!(found_in(&install), "The folder you chose");
+        install.source = "folder".into();
+        install.how = "a folder next to the game".into();
+        assert_eq!(found_in(&install), "A folder next to the game");
+    }
+
+    #[test]
+    fn nothing_is_focused_until_the_first_tab_takes_the_first_item() {
+        let mut setup = ready();
+        assert_eq!(setup.focus, None);
+        setup.move_focus(false);
+        let actions = setup.actions();
+        assert!(matches!(actions[setup.focus.unwrap()].1, Action::Sound));
+        // The sound option is outside the lit button group: the state's own choice stays lit.
+        assert_eq!(setup.cursor, setup.primary_action());
+    }
+
+    #[test]
+    fn tab_walks_sound_then_copies_then_the_actions_and_wraps() {
+        let mut setup = ready();
+        let mut seen = Vec::new();
+        for _ in 0..6 {
+            setup.move_focus(false);
+            seen.push(setup.actions()[setup.focus.unwrap()].1);
+        }
+        let names: Vec<_> = seen
+            .iter()
+            .map(|a| match a {
+                Action::Sound => "sound",
+                Action::Pick(_) => "copy",
+                Action::Prepare => "prepare",
+                Action::Choose => "choose",
+                Action::Import => "import",
+                _ => "other",
+            })
+            .collect();
+        assert_eq!(names, ["sound", "copy", "prepare", "choose", "import", "sound"]);
+    }
+
+    #[test]
+    fn shift_tab_from_nothing_takes_the_last_item_and_lights_it() {
+        let mut setup = ready();
+        setup.move_focus(true);
+        let focus = setup.focus.unwrap();
+        assert!(matches!(setup.actions()[focus].1, Action::Import));
+        assert_eq!(setup.cursor, focus);
     }
 }

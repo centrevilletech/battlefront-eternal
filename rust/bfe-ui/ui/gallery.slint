@@ -9,6 +9,7 @@ import { PageText, PageTitle, Wordmark, PageBrand, TextRole, LoadingPlanetText, 
 import { PopupBox, PageDialog } from "components/dialog.slint";
 import { BackdropMovies, PreviewFrame } from "components/media.slint";
 import { PageScrim, PageDim, PagePattern } from "components/scrim.slint";
+import { EllipseBrush } from "components/ellipse.slint";
 import { ScreenFrame, ScreenLayout } from "components/screen-frame.slint";
 import { Surface } from "components/surface.slint";
 import { FlagCodeBadge, PingSignalBars } from "components/mp-browser.slint";
@@ -184,6 +185,11 @@ export component ComponentGallery inherits Window {
             activated => { root.status = "DELETE PROFILE"; }
         }
         Caption { x: 38px; y: 496px; width: 400px; height: 24px; text: root.status; }
+        // EllipseBrush: the page's elliptical scrim as the setup screens draw it.
+        Rectangle {
+            x: 460px; y: 410px; width: 300px; height: 110px; clip: true;
+            EllipseBrush { x: 0px; y: 0px; width: parent.width; height: parent.height; cx: parent.width / 2; cy: parent.height / 2; rx: 0.57 * parent.width; ry: 0.78 * parent.height; fill: Theme.bfe-scrim; }
+        }
     }
     if root.section == 3: Rectangle {
         x: 0px; y: 84px; width: root.width; height: root.height - self.y;

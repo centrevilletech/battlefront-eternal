@@ -20,7 +20,7 @@ export component PageButton inherits Interaction {
     property <length> pad-x: root.dialog ? Theme.dialog-button-pad-x : 1.4 * root.size;
     preferred-height: root.dialog ? 43px : root.small ? Theme.button-small-height : Theme.button-height;
     height: self.preferred-height;
-    property <length> min-btn-width: root.small ? Theme.button-small-min-width : 0px;
+    in property <length> min-btn-width: root.small ? Theme.button-small-min-width : 0px;
     preferred-width: max(root.min-btn-width, label-text.preferred-width + 2 * root.pad-x);
     width: self.preferred-width;
     opacity: root.visual-state == ControlState.disabled ? Theme.disabled-opacity : 1;

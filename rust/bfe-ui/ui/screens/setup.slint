@@ -1,0 +1,990 @@
+// First-run setup and content preparation screens (electron/ui/prepare.html,
+// prepare.css, prepare.js). All setup state stays in Rust (FirstRun / ImportWork);
+// this module owns only presentation and forwards user actions through SetupModel.
+import { Theme, ControlState, MenuSound } from "../theme.slint";
+import { Interaction } from "../components/interaction.slint";
+import { Surface, ChamferStyle } from "../components/surface.slint";
+import { PageButton, ButtonVariant } from "../components/button.slint";
+import { Wordmark } from "../components/typography.slint";
+import { BackdropMovies } from "../components/media.slint";
+import { EllipseBrush } from "../components/ellipse.slint";
+
+export struct SetupFactItem {
+    name: string,
+    value: string,
+    monospace: bool,
+    status: string,
+}
+
+export struct SetupCopyItem {
+    index: int,
+    dir: string,
+    how: string,
+    focused: bool,
+}
+
+export struct SetupPhaseItem {
+    label: string,
+    state: int,
+}
+
+export struct SetupActionItem {
+    label: string,
+    action-index: int,
+}
+
+export global SetupModel {
+    in-out property <bool> visible: false;
+    in-out property <bool> listing: false;
+    in-out property <bool> busy: false;
+    in-out property <bool> warning: false;
+    in-out property <bool> error: false;
+    in-out property <string> planet-text: "";
+    in-out property <string> title: "SEARCHING FOR STAR WARS BATTLEFRONT";
+    in-out property <string> detail: "Looking through your Steam and GOG libraries.";
+    in-out property <string> code-text: "";
+
+    // Confirm section (#confirm)
+    in-out property <bool> confirm-visible: false;
+    in-out property <length> fact-label-width: 112px;
+    in-out property <[SetupFactItem]> facts: [];
+    in-out property <[string]> problems: [];
+    in-out property <string> help-text: "";
+    in-out property <string> repair-text: "";
+    in-out property <bool> sound-visible: false;
+    in-out property <bool> sound-checked: true;
+    in-out property <bool> sound-focused: false;
+    in-out property <string> sound-description: "";
+    in-out property <[SetupCopyItem]> other-copies: [];
+
+    // Progress section (#progress)
+    in-out property <bool> progress-visible: false;
+    in-out property <bool> progress-estimating: false;
+    // The look's pattern faded along the page's ellipse, built by the host for the viewport.
+    in-out property <image> pattern;
+    in-out property <float> progress-fraction: 0.0;
+    in-out property <string> progress-step: "";
+    in-out property <string> progress-numbers: "";
+    in-out property <bool> phases-visible: false;
+    in-out property <[SetupPhaseItem]> phases: [
+        { label: "GALAXY", state: 0 },
+        { label: "ARMIES", state: 0 },
+        { label: "INTERFACE", state: 0 },
+        { label: "BATTLEFIELDS", state: 0 },
+        { label: "SOUND", state: 0 },
+        { label: "TEXTURES", state: 0 },
+        { label: "MOVIES", state: 0 },
+    ];
+
+    // Left-out add-on maps section (#left-out)
+    in-out property <bool> left-out-visible: false;
+    in-out property <string> left-out-title: "";
+    in-out property <[string]> left-out-items: [];
+    in-out property <string> left-out-help: "";
+
+    // Actions & log viewer (.actions, .link, #log)
+    in-out property <[SetupActionItem]> action-row-1: [];
+    in-out property <[SetupActionItem]> action-row-2: [];
+    in-out property <int> selected-action: 0;
+    in-out property <bool> details-visible: false;
+    in-out property <bool> show-details: false;
+    in-out property <bool> details-focused: false;
+    in-out property <string> log-text: "";
+
+    // Timeline values driven by the host frame clock
+    in-out property <float> disk-time: 0.0;
+    in-out property <float> glint-progress: 0.35;
+    in-out property <float> phase-pulse: 1.0;
+    in-out property <[color]> disk-led-colors: Theme.bfe-setup-default-leds;
+
+    callback action-hovered(int);
+    callback action-activated(int);
+    callback actions-pointer-left();
+    callback sound-toggled();
+    callback copy-picked(int);
+    callback details-toggled();
+}
+
+// #panel h1.bfe-text.bfe-text-title with look-specific warn and error styling.
+component SetupTitle inherits Rectangle {
+    in property <string> title;
+    in property <bool> warning: false;
+    in property <bool> error: false;
+    property <length> base-size: min(29px, max(19px, 3 * Theme.vh));
+    property <length> span-size: root.base-size * (Theme.bf1 ? 0.78 : Theme.bf2 ? 0.74 : 1.0);
+    property <length> pad-extra: (Theme.bf1 ? 2.6 : Theme.bf2 ? 2.4 : 0.0) * root.span-size;
+    property <length> span-width: min(root.width, title-measure.preferred-width + root.pad-extra);
+    // The span's own box (padding, and bf2's 2px top border) ...
+    property <length> span-height: root.span-size * (Theme.bf1 ? 1.4 : Theme.bf2 ? 1.5 : 1.3) + (Theme.bf2 ? 2px : 0px);
+    // ... inside the h1's line box, which the baseline-aligned span makes taller than the span.
+    preferred-height: root.base-size * (Theme.bf1 ? 1.168 : Theme.bf2 ? 1.247 : 1.344);
+    height: self.preferred-height;
+
+    title-measure := Text {
+        visible: false;
+        text: root.title.to-uppercase();
+        font-family: Theme.font-family;
+        font-size: root.span-size;
+        font-weight: 850;
+        letter-spacing: 0.06 * root.span-size;
+    }
+
+    span-box := Rectangle {
+        x: (parent.width - root.span-width) / 2;
+        y: Theme.bf1 ? 0.6px : 0px;
+        width: root.span-width;
+        height: root.span-height;
+
+        if !Theme.eternal: Surface {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            bottom-cut: false;
+            fill: root.error
+                ? Theme.bfe-setup-title-error-fill
+                : root.warning
+                    ? Theme.bfe-setup-title-warning-fill
+                    : (Theme.bf1 ? Theme.bfe-tag-fill : Theme.bfe-tab-active-bg);
+            edge: {
+                width: Theme.bf2 ? 2px : 0px,
+                color: root.warning ? Theme.bfe-setup-title-warning-border : Theme.bfe-setup-title-border,
+            };
+            radius: Theme.bf2 ? 0.45 * root.span-size : 0px;
+            chamfer: Theme.bf1 ? root.span-size : 0px;
+            chamfer-style: ChamferStyle.top-right;
+        }
+
+        Text {
+            x: Theme.bf1 ? 0.8 * root.span-size : 0px;
+            y: Theme.eternal ? -0.09 * root.span-size : Theme.bf2 ? 1px : 0px;
+            width: parent.width - (Theme.bf1 ? 2.6 * root.span-size : 0px);
+            height: Theme.eternal ? root.span-size * 1.05 : parent.height;
+            text: root.title.to-uppercase();
+            font-family: Theme.font-family;
+            font-size: root.span-size;
+            font-weight: 850;
+            letter-spacing: 0.06 * root.span-size;
+            color: root.error
+                ? Theme.bfe-setup-title-error-ink
+                : root.warning
+                    ? Theme.bfe-setup-title-warning-ink
+                    : Theme.bfe-setup-title-ink;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+            stroke: Theme.bf2 && !root.warning ? Theme.bfe-setup-title-stroke : transparent;
+            stroke-width: Theme.bf2 && !root.warning ? 1px : 0px;
+            stroke-style: outside;
+        }
+
+        if Theme.eternal: Rectangle {
+            x: 0px;
+            y: parent.height - 3px;
+            width: parent.width;
+            height: 3px;
+            background: root.error ? Theme.bfe-setup-title-error-line : Theme.bfe-setup-title-line;
+        }
+    }
+
+    // border-bottom: 1px solid var(--bfe-tab-line) across the panel width.
+    Rectangle {
+        x: 0px;
+        y: parent.height - 1px;
+        width: parent.width;
+        height: 1px;
+        background: Theme.bfe-tab-line;
+    }
+}
+
+// .confirm-option card for ENHANCED SOUND.
+component SetupSoundOption inherits Interaction {
+    in property <bool> checked: true;
+    in property <bool> focused-item: false;
+    in property <string> description;
+    property <bool> lit: root.active || root.focused-item;
+    preferred-height: max(48px, content-layout.preferred-height);
+    height: self.preferred-height;
+    accessible-role: checkbox;
+    accessible-label: "ENHANCED SOUND";
+    accessible-checked: root.checked;
+
+    Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        background: root.lit ? Theme.bfe-row-focus : Theme.bfe-list-bg;
+        border-width: 1px;
+        border-color: root.lit ? Theme.bfe-accent : Theme.bfe-row-line;
+        border-radius: Theme.bfe-track-radius;
+
+        // 18x18 checkbox input
+        Rectangle {
+            x: 14px;
+            y: 11px;
+            width: 18px;
+            height: 18px;
+            border-radius: 3px;
+            background: root.checked ? Theme.bfe-accent : Theme.bfe-setup-checkbox-bg;
+            border-width: 1px;
+            border-color: root.checked ? Theme.bfe-accent : Theme.bfe-setup-checkbox-border;
+            if root.checked: Path {
+                x: 0px; y: 0px; width: 18px; height: 18px;
+                viewbox-x: 0; viewbox-y: 0; viewbox-width: 18; viewbox-height: 18;
+                fill: transparent;
+                stroke: Theme.bfe-accent-ink;
+                stroke-width: 2.2px;
+                MoveTo { x: 4; y: 9.2; }
+                LineTo { x: 7.6; y: 12.8; }
+                LineTo { x: 14.2; y: 5.2; }
+            }
+        }
+
+        content-layout := VerticalLayout {
+            x: 44px;
+            y: 0px;
+            width: parent.width - 58px;
+            padding-top: 10px;
+            padding-bottom: 10px;
+            alignment: start;
+            spacing: 2px;
+            Text {
+                text: "ENHANCED SOUND";
+                font-family: Theme.font-family;
+                line-height-factor: 1.5 / Theme.font-natural-line;
+                font-size: 13px;
+                font-weight: 700;
+                letter-spacing: 0.22 * 13px;
+                color: Theme.bfe-text;
+                horizontal-alignment: left;
+            }
+            Text {
+                width: parent.width;
+                text: root.description;
+                font-family: Theme.font-family;
+                line-height-factor: 1.5 / Theme.font-natural-line;
+                font-size: 13px;
+                font-weight: 400;
+                letter-spacing: 0.015 * 13px;
+                color: Theme.bfe-text-dim;
+                horizontal-alignment: left;
+                wrap: word-wrap;
+            }
+        }
+    }
+}
+
+// Single phase indicator in #phases.
+component SetupPhaseCell inherits Rectangle {
+    in property <string> label;
+    in property <int> state: 0;
+    in property <float> pulse: 1.0;
+    preferred-height: 10px + phase-label.preferred-height;
+    height: self.preferred-height;
+    clip: true;
+
+    // 3px top bar (#phases li::before)
+    if root.state != 3 && root.state != 4: Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: 3px;
+        border-radius: Theme.bfe-track-radius;
+        background: (root.state == 1 || root.state == 2) ? Theme.bfe-accent-fill : Theme.bfe-track;
+        opacity: root.state == 1 ? 0.5 : root.state == 2 ? root.pulse : 1.0;
+    }
+    if root.state == 3 || root.state == 4: Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: 3px;
+        clip: true;
+        opacity: root.state == 4 ? 0.7 : 1.0;
+        for dash in ceil(parent.width / 9px): Rectangle {
+            x: dash * 9px;
+            y: 0px;
+            width: 5px;
+            height: 3px;
+            background: root.state == 4 ? Theme.bfe-note : Theme.bfe-track;
+        }
+    }
+
+    phase-label := Text {
+        x: 0px;
+        y: 10px;
+        width: parent.width;
+        text: root.state == 3 ? root.label + " OFF" : root.label;
+        font-family: Theme.font-family;
+        font-size: min(12px, max(9.5px, 1.25 * Theme.vh));
+        font-weight: 700;
+        letter-spacing: 0.12 * self.font-size;
+        color: root.state == 2
+            ? Theme.bfe-text
+            : root.state == 1
+                ? Theme.bfe-text-dim
+                : root.state == 4
+                    ? Theme.bfe-note
+                    : Theme.bfe-text-faint;
+        horizontal-alignment: center;
+        overflow: elide;
+    }
+}
+
+// Single SVG arc segment in #disk (prepare.js segment(start, length, inner, outer)).
+component DiskArcSegment inherits Path {
+    in property <float> start-rad;
+    in property <float> len-rad;
+    in property <float> inner-r;
+    in property <float> outer-r;
+    in property <color> fill-color;
+    x: 0px; y: 0px; width: 100%; height: 100%;
+    viewbox-x: -125; viewbox-y: -125; viewbox-width: 250; viewbox-height: 250;
+    fill: root.fill-color;
+    property <angle> a0: root.start-rad * 1rad;
+    property <angle> a1: (root.start-rad + root.len-rad) * 1rad;
+    MoveTo { x: 0.866 * root.outer-r * cos(root.a0); y: root.outer-r * sin(root.a0); }
+    ArcTo {
+        radius-x: 0.866 * root.outer-r;
+        radius-y: root.outer-r;
+        x-rotation: 0;
+        large-arc: false;
+        sweep: true;
+        x: 0.866 * root.outer-r * cos(root.a1);
+        y: root.outer-r * sin(root.a1);
+    }
+    LineTo { x: 0.866 * root.inner-r * cos(root.a1); y: root.inner-r * sin(root.a1); }
+    ArcTo {
+        radius-x: 0.866 * root.inner-r;
+        radius-y: root.inner-r;
+        x-rotation: 0;
+        large-arc: false;
+        sweep: false;
+        x: 0.866 * root.inner-r * cos(root.a0);
+        y: root.inner-r * sin(root.a0);
+    }
+    Close {}
+}
+
+// #disk loading indicator (prepare.js drawDisk + prepare.css #disk).
+export component SetupDisk inherits Rectangle {
+    in property <float> time: 0.0;
+    in property <[color]> led-colors: SetupModel.disk-led-colors;
+    property <color> disk-segment: Theme.bfe-setup-disk-segment;
+    property <color> disk-ring: Theme.bfe-setup-disk-ring;
+    property <color> disk-text: Theme.bfe-setup-disk-text;
+    property <float> outer-turn: root.time * 6.2831853 / 18.0;
+    property <float> inner-turn: 1.0 - root.time * 6.2831853 / 11.4;
+
+    // Outer 6 segments
+    DiskArcSegment { start-rad: 0.1 + root.outer-turn; len-rad: 1.0; inner-r: 74; outer-r: 118; fill-color: root.disk-segment; }
+    DiskArcSegment { start-rad: 1.5 + root.outer-turn; len-rad: 0.7; inner-r: 80; outer-r: 104; fill-color: root.disk-segment; }
+    DiskArcSegment { start-rad: 2.6 + root.outer-turn; len-rad: 1.1; inner-r: 66; outer-r: 96; fill-color: root.disk-segment; }
+    DiskArcSegment { start-rad: 3.9 + root.outer-turn; len-rad: 0.5; inner-r: 78; outer-r: 122; fill-color: root.disk-segment; }
+    DiskArcSegment { start-rad: 4.8 + root.outer-turn; len-rad: 0.9; inner-r: 70; outer-r: 100; fill-color: root.disk-segment; }
+    DiskArcSegment { start-rad: 5.7 + root.outer-turn; len-rad: 0.4; inner-r: 84; outer-r: 110; fill-color: root.disk-segment; }
+
+    // Inner 6 segments (scale 0.75, offset 1 rad, reverse rotation)
+    DiskArcSegment { start-rad: 0.1 + root.inner-turn; len-rad: 1.0; inner-r: 55.5; outer-r: 88.5; fill-color: root.disk-segment; }
+    DiskArcSegment { start-rad: 1.5 + root.inner-turn; len-rad: 0.7; inner-r: 60.0; outer-r: 78.0; fill-color: root.disk-segment; }
+    DiskArcSegment { start-rad: 2.6 + root.inner-turn; len-rad: 1.1; inner-r: 49.5; outer-r: 72.0; fill-color: root.disk-segment; }
+    DiskArcSegment { start-rad: 3.9 + root.inner-turn; len-rad: 0.5; inner-r: 58.5; outer-r: 91.5; fill-color: root.disk-segment; }
+    DiskArcSegment { start-rad: 4.8 + root.inner-turn; len-rad: 0.9; inner-r: 52.5; outer-r: 75.0; fill-color: root.disk-segment; }
+    DiskArcSegment { start-rad: 5.7 + root.inner-turn; len-rad: 0.4; inner-r: 63.0; outer-r: 82.5; fill-color: root.disk-segment; }
+
+    // Two concentric thin rings (r = 60 and r = 44)
+    for ring-r in [60.0, 44.0]: Path {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        viewbox-x: -125; viewbox-y: -125; viewbox-width: 250; viewbox-height: 250;
+        fill: transparent;
+        stroke: root.disk-ring;
+        stroke-width: 1.6px * (parent.width / 250px);
+        MoveTo { x: 0.866 * ring-r; y: 0; }
+        ArcTo { radius-x: 0.866 * ring-r; radius-y: ring-r; x: -0.866 * ring-r; y: 0; large-arc: false; sweep: true; }
+        ArcTo { radius-x: 0.866 * ring-r; radius-y: ring-r; x: 0.866 * ring-r; y: 0; large-arc: false; sweep: true; }
+        Close {}
+    }
+
+    // 28 chasing square lights around radius 52
+    for led-color[i] in root.led-colors: led-path := Path {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        viewbox-x: -125; viewbox-y: -125; viewbox-width: 250; viewbox-height: 250;
+        fill: led-color;
+        stroke: Theme.bfe-setup-disk-led-stroke;
+        stroke-width: Theme.bf2 ? 1px * (parent.width / 250px) : 0px;
+        property <angle> a: i * 360deg / 28;
+        MoveTo { x: 0.866 * (48.5 * cos(led-path.a) + 3.5 * sin(led-path.a)); y: 48.5 * sin(led-path.a) - 3.5 * cos(led-path.a); }
+        LineTo { x: 0.866 * (55.5 * cos(led-path.a) + 3.5 * sin(led-path.a)); y: 55.5 * sin(led-path.a) - 3.5 * cos(led-path.a); }
+        LineTo { x: 0.866 * (55.5 * cos(led-path.a) - 3.5 * sin(led-path.a)); y: 55.5 * sin(led-path.a) + 3.5 * cos(led-path.a); }
+        LineTo { x: 0.866 * (48.5 * cos(led-path.a) - 3.5 * sin(led-path.a)); y: 48.5 * sin(led-path.a) + 3.5 * cos(led-path.a); }
+        Close {}
+    }
+
+    // Tilted LOADING caption across the disk center
+    Text {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        text: "LOADING";
+        font-family: Theme.font-family;
+        font-size: 14px * (parent.width / 250px);
+        font-weight: 800;
+        letter-spacing: 1.4px * (parent.width / 250px);
+        color: root.disk-text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        stroke: Theme.bf2 ? Theme.bfe-setup-title-stroke : transparent;
+        stroke-width: Theme.bf2 ? 1.5px : 0px;
+        stroke-style: outside;
+        transform-rotation: -14deg;
+        transform-scale-x: 0.866;
+    }
+}
+
+export component SetupScreen inherits Rectangle {
+    property <length> page-top: SetupModel.listing ? 6 * Theme.vh : 13 * Theme.vh;
+    property <length> panel-margin-top: SetupModel.listing ? 3 * Theme.vh : 6 * Theme.vh;
+    property <length> panel-width: min(860px, root.width - 2 * Theme.bfe-gutter);
+    property <length> pad-top: min(34px, max(18px, 3.4 * Theme.vh));
+    property <length> pad-side: min(40px, max(20px, 2.6 * Theme.vw));
+    property <length> pad-bottom: min(30px, max(18px, 3 * Theme.vh));
+    property <length> inner-width: root.panel-width - 2 * root.pad-side;
+    property <length> detail-size: min(17px, max(14px, 1.85 * Theme.vh));
+    property <length> detail-margin: min(20px, max(12px, 2 * Theme.vh));
+    property <length> confirm-margin: min(18px, max(12px, 2 * Theme.vh));
+    property <length> progress-margin: min(24px, max(14px, 2.4 * Theme.vh));
+    property <length> actions-margin: min(26px, max(16px, 2.8 * Theme.vh));
+    property <bool> has-actions: SetupModel.action-row-1.length > 0 || SetupModel.action-row-2.length > 0;
+    property <color> detail-color: Theme.bfe-setup-detail;
+    property <color> code-color: Theme.bfe-setup-code;
+
+    // ---- The backdrop (#backdrop): the look's ground, light, pattern, scrim and vignette ----
+    Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        clip: true;
+        BackdropMovies {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            image-visible: false;
+            use-underlay: false;
+        }
+        // The 2004 and 2005 looks' ground: radial-gradient(ellipse at 50% 45%, ...), 100% at the corner.
+        if !Theme.eternal: EllipseBrush {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            cx: parent.width / 2; cy: 0.45 * parent.height;
+            rx: parent.width * 0.70710678; ry: 0.55 * parent.height * 1.41421356;
+            fill: Theme.bfe-backdrop;
+        }
+        // Eternal's black glass under a faint light: ellipse 60% 55% at 50% 40%.
+        if Theme.eternal: EllipseBrush {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            cx: parent.width / 2; cy: 0.4 * parent.height;
+            rx: 0.6 * parent.width; ry: 0.55 * parent.height;
+            fill: Theme.bfe-setup-eternal-glow;
+        }
+        Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: SetupModel.pattern; }
+        // The scrim: ellipse 30% 78% at 50% 50%, drawn wider for the panel (scaleX(1.9)).
+        EllipseBrush {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            cx: parent.width / 2; cy: parent.height / 2;
+            rx: 0.57 * parent.width; ry: 0.78 * parent.height;
+            fill: Theme.bfe-scrim;
+        }
+        EllipseBrush {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            cx: parent.width / 2; cy: 0.45 * parent.height;
+            rx: parent.width * 0.70710678; ry: 0.55 * parent.height * 1.41421356;
+            fill: Theme.bfe-setup-vignette;
+        }
+    }
+
+    // ---- Optional planet caption (.planet) ----
+    if SetupModel.planet-text != "": Text {
+        x: Theme.bfe-gutter;
+        y: min(36px, max(16px, 3.6 * Theme.vh));
+        text: SetupModel.planet-text;
+        font-family: Theme.font-family;
+        font-size: min(19px, max(13px, 1.9 * Theme.vh));
+        font-weight: 800;
+        letter-spacing: 0.42 * self.font-size;
+        color: Theme.bfe-text;
+    }
+
+    // ---- Header wordmark (header .bfe-logo) ----
+    logo := Wordmark {
+        size: min(96px, min(5 * Theme.vw, 9 * Theme.vh));
+        x: (parent.width - self.width) / 2;
+        y: root.page-top;
+        animate y { duration: 350ms; easing: ease; }
+    }
+
+    // ---- Main setup panel (#panel) ----
+    property <length> panel-y: logo.y + logo.height + root.panel-margin-top;
+    property <length> max-panel-height: max(180px, root.height - root.panel-y - 5 * Theme.vh);
+    property <length> natural-panel-height: panel-body.preferred-height;
+
+    panel := Surface {
+        x: (parent.width - root.panel-width) / 2;
+        y: root.panel-y;
+        width: root.panel-width;
+        height: min(root.max-panel-height, root.natural-panel-height);
+        shadows: Theme.bfe-panel-shadow;
+        animate y { duration: 350ms; easing: ease; }
+
+        // #panel is `overflow-y: auto` and shrinks to the page: past that height it scrolls.
+        panel-scroll := Flickable {
+            x: 0px; y: 0px;
+            width: parent.width;
+            height: parent.height;
+            viewport-width: self.width;
+            viewport-height: max(self.height, panel-body.preferred-height);
+            panel-body := VerticalLayout {
+                x: 0px;
+                y: 0px;
+                width: root.panel-width;
+                height: self.preferred-height;
+                padding-left: root.pad-side;
+                padding-right: root.pad-side;
+                padding-top: root.pad-top;
+                padding-bottom: root.pad-bottom;
+                alignment: start;
+                spacing: 0px;
+
+                // Title (#panel h1)
+                SetupTitle {
+                    width: root.inner-width;
+                    title: SetupModel.title;
+                    warning: SetupModel.warning;
+                    error: SetupModel.error;
+                }
+
+                // Detail (#detail) and optional monospace path/file (#detail code)
+                if SetupModel.detail != "" || SetupModel.code-text != "": VerticalLayout {
+                    padding-top: root.detail-margin;
+                    spacing: 0.35 * root.detail-size;
+                    if SetupModel.detail != "": Text {
+                        width: root.inner-width;
+                        text: SetupModel.detail;
+                        font-family: Theme.font-family;
+                        font-size: root.detail-size;
+                        font-weight: 500;
+                        line-height-factor: 1.55 / Theme.font-natural-line;
+                        letter-spacing: 0.015 * root.detail-size;
+                        color: root.detail-color;
+                        horizontal-alignment: center;
+                        wrap: word-wrap;
+                    }
+                    if SetupModel.code-text != "": Text {
+                        width: root.inner-width;
+                        text: SetupModel.code-text;
+                        font-family: Theme.monospace-font-family;
+                        font-size: 0.8 * root.detail-size;
+                        font-weight: 500;
+                        line-height-factor: 1.45 / Theme.monospace-natural-line;
+                        letter-spacing: 0.015 * root.detail-size;
+                        color: root.code-color;
+                        horizontal-alignment: center;
+                        wrap: word-wrap;
+                    }
+                }
+
+                // Confirm section (#confirm)
+                if SetupModel.confirm-visible: VerticalLayout {
+                    padding-top: root.confirm-margin;
+                    spacing: 0px;
+
+                    // .confirm-facts (dl grid: max-content 1fr, gap 6px 18px)
+                    if SetupModel.facts.length > 0: VerticalLayout {
+                        padding-bottom: (SetupModel.problems.length > 0 || SetupModel.help-text != "" || SetupModel.sound-visible || SetupModel.other-copies.length > 0 || SetupModel.busy) ? 14px : 0px;
+                        // The grid's 6px row gap less what a layout row adds over the page's 1.5 line height.
+                        spacing: 4.5px;
+                        for fact in SetupModel.facts: HorizontalLayout {
+                            // The path's inline-block code box sits 2px inside its dd, one more than a layout row gives.
+                            padding-bottom: fact.monospace ? 1px : 0px;
+                            spacing: 18px;
+                            alignment: start;
+                            VerticalLayout {
+                                width: SetupModel.fact-label-width;
+                                padding-top: 2px;
+                                Text {
+                                    width: parent.width;
+                                    text: fact.name;
+                                    font-family: Theme.font-family;
+                                    line-height-factor: 1.5 / Theme.font-natural-line;
+                                    font-size: 11px;
+                                    font-weight: 700;
+                                    letter-spacing: 0.22 * 11px;
+                                    color: Theme.bfe-text-faint;
+                                    horizontal-alignment: left;
+                                }
+                            }
+                            Text {
+                                horizontal-stretch: 1;
+                                text: fact.value;
+                                font-family: fact.monospace ? Theme.monospace-font-family : Theme.font-family;
+                                font-size: 13px;
+                                font-weight: fact.monospace ? 500 : 400;
+                                line-height-factor: fact.monospace ? 1.45 / Theme.monospace-natural-line : 1.0;
+                                letter-spacing: 0.015 * 13px;
+                                color: fact.status == "bad"
+                                    ? Theme.bfe-setup-bad
+                                    : fact.status == "busy"
+                                        ? Theme.bfe-text-faint
+                                        : fact.status == "unchecked"
+                                            ? Theme.bfe-note
+                                            : Theme.bfe-text;
+                                horizontal-alignment: left;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+
+                    // .confirm-problems bullet list
+                    if SetupModel.problems.length > 0: VerticalLayout {
+                        padding-bottom: 10px;
+                        spacing: 3px;
+                        for problem in SetupModel.problems: HorizontalLayout {
+                            spacing: 0px;
+                            Text {
+                                width: 20px;
+                                text: "  •";
+                                font-family: Theme.font-family;
+                                line-height-factor: 1.5 / Theme.font-natural-line;
+                                font-size: 13px;
+                                font-weight: 700;
+                                color: Theme.bfe-text;
+                                horizontal-alignment: left;
+                            }
+                            Text {
+                                horizontal-stretch: 1;
+                                text: problem;
+                                font-family: Theme.font-family;
+                                line-height-factor: 1.5 / Theme.font-natural-line;
+                                font-size: 13px;
+                                font-weight: 400;
+                                letter-spacing: 0.015 * 13px;
+                                color: Theme.bfe-text;
+                                horizontal-alignment: left;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+
+                    // .confirm-help and .confirm-repair
+                    if SetupModel.help-text != "": Text {
+                        width: root.inner-width;
+                        text: SetupModel.help-text;
+                        font-family: Theme.font-family;
+                        line-height-factor: 1.5 / Theme.font-natural-line;
+                        font-size: min(15px, max(13px, 1.7 * Theme.vh));
+                        font-weight: 400;
+                        letter-spacing: 0.015 * self.font-size;
+                        color: Theme.bfe-text-dim;
+                        horizontal-alignment: left;
+                        wrap: word-wrap;
+                    }
+                    if SetupModel.repair-text != "": VerticalLayout {
+                        padding-top: 4px;
+                        Text {
+                            width: root.inner-width;
+                            text: SetupModel.repair-text;
+                            font-family: Theme.font-family;
+                            line-height-factor: 1.5 / Theme.font-natural-line;
+                            font-size: 13px;
+                            font-weight: 400;
+                            letter-spacing: 0.015 * 13px;
+                            color: Theme.bfe-text-faint;
+                            horizontal-alignment: left;
+                            wrap: word-wrap;
+                        }
+                    }
+
+                    // .confirm-option (ENHANCED SOUND)
+                    if SetupModel.sound-visible: SetupSoundOption {
+                        width: root.inner-width;
+                        checked: SetupModel.sound-checked;
+                        focused-item: SetupModel.sound-focused;
+                        description: SetupModel.sound-description;
+                        activated => { SetupModel.sound-toggled(); }
+                    }
+
+                    // .confirm-copies (ANOTHER COPY FOUND / OTHER COPIES FOUND)
+                    if SetupModel.other-copies.length > 0: VerticalLayout {
+                        padding-top: 14px;
+                        spacing: 0px;
+                        VerticalLayout {
+                            padding-bottom: 4px;
+                            Text {
+                                text: SetupModel.other-copies.length == 1 ? "ANOTHER COPY FOUND" : "OTHER COPIES FOUND";
+                                font-family: Theme.font-family;
+                                line-height-factor: 1.5 / Theme.font-natural-line;
+                                font-size: 11px;
+                                font-weight: 700;
+                                letter-spacing: 0.22 * 11px;
+                                color: Theme.bfe-text-faint;
+                                horizontal-alignment: left;
+                            }
+                        }
+                        for copy in SetupModel.other-copies: Rectangle {
+                            width: root.inner-width;
+                            height: max(50px, copy-info.preferred-height + 16px);
+                            Rectangle {
+                                x: 0px; y: 0px; width: parent.width; height: 1px;
+                                background: Theme.bfe-row-line;
+                            }
+                            HorizontalLayout {
+                                x: 0px; y: 8px;
+                                width: parent.width;
+                                height: parent.height - 16px;
+                                spacing: 16px;
+                                alignment: stretch;
+                                copy-info := VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    spacing: 2px;
+                                    Text {
+                                        text: copy.dir;
+                                        font-family: Theme.monospace-font-family;
+                                        font-size: 13px;
+                                        font-weight: 500;
+                                        line-height-factor: 1.45 / Theme.monospace-natural-line;
+                                        letter-spacing: 0.015 * 13px;
+                                        color: Theme.bfe-text;
+                                        horizontal-alignment: left;
+                                        wrap: word-wrap;
+                                    }
+                                    Text {
+                                        text: copy.how;
+                                        font-family: Theme.font-family;
+                                        line-height-factor: 1.5 / Theme.font-natural-line;
+                                        font-size: 12px;
+                                        font-weight: 400;
+                                        color: Theme.bfe-text-faint;
+                                        horizontal-alignment: left;
+                                    }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    PageButton {
+                                        variant: ButtonVariant.small;
+                                        min-btn-width: 0px;
+                                        label: "USE THIS COPY";
+                                        highlighted: copy.focused;
+                                        activated => { SetupModel.copy-picked(copy.index); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Progress section (#progress)
+                if SetupModel.progress-visible: VerticalLayout {
+                    padding-top: root.progress-margin;
+                    spacing: 0px;
+
+                    // .bar & .fill
+                    bar := Rectangle {
+                        width: root.inner-width;
+                        height: min(12px, max(8px, 1.2 * Theme.vh));
+                        background: Theme.bfe-track;
+                        border-radius: Theme.bfe-track-radius;
+                        clip: true;
+
+                        Rectangle {
+                            x: 0px;
+                            y: 0px;
+                            width: parent.width * clamp(SetupModel.progress-fraction, 0.0, 1.0);
+                            height: parent.height;
+                            background: Theme.bfe-accent-fill;
+                            border-radius: Theme.bfe-track-radius;
+                        }
+
+                        // .bar::after glint
+                        Rectangle {
+                            x: (-0.30 + 1.40 * SetupModel.glint-progress) * parent.width;
+                            y: 0px;
+                            width: (SetupModel.progress-estimating ? 0.30 : 0.22) * parent.width;
+                            height: parent.height;
+                            background: Theme.bfe-setup-glint;
+                        }
+                    }
+
+                    // .readout (#step and #numbers)
+                    HorizontalLayout {
+                        padding-top: min(12px, max(8px, 1.3 * Theme.vh));
+                        spacing: 16px;
+                        Text {
+                            horizontal-stretch: 1;
+                            text: SetupModel.progress-step;
+                            font-family: Theme.font-family;
+                            font-size: min(15px, max(12px, 1.6 * Theme.vh));
+                            font-weight: 700;
+                            letter-spacing: 0.16 * self.font-size;
+                            color: Theme.bfe-text;
+                            horizontal-alignment: left;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: SetupModel.progress-numbers;
+                            font-family: Theme.font-family;
+                            font-size: min(15px, max(12px, 1.6 * Theme.vh));
+                            font-weight: 700;
+                            letter-spacing: 0.04 * self.font-size;
+                            color: Theme.bfe-text-dim;
+                            horizontal-alignment: right;
+                        }
+                    }
+
+                    // #phases (7 columns)
+                    if SetupModel.phases-visible: HorizontalLayout {
+                        padding-top: min(22px, max(14px, 2.4 * Theme.vh));
+                        spacing: min(8px, max(4px, 0.6 * Theme.vw));
+                        for phase in SetupModel.phases: SetupPhaseCell {
+                            horizontal-stretch: 1;
+                            label: phase.label;
+                            state: phase.state;
+                            pulse: SetupModel.phase-pulse;
+                        }
+                    }
+                }
+
+                // Left-out add-on maps (#left-out)
+                if SetupModel.left-out-visible: VerticalLayout {
+                    padding-top: SetupModel.progress-visible ? 16px : root.confirm-margin;
+                    spacing: 4px;
+                    Text {
+                        text: SetupModel.left-out-title;
+                        font-family: Theme.font-family;
+                        font-size: 11px;
+                        font-weight: 700;
+                        letter-spacing: 0.22 * 11px;
+                        color: Theme.bfe-text-faint;
+                        horizontal-alignment: left;
+                    }
+                    for item in SetupModel.left-out-items: Text {
+                        width: root.inner-width;
+                        text: item;
+                        font-family: Theme.font-family;
+                        font-size: 13px;
+                        font-weight: 400;
+                        color: Theme.bfe-note;
+                        horizontal-alignment: left;
+                        wrap: word-wrap;
+                    }
+                    if SetupModel.left-out-help != "": Text {
+                        width: root.inner-width;
+                        text: SetupModel.left-out-help;
+                        font-family: Theme.font-family;
+                        font-size: 13px;
+                        font-weight: 400;
+                        color: Theme.bfe-text-dim;
+                        horizontal-alignment: left;
+                        wrap: word-wrap;
+                    }
+                }
+
+                // Actions (.actions)
+                if root.has-actions: VerticalLayout {
+                    padding-top: root.actions-margin;
+                    spacing: min(12px, max(8px, 1.2 * Theme.vh));
+                    HorizontalLayout {
+                        alignment: center;
+                        spacing: min(14px, max(8px, 0.8 * Theme.vw));
+                        for item in SetupModel.action-row-1: PageButton {
+                            variant: ButtonVariant.small;
+                            label: item.label;
+                            highlighted: item.action-index == SetupModel.selected-action;
+                            changed hovered => {
+                                if (self.hovered) {
+                                    SetupModel.action-hovered(item.action-index);
+                                } else {
+                                    SetupModel.actions-pointer-left();
+                                }
+                            }
+                            activated => { SetupModel.action-activated(item.action-index); }
+                        }
+                    }
+                    if SetupModel.action-row-2.length > 0: HorizontalLayout {
+                        alignment: center;
+                        spacing: min(14px, max(8px, 0.8 * Theme.vw));
+                        for item in SetupModel.action-row-2: PageButton {
+                            variant: ButtonVariant.small;
+                            label: item.label;
+                            highlighted: item.action-index == SetupModel.selected-action;
+                            changed hovered => {
+                                if (self.hovered) {
+                                    SetupModel.action-hovered(item.action-index);
+                                } else {
+                                    SetupModel.actions-pointer-left();
+                                }
+                            }
+                            activated => { SetupModel.action-activated(item.action-index); }
+                        }
+                    }
+                }
+
+                // Details toggle link (.link) and log viewer (#log)
+                if SetupModel.details-visible: VerticalLayout {
+                    padding-top: min(18px, max(12px, 2 * Theme.vh));
+                    spacing: 10px;
+                    HorizontalLayout {
+                        alignment: center;
+                        details-link := Interaction {
+                            width: link-label.preferred-width + 16px;
+                            height: link-label.preferred-height + 4px;
+                            activated => { SetupModel.details-toggled(); }
+                            link-label := Text {
+                                x: 8px; y: 2px;
+                                text: SetupModel.show-details ? "HIDE DETAILS" : "SHOW DETAILS";
+                                font-family: Theme.font-family;
+                                font-size: min(13px, max(11px, 1.4 * Theme.vh));
+                                font-weight: 700;
+                                letter-spacing: 0.2 * self.font-size;
+                                color: details-link.active || SetupModel.details-focused ? Theme.bfe-accent : Theme.bfe-text-faint;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+
+                    if SetupModel.show-details && SetupModel.log-text != "": Rectangle {
+                        width: root.inner-width;
+                        height: min(22 * Theme.vh, max(54px, log-content.preferred-height + 20px));
+                        background: Theme.bfe-setup-log-bg;
+                        border-width: 1px;
+                        border-color: Theme.bfe-setup-log-border;
+                        border-radius: min(Theme.bfe-panel-radius, 6px);
+                        clip: true;
+
+                        Flickable {
+                            x: 12px;
+                            y: 10px;
+                            width: parent.width - 24px;
+                            height: parent.height - 20px;
+                            log-content := Text {
+                                x: 0px;
+                                y: 0px;
+                                width: parent.width;
+                                text: SetupModel.log-text;
+                                font-family: Theme.monospace-font-family;
+                                font-size: 11.5px;
+                                font-weight: 400;
+                                line-height-factor: 1.5 / Theme.monospace-natural-line;
+                                color: Theme.bfe-text-dim;
+                                horizontal-alignment: left;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // The browser's thin scrollbar, shown only when the panel overflows.
+        if panel-scroll.viewport-height > panel-scroll.height + 0.5px: Rectangle {
+            x: parent.width - 7px;
+            y: (-panel-scroll.viewport-y / panel-scroll.viewport-height) * panel-scroll.height;
+            width: 4px;
+            height: max(16px, panel-scroll.height * panel-scroll.height / panel-scroll.viewport-height);
+            background: Theme.bfe-scroll;
+            border-radius: 2px;
+        }
+    }
+
+    // ---- The LOADING disk (#disk) ----
+    if SetupModel.busy: SetupDisk {
+        property <bool> narrow: Theme.viewport-width <= 1200px;
+        width: self.narrow ? min(132px, max(96px, 12 * Theme.vw)) : min(220px, max(130px, 13 * Theme.vw));
+        height: self.width;
+        x: parent.width - min(64px, max(16px, 3.4 * Theme.vw)) - self.width;
+        y: self.narrow
+            ? min(32px, max(12px, 3 * Theme.vh))
+            : parent.height - min(48px, max(12px, 4 * Theme.vh)) - self.height;
+        time: SetupModel.disk-time;
+        led-colors: SetupModel.disk-led-colors;
+    }
+}

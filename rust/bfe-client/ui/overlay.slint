@@ -38,6 +38,14 @@ import {
     InstantActionEraScreen,
     LoadingPageOverlay
 } from "screens/ia.slint";
+import {
+    SetupModel,
+    SetupScreen,
+    SetupFactItem,
+    SetupCopyItem,
+    SetupPhaseItem,
+    SetupActionItem
+} from "screens/setup.slint";
 
 export { Theme, MenuSound, ControlState } from "theme.slint";
 export { ListEntry } from "components/list.slint";
@@ -52,6 +60,13 @@ export {
     BattlePauseActionModel
 } from "screens/battle.slint";
 export { IaModel } from "screens/ia.slint";
+export {
+    SetupModel,
+    SetupFactItem,
+    SetupCopyItem,
+    SetupPhaseItem,
+    SetupActionItem
+} from "screens/setup.slint";
 export { MpModel, BrowserRowItem, FactItem } from "screens/mp.slint";
 
 export component GameUi inherits Window {
@@ -141,6 +156,9 @@ export component GameUi inherits Window {
         if (root.gameplay) {
             return battle-screen.controls-at(x, y);
         }
+        if (SetupModel.visible) {
+            return true;
+        }
         if (root.proof-controls && x >= panel.x && x < panel.width + panel.x && y >= panel.y && y < panel.y + panel.height) {
             return true;
         }
@@ -165,6 +183,10 @@ export component GameUi inherits Window {
         x: 0px; y: 0px; width: parent.width; height: parent.height;
         background: transparent;
         opacity: root.render-pass == 2 ? 0.0 : 1.0;
+
+        if SetupModel.visible && !root.gameplay: SetupScreen {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+        }
 
         if root.shell-visible && !root.gameplay && root.active-screen == "gate": GateScreen {
             x: 0px; y: 0px; width: parent.width; height: parent.height;

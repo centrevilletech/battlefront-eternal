@@ -1,8 +1,6 @@
 //! Native page layout over ShellApp's existing screen stack. Geometry follows
 //! src/menus/themes/page/style.js; looks follow electron/ui/looks.css.
 mod battle;
-mod setup;
-pub use setup::{SetupView,SetupProgress,SetupSound};
 mod browser;
 mod forms;
 mod heading;
@@ -58,7 +56,6 @@ pub struct Page {
     pub buttons: [u32; 6],
     pub button_source: [f64; 2],
     pub patterns: [u32; 3],
-    pub setup_backdrops:[u32;3],
     pub modal_start: Option<usize>,
     hits: Vec<([f64; 4], Hit)>,
     text: HashMap<String, Vec<u16>>,
@@ -121,7 +118,6 @@ impl Page {
             buttons: [0; 6],
             button_source: [368., 40.],
             patterns: [0; 3],
-            setup_backdrops:[0;3],
             modal_start: None,
             hits: Vec::with_capacity(64),
             text: HashMap::new(),

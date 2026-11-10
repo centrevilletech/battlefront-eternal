@@ -267,6 +267,7 @@ pub(super) enum UiAction {
 
 pub(super) struct SlintHost {
     pub(super) root: GameUi,
+    pub(super) setup: super::slint_setup::SetupHostState,
     adapter: Rc<Adapter>,
     underlay: Rc<Cell<Option<(glow::Framebuffer, [i32; 2])>>>,
     pending: Pending,
@@ -470,6 +471,7 @@ impl SlintHost {
         let mp_models = super::slint_mp::MpModels::install(&root);
         let mut host = Self {
             root,
+            setup: Default::default(),
             adapter,
             underlay,
             pending,
@@ -490,6 +492,7 @@ impl SlintHost {
             context,
             composited_frames,
         };
+        host.register_setup_callbacks();
         host.register_mp_callbacks();
         host.resize();
         Ok(host)
@@ -819,6 +822,7 @@ impl SlintHost {
             self.root.set_render_pass(0);
         }
         let copy_back = ((self.root.get_shell_visible()
+            || self.setup_visible()
             || self.root.global::<IaModel>().get_loading_visible())
             && !self.root.get_gameplay()
             && !self.root.get_proof_controls())

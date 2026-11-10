@@ -195,6 +195,48 @@ export global Theme {
     out property <duration> movie-crossfade-duration: 1200ms;
     out property <duration> dim-duration: 450ms;
 
+    // Setup / preparation screen tokens from electron/ui/prepare.css.
+    out property <string> monospace-font-family: "DejaVu Sans Mono";
+    // Natural line height of the mono face (ascent + descent over the em): Slint's
+    // line-height-factor is relative to it, the browser's line-height to the font size.
+    out property <float> monospace-natural-line: 1.164;
+    // The same for the bundled Saira faces (hhea ascent 1135 + descent 439 over 1000).
+    out property <float> font-natural-line: 1.574;
+    out property <color> bfe-setup-detail: self.bf1 ? rgba(220, 239, 255, 0.8) : self.bf2 ? rgba(255, 255, 255, 0.8) : rgba(232, 236, 242, 0.8);
+    out property <color> bfe-setup-code: self.bf1 ? rgba(220, 239, 255, 0.52) : self.bf2 ? rgba(255, 255, 255, 0.52) : rgba(232, 236, 242, 0.52);
+    out property <color> bfe-setup-bad: #ff6a5a;
+    out property <brush> bfe-setup-title-warning-fill: self.bf1
+        ? @linear-gradient(180deg, #fbf68a 0%, #dfdf20 45%, #a9a90c 100%)
+        : @linear-gradient(180deg, #ffe7a3 0%, #ffc23a 50%, #d98c0c 100%);
+    out property <brush> bfe-setup-title-error-fill: self.bf1
+        ? @linear-gradient(180deg, #ff8a7a 0%, #e0362a 45%, #a5180e 100%)
+        : self.bfe-tab-active-bg;
+    out property <color> bfe-setup-title-border: #2b0703;
+    out property <color> bfe-setup-title-warning-border: #6b4304;
+    out property <color> bfe-setup-title-ink: self.bf1 ? #13204a : #ffffff;
+    out property <color> bfe-setup-title-warning-ink: self.bf1 ? #13204a : self.bf2 ? #2b1a02 : self.bfe-note;
+    out property <color> bfe-setup-title-error-ink: self.eternal ? #ff6a5a : #ffffff;
+    out property <color> bfe-setup-title-stroke: #111111;
+    out property <brush> bfe-setup-title-line: @linear-gradient(90deg, transparent, #ff9a1f 25%, #ff9a1f 75%, transparent);
+    out property <brush> bfe-setup-title-error-line: @linear-gradient(90deg, transparent, #ff4a3a 25%, #ff4a3a 75%, transparent);
+    out property <color> bfe-setup-checkbox-bg: #e2e6ec;
+    out property <color> bfe-setup-checkbox-border: #7a8494;
+    out property <color> bfe-setup-disk-segment: self.bf1 ? rgba(40, 160, 220, 0.34) : self.bf2 ? rgba(29, 63, 115, 0.34) : rgba(5, 7, 11, 0.3);
+    out property <color> bfe-setup-disk-ring: self.bf1 ? rgba(30, 170, 240, 0.9) : self.bf2 ? rgba(201, 212, 226, 0.85) : rgba(196, 204, 216, 0.75);
+    out property <color> bfe-setup-disk-text: self.bf1 ? #dcdcff : self.bf2 ? #ffffff : #e8ecf2;
+    out property <color> bfe-setup-disk-led-stroke: self.bf2 ? #06080c : transparent;
+    out property <brush> bfe-setup-eternal-glow: @radial-gradient(circle, rgba(150, 170, 200, 0.08) 0%, transparent 75%);
+    out property <brush> bfe-setup-vignette: @radial-gradient(circle, transparent 52%, rgba(0, 0, 0, 0.55) 100%);
+    out property <brush> bfe-setup-glint: @linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    out property <color> bfe-setup-log-bg: rgba(0, 0, 0, 0.38);
+    out property <color> bfe-setup-log-border: self.bf1 ? rgba(140, 200, 255, 0.3) : self.bf2 ? rgba(190, 205, 225, 0.28) : rgba(255, 255, 255, 0.12);
+    out property <[color]> bfe-setup-default-leds: [
+        #ffd27a, #ff9a1f, #ff9a1f, #e58018, #cc6b13, #b5560b, #994809,
+        #7d3a08, #632e07, #4a2407, #3d1f09, #311a0a, #24150b, #1a120c,
+        #15100c, #15100c, #15100c, #15100c, #15100c, #15100c, #15100c,
+        #15100c, #15100c, #15100c, #15100c, #15100c, #15100c, #8a7143
+    ];
+
     // Battle spawn & scoreboard tokens (src/spawn-screen/page/view.js, src/scoreboard/page/view.js).
     out property <color> bfe-team-own: #4ff07a;
     out property <color> bfe-team-foe: #ff5a4a;
