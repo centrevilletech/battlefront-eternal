@@ -270,6 +270,13 @@ jobs:
 
       - name: Run native Rust test suites
         working-directory: rust
+        # GNU ld on ARM64 holds every test binary's debug information in memory while several link
+        # at once, and the hosted runner runs out of memory and is shut down mid-build. Line tables
+        # keep file and line in a backtrace at a fraction of the size.
+        env:
+          CARGO_PROFILE_DEV_DEBUG: line-tables-only
+          CARGO_PROFILE_TEST_DEBUG: line-tables-only
+          CARGO_BUILD_JOBS: "3"
         run: cargo test --locked -p sim -p sim-replay -p bfe-render -p bfe-presentation -p bfe-pose -p content -p v8math -p jsrt -p three -p audio -p audio-decode -p basis-transcode -p texture-codec -p image-codec -p bfe-environment -p audio-control -p bfe-client -p bfe-content-native -p bfe-transport -p bfe-online -p bfe-shell -p bfe-video -p bfe-desktop -p bfe-interface -p bfe-battle-ui -p bfe-server -p xtask --features sim/replay
 
       - name: Build native bfe-client and bfeserver (release, locked)
