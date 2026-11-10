@@ -11,6 +11,14 @@ cd "${repo_root}"
 
 manifest="rust/Cargo.toml"
 
+# The ARM64 toolchain links with GNU ld, which holds every test binary's debug information in memory
+# while several link at once: the hosted runner ran out of memory and was shut down mid-build once
+# the client grew. Line tables keep file and line in a panic's backtrace at a fraction of the size,
+# and three jobs leave room for the linkers.
+export CARGO_PROFILE_DEV_DEBUG=line-tables-only
+export CARGO_PROFILE_TEST_DEBUG=line-tables-only
+export CARGO_BUILD_JOBS=3
+
 echo "==> Running cross-architecture published-bytes determinism gate on $(uname -m)"
 RUST_BACKTRACE=1 cargo test --manifest-path "${manifest}" --locked \
   -p sim --test arm64_determinism \
