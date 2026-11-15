@@ -98,18 +98,6 @@ fn raw_frame_bounds_and_resource_keys_stay_native() {
     c.host.release(usize::MAX);c.host.release(1);c.host.release(1);assert_eq!(c.host.allocate(),1);assert_eq!(c.host.allocate(),-1);
 }
 
-#[test]
-fn entity_weapon_queries_and_generation_probe_preserve_command_order() {
-    use bfe_presentation::ordnance::events;
-    assert!(!events::ready("shot",7.0,2.0,true,3.0,0.0,0.0,false,0.0));
-    assert!(events::ready("lightning",7.0,2.0,false,0.0,0.0,0.0,false,0.0));
-    let text=events::plan(r#"{"presentationKind":"shot","seat":1,"repair":false,"position":[1,2,3]}"#,r#"{"name":"rifle","owner":true,"mount":true,"vehicle":true,"weapons":[{"role":"vehicle","seat":0,"name":"rifle"},{"role":"turret","name":"other"},{"role":"vehicle","seat":1,"name":"rifle","flash":"muzzle"}]}"#).unwrap();
-    let plan:serde_json::Value=serde_json::from_str(&text).unwrap();
-    assert_eq!(plan["commands"][0],serde_json::json!(["hud",2]));
-    assert_eq!(plan["commands"][1],serde_json::json!(["claim"]));
-    assert_eq!(plan["commands"][2],serde_json::json!(["sound",2,"turretFire",0]));
-    assert_eq!(plan["commands"][5],serde_json::json!(["flash",[1.0,0.55,0.2],5.0,0.06]));
-}
 
 #[test]
 fn combat_fact_transport_preserves_signed_zero_and_optional_defaults() {

@@ -1402,4 +1402,3 @@ fn changed_flight(a: &Vector3, b: &Vector3) -> bool {
     speed_a > 1e-6 && (speed_b < speed_a * 0.25 || dot < speed_a * speed_b * 0.5)
 }
 
-pub mod events;
