@@ -2021,8 +2021,6 @@ impl StandaloneWindowApp {
                         let display = context.display();
                         if let Some(scene) = smoke.advance(
                             shell,
-                            &mut self.settings,
-                            &self.audio_router,
                             || unsafe {
                                 glow::Context::from_loader_function_cstr(|name| display.get_proc_address(name))
                             },

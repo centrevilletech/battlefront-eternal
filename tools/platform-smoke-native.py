@@ -67,7 +67,9 @@ def main():
         (output / "stdout.log").write_bytes(stdout)
         (output / "stderr.log").write_bytes(stderr)
         if process.returncode:
-            raise RuntimeError(f"release app failed ({process.returncode}): {stderr.decode(errors='replace')}")
+            # xvfb-run sends the app's stderr to stdout: show the end of both.
+            tail = "\n".join((stdout + stderr).decode(errors="replace").splitlines()[-15:])
+            raise RuntimeError(f"release app failed ({process.returncode}):\n{tail}")
         summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
         if not summary["ok"] or summary["glErrors"] != 0 or "llvmpipe" not in summary["renderer"].lower():
             raise RuntimeError(f"software GL smoke failed: {summary}")
