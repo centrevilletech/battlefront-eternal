@@ -18,7 +18,6 @@ impl World {
     /// numeric substeps and publication banks without a host phase dispatcher.
     pub fn step(&mut self, input: &WorldTickInput) -> WorldTickOutput {
         let mut output = WorldTickOutput {clock:input.clock.clone(),..Default::default()};
-        let before=crate::allocations::snapshot();
         if input.dt.is_finite() && input.dt >= 0.0 && input.tick.is_finite() && !self.tick.running
             && crate::units::f3::registered_viewpoint_in(&self.units).is_some_and(|r|self.sim.store.unit.get(r).is_some())
             && input.tick==input.clock.tick+1.0
@@ -72,8 +71,6 @@ impl World {
             // Commit their encoded baselines once, against what the host consumed.
             crate::units::f3::publish_changed_in(self);
         }
-        let used=crate::allocations::snapshot().since(before);
-        output.allocations=used.calls as u32;output.reallocations=used.reallocs as u32;output.allocation_bytes=used.bytes as u32;
         output
     }
 }

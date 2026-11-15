@@ -277,7 +277,7 @@ impl State {
     pub fn link_character(&mut self,context:WriteContext<'_>,owner:&mut dyn CharacterOwner,index:usize,controller:usize,bound:bool)->bool {
         let key=if bound {
 
-            {self.controllers.adopt_in(context,controller,&mut self.entities)}
+            self.controllers.adopt_in(context,controller,&mut self.entities)
 
         }else{
             let Some(key)=self.controllers.key(controller) else{return false};key

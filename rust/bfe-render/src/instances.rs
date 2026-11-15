@@ -33,6 +33,8 @@ pub const REC_WORLD: usize = 20; // matrixWorld
 pub const REC_BIND_INVERSE: usize = 36;
 pub const REC_LOOK: usize = 52; // sunScale, ambientPull, brightness
 pub const REC_FLAGS: usize = 56; // cull side (0 front, 1 back, 2 both) | 4 alpha to coverage | 8 depth write
+// A native caster can be excluded without changing its colour draw state.
+pub const NO_SHADOW: u32 = 16;
 // Native temporal identity uses the three reserved scalar slots after flags.
 pub const REC_MOTION_ID:usize=57;
 pub const REC_MOTION_GENERATION:usize=58;

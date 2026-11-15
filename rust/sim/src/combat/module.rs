@@ -529,7 +529,6 @@ impl CombatWorld for JsWorld<'_, '_> {
     }
 
     fn fire_round(&mut self, from: &Vector3, dir: &Vector3, shot: &Shot, _bind: bool, _selected: Option<(f64, f64)>, unit: &mut Unit, combat: &mut Combat) {
-        let _allocations = crate::allocations::at(F3AllocationStage::Fire);
         let weapon = &combat.weapons[shot.weapon as usize];
         let service = crate::units::f3::weapon_service_in(&self.w.units, weapon.def, weapon.level);
         let ShotKind::Round { target_id, target_generation, .. } = shot.kind else { return };
@@ -656,7 +655,6 @@ impl CombatWorld for JsWorld<'_, '_> {
     }
 
     fn damaged(&mut self, amount: f64, attacker: Attacker, info: &DamageInfo, _source: Option<Vector3>, unit: &mut Unit, _combat: &mut Combat) {
-        let _allocations = crate::allocations::at(F3AllocationStage::Hit);
         // instrument.onDamaged keeps the authored amount/scale fields as
         // well as actual health damage. Preserve absent and null points.
         let (attacker_ref, attacker_team) = super::live::attribution_in(self.w, attacker, self.r, unit);
@@ -692,7 +690,6 @@ impl CombatWorld for JsWorld<'_, '_> {
     }
 
     fn died(&mut self, unit: &mut Unit, combat: &mut Combat) {
-        let _allocations = crate::allocations::at(F3AllocationStage::Death);
         // DroidekaAnimator.die marks the body on the damage tick, before
         // UnitFactory.onDeath. A blown-apart body skips that animator call.
         if !combat.blow_apart {
@@ -759,7 +756,6 @@ impl CombatWorld for JsWorld<'_, '_> {
             let mut world = crate::ordnance::module::JsWorld::with_services(w, recon);
             let mut cx = crate::ordnance::Cx::new(&mut world);
             {
-                let _allocations = crate::allocations::at(F3AllocationStage::Drop);
                 cx.drop_for(&drops, position, velocity, yaw);
             }
             world.finish();

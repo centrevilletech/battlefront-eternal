@@ -2,7 +2,6 @@
 use bfe_sim::battle::{human_posts::{Choices,Key}, mobile::Pad, world::PostsWorld};
 use bfe_sim::gen::*;
 use bfe_sim::store::{Ref,StrId};
-use three::Vector3;
 #[derive(Default)] struct World;
 impl PostsWorld for World {
     fn capture_team(&mut self,t:f64)->f64 {t}

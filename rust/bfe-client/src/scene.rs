@@ -295,10 +295,7 @@ pub(crate) struct Prepared {
     canopy_leaf: Option<usize>,
     lamps:crate::lamps::Lamps,
     placed: bfe_content_native::placed::Placements,
-    water_main: Option<usize>,
-    /// The specular mask's frames in play order, and their frames per second.
-    water_mask: (Vec<usize>, f64),
-    water_foam: Option<usize>,
+    water: crate::water_host::Images,
     features: [u32; L::FEATURES_LENGTH],
     prepared_views: Option<crate::online::first_person::Prepared>,
     prepared_particles: Option<crate::online::particles::Prepared>,
@@ -319,20 +316,7 @@ impl Prepared{
 }
 
 // Immediate native GL calls can wait for the GPU. That wait is not CPU pressure.
-pub(crate) struct CpuSample{wall:std::time::Instant,thread:Option<f64>}
-impl CpuSample{
-    pub fn now()->Self{Self{wall:std::time::Instant::now(),thread:thread_cpu_ms()}}
-    pub fn elapsed_ms(&self)->f64{self.thread.zip(thread_cpu_ms()).map_or_else(||self.wall.elapsed().as_secs_f64()*1000.,|(start,end)|(end-start).max(0.))}
-}
-#[cfg(all(target_os="linux",target_pointer_width="64"))]
-fn thread_cpu_ms()->Option<f64>{
-    #[repr(C)]struct Time{seconds:std::ffi::c_long,nanoseconds:std::ffi::c_long}
-    unsafe extern "C"{fn clock_gettime(clock:i32,value:*mut Time)->i32;}
-    let mut t=Time{seconds:0,nanoseconds:0};
-    if unsafe{clock_gettime(3,&mut t)}==0{Some(t.seconds as f64*1000.+t.nanoseconds as f64/1e6)}else{None}
-}
-#[cfg(not(all(target_os="linux",target_pointer_width="64")))]
-fn thread_cpu_ms()->Option<f64>{None}
+pub(crate) use bfe_render::profile::CpuSample;
 
 pub struct Scene {
     pub spawn_objectives: [Vec<String>;2],
@@ -410,6 +394,11 @@ pub struct Scene {
     // setting, and the value they were last given.
     filtered: Vec<(u32,bool)>,
     anisotropy: f64,
+    water: Option<crate::water_host::WaterHost>,
+    water_data: usize,
+    water_time: f64,
+    storm: Option<crate::storm_host::StormHost>,
+    flyers: Option<crate::sky_host::SkyHost>,
     pub online: Option<Box<crate::online::replicas::Replicas>>,
 }
 // Graphics.sceneTarget: the near scene is drawn over the far scene's image
@@ -679,34 +668,12 @@ impl Scene {
             foliage_images.push(content.textures.load(path)?);
         }
         let placed = if live{bfe_content_native::placed::admit_live(&content)?}else{bfe_content_native::placed::admit(&content)?};
-        let mut water_image = |name: &str| -> Result<Option<usize>, String> {
+        let water = crate::water_host::images(&content.map["water"], |name| {
             layers
                 .get(&name.to_lowercase())
                 .map(|path| content.textures.load(path))
                 .transpose()
-        };
-        let water_main = if let Some(name) = content.map["water"]["look"]["MainTexture"][0].as_str()
-        {
-            water_image(name)?
-        } else {
-            None
-        };
-        // Water.frames (water.js): a name prefix, a frame count and a rate;
-        // frames that are missing are left out, as there.
-        let mut water_mask = (Vec::new(), 0.);
-        let mask = &content.map["water"]["look"]["SpecularMaskTextures"];
-        if let (Some(name), Some(count), Some(fps)) = (mask[0].as_str(), mask[1].as_f64(), mask[2].as_f64()) {
-            for k in 0..count.round().max(0.) as usize {
-                water_mask.0.extend(water_image(&format!("{name}{k}"))?);
-            }
-            water_mask.1 = fps;
-        }
-        let water_foam = if let Some(name) = content.map["water"]["look"]["FoamTexture"][0].as_str()
-        {
-            water_image(name)?
-        } else {
-            None
-        };
+        })?;
         // game.js constructs eight ordnance light shells and each visible post hologram.
         // Preserve that cold catalog identity; this neutral inspection frame
         // publishes zero active lights until a native World supplies them.
@@ -770,9 +737,7 @@ impl Scene {
         for id in foliage_images
             .iter()
             .copied()
-            .chain(water_main)
-            .chain(water_mask.0.iter().copied())
-            .chain(water_foam)
+            .chain(water.all())
         {
             used[id] = true;
         }
@@ -785,6 +750,9 @@ impl Scene {
             if let Some(id) = mesh.material.texture {
                 used[id] = true;
             }
+        }
+        for mesh in content.models.iter().filter(|m| m.name.starts_with("sky/")) {
+            if let Some(id) = mesh.material.texture { used[id] = true; }
         }
         if live {
             used.fill(true);
@@ -802,9 +770,7 @@ impl Scene {
             foliage,
             foliage_images, canopy_leaf, lamps,
             placed,
-            water_main,
-            water_mask,
-            water_foam,
+            water,
             features,
             prepared_views,
             prepared_particles,
@@ -831,9 +797,7 @@ impl Scene {
             foliage,
             foliage_images, canopy_leaf, lamps,
             placed,
-            water_main,
-            water_mask,
-            water_foam,
+            water,
             features,
             prepared_views,
             prepared_particles,
@@ -853,6 +817,7 @@ impl Scene {
         let sampling = &content_sampling(1.);
         let mut textures = vec![u32::MAX; content.textures.images.len()];
         let mut filtered = Vec::new();
+        let mut budget = crate::loading_work::Budget::new();
         for (i, image) in content.textures.images.iter().enumerate() {
             // Battle admission has already decoded side resources. Inspection
             // uploads only the images used by the admitted world descriptors.
@@ -870,8 +835,7 @@ impl Scene {
             resources.upload(sample)?;
             filtered.push((sample,compressed));
             textures[i] = bridge.r.core.add_texture(resources.texture(sample)?);
-            if i % 8 == 7 {
-                crate::loading_work::frame().await;
+            if budget.tick().await {
                 bridge.r.core.state.reset();
             }
         }
@@ -898,12 +862,10 @@ impl Scene {
             } else {
                 None
             };
+        let water_data = &content.map["water"];
+        let sea_water = bfe_environment::content::recipe(bfe_environment::layout::environment_recipe::WATER as u32, water_data)["ocean"].as_bool().unwrap_or(false);
         let mut ocean_mask = empty;
-        if content.map["water"]["look"]["OceanEnable"][0]
-            .as_f64()
-            .unwrap_or(0.)
-            > 0.
-        {
+        if sea_water {
             let data = &content.map["water"];
             let grid = data["grid"]
                 .as_u64()
@@ -944,20 +906,6 @@ impl Scene {
             )?;
             static_content.foliage += 1;
         }
-        if let Some(main) = water_main {
-            static_content.water = crate::static_scene::water(
-                &mut bridge,
-                &content.map["water"],
-                textures[main],
-                &water_mask.0.iter().map(|&i| textures[i]).collect::<Vec<_>>(),
-                water_mask.1,
-                empty,
-                water_foam.map_or(textures[main], |i| textures[i]),
-                ocean_mask,
-            )?;
-        } else if !content.map["water"].is_null() {
-            static_content.deferred += 1;
-        }
         let mut far_slot = bfe_render::far::FAR_SLOTS;
         let mut far_world_slots = Vec::new();
         let mut near_world_ids = Vec::new();
@@ -966,8 +914,7 @@ impl Scene {
         let mut min = [f64::INFINITY; 3];
         let mut max = [f64::NEG_INFINITY; 3];
         for (mesh_index, (mesh, layer_ids)) in content.world.iter().zip(&layer_ids).enumerate() {
-            if mesh_index % 8 == 0 {
-                crate::loading_work::frame().await;
+            if budget.tick().await {
                 bridge.r.core.state.reset();
             }
             if mesh.material.kind == MaterialKind::Sky {
@@ -1008,7 +955,8 @@ impl Scene {
                 vertices,
                 mesh.geometry.indices.clone(),
             )?;
-            if live && !mesh.material.far && mesh.material.blend == Blend::Opaque {
+            if live && !mesh.material.far && mesh.material.blend == Blend::Opaque
+                && mesh.material.kind != MaterialKind::Terrain {
                 bridge.static_depth_add(source, mesh.material.texture.map_or(-1, |id| textures[id] as i32))?;
             }
             if let Some(weights) = mesh.geometry.buffers.get(1) {
@@ -1122,6 +1070,33 @@ impl Scene {
         // WorldPass.prepareNative seals the opaque draw order after admission.
         // Adding descriptors alone leaves the retained submission list empty.
         bridge.r.world.sort(false);
+        let mut water_host = if !water_data.is_null() {
+            let far_reach = content.map["distance"]["farScene"][1].as_f64().unwrap_or(3000.);
+            // A weather of anything but quads storms (ocean-surface.js storms()).
+            let rain = &content.map["weather"]["precipitation"];
+            let stormy = rain.is_object() && !rain["Type"][0].as_str().unwrap_or("").eq_ignore_ascii_case("quads");
+            let mut host = crate::water_host::WaterHost::new(
+                &mut bridge,
+                &mut resources,
+                water_data,
+                &water,
+                &textures,
+                &mut far_slot,
+                far_reach,
+                size,
+                live,
+                (ocean_mask, stormy),
+            )?;
+            host.set_settings(&mut bridge, &mut resources, &crate::water_host::Settings::default())?;
+            Some(host)
+        } else {
+            None
+        };
+        let rain = &content.map["weather"]["precipitation"];
+        let storm = if sea_water && rain.is_object() && !rain["Type"][0].as_str().unwrap_or("").eq_ignore_ascii_case("quads") {
+            Some(crate::storm_host::StormHost::new(&mut bridge, &mut resources, &content.world, &textures, water_data, &mut far_slot)?)
+        } else { None };
+        let flyers = crate::sky_host::SkyHost::new(&mut bridge, &mut resources, &content, &textures, &mut far_slot)?;
         bridge.r.far.prepare_frame_capacity();
         bridge.r.foliage.prepare_frame_caches();
         if admitted == 0 {
@@ -1161,7 +1136,7 @@ impl Scene {
             "native static admission: props={}, foliage={}, water={}, sky={}",
             static_content.props,
             static_content.foliage,
-            usize::from(static_content.water.is_some()),
+            usize::from(water_host.is_some()),
             static_content.skies.len()
         );
         if std::env::var_os("BFE_BENCH").is_some() {
@@ -1183,7 +1158,7 @@ impl Scene {
                 "propParts": static_content.props, "deferred": deferred,
                 "foliageClasses": static_content.foliage,
                 "foliage": {"classes": content.map["foliage"]["classes"], "instancesByClass": foliage_counts},
-                "waterSurfaces": usize::from(static_content.water.is_some()), "water": content.map["water"],
+                "waterSurfaces": usize::from(water_host.is_some()), "water": content.map["water"],
                 "skyLayers": static_content.skies.len(), "lights": content.map["lighting"],
                 "lightRegions": content.map["lightRegions"], "lumi": content.map["lumi"],
                 "collision": {"buildingsTriangles": content.content.collision.indices.len()/3,
@@ -1238,6 +1213,12 @@ impl Scene {
         } else {
             None
         };
+        // The water's near passes keep their values after everything the
+        // effect data holds already.
+        let water_fx = online.as_ref().map_or(0, |online| online.effects_end());
+        if let Some(host) = &water_host {
+            bridge.fx_reserve((water_fx + host.data_floats()) as u32);
+        }
         let bones = static_content.records.iter()
             .map(|row| row[bfe_render::instances::REC_BONES] as usize)
             .chain([online.as_ref().map_or(1, |resources| resources.max_bones())])
@@ -1249,9 +1230,17 @@ impl Scene {
         } else {
             None
         };
-        bridge.frame_reserve_frame();
+        while !bridge.r.frame_reserve_role() {
+            crate::loading_work::frame().await;
+        }
+        crate::loading_work::frame().await;
         Ok((
             Self {
+                water: water_host.take(),
+                water_data: water_fx,
+                water_time: f64::NAN,
+                storm,
+                flyers,
                 online,
                 bridge,
                 resources,
@@ -1480,6 +1469,16 @@ impl Scene {
         eprintln!("battle resolution: canvas-device={}x{} renderScale={} adaptive={} effective={} scene-device={}x{} target-fps={} GPU-ms={} CPU-thread-ms={}",self.size[0],self.size[1],self.render_scale,self.adaptive_scale,scale,self.render_size[0],self.render_size[1],self.resolution_target,self.resolution_gpu_ms,self.resolution_cpu_ms);
     }
 
+    /// The player's water choices (WATER QUALITY, OCEAN AND SKY, WATER AND
+    /// STEAM), applied as the page applied them: live.
+    pub fn set_water_settings(&mut self, settings: &crate::water_host::Settings) -> Result<(), String> {
+        if let Some(storm) = &mut self.storm { storm.enabled = settings.ocean == "enhanced"; }
+        if let Some(flyers) = &mut self.flyers { flyers.set_enhanced(settings.ocean == "enhanced"); }
+        match &mut self.water {
+            Some(host) => host.set_settings(&mut self.bridge, &mut self.resources, settings),
+            None => Ok(()),
+        }
+    }
     fn resize_scene_targets(&mut self) -> Result<(), String> {
         let size=render_extent(self.size,self.render_scale,self.adaptive_scale);
         if size == self.render_size { return Ok(()); }
@@ -1507,6 +1506,7 @@ impl Scene {
             self.bridge.r.post_chain.input[at + pr::WIDTH] = extent[0] as f64;
             self.bridge.r.post_chain.input[at + pr::HEIGHT] = extent[1] as f64;
         }
+        if let Some(host) = &mut self.water { host.resize(&mut self.bridge, &mut self.resources, size)?; }
         self.render_size = size;
         self.bridge.r.core.state.reset();
         self.log_resolution();
@@ -1626,12 +1626,14 @@ impl Scene {
         replay:&crate::online::replay::Replay, history:&crate::online::replay::History,
         camera:&mut MapCamera,dt:f64) {
         let timer=self.bridge.r.core.profile.clock();
+        if let Some(shadows) = &mut self.shadows { shadows.frame_time(dt); }
         if let Some(resources)=&mut self.online {
             crate::app::bench::apply_camera(camera);
             let mut world=Matrix4::default();
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
             resources.items.hide_piloted_remote = receiver.own.remote.is_some()
                 && (camera.first_person || receiver.own.remote_zoom_step != 0);
+            resources.animation_view(camera);
             resources.frame(receiver,receiver.clock.shown,dt.min(8./60.),camera.position,
                 replay,history,&mut self.bridge);
             let rider_eye = resources.prepare_camera(receiver, replay, &world.elements);
@@ -1669,7 +1671,8 @@ impl Scene {
                 } else {
                     0.
                 };
-            resources.finish_frame(receiver, replay, &world.elements, cue);
+            resources.animation_view(camera);
+            resources.finish_frame(receiver, replay, &world.elements, cue, &mut self.bridge.r.core.profile);
             resources.capture_shot_scene(receiver, camera);
             resources.present_ordnance(receiver, replay, dt.min(8./60.), &mut self.bridge);
             resources.present_arcs(receiver, replay, dt.min(8./60.), &world, &camera.snapshot().values[..16], self.size[1] as f64, &mut self.bridge);
@@ -1794,9 +1797,23 @@ impl Scene {
                 self.bridge.r.frames.plan.facts[f::TEMPORAL]=1.;
             }
         }
+        let canopy_timer = self.bridge.r.core.profile.clock();
         if let Some(canopies)=&self.canopies{canopies.frame(&mut self.bridge,&mut self.resources,view,self.shadows_enabled)?;}
+        self.bridge.r.core.profile.cpu("canopy preparation", canopy_timer);
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
-        crate::static_scene::update(&mut self.static_content, &mut self.bridge, &view.values);
+        crate::static_scene::place_skies(&self.static_content, &mut self.bridge, &view.values, true);
+        if matches!(component, Component::All | Component::Sky) {
+            let far = self.far_reach * self.distance_scale;
+            if let Some(flyers) = &mut self.flyers {
+                if flyers.frame(&mut self.bridge, view, far) {
+                    let probe = flyers.probe;
+                    crate::water_host::WaterHost::camera(&mut self.bridge, &view.values, far, false, 0., [0.;2], 0.);
+                    self.sky_probe(view, probe);
+                }
+            }
+        } else if let Some(flyers) = &self.flyers { flyers.hide(&mut self.bridge.r.far.input); }
+        self.lamps.begin();
+        if matches!(component, Component::All | Component::Water) { self.water_frame(view)?; }
         if matches!(component, Component::All | Component::Sky) {
             // Far terrain shares the displayed lens. Its separate clipping
             // planes cannot replace a mounted or scoped camera's field of view.
@@ -1814,7 +1831,7 @@ impl Scene {
         }
         for sky in &self.static_content.skies {
             self.bridge.r.far.input[sky.slot] =
-                if matches!(component, Component::All | Component::Sky) {
+                if matches!(component, Component::All | Component::Sky) && !self.storm.as_ref().is_some_and(|storm| storm.enabled) {
                     1.
                 } else {
                     0.
@@ -1829,6 +1846,7 @@ impl Scene {
         self.bridge.r.far.input[bfe_render::far::FAR_DRAW] = 1.;
         self.publish(r::FAR, k::FAR, 0, 0, 0);
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
+        let cull_timer=self.bridge.r.core.profile.clock();
         let mut records = if matches!(component, Component::All | Component::Props) {
             let room=if component==Component::All{self.online.as_ref().map_or(0,|r|(r.record_budget()+r.hidden_shadow_budget()).min(bfe_render::instances::MAX_RECORDS))}else{0};
             self.static_content.select_limit(&mut self.bridge,bfe_render::instances::MAX_RECORDS-room)
@@ -1840,10 +1858,6 @@ impl Scene {
         } else {
             self.bridge.foliage_clear_frame();
         }
-        let water_shown = self.bridge.r.water.input[bfe_render::water::S_SHOWN];
-        if !matches!(component, Component::All | Component::Water) {
-            self.bridge.r.water.input[bfe_render::water::S_SHOWN] = 0.;
-        }
         let mut bones = self.bridge.r.core.input[bfe_render::instances::IN_RECORDS..]
             .chunks_exact(bfe_render::instances::REC_STRIDE)
             .take(records)
@@ -1853,11 +1867,13 @@ impl Scene {
             })
             .max()
             .unwrap_or(0);
-        if component==Component::All{if let Some(online)=&self.online{(records,bones)=online.append(&mut self.bridge,records,bones);}}
-        self.lamps.begin();
+        if component==Component::All{if let Some(online)=&mut self.online{(records,bones)=online.append(&mut self.bridge,records,bones);}}
+        self.bridge.r.core.profile.cpu("instance list and culling",cull_timer);
+        let lamp_timer = self.bridge.r.core.profile.clock();
         let online=&self.online;
         self.lamps.instances(&mut self.bridge.r.core,records,false,&mut |from,to|online.as_ref().is_none_or(|online|online.lamp_visible(from,to)));
         if !self.lamp_worlds.is_empty(){let values=self.lamps.select((1u64<<49,0,0,0),[0.;3],&mut |from,to|online.as_ref().is_none_or(|online|online.lamp_visible(from,to)));for &id in &self.lamp_worlds{self.bridge.world_lamps(id,&values);}}
+        self.bridge.r.core.profile.cpu("lamp selection", lamp_timer);
         if let Some(native)=&mut self.temporal_motion{
             use bfe_render::{motion as M,post_chain::layout::{facts as pf,resource as pr,state as ps}};
             let motion=&mut self.bridge.r.motion;let f=&self.bridge.r.post_chain.input;let state=&self.bridge.r.post_chain.state;
@@ -1867,14 +1883,16 @@ impl Scene {
             motion.input[M::IN_RANGE..M::IN_RANGE+2].copy_from_slice(&[0.,1.]);motion.input[M::IN_TARGET]=f[pf::RESOURCES+pr::VELOCITY*pr::STRIDE+pr::TEXTURE];motion.input[M::IN_SIZE..M::IN_SIZE+2].copy_from_slice(&self.render_size.map(|v|v as f64));motion.input[M::IN_DEPTH]=self.depth_texture as f64;motion.input[M::IN_CLEAR]=1.;
             native.prepare(&self.bridge.r.core,motion,records,state[ps::VALID]!=0.);
         }
+        let shadow_timer=self.bridge.r.core.profile.clock();
         if self.shadows_enabled { if let Some(shadows) = &mut self.shadows {
             let shadow_records = self.online.as_ref().map_or(records, |online| {
                 online.append_hidden_shadows(&mut self.bridge, records, bones)
             });
             shadows.publish(&mut self.bridge, view, shadow_records)?;
         }}
+        self.bridge.r.core.profile.cpu("shadow preparation",shadow_timer);
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
-        self.publish(r::NEAR, k::SCENE, records, bones, 0);
+        self.publish_near(records, bones);
         self.bridge.r.post.input[..bfe_render::post::STEP].copy_from_slice(&self.image_step);
         self.bridge.r.post.states[..bfe_render::post::STATE].copy_from_slice(&self.image_state);
         self.publish(r::IMAGE, k::SCREEN, 0, 0, 1);
@@ -1896,13 +1914,15 @@ impl Scene {
                 if let Some(online)=&self.online{let l=&online.lights;let n=l.view_count;self.bridge.r.core.input[shader::FRAME_LIGHT_COUNT]=n as f64;self.bridge.r.core.input[shader::FRAME_LIGHTS..shader::FRAME_LIGHTS+n*8].copy_from_slice(&l.view_packed[..n*8]);}self.publish(r::VIEW,k::VIEW,view_records,view_bones,0);}}
         if let Some(native)=&self.temporal_motion{let count=native.count;self.publish(r::MOTION,k::MOTION,count,0,0);}
         if self.online.is_some(){self.publish(r::HUD0,k::HUD,0,0,0);}
+        self.water_screens(component);
         self.bridge.r.core.profile.cpu("draw list building",build_timer);
         let submit_timer=self.bridge.r.core.profile.clock();
+        let gpu_frame = self.bridge.r.core.profile.begin_frame(&self.bridge.r.core.gl);
         let success = self.bridge.battle_frame(&mut self.resources);
+        self.bridge.r.core.profile.end(&self.bridge.r.core.gl, "GPU frame", gpu_frame);
         if let Some(native)=&mut self.temporal_motion{native.complete(success);}
         self.bridge.r.core.profile.cpu("GL submit",submit_timer);
         self.bridge.r.core.profile.frame(&self.bridge.r.core.gl);
-        self.bridge.r.water.input[bfe_render::water::S_SHOWN] = water_shown;
         if !success {
             return Err(self
                 .bridge
@@ -1918,6 +1938,267 @@ impl Scene {
             .map(|row| row[t::PASS_DRAWS..].iter().sum::<f64>() as u64)
             .sum::<u64>();
         Ok(())
+    }
+    // Water.update and Water.reflect for this frame: the host's rows and
+    // facts, then the mirrored far scene when the water asks for a new image.
+    fn water_frame(&mut self, view: &mut View) -> Result<(), String> {
+        use bfe_render::frame_plan::layout::{binding as b, facts as f, kind as k, meta as m, role as r};
+        let Some(host) = self.water.as_mut() else {
+            return Ok(());
+        };
+        let clock = view.values[shader::FRAME_OFFSETS[shader::FRAME_MEMBERS.iter().position(|(n, _)| *n == "time").unwrap_or(0)]];
+        // The frame step is the elapsed battle time, as the page's frame
+        // delta was: capped where the page capped it.
+        let dt = if self.water_time.is_nan() { 0. } else { (clock - self.water_time).clamp(0., 8. / 60.) };
+        self.water_time = clock;
+        // Without a battle nothing else builds the effect list.
+        if self.online.is_none() {
+            self.bridge.r.effects.input[bfe_render::effects::IN_DRAWS] = 0.;
+        }
+        let light = self.storm.as_mut().and_then(|storm| storm.frame(&mut self.bridge, view, host.time() + dt));
+        host.storm_light(light);
+        host.frame(&mut self.bridge, &mut self.resources, &view.values, dt, self.water_data, self.online.as_ref().map(|online| online.water_collision()))?;
+        if host.plan.probe {
+            if let Some(probe) = host.ocean().and_then(|o| o.probe) { self.sky_probe(view, probe); }
+        }
+        let Some(host) = self.water.as_mut() else {
+            return Ok(());
+        };
+        let facts = &mut self.bridge.r.frames.plan.facts;
+        if let Some(target) = host.plan.surface {
+            // The scene copy: the near view's colour and depth before the
+            // first pass that reads them (the surface binding's target).
+            facts[f::SURFACE_COPY] = f64::from(host.plan.copy);
+            let row = &mut self.bridge.r.frames.bindings[r::SURFACE * b::LEN..(r::SURFACE + 1) * b::LEN];
+            row.fill(0.);
+            row[b::TARGET] = f64::from(target);
+            row[b::SAMPLE] = -1.;
+            row[b::WIDTH] = f64::from(self.render_size[0]);
+            row[b::HEIGHT] = f64::from(self.render_size[1]);
+            row[b::SCISSOR + 2] = f64::from(self.render_size[0]);
+            row[b::SCISSOR + 3] = f64::from(self.render_size[1]);
+            self.bridge.r.frames.meta[r::SURFACE * m::LEN + m::BOUND] = 1.;
+        }
+        if !host.plan.mirror {
+            return Ok(());
+        }
+        // The reflected far scene (BattleFrame.mirror): the sky layers first,
+        // through the plain projection, then the rest of the far scene over
+        // it through the one clipped at the surface, into the mirror's target.
+        let (target, size, near) = (host.plan.target, host.plan.size, host.plan.near);
+        let (plain, clipped) = (std::mem::take(&mut host.plan.plain), std::mem::take(&mut host.plan.clipped));
+        let hidden = host.hide_far(&mut self.bridge.r.far.input);
+        let sky = !self.static_content.skies.is_empty();
+        self.bridge.r.frames.plan.facts[f::MIRROR_SKY] = f64::from(sky);
+        for role in [r::MIRROR0_SKY, r::MIRROR0_FAR] {
+            let row = &mut self.bridge.r.frames.bindings[role * b::LEN..(role + 1) * b::LEN];
+            row.fill(0.);
+            row[b::TARGET] = f64::from(target);
+            row[b::SAMPLE] = -1.;
+            row[b::WIDTH] = f64::from(size[0]);
+            row[b::HEIGHT] = f64::from(size[1]);
+            row[b::SCISSOR + 2] = f64::from(size[0]);
+            row[b::SCISSOR + 3] = f64::from(size[1]);
+            self.bridge.r.frames.meta[role * m::LEN + m::BOUND] = 1.;
+        }
+        self.bridge.r.far.input[bfe_render::far::FAR_DRAW] = 1.;
+        if sky {
+            for layer in &self.static_content.skies {
+                self.bridge.r.far.input[layer.slot] = 1.;
+            }
+            for &at in &self.far_world_slots {
+                self.bridge.r.far.input[at] = 0.;
+            }
+            crate::static_scene::place_skies(&self.static_content, &mut self.bridge, &plain, false);
+            self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&plain);
+            self.publish(r::MIRROR0_SKY, k::FAR, 0, 0, 0);
+            for layer in &self.static_content.skies {
+                self.bridge.r.far.input[layer.slot] = 0.;
+            }
+        }
+        for &at in &self.far_world_slots {
+            self.bridge.r.far.input[at] = 1.;
+        }
+        crate::static_scene::place_skies(&self.static_content, &mut self.bridge, &clipped, false);
+        self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&clipped);
+        self.publish(r::MIRROR0_FAR, k::FAR, 0, 0, 0);
+        if let Some((target, texture)) = near { self.water_mirror_near(&clipped, size, target, texture); }
+        // The main view again.
+        for layer in &self.static_content.skies {
+            self.bridge.r.far.input[layer.slot] = 1.;
+        }
+        crate::static_scene::place_skies(&self.static_content, &mut self.bridge, &view.values, true);
+        self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
+        if let Some(host) = self.water.as_mut() {
+            host.show_far(&mut self.bridge.r.far.input, hidden);
+            host.plan.plain = plain;
+            host.plan.clipped = clipped;
+        }
+        Ok(())
+    }
+    // Ultra's second reflected scene uses full-detail architecture and live
+    // bodies. Its separate far image supplies the background and fade reads.
+    fn water_mirror_near(&mut self, clipped: &[f64], size: [i32; 2], target: u32, texture: u32) {
+        use bfe_render::{effects as fx, instances as i, post,
+            frame_plan::layout::{binding as b, kind as k, meta as m, role as r}};
+        let mut view = View { values: clipped.try_into().expect("mirror frame block") };
+        set(&mut view, "resolution", &[size[0] as f64, size[1] as f64]);
+        let soft = self.bridge.r.effects.input[fx::IN_SOFT];
+        self.bridge.r.effects.input[fx::IN_SOFT] = 0.;
+        set(&mut view, "aaSamples", &[0.]);
+        set(&mut view, "farAaSamples", &[0.]);
+        self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
+        self.bridge.set_far_map(texture);
+        let count = self.bridge.r.effects.input[fx::IN_DRAWS] as usize;
+        self.bridge.r.effects.input[fx::IN_DRAWS] = self.water.as_ref().map_or(count, |host| host.draws_before_water(count)) as f64;
+        let room = self.online.as_ref().map_or(0, |online| online.record_budget()).min(i::MAX_RECORDS);
+        let mut records = self.static_content.select_limit(&mut self.bridge, i::MAX_RECORDS - room);
+        let mut bones = self.bridge.r.core.input[i::IN_RECORDS..].chunks_exact(i::REC_STRIDE).take(records)
+            .map(|row| (row[i::REC_BONE_AT] + row[i::REC_BONES]) as usize).max().unwrap_or(0);
+        if let Some(online) = &mut self.online { (records, bones) = online.append(&mut self.bridge, records, bones); }
+        let online = &self.online;
+        self.lamps.instances(&mut self.bridge.r.core, records, false,
+            &mut |from, to| online.as_ref().is_none_or(|online| online.lamp_visible(from, to)));
+        self.prepare_foliage(&view);
+        for role in [r::MIRROR0_NEAR, r::MIRROR0_IMAGE, r::MIRROR0_TRANSPARENT] {
+            let row = &mut self.bridge.r.frames.bindings[role * b::LEN..][..b::LEN];
+            row.fill(0.);
+            row[b::TARGET] = target as f64;
+            row[b::SAMPLE] = -1.;
+            row[b::WIDTH] = size[0] as f64;
+            row[b::HEIGHT] = size[1] as f64;
+            row[b::SCISSOR + 2] = size[0] as f64;
+            row[b::SCISSOR + 3] = size[1] as f64;
+            self.bridge.r.frames.meta[role * m::LEN + m::BOUND] = 1.;
+        }
+        self.publish(r::MIRROR0_NEAR, k::SCENE, records, bones, 0);
+        let mut image = self.image_step;
+        image[post::STEP_WIDTH] = size[0] as f64;
+        image[post::STEP_HEIGHT] = size[1] as f64;
+        image[post::STEP_FIRST + 2] = texture as f64;
+        self.bridge.r.post.input[..post::STEP].copy_from_slice(&image);
+        self.bridge.r.post.states[..post::STATE].copy_from_slice(&self.image_state);
+        self.publish(r::MIRROR0_IMAGE, k::SCREEN, 0, 0, 1);
+        if let Some(online) = &self.online {
+            self.bridge.r.frames.meta[r::MIRROR0_TRANSPARENT * m::LEN + m::FX_WORDS] = online.combat.particles.words as f64;
+        }
+        self.publish(r::MIRROR0_TRANSPARENT, k::TRANSPARENT, records, bones, 0);
+        self.bridge.r.effects.input[fx::IN_DRAWS] = count as f64;
+        self.bridge.r.effects.input[fx::IN_SOFT] = soft;
+        self.bridge.set_far_map(self.image_step[post::STEP_FIRST + 2] as u32);
+    }
+    // SkyProbe.update's capture: the map's sky in the six faces of a cube
+    // around the eye, drawn as the far scene draws it, which an Enhanced sea
+    // reflects. The plan decides when one is due.
+    fn sky_probe(&mut self, view: &View, probe: crate::ocean_host::Probe) {
+        use bfe_render::{
+            cameras::layout as cl,
+            frame_plan::layout::{binding as b, kind as k, meta as m, role as r},
+        };
+        let (target, sample, size) = (probe.target, probe.sample, probe.size);
+        self.bridge.camera_probe_frame(0);
+        // The sky alone: no far scenery, no water.
+        if let Some(host) = &self.water { host.hide_all_far(&mut self.bridge.r.far.input); }
+        if let Some(flyers) = &self.flyers { flyers.hide(&mut self.bridge.r.far.input); }
+        let mut block = [0.; shader::FRAME_FLOATS];
+        for &at in &self.far_world_slots {
+            self.bridge.r.far.input[at] = 0.;
+        }
+        for layer in &self.static_content.skies {
+            self.bridge.r.far.input[layer.slot] = 1.;
+        }
+        self.bridge.r.far.input[bfe_render::far::FAR_CLEAR..bfe_render::far::FAR_CLEAR + 4].copy_from_slice(&[0.04, 0.06, 0.09, 1.]);
+        self.bridge.r.far.input[bfe_render::far::FAR_DRAW] = 1.;
+        for face in 0..6 {
+            let role = r::PROBE0 + face;
+            let row = &mut self.bridge.r.frames.bindings[role * b::LEN..(role + 1) * b::LEN];
+            row.fill(0.);
+            row[b::TARGET] = f64::from(target);
+            row[b::FACE] = face as f64;
+            row[b::SAMPLE] = f64::from(sample);
+            row[b::WIDTH] = f64::from(size);
+            row[b::HEIGHT] = f64::from(size);
+            row[b::SCISSOR + 2] = f64::from(size);
+            row[b::SCISSOR + 3] = f64::from(size);
+            self.bridge.r.frames.meta[role * m::LEN + m::BOUND] = 1.;
+            // The face's camera, from the camera owner's probe views.
+            let at = (cl::role::PROBE0 + face) * cl::camera::LEN;
+            let camera = &self.bridge.r.cameras.output[at..at + cl::camera::LEN];
+            block.copy_from_slice(&view.values);
+            block[0..16].copy_from_slice(&camera[cl::camera::PROJECTION..cl::camera::PROJECTION + 16]);
+            block[16..32].copy_from_slice(&camera[cl::camera::INVERSE..cl::camera::INVERSE + 16]);
+            // A cube face keeps its local position at zero: the eye is the
+            // translation of its world matrix.
+            block[32..35].copy_from_slice(&camera[cl::camera::WORLD + 12..cl::camera::WORLD + 15]);
+            crate::static_scene::place_skies(&self.static_content, &mut self.bridge, &block, true);
+            self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&block);
+            self.publish(role, k::FAR, 0, 0, 0);
+        }
+        // The main view again: its own far scene sets the far input anew.
+        for &at in &self.far_world_slots {
+            self.bridge.r.far.input[at] = 1.;
+        }
+        crate::static_scene::place_skies(&self.static_content, &mut self.bridge, &view.values, true);
+        self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
+        if let Some(flyers) = &mut self.flyers { flyers.place(&mut self.bridge, view, self.far_reach*self.distance_scale, 0.); }
+    }
+    // The near phase's packet. The sea's near surface is a far-pass item the
+    // near phase draws (FarPass.drawNear), so that packet shows it alone.
+    fn publish_near(&mut self, records: usize, bones: usize) {
+        use bfe_render::frame_plan::layout::{kind as k, role as r};
+        let sea = self.water.as_ref().and_then(|host| host.plan.sea.map(|slot| (host, slot)));
+        let Some((host, slot)) = sea else {
+            self.publish(r::NEAR, k::SCENE, records, bones, 0);
+            return;
+        };
+        let far = &mut self.bridge.r.far.input;
+        for layer in &self.static_content.skies {
+            far[layer.slot] = 0.;
+        }
+        for &at in &self.far_world_slots {
+            far[at] = 0.;
+        }
+        host.hide_all_far(far);
+        if let Some(storm) = &self.storm { storm.hide(far); }
+        if let Some(flyers) = &self.flyers { flyers.hide(far); }
+        far[slot] = 1.;
+        far[bfe_render::far::FAR_NEAR] = 1.;
+        // The sea draws over what the phase drew: the far pass would clear it.
+        far[bfe_render::far::FAR_KEEP] = 1.;
+        self.publish(r::NEAR, k::SCENE, records, bones, 0);
+        let far = &mut self.bridge.r.far.input;
+        far[bfe_render::far::FAR_NEAR] = 0.;
+        far[bfe_render::far::FAR_KEEP] = 0.;
+        far[slot] = 0.;
+    }
+    // Water.drawUnderwater and the Enhanced underwater fog: screen packets
+    // the frame plan draws after the post chain and after the transparent
+    // list, when the eye is under the surface.
+    fn water_screens(&mut self, component: Component) {
+        use bfe_render::frame_plan::layout::{binding as b, kind as k, meta as m, role as r};
+        let Some(host) = self.water.as_ref().filter(|_| matches!(component, Component::All | Component::Water)) else {
+            return;
+        };
+        let (underwater, fog, time) = (host.plan.underwater, host.plan.fog, host.time());
+        for (role, active, with_fog) in [(r::UNDERWATER, underwater, false), (r::FOG, fog, true)] {
+            if !active {
+                continue;
+            }
+            self.water.as_ref().map(|host| host.screen(&mut self.bridge, with_fog, time));
+            let row = &mut self.bridge.r.frames.bindings[role * b::LEN..(role + 1) * b::LEN];
+            row.fill(0.);
+            row[b::TARGET] = if with_fog { self.frame.as_ref().map_or(-1., |frame| f64::from(frame.target)) } else { -1. };
+            row[b::SAMPLE] = -1.;
+            let size = if with_fog { self.render_size } else { self.size };
+            row[b::WIDTH] = f64::from(size[0]);
+            row[b::HEIGHT] = f64::from(size[1]);
+            row[b::SCISSOR + 2] = f64::from(size[0]);
+            row[b::SCISSOR + 3] = f64::from(size[1]);
+            self.bridge.r.frames.meta[role * m::LEN + m::BOUND] = 1.;
+            self.bridge.r.post.input[bfe_render::post::STEP_WIDTH] = size[0] as f64;
+            self.bridge.r.post.input[bfe_render::post::STEP_HEIGHT] = size[1] as f64;
+            self.publish(role, k::SCREEN, 0, 0, 1);
+        }
     }
     fn publish(&mut self, role: usize, kind: usize, records: usize, bones: usize, steps: usize) {
         use bfe_render::frame_plan::layout::meta as m;
@@ -1966,27 +2247,9 @@ impl Scene {
     }
     /// Cold diagnostics for the isolated-view tool; never read by the frame loop.
     pub fn bindings(&self) -> serde_json::Value {
-        use bfe_render::{instances as I, water as W};
+        use bfe_render::instances as I;
         let rigs=self.static_content.records.iter().map(|r|{let start=r[I::REC_BONE_AT] as usize*16;let len=r[I::REC_BONES] as usize*16;serde_json::json!({"world":&r[I::REC_WORLD..I::REC_WORLD+16],"bind":r[I::REC_BIND_INVERSE..I::REC_BIND_INVERSE+16].iter().map(|v|*v as f32 as f64).collect::<Vec<_>>(),"bones":self.static_content.bones[start..start+len].iter().map(|v|*v as f64).collect::<Vec<_>>()})}).collect::<Vec<_>>();
-        let mut uniforms = serde_json::Map::new();
-        if let Some(w) = &self.static_content.water {
-            if let Ok(spec) = bfe_render::programs::spec(w.key) {
-                for (i, (name, ty)) in spec.uniforms.iter().enumerate() {
-                    if *ty >= 32 {
-                        continue;
-                    }
-                    let at = W::S_FIRST + i * bfe_render::post::UNIFORM + 2;
-                    let len = (*ty as usize).min(16);
-                    uniforms.insert(
-                        name.to_string(),
-                        serde_json::json!(self.bridge.r.water.input[at..at + len]
-                            .iter()
-                            .map(|v| *v as f32 as f64)
-                            .collect::<Vec<_>>()),
-                    );
-                }
-            }
-        }
+        let uniforms = serde_json::Map::<String, serde_json::Value>::new();
         serde_json::json!({"rigs":rigs,"uniforms":uniforms})
     }
     pub fn hash(&self) -> Result<String, String> {

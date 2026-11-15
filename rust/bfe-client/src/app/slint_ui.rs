@@ -287,7 +287,6 @@ impl SlintHost {
         window: Arc<Window>,
         context: Rc<PossiblyCurrentContext>,
         surface: Rc<Surface<WindowSurface>>,
-        proof: bool,
     ) -> Result<Self, String> {
         let renderer = FemtoVGRenderer::new(Gl {
             context: context.clone(),
@@ -317,7 +316,6 @@ impl SlintHost {
         root.set_rows(slint::ModelRc::from(rows.clone()));
         let steam_paragraphs = Rc::new(slint::VecModel::<slint::SharedString>::default());
         root.set_steam_paragraphs(slint::ModelRc::from(steam_paragraphs.clone()));
-        root.set_proof_controls(proof);
         let actions: Rc<RefCell<Vec<UiAction>>> = Rc::new(RefCell::new(Vec::new()));
         let options_actions: Rc<RefCell<Vec<OptionsUiAction>>> = Rc::new(RefCell::new(Vec::new()));
         super::slint_options::register_callbacks(&root, options_actions.clone());

@@ -181,17 +181,23 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
     // Capturing a full store later clips a whole packet, never a byte record.
     pub fn frame_reserve(&mut self) {
         if !self.frames.packets.is_empty() { return; }
-        self.frames.lines.resize(3*crate::frame_plan::layout::limit::LINES*crate::frame_plan::layout::line::LEN,0.);
-        for role in 0..R::COUNT {
-            let kind=role_kind(role);let mut packet=Packet::empty();packet.kind=kind;
-            let mut size=0;
-            for &channel in channels(kind) {
-                let current=self.frame_source(channel).len();
-                let capacity=if matches!(channel,Channel::FxData) && kind==K::TRANSPARENT { current.max(4<<20) } else if matches!(channel,Channel::Interface) {0}else {current};
-                packet.spans.push(Span{channel,offset:size,capacity,used:0});size+=capacity;
-            }
-            packet.data.resize(size,0);self.frames.packets.push(packet);
+        while !self.frame_reserve_role() {}
+    }
+    /// frame_reserve one role's packet at a time (a slow PC zeroes hundreds of
+    /// megabytes); true once every role has its packet.
+    pub fn frame_reserve_role(&mut self) -> bool {
+        let role=self.frames.packets.len();
+        if role>=R::COUNT { return true; }
+        if role==0 { self.frames.lines.resize(3*crate::frame_plan::layout::limit::LINES*crate::frame_plan::layout::line::LEN,0.); }
+        let kind=role_kind(role);let mut packet=Packet::empty();packet.kind=kind;
+        let mut size=0;
+        for &channel in channels(kind) {
+            let current=self.frame_source(channel).len();
+            let capacity=if matches!(channel,Channel::FxData) && kind==K::TRANSPARENT { current.max(4<<20) } else if matches!(channel,Channel::Interface) {0}else {current};
+            packet.spans.push(Span{channel,offset:size,capacity,used:0});size+=capacity;
         }
+        packet.data=vec![0;size];self.frames.packets.push(packet);
+        self.frames.packets.len()>=R::COUNT
     }
     // ShadowPass.admitNative expands its command store at cold static-source
     // admission. Retain that content-sized capacity for every cascade packet;
@@ -380,7 +386,11 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
             },
             K::SCENE=>if role==R::NEAR{self.frame(records)?}else{self.mirror_frame(records)?},
             K::TRANSPARENT=>if role==R::TRANSPARENT{self.transparent_frame(0,0)?}else{self.mirror_transparent_frame(0,0)?},
-            K::SHADOW=>self.shadow_frame()?, K::VIEW=>self.view_frame(records)?,
+            K::SHADOW=>{
+                let b=&self.frames.bindings[role*B::LEN..(role+1)*B::LEN];
+                self.shadow.copy_rect = if b[B::CLIPPED] != 0. { Some(std::array::from_fn(|i| b[B::SCISSOR+i] as i32)) } else { None };
+                self.shadow_frame()?
+            }, K::VIEW=>self.view_frame(records)?,
             K::MOTION=>self.motion_frame(records)?, K::SCREEN=>self.screen_frame(steps)?,
             K::HUD=>self.hud_frame()?,
             K::INTERFACE=>{self.core.begin_phase();self.interface.draw(&mut self.core,count.min(crate::interface_scene::layout::MAX_DRAWS));self.core.end_phase()?},
@@ -414,7 +424,11 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
                     O::BIND=>{if self.frames.meta[role*M::LEN+M::PRESENT]!=0. || role==R::NEAR && self.frames.meta[role*M::LEN+M::BOUND]!=0. {targets.bind(row)?;}},
                     O::CLEAR=>{if self.frames.meta[role*M::LEN+M::PRESENT]!=0. {self.frame_clear(role,op.argument as u32)?;}},
                     O::DRAW=>{self.frame_draw_packet(role)?;if role==R::MOTION && self.frames.meta[role*M::LEN+M::PRESENT]!=0. {self.frames.plan.state[S::MOTION_COMPLETE]=1.;}},
-                    O::RESOLVE=>{if self.frames.meta[role*M::LEN+M::PRESENT]!=0. {targets.resolve(row[B::TARGET] as i32)?;}},
+                    O::RESOLVE=>{if self.frames.meta[role*M::LEN+M::PRESENT]!=0. {
+                        let timer=self.core.profile.begin(&self.core.gl);
+                        targets.resolve(row[B::TARGET] as i32)?;
+                        self.core.profile.end(&self.core.gl,"target resolve",timer);
+                    }},
                     // Particle snapshots and surface composites reuse the
                     // resource owner's multisample/depth resolve semantics.
                     O::COPY_DEPTH|O::COPY_COLOR_DEPTH=>{

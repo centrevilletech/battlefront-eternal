@@ -8,6 +8,8 @@
   uniform float reset;
   uniform float maxWeight;
   uniform float kernel;
+  uniform mat3 narrowWeights;
+  uniform mat3 wideWeights;
   vec3 toYCoCg(vec3 c) { return vec3(0.25 * c.r + 0.5 * c.g + 0.25 * c.b, 0.5 * c.r - 0.5 * c.b, -0.25 * c.r + 0.5 * c.g - 0.25 * c.b); }
   vec3 toRGB(vec3 c) { return vec3(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z); }
   // Catmull-Rom from five bilinear taps (the corners dropped).
@@ -35,14 +37,24 @@
     float toOutput = outputSize.x / inputSize.x;
     vec3 sum = vec3(0.0), wide = vec3(0.0), m1 = vec3(0.0), m2 = vec3(0.0), lo = vec3(1e4), hi = vec3(-1e4);
     float weight = 0.0, wideWeight = 0.0;
+    // At one source pixel per output pixel the jitter is the only offset.
+    // The frame owner computes these identical Gaussian weights once.
+    bool cachedWeights = all(equal(inputSize, outputSize)) && narrowWeights[1][1] > 0.0
+      && all(greaterThan(base, ivec2(0))) && all(lessThan(base, size - 1));
     for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
       ivec2 t = clamp(base + ivec2(x, y), ivec2(0), size - 1);
       vec3 c = texelFetch(colorMap, t, 0).rgb;
       vec2 d = vec2(t) + 0.5 - jitter - q;
       // Narrow in output pixels (detail the history gathers), wide in input
       // pixels (a smooth picture from this frame alone).
-      float w = exp(-kernel * dot(d, d) * toOutput * toOutput);
-      float v = exp(-1.2 * dot(d, d));
+      float w, v;
+      if (cachedWeights) {
+        w = narrowWeights[x + 1][y + 1];
+        v = wideWeights[x + 1][y + 1];
+      } else {
+        w = exp(-kernel * dot(d, d) * toOutput * toOutput);
+        v = exp(-1.2 * dot(d, d));
+      }
       sum += c * w; weight += w;
       wide += c * v; wideWeight += v;
       vec3 s = toYCoCg(c);

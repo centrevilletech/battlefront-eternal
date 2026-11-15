@@ -56,7 +56,7 @@ impl Jetpacks {
     /// this owner's floats start in the effect data.
     pub fn new(content: &BattleContent, bridge: &mut Bridge, resources: &mut crate::resources::Resources, effects: &[(String, usize)], data: usize) -> Result<Self, String> {
         let shadow_cascades = bridge.shadow_cascades();
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
+        let defs = content.defs()?;
         let battle = &content.content.battle;
         let mut classes = Vec::new();
         classes.resize_with(defs.registry.classes.len() + 1, || None);

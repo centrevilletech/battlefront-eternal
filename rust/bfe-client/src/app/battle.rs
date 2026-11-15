@@ -52,18 +52,6 @@
 //! | Pause Behavior | Pauses `"bfe-world-60hz"` (`world.set_paused(true)`) | Simulation continues on server; shows `PLAYER LIST` |
 //! | Restart Mission | Re-admits current playlist entry from tick 0 | Hidden in online mode (`PauseRestartMode::Hidden`) |
 //!
-//! ## Steady-State Allocation Accounting
-//! - Frames `0..45` with overlays closed warm up any lazy internal buffers and the
-//!   first-tick welcome snapshot / initial combat presentation caches, matching
-//!   `phase_frames == 45` in `script.rs` (`reset_combat_measurement_window`).
-//! - Once `self.steady_frames >= 45` and `!self.is_overlay_open()`,
-//!   `BattleController::step_and_draw` samples `super::render_thread_alloc_count()`
-//!   before and after the entire simulation poll, input step, HUD build, and
-//!   `scene.draw(&view)` pass, accumulating any delta into `steady_allocs_after_warmup`.
-//! - The `--script gate` harness reports `steady_allocs_after_warmup` across
-//!   all three 2-minute Instant Action battles (`nab2`, `tat1`, `bes1`) and the
-//!   2-minute Online battle.
-//!
 //! ## Scoreboard Pages and Post-Match Flow (`LiveScoreboardPort` + `ScoreboardController`)
 //! - **`BoardPage::Table`**:
 //!   Displays the two faction headers (`REPUBLIC` vs `CIS` or `REBEL ALLIANCE` vs
@@ -151,6 +139,11 @@ use bfe_shell::{launch::BattleRequest, screens::MultiplayerLaunch};
 use std::path::Path;
 use winit::{event::MouseButton, keyboard::KeyCode};
 
+/// Commands one rendered frame may make: as the page's input clock
+/// (runtime/fixed-clock.js maxSteps), so a frame of 0.1 s still makes one
+/// for each of its six ticks.
+const MAX_FRAME_STEPS: usize = 8;
+
 fn initial_policy(source: &bfe_content::Value, era: &str) -> bfe_content::mission::Policy {
     let query = bfe_content::mission::Query::parse(&format!("?era={era}"));
     let world = bfe_content::mission::select_mission(source, &query);
@@ -165,7 +158,6 @@ pub struct InstantAdmission {
     era: String,
     world: WorldThread,
     admitted: crate::local::thread::AdmittedWorldInfo,
-    graphics: crate::scene::Prepared,
 }
 pub struct OnlineAdmission {
     launch: MultiplayerLaunch,
@@ -875,6 +867,8 @@ pub struct BattleController {
     pub(super) page_battle: super::page_battle::PageBattle,
     /// `bfe-battle-ui` in-battle text chat controller (`All` / `Team`).
     pub chat: ChatController,
+    /// The map's boundary and the LEAVING BATTLEFIELD warning's state.
+    leaving: super::leaving::LeavingFeed,
     pub(super) stats_text: String,
     frame_seconds: f64,
     /// Scratch quad batch used when compositing overlays onto `scene.bridge.hud_model.batch`.
@@ -893,8 +887,6 @@ pub struct BattleController {
     pub frames: u64,
     /// Count of steady gameplay frames rendered with all 2D overlays closed.
     pub steady_frames: u64,
-    /// Cumulative heap allocations on the render thread during steady gameplay after warmup.
-    pub steady_allocs_after_warmup: u64,
     /// Frames included in the allocation sample, excluding warmup and overlays.
     pub steady_frames_measured: u64,
     /// Total elapsed seconds in the current battle.
@@ -933,7 +925,8 @@ impl BattleController {
         playlist_index: usize,
         bots: &BotSettings,
         player_name: &str,
-        textures:crate::scene::TextureOptions,
+        textures: crate::scene::TextureOptions,
+        scene_ready: impl FnOnce(Result<crate::scene::Prepared, String>) + Send,
     ) -> Result<InstantAdmission, String> {
         // Resolve the target map ID and era from `request.playlist[playlist_index]` or `request`.
         let default_era = request.era.clone().unwrap_or_else(|| "cw".to_string());
@@ -994,8 +987,28 @@ impl BattleController {
             },
         };
 
-        let (world, admitted) = WorldThread::admit_instant_action(&local_options)?;
-        let graphics = Scene::prepare_online(content_dir, &admitted.query,textures)?;
+        // The world thread admits the battle while this worker reads the
+        // scene's content for the same mission query (the query the admission
+        // reports back, checked below) and hands it to the window at once.
+        let query = format!("{}&spawnscreen=1", local_options.world()?.query());
+        let started = std::time::Instant::now();
+        let (admission, world_time) = std::thread::scope(|scope| {
+            let world = scope.spawn(|| {
+                let admission = WorldThread::admit_instant_action(&local_options);
+                (admission, started.elapsed())
+            });
+            scene_ready(Scene::prepare_online(content_dir, &query, textures));
+            eprintln!(
+                "battle loading: scene content prepared in {:.0} ms",
+                started.elapsed().as_secs_f64() * 1000.
+            );
+            world.join().unwrap_or_else(|_| (Err("world admission stopped".into()), started.elapsed()))
+        });
+        eprintln!("battle loading: world admitted in {:.0} ms", world_time.as_secs_f64() * 1000.);
+        let (world, admitted) = admission?;
+        if admitted.query != query {
+            return Err(format!("world admitted {} but the scene was read for {query}", admitted.query));
+        }
         Ok(InstantAdmission {
             request,
             playlist_index,
@@ -1003,18 +1016,23 @@ impl BattleController {
             era,
             world,
             admitted,
-            graphics,
         })
     }
 
+    /// Creates the scene's display resources, then waits for the world's
+    /// admission (`world`), which may still be under way on its thread.
     pub async fn open_instant_action(
-        _content_dir: &Path,
-        prepared: InstantAdmission,
+        content_dir: &Path,
+        graphics: crate::scene::Prepared,
+        world: impl std::future::Future<Output = Result<InstantAdmission, String>>,
         size: [i32; 2],
         settings: &AppSettingsStore,
-        _audio_router: &SharedAudioRouter,
         mut make_gl: impl FnMut() -> glow::Context,
     ) -> Result<Self, String> {
+        let mut graphics = graphics;
+        graphics.shadows(&settings.interface.get_string("shadows"));
+        let (mut scene, camera) = Scene::open_prepared(graphics, size, &mut make_gl).await?;
+        crate::loading_work::frame().await;
         let InstantAdmission {
             request,
             playlist_index,
@@ -1022,14 +1040,11 @@ impl BattleController {
             era,
             mut world,
             admitted,
-            graphics,
-        } = prepared;
-        let mut graphics=graphics;
-        graphics.shadows(&settings.interface.get_string("shadows"));
-        let (mut scene, camera) = Scene::open_prepared(graphics, size, &mut make_gl).await?;
+        } = world.await?;
         // Route the live battle sound mixer into `SharedAudioRouter`.
         let replicas = scene.online.as_mut().ok_or("missing online replicas")?;
         replicas.hud.auto_build = false;
+        replicas.hud.show_squad_orders(settings.interface.get_string("aiMode") != "off");
 
         // Initialize the local `Receiver`, client-side `Replay`, and `Sender`.
         let mut receiver = Box::new(Receiver::new(admitted.registry));
@@ -1050,12 +1065,14 @@ impl BattleController {
         // Drain the initial tick-0 publication so `replicas.hud` has the mission's
         // authoritative command posts, unit classes, and reinforcement counts.
         world.poll_publications(&mut receiver, 0.0)?;
+        crate::loading_work::frame().await;
         eprintln!("local welcome received: welcomed={} packets={} corrections={} alive={}",
             receiver.welcomed, receiver.packets, receiver.corrections, receiver.own.alive);
         replicas
             .hud
             .frame(&mut scene.bridge, &receiver, &replay, 0.0);
         receiver.publications.clear();
+        crate::loading_work::frame().await;
 
         let mut spawn_port = LiveSpawnPort::from_hud_meta(
             &replicas.hud.class_meta,
@@ -1071,7 +1088,9 @@ impl BattleController {
             receiver.own.team,
         );
 
-        Self::finish_init(
+        crate::loading_work::frame().await;
+        let leaving = super::leaving::LeavingFeed::load(content_dir, &map_id);
+        let mut battle = Self::finish_init(
             BattleAuthority::InstantAction {
                 request,
                 playlist_index,
@@ -1090,7 +1109,9 @@ impl BattleController {
             &era,
             size,
             settings,
-        )
+        )?;
+        battle.leaving = leaving;
+        Ok(battle)
     }
 
     /// Handover owns both clocks: loading audio remains alive through the
@@ -1141,7 +1162,7 @@ impl BattleController {
         })
     }
     pub async fn open_online(
-        _content_dir: &Path,
+        content_dir: &Path,
         prepared: OnlineAdmission,
         size: [i32; 2],
         settings: &AppSettingsStore,
@@ -1193,7 +1214,8 @@ impl BattleController {
         let mut client = Box::new(OnlineClient::connect(endpoint, replicas, camera)?);
         client.sender.auto_spawn = false;
 
-        Self::finish_init(
+        let leaving = super::leaving::LeavingFeed::load(content_dir, &map_id);
+        let mut battle = Self::finish_init(
             BattleAuthority::Online {
                 launch,
                 map_id,
@@ -1206,7 +1228,9 @@ impl BattleController {
             &era,
             size,
             settings,
-        )
+        )?;
+        battle.leaving = leaving;
+        Ok(battle)
     }
 
     /// Shared initialization for `SpawnScreenController`, `ScoreboardController`, `PauseMenu`,
@@ -1311,6 +1335,7 @@ impl BattleController {
             pause_page,
             page_battle,
             chat,
+            leaving: Default::default(),
             stats_text: String::with_capacity(256),
             frame_seconds: 0.,
             overlay_batch: Batch::new(),
@@ -1321,7 +1346,6 @@ impl BattleController {
             cursor_px: [size[0] as f64 * 0.5, size[1] as f64 * 0.5],
             frames: 0,
             steady_frames: 0,
-            steady_allocs_after_warmup: 0,
             steady_frames_measured: 0,
             elapsed_s: 0.0,
             was_alive: false,
@@ -1542,6 +1566,11 @@ impl BattleController {
         if let Err(err) = self.scene.set_anisotropy(settings.interface.get_f64("anisotropy")) {
             eprintln!("battle settings: anisotropy not applied: {err}");
         }
+        let water = crate::water_host::Settings {
+            quality: settings.interface.get_string("waterQuality"),
+            ocean: settings.interface.get_string("oceanEffects"),
+        };
+        if let Err(err) = self.scene.set_water_settings(&water) { eprintln!("battle settings: water not applied: {err}"); }
         // The effect looks the browser reads the same two settings for.
         if let Some(online) = &mut self.scene.online {
             let enhanced = |name: &str| settings.interface.get_string(name) != "classic";
@@ -1615,7 +1644,7 @@ impl BattleController {
     /// 2. **Overlay Transition Check**: Inspects `PauseMenu` (`ExitToWindows`, `RestartMission`,
     ///    `QuitToMainMenu`, `LeaveOnline`) and `ScoreboardPort::done_triggered` (`NextPlaylistBattle`).
     /// 3. **Simulation / Network Step & Camera Interpolation**:
-    ///    - Accumulates `dt` into 60 Hz `STEP` (`1/60 s`) increments and samples up to 4
+    ///    - Accumulates `dt` into 60 Hz `STEP` (`1/60 s`) increments and samples up to 8
     ///      [`ClientCommand`] steps via [`Self::take_step_command`].
     ///    - In `InstantAction`, drains non-blocking `Publication` frames from `WorldThread`,
     ///      sends `WorldMessage::Step`, steps client-side `Replay`, updates `MapCamera`,
@@ -1783,18 +1812,14 @@ impl BattleController {
         if let Some(online) = &mut self.scene.online {
             online.cameras.death_classic = self.death_classic;
         }
-        let measure_steady_allocs = !self.is_overlay_open() && self.steady_frames >= 45;
-        let alloc_before = if measure_steady_allocs {
-            super::render_thread_alloc_count()
-        } else {
-            0
-        };
+        let measure_steady = !self.is_overlay_open() && self.steady_frames >= 45;
 
                 //
         // The render loop runs at display refresh rate while simulation and network
         // input ticks run at a fixed 60 Hz (`STEP = 1.0 / 60.0` seconds).
-        // We accumulate `dt` (clamped to `0.25s` max catch-up), consume up to 4
-        // discrete 60 Hz steps per rendered frame, and use the residual fraction
+        // We accumulate `dt` (clamped to `0.25s` max catch-up), consume up to 8
+        // discrete 60 Hz steps per rendered frame (the page's input clock
+        // takes as many: a slow frame sends a command for every tick it spans), and use the residual fraction
         // `alpha_interp = (input_accumulator / STEP)` to smoothly interpolate the
         // 3D camera between the previous and current 60 Hz simulation states.
         // 3. Pump publications / packets, step input, and compute camera View.
@@ -1804,7 +1829,7 @@ impl BattleController {
         };
         self.input_accumulator = (self.input_accumulator + dt * pace).min(0.25);
         let mut steps = 0usize;
-        while self.input_accumulator >= STEP && steps < 4 {
+        while self.input_accumulator >= STEP && steps < MAX_FRAME_STEPS {
             self.input_accumulator -= STEP;
             steps += 1;
         }
@@ -1824,7 +1849,7 @@ impl BattleController {
             ClientLook,
             ClientFlightCommand,
             ViewActions,
-        )>; 4] = [None, None, None, None];
+        )>; MAX_FRAME_STEPS] = std::array::from_fn(|_| None);
         for slot in step_cmds.iter_mut().take(steps) {
             *slot = Some(self.take_step_command(generation, active_gameplay, settings));
         }
@@ -1872,6 +1897,7 @@ impl BattleController {
                 // focus plays on (a released mouse opens the pause menu, which
                 // freezes it); only a hidden window suspends it.
                 world.set_suspended(hidden);
+                world.set_friendly_fire(settings.interface.get_bool("friendlyFire"));
                 world.poll_publications(receiver, *now_ms)?;
                 if self.frames == 60 {
                     eprintln!("local HUD publications: focused={} welcomed={} packets={} corrections={} alive={} active={} visible={}",
@@ -1914,6 +1940,7 @@ impl BattleController {
                         flight,
                         view_tick: crate::online::clock::rendered_tick(receiver.clock.shown, receiver.latest),
                         fire_aim: sender.fire_aim,
+                        flight_mode: receiver.in_aircraft(),
                     });
                 }
                 if !halted {
@@ -2113,6 +2140,7 @@ impl BattleController {
         }
         let overlay_active = self.is_overlay_open() || (game_over && !self.scoreboard_ctrl.ended);
         reset_hud_layer(&mut self.scene.bridge.hud_model.input);
+        self.present_leaving();
         // Fades and message lifetimes keep elapsed time when a slow frame
         // exceeds the movement step limit.
         self.scene.bridge.hud_model.input[H::DT] = elapsed_dt;
@@ -2173,9 +2201,7 @@ impl BattleController {
             self.scene.bridge.r.core.state.reset();
             self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=pause_groups;
         }
-        if measure_steady_allocs && !overlay_active {
-            let alloc_after = super::render_thread_alloc_count();
-            self.steady_allocs_after_warmup += alloc_after.saturating_sub(alloc_before);
+        if measure_steady && !overlay_active {
             self.steady_frames_measured += 1;
         }
         self.frames += 1;
@@ -2280,6 +2306,7 @@ impl BattleController {
             self.scene.bridge.hud_model_update();
             if self.page_battle.spawn {
                 let status = super::slint_battle::spawn_battle_status(self);
+                self.page_battle.scale=self.size[0] as f64/self.page_size[0].max(1) as f64;
                 self.page_battle.update(dt,&self.spawn_ctrl.model,&self.spawn_port,self.page_size,&self.pause_page.theme,status.countdown.is_some());
                 self.page_battle.map_texture(&mut self.scene,&self.spawn_ctrl.view,self.height);
                 self.scene.bridge.hud_model.batch.begin();
@@ -2366,6 +2393,18 @@ impl BattleController {
                 self.pause_menu.update(dt);
             }
         }
+    }
+
+    /// LEAVING BATTLEFIELD (`presentLeaving` in src/game.js): from what the player controls as this page
+    /// shows him, alive and outside the map's boundary.
+    fn present_leaving(&mut self) {
+        let (own, tick) = match &self.authority {
+            BattleAuthority::InstantAction { receiver, .. } => (&receiver.own, crate::online::clock::rendered_tick(receiver.clock.shown, receiver.latest)),
+            BattleAuthority::Online { client, .. } => (&client.receiver.own, crate::online::clock::rendered_tick(client.receiver.clock.shown, client.receiver.latest)),
+        };
+        let place = (own.alive && !own.dead && !own.removed).then_some(own.position);
+        let alpha = self.leaving.alpha(tick as f64, place);
+        self.scene.bridge.hud_model.input[H::LEAVING] = alpha;
     }
 
     /// Renders the faction emblems and team labels in the top-left corner of the spawn screen.

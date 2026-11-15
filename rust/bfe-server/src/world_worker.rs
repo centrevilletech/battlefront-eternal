@@ -806,6 +806,7 @@ pub fn parse_admit_options(query: &str, fallback_map: &str) -> AdmitOptions {
     let mut heroes = false;
     let mut unit = None;
     let (mut mode, mut tier, mut size) = ("classic", "medium", "full");
+    let mut friendly_fire = true;
     for pair in query.trim_start_matches('?').split('&') {
         if let Some((k, v)) = pair.split_once('=') {
             match k {
@@ -824,6 +825,7 @@ pub fn parse_admit_options(query: &str, fallback_map: &str) -> AdmitOptions {
                 }
                 "heroes" => heroes = v == "1" || v == "true",
                 "unit" if !v.is_empty() => unit = Some(v.to_string()),
+                "ff" => friendly_fire = !(v == "0" || v == "false"),
                 _ => {}
             }
         }
@@ -836,7 +838,7 @@ pub fn parse_admit_options(query: &str, fallback_map: &str) -> AdmitOptions {
         heroes,
         unit,
         name: None,
-        bots: bfe_sim::world::admit::Bots::read(mode, tier, size),
+        bots: bfe_sim::world::admit::Bots { friendly_fire, ..bfe_sim::world::admit::Bots::read(mode, tier, size) },
     }
 }
 
@@ -1782,7 +1784,7 @@ impl NativeWorldHost {
                 .map_err(|e| e.to_string())?;
             if let Some(census) = &mut self.census {
                 if let Ok(Some(line)) = census.sample(&self.context, self.tick as u64, 600) {
-                    eprintln!("ai census server {line}");
+                    for line in line.lines() { eprintln!("ai census server {line}"); }
                 }
             }
             self.tick_input.clock.tick = output.clock.tick;
@@ -1873,5 +1875,15 @@ impl Drop for NativeWorldHost {
     /// returns to `0` across sequential battle loads, map rotations, and server teardown.
     fn drop(&mut self) {
         let _ = self.context.dispose();
+    }
+}
+
+#[cfg(test)]
+mod friendly_fire_tests {
+    #[test]
+    fn the_battle_query_carries_the_friendly_fire_rule_into_admission() {
+        assert!(super::parse_admit_options("?map=nab2&side=rep&ai=classic&seed=1", "nab2").bots.friendly_fire);
+        let off = crate::config::with_friendly_fire("?map=nab2&side=rep&ai=classic&seed=1", false);
+        assert!(!super::parse_admit_options(&off, "nab2").bots.friendly_fire);
     }
 }

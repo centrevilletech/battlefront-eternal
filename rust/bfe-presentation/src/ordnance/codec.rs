@@ -67,6 +67,48 @@ pub fn validate_event(bytes:&[u8])->Result<()> {
         };if let Some(e)=error{return Err(e.into());}
     }Ok(())
 }
+/// What `decode` reports of a combat record (schemas 1 to 5) that a capture
+/// reads back: its expiry, its position, its owner (absent, or a number)
+/// and, for a launch, its speed and life (NaN when the record has none).
+/// The same reads and checks as `decode`, without building its JSON.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RecordFacts{pub expiry:f64,pub position:Option<[f64;3]>,pub owner:Option<f64>,pub speed:f64,pub life:f64}
+pub fn record_facts(schema:f64,tick:f64,bytes:&[u8])->Result<RecordFacts>{
+    if !schema.is_finite()||schema.fract()!=0.0{return Err("invalid combat payload".into());}
+    let schema=schema as u32;
+    let expected=match schema{1=>130,2=>82,3|4=>78,5=>33,_=>0};
+    let error=match schema{3|4=>"invalid feedback payload",5=>"invalid explosion record",_=>"invalid combat payload"};
+    if expected==0||bytes.len()!=expected{return Err(error.into());}
+    let mut r=Reader{bytes,at:0};let expiry=r.u()?;
+    let mut out=RecordFacts{expiry,position:None,owner:None,speed:f64::NAN,life:f64::NAN};
+    match schema {
+        1|2=>{
+            r.u()?;let owner=r.u()?;r.u()?;r.u()?;
+            let launch=r.f("nonfinite combat payload")?;
+            let position=r.vector("nonfinite combat payload")?;r.vector("nonfinite combat payload")?;
+            let surface=r.byte()?;
+            let(mut speed,mut life,mut merge)=(0.0,0.0,0.0);
+            if schema==1 {r.vector("nonfinite combat payload")?;speed=r.f("nonfinite combat payload")?;life=r.f("nonfinite combat payload")?;merge=r.f("nonfinite combat payload")?;out.speed=speed;out.life=life;}
+            let execution=r.u()?;let channel=r.byte()?;
+            if channel>1||launch<0.0||execution<launch||execution>tick{return Err("invalid combat execution tick".into());}
+            if launch>tick||expiry<tick||expiry-tick>7320.0||surface>5||schema==1&&(life<0.0||life>120.0||speed<0.0||merge<=0.0){return Err("invalid combat lifetime".into());}
+            out.position=Some(position);out.owner=Some(owner);
+        }
+        3|4=>{
+            for _ in 0..4{r.u()?;}
+            out.position=Some(r.vector("invalid feedback position")?);r.i()?;r.i()?;
+            let flags=u16::from_le_bytes(r.bytes()?);if flags>1{return Err("invalid feedback flags".into());}
+            r.vector("invalid feedback source")?;
+            if expiry!=tick+18.0{return Err("invalid feedback expiry".into());}
+        }
+        _=>{
+            r.u()?;out.position=Some(r.vector("invalid explosion position")?);let wet=r.byte()?;
+            if expiry!=tick+18.0||wet>1{return Err("invalid explosion expiry or water flag".into());}
+        }
+    }
+    Ok(out)
+}
+
 pub fn decode(kind:&str,schema:f64,tick:f64,bytes:&[u8])->Result<String>{
     if schema==8.0 {
         if kind!="combat"||bytes.len()>900{return Err("Invalid presentation payload".into());}

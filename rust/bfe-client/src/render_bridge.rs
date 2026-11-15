@@ -26,9 +26,12 @@ actor_resources: bfe_render::actor_resources::Bank,
 line_resources: bfe_render::line_resources::Lines,
 water_sources: Vec<bfe_render::water_resources::WaterSource>, water_geometry: std::collections::HashMap<(u32,u32),u32>,
 static_sources: Vec<static_world::StaticSource>, static_worlds: Vec<static_world::StaticSlot>, static_recipes: Vec<StaticRecipe>,
+/// Rigid models already built, by name and shadow cascade count: one set of
+/// GPU resources however many owners (weapons, items, debris) show a model.
+pub models: std::collections::HashMap<(String, usize), Option<crate::online::models::Model>>,
 }
 impl Bridge {
-pub fn new(gl: glow::Context, multi: Ranges) -> Self { Self { r: Renderer::new(gl,multi), hud_model: bfe_render::hud_model::HudModel::new(),actor_resources:bfe_render::actor_resources::Bank::default(), line_resources:bfe_render::line_resources::Lines::default(),water_sources:vec![],water_geometry:std::collections::HashMap::new(), static_sources:vec![],static_worlds:vec![],static_recipes:vec![] } }
+pub fn new(gl: glow::Context, multi: Ranges) -> Self { Self { r: Renderer::new(gl,multi), hud_model: bfe_render::hud_model::HudModel::new(),actor_resources:bfe_render::actor_resources::Bank::default(), line_resources:bfe_render::line_resources::Lines::default(),water_sources:vec![],water_geometry:std::collections::HashMap::new(), static_sources:vec![],static_worlds:vec![],static_recipes:vec![], models:std::collections::HashMap::new() } }
 pub fn actor_flyer(&mut self, source: u32, flags: u32, fading: bool, capacity: u32, texture: i32, slot: u32, object: u32, shadows: bool) -> Result<Option<u32>,String> { use bfe_render::actor_layout::flyer as f;
         let capacity=capacity.min(256);let at=slot as usize+17;let end=at+f::LEN+capacity as usize*20;
         if end>self.r.far.input.len(){return Ok(None);}
@@ -1831,7 +1834,7 @@ impl BfeRenderer {
             let names = uniforms.iter().map(|(n,_)|*n).collect::<Vec<_>>().join(",");
             let types = uniforms.iter().map(|(_,ty)| match ty { 1=>glow::FLOAT,2=>glow::FLOAT_VEC2,3=>glow::FLOAT_VEC3,4=>glow::FLOAT_VEC4,5=>glow::INT,32=>glow::SAMPLER_2D,_=>0 }).collect::<Vec<_>>();
             let table = self.r.far.add_table(core,program,&names,&types,&vec![1;uniforms.len()]).ok_or_else(||String::from("invalid native far table"))?;
-            let flags = (material.flags&3) | 4 | 16 | if blended { 64 | 512 } else { 8 | if material.flags&4!=0 {32} else {0} } | if record.terrain { 0 } else { 256 };
+            let flags = (material.flags&3) | 4 | 16 | if blended { 64 | 512 | bfe_render::far::F_DOUBLE_PASS } else { 8 | if material.flags&4!=0 {32} else {0} } | if record.terrain { 0 } else { 256 };
             let id=if let Some(old)=old {self.r.far.reprogram(old.item,program,table);old.item} else {
                 self.r.far.add_item(core,program,table,g,flags,glow::LEQUAL,&material.blend.map_or([0;6], |b| b[1..].try_into().unwrap()),&[0.,0.,order as f64,object as f64],&bounds[..4],slot)
             };

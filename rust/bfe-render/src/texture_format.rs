@@ -55,8 +55,13 @@ pub fn unpacks_bc7(renderer: &str) -> bool {
 pub fn choose(c: Capabilities, uastc: bool, alpha: bool, width: u32, height: u32, unpacked_bc7: bool) -> Format {
     // BC7 emulation is excluded before priority selection. Do not decode it
     // and then convert its RGBA output: that recreates the old memory cost.
-    if uastc && c.astc { return Format::Astc; }
+    // Native BC7 before ASTC (three.js's KTX2Loader orders them the other way):
+    // desktop Mesa advertises ASTC on GPUs that cannot sample it (radeonsi and
+    // radeon on GCN) and decodes every ASTC upload on the CPU, 36 ms a texture
+    // on an A8 laptop's window thread. UASTC transcodes to BC7 with no loss of
+    // its quality; GPUs without BC7 (mobile) still take ASTC.
     if c.bc7 && !unpacked_bc7 { return Format::Bc7; }
+    if uastc && c.astc { return Format::Astc; }
     if c.etc2 { return if alpha { Format::Etc2Rgba } else { Format::Etc2Rgb }; }
     if c.etc1 && !alpha { return Format::Etc1; }
     if c.s3tc { return if alpha { Format::Bc3 } else { Format::Bc1 }; }
@@ -122,9 +127,11 @@ mod tests {
         // ETC1 has no alpha representation. A device supporting it and S3TC
         // must continue down the priority list when the source carries alpha.
         let mut c = Capabilities { astc: true, bc7: true, etc2: true, etc1: true, s3tc: true, pvrtc: true };
-        assert_eq!(choose(c, true, true, 15, 9, false), Format::Astc);
+        assert_eq!(choose(c, true, true, 15, 9, false), Format::Bc7);
         assert_eq!(choose(c, false, false, 15, 9, false), Format::Bc7);
-        c.astc = false; c.bc7 = false;
+        c.bc7 = false;
+        assert_eq!(choose(c, true, true, 15, 9, false), Format::Astc);
+        c.astc = false;
         assert_eq!(choose(c, true, false, 15, 9, false), Format::Etc2Rgb);
         assert_eq!(choose(c, true, true, 15, 9, false), Format::Etc2Rgba);
         c.etc2 = false;

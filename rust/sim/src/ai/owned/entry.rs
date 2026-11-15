@@ -66,7 +66,6 @@ pub fn ai_controls_bank_in(w:&World)->Option<&[f64]> { w.ai.battle().map(|battle
 /// effects all borrow one native Core and the original shared generators.
 pub fn ai_world_phase_in(w:&mut World)->u32 {
     if !w.ai.battle().is_some_and(|battle|battle.ready()) {return 0;}
-    let before=crate::allocations::snapshot();
     let outer=crate::units::f3::external_in(w);
     let event_count=w.sim.events.count();let event_words=w.sim.events.len();
     let version=crate::units::f3::publication_version_in(&w.units);
@@ -85,7 +84,7 @@ pub fn ai_world_phase_in(w:&mut World)->u32 {
     // All native loans end before sparse entity publication. Its allocations
     // belong to this crossing too, rather than disappearing from the census.
     if header.unit_phase_follows {outer.before_units(w);}else{outer.finish(w,true);}
-    finish_boundary(w,before,version,control_version,event_count,event_words,accepted);
+    finish_boundary(w,version,control_version,event_count,event_words,accepted);
     u32::from(accepted)
 }
 
@@ -175,8 +174,7 @@ pub fn ai_world_activate_in(w:&mut World)->u32 {
 
 // Boundary traffic includes the final sparse publication after every owner
 // loan ends. Shared helpers keep ordinary AI and later danger censuses equal.
-fn finish_boundary(w:&mut World,before:crate::allocations::Counts,version:u32,control_version:u32,event_count:usize,event_words:usize,accepted:bool) {
-    let count=crate::allocations::snapshot().since(before);
+fn finish_boundary(w:&mut World,version:u32,control_version:u32,event_count:usize,event_words:usize,accepted:bool) {
     let emitted=w.sim.events.count().saturating_sub(event_count) as u32;
     let payload=if crate::units::f3::publication_version_in(&w.units)!=version {crate::units::f3::output_words_in(&w.units)}else{0};
     let output=(w.sim.events.len().saturating_sub(event_words) as u32).wrapping_add(payload).wrapping_add(crate::gen::AiPhaseCounters::WORDS as u32);
@@ -184,9 +182,6 @@ fn finish_boundary(w:&mut World,before:crate::allocations::Counts,version:u32,co
     let control_words=if battle.state.control_views.version()!=control_version {battle.state.control_views.word_count()}else{0};
     battle.counters.events=battle.counters.events.wrapping_add(emitted);
     battle.counters.output_words=battle.counters.output_words.wrapping_add(output).wrapping_add(control_words);
-    battle.counters.allocations=battle.counters.allocations.wrapping_add(count.calls as u32);
-    battle.counters.reallocations=battle.counters.reallocations.wrapping_add(count.reallocs as u32);
-    battle.counters.allocation_bytes=battle.counters.allocation_bytes.wrapping_add(count.bytes as u32);
     if !accepted {battle.counters.stale_commands=battle.counters.stale_commands.wrapping_add(1);}
     battle.exchange.descriptor(&battle.counters);
 }
@@ -198,14 +193,14 @@ pub fn ai_world_dangers_in(w:&mut World)->u32 {
     // Unread structural work still takes the ordinary publication boundary.
     if crate::units::f3::settled_in(w) && !crate::vehicles::module::f2::has_pending_in(w)
         && !w.sim.store.ordnance.grenades.iter().any(|r|w.sim.store.grenade.get(*r).is_some_and(|g|g.gone!=Some(true))) {
-        let before=crate::allocations::snapshot();let version=crate::units::f3::publication_version_in(&w.units);
+        let version=crate::units::f3::publication_version_in(&w.units);
         let control_version=w.ai.battle().unwrap().state.control_views.version();
         let count=w.sim.events.count();let words=w.sim.events.len();
         w.ai.battle_mut().unwrap().record_danger_phase();
-        finish_boundary(w,before,version,control_version,count,words,true);
+        finish_boundary(w,version,control_version,count,words,true);
         return crate::gen::AiDangerResult::Unchanged as u32;
     }
-    let before=crate::allocations::snapshot();let outer=crate::units::f3::external_in(w);
+    let outer=crate::units::f3::external_in(w);
     let event_count=w.sim.events.count();let event_words=w.sim.events.len();let version=crate::units::f3::publication_version_in(&w.units);
     let control_version=w.ai.battle().unwrap().state.control_views.version();
     let mut owned=w.ai.take_battle().unwrap();
@@ -213,7 +208,7 @@ pub fn ai_world_dangers_in(w:&mut World)->u32 {
         let Some(services)=services else{return false};
         owned.native_dangers(w,services.recon,services.queries);true
     });
-    w.ai.return_battle(owned);outer.finish(w,true);finish_boundary(w,before,version,control_version,event_count,event_words,accepted);u32::from(accepted)
+    w.ai.return_battle(owned);outer.finish(w,true);finish_boundary(w,version,control_version,event_count,event_words,accepted);u32::from(accepted)
 }
 
 /// A user order is a boundary command, never a foreign controller action.
@@ -222,7 +217,7 @@ pub fn ai_world_command_in(w:&mut World)->u32 {
     if !w.ai.battle().is_some_and(|battle|battle.ready()) {return 0;}
     let (words,heap)=w.sim.calls.args();let input=crate::gen::AiPlayerCommand::take(words,heap);
     if !input.time.is_finite() || !input.kind.is_finite() || input.kind<0. || input.kind>5. || input.kind.fract()!=0. {return 0;}
-    let before=crate::allocations::snapshot();let outer=crate::units::f3::external_in(w);
+    let outer=crate::units::f3::external_in(w);
     let event_count=w.sim.events.count();let event_words=w.sim.events.len();let version=crate::units::f3::publication_version_in(&w.units);
     let control_version=w.ai.battle().unwrap().state.control_views.version();
     let mut owned=w.ai.take_battle().unwrap();
@@ -234,7 +229,7 @@ pub fn ai_world_command_in(w:&mut World)->u32 {
     battle.counters.commands=battle.counters.commands.wrapping_add(1);
     battle.counters.input_words=battle.counters.input_words.wrapping_add(crate::gen::AiPlayerCommand::WORDS as u32);
     let draws=battle.runtime.random.draw_counts();battle.counters.draws_a=draws[0] as u32;battle.counters.draws_b=draws[1] as u32;battle.counters.draws_c=draws[2] as u32;
-    w.ai.return_battle(owned);outer.finish(w,true);finish_boundary(w,before,version,control_version,event_count,event_words,accepted);u32::from(accepted)
+    w.ai.return_battle(owned);outer.finish(w,true);finish_boundary(w,version,control_version,event_count,event_words,accepted);u32::from(accepted)
 }
 
 /// F3 calls this after its unit, seat and lifecycle loans have ended. The

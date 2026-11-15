@@ -37,7 +37,7 @@ use bfe_shell::{
     data::{load_shell_data_from_dir, ShellData},
     launch::BattleRequest,
     loading::{planet_name, LoadingTimeline, LookId},
-    render::{draw_loading, draw_shell, ShellFonts, ShellTextures, StageTexture},
+    render::{draw_loading, ShellFonts, ShellTextures, StageTexture},
     screens::{
         HostConfig, MultiplayerKind, MultiplayerLaunch, OptionsPageId, PopupState,
         ScreenId, ShellAction, ShellApp,
@@ -87,7 +87,7 @@ const NAMED_TEXTURES: &[&str] = &[
 ];
 
 /// Converts [`ShellTextures`] and viewport dimensions into [`bfe_interface::Surface`]
-/// so `ClassicTheme::paint_stack` uses the exact same GL texture handles as `draw_shell`.
+/// with the shell's GL texture handles.
 fn shell_textures_to_interface_surface(
     textures: &ShellTextures,
     size: [i32; 2],
@@ -483,7 +483,6 @@ pub struct ShellHost {
     pub preview_movies: bfe_shell::movies::MoviePlayer,
     movie_clock: std::time::Instant,
     movie_trace: (std::time::Instant, u64),
-    pub movie_allocs_max: u64,
     movie_texture: bfe_shell::movie_gpu::MovieTexture,
     pub preview_texture: bfe_shell::movie_gpu::MovieTexture,
     /// Offscreen RGBA8 + Depth/Stencil framebuffer target.
@@ -492,13 +491,13 @@ pub struct ShellHost {
     pub core: Core<glow::Context, Ranges>,
     /// 2D/3D-anchored HUD/interface quad pass (`post-hud/hud`).
     pub hud: HudPass<glow::Context>,
-    /// CPU-side quad batch populated each frame by `draw_shell`, `draw_loading`, or `ClassicTheme::paint_stack`.
+    /// CPU-side quad batch: the page backdrop (`Page::draw`) or the loading screen (`draw_loading`).
     pub batch: Batch,
     /// Bitmap fonts (`large`, `medium`, `small`, `tiny`) for `bfe-shell`.
     pub fonts: ShellFonts,
     /// Uploaded texture handles and map-loading zoom stages for `bfe-shell`.
     pub textures: ShellTextures,
-    /// Viewport and texture handle table for `bfe_interface::ClassicTheme`.
+    /// Viewport and texture handle table for `bfe-interface`.
     pub interface_surface: InterfaceSurfaceState,
     /// Stateful `bfe-interface` controller driving `OPTIONS` and its 4 sub-pages (`GAME`, `VIDEO`, `AUDIO`, `CONTROLS`).
     pub options_ctrl: OptionsController,
@@ -629,7 +628,6 @@ impl ShellHost {
             preview_movies: Default::default(),
             movie_clock: std::time::Instant::now(),
             movie_trace: (std::time::Instant::now(), 0),
-            movie_allocs_max: 0,
             movie_texture,
             preview_texture,
             blur,
@@ -1491,7 +1489,6 @@ impl ShellHost {
             .content_dir
             .as_deref()
             .unwrap_or_else(|| Path::new("."));
-        let movie_alloc_start = super::render_thread_alloc_count();
         // Movie timestamps use wall time, independent of the simulation/UI dt clamp. Time the menu was not
         // stepped (a battle, a file dialog, a stalled frame) is not playback time: taken whole it made the
         // backdrop race through that many seconds of film on the way back, at several times its speed.
@@ -1513,11 +1510,6 @@ impl ShellHost {
             [rect[2].max(1.) as i32, rect[3].max(1.) as i32],
         );
         self.core.state.reset();
-        if self.frames > 120 {
-            self.movie_allocs_max = self
-                .movie_allocs_max
-                .max(super::render_thread_alloc_count().saturating_sub(movie_alloc_start));
-        }
         // Page consumes current textures/crops and never assumes a still image.
         self.page.media = self.page_media_textures();
         if !self.page.input_matches(&self.app) && std::env::var_os("BFE_MENU_INPUT_TRACE").is_some()
@@ -1563,15 +1555,13 @@ impl ShellHost {
                 self.page.modal_start = Some(self.batch.count);
             }
         } else {
-            let w = self.layout_size[0] as f64;
-            let h = self.layout_size[1] as f64;
-            draw_shell(
+            // A shell popup over OPTIONS: the same backdrop as under any other popup.
+            self.page.draw(
                 &mut self.batch,
-                &self.fonts,
                 &self.textures,
                 &self.app,
-                w,
-                h,
+                self.layout_size[0] as f64,
+                self.layout_size[1] as f64,
             );
         }
 
@@ -1995,7 +1985,7 @@ impl ShellHost {
         }
         self.page.dropdown = false;
         let hit = self.page.hit(x_px, y_px);
-        let double = self.last_page_click.is_some_and(|(previous, time)| {
+        let _double = self.last_page_click.is_some_and(|(previous, time)| {
             Some(previous) == hit && time.elapsed().as_secs_f64() < 0.35
         });
         self.last_page_click = hit.map(|hit| (hit, Instant::now()));

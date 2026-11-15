@@ -149,7 +149,7 @@ impl Choices {
     /// Relation and path reads borrow one owner in sequence. A recursive body
     /// operation never needs to reacquire a facade during post admission.
     pub fn point_with<W:PostsWorld>(&mut self,s:&Store,index:usize,team:f64,world:&mut W,
-        mut relation:impl FnMut(&mut W,f64,f64)->f64,mut uniform:impl FnMut()->f64)->Option<[f64;4]> {
+        relation:impl FnMut(&mut W,f64,f64)->f64,mut uniform:impl FnMut()->f64)->Option<[f64;4]> {
         self.point_context(s,index,team,world,relation,|_|uniform())
     }
     pub fn point_context<W:PostsWorld>(&mut self,s:&Store,index:usize,team:f64,world:&mut W,

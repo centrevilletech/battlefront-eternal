@@ -21,4 +21,4 @@ Preserve the full log and exact workspace commit SHA. Do not overlap the run
 with a CPU benchmark: this check loads full scenes and steps live 60 Hz battles.
 
 This gate complements movement/combat/loss checks (`rust/bfe-server` and
-`rust/bfe-transport` integration tests) and `bfe-client --script gate`.
+`rust/bfe-transport` integration tests) and `bfe-client --script ia:<MAP>`.

@@ -28,6 +28,8 @@ pub(super) struct PageBattle {
     class: String,
     team: u8,
     pub layout: SpawnLayout,
+    /// Device pixels per logical pixel (the battle sets it each frame).
+    pub scale: f64,
     drag: [f64; 2],
     pub dt: f64,
     building: f64,
@@ -69,6 +71,11 @@ fn page_view(front: &str, override_name: &str) -> bool {
     }
 }
 impl PageBattle {
+    /// Builds the stage's procedural textures off the window's thread; call
+    /// when a battle starts loading.
+    pub fn prefetch() {
+        textures::prefetch();
+    }
     pub fn new(
         scene: &mut Scene,
         size: [i32; 2],
@@ -92,6 +99,7 @@ impl PageBattle {
             class: String::new(),
             team: 0,
             layout: SpawnLayout::new(size[0] as f64, size[1] as f64, SpawnFacts::default()),
+            scale: 1.,
             drag: [0.; 2],
             dt: 0.,
             building: -0.35,
@@ -223,10 +231,12 @@ impl PageBattle {
             countdown,
             switchable: model.can_switch_teams(port),
             classes: roster.len().min(MAX_CLASSES),
+            scale: self.scale,
+            picked: model.class_index,
             ..SpawnFacts::default()
         };
         for (row, class) in facts.rows.iter_mut().zip(roster) {
-            *row = class.weapons.len().clamp(1, 4).div_ceil(2) as u8;
+            *row = class.weapons.len().clamp(1, 6).div_ceil(2) as u8;
         }
         self.layout = SpawnLayout::new(size[0] as f64, size[1] as f64, facts);
         let opening = !self.was_open;

@@ -6,7 +6,6 @@
 //! Electron build's JavaScript to the last bit (rust/v8math).
 
 pub mod abi;
-pub mod allocations;
 mod audio_control;
 pub mod ai;
 pub mod battle;

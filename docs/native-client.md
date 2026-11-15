@@ -37,11 +37,11 @@ USAGE:
   - `--width <PX>`, `--height <PX>`, `--fullscreen`: Initial window geometry and
     borderless fullscreen mode (`F11` toggles fullscreen at runtime).
   - `--skip-update-check`: Skips the startup master-server version check.
-  - `--script gate` (`--shots-dir <DIR>`, `--server <HOST:PORT>`): Drives the
-    end-to-end automated verification sequence across all shell pages, a
-    three-mission Instant Action playlist (`nab2` -> `tat1` -> `bes1`), and a
-    live online battle, writing the 24 numbered PNG screenshots and
-    `gate-summary.json`.
+  - `--script ia:<MAP>` (`--shots-dir <DIR>`): Runs Instant Action rounds on one
+    map with generated combat input for `BFE_GATE_BATTLE_SECONDS` (default 300)
+    of combat and writes screenshots and `gate-summary.json`.
+  - `--script platform-smoke` (`--shots-dir <DIR>`): The CI startup, menu and
+    synthetic-room smoke on software OpenGL (`tools/platform-smoke-native.py`).
 
 ## Application state machine and host services
 
@@ -64,8 +64,8 @@ USAGE:
    background worker threads for master HTTPS queries, LAN UDP broadcast
    discovery on port `18452`, and concurrent TCP ping/info probes).
    - **`bfe-interface` Options and `Settings`**: Selecting `OPTIONS` from the
-     Main Menu delegates rendering and input to `bfe_interface::OptionsController`
-     and `bfe_interface::ClassicTheme::paint_stack`, persisting all 59
+     Main Menu hands input to `bfe_interface::OptionsController`, which Slint
+     draws (`bfe-client/src/app/slint_options.rs`), persisting all 59
      settings keys through `bfe_interface::Settings` (`AppSettingsStore`
      in `rust/bfe-client/src/app/settings.rs`).
    - **`MULTIPLAYER -> HOST` (`SET GAME OPTIONS`)**: Selecting `CREATE` ->
