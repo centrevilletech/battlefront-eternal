@@ -67,6 +67,8 @@ pub struct Bench {
     spawned: bool,
     // `hold=1`: leave the spawn screen open for the bench to look at and click.
     hold: bool,
+    // `respawn=1`: spawn again, the same way, whenever the spawn screen opens after a death.
+    respawn: bool,
     waiting: &'static str,
     out: Option<BufWriter<File>>,
     tick: f64,
@@ -91,6 +93,7 @@ impl Bench {
             launched: false,
             spawned: false,
             hold: value("hold").is_some(),
+            respawn: value("respawn").is_some(),
             waiting: "",
             out,
             tick: f64::NAN,
@@ -116,6 +119,10 @@ impl Bench {
 
     /// `captured`: the window holds the mouse, so its motion turns the player.
     pub fn step_battle(&mut self, battle: &mut BattleController, captured: bool) {
+        let alive = matches!(&battle.authority, BattleAuthority::InstantAction { receiver, .. } if receiver.own.alive);
+        if self.respawn && self.spawned && battle.spawn_ctrl.is_open() && !alive {
+            self.spawned = false;
+        }
         if !self.spawned && !self.hold && battle.spawn_ctrl.is_open() {
             let waiting = self.spawn(battle);
             if waiting != self.waiting {
