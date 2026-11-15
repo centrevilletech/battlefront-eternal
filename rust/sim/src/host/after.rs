@@ -5,7 +5,7 @@
 //! then `createMultiplayerWorld` mirrored the players' presses
 //! (`mirrorShots`) and their changed views (`mirror()`).
 use super::drain::Drain;
-use super::{block_row, intern, lease_rows, put, unit_rows, write_bank, Authority};
+use super::{block_row, intern, lease_rows, put, write_bank, Authority};
 use crate::abi::context::Context;
 use crate::abi::context_step::bank;
 use crate::gen::{self, BlockHeader as B, F3Acknowledgement, F3Boundary, PlayerViews};
@@ -61,7 +61,7 @@ impl Authority {
                 .read_bank(bank::EVENTS, &mut events)
                 .map_err(|e| e.message().to_string())?;
             let (before, after) = ((tick - 1.0) / 60.0, tick / 60.0);
-            let units = unit_rows(context)?;
+            self.units.refresh(context)?;
             let leases = lease_rows(context)?;
             let prop_bodies = context
                 .prop_body_kernels()
@@ -84,7 +84,7 @@ impl Authority {
                 content: &self.content,
                 journal: &mut self.journal,
                 presses: &self.presses,
-                units: &units,
+                units: &self.units,
                 leases: &leases,
                 toggles: &mut self.toggles,
                 prop_bodies: &prop_bodies,
@@ -113,18 +113,16 @@ impl Authority {
                 &put::<{ F3Acknowledgement::WORDS }>(|row, heap| ack.put(row, heap)),
             )?;
         }
-        for kind in [
-            gen::KIND_BOLT,
-            gen::KIND_BEAM,
-            gen::KIND_GRENADE,
-            gen::KIND_ROUND,
-            gen::KIND_ORDNANCE,
-        ] {
-            context
-                .export(u32::from(kind), 0)
-                .map_err(|e| e.message().to_string())?;
-        }
-        Ok(())
+        // The page re-read the rounds' kinds in the mirror's mode, which
+        // took their retired lists; nothing else of that read was used.
+        context
+            .with_store(|s| {
+                s.bolt.retired.clear();
+                s.beam.retired.clear();
+                s.grenade.retired.clear();
+                s.round.retired.clear();
+            })
+            .map_err(|e| e.message().to_string())
     }
 
     /// `F3Items.flush` (src/sim/wasm/f3-items.js): a unit whose life changed
@@ -133,42 +131,42 @@ impl Authority {
     /// level's class; the native dispenser later asks for that key. The
     /// first call only learns the lives the admission bound.
     pub(super) fn bind_dispensers(&mut self, context: &Context) -> Result<(), String> {
-        let units = context
-            .export(u32::from(gen::KIND_UNIT), 1)
-            .map_err(|e| e.message().to_string())?;
-        let stride = units[B::STRIDE] as usize;
-        let rows = units[B::ROWS] as usize;
-        let heap_at = units[B::HEAP] as usize;
-        let heap = &units[heap_at..heap_at + units[B::HEAP_WORDS] as usize];
-        let mut changed = Vec::new();
-        for i in 0..rows {
-            let row = &units[B::WORDS + i * stride..B::WORDS + (i + 1) * stride];
-            let (slot, generation) = (row[0] as u32, row[1] as u32);
-            let mut unit = gen::Unit::default();
-            unit.take_full(row, heap);
+        self.units.refresh(context)?;
+        let mut changed = std::mem::take(&mut self.changed_lives);
+        changed.clear();
+        for (i, unit) in self.units.rows().iter().enumerate() {
+            let (slot, generation) = (unit.slot, unit.gen);
             match self.lives.iter_mut().find(|(s, _, _)| *s == slot) {
                 Some(entry) => {
-                    if entry.1 != generation || entry.2 != unit.generation {
-                        *entry = (slot, generation, unit.generation);
-                        changed.push((slot, generation, unit));
+                    if entry.1 != generation || entry.2 != unit.life {
+                        *entry = (slot, generation, unit.life);
+                        changed.push(i);
                     }
                 }
                 None => {
                     // The first sight of a slot: the admission bound the
                     // lives it built, a later slot is new.
-                    self.lives.push((slot, generation, unit.generation));
+                    self.lives.push((slot, generation, unit.life));
                     if self.lives_known {
-                        changed.push((slot, generation, unit));
+                        changed.push(i);
                     }
                 }
             }
         }
         self.lives_known = true;
-        for (slot, generation, unit) in changed {
-            let life = unit.generation;
-            for weapon in &unit.combat.weapons {
+        let result = self.bind_changed(context, &changed);
+        self.changed_lives = changed;
+        result
+    }
+
+    /// The dispenser bindings of the units `bind_dispensers` found with a new life.
+    fn bind_changed(&self, context: &Context, changed: &[usize]) -> Result<(), String> {
+        for &i in changed {
+            let unit = &self.units.rows()[i];
+            let (slot, generation, life) = (unit.slot, unit.gen, unit.life);
+            for weapon in self.units.weapons(unit) {
                 let levels = context
-                    .weapon_levels(weapon.def.0)
+                    .weapon_levels(weapon.0)
                     .map_err(|e| e.message().to_string())?;
                 for (level, facts) in levels.iter().enumerate() {
                     if !facts.item {
@@ -192,7 +190,7 @@ impl Authority {
                             generation,
                             life,
                         },
-                        weapon: weapon.def,
+                        weapon: *weapon,
                         level: level as u32,
                         name,
                         owned_key,
