@@ -900,9 +900,16 @@ impl StandaloneWindowApp {
         };
         // The Slint notifier copies this frame after its transparent clear and
         // before its UI draw. Only this host swaps the shared window surface.
+        let timer = match &mut self.state { AppState::Battle(b) => { let c = &mut b.scene.bridge.r.core; c.profile.begin(&c.gl) } _ => None };
         ui.render(src_fb, src_size)?;
-        if let AppState::Battle(battle)=&mut self.state{battle.scene.resolution_presented(battle.pause_menu.is_open||!self.focused||self.hidden)?;}
-        surface.swap_buffers(context).map_err(|e| format!("window presentation failed: {e}"))
+        if let AppState::Battle(battle)=&mut self.state{
+            let c = &mut battle.scene.bridge.r.core; c.profile.end(&c.gl, "window composite", timer);
+            battle.scene.resolution_presented(battle.pause_menu.is_open||!self.focused||self.hidden)?;
+        }
+        let swap = match &self.state { AppState::Battle(b) => b.scene.bridge.r.core.profile.clock(), _ => None };
+        let swapped = surface.swap_buffers(context).map_err(|e| format!("window presentation failed: {e}"));
+        if let AppState::Battle(b) = &mut self.state { b.scene.bridge.r.core.profile.cpu("window swap", swap); }
+        swapped
     }
 
     /// Polls `glGetError()` after each frame and increments `gate.gl_errors` if non-zero.
@@ -2168,6 +2175,15 @@ impl StandaloneWindowApp {
                     if let Some(bench) = &mut self.bench {
                         bench.step_battle(battle, self.pointer_locked);
                     }
+                    // Plain play with nothing of the interface over it draws straight
+                    // into the window (Scene::set_direct).
+                    let direct = self.platform_smoke.is_none()
+                        && self.gate.as_ref().is_none_or(|gate| gate.allows_direct())
+                        && !battle.pause_menu.is_open
+                        && !battle.spawn_ctrl.is_open()
+                        && !battle.scoreboard_ctrl.model.is_open()
+                        && self.slint_ui.as_ref().is_some_and(|ui| !ui.battle_overlay_visible());
+                    battle.scene.set_direct(direct);
                     let transition = battle.step_and_draw(
                         elapsed_dt,
                         self.focused,
@@ -2193,7 +2209,15 @@ impl StandaloneWindowApp {
                         .slint_ui
                         .as_ref()
                         .is_some_and(|ui| ui.battle_modal_open());
-                    if two_pass {
+                    if battle.scene.direct {
+                        battle.scene.resolution_presented(battle.pause_menu.is_open||!self.focused||self.hidden)?;
+                        let (Some(surface), Some(context)) = (&self.surface, &self.context) else {
+                            return Err("window presentation resources missing".into());
+                        };
+                        let swap = battle.scene.bridge.r.core.profile.clock();
+                        surface.swap_buffers(context).map_err(|e| format!("window presentation failed: {e}"))?;
+                        battle.scene.bridge.r.core.profile.cpu("window swap", swap);
+                    } else if two_pass {
                         if let Some(ui) = &self.slint_ui {
                             ui.render_pass(fb, sz, 1)?;
                         }
