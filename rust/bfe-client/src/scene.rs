@@ -1381,6 +1381,8 @@ impl Scene {
         }
         let mut wanted=Vec::new();
         if intermediate{wanted.extend([(pr::QUARTER,self.blur_downsize),(pr::BLOOM,0.25),(pr::SCRATCH,0.25),(pr::POST,1.),(pr::AA,1.)]);}
+        // FXAA before an upscale writes its own target even with no other effect on (the Performance preset).
+        else if fxaa{wanted.push((pr::AA,1.));}
         if temporal{wanted.extend([(pr::HISTORY0,-1.),(pr::HISTORY1,-1.),(pr::MOTION,1.),(pr::VELOCITY,1.)]);}
         let mut i=0;
         while i<self.post_images.len(){
