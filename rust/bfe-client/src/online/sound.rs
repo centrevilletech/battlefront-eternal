@@ -699,7 +699,7 @@ impl Sound {
         }
         // The device was opened again (another width, or a fallback after a
         // width it would not play): resolve the layout against it again.
-        if crate::audio::device_generation() != self.device_seen {
+        if crate::audio::device_generation() != self.device_seen && !self.audio.output.is_empty() {
             let settings = self.audio.clone();
             self.set_audio(&settings);
         }
