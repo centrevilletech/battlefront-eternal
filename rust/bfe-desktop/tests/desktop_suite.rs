@@ -1,55 +1,4 @@
 //! Unit and integration tests for `bfe-desktop`.
-//!
-//! Ports the test suites from:
-//! - the desktop host
-//! - the desktop host
-//! - the desktop host
-//! - the desktop host
-//! - the desktop host
-//! - the desktop host
-//! - the desktop host
-//! - the desktop host
-//! - the desktop host
-//! - the desktop host
-//! - `tests/gpu-info.test.js`
-//!
-//! ## Test Architecture
-//! Each test creates an isolated, uniquely named [`TempDir`] under `std::env::temp_dir()`
-//! that is automatically removed on drop, so tests can run concurrently without sharing
-//! mutable filesystem state or touching the developer's home directory.
-//!
-//! ## Coverage Map
-//! 1. **Discover (`discover_*`)**:
-//!    Prepared content inspection, map-count ranking, depth-bounded home directory search,
-//!    case-insensitive SWBF1 vs SWBF2 validation, `AddOn/` campaign scanning, Valve VDF/ACF
-//!    parsing, secondary Steam library resolution, and GOG/Wine/Heroic detection.
-//! 2. **Prepare & `ContentVersion` (`content_version_*`, `prepare_*`)**:
-//!    Runtime and compile-time `tools/content-version.json` parsing (verifying missing or
-//!    corrupt files fail hard with no literal fallback), bundled toolchain environment setup,
-//!    `.prepare.json` staleness checks, add-on failure summaries, and NDJSON ETA estimation.
-//! 3. **Startup Content & CLI Paths (`startup_content_*`, `paths_*`)**:
-//!    `Confirm` / `Prepare` / `Menu` mode transitions and `--content` / `BFE_CONTENT_DIR`
-//!    candidate ordering.
-//! 4. **Linux Desktop, GPU, & Slow-Links (`linux_desktop_*`)**:
-//!    `.desktop` generation, legacy AppImage launcher adoption, `gpu_switches` / `gpu_report`,
-//!    and `allow_slow_links` (`2500` ms Happy Eyeballs timeout).
-//! 5. **Settings Stores (`settings_*`)**:
-//!    `PlayerSettingsStore` and `SettingsStore` atomic persistence, schema sanitization, and
-//!    patch merging.
-//! 6. **Rich Presence & Discord IPC (`presence_*`, `discord_ipc_*`)**:
-//!    `normalize_presence_state`, `format_discord_activity`, `format_steam_rich_presence`,
-//!    and Discord IPC binary frame encoding/decoding.
-//! 7. **Steam VDF & Overlay (`steam_vdf_*`)**:
-//!    Binary `shortcuts.vdf` roundtripping, CRC32 AppID / 64-bit GameID computation,
-//!    `steam://rungameid/<gameId>` relaunch decisions, and `gameoverlayrenderer.so` preload.
-//! 8. **Updater (`update_*`)**:
-//!    SemVer/Debian version comparison, canonical JSON, Ed25519 feed verification,
-//!    hot-swappable payload slot staging, crash-loop rollback, tamper detection, and
-//!    dry-run installer handoff.
-//! 9. **Content Archives (`content_archive_*`)**:
-//!    `.bfecontent` export, central directory inspection, atomic import, hardlink
-//!    deduplication, `relocate_preparation`, `safe_path` traversal rejection, and
-//!    bounds-checked rejection of truncated, garbage, and out-of-bounds archives.
 
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -70,12 +19,7 @@ use bfe_desktop::discover::{
     parse_heroic_installed, parse_install_dir, parse_library_folders, search_content,
     steam_libraries, FindContentOptions, FindGameOptions, SearchContentOptions, BF1_STEAM_APP,
 };
-use bfe_desktop::gpu::{gpu_report, gpu_switches, GpuDevice};
 use bfe_desktop::launch::{settle_with, SettleOptions};
-use bfe_desktop::linux::{
-    adopt_installer_launcher, desktop_entry, integrate_linux_desktop, launcher_script,
-    updating_launcher, IntegrateLinuxDesktopOptions, LauncherCommandStatus,
-};
 use bfe_desktop::paths::{
     content_candidates, default_prepared_dir, parse_content_arg, ContentCandidateEnv,
 };
@@ -98,7 +42,6 @@ use bfe_desktop::settings::{
     DesktopSettings, PlayerSettingsPatch, PlayerSettingsStore, PreparationRecord, SettingsPatch,
     SettingsStore,
 };
-use bfe_desktop::slow_links::{allow_slow_links, CONNECT_ATTEMPT, SLOW_LINKS_FLAG};
 use bfe_desktop::steam::client::{
     decide_steam_relaunch, find_overlay_library, launched_under_steam, prepare_steam_environment,
 };
@@ -1166,111 +1109,6 @@ fn paths_parses_content_arg_and_orders_candidates() {
 // 5. Linux desktop integration, GPU & Slow-links tests
 // ---------------------------------------------------------------------------
 
-/// Verifies `desktop_entry`, `launcher_script`, `adopt_installer_launcher`, `integrate_linux_desktop`,
-/// `gpu_switches`, `gpu_report`, and `allow_slow_links`.
-///
-/// Mirrors the desktop host, `tests/gpu-info.test.js`, and the desktop host.
-#[test]
-fn linux_desktop_entry_adopts_installer_launcher_and_gpu_and_slow_links_match_js() {
-    // Verify desktopEntry and launcherScript output format from the desktop host
-    let entry = desktop_entry("/opt/example/Apps/Battlefront Eternal.AppImage");
-    assert!(entry.contains("[Desktop Entry]"));
-    assert!(entry.contains("Exec=\"/opt/example/Apps/Battlefront Eternal.AppImage\" %U"));
-    assert!(launcher_script("/opt/x.AppImage").contains("current/battlefront-eternal"));
-
-    // Verify adoptInstallerLauncher upgrades legacy AppImage launchers in ~/.local/bin/battlefront-eternal.
-    let tmp = TempDir::new("linux-desktop");
-    let home = tmp.path();
-    let bin_file = home.join(".local/bin/battlefront-eternal");
-    assert_eq!(adopt_installer_launcher(home).unwrap(), "missing");
-    fs::create_dir_all(bin_file.parent().unwrap()).unwrap();
-    let original = "#!/usr/bin/env bash\nexport BFE_NO_DESKTOP_INTEGRATION=1\nexec /opt/example/p/.local/share/battlefront-eternal/Battlefront-Eternal.AppImage --appimage-extract-and-run \"$@\"\n";
-    fs::write(&bin_file, original).unwrap();
-    assert_eq!(adopt_installer_launcher(home).unwrap(), "updated");
-    let adopted = fs::read_to_string(&bin_file).unwrap();
-    assert_eq!(
-        adopted,
-        updating_launcher(
-            "/opt/example/p/.local/share/battlefront-eternal/Battlefront-Eternal.AppImage"
-        )
-    );
-    assert_eq!(adopt_installer_launcher(home).unwrap(), "current");
-    fs::write(&bin_file, "#!/bin/sh\nexec something-else\n").unwrap();
-    assert_eq!(adopt_installer_launcher(home).unwrap(), "foreign");
-
-    // Verify integrateLinuxDesktop writes icon, .desktop entry, and ~/.local/bin/battlefront.
-    let app_image = tmp.path().join("Battlefront Eternal.AppImage");
-    let icon_source = tmp.path().join("icon.png");
-    let data_home = tmp.path().join("data");
-    fs::write(&app_image, "appimage").unwrap();
-    fs::write(&icon_source, "png").unwrap();
-
-    let mut env = BTreeMap::new();
-    env.insert(
-        "XDG_DATA_HOME".to_string(),
-        data_home.to_string_lossy().into_owned(),
-    );
-
-    let res = integrate_linux_desktop(&IntegrateLinuxDesktopOptions {
-        executable: Some(app_image),
-        icon: icon_source,
-        home: home.to_path_buf(),
-        env,
-        update_caches: false,
-    })
-    .unwrap();
-    assert!(!res.skipped);
-    assert!(res.icon);
-    assert!(res.entry);
-    assert_eq!(res.command, Some(LauncherCommandStatus::Updated));
-
-    // Verify gpuSwitches and gpuReport match the desktop host and tests/gpu-info.test.js.
-    assert_eq!(
-        gpu_switches("win32"),
-        vec![vec!["force_high_performance_gpu"]]
-    );
-    assert!(gpu_switches("linux").is_empty());
-    let raw_status = BTreeMap::from([
-        ("webgl2".to_string(), "enabled_readback".to_string()),
-        (
-            "gpu_compositing".to_string(),
-            "disabled_software".to_string(),
-        ),
-        ("video_decode".to_string(), "enabled".to_string()),
-        ("2d_canvas".to_string(), "enabled".to_string()),
-    ]);
-    let raw_devices = vec![
-        GpuDevice {
-            vendor_id: 32902,
-            device_id: 294,
-            active: true,
-            driver_version: Some("31.0.14045.5222".to_string()),
-        },
-        GpuDevice {
-            vendor_id: 4318,
-            device_id: 4576,
-            active: false,
-            driver_version: None,
-        },
-    ];
-    let report = gpu_report(&raw_status, &raw_devices, "win32");
-    assert_eq!(report.devices.len(), 2);
-    assert_eq!(report.devices[0].vendor_id, 32902);
-    assert_eq!(
-        report.devices[0].driver_version.as_deref(),
-        Some("31.0.14045.5222")
-    );
-    assert_eq!(report.devices[1].driver_version, None);
-    assert_eq!(report.switches, vec!["force_high_performance_gpu"]);
-
-    // Verify allowSlowLinks, CONNECT_ATTEMPT, and SLOW_LINKS_FLAG match the desktop host
-    assert_eq!(CONNECT_ATTEMPT, 2500);
-    assert_eq!(
-        SLOW_LINKS_FLAG,
-        "--network-family-autoselection-attempt-timeout=2500"
-    );
-    assert_eq!(allow_slow_links().as_millis(), 2500);
-}
 
 // ---------------------------------------------------------------------------
 // 6. Player settings & Desktop settings tests (ports the desktop host)

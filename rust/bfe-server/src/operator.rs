@@ -1,33 +1,5 @@
 //! Operator SQLite store (`operator.sqlite`), token authentication (`operator-token`),
 //! and local HTTP `/admin` + `/healthz` listener (`src/operator.js` and `src/main.js`).
-//!
-//! Why `OperatorStore` uses `rusqlite` (`features = ["bundled"]`) with WAL mode:
-//! - Uses one well-vetted C SQLite library via `rusqlite` without any `libloading` / `dlopen`
-//!   or hand-rolled FFI.
-//! - Maintains 100% file and schema compatibility with `DatabaseSync` (`node:sqlite`) in
-//!   `src/operator.js`:
-//!   - `bans(id TEXT PRIMARY KEY, expires INTEGER NOT NULL, reason TEXT NOT NULL)`
-//!   - `scores(match TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, kills INTEGER NOT NULL, deaths INTEGER NOT NULL, points INTEGER NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(match, id))`
-//!   - `audit(time INTEGER NOT NULL, action TEXT NOT NULL, id TEXT, reason TEXT)`
-//!     so an operator's existing `operator.sqlite` database (bans, scores, and audit trail) works
-//!     interchangeably between the Node server and `bfeserver`.
-//! - Restricts `<directory>/operator.sqlite` and `<directory>/operator-token` to mode `0600` on
-//!   Unix (`chmodSync(..., 0o600)` in `src/operator.js`) and binds the HTTP control listener
-//!   exclusively to loopback (`127.0.0.1:<port>`).
-//!
-//! Operator HTTP & SQLite durability invariants (`operator.rs` <-> `src/operator.js` & `src/main.js`):
-//! - `operator.sqlite` uses `PRAGMA journal_mode = WAL` and `PRAGMA busy_timeout = 5000` via bundled
-//!   `rusqlite` (`features = ["bundled"]`), with zero `unsafe` blocks and zero `libloading`/`dlopen`.
-//! - Table schemas (`bans`, `scores`, `audit`) match `src/operator.js` column-for-column (`id TEXT PRIMARY KEY`,
-//!   `reason TEXT NOT NULL`, `created_at INTEGER NOT NULL`, `expires_at INTEGER`, `name TEXT NOT NULL`,
-//!   `kills INTEGER NOT NULL`, `deaths INTEGER NOT NULL`, `points INTEGER NOT NULL`, `matches INTEGER NOT NULL`,
-//!   `updated_at INTEGER NOT NULL`, `action TEXT NOT NULL`, `target TEXT`, `detail TEXT NOT NULL`,
-//!   `at INTEGER NOT NULL`), preserving existing operator databases across Node <-> Rust upgrades.
-//! - `operator-token` is generated with 32 cryptographic random bytes (64 hex chars), written with
-//!   `0o600` Unix permissions (`fs::Permissions::from_mode(0o600)`), and verified in constant time
-//!   (`check_auth` XOR accumulator over `Authorization: Bearer <token>`).
-//! - Request bodies on `POST /admin` are capped at `4096` bytes (`MAX_OPERATOR_BODY = 4096`), and
-//!   responses always include `Cache-Control: no-store`.
 
 use crate::identity::{is_hex_64, write_mode_600};
 use bfe_transport::crypto::random;
@@ -94,23 +66,6 @@ pub struct ScoreInput {
 
 /// Persistent SQLite backing store for local operator bans, per-match player scores,
 /// and administrative audit log entries (`export class OperatorStore` in `src/operator.js`).
-///
-/// The database file lives at `<directory>/operator.sqlite` with mode `0600` on Unix
-/// and runs in `WAL` journal mode so concurrent reads and writes do not block the
-/// operator HTTP listener.
-/// Persistent SQLite store for local bans, match player scores, and operator audit logs, porting
-/// `openStore(dir)` from `packages/bfe-server/src/operator.js`.
-///
-/// Why `rusqlite` with `features = ["bundled"]` is used (Zero `unsafe` / Zero `dlopen`):
-/// Lead requirement: operator data persistence must use the `rusqlite` crate with its `bundled`
-/// feature (one well-vetted C dependency, no `libloading` / hand-rolled SQLite FFI) while keeping
-/// the schema and on-disk `<dir>/operator.sqlite` file 100% compatible with the Node server's
-/// `node:sqlite` `DatabaseSync` store so existing bans, scores, and audit rows keep working.
-///
-/// Schema (`SCHEMA_SQL`, identical to `operator.js`):
-/// - `bans(id TEXT PRIMARY KEY, expires INTEGER NOT NULL, reason TEXT NOT NULL)`
-/// - `scores(match TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, kills INTEGER NOT NULL, deaths INTEGER NOT NULL, points INTEGER NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(match, id))`
-/// - `audit(time INTEGER NOT NULL, action TEXT NOT NULL, id TEXT, reason TEXT)`
 pub struct OperatorStore {
     /// Mutex-guarded `rusqlite::Connection`; `None` after `OperatorStore::close` is called.
     db: Mutex<Option<Connection>>,
@@ -519,19 +474,6 @@ impl Drop for OperatorHttpServer {
 /// - `GET /healthz`: unauthenticated readiness/health JSON (`serve` in `src/main.js`).
 /// - `POST /admin`: bearer-authenticated JSON command (`operatorHandler` in `src/operator.js`).
 /// - Any other path: `404 Not Found`.
-///
-/// Handles a single loopback HTTP request on `OperatorHttpServer` (`127.0.0.1:<operator_port>`),
-/// porting the HTTP server callback in `startOperatorServer` (`packages/bfe-server/src/operator.js`).
-///
-/// Endpoints and authentication (`operator.js`):
-/// - `GET /healthz`: unauthenticated probe used by `bfeserver --health-check` (`health-check.js`)
-///   and container orchestrators. Returns HTTP 200 when `status == "running"` (or HTTP 503
-///   otherwise) with `{ ok, status, tick, uptimeMs, players, maxPlayers, multiplayerReady, ... }`.
-///   Crucially, `multiplayerReady` is `ctl.multiplayer_ready()`, which is `true` ONLY when
-///   `NativeWorldHost` admitted the world via `Context::world_admit` (never `true` on an empty or
-///   placeholder world).
-/// - `POST /admin` (and `GET /status`): requires `Authorization: Bearer <operator.token>` verified
-///   in constant time by `check_auth`, then dispatches to `execute_admin_command`.
 fn handle_operator_connection(
     mut stream: TcpStream,
     token: &str,

@@ -20,7 +20,6 @@ impl World {
 
     /// preparePhase supplies qualified identities and retained intents, not only
     /// a count. Dead bodies can outlive their AI controller in the warm pool.
-    #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
     pub(crate) fn prepare_foreign_unit_rows(&mut self) -> Option<u32> {
         use crate::{gen::{F3PhaseInput, F3UnitKey}, units::f3};
         if !f3::active_in(&self.units) { return Some(0); }

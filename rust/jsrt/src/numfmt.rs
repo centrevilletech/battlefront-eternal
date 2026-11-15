@@ -3,15 +3,6 @@
 //! JSON text of a number, and `Number.prototype.toFixed`. Snapshot
 //! world fields and presentation events put numbers on the wire as
 //! JSON, so these bytes are part of bit-identity.
-//!
-//! `Number::toString` needs the shortest digit string that rounds
-//! to the value (closest, ties to the even last digit) and then
-//! JavaScript's choice between plain and exponent form. Rust's
-//! standard formatting gives a shortest string but not always the
-//! spec's choice among them, so [`shortest_digits`] elects the
-//! winner exactly with bignums; the layout then follows the
-//! ECMAScript rules. The differential harness in `tools/` checks
-//! all of it against V8 on tens of millions of bit patterns.
 
 mod buffered;
 pub use buffered::{json_number_into, fixed_four_number};
@@ -21,18 +12,6 @@ pub use buffered::{json_number_into, fixed_four_number};
 /// itself), and the exponent `n` of the spec's form
 /// `digits x 10^(n - len)` — the position of the decimal point
 /// after the first digit is `n - 1` in scientific form.
-///
-/// Rust's standard formatting gives a shortest digit string that
-/// rounds to the value, but not always the one ECMAScript chooses
-/// among the shortest: the spec wants the closest, ties to the even
-/// last digit (measured against Node 24, Rust's choice differed in
-/// the last digit on 46 of 500,000 random patterns). So the digits
-/// Rust offers are treated as a candidate and the few decimal
-/// neighbours at the same length are put to an exact election:
-/// keep those that still round to `x` (Rust's parser is correctly
-/// rounded, so it is the round-trip oracle), measure each one's
-/// distance to the exact binary value with bignums, and take the
-/// closest, even last digit on a tie.
 fn shortest_digits(x: f64) -> (String, i32) {
     debug_assert!(x > 0.0 && x.is_finite());
     let sci = format!("{:e}", x);

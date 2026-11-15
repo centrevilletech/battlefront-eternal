@@ -7,16 +7,6 @@
 //! hulls called (src/vehicles-world.js) gives, to the last bit, because it
 //! runs the same code: the kernel functions collision.js's ray paths call,
 //! in the order they call them, over the same inputs.
-//!
-//! - `Collision`: the hulls' casts, wall pushes, ground columns and spring
-//!   gathers, their bodies' places and enabled flags. JavaScript gives each
-//!   body's enabled flag (a plain field there) by its place in the world's
-//!   order before the phase and after any hook, and takes back the flags and
-//!   places the hulls changed (`take_changes`) before a hook and after the
-//!   phase, so either side always sees what the other did.
-//! - `MapRules`: the water (src/runtime/water-state.js over; its level, which
-//!   bobs with the battle's clock, comes in with each phase) and the death
-//!   regions (game.js inDeathRegion over src/regions.js inRegion).
 
 use crate::gen::{Body, F2BodyHeader, F2BodyToggle, F2BodyPlaced};
 use crate::store::Ref;
@@ -66,8 +56,6 @@ pub struct Collision {
     /// Prediction owns its enabled-byte reservation. Authoritative queries
     /// receive the movement owner's bytes with each operation.
     flags: Vec<u8>,
-    #[cfg(target_arch = "wasm32")]
-    authoritative: bool,
     /// Each kernel slot's place in the world's order (-1: not in it), for
     /// the order's version `places_for`.
     place_of: Vec<i32>,
@@ -167,8 +155,6 @@ impl Collision {
             world,
             blockers,
             flags: vec![0; MAX_BODIES],
-            #[cfg(target_arch = "wasm32")]
-            authoritative: false,
             place_of: Vec::new(),
             places_for: None,
             kernel_of: Vec::new(),
@@ -263,10 +249,7 @@ impl Collision {
     /// The page's prediction prepares through the module's cache bank,
     /// reached only for a collider that retains caches.
     pub fn prepare(&mut self, s: &State) {
-        #[cfg(target_arch = "wasm32")]
-        self.prepare_with(s, None);
         // Native prediction owns its query scratch and gathers directly.
-        #[cfg(not(target_arch = "wasm32"))]
         self.prepare_with(s, Some(&mut []));
     }
     // The gather caches are the collision owner's bank, lent by the caller:
@@ -518,67 +501,45 @@ impl Collision {
 
 impl Collision {
     // facade shims: prediction retains private flags until its callers convert.
-    #[cfg(target_arch = "wasm32")]
-    pub(crate) fn use_world_flags(&mut self) { self.authoritative = true; }
     pub fn take_changes(&mut self, s: &mut State, out: &mut Vec<f64>) {
-        #[cfg(target_arch = "wasm32")]
-        if self.authoritative { return self.take_changes_in(s, crate::abi::world().movement.flags_mut(), out); }
         let flags = std::mem::take(&mut self.flags);
         let result = self.take_changes_in(s, &flags, out);
         self.flags = flags;
         result
     }
     pub fn overlaps_sphere(&mut self, s: &mut State, center: &Vector3, radius: f64, ignore: Option<BodyId>) -> bool {
-        #[cfg(target_arch = "wasm32")]
-        if self.authoritative { return self.overlaps_sphere_in(s, crate::abi::world().movement.flags_mut(), center, radius, ignore); }
         let flags = std::mem::take(&mut self.flags);
         let result = self.overlaps_sphere_in(s, &flags, center, radius, ignore);
         self.flags = flags;
         result
     }
     pub fn cast(&mut self, s: &mut State, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Option<Hit>> {
-        #[cfg(target_arch = "wasm32")]
-        if self.authoritative { return self.cast_in(s, crate::abi::world().movement.flags_mut(), origin, direction, far, ignore); }
         let flags = std::mem::take(&mut self.flags);
         let result = self.cast_in(s, &flags, origin, direction, far, ignore);
         self.flags = flags;
         result
     }
     pub fn push_walls(&mut self, s: &mut State, body: BodyId, probes: &[Vector3], radius: f64, q: &Quaternion, own: Option<&Quaternion>, previous: &Vector3, position: &mut Vector3, velocity: &mut Vector3, terrain: bool) -> Option<bool> {
-        #[cfg(target_arch = "wasm32")]
-        if self.authoritative { return self.push_walls_in(s, crate::abi::world().movement.flags_mut(), Some(spheres::caches()), body, probes, radius, q, own, previous, position, velocity, terrain); }
         let flags = std::mem::take(&mut self.flags);
-        #[cfg(target_arch = "wasm32")]
-        let bank = Some(spheres::caches().as_mut_slice());
-        #[cfg(not(target_arch = "wasm32"))]
         let bank = None;
         let result = self.push_walls_in(s, &flags, bank, body, probes, radius, q, own, previous, position, velocity, terrain);
         self.flags = flags;
         result
     }
     pub fn spring_polygons(&mut self, s: &mut State, body: BodyId, index: usize, center: &Vector3, radius: f64) -> Option<&[spheres::Polygon]> {
-        #[cfg(target_arch = "wasm32")]
-        if self.authoritative { return self.spring_polygons_in(s, crate::abi::world().movement.flags_mut(), Some(spheres::caches()), body, index, center, radius); }
         let flags = std::mem::take(&mut self.flags);
-        #[cfg(target_arch = "wasm32")]
-        let bank = Some(spheres::caches().as_mut_slice());
-        #[cfg(not(target_arch = "wasm32"))]
         let bank = None;
         let found = self.spring_polygons_in(s, &flags, bank, body, index, center, radius).is_some();
         self.flags = flags;
         found.then(|| self.gathered.list())
     }
     pub fn enable_body(&mut self, s: &State, body: BodyId, enabled: bool) -> Option<()> {
-        #[cfg(target_arch = "wasm32")]
-        if self.authoritative { return self.enable_body_in(s, crate::abi::world().movement.flags_mut(), body, enabled); }
         let mut flags = std::mem::take(&mut self.flags);
         let result = self.enable_body_in(s, &mut flags, body, enabled);
         self.flags = flags;
         result
     }
     pub fn body_enabled(&mut self, s: &State, body: BodyId) -> Option<bool> {
-        #[cfg(target_arch = "wasm32")]
-        if self.authoritative { return self.body_enabled_in(s, crate::abi::world().movement.flags_mut(), body); }
         let flags = std::mem::take(&mut self.flags);
         let result = self.body_enabled_in(s, &flags, body);
         self.flags = flags;
@@ -805,7 +766,7 @@ mod tests {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod native_query_owners {
     use super::*;
     #[test]

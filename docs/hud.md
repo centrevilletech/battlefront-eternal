@@ -49,5 +49,5 @@ keep their logical IDs and force a full GPU upload before the next HUD draw.
 ## Verification
 
 ```sh
-~/bfe-work/tools/rbuild.sh cargo test --locked -p bfe-render
+cargo test --locked -p bfe-render
 ```

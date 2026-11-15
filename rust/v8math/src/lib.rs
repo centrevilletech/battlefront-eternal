@@ -3,35 +3,6 @@
 //! simulation produces. Rust code that must agree with that simulation to
 //! the last bit calls these functions and never Rust's own `sin`, `exp` and
 //! so on, whose last bits differ.
-//!
-//! - `sin` to `cbrt`, the transcendental functions: V8's port of fdlibm in
-//!   `src/base/ieee754.cc`, translated operation by operation. V8 12.4 (Node
-//!   22) computes the same for all of them.
-//! - `pow`, for `Math.pow` and `**` alike: V8 13.6 keeps a few special cases
-//!   and calls the C library's `pow` for the rest, so the server's results
-//!   are glibc's as it runs on x86-64 with FMA; `pow` computes those (see
-//!   its documentation). `pow_legacy` is V8's own fdlibm `pow`, which V8
-//!   12.4 (Node 22) used.
-//! - `round`, `sign`, `min`, `max`, `hypot`, `clz32`, `imul`: V8's builtins.
-//! - `to_int32` and `to_uint32`: ECMAScript's ToInt32 and ToUint32, what
-//!   `x | 0` and `x >>> 0` compute.
-//! - `sqrt`, `floor`, `ceil`, `trunc`, `abs` and `fround` are exact
-//!   operations, the same in every implementation.
-//!
-//! Newer V8 differs: V8 15.2 computes most transcendental
-//! functions with LLVM's libc instead of fdlibm and differs from V8 13.6 in
-//! the last bit of a small fraction of the results of `sin`, `cos`, `tan`,
-//! `atan`, `atan2`, `acos`, `exp`, `log`, `cbrt` and `tanh`. This crate
-//! keeps the server's results.
-//!
-//! NaN: any NaN stands for any other, as in JavaScript (V8 itself returns
-//! NaNs with different bit patterns from one tier of its compiler to the
-//! next). Where V8's fdlibm returns a constant NaN, so does this crate, with
-//! the same bits.
-//!
-//! The arithmetic is plain IEEE double precision in the order written, with
-//! no fused multiply-add (Rust never contracts `a * b + c` by itself),
-//! except in `pow`, which fuses exactly the operations glibc's `pow` fuses.
 
 #![forbid(unsafe_code)]
 

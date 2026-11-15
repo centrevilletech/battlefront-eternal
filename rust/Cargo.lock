@@ -4529,14 +4529,9 @@ dependencies = [
  "content",
  "jsrt",
  "serde_json",
- "sim-replay",
  "three",
  "v8math",
 ]
-
-[[package]]
-name = "sim-replay"
-version = "0.1.0"
 
 [[package]]
 name = "simd-adler32"

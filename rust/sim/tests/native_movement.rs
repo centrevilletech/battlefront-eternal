@@ -1,4 +1,3 @@
-#![cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 use bfe_content::{
     bvh::{build, Positions},
     collision::{triangle_bounds, MapCollision, TriangleGrid},

@@ -2134,12 +2134,21 @@ impl BattleController {
         let motion=match &self.authority{BattleAuthority::InstantAction{replay,..}=>replay.fleet.vehicle_motion(),BattleAuthority::Online{client,..}=>client.replay.fleet.vehicle_motion()};
         self.scene.vehicle_motion(motion.0,motion.1,dt)?;
         super::bench::apply_view(&mut view);
-        self.scene.draw(&view)?;
+        super::bench::prof::mark(&self.scene.bridge.r.core.gl, "pre_world");
+        let behind=if page_spawn {self.page_battle.backdrop(&self.pause_page.theme)} else {super::page_battle::Backdrop::Draw};
+        if behind==super::page_battle::Backdrop::Draw {
+            self.scene.draw(&view)?;
+            if page_spawn {self.page_battle.drawn_behind(&self.scene);}
+        } else {
+            self.page_battle.show_behind(&mut self.scene,behind);
+        }
+        super::bench::prof::mark(&self.scene.bridge.r.core.gl, "world");
         self.scene.bridge.r.core.profile.cpu("frame CPU",frame_timer);
         if page_spawn || page_score {
             if page_spawn {
                 let class = self.page_battle.class_id;
                 self.page_battle.draw(&mut self.scene,class,&self.pause_page.theme,self.spawn_ctrl.view.map_proj,&self.spawn_ctrl.model,&self.spawn_port);
+                super::bench::prof::mark(&self.scene.bridge.r.core.gl, "stage");
             } else {
                 self.pause_page.blur.apply(&self.scene.bridge.r.core.gl,self.scene.canvas.framebuffer,4.);
             }
@@ -2260,7 +2269,9 @@ impl BattleController {
             if self.page_battle.spawn {
                 let status = super::slint_battle::spawn_battle_status(self);
                 self.page_battle.update(dt,&self.spawn_ctrl.model,&self.spawn_port,self.page_size,&self.pause_page.theme,status.countdown.is_some());
+                super::bench::prof::mark(&self.scene.bridge.r.core.gl, "spawn_update");
                 self.page_battle.map_texture(&mut self.scene,&self.spawn_ctrl.view,self.height);
+                super::bench::prof::mark(&self.scene.bridge.r.core.gl, "map_texture");
                 self.scene.bridge.hud_model.batch.begin();
                 super::slint_battle::sync_spawn_hotspots(self);
                 return;

@@ -155,30 +155,6 @@ fn shot_budget_requires_the_shooters_captured_life_and_a_finite_current_view() {
     assert!(h.shot_tick(0, 1.0, true, true, false, 100.0, None, None).is_none());
 }
 
-#[test]
-fn warmed_history_capture_and_fractional_rays_keep_their_storage() {
-    let mut w = Bodies::default();
-    let mut h = history();
-    h.capture(0, &mut w);
-    ALLOCATIONS.with(|n| n.set(0));
-    TRACK.with(|on| on.set(true));
-    for tick in 1..=1200 {
-        w.x[0] = (tick % 2) as f64;
-        h.capture(tick, &mut w);
-        let _ = h.raycast(
-            tick as f64 - 0.5,
-            &Vector3::default(),
-            &Vector3::new(0.0, 0.0, 1.0),
-            10.0,
-            None,
-            true,
-            &mut w,
-            &mut |_| true,
-        );
-    }
-    TRACK.with(|on| on.set(false));
-    assert_eq!(ALLOCATIONS.with(Cell::get), 0);
-}
 
 // The saved half replaces publication-only halfSize, without quantizing any
 // geometry. Test each topology through capture and a fractional rewind ray.

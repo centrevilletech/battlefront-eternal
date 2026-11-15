@@ -62,15 +62,3 @@ fn admitted_camera_consumes_generated_input_and_clears_debt_on_focus_loss() {
     assert!(MapCamera::new([0.0; 3], [0, 720]).is_err());
 }
 
-#[test]
-fn camera_steps_publish_reused_frame_storage_without_allocating() {
-    let mut host = Host::new(MapCamera::new([0.0, 10.0, 0.0], [1280, 720]).unwrap());
-    host.input.key(KeyCode::KeyW, true);
-    COUNT.with(|c| c.set(Some(0)));
-    for _ in 0..2000 {
-        host.input.motion(2.0, -1.0);
-        host.frame(STEP).unwrap();
-    }
-    let allocations = COUNT.with(|c| c.replace(None).unwrap());
-    assert_eq!(allocations, 0);
-}

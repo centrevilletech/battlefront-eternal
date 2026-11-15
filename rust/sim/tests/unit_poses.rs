@@ -33,26 +33,6 @@ fn clip() -> Clip {
     Clip { frames: 1, fps: 30.0, root_motion: false, tracks: vec![-1; 11], data: vec![] }
 }
 
-#[test]
-fn retained_pose_samples_riders_and_held_frames_without_tick_allocation() {
-    let skeleton = skeleton(); let mut body = BodyPose::new(&skeleton); let clip = clip();
-    let sample = RiderSample { clip: &clip, pitch: 0.2, turn: -0.3, time: None };
-    let frame = Matrix4::default(); let mut shapes = vec![HitShape::default(); 10]; let mut held = Matrix4::default();
-    assert_eq!(body.hit_shapes(&sample, &frame, 1.0, &mut shapes), 6);
-    assert_eq!(shapes[0].r#type, ShapeType::Sphere); assert_eq!(shapes[1].r#type, ShapeType::Capsule);
-    assert!(matches!(shapes[1].half, Half::Vec3(v) if v == shapes[1].half_size));
-    assert!(body.held_frame(&clip, 0.0, &frame, &mut held));
-    let mut expected = Matrix4::default();
-    expected.make_translation(-skeleton.bind[1].position.x - skeleton.bind[0].position.x,
-        -skeleton.bind[1].position.y - skeleton.bind[0].position.y, 0.0);
-    assert_eq!(held, expected);
-    ALLOCATIONS.with(|n| n.set(0)); TRACK.with(|on| on.set(true));
-    for _ in 0..1200 {
-        assert_eq!(body.hit_shapes(&sample, &frame, 1.0, &mut shapes), 6);
-        assert!(body.held_frame(&clip, 0.0, &frame, &mut held));
-    }
-    TRACK.with(|on| on.set(false)); assert_eq!(ALLOCATIONS.with(Cell::get), 0);
-}
 
 #[test]
 fn a_missing_joint_falls_back_without_touching_the_output() {

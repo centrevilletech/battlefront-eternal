@@ -1,25 +1,4 @@
 //! Process launch handoff, readiness token signalling, and version settlement.
-//!
-//! Mirrors the desktop host (`childEnvironment`, `signalReady`,
-//! `launchVersion`, `DEFAULT_READY_TIMEOUT_MS`) and the lifecycle hooks in
-//! the desktop host (`readReleaseInfo`, `updater.ready()`,
-//! `updater.settle()`).
-//!
-//! ## Readiness Handshake
-//! When the bootstrap build (desktop host or native) or an older installed version
-//! hands off to a newer version under `<root>/versions/<version>/`, the parent
-//! creates a 32-character hex token name under `<root>/launches/<token>` and passes
-//! `BFE_LAUNCH_DIR` and `BFE_LAUNCH_TOKEN` in the child's environment.
-//!
-//! 1. Once the child's window exists and the first frame is drawn, [`ready`]
-//!    ([`signal_ready`]) writes the child's PID to `<BFE_LAUNCH_DIR>/<BFE_LAUNCH_TOKEN>`.
-//!    The parent sees the file within [`READY_POLL_MS`], removes it, logs the handoff,
-//!    and exits with status `0` instead of waiting out the 30-second timeout and
-//!    killing the child.
-//! 2. Ten seconds after window creation, [`settle`] records the running version at
-//!    the head of `healthy` in `<root>/state.json`, updates `<root>/current` on Linux
-//!    when running inside `<root>/versions/<version>`, and calls [`collect`] to prune
-//!    superseded version directories.
 
 use std::collections::{BTreeMap, HashMap};
 use std::env;

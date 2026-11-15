@@ -1,15 +1,6 @@
 //! STUN (RFC 8489) binding and address attribute encoding/decoding, matching
 //! `src/net/stun.js`. Used on the shared game UDP sockets for reflexive
 //! address discovery (`UdpEndpoint.reflexive`).
-//!
-//! Implements the subset of STUN/TURN framing required by BFE endpoints:
-//! - 20-byte fixed header with RFC 8489 magic cookie (`0x2112a442`) and
-//!   96-bit transaction ID.
-//! - RFC 7983 first-byte multiplexing (`0..=3` for STUN, `0x40..=0x4f` for TURN
-//!   ChannelData) so STUN and BFE game packets can share a single UDP socket.
-//! - `XOR-MAPPED-ADDRESS` / `XOR-PEER-ADDRESS` / `XOR-RELAYED-ADDRESS` masking
-//!   for both IPv4 and IPv6 socket addresses, plus `FINGERPRINT` (`0x8028`)
-//!   CRC-32 generation and attribute boundary validation.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 

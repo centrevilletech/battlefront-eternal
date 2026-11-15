@@ -3,45 +3,6 @@
 //! the sim poses are Object3D hierarchies, and their world matrices
 //! are behaviour. Only the transform half of Object3D is here —
 //! no events, layers, visibility or rendering state.
-//!
-//! The Euler/quaternion sync is the subtle part. In three, an
-//! Object3D's `rotation` (an Euler) and `quaternion` keep each
-//! other current through change callbacks: any write through an
-//! Euler setter or method runs `quaternion.setFromEuler(rotation,
-//! false)`, and any write through a Quaternion setter or method
-//! runs `rotation.setFromQuaternion(quaternion, undefined, false)`
-//! (keeping the Euler's current order) — an asin and two atan2s on
-//! every write. Code reads whichever it likes, including reading a
-//! flyer root's XYZ-Euler `.y` as a heading after the quaternion
-//! was written, which gives three's synced (and past 90 degrees,
-//! surprising) value.
-//!
-//! Nearly every quaternion write in the simulation is to a bone
-//! whose Euler nothing reads, so here a quaternion write only notes
-//! the value the callback saw (`euler_from`), and the Euler is
-//! worked out from it when something reads the rotation or writes
-//! one of its parts. That gives three's values exactly: the
-//! conversion reads only that quaternion and the Euler's order,
-//! and the order changes only through a rotation write, which
-//! works the Euler out first. A node whose quaternion callback
-//! three has switched off (`bone.quaternion._onChange(NO_EULER)`,
-//! src/actor.js) has `euler_sync` false: its rotation keeps what it
-//! last held.
-//!
-//! Writes go through the node's methods, which note the callback
-//! where three's fires (last value seen): `set_quaternion`,
-//! `copy_quaternion`, `with_quaternion` (any of three's quaternion
-//! methods but slerp, each of which fires once at its end with the
-//! final value), `slerp_quaternion` and `decompose_from`. Reading
-//! `quaternion`, `position` and `scale` is plain; a position or
-//! scale write is plain in three too. The tree-level methods
-//! (`apply_matrix4`, `look_at`, the rotates, ...) go through the
-//! same node methods three's Object3D methods go through, so their
-//! callback points match too.
-//!
-//! This layout is the one P5's rigs were first built against
-//! (rust/sim/src/rig/tree.rs, superseded by this crate): same type,
-//! field and method names, so the rigs move by their imports.
 
 use crate::euler::{Euler, EulerOrder};
 use crate::matrix::Matrix4;

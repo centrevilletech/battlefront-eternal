@@ -3,39 +3,6 @@
 //! VoiceOut in src/audio/spatial.js), worked out here and written into the
 //! spatial mixer's slot instead of reaching it through the nodes. Per voice,
 //! as Chromium's nodes compute it:
-//!
-//! - the sample, as an AudioBufferSourceNode plays it: from its start frame
-//!   (the start time rounded up to a frame) to its stop frame, a read
-//!   position in double precision stepped by the sample's rate over the
-//!   context's times the playbackRate (k-rate), linear interpolation
-//!   between the two samples around it, looping or ending at the sample's
-//!   end;
-//! - its gain (a GainNode moved by setValueAtTime, setTargetAtTime and
-//!   cancelScheduledValues), a value a sample;
-//! - its reverb send, the gain's output times the send level, summed over
-//!   the voices into the mixer's third output in the slots' order (the
-//!   browser adds three or more sends in an order of its own that changes
-//!   from graph to graph, so there its renders and these can differ in the
-//!   last bits, as its own renders differ from each other);
-//! - the air's lowpass (a BiquadFilterNode with a k-rate frequency), its
-//!   coefficients from fdlibm's sine and cosine as the browser's, into the
-//!   voice's slot.
-//!
-//! The light mix (the original on stereo) plays its voices here too, with
-//! `render_light`: a voice's source straight into two GainNodes, one a
-//! speaker, each summed into its channel of the output (the light mix's
-//! ChannelMergerNode), the page setting their gains as it sets the
-//! browser's (AudioParam.value, setTargetAtTime, cancelScheduledValues).
-//! A node input sums its connections in the order of a hash of their
-//! addresses, which changes from graph to graph; the voices here sum in
-//! slot order, the first copied and the rest added, as the browser adds
-//! them in its order.
-//!
-//! Every parameter runs on src/timeline.rs, the browser's own automation
-//! arithmetic. Commands (start, the targets, release, stop) arrive once a
-//! frame from the page, each with the context time its AudioParam call
-//! would have had. Nothing allocates while rendering: samples and the
-//! command buffer are allocated as they arrive.
 
 use crate::timeline::Timeline;
 use crate::FRAMES;
@@ -268,9 +235,7 @@ impl Engine {
     /// Native stream assets arrive as owned PCM from the decoder thread.
     /// Slots are reserved at admission; moving a decoded buffer here never
     /// allocates on the device callback or changes an existing source cursor.
-    #[cfg(not(target_arch="wasm32"))]
     pub fn reserve_samples(&mut self,count:usize){self.samples.resize_with(self.samples.len().max(count),||None);}
-    #[cfg(not(target_arch="wasm32"))]
     pub fn decoded_sample(&mut self,id:usize,rate:f64,channels:usize,frames:usize,data:Vec<f32>){if id>=self.samples.len()||channels==0||channels>12||data.len()!=frames.saturating_mul(channels){return;}self.samples[id]=Some(Sample{rate,channels,frames,data,ring:None});}
     /// Room for sample `id`'s `frames` at `rate`, to fill before a voice
     /// plays it (allocates: called as a sample arrives, never mid-block).

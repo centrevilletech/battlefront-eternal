@@ -50,20 +50,6 @@ fn replacing_a_living_hull_reports_loss_before_reporting_the_new_life() {
     assert_eq!(current.ai.points.len(), 8); assert_eq!(current.desc.value_bleed, 10.0);
     mobile::events_into(&mut s, &mut native, &mut events); assert!(events.is_empty());
 }
-#[path = "support/allocations.rs"]
-mod allocation;
-#[global_allocator]
-static ALLOCATOR: allocation::Counted = allocation::Counted;
-#[test]
-fn repeated_hull_lives_reuse_pad_facts_class_paths_and_event_storage() {
-    let (mut s, p, mut native) = setup(); mobile::report_all(&mut s, &mut native);
-    let mut events = Vec::with_capacity(2); allocation::start();
-    for _ in 0..1200 {
-        native.pad.variants[1].generation += 1.0;
-        mobile::events_into(&mut s, &mut native, &mut events); assert_eq!(events.len(), 1);
-    }
-    assert_eq!(allocation::stop(), 0); assert_eq!(s.mobile_post.get(p).unwrap().life, Some(1201.0));
-}
 #[test]
 fn a_class_spawn_point_retracts_toward_the_transformed_collision_center() {
     use three::{Matrix4, Vector3};

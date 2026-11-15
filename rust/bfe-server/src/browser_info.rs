@@ -1,17 +1,4 @@
 //! Server browser metadata validation and sanitization (`src/browser-info.js`).
-//!
-//! What a server browser shows of a server beyond how to reach it:
-//! - the operator's `description`, `sponsor`, and `location` from `config.json`,
-//! - the battle it plays (`map`, `mapName`, `side`, `era`, `mode`, and the `query` a player's
-//!   client loads for it),
-//! - its rules (`bots`, `autoAssignTeams`), and
-//! - how long the service has run (`uptime` in whole seconds).
-//!
-//! Both the online directory listing relayed by the master (`OnlineServer.listing` in
-//! `src/online-server.js`) and the direct `/info` endpoint (`startLocalServer` in
-//! `src/local-server.js`) include these fields. LAN discovery replies (`lanInfo` in
-//! `src/local-server.js`) strip `description` and `sponsor` so the response fits in one UDP
-//! datagram.
 
 use crate::config::ServerConfig;
 use serde::{Deserialize, Serialize};

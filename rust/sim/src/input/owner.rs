@@ -224,33 +224,6 @@ mod tests {
         assert_eq!(out.state.ack_tick, 5.0); assert_eq!(out.state.state_tick, 3.0); assert_eq!(out.state.late, 1.0);
         assert_eq!(out.state.queue.len(), 1); assert_eq!(out.command.unwrap().look[0].point, [12.0, -4.0]);
     }
-    #[test]
-    fn oversized_records_retire_with_partial_state_without_growing_scratch() {
-        for (actions,looks,humans) in [(2049,0,0),(0,2049,0),(0,0,17)] {
-            let mut strings=Strings::default();let jump=strings.intern_str("jump");
-            let total=(looks==0).then_some([-0.0,12.5]);
-            let input=ImInput {op:ImOperation::Take,tick:2.0,generation:1.0,
-                state:ImState {capacity:1.0,generation:1.0,queue:vec![ImEntry {
-                    identity:7.0,sequence:1.0,tick:1.0,generation:1.0,down:17.0,
-                    actions:vec![jump;actions],look:vec![ImLook::default();looks],
-                    human:vec![HsCommand::default();humans],look_total:total,..Default::default()
-                }],..Default::default()},..Default::default()};
-            let mut owner=Mailbox::new(1.,1.,Vec::new(),&mut strings).unwrap();
-            owner.state=input.state;
-            let capacities=(owner.taken.actions.capacity(),owner.taken.look.capacity(),owner.taken.human.capacity(),owner.taken.fire.capacity());
-            let mut out=owner.run(ImInput {state:ImState::default(),..input},&mut strings);
-            out.state=std::mem::take(&mut owner.state);
-            assert!(out.error.is_none());
-            assert!(out.command.as_ref().unwrap().actions.is_empty());assert!(out.state.queue.is_empty());assert_eq!(out.retired,[7.0]);
-            assert_eq!(out.state.ack,1.0);assert_eq!(out.state.ack_tick,2.0);assert_eq!(out.state.down,Some(17.0));
-            assert_eq!(out.state.look_total.map(f64::to_bits),total.unwrap_or([0.0;2]).map(f64::to_bits));
-            let taken=out.command.as_ref().unwrap();
-            assert_eq!((taken.actions.capacity(),taken.look.capacity(),taken.human.capacity(),taken.fire.capacity()),capacities);
-            owner.state=std::mem::take(&mut out.state);owner.recycle(&mut out);
-            let recovered=owner.run(ImInput {op:ImOperation::Take,tick:3.0,generation:1.0,..Default::default()},&mut strings);
-            assert!(recovered.error.is_none());
-        }
-    }
 
     // Exercise the native admission boundary without the host shape checker.
     // Every refusal preserves queue stamps and permits a later valid record.

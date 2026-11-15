@@ -347,7 +347,7 @@ impl Hulls {
                 } else {
                     0.
                 },
-                rows: admission.records,
+                rows: admission.records.into_iter().map(|mut row| { row[bfe_render::instances::REC_RECEIVE_SHADOW] = 1.; row }).collect(),
                 inverses: inverses.into_iter().map(|elements| Matrix4 { elements }).collect(),
                 walk_length,
                 seats: seats.len(),

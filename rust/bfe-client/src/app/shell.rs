@@ -1,15 +1,4 @@
 //! Native front-end host over the existing shell and options screen stacks.
-//!
-//! ShellApp owns front-end actions; OptionsController owns the option widgets,
-//! slider interaction, key capture and persistence. The page renderer paints
-//! their state and supplies viewport hit regions without duplicating actions.
-//!
-//! Licensed Saira and look surfaces are admitted once with the GL resources.
-//! Page receives current media texture outputs from the host each frame.
-//! Loading screens retain their separate timeline.
-//!
-//! The host also owns server-browser polling, audio routing and the shell's
-//! framebuffer. Network discovery and content preparation stay off the UI thread.
 
 use crate::{
     app::{
@@ -68,18 +57,6 @@ use three::{CoordinateSystem, Matrix4};
 /// Named UI chrome, backdrop, faction icon, and loading screen textures uploaded
 /// from `common/common.json` and `shell/shell.json` into both [`ShellTextures`]
 /// and [`bfe_interface::Surface`].
-///
-/// ## Texture Categories
-/// - **Static Art**: `his_brief_bg` for Instant Action and
-///   `iface_bgmeta_space` for loading screens. Movies use their own textures.
-/// - **3-Piece Capsules & Borders**: `buttonleft`, `buttonmid`, `buttonright`,
-///   `headerbuttonleft`, `headerbuttonmid`, `headerbuttonright`, `border_3_pieces`,
-///   `border_3_pieces_Selected`.
-/// - **Listboxes & Sliders**: `listbox_cursor`, `listbox_hilight`, `slider_bg`,
-///   `slider_fg`, `slider_sound`.
-/// - **Faction Emblems**: `rep_icon`, `cis_icon`, `imp_icon`, `all_icon`.
-/// - **Loading Screen Widgets**: `load_rotating_disk`, `load_led_0..2`,
-///   `load_edge_horz`, `load_edge_vert`, `load_edge_corner`, `map_unk`.
 const NAMED_TEXTURES: &[&str] = &[
     "his_brief_bg",
     "iface_bgmeta_space",
@@ -769,16 +746,6 @@ impl ShellHost {
     /// Loads `common.json` and `shell.json` from `content_dir`, uploading bitmap
     /// fonts, backdrops, map previews, and stage textures, and installing a
     /// [`ShellAudioMixer`] into `audio_router`.
-    ///
-    /// ## Asset Upload Steps
-    /// 1. Parses `common/common.json` and `shell/shell.json` via `load_shell_data_from_dir`.
-    /// 2. Uploads bitmap font atlas pages (`gamefont_large`, `gamefont_medium`, `gamefont_small`,
-    ///    `gamefont_tiny`) and constructs both [`ShellFonts`] and [`bfe_interface::Fonts`].
-    /// 3. Uploads all UI chrome, backdrop, faction emblem, map preview (`map_<id>`),
-    ///    and loading zoom stage textures into `self.core` and `self.interface_surface`.
-    /// 4. Rebuilds `self.options_ctrl` (`OptionsController`) with the loaded localization
-    ///    string table (`data.strings`) and current viewport dimensions.
-    /// 5. Initializes [`ShellAudioMixer`] and installs it into `audio_router`.
     pub fn load_prepared_content(
         &mut self,
         content_dir: &Path,
@@ -1076,10 +1043,6 @@ impl ShellHost {
         viewpoint
     }
 
-    /// Whether an option page is open over a paused battle.
-    pub(super) fn battle_options_open(&self) -> bool {
-        self.front_end_options.is_some()
-    }
 
     /// Drains sound cues and named actions from [`Self::options_ctrl`] and persists
     /// any modified settings into `settings` and `self.app`.
@@ -1510,15 +1473,6 @@ impl ShellHost {
 
     /// Updates and renders the active shell screen (`Gate`, `Main`, `InstantAction`,
     /// `bfe-interface` `Options`, `Profile`, `Multiplayer`, `HostDialog`, etc.).
-    ///
-    /// ## Rendering Dispatch
-    /// - Polls background server browser results (`self.browser.poll()`) and advances
-    ///   `gate_elapsed` / `pulse_elapsed` animations.
-    /// - When [`Self::is_interface_options_active`] is `true`, updates `self.options_ctrl.stack`
-    ///   and paints the active `bfe-interface` screen stack via [`ClassicTheme::paint_stack`],
-    ///   recording interactive pointer hit regions into `self.options_hits`.
-    /// - Otherwise renders the active `bfe-shell` screen (`Gate`, `Main`, `Singleplayer`,
-    ///   `InstantAction`, `Profile`, `Multiplayer`, `HostDialog`, popups) via [`draw_shell`].
     pub fn step_and_draw(
         &mut self,
         dt: f64,
@@ -1984,17 +1938,6 @@ impl ShellHost {
     }
 
     /// Handles a primary mouse button click at `(x_px, y_px)`.
-    ///
-    /// ## Pointer Click Routing
-    /// - When [`Self::is_interface_options_active`] is `true`, dispatches
-    ///   `self.options_ctrl.input.on_pointer_down` + `on_pointer_up` against `self.options_hits`
-    ///   and flushes modified settings via [`Self::flush_options_controller`].
-    /// - Otherwise checks the bottom-left `BACK` footer zone (`iy >= 690 && ix < 220`),
-    ///   unlocks the title gate on `ScreenId::Gate`, or invokes `ShellApp::accept`.
-    /// Handles a mouse button press (`0..=4`) at `(x_px, y_px)`.
-    ///
-    /// When the `CONTROL OPTIONS` key-capture popup is open, binds `"Mouse0"`..`"Mouse4"`;
-    /// otherwise routes primary button (`0`) clicks to [`Self::handle_mouse_click`].
     pub fn handle_mouse_button(
         &mut self,
         button: u8,

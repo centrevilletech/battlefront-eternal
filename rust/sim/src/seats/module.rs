@@ -3,16 +3,6 @@
 //! Node): the hulls' input batch (Vehicles.latchCrews) runs on the leases,
 //! hulls and riders' units as the store holds them, JavaScript writing them
 //! in before the phase and syncing its objects from the store after it.
-//!
-//! What the seats ask of the battle meanwhile comes back as the imports of
-//! rust/sim/schema/seats.mjs (the collision world's casts, an AI
-//! controller's state, a bot's new seat control, a seat's weapons' spread
-//! rule). None of them comes back into the module: the seats' Rust holds
-//! the store across them. What the seats leave to the battle's JavaScript
-//! (a body's combat flags and drawing as it takes or leaves a seat, the
-//! battle's hooks) is the answer's effects, which JavaScript does in order
-//! once the phase is over and its objects are synced: nothing in the phase
-//! reads any of it back.
 
 use super::hulls::{HullSide, Hulls};
 use super::lease::{control_key, SeatControl, SeatIntent};
@@ -298,7 +288,4 @@ fn ground_cast(w:&mut crate::world::owner::World,origin:&Vector3,direction:&Vect
         .cast_in(&mut w.collision.state,w.movement.flags_mut(),origin,direction,far,None)?
         .map(|h|CastHit {point:h.point,normal:h.normal,distance:h.distance,terrain:h.terrain})
 }
-#[cfg(target_arch = "wasm32")]
-fn legacy_ground_cast(origin:&Vector3,direction:&Vector3,far:f64)->Option<CastHit> { ground_cast(crate::abi::facade::world(),origin,direction,far) }
-#[cfg(not(target_arch = "wasm32"))]
 fn legacy_ground_cast(_: &Vector3,_:&Vector3,_:f64)->Option<CastHit> { crate::abi::no_native_host("seatCast") }
