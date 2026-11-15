@@ -53,6 +53,7 @@ impl Buildings {
         bridge: &mut Bridge,
         textures: &[u32],
     ) -> Result<Self, String> {
+        let cascades = bridge.shadow_cascades();
         let mut rows = Vec::new();
         let Some(data) = content.content.battle.props.as_ref() else {
             return Ok(Self { rows });
@@ -128,7 +129,7 @@ impl Buildings {
                     content,
                     textures,
                     bfe_content_native::placed::admit_look(content, source, index)?,
-                    crate::shadows::COUNT,
+                    cascades,
                 )?;
                 let bind = rig
                     .bones

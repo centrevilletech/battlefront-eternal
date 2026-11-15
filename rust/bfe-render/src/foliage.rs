@@ -161,6 +161,18 @@ fn float(v: f32) -> Value {
 }
 
 impl<C: HasContext> FoliagePass<C> {
+    pub fn configure_shadows<M:MultiDraw>(&mut self,core:&mut Core<C,M>,enabled:bool)->Result<(),String>{
+        for class in &mut self.classes{
+            let key=match(class.grass,enabled){(true,true)=>"world/foliage-grass-shadows",(true,false)=>"world/foliage-grass",(false,true)=>"world/foliage-leaves-shadows",(false,false)=>"world/foliage-leaves"};
+            let program=core.add_owned_program(key)? as usize;
+            if class.program==program{continue;}
+            let constants=class.constants.iter().map(|(s,v)|(core.programs[class.program].uniforms[*s].0.clone(),v.clone())).collect::<Vec<_>>();
+            class.program=program;let p=core.programs[program].program;
+            unsafe{class.model_view=core.gl.get_uniform_location(p,"modelViewMatrix");class.map_transform=core.gl.get_uniform_location(p,"mapTransform");class.model=core.gl.get_uniform_location(p,"modelMatrix");}
+            class.constants=constants.into_iter().filter_map(|(n,v)|slot(core,program,&n).map(|s|(s,v))).collect();
+        }
+        self.model_views.clear();self.map_matrices.clear();self.models.clear();self.prepare_frame_caches();core.state.reset();Ok(())
+    }
     pub fn replace_texture(&mut self, old: C::Texture, new: C::Texture) {
         for class in &mut self.classes { if class.texture == old { class.texture = new; } }
     }
@@ -392,6 +404,7 @@ impl<C: HasContext> FoliagePass<C> {
                     core.stats.gl_calls += 3;
                 }
                 gl.draw_elements_instanced(glow::TRIANGLES, class.index_count, glow::UNSIGNED_INT, 0, class.selected.len() as i32);
+            core.profile.draw(class.index_count.max(0) as u64,class.selected.len() as u64,1);
             }
             core.stats.gl_calls += 2;
             core.stats.pass_draws[PASS_FOLIAGE] += 1;

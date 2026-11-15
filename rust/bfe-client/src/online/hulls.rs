@@ -127,6 +127,7 @@ pub struct Hulls {
 }
 impl Hulls {
     pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], collision: Collision, world: u32) -> Result<Self, String> {
+        let shadow_cascades = bridge.shadow_cascades();
         let defs = bfe_content::defs::Defs::build(&content.content)?;
         let mut owner = Box::new(Vehicles::new());
         let mut models = Vec::new();
@@ -194,7 +195,7 @@ impl Hulls {
                     radius: array(&b["radius"])?,
                 });
             }
-            let admission = crate::static_scene::props(bridge, content, textures, placements, crate::shadows::COUNT)?;
+            let admission = crate::static_scene::props(bridge, content, textures, placements, shadow_cascades)?;
             let base = class.record.get("base").and_then(bfe_content::Value::as_str).unwrap_or("hover");
             let flying = base == "flyer";
             let walking = base == "walker" || base == "commandwalker";
@@ -824,12 +825,13 @@ impl Hulls {
                 continue;
             };
             let root = &nodes[n::WORLD..n::WORLD + 16];
-            for template in &m.rows {
+            for (part,template) in m.rows.iter().enumerate() {
                 let count = m.inverses.len();
                 if records == draw::MAX_RECORDS || bones + count > draw::MAX_BONES {
                     continue;
                 }
                 let mut row = *template;
+                let(id,generation)=s.identity.unwrap_or((0,0));row[draw::REC_MOTION_ID]=12884901888.+id as f64;row[draw::REC_MOTION_GENERATION]=generation as f64;row[draw::REC_MOTION_PART]=part as f64;
                 row[draw::REC_WORLD..draw::REC_WORLD + 16].copy_from_slice(root);
                 let mut inverse = Matrix4::default();
                 inverse.elements.copy_from_slice(root);

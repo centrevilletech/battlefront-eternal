@@ -118,6 +118,7 @@ impl<C: HasContext> ViewPass<C> {
                 unsafe {
                     core.gl.bind_vertex_array(Some(vao));
                     core.gl.draw_elements(glow::TRIANGLES, v[D_RANGE + 1] as i32, index_type, v[D_RANGE] as i32 * index_bytes);
+                    core.profile.draw(v[D_RANGE+1].max(0.) as u64,1,1);
                 }
                 core.stats.gl_calls += 2;
                 core.stats.pass_draws[PASS_VIEW] += 1;

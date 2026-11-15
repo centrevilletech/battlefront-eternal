@@ -294,6 +294,7 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for WaterPass<C> {
     }
 
     fn draw_run(&mut self, core: &mut Core<C, M>, _view: &View, run: &[Item]) {
+        let timer=core.profile.begin(&core.gl);
         for item in run {
             let s = item.record as usize;
             let surface = &self.surfaces[s];
@@ -343,12 +344,14 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for WaterPass<C> {
                     Some(set) => {
                         let instances = (self.input[IN_SETS + 2 * set + 1].max(0.0) as usize).min(self.sets[set].max);
                         core.gl.draw_elements_instanced(glow::TRIANGLES, count, surface.index_type, first, instances as i32);
+                        core.profile.draw(count.max(0) as u64,instances as u64,1);
                     }
-                    None => core.gl.draw_elements(glow::TRIANGLES, count, surface.index_type, first),
+                    None => {core.gl.draw_elements(glow::TRIANGLES, count, surface.index_type, first); core.profile.draw(count.max(0) as u64,1,1);},
                 }
             }
             core.stats.gl_calls += 2;
             core.stats.pass_draws[PASS_WATER] += 1;
         }
+        core.profile.end(&core.gl,"water",timer);
     }
 }

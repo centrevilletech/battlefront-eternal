@@ -68,6 +68,7 @@ fn copy_nodes(tree: &three::TransformTree, node: three::NodeId, parent: i32, out
 }
 impl Turrets {
     pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32]) -> Result<Self, String> {
+        let shadow_cascades = bridge.shadow_cascades();
         let placed = bfe_content_native::placed::admit_turrets(content)?;
         let props = content.content.battle.props.as_ref();
         let mut owner = Box::new(Props::new());
@@ -192,7 +193,7 @@ impl Turrets {
                     center: part.center,
                     radius: part.radius,
                 };
-                let admission = crate::static_scene::props(bridge, content, textures, Placements { parts: vec![part], deferred: 0 }, crate::shadows::COUNT)?;
+                let admission = crate::static_scene::props(bridge, content, textures, Placements { parts: vec![part], deferred: 0 }, shadow_cascades)?;
                 for row in admission.records {
                     recipes.push(Part { row, node });
                 }
@@ -389,7 +390,7 @@ impl Turrets {
             if !t.shown || (self.hidden == Some(index)) != hidden {
                 continue;
             }
-            for part in &t.parts {
+            for (part_index,part) in t.parts.iter().enumerate() {
                 let count = t.inverses.len();
                 if records == draw::MAX_RECORDS || bones + count > draw::MAX_BONES {
                     continue;
@@ -400,6 +401,7 @@ impl Turrets {
                 inverse.elements.copy_from_slice(world);
                 inverse.invert();
                 let mut row = part.row;
+                row[draw::REC_MOTION_ID]=17179869184.+t.id;row[draw::REC_MOTION_GENERATION]=t.generation;row[draw::REC_MOTION_PART]=part_index as f64;
                 row[draw::REC_WORLD..draw::REC_WORLD + 16].copy_from_slice(world);
                 row[draw::REC_BIND_INVERSE..draw::REC_BIND_INVERSE + 16].copy_from_slice(&inverse.elements);
                 row[draw::REC_BONES] = count as f64;
