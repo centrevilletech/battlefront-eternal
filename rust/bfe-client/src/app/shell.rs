@@ -480,6 +480,9 @@ impl Default for SteamOfferState {
     }
 }
 
+/// The longest stretch of wall time one menu frame may advance the backdrop movies by (a quarter second).
+const MOVIE_STEP_MAX: f64 = 0.25;
+
 /// With `BFE_MENU_INPUT_TRACE` set, once a second: the movie frames decoded since the last line and the wall time
 /// they took, so the playback rate of the backdrop can be read against the file's own.
 fn trace_movie_rate(trace: &mut (std::time::Instant, u64), decoded: u64, now: std::time::Instant) {
@@ -1535,9 +1538,11 @@ impl ShellHost {
             .as_deref()
             .unwrap_or_else(|| Path::new("."));
         let movie_alloc_start = super::render_thread_alloc_count();
-        // Movie timestamps use wall time, independent of the simulation/UI dt clamp.
+        // Movie timestamps use wall time, independent of the simulation/UI dt clamp. Time the menu was not
+        // stepped (a battle, a file dialog, a stalled frame) is not playback time: taken whole it made the
+        // backdrop race through that many seconds of film on the way back, at several times its speed.
         let now = std::time::Instant::now();
-        let movie_dt = now.duration_since(self.movie_clock).as_secs_f64();
+        let movie_dt = now.duration_since(self.movie_clock).as_secs_f64().min(MOVIE_STEP_MAX);
         self.movie_clock = now;
         trace_movie_rate(&mut self.movie_trace, self.movies.stats.decoded + self.right_movies.stats.decoded, now);
         self.backdrop.update(root,movie_dt,&mut self.movies,&mut self.right_movies);
