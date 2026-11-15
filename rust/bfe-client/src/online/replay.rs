@@ -141,6 +141,10 @@ pub struct Shot {
     pub spread: [f64; 2],
     pub position: [f64; 3],
     pub aim: [f64; 2],
+    // Where the shot was sent to aim (the command's fire aim: converged on
+    // the point under the crosshair in third person), which the world's
+    // round follows; the body's own aim when no command carried one.
+    pub fire: [f64; 2],
     pub posture: usize,
     pub air: bool,
 }
@@ -475,6 +479,7 @@ impl Replay {
                         spread: [shot.yaw, shot.pitch],
                         position: body.position,
                         aim: [body.aim_yaw, body.aim_pitch],
+                        fire: sender.fire_aim.unwrap_or([body.aim_yaw, body.aim_pitch]),
                         posture: body.posture as usize,
                         air: body.air.is_some(),
                     });

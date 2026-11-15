@@ -378,6 +378,14 @@ impl Native {
             input.view_tick,
             input.flight_mode,
         )?;
+        // The converged aim the client sampled for this command's fire presses
+        // travels with them; the world uses the actor's own aim for edges without one.
+        if let Some([yaw, pitch]) = input.fire_aim {
+            for edge in &mut self.commands.fires {
+                edge.aim_yaw = Some(yaw);
+                edge.aim_pitch = Some(pitch);
+            }
+        }
         let now = input.now;
         self.commands.mailbox.tick = now;
         let call = &self.commands.mailbox;

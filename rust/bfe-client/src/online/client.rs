@@ -34,7 +34,7 @@ impl Client {
         Ok(Self {
             receiver,
             replay,
-            sender: Box::new(Sender::new(&resources.turns)),
+            sender: Box::new({let mut sender=Sender::new(&resources.turns);sender.aim_scene=Some(resources.shot_aim.clone());sender}),
             endpoint,
             camera: Box::new(camera),
             rotation_probe: None,

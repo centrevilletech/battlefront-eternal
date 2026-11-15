@@ -37,7 +37,12 @@ pub(super) struct Gpu {
     base: Appearance,
     cone: Appearance,
     lamp: Appearance,
+    pool: Appearance,
+    band: Appearance,
     pin: Appearance,
+    pin_dot: Appearance,
+    pin_ring: Appearance,
+    pin_wave: Appearance,
     logos: Vec<Logo>,
     motes: [Mote; 40],
     mote_vertices: [f32; 40 * 8],
@@ -87,11 +92,12 @@ fn cylinder(out: &mut Vec<f32>, top: f64, bottom: f64, height: f64, n: usize, ca
     for i in 0..n {
         let a = i as f64 / n as f64 * std::f64::consts::TAU;
         let b = (i + 1) as f64 / n as f64 * std::f64::consts::TAU;
+        // THREE.CylinderGeometry's vertex at angle t is (r sin t, y, r cos t): a hexagon's corner faces +z.
         let p = [
-            [a.cos() * bottom, 0., a.sin() * bottom],
-            [b.cos() * bottom, 0., b.sin() * bottom],
-            [a.cos() * top, height, a.sin() * top],
-            [b.cos() * top, height, b.sin() * top],
+            [a.sin() * bottom, 0., a.cos() * bottom],
+            [b.sin() * bottom, 0., b.cos() * bottom],
+            [a.sin() * top, height, a.cos() * top],
+            [b.sin() * top, height, b.cos() * top],
         ];
         let u = i as f64 / n as f64;
         let v = (i + 1) as f64 / n as f64;
@@ -107,6 +113,39 @@ fn cylinder(out: &mut Vec<f32>, top: f64, bottom: f64, height: f64, n: usize, ca
         }
     }
     (first as i32, (out.len() / 5 - first) as i32)
+}
+// THREE.RingGeometry in the xy plane: `segments` sectors over `sweep` radians from angle 0.
+fn ring(out: &mut Vec<f32>, inner: f64, outer: f64, segments: usize, sweep: f64, turn: f64) -> Mesh {
+    let first = out.len() / 5;
+    let uv = |x: f64, y: f64| [(x / outer + 1.) * 0.5, (y / outer + 1.) * 0.5];
+    for i in 0..segments {
+        let a = turn + i as f64 / segments as f64 * sweep;
+        let b = turn + (i + 1) as f64 / segments as f64 * sweep;
+        let p = [
+            [a.cos() * inner, a.sin() * inner, 0.],
+            [a.cos() * outer, a.sin() * outer, 0.],
+            [b.cos() * inner, b.sin() * inner, 0.],
+            [b.cos() * outer, b.sin() * outer, 0.],
+        ];
+        let t = p.map(|q| uv(q[0], q[1]));
+        triangle(out, [p[0], p[1], p[2]], [t[0], t[1], t[2]]);
+        triangle(out, [p[2], p[1], p[3]], [t[2], t[1], t[3]]);
+    }
+    (first as i32, (out.len() / 5 - first) as i32)
+}
+/// One post's pin on the hologram, in the disc's own units (radius 1).
+pub(super) struct Pin {
+    pub x: f64,
+    pub y: f64,
+    pub height: f64,
+    pub picked: bool,
+    pub wave: f64,
+    pub color: [f64; 3],
+}
+/// The projector's parts that light with the hologram (holomap.js): ground glow, band and lamp.
+fn depth_tested(mut s: bfe_render::interface_resources::Style) -> bfe_render::interface_resources::Style {
+    s.depth_test = Some(true);
+    s
 }
 
 impl Gpu {
@@ -185,6 +224,10 @@ impl Gpu {
             triangle(&mut vertices, [b, d, c], [[1., 0.], [1., 1.], [0., 1.]]);
         }
         let room = (first as i32, (vertices.len() / 5 - first) as i32);
+        let pin_ring = ring(&mut vertices, 0.075, 0.09, 40, std::f64::consts::TAU * 0.8, 0.);
+        let pin_wave = ring(&mut vertices, 0.08, 0.095, 48, std::f64::consts::TAU, 0.);
+        // RingGeometry(0.2, 0.26, 6) turned a twelfth so its corners meet the hexagonal base's.
+        let band = ring(&mut vertices, 0.2, 0.26, 6, std::f64::consts::TAU, std::f64::consts::FRAC_PI_6);
         let texture = {
             let gl = &bridge.r.core.gl;
             unsafe {
@@ -262,10 +305,22 @@ impl Gpu {
         )?;
         let rim = mesh(plane, additive("basic"), &[rim_texture])?;
         let beam = mesh(beam, additive("beam"), &[])?;
-        let base = mesh(base, appearance::style("metal"), &[])?;
-        let cone = mesh(cone, appearance::style("metal"), &[])?;
-        let lamp = glow.clone();
+        // The projector is solid: depth-tested and depth-writing, so its near faces hide its far ones.
+        let metal = || {
+            let mut s = appearance::style("metal");
+            s.depth_test = Some(true);
+            s.depth_write = Some(true);
+            s
+        };
+        let base = mesh(base, metal(), &[])?;
+        let cone = mesh(cone, metal(), &[])?;
+        let lamp = mesh(plane, depth_tested(additive("basic")), &[dot])?;
+        let pool = lamp.clone();
+        let band = mesh(band, depth_tested(additive("basic")), &[])?;
         let pin = mesh(plane, additive("basic"), &[pin_texture])?;
+        let pin_dot = mesh(plane, additive("basic"), &[dot])?;
+        let pin_ring = mesh(pin_ring, additive("basic"), &[])?;
+        let pin_wave = mesh(pin_wave, additive("basic"), &[])?;
         let mut random = jsrt::rng::ClassicRandom::new(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -316,7 +371,12 @@ impl Gpu {
             base,
             cone,
             lamp,
+            pool,
+            band,
             pin,
+            pin_dot,
+            pin_ring,
+            pin_wave,
             logos,
             motes,
             mote_vertices,
@@ -340,11 +400,6 @@ impl Gpu {
     ) {
         let mut count = 0;
         let identity = Matrix4::default();
-        let tint = if look == 2 {
-            [1., 160. / 255., 50. / 255.]
-        } else {
-            [90. / 255., 180. / 255., 1.]
-        };
         if look == 0 {
             let mut l = self.room.look;
             l[L::TIME] = rig.time;
@@ -485,8 +540,22 @@ impl Gpu {
         );
         Self::submit(bridge, count);
     }
-    pub fn map(&self, bridge: &mut Bridge, rig: &Rig, _aspect: f64, look: usize, strength: f64) {
+    /// The hologram (holomap.js): the projector rising out of the floor, its beam, the disc unfolding and
+    /// the posts' pins, in one submission.
+    #[allow(clippy::too_many_arguments)]
+    pub fn map(
+        &self,
+        bridge: &mut Bridge,
+        rig: &Rig,
+        look: usize,
+        strength: f64,
+        flare: f64,
+        pins: &[Pin],
+    ) {
         let mut count = 0;
+        let (v, p) = (&rig.inverse, &rig.projection);
+        let s = strength;
+        let t = rig.time;
         let tint = if look == 2 {
             [1., 178. / 255., 90. / 255.]
         } else if look == 0 {
@@ -495,33 +564,43 @@ impl Gpu {
             [130. / 255., 185. / 255., 1.]
         };
         let foot = V::new(rig.center.x, 0., rig.center.z + rig.radius * 0.25);
-        let mut base = Matrix4::default();
-        base.make_translation_v3(&foot);
+        // The projector group rises out of the floor as it lights: scale y 0.05..1.
+        let rise = 0.05 + 0.95 * s;
+        let at = |y: f64| {
+            let mut m = Matrix4::default();
+            m.make_translation(foot.x, y * rise, foot.z);
+            m
+        };
+        let squash = |m: &mut Matrix4| {
+            m.scale(&V::new(1., rise, 1.));
+        };
+        let mut l = self.pool.look;
+        l[L::COLOR..L::COLOR + 3].copy_from_slice(&tint);
+        l[L::OPACITY] = 0.35 * s;
+        let mut pool = at(0.003);
+        let mut flat = Matrix4::default();
+        flat.make_rotation_x(-std::f64::consts::FRAC_PI_2);
+        pool.multiply(&flat).scale(&V::new(0.8, 0.8, 1.));
+        self.pool.simple(bridge, &mut count, &pool, v, p, &l);
         let mut metal = self.base.look;
         metal[L::COLOR..L::COLOR + 3].copy_from_slice(&[0.2, 0.23, 0.27]);
         metal[L::RIM..L::RIM + 3].copy_from_slice(&tint);
-        self.base.simple(
-            bridge,
-            &mut count,
-            &base,
-            &rig.inverse,
-            &rig.projection,
-            &metal,
-        );
+        let mut base = at(0.);
+        squash(&mut base);
+        self.base.simple(bridge, &mut count, &base, v, p, &metal);
         let cone = look == 1;
         let lamp = if cone { 0.42 } else { 0.09 };
         if cone {
-            let mut m = base;
-            m.elements[13] = 0.07;
-            self.cone.simple(
-                bridge,
-                &mut count,
-                &m,
-                &rig.inverse,
-                &rig.projection,
-                &metal,
-            );
+            let mut m = at(0.07);
+            squash(&mut m);
+            self.cone.simple(bridge, &mut count, &m, v, p, &metal);
         }
+        let mut l = self.band.look;
+        l[L::COLOR..L::COLOR + 3].copy_from_slice(&tint);
+        l[L::OPACITY] = (0.6 + 0.3 * (t * 2.3).sin()) * s;
+        let mut band = at(0.072);
+        band.multiply(&flat);
+        self.band.simple(bridge, &mut count, &band, v, p, &l);
         let source = V::new(foot.x, lamp, foot.z);
         let mut up = rig.center;
         up.sub(&source);
@@ -537,13 +616,18 @@ impl Gpu {
         );
         let mut l = self.beam.look;
         l[L::COLOR..L::COLOR + 3].copy_from_slice(&tint);
-        l[L::TIME] = rig.time;
-        l[L::STRENGTH] = strength;
-        self.beam
-            .simple(bridge, &mut count, &beam, &rig.inverse, &rig.projection, &l);
+        l[L::TIME] = t;
+        l[L::STRENGTH] = s * (1. + 1.5 * flare);
+        self.beam.simple(bridge, &mut count, &beam, v, p, &l);
+        // The disc unfolds as it lights: 0.6..1 of its radius.
+        let mut disc = rig.map;
+        let unfold = 0.6 + 0.4 * s;
+        disc.scale(&V::new(unfold, unfold, unfold));
         let mut l = self.back.look;
         l[L::COLOR..L::COLOR + 3].copy_from_slice(&if look == 2 {
             [12. / 255., 8. / 255., 4. / 255.]
+        } else if look == 0 {
+            [3. / 255., 12. / 255., 36. / 255.]
         } else {
             [6. / 255., 14. / 255., 34. / 255.]
         });
@@ -554,71 +638,93 @@ impl Gpu {
         } else {
             0.55
         };
-        self.back.simple(
-            bridge,
-            &mut count,
-            &rig.map,
-            &rig.inverse,
-            &rig.projection,
-            &l,
-        );
+        self.back.simple(bridge, &mut count, &disc, v, p, &l);
         let mut l = self.face.look;
         l[L::TINT..L::TINT + 3].copy_from_slice(&tint);
-        l[L::TIME] = rig.time;
-        l[L::STRENGTH] = strength;
-        let mut face = rig.map;
-        let mut translate = Matrix4::default();
-        translate.make_translation(0., 0., 0.002);
-        face.multiply(&translate);
-        self.face
-            .simple(bridge, &mut count, &face, &rig.inverse, &rig.projection, &l);
-        let mut rim = rig.map;
-        rim.scale(&V::new(1. / 0.86, 1. / 0.86, 1.));
+        l[L::TIME] = t;
+        l[L::STRENGTH] = s * (1. + 0.35 * flare);
+        let lift = |m: &Matrix4, z: f64| {
+            let mut out = *m;
+            let mut tz = Matrix4::default();
+            tz.make_translation(0., 0., z);
+            out.multiply(&tz);
+            out
+        };
+        self.face.simple(bridge, &mut count, &lift(&disc, 0.002), v, p, &l);
+        let mut rim = lift(&disc, 0.004);
+        let mut turn = Matrix4::default();
+        turn.make_rotation_z(-t * 0.08);
+        rim.multiply(&turn).scale(&V::new(1. / 0.86, 1. / 0.86, 1.));
         let mut l = self.rim.look;
         l[L::COLOR..L::COLOR + 3].copy_from_slice(&tint);
-        l[L::OPACITY] = strength;
-        self.rim
-            .simple(bridge, &mut count, &rim, &rig.inverse, &rig.projection, &l);
+        l[L::OPACITY] = 0.75 * s;
+        self.rim.simple(bridge, &mut count, &rim, v, p, &l);
         let mut light = Matrix4::default();
+        let lamp_at = V::new(source.x, lamp * rise, source.z);
         light
-            .look_at(&rig.position, &source, &V::new(0., 1., 0.))
-            .scale(&V::new(0.21, 0.21, 1.))
-            .set_position_v3(&source);
-        self.lamp.simple(
-            bridge,
-            &mut count,
-            &light,
-            &rig.inverse,
-            &rig.projection,
-            &l,
-        );
+            .look_at(&rig.position, &lamp_at, &V::new(0., 1., 0.))
+            .scale(&V::new(0.21, 0.21 * rise, 1.))
+            .set_position_v3(&lamp_at);
+        let mut l = self.lamp.look;
+        l[L::COLOR..L::COLOR + 3].copy_from_slice(&tint);
+        l[L::OPACITY] = (0.8 + 0.2 * (t * 3.1).sin()) * s;
+        self.lamp.simple(bridge, &mut count, &light, v, p, &l);
+        for pin in pins {
+            self.pin(bridge, &mut count, rig, &disc, pin);
+        }
         Self::submit(bridge, count);
     }
-    pub fn pin(
-        &self,
-        bridge: &mut Bridge,
-        rig: &Rig,
-        x: f64,
-        y: f64,
-        height: f64,
-        color: [f32; 4],
-    ) {
-        let mut p = V::new(x, y, 0.);
-        p.apply_matrix4(&rig.map);
-        let mut m = Matrix4::default();
-        m.look_at(&rig.position, &p, &V::new(0., 1., 0.));
-        m.scale(&V::new(rig.radius * 0.02, rig.radius * height * 0.5, 1.));
-        p.y += rig.radius * height * 0.5;
-        m.set_position_v3(&p);
-        let mut l = self.pin.look;
-        for i in 0..3 {
-            l[L::COLOR + i] = color[i] as f64;
+    // holomap.js addPin/pinPosts: two crossed planes of light standing out of the disc (its +z), a soft dot
+    // at the foot, and for the picked post a turning ring; a ripple running out when it is picked.
+    fn pin(&self, bridge: &mut Bridge, count: &mut usize, rig: &Rig, disc: &Matrix4, pin: &Pin) {
+        let (v, p) = (&rig.inverse, &rig.projection);
+        let t = rig.time;
+        let mut root = *disc;
+        let mut at = Matrix4::default();
+        at.make_translation(pin.x, pin.y, 0.006);
+        root.multiply(&at);
+        let color = |look: &[f64; L::LEN], opacity: f64| {
+            let mut l = *look;
+            l[L::COLOR..L::COLOR + 3].copy_from_slice(&pin.color);
+            l[L::OPACITY] = opacity;
+            l
+        };
+        let pulse = if pin.picked { 1. + 0.18 * (t * 5.).sin() } else { 1. };
+        let half_w = 0.02 * if pin.picked { 1.5 } else { 1. };
+        let h = (pin.height * pulse).max(1e-3);
+        let look = color(&self.pin.look, 1.);
+        // The plane's x across, its y (the light's foot to its tip) out of the disc.
+        for across in [[half_w, 0., 0.], [0., half_w, 0.]] {
+            let mut m = Matrix4::default();
+            m.elements = [
+                across[0], across[1], 0., 0.,
+                0., 0., h * 0.5, 0.,
+                -across[1] / half_w, across[0] / half_w, 0., 0.,
+                0., 0., h * 0.5, 1.,
+            ];
+            let mut world = root;
+            world.multiply(&m);
+            self.pin.simple(bridge, count, &world, v, p, &look);
         }
-        l[L::OPACITY] = color[3] as f64;
-        let mut count = 0;
-        self.pin
-            .simple(bridge, &mut count, &m, &rig.inverse, &rig.projection, &l);
-        Self::submit(bridge, count);
+        let dot = if pin.picked { 0.08 } else { 0.045 };
+        let mut m = root;
+        m.scale(&V::new(dot, dot, 1.));
+        self.pin_dot.simple(bridge, count, &m, v, p, &color(&self.pin_dot.look, 1.));
+        if pin.picked {
+            let mut m = root;
+            let mut turn = Matrix4::default();
+            turn.make_rotation_z(t * 1.6);
+            m.multiply(&turn);
+            self.pin_ring.simple(bridge, count, &m, v, p, &color(&self.pin_ring.look, 0.9));
+        }
+        if pin.wave < 0.7 {
+            let k = pin.wave / 0.7;
+            let mut m = root;
+            let grow = 1. + 6. * k;
+            m.scale(&V::new(grow, grow, 1.));
+            self.pin_wave
+                .simple(bridge, count, &m, v, p, &color(&self.pin_wave.look, (1. - k) * (1. - k)));
+        }
     }
     pub fn logos(
         &self,

@@ -1029,6 +1029,7 @@ impl BattleController {
                 .ok_or("native prediction resources already admitted")?,
         );
         let mut sender = Box::new(Sender::new(&replicas.turns));
+        sender.aim_scene=Some(replicas.shot_aim.clone());
         sender.auto_spawn = false;
 
         // Drain the initial tick-0 publication so `replicas.hud` has the mission's
@@ -1874,7 +1875,8 @@ impl BattleController {
                         command: cmd,
                         look,
                         flight,
-                        view_tick: receiver.clock.shown,
+                        view_tick: crate::online::clock::rendered_tick(receiver.clock.shown, receiver.latest),
+                        fire_aim: sender.fire_aim,
                     });
                 }
                 if !halted {
@@ -2089,6 +2091,7 @@ impl BattleController {
         let pause_groups=self.scene.bridge.r.hud.input[render_hud::IN_GROUPS];
         if self.pause_menu.is_open||page_spawn||page_score {self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=0.;}
         if page_spawn {self.page_battle.direct(&mut view);}
+        super::bench::apply_view(&mut view);
         self.scene.draw(&view)?;
         if page_spawn || page_score {
             if page_spawn {
