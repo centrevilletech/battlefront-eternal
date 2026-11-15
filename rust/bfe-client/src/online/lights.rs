@@ -16,6 +16,8 @@ use bfe_render::shader::MAX_LIGHTS;
 const POOL: usize = 8;
 // Lights that stand in the scene on their own: one a hologram.
 const FIXED: usize = super::holograms::HOLOGRAMS;
+// graphics.js: the view camera's far plane.
+const VIEW_FAR: f64 = 10.;
 /// Floats of a packed light: position, range, colour times intensity, 0.
 pub const LIGHT: usize = 8;
 
@@ -28,6 +30,12 @@ pub struct SceneLights {
     /// The frame's lights as the shaders read them, and how many.
     pub packed: [f64; MAX_LIGHTS * LIGHT],
     pub count: usize,
+    /// The first-person view's lights (graphics.js syncViewLights): copies of
+    /// the lights that stand directly in the scene, which are the pool's (a
+    /// hologram's light hangs inside its post and is not copied), packed for
+    /// the view camera, whose far plane is 10 m.
+    pub view_packed: [f64; MAX_LIGHTS * LIGHT],
+    pub view_count: usize,
 }
 
 impl SceneLights {
@@ -40,6 +48,8 @@ impl SceneLights {
             fixed_count: 0,
             packed: [0.; MAX_LIGHTS * LIGHT],
             count: 0,
+            view_packed: [0.; MAX_LIGHTS * LIGHT],
+            view_count: 0,
         }
     }
     fn command(&mut self, kind: u32, position: [f64; 3], rgb: [f64; 3], radius: f64, scale: f64, duration: f64) {
@@ -87,6 +97,7 @@ impl SceneLights {
         self.pool.frame();
         self.commands = 0;
         self.count = 0;
+        self.view_count = 0;
         for i in 0..POOL + self.fixed_count {
             let light = if i < POOL {
                 let out = &self.pool.output[i * o::STRIDE..][..o::STRIDE];
@@ -108,6 +119,10 @@ impl SceneLights {
                 continue;
             }
             let away = ((light[0] - eye[0]).powi(2) + (light[1] - eye[1]).powi(2) + (light[2] - eye[2]).powi(2)).sqrt();
+            if i < POOL && (light[3] <= 0. || away <= VIEW_FAR + light[3]) && self.view_count < MAX_LIGHTS {
+                self.view_packed[self.view_count * LIGHT..][..LIGHT].copy_from_slice(&light);
+                self.view_count += 1;
+            }
             if light[3] > 0. && away > far + light[3] {
                 continue;
             }
