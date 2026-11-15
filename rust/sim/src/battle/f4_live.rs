@@ -11,7 +11,7 @@ use crate::units::f3::{self, WorldServices};
 
 use three::{Quaternion, Vector3};
 
-pub(super) struct Io { live: Vec<f64>, tail: Vec<f64>, descriptor: Vec<f64>, handle: Vec<f64>, counters: Vec<f64>, counts: F4Counters, version: u32, pending_publication: bool, dirty_counters: bool }
+pub(super) struct Io { live: Vec<f64>, tail: Vec<f64>, descriptor: Vec<f64>, handle: Vec<f64>, counters: Vec<f64>, counts: F4Counters, version: u32, dirty_counters: bool }
 fn io(battle: &mut BattleOwner) -> &mut Io { battle.io.as_mut().expect("live phase initialized") }
 #[derive(Clone, Copy)]
 struct Gain { health: StrId, ammo: StrId }
@@ -54,7 +54,7 @@ pub fn f4_live_init_in(w: &mut Root) -> Option<&[f64]> {
     let live = vec![0.0; F4LiveInput::WORDS]; let tail = vec![0.0; F4TailInput::WORDS];
     let phase_row = vec![0.0; F4Phase::WORDS]; let handle = vec![0.0; F4Handle::WORDS]; let counters = vec![0.0; F4Counters::WORDS];
     {
-        w.battle.io = Some(Io { live, tail, descriptor: phase_row, handle, counters, counts: F4Counters::default(), version: 0, pending_publication: false, dirty_counters: true });
+        w.battle.io = Some(Io { live, tail, descriptor: phase_row, handle, counters, counts: F4Counters::default(), version: 0, dirty_counters: true });
         w.battle.live_phase = Some(State { shell: Some(Store::default()), local: setup.local, body_revision: f3::unit_revision_in(&w.units), bodies,
             targets: supply::Targets::new(setup.unit_capacity as usize, setup.hull_capacity as usize), supply: supply::Prepared::default(),
             stations, regenerators, traps, hulls: Vec::with_capacity(setup.hull_capacity as usize) });
@@ -140,25 +140,11 @@ pub(crate) fn publish_in(w: &mut Root) {
     // The changed buildings, animated props and traps were encoded here as
     // deltas for the JavaScript host. Nothing native reads them.
     f4::live_in(&mut w.battle).discard();
-    let rows = 0;
-    let words = { let live = f4::live_in(&mut w.battle); live.buildings.publication.words.len() + live.animated.publication.words.len() + live.traps.publication.words.len() };
-    record_publication(&mut w.battle, rows, words.saturating_sub(3 * crate::store::block::HEADER));
-    let io = io(&mut w.battle);
-    // Counters can advance without any changed reader row. Only actual live
-    // or battle payloads invalidate the facade epoch at a foreign barrier.
-    if io.pending_publication {
-        io.version = io.version.wrapping_add(1); io.pending_publication = false;
-    } else if !io.dirty_counters {
-        // Empty observer barriers keep the same pointers, epoch and counters.
-        // Rewriting this descriptor for every aimer would scale with bodies.
-        return;
-    }
+    // Nothing is published here, so the epoch stays. Empty observer barriers
+    // keep the same pointers and counters: rewriting this descriptor for
+    // every aimer would scale with bodies.
+    if !io(&mut w.battle).dirty_counters { return; }
     descriptor_words(w);
-}
-pub(crate) fn record_publication(battle: &mut BattleOwner, rows: usize, words: usize) {
-    if battle.io.is_none() {return;}
-    if rows != 0 { io(battle).pending_publication = true; }
-    let counts = &mut io(battle).counts; counts.published_rows += rows as f64; counts.output_words += words as f64;
 }
 pub(crate) fn count_command(battle: &mut BattleOwner) {count_external(battle, F4Command::WORDS);}
 pub(crate) fn count_external(battle: &mut BattleOwner, words:usize) {

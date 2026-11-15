@@ -502,7 +502,11 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         self.held.borrow_mut().retain(|h| !matches!(h, Held::Buffer(x) if *x == b));
         unsafe { self.gl.delete_buffer(b) };
     }
-    pub(crate) fn hold_framebuffer(&self, f: C::Framebuffer) -> C::Framebuffer { self.held.borrow_mut().push(Held::Framebuffer(f)); f }
+    pub fn hold_framebuffer(&self, f: C::Framebuffer) -> C::Framebuffer { self.held.borrow_mut().push(Held::Framebuffer(f)); f }
+    pub(crate) fn release_framebuffer(&self, f: C::Framebuffer) {
+        self.held.borrow_mut().retain(|h| !matches!(h, Held::Framebuffer(x) if *x == f));
+        unsafe { self.gl.delete_framebuffer(f) };
+    }
 
     pub fn add_texture(&mut self, t: C::Texture) -> u32 {
         self.textures.push(t);

@@ -247,7 +247,8 @@ fn setup_and_roster_use_different_mission_argument_forms() {
     )
     .unwrap();
     assert_eq!(setup.settings.capacity.characters, 154);
-    assert_eq!(setup.settings.capacity.registry, 385);
+    // Covers the unit factory's 512 ids beyond the next id, plus eight hull targets.
+    assert_eq!(setup.settings.capacity.registry, 7 + 512 + 8);
     assert_eq!(setup.settings.capacity.controls, 308);
     assert_eq!(setup.settings.capacity.support_keys, 16);
     assert_eq!(setup.settings.streams.as_ref().unwrap().c, 0x51ed270b);

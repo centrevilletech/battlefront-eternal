@@ -692,7 +692,9 @@ fn squad_order(label: &str) -> Option<f64> {
 /// when it went neutral.
 pub fn post_change(before: Option<(u8, bool)>, team: u8, active: bool, building: bool) -> Option<(&'static str, u8)> {
     match before {
-        Some((_, true)) if !active && building => Some(("game.infomsg.lost", team)),
+        // The team that held it loses it, even when it turned neutral in the
+        // same interval; a post nobody held is not announced.
+        Some((previous, true)) if !active && building => (previous != 0).then_some(("game.infomsg.lost", previous)),
         Some((previous, _)) if previous != team => {
             Some(if team != 0 { ("game.infomsg.captured", team) } else { ("game.infomsg.lost", previous) })
         }

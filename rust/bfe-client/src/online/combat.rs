@@ -21,7 +21,9 @@ use bfe_presentation::{
 use bfe_presentation::sniper_layout::{sniper_flare as flare, sniper_limits as sn, sniper_streak as streak};
 use serde::Deserialize;
 use three::{Matrix4, Quaternion, Vector3};
-const BOLTS: usize = 4095;
+// Replicated bolt slots: with every predicted bolt and the closing NET record
+// they fill the ordnance input exactly.
+const BOLTS: usize = limits::RECORDS - COSMETICS - 1;
 // m over which a bolt drawn from the muzzle joins its path (ordnance.js).
 const MERGE: f64 = 8.;
 #[derive(Clone, Copy, Default)]
@@ -1601,5 +1603,15 @@ impl Combat {
         }
         let (records, bones) = self.debris.append(bridge, records, bones);
         self.destruction.append(bridge, records, bones)
+    }
+}
+
+#[cfg(test)]
+mod record_tests {
+    // Combat::draw writes every replicated bolt, every predicted one and the
+    // closing NET record into the ordnance input in one frame.
+    #[test]
+    fn every_bolt_and_the_net_record_fit_the_ordnance_input() {
+        assert!(super::BOLTS + super::COSMETICS + 1 <= super::limits::RECORDS);
     }
 }

@@ -12,6 +12,9 @@ use crate::world::owner::World;
 use bfe_content::{js::to_number, value::Value};
 
 
+/// Registry ids the unit factory reserves beyond the next id at admission.
+pub const FACTORY_HEADROOM: u32 = 512;
+
 fn error(message: impl Into<String>) -> AdmitError { AdmitError::Content { stage: Stage::World, message: message.into() } }
 
 /// The classes UnitFactory.prepare loaded by the time F4 reads
@@ -192,7 +195,8 @@ pub fn run(world: &mut World, cx: &mut Cx, calls: &mut Calls, stages: &mut Vec<F
     calls.extend(spawn::adopt_viewpoint(world, cx, slot, Stage::World)?.into_iter().map(|(_, name, call)| (Stage::World, name, call)));
     // `unitsSim.construction.reserve(units.nextId + 512)`: the future mixed
     // registry id bound, hull births included.
-    let limit = jsrt::to_uint32(world.sim.store.units.next_id).checked_add(512).ok_or_else(|| error("registry bound overflows"))?;
+    let limit = jsrt::to_uint32(world.sim.store.units.next_id).checked_add(FACTORY_HEADROOM).ok_or_else(|| error("registry bound overflows"))?
+        .min(world.ai.battle().map_or(u32::MAX, |b| b.state.unit_limit() as u32));
     world.reserve_spawn_bodies(limit);
     calls.push((Stage::World, "f3_factory_reserve", super::super::Call { args: vec![limit as f64], ..Default::default() }));
     if let Some(facts) = &mut cx.ids.battle { facts.construction_limit = Some(limit); }
