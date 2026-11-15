@@ -414,7 +414,11 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
                     O::BIND=>{if self.frames.meta[role*M::LEN+M::PRESENT]!=0. || role==R::NEAR && self.frames.meta[role*M::LEN+M::BOUND]!=0. {targets.bind(row)?;}},
                     O::CLEAR=>{if self.frames.meta[role*M::LEN+M::PRESENT]!=0. {self.frame_clear(role,op.argument as u32)?;}},
                     O::DRAW=>{self.frame_draw_packet(role)?;if role==R::MOTION && self.frames.meta[role*M::LEN+M::PRESENT]!=0. {self.frames.plan.state[S::MOTION_COMPLETE]=1.;}},
-                    O::RESOLVE=>{if self.frames.meta[role*M::LEN+M::PRESENT]!=0. {targets.resolve(row[B::TARGET] as i32)?;}},
+                    O::RESOLVE=>{if self.frames.meta[role*M::LEN+M::PRESENT]!=0. {
+                        let timer=self.core.profile.begin(&self.core.gl);
+                        targets.resolve(row[B::TARGET] as i32)?;
+                        self.core.profile.end(&self.core.gl,"target resolve",timer);
+                    }},
                     // Particle snapshots and surface composites reuse the
                     // resource owner's multisample/depth resolve semantics.
                     O::COPY_DEPTH|O::COPY_COLOR_DEPTH=>{

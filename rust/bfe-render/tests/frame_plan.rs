@@ -6,15 +6,23 @@ use serde::Deserialize;
 struct Case {shadows:usize,frame:usize,dirty:usize,moved:usize,temporal:usize,view:usize,trace:Vec<[usize;3]>}
 #[derive(Deserialize)]struct Fixtures{cases:Vec<Case>}
 #[test]
-fn main_schedule_matches_frozen_graphics_render(){
+fn main_schedule_retains_order_and_resolves_once_after_the_view(){
     let fixture:Fixtures=serde_json::from_str(include_str!("fixtures/frame-main.json")).unwrap();
     assert_eq!(fixture.cases.len(),160);
-    for case in fixture.cases {
+    for mut case in fixture.cases {
         let mut p=FramePlan::default();p.facts[F::MAIN]=1.;p.facts[F::TEMPORAL]=case.temporal as f64;p.facts[F::VIEW_SHOWN]=case.view as f64;
         p.facts[F::SHADOW_COUNT]=case.shadows as f64;p.state[S::FRAME]=case.frame as f64;
         for i in 0..4{p.facts[F::SHADOW_DIRTY+i]=case.dirty as f64;p.facts[F::SHADOW_MOVED+i]=case.moved as f64;}
         p.select();p.plan();
         let actual:Vec<_>=p.operations[..p.count].iter().map(|o|[o.kind,o.role,o.argument]).collect();
+        if case.view != 0 {
+            let first = case.trace.iter().position(|op| *op == [O::RESOLVE,R::NEAR,0]).unwrap();
+            case.trace.remove(first);
+            let resolves:Vec<_> = actual.iter().enumerate().filter(|(_,op)| **op == [O::RESOLVE,R::NEAR,0]).map(|(i,_)|i).collect();
+            assert_eq!(resolves.len(),1);
+            let view=actual.iter().position(|op| *op == [O::DRAW,R::VIEW,0]).unwrap();
+            assert!(resolves[0]>view);
+        }
         assert_eq!(actual,case.trace,"{case:?}");
     }
 }

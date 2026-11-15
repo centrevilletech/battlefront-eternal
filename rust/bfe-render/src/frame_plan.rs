@@ -112,7 +112,10 @@ impl FramePlan {
         if main && self.state[S::FOG] != 0. {
             self.emit(O::COPY_COLOR_DEPTH,R::NEAR,R::SURFACE); self.draw(R::FOG);
         }
-        self.emit(O::RESOLVE,opaque,0);
+        // The view weapon draws into the same multisample target. Resolve
+        // its final colour once, after that draw; depth readers copy MSAA
+        // depth directly and never consume this intermediate colour image.
+        if !main || self.facts[F::VIEW_SHOWN] == 0. { self.emit(O::RESOLVE,opaque,0); }
     }
     // Graphics.render and game.frame formerly invoked these responsibilities
     // in nested hooks. The native owner states their dependencies directly.
