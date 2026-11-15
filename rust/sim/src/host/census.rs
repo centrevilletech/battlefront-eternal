@@ -195,6 +195,8 @@ impl Census {
         let last = std::mem::take(&mut self.last);
         let behaviour = &mut self.behaviour;
         let mut over = false;
+        let mut out_posts = String::new();
+        let mut objectives = String::new();
         let cl = &mut self.classes;
         let mut seated_slots = HashSet::new();
         let (teams, reinforcements, humans, classes) = context.owned(|w| {
@@ -316,6 +318,12 @@ impl Census {
             }
             behaviour.was_alive = store.unit.iter().filter(|(_, u)| u.alive && !u.dead).map(|(r, _)| r.slot).collect();
             let mut posts = Vec::new();
+            if let Some(live) = crate::battle::f4::live_if(&w.battle) {
+                objectives = (0..live.buildings.len()).filter_map(|i| live.buildings.get(&live.buildings.handle(i)))
+                    .filter(|b| b.settings.kind == crate::battle::props::Kind::Objective)
+                    .map(|b| format!("{:.0}", b.state.building.health)).collect::<Vec<_>>().join(",");
+            }
+            out_posts = store.post.iter().filter(|(_, p)| !p.active).map(|(_, p)| format!("{}", p.team)).collect::<Vec<_>>().join(",");
             for (_, post) in store.post.iter() {
                 posts.push(post.team);
                 if (0.0..TEAMS as f64).contains(&post.team) {
@@ -462,7 +470,7 @@ impl Census {
             for (index, t) in teams.iter().enumerate().filter(|(_, t)| t.posts > 0) {
                 let _ = write!(out, "{index}:{},", t.posts);
             }
-            let _ = write!(out, " shots={} dmg={}{}", self.shots, self.damage, if over { " over" } else { "" });
+            let _ = write!(out, " obj={} out={} shots={} dmg={}{}", objectives, out_posts, self.shots, self.damage, if over { " over" } else { "" });
             let k = &self.deka;
             let sec = |n: u32| f64::from(n) / 60.0;
             let _ = write!(out, " deka alive={:.1} rolledAny={:.1} ball={:.1} shield={:.1} folds={} fast={:.1}",
