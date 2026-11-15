@@ -43,7 +43,7 @@ pub struct MapCamera {
     phase_camera: bool,
     subject_eye: [f64; 3],
     flight_mode: bool,
-    perspectives: [bool; 2],
+    flight_first_person: bool,
     far_plane: f64,
 }
 impl MapCamera {
@@ -103,7 +103,7 @@ impl MapCamera {
             phase_camera: false,
             subject_eye: position,
             flight_mode: false,
-            perspectives: [false; 2],
+            flight_first_person: false,
             far_plane: 20000.0,
         })
     }
@@ -135,18 +135,21 @@ impl MapCamera {
     pub fn subject_eye(&self) -> [f64; 3] {
         self.subject_eye
     }
-    // VehicleDriver and flight perspective keep independent choices. A bail
-    // returns to the ground view without copying the cockpit preference.
+    // Boarding loads flightFirstPerson. Leaving keeps the active view, as
+    // VehicleDriver.exit does; later ground toggles do not change that setting.
     pub fn set_flight_perspective(&mut self, first: bool) {
-        self.perspectives[1] = first;
+        self.flight_first_person = first;
         if self.flight_mode {
             self.first_person = first;
         }
     }
     pub fn set_flight_mode(&mut self, flight: bool) {
         if self.flight_mode != flight {
-            self.perspectives[self.flight_mode as usize] = self.first_person;
-            self.first_person = self.perspectives[flight as usize];
+            if flight {
+                self.first_person = self.flight_first_person;
+            } else {
+                self.flight_first_person = self.first_person;
+            }
             self.flight_mode = flight;
         }
     }
@@ -1790,23 +1793,24 @@ mod camera_tests {
     use super::*;
 
     #[test]
-    fn saved_cockpit_perspective_does_not_replace_the_ground_choice() {
+    fn saved_cockpit_perspective_applies_only_when_boarding() {
         let mut camera = MapCamera::new([0.; 3], [1280, 720]).unwrap();
         camera.set_flight_perspective(true);
         assert!(!camera.first_person);
         camera.set_flight_mode(true);
         assert!(camera.first_person);
         camera.set_flight_mode(false);
-        assert!(!camera.first_person);
+        assert!(camera.first_person);
     }
 
     #[test]
-    fn exiting_a_cockpit_restores_the_independent_ground_perspective() {
+    fn exiting_keeps_the_view_and_ground_toggles_preserve_the_flight_setting() {
         let mut camera = MapCamera::new([0.; 3], [1280, 720]).unwrap();
         camera.set_flight_mode(true);
         camera.first_person = true;
         camera.set_flight_mode(false);
-        assert!(!camera.first_person);
+        assert!(camera.first_person);
+        camera.first_person = false;
         camera.set_flight_mode(true);
         assert!(camera.first_person);
         camera.set_flight_mode(false);
@@ -1814,7 +1818,7 @@ mod camera_tests {
         camera.set_flight_mode(true);
         camera.first_person = false;
         camera.set_flight_mode(false);
-        assert!(camera.first_person);
+        assert!(!camera.first_person);
     }
 
     #[test]
