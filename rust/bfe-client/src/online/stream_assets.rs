@@ -1,6 +1,7 @@
-//! StreamAssets performs byte I/O and Xbox ADPCM decoding off the window and
-//! device threads. The shared audio runtime still chooses every segment,
-//! generation, channel layout and scheduled transition.
+//! StreamAssets reads streamed segments off the window and device threads.
+//! A segment stays Xbox ADPCM; the device decodes it a block at a time as it
+//! plays (audio::voices::Sample::adpcm). The shared audio runtime still
+//! chooses every segment, generation, channel layout and transition.
 use audio_control::streams::Request;
 use std::{
     io::{Read, Seek, SeekFrom},
@@ -20,7 +21,7 @@ pub struct Pcm {
     pub rate: f64,
     pub channels: usize,
     pub frames: usize,
-    pub data: Vec<f32>,
+    pub sample: audio::voices::Sample,
 }
 pub struct Response {
     pub request: Request,
@@ -36,9 +37,8 @@ impl Assets {
         let (send, jobs) = sync_channel::<Request>(128);
         let (results, receive) = sync_channel(128);
         let thread = std::thread::spawn(move || {
-            let mut decoder = audio::adpcm::Decoder::default();
             while let Ok(request) = jobs.recv() {
-                let pcm = segments.get(request.segment).and_then(|segment| decode(segment, &mut decoder).ok());
+                let pcm = segments.get(request.segment).and_then(|segment| read(segment).ok().flatten());
                 if results.send(Response { request, pcm }).is_err() {
                     break;
                 }
@@ -62,18 +62,26 @@ impl Drop for Assets {
         }
     }
 }
-fn decode(segment: &Segment, decoder: &mut audio::adpcm::Decoder) -> Result<Pcm, std::io::Error> {
-    // Read the whole authored segment, including padding to a substream chunk.
-    // This is the browser decoder's same interleave and channel-major output.
+fn read(segment: &Segment) -> Result<Option<Pcm>, std::io::Error> {
+    // The whole authored segment, including padding to a substream chunk,
+    // split into its substreams the way the browser decoder reads them.
     let mut file = std::fs::File::open(&segment.file)?;
     file.seek(SeekFrom::Start(segment.offset))?;
-    decoder.bytes.resize(segment.length, 0);
-    file.read_exact(&mut decoder.bytes)?;
-    let frames = decoder.decode(segment.channels, segment.substreams, segment.interleave);
-    let channels = segment.channels * segment.substreams;
-    let mut data = Vec::with_capacity(frames * channels);
-    for channel in &decoder.output {
-        data.extend_from_slice(&channel[..frames]);
-    }
-    Ok(Pcm { rate: segment.rate, channels, frames, data })
+    let mut bytes = vec![0; segment.length];
+    file.read_exact(&mut bytes)?;
+    let count = segment.substreams.max(1);
+    let parts = if count == 1 {
+        vec![bytes]
+    } else {
+        if segment.interleave == 0 {
+            return Ok(None);
+        }
+        let mut parts = vec![Vec::with_capacity(bytes.len() / count + segment.interleave); count];
+        for (chunk, run) in bytes.chunks_exact(segment.interleave).enumerate() {
+            parts[chunk % count].extend_from_slice(run);
+        }
+        parts
+    };
+    Ok(audio::voices::Sample::adpcm(segment.rate, segment.channels, parts)
+        .map(|sample| Pcm { rate: segment.rate, channels: sample.channels, frames: sample.frames, sample }))
 }
