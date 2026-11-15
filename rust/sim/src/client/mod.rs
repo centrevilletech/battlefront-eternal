@@ -94,6 +94,9 @@ pub struct ClientPrediction {
     flags: Vec<u8>,
     barrels: Vec<u32>,
     correction: Vec<u8>,
+    // The crowd as this replay has pushed it: the world moves both bodies of
+    // a contact apart, so the other one must give way here too.
+    crowd: Vec<f64>,
     notices: Vec<f64>,
     before: Vec<f64>,
     #[cfg(target_arch = "wasm32")]
@@ -149,7 +152,7 @@ impl ClientPrediction {
     pub fn reserve_native(&mut self, bodies: usize, weapons: usize) {
         self.output.reserve(32768); self.before.reserve(4096);
         self.flags.reserve(bodies); self.correction.reserve(2200);
-        self.notices.reserve(16384); self.barrels.reserve(128);
+        self.notices.reserve(16384); self.barrels.reserve(128); self.crowd.reserve(1024 * ClientCrowd::WORDS);
         self.arsenal.reserve_native(weapons);
     }
 
@@ -230,6 +233,9 @@ impl ClientPrediction {
         let same_life = self.life == Some(life);
         let continued = same_life && (frame.authority_tick == self.authority_tick || frame.authority_tick < self.tick - LIMIT);
         if frame.dead { self.life = None; self.output.clear(); return Ok(()); }
+        // A fresh authority brings the others' places with it; a kept
+        // continuation keeps the places it has pushed them to.
+        if !continued || self.crowd.len() != crowd.len() { self.crowd.clear(); self.crowd.extend_from_slice(crowd); }
         // restorePrediction restored the compact body and arsenal together.
         // The generated body row supplies prerequisites; correction bytes own
         // the exact solver fields and reset local interpolation/look history.
@@ -369,7 +375,7 @@ impl ClientPrediction {
             // separatePredictedSoldier ran after movement and before weapons.
             // Only this private body moves; remote actors are frozen facts for
             // the page frame, regardless of how many pending ticks replay.
-            separate(&mut self.actor.unit.soldier, frame.identity, crowd);
+            separate(&mut self.actor.unit.soldier, frame.identity, &mut self.crowd);
             if !action(actions, Action::FirePrimary) { counts[0] = 0; }
             if !action(actions, Action::FireSecondary) { counts[1] = 0; }
             self.step_weapons(&frame, actions, forward, right, counts, ids)?;
@@ -560,21 +566,22 @@ impl ClientPrediction {
     }
 }
 
-/// Page crowd separation is asymmetric: only the owned body moves, in roster
-/// order, against the once-per-frame remote poses (game.js separatePredictedSoldier).
-fn separate(body: &mut UnitBody, identity: f64, crowd: &[f64]) {
+/// The crowd push on the owned body, in roster order, against the remote
+/// poses of the frame (game.js separatePredictedSoldier). The other body of a
+/// contact gives way in this replay's own copy, as it does in the world.
+fn separate(body: &mut UnitBody, identity: f64, crowd: &mut [f64]) {
     let (p, shape) = match body {
         UnitBody::Soldier(s) => (&mut s.position, if s.dive != 0.0 { [0.45, 1.45, 0.65] } else if s.air.is_some() { [0.57, 1.65, 0.9] } else { match s.posture { Posture::Stand => [0.57, 1.65, 0.9], Posture::Crouch => [0.45, 1.45, 0.65], Posture::Prone => [0.8, 0.45, 0.25] } }),
         UnitBody::Droideka(d) => (&mut d.position, [1.0, 2.0, 1.0]),
     };
     // separatePredictedSoldier uses a dive's crouch shape before airborne
-    // standing shape. Its vertical overlap and volume-weighted share are
-    // deliberately asymmetric; a global two-body separation would move peers.
+    // standing shape, the world's vertical overlap test and its
+    // volume-weighted share.
     let [r, h, y] = shape;
     let volume = std::f64::consts::PI * r * r * h;
     let bottom = p[1] + y - h / 2.0; let top = p[1] + y + h / 2.0;
     let far = (r + 1.0) * (r + 1.0);
-    for row in crowd.chunks_exact(ClientCrowd::WORDS) {
+    for row in crowd.chunks_exact_mut(ClientCrowd::WORDS) {
         let other = ClientCrowd::take(row, &[]); let o = other.position;
         let mut dx = p[0] - o[0]; let mut dz = p[2] - o[2]; let d2 = dx * dx + dz * dz;
         if d2 >= far || top <= o[1] + other.center - other.height / 2.0 || o[1] + other.center + other.height / 2.0 <= bottom { continue; }
@@ -584,8 +591,13 @@ fn separate(body: &mut UnitBody, identity: f64, crowd: &[f64]) {
         // when the two horizontal centers coincide. Do not draw randomness.
         if d < 1e-4 { dx = v8math::sin(identity); dz = v8math::cos(identity); d = 1.0; }
         let ov = std::f64::consts::PI * other.radius * other.radius * other.height;
-        let share = ((reach - v8math::sqrt(d2)) / (volume + ov)) * ov;
+        let overlap = (reach - v8math::sqrt(d2)) / (volume + ov);
+        let share = overlap * ov;
         p[0] += (dx / d) * share; p[2] += (dz / d) * share;
+        // separateSoldiers moves the other body the rest of the way. Only
+        // this replay's copy of it moves: the page's stays where it was told.
+        row[ClientCrowd::POSITION] -= (dx / d) * overlap * volume;
+        row[ClientCrowd::POSITION + 2] -= (dz / d) * overlap * volume;
     }
 }
 
