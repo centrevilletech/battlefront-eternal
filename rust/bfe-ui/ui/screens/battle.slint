@@ -196,6 +196,21 @@ export component BattleSpawnScreen inherits Rectangle {
     height: 100%;
     background: transparent;
 
+    // .bfe-spawn-go-slot.ready breathes its accent glow (2.2s); drawn under the cached chrome, the
+    // shadow's blur held and its strength breathing.
+    if BattleModel.can-spawn : Rectangle {
+        property <float> breath: 0.5 - 0.5 * cos(360deg * mod(animation-tick() / 1ms, 2200) / 2200);
+        x: BattleModel.spawn-x * 1px;
+        y: BattleModel.spawn-y * 1px;
+        width: BattleModel.spawn-w * 1px;
+        height: BattleModel.spawn-h * 1px;
+        border-radius: Theme.bf2 ? self.height * 0.5 : 0px;
+        background: Theme.bfe-accent.with-alpha(0.01);
+        drop-shadow-blur: 18px;
+        drop-shadow-color: Theme.bfe-accent.with-alpha(0.85);
+        opacity: (0.3 + 0.7 * self.breath) * SpawnCss.appear(BattleModel.entry, 0.6, 0.7);
+    }
+
     // The screen's chrome changes only on a pick, a hover or a clock tick: FemtoVG keeps it in one cached
     // layer and redraws it only then (it cost every frame before). The post hit targets move with the
     // stage's camera each frame, so they stay outside it.
@@ -273,17 +288,6 @@ export component BattleSpawnScreen inherits Rectangle {
             }
         }
 
-        BattleTurntableArea {
-            x: BattleModel.figure-x * 1px;
-            y: BattleModel.figure-y * 1px;
-            width: BattleModel.figure-w * 1px;
-            height: BattleModel.figure-h * 1px;
-            dragging: BattleModel.figure-dragging;
-            turned: BattleModel.figure-turned;
-            pointer-down(x, y) => { BattleModel.figure-pointer-down(x, y); }
-            pointer-move(x, y) => { BattleModel.figure-pointer-move(x, y); }
-            pointer-up => { BattleModel.figure-pointer-up(); }
-        }
 
         // The caption and SPAWN rise in (.7s after .6s); the caption again on another class (.5s).
         if BattleModel.selected-class-title != "" : BattleClassBanner {
@@ -319,6 +323,40 @@ export component BattleSpawnScreen inherits Rectangle {
             width: BattleModel.objectives-w * 1px;
             height: BattleModel.objectives-h * 1px;
             objectives: BattleModel.objectives;
+        }
+    }
+
+    // His place: drag to turn; its hint pulses, so it stays out of the cached layer.
+    BattleTurntableArea {
+        x: BattleModel.figure-x * 1px;
+        y: BattleModel.figure-y * 1px;
+        width: BattleModel.figure-w * 1px;
+        height: BattleModel.figure-h * 1px;
+        dragging: BattleModel.figure-dragging;
+        turned: BattleModel.figure-turned;
+        pointer-down(x, y) => { BattleModel.figure-pointer-down(x, y); }
+        pointer-move(x, y) => { BattleModel.figure-pointer-move(x, y); }
+        pointer-up => { BattleModel.figure-pointer-up(); }
+    }
+
+    // .bfe-spawn-class.picked::after: a sheen crosses the picked window every 3.2s (after 1s).
+    for cls in BattleModel.classes : Rectangle {
+        property <float> t: mod(animation-tick() / 1ms + 2200, 3200) / 3200;
+        property <float> run: self.t < 0.6 ? 0 : (self.t - 0.6) / 0.4;
+        property <float> eased: self.run < 0.5 ? 2 * self.run * self.run : 1 - 2 * (1 - self.run) * (1 - self.run);
+        visible: cls.picked && BattleModel.entry >= 1;
+        x: cls.rect-x * 1px;
+        y: cls.rect-y * 1px;
+        width: cls.rect-w * 1px;
+        height: cls.rect-h * 1px;
+        clip: true;
+        border-radius: Theme.bfe-battle-card-radius;
+
+        Rectangle {
+            x: parent.width * (-1.2 + 2.4 * parent.eased);
+            width: parent.width;
+            height: parent.height;
+            background: @linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.16) 50%, transparent 65%);
         }
     }
 
