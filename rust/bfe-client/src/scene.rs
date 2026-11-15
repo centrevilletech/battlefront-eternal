@@ -1503,13 +1503,13 @@ impl Scene {
         self.resources.resize_target(self.depth_target, &serde_json::json!({"width":size[0],"height":size[1],"color":self.depth_color,"depth":self.depth_sample,"depthBuffer":true,"stencil":true,"samples":0,"resolveDepth":false,"resolveStencil":false,"cube":false}).to_string())?;
         self.image_step[bfe_render::post::STEP_WIDTH] = size[0] as f64;
         self.image_step[bfe_render::post::STEP_HEIGHT] = size[1] as f64;
-        self.bridge.r.core.replace_sample_texture(self.depth_texture as usize, self.resources.texture(self.depth_sample)?)?;
+        self.bridge.r.replace_sample_texture(self.depth_texture as usize, self.resources.texture(self.depth_sample)?)?;
         for &(source, sample, texture, slot, factor) in &self.post_images {
             use bfe_render::post_chain::layout::{facts as pf, resource as pr};
             let extent=if factor<0.{self.size}else{size.map(|v|(v as f64*factor).ceil().max(1.)as i32)};
             self.resources.source_desc(source, &post_image(extent,slot))?;
             self.resources.upload(sample)?;
-            self.bridge.r.core.replace_sample_texture(texture as usize, self.resources.texture(sample)?)?;
+            self.bridge.r.replace_sample_texture(texture as usize, self.resources.texture(sample)?)?;
             let at = pf::RESOURCES + slot * pr::STRIDE;
             self.bridge.r.post_chain.input[at + pr::WIDTH] = extent[0] as f64;
             self.bridge.r.post_chain.input[at + pr::HEIGHT] = extent[1] as f64;

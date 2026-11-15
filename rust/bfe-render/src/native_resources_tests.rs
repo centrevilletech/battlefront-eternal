@@ -52,6 +52,10 @@ unsafe extern "system" fn delete(n: i32, names: *const u32) {
 }
 unsafe extern "system" fn bind(_: u32, _: u32) {}
 unsafe extern "system" fn parameter(_: u32, _: u32, _: i32) {}
+unsafe extern "system" fn active(_: u32) {}
+unsafe extern "system" fn store(_: u32, _: i32) {}
+unsafe extern "system" fn storage(_: u32, _: i32, _: u32, _: i32, _: i32) {}
+unsafe extern "system" fn sub_image(_: u32, _: i32, _: i32, _: i32, _: i32, _: i32, _: u32, _: u32, _: *const c_void) {}
 fn owner() -> GpuResources {
     DEVICE.with_borrow_mut(|d| *d = Device::default());
     // SAFETY: each provided address has the system ABI/signature expected by
@@ -64,6 +68,10 @@ fn owner() -> GpuResources {
             "glDeleteTextures" => delete as *const c_void,
             "glBindTexture" => bind as *const c_void,
             "glTexParameteri" => parameter as *const c_void,
+            "glActiveTexture" => active as *const c_void,
+            "glPixelStorei" => store as *const c_void,
+            "glTexStorage2D" => storage as *const c_void,
+            "glTexSubImage2D" => sub_image as *const c_void,
             _ => std::ptr::null(),
         })
     };
@@ -176,6 +184,27 @@ fn a_released_image_keeps_its_texture_and_changes_sampling_in_place() {
     // New pixels make it an ordinary image again.
     r.source_pixels(s, &[5, 6, 7, 8]).unwrap();
     assert!(matches!(r.source_ref(s).unwrap().pixels, Pixels::Raw(_)));
+    drop(r);
+    DEVICE.with_borrow(|d| assert_eq!(d.double_delete, 0));
+}
+#[test]
+fn an_image_uploaded_at_a_new_size_gets_a_new_texture_name() {
+    // The rain cover shrinks from 32 to 16 cells in Classic, and a depth and
+    // stencil copy follows the window. Their GL names change, so every pass
+    // holding the old name must be given the new one.
+    let mut r = owner();
+    let desc = |n: u32| serde_json::json!({"width":n,"height":n,"depth":1,"target":3553,"format":1028,"dataType":1015,"srgb":false}).to_string();
+    let s = r.source(&desc(32)).unwrap();
+    r.source_pixels(s, &vec![0; 32 * 32 * 4]).unwrap();
+    let a = r.sample(s, &settings(1001)).unwrap();
+    r.upload(a).unwrap();
+    let before = r.texture(a).unwrap();
+    r.source_desc(s, &desc(16)).unwrap();
+    r.source_pixels(s, &vec![0; 16 * 16 * 4]).unwrap();
+    r.upload(a).unwrap();
+    let after = r.texture(a).unwrap();
+    assert_ne!(before, after);
+    DEVICE.with_borrow(|d| assert!(!d.live.contains(&before.0.get()), "the old name was deleted"));
     drop(r);
     DEVICE.with_borrow(|d| assert_eq!(d.double_delete, 0));
 }
