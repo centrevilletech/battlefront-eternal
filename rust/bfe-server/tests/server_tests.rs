@@ -1909,9 +1909,8 @@ fn online_server_registers_with_master_and_relays_signaling_over_websocket() {
 //   ring (`Events` and `Bulk` send/receive) and `MAX_MESSAGE` (1 MiB) per stream parser using
 //   `Vec::with_capacity` and grows the initialized slice length (`Vec::resize`) only up to the
 //   highest byte offset actually written within that pre-reserved capacity.
-// - Steady-state packet processing performs zero heap allocations (`ALLOCS == 0` verified by
-//   `bfe_transport::allocation_tests`), while untouched pages on idle lanes (`Lane::Bulk`) are
-//   never faulted into physical RAM (`VmRSS` / cgroup `memory.current`).
+// - Untouched pages on idle lanes (`Lane::Bulk`) are never faulted into physical RAM
+//   (`VmRSS` / cgroup `memory.current`).
 // - When a session closes or is rejected into `ServerEndpoint`'s 2-second `DRAIN_MS` table,
 //   `Connection::release_closed_buffers` immediately drops its stream, fragment, and datagram
 //   vectors so reconnect waves cannot accumulate duplicate closed buffers.

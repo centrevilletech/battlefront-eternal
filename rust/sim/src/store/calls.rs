@@ -106,7 +106,7 @@ impl Events {
 /// makes another import) has read its arguments first and writes its
 /// result after.
 pub const EXCHANGE: usize = 1 << 13;
-/// An owned exchange with the same layout and capacity as the WASM facade.
+/// An owned exchange of a fixed layout and capacity.
 /// Native contexts copy records out before dispatch, so no borrow of this
 /// allocation survives a callback (including same-context reentry).
 pub struct ImportExchange {

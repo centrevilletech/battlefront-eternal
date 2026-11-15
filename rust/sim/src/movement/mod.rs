@@ -74,9 +74,7 @@ pub struct MovementOwner {
 impl MovementOwner {
     pub const fn new() -> Self { Self { movers: None,
         native_copies: native::Copies::new(), io: [0.; IO_LEN], flags: [0; MAX_BODIES] } }
-    // Pointer discovery cannot allocate: the host may already have read the WASM
-    // memory buffer before calling either pointer export. Pools initialize only
-    // when a mover is constructed, where the host refreshes its views afterward.
+    // Pools initialize only when a mover is constructed.
     pub fn io_mut(&mut self) -> &mut [f64; IO_LEN] { &mut self.io }
     pub fn flags_mut(&mut self) -> &mut [u8; MAX_BODIES] { &mut self.flags }
 }

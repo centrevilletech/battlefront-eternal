@@ -86,8 +86,8 @@ impl Sim {
 }
 
 
-// Native callers use Context and explicit owners. These raw WASM entries
-// cannot acquire a process-global simulation in a native host.
+// There is no process-global simulation: callers use Context and explicit
+// owners. The few entries still shaped around one global world panic.
 pub(crate) fn cold() -> &'static mut crate::world::owner::World {
     panic!("WASM facade called by native host")
 }

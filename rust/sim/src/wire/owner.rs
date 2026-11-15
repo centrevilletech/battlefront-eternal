@@ -1,8 +1,7 @@
 //! A battle owns its publication banks and the protocol resources they name.
 //! Facade numbers are checked local identities, never sibling addresses.
-//! Empty banks allocate nothing: page codecs and unused server roles stay cold.
-//! Pointer-shaped facade arguments preserve the existing WASM ABI only. Their
-//! numeric values name these slots and must never be dereferenced as addresses.
+//! Empty banks allocate nothing: unused server roles stay cold. Numbers passed
+//! for these slots name them; they are never dereferenced as addresses.
 use crate::store::handles::Pool;
 pub struct Owner {
     pub runtimes:Pool<super::Runtime>,pub hosts:Pool<super::host::Host>,
