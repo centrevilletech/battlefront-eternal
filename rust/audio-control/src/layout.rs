@@ -660,7 +660,6 @@ pub mod event_kind {
     pub const ACTOR_DEATH: usize = 24;
     pub const TEST_CHANNEL: usize = 25;
     pub const TEST_AROUND: usize = 26;
-    /// A displayed hull foot: VALUE 0..5 names a foot, 6 its hydraulics.
     pub const HULL_FOOT: usize = 27;
 }
 pub mod emitter_kind {
