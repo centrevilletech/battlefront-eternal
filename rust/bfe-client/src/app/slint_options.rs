@@ -356,7 +356,8 @@ pub(super) fn sync(root: &GameUi, shell: &mut ShellHost, models: &OptionsModels)
     let top_idx = screens.len().saturating_sub(1);
     let base_active = base_idx == top_idx;
 
-    model.set_subscreen(base.id.as_str().into());
+    // AUDIO DETAILS is laid out as the audio page.
+    model.set_subscreen(if base.id == "options-audio-panel" { "options-audio" } else { base.id.as_str() }.into());
     model.set_dim_behind(base.dim_behind);
 
     let mut title = String::from("OPTIONS");

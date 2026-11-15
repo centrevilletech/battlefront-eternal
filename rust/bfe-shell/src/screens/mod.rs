@@ -1112,7 +1112,8 @@ impl ShellApp {
                 if self.stack.len() > 1 {
                     self.stack.pop();
                     self.rebuild_cached_rows();
-                    self.sound_queue.push("shell_menu_cancel");
+                    // Coming back to a screen is `exit`; `cancel` is a popup's NO (`ScreenStack.pop` in src/menus/stack.js).
+                    self.sound_queue.push("shell_menu_exit");
                     let top = self.current_screen();
                     let evs = self.media.begin_enter(&self.data, top.media_id(), true);
                     self.media_events.extend(evs);
