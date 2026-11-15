@@ -1017,6 +1017,68 @@ impl runtime::Engine for ThreadedBoundary {
     fn close(&mut self) {}
 }
 
+struct Stamps {
+    seen: std::rc::Rc<std::cell::RefCell<Vec<[f64; 2]>>>,
+    block: bfe_sim::store::block::Block,
+}
+impl runtime::Engine for Stamps {
+    fn initialize(&mut self, _: bfe_sim::gen::WorldTickSetup) -> Result<(), String> {
+        Ok(())
+    }
+    fn input(&mut self, input: runtime::Input<'_>) -> Result<(), String> {
+        self.seen.borrow_mut().push([input.tick, input.now]);
+        Ok(())
+    }
+    fn step(&mut self, input: WorldTickInput) -> Result<WorldTickOutput, String> {
+        Ok(WorldTickOutput {
+            accepted: true,
+            clock: WorldClockState { tick: input.tick, ..input.clock },
+            ..Default::default()
+        })
+    }
+    fn publish(&mut self, _: &[f64]) -> Result<publication::Publication<'_>, String> {
+        publication::Publication::new(&self.block, &[]).map_err(str::to_string)
+    }
+    fn acknowledge(&mut self, _: [f64; 2], _: f64, _: &[u32]) -> Result<(), String> {
+        Ok(())
+    }
+    fn close(&mut self) {}
+}
+
+#[test]
+/// A command reaches the world under the tick it was stamped for, so the world
+/// applies it on the tick prediction replays it on. A stamp already passed
+/// goes into the next tick.
+fn submitted_commands_keep_their_tick_stamps() {
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let engine = Stamps {
+        seen: seen.clone(),
+        block: published(&bfe_sim::gen::WirePublicationOutput::default()),
+    };
+    let admission = setup::Admitted {
+        setup: Default::default(),
+        tick: WorldTickInput {
+            clock: WorldClockState { hz: 60., dt: STEP, ..Default::default() },
+            ..Default::default()
+        },
+        handles: setup::Handles::default(),
+        player_id: 1.,
+        registry: serde_json::json!({}),
+        query: String::new(),
+        publication: Vec::new(),
+        publication_output: Default::default(),
+        host_content: Default::default(),
+        explosions: Vec::new(),
+    };
+    let mut local = runtime::Runtime::new(engine, admission, 1000., 1.7e12).unwrap();
+    let (look, flight) = (ClientLook::default(), ClientFlightCommand::default());
+    let ahead = ClientCommand { sequence: 1., tick: 3., ..Default::default() };
+    let stale = ClientCommand { sequence: 2., tick: 0., ..Default::default() };
+    local.submit(&ahead, &look, &flight, 0.).unwrap();
+    local.submit(&stale, &look, &flight, 0.).unwrap();
+    assert_eq!(*seen.borrow(), [[3., 0.], [1., 0.]]);
+}
+
 #[test]
 /// Verifies `WorldThread` lock-free cross-thread communication:
 /// - Runs the 60 Hz simulation loop on a dedicated background thread while the render
@@ -1091,7 +1153,6 @@ fn threaded_world_steps_at_60hz_without_blocking_or_allocating_on_render_thread(
             command: cmd,
             look: ClientLook { x: 1.0, y: 0.0 },
             flight: ClientFlightCommand::default(),
-            ack: [1.0, receiver.latest],
             view_tick: 42.5,
         });
         let _ = world

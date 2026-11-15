@@ -62,6 +62,8 @@ pub struct Sender {
     pub spawned: bool,
     pub auto_spawn: bool,
     last_tick: f64,
+    ahead: bool,
+    measured: bool,
     last_ack: f64,
     turns: Vec<(f64, [f64; 2])>,
 }
@@ -107,6 +109,8 @@ impl Default for Sender {
             spawned: false,
             auto_spawn: true,
             last_tick: 0.,
+            ahead: false,
+            measured: false,
             last_ack: f64::NEG_INFINITY,
             turns: Vec::new(),
         }
@@ -115,6 +119,18 @@ impl Default for Sender {
 impl Sender {
     pub fn command_sequence(&self) -> f64 {
         self.sequence as f64
+    }
+    /// The world tick the newest command is stamped for.
+    pub fn command_tick(&self) -> f64 {
+        self.last_tick
+    }
+    /// The rate the 60 Hz command clock should run at. Stamps never go back,
+    /// so after the world has fallen behind them (a stall, a slow machine)
+    /// the clock runs a tenth slow until they are within a tick of where
+    /// they need to be. Otherwise every later command would reach the world
+    /// that much early and wait, and every frame would replay that many ticks.
+    pub fn pace(&self) -> f64 {
+        if self.ahead { 0.9 } else { 1. }
     }
     pub fn new(turns: &[(f64, [f64; 2])]) -> Self {
         Self { turns: turns.to_vec(), ..Self::default() }
@@ -152,6 +168,7 @@ impl Sender {
             self.pointer_count = 0;
             self.pointer_at = 0;
             self.last_tick = 0.;
+            self.ahead = false;
         }
         let mut n = 0;
         for at in 0..self.edge_count {
@@ -162,6 +179,7 @@ impl Sender {
             }
         }
         self.edge_count = n;
+        self.measured = false;
         receiver.received.count = 0;
         let mut ignored = [0.; 2];
         let _ = self.owner.run(op::OUTBOUND_ACK, &mut Words::new(&[receiver.ack]), &mut Output { values: &mut ignored, at: 0 });
@@ -198,9 +216,14 @@ impl Sender {
             latest: receiver.latest,
             round_trip_seconds: rtt / 1000.,
         })
-        .bounded
-        .floor();
-        let tick = target.max(self.last_tick + 1.).min(receiver.latest + 30.);
+        .bounded;
+        let tick = target.floor().max(self.last_tick + 1.).min(receiver.latest + 30.);
+        // Measured on a frame's first command: a slow frame's later ones are
+        // stamped for the ticks after it and are not ahead of anything.
+        if !self.measured {
+            self.ahead = tick > target + 1.;
+            self.measured = true;
+        }
         self.last_tick = tick;
         self.history.push(c, look, flight, tick, receiver.own.generation, self.sequence as f64);
         let mut x = [0.; 512];
