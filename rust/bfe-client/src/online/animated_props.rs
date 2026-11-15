@@ -209,7 +209,7 @@ impl Animated {
                 content,
                 textures,
                 bfe_content_native::placed::admit_look(content, source, 0)?,
-                crate::shadows::COUNT,
+                bridge.shadow_cascades(),
             )?;
             views.push(View {
                 skin: vec![0.; inverses.len() * 16],
