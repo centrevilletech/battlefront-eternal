@@ -203,6 +203,21 @@ pub struct Replay {
     walker_ahead: bool,
 }
 impl Replay {
+    /// The mounted subject stays out of its camera and aiming rays.
+    pub fn mounted_body(&self, receiver: &Receiver) -> Option<u32> {
+        use bfe_presentation::network_layout::{net_kind as k, net_record as r};
+        let (id, generation, _) = receiver.own.mount?;
+        match receiver.own.mount_kind {
+            k::VEHICLE => self.fleet.bodies.hull((id, generation)).map(|(body, _)| body),
+            k::TURRET => {
+                let turret = receiver.active().find(|row| {
+                    row[r::KIND] == k::TURRET as f64 && row[r::ID] == id as f64 && row[r::GENERATION] == generation as f64
+                })?;
+                self.props.built_body(turret[r::BUILDING] as usize)
+            }
+            _ => None,
+        }
+    }
     pub fn new(content: &BattleContent) -> Result<Self, String> {
         let collision = alloc_collision();
         let installed = bfe_content::install::install(
