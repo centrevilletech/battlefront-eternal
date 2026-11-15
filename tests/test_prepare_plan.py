@@ -24,6 +24,19 @@ class PlanTests(unittest.TestCase):
         self.assertTrue(has_maps)
         return [step[0] for step in steps], steps
 
+    def test_the_native_client_lists_the_movies_instead_of_converting_them(self):
+        prepare.MOVIE_INDEX = True
+        try:
+            keys, steps = self.keys()
+        finally:
+            prepare.MOVIE_INDEX = False
+        self.assertEqual(keys[:2], ["catalog", "movie-index"])
+        self.assertNotIn("movies", keys)
+        step = {item[0]: item for item in steps}["movie-index"]
+        self.assertEqual(step[2], "Listing the movies")
+        self.assertTrue(step[4], "needs no ffmpeg")
+        self.assertIn("movie-index", prepare.ADD_ON_STEPS)
+
     def test_sides_once_then_common_shell_then_maps_then_catalog_update(self):
         keys, steps = self.keys()
         self.assertEqual(keys[:2], ["catalog", "movies"])

@@ -24,9 +24,7 @@ impl ShellHost {
                 .and_then(|id| self.app.data.maps.iter().find(|map| &map.id == id))
                 .and_then(|map| map.fly.clone());
             self.preview_movies.play(
-                self.content_dir
-                    .as_deref()
-                    .unwrap_or_else(|| std::path::Path::new(".")),
+                &self.movie_library,
                 bfe_shell::data::ScreenMovie {
                     intro: None,
                     loop_clip: clip,

@@ -135,7 +135,7 @@ server needs nothing new.
 
 Choose **EXPORT CONTENT** on the main menu to save one `.bfepack` file.
 It includes the prepared maps, textures and their KTX2 copies, the 4x HUD,
-the movies, the Enhanced sound when it was prepared, SHA-256 checksums, and
+the movies' list, the Enhanced sound when it was prepared, SHA-256 checksums, and
 the unchanged preparation checkpoint/version records.
 It excludes the engine, player identity, settings, saves and preparation locks.
 Shared audio remains deduplicated; identical filename case variants work on
@@ -244,7 +244,7 @@ The confirm screen shows the folder, where it was found ("your Steam library",
 "your GOG library", "the folder you chose", "a copy in ... that Steam didn't
 install"), the check's result, the add-on maps the copy has (and any that will
 be left out, with why), and why the app prepares at all: it converts the game's
-maps, armies, sound and movies into formats it can read, once, taking about as
+maps, armies and sound into formats it can read, once, taking about as
 long as the estimate says (from the check's counts of maps, armies and sound
 sub-levels, and this machine's measured step times), and the installation is
 only read, never changed.
@@ -357,12 +357,21 @@ Preparation runs `tools/prepare.py` with the bundled toolchain, into the app's
 | HUD and font atlases at 4x (`hud`) | `upscale_hud.py` | the shell | Pillow |
 | Enhanced sound per battle (`audio:<sublevel>`) | `enhance_audio.py` | its map, and the era's first | numpy, scipy, soundfile, soxr, ffmpeg |
 | KTX2 textures (`textures`) | `ktx2.py` | everything that writes textures | KTX-Software `ktx` |
-| Movies, converted to WebM (`movies`) | `zero_shell.py --movies` | the catalog | ffmpeg with Bink, VP9 and Opus |
+| The movies' list (`movie-index`) | `zero_shell.py --movie-index` | the catalog | |
+
+The movies are not converted. The client plays the original Bink files
+straight from the game folder (`GameData/Data/_LVL_PC/Movies/shell.mvs`,
+and each add-on's `Movies/*.mvs`) with its own decoder, so the preparation
+only lists them in `common/shell/movies/manifest.json`, in about a second.
+The client finds the game folder through the one the player chose, the
+preparation records, or `BFE_GAME_DIR`; when none holds the movies, the
+menus play without them. (The Electron build's preparation still converts
+them to WebM, the `movies` step, with ffmpeg built with Bink, VP9 and Opus.)
 
 Steps run as soon as what they are after is done and the cores allow: the
 sides and maps several at once (one process each, as many as memory
 allows at about 0.6 GB each), a battle's sound enhancement beside the maps
-still extracting (each with half the cores), the movies from the start.
+still extracting (each with half the cores).
 Shared work is done once: a side's units, what every side shares, and
 an era's voice-over and the sample bank in the Enhanced sound
 (`audio/enhanced/streams/` and `samples/`, hard-linked into each
@@ -380,7 +389,7 @@ installed ones differ, the app prepares again. That happens when an add-on
 is installed or removed, and when the folder was prepared before add-ons
 were read, which is how Jabba's Palace went missing. Only what lists or
 shares their content runs again: the catalog, `common` (their armies'
-clips and their maps' effects), the movies (their flyovers) and
+clips and their maps' effects), the movies' list (their flyovers) and
 `catalog-update`. Their new steps run beside these, and everything else is
 kept. For Jabba's Palace that run took 34 s with four jobs on one development
 machine.
@@ -389,9 +398,7 @@ The loader stays up until every step is done: the game and preparation
 compete badly for CPU and memory, so there is no playing early. Since nothing
 else runs meanwhile, the tools get every core (`--jobs` is the core count) at
 normal priority; the pipeline sizes what runs side by side (armies, map
-extractions, Enhanced sound jobs, movie encodes) to the memory available,
-and movies use one VP9 pass (2.8x faster than the two passes measured
-before, same quality). Finished steps are recorded in
+extractions, Enhanced sound jobs) to the memory available. Finished steps are recorded in
 `game-data/.prepare.json`, so a run stopped by quitting resumes on the next
 launch; quitting stops the whole tool process tree. A step whose tool is
 missing is skipped and recorded (`skipped`), which leaves the run
@@ -409,8 +416,7 @@ The bar and the time left are by expected time, not step count
 (a side 1 to 17 s, common 10 to 35 s, a map 3 to 30 s with six running side
 by side, a sub-level's sound enhancement 25 to 60 s with four jobs, the
 textures a few seconds (the extraction steps compress their own as they
-go), the movies about 10 minutes with four encodes, which run from the
-start under everything else, on an 8-core laptop), replaced by this machine's own measurements as steps finish
+go), the movies' list a second, on an 8-core laptop), replaced by this machine's own measurements as steps finish
 (`prepare-timings.json` in the user data folder keeps the last eight of
 each kind). Steps that run side by side are divided by how many do, and
 once three steps have finished the remainder is scaled by how they compared

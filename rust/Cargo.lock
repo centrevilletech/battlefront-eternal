@@ -629,7 +629,8 @@ dependencies = [
 name = "bfe-video"
 version = "0.1.0"
 dependencies = [
- "cc",
+ "bink-decoder",
+ "serde_json",
 ]
 
 [[package]]
@@ -661,6 +662,10 @@ dependencies = [
  "shlex 1.3.0",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "bink-decoder"
+version = "0.1.0"
 
 [[package]]
 name = "bit-set"

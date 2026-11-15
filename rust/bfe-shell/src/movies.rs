@@ -2,7 +2,7 @@
 //! owns a worker, and renderers borrow its latest I420 frame without copying it.
 use crate::data::{MovieClip, ScreenMovie};
 use bfe_video::{Frame, Movie};
-use std::path::Path;
+pub use bfe_video::{MovieLibrary, Source};
 
 pub const MAX_LAYERS: usize = 4;
 pub struct Layer {
@@ -21,9 +21,9 @@ pub struct Layer {
     loading_elapsed: f64,
 }
 impl Layer {
-    fn new(root: &Path, clip: MovieClip, intro: bool, serial: u64) -> Self {
+    fn new(movies: &MovieLibrary, clip: MovieClip, intro: bool, serial: u64) -> Self {
         Self {
-            movie: Movie::open(root.join(clip.url.trim_start_matches('/')), !intro),
+            movie: Movie::open(movies.resolve(&clip.url), !intro),
             serial,
             frame: None,
             pending: None,
@@ -140,12 +140,12 @@ impl MoviePlayer {
     pub fn has_frame(&self) -> bool {
         self.layers.iter().flatten().any(|l| l.frame.is_some())
     }
-    pub fn play(&mut self, root: &Path, movie: ScreenMovie, intro: bool, delay: f64) {
+    pub fn play(&mut self, movies: &MovieLibrary, movie: ScreenMovie, intro: bool, delay: f64) {
         self.delayed = Some((movie, intro, delay));
         self.next = None;
         self.intro_ended = false;
         if delay <= 0. {
-            self.begin(root);
+            self.begin(movies);
         }
     }
     fn insert(&mut self, layer: Layer) {
@@ -163,7 +163,7 @@ impl MoviePlayer {
             });
         self.layers[slot] = Some(layer);
     }
-    fn begin(&mut self, root: &Path) {
+    fn begin(&mut self, movies: &MovieLibrary) {
         let Some((movie, intro, _)) = self.delayed.take() else {
             return;
         };
@@ -179,11 +179,11 @@ impl MoviePlayer {
         if let Some(clip) = first {
             self.serial += 1;
             self.activating = Some(self.serial);
-            self.insert(Layer::new(root, clip, is_intro, self.serial));
+            self.insert(Layer::new(movies, clip, is_intro, self.serial));
             if is_intro {
                 if let Some(clip) = movie.loop_clip {
                     self.serial += 1;
-                    self.next = Some(Layer::new(root, clip, false, self.serial));
+                    self.next = Some(Layer::new(movies, clip, false, self.serial));
                 }
             }
         } else {
@@ -194,12 +194,12 @@ impl MoviePlayer {
             self.intro_ended = true;
         }
     }
-    pub fn update(&mut self, root: &Path, dt: f64) {
+    pub fn update(&mut self, movies: &MovieLibrary, dt: f64) {
         let dt = if dt.is_finite() { dt.max(0.) } else { 0. };
         if let Some((_, _, delay)) = self.delayed.as_mut() {
             *delay -= dt;
             if *delay <= 0. {
-                self.begin(root);
+                self.begin(movies);
             }
         }
         let mut finish = false;
@@ -249,21 +249,25 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
-    struct Fixture(std::path::PathBuf);
+    /// A library whose `pattern` movie is the synthetic Bink fixture (0.5 s, five frames at 10 fps).
+    struct Fixture(std::path::PathBuf, MovieLibrary);
     impl Fixture {
         fn new() -> Self {
             let root = std::env::temp_dir().join(format!(
-                "bfe-video-{}-{}",
+                "bfe-movies-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
             std::fs::create_dir_all(&root).unwrap();
+            let path = root.join("pattern.bik");
             std::fs::write(
-                root.join("pattern.webm"),
-                include_bytes!("../../../tests/fixtures/video/pattern.webm"),
+                &path,
+                include_bytes!("../../../tests/fixtures/video/pattern.bik"),
             )
             .unwrap();
-            Self(root)
+            let mut library = MovieLibrary::default();
+            library.insert("pattern", bfe_video::Source { path, offset: 0 });
+            Self(root, library)
         }
     }
     impl Drop for Fixture {
@@ -278,7 +282,7 @@ mod tests {
             fade_out: 0.2,
         }
     }
-    fn ready(player: &mut MoviePlayer, root: &Path) {
+    fn ready(player: &mut MoviePlayer, root: &MovieLibrary) {
         for _ in 0..1000 {
             player.update(root, 0.);
             if player
@@ -298,7 +302,7 @@ mod tests {
         let root = Fixture::new();
         let mut player = MoviePlayer::default();
         player.play(
-            &root.0,
+            &root.1,
             ScreenMovie {
                 intro: Some(clip()),
                 loop_clip: Some(clip()),
@@ -308,18 +312,18 @@ mod tests {
         );
         // The preloaded loop has the newest serial but must remain hidden.
         for _ in 0..1000 {
-            player.update(&root.0, 0.);
+            player.update(&root.1, 0.);
             if player.layers.iter().flatten().any(|l| l.frame.is_some()) {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
         assert_eq!(player.layers.iter().flatten().count(), 1);
-        player.update(&root.0, 0.51);
+        player.update(&root.1, 0.51);
         assert!(player.intro_ended);
-        ready(&mut player, &root.0);
+        ready(&mut player, &root.1);
         assert!(!player.layers.iter().flatten().next().unwrap().intro);
-        player.update(&root.0, 1.0);
+        player.update(&root.1, 1.0);
         assert_eq!(player.layers.iter().flatten().count(), 1);
     }
     #[test]
@@ -330,13 +334,13 @@ mod tests {
             loop_clip: Some(clip()),
         };
         let mut player = MoviePlayer::default();
-        player.play(&root.0, movie.clone(), false, 0.);
-        ready(&mut player, &root.0);
-        player.update(&root.0, 0.15);
+        player.play(&root.1, movie.clone(), false, 0.);
+        ready(&mut player, &root.1);
+        player.update(&root.1, 0.15);
         let old_serial = player.serial;
-        player.play(&root.0, movie, false, 0.);
+        player.play(&root.1, movie, false, 0.);
         assert!(player.layers.iter().flatten().all(|l| l.fading.is_none()));
-        ready(&mut player, &root.0);
+        ready(&mut player, &root.1);
         assert!(player.layers.iter().flatten().all(|l| !l.intro));
         assert!(player
             .layers
@@ -346,7 +350,7 @@ mod tests {
             .unwrap()
             .fading
             .is_some());
-        player.update(&root.0, 0.21);
+        player.update(&root.1, 0.21);
         assert_eq!(player.layers.iter().flatten().count(), 1);
     }
     #[test]
@@ -358,7 +362,7 @@ mod tests {
         };
         let mut player = MoviePlayer::default();
         player.play(
-            &root.0,
+            &root.1,
             ScreenMovie {
                 intro: None,
                 loop_clip: Some(slow),
@@ -366,11 +370,11 @@ mod tests {
             false,
             0.,
         );
-        ready(&mut player, &root.0);
-        player.update(&root.0, 0.1);
+        ready(&mut player, &root.1);
+        player.update(&root.1, 0.1);
         let old_serial = player.serial;
         player.play(
-            &root.0,
+            &root.1,
             ScreenMovie {
                 intro: None,
                 loop_clip: Some(clip()),
@@ -378,8 +382,8 @@ mod tests {
             false,
             0.,
         );
-        ready(&mut player, &root.0);
-        player.update(&root.0, 0.05);
+        ready(&mut player, &root.1);
+        player.update(&root.1, 0.05);
         let old = player
             .layers
             .iter()
@@ -394,7 +398,7 @@ mod tests {
         let root = Fixture::new();
         let mut player = MoviePlayer::default();
         player.play(
-            &root.0,
+            &root.1,
             ScreenMovie {
                 intro: None,
                 loop_clip: Some(clip()),
@@ -402,16 +406,16 @@ mod tests {
             false,
             0.5,
         );
-        player.update(&root.0, 0.49);
+        player.update(&root.1, 0.49);
         assert!(player.layers.iter().all(Option::is_none));
-        player.update(&root.0, 0.02);
-        ready(&mut player, &root.0);
+        player.update(&root.1, 0.02);
+        ready(&mut player, &root.1);
         let broken = MovieClip {
             url: "missing.webm".into(),
             ..clip()
         };
         player.play(
-            &root.0,
+            &root.1,
             ScreenMovie {
                 intro: Some(broken),
                 loop_clip: Some(clip()),
@@ -419,8 +423,8 @@ mod tests {
             true,
             0.,
         );
-        player.update(&root.0, 2.6);
+        player.update(&root.1, 2.6);
         assert!(player.intro_ended);
-        ready(&mut player, &root.0);
+        ready(&mut player, &root.1);
     }
 }
