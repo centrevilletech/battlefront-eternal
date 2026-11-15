@@ -181,13 +181,29 @@ impl Casters {
 // one matrix row times its world radius. Unknown bounds conservatively cover
 // the whole map, just as a newly positioned cascade does.
 fn projected_sphere(clip: &crate::math::Mat4, center: [f64; 3], radius: f64) -> [f64; 4] {
-    if clip[3] != 0. || clip[7] != 0. || clip[11] != 0. || clip[15] != 1.
+    if clip[3] != 0. || clip[7] != 0. || clip[11] != 0. || !clip[15].is_finite() || clip[15].abs() < 1e-12
         || !radius.is_finite() || radius < 0. || center.iter().any(|x| !x.is_finite()) {
         return [-1., -1., 1., 1.];
     }
     let p = crate::math::transform4(clip, [center[0], center[1], center[2], 1.]);
-    let rx = radius * (clip[0]*clip[0] + clip[4]*clip[4] + clip[8]*clip[8]).sqrt();
-    let ry = radius * (clip[1]*clip[1] + clip[5]*clip[5] + clip[9]*clip[9]).sqrt();
-    let rect = [p[0]-rx, p[1]-ry, p[0]+rx, p[1]+ry];
+    // Affine inversion can leave w just above/below one. Divide by its
+    // constant value instead of needlessly treating that as perspective.
+    let w = clip[15];
+    let rx = radius * (clip[0]*clip[0] + clip[4]*clip[4] + clip[8]*clip[8]).sqrt() / w.abs();
+    let ry = radius * (clip[1]*clip[1] + clip[5]*clip[5] + clip[9]*clip[9]).sqrt() / w.abs();
+    let rect = [p[0]/w-rx, p[1]/w-ry, p[0]/w+rx, p[1]/w+ry];
     if rect.iter().any(|x| !x.is_finite()) { [-1., -1., 1., 1.] } else { rect }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::projected_sphere;
+    #[test]
+    fn affine_shadow_bounds_ignore_homogeneous_scale() {
+        let mut clip = [0.; 16];
+        for i in [0, 5, 10, 15] { clip[i] = 2.; }
+        assert_eq!(projected_sphere(&clip, [0.25, -0.5, 0.], 0.125), [0.125, -0.625, 0.375, -0.375]);
+        clip[3] = 0.1;
+        assert_eq!(projected_sphere(&clip, [0.25, -0.5, 0.], 0.125), [-1., -1., 1., 1.]);
+    }
 }
