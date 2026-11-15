@@ -53,7 +53,7 @@ use crate::{
         cli::{parse_args, CliDispatch, StandaloneOptions},
         script::{GateDriver, GatePhase},
         settings::{current_desktop_paths, AppSettingsStore},
-        shell::{pump_headless_audio, ShellHost, ShellTransition},
+        shell::{HeadlessAudio, ShellHost, ShellTransition},
         startup::{run_bounded_update_check, StartupContentState, UpdateCheckOutcome},
     },
     audio::{AudioDevice, SharedAudioRouter, Status as AudioStatus},
@@ -279,6 +279,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         .then(|| platform_smoke::Smoke::new(opts.shots_dir.clone()));
     // A scripted run and a measurement draw every frame they can.
     let unpaced = std::env::var_os("BFE_FRAME_UNPACED").is_some() || opts.script.is_some();
+    let headless_audio = audio_device.is_none().then(|| HeadlessAudio::start(audio_router.clone(), audio_status.clone()));
     let mut app = StandaloneWindowApp {
         platform_smoke,
         folder_dialog: None,
@@ -288,12 +289,9 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         host_controller,
         audio_status,
         audio_router,
+        headless_audio,
         _audio_device: audio_device,
         audio_channels_asked: 2,
-        headless_scratch: vec![0.0; ::audio::FRAMES * 2]
-            .into_boxed_slice()
-            .try_into()
-            .unwrap(),
         state: AppState::StartupLoader(startup_content),
         shell: None,
         #[cfg(target_os = "linux")]
@@ -393,8 +391,8 @@ struct StandaloneWindowApp {
     _audio_device: Option<AudioDevice>,
     // The channel count last asked of the device (crate::audio::wanted_channels).
     audio_channels_asked: usize,
-    /// Pre-allocated stereo scratch buffer used to pump audio quantums when running headless.
-    headless_scratch: Box<[f32; ::audio::FRAMES * 2]>,
+    /// The mix's own thread while no sound device is open.
+    headless_audio: Option<HeadlessAudio>,
     /// Active top-level state (`StartupLoader`, `Shell`, `HostStarting`, `BattleLoading`, `Battle`).
     state: AppState,
     /// Front-end shell and loading screen renderer (`bfe-shell` + `bfe-interface`).
@@ -1786,19 +1784,12 @@ impl StandaloneWindowApp {
                 self._audio_device = None;
                 match AudioDevice::open_dynamic(self.audio_router.clone(), wanted) {
                     Ok(device) => self._audio_device = Some(device),
-                    Err(err) => eprintln!("audio device: {wanted} channels not opened ({err})"),
+                    Err(err) => {
+                        eprintln!("audio device: {wanted} channels not opened ({err})");
+                        self.headless_audio = Some(HeadlessAudio::start(self.audio_router.clone(), self.audio_status.clone()));
+                    }
                 }
             }
-        }
-
-        // If no hardware `cpal` audio device is open, pump headless audio quantums so
-        // `ShellAudioMixer` and battle `Stream` queues drain identically to hardware playback.
-        if self._audio_device.is_none() {
-            pump_headless_audio(
-                &self.audio_router,
-                &self.audio_status,
-                &mut self.headless_scratch,
-            );
         }
 
         if let Some(result) = self
