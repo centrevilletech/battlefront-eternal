@@ -46,6 +46,13 @@ pub struct Rain {
     collision: Collision,
     world: u32,
     water: Option<bfe_sim::units::water::WaterState>,
+    /// Precipitation's GroundEffect (rainsplash), its rate a second and its
+    /// spread around the camera, m.
+    pub ground: Option<(String, f64, f64)>,
+    ground_clock: f64,
+    ground_state: u32,
+    /// Where the ground effect goes off this frame (Classic rain).
+    pub splashes: Vec<[f64; 3]>,
     /// Frames the rain was drawn.
     pub frames: u64,
 }
@@ -124,6 +131,12 @@ impl Rain {
             collision,
             world,
             water: super::water::new(content),
+            ground: p["GroundEffect"][0].as_str().filter(|n| !n.is_empty()).map(|name| {
+                (name.to_string(), number(p, "GroundEffectsPerSec", 0.).max(0.), number(p, "GroundEffectSpread", 0.).max(0.))
+            }),
+            ground_clock: 0.,
+            ground_state: 0x2f6b_1d35,
+            splashes: Vec::new(),
             frames: 0,
         };
         bridge.fx_reserve((at + rain.floats()) as u32);
@@ -185,6 +198,27 @@ impl Rain {
             Impact { y, normal, water }
         };
         self.state.update(&frame, &mut height, &mut cast, &mut result);
+        // The map's rain ground effect, Classic only (Enhanced draws its own
+        // splashes): GroundEffectsPerSec of them, each at a random point
+        // within GroundEffectSpread of the camera, on ground open to the sky.
+        self.splashes.clear();
+        if let Some((_, rate, spread)) = self.ground.as_ref().filter(|g| !self.enhanced && g.1 > 0. && g.2 > 0.) {
+            self.ground_clock = (self.ground_clock + dt * rate).min(8.);
+            let mut random = || {
+                self.ground_state = self.ground_state.wrapping_mul(1664525).wrapping_add(1013904223);
+                f64::from(self.ground_state) / 4294967296.
+            };
+            while self.ground_clock >= 1. {
+                self.ground_clock -= 1.;
+                let (r, a) = (spread * random().sqrt(), random() * std::f64::consts::TAU);
+                let (x, z) = (eye[0] + r * a.cos(), eye[2] + r * a.sin());
+                let Some(floor) = down(x, eye[1] + 30., z) else { continue };
+                let up = bfe_sim::collision::Ray { ox: x, oy: floor.py + 0.1, oz: z, dx: 0., dy: 1., dz: 0. };
+                if collision.borrow_mut().ray_hit(world, up, 200., -1).is_none() {
+                    self.splashes.push([x, over(x, z).map_or(floor.py, |level| floor.py.max(level)), z]);
+                }
+            }
+        }
         use bfe_environment::layout::weather_result as wr;
         if result[wr::CHANGED] != 0. {
             let cells = self.cover_size * self.cover_size;

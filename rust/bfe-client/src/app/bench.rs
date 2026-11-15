@@ -29,12 +29,12 @@ const GAITS: [&str; 9] = ["idle", "walk", "run", "walkBack", "runBack", "turnLef
 pub(super) fn observe_tows(receiver: &crate::online::receiver::Receiver) {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     if !*ENABLED.get_or_init(|| std::env::var_os("BFE_BENCH").is_some()) { return; }
-    let Some((id, _, _)) = receiver.own.mount else { return; };
+    let mounted = receiver.own.mount.map(|(id, _, _)| id as f64);
     for field in receiver.publications.iter()
         .filter(|field| field.row[r::KIND] == k::SUMMARY as f64 && field.row[r::SCHEMA] == 8.)
     {
         if let Ok(state) = serde_json::from_slice::<serde_json::Value>(&field.bytes[..field.length]) {
-            if state[0].as_f64() == Some(id as f64) {
+            if state[0].as_f64() == mounted || state[1].as_f64().is_some_and(|id| id > 0.) {
                 eprintln!("bench: tow tick={} generation={} state={state}", field.row[r::TICK], field.row[r::GENERATION]);
             }
         }
@@ -522,6 +522,32 @@ impl Bench {
             }
         }
         out.write_all(b"]")?;
+        // The battle's rules as the client last heard them: tickets and bleed per team, the end, the posts,
+        // post sound events played, and (while the spawn screen is open) the posts it offers.
+        if let Some(scene) = battle.scene.online.as_ref() {
+            let hud = &scene.hud;
+            let offered: Option<Vec<_>> = battle.spawn_ctrl.is_open().then(|| battle.spawn_port.posts(own.team).iter()
+                .map(|post| serde_json::json!([post.name, post.owner, post.eligible])).collect());
+            write!(out, r#","rules":{}"#, serde_json::json!({
+                "teams": [hud.teams[1], hud.teams[2]], "over": hud.over, "gameOver": hud.game_over,
+                "finished": hud.finished, "losing": hud.losing, "loser": hud.loser,
+                "countdown": hud.countdown.is_finite().then_some(hud.countdown),
+                "soundPosts": scene.sound.event_counts[audio_control::layout::event_kind::POST],
+                "posts": hud.bench_posts(), "spawnPosts": offered,
+                // The player's own record as received: per team slot the tallies and favourites.
+                "ownRecord": receiver.roster.local.and_then(|slot| receiver.roster.record(slot, hud.game_over))
+                    .map(|pair| pair.iter().map(|r| r.as_ref().map(|r| (r.tallies, r.favourites))).collect::<Vec<_>>()),
+            }))?;
+            // The end-of-match screens as the scoreboard reads them, once the scores stop.
+            if hud.game_over {
+                use bfe_battle_ui::scoreboard::ScoreboardPort;
+                let port = &battle.scoreboard_port;
+                let awards: Vec<_> = port.awards().into_iter().map(|a| serde_json::json!([a.label, a.winner_slot, a.value, a.text])).collect();
+                let personal: Vec<_> = receiver.roster.local.map(|slot| port.personal(slot)).unwrap_or_default()
+                    .into_iter().map(|p| serde_json::json!([p.label, p.value])).collect();
+                write!(out, r#","awards":{},"personal":{}"#, serde_json::Value::from(awards), serde_json::Value::from(personal))?;
+            }
+        }
         out.write_all(br#","traps":["#)?;
         if let Some(scene) = battle.scene.online.as_ref() {
             for (index, trap) in scene.animated.trap_states().enumerate() {

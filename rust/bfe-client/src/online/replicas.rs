@@ -1641,7 +1641,7 @@ impl Replicas {
             steam.frame(dt, &self.combat.map_effects.volumes, &self.combat.map_effects.wakes, screen, true, gpu, bridge);
         }
         if let Some(fountains) = &mut self.fountains {
-            fountains.frame(dt, &self.combat.map_effects.fountains, screen, gpu, bridge);
+            fountains.frame(dt, &self.combat.map_effects.fountains, &self.combat.map_effects.wakes, camera, screen, gpu, bridge);
         }
         // DroidekaTrail.update for the player's droideka (game.js keeps one
         // trail, his own; Droideka mode 12: rolling), where it is drawn.
@@ -1661,6 +1661,12 @@ impl Replicas {
         self.trails.frame(dt, &self.rollers, bridge);
         if let Some(rain) = &mut self.rain {
             rain.frame(dt, eye, gpu, bridge);
+            let group = rain.ground.as_ref().and_then(|(name, _, _)| self.combat.effect_names.iter().find(|(n, _)| n == name)).map(|(_, id)| *id);
+            for at in rain.splashes.drain(..) {
+                if let Some(group) = group {
+                    self.combat.hull_fx.once(group, at);
+                }
+            }
         }
         if let Some(snow) = &mut self.snow {
             snow.frame(dt, eye, camera, gpu, bridge);
