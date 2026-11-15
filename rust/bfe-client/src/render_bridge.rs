@@ -26,9 +26,12 @@ actor_resources: bfe_render::actor_resources::Bank,
 line_resources: bfe_render::line_resources::Lines,
 water_sources: Vec<bfe_render::water_resources::WaterSource>, water_geometry: std::collections::HashMap<(u32,u32),u32>,
 static_sources: Vec<static_world::StaticSource>, static_worlds: Vec<static_world::StaticSlot>, static_recipes: Vec<StaticRecipe>,
+/// Rigid models already built, by name and shadow cascade count: one set of
+/// GPU resources however many owners (weapons, items, debris) show a model.
+pub models: std::collections::HashMap<(String, usize), Option<crate::online::models::Model>>,
 }
 impl Bridge {
-pub fn new(gl: glow::Context, multi: Ranges) -> Self { Self { r: Renderer::new(gl,multi), hud_model: bfe_render::hud_model::HudModel::new(),actor_resources:bfe_render::actor_resources::Bank::default(), line_resources:bfe_render::line_resources::Lines::default(),water_sources:vec![],water_geometry:std::collections::HashMap::new(), static_sources:vec![],static_worlds:vec![],static_recipes:vec![] } }
+pub fn new(gl: glow::Context, multi: Ranges) -> Self { Self { r: Renderer::new(gl,multi), hud_model: bfe_render::hud_model::HudModel::new(),actor_resources:bfe_render::actor_resources::Bank::default(), line_resources:bfe_render::line_resources::Lines::default(),water_sources:vec![],water_geometry:std::collections::HashMap::new(), static_sources:vec![],static_worlds:vec![],static_recipes:vec![], models:std::collections::HashMap::new() } }
 pub fn actor_flyer(&mut self, source: u32, flags: u32, fading: bool, capacity: u32, texture: i32, slot: u32, object: u32, shadows: bool) -> Result<Option<u32>,String> { use bfe_render::actor_layout::flyer as f;
         let capacity=capacity.min(256);let at=slot as usize+17;let end=at+f::LEN+capacity as usize*20;
         if end>self.r.far.input.len(){return Ok(None);}

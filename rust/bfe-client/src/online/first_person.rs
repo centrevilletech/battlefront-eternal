@@ -44,7 +44,7 @@ pub struct Views {
 }
 impl Prepared {
     pub fn new(content: &mut BattleContent) -> Result<Self, String> {
-        let defs = Defs::build(&content.content)?;
+        let defs = content.defs()?;
         let metadata = bfe_content::json::parse_bytes(&content.textures.read("common/anims_fp.json")?).map_err(|e| e.to_string())?;
         let data = std::rc::Rc::from(bfe_content_native::geometry::floats(&content.textures.read("common/anims_fp.bin")?)?);
         let mut resources = Vec::<Resource>::new();
@@ -97,9 +97,13 @@ impl Prepared {
         }
         Ok(Self { resources, nodes })
     }
-    pub fn admit(self, content: &BattleContent, bridge: &mut Bridge, textures: &[u32], units: &mut Units) -> Result<Views, String> {
+    pub async fn admit(self, content: &BattleContent, bridge: &mut Bridge, textures: &[u32], units: &mut Units) -> Result<Views, String> {
         let mut views = Vec::new();
+        let mut budget = crate::loading_work::Budget::new();
         for resource in self.resources {
+            if budget.tick().await {
+                bridge.r.core.state.reset();
+            }
             let id = units.view(bfe_content_native::units::copy_first_person(&resource.input));
             let hand = resource.input.bones.iter().position(|b| b.name.eq_ignore_ascii_case("hp_weapons")).map_or(0, |i| i + 1);
             let mut parts = Vec::new();
@@ -112,12 +116,15 @@ impl Prepared {
             }
             views.push(View { id, hand, parts, classes: resource.classes });
         }
-        let defs = Defs::build(&content.content)?;
+        let defs = content.defs()?;
         let mut weapons = Vec::new();
         let mut banks = Vec::new();
         for (id, weapon) in defs.weapons.iter().enumerate() {
             if id >= units.weapon_input.len() / w::STRIDE {
                 break;
+            }
+            if budget.tick().await {
+                bridge.r.core.state.reset();
             }
             let def = authored_json(&weapon.record);
             let bank = def["AnimationBank"].as_str().unwrap_or("rifle");

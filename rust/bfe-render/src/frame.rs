@@ -181,17 +181,23 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
     // Capturing a full store later clips a whole packet, never a byte record.
     pub fn frame_reserve(&mut self) {
         if !self.frames.packets.is_empty() { return; }
-        self.frames.lines.resize(3*crate::frame_plan::layout::limit::LINES*crate::frame_plan::layout::line::LEN,0.);
-        for role in 0..R::COUNT {
-            let kind=role_kind(role);let mut packet=Packet::empty();packet.kind=kind;
-            let mut size=0;
-            for &channel in channels(kind) {
-                let current=self.frame_source(channel).len();
-                let capacity=if matches!(channel,Channel::FxData) && kind==K::TRANSPARENT { current.max(4<<20) } else if matches!(channel,Channel::Interface) {0}else {current};
-                packet.spans.push(Span{channel,offset:size,capacity,used:0});size+=capacity;
-            }
-            packet.data.resize(size,0);self.frames.packets.push(packet);
+        while !self.frame_reserve_role() {}
+    }
+    /// frame_reserve one role's packet at a time (a slow PC zeroes hundreds of
+    /// megabytes); true once every role has its packet.
+    pub fn frame_reserve_role(&mut self) -> bool {
+        let role=self.frames.packets.len();
+        if role>=R::COUNT { return true; }
+        if role==0 { self.frames.lines.resize(3*crate::frame_plan::layout::limit::LINES*crate::frame_plan::layout::line::LEN,0.); }
+        let kind=role_kind(role);let mut packet=Packet::empty();packet.kind=kind;
+        let mut size=0;
+        for &channel in channels(kind) {
+            let current=self.frame_source(channel).len();
+            let capacity=if matches!(channel,Channel::FxData) && kind==K::TRANSPARENT { current.max(4<<20) } else if matches!(channel,Channel::Interface) {0}else {current};
+            packet.spans.push(Span{channel,offset:size,capacity,used:0});size+=capacity;
         }
+        packet.data=vec![0;size];self.frames.packets.push(packet);
+        self.frames.packets.len()>=R::COUNT
     }
     // ShadowPass.admitNative expands its command store at cold static-source
     // admission. Retain that content-sized capacity for every cascade packet;

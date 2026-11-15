@@ -41,6 +41,7 @@ pub(crate) mod page_battle;
 mod page_pause;
 mod page_browser;
 mod page_surfaces;
+mod frame_log;
 mod frame_pacer;
 mod resize_guard;
 pub mod startup;
@@ -331,6 +332,8 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         resize_guard: Default::default(),
         started: Instant::now(),
         last_frame: Instant::now(),
+        frame_log: frame_log::FrameLog::default(),
+        frame_phase: frame_log::Phase::Other,
         pacer: frame_pacer::FramePacer::new(0.),
         display: Default::default(),
         unpaced,
@@ -436,6 +439,8 @@ struct StandaloneWindowApp {
     started: Instant,
     /// Timestamp of the previous rendered frame for computing `dt`.
     last_frame: Instant,
+    frame_log: frame_log::FrameLog,
+    frame_phase: frame_log::Phase,
     /// The frameLimit setting's deadlines, and the settings revision they
     /// were read at.
     pacer: frame_pacer::FramePacer,
@@ -1443,10 +1448,13 @@ impl ApplicationHandler for StandaloneWindowApp {
 const HIDDEN_FRAME: Duration = Duration::from_millis(100);
 
 impl StandaloneWindowApp {
-    /// Whether the loading screens are up. Their frames are slices of the
-    /// load's own work, so they are never held back for the display.
+    /// Whether a startup or hosting screen is up. Their frames are slices of
+    /// the load's own work, so they are never held back for the display. The
+    /// battle loading screen is paced like any screen: its load runs for a
+    /// time budget each frame (loading.rs), and a slow PC's other cores keep
+    /// the time the extra frames took.
     fn loading(&self) -> bool {
-        matches!(self.state, AppState::StartupLoader(_) | AppState::HostStarting { .. } | AppState::BattleLoading { .. })
+        matches!(self.state, AppState::StartupLoader(_) | AppState::HostStarting { .. })
     }
 
     /// A chance to present a frame: the window's redraw, or the loop's own
@@ -1759,6 +1767,13 @@ impl StandaloneWindowApp {
         let elapsed_dt = (now - self.last_frame).as_secs_f64();
         let dt = elapsed_dt.clamp(0.001, 0.1);
         self.last_frame = now;
+        self.frame_log.frame(now, self.frame_phase);
+        self.frame_phase = match &self.state {
+            AppState::BattleLoading { .. } => frame_log::Phase::Loading,
+            AppState::Battle(battle) if battle.spawn_ctrl.is_open() => frame_log::Phase::Spawn,
+            AppState::Battle(_) => frame_log::Phase::Play,
+            _ => frame_log::Phase::Other,
+        };
 
         // If no hardware `cpal` audio device is open, pump headless audio quantums so
         // `ShellAudioMixer` and battle `Stream` queues drain identically to hardware playback.

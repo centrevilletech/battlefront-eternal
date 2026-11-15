@@ -837,6 +837,7 @@ impl Scene {
         let sampling = &content_sampling(1.);
         let mut textures = vec![u32::MAX; content.textures.images.len()];
         let mut filtered = Vec::new();
+        let mut budget = crate::loading_work::Budget::new();
         for (i, image) in content.textures.images.iter().enumerate() {
             // Battle admission has already decoded side resources. Inspection
             // uploads only the images used by the admitted world descriptors.
@@ -854,8 +855,7 @@ impl Scene {
             resources.upload(sample)?;
             filtered.push((sample,compressed));
             textures[i] = bridge.r.core.add_texture(resources.texture(sample)?);
-            if i % 8 == 7 {
-                crate::loading_work::frame().await;
+            if budget.tick().await {
                 bridge.r.core.state.reset();
             }
         }
@@ -950,8 +950,7 @@ impl Scene {
         let mut min = [f64::INFINITY; 3];
         let mut max = [f64::NEG_INFINITY; 3];
         for (mesh_index, (mesh, layer_ids)) in content.world.iter().zip(&layer_ids).enumerate() {
-            if mesh_index % 8 == 0 {
-                crate::loading_work::frame().await;
+            if budget.tick().await {
                 bridge.r.core.state.reset();
             }
             if mesh.material.kind == MaterialKind::Sky {
@@ -1233,7 +1232,10 @@ impl Scene {
         } else {
             None
         };
-        bridge.frame_reserve_frame();
+        while !bridge.r.frame_reserve_role() {
+            crate::loading_work::frame().await;
+        }
+        crate::loading_work::frame().await;
         Ok((
             Self {
                 online,
