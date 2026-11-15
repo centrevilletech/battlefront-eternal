@@ -1707,6 +1707,7 @@ impl Scene {
                 resources.reticle_point(receiver).map(|point| crate::online::hud::Aim { point, project_x: false }));
             resources.hud.aim(&mut self.bridge, camera.snapshot(), reticle, &resources.hulls);
             resources.sound.bleed = [resources.hud.teams[1][3], resources.hud.teams[2][3]];
+            resources.sound.own_feet = resources.own_feet(receiver);
             resources.sound.frame(receiver,&world.elements,dt,replay,resources.hud.audio_facts(),&resources.hulls);
             self.bridge.r.core.profile.cpu("HUD and sound presentation", hud_timer);
         }
