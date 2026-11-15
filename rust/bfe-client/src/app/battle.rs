@@ -981,14 +981,31 @@ impl BattleController {
             bots: bfe_sim::world::admit::Bots::read(&bots.mode, &bots.difficulty, &bots.size),
         };
 
+        // The world thread admits the battle while this worker reads the
+        // scene's content for the same mission query (the query the admission
+        // reports back, checked below).
+        let query = format!("{}&spawnscreen=1", local_options.world()?.query());
         let started = std::time::Instant::now();
-        let (world, admitted) = WorldThread::admit_instant_action(&local_options)?;
-        let world_ms = started.elapsed().as_secs_f64() * 1000.;
-        let graphics = Scene::prepare_online(content_dir, &admitted.query)?;
-        eprintln!(
-            "battle loading: world admitted in {world_ms:.0} ms, scene content prepared in {:.0} ms",
-            started.elapsed().as_secs_f64() * 1000. - world_ms
-        );
+        let (admission, graphics) = std::thread::scope(|scope| {
+            let world = scope.spawn(|| {
+                let admission = WorldThread::admit_instant_action(&local_options);
+                (admission, started.elapsed())
+            });
+            let graphics = Scene::prepare_online(content_dir, &query);
+            let graphics_time = started.elapsed();
+            let (admission, world_time) = world.join().unwrap_or_else(|_| (Err("world admission stopped".into()), started.elapsed()));
+            eprintln!(
+                "battle loading: world admitted in {:.0} ms, scene content prepared alongside in {:.0} ms",
+                world_time.as_secs_f64() * 1000.,
+                graphics_time.as_secs_f64() * 1000.
+            );
+            (admission, graphics)
+        });
+        let (world, admitted) = admission?;
+        if admitted.query != query {
+            return Err(format!("world admitted {} but the scene was read for {query}", admitted.query));
+        }
+        let graphics = graphics?;
         Ok(InstantAdmission {
             request,
             playlist_index,
