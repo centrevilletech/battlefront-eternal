@@ -548,13 +548,16 @@ fn memory(battle: Option<&BattleController>) -> String {
         status.lines().find_map(|line| line.strip_prefix(key)?.trim().strip_suffix("kB")?.trim().parse::<u64>().ok())
             .unwrap_or(0)
     };
+    let (used, free, mapped) = heap();
     let mut line = format!(
-        "rss={} anon={} file={} shmem={} heap={}",
+        "rss={} anon={} file={} shmem={} heap={} heap_free={} heap_mapped={}",
         kib("VmRSS:") / 1024,
         kib("RssAnon:") / 1024,
         kib("RssFile:") / 1024,
         kib("RssShmem:") / 1024,
-        heap_bytes() >> 20
+        used >> 20,
+        free >> 20,
+        mapped >> 20
     );
     // The DRM driver's per-client counters (fdinfo); one client can sit behind several descriptors.
     let mut clients = std::collections::BTreeMap::<String, Vec<(String, u64)>>::new();
@@ -596,7 +599,7 @@ fn memory(battle: Option<&BattleController>) -> String {
 }
 
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
-fn heap_bytes() -> u64 {
+fn heap() -> (u64, u64, u64) {
     #[repr(C)]
     #[allow(dead_code)]
     struct MallInfo2 { arena: usize, ordblks: usize, smblks: usize, hblks: usize, hblkhd: usize,
@@ -604,8 +607,9 @@ fn heap_bytes() -> u64 {
     extern "C" { fn mallinfo2() -> MallInfo2; }
     // SAFETY: glibc's mallinfo2 takes no arguments and returns a plain struct by value.
     let info = unsafe { mallinfo2() };
-    (info.uordblks + info.hblkhd) as u64
+    // In use, free inside the arenas, and everything malloc holds from the system.
+    ((info.uordblks + info.hblkhd) as u64, info.fordblks as u64, (info.arena + info.hblkhd) as u64)
 }
 
 #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
-fn heap_bytes() -> u64 { 0 }
+fn heap() -> (u64, u64, u64) { (0, 0, 0) }
