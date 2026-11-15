@@ -40,6 +40,23 @@ pub fn seed() -> Option<u32> {
     value("seed")?.parse().ok()
 }
 
+/// A fixed drawn view for map comparisons; simulation and player input stay live.
+/// `view=FILE` in BFE_BENCH reads the reference camera's numeric matrices.
+pub(super) fn apply_view(view: &mut crate::scene::View) {
+    static PATH: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    let Some(path) = PATH.get_or_init(|| value("view")) else { return };
+    #[derive(serde::Deserialize)]
+    struct Shot { projection: [f64; 16], inverse: [f64; 16], position: [f64; 3] }
+    let Some(shot) = std::fs::read(path).ok()
+        .and_then(|bytes| serde_json::from_slice::<Shot>(&bytes).ok()) else { return };
+    if !shot.projection.iter().chain(&shot.inverse).chain(&shot.position).all(|v| v.is_finite()) { return; }
+    view.values[..16].copy_from_slice(&shot.projection);
+    view.values[16..32].copy_from_slice(&shot.inverse);
+    let at = bfe_render::shader::FRAME_OFFSETS[bfe_render::shader::FRAME_MEMBERS.iter()
+        .position(|(name, _)| *name == "cameraPosition").unwrap()];
+    view.values[at..at + 3].copy_from_slice(&shot.position);
+}
+
 pub struct Bench {
     map: String,
     era: Option<String>,

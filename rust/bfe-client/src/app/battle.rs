@@ -2091,6 +2091,7 @@ impl BattleController {
         let pause_groups=self.scene.bridge.r.hud.input[render_hud::IN_GROUPS];
         if self.pause_menu.is_open||page_spawn||page_score {self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=0.;}
         if page_spawn {self.page_battle.direct(&mut view);}
+        super::bench::apply_view(&mut view);
         self.scene.draw(&view)?;
         if page_spawn || page_score {
             if page_spawn {
