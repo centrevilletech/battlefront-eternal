@@ -70,6 +70,18 @@ struct Class {
     sound: usize,
 }
 
+/// The explosion a class dies in, by its class name (the definitions
+/// resolve ExplosionName into the class's explosion record).
+pub fn explosion_of(record: &Value) -> Option<&str> {
+    record.get("explosion").and_then(|e| e.get("class")).and_then(Value::as_str).or_else(|| record.get("ExplosionName").and_then(Value::as_str))
+}
+
+/// The combat definitions (one-based) that are the explosion `name`: the
+/// registry names each by where it sits, so match its own class.
+pub fn explosion_ids<'a>(defs: &'a bfe_content::defs::Defs, name: &'a str) -> impl Iterator<Item = usize> + 'a {
+    defs.registry.combat.iter().enumerate().filter(move |(_, (_, def))| def.get("class").and_then(Value::as_str) == Some(name)).map(|(i, _)| i + 1)
+}
+
 /// A piece's shape, registered once with the phase, and its heated model.
 fn register(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], cascades: usize, phase: &mut Phase, names: &mut Vec<String>, models: &mut Vec<Model>, name: &str) -> Result<Option<usize>, String> {
     if let Some(h) = names.iter().position(|n| n == name) {
@@ -229,13 +241,8 @@ impl Destructions {
                         register(content, bridge, textures, cascades, &mut phase, &mut names, &mut models, name)?;
                     }
                 }
-                let sound = class
-                    .record
-                    .get("ExplosionName")
-                    .and_then(Value::as_str)
-                    .and_then(|name| defs.registry.combat.iter().position(|(n, _)| n == name))
-                    .map_or(0, |i| i + 1);
-                classes[id as usize] = Some(Class { chunks, explosion: class.record.get("explosion").is_some(), sound });
+                let sound = explosion_of(&class.record).and_then(|name| explosion_ids(&defs, name).next()).unwrap_or(0);
+                classes[id as usize] = Some(Class { chunks, explosion: sound > 0, sound });
             }
         }
         let shadows = cascades > 0;

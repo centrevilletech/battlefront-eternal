@@ -234,6 +234,8 @@ pub struct Sound {
     own_weapons: [u32; 2],
     pub batches: u64,
     pub events: u64,
+    // With the bench's fx key, a line for each explosion heard.
+    trace_explosions: bool,
     pub refused: u64,
     last_clock: u64,
     music: Vec<[f64; music_slot::STRIDE]>,
@@ -277,6 +279,7 @@ impl Sound {
             own_weapons: [0; 2],
             batches: 0,
             events: 0,
+            trace_explosions: crate::app::bench::fx().is_some(),
             refused: 0,
             last_clock: 0,
             music: prepared.music,
@@ -318,13 +321,20 @@ impl Sound {
     /// GameAudio.explosion: an explosion's SoundProperty at its point, by
     /// its combat definition (one-based).
     pub fn explosion(&mut self, definition: usize, position: [f64; 3]) {
-        let Some(&class) = self.combat_classes.get(definition).filter(|&&c| c != usize::MAX && definition != 0) else { return };
+        let class = self.combat_classes.get(definition).copied().filter(|&c| c != usize::MAX && definition != 0);
+        if self.trace_explosions && class.is_none() {
+            eprintln!("fx-sound explosion definition={definition} has no sound class");
+        }
+        let Some(class) = class else { return };
         if self.pending_effects.len() == self.pending_effects.capacity() {
             self.pending_effects.remove(0);
             self.refused += 1;
         }
         self.pending_effects.push(super::sound_events::placed(event_kind::EXPLOSION, class, position));
         self.events += 1;
+        if self.trace_explosions {
+            eprintln!("fx-sound explosion definition={definition} class={class} at={position:.1?}");
+        }
     }
 
     fn ui_event(&mut self, kind: usize, name: &str, value: f64, seconds: f64) {

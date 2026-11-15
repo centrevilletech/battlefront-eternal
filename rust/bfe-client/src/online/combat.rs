@@ -433,8 +433,8 @@ impl Combat {
             .classes
             .iter()
             .filter(|c| c.record.get("chunks").and_then(bfe_content::Value::as_array).is_some_and(|l| !l.is_empty()))
-            .filter_map(|c| c.record.get("ExplosionName").and_then(bfe_content::Value::as_str))
-            .filter_map(|name| defs.registry.combat.iter().position(|(n, _)| n == name).map(|i| i + 1))
+            .filter_map(|c| super::destruction::explosion_of(&c.record))
+            .flat_map(|name| super::destruction::explosion_ids(&defs, name).collect::<Vec<_>>())
             .collect();
         // environment-effects.js warmup: each group's longest particle life,
         // at most 4 s.
