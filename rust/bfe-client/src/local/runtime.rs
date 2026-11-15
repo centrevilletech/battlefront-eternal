@@ -47,6 +47,7 @@ pub struct Input<'a> {
     pub epoch: f64,
     pub generation: f64,
     pub view_tick: Option<f64>,
+    pub fire_aim: Option<[f64;2]>,
     pub flight_mode: bool,
 }
 
@@ -330,8 +331,9 @@ impl<E: Engine> Runtime<E> {
             at_ms: self.now_ms,
             epoch: self.receiver.epoch,
             generation: self.receiver.own.generation,
-            view_tick: Some(self.receiver.clock.shown),
-            flight_mode: self.receiver.own.body_schema == 7,
+            view_tick: Some(bfe_client::online::clock::rendered_tick(self.receiver.clock.shown, self.receiver.latest)),
+            fire_aim: None,
+            flight_mode: self.receiver.in_aircraft(),
         })?;
         let output = self.engine.step(input)?;
         if let Err(error) = self.clock.complete(&output) {
@@ -353,6 +355,7 @@ impl<E: Engine> Runtime<E> {
         // The target sample the screen showed when this command was made.
         // The world's own receiver never advances a display clock.
         view_tick: f64,
+        fire_aim: Option<[f64; 2]>,
     ) -> Result<(), String> {
         if self.closed {
             return Err("local battle is closed".into());
@@ -368,7 +371,8 @@ impl<E: Engine> Runtime<E> {
             epoch: self.receiver.epoch,
             generation: self.receiver.own.generation,
             view_tick: Some(view_tick),
-            flight_mode: self.receiver.own.body_schema == 7,
+            fire_aim,
+            flight_mode: self.receiver.in_aircraft(),
         })
     }
 

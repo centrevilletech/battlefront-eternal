@@ -648,6 +648,15 @@ impl World for JsWorld<'_, '_> {
     fn explosion(&mut self, def: &Field, position: Vec3, owner: OrdnanceOwner) {
         if crate::units::f3::active_in(&self.w.units) {
             let Field::Explosion(def) = def else { panic!("prepared native explosion") };
+            if super::trace::enabled() {
+                let player=crate::units::f3_sensors::shooter_in(self.w,owner,0.).unit;
+                if self.w.sim.store.unit.reference(player as u32).and_then(|r|self.w.sim.store.unit.get(r))
+                    .is_some_and(|u|u.network_human==Some(true)) {
+                    let packet=crate::units::f3::blast_packet_in(self.w,*def);
+                    eprintln!("[combat-blast] {}",serde_json::json!({"player":player,"position":position,
+                        "damage":packet.hit.damage,"inner":packet.inner,"outer":packet.outer}));
+                }
+            }
             crate::combat::live::blast_in(self.w, *def,position,owner,self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
             return;
         }
@@ -693,7 +702,18 @@ impl World for JsWorld<'_, '_> {
 
     fn projectile(&mut self, shot: Shot, kind: ShotKind) {
         if crate::units::f3::active_in(&self.w.units) {
-            self.notice(F3OrdnanceEvent::Projectile,shot).emit(&mut self.w.sim.events);
+            let notice=self.notice(F3OrdnanceEvent::Projectile,shot);
+            if super::trace::enabled() && self.w.sim.store.unit.reference(notice.owner_id as u32)
+                .and_then(|r|self.w.sim.store.unit.get(r)).is_some_and(|u|u.network_human==Some(true)) {
+                let direction=match shot {
+                    Shot::Round(r)=>super::math::normalize(self.store().round.get(r).unwrap().velocity),
+                    Shot::Grenade(r)=>super::math::normalize(self.store().grenade.get(r).unwrap().velocity),
+                    _=>notice.direction,
+                };
+                let rewind=match shot {Shot::Beam(r)=>self.store().beam.get(r).unwrap().history_tick,_=>None};
+                super::trace::begin(&notice,direction,rewind);
+            }
+            notice.emit(&mut self.w.sim.events);
             return;
         }
         let (code, _) = shot_layout(shot);
@@ -704,7 +724,13 @@ impl World for JsWorld<'_, '_> {
     fn launch(&mut self, bolt: Ref<Bolt>, tick: Nullable<f64>) {
         if crate::units::f3::active_in(&self.w.units) {
             let mut notice = self.notice(F3OrdnanceEvent::Launch,Shot::Bolt(bolt));
-            notice.tick = tick; notice.emit(&mut self.w.sim.events);
+            notice.tick = tick;
+            if super::trace::enabled() && self.w.sim.store.unit.reference(notice.owner_id as u32)
+                .and_then(|r|self.w.sim.store.unit.get(r)).is_some_and(|u|u.network_human==Some(true)) {
+                let rewind=match tick {Nullable::Value(v)=>Some(v),_=>None};
+                super::trace::begin(&notice,notice.direction,rewind);
+            }
+            notice.emit(&mut self.w.sim.events);
             return;
         }
         let args = LaunchArgs { kind: KIND_BOLT as u32, tick };
@@ -728,6 +754,7 @@ impl World for JsWorld<'_, '_> {
                     notice.point = impact.point; notice.normal = impact.normal; notice.surface = *surface;
                 }
             }
+            if super::trace::enabled() {super::trace::end(&notice,if notice.has_struck {Some(&notice.struck)}else{None});}
             notice.emit(&mut self.w.sim.events);
             return;
         }

@@ -22,6 +22,8 @@ use bfe_presentation::sniper_layout::{sniper_flare as flare, sniper_limits as sn
 use serde::Deserialize;
 use three::{Matrix4, Quaternion, Vector3};
 const BOLTS: usize = 4095;
+// m over which a bolt drawn from the muzzle joins its path (ordnance.js).
+const MERGE: f64 = 8.;
 #[derive(Clone, Copy, Default)]
 // NetworkCombatViews retains a visual life separately from a trigger edge.
 // Automatic fire, pellets and a terminal all have their own wire identity.
@@ -46,7 +48,48 @@ struct Bolt {
     started: bool,
     terminal: bool,
     impact: Option<(Option<usize>, [f64; 3])>,
+    // Who fired it and with which class of round (the wire's ids), for the
+    // gun it is drawn from; `aimed` once that gun has been looked up.
+    owner: (u32, u32),
+    definition: usize,
+    aimed: bool,
+    // The player's own round already drawn from his trigger press: its
+    // cosmetic's key. The world's copy is never drawn a second time.
+    predicted: Option<u32>,
 }
+// PredictedShots: the player's own bolt, drawn from the tick his weapon
+// fires in the client's replay until the world's copy would have ended. It
+// flies the world's path (same origin, aim, spread and first surface) on the
+// frame clock; the world's round carries the hit and its impact.
+#[derive(Clone, Copy)]
+struct Cosmetic {
+    key: u32,
+    style: usize,
+    definition: usize,
+    tick: f64,
+    channel: u32,
+    origin: [f64; 3],
+    direction: [f64; 3],
+    offset: [f64; 3],
+    speed: f64,
+    life: f64,
+    born: f64,
+    until: f64,
+    aimed: bool,
+    claimed: bool,
+}
+// What a weapon's bolt needs to be drawn ahead of the world: its round's
+// wire class and style, speed, life and FadeOutTime, and its ShotElevate.
+#[derive(Clone, Copy)]
+struct Barrel {
+    definition: usize,
+    style: usize,
+    speed: f64,
+    span: f64,
+    fade: f64,
+    elevate: f64,
+}
+const COSMETICS: usize = 32;
 struct Style {
     model: Option<Model>,
     impact: [Option<usize>; 6],
@@ -97,6 +140,15 @@ pub struct Combat {
     frame: u64,
     epoch: f64,
     tick: f64,
+    // Network commands written for the owner since its last presentation.
+    net_count: usize,
+    cosmetics: Vec<Cosmetic>,
+    // By weapon (its place in the battle's weapon list).
+    barrels: Vec<Option<Barrel>>,
+    // BFE_HUD_TRACE: every round's records and the player's own bolts as
+    // drawn, on stderr.
+    trace: bool,
+    names: Vec<String>,
     pub visible: usize,
     pub refused: u64,
     pub effect_names: Vec<(String, usize)>,
@@ -163,6 +215,10 @@ const FLARE_FLOATS: usize = sn::FLARES * flare::STRIDE;
 // The Enhanced capsules' floats: head, tail, colour and size for each, then
 // the batch's one value (the pixel angle).
 const BLASTER_FLOATS: usize = limits::BLASTERS * 14 + 1;
+// Unix milliseconds, for the trace: when a record came in, when a bolt was drawn.
+fn wall() -> f64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0., |t| t.as_secs_f64() * 1000.)
+}
 fn number(v: &bfe_content::Value, key: &str) -> f64 {
     v.get(key).and_then(bfe_content::Value::as_f64).unwrap_or(0.)
 }
@@ -181,6 +237,7 @@ impl Combat {
         collision: super::replay::Collision,
         world: u32,
     ) -> Result<Self, String> {
+        let shadow_cascades = bridge.shadow_cascades();
         let defs = bfe_content::defs::Defs::build(&content.content)?;
         let library = content.effects.iter().find(|(name, _)| name == "battle").map(|(_, e)| e).ok_or("missing battle effect library")?;
         let effect_names = library.handles.clone();
@@ -262,13 +319,8 @@ impl Combat {
             for at in [s::LOOK_GLOW, s::LOOK_CORE, s::LOOK_LENGTH, s::LOOK_BRIGHTNESS, s::LOOK_LIGHT_RADIUS] {
                 row[at] = look[at];
             }
-            let hue = style::resources(&authored, 0, true)["hue"].as_str().and_then(|name| prepared.textures.get(name)).map(|image| {
-                let image = &content.textures.images[*image];
-                let texels = (image.width as usize * image.height as usize * 4).min(image.data.len());
-                // Only plain RGBA images can be read here; a compressed one
-                // keeps the authored colour.
-                if matches!(image.format, bfe_render::texture_format::Format::Rgba) { style::texture_hue(&image.data[..texels]) } else { Vec::new() }
-            });
+            let hue=style::resources(&authored,0,true)["hue"].as_str().and_then(|name|prepared.textures.get(name))
+                .and_then(|image|content.textures.cpu_pixels(*image).ok()).map(|pixels|style::texture_hue(&pixels));
             if let Some(hue) = hue.filter(|hue| !hue.is_empty()) {
                 row[s::LOOK_COLOR..s::LOOK_COLOR + 3].copy_from_slice(&style::vivid(&hue, 1.6));
             }
@@ -281,7 +333,9 @@ impl Combat {
                 def.get("ImpactEffectSoft").and_then(bfe_content::Value::as_str).or(static_hit),
                 def.get("ImpactEffectRigid").and_then(bfe_content::Value::as_str).or(static_hit),
                 Some(def.get("ImpactEffectWater").and_then(bfe_content::Value::as_str).unwrap_or("watersplash_ord")),
-                static_hit,
+                // Surface 5: the round ran out in the air and struck nothing
+                // (CombatPresentation.receive shows no impact for it).
+                None,
             ]
             .map(|name| name.and_then(effect));
             let explosion = [
@@ -298,8 +352,30 @@ impl Combat {
                 let color = std::array::from_fn(|i| rgb.and_then(|c| c.get(i)).and_then(bfe_content::Value::as_f64).unwrap_or([120., 160., 255.][i]));
                 (color, number(def, "Velocity") * number(def, "LifeSpan"))
             });
-            styles.push(Style { model: Model::new(content, bridge, textures, name, crate::shadows::COUNT)?, impact, explosion, trail, rail });
+            styles.push(Style { model: Model::new(content, bridge, textures, name, shadow_cascades)?, impact, explosion, trail, rail });
         }
+        // PredictedShots.fire: only a bolt flies straight enough to draw
+        // ahead of the world.
+        let barrels = defs
+            .weapons
+            .iter()
+            .map(|weapon| {
+                let round = weapon.record.get("ordnance")?;
+                if round.get("base").and_then(bfe_content::Value::as_str) != Some("bolt") {
+                    return None;
+                }
+                let definition = defs.combat_id(round)? as usize;
+                let or = |n: f64, default: f64| if n != 0. && !n.is_nan() { n } else { default };
+                Some(Barrel {
+                    definition,
+                    style: definitions.get(definition).copied().flatten()?,
+                    speed: or(number(round, "Velocity"), 100.).clamp(1., 2000.),
+                    span: or(number(round, "LifeSpan"), 1.).min(1.),
+                    fade: number(round, "FadeOutTime"),
+                    elevate: number(&weapon.record, "ShotElevate"),
+                })
+            })
+            .collect();
         let effects = bfe_presentation::Presentation::new(
             serde_json::from_value(library.descriptor.clone()).map_err(|e| e.to_string())?,
             bfe_presentation::Limits { effects: 1024, emitters: 4096, particles: 16384, commands: 2048, events: 32768 },
@@ -307,13 +383,13 @@ impl Combat {
         let mut particles = prepared.admit(content, bridge, textures, resources)?;
         // BlasterBatch: one instanced draw of every Enhanced bolt, after the
         // particles' own data.
-        let blasters = bridge.effect_batch(bfe_render::effect_layout::BLASTER as u32, 0, crate::shadows::COUNT > 0, -1, limits::BLASTERS as u32, -1, &[])?;
+        let blasters = bridge.effect_batch(bfe_render::effect_layout::BLASTER as u32, 0, shadow_cascades > 0, -1, limits::BLASTERS as u32, -1, &[])?;
         let blasters_at = particles.words;
         particles.words += BLASTER_FLOATS;
         // SniperTrace's two instanced draws: capsules (bolts, tracer lines,
         // vapour, sparks), then flares.
-        let streaks = bridge.effect_batch(bfe_render::effect_layout::SNIPER_STREAKS as u32, 0, crate::shadows::COUNT > 0, -1, sn::STREAKS as u32, -1, &[])?;
-        let flares = bridge.effect_batch(bfe_render::effect_layout::SNIPER_FLARES as u32, 0, crate::shadows::COUNT > 0, -1, sn::FLARES as u32, -1, &[])?;
+        let streaks = bridge.effect_batch(bfe_render::effect_layout::SNIPER_STREAKS as u32, 0, shadow_cascades > 0, -1, sn::STREAKS as u32, -1, &[])?;
+        let flares = bridge.effect_batch(bfe_render::effect_layout::SNIPER_FLARES as u32, 0, shadow_cascades > 0, -1, sn::FLARES as u32, -1, &[])?;
         let streaks_at = particles.words;
         particles.words += STREAK_FLOATS + FLARE_FLOATS;
         bridge.fx_reserve(particles.words as u32);
@@ -353,6 +429,11 @@ impl Combat {
             frame: 0,
             epoch: 0.,
             tick: 0.,
+            net_count: 0,
+            cosmetics: Vec::with_capacity(COSMETICS),
+            barrels,
+            trace: std::env::var_os("BFE_HUD_TRACE").is_some(),
+            names: std::iter::once(String::new()).chain(defs.registry.combat.iter().map(|(name, _)| name.clone())).collect(),
             visible: 0,
             refused: 0,
             effect_names,
@@ -413,6 +494,99 @@ impl Combat {
             self.flames.push(Flame { unit, group, position, velocity, turn, handle: None, seen: true });
         }
     }
+    /// PredictedShots.fire for a round the client's replay just fired:
+    /// `weapon` (its place in the battle's weapon list) on trigger `channel`
+    /// at `tick`, from the gun origin along the aim, turned by the press's
+    /// spread. `cast` gives the distance to the first surface on a ray. A
+    /// weapon that fires no bolt draws nothing ahead of the world.
+    pub fn predict(
+        &mut self,
+        weapon: usize,
+        tick: f64,
+        channel: u32,
+        origin: [f64; 3],
+        aim: [f64; 3],
+        spread: [f64; 2],
+        cast: &mut dyn FnMut([f64; 3], [f64; 3], f64) -> Option<f64>,
+    ) {
+        let Some(barrel) = self.barrels.get(weapon).copied().flatten() else {
+            return;
+        };
+        if self.cosmetics.len() == COSMETICS {
+            return;
+        }
+        // The spread: a turn about the vertical, then a tip about the
+        // horizontal; then the weapon's ShotElevate.
+        let mut direction = Vector3::new(aim[0], aim[1], aim[2]);
+        let mut turn = Quaternion::default();
+        turn.set_from_axis_angle(&Vector3::new(0., 1., 0.), spread[0]);
+        direction.apply_quaternion(&turn);
+        let mut side = Vector3::new(direction.z, 0., -direction.x);
+        side.normalize();
+        turn.set_from_axis_angle(&side, -spread[1]);
+        direction.apply_quaternion(&turn);
+        direction.y += barrel.elevate;
+        direction.normalize();
+        let direction = [direction.x, direction.y, direction.z];
+        if direction.iter().any(|n| !n.is_finite()) {
+            return;
+        }
+        // As far as the world's round would fly: to the first surface, or
+        // its life (at most a second: the world answers well within it).
+        let reach = cast(origin, direction, barrel.speed * barrel.span).unwrap_or(f64::INFINITY);
+        let life = barrel.span.min(reach / barrel.speed);
+        self.serial = self.serial.wrapping_add(1).max(1);
+        // Drawn first later in this frame, about half a tick after it fired.
+        let born = self.clock - 1. / 120.;
+        self.cosmetics.push(Cosmetic {
+            key: self.serial,
+            style: barrel.style,
+            definition: barrel.definition,
+            tick,
+            channel,
+            origin,
+            direction,
+            offset: [0.; 3],
+            speed: barrel.speed,
+            life,
+            born,
+            until: born + (life + barrel.fade).max(1.),
+            aimed: false,
+            claimed: false,
+        });
+        if self.trace {
+            eprintln!(
+                "ord: predict key={} def={} tick={tick} wall={:.1} speed={} life={life:.4} at={origin:.3?} dir={direction:.4?}",
+                self.serial,
+                self.names[barrel.definition],
+                wall(),
+                barrel.speed
+            );
+        }
+    }
+    /// PlayerCombat.presentCharge's glow: a weapon's ChargeUpEffect at its
+    /// fire point, turned as the gun is, its colour and alpha scaled by the
+    /// charge. `handle` is the one this gave last frame for the same gun
+    /// (None starts it); call before `draw`.
+    pub fn glow(&mut self, handle: Option<u32>, group: usize, position: [f64; 3], turn: [f64; 4], tint: f64) -> Option<u32> {
+        let handle = match handle {
+            Some(handle) => {
+                self.effects.sync(handle, position, Some(turn), None);
+                Some(handle)
+            }
+            None => self.effects.start_turned(group, position, [0.; 3], turn, 0),
+        };
+        if let Some(handle) = handle {
+            self.effects.tint(handle, tint);
+            // The tint rides on the effect's next command.
+            self.effects.sync(handle, position, Some(turn), None);
+        }
+        handle
+    }
+    /// `glow.kill()`: the charge is over, or the gun is no longer drawn.
+    pub fn end_glow(&mut self, handle: u32) {
+        self.effects.kill(handle);
+    }
     // An effect another owner asks for between two frames (a droid's death
     // blast). It joins the next frame's spawn batch, as any deferred impact.
     pub fn present_effect(&mut self, group: Option<usize>, position: [f64; 3], seed: u32) {
@@ -436,8 +610,12 @@ impl Combat {
         let at = self.pending.partition_point(|kept| kept.2 <= id);
         self.pending.insert(at, (group, position, id, tick, rail));
     }
-    pub fn frame(&mut self, receiver: &Receiver, tick: f64, dt: f64, lights: &mut super::lights::SceneLights, bridge: &mut Bridge) {
+    /// The frame's records: rounds, impacts and explosions are taken in and
+    /// the effects that fall due are started. Nothing is drawn here: `draw`
+    /// follows once the frame's bodies are posed.
+    pub fn frame(&mut self, receiver: &Receiver, tick: f64, dt: f64) {
         use bfe_presentation::layout::frame as ef;
+        let own = (receiver.own.id as u32, receiver.own.generation as u32);
         self.frame += 1;
         self.tick = tick;
         self.visible = 0;
@@ -480,6 +658,7 @@ impl Combat {
         if self.epoch != receiver.epoch {
             self.epoch = receiver.epoch;
             self.pending.clear();
+            self.cosmetics.clear();
             self.flames.clear();
             self.map_effects.reset(&mut self.effects);
             self.hull_fx.clear(&mut self.effects);
@@ -536,6 +715,34 @@ impl Combat {
                         let group = style.and_then(|s| self.styles[s].impact.get(source.surface as usize).copied().flatten());
                         let position = source.view.position.unwrap_or_default();
                         let rail = style.is_some_and(|s| self.styles[s].rail.is_some());
+                        // ProjectilePresentation.end: a rocket, shell or
+                        // grenade that struck something is gone when the
+                        // clock reaches this record's tick, its last stretch
+                        // flown into the point it names. Without this it
+                        // flew on past what it hit for the life it had left.
+                        let flying = self.net_bound.get(&key).copied();
+                        if let Some(net) = flying {
+                            if net_count == limits::NET_COMMANDS {
+                                self.ordnance.net_flush(net_count);
+                                net_count = 0;
+                            }
+                            let x = &mut self.ordnance.net_input[net_count * n::STRIDE..][..n::STRIDE];
+                            x.fill(0.);
+                            x[n::KIND] = nk::END as f64;
+                            x[n::SLOT] = net as f64;
+                            x[n::GENERATION] = generation as f64;
+                            x[n::SCHEMA] = 2.;
+                            x[n::TICK] = stamp;
+                            x[n::POSITION..n::POSITION + 3].copy_from_slice(&position);
+                            net_count += 1;
+                        }
+                        if self.trace {
+                            eprintln!(
+                                "ord: end id={id} tick={stamp} shown={tick:.3} surface={} at={position:.3?} {}",
+                                source.surface,
+                                if flying.is_some() { "projectile" } else { "unbound" }
+                            );
+                        }
                         self.defer(group, position, id, stamp, rail);
                         continue;
                     }
@@ -551,6 +758,24 @@ impl Combat {
                     continue;
                 }
                 if schema == 1 {
+                    let owner = (u32::from_le_bytes(bytes[8..12].try_into().unwrap()), source.owner_generation as u32);
+                    // The player's own round, predicted from the trigger
+                    // press, flies as its cosmetic drew it: the one of this
+                    // trigger and class of round fired nearest its tick.
+                    let fired = source.execution_tick;
+                    let predicted = (owner == own)
+                        .then(|| {
+                            self.cosmetics
+                                .iter_mut()
+                                .filter(|c| !c.claimed && c.channel == source.channel as u32 && c.definition == source.definition as usize)
+                                .filter(|c| (c.tick - fired).abs() <= 30.)
+                                .min_by(|a, b| (a.tick - fired).abs().total_cmp(&(b.tick - fired).abs()))
+                        })
+                        .flatten()
+                        .map(|cosmetic| {
+                            cosmetic.claimed = true;
+                            cosmetic.key
+                        });
                     self.serial = self.serial.wrapping_add(1).max(1);
                     self.bolts[slot] = Bolt {
                         key: self.serial,
@@ -568,10 +793,31 @@ impl Combat {
                         merge: source.merge,
                         flight: source.launch_tick,
                         execution: source.execution_tick,
+                        owner,
+                        definition: source.definition as usize,
+                        predicted,
                         ..Default::default()
                     };
+                    if self.trace {
+                        let b = &self.bolts[slot];
+                        eprintln!(
+                            "ord: launch id={id} def={} owner={} tick={stamp} flight={:.3} shown={tick:.3} wall={:.1} speed={} life={:.4} at={:.3?} dir={:.4?}{}",
+                            self.names[b.definition],
+                            b.owner.0,
+                            b.flight,
+                            wall(),
+                            b.speed,
+                            b.life,
+                            b.position,
+                            b.direction,
+                            b.predicted.map_or(String::new(), |key| format!(" predicted={key}"))
+                        );
+                    }
                 } else {
                     let point = source.view.position.unwrap_or_default();
+                    if self.trace {
+                        eprintln!("ord: end id={id} tick={stamp} shown={tick:.3} surface={} at={point:.3?}", source.surface);
+                    }
                     let bolt = &mut self.bolts[slot];
                     if bolt.speed > 0. {
                         let distance = (0..3).map(|i| (point[i] - bolt.position[i]) * bolt.direction[i]).sum::<f64>().max(0.);
@@ -581,7 +827,19 @@ impl Combat {
                     bolt.tick = stamp;
                     bolt.expiry = source.expiry_tick;
                     let group = self.styles[style].impact.get(source.surface as usize).copied().flatten();
-                    self.bolts[slot].impact = Some((group, point));
+                    if let Some(key) = bolt.predicted {
+                        // Its cosmetic has flown already: the impact shows
+                        // now. A class drawn on where it stops (the sniper
+                        // rifles) has its streak cut there (PredictedShots.stop).
+                        let rail = self.styles[style].rail.is_some();
+                        if let Some(cosmetic) = self.cosmetics.iter_mut().find(|c| c.key == key && rail) {
+                            let along = (0..3).map(|i| (point[i] - cosmetic.origin[i]) * cosmetic.direction[i]).sum::<f64>().max(0.);
+                            cosmetic.life = cosmetic.life.min(along / cosmetic.speed);
+                        }
+                        self.defer(group, point, id, stamp.min(tick), rail);
+                    } else {
+                        self.bolts[slot].impact = Some((group, point));
+                    }
                 }
             } else if schema == 5 && bytes.len() == 33 {
                 let definition = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
@@ -591,7 +849,14 @@ impl Combat {
                     .copied()
                     .flatten()
                     .and_then(|style| self.styles[style].explosion.get(bytes[32] as usize).copied().flatten());
-                let position = std::array::from_fn(|i| f64::from_le_bytes(bytes[8 + i * 8..16 + i * 8].try_into().unwrap()));
+                let position: [f64; 3] = std::array::from_fn(|i| f64::from_le_bytes(bytes[8 + i * 8..16 + i * 8].try_into().unwrap()));
+                if self.trace {
+                    eprintln!(
+                        "ord: blast id={id} def={} tick={stamp} shown={tick:.3} wet={} at={position:.3?}",
+                        self.names.get(definition).map_or("", String::as_str),
+                        bytes[32]
+                    );
+                }
                 self.defer(group, position, id, stamp, false);
             } else if schema == 6 || schema == 7 {
                 let valid = if schema == 6 { bytes.len() == 82 } else { bytes.len() == 4 };
@@ -638,6 +903,9 @@ impl Combat {
                 x[n::TICK] = stamp;
                 self.net[slot].expiry = u32::from_le_bytes(bytes[..4].try_into().unwrap()) as f64;
                 x[n::EXPIRY_TICK] = self.net[slot].expiry;
+                if self.trace && schema == 7 {
+                    eprintln!("ord: gone id={id} tick={stamp} shown={tick:.3}");
+                }
                 if schema == 6 {
                     let style = style.unwrap();
                     self.net[slot].style = style;
@@ -653,6 +921,19 @@ impl Combat {
                         x[n::QUATERNION + i] = scalar(49 + i * 4);
                     }
                     x[n::LIFE] = scalar(77);
+                    if self.trace {
+                        let definition = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
+                        eprintln!(
+                            "ord: sample id={id} def={} type={} owner={} tick={stamp} shown={tick:.3} life={:.3} at={:.3?} vel={:.3?}{}",
+                            self.names.get(definition).map_or("", String::as_str),
+                            bytes[8],
+                            u32::from_le_bytes(bytes[9..13].try_into().unwrap()),
+                            x[n::LIFE],
+                            &x[n::POSITION..n::POSITION + 3],
+                            &x[n::VELOCITY..n::VELOCITY + 3],
+                            if fresh { " new" } else { "" }
+                        );
+                    }
                     // ProjectilePresentation.receive: a round or grenade new
                     // to this client starts its TrailEffect where its first
                     // sample puts it, moving and turned as it is. The owner
@@ -703,11 +984,10 @@ impl Combat {
                 }
             }
         }
-        let mut count = 0;
         // NetworkCombatViews.present resolves a late launch at its first draw,
-        // bounded by the launch presentation interval. Thereafter Ordnance
-        // sees its retained clock and draws the whole bolt batch once.
-        // Frame frequency cannot advance a second projectile flight clock.
+        // bounded by the launch presentation interval. Thereafter the bolt
+        // flies on the displayed clock from that tick: frame frequency
+        // cannot advance a second projectile flight clock.
         for (slot, bolt) in self.bolts.iter_mut().enumerate() {
             if !bolt.active {
                 continue;
@@ -724,28 +1004,6 @@ impl Combat {
                     bolt.flight = tick.min(bolt.flight.max(bolt.execution) + 24.);
                 }
             }
-            let x = &mut self.ordnance.input[f::STRIDE + count * r::STRIDE..][..r::STRIDE];
-            x.fill(0.);
-            x[r::KIND] = kind::BOLT as f64;
-            x[r::KEY] = bolt.key as f64;
-            x[r::STYLE] = bolt.style as f64;
-            x[r::SOURCE] = slot as f64;
-            // linearBoltFrame: a replicated bolt flies from its flight tick
-            // at its speed for its life, on the displayed clock. Without
-            // LINEAR the owner reads it as a stepped bolt that has flown
-            // nothing, and draws it at the muzzle until its record expires.
-            x[r::FLAGS] = ((1 << flag::LINEAR) | (1 << flag::HAS_CLOCK) | (1 << flag::HAS_OFFSET) | (1 << flag::RESOLVE_SHOWN)) as f64;
-            x[r::ALPHA] = 1.;
-            x[r::CLOCK_TICK] = tick;
-            x[r::FADE] = 1.;
-            x[r::SPEED] = bolt.speed;
-            x[r::LIFE] = bolt.life;
-            x[r::MERGE] = bolt.merge;
-            x[r::FLIGHT_TICK] = bolt.flight;
-            x[r::POSITION..r::POSITION + 3].copy_from_slice(&bolt.position);
-            x[r::DIRECTION..r::DIRECTION + 3].copy_from_slice(&bolt.direction);
-            x[r::OFFSET..r::OFFSET + 3].copy_from_slice(&bolt.offset);
-            count += 1;
         }
         // NetworkCombatViews.settle ties an impact to the visible flight,
         // not packet receipt. A lost launch retains the terminal's own tick.
@@ -768,6 +1026,9 @@ impl Combat {
             if tick >= due {
                 self.pending.remove(pending);
                 if tick - due <= 18. {
+                    if self.trace && group.is_some() {
+                        eprintln!("ord: effect id={id} due={due:.3} shown={tick:.3} wall={:.1} at={position:.3?}", wall());
+                    }
                     // NetworkCombatViews.impact: an Enhanced sniper round's
                     // impact waits for its drawn tracer to arrive
                     // (Ordnance.deferSniperImpact); the trace plays it.
@@ -781,7 +1042,108 @@ impl Combat {
                 pending += 1;
             }
         }
-
+        self.net_count = net_count;
+    }
+    /// The frame's rounds as drawn, once its bodies are posed. `muzzle`
+    /// says where the gun of a unit (id, generation) that fires a class of
+    /// round (the wire's id) is drawn now, if it holds one: a bolt leaves
+    /// that gun and joins its true path over MERGE metres
+    /// (CombatPresentation.present, `bolt.visualMuzzle`). `own` is the
+    /// player's unit, whose bolts the trace follows.
+    pub fn draw(
+        &mut self,
+        dt: f64,
+        own: (u32, u32),
+        muzzle: &dyn Fn((u32, u32), usize) -> Option<[f64; 3]>,
+        lights: &mut super::lights::SceneLights,
+        bridge: &mut Bridge,
+    ) {
+        let tick = self.tick;
+        let net_count = std::mem::take(&mut self.net_count);
+        let mut count = 0;
+        for (slot, bolt) in self.bolts.iter_mut().enumerate() {
+            if !bolt.active || bolt.predicted.is_some() {
+                continue;
+            }
+            if !bolt.aimed {
+                // Resolved at its first draw, against the shooter's body as
+                // drawn now; a muzzle far from the launch (a respawn, a
+                // seat) is ignored.
+                bolt.aimed = true;
+                if let Some(muzzle) = muzzle(bolt.owner, bolt.definition) {
+                    let offset: [f64; 3] = std::array::from_fn(|i| muzzle[i] - bolt.position[i]);
+                    bolt.offset = if offset.iter().map(|o| o * o).sum::<f64>() > 400. { [0.; 3] } else { offset };
+                }
+            }
+            let x = &mut self.ordnance.input[f::STRIDE + count * r::STRIDE..][..r::STRIDE];
+            x.fill(0.);
+            x[r::KIND] = kind::BOLT as f64;
+            x[r::KEY] = bolt.key as f64;
+            x[r::STYLE] = bolt.style as f64;
+            x[r::SOURCE] = slot as f64;
+            // linearBoltFrame: a replicated bolt flies from its flight tick
+            // at its speed for its life, on the displayed clock. Without
+            // LINEAR the owner reads it as a stepped bolt that has flown
+            // nothing, and draws it at the muzzle until its record expires.
+            x[r::FLAGS] = ((1 << flag::LINEAR) | (1 << flag::HAS_CLOCK) | (1 << flag::HAS_OFFSET)) as f64;
+            x[r::ALPHA] = 1.;
+            x[r::CLOCK_TICK] = tick;
+            x[r::FADE] = 1.;
+            x[r::SPEED] = bolt.speed;
+            x[r::LIFE] = bolt.life;
+            x[r::MERGE] = bolt.merge;
+            x[r::FLIGHT_TICK] = bolt.flight;
+            x[r::POSITION..r::POSITION + 3].copy_from_slice(&bolt.position);
+            x[r::DIRECTION..r::DIRECTION + 3].copy_from_slice(&bolt.direction);
+            x[r::OFFSET..r::OFFSET + 3].copy_from_slice(&bolt.offset);
+            count += 1;
+            if self.trace && bolt.owner == own {
+                let elapsed = (tick - bolt.flight) / 60.;
+                if elapsed >= 0. && elapsed < bolt.life {
+                    let flown = bolt.speed * elapsed;
+                    let left = (1. - flown / bolt.merge).max(0.);
+                    let head: [f64; 3] = std::array::from_fn(|i| bolt.position[i] + bolt.direction[i] * flown + bolt.offset[i] * left);
+                    eprintln!("ord: draw id={} shown={tick:.3} wall={:.1} flown={flown:.3} head={head:.3?} offset={:.3?}", bolt.id, wall(), bolt.offset);
+                }
+            }
+        }
+        // PredictedShots.update and draw: the player's own bolts on the
+        // frame clock, each until its flight (and fade) is over.
+        let now = self.clock;
+        self.cosmetics.retain(|cosmetic| now < cosmetic.until);
+        for (at, cosmetic) in self.cosmetics.iter_mut().enumerate() {
+            if !cosmetic.aimed {
+                cosmetic.aimed = true;
+                if let Some(muzzle) = muzzle(own, cosmetic.definition) {
+                    let offset: [f64; 3] = std::array::from_fn(|i| muzzle[i] - cosmetic.origin[i]);
+                    cosmetic.offset = if offset.iter().map(|o| o * o).sum::<f64>() > 400. { [0.; 3] } else { offset };
+                }
+            }
+            let x = &mut self.ordnance.input[f::STRIDE + count * r::STRIDE..][..r::STRIDE];
+            x.fill(0.);
+            x[r::KIND] = kind::BOLT as f64;
+            x[r::KEY] = cosmetic.key as f64;
+            x[r::STYLE] = cosmetic.style as f64;
+            x[r::SOURCE] = (BOLTS + at) as f64;
+            x[r::FLAGS] = ((1 << flag::LINEAR) | (1 << flag::HAS_CLOCK) | (1 << flag::HAS_OFFSET)) as f64;
+            x[r::ALPHA] = 1.;
+            x[r::CLOCK_TICK] = now * 60.;
+            x[r::FADE] = 1.;
+            x[r::SPEED] = cosmetic.speed;
+            x[r::LIFE] = cosmetic.life;
+            x[r::MERGE] = MERGE.min(cosmetic.speed * cosmetic.life).max(1e-3);
+            x[r::FLIGHT_TICK] = cosmetic.born * 60.;
+            x[r::POSITION..r::POSITION + 3].copy_from_slice(&cosmetic.origin);
+            x[r::DIRECTION..r::DIRECTION + 3].copy_from_slice(&cosmetic.direction);
+            x[r::OFFSET..r::OFFSET + 3].copy_from_slice(&cosmetic.offset);
+            count += 1;
+            if self.trace && now - cosmetic.born < cosmetic.life {
+                let flown = cosmetic.speed * (now - cosmetic.born);
+                let left = (1. - flown / x[r::MERGE]).max(0.);
+                let head: [f64; 3] = std::array::from_fn(|i| cosmetic.origin[i] + cosmetic.direction[i] * flown + cosmetic.offset[i] * left);
+                eprintln!("ord: draw key={} wall={:.1} flown={flown:.3} head={head:.3?} offset={:.3?}", cosmetic.key, wall(), cosmetic.offset);
+            }
+        }
         let x = &mut self.ordnance.input[f::STRIDE + count * r::STRIDE..][..r::STRIDE];
         x.fill(0.);
         x[r::KIND] = kind::NET as f64;
@@ -814,10 +1176,16 @@ impl Combat {
             // Ordnance.drawBolt's `sniperTrace().touch(...)`: kept for the
             // trace's turn, which needs the frame's camera.
             if call[call::KIND] == ck::TOUCH as f64 {
-                if let (Some(bolt), true) = (self.bolts.get(slot), self.rail_touches.len() < self.rail_touches.capacity()) {
+                // The round it is of: a replicated bolt's slot, or past them a
+                // cosmetic's place.
+                let round = match slot.checked_sub(BOLTS) {
+                    Some(at) => self.cosmetics.get(at).map(|cosmetic| (cosmetic.key, cosmetic.style)),
+                    None => self.bolts.get(slot).map(|bolt| (bolt.key, bolt.style)),
+                };
+                if let (Some((key, style)), true) = (round, self.rail_touches.len() < self.rail_touches.capacity()) {
                     let mut touch = [0.; 15];
-                    touch[0] = bolt.key as f64;
-                    touch[1] = bolt.style as f64;
+                    touch[0] = key as f64;
+                    touch[1] = style as f64;
                     touch[2..5].copy_from_slice(&call[call::A..call::A + 3]);
                     touch[5..8].copy_from_slice(&call[call::B..call::B + 3]);
                     touch[8..11].copy_from_slice(&call[call::C..call::C + 3]);
@@ -837,6 +1205,9 @@ impl Combat {
                     );
                     net.matrix = matrix.elements;
                     net.shown = true;
+                    if self.trace {
+                        eprintln!("ord: show id={} shown={tick:.3} wall={:.1} at={:.3?}", net.id, wall(), &call[call::A..call::A + 3]);
+                    }
                 } else if call[call::KIND] == ck::NET_TRAIL as f64 {
                     // drawProjectileView: `trail.move(drawnAt, quaternion, velocity)`.
                     if let Some(trail) = net.trail {
