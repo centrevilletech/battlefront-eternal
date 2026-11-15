@@ -525,6 +525,8 @@ impl Prepared {
         // the cold definition joins below. Sharing their numeric values by
         // accident works for some maps and plays unrelated sounds on others.
         let mut classes = BTreeMap::<String, usize>::new();
+        // Each class's row, for the posts' owner loops below.
+        let mut class_rows = Vec::<[f64; class::STRIDE]>::new();
         if let Some(table) = data.manifest.get("classes").and_then(Value::as_object) {
             for (name, o) in table.entries() {
                 let id = classes.len();
@@ -631,6 +633,7 @@ impl Prepared {
                 row[class::TOW_ATTACH] = sound_id(&names, Some(&Value::str(&format!("{stem}_towcable_attach"))));
                 row[class::TOW_RELEASE] = sound_id(&names, Some(&Value::str(&format!("{stem}_towcable_release"))));
                 import(&mut runtime, import::CLASS, &row)?;
+                class_rows.push(row);
             }
             // Chatter.line: every class sound by the hash of its key, which a
             // chatter line ("vo" record) looks up by its property name. The
@@ -657,6 +660,70 @@ impl Prepared {
                 }
                 for (key, sound) in properties {
                     import(&mut runtime, import::PROPERTY, &[id as f64, key as f64, sound])?;
+                }
+            }
+        }
+        // PlayerSounds.surface and entry: the material groups underfoot
+        // (terrain, wading water, then each material box's group as first
+        // seen) and, for every class with a FoleyFXClass, each group's
+        // FoleyFXSoldier entry of that class: footsteps, jump, landing, roll,
+        // crouch, prone and getting up on that surface.
+        let mut materials: Vec<String> = vec!["terrain_foley".into(), "water_foley".into()];
+        for b in data.manifest.get("world").and_then(|w| w.get("materials")).and_then(Value::as_array).unwrap_or(&[]) {
+            let group = text(b.get("group"));
+            let id = match materials.iter().position(|m| m == group) {
+                Some(id) => id,
+                None => {
+                    materials.push(group.into());
+                    materials.len() - 1
+                }
+            };
+            let mut row = [0.; material::STRIDE];
+            for k in 0..3 {
+                row[material::MIN_X + k] = number(b.get("min").and_then(|v| v.at(k)));
+                row[material::MAX_X + k] = number(b.get("max").and_then(|v| v.at(k)));
+            }
+            row[material::GROUP] = id as f64;
+            import(&mut runtime, import::MATERIAL, &row)?;
+        }
+        if let Some(table) = data.manifest.get("classes").and_then(Value::as_object) {
+            for (material_id, group_name) in materials.iter().enumerate() {
+                let Some(group) = data.object("FoleyFXGroup", group_name).or_else(|| data.object("a1c9cbc5", group_name)) else {
+                    continue;
+                };
+                for (class_id, (_, o)) in table.entries().enumerate() {
+                    let fx_class = text(o.get("FoleyFXClass"));
+                    if fx_class.is_empty() {
+                        continue;
+                    }
+                    let fx_class = key(fx_class);
+                    let Some(entry) = group
+                        .get("FoleyFX")
+                        .and_then(Value::as_array)
+                        .unwrap_or(&[])
+                        .iter()
+                        .filter_map(|n| data.object("FoleyFXSoldier", text(n.at(0))))
+                        .find(|e| text(e.get("Class")) == fx_class)
+                    else {
+                        continue;
+                    };
+                    let mut row = [-1.; foley::STRIDE];
+                    row[foley::CLASS] = class_id as f64;
+                    row[foley::MATERIAL] = material_id as f64;
+                    for (at, k) in [
+                        (foley::LEFT, "FootstepLeftRun"),
+                        (foley::RIGHT, "FootstepRightRun"),
+                        (foley::JUMP, "jump"),
+                        (foley::BODYFALL, "bodyfall"),
+                        (foley::LAND, "Land"),
+                        (foley::ROLL, "roll"),
+                        (foley::SQUAT, "squat"),
+                        (foley::PRONE, "prone"),
+                        (foley::STAND, "stand"),
+                    ] {
+                        row[at] = resolve(entry.get(k));
+                    }
+                    import(&mut runtime, import::FOLEY, &row)?;
                 }
             }
         }
@@ -856,7 +923,13 @@ impl Prepared {
         for (slot,name) in defs.registry.posts.iter().enumerate() {
             let meta = world.and_then(|w|w.get("posts")).and_then(|p|p.get(name));
             let mut row = [-1.;post::STRIDE]; row[post::ID]=slot as f64;
-            row[post::CLASS]=classes.get(meta.and_then(|m|m.get("class")).and_then(Value::as_str).unwrap_or("com_bldg_controlzone")).map_or(-1.,|id|*id as f64);
+            let class_id=classes.get(meta.and_then(|m|m.get("class")).and_then(Value::as_str).unwrap_or("com_bldg_controlzone")).copied();
+            row[post::CLASS]=class_id.map_or(-1.,|id|id as f64);
+            // SceneSounds.posts: the owner side's AmbientSound loop ("rep com_blg_commandpost_goodie").
+            for (team,at) in [(1,post::AMBIENT1),(2,post::AMBIENT2)] {
+                let ambient=match sides[team] { "Rep"=>class::AMBIENT_REP, "Cis"=>class::AMBIENT_CIS, "All"=>class::AMBIENT_ALL, "Imp"=>class::AMBIENT_IMP, _=>continue };
+                row[at]=class_id.and_then(|id|class_rows.get(id)).map_or(-1.,|r|r[ambient]);
+            }
             row[post::PRESENT]=0.; row[post::ACTIVE]=0.; row[post::BUILDING_ALIVE]=1.;
             for k in 0..3 { row[post::X+k]=meta.and_then(|m|m.get("position")).and_then(|p|p.at(k)).map_or(0.,|v|number(Some(v))); }
             for listener in 1..=2 { for owner in 1..=2 {
