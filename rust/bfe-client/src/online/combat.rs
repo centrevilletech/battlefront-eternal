@@ -22,6 +22,8 @@ use bfe_presentation::sniper_layout::{sniper_flare as flare, sniper_limits as sn
 use serde::Deserialize;
 use three::{Matrix4, Quaternion, Vector3};
 const BOLTS: usize = 4095;
+// m over which a bolt drawn from the muzzle joins its path (ordnance.js).
+const MERGE: f64 = 8.;
 #[derive(Clone, Copy, Default)]
 // NetworkCombatViews retains a visual life separately from a trigger edge.
 // Automatic fire, pellets and a terminal all have their own wire identity.
@@ -51,7 +53,43 @@ struct Bolt {
     owner: (u32, u32),
     definition: usize,
     aimed: bool,
+    // The player's own round already drawn from his trigger press: its
+    // cosmetic's key. The world's copy is never drawn a second time.
+    predicted: Option<u32>,
 }
+// PredictedShots: the player's own bolt, drawn from the tick his weapon
+// fires in the client's replay until the world's copy would have ended. It
+// flies the world's path (same origin, aim, spread and first surface) on the
+// frame clock; the world's round carries the hit and its impact.
+#[derive(Clone, Copy)]
+struct Cosmetic {
+    key: u32,
+    style: usize,
+    definition: usize,
+    tick: f64,
+    channel: u32,
+    origin: [f64; 3],
+    direction: [f64; 3],
+    offset: [f64; 3],
+    speed: f64,
+    life: f64,
+    born: f64,
+    until: f64,
+    aimed: bool,
+    claimed: bool,
+}
+// What a weapon's bolt needs to be drawn ahead of the world: its round's
+// wire class and style, speed, life and FadeOutTime, and its ShotElevate.
+#[derive(Clone, Copy)]
+struct Barrel {
+    definition: usize,
+    style: usize,
+    speed: f64,
+    span: f64,
+    fade: f64,
+    elevate: f64,
+}
+const COSMETICS: usize = 32;
 struct Style {
     model: Option<Model>,
     impact: [Option<usize>; 6],
@@ -104,6 +142,9 @@ pub struct Combat {
     tick: f64,
     // Network commands written for the owner since its last presentation.
     net_count: usize,
+    cosmetics: Vec<Cosmetic>,
+    // By weapon (its place in the battle's weapon list).
+    barrels: Vec<Option<Barrel>>,
     // BFE_HUD_TRACE: every round's records and the player's own bolts as
     // drawn, on stderr.
     trace: bool,
@@ -317,6 +358,28 @@ impl Combat {
             });
             styles.push(Style { model: Model::new(content, bridge, textures, name, crate::shadows::COUNT)?, impact, explosion, trail, rail });
         }
+        // PredictedShots.fire: only a bolt flies straight enough to draw
+        // ahead of the world.
+        let barrels = defs
+            .weapons
+            .iter()
+            .map(|weapon| {
+                let round = weapon.record.get("ordnance")?;
+                if round.get("base").and_then(bfe_content::Value::as_str) != Some("bolt") {
+                    return None;
+                }
+                let definition = defs.combat_id(round)? as usize;
+                let or = |n: f64, default: f64| if n != 0. && !n.is_nan() { n } else { default };
+                Some(Barrel {
+                    definition,
+                    style: definitions.get(definition).copied().flatten()?,
+                    speed: or(number(round, "Velocity"), 100.).clamp(1., 2000.),
+                    span: or(number(round, "LifeSpan"), 1.).min(1.),
+                    fade: number(round, "FadeOutTime"),
+                    elevate: number(&weapon.record, "ShotElevate"),
+                })
+            })
+            .collect();
         let effects = bfe_presentation::Presentation::new(
             serde_json::from_value(library.descriptor.clone()).map_err(|e| e.to_string())?,
             bfe_presentation::Limits { effects: 1024, emitters: 4096, particles: 16384, commands: 2048, events: 32768 },
@@ -371,6 +434,8 @@ impl Combat {
             epoch: 0.,
             tick: 0.,
             net_count: 0,
+            cosmetics: Vec::with_capacity(COSMETICS),
+            barrels,
             trace: std::env::var_os("BFE_HUD_TRACE").is_some(),
             names: std::iter::once(String::new()).chain(defs.registry.combat.iter().map(|(name, _)| name.clone())).collect(),
             visible: 0,
@@ -433,6 +498,76 @@ impl Combat {
             self.flames.push(Flame { unit, group, position, velocity, turn, handle: None, seen: true });
         }
     }
+    /// PredictedShots.fire for a round the client's replay just fired:
+    /// `weapon` (its place in the battle's weapon list) on trigger `channel`
+    /// at `tick`, from the gun origin along the aim, turned by the press's
+    /// spread. `cast` gives the distance to the first surface on a ray. A
+    /// weapon that fires no bolt draws nothing ahead of the world.
+    pub fn predict(
+        &mut self,
+        weapon: usize,
+        tick: f64,
+        channel: u32,
+        origin: [f64; 3],
+        aim: [f64; 3],
+        spread: [f64; 2],
+        cast: &mut dyn FnMut([f64; 3], [f64; 3], f64) -> Option<f64>,
+    ) {
+        let Some(barrel) = self.barrels.get(weapon).copied().flatten() else {
+            return;
+        };
+        if self.cosmetics.len() == COSMETICS {
+            return;
+        }
+        // The spread: a turn about the vertical, then a tip about the
+        // horizontal; then the weapon's ShotElevate.
+        let mut direction = Vector3::new(aim[0], aim[1], aim[2]);
+        let mut turn = Quaternion::default();
+        turn.set_from_axis_angle(&Vector3::new(0., 1., 0.), spread[0]);
+        direction.apply_quaternion(&turn);
+        let mut side = Vector3::new(direction.z, 0., -direction.x);
+        side.normalize();
+        turn.set_from_axis_angle(&side, -spread[1]);
+        direction.apply_quaternion(&turn);
+        direction.y += barrel.elevate;
+        direction.normalize();
+        let direction = [direction.x, direction.y, direction.z];
+        if direction.iter().any(|n| !n.is_finite()) {
+            return;
+        }
+        // As far as the world's round would fly: to the first surface, or
+        // its life (at most a second: the world answers well within it).
+        let reach = cast(origin, direction, barrel.speed * barrel.span).unwrap_or(f64::INFINITY);
+        let life = barrel.span.min(reach / barrel.speed);
+        self.serial = self.serial.wrapping_add(1).max(1);
+        // Drawn first later in this frame, about half a tick after it fired.
+        let born = self.clock - 1. / 120.;
+        self.cosmetics.push(Cosmetic {
+            key: self.serial,
+            style: barrel.style,
+            definition: barrel.definition,
+            tick,
+            channel,
+            origin,
+            direction,
+            offset: [0.; 3],
+            speed: barrel.speed,
+            life,
+            born,
+            until: born + (life + barrel.fade).max(1.),
+            aimed: false,
+            claimed: false,
+        });
+        if self.trace {
+            eprintln!(
+                "ord: predict key={} def={} tick={tick} wall={:.1} speed={} life={life:.4} at={origin:.3?} dir={direction:.4?}",
+                self.serial,
+                self.names[barrel.definition],
+                wall(),
+                barrel.speed
+            );
+        }
+    }
     // An effect another owner asks for between two frames (a droid's death
     // blast). It joins the next frame's spawn batch, as any deferred impact.
     pub fn present_effect(&mut self, group: Option<usize>, position: [f64; 3], seed: u32) {
@@ -461,6 +596,7 @@ impl Combat {
     /// follows once the frame's bodies are posed.
     pub fn frame(&mut self, receiver: &Receiver, tick: f64, dt: f64) {
         use bfe_presentation::layout::frame as ef;
+        let own = (receiver.own.id as u32, receiver.own.generation as u32);
         self.frame += 1;
         self.tick = tick;
         self.visible = 0;
@@ -503,6 +639,7 @@ impl Combat {
         if self.epoch != receiver.epoch {
             self.epoch = receiver.epoch;
             self.pending.clear();
+            self.cosmetics.clear();
             self.flames.clear();
             self.map_effects.reset(&mut self.effects);
             self.hull_fx.clear(&mut self.effects);
@@ -577,6 +714,24 @@ impl Combat {
                     continue;
                 }
                 if schema == 1 {
+                    let owner = (u32::from_le_bytes(bytes[8..12].try_into().unwrap()), source.owner_generation as u32);
+                    // The player's own round, predicted from the trigger
+                    // press, flies as its cosmetic drew it: the one of this
+                    // trigger and class of round fired nearest its tick.
+                    let fired = source.execution_tick;
+                    let predicted = (owner == own)
+                        .then(|| {
+                            self.cosmetics
+                                .iter_mut()
+                                .filter(|c| !c.claimed && c.channel == source.channel as u32 && c.definition == source.definition as usize)
+                                .filter(|c| (c.tick - fired).abs() <= 30.)
+                                .min_by(|a, b| (a.tick - fired).abs().total_cmp(&(b.tick - fired).abs()))
+                        })
+                        .flatten()
+                        .map(|cosmetic| {
+                            cosmetic.claimed = true;
+                            cosmetic.key
+                        });
                     self.serial = self.serial.wrapping_add(1).max(1);
                     self.bolts[slot] = Bolt {
                         key: self.serial,
@@ -594,15 +749,24 @@ impl Combat {
                         merge: source.merge,
                         flight: source.launch_tick,
                         execution: source.execution_tick,
-                        owner: (u32::from_le_bytes(bytes[8..12].try_into().unwrap()), source.owner_generation as u32),
+                        owner,
                         definition: source.definition as usize,
+                        predicted,
                         ..Default::default()
                     };
                     if self.trace {
                         let b = &self.bolts[slot];
                         eprintln!(
-                            "ord: launch id={id} def={} owner={} tick={stamp} flight={:.3} shown={tick:.3} wall={:.1} speed={} life={:.4} at={:.3?} dir={:.4?}",
-                            self.names[b.definition], b.owner.0, b.flight, wall(), b.speed, b.life, b.position, b.direction
+                            "ord: launch id={id} def={} owner={} tick={stamp} flight={:.3} shown={tick:.3} wall={:.1} speed={} life={:.4} at={:.3?} dir={:.4?}{}",
+                            self.names[b.definition],
+                            b.owner.0,
+                            b.flight,
+                            wall(),
+                            b.speed,
+                            b.life,
+                            b.position,
+                            b.direction,
+                            b.predicted.map_or(String::new(), |key| format!(" predicted={key}"))
                         );
                     }
                 } else {
@@ -619,7 +783,19 @@ impl Combat {
                     bolt.tick = stamp;
                     bolt.expiry = source.expiry_tick;
                     let group = self.styles[style].impact.get(source.surface as usize).copied().flatten();
-                    self.bolts[slot].impact = Some((group, point));
+                    if let Some(key) = bolt.predicted {
+                        // Its cosmetic has flown already: the impact shows
+                        // now. A class drawn on where it stops (the sniper
+                        // rifles) has its streak cut there (PredictedShots.stop).
+                        let rail = self.styles[style].rail.is_some();
+                        if let Some(cosmetic) = self.cosmetics.iter_mut().find(|c| c.key == key && rail) {
+                            let along = (0..3).map(|i| (point[i] - cosmetic.origin[i]) * cosmetic.direction[i]).sum::<f64>().max(0.);
+                            cosmetic.life = cosmetic.life.min(along / cosmetic.speed);
+                        }
+                        self.defer(group, point, id, stamp.min(tick), rail);
+                    } else {
+                        self.bolts[slot].impact = Some((group, point));
+                    }
                 }
             } else if schema == 5 && bytes.len() == 33 {
                 let definition = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
@@ -842,7 +1018,7 @@ impl Combat {
         let net_count = std::mem::take(&mut self.net_count);
         let mut count = 0;
         for (slot, bolt) in self.bolts.iter_mut().enumerate() {
-            if !bolt.active {
+            if !bolt.active || bolt.predicted.is_some() {
                 continue;
             }
             if !bolt.aimed {
@@ -887,6 +1063,43 @@ impl Combat {
                 }
             }
         }
+        // PredictedShots.update and draw: the player's own bolts on the
+        // frame clock, each until its flight (and fade) is over.
+        let now = self.clock;
+        self.cosmetics.retain(|cosmetic| now < cosmetic.until);
+        for (at, cosmetic) in self.cosmetics.iter_mut().enumerate() {
+            if !cosmetic.aimed {
+                cosmetic.aimed = true;
+                if let Some(muzzle) = muzzle(own, cosmetic.definition) {
+                    let offset: [f64; 3] = std::array::from_fn(|i| muzzle[i] - cosmetic.origin[i]);
+                    cosmetic.offset = if offset.iter().map(|o| o * o).sum::<f64>() > 400. { [0.; 3] } else { offset };
+                }
+            }
+            let x = &mut self.ordnance.input[f::STRIDE + count * r::STRIDE..][..r::STRIDE];
+            x.fill(0.);
+            x[r::KIND] = kind::BOLT as f64;
+            x[r::KEY] = cosmetic.key as f64;
+            x[r::STYLE] = cosmetic.style as f64;
+            x[r::SOURCE] = (BOLTS + at) as f64;
+            x[r::FLAGS] = ((1 << flag::LINEAR) | (1 << flag::HAS_CLOCK) | (1 << flag::HAS_OFFSET)) as f64;
+            x[r::ALPHA] = 1.;
+            x[r::CLOCK_TICK] = now * 60.;
+            x[r::FADE] = 1.;
+            x[r::SPEED] = cosmetic.speed;
+            x[r::LIFE] = cosmetic.life;
+            x[r::MERGE] = MERGE.min(cosmetic.speed * cosmetic.life).max(1e-3);
+            x[r::FLIGHT_TICK] = cosmetic.born * 60.;
+            x[r::POSITION..r::POSITION + 3].copy_from_slice(&cosmetic.origin);
+            x[r::DIRECTION..r::DIRECTION + 3].copy_from_slice(&cosmetic.direction);
+            x[r::OFFSET..r::OFFSET + 3].copy_from_slice(&cosmetic.offset);
+            count += 1;
+            if self.trace && now - cosmetic.born < cosmetic.life {
+                let flown = cosmetic.speed * (now - cosmetic.born);
+                let left = (1. - flown / x[r::MERGE]).max(0.);
+                let head: [f64; 3] = std::array::from_fn(|i| cosmetic.origin[i] + cosmetic.direction[i] * flown + cosmetic.offset[i] * left);
+                eprintln!("ord: draw key={} wall={:.1} flown={flown:.3} head={head:.3?} offset={:.3?}", cosmetic.key, wall(), cosmetic.offset);
+            }
+        }
         let x = &mut self.ordnance.input[f::STRIDE + count * r::STRIDE..][..r::STRIDE];
         x.fill(0.);
         x[r::KIND] = kind::NET as f64;
@@ -919,10 +1132,16 @@ impl Combat {
             // Ordnance.drawBolt's `sniperTrace().touch(...)`: kept for the
             // trace's turn, which needs the frame's camera.
             if call[call::KIND] == ck::TOUCH as f64 {
-                if let (Some(bolt), true) = (self.bolts.get(slot), self.rail_touches.len() < self.rail_touches.capacity()) {
+                // The round it is of: a replicated bolt's slot, or past them a
+                // cosmetic's place.
+                let round = match slot.checked_sub(BOLTS) {
+                    Some(at) => self.cosmetics.get(at).map(|cosmetic| (cosmetic.key, cosmetic.style)),
+                    None => self.bolts.get(slot).map(|bolt| (bolt.key, bolt.style)),
+                };
+                if let (Some((key, style)), true) = (round, self.rail_touches.len() < self.rail_touches.capacity()) {
                     let mut touch = [0.; 15];
-                    touch[0] = bolt.key as f64;
-                    touch[1] = bolt.style as f64;
+                    touch[0] = key as f64;
+                    touch[1] = style as f64;
                     touch[2..5].copy_from_slice(&call[call::A..call::A + 3]);
                     touch[5..8].copy_from_slice(&call[call::B..call::B + 3]);
                     touch[8..11].copy_from_slice(&call[call::C..call::C + 3]);

@@ -546,6 +546,30 @@ impl Replicas {
         self.tick = tick;
         self.hud.frame(bridge, receiver, prediction, dt);
         self.combat.frame(receiver, tick, dt);
+        // The player's own rounds fired in this frame's replay are drawn
+        // from now on, from the gun origin beside his head as he fired.
+        for shot in &prediction.shots {
+            let basis = bfe_presentation::aim::Basis::new::<bfe_presentation::cameras::math::V8>(
+                three::Vector3::new(shot.position[0], shot.position[1], shot.position[2]),
+                shot.aim[0],
+                shot.aim[1],
+                shot.posture,
+                shot.air,
+            );
+            let (collision, world) = (&self.collision, self.world);
+            self.combat.predict(
+                shot.weapon,
+                shot.tick,
+                shot.button,
+                [basis.origin.x, basis.origin.y, basis.origin.z],
+                [basis.direction.x, basis.direction.y, basis.direction.z],
+                shot.spread,
+                &mut |from, direction, far| {
+                    let ray = bfe_sim::collision::Ray { ox: from[0], oy: from[1], oz: from[2], dx: direction[0], dy: direction[1], dz: direction[2] };
+                    collision.borrow_mut().ray_hit(world, ray, far, -1).map(|(_, hit)| hit.distance)
+                },
+            );
+        }
         // SnapshotPresentation samples once for the whole display batch.
         // The unit links then borrow its output by identity and generation.
         receiver.network.borrow_mut().present(tick, -1., prediction.fleet.identity.map_or(-1., |p| p.0));

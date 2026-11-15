@@ -7,7 +7,7 @@ use bfe_content_native::BattleContent;
 use bfe_sim::{
     client::ClientPrediction,
     collision::CollisionOwner,
-    gen::{ClientFrame, ClientResult, Soldier},
+    gen::{ClientFrame, ClientResult, ClientShot, Soldier},
 };
 use std::{cell::RefCell, rc::Rc};
 pub const COMMANDS: usize = 128;
@@ -130,6 +130,20 @@ impl History {
         (start as u32, self.count as u32)
     }
 }
+/// A round the player's own weapon fired in this frame's replay, ahead of
+/// the world's answer (WeaponPrediction's shot notice): the tick it fired
+/// on, the weapon (its place in the battle's weapon list), the trigger, the
+/// spread it drew and his body as it fired.
+pub struct Shot {
+    pub tick: f64,
+    pub weapon: usize,
+    pub button: u32,
+    pub spread: [f64; 2],
+    pub position: [f64; 3],
+    pub aim: [f64; 2],
+    pub posture: usize,
+    pub air: bool,
+}
 // ClientPrediction is the sole private gameplay continuation. This adapter
 // retains only prerequisites, acknowledged commands and generated results.
 // It cannot spawn entities, publish authoritative state or run a World tick.
@@ -158,6 +172,8 @@ pub struct Replay {
     weapon_count: usize,
     arsenal: Box<super::checkpoint::Arsenal>,
     mounted: Box<super::checkpoint::Mounted>,
+    /// The rounds this frame's replay fired for the first time.
+    pub shots: Vec<Shot>,
 }
 impl Replay {
     pub fn new(content: &BattleContent) -> Result<Self, String> {
@@ -216,6 +232,7 @@ impl Replay {
             ticks: 0,
             weapon_at: 0,
             weapon_count: 0,
+            shots: Vec::with_capacity(32),
         })
     }
     // HUD, arms and audio borrow the same completed arsenal. Iteration
@@ -257,6 +274,7 @@ impl Replay {
         // publications are admitted only by this frame's qualified mode.
         self.body = None;
         self.displayed = None;
+        self.shots.clear();
         let interval = self.before.take();
         let life = [r.epoch, r.own.id, r.own.generation];
         if self.life != life {
@@ -433,6 +451,35 @@ impl Replay {
                     self.before = interval;
                 }
                 self.ticks += result.ticks as u64;
+                // Each notice is followed by the body as it fired.
+                let stride = ClientShot::WORDS + Soldier::WORDS;
+                let mut shots = std::mem::take(&mut self.shots);
+                for n in 0..result.shots_count as usize {
+                    let at = result.shots_at as usize + n * stride;
+                    let Some(row) = self.owner.output.get(at..at + stride) else {
+                        break;
+                    };
+                    let shot = ClientShot::take(row, &[]);
+                    let Some(weapon) = self.weapons().nth(shot.weapon as usize) else {
+                        continue;
+                    };
+                    // Kind 0 is a round; repairs and melee swings fire none.
+                    if shot.kind != 0 || shots.len() == shots.capacity() {
+                        continue;
+                    }
+                    let body = Soldier::take(&row[ClientShot::WORDS..], &[]);
+                    shots.push(Shot {
+                        tick: shot.tick,
+                        weapon: weapon.def.0.saturating_sub(1) as usize,
+                        button: shot.button,
+                        spread: [shot.yaw, shot.pitch],
+                        position: body.position,
+                        aim: [body.aim_yaw, body.aim_pitch],
+                        posture: body.posture as usize,
+                        air: body.air.is_some(),
+                    });
+                }
+                self.shots = shots;
             }
         }
         Ok(())
