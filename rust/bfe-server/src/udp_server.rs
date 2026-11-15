@@ -621,6 +621,7 @@ impl UdpGameServer {
                                         None,
                                         Self::unix_ms(),
                                         now_ms,
+                                        false,
                                     );
                                 }
                             }
@@ -699,6 +700,7 @@ impl UdpGameServer {
                                     None,
                                     Self::unix_ms(),
                                     now_ms,
+                                    false,
                                 );
                             }
                             SessionAction::Close { code, reason } => {
@@ -771,7 +773,7 @@ impl UdpGameServer {
         };
         connected
             .peer
-            .send_lane(&mut ts.connection, Lane::Events, true, bytes, None, unix_ms, now_ms)
+            .send_lane(&mut ts.connection, Lane::Events, true, bytes, None, unix_ms, now_ms, false)
     }
 
     /// Queues a binary `BNS1` or `BNO1` snapshot datagram on `peer_id`'s unordered `state` lane
@@ -779,11 +781,13 @@ impl UdpGameServer {
     /// Sends an unreliable sequenced `bni1` state snapshot (or baseline fragment) to `peer_id`
     /// on `Lane::State` (Channel 2) if its size is within `state_budget_bytes` (default 1200 B),
     /// porting `sendState(peerId, bytes)` in `packages/bfe-server/src/udp-server.js`.
+    /// `own`: the player's own datagram, which congestion and staleness never hold back.
     pub fn send_state(
         &mut self,
         peer_id: &str,
         bytes: &[u8],
         captured_at_unix_ms: Option<u64>,
+        own: bool,
     ) -> bool {
         let now_ms = self.now_ms();
         let unix_ms = Self::unix_ms();
@@ -802,6 +806,7 @@ impl UdpGameServer {
             captured_at_unix_ms,
             unix_ms,
             now_ms,
+            own,
         )
     }
 

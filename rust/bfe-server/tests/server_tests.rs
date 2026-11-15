@@ -3434,6 +3434,120 @@ fn native_reliable_edges_spawn_suicide_and_respawn_on_the_assigned_team() {
     host.remove_player("human");
 }
 
+/// A client held to a small state budget on a busy map (kas2, Galactic Civil War, Enhanced bots)
+/// stays near its budget by skipping whole snapshots, still gets its own datagram about every
+/// 100 ms and whole snapshots every second (far units update less often, nothing freezes), and
+/// spawns within a second. The server used to offer such a client ten times its budget.
+#[test]
+fn budget_limited_client_spawns_and_keeps_getting_whole_snapshots() {
+    let Ok(content) = std::env::var("BFE_CONTENT_DIR") else {
+        return;
+    };
+    let mut host = NativeWorldHost::load_from_content(
+        Path::new(&content),
+        "?map=kas2&side=imp&ai=enhanced&seed=1",
+        1,
+    )
+    .unwrap();
+    assert!(host.world_admitted);
+    const BUDGET: f64 = 30_000.;
+    host.set_state_budget(BUDGET);
+    let tick_ms = 1000. / 60.;
+    let mut now = 1000.;
+    // Thirty seconds of battle first: the bots spread out and fight.
+    for _ in 0..60 * 30 {
+        now += tick_ms;
+        host.step(now, 1_700_000_000_000 + now as u64).unwrap();
+    }
+    let welcome = host.add_player("human", "Human", false, false, false).unwrap();
+    let class = host.registry_descriptor["classes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry[1].as_str() == Some(welcome.class_name.as_str()))
+        .unwrap()[0]
+        .as_u64()
+        .unwrap() as u16;
+    let alive = |host: &NativeWorldHost| {
+        unit_rows(&host.context)
+            .unwrap()
+            .into_iter()
+            .find(|(id, _, _)| *id == welcome.unit_id)
+            .is_some_and(|(_, _, unit)| unit.alive)
+    };
+    host.handle_start("human", now);
+    let mut seconds: Vec<(f64, usize)> = Vec::new(); // (bytes, whole snapshots) per second
+    let mut last_own = now;
+    let mut longest_own_gap: f64 = 0.;
+    let mut spawn_at = None;
+    let mut alive_at = None;
+    let mut own_after_alive = None;
+    for tick in 1..=60 * 8u32 {
+        now += tick_ms;
+        let Some(publication) = host.step(now, 1_700_000_000_000 + now as u64).unwrap() else {
+            continue;
+        };
+        let second = (tick / 60) as usize;
+        if seconds.len() <= second {
+            seconds.resize(second + 1, (0., 0));
+        }
+        let mut whole = false;
+        for group in &publication.shared {
+            if group.clients.iter().any(|c| c == "human") {
+                whole = true;
+                seconds[second].0 += group.parts.iter().map(Vec::len).sum::<usize>() as f64;
+            }
+        }
+        let own: usize = publication.own_packets.iter().filter(|p| p.peer_id == "human").map(|p| p.bytes.len()).sum();
+        seconds[second].0 += own as f64;
+        if own > 0 {
+            if tick > 60 {
+                longest_own_gap = longest_own_gap.max(now - last_own);
+            }
+            last_own = now;
+            if alive_at.is_some() && own_after_alive.is_none() {
+                own_after_alive = Some(now);
+            }
+        }
+        if whole {
+            seconds[second].1 += 1;
+            // The client acknowledges every whole snapshot it received.
+            let mut ack = ACK_MAGIC.to_le_bytes().to_vec();
+            ack.extend_from_slice(&(publication.epoch as u16).to_le_bytes());
+            ack.extend_from_slice(&publication.tick.to_le_bytes());
+            host.handle_input("human", &ack, now);
+        }
+        // Spawn after four seconds of steady state.
+        if tick == 60 * 4 {
+            let mut bytes = INPUT_MAGIC.to_le_bytes().to_vec();
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes.extend_from_slice(&welcome.generation.to_le_bytes());
+            bytes.extend_from_slice(&[0, 0, 1, 0]);
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes.extend_from_slice(&host.tick.to_le_bytes());
+            bytes.push(3);
+            bytes.extend_from_slice(&class.to_le_bytes());
+            bytes.extend_from_slice(&0u16.to_le_bytes());
+            host.handle_input("human", &bytes, now);
+            spawn_at = Some(now);
+        }
+        if spawn_at.is_some() && alive_at.is_none() && alive(&host) {
+            alive_at = Some(now);
+        }
+    }
+    eprintln!("state bytes and whole snapshots per second: {seconds:?}");
+    // Skip the first second (the first full snapshot) and the partial last one.
+    for (i, (bytes, whole)) in seconds.iter().enumerate().skip(1).take(seconds.len() - 2) {
+        assert!(*bytes <= BUDGET * 1.25, "second {i}: {bytes} state bytes against a {BUDGET} budget");
+        assert!(*whole >= 2, "second {i}: only {whole} whole snapshots");
+    }
+    assert!(longest_own_gap <= 100. + 3. * tick_ms, "own datagram gap {longest_own_gap} ms");
+    let alive_at = alive_at.expect("the player spawned");
+    assert!(alive_at - spawn_at.unwrap() <= 1000., "spawned after {} ms", alive_at - spawn_at.unwrap());
+    assert!(own_after_alive.expect("own datagram after the spawn") - alive_at <= 100. + 3. * tick_ms);
+    host.remove_player("human");
+}
+
 #[test]
 fn native_reliable_team_switch_publishes_and_spawns_the_other_side() {
     let Ok(content) = std::env::var("BFE_CONTENT_DIR") else {

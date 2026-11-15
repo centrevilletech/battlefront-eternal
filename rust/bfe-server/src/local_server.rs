@@ -244,7 +244,8 @@ impl LocalDedicatedServer {
         let tick_thread = thread::spawn(move || {
             let mut w = match NativeWorldHost::load_from_content(&root_for_tick, &query_for_tick, 1)
             {
-                Ok(host) => {
+                Ok(mut host) => {
+                    host.set_state_budget(state_bytes_per_second as f64);
                     let _ = init_tx.send(Ok(host.world_admitted));
                     host
                 }
@@ -427,15 +428,20 @@ impl LocalDedicatedServer {
                         }
                         // Shared baseline parts are sent before per-client own packets
                         // (`sendSnapshot` in `src/game-session.js`).
+                        // A snapshot is only useful whole: once one of its parts cannot go to a
+                        // client, the rest of it is not sent to that client either. A player's own
+                        // datagram (its body, spawn answer, summaries) is never held back here.
                         for group in pub_out.shared {
-                            for part in &group.parts {
-                                for cid in &group.clients {
-                                    u.send_state(cid, part, Some(group.captured_at_unix_ms));
+                            for cid in &group.clients {
+                                for part in &group.parts {
+                                    if !u.send_state(cid, part, Some(group.captured_at_unix_ms), false) {
+                                        break;
+                                    }
                                 }
                             }
                         }
                         for own in pub_out.own_packets {
-                            u.send_state(&own.peer_id, &own.bytes, Some(own.captured_at_unix_ms));
+                            u.send_state(&own.peer_id, &own.bytes, Some(own.captured_at_unix_ms), true);
                         }
                     }
                     u.flush();

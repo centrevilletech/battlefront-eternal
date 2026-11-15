@@ -95,6 +95,11 @@ impl StateBudget {
         self.tokens
     }
 
+    /// Counts `bytes` of state offered to this client.
+    pub fn offer(&mut self, bytes: usize) {
+        self.offered_bytes += bytes as u64;
+    }
+
     /// Attempts to spend `bytes` (`1..=1100` MTU bound) from the token bucket at `now_ms`.
     pub fn take(&mut self, bytes: usize, now_ms: f64) -> bool {
         if !(1..=1100).contains(&bytes) {
@@ -232,6 +237,7 @@ impl UdpPeerState {
         captured_at_unix_ms: Option<u64>,
         unix_now_ms: u64,
         now_ms: f64,
+        own: bool,
     ) -> bool {
         let lane_name = match lane {
             Lane::State => "state",
@@ -248,22 +254,23 @@ impl UdpPeerState {
             return false;
         }
         if lane == Lane::State {
-            if let Some(captured) = captured_at_unix_ms {
-                if unix_now_ms.saturating_sub(captured) > STATE_STALE_MS {
-                    self.state_stale_drops += 1;
+            // The snapshot host keeps each client inside its byte budget by skipping whole
+            // snapshots; this only counts what is offered. Stale or congested snapshot parts are
+            // dropped, but never a player's own datagram.
+            self.state_budget.offer(payload.len());
+            if !own {
+                if let Some(captured) = captured_at_unix_ms {
+                    if unix_now_ms.saturating_sub(captured) > STATE_STALE_MS {
+                        self.state_stale_drops += 1;
+                        self.metrics.record_drop("state");
+                        return false;
+                    }
+                }
+                self.update_congestion(conn, now_ms);
+                if self.state_congested {
                     self.metrics.record_drop("state");
                     return false;
                 }
-            }
-            self.update_congestion(conn, now_ms);
-            if self.state_congested {
-                self.metrics.record_drop("state");
-                return false;
-            }
-            if !self.state_budget.take(payload.len(), now_ms) {
-                self.state_budget_drops += 1;
-                self.metrics.record_drop("state");
-                return false;
             }
         } else if lane == Lane::Events && conn.backlog() > EVENTS_MESSAGE_BYTES {
             self.metrics.record_drop("events");
