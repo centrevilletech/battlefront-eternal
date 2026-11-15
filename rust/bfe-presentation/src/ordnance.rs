@@ -50,7 +50,12 @@ const COAST_TICKS: f64 = 6.0;
 const COAST_FULL_TICKS: f64 = 3.0;
 const SMOOTH_SECONDS: f64 = 0.08;
 const MAX_OFFSET: f64 = 6.0;
-const SAMPLES: usize = 8;
+// The JavaScript keeps eight, enough while the display clock runs two ticks
+// behind the newest sample. A slow frame takes in many ticks' samples at
+// once and the clock then runs up to ten ticks behind: with eight the
+// samples around the displayed tick were already dropped and the round was
+// drawn ahead of where it was.
+const SAMPLES: usize = 32;
 
 /// JS `x || d` on a number.
 #[inline(always)]

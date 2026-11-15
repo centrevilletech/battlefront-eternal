@@ -359,21 +359,22 @@ fn a_rocket_starts_on_its_path_and_ends_at_its_impact() {
     sample(&mut o, 0, 10.0);
     // Two ticks before its first sample: at the launch point.
     assert_eq!(present(&mut o, 1, 8.0), Some(0.0));
-    // Six ticks later (a slow frame) with the samples that came in: on the path.
-    for tick in 11..=16 {
+    // Six ticks later, after a slow frame that took in twenty ticks of
+    // samples: on the path at the displayed tick.
+    for tick in 11..=30 {
         sample(&mut o, tick - 11, tick as f64);
     }
-    let drawn = present(&mut o, 6, 14.0).unwrap();
+    let drawn = present(&mut o, 20, 14.0).unwrap();
     assert!((drawn - 4.0).abs() < 1e-9, "drawn at {drawn}, sampled path is at 4");
-    // Its impact record at tick 17: flown into that point, then gone.
+    // Its impact record at tick 31: flown into that point, then gone.
     let x = &mut o.net_input[..nc::STRIDE];
     x.fill(0.0);
     x[nc::KIND] = nk::END as f64;
     x[nc::GENERATION] = 1.0;
     x[nc::SCHEMA] = 2.0;
-    x[nc::TICK] = 17.0;
-    x[nc::POSITION + 2] = 6.5;
-    assert!(present(&mut o, 1, 16.5).is_some());
-    assert_eq!(present(&mut o, 0, 17.0), None);
-    assert_eq!(present(&mut o, 0, 30.0), None);
+    x[nc::TICK] = 31.0;
+    x[nc::POSITION + 2] = 20.5;
+    assert!(present(&mut o, 1, 30.5).is_some());
+    assert_eq!(present(&mut o, 0, 31.0), None);
+    assert_eq!(present(&mut o, 0, 40.0), None);
 }
