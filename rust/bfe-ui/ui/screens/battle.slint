@@ -45,6 +45,7 @@ export {
 export struct BattleChatLine { text: string, color: color }
 
 export global BattleModel {
+    in-out property <string> stats-line;
     in-out property <[BattleChatLine]> chat-lines: [];
     in-out property <bool> chat-open: false;
     in-out property <string> chat-prompt;
@@ -618,7 +619,7 @@ export component BattleModalScreen inherits Rectangle {
 }
 
 component BattleChat inherits Rectangle {
-    property <length> size: clamp(14px, 1.5 * Theme.vw, 22px);
+    property <length> size: clamp(1.5 * Theme.vw, 14px, 22px);
     width: min(650px, 85 * Theme.vw);
     height: content.preferred-height;
     background: transparent;
@@ -696,6 +697,24 @@ export component BattleScreen inherits Rectangle {
 
     background: transparent;
 
+    if BattleModel.stats-line != "": Rectangle {
+        x: 16px;
+        y: parent.height - 6px - self.height;
+        width: parent.width - 32px;
+        height: 16.8px;
+        for offset in [1px, 0px]: Text {
+            y: offset - 1px;
+            width: parent.width;
+            height: parent.height;
+            text: BattleModel.stats-line;
+            font-family: Theme.monospace-font-family;
+            font-size: 12px;
+            font-weight: 400;
+            color: offset > 0px ? #000000 : #f2efe6;
+            vertical-alignment: center;
+        }
+    }
+
     if BattleModel.spawn-visible
         && BattleModel.page-spawn-look
         && !BattleModel.scoreboard-visible
@@ -715,6 +734,11 @@ export component BattleScreen inherits Rectangle {
         height: parent.height;
     }
 
+    if BattleModel.chat-open || BattleModel.chat-lines.length > 0: BattleChat {
+        x: parent.width * 0.03;
+        y: parent.height * 0.2;
+    }
+
     if BattleModel.pause-open || BattleModel.waiting-prompt-visible : BattlePauseScreen {
         x: 0px;
         y: 0px;
@@ -722,8 +746,4 @@ export component BattleScreen inherits Rectangle {
         height: parent.height;
     }
 
-    if BattleModel.chat-open || BattleModel.chat-lines.length > 0: BattleChat {
-        x: parent.width * 0.03;
-        y: parent.height * 0.2;
-    }
 }

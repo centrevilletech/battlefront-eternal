@@ -863,8 +863,7 @@ pub struct BattleController {
     pub(super) page_battle: super::page_battle::PageBattle,
     /// `bfe-battle-ui` in-battle text chat controller (`All` / `Team`).
     pub chat: ChatController,
-    stats_text: String,
-    stats_utf16: Vec<u16>,
+    pub(super) stats_text: String,
     frame_seconds: f64,
     /// Scratch quad batch used when compositing overlays onto `scene.bridge.hud_model.batch`.
     pub overlay_batch: Batch,
@@ -1290,7 +1289,6 @@ impl BattleController {
             page_battle,
             chat,
             stats_text: String::with_capacity(256),
-            stats_utf16: Vec::with_capacity(256),
             frame_seconds: 0.,
             overlay_batch: Batch::new(),
             size,
@@ -2080,8 +2078,12 @@ impl BattleController {
         let show_stats = settings.interface.get_bool("showStats");
         // Page overlays cover the browser's statistics element. Keep the
         // native diagnostic line below that same screen boundary.
-        if show_stats && !overlay_active { self.draw_stats_line(); }
-        self.scene.bridge.hud_sync_batch(full_sync || show_stats);
+        self.stats_text.clear();
+        if show_stats && !self.pause_menu.is_open && !self.spawn_ctrl.is_open()
+            && !self.scoreboard_ctrl.model.is_open() {
+            self.update_stats_line();
+        }
+        self.scene.bridge.hud_sync_batch(full_sync);
 
         // PageTheme is a compositor over the finished battle, just as its
         // CSS overlay is over the canvas. Defer only the pause UI until its
@@ -2396,21 +2398,13 @@ impl BattleController {
         dst.end = v1;
     }
 
-    // The stats hotkey is a visual preference. Reuse admitted text storage;
-    // enabling the line must not allocate in the steady render loop.
-    fn draw_stats_line(&mut self) {
+    // Format into retained storage; the page overlay supplies CSS-pixel sizing.
+    fn update_stats_line(&mut self) {
         use std::fmt::Write;
         self.stats_text.clear();
         let mean = self.frame_seconds / self.frames.max(1) as f64;
         let fps = if mean > 0. { 1. / mean } else { 0. };
         let _ = write!(&mut self.stats_text, "{fps:.0} fps | mean frame {:.2} ms | {}x{} Native", mean * 1000., self.size[0], self.size[1]);
-        self.stats_utf16.clear();
-        self.stats_utf16.extend(self.stats_text.encode_utf16());
-        let hud = &mut self.scene.bridge.hud_model;
-        // The glyphs hang down from y: leave the line's own height above the bottom edge.
-        let y = self.height - 8. - hud.fonts[0].height * 0.65;
-        hud.fonts[0].draw(&mut hud.batch, root_anchor(self.height), 8., y,
-            &self.stats_utf16, [1.; 4], 0, 0.65, 1., 0.);
     }
 
     // Pausing is a cold diagnostic boundary: record the actual displayed view
