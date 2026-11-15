@@ -1774,7 +1774,8 @@ impl StandaloneWindowApp {
     /// blits to the window surface, and checks for OpenGL errors.
     fn step_frame(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
-        let dt = (now - self.last_frame).as_secs_f64().clamp(0.001, 0.1);
+        let elapsed_dt = (now - self.last_frame).as_secs_f64();
+        let dt = elapsed_dt.clamp(0.001, 0.1);
         self.last_frame = now;
 
         // If no hardware `cpal` audio device is open, pump headless audio quantums so
@@ -2188,7 +2189,7 @@ impl StandaloneWindowApp {
                     }
                     bench::prof::mark(&battle.scene.bridge.r.core.gl, "between");
                     let transition = battle.step_and_draw(
-                        dt,
+                        elapsed_dt,
                         self.focused,
                         self.hidden,
                         &mut self.settings,
