@@ -21,10 +21,25 @@ use std::{
 };
 
 const UNIT_COLUMNS: &str =
-    r#"["id","kind","team","alive","health","x","y","z","vx","vy","vz","yaw","posture","state","weapon","fired","walkPhase","walkBlend"]"#;
+    r#"["id","kind","team","alive","health","x","y","z","vx","vy","vz","yaw","posture","state","weapon","fired","walkPhase","walkBlend","class"]"#;
 const POSTURES: [&str; 3] = ["stand", "crouch", "prone"];
 const KINDS: [&str; 4] = ["soldier", "droideka", "vehicle", "turret"];
 const GAITS: [&str; 9] = ["idle", "walk", "run", "walkBack", "runBack", "turnLeft", "turnRight", "walkLeft", "walkRight"];
+
+pub(super) fn observe_tows(receiver: &crate::online::receiver::Receiver) {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if !*ENABLED.get_or_init(|| std::env::var_os("BFE_BENCH").is_some()) { return; }
+    let Some((id, _, _)) = receiver.own.mount else { return; };
+    for field in receiver.publications.iter()
+        .filter(|field| field.row[r::KIND] == k::SUMMARY as f64 && field.row[r::SCHEMA] == 8.)
+    {
+        if let Ok(state) = serde_json::from_slice::<serde_json::Value>(&field.bytes[..field.length]) {
+            if state[0].as_f64() == Some(id as f64) {
+                eprintln!("bench: tow tick={} generation={} state={state}", field.row[r::TICK], field.row[r::GENERATION]);
+            }
+        }
+    }
+}
 
 fn value(key: &str) -> Option<String> {
     let query = std::env::var("BFE_BENCH").ok()?;
@@ -87,6 +102,8 @@ pub struct Bench {
     // `respawn=SECONDS`: the pause menu's RESPAWN that long after the spawn, once (the death and the screen
     // reopening behind the death camera).
     respawn: Option<f64>,
+    // `again=1`: spawn again, the same way, whenever the spawn screen opens after a death.
+    again: bool,
     alive_since: Option<std::time::Instant>,
     // `frames=PATH`: one line per drawn frame: wall ms, spawn screen open, picked class, picked post.
     frames: Option<BufWriter<File>>,
@@ -115,6 +132,7 @@ impl Bench {
             spawned: false,
             hold: value("hold").is_some(),
             respawn: value("respawn").and_then(|s| s.parse().ok()),
+            again: value("again").is_some(),
             alive_since: None,
             frames: value("frames").and_then(|path| File::create(path).ok().map(BufWriter::new)),
             waiting: "",
@@ -142,6 +160,10 @@ impl Bench {
 
     /// `captured`: the window holds the mouse, so its motion turns the player.
     pub fn step_battle(&mut self, battle: &mut BattleController, captured: bool) {
+        let alive = matches!(&battle.authority, BattleAuthority::InstantAction { receiver, .. } if receiver.own.alive);
+        if self.again && self.spawned && battle.spawn_ctrl.is_open() && !alive {
+            self.spawned = false;
+        }
         if !self.spawned && !self.hold && battle.spawn_ctrl.is_open() {
             let waiting = self.spawn(battle);
             if waiting != self.waiting {
@@ -277,8 +299,24 @@ impl Bench {
             write!(out, "[{},{rounds},{reserve},{:.3},{:.3}]", weapon.def.0, weapon.heat, weapon.reload_left)?;
         }
         out.write_all(b"]")?;
+        out.write_all(br#","weaponLocks":["#)?;
+        for (index, weapon) in replay.weapons().enumerate() {
+            if index != 0 { out.write_all(b",")?; }
+            serde_json::to_writer(&mut *out, &serde_json::json!({
+                "target": weapon.lock_target_id, "generation": weapon.lock_generation,
+                "elapsed": weapon.lock_elapsed, "complete": weapon.lock_complete,
+                "wait": weapon.wait, "charge": weapon.charge,
+            }))?;
+        }
+        out.write_all(b"]")?;
         write!(out, r#","mount":{},"vehicle":{},"flight":{}"#,
             serde_json::to_string(&own.mount)?, own.vehicle, serde_json::to_string(&own.flight)?)?;
+        write!(out, ",\"towLines\":{}", battle.scene.bridge.r.frames.line_counts[2])?;
+        if let Some((id, generation, _)) = own.mount {
+            if let Some(angles) = battle.scene.online.as_ref().and_then(|scene| scene.hulls.seat_angles((id, generation))) {
+                write!(out, r#","mountPose":{}"#, angles)?;
+            }
+        }
         // The reticle as drawn: its anchor on the screen (0..1, y down) and whether it shows.
         {
             use bfe_render::hud_model::layout::HudFrame as h;
@@ -291,6 +329,9 @@ impl Bench {
                 "pitch": hull.tilt, "roll": hull.roll, "health": hull.health,
                 "throttle": hull.throttle, "airspeed": hull.airspeed, "power": hull.power,
                 "stick": [hull.stick_x, hull.stick_y], "walk": replay.fleet.walk,
+                "predictionTick": replay.fleet.prediction_tick,
+                "authorityTick": own.tick, "continued": replay.fleet.continued,
+                "authorityPos": own.position, "authorityVelocity": own.velocity,
             }))?;
         }
         if let Some((animation, clips)) = battle.scene.online.as_ref().and_then(|scene| scene.own_animation(receiver)) {
@@ -316,11 +357,16 @@ impl Bench {
         let seated = receiver.active().find(|row| row[r::ID] == receiver.own.id).is_some_and(|row| row[r::SEAT_PRESENT] != 0.);
         write!(out, r#","seated":{seated}"#)?;
         let [cx, cy, cz] = camera.position;
-        write!(
-            out,
-            r#","cam":{{"pos":[{cx:.3},{cy:.3},{cz:.3}],"fov":{:.2}}}"#,
-            (2. * (1. / camera.snapshot().values[5]).atan()).to_degrees(),
-        )?;
+        let hud = &battle.scene.bridge.hud_model.input;
+        use bfe_render::hud_model::layout::HudFrame as h;
+        write!(out, r#","cam":{}"#, serde_json::json!({
+            "pos": [cx, cy, cz],
+            "fov": (2. * (1. / camera.snapshot().values[5]).atan()).to_degrees(),
+            "projection": &camera.snapshot().values[..16],
+            "inverse": &camera.snapshot().values[16..32],
+            "reticle": [hud[h::RETICLE], hud[h::RETICLE_X], hud[h::RETICLE_Y]],
+            "first": camera.first_person,
+        }))?;
         out.write_all(br#"},"units":["#)?;
         let mut first = true;
         for row in receiver.active() {
@@ -331,17 +377,22 @@ impl Bench {
             if !std::mem::replace(&mut first, false) {
                 out.write_all(b",")?;
             }
+            // Fixed turrets publish their building identity and aim; their
+            // placement belongs to matched content, not the transform slots.
+            let position = (kind == k::TURRET).then(|| battle.scene.online.as_ref()
+                .and_then(|scene| scene.buildings.position(row[r::BUILDING] as usize)))
+                .flatten().unwrap_or([row[r::POSITION], row[r::POSITION + 1], row[r::POSITION + 2]]);
             write!(
                 out,
-                r#"[{},"{}",{},{},{:.1},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.4},"{}",{},{},{},{:.4},{:.3}]"#,
+                r#"[{},"{}",{},{},{:.1},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.4},"{}",{},{},{},{:.4},{:.3},"{}"]"#,
                 row[r::ID],
                 KINDS[kind as usize],
                 row[r::TEAM],
                 row[r::DEAD] == 0. && row[r::HEALTH] > 0.,
                 row[r::HEALTH],
-                row[r::POSITION],
-                row[r::POSITION + 1],
-                row[r::POSITION + 2],
+                position[0],
+                position[1],
+                position[2],
                 row[r::VELOCITY],
                 row[r::VELOCITY + 1],
                 row[r::VELOCITY + 2],
@@ -352,7 +403,36 @@ impl Bench {
                 row[r::FIRE_COUNTER],
                 row[r::WALK_PHASE],
                 row[r::WALK_BLEND],
+                // A turret's class id names a turret definition, not a class.
+                if kind == k::TURRET { "" } else { battle.scene.online.as_ref().map_or("", |scene| scene.class_name(row[r::CLASS_ID] as usize)) },
             )?;
+        }
+        out.write_all(b"]")?;
+        out.write_all(br#","turrets":["#)?;
+        for (index, row) in receiver.active().filter(|row| row[r::KIND] == k::TURRET as f64).enumerate() {
+            if index != 0 { out.write_all(b",")?; }
+            serde_json::to_writer(&mut *out, &serde_json::json!({
+                "id": row[r::ID], "generation": row[r::GENERATION],
+                "building": row[r::BUILDING], "health": row[r::HEALTH], "state": row[r::STATE],
+                "yaw": row[r::YAW], "pitch": row[r::PITCH],
+                "gunYaw": row[r::GUN_YAW], "gunPitch": row[r::GUN_PITCH],
+            }))?;
+        }
+        out.write_all(b"]")?;
+        out.write_all(br#","debris":["#)?;
+        if let Some(scene) = battle.scene.online.as_ref() {
+            for (index, piece) in scene.combat.debris.pieces().iter().enumerate() {
+                if index != 0 { out.write_all(b",")?; }
+                serde_json::to_writer(&mut *out, &serde_json::json!({
+                    "id": piece.id,
+                    "position": [piece.position.x, piece.position.y, piece.position.z],
+                    "quaternion": [piece.quaternion.x, piece.quaternion.y, piece.quaternion.z, piece.quaternion.w],
+                    "velocity": [piece.velocity.x, piece.velocity.y, piece.velocity.z],
+                    "lift": piece.lift, "thin": piece.thin, "resting": piece.resting,
+                    "left": piece.left, "flight": piece.flight,
+                    "smoke": piece.smoke.is_some(), "settling": piece.settle.is_some(),
+                }))?;
+            }
         }
         out.write_all(b"]")?;
         out.write_all(br#","buildings":["#)?;
