@@ -275,15 +275,6 @@ pub struct ContentCandidateEnv {
 }
 
 /// Returns the ordered, deduplicated list of candidate prepared content directories.
-///
-/// Order:
-/// 1. `--content` / `--content-dir` CLI flag
-/// 2. `BFE_CONTENT_DIR` environment variable
-/// 3. `<userData>/content` and `<userData>/game-data`
-/// 4. Packaged `<resourcesPath>/content` and `<execDir>/content`, or unpackaged
-///    `<projectRoot>/public`, `<projectRoot>/content`, `<cwd>/public`, `<cwd>/content`
-///
-/// Mirrors `contentCandidates` in the desktop host.
 pub fn content_candidates(opts: &ContentCandidateEnv) -> Vec<PathBuf> {
     let mut raw = Vec::new();
     if let Some(cli) = parse_content_arg(&opts.argv, &opts.cwd) {

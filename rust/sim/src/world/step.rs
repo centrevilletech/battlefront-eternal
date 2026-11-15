@@ -75,7 +75,6 @@ impl World {
     }
 }
 
-// The WASM facade decodes inputs and encodes the completed value only.
 pub fn world_step_init_in(w: &mut World) -> Option<&mut [f64]> {
     let setup={let(row,heap)=w.sim.calls.args();WorldTickSetup::take(row,heap)};
     w.step_init(&setup); Some(&mut w.tick.input[..])

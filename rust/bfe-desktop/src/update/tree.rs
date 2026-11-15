@@ -110,11 +110,6 @@ pub fn read_bundled_tree(dir: &Path) -> Option<Vec<TreeFileEntry>> {
 
 /// Indexes an installation directory by SHA-256 -> local file path using its
 /// `bfe-tree.json` (or `.bfe-install.json`) manifest.
-///
-/// Only entries whose relative path is safe, whose SHA-256 is 64 lowercase hex digits,
-/// and whose file currently exists on disk with the declared byte size are included.
-///
-/// Mirrors `indexTree` in the desktop host.
 pub fn index_tree(dir: &Path) -> BTreeMap<String, PathBuf> {
     let mut index = BTreeMap::new();
     let Some(files) = read_bundled_tree(dir) else {

@@ -93,12 +93,6 @@ pub struct LocalDedicatedServer {
 
 impl LocalDedicatedServer {
     /// Starts the local dedicated server (`export async function startLocalServer` in `src/local-server.js`).
-    ///
-    /// Binds:
-    /// 1. `UdpGameServer` on UDP `config.game_port` (default `18451`).
-    /// 2. `/info` HTTP server on TCP `actual_port` (`18451`).
-    /// 3. `LanDiscoveryResponder` on UDP `config.discovery_port` (default `18452`) unless `config.discovery == false`.
-    /// 4. The 60 Hz world tick thread hosting `NativeWorldHost`.
     pub fn start<B, S>(
         config: &ServerConfig,
         identity: &ServerIdentity,

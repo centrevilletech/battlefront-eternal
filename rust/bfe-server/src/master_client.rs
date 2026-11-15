@@ -250,10 +250,6 @@ impl MasterClient {
     /// Opens the persistent signaling WebSocket to the master server using a single-use ticket
     /// from `POST /api/servers/ws-ticket`, porting `MasterClient.connect()` in
     /// `packages/bfe-server/src/master-client.js`.
-    ///
-    /// Spawns a background reader thread (`ws_loop`) that forwards incoming `SignalEnvelope`
-    /// messages (client join offers, ICE/UDP punch candidates) as `MasterEvent::Signal` and
-    /// triggers exponential-backoff reconnection (`1s, 2s, 4s, ..., 30s`) on disconnect.
     pub fn connect(&self, events_tx: Sender<MasterEvent>) -> Result<(), String> {
         let ticket_resp = self
             .request("/v1/signal-ticket", "POST", Some(&serde_json::json!({})), 0)

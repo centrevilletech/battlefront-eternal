@@ -79,14 +79,6 @@ fn apply_file_mode(path: &Path, mode: Option<u32>) {
 }
 
 /// Indexes local candidate files across `sources` (`[own_dir, bootstrap_dir, ...installed_versions]`).
-///
-/// When a source directory has a pre-computed tree index (`resources/bfe-tree.json` or
-/// `.bfe-install.json` with a `files` array), indexes those entries directly after
-/// checking file existence and size. When a source directory does not have a tree index
-/// (such as a version installed by an older updater that wrote `"files": <count>` in
-/// `.bfe-install.json`), matches manifest paths in `dir` by size and SHA-256 digest.
-///
-/// Mirrors `localFiles` in the desktop host.
 fn local_files(
     sources: &[PathBuf],
     manifest_files: &[ManifestFileEntry],
@@ -126,13 +118,6 @@ fn local_files(
 }
 
 /// Places a file at `dest` from an existing local installation file `source`.
-///
-/// On Linux, when `source` already lives inside `root` (`<root>/versions/<prev>/...`),
-/// hard-links `source` to `dest` first to avoid duplicating disk blocks across
-/// installed versions. When `source` lives outside `root` (e.g. a system `/opt` package
-/// or temporary AppImage mount), copies `source` to `dest` and applies `mode`.
-///
-/// Mirrors `placeFromLocal` in the desktop host.
 pub fn place_from_local(
     source: &Path,
     dest: &Path,
@@ -304,13 +289,6 @@ pub struct InstallOutcome {
 }
 
 /// Installs a verified [`PlatformManifest`] into `<root>/versions/<version>`.
-///
-/// Stages all files inside `<root>/staging/<version>-<pid>`, reusing any file whose
-/// SHA-256 matches an entry in `opts.local_trees` and downloading remaining files from
-/// `<base_url>/updates/blobs/<aa>/<sha256>.zst`. Writes `.bfe-install.json` last and
-/// renames the staging directory into `<root>/versions/<version>`.
-///
-/// Mirrors `installRelease` in the desktop host.
 pub fn install_release<F>(
     opts: &InstallReleaseOptions,
     mut on_progress: Option<F>,

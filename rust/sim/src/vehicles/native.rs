@@ -87,7 +87,6 @@ const TOGGLED: u8 = 1;
 const PLACED: u8 = 2;
 
 // CollisionWorld's page cache keys must stay inside the admitted bank.
-// Keep the bound independent of the WASM facade for native fixture readers.
 fn retained_cache(caches: &mut [GatherCache], id: i64) -> Option<&mut GatherCache> {
     caches.get_mut(usize::try_from(id).ok()?)
 }

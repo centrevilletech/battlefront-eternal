@@ -254,8 +254,6 @@ fn trailing_digits(s: &str) -> Option<&str> {
 ///   with `(NEEDS M<maps> S<sides> C<common>)` when `prepared.current == Some(false)`,
 ///   or `GAME DATA NOT PREPARED` when `about.prepared` is `None`),
 ///   joined by three spaces (`"   "`).
-///
-/// Mirrors `versionLine(about, simulation)` in `src/shell/version.js`.
 pub fn version_line(about: Option<&AboutInfo>, simulation: Option<&str>) -> String {
     let mut parts = Vec::with_capacity(3);
     // 1. Build segment: `PREVIEW <N>`, `VERSION <VER>`, or `WEB BUILD`.

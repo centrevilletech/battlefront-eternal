@@ -131,9 +131,8 @@ pub struct Output {
     pub placements: Vec<Placement>,
     pub mixer: Mixer,
     pub master: Option<Master>,
-    // io and cfg are synchronous ABI staging, not shared-memory mailboxes.
-    // The host must finish writing before applying a command and must refresh
-    // its typed views if an upload grows WASM memory.
+    // io and cfg are synchronous staging, not shared-memory mailboxes: the
+    // host finishes writing before applying a command.
     pub io: [f64; 64],
     pub cfg: Vec<f64>,
     pub commands: Vec<f64>,

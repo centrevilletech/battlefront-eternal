@@ -36,7 +36,7 @@ STANDALONE OPTIONS:
 /// Options for the default standalone native game mode (`CliDispatch::Standalone`).
 ///
 /// Controls window geometry, OpenGL context profile selection, audio device
-/// opening, startup content overrides, and automated `--script gate` choreography.
+/// opening, startup content overrides, and scripted runs (`--script`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct StandaloneOptions {
     /// Optional explicit prepared content directory (`--content-dir` or positional `CONTENT_DIR`).
@@ -53,9 +53,9 @@ pub struct StandaloneOptions {
     pub skip_update_check: bool,
     /// Optional scripted run (`--script ia:<MAP>` or `--script platform-smoke`).
     pub script: Option<String>,
-    /// Optional directory where `--script gate` writes PNG screenshots and `gate-summary.json`.
+    /// Optional directory where a scripted run writes screenshots and `gate-summary.json`.
     pub shots_dir: Option<PathBuf>,
-    /// Optional `HOST:PORT` target for the online leg of `--script gate` (`--server`).
+    /// Optional `HOST:PORT` server the browser pins (`--server`).
     pub server_target: Option<String>,
 }
 

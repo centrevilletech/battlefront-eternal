@@ -73,12 +73,6 @@ pub struct ChildEnvOptions {
 }
 
 /// Builds the environment map for a handed-off child version.
-///
-/// Preserves the outermost `BFE_BOOTSTRAP_DIR`,
-/// `BFE_BOOTSTRAP_VERSION`, and `BFE_APPIMAGE`, and sets `BFE_LAUNCH_DIR` and
-/// `BFE_LAUNCH_TOKEN` for the immediate child hop.
-///
-/// Mirrors `childEnvironment` in the desktop host.
 pub fn child_environment(opts: &ChildEnvOptions) -> BTreeMap<String, String> {
     let mut env = opts.base_env.clone();
     if let Some(dir) = &opts.bootstrap_dir {
@@ -131,11 +125,6 @@ pub fn child_environment(opts: &ChildEnvOptions) -> BTreeMap<String, String> {
 
 /// Writes `<BFE_LAUNCH_DIR>/<BFE_LAUNCH_TOKEN>` containing `<pid>\n` using an atomic
 /// temporary file rename inside `BFE_LAUNCH_DIR`.
-///
-/// Returns `true` if a valid launch token was present and the file was written, or
-/// `false` if no valid token/directory was provided or writing failed.
-///
-/// Mirrors `signalReady` in the desktop host.
 pub fn signal_ready_with(env_map: &BTreeMap<String, String>, pid: u32) -> bool {
     let Some(token) = env_map.get("BFE_LAUNCH_TOKEN").filter(|s| !s.is_empty()) else {
         return false;
@@ -231,11 +220,6 @@ pub struct LaunchOutcome {
 
 /// Spawns `opts.target.executable` detached with a fresh `BFE_LAUNCH_TOKEN` and polls
 /// `<root>/launches/<token>` every [`READY_POLL_MS`] up to `opts.timeout_ms`.
-///
-/// If the child does not write its readiness token before exiting or before `timeout_ms`
-/// elapses, kills the child (on timeout), cleans up the token file, and returns `ok: false`.
-///
-/// Mirrors `launchVersion` in the desktop host.
 pub fn launch_version(opts: &LaunchOptions) -> LaunchOutcome {
     if opts.target.executable.as_os_str().is_empty() || !opts.target.executable.exists() {
         return LaunchOutcome {
@@ -412,14 +396,6 @@ struct RawReleaseJson {
 }
 
 /// Reads version and channel metadata from `own_dir`.
-///
-/// Search order:
-/// 1. `<own_dir>/resources/bfe-release.json`
-/// 2. `<own_dir>/bfe-release.json`
-/// 3. `<own_dir>/package.json` (`version` and `bfeUpdateChannel`)
-/// 4. `<own_dir>/.bfe-install.json` (`version`, defaulting channel to `"development-preview"`)
-///
-/// Mirrors `readReleaseInfo` in the desktop host.
 pub fn read_release_info(own_dir: &Path) -> ReleaseInfo {
     for rel in ["resources/bfe-release.json", "bfe-release.json"] {
         let candidate = own_dir.join(rel);

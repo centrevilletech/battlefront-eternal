@@ -1223,7 +1223,7 @@ fn apply_setting_in(world_ctx: &mut crate::world::owner::World, reference:Ref<Un
     }
 }
 
-// A missing service is a rejected boundary operation, not a WASM trap. Keep
+// A missing service is a rejected boundary operation, not a panic. Keep
 // the current native frame valid until the outer phase reports its failure.
 pub(crate) fn fail_in(units: &mut super::owner::Units) {if active_in(units) {units.state.as_mut().expect("prepared unit service").failed=true;units.state.as_mut().expect("prepared unit service").layout.accepted=false;}}
 macro_rules! required_services {
@@ -1232,7 +1232,7 @@ macro_rules! required_services {
 pub(crate) use required_services;
 
 /// Unit.onMoved's aimer returns deltas in a generated block. Applying them
-/// after the import preserves scalar write order without nested WASM exports.
+/// after the import preserves scalar write order.
 pub(crate) fn begin_aimer_in(units: &mut super::owner::Units) {
     { let state = units.state.as_mut().expect("prepared unit service"); F3AimHeader { count: 0 }.put(&mut state.aim_header, &mut state.block.heap); }
 }

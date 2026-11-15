@@ -116,8 +116,6 @@ pub fn screen_media_of(id: &str) -> ScreenMediaSpec {
 /// (default `4.0 / 3.0`):
 /// `w = 530 * (1 + target_aspect - width / height) * (width / 800)`,
 /// `h = 400 * (height / 600)`.
-///
-/// Mirrors `previewRect(width, height, targetAspect)` in `src/shell/media.js`.
 pub fn preview_rect_with_aspect(width: f64, height: f64, target_aspect: f64) -> [f64; 4] {
     let w = 530.0 * (1.0 + target_aspect - width / height) * (width / 800.0);
     let h = 400.0 * (height / 600.0);

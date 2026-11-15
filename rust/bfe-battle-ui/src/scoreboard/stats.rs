@@ -616,11 +616,6 @@ pub trait ScoreboardPort {
 
 /// Self-contained implementation of `ScoreboardPort` backed by a slice of `CharacterStatsEntry`
 /// (`scoreboardPort` in `src/scoreboard/port.js`).
-///
-/// Stores the world's `CharacterStatsEntry` roster, team headers (`REPUBLIC` and `CIS` by default),
-/// local `human_team`, match lifecycle flags (`over`, `game_over`, `finished`), restart availability
-/// (`can_restart`, `restarted_count`), and ODF display-name lookup maps (`class_labels`,
-/// `weapon_labels`, `vehicle_labels`, matching `contentLabels` in `src/battle-stats.js`).
 #[derive(Clone, Debug, Default)]
 pub struct WorldScoreboardPort {
     pub family: GameFamily,

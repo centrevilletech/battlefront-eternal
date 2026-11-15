@@ -1145,7 +1145,6 @@ impl Fleet {
     }
 }
 
-// facade shims: callers outside the fleet bindings still enter through WASM.
 
 
 #[cfg(test)]

@@ -764,13 +764,6 @@ fn read_exact_at(file: &mut File, offset: u64, len: usize) -> Result<Vec<u8>, St
 }
 
 /// Parses the ZIP / ZIP64 central directory of `file`.
-///
-/// Mirrors the `yauzl.open` central directory reader in `importContent` in the desktop host.
-///
-/// Scans backwards from the end of `file` to find the 22-byte End of Central Directory
-/// (EOCD) record, checks for a preceding 20-byte ZIP64 EOCD Locator (`PK\x06\x07`) and
-/// 56-byte ZIP64 EOCD record (`PK\x06\x06`), and parses every central directory entry
-/// into a `BTreeMap` keyed by entry name.
 pub fn read_zip_entries(file: &mut File) -> Result<BTreeMap<String, ZipEntryInfo>, String> {
     let total_size = file
         .metadata()
@@ -1026,11 +1019,6 @@ fn read_entry_bytes(
 
 /// Streams one ZIP entry (stored or deflated) to `dest`, verifying its CRC-32 and its
 /// manifest SHA-256 as the bytes pass, and calls `on_bytes` for every chunk.
-///
-/// Ports the per-entry loop of `importContent`: the target is created exclusively
-/// (`wx`), the hash is checked after the last byte (`Checksum mismatch: ...`), and the
-/// manifest's `mtime` is applied when it is finite. The callback runs every 64 KiB at
-/// most, so progress follows the bytes and an `Err` (a cancel) stops the copy at once.
 fn extract_entry_to_file(
     file: &mut File,
     entry: &ZipEntryInfo,
@@ -1137,15 +1125,6 @@ fn valid_sha256(sha: &str) -> bool {
 }
 
 /// Validates a parsed [`ArchiveManifest`] and returns the total byte count of its records.
-///
-/// Ports `validateManifest` in `electron/content-archive.js`, rule for rule and in its order:
-/// 1. `format`, `version` and a non-empty file list within `MAX_FILES`.
-/// 2. Per record: a content-only safe path, no duplicate path, no case variant that is not a
-///    `linkTo` alias with the same hash and size, a safe-integer size and a lowercase SHA-256,
-///    and a running total within `MAX_BYTES`.
-/// 3. Every `linkTo` names a stored (non-alias) record with the same hash and size.
-/// 4. `common/common.json` and at least one `maps/<id>/map.json` are present.
-/// 5. `source`, when present, is a `GameData` fingerprint of at most `MAX_FILES` safe records.
 pub fn validate_manifest(manifest: &ArchiveManifest) -> Result<u64, String> {
     if manifest.format != ARCHIVE_FORMAT
         || manifest.version != ARCHIVE_VERSION
@@ -1605,11 +1584,6 @@ pub fn import_content(
 /// (`Importing and verifying`, then `Restoring shared content`), as `onProgress` does in the
 /// browser build. The callback runs at least every 64 KiB of data; an `Err` from it cancels
 /// the import, removes the staging directory and is returned unchanged.
-///
-/// Ports `importContent`: stage into `.import-<id>`, extract and verify every stored file,
-/// restore the `linkTo` aliases, keep the manifest as `.bfe-import.json`, then rename the
-/// staging directory to `content-<id>`. Whether the content is current for this version is
-/// decided afterwards by the startup check, exactly as for a content folder.
 pub fn import_content_with_progress(
     archive_path: &Path,
     destination_parent: &Path,

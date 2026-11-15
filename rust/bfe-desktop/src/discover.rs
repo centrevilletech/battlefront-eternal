@@ -104,12 +104,6 @@ pub struct ContentInfo {
 }
 
 /// Inspects `dir` to see if it is a valid prepared content folder.
-///
-/// A folder is considered prepared content when `<dir>/common/common.json` exists.
-/// Returns the resolved directory path and the sorted list of map subdirectories
-/// inside `<dir>/maps`.
-///
-/// Mirrors `inspectContent` in the desktop host.
 pub fn inspect_content(dir: &Path) -> Option<ContentInfo> {
     if dir.as_os_str().is_empty() {
         return None;
@@ -180,12 +174,6 @@ impl Default for SearchContentOptions {
 }
 
 /// Breadth-first searches `root` for the richest prepared content directory.
-///
-/// Stops descending into any directory that already contains a valid `common/common.json`,
-/// skips symlinks, hidden dot-directories, and names in [`SKIP_DIRS`], and respects
-/// `depth`, `budget_ms`, and `max_dirs`.
-///
-/// Mirrors `searchContent` in the desktop host.
 pub fn search_content(root: &Path, opts: &SearchContentOptions) -> Option<ContentInfo> {
     if root.as_os_str().is_empty() {
         return None;
@@ -301,12 +289,6 @@ pub fn find_content(opts: &FindContentOptions) -> Option<ContentInfo> {
 }
 
 /// Finds a direct child entry of `dir` matching `name` case-insensitively.
-///
-/// Performs an exact probe first (`dir.join(name)`), then scans directory entries
-/// comparing lowercase names so Linux/macOS case-sensitive filesystems still resolve
-/// retail `GameData/Data/_LVL_PC/Common/ENG/common.lvl` paths regardless of casing.
-///
-/// Mirrors `childIgnoreCase` in the desktop host.
 pub fn child_ignore_case(dir: &Path, name: &str) -> Option<PathBuf> {
     let direct = dir.join(name);
     if direct.exists() {
@@ -346,12 +328,6 @@ pub struct ValidatedInstall {
 }
 
 /// Inspects `dir` to verify that it contains a genuine Star Wars Battlefront (2004) install.
-///
-/// Checks that `<dir>/GameData/Data/_LVL_PC` has both a `SIDE` directory and a
-/// `Common` directory containing at least one language subfolder with `common.lvl`
-/// (e.g. `Common/ENG/common.lvl`), distinguishing SWBF1 from SWBF2.
-///
-/// Mirrors `inspectInstall` in the desktop host.
 pub fn inspect_install(dir: &Path) -> Option<ValidatedInstall> {
     let lvl = walk_ignore_case(dir, &["GameData", "Data", "_LVL_PC"])?;
     let side = child_ignore_case(&lvl, "SIDE")?;
@@ -737,12 +713,6 @@ fn common_folders(library: &Path) -> Vec<PathBuf> {
 }
 
 /// Discovers Wine and CrossOver prefix directories under `home` that contain `drive_c`.
-///
-/// Checks `~/.wine`, every subdirectory of `~/Games/*`, and every CrossOver bottle
-/// under `~/Library/Application Support/CrossOver/Bottles/*`, keeping only directories
-/// that contain a `drive_c` subdirectory.
-///
-/// Mirrors `winePrefixes` in the desktop host.
 fn wine_prefixes(home: Option<&Path>) -> Vec<PathBuf> {
     let Some(h) = home else {
         return Vec::new();
@@ -1098,12 +1068,6 @@ pub fn find_game_installs(opts: &FindGameOptions) -> Vec<GameInstall> {
 }
 
 /// Returns the highest-priority game installation discovered by [`find_game_installs`].
-///
-/// Returns `None` when no valid Star Wars Battlefront (2004) installation is found
-/// in any user-chosen folder, Steam library, GOG registry/Heroic manifest, or
-/// standard parent folder.
-///
-/// Mirrors `findGameInstall` in the desktop host.
 pub fn find_game_install(opts: &FindGameOptions) -> Option<GameInstall> {
     find_game_installs(opts).into_iter().next()
 }

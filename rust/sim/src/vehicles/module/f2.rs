@@ -245,8 +245,7 @@ fn activate_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>) {
 /// each publication; output blocks may move, so their pointers are republished.
 
 // Vehicles construction supplies pad descriptions and fixed class names.
-// The descriptor is a generated record; buffers remain battle-local because
-// one WASM instance owns one battle and its callback stack.
+// The descriptor is a generated record; buffers are battle-local.
 pub(crate) fn f2_init_in(world_ctx: &mut crate::world::owner::World, json: u32, time: f64, acc: f64) -> Option<&[f64]> {
     let text = String::from_utf16_lossy(world_ctx.sim.strings.units(StrId(json)));
     let value = bfe_content::json::parse(&text).expect("F2 pad descriptions");

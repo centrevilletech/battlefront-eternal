@@ -1344,6 +1344,9 @@ impl Combat {
         // and its bounce plays in this frame's batch.
         self.debris.step(dt, &mut self.effects, &mut self.total_effects, &mut self.refused);
         self.map_effects.update(&mut self.effects, dt);
+        for at in std::mem::take(&mut self.map_effects.blasts) {
+            self.destruction.blast(at);
+        }
         self.hull_fx.apply(&mut self.effects);
         // A wrecked hull's chunks, each from its node (else the root).
         for wreck in std::mem::take(&mut self.hull_fx.wrecks) {
