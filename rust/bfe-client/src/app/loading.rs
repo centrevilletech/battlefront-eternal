@@ -37,7 +37,7 @@ impl Work {
         settings: &AppSettingsStore,
         audio: Arc<SharedAudioRouter>,
         server_target: &Option<String>,
-        load: impl FnMut() -> glow::Context + 'static,
+        mut load: impl FnMut() -> glow::Context + 'static,
     ) -> Result<(), String> {
         if !self.started {
             let (tx, rx) = mpsc::sync_channel(1);
@@ -45,6 +45,7 @@ impl Work {
             let target = target.clone();
             let server_target = server_target.clone();
             let snapshot = settings.clone();
+            let textures=crate::scene::TextureOptions::discover(&load(),snapshot.interface.get_bool("textureCompression"));
             std::thread::Builder::new()
                 .name("bfe-battle-admission".into())
                 .stack_size(8 << 20)
@@ -59,6 +60,7 @@ impl Work {
                             playlist_index,
                             snapshot.interface.get_string("aiMode") != "off",
                             &snapshot.player.profile_name,
+                            textures,
                         )
                         .map(Admitted::Instant),
                         BattleLoadTarget::Online { launch } => BattleController::prepare_online(
@@ -66,6 +68,7 @@ impl Work {
                             launch,
                             server_target,
                             &snapshot,
+                            textures,
                         )
                         .map(Admitted::Online),
                     };

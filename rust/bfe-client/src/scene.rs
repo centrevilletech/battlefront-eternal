@@ -257,9 +257,21 @@ fn set(view: &mut View, name: &str, values: &[f64]) {
     }
 }
 
-/// A sealed, exclusively owned graph of decoded CPU assets. Its constructors
-/// accept filesystem paths, never an existing Rc or a renderer resource.
-/// No reference into this graph escapes before open_prepared consumes it.
+#[derive(Clone,Copy)]
+pub(crate) struct TextureOptions{pub compressed:bool,pub max_size:u32,pub capabilities:u32}
+impl TextureOptions{
+    pub fn discover(gl:&glow::Context,compressed:bool)->Self{
+        let ext=gl.supported_extensions();
+        let mut capabilities=0;
+        if ext.contains("GL_KHR_texture_compression_astc_ldr"){capabilities|=1;}
+        if ext.contains("GL_ARB_texture_compression_bptc")||ext.contains("GL_EXT_texture_compression_bptc"){capabilities|=2;}
+        if ext.contains("GL_EXT_texture_compression_s3tc"){capabilities|=4;}
+        if ext.contains("GL_ARB_ES3_compatibility"){capabilities|=8;}
+        if bfe_render::texture_format::unpacks_bc7(&unsafe{gl.get_parameter_string(glow::RENDERER)}){capabilities|=64;}
+        Self{compressed,max_size:unsafe{gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE)}.max(1) as u32,capabilities}
+    }
+}
+/// Exclusively owned CPU assets moved from admission to the GL thread.
 pub(crate) struct Prepared {
     spawn_objectives: [Vec<String>; 2],
     spawn_vehicles: std::collections::HashMap<String, [Vec<String>; 2]>,
@@ -283,6 +295,7 @@ pub(crate) struct Prepared {
     prepared_sound: Option<crate::online::sound_data::Prepared>,
     used: Vec<bool>,
     live: bool,
+    shadow_size: usize,
 }
 // SAFETY: Rc aliases exist only inside this sealed asset graph. Loader and
 // preparation temporaries are dropped before construction returns. There are
@@ -290,6 +303,9 @@ pub(crate) struct Prepared {
 // Moving its sole owner between threads cannot race a reference count; once
 // consumed by open_prepared, its ordinary Rc-bearing outputs are !Send again.
 unsafe impl Send for Prepared {}
+impl Prepared{
+    pub fn shadows(&mut self,choice:&str){let(count,size)=crate::shadows::quality(choice);self.features[L::FEATURES_SHADOWS]=count as u32;self.features[L::FEATURES_CSM]=(count>0) as u32;self.shadow_size=size;}
+}
 
 pub struct Scene {
     pub spawn_objectives: [Vec<String>;2],
@@ -314,10 +330,14 @@ pub struct Scene {
     render_size: [i32; 2],
     reduced_far_terrain: bool,
     shadows_enabled: bool,
+    shadow_bones: usize,
+    shadow_size: usize,
+    features: [u32; L::FEATURES_LENGTH],
     bump_mapping: bool,
     terrain_detail: bool,
     post_images: Vec<(u32, u32, u32, usize, f64)>,
     post_mode: usize,
+    blur_downsize: f64,
     profile_start: Option<std::time::Instant>,
     profile_rss_after: bool,
     bloom: bool,
@@ -342,7 +362,7 @@ pub struct Scene {
     frame: Option<SceneFrame>,
     // Graphics.textures: the content's images, which follow the anisotropy
     // setting, and the value they were last given.
-    filtered: Vec<u32>,
+    filtered: Vec<(u32,bool)>,
     anisotropy: f64,
     pub online: Option<Box<crate::online::replicas::Replicas>>,
 }
@@ -413,12 +433,12 @@ impl Scene {
         root: &Path,
         query: &str,
         size: [i32; 2],
-        load: impl FnMut() -> glow::Context,
+        mut load: impl FnMut() -> glow::Context,
     ) -> Result<(Self, MapCamera), String> {
-        let prepared = Self::prepare_online(root, query)?;
+        let prepared = Self::prepare_online(root, query,TextureOptions::discover(&load(),true))?;
         crate::loading_work::finish(Self::open_prepared(prepared, size, load))
     }
-    pub(crate) fn prepare_online(root: &Path, query: &str) -> Result<Prepared, String> {
+    pub(crate) fn prepare_online(root: &Path, query: &str, textures:TextureOptions) -> Result<Prepared, String> {
         let selection = bfe_content::mission::Query::parse(query);
         let map = if selection.get("map").is_empty() {
             "nab2"
@@ -426,7 +446,9 @@ impl Scene {
             selection.get("map")
         };
         let mut loader = Loader::new(root);
-        loader.compressed = false;
+        loader.compressed = textures.compressed;
+        loader.max_texture_size=textures.max_size;
+        loader.texture_capabilities=textures.capabilities;
         Self::prepare_scene(loader.load(map, query)?, map, None, true)
     }
     fn admit(
@@ -435,7 +457,7 @@ impl Scene {
         size: [i32; 2],
         random_values: Option<&[f64]>,
         live: bool,
-        load: impl FnMut() -> glow::Context,
+        mut load: impl FnMut() -> glow::Context,
     ) -> Result<(Self, MapCamera), String> {
         let prepared = Self::prepare_scene(content, map, random_values, live)?;
         crate::loading_work::finish(Self::open_prepared(prepared, size, load))
@@ -646,7 +668,7 @@ impl Scene {
             0
         };
         let mut features = [0; L::FEATURES_LENGTH];
-        features[L::FEATURES_SHADOWS] = if live { crate::shadows::COUNT as u32 } else { 0 };
+        features[L::FEATURES_SHADOWS] = if live { 4 } else { 0 };
         features[L::FEATURES_CSM] = live as u32;
         features[L::FEATURES_POINTS] = (ORDNANCE_LIGHTS + posts) as u32;
         let prepared_views = if live {
@@ -730,7 +752,7 @@ impl Scene {
             prepared_hud,
             prepared_sound,
             used,
-            live,
+            live, shadow_size:2048,
         })
     }
     pub(crate) async fn open_prepared(
@@ -759,7 +781,7 @@ impl Scene {
             prepared_hud,
             prepared_sound,
             used,
-            live,
+            live, shadow_size,
         } = prepared;
         crate::loading_work::frame().await;
         let canvas = Canvas::new(load(), size)?;
@@ -767,6 +789,8 @@ impl Scene {
         resources.canvas = Some(canvas.framebuffer);
         let mut bridge = Bridge::new_boxed(load(), Ranges::new(load()));
         bridge.r.core.canvas_framebuffer = Some(canvas.framebuffer);
+        let shadow_count=features[L::FEATURES_SHADOWS] as usize;
+        bridge.r.cameras.input[bfe_render::cameras::layout::input::CASCADE_COUNT]=shadow_count as f64;
         let sampling = &content_sampling(1.);
         let mut textures = vec![u32::MAX; content.textures.images.len()];
         let mut filtered = Vec::new();
@@ -776,14 +800,16 @@ impl Scene {
             if !used[i] {
                 continue;
             }
-            if image.format != bfe_render::texture_format::Format::Rgba {
-                return Err("inspection expects decoded RGBA assets".into());
-            }
-            let source=resources.source(&serde_json::json!({"width":image.width,"height":image.height,"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1009,"srgb":false}).to_string())?;
-            resources.source_pixels(source, &image.data)?;
-            let sample = resources.sample(source, sampling)?;
+            let compressed=image.format!=bfe_render::texture_format::Format::Rgba||image.mips.len()>1;
+            let source=resources.source(&serde_json::json!({"width":image.width,"height":image.height,"depth":1,"target":glow::TEXTURE_2D,"format":image.format.descriptor(),"dataType":1009,"srgb":false}).to_string())?;
+            if compressed{
+                let mips=image.mips.iter().map(|m|serde_json::json!({"width":m.width,"height":m.height,"offset":m.offset,"length":m.length})).collect::<Vec<_>>();
+                resources.source_blocks(source,&image.data,&serde_json::to_string(&mips).map_err(|e|e.to_string())?)?;
+            }else{resources.source_pixels(source,&image.data)?;}
+            let sampling=if compressed{sampling.replace("\"mipmaps\":true","\"mipmaps\":false")}else{sampling.clone()};
+            let sample = resources.sample(source, &sampling)?;
             resources.upload(sample)?;
-            filtered.push(sample);
+            filtered.push((sample,compressed));
             textures[i] = bridge.r.core.add_texture(resources.texture(sample)?);
             if i % 8 == 7 {
                 crate::loading_work::frame().await;
@@ -841,7 +867,7 @@ impl Scene {
             ocean_mask = bridge.r.core.add_texture(resources.texture(sample)?);
         }
         let mut static_content =
-            crate::static_scene::props(&mut bridge, &content, &textures, placed, if live { crate::shadows::COUNT } else { 0 })?;
+            crate::static_scene::props(&mut bridge, &content, &textures, placed, shadow_count)?;
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         for (class, image) in foliage.iter().zip(foliage_images) {
@@ -1016,33 +1042,15 @@ impl Scene {
         // must stay outside the live program bank, never alias world shader 0.
         use bfe_render::post_chain::layout::{facts as pf, program as pp};
         bridge.r.post_chain.input[pf::PROGRAMS..pf::PROGRAMS + pp::COUNT].fill(u32::MAX as f64);
-        let mut post_images = Vec::new();
+        let post_images = Vec::new();
         let frame = if live {
             let source = resources.source(&frame_image(size))?;
             let sample = resources.sample(source, r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
             let target = resources.target(&frame_target(size, sample, true, 0))?;
             let texture = bridge.r.core.add_texture(resources.texture(sample)?);
-            // The chain's programs that need no target of their own: the
-            // composite, and FXAA over a frame with nothing to composite.
-            for (program, key) in [(pp::COPY, "post-hud/copy"), (pp::EXTRACT, "post-hud/bloom-extract"), (pp::BLUR, "post-hud/bloom-blur"), (pp::BILINEAR, "post-hud/bilinear"), (pp::SPATIAL, "post-hud/spatial"), (pp::COMPOSITE, "post-hud/composite"), (pp::FXAA, "post-hud/fxaa"), (pp::FXAA_FAST, "post-hud/fxaa-fast")] {
-                bridge.r.post_chain.input[pf::PROGRAMS + program] = bridge.add_owned_program(key)? as f64;
-            }
-            use bfe_render::post_chain::layout::resource as pr;
             let blur = &content.map["post"]["blur"];
             bridge.r.post_chain.input[pf::BLUR_ENABLED] = blur["enabled"].as_bool().unwrap_or(false) as u8 as f64;
             bridge.r.post_chain.input[pf::BLUR_BLEND] = blur["blend"].as_f64().unwrap_or(0.3);
-            let factor = blur["downsize"].as_f64().filter(|v| v.is_finite() && *v > 0.).unwrap_or(0.25);
-            for (slot, factor) in [(pr::QUARTER, factor), (pr::BLOOM, 0.25), (pr::SCRATCH, 0.25), (pr::POST, 1.), (pr::AA, 1.)] {
-                let extent = size.map(|v| (v as f64 * factor).ceil().max(1.) as i32);
-                let source = resources.source(&frame_image(extent))?;
-                let sample = resources.sample(source, r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
-                resources.upload(sample)?;
-                let texture = bridge.r.core.add_texture(resources.texture(sample)?);
-                let target = bridge.post_target(texture);
-                let row = &mut bridge.r.post_chain.input[pf::RESOURCES + slot * pr::STRIDE..][..pr::STRIDE];
-                row.copy_from_slice(&[texture as f64, target as f64, extent[0] as f64, extent[1] as f64]);
-                post_images.push((source, sample, texture, slot, factor));
-            }
             let slots = ["aaSamples", "farAaSamples"].map(|name| {
                 shader::FRAME_OFFSETS[shader::FRAME_MEMBERS.iter().position(|(n, _)| *n == name).expect("frame catalog member")]
             });
@@ -1122,8 +1130,8 @@ impl Scene {
             .max()
             .unwrap_or(1)
             .max(1);
-        let shadows = if live {
-            Some(crate::shadows::Shadows::new(&mut bridge, &mut resources, bones).await?)
+        let shadows = if live && shadow_count>0 {
+            Some(crate::shadows::Shadows::new(&mut bridge, &mut resources, bones,shadow_count,shadow_size).await?)
         } else {
             None
         };
@@ -1140,8 +1148,8 @@ impl Scene {
                 depth_source, depth_color_source, depth_sample, depth_color,
                 render_scale: 1., render_size: size,
                 profile_start: None, profile_rss_after: false,
-                post_images, post_mode: 0, bloom: false, soft_focus: false,
-                reduced_far_terrain: false, shadows_enabled: true, bump_mapping: true, terrain_detail: true,
+                post_images, post_mode: 0, blur_downsize:content.map["post"]["blur"]["downsize"].as_f64().filter(|v|v.is_finite()&&*v>0.).unwrap_or(0.25), bloom: false, soft_focus: false,
+                reduced_far_terrain: false, shadows_enabled: shadow_count>0, shadow_bones:bones, shadow_size, features, bump_mapping: true, terrain_detail: true,
                 depth_texture,
                 far_reach,
                 distance_scale: 1.,
@@ -1199,19 +1207,60 @@ impl Scene {
             self.bridge.r.post_chain.state[state::STEPS]);
     }
 
-    pub fn set_post_effects(&mut self, bloom: bool, soft_focus: bool, upscaler: &str) {
+    pub fn set_post_effects(&mut self, bloom: bool, soft_focus: bool, upscaler: &str) -> Result<(),String> {
         use bfe_render::post_chain::layout::mode;
         self.bloom = bloom;
         self.soft_focus = soft_focus;
         self.post_mode = match upscaler { "bilinear" => mode::BILINEAR, "spatial" => mode::SPATIAL, _ => mode::OFF };
+        self.configure_post()
+    }
+
+    fn configure_post(&mut self)->Result<(),String>{
+        use bfe_render::post_chain::layout::{facts as pf,program as pp,resource as pr,mode,aa};
+        let intermediate=self.bloom||self.soft_focus&&self.bridge.r.post_chain.input[pf::BLUR_ENABLED]!=0.||self.post_mode==mode::SPATIAL;
+        let fxaa=self.frame.as_ref().is_some_and(|f|f.aa!=aa::OFF);
+        if intermediate||fxaa{
+            for (program,key) in [(pp::COPY,"post-hud/copy"),(pp::EXTRACT,"post-hud/bloom-extract"),(pp::BLUR,"post-hud/bloom-blur"),(pp::BILINEAR,"post-hud/bilinear"),(pp::SPATIAL,"post-hud/spatial"),(pp::COMPOSITE,"post-hud/composite"),(pp::FXAA,"post-hud/fxaa"),(pp::FXAA_FAST,"post-hud/fxaa-fast")]{
+                self.bridge.r.post_chain.input[pf::PROGRAMS+program]=self.bridge.add_owned_program(key)? as f64;
+            }
+        }
+        if intermediate&&self.post_images.is_empty(){
+            for(slot,factor)in [(pr::QUARTER,self.blur_downsize),(pr::BLOOM,0.25),(pr::SCRATCH,0.25),(pr::POST,1.),(pr::AA,1.)]{
+                let extent=self.render_size.map(|v|(v as f64*factor).ceil().max(1.) as i32);
+                let source=self.resources.source(&frame_image(extent))?;
+                let sample=self.resources.sample(source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
+                self.resources.upload(sample)?;
+                let texture=self.bridge.r.core.add_texture(self.resources.texture(sample)?);
+                let target=self.bridge.post_target(texture);
+                self.bridge.r.post_chain.input[pf::RESOURCES+slot*pr::STRIDE..][..pr::STRIDE].copy_from_slice(&[texture as f64,target as f64,extent[0] as f64,extent[1] as f64]);
+                self.post_images.push((source,sample,texture,slot,factor));
+            }
+        }else if !intermediate{
+            for(_source,sample,texture,slot,_)in self.post_images.drain(..){
+                self.bridge.r.core.forget_texture(texture);self.resources.dispose_sample(sample)?;
+                self.bridge.r.post_chain.input[pf::RESOURCES+slot*pr::STRIDE..][..pr::STRIDE].fill(-1.);
+            }
+        }
+        self.bridge.r.core.state.reset();Ok(())
     }
 
     pub fn set_far_terrain(&mut self, reduced: bool) {
         self.reduced_far_terrain = reduced;
     }
 
-    pub fn set_shadows_enabled(&mut self, enabled: bool) {
-        self.shadows_enabled = enabled;
+    pub fn set_shadows(&mut self,choice:&str)->Result<(),String>{
+        let(count,size)=crate::shadows::quality(choice);
+        if self.features[L::FEATURES_SHADOWS] as usize==count&&self.shadow_size==size{return Ok(());}
+        if let Some(shadows)=self.shadows.take(){shadows.dispose(&mut self.bridge,&mut self.resources)?;}
+        self.features[L::FEATURES_SHADOWS]=count as u32;self.features[L::FEATURES_CSM]=(count>0) as u32;self.shadow_size=size;self.shadows_enabled=count>0;
+        self.bridge.r.cameras.input[bfe_render::cameras::layout::input::CASCADE_COUNT]=count as f64;
+        self.bridge.r.core.configure_instance_programs(count as u32,true)?;
+        self.bridge.actor_settings(count as u32,true)?;
+        self.bridge.effect_settings(count>0)?;
+        self.bridge.r.foliage.configure_shadows(&mut self.bridge.r.core,count>0)?;
+        self.bridge.static_world_settings(&self.features,&[0;L::FEATURES_LENGTH])?;
+        if count>0{self.shadows=Some(crate::loading_work::finish(crate::shadows::Shadows::new(&mut self.bridge,&mut self.resources,self.shadow_bones,count,size))?);}
+        self.bridge.r.world.sort(false);self.bridge.r.core.state.reset();Ok(())
     }
 
     pub fn set_material_detail(&mut self, bump: bool, terrain: bool) {
@@ -1293,7 +1342,7 @@ impl Scene {
             self.resources.resize_target(self.far_target, &frame_target(self.render_size, self.far_sample, false, far_samples))?;
         }
         self.bridge.r.core.state.reset();
-        Ok(())
+        self.configure_post()
     }
     /// Graphics.filter for the anisotropy setting: every content image takes
     /// the new value at once, with no decode and no upload. A value that is
@@ -1305,7 +1354,8 @@ impl Scene {
         }
         self.anisotropy = value;
         let sampling = content_sampling(value);
-        for &sample in &self.filtered {
+        for &(sample,compressed) in &self.filtered {
+            let sampling=if compressed{sampling.replace("\"mipmaps\":true","\"mipmaps\":false")}else{sampling.clone()};
             self.resources.sampling(sample, &sampling)?;
         }
         self.bridge.r.core.state.reset();

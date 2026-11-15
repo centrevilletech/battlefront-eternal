@@ -258,7 +258,7 @@ impl<C: HasContext> InstancePass<C> {
                     j += 1;
                 }
                 let (p, g) = (key[0] as usize, key[1] as usize);
-                let program = &programs[p];
+                let program = &programs[core.instance_programs.get(p).copied().unwrap_or(p)];
                 state.use_program(gl, stats, program.program);
                 gl.uniform_1_i32(program.instance_base.as_ref(), i as i32);
                 let geo = &geometries[g];
@@ -333,7 +333,7 @@ impl<C: HasContext> InstancePass<C> {
             state.depth_func(gl, stats, blend.depth.1);
             state.depth_write(gl, stats, blend.depth.2);
             for &(p, side) in &blend.passes {
-                let Some(program) = programs.get(p) else { continue };
+                let Some(program) = programs.get(core.instance_programs.get(p).copied().unwrap_or(p)) else { continue };
                 state.use_program(gl, stats, program.program);
                 // As three culls a side: back faces, the front wound the
                 // other way for a back pass (and for a mirrored object).

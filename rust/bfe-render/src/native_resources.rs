@@ -64,6 +64,7 @@ pub struct GpuResources {
 impl GpuResources {
     pub fn texture_bytes(&self) -> u64 {
         self.physical.iter().filter_map(|p| {
+            p.texture?;
             let (w,h,d,_,_)=p.allocation?;
             let source=self.sources.get(p.source)?.as_ref()?;
             if let Pixels::Blocks(_,mips)=&source.pixels {return Some(mips.iter().map(|m|m.length as u64).sum());}
@@ -1080,6 +1081,12 @@ impl Drop for GpuResources {
 // coordinates follow Graphics.setRenderTarget; negative ids name the canvas.
 // Neither a view publication nor battle_frame creates a second target bank.
 impl crate::frame::FrameTargets for GpuResources {
+    fn present(&mut self,source:i32,width:i32,height:i32)->Result<bool,String>{
+        let t=self.target_ref(source as u32)?;let(w,h)=(t.desc.width,t.desc.height);let fb=t.faces.first().copied();
+        self.bind(-1,0,0,0,0,width,height,0,0,width,height,false)?;
+        unsafe{self.gl.bind_framebuffer(glow::READ_FRAMEBUFFER,fb);self.gl.blit_framebuffer(0,0,w,h,0,0,width,height,glow::COLOR_BUFFER_BIT,glow::LINEAR);}
+        self.bind_current()?;Ok(true)
+    }
     fn bind(&mut self, row: &[f64]) -> Result<(), String> {
         use crate::frame_plan::layout::binding as b;
         if row.len() != b::LEN {

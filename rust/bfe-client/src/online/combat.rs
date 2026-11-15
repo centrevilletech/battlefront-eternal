@@ -177,6 +177,7 @@ impl Combat {
         collision: super::replay::Collision,
         world: u32,
     ) -> Result<Self, String> {
+        let shadow_cascades = bridge.shadow_cascades();
         let defs = bfe_content::defs::Defs::build(&content.content)?;
         let library = content.effects.iter().find(|(name, _)| name == "battle").map(|(_, e)| e).ok_or("missing battle effect library")?;
         let effect_names = library.handles.clone();
@@ -294,7 +295,7 @@ impl Combat {
                 let color = std::array::from_fn(|i| rgb.and_then(|c| c.get(i)).and_then(bfe_content::Value::as_f64).unwrap_or([120., 160., 255.][i]));
                 (color, number(def, "Velocity") * number(def, "LifeSpan"))
             });
-            styles.push(Style { model: Model::new(content, bridge, textures, name, crate::shadows::COUNT)?, impact, explosion, trail, rail });
+            styles.push(Style { model: Model::new(content, bridge, textures, name, shadow_cascades)?, impact, explosion, trail, rail });
         }
         let effects = bfe_presentation::Presentation::new(
             serde_json::from_value(library.descriptor.clone()).map_err(|e| e.to_string())?,
@@ -303,13 +304,13 @@ impl Combat {
         let mut particles = prepared.admit(content, bridge, textures, resources)?;
         // BlasterBatch: one instanced draw of every Enhanced bolt, after the
         // particles' own data.
-        let blasters = bridge.effect_batch(bfe_render::effect_layout::BLASTER as u32, 0, crate::shadows::COUNT > 0, -1, limits::BLASTERS as u32, -1, &[])?;
+        let blasters = bridge.effect_batch(bfe_render::effect_layout::BLASTER as u32, 0, shadow_cascades > 0, -1, limits::BLASTERS as u32, -1, &[])?;
         let blasters_at = particles.words;
         particles.words += BLASTER_FLOATS;
         // SniperTrace's two instanced draws: capsules (bolts, tracer lines,
         // vapour, sparks), then flares.
-        let streaks = bridge.effect_batch(bfe_render::effect_layout::SNIPER_STREAKS as u32, 0, crate::shadows::COUNT > 0, -1, sn::STREAKS as u32, -1, &[])?;
-        let flares = bridge.effect_batch(bfe_render::effect_layout::SNIPER_FLARES as u32, 0, crate::shadows::COUNT > 0, -1, sn::FLARES as u32, -1, &[])?;
+        let streaks = bridge.effect_batch(bfe_render::effect_layout::SNIPER_STREAKS as u32, 0, shadow_cascades > 0, -1, sn::STREAKS as u32, -1, &[])?;
+        let flares = bridge.effect_batch(bfe_render::effect_layout::SNIPER_FLARES as u32, 0, shadow_cascades > 0, -1, sn::FLARES as u32, -1, &[])?;
         let streaks_at = particles.words;
         particles.words += STREAK_FLOATS + FLARE_FLOATS;
         bridge.fx_reserve(particles.words as u32);

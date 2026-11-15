@@ -82,6 +82,7 @@ pub struct Hulls {
 }
 impl Hulls {
     pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], collision: Collision, world: u32) -> Result<Self, String> {
+        let shadow_cascades = bridge.shadow_cascades();
         let defs = bfe_content::defs::Defs::build(&content.content)?;
         let mut owner = Box::new(Vehicles::new());
         let mut models = Vec::new();
@@ -147,7 +148,7 @@ impl Hulls {
                     radius: array(&b["radius"])?,
                 });
             }
-            let admission = crate::static_scene::props(bridge, content, textures, placements, crate::shadows::COUNT)?;
+            let admission = crate::static_scene::props(bridge, content, textures, placements, shadow_cascades)?;
             let base = class.record.get("base").and_then(bfe_content::Value::as_str).unwrap_or("hover");
             let flying = base == "flyer";
             let walking = base == "walker" || base == "commandwalker";

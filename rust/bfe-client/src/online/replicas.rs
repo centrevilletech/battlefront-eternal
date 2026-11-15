@@ -151,6 +151,7 @@ impl Replicas {
         solid: u32,
         size: [i32; 2],
     ) -> Result<Self, String> {
+        let shadow_cascades = bridge.shadow_cascades();
         // entityRegistryDescriptor derives ordered names from the same native
         // definitions as the server. Numeric handles resolve before frames.
         let defs = bfe_content::defs::Defs::build(&content.content)?;
@@ -173,7 +174,7 @@ impl Replicas {
             bump: None,
             record: serde_json::Value::Null,
         };
-        let key = crate::static_scene::actor_key(&material, crate::shadows::COUNT)?;
+        let key = crate::static_scene::actor_key(&material, shadow_cascades)?;
         let program = bridge.add_owned_program(&key)?;
         let preview_skin = unsafe {
             use glow::HasContext;
@@ -374,7 +375,7 @@ impl Replicas {
                 continue;
             }
             let name = weapon.geometry.map(|name| defs.names.text(name)).unwrap_or("");
-            let model = super::models::Model::new(content, bridge, textures, name, crate::shadows::COUNT)?;
+            let model = super::models::Model::new(content, bridge, textures, name, shadow_cascades)?;
             weapon_classes[id as usize] = Some(held.len());
             held.push(model);
         }

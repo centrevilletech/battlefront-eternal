@@ -408,7 +408,7 @@ pub fn foliage_class(&mut self, texture: u32, grass: bool, shadows: bool, defini
             || map_matrix.len() != 9 { return Err(String::from("invalid foliage descriptor")); }
         // FoliageGpuBatch material policy selects only closed native variants.
         // The host supplies the shadow feature, never a program or locations.
-        let key=match (grass,shadows) {(true,true)=>"world/foliage-grass-shadows",(true,false)=>"world/foliage-grass",(false,true)=>"world/foliage-leaves-shadows",(false,false)=>"world/foliage-leaves"};
+        let key=match (grass,shadows && self.shadow_cascades()>0) {(true,true)=>"world/foliage-grass-shadows",(true,false)=>"world/foliage-grass",(false,true)=>"world/foliage-leaves-shadows",(false,false)=>"world/foliage-leaves"};
         let program=self.r.core.add_owned_program(key).map_err(|e|e.to_string())?;
         let spec=bfe_render::programs::spec(key).map_err(|e|e.to_string())?;
         let mut locations = [-1; 12];
@@ -538,6 +538,7 @@ pub fn renderer_diagnostics_frame(&mut self) -> String { let calls:u64=self.r.fr
         serde_json::json!({"frame":self.r.core.scene_stamp,"calls":calls,"programs":self.r.core.program_count(),"geometries":self.r.core.geometry_total(),"samples":self.r.core.native_texture_count()}).to_string() }
 pub fn scene_stamp_frame(&mut self, advance: bool) -> u32 { if advance { self.r.core.scene_stamp=self.r.core.scene_stamp.wrapping_add(1); }
         self.r.core.scene_stamp }
+pub fn shadow_cascades(&self) -> usize { self.r.cameras.input[bfe_render::cameras::layout::input::CASCADE_COUNT] as usize }
 pub fn set_shadow_maps(&mut self, ids: &[u32])  { self.r.core.set_shadow_maps(ids) }
 pub fn add_texture(&mut self, resources: &Resources, id: u32) -> Result<u32, String> { let texture = resources.descriptor_texture(id)?;
         

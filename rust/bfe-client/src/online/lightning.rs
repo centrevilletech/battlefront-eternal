@@ -253,6 +253,7 @@ impl Arcs {
         images: &BTreeMap<String, usize>,
         data: usize,
     ) -> Result<Self, String> {
+        let shadow_cascades = bridge.shadow_cascades();
         // Definitions are admitted once, in the library's order; a record
         // then names its effect and the owner draws by the definition's id.
         let mut owner = Box::<Lightning>::default();
@@ -269,7 +270,7 @@ impl Arcs {
                     let mesh = match images.get(&texture) {
                         Some(image) => Some(bridge.effect_mesh(
                             bfe_render::effect_layout::LIGHTNING as u32,
-                            crate::shadows::COUNT > 0,
+                            shadow_cascades > 0,
                             textures[*image] as i32,
                             lim::VERTICES as u32,
                             (lim::VERTICES * 3) as u32,
@@ -289,7 +290,7 @@ impl Arcs {
         let batch = bridge.effect_batch(
             bfe_render::effect_layout::ARC as u32,
             0,
-            crate::shadows::COUNT > 0,
+            shadow_cascades > 0,
             -1,
             lim::CAPSULES as u32,
             -1,

@@ -923,6 +923,7 @@ impl BattleController {
         playlist_index: usize,
         ai_enabled: bool,
         player_name: &str,
+        textures:crate::scene::TextureOptions,
     ) -> Result<InstantAdmission, String> {
         // Resolve the target map ID and era from `request.playlist[playlist_index]` or `request`.
         let default_era = request.era.clone().unwrap_or_else(|| "cw".to_string());
@@ -975,7 +976,7 @@ impl BattleController {
         };
 
         let (world, admitted) = WorldThread::admit_instant_action(&local_options, ai_enabled)?;
-        let graphics = Scene::prepare_online(content_dir, &admitted.query)?;
+        let graphics = Scene::prepare_online(content_dir, &admitted.query,textures)?;
         Ok(InstantAdmission {
             request,
             playlist_index,
@@ -1004,6 +1005,8 @@ impl BattleController {
             admitted,
             graphics,
         } = prepared;
+        let mut graphics=graphics;
+        graphics.shadows(&settings.interface.get_string("shadows"));
         let (mut scene, camera) = Scene::open_prepared(graphics, size, &mut make_gl).await?;
         // Route the live battle sound mixer into `SharedAudioRouter`.
         let replicas = scene.online.as_mut().ok_or("missing online replicas")?;
@@ -1089,6 +1092,7 @@ impl BattleController {
         launch: MultiplayerLaunch,
         server_address: Option<String>,
         settings: &AppSettingsStore,
+        textures:crate::scene::TextureOptions,
     ) -> Result<OnlineAdmission, String> {
         // Resolve the target `HOST:PORT` from explicit override, `launch.address`, or `BFE_SERVER_TARGET`.
         let raw_target = launch.direct_target().or(server_address)
@@ -1108,7 +1112,7 @@ impl BattleController {
             &settings.player.profile_name,
         )?;
 
-        let graphics = Scene::prepare_online(content_dir, &server_info.query)?;
+        let graphics = Scene::prepare_online(content_dir, &server_info.query,textures)?;
         Ok(OnlineAdmission {
             launch,
             server_info,
@@ -1151,6 +1155,8 @@ impl BattleController {
         };
 
         // Load the 3D scene and HUD replicas for the server's active mission query.
+        let mut graphics=graphics;
+        graphics.shadows(&settings.interface.get_string("shadows"));
         let (mut scene, camera) = Scene::open_prepared(graphics, size, &mut make_gl).await?;
 
         let replicas = scene.online.as_mut().ok_or("missing online replicas")?;
@@ -1498,9 +1504,9 @@ impl BattleController {
             BattleAuthority::InstantAction { camera, .. } => camera.set_view_distance(distance),
             BattleAuthority::Online { client, .. } => client.camera.set_view_distance(distance),
         }
-        self.scene.set_post_effects(settings.interface.get_bool("bloom"), settings.interface.get_bool("softFocus"), &settings.interface.get_string("upscaler"));
+        if let Err(err)=self.scene.set_post_effects(settings.interface.get_bool("bloom"), settings.interface.get_bool("softFocus"), &settings.interface.get_string("upscaler")){eprintln!("battle settings: post effects not applied: {err}");}
         self.scene.set_far_terrain(settings.interface.get_string("farTerrain") == "reduced");
-        self.scene.set_shadows_enabled(settings.interface.get_string("shadows") != "off");
+        if let Err(err)=self.scene.set_shadows(&settings.interface.get_string("shadows")){eprintln!("battle settings: shadows not applied: {err}");}
         self.scene.set_material_detail(settings.interface.get_bool("bumpMapping"), settings.interface.get_string("terrainDetail") == "enhanced");
         if let Err(err) = self
             .scene

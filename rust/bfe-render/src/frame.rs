@@ -316,6 +316,7 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
 // GpuResources implements this bridge natively. A platform may supply its own
 // target owner; no operation calls a browser scene or material callback.
 pub trait FrameTargets {
+    fn present(&mut self,_source:i32,_width:i32,_height:i32)->Result<bool,String>{Ok(false)}
     fn bind(&mut self, binding: &[f64]) -> Result<(),String>;
     fn resolve(&mut self, target:i32) -> Result<(),String>;
     fn copy(&mut self, from:i32, to:i32, mask:u32) -> Result<(),String>;
@@ -429,7 +430,19 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
                         self.core.state.depth_write(&self.core.gl,&mut self.core.stats,true);
                         unsafe {self.core.gl.clear_depth_f32(1.);self.core.gl.clear(glow::DEPTH_BUFFER_BIT);}
                     },
-                    O::POST=>{let stats=self.post_chain_draw()?;post_drawn=stats.pass_draws[crate::core::PASS_POST] as usize;self.frame_stats(role,stats);},
+                    O::POST=>{
+                        use crate::post_chain::layout::{facts as pf,mode,aa,state as ps};
+                        let f=&self.post_chain.input;
+                        let plain=f[pf::MODE]<=mode::BILINEAR as f64&&f[pf::AA]==aa::OFF as f64&&f[pf::BLOOM]==0.&&!(f[pf::SOFT_FOCUS]!=0.&&f[pf::BLUR_ENABLED]!=0.)&&!(f[pf::SPEED_ENABLED]!=0.&&f[pf::SPEED_AMOUNT]>0.0001/0.085);
+                        let source=self.frames.bindings[R::NEAR*B::LEN+B::TARGET] as i32;
+                        if plain&&source>=0{
+                            let timer=self.core.profile.begin(&self.core.gl);
+                            let presented=targets.present(source,f[pf::CANVAS_WIDTH] as i32,f[pf::CANVAS_HEIGHT] as i32)?;
+                            self.core.profile.end(&self.core.gl,"present blit",timer);
+                            if presented{self.core.state.reset();self.post_chain.state[ps::STEPS]=0.;continue;}
+                        }
+                        let stats=self.post_chain_draw()?;post_drawn=stats.pass_draws[crate::core::PASS_POST] as usize;self.frame_stats(role,stats);
+                    },
                     O::HISTORY_COMMIT=>self.post_chain.complete(post_drawn,self.frames.clipped || self.frames.plan.state[S::CLIPPED]!=0. || self.core.multi.context_lost()),
                     _=>{},
                 }
