@@ -967,7 +967,7 @@ impl BattleController {
                 "--unit".to_string(),
                 policy.class_name,
                 "--seed".to_string(),
-                ((playlist_index as u32) + 1).to_string(),
+                super::bench::seed().unwrap_or(playlist_index as u32 + 1).to_string(),
                 "--ai".to_string(),
                 if bots.mode == "enhanced" { "enhanced" } else { "classic" }.to_string(),
             ]
