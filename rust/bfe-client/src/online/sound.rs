@@ -29,7 +29,12 @@ struct Batch {
     volume: f32,
     samples: Vec<(usize, Option<super::stream_assets::Pcm>)>,
 }
+// A stream completion writes at most a bind and a start command.
+const READY_WORDS: usize = 5 + 8;
 impl Batch {
+    fn room_for_ready(&self) -> bool {
+        self.commands.len() + READY_WORDS <= COMMANDS
+    }
     fn new() -> Self {
         Self {
             commands: Vec::with_capacity(COMMANDS),
@@ -1147,6 +1152,10 @@ impl Sound {
         // cannot replace a sample belonging to a newer use of the stream slot.
         submit_requests(runtime, &self.assets, batch, &mut self.refused);
         for _ in 0..128 {
+            // Completions that no longer fit wait for the next frame.
+            if !batch.room_for_ready() {
+                break;
+            }
             let Some(response) = self.assets.receive() else {
                 break;
             };
@@ -1178,6 +1187,7 @@ impl Sound {
                 input[ready::FAILED] = 1.;
             }
             runtime.ready();
+            debug_assert!(runtime.phase.engine.commands.len() <= READY_WORDS && runtime.phase.engine.placements.is_empty());
             if runtime.info[info::ACCEPTED] != 0. {
                 if pcm.is_some() {
                     batch.samples.push((request.sample, pcm));
@@ -1313,5 +1323,29 @@ mod post_tests {
         assert_eq!((events[0][event::OWNER], events[0][event::VALUE], events[0][event::SECONDS]), (0., 2., 2.));
         apply_post_summary(&mut posts, &building, &mut events, &summary(1, 2, 0));
         assert_eq!(events.len(), 1, "announced once");
+    }
+}
+
+#[cfg(test)]
+mod batch_tests {
+    use super::*;
+
+    // A frame may publish up to COMMANDS words of its own; stream completions
+    // received after that must not take the batch past the device's reserve.
+    #[test]
+    fn a_full_frame_batch_reaches_the_device_without_overrunning_it() {
+        let mut output = Output::new(48000., 2, false, false, false, false, Default::default());
+        output.reserve_controls(COMMANDS);
+        let mail = Arc::new(Mailbox::new());
+        let batch = unsafe { &mut *mail.slots[0].get() };
+        batch.commands.resize(COMMANDS - READY_WORDS - 1, 0.);
+        // Accepted completions, each a stream bind and its start, while there is room.
+        while batch.room_for_ready() {
+            batch.commands.extend_from_slice(&[0.; READY_WORDS]);
+        }
+        assert!(batch.commands.len() <= COMMANDS);
+        mail.write.store(1, Ordering::Release);
+        let mut live = LiveOutput { output, mail, next: 0, volume: 1. };
+        live.quantum();
     }
 }
