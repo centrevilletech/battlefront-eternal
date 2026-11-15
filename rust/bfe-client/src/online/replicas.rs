@@ -135,6 +135,8 @@ pub struct Replicas {
     slots: Vec<Slot>,
     bound: Index,
     pub visible: usize,
+    /// BFE_AI_TRACE: the drawn soldiers' census, beside the world's.
+    census: Option<Box<DisplayCensus>>,
     pub refused: u64,
     frame: u64,
 }
@@ -523,6 +525,7 @@ impl Replicas {
             slots,
             bound: Index::new(POOL),
             visible: 0,
+            census: std::env::var_os("BFE_AI_TRACE").map(|_| Box::default()),
             refused: 0,
             frame: 0,
         })
@@ -537,6 +540,9 @@ impl Replicas {
         history: &super::replay::History,
         bridge: &mut Bridge,
     ) {
+        if let Some(census) = &mut self.census {
+            census.observe(tick, receiver.own.id, &self.slots, &self.units.output);
+        }
         self.tick = tick;
         self.hud.frame(bridge, receiver, prediction, dt);
         self.combat.frame(receiver, tick, dt, &mut self.lights, bridge);
@@ -1371,5 +1377,48 @@ impl Replicas {
         let (records, bones) = self.turrets.append(bridge, records, bones);
         let (records, bones) = self.items.append(bridge, records, bones);
         self.combat.append(bridge, records, bones)
+    }
+}
+
+/// Once a second, the drawn soldiers (last frame's placement): how many are
+/// drawn alive, how many of those moved more than a metre since the second
+/// before and how many of those walk (a gait with its clip clock running);
+/// every ten seconds a
+/// line on stderr to set beside the world's census.
+#[derive(Default)]
+struct DisplayCensus {
+    last: std::collections::HashMap<(u32, u32), [f64; 3]>,
+    next: f64,
+    seconds: u32,
+}
+impl DisplayCensus {
+    fn observe(&mut self, tick: f64, own: f64, slots: &[Slot], output: &[f64]) {
+        if tick < self.next {
+            return;
+        }
+        self.next = tick + 60.;
+        self.seconds += 1;
+        let (mut drawn, mut moving, mut walking) = (0, 0, 0);
+        let mut next = std::collections::HashMap::with_capacity(self.last.len());
+        for slot in slots.iter().filter(|s| s.active && !s.dead) {
+            let Some(key) = slot.identity else { continue };
+            if f64::from(key.0) == own {
+                continue;
+            }
+            let out = &output[slot.actor * o::STRIDE..][..o::STRIDE];
+            let at = [out[o::ROOT_WORLD + 12], out[o::ROOT_WORLD + 14], out[o::ANIMATOR]];
+            drawn += 1;
+            if let Some(was) = self.last.get(&key) {
+                let moved = (at[0] - was[0]).hypot(at[1] - was[1]) > 1.;
+                moving += usize::from(moved);
+                // A moving body in a gait whose clip clock runs.
+                walking += usize::from(moved && out[o::ANIMATOR + 4] != 0. && at[2] != was[2]);
+            }
+            next.insert(key, at);
+        }
+        self.last = next;
+        if self.seconds % 10 == 0 {
+            eprintln!("ai census display t={}s drawn={drawn} moving={moving} walking={walking}", (tick / 60.) as u64);
+        }
     }
 }

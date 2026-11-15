@@ -295,6 +295,8 @@ pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut 
                 receipts.setup.stream_b = stream_b;
                 receipts.setup.state_a = cx.options.seed;
                 receipts.setup.state_b = cx.options.seed ^ 0x9e37_79b9;
+                receipts.setup.unit_scale = cx.options.bots.unit_scale();
+                receipts.setup.tier = cx.options.bots.tier();
                 cx.ids.ai = Some(receipts);
                 let calls = super::rows::ai::run_stage(world, cx)?;
                 rows.calls.push((stage, calls));

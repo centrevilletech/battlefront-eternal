@@ -922,7 +922,7 @@ impl BattleController {
         content_dir: &Path,
         request: BattleRequest,
         playlist_index: usize,
-        ai_enabled: bool,
+        bots: &BotSettings,
         player_name: &str,
     ) -> Result<InstantAdmission, String> {
         // Resolve the target map ID and era from `request.playlist[playlist_index]` or `request`.
@@ -969,13 +969,19 @@ impl BattleController {
                 policy.class_name,
                 "--seed".to_string(),
                 super::bench::seed().unwrap_or(playlist_index as u32 + 1).to_string(),
-            ],
+                "--ai".to_string(),
+                if bots.mode == "enhanced" { "enhanced" } else { "classic" }.to_string(),
+            ]
+            .into_iter()
+            .chain(bots.heroes.then(|| "--heroes".to_string()))
+            .collect(),
             audio: true,
             duration: None,
             name: Some(player_name.to_string()),
+            bots: bfe_sim::world::admit::Bots::read(&bots.mode, &bots.difficulty, &bots.size),
         };
 
-        let (world, admitted) = WorldThread::admit_instant_action(&local_options, ai_enabled)?;
+        let (world, admitted) = WorldThread::admit_instant_action(&local_options)?;
         let graphics = Scene::prepare_online(content_dir, &admitted.query)?;
         Ok(InstantAdmission {
             request,
@@ -1603,6 +1609,7 @@ impl BattleController {
         &mut self,
         dt: f64,
         focused: bool,
+        hidden: bool,
         settings: &mut AppSettingsStore,
         _audio_router: &SharedAudioRouter,
     ) -> Result<Option<BattleTransition>, String> {
@@ -1828,7 +1835,10 @@ impl BattleController {
                     *now_ms += dt * 1000.0;
                 }
                 world.set_paused(self.pause_menu.is_open);
-                world.set_suspended(!focused);
+                // As the page's world worker: a battle without the window's
+                // focus plays on (a released mouse opens the pause menu, which
+                // freezes it); only a hidden window suspends it.
+                world.set_suspended(hidden);
                 world.poll_publications(receiver, *now_ms)?;
                 if self.frames == 60 {
                     eprintln!("local HUD publications: focused={} welcomed={} packets={} corrections={} alive={} active={} visible={}",
@@ -3295,5 +3305,25 @@ mod startup_policy_tests {
             ("imp", "imp_soldier", 1.)
         );
         assert!(cw.screen && gcw.screen);
+    }
+}
+
+/// The player's bot settings as the options screen keeps them (game.js reads
+/// the same four: aiMode, aiDifficulty, aiHeroes, battleSize).
+#[derive(Clone, Debug, Default)]
+pub struct BotSettings {
+    pub mode: String,
+    pub difficulty: String,
+    pub heroes: bool,
+    pub size: String,
+}
+impl BotSettings {
+    pub fn read(settings: &bfe_interface::Settings) -> Self {
+        Self {
+            mode: settings.get_string("aiMode"),
+            difficulty: settings.get_string("aiDifficulty"),
+            heroes: settings.get_bool("aiHeroes"),
+            size: settings.get_string("battleSize"),
+        }
     }
 }
