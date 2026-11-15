@@ -134,11 +134,7 @@ impl Native {
         let mut counters = self.counters;
         match self.context.value.world_host_journal(|journal| {
             let head = journal.seq;
-            let start = seen.max(head.saturating_sub(bfe_sim::host::journal::CAPACITY));
-            for record in journal
-                .records()
-                .filter(|record| record.seq >= start && record.seq < head)
-            {
+            for record in journal.since(seen) {
                 let kind = record.event.kind();
                 // The typed journal uses these same kinds for AI hearing.
                 if kind == "shot" {

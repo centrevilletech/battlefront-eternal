@@ -73,9 +73,17 @@ impl Authority {
         let (enabled, written, toggles) = (&mut self.enabled, &self.written, &mut self.toggles);
         context
             .world(|w| {
-                for (i, (now, was)) in w.movement.flags_mut().iter().zip(written).enumerate() {
-                    if now != was && i < enabled.len() {
-                        enabled[i] = *now;
+                // Most of the 64 KB is unchanged: compare chunks first.
+                let movement = w.movement.flags_mut();
+                let n = movement.len().min(written.len()).min(enabled.len());
+                for (c, (now, was)) in movement[..n].chunks(64).zip(written[..n].chunks(64)).enumerate() {
+                    if now == was {
+                        continue;
+                    }
+                    for (k, (a, b)) in now.iter().zip(was).enumerate() {
+                        if a != b {
+                            enabled[c * 64 + k] = *a;
+                        }
                     }
                 }
                 for (kernel, on) in toggles.drain(..) {
