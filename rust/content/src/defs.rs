@@ -5,10 +5,6 @@
 //! definition keeps its record (the parsed JSON object, by identity, as the
 //! JavaScript keeps the object) for the fields the simulation reads by name,
 //! and carries the ids the wire gives it (src/registry.rs).
-//!
-//! Identity matters: a class's weapon entries are objects of their own even
-//! when two classes carry the same weapon class, and the combat registry
-//! names a definition by the object, not by its contents.
 
 use crate::content::Content;
 use crate::derived::{droideka_guns, item_radius, weapon_muzzle, DroidekaGun, Muzzle};

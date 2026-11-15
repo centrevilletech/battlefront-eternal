@@ -39,6 +39,8 @@ pub struct Views {
     pub active: Option<usize>,
     pub enabled: bool,
     pub frames: u64,
+    /// FirstPersonView.light: the player's light, its sun seen from the gun.
+    pub look: [f64; 4],
 }
 impl Prepared {
     pub fn new(content: &mut BattleContent) -> Result<Self, String> {
@@ -131,7 +133,7 @@ impl Prepared {
             weapons.push(Model::new(content, bridge, textures, name, 0)?);
             banks.push(bank.to_string());
         }
-        Ok(Views { views, weapons, banks, active: None, enabled: false, frames: 0 })
+        Ok(Views { views, weapons, banks, active: None, enabled: false, frames: 0, look: [1., 0., 0., 1.] })
     }
 }
 impl Views {
@@ -230,7 +232,7 @@ impl Views {
             // (`weapons.find(w => w.bank === event.bank && w.busy)`). The
             // view ignores it while it is not the one shown.
             let (weapon, action) = match event.kind {
-                "shot" if prediction.body.is_some() && !event.repair && !event.melee && ahead(event.weapon_id) => continue,
+                "shot" if prediction.ahead() && !event.repair && !event.melee && ahead(event.weapon_id) => continue,
                 "shot" => (units.input[f::FIRST_PERSON_SHOWN], 0.),
                 "weaponAction" if event.prepare => {
                     let held = prediction
@@ -277,13 +279,13 @@ impl Views {
         for (node, model) in &view.parts {
             let at = (start + node) * n::STRIDE + n::WORLD;
             let matrix: [f64; 16] = units.nodes[at..at + 16].try_into().unwrap();
-            (records, bones) = model.append(bridge, &matrix, records, bones);
+            (records, bones) = model.append_look(bridge, &matrix, records, bones, Some(self.look));
         }
         let model = units.header[h::FIRST_PERSON_MODEL] as usize;
         if let Some(model) = self.weapons.get(model).and_then(Option::as_ref) {
             let at = (start + view.hand) * n::STRIDE + n::WORLD;
             let matrix: [f64; 16] = units.nodes[at..at + 16].try_into().unwrap();
-            (records, bones) = model.append(bridge, &matrix, records, bones);
+            (records, bones) = model.append_look(bridge, &matrix, records, bones, Some(self.look));
         }
         (records, bones)
     }

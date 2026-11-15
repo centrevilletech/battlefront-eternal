@@ -91,6 +91,9 @@ struct Model {
     hover: f64,
     // Its thrust, damage and death effects (VehicleEffects).
     fx: Option<super::hull_effects::ClassFx>,
+    // A walker's feet (vehicle-feet.js): its foot detector's content, its
+    // StompEffect group and each foot's bone.
+    feet: Option<(Value, usize, Vec<usize>)>,
 }
 struct Slot {
     rig: usize,
@@ -103,6 +106,10 @@ struct Slot {
     flight_frame: [f64; 4],
     health: f64,
     boosting: bool,
+    // Its body among the foot detectors (first foot), and this frame's walk
+    // phase and blend as drawn.
+    feet: Option<usize>,
+    walk: [f64; 2],
 }
 pub struct Hulls {
     pub owner: Box<Vehicles>,
@@ -116,14 +123,21 @@ pub struct Hulls {
     bound: Index,
     pub visible: usize,
     pub refused: u64,
+    /// BFE_AI_TRACE: world vehicles against bound and linked hulls every 10 s.
+    census: bool,
+    census_tick: u64,
     collision: Collision,
     world: u32,
     // Each hull's life as its effects see it, by identity, kept while its
     // record lasts (a wreck's dust rises after it is gone from view).
     bodies: Vec<((u32, u32), super::hull_effects::Body, bool)>,
+    // Every walker slot's feet, where each comes down this frame.
+    feet: bfe_presentation::feet::Feet,
+    water: Option<bfe_sim::units::water::WaterState>,
 }
 impl Hulls {
     pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], collision: Collision, world: u32) -> Result<Self, String> {
+        let shadow_cascades = bridge.shadow_cascades();
         let defs = bfe_content::defs::Defs::build(&content.content)?;
         let mut owner = Box::new(Vehicles::new());
         let mut models = Vec::new();
@@ -191,7 +205,7 @@ impl Hulls {
                     radius: array(&b["radius"])?,
                 });
             }
-            let admission = crate::static_scene::props(bridge, content, textures, placements, crate::shadows::COUNT)?;
+            let admission = crate::static_scene::props(bridge, content, textures, placements, shadow_cascades)?;
             let base = class.record.get("base").and_then(bfe_content::Value::as_str).unwrap_or("hover");
             let flying = base == "flyer";
             let walking = base == "walker" || base == "commandwalker";
@@ -242,7 +256,7 @@ impl Hulls {
             }
             let wheels: Vec<_> =
                 records["wheels"].as_array().unwrap().iter().map(|w| json!([w["bone"].as_i64().unwrap_or(0) - 1, w["axis"]])).collect();
-            let mut descriptor = json!({"bones":bones,"yxz":!flying,"hasPose":t.clips.is_some()&&!flying,"poseRoot":records["poseRoot"].as_i64().unwrap_or(-1),"flying":flying,"creature":walking&&animal,"gearRoot":nodes[1..1+bone_count].iter().position(|b|b["name"].as_str().is_some_and(|s|s.eq_ignore_ascii_case("dummyroot"))).map_or(-1,|n|n as i64),"flight":null,"legs":null,"seats":seats,"wheels":wheels,"nodes":rest,"deathSpan":0,"sourceHeight":hi[1]-lo[1],"sourceAnimal":animal});
+            let mut descriptor = json!({"bones":&bones,"yxz":!flying,"hasPose":t.clips.is_some()&&!flying,"poseRoot":records["poseRoot"].as_i64().unwrap_or(-1),"flying":flying,"creature":walking&&animal,"gearRoot":nodes[1..1+bone_count].iter().position(|b|b["name"].as_str().is_some_and(|s|s.eq_ignore_ascii_case("dummyroot"))).map_or(-1,|n|n as i64),"flight":null,"legs":null,"seats":seats,"wheels":wheels,"nodes":rest,"deathSpan":0,"sourceHeight":hi[1]-lo[1],"sourceAnimal":animal});
             if flying {
                 let config = bfe_sim::flight::Config::of(&class.record);
                 descriptor["flight"] = json!({"takeoffTime":config.takeoff_time,"landingTime":config.landing_time,"takeoffHeight":config.takeoff_height,"landedHeight":config.landed_height,"gearFoot":t.gear_foot});
@@ -333,12 +347,13 @@ impl Hulls {
                 } else {
                     0.
                 },
-                rows: admission.records,
+                rows: admission.records.into_iter().map(|mut row| { row[bfe_render::instances::REC_RECEIVE_SHADOW] = 1.; row }).collect(),
                 inverses: inverses.into_iter().map(|elements| Matrix4 { elements }).collect(),
                 walk_length,
                 seats: seats.len(),
                 rider,
                 hover,
+                feet: walker_feet(&class.record, &records, &bones, t.clips.as_ref(), walk_length, &effect),
                 fx: super::hull_effects::ClassFx::parse(
                     id as usize,
                     &class.record,
@@ -351,9 +366,14 @@ impl Hulls {
         // per admitted template. Excess identities remain network state and
         // are counted, rather than growing trees in a displayed frame.
         let mut slots = Vec::new();
+        let mut feet = bfe_presentation::feet::Feet::default();
         for (model, m) in models.iter().enumerate() {
             for _ in 0..(POOL / models.len().max(1)).max(1) {
                 let rig = owner.add_rig(array(&descriptors[model])?);
+                let foot = match &m.feet {
+                    Some((content, _, _)) => Some(feet.add(array(content)?)),
+                    None => None,
+                };
                 slots.push(Slot {
                     rig,
                     model,
@@ -365,6 +385,8 @@ impl Hulls {
                     flight_frame: [0., 0., 0., 1.],
                     health: 0.,
                     boosting: false,
+                    feet: foot,
+                    walk: [0.; 2],
                 });
             }
         }
@@ -380,12 +402,16 @@ impl Hulls {
             bound: Index::new(POOL.max(128)),
             visible: 0,
             refused: 0,
+            census: std::env::var_os("BFE_AI_TRACE").is_some(),
+            census_tick: u64::MAX,
             collision,
             world,
             bodies: Vec::with_capacity(POOL),
+            feet,
+            water: super::water::new(content),
         })
         .inspect(|hulls: &Self| {
-            if std::env::var_os("BFE_FX_SHOW").is_some() {
+            if crate::app::bench::fx().is_some() {
                 eprintln!("fx-hulls classes={} with-effects={}", hulls.models.len(), hulls.models.iter().filter(|m| m.fx.is_some()).count());
             }
         })
@@ -518,6 +544,15 @@ impl Hulls {
                 }
             }
         }
+        if self.census && (tick as u64) % 600 == 0 && tick as u64 != self.census_tick {
+            self.census_tick = tick as u64;
+            let world = receiver.active().filter(|r| r[r::KIND] == k::VEHICLE as f64 && r[r::STATE] != 4.).count();
+            let unmapped = receiver.active().filter(|r| r[r::KIND] == k::VEHICLE as f64 && r[r::STATE] != 4.)
+                .filter(|r| self.classes.get(r[r::CLASS_ID] as usize).copied().flatten().is_none()).count();
+            let bound = self.slots.iter().filter(|s| s.active && s.identity.is_some()).count();
+            let unlinked = self.slots.iter().filter(|s| s.active && s.identity.is_some() && !self.owner.network.live(s.rig)).count();
+            eprintln!("vehicles census t={}s world={world} bound={bound} unmapped={unmapped} unlinked={unlinked} refused={}", tick as u64 / 60, self.refused);
+        }
         self.visible = 0;
         let blank_mount = [0.; mo::STRIDE];
         let mut mount_index = 0;
@@ -542,9 +577,12 @@ impl Hulls {
                 self.slots[i].identity = Some(key);
                 self.slots[i].dying_since = None;
                 self.bound.insert(key, i);
-                self.owner.network.bind(self.slots[i].rig, key.0 as f64, key.1 as f64, 1., &receiver.network);
                 i
             };
+            // As for soldiers (replicas.rs): a link retired on its birth frame,
+            // while the timeline still showed the previous life, would leave a
+            // respawned hull deferred, never placed, for its whole life.
+            self.owner.network.keep(self.slots[slot].rig, key.0 as f64, key.1 as f64, 1., &receiver.network);
             let s = &mut self.slots[slot];
             s.active = true;
             let m = &self.models[s.model];
@@ -587,6 +625,7 @@ impl Hulls {
                 x[e::WALK_PHASE] = mount[mo::WALK_PHASE];
                 x[e::WALK_BLEND] = mount[mo::WALK_BLEND];
             }
+            s.walk = [x[e::WALK_PHASE], x[e::WALK_BLEND]];
             x[e::HOVER] = m.hover;
             x[e::AGE] = tick / 60.;
             x[e::NOW] = tick / 60.;
@@ -712,6 +751,50 @@ impl Hulls {
             }
         }
         self.effects(receiver, tick, dt, fx);
+        self.stomp(dt, fx);
+    }
+    // VehicleEffects.updateStomp: where a walker's foot comes down this
+    // frame (by its walk cycle's phase as drawn), its StompEffect, level
+    // with the walker's root and turned as the foot's primitive is.
+    fn stomp(&mut self, dt: f64, fx: &mut super::hull_effects::HullEffects) {
+        use bfe_presentation::layout::{foot_event as fe, foot_frame as ff, foot_input as fi};
+        if self.feet.output.is_empty() {
+            return;
+        }
+        self.feet.input[ff::DT] = dt;
+        for s in &self.slots {
+            let (Some(first), Some((_, _, bones))) = (s.feet, &self.models[s.model].feet) else {
+                continue;
+            };
+            let nodes = if s.active { self.owner.slot_nodes(s.rig, 0) } else { None };
+            for (k, bone) in bones.iter().enumerate() {
+                let x = &mut self.feet.input[ff::STRIDE + (first + k) * fi::STRIDE..][..fi::STRIDE];
+                let Some(nodes) = nodes else {
+                    x[fi::PRESENT] = 0.;
+                    continue;
+                };
+                x[fi::PRESENT] = (s.identity.is_some() && s.dying_since.is_none()) as u8 as f64;
+                x[fi::GENERATION] = s.identity.map_or(0., |i| i.1 as f64);
+                x[fi::PHASE] = s.walk[0];
+                x[fi::BLEND] = s.walk[1];
+                x[fi::ROOT_Y] = nodes[n::WORLD + 13];
+                let at = (bone + 1) * n::STRIDE + n::WORLD;
+                x[fi::MATRIX..fi::MATRIX + 16].copy_from_slice(&nodes[at..at + 16]);
+            }
+        }
+        self.feet.frame();
+        for s in self.slots.iter().filter(|s| s.active) {
+            let (Some(first), Some((_, group, bones))) = (s.feet, &self.models[s.model].feet) else {
+                continue;
+            };
+            for k in 0..bones.len() {
+                let out = &self.feet.output[(first + k) * fe::STRIDE..][..fe::STRIDE];
+                if out[fe::COUNT] > 0. {
+                    let turn = if out[fe::HAS_TURN] != 0. { std::array::from_fn(|i| out[fe::TURN + i]) } else { [0., 0., 0., 1.] };
+                    fx.shot(*group, std::array::from_fn(|i| out[fe::POSITION + i]), turn);
+                }
+            }
+        }
     }
     // VehicleEffects.update: every hull with effects, drawn or a wreck
     // whose record remains, from the pose just published.
@@ -759,6 +842,7 @@ impl Hulls {
                 health,
                 thrusting: self.models[model].flying && (1. ..=3.).contains(&state),
                 velocity,
+                water: self.water.as_ref().filter(|w| w.over(row[r::POSITION], row[r::POSITION + 2])).map(|w| w.level()),
                 nodes,
             };
             fx.hull(class, &mut entry.1, frame, dt);
@@ -807,12 +891,13 @@ impl Hulls {
                 continue;
             };
             let root = &nodes[n::WORLD..n::WORLD + 16];
-            for template in &m.rows {
+            for (part,template) in m.rows.iter().enumerate() {
                 let count = m.inverses.len();
                 if records == draw::MAX_RECORDS || bones + count > draw::MAX_BONES {
                     continue;
                 }
                 let mut row = *template;
+                let(id,generation)=s.identity.unwrap_or((0,0));row[draw::REC_MOTION_ID]=12884901888.+id as f64;row[draw::REC_MOTION_GENERATION]=generation as f64;row[draw::REC_MOTION_PART]=part as f64;
                 row[draw::REC_WORLD..draw::REC_WORLD + 16].copy_from_slice(root);
                 let mut inverse = Matrix4::default();
                 inverse.elements.copy_from_slice(root);
@@ -829,4 +914,49 @@ impl Hulls {
         }
         (records, bones)
     }
+}
+
+// gait() and Footfalls' content for a walker with a StompEffect: its bones
+// as bound, its two walk clips, each foot primitive's bone and the point it
+// meets the ground at, and the class's stomp rules.
+fn walker_feet(
+    record: &bfe_content::Value,
+    records: &Value,
+    bones: &[Value],
+    clips: Option<&bfe_content::clips::Clips>,
+    length: f64,
+    effect: &dyn Fn(&str) -> Option<usize>,
+) -> Option<(Value, usize, Vec<usize>)> {
+    let fx = authored_json(record.get("fx")?);
+    let group = effect(fx["stomp"]["effect"].as_str()?)?;
+    let feet = fx["feet"].as_array().filter(|f| !f.is_empty())?;
+    let clips = clips?;
+    let walk: Vec<Value> = ["walk_leftfoot_rightfoot", "walk_rightfoot_leftfoot"]
+        .iter()
+        .map(|name| clips.get(name).map(|c| json!({"frames":c.frames_f64() as usize,"fps":c.fps,"rootMotion":c.root_motion,"tracks":c.tracks.iter().map(|t| *t as i32).collect::<Vec<_>>(),"data":c.data()})))
+        .collect::<Option<_>>()?;
+    let names: Vec<&str> = records["nodes"].as_array()?.iter().skip(1).take(bones.len()).map(|n| n["name"].as_str().unwrap_or("")).collect();
+    let mut primitives = Vec::new();
+    let mut foot_bones = Vec::new();
+    for foot in feet {
+        let bone = foot["bone"].as_str().and_then(|b| names.iter().position(|n| n.eq_ignore_ascii_case(b)));
+        let point = if foot["bottom"].is_array() { &foot["bottom"] } else { &foot["at"] };
+        primitives.push(json!({"bone":bone.map_or(-1, |b| b as i64),"point":point,"turn":foot["turn"]}));
+        foot_bones.push(bone.unwrap_or(0));
+    }
+    let rules = &fx["stomp"];
+    let rate = bfe_content::odf::num(record.get("settings").and_then(|s| s.get("AnimationSpeed")), 1.);
+    let content = integers(json!({
+        "bones": bones,
+        "root": records["poseRoot"].as_i64().unwrap_or(-1),
+        "clips": walk,
+        "feet": primitives,
+        "length": length,
+        "detection": rules["detection"].as_f64().unwrap_or(0.) != 0.,
+        "threshold": rules["threshold"].as_f64().unwrap_or(0.15),
+        "hydraulic": rules["hydraulic"].as_f64().unwrap_or(1.),
+        "centred": !feet.iter().any(|f| f["bottom"].is_array()),
+        "rate": if rate > 0. { rate } else { 1. },
+    }));
+    (length > 0.).then_some((content, group, foot_bones))
 }

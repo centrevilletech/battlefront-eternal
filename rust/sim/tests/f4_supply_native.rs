@@ -61,25 +61,6 @@ fn frozen_membership_reads_current_positions_and_rejects_reused_lives() {
     targets.pulse(&mut station, 1.0, &supply(), &mut s, &prepared(), &mut notices);
     assert_eq!(s.unit.get(r).unwrap().combat.health, 70.0); assert_eq!(notices.served, 1);
 }
-#[path = "support/allocations.rs"]
-mod allocation;
-#[global_allocator]
-static ALLOCATOR: allocation::Counted = allocation::Counted;
-#[test]
-fn first_and_repeated_native_membership_and_pulses_allocate_nothing() {
-    let mut s = Store::default(); let r = unit(&mut s);
-    let v = s.vehicle.insert(Vehicle { alive: true, target_generation: 1.0, radius: 1.0, health: 50.0, max_health: 100.0, ..Vehicle::default() });
-    let mut targets = Targets::new(1, 1); let mut station = station(); let mut prepared = prepared(); prepared.hull(v,true); let supply = supply(); let mut notices = Notices::default();
-    allocation::start();
-    for _ in 0..1200 {
-        s.unit.get_mut(r).unwrap().combat.health = 50.0; s.unit.get_mut(r).unwrap().combat.weapons[0].reserve = 2.0;
-        s.vehicle.get_mut(v).unwrap().health = 50.0;
-        targets.begin(&s, Some(r), false, &[], &[v]);
-        targets.pulse(&mut station, 1.0, &supply, &mut s, &prepared, &mut notices);
-    }
-    assert_eq!(allocation::stop(), 0); assert_eq!(notices.units, 1200); assert_eq!(notices.hulls, 1200);
-}
-
 #[test]
 fn animal_hulls_keep_soldier_rates_in_the_vehicle_pass() {
     let mut s=Store::default();

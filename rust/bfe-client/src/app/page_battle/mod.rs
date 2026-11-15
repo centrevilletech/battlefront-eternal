@@ -1,6 +1,8 @@
 //! Page battle compositor. The existing controllers own actions and the HUD
 //! owns map contents; this host supplies the independent preview camera/target.
 pub(crate) mod appearance;
+mod backdrop;
+pub(crate) use backdrop::Backdrop;
 mod director;
 mod gpu;
 mod rig;
@@ -15,7 +17,7 @@ use bfe_render::{
     hud as draw,
     hud_model::{layout::HudMapDraw as M, MAP_DRAW},
 };
-use bfe_shell::page::{BattleLook, SpawnLayout};
+use bfe_shell::page::{BattleLook, SpawnFacts, SpawnLayout, MAX_CLASSES};
 use glow::HasContext;
 pub(super) struct PageBattle {
     pub spawn: bool,
@@ -37,6 +39,7 @@ pub(super) struct PageBattle {
     pub age: f64,
     pub class_age: f64,
     pub team_age: f64,
+    pub post_age: f64,
     pub class_id: usize,
     framed: bool,
     framing_look: usize,
@@ -48,6 +51,10 @@ pub(super) struct PageBattle {
     pin_waves: Vec<f64>,
     flare: f64,
     pins: Vec<gpu::Pin>,
+    kept: backdrop::Kept,
+    behind: Backdrop,
+    // Seconds since the stage was last drawn (a kept frame skips its draw).
+    undrawn: f64,
     director: director::Director,
     post: Option<String>,
     pub shot: Option<bfe_battle_ui::spawn::CameraShot>,
@@ -84,7 +91,7 @@ impl PageBattle {
             was_open: false,
             class: String::new(),
             team: 0,
-            layout: SpawnLayout::new(size[0] as f64, size[1] as f64, 2),
+            layout: SpawnLayout::new(size[0] as f64, size[1] as f64, SpawnFacts::default()),
             drag: [0.; 2],
             dt: 0.,
             building: -0.35,
@@ -95,6 +102,7 @@ impl PageBattle {
             age: 0.,
             class_age: 0.,
             team_age: 0.,
+            post_age: 0.,
             class_id: 0,
             framed: false,
             framing_look: 2,
@@ -105,6 +113,9 @@ impl PageBattle {
             pin_waves: Vec::new(),
             flare: 0.,
             pins: Vec::new(),
+            kept: backdrop::Kept::default(),
+            behind: Backdrop::Draw,
+            undrawn: 0.,
             director: director::Director::new(scene.spawn_shots.clone()),
             post: None,
             shot: None,
@@ -184,6 +195,7 @@ impl PageBattle {
             eprintln!("page spawn view closed");
         }
         self.was_open = false;
+        self.kept.forget();
         self.strength = 0.;
         self.rig.dragging = false;
     }
@@ -197,14 +209,26 @@ impl PageBattle {
         countdown: bool,
     ) {
         self.dt = dt;
+        self.undrawn += dt;
         let goals = port.teams[usize::from(model.team == 2)]
             .objectives
             .iter()
             .filter(|s| !s.is_empty())
             .count();
         let previous_layout = self.layout;
-        self.layout =
-            SpawnLayout::new(size[0] as f64, size[1] as f64, goals).with_countdown(countdown);
+        let roster = &port.rosters[usize::from(model.team == 2)];
+        let mut facts = SpawnFacts {
+            look: BattleLook::new(theme).index,
+            goals,
+            countdown,
+            switchable: model.can_switch_teams(port),
+            classes: roster.len().min(MAX_CLASSES),
+            ..SpawnFacts::default()
+        };
+        for (row, class) in facts.rows.iter_mut().zip(roster) {
+            *row = class.weapons.len().clamp(1, 4).div_ceil(2) as u8;
+        }
+        self.layout = SpawnLayout::new(size[0] as f64, size[1] as f64, facts);
         let opening = !self.was_open;
         if opening {
             eprintln!(
@@ -252,6 +276,9 @@ impl PageBattle {
         }
         self.pin_waves.resize(port.posts.len(), f64::INFINITY);
         if self.post != model.post {
+            if !opening {
+                self.post_age = 0.;
+            }
             self.post = model.post.clone();
             if let Some(i) = port
                 .posts
@@ -272,6 +299,7 @@ impl PageBattle {
         self.age += dt;
         self.class_age += dt;
         self.team_age += dt;
+        self.post_age += dt;
         self.strength += (1. - self.strength) * (dt * 3.5).min(1.);
         self.building += dt;
         self.pulse = (self.pulse - dt * 1.6).max(0.);
@@ -298,6 +326,7 @@ impl PageBattle {
         }
         self.flare = (self.flare - dt * 2.5).max(0.);
         self.rig.update(dt, size[0] as f64 / size[1] as f64);
+        self.behind = self.kept.choose(look, dt);
     }
     pub fn pointer(&mut self, p: [f64; 2]) {
         self.cursor = p;
@@ -337,6 +366,10 @@ impl PageBattle {
     /// The battlefield pass builds the same 360-unit map that the Page
     /// browser projects. Its temporary geometry never replaces the UI batch.
     pub fn map_texture(&self, scene: &mut Scene, _view: &ClassicSpawnView, ih: f64) {
+        // A kept frame already shows the hologram.
+        if self.behind == Backdrop::Reuse {
+            return;
+        }
         let bridge = &mut scene.bridge;
         let saved: [f64; M::WORDS] = bridge.hud_model.input[MAP_DRAW..MAP_DRAW + M::WORDS]
             .try_into()
@@ -438,13 +471,14 @@ impl PageBattle {
             scene.bridge.r.core.gl.depth_mask(true);
             scene.bridge.r.core.gl.clear(glow::DEPTH_BUFFER_BIT);
         }
+        let dt = std::mem::take(&mut self.undrawn);
         self.gpu.projector(
             &mut scene.bridge,
             &self.rig,
             look.index,
             self.strength,
             self.pulse,
-            self.dt,
+            dt,
         );
         let scale = if self.walker { 0.9 } else { 1. };
         if let Some(online) = &mut scene.online {
@@ -452,7 +486,7 @@ impl PageBattle {
                 &mut scene.bridge,
                 class,
                 &self.rig.parent(scale),
-                self.dt,
+                dt,
                 &self.rig.inverse,
                 &self.rig.projection,
                 look.index,
@@ -486,7 +520,7 @@ impl PageBattle {
                 0.07
             };
             let height = &mut self.pin_heights[index];
-            *height += (target - *height) * (self.dt * 9.).min(1.);
+            *height += (target - *height) * (dt * 9.).min(1.);
             self.pins.push(gpu::Pin {
                 x,
                 y,
@@ -558,8 +592,22 @@ impl PageBattle {
             }
         }
     }
-    pub fn dispose(&self, scene: &Scene) {
+    /// What goes under the screen's chrome this frame (backdrop.rs), chosen in update().
+    pub fn backdrop(&self) -> Backdrop {
+        self.behind
+    }
+    /// After the battle and the stage were drawn under the chrome.
+    pub fn drawn_behind(&mut self, scene: &Scene) {
+        self.kept.keep(&scene.bridge.r.core.gl, scene.canvas.framebuffer, scene.size);
+    }
+    /// Instead of drawing the battle (and, for a kept frame, the stage) under the chrome.
+    pub fn show_behind(&self, scene: &mut Scene, choice: Backdrop) {
+        self.kept.show(&scene.bridge.r.core.gl, scene.canvas.framebuffer, scene.size, choice);
+        scene.bridge.r.core.state.reset();
+    }
+    pub fn dispose(&mut self, scene: &Scene) {
         self.gpu.dispose(&scene.bridge.r.core.gl);
+        self.kept.release(&scene.bridge.r.core.gl);
     }
 }
 #[cfg(test)]

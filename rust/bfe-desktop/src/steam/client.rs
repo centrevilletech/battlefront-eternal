@@ -1,27 +1,5 @@
 //! Steam client detection, process liveness checks, `steam://rungameid/<gameId>`
 //! relaunch decision logic, and Steam Overlay environment helpers.
-//!
-//! Mirrors the desktop host (`FLATPAK_ID`, `rootKind`, `dotSteam`,
-//! `alive`, `runningSteam`, `steamCommand`, `steamEnvironment`),
-//! the desktop host (`startedBySteam`, `steamStays`, `steamLost`,
-//! `withoutSteamOverlay`), the desktop host (`overlaySupport`,
-//! `overlaySwitches`), and the desktop host (`REQUEST_MS`,
-//! `BACKOFF_MS`, `relaunchThroughSteam`).
-//!
-//! ## Steam Integration Overview
-//! - **Root classification (`root_kind` & `dot_steam`)**:
-//!   Distinguishes native Linux Steam (`~/.steam`), Flatpak Steam
-//!   (`~/.var/app/com.valvesoftware.Steam/.steam`), Snap Steam
-//!   (`~/snap/steam/common/.steam`), macOS, and Windows.
-//! - **Process liveness (`pid_alive` & `is_steam_client_running`)**:
-//!   Reads `steam.pid` from the discovered `.steam` and Steam root directories
-//!   and checks whether the PID is alive (`kill(pid, 0)` on Unix or
-//!   `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` on Windows).
-//! - **Overlay environment (`without_steam_overlay` & `prepare_steam_environment`)**:
-//!   Either scrubs `gameoverlayrenderer.so` and legacy `ubuntu12_*` paths when
-//!   launching a clean subprocess, or injects `SteamAppId`, `SteamGameId`,
-//!   `SteamOverlayGameId`, and `LD_PRELOAD` / `DYLD_INSERT_LIBRARIES` when
-//!   attaching the Steam Overlay.
 
 use std::collections::BTreeMap;
 use std::fs;

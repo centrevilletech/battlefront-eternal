@@ -217,7 +217,7 @@ impl std::fmt::Debug for PublicationSlot {
 }
 
 impl PublicationSlot {
-    fn new_preallocated() -> Self {
+    pub fn new_preallocated() -> Self {
         let policy = Publisher::default();
         Self {
             tick: 0.0,

@@ -34,7 +34,7 @@ it did before Enhanced was added (checked by comparing whole headless battles).
 | `rust/sim/rust/battle/spawning.rs` | the Enhanced spawn-post choice |
 | `rust/sim/rust/ai/control/mod.rs` | Trooper, scout and repair agents that keep going for their post |
 | `rust/sim/rust/ai/combat/enhanced.rs` | `EnhancedAimer`, the player's spread rules for bots, the combat overrides (`EnhancedCombat`) |
-| `rust/sim/rust/ai/owned/tests/phase.rs`, `ai_combat_twin.rs` | tests (threat window and defense exception, Enhanced memory, aim keys and reaction draw order, acceptance policies) |
+| `rust/sim/rust/ai/owned/tests/phase.rs` | tests (threat window and defense exception, Enhanced memory, aim keys and reaction draw order, acceptance policies) |
 
 ## What Enhanced changes
 

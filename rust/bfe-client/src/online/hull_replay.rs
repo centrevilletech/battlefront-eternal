@@ -21,6 +21,8 @@ use three::Matrix4;
 // no unit registry, spawning owner or authoritative battle scheduler.
 // Restoring a checkpoint always replaces its authority baseline.
 struct Hull {
+    speed:f64,
+    flying:bool,
     owner: ClientPrediction,
     arsenal: super::checkpoint::Mounted,
 }
@@ -40,6 +42,13 @@ pub struct Fleet {
     water:Option<bfe_sim::units::water::WaterState>,last_water:f64,
 }
 impl Fleet {
+    pub fn vehicle_motion(&self)->(f64,f64){
+        let Some(index)=self.active.filter(|_|self.identity.is_some())else{return(0.,0.);};
+        let Some(state)=self.state.as_ref()else{return(0.,0.);};let hull=&self.hulls[index];
+        if hull.flying||!state.alive{return(0.,state.yaw_rate);}
+        let speed=state.velocity.iter().map(|v|v*v).sum::<f64>().sqrt();let t=((speed-12.)/((hull.speed*0.85).max(25.)-12.)).clamp(0.,1.);
+        (t*t*(3.-2.*t),state.yaw_rate)
+    }
     pub fn new(content: &BattleContent, collision: &mut CollisionOwner, world: u32) -> Result<Self, String> {
         let defs = bfe_content::defs::Defs::build(&content.content)?;
         let mut classes = vec![None; defs.registry.classes.len() + 1];let mut geometries=Vec::new();
@@ -117,6 +126,7 @@ impl Fleet {
             );
             queries.prepare(&collision.state);
             let rules = MapRules::from_json(&map, content.content.collision.kill_y);
+            let speed=hull.speed;let flying=hull.flying;
             let owner=Session::new(hull,row,strings,queries,rules,environment.clone(),Tunings::default());
             let mut prediction = ClientPrediction::default();
             prediction.install_hull(owner);
@@ -124,6 +134,7 @@ impl Fleet {
             let arsenal = super::checkpoint::Mounted::new(&defs, &mut prediction, Some(id as usize), &[])?;
             classes[id as usize] = Some(index);
             hulls.push(Hull {
+                speed,flying,
                 owner: prediction,
                 arsenal,
             });
@@ -209,7 +220,7 @@ impl Fleet {
         let Some(index) = self.classes.get(class).copied().flatten() else {
             return Err("missing private hull class");
         };
-        let Hull { owner, arsenal } = &mut self.hulls[index];
+        let Hull { owner, arsenal, .. } = &mut self.hulls[index];
         words.clear();
         words.resize(ClientFrame::WORDS, 0.);
         let hull_at = owner.native_hull_frame(words, receiver.own.body_schema as u32, self.water.as_ref().map_or(f64::NAN,|w|w.level()))?;

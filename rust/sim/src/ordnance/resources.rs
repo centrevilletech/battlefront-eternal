@@ -114,35 +114,8 @@ pub fn vector(v: [f64; 3]) -> Vector3 {
 // These are primitive property and I/O operations, not game method adapters.
 // One native phase may observe resources without returning control decisions
 // to JavaScript. No string or argument array is constructed by a warm call.
-#[cfg(target_arch = "wasm32")]
-#[link(wasm_import_module = "ordnance_resources")]
-extern "C" {
-    fn resource_kind(object: u32) -> u32;
-    fn reference(object: u32, key: u32) -> u32;
-    fn number(object: u32, key: u32) -> f64;
-    fn boolean(object: u32, key: u32) -> u32;
-    fn index(object: u32, index: u32) -> u32;
-    fn numeric_index(object: u32, index: u32) -> f64;
-    fn dynamic(object: u32, key: u32) -> u32;
-    fn read_vector(object: u32, out: *mut f64);
-    fn read_matrix(object: u32, out: *mut f64);
-    fn write_vector(object: u32, values: *const f64);
-    fn property(object: u32, key: u32, kind: u32, value: f64);
-    fn invoke(object: u32, key: u32, args: *const f64, count: u32, numeric: u32) -> f64;
-    fn construct(kind: u32, values: *const f64) -> u32;
-    fn text(object: u32, output: *mut u16, capacity: u32) -> u32;
-    fn intern(input: *const u16, count: u32) -> u32;
-    fn publish(root: u32, input: *const f64, count: u32);
-    fn clock() -> f64;
-    fn stable(id: u32) -> u32;
-    fn scratch_vector(slot: u32, values: *const f64) -> u32;
-    fn scratch_hit(slot: u32) -> u32;
-    fn refresh(node: u32);
-    fn unit(id: u32, values: *mut f64);
-}
 // Native clients bind resources to their own scene/device service. A headless
 // world never enters this browser-only resource interface.
-#[cfg(not(target_arch = "wasm32"))]
 mod unavailable {
     macro_rules! stub {($name:ident($($arg:ident:$ty:ty),*)->$out:ty)=>{pub unsafe fn $name($($arg:$ty),*)->$out {$(let _=$arg;)*panic!("browser ordnance resource service required")}}}
     stub!(resource_kind(object: u32) -> u32);
@@ -168,7 +141,6 @@ mod unavailable {
     stub!(refresh(node: u32) -> ());
     stub!(unit(id: u32, values: *mut f64) -> ());
 }
-#[cfg(not(target_arch = "wasm32"))]
 use unavailable::*;
 
 pub struct Env;

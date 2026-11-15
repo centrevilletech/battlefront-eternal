@@ -10,10 +10,6 @@ pub(super) struct State {core:Core,handle:Vec<f64>,capacity:usize,battle_capacit
 fn state(battle: &mut BattleOwner) -> &mut State { battle.core.as_mut().expect("battle owner initialized") }
 pub(crate) fn reset(battle: &mut BattleOwner) { battle.core = None; }
 pub(crate) fn active_in(battle: &mut BattleOwner) -> bool { battle.core.is_some() }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn publication_ptr(battle: &mut BattleOwner) -> u32 {
-    if !active_in(battle) { return 0; } state(battle).core.publication.block.ptr() as u32
-}
 /// The same bank by name, for a native host (Context::read_bank).
 pub(crate) fn publication_bank_in(battle: &mut BattleOwner) -> Option<&[f64]> {
     if !active_in(battle) { return None; } Some(&state(battle).core.publication.block.words[..])
@@ -21,10 +17,10 @@ pub(crate) fn publication_bank_in(battle: &mut BattleOwner) -> Option<&[f64]> {
 pub(crate) fn publish_in(w: &mut Root) {
     if crate::world::deferred_in(&w.tick) {return;}
 
+    // The changed characters, posts and battle were encoded here as deltas
+    // for the JavaScript host. Nothing native reads them.
     if active_in(&mut w.battle) {
-        let rows = state(&mut w.battle).core.flush(&w.sim.store);
-        let words = state(&mut w.battle).core.publication.block.words.len() - HEADER + state(&mut w.battle).core.publication.borrowed_words();
-        super::f4_live::record_publication(&mut w.battle, rows,words);
+        state(&mut w.battle).core.publication.discard();
     }
 }
 pub fn f4_battle_init_in(w: &mut Root) {
@@ -210,25 +206,3 @@ impl State {
 }
 
 
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn f4_battle_init() { f4_battle_init_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f4_battle_capacity(character: u32) -> u32 { f4_battle_capacity_in(crate::abi::facade::world(), character) }
-    #[no_mangle]
-    pub extern "C" fn f4_character_handle(index: u32) -> *const f64 { f4_character_handle_in(crate::abi::facade::world(), index).as_ptr() }
-    #[no_mangle]
-    pub extern "C" fn f4_battle_publish() -> *const f64 { f4_battle_publish_in(crate::abi::facade::world()).map_or(std::ptr::null(), |bank| bank.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn f4_battle_command() -> u32 { f4_battle_command_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f4_tail_handle(kind:u32,index:u32) ->*const f64 { f4_tail_handle_in(crate::abi::facade::world(), kind, index).as_ptr() }
-    #[no_mangle]
-    pub extern "C" fn f4_tail_capacity(kind:u32,index:u32) ->u32 { f4_tail_capacity_in(crate::abi::facade::world(), kind, index) }
-    #[no_mangle]
-    pub extern "C" fn f4_human_ready() -> u32 { f4_human_ready_in(crate::abi::facade::world()) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{f4_battle_init, f4_battle_capacity, f4_character_handle, f4_battle_publish, f4_battle_command, f4_tail_handle, f4_tail_capacity, f4_human_ready};

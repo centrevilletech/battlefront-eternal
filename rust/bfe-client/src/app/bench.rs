@@ -35,6 +35,15 @@ fn value(key: &str) -> Option<String> {
         .map(|(_, value)| value.to_string())
 }
 
+/// `fx=name,name,...`: effect groups the battle plays ahead of the camera
+/// in turn, every 3 s, for side-by-side captures, with an `fx-count` line
+/// every 10 s. Present (even empty) turns the count lines on.
+pub(crate) fn fx() -> Option<Vec<String>> {
+    let query = std::env::var("BFE_BENCH").ok()?;
+    let list = query.split('&').filter_map(|pair| pair.split_once('=')).find(|(name, _)| *name == "fx")?.1;
+    Some(list.split(',').map(str::trim).filter(|n| !n.is_empty()).map(str::to_string).collect())
+}
+
 /// The battle's seed, when `BFE_BENCH` names one.
 pub fn seed() -> Option<u32> {
     value("seed")?.parse().ok()
@@ -42,19 +51,27 @@ pub fn seed() -> Option<u32> {
 
 /// A fixed drawn view for map comparisons; simulation and player input stay live.
 /// `view=FILE` in BFE_BENCH reads the reference camera's numeric matrices.
-pub(super) fn apply_view(view: &mut crate::scene::View) {
+pub(super) fn apply_view(view: &mut crate::scene::View) -> bool {
     static PATH: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    let Some(path) = PATH.get_or_init(|| value("view")) else { return };
+    let Some(path) = PATH.get_or_init(|| value("view")) else { return false };
     #[derive(serde::Deserialize)]
     struct Shot { projection: [f64; 16], inverse: [f64; 16], position: [f64; 3] }
     let Some(shot) = std::fs::read(path).ok()
-        .and_then(|bytes| serde_json::from_slice::<Shot>(&bytes).ok()) else { return };
-    if !shot.projection.iter().chain(&shot.inverse).chain(&shot.position).all(|v| v.is_finite()) { return; }
+        .and_then(|bytes| serde_json::from_slice::<Shot>(&bytes).ok()) else { return false };
+    if !shot.projection.iter().chain(&shot.inverse).chain(&shot.position).all(|v| v.is_finite()) { return false; }
     view.values[..16].copy_from_slice(&shot.projection);
     view.values[16..32].copy_from_slice(&shot.inverse);
     let at = bfe_render::shader::FRAME_OFFSETS[bfe_render::shader::FRAME_MEMBERS.iter()
         .position(|(name, _)| *name == "cameraPosition").unwrap()];
     view.values[at..at + 3].copy_from_slice(&shot.position);
+    true
+}
+
+pub(crate) fn apply_camera(camera: &mut crate::scene::MapCamera) {
+    let mut view = *camera.snapshot();
+    if apply_view(&mut view) {
+        camera.drawn_view(view);
+    }
 }
 
 pub struct Bench {
@@ -67,6 +84,8 @@ pub struct Bench {
     spawned: bool,
     // `hold=1`: leave the spawn screen open for the bench to look at and click.
     hold: bool,
+    // `frames=PATH`: one line per drawn frame: wall ms, spawn screen open, picked class, picked post.
+    frames: Option<BufWriter<File>>,
     waiting: &'static str,
     out: Option<BufWriter<File>>,
     tick: f64,
@@ -91,6 +110,7 @@ impl Bench {
             launched: false,
             spawned: false,
             hold: value("hold").is_some(),
+            frames: value("frames").and_then(|path| File::create(path).ok().map(BufWriter::new)),
             waiting: "",
             out,
             tick: f64::NAN,
@@ -124,6 +144,18 @@ impl Bench {
                     eprintln!("bench: spawn screen waiting for {waiting}");
                 }
             }
+        }
+        if let Some(frames) = &mut self.frames {
+            let wall = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0., |d| d.as_secs_f64() * 1000.);
+            let model = &battle.spawn_ctrl.model;
+            let _ = writeln!(
+                frames,
+                "{wall:.2} {} {} {}",
+                u8::from(battle.spawn_ctrl.is_open()),
+                model.class_index,
+                model.post.as_deref().unwrap_or("-")
+            );
+            let _ = frames.flush();
         }
         if self.out.is_some() {
             if let Err(error) = self.log(battle, captured) {
@@ -264,8 +296,11 @@ impl Bench {
                     clips.get(clip).map_or("", |clip| clip.0.as_str()),
                 )?;
             }
-            out.write_all(b"]}")?;
+            // The seat or hold pose that replaces the clips while it lasts.
+            write!(out, r#"],"gunner":{}}}"#, animation.gunning.and_then(|g| clips.get(g.clip)).map_or("null".into(), |c| format!("\"{}\"", c.0)))?;
         }
+        let seated = receiver.active().find(|row| row[r::ID] == receiver.own.id).is_some_and(|row| row[r::SEAT_PRESENT] != 0.);
+        write!(out, r#","seated":{seated}"#)?;
         let [cx, cy, cz] = camera.position;
         let hud = &battle.scene.bridge.hud_model.input;
         use bfe_render::hud_model::layout::HudFrame as h;
@@ -348,6 +383,48 @@ impl Bench {
             for (index, state) in scene.buildings.states().enumerate() {
                 if index != 0 {out.write_all(b",")?;}
                 serde_json::to_writer(&mut *out, &state)?;
+            }
+        }
+        out.write_all(b"]")?;
+        out.write_all(br#","stations":["#)?;
+        if let Some(scene) = battle.scene.online.as_ref() {
+            for (index, station) in scene.buildings.station_frames().enumerate() {
+                if index != 0 { out.write_all(b",")?; }
+                serde_json::to_writer(&mut *out, &(station.id, station.destroyed, station.health,
+                    station.max_health, station.bounds, station.center))?;
+            }
+        }
+        out.write_all(b"]")?;
+        out.write_all(br#","traps":["#)?;
+        if let Some(scene) = battle.scene.online.as_ref() {
+            for (index, trap) in scene.animated.trap_states().enumerate() {
+                if index != 0 { out.write_all(b",")?; }
+                serde_json::to_writer(&mut *out, &trap)?;
+            }
+        }
+        out.write_all(b"]")?;
+        out.write_all(br#","creatureHolds":["#)?;
+        if let Some(scene) = battle.scene.online.as_ref() {
+            for (index, held) in scene.animated.creature_holds().enumerate() {
+                if index != 0 { out.write_all(b",")?; }
+                serde_json::to_writer(&mut *out, &held)?;
+            }
+        }
+        out.write_all(b"]")?;
+        out.write_all(br#","items":["#)?;
+        let mut first = true;
+        for row in receiver.active().filter(|row| row[r::KIND] == k::ITEM as f64) {
+            if !std::mem::replace(&mut first, false) { out.write_all(b",")?; }
+            serde_json::to_writer(&mut *out, &(row[r::ID],row[r::GENERATION],row[r::ACTIVE],row[r::DEFINITION_ID],
+                &row[r::POSITION..r::POSITION+3]))?;
+        }
+        out.write_all(b"]")?;
+        out.write_all(br#","itemViews":["#)?;
+        if let Some(scene) = battle.scene.online.as_ref() {
+            use bfe_presentation::items_layout::{item_header as h,item_view as v};
+            for (index,row) in scene.items.owner.views.chunks_exact(v::STRIDE).take(scene.items.owner.header[h::VIEWS] as usize).enumerate() {
+                if index != 0 { out.write_all(b",")?; }
+                serde_json::to_writer(&mut *out,&row)?;
             }
         }
         out.write_all(b"]")?;

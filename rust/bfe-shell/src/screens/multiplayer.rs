@@ -1,16 +1,6 @@
 //! Instant Action playlist actions, multiplayer server browser synchronization,
 //! join/host target resolution, and keyboard dispatch for [`ShellApp`]
 //! (`src/shell/screens.js`, `src/shell/index.js`).
-//!
-//! Mirrors:
-//! - `gamePicker()` in `src/shell/index.js` (`GAME_PICKER_OPTIONS`: `swbf1`
-//!   `BATTLEFRONT (2004)` enabled, `swbf2` `BATTLEFRONT II (2005), PLANNED` disabled),
-//! - `joinServer(server, kind)`, `requireProfile()`, `network(kind)`, `host()`,
-//!   and `instantAction()` (`add`, `remove`, `order`, `launch`) in
-//!   `src/shell/screens.js`,
-//! - `bindMenuInput` in `src/menus/input.js` (`ArrowUp`/`ArrowDown`/`w`/`s`,
-//!   `ArrowLeft`/`ArrowRight`/`a`/`d`, `Enter`/`Space`, `Escape`/`Backspace`,
-//!   and `Delete` on `InstantAction`).
 
 use super::{
     IaFocus, OptionsPageId, PendingMpAction, PopupState, ScreenId, ShellAction, ShellApp,

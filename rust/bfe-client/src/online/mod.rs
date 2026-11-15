@@ -10,6 +10,7 @@ pub mod input;
 pub mod receiver;
 pub mod replay;
 pub mod replicas;
+pub mod unit_light;
 
 pub mod checkpoint;
 
@@ -31,8 +32,10 @@ pub mod sound_data;
 
 pub mod combat;
 mod debris;
+pub mod destruction;
 mod effects;
 pub mod jetpacks;
+pub mod fountains;
 pub mod hull_effects;
 pub mod lightning;
 pub mod map_effects;
@@ -41,7 +44,10 @@ mod holograms;
 mod lights;
 pub mod particles;
 
+pub mod steam;
+pub mod trails;
 pub mod turrets;
+pub mod weather;
 
 pub mod cameras;
 

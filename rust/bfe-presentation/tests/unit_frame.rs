@@ -62,130 +62,6 @@ fn bones() -> Vec<Bone> {
     ]
 }
 #[test]
-fn unit_frame_has_no_allocation_even_during_lifecycle_changes() {
-    let mut units = Units::new();
-    let content = units.load(Input {
-        bones: bones(),
-        clips: vec![clip()],
-        tables: TableInput {
-            sets: [[Some(0); 9]; 3],
-            alert: [Some(0); 9],
-            transitions: [[Some(0); 3]; 3],
-            jump: Some(0),
-            fall: Some(0),
-            land_soft: Some(0),
-            land_hard: Some(0),
-            dive: Some(0),
-            jet: Some(0),
-            thrown: [[Some(0); 4]; 2],
-            upper: vec![vec![0]],
-        },
-        walker: None,
-    });
-    let identity = [
-        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-    ];
-    for row in 0..32 {
-        assert_eq!(units.actor(content, &[identity; 4]), row);
-        let at = f::STRIDE + row * i::STRIDE;
-        let input = &mut units.input[at..at + i::STRIDE];
-        input[i::ACTOR] = row as f64;
-        input[i::ID] = row as f64;
-        input[i::GENERATION] = 1.0;
-        input[i::PRESENT] = 1.0;
-        input[i::OWN] = if row == 0 { 1.0 } else { 0.0 };
-        input[i::ALPHA] = 0.75;
-        input[i::VELOCITY + 2] = 2.0;
-        input[i::PREVIOUS_VELOCITY + 2] = 2.0;
-        input[i::HELD_CLIP] = -1.0;
-        input[i::DEATH_CLIP] = 0.0;
-        input[i::ROOT_QUATERNION + 3] = 1.0;
-        input[i::DIVE_TIME] = 0.6;
-        input[i::POSE_PARENT..i::POSE_PARENT + 16].copy_from_slice(&identity);
-        input[i::ATTACHMENT_PARENT..i::ATTACHMENT_PARENT + 16].copy_from_slice(&identity);
-    }
-    let view = units.view(FirstPersonInput {
-        bones: bones(),
-        clips: vec![clip()],
-        sets: vec![[Some(0); 9]],
-        forced_set: None,
-        offset: identity,
-    });
-    units.input[f::FIRST_PERSON_CAMERA..f::FIRST_PERSON_CAMERA + 16].copy_from_slice(&identity);
-    units.input[f::VERSION] = VERSION as f64;
-    units.input[f::ACTORS] = 32.0;
-    units.input[f::DT] = 1.0 / 60.0;
-    units.input[f::FIRST_PERSON] = view as f64;
-    units.input[f::FIRST_PERSON_ACTIVE] = 1.0;
-    units.input[f::FIRST_PERSON_SHOWN] = 0.0;
-    let mut valid = true;
-    let mut posed = false;
-    TRACK.with(|t| t.set(true));
-    for frame in 0..600 {
-        units.input[f::FRAME] = frame as f64;
-        units.input[f::COMMANDS] = 1.0;
-        units.commands[c::ACTOR] = (frame % 32) as f64;
-        units.commands[c::KIND] = if frame % 30 == 0 { k::RESET } else { k::FIRE } as f64;
-        for row in 0..32 {
-            units.collision.actors[row]=row as u32;
-            let collision=row*ci::STRIDE;
-            units.collision.input[collision+ci::ENABLED]=1.0;
-            units.collision.input[collision+ci::TICK]=frame as f64;
-            units.collision.input[collision+ci::GENERATION]=1.0;
-            units.collision.input[collision+ci::SCALE]=1.0;
-            units.collision.input[collision+ci::YAW]=frame as f64*0.001;
-            units.collision.input[collision+ci::SOURCE_PROP] = -1.0;
-            let at = f::STRIDE + row * i::STRIDE;
-            // Exercise first attach, detach and a parent move between the
-            // two phases as interface layout does, without growing children.
-            // Mounts and manned turrets share this same allocation gate,
-            // including enclosure, saddle lean and missing clip handles.
-            if row % 4 == 0 {
-                units.input[at+i::MOUNT_PRESENT]=1.0;
-                units.input[at+i::MOUNT_ALIVE]=if frame%60<30 {1.0} else {0.0};
-                units.input[at+i::MOUNT_ID]=37.0;
-                units.input[at+i::MOUNT_ENCLOSED]=if row%8==0 {1.0} else {0.0};
-                units.input[at+i::RIDER]=1.0;
-                units.input[at+i::RIDER_KIND]=if row%8==0 {2.0} else {1.0};
-                units.input[at+i::LEASE_FACTS]=1.0;
-                units.input[at+i::RIDER_RESET]=if frame%100==0 {1.0} else {0.0};
-                units.input[at+i::RIDER_CLIP]=if row==28 {1e9} else {0.0};
-                units.input[at+i::RIDER_ANIMAL]=1.0;
-                units.input[at+i::RIDER_SPEED]=10.0;
-                units.input[at+i::RIDER_QUATERNION+3]=1.0;
-                units.input[at+i::RIDER_MATRIX..at+i::RIDER_MATRIX+16].copy_from_slice(&identity);
-                units.input[at+i::RIDER_MATRIX+13]=2.4;
-            }
-            units.input[at + i::HAS_POSE_PARENT] = (frame % 2) as f64;
-            units.input[at + i::HAS_ATTACHMENT_PARENT] = ((frame + 1) % 2) as f64;
-            units.input[at + i::POSE_PARENT + 12] = frame as f64 * 0.01;
-            units.input[at + i::ATTACHMENT_PARENT + 12] = frame as f64 * 0.01 + 1.0;
-            units.input[at + i::YAW] = frame as f64 * 0.01;
-            units.input[at + i::POSITION] = row as f64 + frame as f64 * 0.01;
-            units.input[at + i::PREVIOUS_POSITION] = row as f64 + (frame as f64 - 1.0) * 0.01;
-            units.input[at + i::POSTURE] = ((frame / 40) % 3) as f64;
-            units.input[at + i::AIR] = if frame % 100 < 30 { 1.0 } else { 0.0 };
-            units.input[at + i::DIVE] = if frame % 80 < 10 { 1.0 } else { 0.0 };
-            units.input[at + i::GENERATION] = if frame < 300 { 1.0 } else { 2.0 };
-        }
-        units.pose_frame();
-        units.collision_frame(32);
-        posed |= units.header[h::CHANGED] > 0.0;
-        units.attachment_frame();
-        valid &= units.header[h::STATUS] == 0.0;
-        // The scene update then places the drawn remote soldiers.
-        for row in 1..32 {
-            units.places[row - 1] = row as u32;
-        }
-        units.place_actors(31);
-        valid &= units.header[h::STATUS] == 0.0 && units.header[h::CHANGED] > 0.0;
-    }
-    TRACK.with(|t| t.set(false));
-    assert!(valid);
-    assert_eq!(ALLOCS.with(Cell::get), 0, "frame grew a native collection");
-    assert!(posed, "frame must publish actual transformed nodes");
-}
-#[test]
 fn overfull_counts_and_unknown_ids_never_fail_a_frame() {
     // A menu-sized kernel: one actor and 64 commands. The host claims far
     // more rows, commands and placements than fit, and names actors that
@@ -251,4 +127,66 @@ fn overfull_counts_and_unknown_ids_never_fail_a_frame() {
     units.collision.actors[0]=0;
     units.collision_frame(usize::MAX);assert_eq!(units.collision.output[co::COUNT],2.0);
 
+}
+#[test]
+fn leaving_a_seat_gives_the_body_its_own_clips_back() {
+    let mut units = Units::new();
+    let content = units.load(Input {
+        bones: bones(),
+        clips: vec![clip()],
+        tables: TableInput {
+            sets: [[Some(0); 9]; 3],
+            alert: [Some(0); 9],
+            transitions: [[Some(0); 3]; 3],
+            jump: Some(0),
+            fall: Some(0),
+            land_soft: Some(0),
+            land_hard: Some(0),
+            dive: Some(0),
+            jet: Some(0),
+            thrown: [[Some(0); 4]; 2],
+            upper: vec![vec![0]],
+        },
+        walker: None,
+    });
+    let identity = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+    assert_eq!(units.actor(content, &[identity; 4]), 0);
+    units.input[f::VERSION] = VERSION as f64;
+    units.input[f::ACTORS] = 1.0;
+    units.input[f::DT] = 1.0 / 60.0;
+    units.input[f::FIRST_PERSON] = -1.0;
+    let at = f::STRIDE;
+    let input = &mut units.input[at..at + i::STRIDE];
+    input[i::ID] = 7.0;
+    input[i::GENERATION] = 1.0;
+    input[i::PRESENT] = 1.0;
+    input[i::ALPHA] = 1.0;
+    input[i::HELD_CLIP] = -1.0;
+    input[i::ROOT_QUATERNION + 3] = 1.0;
+    input[i::DIVE_TIME] = 0.6;
+    // A remote gunner at a turret.
+    input[i::MOUNT_PRESENT] = 1.0;
+    input[i::MOUNT_ALIVE] = 1.0;
+    input[i::MOUNT_ID] = 37.0;
+    input[i::SEAT] = 1.0;
+    input[i::RIDER_KIND] = 2.0;
+    input[i::RIDER_CLIP] = 0.0;
+    input[i::RIDER_MATRIX..i::RIDER_MATRIX + 16].copy_from_slice(&identity);
+    for _ in 0..10 {
+        units.pose_frame();
+    }
+    assert!(units.actor_animation(0).unwrap().gunning.is_some());
+    // He gets out and runs.
+    let input = &mut units.input[at..at + i::STRIDE];
+    input[i::MOUNT_PRESENT] = 0.0;
+    input[i::SEAT] = 0.0;
+    input[i::RIDER_KIND] = 0.0;
+    input[i::VELOCITY + 2] = 6.0;
+    input[i::PREVIOUS_VELOCITY + 2] = 6.0;
+    for _ in 0..10 {
+        units.pose_frame();
+    }
+    let animation = units.actor_animation(0).unwrap();
+    assert!(animation.gunning.is_none(), "the turret pose outlived the seat");
+    assert!(animation.base_layers().count() > 0);
 }

@@ -6,12 +6,6 @@
 //! JavaScript's (three-mesh-bvh's packed nodes and indirect buffers),
 //! handed over as built: tools/collision-trees.mjs writes them for a host
 //! without JavaScript, and `read_trees` reads that file.
-//!
-//! The kernel is rust/sim's collision module. The simulation module links
-//! this crate, not the other way round, so the kernel's side is a trait:
-//! the module implements `CollisionKernel` over its state and `install`
-//! drives it in ray-kernel.js's order (tests/collision.rs has the
-//! implementation over today's state, and proves the result).
 
 use crate::collision::{MapCollision, TriangleGrid};
 

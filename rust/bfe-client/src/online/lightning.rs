@@ -29,7 +29,11 @@ use std::collections::BTreeMap;
 const RIBBONS: usize = lim::VERTICES * 9 + lim::VERTICES * 3;
 // The Enhanced look's capsules follow the ribbons' room, twenty floats each,
 // then the batch's five material values.
-pub const FLOATS: usize = RIBBONS + lim::CAPSULES * ca::STRIDE + 8;
+// After them, the capsules drawn with the first person arms (the crackle on
+// the player's own gun and a strike on his arms: a few dozen at most) and
+// the same five values.
+const VIEW_CAPSULES: usize = 1024;
+pub const FLOATS: usize = RIBBONS + lim::CAPSULES * ca::STRIDE + 8 + VIEW_CAPSULES * ca::STRIDE + 8;
 
 /// What the Enhanced look reads of one drawn body (ArcLightning.publishUnits
 /// and publishDetails): observations only, the owner decides what to draw.
@@ -39,6 +43,8 @@ pub struct Unit {
     pub mounted: bool,
     pub walker: bool,
     pub first_person: bool,
+    // The player's own body.
+    pub own: bool,
     // Drawn this frame: not gone, not hidden behind the player's own eyes.
     pub shown: bool,
     pub root: [f64; 3],
@@ -277,6 +283,7 @@ impl Arcs {
         images: &BTreeMap<String, usize>,
         data: usize,
     ) -> Result<Self, String> {
+        let shadow_cascades = bridge.shadow_cascades();
         // Definitions are admitted once, in the library's order; a record
         // then names its effect and the owner draws by the definition's id.
         let mut owner = Box::<Lightning>::default();
@@ -293,7 +300,7 @@ impl Arcs {
                     let mesh = match images.get(&texture) {
                         Some(image) => Some(bridge.effect_mesh(
                             bfe_render::effect_layout::LIGHTNING as u32,
-                            crate::shadows::COUNT > 0,
+                            shadow_cascades > 0,
                             textures[*image] as i32,
                             lim::VERTICES as u32,
                             (lim::VERTICES * 3) as u32,
@@ -313,7 +320,7 @@ impl Arcs {
         let batch = bridge.effect_batch(
             bfe_render::effect_layout::ARC as u32,
             0,
-            crate::shadows::COUNT > 0,
+            shadow_cascades > 0,
             -1,
             lim::CAPSULES as u32,
             -1,
@@ -407,13 +414,13 @@ impl Arcs {
     }
     /// ArcLightning.update's first step: the frame's facts. Every unit is
     /// unlisted until `list` names it. `camera` is the view's quaternion.
-    pub fn begin(&mut self, dt: f64, eye: [f64; 3], camera: [f64; 4]) {
+    pub fn begin(&mut self, dt: f64, eye: [f64; 3], camera: [f64; 4], arms: bool) {
         let owner = &mut *self.owner;
         owner.frame[f::DT] = dt;
         owner.frame[f::ENHANCED] = self.enhanced as u8 as f64;
-        // The first-person arms have no arcs of their own here: the gun's
-        // crackle and a strike on the player are drawn in the world.
-        owner.frame[f::HAS_VIEW] = 0.;
+        // With the first person arms shown, the gun's crackle and a strike
+        // on the player are the arms' own arcs, drawn with them.
+        owner.frame[f::HAS_VIEW] = arms as u8 as f64;
         owner.frame[f::EYE..f::EYE + 3].copy_from_slice(&eye);
         owner.frame[f::CAMERA..f::CAMERA + 4].copy_from_slice(&camera);
         owner.frame[f::LAYERS] = 1.;
@@ -442,7 +449,7 @@ impl Arcs {
         x[u::SOLDIER] = 1.;
         x[u::REMOVED] = 0.;
         x[u::COMBAT] = 1.;
-        x[u::OWN] = 0.;
+        x[u::OWN] = flag(facts.own);
         x[u::DEAD] = flag(facts.dead);
         x[u::MOUNTED] = flag(facts.mounted);
         x[u::SEAT] = flag(facts.mounted);
@@ -623,6 +630,30 @@ impl Arcs {
             self.capsules += capsules as u64;
         }
         bridge.r.effects.input[render::IN_DRAWS] = draws as f64;
+        // The arms' own capsules: the same batch, drawn again in the view
+        // pass after the arms, from its own stretch of the effect data.
+        let arms = (owner.counts[h::VIEW_CAPSULES] as usize).min(VIEW_CAPSULES);
+        let view_draws = bridge.r.view.input[bfe_render::view::IN_DRAWS] as usize;
+        if arms > 0 && view_draws < bfe_render::view::MAX_DRAWS {
+            use bfe_render::view;
+            let at = self.data + RIBBONS + lim::CAPSULES * ca::STRIDE + 8;
+            let floats = arms * ca::STRIDE;
+            bridge.r.effects.data[at..at + floats].copy_from_slice(&owner.view_capsules[..floats]);
+            let fov = 2. * (1. / projection[5]).atan().to_degrees();
+            let near = projection[14] / (projection[10] - 1.);
+            self.lens.step(fov, 1., near, height);
+            let values = [0.12, 0.5, 2.5, self.lens.output[cam::PIXEL_ANGLE] as f32, self.lens.output[cam::NEAR_DEPTH] as f32];
+            bridge.r.effects.data[at + floats..at + floats + values.len()].copy_from_slice(&values);
+            let row = &mut bridge.r.view.input[view::IN_FIRST_DRAW + view_draws * view::DRAW..][..view::DRAW];
+            row.fill(0.);
+            row[view::D_PROGRAM] = view::VIEW_BATCH;
+            row[view::D_BATCH] = self.batch as f64;
+            row[view::D_BATCH_AT] = at as f64;
+            row[view::D_BATCH_COUNT] = arms as f64;
+            row[view::D_BATCH_CAPACITY] = lim::CAPSULES as f64;
+            bridge.r.view.input[view::IN_DRAWS] = (view_draws + 1) as f64;
+            self.capsules += arms as u64;
+        }
     }
 }
 #[cfg(test)]

@@ -71,6 +71,11 @@ pub const KIND_MESH: usize = 1;
 pub const KIND_MODEL: usize = 2;
 // FountainJets.capture: a sorted copy of the color accumulated so far.
 pub const KIND_COPY: usize = 3;
+/// A batch drawn into a texture of its own, cleared first, at its place in
+/// the transparent order (EnvironmentVolume.renderVolumes): batch, count,
+/// where its data starts, the registered texture, and its size as
+/// width * 65536 + height. The scene's framebuffer and viewport come back.
+pub const KIND_INTO: usize = 4;
 pub const MAX_DRAWS: usize = 512;
 pub const INPUT_LEN: usize = DRAW_AT + MAX_DRAWS * DRAW_STRIDE;
 // Floats of data a frame, to start with (the page asks for more).
@@ -340,6 +345,7 @@ impl<C: HasContext> EffectsPass<C> {
     }
     pub fn resource_counts(&self)->[usize;4]{[self.owners.len(),self.batches.len(),self.meshes.len(),self.models.len()]}
 
+    pub fn texture_bytes(&self) -> u64 { (3*crate::effect_layout::ANALYTIC_CAPACITY*16) as u64 }
     pub fn new<M: MultiDraw>(core: &mut Core<C, M>) -> EffectsPass<C> {
         let gl = &core.gl;
         let (quad, quad_index) = unsafe {
@@ -906,6 +912,39 @@ impl<C: HasContext> EffectsPass<C> {
         }
     }
 
+    fn draw_offscreen<M: MultiDraw>(&mut self, core: &mut Core<C, M>, e: [usize; 5]) {
+        let [batch, count, at, texture, size] = e;
+        let (width, height) = ((size / 65536) as i32, (size % 65536) as i32);
+        let Some(texture_id) = core.textures.get(texture).copied() else { return };
+        unsafe {
+            let external = core.multi.save_framebuffers();
+            let draw = if external { None } else { core.gl.get_parameter_framebuffer(glow::DRAW_FRAMEBUFFER_BINDING) };
+            let mut viewport = [0i32; 4];
+            core.gl.get_parameter_i32_slice(glow::VIEWPORT, &mut viewport);
+            let target = match core.framebuffer(Some(texture as u32), None) {
+                Ok(target) => target,
+                Err(error) => {
+                    if external { core.multi.restore_framebuffers(); }
+                    core.fail(format!("effects offscreen draw: {error}"));
+                    return;
+                }
+            };
+            let _ = texture_id;
+            core.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(target));
+            core.gl.viewport(0, 0, width, height);
+            core.gl.clear_color(0.0, 0.0, 0.0, 0.0);
+            core.state.color_mask(&core.gl, &mut core.stats, [true; 4]);
+            core.gl.clear(glow::COLOR_BUFFER_BIT);
+            self.bind_batch(core, batch);
+            // A fixed batch (the fountains') counts fountains, each a block of
+            // its seeds: give it room for every block it holds.
+            self.draw_batch(core, [batch, count, 0, at, count.max(1 << 20)]);
+            if external { core.multi.restore_framebuffers(); } else { core.gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, draw); }
+            core.gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+            core.stats.gl_calls += 8;
+        }
+    }
+
     // A batch's changed instances, interleaved into its retained buffer,
     // then one draw. The buffer grows only when its capacity changes.
     fn draw_batch<M: MultiDraw>(&mut self, core: &mut Core<C, M>, e: [usize; 5]) {
@@ -1003,6 +1042,7 @@ impl<C: HasContext> EffectsPass<C> {
             blending(gl, state, stats, &b.blend);
             gl.bind_vertex_array(Some(b.vao));
             gl.draw_elements_instanced(glow::TRIANGLES, b.index_count, glow::UNSIGNED_SHORT, 0, count as i32);
+            core.profile.draw(b.index_count.max(0) as u64,count as u64,1);
             stats.gl_calls += 2;
             stats.pass_draws[PASS_EFFECTS] += 1;
         }
@@ -1071,6 +1111,7 @@ impl<C: HasContext> EffectsPass<C> {
                 blending(gl, state, stats, &m.blend);
                 gl.bind_vertex_array(Some(pass.vao));
                 gl.draw_elements(glow::TRIANGLES, indices as i32, glow::UNSIGNED_INT, 0);
+                core.profile.draw(indices as u64,1,1);
                 stats.gl_calls += 2;
                 stats.pass_draws[PASS_EFFECTS] += 1;
             }
@@ -1142,6 +1183,7 @@ impl<C: HasContext> EffectsPass<C> {
             unsafe {
                 gl.bind_vertex_array(Some(geo.vao));
                 gl.draw_elements(glow::TRIANGLES, geo.index_count, geo.index_type, 0);
+                core.profile.draw(geo.index_count.max(0) as u64,1,1);
             }
             stats.gl_calls += 2;
             stats.pass_draws[PASS_EFFECTS] += 1;
@@ -1215,6 +1257,7 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for EffectsPass<C> {
     }
 
     fn draw_run(&mut self, core: &mut Core<C, M>, view: &View, run: &[Item]) {
+        let timer=core.profile.begin(&core.gl);
         self.common(core);
         for item in run {
             match self.entry(item.record as usize) {
@@ -1222,8 +1265,10 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for EffectsPass<C> {
                 (KIND_MESH, e) => self.draw_mesh(core, e),
                 (KIND_MODEL, e) => self.draw_model(core, view, e),
                 (KIND_COPY, e) => self.copy_scene(core, e),
+                (KIND_INTO, e) => self.draw_offscreen(core, e),
                 _ => {}
             }
         }
+        core.profile.end(&core.gl,"particles",timer);
     }
 }

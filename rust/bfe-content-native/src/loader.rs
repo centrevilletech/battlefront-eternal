@@ -68,6 +68,8 @@ pub struct BattleContent {
     pub effects: Vec<(String, crate::effects::Effects)>,
     /// The map's placed effects: each plays its (prefixed) effect group.
     pub environment_instances: Vec<EnvironmentInstance>,
+    /// The fountains' basins: centre and radius.
+    pub environment_basins: Vec<[f64; 4]>,
     pub first_person: Option<bfe_presentation::unit_content::FirstPersonInput>,
     pub units: Vec<(String, bfe_presentation::unit_content::Input)>,
     pub buildings_bvh: BvhTree,
@@ -77,6 +79,8 @@ pub struct EnvironmentInstance {
     pub effect: String,
     /// Column-major world matrix, as three's Matrix4.fromArray reads it.
     pub matrix: [f64; 16],
+    /// The node of its object it hangs from.
+    pub hardpoint: String,
 }
 pub struct Loader {
     root: PathBuf,
@@ -430,8 +434,9 @@ impl Loader {
                 };
                 let mut skin = mesh.textures.clone();
                 for (slot, name) in override_slots(&body.def, wanted) {
-                    if let Some(path) = side_resolve(&side.name, name) {
-                        skin[slot] = Some(textures.load(&path)?);
+                    match side_resolve(&side.name, name) {
+                        Some(path) => skin[slot] = Some(textures.load(&path)?),
+                        None => eprintln!("native unit admission: class {}/{class} skin {name} has no texture; it keeps its body's", side.name),
                     }
                 }
                 if skin != mesh.textures {
@@ -512,6 +517,17 @@ impl Loader {
         // through the same player as everything else, under names of their
         // own so a battle effect of the same name keeps its own data.
         let mut environment_instances = Vec::new();
+        let environment_basins: Vec<[f64; 4]> = environment
+            .as_ref()
+            .and_then(|data| data.get("basins").and_then(Authored::as_array))
+            .into_iter()
+            .flatten()
+            .map(|b| {
+                let c = b.get("center").and_then(Authored::as_array);
+                let at = |i: usize| c.and_then(|c| c.get(i)).and_then(Authored::as_f64).unwrap_or(0.);
+                [at(0), at(1), at(2), b.get("radius").and_then(Authored::as_f64).unwrap_or(0.)]
+            })
+            .collect();
         let environment_library = environment.as_ref().and_then(|data| {
             for item in data.get("instances").and_then(Authored::as_array).into_iter().flatten() {
                 let name = item.get("effect").and_then(Authored::as_str);
@@ -520,6 +536,7 @@ impl Loader {
                     environment_instances.push(EnvironmentInstance {
                         effect: format!("{}{name}", crate::effects::ENVIRONMENT),
                         matrix: std::array::from_fn(|i| matrix[i].as_f64().unwrap_or(0.)),
+                        hardpoint: item.get("hardpoint").and_then(Authored::as_str).unwrap_or("").to_string(),
                     });
                 }
             }
@@ -560,6 +577,7 @@ impl Loader {
             first_person,
             effects,
             environment_instances,
+            environment_basins,
             buildings_bvh,
             terrain_bvh,
         })

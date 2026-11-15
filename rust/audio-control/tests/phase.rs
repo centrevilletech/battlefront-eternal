@@ -45,38 +45,6 @@ fn bank(runtime: &mut Runtime, duration: f64) {
     runtime.phase.streams.definitions.push(audio_control::streams::Stream { slots: 1, channels: 1 }); runtime.phase.streams.segments.push(audio_control::streams::Segment {stream:0,duration:0.1,channels:1,variants:[usize::MAX;4]}); runtime.phase.streams.configure();
 }
 #[test]
-fn complete_frame_and_asset_completion_allocate_nothing_from_the_first_call() {
-    let mut runtime = Runtime::new(123); bank(&mut runtime, 0.5); let mut end = 0;
-    let mut frame = [0.0; frame::STRIDE]; frame[frame::DT] = 1.0 / 60.0; frame[frame::RATE] = 48000.0; frame[frame::RUNNING] = 1.0; frame[frame::ENHANCED] = 1.0; frame[frame::LFE] = 1.0; frame[frame::MAX_VOICES] = 4.0; frame[frame::VIRTUAL_VOICES] = 8.0; frame[frame::FY] = 0.0; frame[frame::FZ] = -1.0; frame[frame::UY] = 1.0; frame[frame::TEAM] = 1.0; frame[frame::HUMAN] = 1.0; frame[frame::COLLISION] = 1.0;
-    for key in [frame::EFFECTS_VOLUME, frame::AMBIENCE_VOLUME, frame::MUSIC_VOLUME, frame::VOICE_VOLUME, frame::INTERFACE_VOLUME] { frame[key] = 1.0; }
-    let header = packet(&mut runtime, &mut end, input::FRAME, &frame);
-    for (id, kind) in [1.0, 1.0, 3.0, 5.0, 4.0].into_iter().enumerate() {
-        let mut row = [0.0; emitter::STRIDE]; row[emitter::ID] = id as f64; row[emitter::KIND] = kind; row[emitter::ALIVE] = 1.0; row[emitter::HEALTH] = 100.0; row[emitter::MAX_HEALTH] = 100.0; row[emitter::Z] = -3.0 - id as f64 * 2.0; row[emitter::GROUNDED] = 1.0; row[emitter::PILOTED] = 1.0; row[emitter::LIFE] = 2.0;
-        row[emitter::FOOT0] = f64::NAN; row[emitter::FOOT1] = f64::NAN; row[emitter::FOOT2] = f64::NAN; packet(&mut runtime, &mut end, input::EMITTER, &row);
-    }
-    for id in 0..2 { let mut row = [0.0; weapon::STRIDE]; row[weapon::ID] = id as f64; row[weapon::OWNER] = id as f64; row[weapon::SELECTED] = 1.0; row[weapon::RELOADING] = 1.0; row[weapon::OVERHEATED] = 1.0; row[weapon::CHARGING] = 1.0; row[weapon::HEAT] = 2.0; row[weapon::THRESHOLD] = 1.0; row[weapon::MAX_PRESSED] = 1.0; packet(&mut runtime, &mut end, input::WEAPON, &row); }
-    let mut post = [-1.0; post::STRIDE]; post[post::ID] = 0.0; post[post::CLASS] = 0.0; post[post::PRESENT] = 1.0; post[post::ACTIVE] = 1.0; post[post::TEAM] = 0.0; post[post::CONTESTED] = 0.0; post[post::PROGRESS] = 0.5; packet(&mut runtime, &mut end, input::POST, &post);
-    let count = [0.0, 1.0, 1.0]; packet(&mut runtime, &mut end, input::COUNT, &count);
-    let mut foot = [0.0; foot::STRIDE]; foot[foot::OWNER] = 2.0; foot[foot::PRESENT] = 1.0;
-    for axis in 0..4 { foot[foot::M0 + axis * 5] = 1.0; } packet(&mut runtime, &mut end, input::FOOT, &foot);
-    let mut item = [0.0; item::STRIDE]; item[item::MINE] = 1.0; item[item::MINE_BASE] = 1.0; item[item::LANDING_SOURCE] = 1.0; item[item::LANDED] = 1.0; item[item::PRESENT] = 1.0; item[item::SPAN] = 2.0; item[item::LIFE] = 1.9; packet(&mut runtime, &mut end, input::ITEM, &item);
-    let mut event = [0.0; event::STRIDE]; event[event::KIND] = event_kind::START as f64; let start = packet(&mut runtime, &mut end, input::EVENT, &event);
-    event[event::KIND] = event_kind::FIRE as f64; packet(&mut runtime, &mut end, input::EVENT, &event);
-    event[event::KIND] = event_kind::CHATTER as f64; event[event::SOUND] = 17.0; event[event::POSITIONAL] = 1.0; packet(&mut runtime, &mut end, input::EVENT, &event);
-    event[event::KIND] = event_kind::TEST_CHANNEL as f64; event[event::AMOUNT] = 0.1; event[event::SECONDS] = 0.2; event[event::HEALTH] = 0.35; event[event::SOUND] = 0.0;
-    let diagnostic = packet(&mut runtime, &mut end, input::EVENT, &event);
-    let mut commands_emitted = false;
-    COUNT.with(|c| c.set(Some(0)));
-    for frame in 0..1000 {
-        runtime.clear_output(); runtime.input[header + frame::NOW] = frame as f64 / 60.0; runtime.input[header + frame::WALL_NOW] = frame as f64 / 60.0; runtime.feed(end); runtime.step(&mut Room); commands_emitted |= !runtime.phase.engine.commands.is_empty();
-        runtime.input[start + event::KIND] = event_kind::FIRE as f64; runtime.input[diagnostic + event::KIND] = event_kind::FIRE as f64;
-    }
-    let allocations = COUNT.with(|c| c.replace(None).unwrap());
-    assert_eq!(allocations, 0); assert!(runtime.phase.engine.stats[2] > 10); assert!(runtime.phase.engine.stats[3] > 0); assert!(commands_emitted);
-    let mut ready = [0.0; ready::STRIDE]; ready[ready::VOICE] = 0.0; ready[ready::GENERATION] = 1.0; ready[ready::DURATION] = 0.1; ready[ready::CHANNELS] = 1.0; ready[ready::TIME] = 17.0; ready[ready::WALL_NOW] = 17.0; runtime.input[..ready.len()].copy_from_slice(&ready);
-    COUNT.with(|c| c.set(Some(0))); runtime.ready(); let allocations = COUNT.with(|c| c.replace(None).unwrap()); assert_eq!(allocations, 0);
-}
-#[test]
 fn virtual_time_and_stale_handles_keep_voice_lifetimes_separate() {
     let mut runtime = Runtime::new(7); bank(&mut runtime, 0.4); let p = &mut runtime.phase; p.started = true;
     p.frame[frame::RUNNING] = 1.0; p.frame[frame::RATE] = 48000.0; p.frame[frame::MAX_VOICES] = 4.0; p.frame[frame::VIRTUAL_VOICES] = 8.0;

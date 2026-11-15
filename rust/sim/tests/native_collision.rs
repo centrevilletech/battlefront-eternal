@@ -1,4 +1,3 @@
-#![cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 use bfe_content::bvh::{build, Positions};
 use bfe_content::collision::{triangle_bounds, MapCollision, TriangleGrid};
 use bfe_sim::abi::context::{

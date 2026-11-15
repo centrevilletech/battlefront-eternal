@@ -19,20 +19,7 @@ offsets, and unit skinning matrices that `bfe-render` draws each frame.
 
 ---
 
-## Determinism and the Unit Pose Golden Oracle
+## Determinism
 
-`rust/bfe-presentation/tests/unit_oracle.rs` verifies pixel-and-matrix parity for
-unit pose sampling across `x86_64` and `aarch64`:
-
-- The test builds the synthetic nine-bone rig and exercises the four golden
-  stages (`body`, `view-soldier`, `view-droideka`, and `batch` over 64 synthetic
-  units).
-- Every stage formats its output floats through `jsrt::numfmt::format_f64` and
-  asserts the exact SHA-256 digest recorded in
-  `tests/fixtures/presentation/unit-goldens.json`.
-- Transcendental operations in the pose pipeline route through `v8math` so
-  `x86_64` and `aarch64` produce identical digests without a runtime interpreter.
-
-```bash
-~/bfe-work/tools/rbuild.sh cargo test --locked -p bfe-presentation --test unit_oracle
-```
+Transcendental operations in the pose pipeline route through `v8math`, so
+`x86_64` and `aarch64` produce identical results without a runtime interpreter.

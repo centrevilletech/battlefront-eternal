@@ -5,11 +5,6 @@
 //! generators. In a battle the module answers (the subsystems that are
 //! Rust's, JavaScript's through imports until they move); in a replay the
 //! capture does, checking every argument.
-//!
-//! A call that can change the unit or his combat (a round that blows up
-//! beside him, a death, a link of the arc that kills someone whose death
-//! reaches back) takes both mutably: a replay applies what the call did to
-//! them as the capture recorded it.
 
 use super::weapons::{Admission, Shot, WeaponDraws};
 use crate::gen::{Attacker, Combat, RepairTarget, Unit, Weapon};

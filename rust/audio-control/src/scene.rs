@@ -1,36 +1,6 @@
 //! The world's things, as the 2004 game sounds them (docs/formats.md,
 //! "Sound"): rounds in flight, command posts, recharge droids, turrets,
 //! mines, and recon droids. Everything here is 3D at its thing.
-//!
-//! - Rounds carry their OrdnanceSound, a loop that follows them until they
-//!   hit or run out.
-//! - A command post plays its owner side's AmbientSound loop ("rep
-//!   com_blg_commandpost_goodie"; nothing while neutral). While it is being
-//!   taken it loops ChargeSound, rising in pitch from 0.6 to 1 with the
-//!   capture; while two sides contest it, DisputeSound; while an owned one is
-//!   being neutralized, DischargeSound, falling from 1 to 0.6. A destroyed
-//!   objective (the shield generator's hoth_shield_amb hum) stops.
-//! - A recharge droid keeps its AmbientSound going (the FX-7's chatter plays
-//!   now and then: each time it ends it is asked for again, at its
-//!   PlayProbability).
-//! - A turret's gun fires its weapon's FireSound (turretFire). Whoever mans
-//!   a placed turret, its activation, whirs and deactivation are a hull's
-//!   turret seat's (rust/audio-control/src/vehicles.rs updateBuildings).
-//! - A mine plays its landing (CollisionOtherSound) once it sticks. A time
-//!   bomb ticks (TickSound, once) each time the whole seconds of its timer
-//!   change, so twice at once and then every second, at the sound's pitch x
-//!   ((1 - t) x TickSoundPitch + t), t being the share of its LifeSpan left:
-//!   with 0.5 it falls from 1 to 0.5.
-//! - A recon droid carries AmbientSound (its engine) and Ambient2Sound (its
-//!   radio, asked for again each time it ends); its orbital strike's
-//!   countdown is the destruct weapon's ChargeSound, which the original game
-//!   pitches to 0.4 after the first frame.
-//! - Another soldier charging his weapon (a bot's bowcaster) plays its
-//!   ChargeSound at him from the charge's start to its release, pitched as
-//!   the player's own (rust/audio-control/src/player.rs); a launcher's makes none.
-//!
-//! SceneSounds' retained loops and edge detectors. Identity rows survive an
-//! absent frame so a returning object cannot accidentally restart its mine.
 use crate::phase::{Phase, index};
 use crate::engine::{Ask, NONE, SILENT, FOLEY, WEAPONS};
 use crate::layout::{class as c, emitter as e, weapon as w, post as p, item as it};

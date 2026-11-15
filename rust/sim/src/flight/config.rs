@@ -3,14 +3,6 @@
 //! craft of the class, retuned by a command), a craft's class from its name,
 //! its own speeds and handling (its class definition's keys, read as the
 //! 2004 game reads them), and the stick's speed target and its inverse.
-//!
-//! JavaScript keeps a craft's configuration as one object per class
-//! definition whose prototype is the class's live tuning
-//! (`Object.create(FLIGHT_CLASSES[kind])`), so a retune reaches every craft
-//! of the class at once; the two sets of keys never overlap. Here the
-//! definition's own keys are a [`Config`] and the class's a [`Tuning`] the
-//! world holds (`FlightWorld::tuning`), one per battle: the JavaScript's
-//! table is the process's, kept from one battle to the next (quirks.md).
 
 use super::FlightClass;
 use bfe_content::odf::{class_setting, num, setting};
