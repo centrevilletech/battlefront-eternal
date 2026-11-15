@@ -37,6 +37,8 @@ struct Pointer {
 pub struct Sender {
     pub aim_scene: Option<super::shot_aim::Shared>,
     pub fire_aim: Option<[f64;2]>,
+    // BFE_HUD_TRACE: the unit the camera ray last held, logged when it changes.
+    aim_target: Option<u32>,
     pub history: Box<super::replay::History>,
     owner: Box<Outbound>,
     life: [f64; 2],
@@ -86,6 +88,7 @@ impl Default for Sender {
         Self {
             aim_scene: None,
             fire_aim: None,
+            aim_target: None,
             history: Box::new(Default::default()),
             owner: Box::new(Outbound::default()),
             life: [0.; 2],
@@ -317,6 +320,10 @@ impl Sender {
         if let Some(scene)=&self.aim_scene {
             let (aim,reach,target)=scene.borrow().sample(&receiver.own,self.yaw,self.pitch,self.first_person);
             self.fire_aim=Some([aim.yaw,aim.pitch]);
+            if target != self.aim_target && std::env::var_os("BFE_HUD_TRACE").is_some() {
+                eprintln!("[combat-aim] {{\"tick\":{},\"target\":{}}}", receiver.latest, target.map_or(-1, i64::from));
+            }
+            self.aim_target = target;
             if fires[..fc].iter().any(|fire|fire.pressed && !fire.held) && std::env::var_os("BFE_HUD_TRACE").is_some() {
                 use bfe_presentation::network_layout::net_record as record;
                 let velocity=target.and_then(|id|receiver.active().find(|row|row[record::ID]==id as f64).map(|row|[row[record::VELOCITY],row[record::VELOCITY+1],row[record::VELOCITY+2]]));
