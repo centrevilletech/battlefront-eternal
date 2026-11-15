@@ -65,6 +65,7 @@ impl Hull {
         row.hover=self.hover;
         row.bound_radius=self.bound_radius;
         row.radius=v8math::max(self.size.x,self.size.z)*0.5;
+        row.gear_foot=self.flight.gear_foot;
         row.probe_radius=self.probe_radius;
         row.max_health=self.max_health;
         row.slot_index=self.slot_index as f64;
@@ -256,6 +257,20 @@ impl Hull {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constructed_craft_keeps_its_landing_clearance() {
+        for (gear, bottom, expected) in [(Some(1.8), -0.7, Some(1.8)), (Some(0.2), -1., Some(1.)),
+            (Some(-0.29), 0.35, Some(-0.29)), (None, -0.7, None)] {
+            let mut hull = Hull { flying: true, bounds_min: Vector3::new(-1., bottom, -1.), ..Default::default() };
+            hull.flight.gear_foot = gear;
+            let mut strings = Strings::default();
+            let row = hull.initial_record(&mut strings);
+            hull.load(&row);
+            hull.flight = crate::flight::Flight::from_store(&row, &strings, Default::default(), None).unwrap();
+            assert_eq!(hull.stand_height(), expected);
+        }
+    }
 
     // Vehicle.load/to_store preserve authored tow names without rebuilding
     // text. Spawn and release use the same absent handle for an empty cable.
