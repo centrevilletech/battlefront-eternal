@@ -13,6 +13,7 @@ pub struct Cameras {
     gunner: bfe_presentation::camera_effects::Gunner,
     collision: Collision,
     world: u32,
+    ignored: i32,
     life: Option<(u32, u32, usize)>,
     remote_life: Option<(u16, u32, usize)>,
     body: Option<(f64, f64, usize)>,
@@ -46,12 +47,24 @@ pub struct DrawnDeath {
 struct Queries {
     collision: Collision,
     world: u32,
+    ignored: i32,
 }
 impl Cast for Queries {
     fn cast(&mut self, origin: Vector3, direction: Vector3, far: f64, _: bool) -> Option<f64> {
         let ray = bfe_sim::collision::Ray { ox: origin.x, oy: origin.y, oz: origin.z, dx: direction.x, dy: direction.y, dz: direction.z };
-        self.collision.borrow_mut().ray_hit(self.world, ray, far, -1).map(|(_, h)| h.distance)
+        self.collision.borrow_mut().ray_hit(self.world, ray, far, self.ignored).map(|(_, h)| h.distance)
     }
+}
+fn view_rotation(view: &crate::scene::View) -> Quaternion {
+    let mut world = Matrix4::default();
+    world.elements.copy_from_slice(&view.values[16..32]);
+    world.invert();
+    let mut rotation = Quaternion::default();
+    rotation.set_from_rotation_matrix(&world);
+    // Matrix round trips introduce small length errors. Feeding them back
+    // through chase slerp amplifies them into a skewed, turning camera.
+    rotation.normalize();
+    rotation
 }
 impl Cameras {
     pub fn new(content: &bfe_content_native::BattleContent, collision: Collision, world: u32) -> Result<Self, String> {
@@ -109,6 +122,7 @@ impl Cameras {
             gunner: Default::default(),
             collision,
             world,
+            ignored: -1,
             life: None,
             remote_life: None,
             body: None,
@@ -198,11 +212,7 @@ impl Cameras {
             }
         }
         let view = camera.snapshot();
-        let mut world = Matrix4::default();
-        world.elements.copy_from_slice(&view.values[16..32]);
-        world.invert();
-        let mut q = Quaternion::default();
-        q.set_from_rotation_matrix(&world);
+        let q = view_rotation(view);
         let prev_fov = if self.owner.output[o::FOV] > 0. {
             self.owner.output[o::FOV]
         } else {
@@ -365,7 +375,12 @@ impl Cameras {
         }
         self.body = Some(body);
         self.life = lease;
-        let mut queries = Queries { collision: self.collision.clone(), world: self.world };
+        let ignored = prediction.mounted_body(receiver).map_or(-1, |body| body as i32);
+        if ignored != self.ignored && std::env::var_os("BFE_HUD_TRACE").is_some() {
+            eprintln!("camera subject: mount={lease:?} kind={} ignored={ignored}", receiver.own.mount_kind);
+        }
+        self.ignored = ignored;
+        let mut queries = Queries { collision: self.collision.clone(), world: self.world, ignored };
         self.owner.frame::<V8, _>(&mut queries);
         if self.owner.output[o::STATUS] == 0. {
             camera.accept_camera(&self.owner.output);
@@ -447,7 +462,7 @@ impl Cameras {
         if let Some((_, hit)) =
             self.collision
                 .borrow_mut()
-                .ray_hit(self.world, ray, x[g::REACH], -1)
+                .ray_hit(self.world, ray, x[g::REACH], self.ignored)
         {
             x[g::WALL] = 1.;
             x[g::WALL_DISTANCE] = hit.distance;
@@ -546,6 +561,7 @@ mod mounted_tests {
             gunner: Default::default(),
             collision: std::rc::Rc::new(std::cell::RefCell::new(collision)),
             world,
+            ignored: -1,
             life: None,
             remote_life: None,
             body: None,
@@ -565,6 +581,55 @@ mod mounted_tests {
             killer: None,
             killer_tick: f64::NEG_INFINITY,
         }
+    }
+
+    #[test]
+    fn idle_chase_keeps_its_heading_across_view_matrix_round_trips() {
+        use bfe_presentation::cameras::math::slerp;
+        let camera = crate::scene::MapCamera::new([181., -1.2, -19.8], [1280, 720]).unwrap();
+        let mut view = *camera.snapshot();
+        let mut target = Quaternion::default();
+        target.set_from_euler(&three::Euler::new(-0.35, 1.86, 0., three::EulerOrder::YXZ));
+        let mut rotation = target;
+        rotation.x *= 1. + f64::EPSILON;
+        for _ in 0..1800 {
+            let mut matrix = Matrix4::default();
+            matrix.compose(&Vector3::new(181., -1.2, -19.8), &rotation, &Vector3::new(1., 1., 1.));
+            matrix.invert();
+            view.values[16..32].copy_from_slice(&matrix.elements);
+            rotation = slerp::<V8>(view_rotation(&view), target, 1. - (-9. / 60_f64).exp());
+            assert!((rotation.length_sq() - 1.).abs() < 1e-12);
+            assert!((rotation.dot(&target).abs() - 1.).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn mounted_camera_excludes_its_body_but_keeps_the_map_wall() {
+        let cameras = cameras();
+        let body = {
+            let mut collision = cameras.collision.borrow_mut();
+            let vertices = [-10., -10., 2., 10., -10., 2., 0., 10., 2.];
+            let index = [0, 2, 1];
+            let bvh = bfe_content::bvh::build(bfe_content::bvh::Positions::F32(&vertices), &index);
+            let positions = collision.positions(&vertices);
+            let tree = collision.tree(positions, &index, &bvh);
+            let body = collision.body_new(tree, 0) as u32;
+            collision.io_mut()[20..26].copy_from_slice(&[-10., -10., 2., 10., 10., 2.]);
+            collision.body_set(body);
+            let world = &mut collision.state.worlds[cameras.world as usize];
+            world.order.push(body);
+            world.version += 1;
+            collision.enable_body(body, true);
+            body
+        };
+        let mut queries = Queries { collision: cameras.collision, world: cameras.world, ignored: -1 };
+        let from = Vector3::new(0., 0., 0.);
+        let ahead = Vector3::new(0., 0., 1.);
+        assert_eq!(queries.cast(from, ahead, 30., false), Some(2.));
+        queries.ignored = body as i32;
+        assert_eq!(queries.cast(from, ahead, 30., false), Some(20.));
+        queries.ignored = -1;
+        assert_eq!(queries.cast(from, ahead, 30., false), Some(2.));
     }
 
     #[test]

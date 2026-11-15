@@ -85,6 +85,7 @@ struct Model {
     bounds: [f64; 6],
     flying: bool,
     walking: bool,
+    bike: bool,
     max_speed: f64,
     camera_blend: f64,
     seats: usize,
@@ -366,6 +367,7 @@ impl Hulls {
                 bounds: [lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]],
                 flying,
                 walking,
+                bike: defs.names.text(class.name).contains("speederbike"),
                 max_speed: motion.speed,
                 camera_blend: if flying {
                     bfe_sim::flight::config::Tuning::of(bfe_sim::flight::config::flight_class(defs.names.text(class.name))).camera_blend_time
@@ -467,6 +469,7 @@ impl Hulls {
         x[f::VEHICLE_ID] = id;
         x[f::VEHICLE_FLYING] = m.flying as u8 as f64;
         x[f::VEHICLE_WALKING] = m.walking as u8 as f64;
+        x[f::VEHICLE_BIKE] = m.bike as u8 as f64;
         x[f::VEHICLE_SEAT] = seat as f64;
         x[f::VEHICLE_EYE_HULL] = (seat == 0 || !view.turret) as u8 as f64;
         x[f::VEHICLE_HULL..f::VEHICLE_HULL + 16].copy_from_slice(matrix);
