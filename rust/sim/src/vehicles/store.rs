@@ -64,6 +64,7 @@ impl Hull {
         row.turn_rate=self.turn_rate;
         row.hover=self.hover;
         row.bound_radius=self.bound_radius;
+        row.radius=v8math::max(self.size.x,self.size.z)*0.5;
         row.probe_radius=self.probe_radius;
         row.max_health=self.max_health;
         row.slot_index=self.slot_index as f64;
