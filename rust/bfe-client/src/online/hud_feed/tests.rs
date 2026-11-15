@@ -397,3 +397,12 @@ fn the_model_takes_uppercase_names() {
     assert_eq!(hud.texts[first as usize], "CT-7567 REX".encode_utf16().collect::<Vec<_>>());
     assert_ne!(text(&mut texts, &mut hud, SOLDIER), first);
 }
+
+#[test]
+fn a_destroyed_post_is_lost_by_the_team_that_held_it() {
+    assert_eq!(post_change(Some((2, true)), 2, false, true), Some(("game.infomsg.lost", 2)));
+    // Neutralized and destroyed between two summaries.
+    assert_eq!(post_change(Some((1, true)), 0, false, true), Some(("game.infomsg.lost", 1)));
+    // Nobody held it.
+    assert_eq!(post_change(Some((0, true)), 0, false, true), None);
+}
