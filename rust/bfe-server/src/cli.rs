@@ -28,6 +28,9 @@ Environment:
   BFE_ACCEPT_ONLINE=1  accept the online processing notice
   BFE_RELAY_POLICY     auto, never or always (overrides \"relayPolicy\")
   PORT                 loopback port of /admin and /healthz (default 18450)
+
+Bots: config.json \"ai\" is enhanced (the default for a new config), classic or
+off; the setup menu sets it. A config.json without \"ai\" keeps Classic bots.
 ";
 
 #[derive(Clone, Debug, PartialEq, Eq)]

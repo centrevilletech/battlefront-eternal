@@ -5,7 +5,8 @@ and Linux: LAN games, an online server browser with measured ping, direct
 connect by address, hosting from the app, NAT punching and TURN relays, IPv4
 and IPv6, locally generated player identities, kick and ban, and an optional
 shared ban list. A battle holds up to 64 players (32 a side), and bots fill the
-empty slots. The transport is the engine's encrypted native UDP (BFE-UDP/1,
+empty slots: the Enhanced AI by default on a new server and in a new player's
+Instant Action, Classic or none when the host or player chooses. The transport is the engine's encrypted native UDP (BFE-UDP/1,
 protocol 3; see [docs/native-udp-transport.md](docs/native-udp-transport.md));
 WebRTC and protocol 2 are retired. The dedicated server, `bfeserver`, is built
 from `rust/bfe-server` in this workspace and packaged for standalone Linux

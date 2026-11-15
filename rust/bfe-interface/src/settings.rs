@@ -569,8 +569,9 @@ pub const DEFAULTS: [SettingDefault; 59] = [
     // Battle rules (`friendlyFire`), Instant Action bots (`aiMode`, `aiDifficulty`, `aiHeroes`), and `battleSize`.
     // 44. Friendly fire damage rule (`WORLD_SETTINGS`).
     SettingDefault::b("friendlyFire", true),
-    // 45. Instant Action bot mode (`"off"`, `"classic"`, `"enhanced"`).
-    SettingDefault::s("aiMode", "off"),
+    // 45. Instant Action bot mode (`"off"`, `"classic"`, `"enhanced"`): bots on with the
+    // Enhanced AI for a new profile; a saved choice stays as the player left it.
+    SettingDefault::s("aiMode", "enhanced"),
     // 46. Instant Action bot difficulty (`"easy"`, `"medium"`, `"hard"`).
     SettingDefault::s("aiDifficulty", "medium"),
     // 47. Instant Action faction hero NPC spawning.
@@ -1319,6 +1320,16 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_new_profile_fields_enhanced_bots_and_a_saved_choice_stays() {
+        assert_eq!(Settings::new().get_string("aiMode"), "enhanced");
+        let saved = Settings::from_json_str(r#"{"complete":true,"values":{"aiMode":"off"}}"#);
+        assert_eq!(saved.get_string("aiMode"), "off");
+        let mut reset = Settings::from_json_str(r#"{"complete":true,"values":{"aiMode":"classic"}}"#);
+        reset.reset();
+        assert_eq!(reset.get_string("aiMode"), "enhanced");
+    }
 
     // Verifies all 59 DEFAULTS keys, preset cascading, `physicsRate` lock, `mouseScale`, and `adoptHardwareDefaults`.
     #[test]

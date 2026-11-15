@@ -264,7 +264,7 @@ pub struct HostOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<String>,
     /// Optional bot count per team (`0..=32` from `SET GAME OPTIONS`). When `Some(0)`, writes `"ai": "off"`
-    /// to `config.json`; otherwise uses `"classic"` AI mode.
+    /// to `config.json`; otherwise `"enhanced"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ai_units_per_team: Option<u32>,
     /// Optional bot difficulty from `SET GAME OPTIONS`.
@@ -405,10 +405,10 @@ impl HostOptions {
         obj.insert("gamePort".to_string(), json!(game_port));
 
         // Map optional `SET GAME OPTIONS` fields to real `ServerConfig` keys in `bfe-server/src/config.rs`.
-        if let Some(units) = self.ai_units_per_team {
-            let ai_mode = if units == 0 { "off" } else { "classic" };
-            obj.insert("ai".to_string(), Value::String(ai_mode.to_string()));
-        }
+        // Bots on with the Enhanced AI unless the host asked for none. Always written: a
+        // config.json without "ai" reads as an older server's Classic.
+        let ai_mode = if self.ai_units_per_team == Some(0) { "off" } else { "enhanced" };
+        obj.insert("ai".to_string(), Value::String(ai_mode.to_string()));
         if let Some(assignment) = self.team_assignment {
             obj.insert(
                 "autoAssignTeams".to_string(),
@@ -1726,6 +1726,7 @@ mod tests {
             "relayPolicy",
             "honorGlobalBans",
             "gamePort",
+            "ai",
         ];
         assert_eq!(obj.len(), expected_keys.len());
         for k in expected_keys {
@@ -1735,6 +1736,11 @@ mod tests {
         assert_eq!(obj["onlineNoticeAccepted"], false);
         assert_eq!(obj["relayPolicy"], "never");
         assert_eq!(obj["rotation"], json!(["swbf1/nab2:rep:conquest"]));
+        // A hosted game fields Enhanced bots unless the host asks for none.
+        assert_eq!(obj["ai"], "enhanced");
+        opts.ai_units_per_team = Some(0);
+        let off = opts.to_server_config_json(Path::new("/e"), Path::new("/c"), 18461, DEFAULT_MASTER_URL);
+        assert_eq!(off["ai"], "off");
     }
 
     /// Verifies that `HostController::start` returns the exact error strings from the desktop host

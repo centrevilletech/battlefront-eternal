@@ -35,7 +35,7 @@ configured, `fault` when `config.json` cannot be read or admission fails.
 | `stateBytesPerSecond` | `100000` | Per-peer outgoing state budget in bytes/s (`16384..=1048576`) |
 | `autoSpawn` | `false` | Spawns newly joined players immediately |
 | `autoAssignTeams` | `false` | Disables manual team selection on join |
-| `ai` | `"classic"` | AI controller mode (`"classic"` or `"enhanced"`) |
+| `ai` | `"enhanced"` | Bots: `"enhanced"` (the Enhanced AI), `"classic"` (the original game's AI) or `"off"` (no bots). A new config gets `"enhanced"`; a `config.json` written by an older server has no `ai` key and keeps the Classic bots it had. The setup menu sets it (`a  Bots`) |
 | `gamePort` | `18451` | UDP game port and TCP `/info` port (`BFE_GAME_PORT` overrides) |
 | `bind` | `null` | Optional bind address for the UDP game sockets (`BFE_BIND` overrides) |
 | `discovery` | `true` | Enables the `BFE-LAN/1` UDP discovery responder |

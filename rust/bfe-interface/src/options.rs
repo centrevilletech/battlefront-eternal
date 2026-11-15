@@ -672,7 +672,7 @@ pub const OPTIONS: [OptionSpec; 57] = [
         &CHOICES_DIFFICULTY,
     ),
     // 10. `aiMode`: bot behavior mode (`off`, `classic`, `enhanced`; applies on next battle, `?ai=`).
-    // Default: `"off"`; selects `OFF`, `CLASSIC` (2004 AI), or `ENHANCED` (objective/fair-aim AI).
+    // Default: `"enhanced"`; selects `OFF`, `CLASSIC` (2004 AI), or `ENHANCED` (objective/fair-aim AI).
     // Takes effect when a battle starts (`ApplyMode::Battle`, URL override `?ai=`).
     OptionSpec::choice(
         "aiMode",
