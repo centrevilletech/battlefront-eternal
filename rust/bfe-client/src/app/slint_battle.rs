@@ -670,6 +670,8 @@ fn sync_pause_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &mut Batt
         strings: Some(&replicas.hud.strings),
     };
     let rows = battle.pause_menu.visible_rows(&surface);
+    // Behind the YES / NO popup no row is lit.
+    let asking = matches!(battle.pause_menu.top(), Some(PauseScreenState::Confirm { .. }));
     let main_rows: Vec<BattlePauseActionModel> = rows
         .iter()
         .enumerate()
@@ -677,7 +679,7 @@ fn sync_pause_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &mut Batt
             id: format!("{id:?}").into(),
             label: label.to_uppercase().into(),
             enabled: true,
-            highlighted: i == battle.pause_menu.focused_row && !battle.pause_menu.back_focused,
+            highlighted: !asking && i == battle.pause_menu.focused_row && !battle.pause_menu.back_focused,
         })
         .collect();
     sync_rows(&lists.pause_rows, &main_rows);

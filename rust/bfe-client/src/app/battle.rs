@@ -2462,7 +2462,9 @@ impl BattleController {
         self.stats_utf16.clear();
         self.stats_utf16.extend(self.stats_text.encode_utf16());
         let hud = &mut self.scene.bridge.hud_model;
-        hud.fonts[0].draw(&mut hud.batch, root_anchor(self.height), 8., self.height - 8.,
+        // The glyphs hang down from y: leave the line's own height above the bottom edge.
+        let y = self.height - 8. - hud.fonts[0].height * 0.65;
+        hud.fonts[0].draw(&mut hud.batch, root_anchor(self.height), 8., y,
             &self.stats_utf16, [1.; 4], 0, 0.65, 1., 0.);
     }
 

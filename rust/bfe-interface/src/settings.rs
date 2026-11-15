@@ -145,8 +145,8 @@ pub struct PerformancePreset {
     pub render_scale: f64,
     /// Upscaling algorithm (`upscaler`: `"off"`, `"bilinear"`, `"spatial"`, `"temporal"`).
     pub upscaler: &'static str,
-    /// Upscaler sharpening strength (`upscaleSharpness`: `0.0..1.0`).
-    pub upscale_sharpness: f64,
+    /// Adaptive resolution target (`dynamicResolution`: `"0"`, `"30"` or `"60"`).
+    pub dynamic_resolution: &'static str,
     /// Antialiasing mode (`antialiasing`: `"off"`, `"fxaa-fast"`, `"fxaa"`, `"4x"`).
     pub antialiasing: &'static str,
     /// Shadow map quality tier (`shadows`: `"off"`, `"low"`, `"medium"`, `"high"`).
@@ -189,8 +189,6 @@ pub struct PerformancePreset {
     pub sniper_effects: &'static str,
     /// Terrain sun-and-slope shading (`terrainDetail`: `"original"` or `"enhanced"`).
     pub terrain_detail: &'static str,
-    /// Post-death camera framing (`deathCamera`: `"classic"` or `"enhanced"`).
-    pub death_camera: &'static str,
     /// Near-scene full-detail view distance (`viewDistance`: `"original"`, `"far"`, `"max"`).
     pub view_distance: &'static str,
     /// Distant terrain triangle density (`farTerrain`: `"full"` or `"reduced"`).
@@ -203,7 +201,7 @@ impl PerformancePreset {
         Some(match key {
             "renderScale" => SettingValue::Number(self.render_scale),
             "upscaler" => SettingValue::Text(self.upscaler.to_string()),
-            "upscaleSharpness" => SettingValue::Number(self.upscale_sharpness),
+            "dynamicResolution" => SettingValue::Text(self.dynamic_resolution.to_string()),
             "antialiasing" => SettingValue::Text(self.antialiasing.to_string()),
             "shadows" => SettingValue::Text(self.shadows.to_string()),
             "anisotropy" => SettingValue::Int(self.anisotropy),
@@ -225,7 +223,6 @@ impl PerformancePreset {
             "arcCasterEffects" => SettingValue::Text(self.arc_caster_effects.to_string()),
             "sniperEffects" => SettingValue::Text(self.sniper_effects.to_string()),
             "terrainDetail" => SettingValue::Text(self.terrain_detail.to_string()),
-            "deathCamera" => SettingValue::Text(self.death_camera.to_string()),
             "viewDistance" => SettingValue::Text(self.view_distance.to_string()),
             "farTerrain" => SettingValue::Text(self.far_terrain.to_string()),
             _ => return None,
@@ -236,13 +233,11 @@ impl PerformancePreset {
 /// All four named quality presets (`minimum`, `performance`, `balanced`, `quality`)
 /// from `PERFORMANCE_PRESETS` in `src/settings.js`.
 pub const PERFORMANCE_PRESETS: [PerformancePreset; 4] = [
-    // 1. `minimum`: for pre-Ivy Bridge integrated GPUs (`0.5` render scale, no upscaler/AA/shadows,
-    // classic effects, and reduced far terrain). Adopted automatically on old Intel GPUs.
     PerformancePreset {
         id: "minimum",
         render_scale: 0.5,
         upscaler: "off",
-        upscale_sharpness: 0.0,
+        dynamic_resolution: "30",
         antialiasing: "off",
         shadows: "off",
         anisotropy: 1,
@@ -264,18 +259,16 @@ pub const PERFORMANCE_PRESETS: [PerformancePreset; 4] = [
         arc_caster_effects: "classic",
         sniper_effects: "classic",
         terrain_detail: "original",
-        death_camera: "classic",
         view_distance: "original",
         far_terrain: "reduced",
     },
-    // 2. `performance`: for older PCs (`0.75` render scale, fast FXAA, low shadows, classic effects).
     PerformancePreset {
         id: "performance",
         render_scale: 0.75,
-        upscaler: "spatial",
-        upscale_sharpness: 0.35,
+        upscaler: "bilinear",
+        dynamic_resolution: "30",
         antialiasing: "fxaa-fast",
-        shadows: "low",
+        shadows: "off",
         anisotropy: 2,
         bump_mapping: false,
         soft_focus: false,
@@ -295,18 +288,16 @@ pub const PERFORMANCE_PRESETS: [PerformancePreset; 4] = [
         arc_caster_effects: "classic",
         sniper_effects: "classic",
         terrain_detail: "original",
-        death_camera: "classic",
         view_distance: "original",
-        far_terrain: "reduced",
+        far_terrain: "full",
     },
-    // 3. `balanced`: native `1.0` scale with temporal upscaler, FXAA, medium shadows, and enhanced effects.
     PerformancePreset {
         id: "balanced",
         render_scale: 1.0,
         upscaler: "temporal",
-        upscale_sharpness: 0.35,
+        dynamic_resolution: "60",
         antialiasing: "fxaa",
-        shadows: "medium",
+        shadows: "low",
         anisotropy: 8,
         bump_mapping: true,
         soft_focus: true,
@@ -314,28 +305,26 @@ pub const PERFORMANCE_PRESETS: [PerformancePreset; 4] = [
         vehicle_motion_blur: false,
         soft_particles: true,
         lamp_lighting: true,
-        water_quality: "high",
-        tree_detail: "enhanced",
+        water_quality: "low",
+        tree_detail: "original",
         droideka_effects: "enhanced",
         destruction_effects: "enhanced",
         jetpack_effects: "enhanced",
-        environment_effects: "enhanced",
-        rain_effects: "enhanced",
-        ocean_effects: "enhanced",
+        environment_effects: "classic",
+        rain_effects: "classic",
+        ocean_effects: "classic",
         bolt_effects: "enhanced",
         arc_caster_effects: "enhanced",
         sniper_effects: "enhanced",
         terrain_detail: "enhanced",
-        death_camera: "enhanced",
         view_distance: "original",
         far_terrain: "full",
     },
-    // 4. `quality`: full `1.0` scale with 4x MSAA, high shadows, 16x anisotropy, and all enhanced effects.
     PerformancePreset {
         id: "quality",
         render_scale: 1.0,
         upscaler: "temporal",
-        upscale_sharpness: 0.4,
+        dynamic_resolution: "0",
         antialiasing: "4x",
         shadows: "high",
         anisotropy: 16,
@@ -357,7 +346,6 @@ pub const PERFORMANCE_PRESETS: [PerformancePreset; 4] = [
         arc_caster_effects: "enhanced",
         sniper_effects: "enhanced",
         terrain_detail: "enhanced",
-        death_camera: "enhanced",
         view_distance: "original",
         far_terrain: "full",
     },
@@ -374,11 +362,11 @@ pub fn performance_preset(id: &str) -> Option<&'static PerformancePreset> {
 /// Modifying any key in this list while `performancePreset` is set to a named
 /// preset (`minimum`, `performance`, `balanced`, `quality`) flips `performancePreset`
 /// back to `"custom"`.
-pub const PRESET_KEYS: [&str; 27] = [
+pub const PRESET_KEYS: [&str; 26] = [
     // Resolution scaling, upscaling, antialiasing, shadows, and texture filtering.
     "renderScale",
     "upscaler",
-    "upscaleSharpness",
+    "dynamicResolution",
     "antialiasing",
     "shadows",
     "anisotropy",
@@ -403,7 +391,6 @@ pub const PRESET_KEYS: [&str; 27] = [
     "arcCasterEffects",
     "sniperEffects",
     "terrainDetail",
-    "deathCamera",
     "viewDistance",
     "farTerrain",
 ];
@@ -1412,5 +1399,14 @@ mod tests {
         // Changing a preset key flips `performancePreset` back to `"custom"`.
         hw.set("shadows", "high");
         assert_eq!(hw.get_string("performancePreset"), "custom");
+
+        // The presets set the same 26 keys as the browser build's, adaptive resolution among them and
+        // sharpening and the death camera not.
+        assert_eq!(PRESET_KEYS.len(), 26);
+        assert_eq!(s.get_string("dynamicResolution"), "0");
+        s.set("performancePreset", "minimum");
+        assert_eq!(s.get_string("dynamicResolution"), "30");
+        assert!((s.get_f64("upscaleSharpness") - 0.4).abs() < 1e-9);
+        assert_eq!(s.get_string("deathCamera"), "enhanced");
     }
 }
