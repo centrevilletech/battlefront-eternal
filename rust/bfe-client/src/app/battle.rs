@@ -1901,6 +1901,7 @@ impl BattleController {
                         flight,
                         view_tick: crate::online::clock::rendered_tick(receiver.clock.shown, receiver.latest),
                         fire_aim: sender.fire_aim,
+                        flight_mode: receiver.in_aircraft(),
                     });
                 }
                 if !halted {

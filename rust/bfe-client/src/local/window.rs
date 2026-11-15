@@ -118,7 +118,7 @@ impl<E: Engine> Running<E> {
             observer.input(&mut self.host.input, self.host.world.runtime.tick());
             self.host.frame(elapsed)?;
             self.host.world.draw(&mut self.scene)?;
-            observer.state(&self.host.world.runtime.receiver.own, &self.scene);
+            observer.state(&self.host.world.runtime.receiver().own, &self.scene);
             Ok(())
         })();
         let observed = observer.end(self.host.world.runtime.tick());
@@ -139,13 +139,13 @@ impl<E: Engine> Running<E> {
         let presented: serde_json::Map<String, serde_json::Value> = bfe_client::online::replicas::presented::SHOWN
             .iter().zip(resources.presented.shown).map(|(name, count)| (name.to_string(), count.into())).collect();
         Ok(serde_json::json!({"ticks":local.ticks,"frames":self.host.world.frames,
-            "generation":local.receiver.own.generation,"alive":local.receiver.own.alive,
-            "position":local.receiver.own.position,"hulls":resources.hulls.visible,"items":resources.items.visible,
+            "generation":local.receiver().own.generation,"alive":local.receiver().own.alive,
+            "position":local.receiver().own.position,"hulls":resources.hulls.visible,"items":resources.items.visible,
             "hudQuads":resources.hud.quads,"projectileQuads":resources.combat.total_quads,
             "effects":resources.combat.total_effects,"audioFrames":resources.sound.device_frames(),
             "audioPeak":resources.sound.peak(),"audioEvents":resources.sound.event_counts.to_vec(),
             "combatRecords":resources.combat.received.to_vec(),"presented":presented,
-            "refused":local.refusals()+local.receiver.refused,
+            "refused":local.refusals()+local.receiver().refused,
             "pixelHash":self.scene.hash()?}))
     }
 }

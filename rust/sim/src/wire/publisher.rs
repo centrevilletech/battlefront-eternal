@@ -17,6 +17,14 @@ pub struct Actor {
     pub ack: f64, pub ack_tick: f64, pub discarded_input: f64, pub discarded_actions: f64,
 }
 pub struct Correction<'a> { pub id: f64, pub generation: f64, pub schema: f64, pub payload: &'a [u8] }
+/// What one publication told one client about itself, as its receiver
+/// would read it: the snapshot's epoch and tick, whether the snapshot is
+/// complete (shared parts and own datagram, so the receiver acknowledges
+/// it), and the own correction's life and team when one was sent. A host
+/// that receives its own publications in process reads these instead of
+/// decoding them.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct OwnFacts { pub client: u32, pub epoch: f64, pub tick: f64, pub complete: bool, pub correction: Option<(f64, u8)> }
 /// The source owns canonical records. Implementations supply only retained
 /// borrows; neither an actor facade nor a host callback is invoked here.
 pub trait World {
@@ -85,6 +93,8 @@ pub struct Publisher {
     recipients: Vec<Recipient>, candidates: Vec<Candidate>, chosen: Vec<f64>, costs: [f64; CLIENTS],
     edge_spare: Vec<WirePublishedEdges>, reliable_spare: Vec<WirePublishedReliable>,
     pub events: super::journal::Events, last_encodes: u32,
+    /// This publication's facts for each client it sent an own datagram.
+    pub own_facts: Vec<OwnFacts>,
 }
 impl Default for Publisher {
     fn default() -> Self {
@@ -94,7 +104,7 @@ impl Default for Publisher {
             block, bytes: Vec::with_capacity(ARENA), groups: std::array::from_fn(|_| Group::default()), group_count: 0, group_order: Vec::with_capacity(4),
             recipients: Vec::with_capacity(CLIENTS), candidates: Vec::with_capacity(CLIENTS * 8), chosen: Vec::with_capacity(3), costs: [1024.; CLIENTS],
             edge_spare: (0..32).map(|_| WirePublishedEdges { received: Vec::with_capacity(32), results: Vec::with_capacity(32), ..Default::default() }).collect(),
-            reliable_spare: (0..32).map(|_| WirePublishedReliable { records: Vec::with_capacity(64), ..Default::default() }).collect(), events: Default::default(), last_encodes: 0 }
+            reliable_spare: (0..32).map(|_| WirePublishedReliable { records: Vec::with_capacity(64), ..Default::default() }).collect(), events: Default::default(), last_encodes: 0, own_facts: Vec::with_capacity(CLIENTS) }
     }
 }
 fn append(arena: &mut Vec<u8>, bytes: &[u8]) -> Result<WireSpan> {
@@ -147,7 +157,7 @@ impl Publisher {
     // Snapshot and per-client baseline rings deliberately survive this reset.
     fn reset(&mut self, epoch: f64, tick: f64, unix: f64, dropped: f64) {
         self.output.epoch = epoch; self.output.tick = tick; self.output.captured_at_unix_ms = unix; self.output.dropped_ticks = dropped;
-        self.output.created.clear(); self.output.drained = false; self.output.retired.clear(); self.output.own.clear(); self.output.acks.clear(); self.output.records.clear(); self.output.faults.clear();
+        self.output.created.clear(); self.output.drained = false; self.output.retired.clear(); self.output.own.clear(); self.output.acks.clear(); self.output.records.clear(); self.output.faults.clear(); self.own_facts.clear();
         self.edge_spare.extend(self.output.edges.drain(..)); self.reliable_spare.extend(self.output.reliable.drain(..));
         self.bytes.clear(); self.recipients.clear(); self.candidates.clear(); self.chosen.clear(); self.group_count = 0; self.group_order.clear(); self.costs.fill(1024.);
         for group in &mut self.groups { group.value.clients.clear(); group.value.parts.clear(); group.value.bytes = 0.; group.joined = false; }
@@ -301,11 +311,17 @@ impl Publisher {
                 // It commits before cosmetic packing, as the prior host did.
                 let prepared = p.ring.write(tick, host.epoch, base, correction.as_ref().map(|c| c.payload), &p.fields.values)?;
                 let (own, previous) = p.ring.prepared(&prepared);
+                // The receiver reads the life from the correction's record and
+                // the team from its payload's header.
+                let mut facts = OwnFacts { client: c.id, epoch: host.epoch, tick, complete: group.is_some(),
+                    correction: correction.as_ref().map(|c| (c.generation, own.payload.as_deref()
+                        .and_then(|b| crate::prediction::corrections::decode_own_player_header(b).ok()).map_or(0, |h| h.team))) };
                 p.correction.0.clear();
                 if let Some(correction) = correction { codec::own_correction_into(&mut p.correction, correction.id, correction.generation, correction.schema,
                     own.payload.as_deref().unwrap(), previous.and_then(|b| b.payload.as_deref()))?; }
                 codec::world_section_into(&mut p.summaries, &own.summaries, previous.map_or(&[], |b| &b.summaries))?;
                 let has_correction = !p.correction.0.is_empty();
+                if !has_correction { facts.correction = None; }
                 // ownDatagramBudget excludes the potential cosmetic length
                 // prefix even when no event fits. Refinements spend only the
                 // state budget left after shared parts and this first packet;
@@ -334,6 +350,7 @@ impl Publisher {
                     c.metrics[1] += 1.; c.metrics[2] += p.packet.0.len() as f64;
                     super::host::charge(&mut c.sent, &mut c.sent_bytes, at, p.packet.0.len() as f64);
                 }
+                self.own_facts.push(facts);
                 c.metrics[3] = p.outbox.dropped; c.metrics[4] = p.outbox.owed_dropped; c.metrics[5] = p.outbox.resent;
                 if recipient.full { c.metrics[0] += 1.; }
                 Ok(())

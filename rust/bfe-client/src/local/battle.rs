@@ -34,20 +34,20 @@ impl<E: Engine> Battle<E> {
     // Keep this whole-frame boundary identical to direct joins: body/hull
     // publication, seat camera, HUD and audio observe the same completed tick.
     pub fn draw(&mut self, scene: &mut Scene) -> Result<(), String> {
-        if let Some(error) = self.runtime.receiver.error() { return Err(error); }
-        scene.present_network(&self.runtime.receiver, &self.replay, &self.sender.history, &mut self.camera, self.dt);
+        if let Some(error) = self.runtime.receiver().error() { return Err(error); }
+        scene.present_network(self.runtime.receiver(), &self.replay, &self.sender.history, &mut self.camera, self.dt);
         scene.draw(self.camera.snapshot())?;
         // A catch-up display can contain several authoritative publications.
         // Keep all their event records until the one whole-scene presentation
         // has consumed them, then retire the frame journal together.
-        self.runtime.receiver.publications.clear();
+        self.runtime.receiver_mut().publications.clear();
         Ok(())
     }
 }
 
 impl<E: Engine> World for Battle<E> {
     type Frame = View;
-    fn generation(&self) -> u32 { self.runtime.receiver.own.generation as u32 }
+    fn generation(&self) -> u32 { self.runtime.receiver().own.generation as u32 }
     fn step(&mut self, command: &ClientCommand, look: &ClientLook, flight: &ClientFlightCommand, _: &ViewActions, _: f64) -> Result<(), String> {
         let mut command = command.clone();
         // Scene's existing native lens is first person. Supply its actual
@@ -64,7 +64,7 @@ impl<E: Engine> World for Battle<E> {
         let tick = self.runtime.tick() + alpha;
         self.dt = ((tick - self.shown) / 60.).clamp(0., 8. / 60.);
         self.shown = tick;
-        let receiver = &mut self.runtime.receiver;
+        let receiver = self.runtime.receiver_mut();
         if let Err(error) = receiver.clock.advance(self.dt) { receiver.fault = Some(error); }
         if let Err(error) = self.replay.frame(receiver, &self.sender) { receiver.fault = Some(error); }
         let mut own = receiver.own;
