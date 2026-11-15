@@ -1866,6 +1866,12 @@ impl ShellHost {
                 .is_some_and(|row| row.id == "refresh");
         self.app
             .handle_key(key, false, false, false, &mut self.browser);
+        // The key that lifts the title gate is also the main menu's first key, as in the browser build:
+        // one Enter lands in SINGLEPLAYER.
+        if prev_screen == ScreenId::Gate && self.app.current_screen() != ScreenId::Gate {
+            self.app
+                .handle_key(key, false, false, false, &mut self.browser);
+        }
         if !matches!(prev_screen, ScreenId::Options | ScreenId::OptionsPage(_))
             && matches!(
                 self.app.current_screen(),
