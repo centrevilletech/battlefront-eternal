@@ -67,6 +67,11 @@ impl Phase {
         if id >= self.turret_emitter_base && id != NONE { return self.turrets.get(id - self.turret_emitter_base).map(|r| [r[crate::layout::turret::X], r[crate::layout::turret::Y], r[crate::layout::turret::Z]]); }
         self.emitters.get(id).map(|r| [r[e::X], r[e::Y], r[e::Z]])
     }
+    /// An emitter's velocity (none for a turret or a fixed place).
+    pub fn velocity(&self, id: usize) -> Point {
+        if id >= self.turret_emitter_base || id == NONE { return [0.0; 3]; }
+        self.emitters.get(id).map_or([0.0; 3], |r| { let v = [r[e::VX], r[e::VY], r[e::VZ]]; if v.iter().all(|x| x.is_finite()) { v } else { [0.0; 3] } })
+    }
     pub fn sound(&self, class: usize, key: usize) -> usize { self.classes.get(class).map_or(NONE, |row| index(row[key])) }
     pub fn number(&self, class: usize, key: usize, default: f64) -> f64 { self.classes.get(class).map_or(default, |row| if row[key].is_nan() { default } else { row[key] }) }
     pub fn base_pitch(&self, class: usize, key: usize) -> f64 { self.engine.sounds.get(self.sound(class, key)).map_or(1.0, |s| s.pitch) }
@@ -148,7 +153,9 @@ impl Phase {
                 self.layers.advance(id, dt);
                 if self.layers.all_launched(handle) && (0..self.layers.count(handle)).all(|i| !self.playing(self.layers.child(handle, i))) { self.layers.retire(handle); }
             } else if let Some((id, serial)) = voice {
-                cursor = serial; let followed = self.position(self.engine.voices[id].emitter); self.engine.measure(id, dt, followed, self.engine.now);
+                cursor = serial; let emitter = self.engine.voices[id].emitter; let followed = self.position(emitter);
+                let motion = Some((self.velocity(emitter), self.velocity(index(self.frame[crate::layout::frame::OWN]))));
+                self.engine.measure(id, dt, followed, self.engine.now, motion);
             } else { break; }
         }
         let mut ranked = [0; CAPACITY]; let count = self.engine.rank(&mut ranked); let mut real = 0;
