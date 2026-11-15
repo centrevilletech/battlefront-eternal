@@ -26,21 +26,27 @@ pub struct MovieLibrary {
     by_name: HashMap<String, Source>,
 }
 
-/// `base` joined with `parts`, each part matched without regard to letter case.
+/// `base` joined with `parts`, each part matched without regard to letter case, under the name the folder
+/// or file has on disk. A case-insensitive file system (Windows, macOS by default) opens `MOVIES` as
+/// `Movies` too, but the path found keeps the disk's letters, the same on every system. Where two names
+/// differ only by case (possible on Linux) the one spelled as asked wins, else the first in sorted order.
 pub fn find_ignoring_case(base: &Path, parts: &[&str]) -> Option<PathBuf> {
     let mut path = base.to_path_buf();
     for part in parts {
-        let exact = path.join(part);
-        if exact.exists() {
-            path = exact;
-            continue;
+        let mut names: Vec<_> = std::fs::read_dir(&path)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| e.file_name().into_string().ok())
+            .filter(|n| n.eq_ignore_ascii_case(part))
+            .collect();
+        names.sort();
+        match names.iter().find(|n| n.as_str() == *part).or(names.first()) {
+            Some(name) => path.push(name),
+            // A folder that can be opened but not listed.
+            None if path.join(part).exists() => path.push(part),
+            None => return None,
         }
-        let found = std::fs::read_dir(&path).ok()?.flatten().find(|e| {
-            e.file_name()
-                .to_str()
-                .is_some_and(|n| n.eq_ignore_ascii_case(part))
-        })?;
-        path = found.path();
     }
     Some(path)
 }
@@ -275,6 +281,17 @@ mod tests {
         let empty = MovieLibrary::open(Some(&content), &[root.join("moved away")]);
         assert_eq!(empty.archive_count(), 0);
         assert!(empty.resolve("/common/shell/movies/main.webm").is_none());
-        std::fs::remove_dir_all(&root).unwrap();
+
+        // Every folder of the main archive in other letters: found, under the names on disk.
+        let other = root.join("Other Game");
+        let movies = other.join("gamedata").join("DATA").join("_lvl_pc").join("movies");
+        std::fs::create_dir_all(&movies).unwrap();
+        std::fs::write(movies.join("SHELL.MVS"), archive(&["main"])).unwrap();
+        let library = MovieLibrary::open(None, &[other.clone()]);
+        assert_eq!(library.game_dir(), Some(other.as_path()));
+        let main = library.resolve("/common/shell/movies/main.webm").unwrap();
+        assert_eq!(main.path, movies.join("SHELL.MVS"));
+        // A decoder thread may still hold a file for a moment; Windows does not remove an open file.
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

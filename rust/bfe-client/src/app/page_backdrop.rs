@@ -188,7 +188,9 @@ mod tests {
         for (side, player) in players.iter().enumerate() {
             assert!(player.has_frame(), "side {side} went dark");
         }
-        std::fs::remove_dir_all(dir).unwrap();
+        // The decoders may still hold the files for a moment; Windows does not remove an open file.
+        drop(players);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Every movie of a side unreadable: the side rests on the plain backdrop without trying
@@ -219,6 +221,8 @@ mod tests {
         for (side, player) in players.iter().enumerate() {
             assert!(player.has_frame(), "side {side} did not try again");
         }
-        std::fs::remove_dir_all(dir).unwrap();
+        // The decoders may still hold the files for a moment; Windows does not remove an open file.
+        drop(players);
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
