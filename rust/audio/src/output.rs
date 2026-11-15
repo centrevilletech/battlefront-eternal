@@ -532,6 +532,7 @@ impl Output {
         self.hrtf_sum.fill(0.0);
         self.present.fill(0);
         self.voices.frame = self.frame as f64;
+        self.voices.feed_streams();
         // Classic stereo voices already produce their two-channel light mix.
         // Other modes render mono voice feeds for placement, plus a separate room
         // send; none of those feeds has yet entered the output master chain.

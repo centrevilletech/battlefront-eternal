@@ -339,6 +339,10 @@ impl HullEffects {
         }
     }
 
+    /// An effect that goes off once where it is placed, upright (a rain splash).
+    pub fn once(&mut self, group: usize, position: [f64; 3]) {
+        self.shots.push((group, position, [0., 0., 0., 1.]));
+    }
     /// An effect that goes off once where it is placed (a walker's stomp).
     pub fn shot(&mut self, group: usize, position: [f64; 3], turn: [f64; 4]) {
         self.stomps += 1;

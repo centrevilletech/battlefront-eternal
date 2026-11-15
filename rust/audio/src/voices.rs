@@ -15,7 +15,7 @@ use crate::commands::PLACE as LIGHT_PLACE;
 pub(crate) use crate::commands::arity;
 
 /// Channel-major PCM, at the decoded asset's rate.
-pub struct Sample { pub rate:f64, pub channels:usize, pub frames:usize, pub data:Vec<f32>, pub ring:Option<crate::streaming::Ring> }
+pub struct Sample { pub rate:f64, pub channels:usize, pub frames:usize, pub data:Vec<f32>, pub ring:Option<crate::streaming::Ring>, pub feed:Option<Box<crate::streaming::Adpcm>> }
 
 // TimeToSampleFrame rounds at 1024 times the context rate before rounding
 // to a playback frame; offset and start use different rounding directions.
@@ -236,14 +236,19 @@ impl Engine {
     /// Slots are reserved at admission; moving a decoded buffer here never
     /// allocates on the device callback or changes an existing source cursor.
     pub fn reserve_samples(&mut self,count:usize){self.samples.resize_with(self.samples.len().max(count),||None);}
-    pub fn decoded_sample(&mut self,id:usize,rate:f64,channels:usize,frames:usize,data:Vec<f32>){if id>=self.samples.len()||channels==0||channels>12||data.len()!=frames.saturating_mul(channels){return;}self.samples[id]=Some(Sample{rate,channels,frames,data,ring:None});}
+    pub fn decoded_sample(&mut self,id:usize,rate:f64,channels:usize,frames:usize,data:Vec<f32>){if id>=self.samples.len()||channels==0||channels>12||data.len()!=frames.saturating_mul(channels){return;}self.samples[id]=Some(Sample{rate,channels,frames,data,ring:None,feed:None});}
+    /// Installs a sample made off the device thread (a streamed segment), or
+    /// clears the slot.
+    pub fn set_sample(&mut self, id: usize, sample: Option<Sample>) { if let Some(slot) = self.samples.get_mut(id) { *slot = sample; } }
+    /// Decodes ahead for every streamed sample, before a quantum renders.
+    pub fn feed_streams(&mut self) { for sample in self.samples.iter_mut().flatten() { if sample.feed.is_some() { sample.feed(); } } }
     /// Room for sample `id`'s `frames` at `rate`, to fill before a voice
     /// plays it (allocates: called as a sample arrives, never mid-block).
     pub fn sample_storage(&mut self, id: usize, frames: usize, rate: f64) -> &mut [f32] {
         if self.samples.len() <= id {
             self.samples.resize_with(id + 1, || None);
         }
-        self.samples[id] = Some(Sample { rate, channels: 1, frames, data: vec![0.0; frames], ring:None });
+        self.samples[id] = Some(Sample { rate, channels: 1, frames, data: vec![0.0; frames], ring:None, feed:None });
         &mut self.samples[id].as_mut().unwrap().data
     }
 
@@ -368,7 +373,8 @@ impl Engine {
             if !v.on {
                 continue;
             }
-            let Some(Some(sample)) = self.samples.get(v.sample) else {
+            // (A streamed segment's ring is for stream sources alone.)
+            let Some(Some(sample)) = self.samples.get(v.sample).filter(|s| s.as_ref().is_some_and(|s| s.ring.is_none())) else {
                 v.on = false;
                 continue;
             };
@@ -441,7 +447,8 @@ impl Engine {
             if !v.on {
                 continue;
             }
-            let Some(Some(sample)) = self.samples.get(v.sample) else {
+            // (A streamed segment's ring is for stream sources alone.)
+            let Some(Some(sample)) = self.samples.get(v.sample).filter(|s| s.as_ref().is_some_and(|s| s.ring.is_none())) else {
                 v.on = false;
                 continue;
             };

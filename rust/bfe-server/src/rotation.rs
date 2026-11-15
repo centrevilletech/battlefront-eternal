@@ -96,7 +96,7 @@ mod tests {
         assert_eq!(next.delay_ms, 10_000);
         assert!(next
             .query
-            .starts_with("?map=hot1&side=imp&ai=classic&seed=1&match="));
+            .starts_with("?map=hot1&side=imp&ai=enhanced&seed=1&match="));
         assert_eq!(next.token.len(), 32);
         let announced = next.query.clone();
         assert!(rotation.schedule(&config, true, now).is_err());

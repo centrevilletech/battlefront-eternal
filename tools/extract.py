@@ -2253,6 +2253,24 @@ def live_effects(map_paths, shared):
     return wanted
 
 
+def weather_effects(map_paths):
+    """The effects the maps' rain plays where its drops land (Precipitation's
+    GroundEffect, such as rainsplash)."""
+    wanted = set()
+    for path in map_paths:
+        try:
+            weather = parse_weather(configs(path.read_bytes(), b"fx__"))
+        except UNREADABLE as error:
+            if not add_on_archive(path):
+                raise
+            print(f"  {zero_addon.source_name(path, GAME)}: unreadable, passed over ({error})", flush=True)
+            continue
+        ground = ((weather or {}).get("precipitation") or {}).get("GroundEffect")
+        if ground:
+            wanted.add(str(ground[0]))
+    return wanted
+
+
 def effects_elsewhere(names, map_paths):
     """Effects the shared archives lack, from whichever map archive holds
     them (the droideka's hailfire_wake is in the maps hover vehicles fight
@@ -2299,7 +2317,7 @@ def extract_common(skeleton, shared, wanted_effects, fp_skeleton=None, maps=None
     bones, fp_bones, gathered = gathered_sides()
     bones = merged_bones(out / "anims.json", bones + [n for n in (skeleton or {}).get("names", []) if n not in bones])
     fp_bones = merged_bones(out / "anims_fp.json", fp_bones + [n for n in (fp_skeleton or {}).get("names", []) if n not in fp_bones])
-    wanted_effects = set(wanted_effects) | gathered | live_effects(map_paths, shared)
+    wanted_effects = set(wanted_effects) | gathered | live_effects(map_paths, shared) | weather_effects(map_paths)
     clips = write_anims(common, bones, out) if bones else {}
     print(f"  clips {len(clips)} for {len(bones)} bones", flush=True)
     if fp_bones:

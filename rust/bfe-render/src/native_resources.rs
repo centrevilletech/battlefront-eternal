@@ -12,6 +12,9 @@ enum Pixels {
     Raw(Vec<u8>),
     Png(Vec<u8>),
     Blocks(Vec<u8>, Vec<Mip>),
+    // Uploaded and given back: the GL texture holds the only copy. The
+    // block extents stay for texture_bytes.
+    Released(Vec<Mip>),
 }
 struct Source {
     desc: ImageDesc,
@@ -67,7 +70,11 @@ impl GpuResources {
             p.texture?;
             let (w,h,d,_,_)=p.allocation?;
             let source=self.sources.get(p.source)?.as_ref()?;
-            if let Pixels::Blocks(_,mips)=&source.pixels {return Some(mips.iter().map(|m|m.length as u64).sum());}
+            match &source.pixels {
+                Pixels::Blocks(_,mips) => return Some(mips.iter().map(|m|m.length as u64).sum()),
+                Pixels::Released(mips) if !mips.is_empty() => return Some(mips.iter().map(|m|m.length as u64).sum()),
+                _ => {}
+            }
             let channels=match source.desc.format {1028=>1,1030=>2,1022=>3,_=>4};
             let bytes=match source.desc.data_type {1015=>4,1016=>2,1019|1020=>1,_=>1};
             let mut size=0;let (mut w,mut h,mut d)=(w.max(1) as u64,h.max(1) as u64,d.max(1) as u64);
@@ -181,6 +188,30 @@ impl GpuResources {
         s.version = s.version.wrapping_add(1);
         Ok(())
     }
+    /// Gives back the CPU copy of an image every sampling of which is
+    /// uploaded. Later sampling changes apply in place to the uploaded
+    /// texture; a change that needs the pixels again (flip, premultiply,
+    /// mipmaps) or a new sampling is refused instead.
+    pub fn release_pixels(&mut self, id: u32) -> Result<(), String> {
+        let s = self.source_ref(id)?;
+        if s.desc.render_target {
+            return Ok(());
+        }
+        let version = s.version;
+        if self.physical.iter().any(|p| p.texture.is_some() && p.source == id as usize && p.seen != version) {
+            return Err("image released before upload".into());
+        }
+        let s = self.source_mut(id)?;
+        s.pixels = match std::mem::replace(&mut s.pixels, Pixels::Empty) {
+            Pixels::Blocks(_, mips) => Pixels::Released(mips),
+            Pixels::Released(mips) => Pixels::Released(mips),
+            _ => Pixels::Released(Vec::new()),
+        };
+        Ok(())
+    }
+    fn released(&self, id: u32) -> bool {
+        self.source_ref(id).is_ok_and(|s| matches!(s.pixels, Pixels::Released(_)))
+    }
     pub fn sample(&mut self, source: u32, settings: &str) -> Result<u32, String> {
         let physical = self.physical(source, settings)?;
         self.physical[physical].users += 1;
@@ -197,6 +228,9 @@ impl GpuResources {
         let key = (source, settings.to_string());
         if let Some(&id) = self.cache.get(&key) {
             return Ok(id);
+        }
+        if self.released(source) {
+            return Err("a released image takes no new sampling".into());
         }
         let sampling = parse(settings)?;
         // SAFETY: resource admission runs on the owner's current context;
@@ -234,18 +268,25 @@ impl GpuResources {
         let next: Sampling = parse(settings)?;
         let key = (source, settings.to_string());
         let render_target = self.source_ref(source)?.desc.render_target;
+        let released = self.released(source);
         // Render target attachments and sole filtering revisions retain their
         // GL name. The browser does the same; changing this invalidates pass
         // framebuffers and registered texture ids without a transport event.
-        if render_target || self.physical[old].users == 1 && !self.cache.contains_key(&key) {
+        // A released image has only its uploaded texture, so every sampling
+        // change applies to that texture.
+        if render_target || released || self.physical[old].users == 1 && !self.cache.contains_key(&key) {
+            let p = &self.physical[old];
+            let changed = p.sampling.flip != next.flip
+                || p.sampling.premultiply != next.premultiply
+                || p.sampling.mipmaps != next.mipmaps;
+            if changed && released && !render_target {
+                return Err("a released image cannot change flip, premultiply or mipmaps".into());
+            }
             if !render_target {
                 self.cache.retain(|_, id| *id != old);
                 self.cache.insert(key, old);
             }
             let p = &mut self.physical[old];
-            let changed = p.sampling.flip != next.flip
-                || p.sampling.premultiply != next.premultiply
-                || p.sampling.mipmaps != next.mipmaps;
             p.sampling = next;
             let d = &self.sources[source as usize]
                 .as_ref()
@@ -453,6 +494,9 @@ impl GpuResources {
             .ok_or("disposed source")?;
         if p.seen == s.version {
             return Ok(());
+        }
+        if matches!(s.pixels, Pixels::Released(_)) {
+            return Err("image pixels were released after upload".into());
         }
         let d = &s.desc;
         let sampling = &p.sampling;

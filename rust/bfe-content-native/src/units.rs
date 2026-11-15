@@ -436,32 +436,6 @@ fn copy_clips(clips: &[ClipInput]) -> Vec<ClipInput> {
         })
         .collect()
 }
-pub fn copy_input(input: &Input) -> Input {
-    use bfe_presentation::unit_content::WalkerInput;
-    let t = &input.tables;
-    Input {
-        bones: copy_bones(&input.bones),
-        clips: copy_clips(&input.clips),
-        tables: TableInput {
-            sets: t.sets,
-            alert: t.alert,
-            transitions: t.transitions,
-            jump: t.jump,
-            fall: t.fall,
-            land_soft: t.land_soft,
-            land_hard: t.land_hard,
-            dive: t.dive,
-            jet: t.jet,
-            thrown: t.thrown,
-            upper: t.upper.clone(),
-        },
-        walker: input.walker.as_ref().map(|w| WalkerInput {
-            by_mode: w.by_mode,
-            pivot: w.pivot,
-            roll_center: w.roll_center,
-        }),
-    }
-}
 pub fn copy_first_person(
     input: &bfe_presentation::unit_content::FirstPersonInput,
 ) -> bfe_presentation::unit_content::FirstPersonInput {
