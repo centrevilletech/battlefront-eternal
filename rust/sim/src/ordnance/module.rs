@@ -710,7 +710,7 @@ impl World for JsWorld<'_, '_> {
                     Shot::Grenade(r)=>super::math::normalize(self.store().grenade.get(r).unwrap().velocity),
                     _=>notice.direction,
                 };
-                let rewind=match self.shot_tick(notice.owner,notice.channel){Nullable::Value(v)=>Some(v),_=>None};
+                let rewind=match shot {Shot::Beam(r)=>self.store().beam.get(r).unwrap().history_tick,_=>None};
                 super::trace::begin(&notice,direction,rewind);
             }
             notice.emit(&mut self.w.sim.events);
