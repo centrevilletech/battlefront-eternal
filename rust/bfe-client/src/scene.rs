@@ -1094,6 +1094,10 @@ impl Scene {
             static_content.skies.len()
         );
         if std::env::var_os("BFE_BENCH").is_some() {
+            let mut foliage_counts = std::collections::BTreeMap::<&str, usize>::new();
+            for instance in content.map["foliage"]["instances"].as_array().into_iter().flatten() {
+                *foliage_counts.entry(instance["class"].as_str().unwrap_or("")).or_default() += 1;
+            }
             let meshes: Vec<_> = content.world.iter().enumerate().map(|(i, m)| serde_json::json!({
                 "segment": i, "name": m.name, "kind": format!("{:?}", m.material.kind),
                 "flags": m.material.flags, "cutout": m.material.cutout,
@@ -1106,7 +1110,8 @@ impl Scene {
                 "map": content.map["name"], "world": meshes,
                 "props": props.as_ref().map(|p| &p["instances"]),
                 "propParts": static_content.props, "deferred": deferred,
-                "foliageClasses": static_content.foliage, "foliage": content.map["foliage"],
+                "foliageClasses": static_content.foliage,
+                "foliage": {"classes": content.map["foliage"]["classes"], "instancesByClass": foliage_counts},
                 "waterSurfaces": usize::from(static_content.water.is_some()), "water": content.map["water"],
                 "skyLayers": static_content.skies.len(), "lights": content.map["lighting"],
                 "lightRegions": content.map["lightRegions"], "lumi": content.map["lumi"],
@@ -1746,7 +1751,6 @@ fn inspectable(mesh: &bfe_content_native::loader::Mesh) -> bool {
     mesh.geometry.vertices != 0
         && !mesh.geometry.indices.is_empty()
         && mesh.material.kind != MaterialKind::Sky
-
 }
 
 // materials.js::setLighting/setFog read only authored map content. The inspector
