@@ -339,7 +339,9 @@ pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) {
     let sampled=world_ctx.fleet.scheduler.publication_pending&&!world_ctx.fleet.scheduler.pending;
     live_seats::publish_sampled_in(world_ctx, sampled);
     let p = world_ctx.fleet.scheduler.publication.get_or_insert_with(Default::default);
-    p.flush(&mut world_ctx.sim.store);
+    // The changed hulls, lives and pads were encoded here as deltas for the
+    // JavaScript host. Nothing native reads them.
+    p.discard(&mut world_ctx.sim.store);
     veh_changes_in(world_ctx);
     geometry::publish_in(world_ctx);
     world_ctx.fleet.scheduler.descriptor[F2Phase::ACC] = world_ctx.fleet.scheduler.acc;

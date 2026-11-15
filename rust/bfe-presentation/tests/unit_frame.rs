@@ -128,3 +128,65 @@ fn overfull_counts_and_unknown_ids_never_fail_a_frame() {
     units.collision_frame(usize::MAX);assert_eq!(units.collision.output[co::COUNT],2.0);
 
 }
+#[test]
+fn leaving_a_seat_gives_the_body_its_own_clips_back() {
+    let mut units = Units::new();
+    let content = units.load(Input {
+        bones: bones(),
+        clips: vec![clip()],
+        tables: TableInput {
+            sets: [[Some(0); 9]; 3],
+            alert: [Some(0); 9],
+            transitions: [[Some(0); 3]; 3],
+            jump: Some(0),
+            fall: Some(0),
+            land_soft: Some(0),
+            land_hard: Some(0),
+            dive: Some(0),
+            jet: Some(0),
+            thrown: [[Some(0); 4]; 2],
+            upper: vec![vec![0]],
+        },
+        walker: None,
+    });
+    let identity = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+    assert_eq!(units.actor(content, &[identity; 4]), 0);
+    units.input[f::VERSION] = VERSION as f64;
+    units.input[f::ACTORS] = 1.0;
+    units.input[f::DT] = 1.0 / 60.0;
+    units.input[f::FIRST_PERSON] = -1.0;
+    let at = f::STRIDE;
+    let input = &mut units.input[at..at + i::STRIDE];
+    input[i::ID] = 7.0;
+    input[i::GENERATION] = 1.0;
+    input[i::PRESENT] = 1.0;
+    input[i::ALPHA] = 1.0;
+    input[i::HELD_CLIP] = -1.0;
+    input[i::ROOT_QUATERNION + 3] = 1.0;
+    input[i::DIVE_TIME] = 0.6;
+    // A remote gunner at a turret.
+    input[i::MOUNT_PRESENT] = 1.0;
+    input[i::MOUNT_ALIVE] = 1.0;
+    input[i::MOUNT_ID] = 37.0;
+    input[i::SEAT] = 1.0;
+    input[i::RIDER_KIND] = 2.0;
+    input[i::RIDER_CLIP] = 0.0;
+    input[i::RIDER_MATRIX..i::RIDER_MATRIX + 16].copy_from_slice(&identity);
+    for _ in 0..10 {
+        units.pose_frame();
+    }
+    assert!(units.actor_animation(0).unwrap().gunning.is_some());
+    // He gets out and runs.
+    let input = &mut units.input[at..at + i::STRIDE];
+    input[i::MOUNT_PRESENT] = 0.0;
+    input[i::SEAT] = 0.0;
+    input[i::RIDER_KIND] = 0.0;
+    input[i::VELOCITY + 2] = 6.0;
+    input[i::PREVIOUS_VELOCITY + 2] = 6.0;
+    for _ in 0..10 {
+        units.pose_frame();
+    }
+    let animation = units.actor_animation(0).unwrap();
+    assert!(animation.gunning.is_none(), "the turret pose outlived the seat");
+    assert!(animation.base_layers().count() > 0);
+}

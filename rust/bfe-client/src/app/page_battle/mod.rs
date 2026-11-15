@@ -15,7 +15,7 @@ use bfe_render::{
     hud as draw,
     hud_model::{layout::HudMapDraw as M, MAP_DRAW},
 };
-use bfe_shell::page::{BattleLook, SpawnLayout};
+use bfe_shell::page::{BattleLook, SpawnFacts, SpawnLayout, MAX_CLASSES};
 use glow::HasContext;
 pub(super) struct PageBattle {
     pub spawn: bool,
@@ -84,7 +84,7 @@ impl PageBattle {
             was_open: false,
             class: String::new(),
             team: 0,
-            layout: SpawnLayout::new(size[0] as f64, size[1] as f64, 2),
+            layout: SpawnLayout::new(size[0] as f64, size[1] as f64, SpawnFacts::default()),
             drag: [0.; 2],
             dt: 0.,
             building: -0.35,
@@ -203,8 +203,19 @@ impl PageBattle {
             .filter(|s| !s.is_empty())
             .count();
         let previous_layout = self.layout;
-        self.layout =
-            SpawnLayout::new(size[0] as f64, size[1] as f64, goals).with_countdown(countdown);
+        let roster = &port.rosters[usize::from(model.team == 2)];
+        let mut facts = SpawnFacts {
+            look: BattleLook::new(theme).index,
+            goals,
+            countdown,
+            switchable: model.can_switch_teams(port),
+            classes: roster.len().min(MAX_CLASSES),
+            ..SpawnFacts::default()
+        };
+        for (row, class) in facts.rows.iter_mut().zip(roster) {
+            *row = class.weapons.len().clamp(1, 4).div_ceil(2) as u8;
+        }
+        self.layout = SpawnLayout::new(size[0] as f64, size[1] as f64, facts);
         let opening = !self.was_open;
         if opening {
             eprintln!(

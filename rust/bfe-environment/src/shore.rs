@@ -203,6 +203,15 @@ mod tests {
         fn exposed(&mut self, x: f64, _: f64, _: f64) -> bool { x >= 0.0 }
     }
     #[test]
+    fn dry_maps_reserve_no_tile_cache_or_collision_scratch() {
+        let mut shore = Shore::new(false);
+        assert_eq!(shore.tiles.capacity(), 0);
+        assert_eq!(shore.triangles.capacity(), 0);
+        // Even a malformed host quality cannot turn a dry map into a query.
+        shore.update::<crate::surface_math::V8, _>(1.0, 0.0, 0.0, 0.0, usize::MAX, &mut Water);
+        assert_eq!((shore.tiles(), shore.count, shore.time), (0, 0, 0.0));
+    }
+    #[test]
     fn a_full_closed_key_grid_keeps_replacing_points_without_growth() {
         let mut shore = Shore::new(true);
         let bytes: usize = shore.tiles.iter().map(|t| t.points.capacity() * std::mem::size_of::<Point>()).sum();

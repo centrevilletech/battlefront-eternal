@@ -340,6 +340,7 @@ impl<C: HasContext> EffectsPass<C> {
     }
     pub fn resource_counts(&self)->[usize;4]{[self.owners.len(),self.batches.len(),self.meshes.len(),self.models.len()]}
 
+    pub fn texture_bytes(&self) -> u64 { (3*crate::effect_layout::ANALYTIC_CAPACITY*16) as u64 }
     pub fn new<M: MultiDraw>(core: &mut Core<C, M>) -> EffectsPass<C> {
         let gl = &core.gl;
         let (quad, quad_index) = unsafe {
@@ -1003,6 +1004,7 @@ impl<C: HasContext> EffectsPass<C> {
             blending(gl, state, stats, &b.blend);
             gl.bind_vertex_array(Some(b.vao));
             gl.draw_elements_instanced(glow::TRIANGLES, b.index_count, glow::UNSIGNED_SHORT, 0, count as i32);
+            core.profile.draw(b.index_count.max(0) as u64,count as u64,1);
             stats.gl_calls += 2;
             stats.pass_draws[PASS_EFFECTS] += 1;
         }
@@ -1071,6 +1073,7 @@ impl<C: HasContext> EffectsPass<C> {
                 blending(gl, state, stats, &m.blend);
                 gl.bind_vertex_array(Some(pass.vao));
                 gl.draw_elements(glow::TRIANGLES, indices as i32, glow::UNSIGNED_INT, 0);
+                core.profile.draw(indices as u64,1,1);
                 stats.gl_calls += 2;
                 stats.pass_draws[PASS_EFFECTS] += 1;
             }
@@ -1142,6 +1145,7 @@ impl<C: HasContext> EffectsPass<C> {
             unsafe {
                 gl.bind_vertex_array(Some(geo.vao));
                 gl.draw_elements(glow::TRIANGLES, geo.index_count, geo.index_type, 0);
+                core.profile.draw(geo.index_count.max(0) as u64,1,1);
             }
             stats.gl_calls += 2;
             stats.pass_draws[PASS_EFFECTS] += 1;
@@ -1215,6 +1219,7 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for EffectsPass<C> {
     }
 
     fn draw_run(&mut self, core: &mut Core<C, M>, view: &View, run: &[Item]) {
+        let timer=core.profile.begin(&core.gl);
         self.common(core);
         for item in run {
             match self.entry(item.record as usize) {
@@ -1225,5 +1230,6 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for EffectsPass<C> {
                 _ => {}
             }
         }
+        core.profile.end(&core.gl,"particles",timer);
     }
 }

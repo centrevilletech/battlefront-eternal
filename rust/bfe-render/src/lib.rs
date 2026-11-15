@@ -68,3 +68,6 @@ pub mod scene_transform_layout;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native_casters;
+pub mod native_motion;
+
+pub mod profile;

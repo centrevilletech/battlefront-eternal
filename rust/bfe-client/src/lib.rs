@@ -5,6 +5,8 @@ extern crate self as bfe_client;
 pub mod app;
 pub mod audio;
 pub mod canvas;
+mod canopies;
+mod lamps;
 pub mod generated_input;
 pub mod host;
 pub mod hud_sync;

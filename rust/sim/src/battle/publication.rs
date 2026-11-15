@@ -138,6 +138,13 @@ impl Publication {
         let mut e = self.entries.remove(r).unwrap(); e.encode(s, true); self.retired.push(e);
         self.index[h.kind as usize][h.slot as usize] = None; self.order.retain(|old| *old != r); true
     }
+    /// What a flush would have published, dropped unencoded: nothing native
+    /// reads these rows (the JavaScript host did).
+    pub fn discard(&mut self) {
+        self.pending = false;
+        for e in &self.retired { self.budget -= e.budget; }
+        self.retired.clear();
+    }
     /// Borrowed caches live until the next foreign barrier. In particular,
     /// retirement must not free a row while its final publication names it.
     pub fn flush(&mut self, s: &Store) -> usize {

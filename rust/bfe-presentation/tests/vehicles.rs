@@ -154,6 +154,30 @@ fn a_ground_hull_is_placed_and_its_held_seat_turned() {
 }
 
 #[test]
+fn walker_ground_rays_preserve_seat_aim() {
+    let mut v = Vehicles::new();
+    let c = clip(&mut v);
+    let r = add(&mut v, true, c);
+    entry(&mut v, 0, r, mode::ALIVE, 1.0 / 60.0);
+    let seats = v.slot_seats(r, 0);
+    v.stream_in[seats + si::HELD] = 1.0;
+    v.stream_in[seats + si::POSE] = 1.0;
+    v.stream_in[seats + si::AIM_YAW] = 2.3;
+    v.stream_in[seats + si::PITCH] = -0.12;
+    v.input[vf::VERSION] = layout::VERSION as f64;
+    v.input[vf::ENTRIES] = 1.0;
+    v.place();
+    for (k, distance) in [3.0, 2.0].into_iter().enumerate() {
+        v.rays[k * cr::STRIDE + cr::HIT] = 1.0;
+        v.rays[k * cr::STRIDE + cr::DISTANCE] = distance;
+    }
+    v.pose();
+    let input = v.slot_input(r, 0);
+    assert_eq!(&v.stream_in[input + 1..input + 3], &[1.0, 2.0]);
+    assert_eq!(&v.stream_in[seats + si::AIM_YAW..seats + si::PITCH + 1], &[2.3, -0.12]);
+}
+
+#[test]
 fn a_walker_asks_for_its_leg_rays_and_a_dying_one_plays_its_death() {
     let mut v = Vehicles::new();
     let c = clip(&mut v);

@@ -17,10 +17,10 @@ pub(crate) fn publication_bank_in(battle: &mut BattleOwner) -> Option<&[f64]> {
 pub(crate) fn publish_in(w: &mut Root) {
     if crate::world::deferred_in(&w.tick) {return;}
 
+    // The changed characters, posts and battle were encoded here as deltas
+    // for the JavaScript host. Nothing native reads them.
     if active_in(&mut w.battle) {
-        let rows = state(&mut w.battle).core.flush(&w.sim.store);
-        let words = state(&mut w.battle).core.publication.block.words.len() - HEADER + state(&mut w.battle).core.publication.borrowed_words();
-        super::f4_live::record_publication(&mut w.battle, rows,words);
+        state(&mut w.battle).core.publication.discard();
     }
 }
 pub fn f4_battle_init_in(w: &mut Root) {

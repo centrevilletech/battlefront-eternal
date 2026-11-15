@@ -3259,7 +3259,7 @@ fn native_reliable_edges_spawn_suicide_and_respawn_on_the_assigned_team() {
         .as_u64()
         .unwrap() as u16;
     let body = |host: &NativeWorldHost| {
-        bfe_sim::host::unit_rows(&host.context)
+        unit_rows(&host.context)
             .unwrap()
             .into_iter()
             .find(|(id, _, _)| *id == welcome.unit_id)
@@ -3384,7 +3384,7 @@ fn native_reliable_team_switch_publishes_and_spawns_the_other_side() {
         }
     }
     assert_eq!(host.player_team("human"), Some(f64::from(team)));
-    let units = bfe_sim::host::unit_rows(&host.context).unwrap();
+    let units = unit_rows(&host.context).unwrap();
     assert!(
         units
             .iter()
@@ -3654,4 +3654,22 @@ fn native_empty_server_ticks_before_first_player_joins() {
     })).unwrap();
     assert!(fired, "a reliable trigger must fire the admitted player's weapon");
     host.remove_player("first");
+}
+
+/// The store's unit rows (`KIND_UNIT`, full): slot, store generation, row.
+fn unit_rows(context: &bfe_sim::abi::context::Context) -> Result<Vec<(u32, u32, bfe_sim::gen::Unit)>, String> {
+    use bfe_sim::gen::BlockHeader as B;
+    let units = context.export(u32::from(bfe_sim::gen::KIND_UNIT), 1).map_err(|e| e.message().to_string())?;
+    let stride = units[B::STRIDE] as usize;
+    let rows = units[B::ROWS] as usize;
+    let heap_at = units[B::HEAP] as usize;
+    let heap = &units[heap_at..heap_at + units[B::HEAP_WORDS] as usize];
+    let mut out = Vec::with_capacity(rows);
+    for i in 0..rows {
+        let row = &units[B::WORDS + i * stride..B::WORDS + (i + 1) * stride];
+        let mut unit = bfe_sim::gen::Unit::default();
+        unit.take_full(row, heap);
+        out.push((row[0] as u32, row[1] as u32, unit));
+    }
+    Ok(out)
 }

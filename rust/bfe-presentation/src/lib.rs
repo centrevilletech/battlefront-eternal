@@ -4,6 +4,7 @@ pub mod effects;
 pub mod layout;
 pub mod cameras;
 pub mod aim;
+pub mod feet;
 pub mod sniper;
 pub mod sniper_layout;
 use layout::{

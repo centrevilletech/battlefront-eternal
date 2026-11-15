@@ -146,6 +146,7 @@ impl<C: HasContext> ShadowPass<C> {
             }
             stats.gl_calls += 2;
             stats.pass_draws[PASS_SHADOW] += 1;
+            core.profile.draw(count.max(0) as u64,1,1);
         }
         // Colour writes back on for whoever draws next (three resets its own).
         core.state.color_mask(&core.gl, &mut core.stats, [true; 4]);
