@@ -1360,6 +1360,10 @@ impl Replicas {
         }
     }
     /// The looks the player's settings choose, as the browser reads them.
+    /// A class registry id's name ("" when unknown).
+    pub fn class_name(&self, id: usize) -> &str {
+        self.class_names.get(id).map_or("", String::as_str)
+    }
     pub fn set_looks(&mut self, looks: Looks) {
         self.arcs.enhanced = looks.arcs;
         self.shields.enhanced = looks.shields;

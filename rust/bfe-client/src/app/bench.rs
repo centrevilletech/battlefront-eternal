@@ -21,7 +21,7 @@ use std::{
 };
 
 const UNIT_COLUMNS: &str =
-    r#"["id","kind","team","alive","health","x","y","z","vx","vy","vz","yaw","posture","state","weapon","fired","walkPhase","walkBlend"]"#;
+    r#"["id","kind","team","alive","health","x","y","z","vx","vy","vz","yaw","posture","state","weapon","fired","walkPhase","walkBlend","class"]"#;
 const POSTURES: [&str; 3] = ["stand", "crouch", "prone"];
 const KINDS: [&str; 4] = ["soldier", "droideka", "vehicle", "turret"];
 const GAITS: [&str; 9] = ["idle", "walk", "run", "walkBack", "runBack", "turnLeft", "turnRight", "walkLeft", "walkRight"];
@@ -271,7 +271,7 @@ impl Bench {
             }
             write!(
                 out,
-                r#"[{},"{}",{},{},{:.1},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.4},"{}",{},{},{},{:.4},{:.3}]"#,
+                r#"[{},"{}",{},{},{:.1},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.4},"{}",{},{},{},{:.4},{:.3},"{}"]"#,
                 row[r::ID],
                 KINDS[kind as usize],
                 row[r::TEAM],
@@ -290,6 +290,7 @@ impl Bench {
                 row[r::FIRE_COUNTER],
                 row[r::WALK_PHASE],
                 row[r::WALK_BLEND],
+                battle.scene.online.as_ref().map_or("", |scene| scene.class_name(row[r::CLASS_ID] as usize)),
             )?;
         }
         out.write_all(b"]")?;
