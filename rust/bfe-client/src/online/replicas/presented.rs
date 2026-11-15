@@ -401,7 +401,7 @@ impl Replicas {
         // a second later, is then not shown again (presentEntityEvent's
         // `predictedShots.claim`).
         let own = (receiver.own.id as u32, receiver.own.generation as u32);
-        let ahead = prediction.body.is_some();
+        let ahead = prediction.ahead();
         for shot in &prediction.shots {
             let weapon = self.guns.ids.get(shot.weapon).copied().unwrap_or(0);
             if self.guns.ahead.get(weapon) == Some(&true) {
