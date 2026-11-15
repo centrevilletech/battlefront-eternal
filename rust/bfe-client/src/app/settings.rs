@@ -585,6 +585,7 @@ impl AppSettingsStore {
             auto_check_updates: Some(self.desktop.auto_check_updates),
             discord_presence: Some(self.desktop.discord_presence),
             presence: self.desktop.presence.clone(),
+            steam: self.desktop.steam.clone(),
             preparations: Some(self.desktop.preparations.clone()),
         };
         self.desktop = self.desktop_store.save(&patch)?;
@@ -810,6 +811,12 @@ mod tests {
             );
             assert_eq!(saved.desktop.discord_presence, detail != "off");
         }
+
+        // NOT NOW on the Steam offer must also survive a relaunch.
+        store.desktop.steam.get_or_insert_with(Default::default).declined = Some(true);
+        store.save_desktop().expect("save steam answer");
+        let saved = AppSettingsStore::load(paths.clone());
+        assert_eq!(saved.desktop.steam.and_then(|s| s.declined), Some(true));
 
         let reloaded = AppSettingsStore::load(paths);
         assert_eq!(reloaded.interface.get_string("spawnScreenView"), "classic");

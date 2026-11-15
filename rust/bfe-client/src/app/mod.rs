@@ -53,7 +53,7 @@ use crate::{
         cli::{parse_args, CliDispatch, StandaloneOptions},
         script::{GateDriver, GatePhase},
         settings::{current_desktop_paths, AppSettingsStore},
-        shell::{pump_headless_audio, ShellHost, ShellTransition},
+        shell::{HeadlessAudio, ShellHost, ShellTransition},
         startup::{run_bounded_update_check, StartupContentState, UpdateCheckOutcome},
     },
     audio::{AudioDevice, SharedAudioRouter, Status as AudioStatus},
@@ -279,6 +279,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         .then(|| platform_smoke::Smoke::new(opts.shots_dir.clone()));
     // A scripted run and a measurement draw every frame they can.
     let unpaced = std::env::var_os("BFE_FRAME_UNPACED").is_some() || opts.script.is_some();
+    let headless_audio = audio_device.is_none().then(|| HeadlessAudio::start(audio_router.clone(), audio_status.clone()));
     let mut app = StandaloneWindowApp {
         platform_smoke,
         folder_dialog: None,
@@ -288,12 +289,9 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         host_controller,
         audio_status,
         audio_router,
+        headless_audio,
         _audio_device: audio_device,
         audio_channels_asked: 2,
-        headless_scratch: vec![0.0; ::audio::FRAMES * 2]
-            .into_boxed_slice()
-            .try_into()
-            .unwrap(),
         state: AppState::StartupLoader(startup_content),
         shell: None,
         #[cfg(target_os = "linux")]
@@ -393,8 +391,8 @@ struct StandaloneWindowApp {
     _audio_device: Option<AudioDevice>,
     // The channel count last asked of the device (crate::audio::wanted_channels).
     audio_channels_asked: usize,
-    /// Pre-allocated stereo scratch buffer used to pump audio quantums when running headless.
-    headless_scratch: Box<[f32; ::audio::FRAMES * 2]>,
+    /// The mix's own thread while no sound device is open.
+    headless_audio: Option<HeadlessAudio>,
     /// Active top-level state (`StartupLoader`, `Shell`, `HostStarting`, `BattleLoading`, `Battle`).
     state: AppState,
     /// Front-end shell and loading screen renderer (`bfe-shell` + `bfe-interface`).
@@ -1793,21 +1791,14 @@ impl StandaloneWindowApp {
                         crate::audio::strike_width(wanted);
                         match AudioDevice::open_dynamic(self.audio_router.clone(), 2) {
                             Ok(device) => self._audio_device = Some(device),
-                            Err(err) => eprintln!("audio device: stereo not opened either ({err})"),
+                            Err(err) => {
+                                eprintln!("audio device: stereo not opened either ({err})");
+                                self.headless_audio = Some(HeadlessAudio::start(self.audio_router.clone(), self.audio_status.clone()));
+                            }
                         }
                     }
                 }
             }
-        }
-
-        // If no hardware `cpal` audio device is open, pump headless audio quantums so
-        // `ShellAudioMixer` and battle `Stream` queues drain identically to hardware playback.
-        if self._audio_device.is_none() {
-            pump_headless_audio(
-                &self.audio_router,
-                &self.audio_status,
-                &mut self.headless_scratch,
-            );
         }
 
         if let Some(result) = self
@@ -2211,15 +2202,14 @@ impl StandaloneWindowApp {
                     if let Some(bench) = &mut self.bench {
                         bench.step_battle(battle, self.pointer_locked);
                     }
-                    // Plain play with nothing of the interface over it draws straight
-                    // into the window (Scene::set_direct).
-                    let direct = self.platform_smoke.is_none()
+                    // Plain play with nothing of the interface over it draws straight into the
+                    // window (Scene::set_direct). The battle decides just before it draws, once
+                    // it knows whether this frame opened a spawn screen or scoreboard; a frame
+                    // that returns before drawing keeps the canvas.
+                    battle.direct_allowed = self.platform_smoke.is_none()
                         && self.gate.as_ref().is_none_or(|gate| gate.allows_direct())
-                        && !battle.pause_menu.is_open
-                        && !battle.spawn_ctrl.is_open()
-                        && !battle.scoreboard_ctrl.model.is_open()
                         && self.slint_ui.as_ref().is_some_and(|ui| !ui.battle_overlay_visible());
-                    battle.scene.set_direct(direct);
+                    battle.scene.set_direct(false);
                     let transition = battle.step_and_draw(
                         elapsed_dt,
                         self.focused,
