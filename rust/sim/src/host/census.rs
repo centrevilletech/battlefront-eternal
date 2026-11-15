@@ -54,6 +54,17 @@ struct Classes {
     /// Hits on soldiers and on hulls or props, by the attacker's class.
     soldier_hits: BTreeMap<u32, u32>,
     object_hits: BTreeMap<u32, u32>,
+    /// Vehicles by name: seconds alive, destroyed; hull damage by bots and
+    /// its hits; each hull's life a second ago.
+    vehicle_seconds: BTreeMap<u32, u32>,
+    vehicle_deaths: BTreeMap<u32, u32>,
+    hull_damage: f64,
+    hull_hits: u32,
+    /// Bot hits on soldiers by attacker team and target team.
+    team_matrix: BTreeMap<String, u32>,
+    /// Hull damage records whose amount is not a number.
+    hull_nan: u32,
+    hull_alive: HashMap<u32, bool>,
 }
 
 #[derive(Default)]
@@ -184,6 +195,7 @@ impl Census {
         let last = std::mem::take(&mut self.last);
         let behaviour = &mut self.behaviour;
         let mut over = false;
+        let cl = &mut self.classes;
         let mut seated_slots = HashSet::new();
         let (teams, reinforcements, humans, classes) = context.owned(|w| {
             over = w.sim.store.battle.game_over;
@@ -318,6 +330,11 @@ impl Census {
             let reinforcements: Vec<(f64, f64)> = store.battle.reinforcements.iter().filter(|(t, _)| *t < 3.0).map(|(t, v)| (t, *v)).collect();
             self.last = next;
             seated_slots = store.unit.iter().filter(|(_, u)| u.seat.is_some()).map(|(r, _)| r.slot).collect();
+            for (r, v) in store.vehicle.iter() {
+                let was = cl.hull_alive.insert(r.slot, v.alive);
+                if v.alive { *cl.vehicle_seconds.entry(v.name.0).or_default() += 1; }
+                if was == Some(true) && !v.alive { *cl.vehicle_deaths.entry(v.name.0).or_default() += 1; }
+            }
             behaviour.negative = store.character.iter().filter(|(_, c)| c.kills - 2.0 * c.team_kills < 0.0)
                 .map(|(_, c)| format!("{}:{}/{}", c.team, c.kills, c.team_kills)).collect();
             (teams, reinforcements, humans, classes)
@@ -326,6 +343,9 @@ impl Census {
         let positions = &self.last;
         let (shots, damage) = (&mut self.shots, &mut self.damage);
         let (soldier_hits, object_hits) = (&mut self.classes.soldier_hits, &mut self.classes.object_hits);
+        let mut hull_sum = (0.0f64, 0u32, 0u32);
+        let matrix = &mut self.classes.team_matrix;
+        let hull = &mut hull_sum;
         let head = context.world_host_journal(|journal| {
             use super::journal::Event;
             let head = journal.seq;
@@ -376,8 +396,9 @@ impl Census {
                     Event::Seat { boarded, source, .. } if !human(source) => {
                         if *boarded { behaviour.boards += 1 } else { behaviour.unboards += 1 }
                     }
-                    Event::Damage { target, position, attacker, attacker_team, amount, .. } => {
+                    Event::Damage { target, team, position, attacker, attacker_team, amount, .. } => {
                         *damage += 1;
+                        if attacker.is_some() && !human(attacker) && !humans.contains(&target.id) { *matrix.entry(format!("{attacker_team}>{team}")).or_default() += 1; }
                         if humans.contains(&target.id) {
                             behaviour.hits_on_players += 1;
                         } else if human(attacker) {
@@ -399,6 +420,13 @@ impl Census {
                     }
                     // Hits on hulls and props count as hits too, as the page's
                     // journal names every one of them a `damage` record.
+                    Event::HullDamage { attacker, amount, .. } if !human(attacker) => {
+                        if amount.is_finite() { hull.0 += *amount; hull.1 += 1; } else { hull.2 += 1; }
+                        *damage += 1;
+                        behaviour.hits += 1;
+                        behaviour.object_hits += 1;
+                        if let Some(&class) = attacker.and_then(|a| classes.get(&a.id)) { *behaviour.class_hits.entry(class).or_default() += 1; *object_hits.entry(class).or_default() += 1; }
+                    }
                     Event::HullDamage { attacker, attacker_team, .. } | Event::PropDamage { attacker, attacker_team, .. } => {
                         *damage += 1;
                         if !human(attacker) {
@@ -414,6 +442,9 @@ impl Census {
             head
         })?;
         self.journal_seen = head;
+        self.classes.hull_damage += hull_sum.0;
+        self.classes.hull_hits += hull_sum.1;
+        self.classes.hull_nan += hull_sum.2;
         let end = over && !self.ended;
         self.ended |= over;
         report |= end;
@@ -481,6 +512,12 @@ impl Census {
             v["classJets"] = map(&cl.jets);
             v["classJumps"] = map(&cl.jumps);
             v["classSoldierHits"] = map(&cl.soldier_hits);
+            v["vehicleAliveSeconds"] = map(&cl.vehicle_seconds);
+            v["vehicleDeaths"] = map(&cl.vehicle_deaths);
+            v["hullDamage"] = serde_json::json!(cl.hull_damage.round());
+            v["hullHits"] = serde_json::json!(cl.hull_hits);
+            v["hullNaN"] = serde_json::json!(cl.hull_nan);
+            v["teamMatrix"] = serde_json::json!(cl.team_matrix);
             v["classObjectHits"] = map(&cl.object_hits);
             v["negative"] = serde_json::json!(b.negative);
             v["spawns"] = serde_json::Value::Object(b.spawns.iter().map(|((t, p), n)| (format!("t{t}:{}", if *p == 0 { "?".into() } else { name(p) }), (*n).into())).collect());
