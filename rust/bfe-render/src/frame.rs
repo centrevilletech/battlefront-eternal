@@ -389,6 +389,10 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
         let kind=meta[M::KIND] as usize;let records=meta[M::RECORDS] as usize;let steps=(meta[M::STEPS] as usize).min(crate::post::MAX_STEPS);
         let (batch,texture,count,offset,capacity)=(meta[M::BATCH] as usize,meta[M::TEXTURE] as u32,meta[M::COUNT] as usize,meta[M::OFFSET] as usize,meta[M::CAPACITY] as usize);
         let mirror = matches!(role, R::MIRROR0_SKY | R::MIRROR1_SKY | R::MIRROR0_FAR | R::MIRROR1_FAR | R::MIRROR0_NEAR | R::MIRROR1_NEAR);
+        if mirror && self.core.profile.enabled && self.frames.plan.state[S::MIRROR_FRAMES + usize::from(role >= R::MIRROR1_SKY)] == 0. {
+            let b = &self.frames.bindings[role*B::LEN..(role+1)*B::LEN];
+            eprintln!("graphics mirror: role={role} size={}x{} near={}", b[B::WIDTH], b[B::HEIGHT], kind == K::SCENE);
+        }
         let timer=if mirror || matches!(kind,K::SHADOW|K::HUD|K::VIEW) {self.core.profile.begin(&self.core.gl)} else {None};
         let stats=match kind {
             K::FAR=>{
