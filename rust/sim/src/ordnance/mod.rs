@@ -1031,4 +1031,4 @@ pub fn blast_distance(position: Vec3, center: Vec3, radius: f64) -> f64 {
     distance_to(center, position) - 0.5 * radius
 }
 
-mod trace;
+pub(crate) mod trace;
