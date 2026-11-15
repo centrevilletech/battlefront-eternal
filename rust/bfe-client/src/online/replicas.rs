@@ -1564,6 +1564,10 @@ impl Replicas {
     pub fn set_volumes(&mut self, volumes: [f64; 6]) {
         self.sound.volumes = volumes;
     }
+    /// The player's audio settings: SOUND, OUTPUT, DYNAMICS, MONO, CLARITY.
+    pub fn set_audio(&mut self, settings: &super::sound_output::AudioSettings) {
+        self.sound.set_audio(settings);
+    }
     pub fn set_looks(&mut self, looks: Looks) {
         self.arcs.enhanced = looks.arcs;
         self.shields.enhanced = looks.shields;

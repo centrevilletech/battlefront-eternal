@@ -1601,6 +1601,13 @@ impl BattleController {
             online.set_volumes(
                 ["masterVolume", "effectsVolume", "ambienceVolume", "musicVolume", "voiceVolume", "interfaceVolume"].map(volume),
             );
+            online.set_audio(&crate::online::sound_output::AudioSettings {
+                enhanced: settings.interface.get_string("audioQuality") != "original",
+                output: settings.interface.get_string("audioOutput"),
+                dynamics: settings.interface.get_string("audioDynamics"),
+                mono: settings.interface.get_bool("audioMono"),
+                clarity: settings.interface.get_bool("audioClarity"),
+            });
             online.set_looks(crate::online::replicas::Looks {
                 arcs: enhanced("arcCasterEffects"),
                 shields: enhanced("droidekaEffects"),

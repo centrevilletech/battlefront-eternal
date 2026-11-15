@@ -3,7 +3,42 @@
 //! the unused samples, so a short callback never advances or loses DSP time.
 use ::audio::{master::Master, FRAMES};
 use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, FromSample, SizedSample};
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, AtomicU32, Ordering}};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, AtomicU32, AtomicUsize, Ordering}};
+
+// What the output device can take, learnt when it opens: its own channel
+// count (what Automatic follows) and the most it accepts at 48 kHz; and the
+// channel count the battle's output layout wants, which reopens the device.
+static DEVICE_DEFAULT: AtomicUsize = AtomicUsize::new(2);
+static DEVICE_MAX: AtomicUsize = AtomicUsize::new(2);
+static WANTED: AtomicUsize = AtomicUsize::new(2);
+/// The output device's own channel count and the most it accepts.
+pub fn device_channels() -> (usize, usize) {
+    (DEVICE_DEFAULT.load(Ordering::Relaxed), DEVICE_MAX.load(Ordering::Relaxed))
+}
+/// The battle's layout asks the device for this many channels.
+pub fn want_channels(channels: usize) {
+    WANTED.store(channels, Ordering::Relaxed);
+}
+pub fn wanted_channels() -> usize {
+    WANTED.load(Ordering::Relaxed)
+}
+/// Which of an output layout's channels (L R C LFE SL SR; FL FR FC LFE BL BR SL
+/// SR TFL TFR TBL TBR) device channel `device` plays. Windows and macOS take
+/// that order as it is. ALSA's (Linux) puts the rear or side pair before the
+/// centre and LFE: FL FR RL RR FC LFE [SL SR].
+pub fn order(channels: usize, device: usize) -> usize {
+    if cfg!(target_os = "linux") && (channels == 6 || channels == 8 || channels == 12) {
+        match device {
+            2 => 4,
+            3 => 5,
+            4 => 2,
+            5 => 3,
+            d => d,
+        }
+    } else {
+        device
+    }
+}
 
 // Device diagnostics never take the render thread lock. Relaxed atomics are
 // sufficient because none of these counters publishes audio sample ownership.
@@ -202,7 +237,7 @@ impl SharedAudioRouter {
         }
         if let Ok(mut live_guard) = self.live.try_lock() {
             if let Some(live) = live_guard.as_mut() {
-                live.fill(scratch, status);
+                live.fill(scratch, 2, status);
                 return;
             }
         }
@@ -219,27 +254,32 @@ pub struct DynamicOutput {
     router: Arc<SharedAudioRouter>,
     shell_block: [f32; FRAMES * 2],
     shell_pos: usize,
+    // The device's channels per frame; the menus and the test play on the
+    // first two.
+    channels: usize,
 }
 
 impl DynamicOutput {
-    pub fn new(router: Arc<SharedAudioRouter>) -> Self {
+    pub fn new(router: Arc<SharedAudioRouter>, channels: usize) -> Self {
         Self {
             router,
             shell_block: [0.0; FRAMES * 2],
             shell_pos: FRAMES * 2,
+            channels: channels.max(1),
         }
     }
 
     pub fn fill<T: SizedSample + FromSample<f32>>(&mut self, data: &mut [T], status: &Status) {
+        let channels = self.channels;
         if let Ok(mut test_guard) = self.router.test.try_lock() {
             if let Some(test) = test_guard.as_mut() {
                 let mut done = false;
-                for frame in data.chunks_mut(2) {
+                for frame in data.chunks_mut(channels) {
                     let pair = if done { None } else { test.next() };
                     done |= pair.is_none();
                     let [left, right] = pair.unwrap_or([0.0, 0.0]);
                     for (i, sample) in frame.iter_mut().enumerate() {
-                        *sample = T::from_sample(if i == 0 { left } else { right });
+                        *sample = T::from_sample(match i { 0 => left, 1 => right, _ => 0.0 });
                     }
                 }
                 if done {
@@ -250,23 +290,25 @@ impl DynamicOutput {
         }
         if let Ok(mut live_guard) = self.router.live.try_lock() {
             if let Some(live) = live_guard.as_mut() {
-                live.fill(data, status);
+                live.fill(data, channels, status);
                 return;
             }
         }
         if let Ok(mut shell_guard) = self.router.shell.try_lock() {
             if let Some(shell) = shell_guard.as_mut() {
                 let mut peak = 0.0f32;
-                for sample in data {
+                for frame in data.chunks_mut(channels) {
                     if self.shell_pos >= self.shell_block.len() {
                         shell.render_interleaved(&mut self.shell_block);
                         status.blocks.fetch_add(1, Ordering::Relaxed);
                         self.shell_pos = 0;
                     }
-                    let val = self.shell_block[self.shell_pos];
-                    peak = peak.max(val.abs());
-                    *sample = T::from_sample(val);
-                    self.shell_pos += 1;
+                    for (i, sample) in frame.iter_mut().enumerate() {
+                        let val = if i < 2 { self.shell_block[self.shell_pos + i] } else { 0.0 };
+                        peak = peak.max(val.abs());
+                        *sample = T::from_sample(val);
+                    }
+                    self.shell_pos += 2;
                 }
                 status.peak.fetch_max(peak.to_bits(), Ordering::Relaxed);
                 return;
@@ -291,7 +333,7 @@ impl DeviceOutput {
         match self {
             Self::Pcm(p) => p.fill(data, status),
             Self::Sound(s) => s.fill(data, status),
-            Self::Live(s) => s.fill(data, status),
+            Self::Live(s) => s.fill(data, 2, status),
             Self::Dynamic(d) => d.fill(data, status),
         }
     }
@@ -301,28 +343,43 @@ impl DeviceOutput {
 pub struct AudioDevice {
     stream: cpal::Stream,
     pub status: Arc<Status>,
+    /// The channels the stream was opened with.
+    pub channels: usize,
 }
 impl AudioDevice {
     // Startup negotiates one supported sample format. Runtime errors are
     // visible to the window host; they never choose another render chain.
     pub fn open(pcm: Vec<f32>, rate: u32) -> Result<Self, String> {
-        Self::open_output(DeviceOutput::Pcm(MasterOutput::new(rate,pcm)?),rate)
+        Self::open_output(DeviceOutput::Pcm(MasterOutput::new(rate,pcm)?),rate,2)
     }
     pub fn open_sound(sound: crate::sound::SoundOutput) -> Result<Self,String> {
-        Self::open_output(DeviceOutput::Sound(sound),48000)
+        Self::open_output(DeviceOutput::Sound(sound),48000,2)
     }
-    pub fn open_live(output:crate::online::sound::LiveOutput)->Result<Self,String>{Self::open_output(DeviceOutput::Live(output),48000)}
-    pub fn open_dynamic(router: Arc<SharedAudioRouter>) -> Result<Self, String> {
-        Self::open_output(DeviceOutput::Dynamic(DynamicOutput::new(router)), 48000)
+    pub fn open_live(output:crate::online::sound::LiveOutput)->Result<Self,String>{Self::open_output(DeviceOutput::Live(output),48000,2)}
+    /// The application's one stream, `channels` wide (stereo, or the battle's
+    /// surround layout when the device takes it).
+    pub fn open_dynamic(router: Arc<SharedAudioRouter>, channels: usize) -> Result<Self, String> {
+        let wanted = channels.max(2) as u16;
+        Self::open_output_with(48000, wanted, |channels| DeviceOutput::Dynamic(DynamicOutput::new(router, channels)))
     }
-    fn open_output(output: DeviceOutput, rate: u32) -> Result<Self,String> {
+    fn open_output(output: DeviceOutput, rate: u32, channels: u16) -> Result<Self,String> {
+        let mut output = Some(output);
+        Self::open_output_with(rate, channels, move |_| output.take().unwrap())
+    }
+    fn open_output_with(rate: u32, channels: u16, output: impl FnOnce(usize) -> DeviceOutput) -> Result<Self,String> {
         let device = cpal::default_host().default_output_device().ok_or("no audio output device")?;
-        // Explicit rate and stereo prevent accidental speed or channel changes.
-        // The loader will eventually decode directly to this admitted rate.
-        let supported = device.supported_output_configs().map_err(|e| e.to_string())?
-            .find(|c| c.channels() == 2 && c.min_sample_rate().0 <= rate && c.max_sample_rate().0 >= rate
-                && matches!(c.sample_format(), cpal::SampleFormat::F32 | cpal::SampleFormat::I16 | cpal::SampleFormat::U16))
+        let usable = |c: &cpal::SupportedStreamConfigRange| c.min_sample_rate().0 <= rate && c.max_sample_rate().0 >= rate
+            && matches!(c.sample_format(), cpal::SampleFormat::F32 | cpal::SampleFormat::I16 | cpal::SampleFormat::U16);
+        let configs: Vec<_> = device.supported_output_configs().map_err(|e| e.to_string())?.filter(usable).collect();
+        let max = configs.iter().map(|c| c.channels() as usize).max().unwrap_or(2);
+        let default = device.default_output_config().map(|c| c.channels() as usize).unwrap_or(2);
+        DEVICE_MAX.store(max.max(2), Ordering::Relaxed);
+        DEVICE_DEFAULT.store(default.max(2), Ordering::Relaxed);
+        // Explicit rate and channel count prevent accidental speed or channel
+        // changes. A width the device lacks falls back to stereo.
+        let supported = configs.iter().find(|c| c.channels() == channels).or_else(|| configs.iter().find(|c| c.channels() == 2))
             .ok_or("audio device does not support stereo at the requested rate")?.with_sample_rate(cpal::SampleRate(rate));
+        let output = output(supported.channels() as usize);
         let format = supported.sample_format();
         let config = supported.config();
         let status = Arc::new(Status::default());
@@ -332,7 +389,8 @@ impl AudioDevice {
             cpal::SampleFormat::U16 => build::<u16>(&device, &config, output, &status),
             _ => unreachable!(),
         }?;
-        let result = Self { stream, status };
+        let result = Self { stream, status, channels: config.channels as usize };
+        eprintln!("audio device: {} channels at {rate} Hz (device default {default}, up to {max})", result.channels);
         result.play()?;
         Ok(result)
     }

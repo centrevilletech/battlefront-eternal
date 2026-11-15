@@ -30,6 +30,7 @@ pub mod items;
 
 pub mod sound;
 pub mod sound_data;
+pub mod sound_output;
 
 pub mod combat;
 mod debris;

@@ -28,6 +28,10 @@ struct Batch {
     // The master volume (masterVolume), applied at the output's master.
     volume: f32,
     samples: Vec<(usize, Option<super::stream_assets::Pcm>)>,
+    // A new mix configuration for the device to install before this batch's
+    // commands, and the one it replaced, handed back to be dropped here.
+    config: Option<Box<Output>>,
+    retired: Option<Box<Output>>,
 }
 impl Batch {
     fn new() -> Self {
@@ -38,6 +42,8 @@ impl Batch {
             mask: 0,
             volume: 1.,
             samples: Vec::with_capacity(512),
+            config: None,
+            retired: None,
         }
     }
 }
@@ -69,7 +75,7 @@ impl Mailbox {
     }
 }
 pub struct LiveOutput {
-    output: Output,
+    output: Box<Output>,
     mail: Arc<Mailbox>,
     next: usize,
     volume: f32,
@@ -84,6 +90,14 @@ impl LiveOutput {
         let write = self.mail.write.load(Ordering::Acquire);
         while read != write {
             let batch = unsafe { &mut *self.mail.slots[read % QUEUE].get() };
+            if let Some(mut next) = batch.config.take() {
+                // Settings changed: the new layout takes the live sources over;
+                // the old one goes back to the window thread to be dropped.
+                next.take_sources(&mut self.output);
+                std::mem::swap(&mut self.output, &mut next);
+                self.volume = f32::NAN;
+                batch.retired = Some(next);
+            }
             for (id, pcm) in batch.samples.drain(..) {
                 if let Some(pcm) = pcm {
                     self.output.voices.decoded_sample(id, pcm.rate, pcm.channels, pcm.frames, pcm.data);
@@ -95,10 +109,14 @@ impl LiveOutput {
                 if batch.mask != 0 {
                     master.room(&batch.room, batch.mask, false);
                 }
-                if batch.volume != self.volume {
-                    master.volume(batch.volume, 0., 0., true, 0.);
-                    self.volume = batch.volume;
-                }
+            }
+            // The master volume reaches the light mix (Classic stereo) and the
+            // master chain alike, gliding over 50 ms as the sliders move.
+            if batch.volume != self.volume {
+                let first = self.volume.is_nan();
+                let now = self.output.frame as f64 / self.output.rate;
+                self.output.volume(batch.volume, if first { 0. } else { 0.05 }, now, first);
+                self.volume = batch.volume;
             }
             self.output.commands[..batch.commands.len()].copy_from_slice(&batch.commands);
             self.output.apply(batch.commands.len());
@@ -113,16 +131,24 @@ impl LiveOutput {
         self.mail.clock.store(self.output.frame, Ordering::Release);
         self.next = 0;
     }
-    pub fn fill<T: cpal::SizedSample + cpal::FromSample<f32>>(&mut self, data: &mut [T], status: &crate::audio::Status) {
+    /// Fills interleaved device frames of `channels` channels. The output's
+    /// own channels go to the device's in its order (crate::audio::order);
+    /// device channels the layout lacks stay silent.
+    pub fn fill<T: cpal::SizedSample + cpal::FromSample<f32>>(&mut self, data: &mut [T], channels: usize, status: &crate::audio::Status) {
         let mut peak = 0f32;
-        for sample in data {
-            if self.next == FRAMES * 2 {
+        let channels = channels.max(1);
+        for frame in data.chunks_mut(channels) {
+            if self.next == FRAMES {
                 self.quantum();
                 status.blocks.fetch_add(1, Ordering::Relaxed);
             }
-            let value = self.output.output[(self.next % 2) * FRAMES + self.next / 2];
-            peak = peak.max(value.abs());
-            *sample = T::from_sample(value);
+            let have = self.output.channels;
+            for (device, sample) in frame.iter_mut().enumerate() {
+                let source = crate::audio::order(have, device);
+                let value = if source < have { self.output.output[source * FRAMES + self.next] } else { 0. };
+                peak = peak.max(value.abs());
+                *sample = T::from_sample(value);
+            }
             self.next += 1;
         }
         status.peak.fetch_max(peak.to_bits(), Ordering::Relaxed);
@@ -262,11 +288,22 @@ pub struct Sound {
     starts: [f64; 2],
     ui_paused: bool,
     ui_board: bool,
+    // The audio settings in force and what they selected; the control
+    // runtime's configuration count, which re-sends every placement.
+    audio: super::sound_output::AudioSettings,
+    rendering: super::sound_output::Rendering,
+    configuration: f64,
+    // A configuration built before the device took the output, or waiting
+    // for the next batch.
+    pending_config: Option<Box<Output>>,
+    // The reverb last sent, so a new configuration starts in the same room.
+    room: [f64; audio::reverb::PARAM_COUNT],
+    room_mask: u32,
 }
 impl Sound {
     pub fn new(prepared: Prepared, collision: Collision, world: u32) -> Self {
         let mail = Arc::new(Mailbox::new());
-        let output = Some(LiveOutput { output: prepared.output, mail: mail.clone(), next: FRAMES * 2, volume: 1. });
+        let output = Some(LiveOutput { output: Box::new(prepared.output), mail: mail.clone(), next: FRAMES, volume: f32::NAN });
         Self {
             ahead: Default::default(),
             volumes: [1.; 6],
@@ -312,7 +349,43 @@ impl Sound {
             starts: [f64::NAN; 2],
             ui_paused: false,
             ui_board: false,
+            audio: super::sound_output::AudioSettings { enhanced: false, output: "stereo".into(), ..Default::default() },
+            rendering: super::sound_output::Rendering {
+                layout: "stereo", channels: 2, enhanced: false, light: true, hrtf: false, binaural: false, lfe: false,
+            },
+            configuration: 0.,
+            pending_config: None,
+            room: [0.; audio::reverb::PARAM_COUNT],
+            room_mask: 0,
         }
+    }
+    /// The player's audio settings (Settings > Audio). A change builds the new
+    /// mix configuration here, off the device thread; the device installs it
+    /// before the next batch, keeping every sound that plays.
+    pub fn set_audio(&mut self, settings: &super::sound_output::AudioSettings) {
+        let (default, max) = crate::audio::device_channels();
+        let wanted = super::sound_output::resolve(&settings.output, default, max).name;
+        if *settings == self.audio && wanted == self.rendering.layout {
+            return;
+        }
+        let room = (self.room_mask != 0).then_some((&self.room, self.room_mask));
+        let (mut next, rendering) =
+            super::sound_output::build(settings, default, max, room, self.volumes[0].clamp(0., 1.) as f32, None);
+        crate::audio::want_channels(rendering.channels);
+        self.audio = settings.clone();
+        self.rendering = rendering;
+        self.configuration += 1.;
+        if let Some(live) = &mut self.output {
+            // Not yet playing: install it in place.
+            next.take_sources(&mut live.output);
+            *live.output = next;
+        } else {
+            self.pending_config = Some(Box::new(next));
+        }
+    }
+    /// The output's layout and rendering in force.
+    pub fn rendering(&self) -> super::sound_output::Rendering {
+        self.rendering
     }
     pub fn device_frames(&self) -> u64 {
         self.mail.clock.load(Ordering::Acquire)
@@ -704,7 +777,16 @@ impl Sound {
         frame[frame::WALL_NOW] = wall;
         frame[frame::NOW] = wall;
         frame[frame::RATE] = 48000.;
-        frame[frame::LIGHT] = 1.;
+        let rendering = self.rendering;
+        frame[frame::ENHANCED] = rendering.enhanced as u8 as f64;
+        frame[frame::LIGHT] = rendering.light as u8 as f64;
+        frame[frame::HRTF] = rendering.hrtf as u8 as f64;
+        frame[frame::BINAURAL] = rendering.binaural as u8 as f64;
+        frame[frame::LFE] = rendering.lfe as u8 as f64;
+        frame[frame::CONFIGURATION] = self.configuration;
+        // The enhanced mode's rooms and occlusion cast rays through the
+        // battle's own collision (Queries).
+        frame[frame::COLLISION] = 1.;
         frame[frame::RUNNING] = 1.;
         frame[frame::MAX_VOICES] = 32.;
         frame[frame::VIRTUAL_VOICES] = 64.;
@@ -730,7 +812,7 @@ impl Sound {
         {
             frame[at] = volume.clamp(0., 1.);
         }
-        frame[frame::CHANNELS] = 2.;
+        frame[frame::CHANNELS] = rendering.channels as f64;
         frame[frame::TICKETS1] = battle.0[0];
         frame[frame::TICKETS2] = battle.0[1];
         frame[frame::OVER] = battle.1 as u8 as f64;
@@ -1136,6 +1218,8 @@ impl Sound {
         }
         let write = self.mail.write.load(Ordering::Relaxed);
         let batch = unsafe { &mut *self.mail.slots[write % QUEUE].get() };
+        drop(batch.retired.take());
+        batch.config = self.pending_config.take();
         batch.samples.clear();
         batch.commands.clear();
         batch.commands.extend_from_slice(commands);
@@ -1145,7 +1229,11 @@ impl Sound {
         batch.volume = self.volumes[0].clamp(0., 1.) as f32;
         for (i, v) in batch.room.iter_mut().enumerate() {
             *v = runtime.info[info::ROOM + i];
+            if batch.mask & (1 << i) != 0 {
+                self.room[i] = *v;
+            }
         }
+        self.room_mask |= batch.mask;
         // Asset requests carry the runtime's generation. PCM is moved through
         // this same mailbox before its START commands; stale decode results
         // cannot replace a sample belonging to a newer use of the stream slot.
