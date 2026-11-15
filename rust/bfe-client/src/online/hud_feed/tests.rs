@@ -364,12 +364,18 @@ fn the_own_soldier_s_repair_lock_building_health_and_vehicle_slots_are_kept() {
     push(k::MOUNT, 40., 5., 0., 1., &[]);
     push(k::MOUNT, 41., 5., 0., -1., &[]);
     feed.frame(&mut hud, &receiver, &teams);
+    // The HUD asks for lost posts after the frame: the battle's first frame keeps what it read.
+    assert_eq!(feed.lost_posts(&receiver).1, 0);
     assert_eq!(feed.repair(&receiver), Some(RepairLock::Building(3)));
     assert_eq!((feed.building_health(3), feed.building_health(4), feed.building_health(5)), (Some(450.), Some(f64::INFINITY), None));
     assert_eq!((feed.vehicle(1), feed.vehicle(0)), (Some((40, 5)), None));
     // A new life of his has no lock until its own state says so.
     receiver.own.generation = 3.;
     assert_eq!(feed.repair(&receiver), None);
+    // A new battle forgets the old one's seats and buildings.
+    receiver.epoch += 1.;
+    assert_eq!(feed.lost_posts(&receiver).1, 0);
+    assert_eq!((feed.vehicle(1), feed.building_health(3)), (None, None));
 }
 
 #[test]
