@@ -755,7 +755,6 @@ pub mod foot_event {
     pub const HAS_TURN: usize = 4;
     pub const TURN: usize = 5;
     pub const LIFTS: usize = 9;
-    // Sounds use the primitive's height; dust uses the hull's ground plane.
     pub const HEIGHT: usize = 10;
     pub const STRIDE: usize = 11;
 }
