@@ -265,9 +265,9 @@ impl SpawnLayout {
         let label_h = line(m.label_font());
         let mut class_tops = [0.; MAX_CLASSES + 1];
         let mut y = label_y + label_h + 1.1 * vh;
-        for i in 0..MAX_CLASSES {
-            class_tops[i] = y;
-            y += m.class_height(facts.rows[i]) + 0.9 * vh;
+        for (top, &row) in class_tops[..MAX_CLASSES].iter_mut().zip(facts.rows.iter()) {
+            *top = y;
+            y += m.class_height(row) + 0.9 * vh;
         }
         class_tops[MAX_CLASSES] = y;
         // The stage: his place, the caption (.4vh above it), SPAWN (1.4vh above it, at most 360 wide).
