@@ -283,6 +283,8 @@ pub(crate) struct Prepared {
     details: Vec<Option<usize>>,
     foliage: Vec<bfe_content_native::foliage::Class>,
     foliage_images: Vec<usize>,
+    canopy_leaf: Option<usize>,
+    lamps:crate::lamps::Lamps,
     placed: bfe_content_native::placed::Placements,
     water_main: Option<usize>,
     /// The specular mask's frames in play order, and their frames per second.
@@ -327,6 +329,13 @@ pub struct Scene {
     depth_sample: u32,
     depth_color: u32,
     render_scale: f64,
+    adaptive_scale: f64,
+    resolution_target: f64,
+    resolution: bfe_sim::client::timing::Timing,
+    resolution_fence: Option<(glow::Fence,std::time::Instant)>,
+    resolution_queries:Option<(glow::Query,glow::Query,bool)>,
+    resolution_query_active:bool,
+    resolution_gpu_ms:f64,
     render_size: [i32; 2],
     reduced_far_terrain: bool,
     shadows_enabled: bool,
@@ -337,16 +346,23 @@ pub struct Scene {
     terrain_detail: bool,
     post_images: Vec<(u32, u32, u32, usize, f64)>,
     post_mode: usize,
+    temporal_motion: Option<bfe_render::native_motion::NativeMotion>,
     blur_downsize: f64,
     profile_start: Option<std::time::Instant>,
     profile_rss_after: bool,
     bloom: bool,
     soft_focus: bool,
+    vehicle_blur: bool,
+    vehicle_speed: f64,
     depth_texture: u32,
     far_reach: f64,
     distance_scale: f64,
     near_range: [f64; 2],
     shadows: Option<crate::shadows::Shadows>,
+    canopies: Option<crate::canopies::Canopies>,
+    tree_sun: [f64;3],
+    lamps:crate::lamps::Lamps,
+    lamp_worlds:Vec<u32>,
     image_step: [f64; bfe_render::post::STEP],
     image_state: [f64; bfe_render::post::STATE],
     pub canvas: Canvas,
@@ -384,6 +400,10 @@ struct SceneFrame {
     slots: [usize; 2],
 }
 // A frame-sized colour image a target draws into.
+fn post_image(size:[i32;2],slot:usize)->String{
+    use bfe_render::post_chain::layout::resource as R;
+    if matches!(slot,R::HISTORY0|R::HISTORY1|R::MOTION|R::VELOCITY){serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1016,"srgb":false,"renderTarget":true}).to_string()}else{frame_image(size)}
+}
 fn frame_image(size: [i32; 2]) -> String {
     serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1009,"srgb":false,"renderTarget":true}).to_string()
 }
@@ -560,6 +580,9 @@ impl Scene {
                 }
             }
         }
+        let canopy_leaf=content.map["treeCanopies"]["texture"].as_str().map(|name|{
+            let path=layers.get(&name.to_lowercase()).cloned().unwrap_or_else(||format!("maps/{map}/{name}"));content.textures.load(&path)
+        }).transpose()?;
         let mut details = Vec::with_capacity(content.world.len());
         let mut layer_ids = Vec::with_capacity(content.world.len());
         for mesh in &content.world {
@@ -731,6 +754,7 @@ impl Scene {
         if live {
             used.fill(true);
         }
+        let lamps=crate::lamps::Lamps::prepare(&content)?;
         Ok(Prepared {
             spawn_objectives,
             spawn_vehicles,
@@ -741,7 +765,7 @@ impl Scene {
             layer_ids,
             details,
             foliage,
-            foliage_images,
+            foliage_images, canopy_leaf, lamps,
             placed,
             water_main,
             water_mask,
@@ -770,7 +794,7 @@ impl Scene {
             layer_ids,
             details,
             foliage,
-            foliage_images,
+            foliage_images, canopy_leaf, lamps,
             placed,
             water_main,
             water_mask,
@@ -826,6 +850,7 @@ impl Scene {
         // Zero state rows retain the authored billboard LOD in this inspector;
         // the existing tree descriptor still owns grouping and mask geometry.
         let canopy = &content.map["treeCanopies"];
+        let mut canopy_state=None;
         let canopy_texture =
             if let Some(instances) = canopy["instances"].as_array().filter(|v| !v.is_empty()) {
                 if instances.len() > 65536 {
@@ -833,6 +858,7 @@ impl Scene {
                 }
                 let state = resources
                     .canopy_state(instances.len() as u32, &vec![0; instances.len() * 16])?;
+                canopy_state=Some(state);
                 Some(bridge.r.core.add_texture(resources.texture(state)?))
             } else {
                 None
@@ -1146,15 +1172,17 @@ impl Scene {
                 far_target,
                 depth_target,
                 depth_source, depth_color_source, depth_sample, depth_color,
-                render_scale: 1., render_size: size,
+                render_scale: 1., render_size: size, adaptive_scale:1., resolution_target:0., resolution:bfe_sim::client::timing::Timing::new(), resolution_fence:None,resolution_queries:None,resolution_query_active:false,resolution_gpu_ms:f64::NAN,
                 profile_start: None, profile_rss_after: false,
-                post_images, post_mode: 0, blur_downsize:content.map["post"]["blur"]["downsize"].as_f64().filter(|v|v.is_finite()&&*v>0.).unwrap_or(0.25), bloom: false, soft_focus: false,
+                post_images, post_mode: 0, temporal_motion:None, blur_downsize:content.map["post"]["blur"]["downsize"].as_f64().filter(|v|v.is_finite()&&*v>0.).unwrap_or(0.25), bloom: false, soft_focus: false, vehicle_blur:false,vehicle_speed:0.,
                 reduced_far_terrain: false, shadows_enabled: shadow_count>0, shadow_bones:bones, shadow_size, features, bump_mapping: true, terrain_detail: true,
                 depth_texture,
                 far_reach,
                 distance_scale: 1.,
                 near_range: [camera.view.values[bfe_render::cameras::layout::shader_frame::FADE], camera.view.values[bfe_render::cameras::layout::shader_frame::FADE + 1]],
-                shadows,
+                shadows,lamps,lamp_worlds:vec![],
+                tree_sun:camera.view.values[bfe_render::cameras::layout::shader_frame::SUN_DIRECTION..][..3].try_into().unwrap(),
+                canopies:canopy_leaf.zip(canopy_state).map(|(leaf,state)|crate::canopies::Canopies::new(content.map["treeCanopies"].clone(),textures[leaf],state)),
                 image_step,
                 image_state,
                 canvas,
@@ -1187,6 +1215,8 @@ impl Scene {
 
     }
     pub fn finish_profile(&mut self) {
+        if let Some((fence,_))=self.resolution_fence.take(){unsafe{self.bridge.r.core.gl.delete_sync(fence);}}
+        if let Some((a,b,_))=self.resolution_queries.take(){unsafe{self.bridge.r.core.gl.delete_query(a);self.bridge.r.core.gl.delete_query(b);}}
         self.profile_memory("battle end");
         self.bridge.r.core.profile.report(&self.bridge.r.core.gl);
     }
@@ -1205,45 +1235,74 @@ impl Scene {
             self.render_size, self.size, self.shadows_enabled, self.reduced_far_terrain,
             self.bump_mapping, self.terrain_detail, self.bloom, self.soft_focus,
             self.bridge.r.post_chain.state[state::STEPS]);
+        eprintln!("battle graphics distance: factor={} adaptive={} shadow-cascades={} shadow-size={}",self.distance_scale,self.adaptive_scale,self.features[L::FEATURES_SHADOWS],self.shadow_size);
     }
 
     pub fn set_post_effects(&mut self, bloom: bool, soft_focus: bool, upscaler: &str) -> Result<(),String> {
         use bfe_render::post_chain::layout::mode;
         self.bloom = bloom;
         self.soft_focus = soft_focus;
-        self.post_mode = match upscaler { "bilinear" => mode::BILINEAR, "spatial" => mode::SPATIAL, _ => mode::OFF };
+        self.post_mode = match upscaler { "bilinear" => mode::BILINEAR, "spatial" => mode::SPATIAL, "off"=>mode::OFF, _ => mode::TEMPORAL };
         self.configure_post()
     }
 
     fn configure_post(&mut self)->Result<(),String>{
         use bfe_render::post_chain::layout::{facts as pf,program as pp,resource as pr,mode,aa};
-        let intermediate=self.bloom||self.soft_focus&&self.bridge.r.post_chain.input[pf::BLUR_ENABLED]!=0.||self.post_mode==mode::SPATIAL;
+        let intermediate=self.bloom||self.soft_focus&&self.bridge.r.post_chain.input[pf::BLUR_ENABLED]!=0.||self.post_mode>=mode::SPATIAL||self.vehicle_blur&&self.vehicle_speed>0.0001/0.085;
         let fxaa=self.frame.as_ref().is_some_and(|f|f.aa!=aa::OFF);
+        let temporal=self.post_mode==mode::TEMPORAL;
+        if temporal&&self.temporal_motion.is_none(){self.temporal_motion=Some(bfe_render::native_motion::NativeMotion::new(&mut self.bridge.r.core)?);self.bridge.r.post_chain.invalidate();}
+        if !temporal{self.temporal_motion=None;}
         if intermediate||fxaa{
-            for (program,key) in [(pp::COPY,"post-hud/copy"),(pp::EXTRACT,"post-hud/bloom-extract"),(pp::BLUR,"post-hud/bloom-blur"),(pp::BILINEAR,"post-hud/bilinear"),(pp::SPATIAL,"post-hud/spatial"),(pp::COMPOSITE,"post-hud/composite"),(pp::FXAA,"post-hud/fxaa"),(pp::FXAA_FAST,"post-hud/fxaa-fast")]{
+            for (program,key) in [(pp::COPY,"post-hud/copy"),(pp::EXTRACT,"post-hud/bloom-extract"),(pp::BLUR,"post-hud/bloom-blur"),(pp::BILINEAR,"post-hud/bilinear"),(pp::SPATIAL,"post-hud/spatial"),(pp::COMPOSITE,"post-hud/composite"),(pp::FXAA,"post-hud/fxaa"),(pp::FXAA_FAST,"post-hud/fxaa-fast"),(pp::MOTION,"post-hud/motion"),(pp::RESOLVE,"post-hud/resolve"),(pp::SHARPEN,"post-hud/sharpen")]{
                 self.bridge.r.post_chain.input[pf::PROGRAMS+program]=self.bridge.add_owned_program(key)? as f64;
             }
         }
-        if intermediate&&self.post_images.is_empty(){
-            for(slot,factor)in [(pr::QUARTER,self.blur_downsize),(pr::BLOOM,0.25),(pr::SCRATCH,0.25),(pr::POST,1.),(pr::AA,1.)]{
-                let extent=self.render_size.map(|v|(v as f64*factor).ceil().max(1.) as i32);
-                let source=self.resources.source(&frame_image(extent))?;
-                let sample=self.resources.sample(source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
-                self.resources.upload(sample)?;
-                let texture=self.bridge.r.core.add_texture(self.resources.texture(sample)?);
-                let target=self.bridge.post_target(texture);
-                self.bridge.r.post_chain.input[pf::RESOURCES+slot*pr::STRIDE..][..pr::STRIDE].copy_from_slice(&[texture as f64,target as f64,extent[0] as f64,extent[1] as f64]);
-                self.post_images.push((source,sample,texture,slot,factor));
-            }
-        }else if !intermediate{
-            for(_source,sample,texture,slot,_)in self.post_images.drain(..){
-                self.bridge.r.core.forget_texture(texture);self.resources.dispose_sample(sample)?;
-                self.bridge.r.post_chain.input[pf::RESOURCES+slot*pr::STRIDE..][..pr::STRIDE].fill(-1.);
-            }
+        let mut wanted=Vec::new();
+        if intermediate{wanted.extend([(pr::QUARTER,self.blur_downsize),(pr::BLOOM,0.25),(pr::SCRATCH,0.25),(pr::POST,1.),(pr::AA,1.)]);}
+        if temporal{wanted.extend([(pr::HISTORY0,-1.),(pr::HISTORY1,-1.),(pr::MOTION,1.),(pr::VELOCITY,1.)]);}
+        let mut i=0;
+        while i<self.post_images.len(){
+            let(_,sample,texture,slot,_)=self.post_images[i];
+            if wanted.iter().any(|(s,_)|*s==slot){i+=1;continue;}
+            self.bridge.r.core.forget_texture(texture);self.resources.dispose_sample(sample)?;
+            self.bridge.r.post_chain.input[pf::RESOURCES+slot*pr::STRIDE..][..pr::STRIDE].fill(-1.);self.post_images.remove(i);
+        }
+        for(slot,factor)in wanted{
+            if self.post_images.iter().any(|r|r.3==slot){continue;}
+            let extent=if factor<0.{self.size}else{self.render_size.map(|v|(v as f64*factor).ceil().max(1.) as i32)};
+            let source=self.resources.source(&post_image(extent,slot))?;
+            let sample=self.resources.sample(source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
+            self.resources.upload(sample)?;let texture=self.bridge.r.core.add_texture(self.resources.texture(sample)?);let target=self.bridge.post_target(texture);
+            self.bridge.r.post_chain.input[pf::RESOURCES+slot*pr::STRIDE..][..pr::STRIDE].copy_from_slice(&[texture as f64,target as f64,extent[0]as f64,extent[1]as f64]);
+            self.post_images.push((source,sample,texture,slot,factor));
         }
         self.bridge.r.core.state.reset();Ok(())
     }
 
+    pub fn set_lamp_lighting(&mut self,enabled:bool)->Result<(),String>{
+        if !self.lamps.configure(&mut self.bridge.r.core,enabled)?{return Ok(());}
+        self.features[L::FEATURES_LAMPS]=enabled as u32;
+        let count=self.features[L::FEATURES_SHADOWS];
+        self.bridge.r.core.configure_instance_programs(count,enabled)?;self.bridge.actor_settings(count,enabled)?;
+        self.bridge.static_world_settings(&self.features,&[0;L::FEATURES_LENGTH])?;
+        self.lamp_worlds.clear();for &id in &self.near_world_ids{if self.bridge.world_uses_lamps(id){self.lamp_worlds.push(id);}}
+        self.bridge.r.world.sort(false);self.bridge.r.core.state.reset();Ok(())
+    }
+    pub fn set_vehicle_blur(&mut self,enabled:bool)->Result<(),String>{self.vehicle_blur=enabled;self.configure_post()}
+    pub fn vehicle_motion(&mut self,amount:f64,turn:f64,dt:f64)->Result<(),String>{
+        use bfe_render::post_chain::layout::facts as F;
+        let was=self.vehicle_blur&&self.vehicle_speed>0.0001/0.085;
+        self.vehicle_speed+=(amount.clamp(0.,1.)-self.vehicle_speed)*(1.-(-4.*dt.max(0.)).exp());
+        let f=&mut self.bridge.r.post_chain.input;f[F::SPEED_ENABLED]=self.vehicle_blur as u8 as f64;f[F::SPEED_AMOUNT]=self.vehicle_speed;f[F::SPEED_TURN]=turn.clamp(-2.,2.);
+        if was!=(self.vehicle_blur&&self.vehicle_speed>0.0001/0.085){self.configure_post()?;}
+        Ok(())
+    }
+    pub fn set_tree_detail(&mut self,enhanced:bool)->Result<(),String>{
+        if let Some(canopies)=&mut self.canopies{
+            canopies.configure(&mut self.bridge,enhanced,self.tree_sun)?;
+        }Ok(())
+    }
     pub fn set_far_terrain(&mut self, reduced: bool) {
         self.reduced_far_terrain = reduced;
     }
@@ -1254,8 +1313,8 @@ impl Scene {
         if let Some(shadows)=self.shadows.take(){shadows.dispose(&mut self.bridge,&mut self.resources)?;}
         self.features[L::FEATURES_SHADOWS]=count as u32;self.features[L::FEATURES_CSM]=(count>0) as u32;self.shadow_size=size;self.shadows_enabled=count>0;
         self.bridge.r.cameras.input[bfe_render::cameras::layout::input::CASCADE_COUNT]=count as f64;
-        self.bridge.r.core.configure_instance_programs(count as u32,true)?;
-        self.bridge.actor_settings(count as u32,true)?;
+        self.bridge.r.core.configure_instance_programs(count as u32,self.lamps.enabled)?;
+        self.bridge.actor_settings(count as u32,self.lamps.enabled)?;
         self.bridge.effect_settings(count>0)?;
         self.bridge.r.foliage.configure_shadows(&mut self.bridge.r.core,count>0)?;
         self.bridge.static_world_settings(&self.features,&[0;L::FEATURES_LENGTH])?;
@@ -1268,13 +1327,58 @@ impl Scene {
         self.terrain_detail = terrain;
     }
 
+    pub fn set_dynamic_resolution(&mut self,target:f64)->Result<(),String>{
+        let target=if target.is_finite(){target.max(0.)}else{0.};
+        if self.resolution_target==target{return Ok(());}
+        if let Some((a,b,_))=self.resolution_queries.take(){unsafe{self.bridge.r.core.gl.delete_query(a);self.bridge.r.core.gl.delete_query(b);}}
+        self.resolution_gpu_ms=f64::NAN;self.resolution_query_active=false;
+        self.resolution_target=target;
+        self.resolution.run(15,target,0.,0.,0.,0.);
+        self.adaptive_scale=1.;
+        if let Some((fence,_))=self.resolution_fence.take(){unsafe{self.bridge.r.core.gl.delete_sync(fence);}}
+        self.resize_scene_targets()
+    }
+    fn resolution_gpu_begin(&mut self){
+        if !self.resolution_enabled(){return;}
+        let gl=&self.bridge.r.core.gl;
+        if self.resolution_queries.is_none()&&(!gl.version().is_embedded||gl.supported_extensions().iter().any(|e|e.contains("disjoint_timer_query"))){unsafe{
+            if let Ok(a)=gl.create_query(){match gl.create_query(){Ok(b)=>self.resolution_queries=Some((a,b,false)),Err(_)=>gl.delete_query(a)}}
+        }}
+        if let Some((a,b,false))=self.resolution_queries{
+            if gl.version().is_embedded&&self.bridge.r.core.profile.enabled{return;}
+            unsafe{if gl.version().is_embedded{gl.begin_query(glow::TIME_ELAPSED,b);}else{gl.query_counter(a,glow::TIMESTAMP);}}self.resolution_query_active=true;
+        }
+    }
+    fn resolution_gpu_end(&mut self){
+        if self.resolution_query_active{if let Some((_,b,pending))=&mut self.resolution_queries{unsafe{let gl=&self.bridge.r.core.gl;if gl.version().is_embedded{gl.end_query(glow::TIME_ELAPSED);}else{gl.query_counter(*b,glow::TIMESTAMP);}}*pending=true;}self.resolution_query_active=false;}
+    }
+    pub fn resolution_enabled(&self)->bool{self.resolution_target>0.}
+    pub fn adapt_resolution(&mut self,interval_ms:f64,cpu_ms:f64,paused:bool)->Result<(),String>{
+        if !self.resolution_enabled(){return Ok(());}
+        let gl=&self.bridge.r.core.gl;
+        if let Some((a,b,pending))=&mut self.resolution_queries{if *pending&&unsafe{gl.get_query_parameter_u32(*b,glow::QUERY_RESULT_AVAILABLE)}!=0{
+            let start=if gl.version().is_embedded{0}else{unsafe{gl.get_query_parameter_u64(*a,glow::QUERY_RESULT)}};let end=unsafe{gl.get_query_parameter_u64(*b,glow::QUERY_RESULT)};
+            self.resolution_gpu_ms=if gl.version().is_embedded&&unsafe{gl.get_parameter_i32(0x8FBB)}!=0{f64::NAN}else{end.saturating_sub(start)as f64/1e6};*pending=false;
+        }}
+        let(behind,latency)=if let Some((fence,sent))=self.resolution_fence.take(){
+            let state=unsafe{gl.client_wait_sync(fence,0,0)};
+            unsafe{gl.delete_sync(fence);}
+            if state==glow::WAIT_FAILED{(f64::NAN,f64::NAN)}else{((state==glow::TIMEOUT_EXPIRED) as u8 as f64,sent.elapsed().as_secs_f64()*1000.)}
+        }else{(f64::NAN,f64::NAN)};
+        self.resolution_fence=unsafe{gl.fence_sync(glow::SYNC_GPU_COMMANDS_COMPLETE,0)}.ok().map(|f|(f,std::time::Instant::now()));
+        if paused{self.resolution.run(16,0.,0.,0.,0.,0.);return Ok(());}
+        let scale=self.resolution.run(17,interval_ms,cpu_ms,self.resolution_gpu_ms,behind,latency);
+        if scale!=self.adaptive_scale{self.adaptive_scale=scale;eprintln!("battle adaptive scale: factor={scale} target={} GPU-ms={} CPU-ms={cpu_ms}",self.resolution_target,self.resolution_gpu_ms);self.resize_scene_targets()?;}
+        Ok(())
+    }
     pub fn set_render_scale(&mut self, scale: f64) -> Result<(), String> {
         self.render_scale = if scale.is_finite() { scale.clamp(0.25, 2.) } else { 1. };
         self.resize_scene_targets()
     }
 
     fn resize_scene_targets(&mut self) -> Result<(), String> {
-        let size = self.size.map(|v| ((v as f64 * self.render_scale).round() as i32).max(1));
+        let scale=(self.render_scale*self.adaptive_scale).max(self.render_scale.min(0.25));
+        let size = self.size.map(|v| ((v as f64 * scale).round() as i32).max(1));
         if size == self.render_size { return Ok(()); }
         self.bridge.r.core.state.reset();
         self.resources.source_desc(self.far_source, &frame_image(size))?;
@@ -1292,8 +1396,8 @@ impl Scene {
         self.bridge.r.core.replace_sample_texture(self.depth_texture as usize, self.resources.texture(self.depth_sample)?)?;
         for &(source, sample, texture, slot, factor) in &self.post_images {
             use bfe_render::post_chain::layout::{facts as pf, resource as pr};
-            let extent = size.map(|v| (v as f64 * factor).ceil().max(1.) as i32);
-            self.resources.source_desc(source, &frame_image(extent))?;
+            let extent=if factor<0.{self.size}else{size.map(|v|(v as f64*factor).ceil().max(1.)as i32)};
+            self.resources.source_desc(source, &post_image(extent,slot))?;
             self.resources.upload(sample)?;
             self.bridge.r.core.replace_sample_texture(texture as usize, self.resources.texture(sample)?)?;
             let at = pf::RESOURCES + slot * pr::STRIDE;
@@ -1537,7 +1641,7 @@ impl Scene {
         }
         // ParticleDepth: with soft particles on, the frame plan copies the
         // opaque scene's depth into the depth target before the first blend.
-        if self.online.as_ref().is_some_and(|online| online.soft_particles()) {
+        if self.temporal_motion.is_some()||self.online.as_ref().is_some_and(|online| online.soft_particles()) {
             let row = &mut self.bridge.r.frames.bindings[r::DEPTH * b::LEN..(r::DEPTH + 1) * b::LEN];
             row.fill(0.);
             row[b::TARGET] = self.depth_target as f64;
@@ -1569,8 +1673,16 @@ impl Scene {
             scene[pr::TEXTURE] = frame.texture as f64;
             scene[pr::WIDTH] = self.render_size[0] as f64;
             scene[pr::HEIGHT] = self.render_size[1] as f64;
+            facts[pf::PROJECTION..pf::PROJECTION+16].copy_from_slice(&view.values[..16]);facts[pf::VIEW..pf::VIEW+16].copy_from_slice(&view.values[16..32]);
+            let mut world=Matrix4::default();world.elements.copy_from_slice(&view.values[16..32]);world.invert();facts[pf::WORLD..pf::WORLD+16].copy_from_slice(&world.elements);
+            facts[pf::RESOURCES+pr::DEPTH*pr::STRIDE+pr::TEXTURE]=self.depth_texture as f64;
             self.bridge.post_chain_begin_frame();
+            if self.temporal_motion.is_some(){use bfe_render::post_chain::layout::state as ps;
+                view.values[8]-=self.bridge.r.post_chain.state[ps::SHIFT];view.values[9]-=self.bridge.r.post_chain.state[ps::SHIFT+1];
+                self.bridge.r.frames.plan.facts[f::TEMPORAL]=1.;
+            }
         }
+        if let Some(canopies)=&self.canopies{canopies.frame(&mut self.bridge,&mut self.resources,view,self.shadows_enabled)?;}
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         crate::static_scene::update(&mut self.static_content, &mut self.bridge, &view.values);
         if matches!(component, Component::All | Component::Sky) {
@@ -1630,6 +1742,19 @@ impl Scene {
             .max()
             .unwrap_or(0);
         if component==Component::All{if let Some(online)=&self.online{(records,bones)=online.append(&mut self.bridge,records,bones);}}
+        self.lamps.begin();
+        let online=&self.online;
+        self.lamps.instances(&mut self.bridge.r.core,records,false,&mut |from,to|online.as_ref().is_none_or(|online|online.lamp_visible(from,to)));
+        if !self.lamp_worlds.is_empty(){let values=self.lamps.select((1u64<<49,0,0,0),[0.;3],&mut |from,to|online.as_ref().is_none_or(|online|online.lamp_visible(from,to)));for &id in &self.lamp_worlds{self.bridge.world_lamps(id,&values);}}
+        if let Some(native)=&mut self.temporal_motion{
+            use bfe_render::{motion as M,post_chain::layout::{facts as pf,resource as pr,state as ps}};
+            let motion=&mut self.bridge.r.motion;let f=&self.bridge.r.post_chain.input;let state=&self.bridge.r.post_chain.state;
+            motion.input[M::IN_PROJECTION..M::IN_PROJECTION+16].copy_from_slice(&view.values[..16]);motion.input[M::IN_VIEW..M::IN_VIEW+16].copy_from_slice(&view.values[16..32]);
+            motion.input[M::IN_VIEW_VIEW..M::IN_VIEW_VIEW+16].copy_from_slice(&view.values[16..32]);
+            motion.input[M::IN_CURRENT..M::IN_CURRENT+16].copy_from_slice(&state[ps::CURRENT..ps::CURRENT+16]);motion.input[M::IN_PREVIOUS..M::IN_PREVIOUS+16].copy_from_slice(&state[ps::PREVIOUS..ps::PREVIOUS+16]);
+            motion.input[M::IN_RANGE..M::IN_RANGE+2].copy_from_slice(&[0.,1.]);motion.input[M::IN_TARGET]=f[pf::RESOURCES+pr::VELOCITY*pr::STRIDE+pr::TEXTURE];motion.input[M::IN_SIZE..M::IN_SIZE+2].copy_from_slice(&self.render_size.map(|v|v as f64));motion.input[M::IN_DEPTH]=self.depth_texture as f64;motion.input[M::IN_CLEAR]=1.;
+            native.prepare(&self.bridge.r.core,motion,records,state[ps::VALID]!=0.);
+        }
         if self.shadows_enabled { if let Some(shadows) = &mut self.shadows {
             let shadow_records = self.online.as_ref().map_or(records, |online| {
                 online.append_hidden_shadows(&mut self.bridge, records, bones)
@@ -1651,11 +1776,18 @@ impl Scene {
                 let top = 0.3 / view.values[5];
                 let right = 0.3 / view.values[0];
                 projection.make_perspective(-right, right, top, -top, 0.3, 10., CoordinateSystem::WebGL);
+                projection.elements[8]=view.values[8];projection.elements[9]=view.values[9];
+                let source=&self.online;self.lamps.instances(&mut self.bridge.r.core,view_records,true,&mut |from,to|source.as_ref().is_none_or(|online|online.lamp_visible(from,to)));
+                if let Some(native)=&mut self.temporal_motion{use bfe_render::motion as M;self.bridge.r.motion.input[M::IN_VIEW_PROJECTION..M::IN_VIEW_PROJECTION+16].copy_from_slice(&projection.elements);native.view(&self.bridge.r.core,&mut self.bridge.r.motion,view_records);}
                 self.bridge.r.core.input[..16].copy_from_slice(&projection.elements);self.bridge.r.frames.plan.facts[f::VIEW_SHOWN]=1.;self.publish(r::VIEW,k::VIEW,view_records,view_bones,0);}}
+        if let Some(native)=&self.temporal_motion{let count=native.count;self.publish(r::MOTION,k::MOTION,count,0,0);}
         if self.online.is_some(){self.publish(r::HUD0,k::HUD,0,0,0);}
         self.bridge.r.core.profile.cpu("draw list building",build_timer);
         let submit_timer=self.bridge.r.core.profile.clock();
+        self.resolution_gpu_begin();
         let success = self.bridge.battle_frame(&mut self.resources);
+        self.resolution_gpu_end();
+        if let Some(native)=&mut self.temporal_motion{native.complete(success);}
         self.bridge.r.core.profile.cpu("GL submit",submit_timer);
         self.bridge.r.core.profile.frame(&self.bridge.r.core.gl);
         self.bridge.r.water.input[bfe_render::water::S_SHOWN] = water_shown;

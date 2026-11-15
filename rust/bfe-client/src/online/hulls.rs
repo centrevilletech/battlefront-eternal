@@ -700,12 +700,13 @@ impl Hulls {
                 continue;
             };
             let root = &nodes[n::WORLD..n::WORLD + 16];
-            for template in &m.rows {
+            for (part,template) in m.rows.iter().enumerate() {
                 let count = m.inverses.len();
                 if records == draw::MAX_RECORDS || bones + count > draw::MAX_BONES {
                     continue;
                 }
                 let mut row = *template;
+                let(id,generation)=s.identity.unwrap_or((0,0));row[draw::REC_MOTION_ID]=12884901888.+id as f64;row[draw::REC_MOTION_GENERATION]=generation as f64;row[draw::REC_MOTION_PART]=part as f64;
                 row[draw::REC_WORLD..draw::REC_WORLD + 16].copy_from_slice(root);
                 let mut inverse = Matrix4::default();
                 inverse.elements.copy_from_slice(root);

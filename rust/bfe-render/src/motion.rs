@@ -397,6 +397,7 @@ impl<C: HasContext> MotionPass<C> {
                     gl.draw_elements_instanced(glow::TRIANGLES, k[4] as i32, geo.index_type, k[3] as i32 * geo.index_bytes, (j - i) as i32);
                 }
                 core.stats.gl_calls += 3;
+                core.profile.draw(k[4].max(0.)as u64,(j-i)as u64,1);
                 core.stats.instance_draws += 1;
                 core.stats.pass_draws[PASS_MOTION] += 1;
             }

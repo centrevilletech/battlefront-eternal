@@ -292,7 +292,9 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     // velocity target (motion.rs; records: how many the page wrote).
     pub(crate) fn motion_frame(&mut self, records: usize) -> Result<Stats, String> {
         self.core.begin_phase();
+        let timer=self.core.profile.begin(&self.core.gl);
         self.motion.draw(&mut self.core, records);
+        self.core.profile.end(&self.core.gl,"motion vectors",timer);
         self.core.end_phase()
     }
 

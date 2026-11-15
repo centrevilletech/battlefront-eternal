@@ -52,6 +52,9 @@ impl<C: HasContext> CanopiesPass<C> {
         unsafe { core.gl.bind_buffer(glow::ARRAY_BUFFER, None); }
     }
 
+    pub fn configure_shadows<M:MultiDraw>(&mut self,core:&mut Core<C,M>,enabled:bool)->Result<(),String>{
+        if let Some(mesh)=&mut self.mesh{if enabled{mesh.programs[1]=core.add_owned_program("world/canopies")?;}}Ok(())
+    }
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> CanopiesPass<C> {
         CanopiesPass { input: vec![0.0; INPUT_LEN], leaves: vec![], mesh: None }
     }

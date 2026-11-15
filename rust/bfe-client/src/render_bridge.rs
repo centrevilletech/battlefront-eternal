@@ -224,10 +224,9 @@ pub fn camera_cascades_frame(&mut self)  { self.r.cameras.cascades(); }
 pub fn camera_shadow_frame(&mut self, index: u32)  { self.r.cameras.cascades.publish(index as usize); }
 pub fn camera_invalidate_frame(&mut self, index: u32)  { self.r.cameras.cascades.invalidate_window(index as usize); }
 pub fn canopies_mesh(&mut self, max: u32) -> Result<(), String> { if max as usize > bfe_render::static_layout::CANOPIES_MAX_GROUPS * bfe_render::static_layout::CANOPIES_LEAVES { return Err(String::from("invalid canopy capacity or program")); }
-        // The two settings variants share locations and geometry. Compile them
-        // cold so switching shadows needs no frame allocation or host program.
-        let mut programs=[0;2];
-        for (i,key) in ["world/canopies-no-shadows","world/canopies"].iter().enumerate() {programs[i]=self.r.core.add_owned_program(key).map_err(|e|e.to_string())?;}
+        // Both variants share locations; an off scene admits only its variant.
+        let plain=self.r.core.add_owned_program("world/canopies-no-shadows")?;
+        let programs=[plain,if self.shadow_cascades()>0{self.r.core.add_owned_program("world/canopies")?}else{plain}];
         let spec=bfe_render::programs::spec("world/canopies").map_err(|e|e.to_string())?;
         let core = &mut self.r.core;
         let geometry = core.add_geometry();

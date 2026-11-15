@@ -33,6 +33,10 @@ pub const REC_WORLD: usize = 20; // matrixWorld
 pub const REC_BIND_INVERSE: usize = 36;
 pub const REC_LOOK: usize = 52; // sunScale, ambientPull, brightness
 pub const REC_FLAGS: usize = 56; // cull side (0 front, 1 back, 2 both) | 4 alpha to coverage | 8 depth write
+// Native temporal identity uses the three reserved scalar slots after flags.
+pub const REC_MOTION_ID:usize=57;
+pub const REC_MOTION_GENERATION:usize=58;
+pub const REC_MOTION_PART:usize=59;
 pub const REC_BIND: usize = 60; // bindMatrix (skinned)
 pub const REC_EXTRA: usize = 76; // a material's own values the instance gives (shader.rs EXTRAS: its row from ROW_EXTRA)
 // A blending rig's or part's: its blend (add_blend), then three's key for it but z:

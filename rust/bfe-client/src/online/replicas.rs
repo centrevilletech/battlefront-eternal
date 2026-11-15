@@ -1293,6 +1293,10 @@ impl Replicas {
         let (records, bones) = self.hulls.append_hidden_shadow(bridge, records, bones);
         self.turrets.append_hidden_shadow(bridge, records, bones).0
     }
+    pub fn lamp_visible(&self,from:[f64;3],to:[f64;3])->bool{
+        let d=std::array::from_fn::<_,3,_>(|i|to[i]-from[i]);let length=d.iter().map(|v|v*v).sum::<f64>().sqrt();if length<0.4{return true;}
+        let ray=bfe_sim::collision::Ray{ox:from[0],oy:from[1],oz:from[2],dx:d[0]/length,dy:d[1]/length,dz:d[2]/length};self.collision.borrow_mut().ray_hit(self.world,ray,(length-0.35).max(0.),-1).is_none()
+    }
     pub fn append(&self, bridge: &mut Bridge, mut records: usize, mut bones: usize) -> (usize, usize) {
         // Drawing clips at the renderer's existing record and bone budgets.
         // Filling either leaves gameplay, transport and the next frame alive.
@@ -1323,6 +1327,8 @@ impl Replicas {
             // Bind inverses and skin bases belong to this prepared model.
             // Copy one instance record, then its contiguous skin prefix.
             let mut row = self.models[slot.model].row;
+            let (id,generation)=slot.identity.unwrap_or((0,0));
+            row[draw::REC_MOTION_ID]=8589934592.+id as f64;row[draw::REC_MOTION_GENERATION]=generation as f64;
             row[draw::REC_WORLD..draw::REC_WORLD + 16].copy_from_slice(&output[o::ROOT_WORLD..o::ROOT_WORLD + 16]);
             row[draw::REC_BIND_INVERSE..draw::REC_BIND_INVERSE + 16].copy_from_slice(&output[o::BIND_INVERSE..o::BIND_INVERSE + 16]);
             row[draw::REC_BONES] = count as f64;
@@ -1344,7 +1350,9 @@ impl Replicas {
                     + bfe_presentation::layout::unit_node::WORLD;
                 let mut matrix = [0.; 16];
                 matrix.copy_from_slice(&self.units.nodes[node..node + 16]);
+                let first=records;
                 (records, bones) = model.append(bridge, &matrix, records, bones);
+                for part in first..records{let row=&mut bridge.r.core.input[draw::IN_RECORDS+part*draw::REC_STRIDE..][..draw::REC_STRIDE];row[draw::REC_MOTION_ID]=8589934592.+id as f64;row[draw::REC_MOTION_GENERATION]=generation as f64;row[draw::REC_MOTION_PART]=(part-first+1)as f64;}
             }
         }
         let (records, bones) = self.hulls.append(bridge, records, bones);

@@ -719,6 +719,7 @@ fn pack_rows(records: &[[f64; I::REC_STRIDE]], bones: &[f32], selected: &[usize]
         let at = I::IN_RECORDS + to * I::REC_STRIDE;
         input[at..at + I::REC_STRIDE].copy_from_slice(row);
         input[at + I::REC_BONE_AT] = (bone / 16) as f64;
+        input[at+I::REC_MOTION_ID]=4294967296.+from as f64;
         let first = row[I::REC_BONE_AT] as usize * 16;
         let count = row[I::REC_BONES] as usize * 16;
         output_bones[bone..bone + count].copy_from_slice(&bones[first..first + count]);

@@ -1496,6 +1496,9 @@ impl BattleController {
         }
         self.settings_revision = rev;
         // Graphics settings the browser applies as they change.
+        let target=settings.interface.get_string("dynamicResolution").parse().unwrap_or(0.);
+        if let Err(err)=self.scene.set_dynamic_resolution(target){eprintln!("battle settings: dynamic resolution not applied: {err}");}
+        self.scene.bridge.r.post_chain.input[bfe_render::post_chain::layout::facts::SHARPNESS]=settings.interface.get_f64("upscaleSharpness").clamp(0.,1.);
         if let Err(err) = self.scene.set_render_scale(settings.interface.get_f64("renderScale")) {
             eprintln!("battle settings: render scale not applied: {err}");
         }
@@ -1505,6 +1508,9 @@ impl BattleController {
             BattleAuthority::Online { client, .. } => client.camera.set_view_distance(distance),
         }
         if let Err(err)=self.scene.set_post_effects(settings.interface.get_bool("bloom"), settings.interface.get_bool("softFocus"), &settings.interface.get_string("upscaler")){eprintln!("battle settings: post effects not applied: {err}");}
+        if let Err(err)=self.scene.set_tree_detail(settings.interface.get_string("treeDetail")!="original"){eprintln!("battle settings: tree detail not applied: {err}");}
+        if let Err(err)=self.scene.set_vehicle_blur(settings.interface.get_bool("vehicleMotionBlur")){eprintln!("battle settings: vehicle blur not applied: {err}");}
+        if let Err(err)=self.scene.set_lamp_lighting(settings.interface.get_bool("lampLighting")){eprintln!("battle settings: lamp lighting not applied: {err}");}
         self.scene.set_far_terrain(settings.interface.get_string("farTerrain") == "reduced");
         if let Err(err)=self.scene.set_shadows(&settings.interface.get_string("shadows")){eprintln!("battle settings: shadows not applied: {err}");}
         self.scene.set_material_detail(settings.interface.get_bool("bumpMapping"), settings.interface.get_string("terrainDetail") == "enhanced");
@@ -1612,6 +1618,7 @@ impl BattleController {
     ) -> Result<Option<BattleTransition>, String> {
         if dt.is_finite() && dt >= 0. { self.frame_seconds += dt; }
         let frame_timer=self.scene.bridge.r.core.profile.clock();
+        let resolution_timer=self.scene.resolution_enabled().then(std::time::Instant::now);
         let dt = dt.clamp(0.0, 0.1);
         self.pause_page.save(settings);
         self.elapsed_s += dt;
@@ -2068,7 +2075,10 @@ impl BattleController {
         let pause_groups=self.scene.bridge.r.hud.input[render_hud::IN_GROUPS];
         if self.pause_menu.is_open||page_spawn||page_score {self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=0.;}
         if page_spawn {self.page_battle.direct(&mut view);}
+        let motion=match &self.authority{BattleAuthority::InstantAction{replay,..}=>replay.fleet.vehicle_motion(),BattleAuthority::Online{client,..}=>client.replay.fleet.vehicle_motion()};
+        self.scene.vehicle_motion(motion.0,motion.1,dt)?;
         self.scene.draw(&view)?;
+        if let Some(start)=resolution_timer{self.scene.adapt_resolution(dt*1000.,start.elapsed().as_secs_f64()*1000.,overlay_active)?;}
         self.scene.bridge.r.core.profile.cpu("frame CPU",frame_timer);
         if page_spawn || page_score {
             if page_spawn {

@@ -259,13 +259,8 @@ impl Combat {
             for at in [s::LOOK_GLOW, s::LOOK_CORE, s::LOOK_LENGTH, s::LOOK_BRIGHTNESS, s::LOOK_LIGHT_RADIUS] {
                 row[at] = look[at];
             }
-            let hue = style::resources(&authored, 0, true)["hue"].as_str().and_then(|name| prepared.textures.get(name)).map(|image| {
-                let image = &content.textures.images[*image];
-                let texels = (image.width as usize * image.height as usize * 4).min(image.data.len());
-                // Only plain RGBA images can be read here; a compressed one
-                // keeps the authored colour.
-                if matches!(image.format, bfe_render::texture_format::Format::Rgba) { style::texture_hue(&image.data[..texels]) } else { Vec::new() }
-            });
+            let hue=style::resources(&authored,0,true)["hue"].as_str().and_then(|name|prepared.textures.get(name))
+                .and_then(|image|content.textures.cpu_pixels(*image).ok()).map(|pixels|style::texture_hue(&pixels));
             if let Some(hue) = hue.filter(|hue| !hue.is_empty()) {
                 row[s::LOOK_COLOR..s::LOOK_COLOR + 3].copy_from_slice(&style::vivid(&hue, 1.6));
             }
