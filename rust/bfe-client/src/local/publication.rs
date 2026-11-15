@@ -3,7 +3,7 @@
 //! Shared and own spans enter the existing Rust session without a socket,
 //! transferable buffer or JSON envelope. Reliable cosmetic fields enter its
 //! existing journal before datagrams, preserving the local server's order.
-use bfe_client::online::receiver::Receiver;
+use bfe_client::online::{feedback::Ids, receiver::Receiver};
 use bfe_presentation::network_layout::{net_header as h, net_kind as k, net_record as r};
 use bfe_sim::{
     gen::{
@@ -242,7 +242,7 @@ impl<'a> Publication<'a> {
     // A publication may contain other consumers. Select the admitted local
     // client by its pool key, not by group position or an assumed first row.
     // Faults for client zero apply to the whole world, as SnapshotHost does.
-    pub fn deliver(&self, client: u32, receiver: &mut Receiver, now_ms: f64) -> Result<(), String> {
+    pub fn fault(&self, client: u32) -> Result<(), String> {
         for fault in self.table(P::FAULTS, F::WORDS)?.chunks_exact(F::WORDS) {
             if fault[F::CLIENT] == 0. || fault[F::CLIENT] == client as f64 {
                 return Err(String::from_utf8_lossy(self.span(fault, F::MESSAGE)?)
@@ -251,6 +251,25 @@ impl<'a> Publication<'a> {
                     .collect());
             }
         }
+        Ok(())
+    }
+
+    /// The reliable outcome ids this publication returns to `client`'s life
+    /// `generation` in `epoch` (bounded, repeats once), as delivery adds them.
+    pub fn outcomes(&self, client: u32, epoch: f64, generation: f64, out: &mut Ids) -> Result<(), String> {
+        for edge in self.table(P::EDGES, E::WORDS)?.chunks_exact(E::WORDS) {
+            if edge[E::CLIENT] != client as f64 || edge[E::EPOCH] != epoch || edge[E::GENERATION] != generation {
+                continue;
+            }
+            for result in rows(edge, E::RESULTS, Outcome::WORDS, self.heap)?.chunks_exact(Outcome::WORDS) {
+                out.add(integer(result[Outcome::ID], u32::MAX as usize)? as u32);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn deliver(&self, client: u32, receiver: &mut Receiver, now_ms: f64) -> Result<(), String> {
+        self.fault(client)?;
         for ack in self.table(P::ACKS, A::WORDS)?.chunks_exact(A::WORDS) {
             // A respawn can share an epoch but never the previous generation's
             // input acknowledgement. Pair both before advancing its receipt.

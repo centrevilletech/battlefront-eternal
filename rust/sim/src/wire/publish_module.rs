@@ -49,6 +49,9 @@ pub(crate) fn wire_publish_native_in<'a>(w: &'a mut crate::world::owner::World, 
     let s = w.wire.as_deref()?.publications.get(session)?;
     Some((&s.publisher.block.words[..], &s.publisher.bytes[..]))
 }
+pub(crate) fn published_own_in(w: &crate::world::owner::World, session: usize, client: u32) -> Option<super::publisher::OwnFacts> {
+    w.wire.as_deref()?.publications.get(session)?.publisher.own_facts.iter().find(|f| f.client == client).copied()
+}
 pub(crate) fn wire_publish_drop_in(w: &mut crate::world::owner::World, session:usize) {super::owner::with_in(w, |owner|{owner.publications.remove(session as usize);});}
 /// Occupancy observes retained banks without changing capture or ACK state.
 pub(crate) fn wire_publish_load_in(w: &mut crate::world::owner::World, session:usize) -> Option<&[f64]> {
