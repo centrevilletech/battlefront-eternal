@@ -10,6 +10,7 @@ pub mod input;
 pub mod receiver;
 pub mod replay;
 pub mod replicas;
+pub mod unit_light;
 
 pub mod checkpoint;
 
