@@ -1834,6 +1834,7 @@ impl BattleController {
                         look,
                         flight,
                         ack,
+                        view_tick: receiver.clock.shown,
                     });
                 }
 

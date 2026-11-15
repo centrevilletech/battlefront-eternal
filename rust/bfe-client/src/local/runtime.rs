@@ -346,6 +346,8 @@ impl<E: Engine> Runtime<E> {
         look: &ClientLook,
         flight: &ClientFlightCommand,
         _render_ack: [f64; 2],
+        // The world receiver never advances a display clock.
+        view_tick: f64,
         slot: &mut PublicationSlot,
     ) -> Result<f64, String> {
         if self.closed {
@@ -363,7 +365,7 @@ impl<E: Engine> Runtime<E> {
             at_ms: self.now_ms,
             epoch: self.receiver.epoch,
             generation: self.receiver.own.generation,
-            view_tick: Some(self.receiver.clock.shown),
+            view_tick: Some(view_tick),
             flight_mode: self.receiver.own.body_schema == 7,
         })?;
         let output = self.engine.step(input)?;
