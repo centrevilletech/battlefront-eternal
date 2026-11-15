@@ -1,26 +1,6 @@
 //! What the AI's perception and combat code reads of the battle and asks of
 //! it (src/ai/classic/perception.js, combat.js, aim.js, weapons-ai.js,
 //! src/ai/enhanced/aim.js).
-//!
-//! The JavaScript reaches live objects: units (soldiers and droidekas, the
-//! seat controls bots drive, and the registry's entries for hulls, turrets
-//! and buildings), their weapons, the controllers and agents of the control
-//! core, the navigation's hints and helpers, the vehicle AI's hooks. The
-//! Rust names each by an [`Obj`], the caller's token for the object
-//! (compared where the JavaScript compares objects with `===`), and reads
-//! it through the views below. A field the JavaScript reads with `?.` or
-//! `??` is an `Option` where it can be missing; a field that comes straight
-//! from content (a class's or weapon's definition) is the JavaScript value
-//! itself ([`Js`]), read with JavaScript's own rules.
-//!
-//! [`World`] is every call across the boundary, labelled as the capture
-//! labels them (tools/sim-capture/ai-combat.mjs). What other packages own
-//! and compute lazily (a unit's hit-shape sphere, its eye and aim, the
-//! registry's broadphase, a sight line through the collision world) is a
-//! call; plain fields are views. The control core's controller fields this
-//! package reads and writes are [`Ctl`], which the control core holds per
-//! controller; an agent's target tracker is this package's
-//! ([`super::perception::TargetTracker`]), held on every agent.
 
 use crate::ai::{owned::scratch::List,control::world::SharedRows};
 use std::rc::Rc;

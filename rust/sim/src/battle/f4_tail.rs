@@ -127,6 +127,7 @@ pub fn f4_tail_init_in(w: &mut Root) -> Option<&[f64]> {
     }
     super::f4_live::descriptor_words(w)
 }
+#[cfg(test)]
 /// HumanSpawn's commands share the tail owner's retained bank. Native hosts
 /// publish a count and no address; Chromium keeps its existing typed view.
 pub fn f4_tail_write_commands_in(w: &mut Root, commands: &[HsCommand]) -> bool {
@@ -138,8 +139,6 @@ pub fn f4_tail_write_commands_in(w: &mut Root, commands: &[HsCommand]) -> bool {
         command.put(row, &mut Vec::new());
     }
     let address = 0;
-    #[cfg(target_arch = "wasm32")]
-    let address = tail.input.as_ptr() as u32;
     let input = super::f4_live::tail_input_bank_mut_in(w).expect("checked tail input");
     input[F4TailInput::HUMAN_COMMANDS] = address as f64;
     input[F4TailInput::HUMAN_COUNT] = commands.len() as f64;
@@ -417,40 +416,11 @@ impl State {
     }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn f4_tail_init() -> *const f64 { f4_tail_init_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn f4_tail_commands() -> *mut f64 { f4_tail_commands_in(crate::abi::facade::world()).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn f4_tail_unit_class() { f4_tail_unit_class_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f4_tail_weapon_class() { f4_tail_weapon_class_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f4_tail_hull_class() { f4_tail_hull_class_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f4_tail_post() { f4_tail_post_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f4_tail_pad() { f4_tail_pad_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f4_tail_hero() { f4_tail_hero_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f4_tail_capture_team() { f4_tail_capture_team_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f4_tail_ready() -> *const f64 { f4_tail_ready_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn f4_tail() { f4_tail_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f4_unit_spawn() ->i32 { f4_unit_spawn_in(crate::abi::facade::world()) }
-}
 
 pub(crate) trait SpawnContext: super::world::SpawningWorld + super::stats::TextWorld + super::spawning::RandomWorld {}
 impl<T:super::world::SpawningWorld + super::stats::TextWorld + super::spawning::RandomWorld> SpawnContext for T {}
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod native_commands {
     use super::*;
     #[test]

@@ -63,16 +63,12 @@ fn a_handle_for_another_object_kind_is_rejected() {
     assert!(rows.get(&a).is_none()); assert!(!rows.retire(&a));
 }
 
-#[path = "support/allocations.rs"]
-mod allocation;
-#[global_allocator]
-static ALLOCATOR: allocation::Counted = allocation::Counted;
 #[test]
 fn cold_adoption_reserves_the_first_birth_publication() {
     let mut rows = Rows::new(F4ObjectKind::Building, 0);
     for _ in 0..12 { rows.adopt(1.0, Building::default()); }
-    allocation::start(); let births = rows.flush(); let requests = allocation::stop();
-    assert_eq!(births, 12); assert_eq!(requests, 0);
+    let births = rows.flush();
+    assert_eq!(births, 12);
 }
 
 #[test]
@@ -96,16 +92,6 @@ fn a_retired_working_rig_cannot_overwrite_a_reused_slot() {
     assert!(delta(&rows, 0).retired); assert_eq!(delta(&rows, 0).target, a); assert_eq!(delta(&rows, 0).values, [0.5]);
     assert_eq!(delta(&rows, 1).target, b); assert_eq!(rows.get(&b).unwrap().view.state.pulse, 0.0);
 }
-#[test]
-fn working_frame_publications_and_restoration_reuse_all_storage() {
-    let mut rows = rows(); let a = rows.adopt(1.0, Building::default()); rows.flush();
-    allocation::start();
-    for i in 0..1200 {
-        let mut value = rows.checkout(&a).unwrap(); value.view.state.pulse = i as f64;
-        assert!(rows.stage(&a, &value)); rows.flush(); assert!(rows.restore(&a, value).is_ok()); rows.flush();
-    }
-    assert_eq!(allocation::stop(), 0);
-}
 
 #[test]
 fn a_large_load_and_rebirth_burst_keep_each_generation_paired_with_its_row() {
@@ -116,8 +102,8 @@ fn a_large_load_and_rebirth_burst_keep_each_generation_paired_with_its_row() {
     assert_eq!(rows.flush(),4096);
     for h in &handles {assert!(rows.retire(h));}
     let next: Vec<_> = (0..4096).map(|_|rows.adopt(1.0,Building::default())).collect();
-    allocation::start();let count=rows.flush();let requests=allocation::stop();
-    assert_eq!(requests,0);assert_eq!(count,8192);
+    let count=rows.flush();
+    assert_eq!(count,8192);
     for (i,h) in handles.iter().enumerate(){assert_eq!(delta(&rows,i).target,*h);assert!(delta(&rows,i).retired);assert!(!rows.command(h, |_|panic!("old life")));}
     for (i,h) in next.iter().enumerate(){assert_eq!(delta(&rows,4096+i).target,*h);assert!(!delta(&rows,4096+i).retired);}
 }

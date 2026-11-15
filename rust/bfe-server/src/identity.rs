@@ -1,24 +1,4 @@
 //! Persistent Ed25519 server identity (`src/identity.js`).
-//!
-//! Every dedicated server has a long-lived Ed25519 keypair stored in `identity.json`
-//! (`{"publicKey": "<SPKI DER base64>", "privateKey": "<PKCS#8 PEM>"}`) inside `BFE_STATE_DIR`
-//! with mode `0600` (`loadIdentity` in `src/identity.js`).
-//!
-//! From `keys.publicKey` (the 60-character base64-encoded 44-byte Ed25519 SPKI DER), `identity.js`
-//! derives two distinct identifiers:
-//! 1. `keyId(keys.publicKey)` (`ServerIdentity.id`): the 64-character lowercase hex SHA-256 of the
-//!    UTF-8 base64 string `keys.publicKey` (`createHash("sha256").update(key).digest("hex")`).
-//!    This is the server's canonical 64-hex identity in `/info`, LAN discovery, and the master directory.
-//! 2. `fingerprint(keys)` (`ServerIdentity.fingerprint`): `"sha-256 XX:XX:..."`, the uppercase
-//!    colon-hex SHA-256 of the 44 raw SPKI DER bytes (`Buffer.from(keys.publicKey, "base64")`),
-//!    which matches the transport key proved during the `BFE-UDP/1` Noise-style handshake.
-//!
-//! This module also ports:
-//! - `headers(keys, method, path, body)`: signs `${method}\n${path}\n${time}\n${nonce}\n${sha256_hex(body)}`
-//!   and attaches `"x-bfe-notice": "2026-10-11"`, `"x-bfe-key"`, `"x-bfe-time"`, `"x-bfe-nonce"`,
-//!   and `"x-bfe-signature"` for master HTTP requests (`src/master-client.js`).
-//! - `verifyProof(p, transcript)` / `verify`: verifies an Ed25519 base64 signature against a
-//!   60-char base64 SPKI public key (`src/identity.js` and `src/bans.js`).
 
 use bfe_transport::crypto::{verify_spki_base64, Identity};
 use serde::{Deserialize, Serialize};

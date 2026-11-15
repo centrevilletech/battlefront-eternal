@@ -324,7 +324,6 @@ impl Stream {
 
 // The native output binds from its device callback. Reset the logical bed
 // as new() does, retaining all admitted PCM scratch, filters and delay rings.
-#[cfg(not(target_arch = "wasm32"))]
 impl Stream {
     pub fn reset(&mut self, rate: f64) {
         self.on=false;self.channels=1;self.kind=0;self.spatial=false;

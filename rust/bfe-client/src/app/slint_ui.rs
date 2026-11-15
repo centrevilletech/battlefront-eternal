@@ -1,17 +1,6 @@
 //! Slint draws into the game's current GL context; the host alone presents.
 //! Keep the version-pinned cursor and composition hooks in this adapter so
 //! screen components never duplicate window-system or input-method plumbing.
-//!
-//! The winit/glutin host owns the only OS window, surface, context and swap.
-//! FemtoVG clears its transparent root before notifying BeforeRendering, so
-//! copying the completed game target there preserves movies and renderer blur.
-//! Both renderers retain resources; native state caches are invalidated when
-//! control returns to the game. The notifier restores the state it borrows.
-//!
-//! Text events use logical keys and Slint composition; battle bindings keep
-//! their original physical keys and raw device motion outside this module.
-//! Cursor and IME use the same version-pinned hooks as Slint's winit backend.
-//! Keep those hooks here when upgrading Slint, rather than in screen code.
 use glow::HasContext;
 use glutin::{
     context::PossiblyCurrentContext,

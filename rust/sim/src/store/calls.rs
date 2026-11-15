@@ -119,8 +119,6 @@ impl Default for ImportExchange {
 }
 
 impl ImportExchange {
-    pub(crate) fn words(&self) -> &[f64] { &self.words }
-    pub(crate) fn words_mut(&mut self) -> &mut [f64] { &mut self.words }
     pub const fn new() -> Self { Self { words: [0.0; EXCHANGE], heap: Vec::new() } }
 
     pub fn out(&mut self, words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) {
@@ -158,10 +156,6 @@ impl ImportExchange {
 }
 
 // The import bank is independent of semantic state across host callbacks.
-#[cfg(target_arch = "wasm32")]
-pub fn import_out(words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) { crate::abi::facade::exchange().out(words, put); }
-#[cfg(target_arch = "wasm32")]
-pub fn import_in<T>(take: impl FnOnce(&[f64], &[f64]) -> T) -> T { crate::abi::facade::exchange().read(take) }
 
 const _: () = assert!(HEADER == 5);
 

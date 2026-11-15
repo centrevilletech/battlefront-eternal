@@ -28,9 +28,7 @@ fi
 # Crates that already pass clippy --all-targets --no-deps -- -D warnings cleanly
 # on the baseline branch.
 strict_clippy_crates=(
-  sim-replay
   basis-transcode
-  texture-codec
   bfe-online
 )
 
@@ -66,7 +64,6 @@ pre_hygiene_crates=(
   three
   audio
   audio-decode
-  image-codec
   bfe-environment
   audio-control
   bfe-client
@@ -84,7 +81,7 @@ cargo clippy --manifest-path "${manifest}" --locked --all-targets --no-deps \
 
 if [[ "${BFE_CI_STRICT_CLIPPY}" == "1" ]]; then
   echo "==> Step 2b: cargo clippy (-D warnings) on remaining workspace crates"
-  extra_clippy_args=(--features sim/replay)
+  extra_clippy_args=()
   for crate in "${pre_hygiene_crates[@]}"; do
     extra_clippy_args+=(-p "${crate}")
   done
@@ -97,7 +94,6 @@ fi
 echo "==> Step 3: cargo test across native workspace crates"
 base_test_crates=(
   sim
-  sim-replay
   bfe-render
   bfe-presentation
   bfe-pose
@@ -108,8 +104,6 @@ base_test_crates=(
   audio
   audio-decode
   basis-transcode
-  texture-codec
-  image-codec
   bfe-environment
   audio-control
   bfe-client
@@ -118,7 +112,7 @@ base_test_crates=(
   bfe-online
 )
 
-test_pkg_args=(--features sim/replay)
+test_pkg_args=()
 for crate in "${base_test_crates[@]}" "${present_wave_crates[@]}"; do
   test_pkg_args+=(-p "${crate}")
 done
@@ -149,17 +143,7 @@ BFE_AUDIO_NULL=1 \
   cargo test --manifest-path "${manifest}" --locked -p bfe-client \
     --test audio -- --ignored --nocapture
 
-echo "==> Step 5: Native online-tool and dedicated server startup smoke"
-cargo build --manifest-path "${manifest}" --locked -p bfe-client --bin online-tool
-online_tool="rust/target/debug/online-tool"
-"${online_tool}" --help >/dev/null
-
-identity_out="$("${online_tool}" --identity "${smoke_tmp}/identity.key" identity show)"
-if [[ "${identity_out}" != *"Fingerprint:"* ]]; then
-  echo "error: unexpected online-tool identity output: ${identity_out}" >&2
-  exit 1
-fi
-
+echo "==> Step 5: Dedicated server startup smoke"
 if [[ -f "rust/bfe-server/Cargo.toml" ]]; then
   echo "==> Testing bfeserver CLI and --serve operator startup"
   cargo build --manifest-path "${manifest}" --locked -p bfe-server --bin bfeserver

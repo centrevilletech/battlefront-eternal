@@ -10,5 +10,4 @@ Those notice files are not described as unchanged copies of the crate archive.
 The encoder and JavaScript bindings are excluded. The bridge builds the
 transcoder with all GPU output formats enabled and release assertions disabled.
 
-Desktop binaries include these texts and the PNG/WebP, libc/libc++ and signal
-shim notices from `rust/image-codec/licenses` under `legal/image-codecs`.
+THIRD-PARTY-NOTICES.md carries these notices into every package.

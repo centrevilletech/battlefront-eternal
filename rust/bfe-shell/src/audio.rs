@@ -1,25 +1,5 @@
 //! Native shell audio engine (`ShellAudio` in `src/shell/audio.js` and
 //! `LoadingSound` in `src/shell/loading-audio.js`).
-//!
-//! Decodes prepared `.opus` music tracks, `.flac` transition whooshes, and
-//! `core.lvl` interface/loading sounds (`audio/shell/sound.json` + `bank.bin`,
-//! falling back to the first battle sub-level in `audio/index.json` when
-//! `audio/shell` is absent) through `audio_decode::Decoder` and mixes them on
-//! `audio::frontend::Frontend` (`fx` bus 0 at `0.3 * interface_volume`, `music`
-//! bus 1 at `0.6 * music_volume`).
-//!
-//! Key rules ported from `src/shell/audio.js` and `src/shell/loading-audio.js`:
-//! - `INTERFACE_SOUNDS` preloads the 8 core menu sound effects (`shell_select_change`,
-//!   `shell_menu_accept`, `shell_menu_enter`, `shell_menu_cancel`, `shell_menu_error`,
-//!   `shell_menu_exit`, `shell_keyboard_key`, `shell_keyboard_backspace`) on `shellfx`.
-//! - `CoreSounds` resolves `SoundProperties` inheritance (`Inherit`) in `sound.json`
-//!   and reads 16-bit little-endian PCM slices from `bank.bin` by byte range,
-//!   clamping playback sample rates below `8000 Hz` to `8000 Hz` while scaling
-//!   `pitch *= rate / max(rate, 8000)` to preserve duration and pitch.
-//! - `ShellAudioMixer` drives `Frontend` in `128`-frame stereo quantums at `48 kHz`,
-//!   Cycling through `shell_transition1..10` on `whoosh()`, ramping `shellmusic`
-//!   via `FRONT_DIP`, and scheduling loading screen `PlannedSound` cues with the
-//!   `AV = 1 / 30` s frame-to-speaker offset and `LATE = 0.05` s one-shot window.
 
 use crate::{
     data::{ShellData, ShellSoundDef},

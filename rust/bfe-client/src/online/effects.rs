@@ -98,6 +98,10 @@ impl Spawner {
         row[c::VELOCITY..c::VELOCITY + 3].copy_from_slice(&velocity);
         Some(self.handle(id))
     }
+    /// False once the effect a handle named has finished (`effect.done`).
+    pub fn playing(&self, handle: u32) -> bool {
+        self.live(handle).is_some()
+    }
     /// Effect.move: the effect follows its owner. Without a turn or a
     /// velocity it keeps the one it had.
     pub fn sync(&mut self, handle: u32, position: [f64; 3], turn: Option<[f64; 4]>, velocity: Option<[f64; 3]>) {

@@ -3,24 +3,6 @@
 //! `DATA`/`DATA_PHASE`, `PUNCH`, and `STUN` datagrams, enforces per-prefix
 //! handshake rate limits and session caps, and drives established sessions
 //! without heap allocation on the steady-state packet path.
-//!
-//! Architecture and lifecycle of a server session:
-//! 1. **Rate limiting & DoS defense**: Incoming `INITIATION` and `CONFIRM`
-//!    datagrams pass through a per-prefix LRU token bucket (`allow_handshake`,
-//!    capped at `MAX_BUCKETS = 4096`). When global initiation load exceeds
-//!    200/s or half-open entries exceed 64 (`under_load`), the server demands
-//!    a stateless HMAC `RETRY` cookie before allocating pending state.
-//! 2. **Admission & crowding control**: Once `ServerHandshakes::confirm`
-//!    verifies the client's Ed25519 signature and derives 1-RTT traffic keys,
-//!    `ServerEndpoint` checks `max_sessions`, per-prefix `crowded` limits
-//!    (exempting loopback and same-identity reconnects), and `ServerSink::on_admit`.
-//! 3. **Steady-state zero-allocation data path**: Admitted sessions store a
-//!    fixed-capacity `Connection` inside `ServerSession`. All `DATA`,
-//!    `DATA_PHASE`, ACK, keepalive, and key-update operations run through stack
-//!    `ConnSink` borrows without heap allocations.
-//! 4. **Draining window**: Closed or rejected sessions remain in `sessions`
-//!    for `DRAIN_MS = 2000.0` ms (up to `MAX_DRAINING = 256`) so late packets
-//!    can re-trigger the cached `CLOSE` frame cleanly.
 
 use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};

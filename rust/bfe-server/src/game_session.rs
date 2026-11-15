@@ -1,32 +1,5 @@
 //! Server-side game session framing, rate limits, liveness timeouts, and RPC dispatch
 //! (`src/game-session.js` and `src/udp-peer.js`).
-//!
-//! Why `GameSessionState` exists separately from `UdpPeerState`:
-//! In the Node dedicated server (`export class GameSession` and `class WorldRouter` in
-//! `src/game-session.js`), `UdpPeer` owns the transport channel while `GameSession` owns the
-//! per-player protocol rules between the transport and the authoritative world:
-//! 1. **Input token bucket (`INPUT_RATE_PER_SECOND = 75`, `INPUT_BURST = 360`, `admitInput` in `src/game-session.js`)**:
-//!    A 60 Hz client normally sends one `BNI1` datagram per tick (60 Hz), with brief bursts when
-//!    the browser tab or OS scheduler catches up (`INPUT_BURST = 360`, ~6 seconds of headroom,
-//!    refilling at `INPUT_RATE_PER_SECOND = 75` per second). Datagrams exceeding this rate are
-//!    dropped at the session boundary before any allocation or world-router copy, and counted in
-//!    `dropped_inputs` (`inputsDropped` in `GameSession.transportCounters`).
-//! 2. **Two-tier silence timeouts (`SESSION_JOIN_SILENT_MS = 180_000`, `SESSION_SILENT_MS = 30_000`,
-//!    `WorldRouter.checkLiveness` in `src/game-session.js`)**:
-//!    - Before the client has sent its `start` RPC (`started == false`), it may still be loading
-//!      map assets or sitting at the spawn/team-selection screen, so it is allowed up to
-//!      `SESSION_JOIN_SILENT_MS` (180 s / 3 minutes) of silence.
-//!    - Once the client has started (`started == true`), it sends 60 Hz inputs or 10-byte `BNA1`
-//!      keepalives; if no message arrives for `SESSION_SILENT_MS` (30 s), the session is closed
-//!      with `"session silent"` (`peer.close('idle', 'No messages from the client.')`).
-//! 3. **Congestion recovery resync (`check_congestion_transition` / `resync` in `src/game-session.js`)**:
-//!    When `UdpPeerState.state_congested` clears (`true -> false`), the client missed intermediate
-//!    delta snapshots while congested, so `GameSessionState` triggers a `ResyncState` action to
-//!    reset the client's delta baseline.
-//! 4. **Control message framing and dispatch (`GameSession.message` in `src/game-session.js`)**:
-//!    Validates incoming JSON messages on the `events` lane (`<= 65,536` bytes), answers application
-//!    `ping` / `pong` probes (`PING_INTERVAL_MS = 2,000 ms`), forwards `edge-ack` / `entity-edge-ack`,
-//!    and routes `chat` and dispatches `call` / `rpc` methods (`start`, etc.).
 
 use serde_json::{json, Value};
 

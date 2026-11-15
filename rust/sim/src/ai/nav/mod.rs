@@ -2,14 +2,6 @@
 //! rest of the AI drives (index.js ClassicNav), holding the loaded
 //! graph, barriers, hints and boundary, the local path planner
 //! (planner.js, search.js) and every unit's NavControl (control.js).
-//!
-//! Ownership follows the plan's staged transfer: the service owns the
-//! navigation state, and the units it steers are the snapshots of
-//! units.rs that callers fill per call. Controls are indices into
-//! `controls` where the JavaScript holds NavControl objects per
-//! controller; paths are indices into the store where it holds AIPath
-//! objects. Draws come from generators the caller hands in, in the
-//! order the JavaScript draws them.
 
 pub mod analogs;
 pub mod barriers;

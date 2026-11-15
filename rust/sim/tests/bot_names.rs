@@ -1,19 +1,4 @@
 //! Bot and human player naming tests ported from `tests/bot-names.test.js`.
-//!
-//! These cases exercise `bfe_sim::battle::names::{human_name, BotNames, NameLists,
-//! LOCALS}` against `jsrt::rng::ClassicRandom` for both synthetic name lists
-//! and (when `BFE_CONTENT_DIR` or `public/maps/geo1/ai-mission.json` is
-//! present) the Geonosis retail roster.
-//!
-//! Coverage includes:
-//! - Given and family name selection via raw `ClassicRandom` draws modulo the
-//!   side's list lengths (`first[draw % first.len()]` + `last[draw % last.len()]`).
-//! - Fallback `AA 000` formatting (two uppercase letters `A-Z`, space, three
-//!   digits `0-9`) when either list is empty or `lists` is `None`.
-//! - Per-side deterministic seeding (`ClassicRandom::new(side)`) so identical
-//!   side types produce identical sequences while distinct side types diverge.
-//! - `LOCALS` (`5.0`) constant name repetition, `64`-entry list truncation,
-//!   `human_name(0.0) == "Player 1"`, and Geonosis retail end-screen names.
 
 use bfe_sim::battle::names::{human_name, BotNames, NameLists, LOCALS};
 use jsrt::rng::ClassicRandom;

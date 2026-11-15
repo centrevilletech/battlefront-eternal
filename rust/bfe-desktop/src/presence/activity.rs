@@ -1,19 +1,4 @@
 //! Rich presence activity formatting and state helpers for Discord and Steam Friends.
-//!
-//! Mirrors the desktop host (`ERAS`, `SIDES`, `SCREENS`,
-//! `DETAIL_LEVELS`, `fit`, `titleCase`, `discordActivity`) and
-//! the desktop host (`DISCORD_APPLICATION_ID`, `DISCORD_LARGE_IMAGE`).
-//!
-//! ## Activity Formatting Rules
-//! - **Privacy detail levels (`DETAIL_LEVELS`)**:
-//!   - `"off"` suppresses rich presence entirely (`discord_activity` returns `None`).
-//!   - `"game"` publishes only the base start timestamp and application icon (`"Battlefront Eternal"`),
-//!     hiding the user's current scene, map, faction, and server name.
-//!   - `"full"` publishes scene-specific `details`, `state`, and multiplayer `party` metadata.
-//! - **Discord string constraints (`fit`)**:
-//!   Discord rejects activity strings shorter than 2 characters or longer than 128 characters.
-//!   [`fit`] collapses whitespace runs, drops strings under 2 characters, and truncates strings
-//!   over `max` characters with a single horizontal ellipsis (`\u{2026}`).
 
 use std::collections::BTreeMap;
 

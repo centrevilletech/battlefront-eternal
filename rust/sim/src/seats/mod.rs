@@ -3,34 +3,6 @@
 //! network-vehicle.js): who sits in which hull seat or turret, how he gets
 //! in, out and from seat to seat, and what his seat does with his intent,
 //! to the last bit.
-//!
-//! - `lease`: a seat's lease (`SeatLease`) and the intent it freezes once a
-//!   batch (`SeatInput.latch`, `take`, `takeReload`);
-//! - `exits`: where someone getting out is set down (the 2004 game's exit
-//!   search for bots, `classicSeatExit`, and a person's, `safeExitPoint`);
-//! - `bodies`: what taking and leaving a seat does to a body (`seatBody`,
-//!   `unseatBody`, `placeOnFoot`, `dropBody`);
-//! - `boarding`: the rules every boarder follows (`canBoard`,
-//!   `boardingSeat`, `claimSeat`, `mayLeave`, `switchSeat`, `seatLook`);
-//! - `hulls`: the hulls' seats (`Vehicles.board`, `vacate`, `promote`,
-//!   `move`, `displace`, `destroyedCrew`, `latchCrews`, `requestExit`);
-//! - `turrets`: the turret crews (`TurretSeats`) and the turrets' aim,
-//!   gun and nodes they drive (src/props.js Turret);
-//! - `network`: a network human's mouse and keys in a seat and his seat
-//!   switch (`networkVehicleInput`, `cycleNetworkSeat`, `switchSeat`);
-//! - `targets`: a hull and a turret as the registry's members
-//!   (`VehicleTarget`, `TurretTarget`).
-//!
-//! A lease is a store handle (`Ref<SeatLease>`, rust/sim/schema/seats.mjs);
-//! units and hulls are the store's (`gen::Unit`, `gen::Vehicle`). What the
-//! seats ask of the rest of the battle goes through [`SeatWorld`], one
-//! method for each call src/seats-world.js makes, in the order the
-//! JavaScript makes them: the replays serve them from captures, checking
-//! every argument (tests/replay_seats.rs).
-//!
-//! Transcendental functions come from `crate::rig::math` (V8's, from
-//! rust/v8math); Math.min, max and hypot from rust/v8math; three.js's
-//! vectors from rust/three, operation by operation.
 
 // Comparisons are written as the JavaScript writes them (`!(a > b)` is not
 // `a <= b` where NaN may meet it).
@@ -45,7 +17,6 @@ pub mod lease;
 pub mod module;
 pub mod network;
 pub mod network_module;
-pub mod targets;
 pub mod turrets;
 
 use crate::gen::{Body, Post, SeatLease, SeatRole, SeatUnit, Unit};

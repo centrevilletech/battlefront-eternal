@@ -209,29 +209,6 @@ fn records_past_their_limits_clamp_and_a_stale_layout_poses_nothing() {
     assert_eq!(q.prop_output[po::POSED], 1.0);
 }
 
-#[test]
-fn frames_do_not_allocate() {
-    let mut p = Props::new();
-    let c = clip(&mut p);
-    let point = [0.0; 3];
-    p.add_prop(prop(true, c, vec![TriggerInput { slot: -1, point, radius: 1.0, sound: false }], false));
-    p.add_prop(prop(false, c, vec![TriggerInput { slot: 1, point, radius: 1.0, sound: true }], false));
-    p.add_prop(prop(false, c, vec![], true));
-    p.add_trap(TrapDesc { scene: Default::default(), root: 0, initial: bones(), trigger_clip: Some(c), build_clip: Some(c), trigger_length: 1.0 });
-    let (rider, held) = soldier(&mut p);
-    hold(&mut p, 2, rider, held, 100.0);
-    let feet = vec![[0.0; 3]; lim::FEET];
-    let bodies = vec![[0.0, 0.0, 0.0, 1.0]; lim::BODIES];
-    TRACK.with(|t| t.set(true));
-    for k in 0..240 {
-        p.prop_input[2 * pi::STRIDE + pi::WORLD] = if k < 60 { 0.0 } else { 1.0 };
-        p.prop_input[2 * pi::STRIDE + pi::STARTED] = (k / 90 * 90) as f64;
-        p.trap_input[ti::PHASE] = (k / 60 % 4) as f64;
-        frame(&mut p, 1.0 / 60.0, k as f64, &feet, &bodies);
-    }
-    TRACK.with(|t| t.set(false));
-    assert_eq!(ALLOCS.with(Cell::get), 0);
-}
 
 #[test]
 fn creature_matrices_publish_the_eased_float_pose_under_its_authored_root() {

@@ -101,8 +101,6 @@ impl Session {
         let flags = span(words, f.flags_at, f.flags_count, 1)?;
         // Body registration is a frame fact, not a query callback. The private
         // view still owns its flags and never moves a registered shared body.
-        #[cfg(target_arch = "wasm32")]
-        if let Some(source) = crate::vehicles::module::collision_world() { self.collision.prediction_names(source); }
         if state.worlds.get(self.collision.world).map(|w| w.order.len()) != Some(flags.len())
             || !self.collision.prediction_flags(flags) { return Err(INVALID); }
         self.collision.prepare(state);
