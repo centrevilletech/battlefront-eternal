@@ -107,9 +107,10 @@ pub enum WorldPeerEvent {
 
 /// `ServerSink` implementation used when flushing outbound packets or closing a session outside `poll()`.
 ///
-/// Only `send_packet` is active during `flush()` or `close_peer()`; admission and message callbacks
-/// are no-ops because no inbound datagrams are fed through `SendOnlySink`.
-struct SendOnlySink<'a>(&'a UdpSocket);
+/// Admission and message callbacks are no-ops because no inbound datagrams are fed through
+/// `SendOnlySink`. Closes are kept: the transport's idle timeout can fire inside `flush()`, and it
+/// reports each close once, so `poll()` retires those players later.
+struct SendOnlySink<'a>(&'a UdpSocket, &'a mut Vec<u32>);
 
 impl ServerSink for SendOnlySink<'_> {
     fn send_packet(&mut self, bytes: &[u8], to: SocketAddr) {
@@ -130,7 +131,9 @@ impl ServerSink for SendOnlySink<'_> {
 
     fn on_path(&mut self, _session_id: u32, _new_path: SocketAddr, _old_path: SocketAddr) {}
 
-    fn on_close(&mut self, _session_id: u32, _closed: Closed) {}
+    fn on_close(&mut self, session_id: u32, _closed: Closed) {
+        self.1.push(session_id);
+    }
 }
 
 /// `ServerSink` implementation used during [`UdpGameServer::poll`] to collect newly admitted
@@ -260,6 +263,11 @@ pub struct UdpGameServer {
     pub content: String,
     /// `bfe-content-sha256-...` digest verified during `on_admit`.
     pub fingerprint: String,
+    /// The announced next battle (`query`, deadline in `now_ms` time) once this battle has
+    /// ended: players who join during the end table are told it too, so they follow it.
+    pub pending_match: Option<(String, f64)>,
+    /// Sessions the transport closed during a flush or an explicit close (see `SendOnlySink`).
+    closed_outside_poll: Vec<u32>,
     /// Monotonic start instant for `now_ms()` (`performance.now()` in `src/game-session.js`).
     start_instant: Instant,
     /// Reusable 1500-byte UDP receive buffer.
@@ -314,6 +322,8 @@ impl UdpGameServer {
             state_bytes_per_second,
             content,
             fingerprint,
+            pending_match: None,
+            closed_outside_poll: Vec::new(),
             start_instant: Instant::now(),
             recv_buf: [0u8; MAX_PACKET],
         })
@@ -517,7 +527,7 @@ impl UdpGameServer {
             if let Some(old) = self.peers.remove(&peer_id) {
                 self.by_session.remove(&old.peer.session_id);
                 self.dec_prefix(&old.peer.prefix);
-                let mut sink = SendOnlySink(&self.socket);
+                let mut sink = SendOnlySink(&self.socket, &mut self.closed_outside_poll);
                 self.endpoint.close_session(
                     old.peer.session_id,
                     close_code::REJECTED as u64,
@@ -611,6 +621,7 @@ impl UdpGameServer {
                                         None,
                                         Self::unix_ms(),
                                         now_ms,
+                                        false,
                                     );
                                 }
                             }
@@ -689,6 +700,7 @@ impl UdpGameServer {
                                     None,
                                     Self::unix_ms(),
                                     now_ms,
+                                    false,
                                 );
                             }
                             SessionAction::Close { code, reason } => {
@@ -705,7 +717,15 @@ impl UdpGameServer {
             }
         }
 
-        // Clean up transport sessions closed by the remote peer or transport idle timer.
+        // Clean up transport sessions closed by the remote peer or transport idle timer, wherever
+        // the transport noticed it, and any player whose transport session no longer exists.
+        closed.append(&mut self.closed_outside_poll);
+        closed.extend(
+            self.by_session
+                .keys()
+                .copied()
+                .filter(|sid| self.endpoint.session_mut(*sid).is_none()),
+        );
         for sid in closed {
             if let Some(peer_id) = self.by_session.remove(&sid) {
                 if let Some(removed) = self.peers.remove(&peer_id) {
@@ -753,7 +773,7 @@ impl UdpGameServer {
         };
         connected
             .peer
-            .send_lane(&mut ts.connection, Lane::Events, true, bytes, None, unix_ms, now_ms)
+            .send_lane(&mut ts.connection, Lane::Events, true, bytes, None, unix_ms, now_ms, false)
     }
 
     /// Queues a binary `BNS1` or `BNO1` snapshot datagram on `peer_id`'s unordered `state` lane
@@ -761,11 +781,13 @@ impl UdpGameServer {
     /// Sends an unreliable sequenced `bni1` state snapshot (or baseline fragment) to `peer_id`
     /// on `Lane::State` (Channel 2) if its size is within `state_budget_bytes` (default 1200 B),
     /// porting `sendState(peerId, bytes)` in `packages/bfe-server/src/udp-server.js`.
+    /// `own`: the player's own datagram, which congestion and staleness never hold back.
     pub fn send_state(
         &mut self,
         peer_id: &str,
         bytes: &[u8],
         captured_at_unix_ms: Option<u64>,
+        own: bool,
     ) -> bool {
         let now_ms = self.now_ms();
         let unix_ms = Self::unix_ms();
@@ -784,11 +806,20 @@ impl UdpGameServer {
             captured_at_unix_ms,
             unix_ms,
             now_ms,
+            own,
         )
     }
 
     /// Serializes `payload` once and sends it to all connected peers on the `events` lane
     /// (`WorldRouter.broadcastEvents` in `src/game-session.js` and `match(value)` in `src/udp-server.js`).
+    /// The pending rotation as the `match` event a newly welcomed player needs, with the
+    /// delay that is left of it.
+    pub fn pending_match_event(&self) -> Option<Value> {
+        let (query, deadline) = self.pending_match.as_ref()?;
+        let left = (deadline - self.now_ms()).max(0.).round() as u64;
+        Some(json!({ "type": "match", "query": query, "delayMs": left }))
+    }
+
     pub fn broadcast_events(&mut self, payload: &Value) {
         let Ok(bytes) = serde_json::to_vec(payload) else {
             return;
@@ -803,7 +834,7 @@ impl UdpGameServer {
     /// (`UdpPeer.flush()` in `src/udp-peer.js`).
     pub fn flush(&mut self) {
         let now_ms = self.now_ms();
-        let mut sink = SendOnlySink(&self.socket);
+        let mut sink = SendOnlySink(&self.socket, &mut self.closed_outside_poll);
         let sids: Vec<u32> = self.by_session.keys().copied().collect();
         for sid in sids {
             let _ = self.endpoint.flush_session(sid, now_ms, &mut sink);
@@ -818,7 +849,7 @@ impl UdpGameServer {
         };
         self.by_session.remove(&removed.peer.session_id);
         self.dec_prefix(&removed.peer.prefix);
-        let mut sink = SendOnlySink(&self.socket);
+        let mut sink = SendOnlySink(&self.socket, &mut self.closed_outside_poll);
         self.endpoint.close_session(
             removed.peer.session_id,
             code as u64,

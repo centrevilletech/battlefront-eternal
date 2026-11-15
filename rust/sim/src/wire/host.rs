@@ -431,6 +431,12 @@ if owner.hosts.get(p as usize).is_none() {return;}
         h.set_interval(value);
         return;
     }
+    // A dedicated server's per-client state budget (bytes per second): over it a client skips
+    // whole snapshots and still gets its own datagram every 100 ms.
+    if field == 20 {
+        if value > 0. { h.budget = value; }
+        return;
+    }
     let c = h.client_mut(id);
     match field {
         2 => c.started = value != 0.,

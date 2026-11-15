@@ -38,7 +38,7 @@ impl NextMatch {
     }
 }
 pub struct Probe {
-    received: mpsc::Receiver<()>,
+    received: mpsc::Receiver<bool>,
     cancelled: Arc<AtomicBool>,
 }
 impl Probe {
@@ -46,6 +46,14 @@ impl Probe {
     // endpoint must advertise the announced match before content is reloaded;
     // a stale /info response still belongs to the previous battle.
     pub fn start(address: String, query: String) -> Self {
+        Self::spawn(address, move |s| (s.query == query).then_some(true))
+    }
+    // After a join refused for content: true once /info names another battle
+    // than the one loaded, false while it still names that one (a real mismatch).
+    pub fn changed(address: String, loaded: String) -> Self {
+        Self::spawn(address, move |s| Some(s.query != loaded))
+    }
+    fn spawn(address: String, decide: impl Fn(&Server) -> Option<bool> + Send + 'static) -> Self {
         let (send, received) = mpsc::channel();
         let cancelled = Arc::new(AtomicBool::new(false));
         let stop = cancelled.clone();
@@ -54,8 +62,8 @@ impl Probe {
                 if stop.load(Ordering::Acquire) {
                     break;
                 }
-                if Server::read(&address).is_ok_and(|s| s.query == query) {
-                    let _ = send.send(());
+                if let Some(answer) = Server::read(&address).ok().as_ref().and_then(&decide) {
+                    let _ = send.send(answer);
                     break;
                 }
                 std::thread::sleep(Duration::from_secs(1));
@@ -67,7 +75,10 @@ impl Probe {
         }
     }
     pub fn ready(&self) -> bool {
-        self.received.try_recv().is_ok()
+        self.answer() == Some(true)
+    }
+    pub fn answer(&self) -> Option<bool> {
+        self.received.try_recv().ok()
     }
 }
 impl Drop for Probe {
@@ -130,6 +141,49 @@ mod tests {
             assert!(Instant::now() < deadline);
             std::thread::sleep(Duration::from_millis(10));
         }
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_refused_join_follows_only_a_changed_battle() {
+        use bfe_transport::layout::network_contract as contract;
+        use std::{
+            io::{Read, Write},
+            net::{Ipv4Addr, TcpListener},
+            time::Instant,
+        };
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        let now = "?map=tat1&match=0123456789abcdef0123456789abcdef";
+        let server = std::thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+                let mut request = Vec::new();
+                let mut chunk = [0; 256];
+                while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                    let n = socket.read(&mut chunk).unwrap();
+                    assert!(n > 0);
+                    request.extend_from_slice(&chunk[..n]);
+                }
+                let body=serde_json::json!({"id":"0".repeat(64),"protocol":contract::PROTOCOL,"profile":contract::PROFILE,"simulation":contract::SIMULATION,"content":"fixture","query":now}).to_string();
+                write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+            }
+        });
+        let answer = |probe: Probe| {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                if let Some(answer) = probe.answer() {
+                    return answer;
+                }
+                assert!(Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+        // The server still plays the loaded battle: a real content mismatch.
+        assert!(!answer(Probe::changed(address.clone(), now.into())));
+        // It plays another battle now: reload into it.
+        assert!(answer(Probe::changed(address, "?map=nab2&match=00000000000000000000000000000000".into())));
         server.join().unwrap();
     }
 

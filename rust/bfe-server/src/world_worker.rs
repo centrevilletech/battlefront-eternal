@@ -871,6 +871,8 @@ pub struct NativeWorldHost {
     pub publication_session: u32,
     /// Native host handle returned by `admitted.handles.host` (`0` when unadmitted).
     pub host_handle: u32,
+    /// Per-client state bytes per second the snapshot host may publish (infinite until set).
+    pub state_budget: f64,
     /// Pre-allocated `Publication` buffer reused on every `world_publish_into` call.
     pub published: Publication,
     /// Pre-allocated operation block buffer for `wireHostOp` / `wireEdgesRun` / `inputMailboxOwnedRun`.
@@ -1076,6 +1078,7 @@ impl NativeWorldHost {
             admitted_player_id,
             publication_session,
             host_handle,
+            state_budget: f64::INFINITY,
             published,
             op_block,
             op_words: Vec::with_capacity(1024),
@@ -1158,6 +1161,16 @@ impl NativeWorldHost {
         );
     }
 
+    /// Holds each client to `bytes_per_second` of state (config `stateBytesPerSecond`) the way the
+    /// snapshot host does it: a client over budget skips whole snapshots, so every snapshot it does
+    /// get can be decoded and acknowledged, and its own datagram still goes out every 100 ms.
+    pub fn set_state_budget(&mut self, bytes_per_second: f64) {
+        self.state_budget = bytes_per_second;
+        if bytes_per_second.is_finite() {
+            self.set_host_client_field(0, 20, bytes_per_second);
+        }
+    }
+
     /// Invokes `wire_host_set(host_handle, client_id, field, value)` via `Context::invoke_export`.
     fn set_host_client_field(&self, client_id: u32, field: u32, value: f64) {
         if !self.world_admitted || self.host_handle == 0 {
@@ -1225,6 +1238,7 @@ impl NativeWorldHost {
             self.epoch.checked_add(1).ok_or("battle epoch exhausted")?,
         )?;
         next.last_now_ms = self.last_now_ms;
+        next.set_state_budget(self.state_budget);
         *self = next;
         Ok(true)
     }
