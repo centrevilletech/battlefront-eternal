@@ -1697,6 +1697,7 @@ impl Scene {
             resources.hud.aim(&mut self.bridge, camera.snapshot(), reticle, &resources.hulls);
             resources.sound.bleed = [resources.hud.teams[1][3], resources.hud.teams[2][3]];
             resources.sound.own_feet = resources.own_feet(receiver);
+            std::mem::swap(&mut resources.sound.walker_feet, &mut resources.hulls.sound_feet);
             resources.sound.frame(receiver,&world.elements,dt,replay,resources.hud.audio_facts());
         }
         self.bridge.r.core.profile.cpu("presentation",timer);

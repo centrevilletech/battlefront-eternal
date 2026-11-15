@@ -19,6 +19,14 @@ pub struct Primitive {bone:i32,point:[f64;3],turn:Option<[f64;4]>}
 pub struct Content {bones:Vec<Bone>,root:i32,clips:Vec<Animation>,pub feet:Vec<Primitive>,length:f64,
     detection:bool,threshold:f64,hydraulic:f64,centred:bool,rate:f64}
 
+/// What a walker's foot sounds need (the audio's Foot::new for each foot):
+/// every foot's point and cycle heights, and the class's rules.
+pub struct SoundFeet {pub feet:Vec<([f64;3],Vec<f64>)>,pub length:f64,pub detection:bool,pub threshold:f64,pub hydraulic:f64,pub centred:bool,pub rate:f64}
+pub fn sound_feet(content:&Content)->SoundFeet {
+    let heights=heights(content);
+    SoundFeet{feet:content.feet.iter().zip(heights).map(|(f,h)|(f.point,h)).collect(),length:content.length,detection:content.detection,
+        threshold:content.threshold,hydraulic:content.hydraulic,centred:content.centred,rate:content.rate}
+}
 // cycleHeights deliberately samples a separate tree. Its root is identity,
 // its feet retain authored scales, and unused clip tracks never move it.
 pub fn heights(content:&Content)->Vec<Vec<f64>> {

@@ -214,6 +214,10 @@ pub struct Sound {
     pub volumes: [f64; 6],
     /// The own body's feet above its origin as drawn (Replicas::own_feet).
     pub own_feet: [f64; 3],
+    /// Every walker's feet as drawn this frame (Hulls::sound_feet).
+    pub walker_feet: Vec<((u32, u32), [f64; 2], Vec<(usize, usize, [f64; 16])>)>,
+    // The foot cycle heights handed to the audio so far.
+    heights: usize,
     // The client's replay ran for the player's own body this frame.
     replaying: bool,
     assets: super::stream_assets::Assets,
@@ -267,6 +271,8 @@ impl Sound {
             ahead: Default::default(),
             volumes: [1.; 6],
             own_feet: [f64::NAN; 3],
+            walker_feet: Vec::new(),
+            heights: 0,
             replaying: false,
             assets: prepared.streams,
             decoded: 0,
@@ -353,6 +359,40 @@ impl Sound {
         self.events += 1;
         if self.trace_explosions {
             eprintln!("fx-sound explosion definition={definition} class={class} at={position:.1?}");
+        }
+    }
+
+    /// Footfalls for a walker class's foot sounds (the old page host's
+    /// prepareFeet): each foot's point, cycle heights and the class's rules.
+    pub fn walker_class_feet(&mut self, class: usize, feet: &bfe_presentation::feet::SoundFeet) {
+        let Some(&audio) = self.actors.get(class.wrapping_sub(1)).filter(|c| **c != usize::MAX) else {
+            return;
+        };
+        let cycle = feet.length > 0.;
+        for (index, (point, heights)) in feet.feet.iter().enumerate() {
+            let heights: &[f64] = if cycle { heights } else { &[] };
+            if heights.len() > self.runtime.input.len() {
+                return;
+            }
+            let mut row = [0.; foot_def::STRIDE];
+            row[foot_def::CLASS] = audio as f64;
+            row[foot_def::INDEX] = index as f64;
+            row[foot_def::X..foot_def::X + 3].copy_from_slice(point);
+            row[foot_def::LENGTH] = if cycle { feet.length } else { 0. };
+            row[foot_def::DETECTION] = feet.detection as u8 as f64;
+            row[foot_def::THRESHOLD] = feet.threshold;
+            row[foot_def::HYDRAULIC] = feet.hydraulic;
+            row[foot_def::CENTRED] = feet.centred as u8 as f64;
+            row[foot_def::RATE] = feet.rate;
+            row[foot_def::FIRST] = self.heights as f64;
+            row[foot_def::COUNT] = heights.len() as f64;
+            if !heights.is_empty() {
+                self.runtime.input[..heights.len()].copy_from_slice(heights);
+                self.runtime.import(import::HEIGHT, heights.len());
+                self.heights += heights.len();
+            }
+            self.runtime.input[..row.len()].copy_from_slice(&row);
+            self.runtime.import(import::FOOT_DEF, row.len());
         }
     }
 
@@ -774,6 +814,11 @@ impl Sound {
             self.pilots.insert((id, generation), 1);
         }
 
+        // Feet not seen this frame (their walker gone or not drawn) are silent.
+        let count = runtime.phase.foot_count;
+        for f in &mut runtime.phase.feet[..count] {
+            f[foot::PRESENT] = 0.;
+        }
         for (slot, row) in receiver.active_slots() {
             if row[r::ID] == receiver.own.id && row[r::GENERATION] == receiver.own.generation {
                 continue;
@@ -832,6 +877,24 @@ impl Sound {
             e[emitter::GENERATION] = row[r::GENERATION];
             e[emitter::AIR] = row[r::STATE];
             e[emitter::POSTURE] = row[r::POSTURE];
+            // A walker's cycle as drawn and its feet (Footfalls.update).
+            let unit = (row[r::ID] as u32, row[r::GENERATION] as u32);
+            if let Some((_, walk, feet)) = self.walker_feet.iter().find(|(u, _, _)| *u == unit) {
+                e[emitter::WALK_PHASE] = walk[0];
+                e[emitter::WALK_BLEND] = walk[1];
+                for (foot_id, index, matrix) in feet {
+                    if *foot_id >= runtime.phase.feet.len() {
+                        continue;
+                    }
+                    let f = &mut runtime.phase.feet[*foot_id];
+                    f[foot::ID] = *foot_id as f64;
+                    f[foot::OWNER] = id as f64;
+                    f[foot::INDEX] = *index as f64;
+                    f[foot::M0..=foot::M15].copy_from_slice(matrix);
+                    f[foot::PRESENT] = 1.;
+                    runtime.phase.foot_count = runtime.phase.foot_count.max(foot_id + 1);
+                }
+            }
             if let Some(event) =
                 super::sound_events::damage(&runtime.phase.emitters[id], &emitter_row, false)
             {

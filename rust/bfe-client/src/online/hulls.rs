@@ -97,7 +97,7 @@ struct Model {
     fx: Option<super::hull_effects::ClassFx>,
     // A walker's feet (vehicle-feet.js): its foot detector's content, its
     // StompEffect group and each foot's bone.
-    feet: Option<(Value, usize, Vec<usize>)>,
+    feet: Option<(Value, Option<usize>, Vec<usize>)>,
 }
 struct Slot {
     rig: usize,
@@ -139,6 +139,10 @@ pub struct Hulls {
     bodies: Vec<((u32, u32), super::hull_effects::Body, bool, usize)>,
     // Every walker slot's feet, where each comes down this frame.
     feet: bfe_presentation::feet::Feet,
+    /// Each walker's feet as drawn this frame, for its foot sounds: its
+    /// unit, walk phase and blend, and each foot's detector id, number and
+    /// bone matrix.
+    pub sound_feet: Vec<((u32, u32), [f64; 2], Vec<(usize, usize, [f64; 16])>)>,
     water: Option<bfe_sim::units::water::WaterState>,
 }
 impl Hulls {
@@ -435,6 +439,7 @@ impl Hulls {
             world,
             bodies: Vec::with_capacity(POOL),
             feet,
+            sound_feet: Vec::with_capacity(POOL),
             water: super::water::new(content),
         })
         .inspect(|hulls: &Self| {
@@ -815,6 +820,7 @@ impl Hulls {
             return;
         }
         self.feet.input[ff::DT] = dt;
+        self.sound_feet.clear();
         for s in &self.slots {
             let (Some(first), Some((_, _, bones))) = (s.feet, &self.models[s.model].feet) else {
                 continue;
@@ -833,11 +839,19 @@ impl Hulls {
                 x[fi::ROOT_Y] = nodes[n::WORLD + 13];
                 let at = (bone + 1) * n::STRIDE + n::WORLD;
                 x[fi::MATRIX..fi::MATRIX + 16].copy_from_slice(&nodes[at..at + 16]);
+                if let (Some(unit), false) = (s.identity, s.dying) {
+                    if k == 0 {
+                        self.sound_feet.push((unit, s.walk, Vec::with_capacity(bones.len())));
+                    }
+                    if let Some(last) = self.sound_feet.last_mut() {
+                        last.2.push((first + k, k, std::array::from_fn(|i| nodes[at + i])));
+                    }
+                }
             }
         }
         self.feet.frame();
         for s in self.slots.iter().filter(|s| s.active) {
-            let (Some(first), Some((_, group, bones))) = (s.feet, &self.models[s.model].feet) else {
+            let (Some(first), Some((_, Some(group), bones))) = (s.feet, &self.models[s.model].feet) else {
                 continue;
             };
             for k in 0..bones.len() {
@@ -848,6 +862,18 @@ impl Hulls {
                 }
             }
         }
+    }
+    /// Every walker class's feet for its foot sounds, by registry class.
+    pub fn walker_sound_feet(&self) -> Vec<(usize, bfe_presentation::feet::SoundFeet)> {
+        self.classes
+            .iter()
+            .enumerate()
+            .filter_map(|(class, model)| {
+                let (content, _, _) = self.models[(*model)?].feet.as_ref()?;
+                let content: bfe_presentation::feet::Content = array(content).ok()?;
+                Some((class, bfe_presentation::feet::sound_feet(&content)))
+            })
+            .collect()
     }
     // VehicleEffects.update: every hull with effects, drawn or a wreck
     // whose record remains, from the pose just published.
@@ -998,9 +1024,10 @@ fn walker_feet(
     clips: Option<&bfe_content::clips::Clips>,
     length: f64,
     effect: &dyn Fn(&str) -> Option<usize>,
-) -> Option<(Value, usize, Vec<usize>)> {
+) -> Option<(Value, Option<usize>, Vec<usize>)> {
     let fx = authored_json(record.get("fx")?);
-    let group = effect(fx["stomp"]["effect"].as_str()?)?;
+    // The StompEffect, when the class has one; the feet sound either way.
+    let group = fx["stomp"]["effect"].as_str().and_then(effect);
     let feet = fx["feet"].as_array().filter(|f| !f.is_empty())?;
     let clips = clips?;
     let walk: Vec<Value> = ["walk_leftfoot_rightfoot", "walk_rightfoot_leftfoot"]

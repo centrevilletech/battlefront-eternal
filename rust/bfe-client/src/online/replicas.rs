@@ -589,6 +589,9 @@ impl Replicas {
             .map(|name| name.as_ref().and_then(|name| combat.effect_names.iter().find(|(known, _)| known == name).map(|(_, group)| *group)))
             .collect();
         sound.ahead = (guns.ahead.clone(), guns.ids.clone());
+        for (class, feet) in hulls.walker_sound_feet() {
+            sound.walker_class_feet(class, &feet);
+        }
         let (collision, world) = (resources.collision.clone(), resources.world);
         bridge.r.core.state.reset();
         let shields = Box::new(super::shields::Shields::new(
