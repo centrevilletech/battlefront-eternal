@@ -19,6 +19,7 @@ use bfe_presentation::{
 use bfe_render::instances as draw;
 use serde_json::{json, Value};
 use three::Matrix4;
+mod tethers;
 const POOL: usize = 64;
 fn camera_angles(quaternion: &three::Quaternion, flying: bool) -> three::Euler {
     let mut angles = three::Euler::default();
@@ -87,8 +88,11 @@ struct Model {
     max_speed: f64,
     camera_blend: f64,
     seats: usize,
+    tow_node: Option<usize>,
+    has_tow: bool,
     rider: Vec<(Option<String>, Option<String>, bool)>,
     hover: f64,
+    death_span: f64,
     // Its thrust, damage and death effects (VehicleEffects).
     fx: Option<super::hull_effects::ClassFx>,
     // A walker's feet (vehicle-feet.js): its foot detector's content, its
@@ -101,7 +105,7 @@ struct Slot {
     identity: Option<(u32, u32)>,
     active: bool,
     skin: Vec<f32>,
-    dying_since: Option<f64>,
+    dying: bool,
     velocity: [f64; 3],
     flight_frame: [f64; 4],
     health: f64,
@@ -110,6 +114,7 @@ struct Slot {
     // phase and blend as drawn.
     feet: Option<usize>,
     walk: [f64; 2],
+    cable: Option<tethers::Cable>,
 }
 pub struct Hulls {
     pub owner: Box<Vehicles>,
@@ -129,8 +134,9 @@ pub struct Hulls {
     collision: Collision,
     world: u32,
     // Each hull's life as its effects see it, by identity, kept while its
-    // record lasts (a wreck's dust rises after it is gone from view).
-    bodies: Vec<((u32, u32), super::hull_effects::Body, bool)>,
+    // record lasts, then until its delayed wreck dust has risen. The model
+    // remains known after a tombstone releases the hull's network rig.
+    bodies: Vec<((u32, u32), super::hull_effects::Body, bool, usize)>,
     // Every walker slot's feet, where each comes down this frame.
     feet: bfe_presentation::feet::Feet,
     water: Option<bfe_sim::units::water::WaterState>,
@@ -335,9 +341,28 @@ impl Hulls {
             classes[id as usize] = Some(models.len());
             let walk_length =
                 descriptor["left"]["duration"].as_f64().unwrap_or(0.) + descriptor["right"]["duration"].as_f64().unwrap_or(0.);
+            let death_span = descriptor["deathSpan"].as_f64().unwrap_or(0.);
+            let mut fx = super::hull_effects::ClassFx::parse(
+                id as usize,
+                &class.record,
+                nodes.iter().map(|n| n["name"].as_str().unwrap_or("").to_string()).collect(),
+                effect,
+            );
+            if let Some((node, inverse)) = nodes[1..1 + bone_count].iter()
+                .position(|n| n["name"].as_str().is_some_and(|s| s.eq_ignore_ascii_case("bone_root")))
+                .and_then(|bone| inverses.get(bone).map(|inverse| (bone + 1, *inverse)))
+            {
+                if let Some(fx) = fx.as_mut() { fx.body_carrier(node, Matrix4 { elements: inverse }); }
+            }
             descriptors.push(descriptor);
             models.push(Model {
                 views: records["seats"].as_array().unwrap().iter().map(|s| super::seat_view::View::new(&s["view"])).collect(),
+                tow_node: records["seats"][1]["view"]["turret"].as_u64()
+                    .or_else(|| records["seats"].as_array().unwrap().iter().find_map(|s| s["view"]["turret"].as_u64()))
+                    .map(|n| n as usize),
+                has_tow: class.seats.iter().any(|s| s.weapons.iter().any(|w|
+                    w.get("def").and_then(|d| d.get("ordnance")).and_then(|o| o.get("base"))
+                        .and_then(bfe_content::Value::as_str) == Some("towcable"))),
                 bounds: [lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]],
                 flying,
                 walking,
@@ -353,13 +378,9 @@ impl Hulls {
                 seats: seats.len(),
                 rider,
                 hover,
+                death_span,
                 feet: walker_feet(&class.record, &records, &bones, t.clips.as_ref(), walk_length, &effect),
-                fx: super::hull_effects::ClassFx::parse(
-                    id as usize,
-                    &class.record,
-                    nodes.iter().map(|n| n["name"].as_str().unwrap_or("").to_string()).collect(),
-                    effect,
-                ),
+                fx,
             });
         }
         // The fixed hull pool is shared by class, with a minimum reservation
@@ -367,6 +388,9 @@ impl Hulls {
         // are counted, rather than growing trees in a displayed frame.
         let mut slots = Vec::new();
         let mut feet = bfe_presentation::feet::Feet::default();
+        let tow_program = if models.iter().any(|m| m.has_tow) {
+            Some(bridge.add_owned_program("utility/line-plain-solid")?)
+        } else { None };
         for (model, m) in models.iter().enumerate() {
             for _ in 0..(POOL / models.len().max(1)).max(1) {
                 let rig = owner.add_rig(array(&descriptors[model])?);
@@ -380,13 +404,16 @@ impl Hulls {
                     identity: None,
                     active: false,
                     skin: vec![0.; m.inverses.len() * 16],
-                    dying_since: None,
+                    dying: false,
                     velocity: [0.; 3],
                     flight_frame: [0., 0., 0., 1.],
                     health: 0.,
                     boosting: false,
                     feet: foot,
                     walk: [0.; 2],
+                    cable: if m.has_tow {
+                        Some(tethers::Cable::new(bridge, tow_program.unwrap())?)
+                    } else { None },
                 });
             }
         }
@@ -411,6 +438,9 @@ impl Hulls {
             water: super::water::new(content),
         })
         .inspect(|hulls: &Self| {
+            if std::env::var_os("BFE_BENCH").is_some() {
+                eprintln!("bench: cable resources={}", hulls.slots.iter().filter(|s| s.cable.is_some()).count());
+            }
             if crate::app::bench::fx().is_some() {
                 eprintln!("fx-hulls classes={} with-effects={}", hulls.models.len(), hulls.models.iter().filter(|m| m.fx.is_some()).count());
             }
@@ -475,6 +505,28 @@ impl Hulls {
     pub fn rig(&self, id: f64, generation: f64) -> Option<usize> {
         self.bound.get(&(id as u32, generation as u32)).map(|i| self.slots[*i].rig)
     }
+    pub fn aim_point(&self, key: (u32, u32)) -> Option<[f64; 3]> {
+        let slot = &self.slots[*self.bound.get(&key)?];
+        if !slot.active || slot.health <= 0. || slot.dying { return None; }
+        let b = self.models[slot.model].bounds;
+        let nodes = self.owner.slot_nodes(slot.rig, 0)?;
+        let mut matrix = Matrix4::default();
+        matrix.elements.copy_from_slice(&nodes[n::WORLD..n::WORLD + 16]);
+        let mut center = three::Vector3::new((b[0] + b[3]) / 2., (b[1] + b[4]) / 2., (b[2] + b[5]) / 2.);
+        center.apply_matrix4(&matrix);
+        Some([center.x, center.y, center.z])
+    }
+    pub fn seat_angles(&self, key: (u32, u32)) -> Option<Value> {
+        let slot = &self.slots[*self.bound.get(&key)?];
+        let start = self.owner.slot_seats(slot.rig, 0);
+        let seats: Vec<_> = (0..self.models[slot.model].seats).map(|i| {
+            let x = &self.owner.stream_in[start + i * seat::STRIDE..];
+            [x[seat::AIM_YAW], x[seat::PITCH], x[seat::HELD]]
+        }).collect();
+        let aimers: Vec<_> = self.owner.aimer_angles(slot.rig).collect();
+        let nodes = self.owner.slot_nodes(slot.rig, 0)?;
+        Some(json!({"seats": seats, "aimers": aimers, "world": &nodes[n::WORLD..n::WORLD + 16]}))
+    }
     pub fn frame(
         &mut self,
         receiver: &Receiver,
@@ -487,6 +539,10 @@ impl Hulls {
         use bfe_presentation::network_layout::{net_mount_frame as mf, net_mount_input as mi, net_mount_output as mo};
         if self.epoch != receiver.epoch {
             self.mounts.reset();
+            self.bodies.clear();
+            for slot in &mut self.slots {
+                if let Some(cable) = &mut slot.cable { cable.state = None; }
+            }
             self.epoch = receiver.epoch;
         }
         // Mount records have their own short history. Position snapshots can
@@ -575,7 +631,7 @@ impl Hulls {
                     continue;
                 };
                 self.slots[i].identity = Some(key);
-                self.slots[i].dying_since = None;
+                self.slots[i].dying = false;
                 self.bound.insert(key, i);
                 i
             };
@@ -597,19 +653,16 @@ impl Hulls {
             x[e::GEAR_FOLLOW] = m.flying as u8 as f64;
             x[e::GEAR_GENERATION] = row[r::GENERATION];
             x[e::GROUND_FROM..e::GROUND_FROM + 3].copy_from_slice(&row[r::POSITION..r::POSITION + 3]);
-            if row[r::STATE] == 6. {
-                let since = *s.dying_since.get_or_insert(tick);
-                x[e::DYING] = (tick - since).max(0.) / 60.;
-            } else {
-                s.dying_since = None;
-            }
+            s.dying = row[r::STATE] == 6.;
+            // Dying records carry the authoritative milliseconds left in power.
+            x[e::DYING] = if s.dying { row[r::POWER] / 1000. } else { 0. };
             x[e::ALPHA] = 1.;
             x[e::DT] = dt;
             x[e::FRAME_DT] = dt;
             x[e::LOCAL_PRESENT] = 0.;
             x[e::POSITION..e::POSITION + 3].copy_from_slice(&row[r::POSITION..r::POSITION + 3]);
             x[e::QUATERNION..e::QUATERNION + 4].copy_from_slice(&row[r::QUATERNION..r::QUATERNION + 4]);
-            x[e::YAW] = row[r::YAW];
+            x[e::YAW] = hull_heading(row);
             x[e::TILT] = row[r::TILT];
             x[e::ROLL] = row[r::MOUNT_ROLL];
             if mount[mo::VALID] != 0. {
@@ -750,7 +803,7 @@ impl Hulls {
                 }
             }
         }
-        self.effects(receiver, tick, dt, fx);
+        self.effects(receiver, dt, fx);
         self.stomp(dt, fx);
     }
     // VehicleEffects.updateStomp: where a walker's foot comes down this
@@ -773,7 +826,7 @@ impl Hulls {
                     x[fi::PRESENT] = 0.;
                     continue;
                 };
-                x[fi::PRESENT] = (s.identity.is_some() && s.dying_since.is_none()) as u8 as f64;
+                x[fi::PRESENT] = (s.identity.is_some() && !s.dying) as u8 as f64;
                 x[fi::GENERATION] = s.identity.map_or(0., |i| i.1 as f64);
                 x[fi::PHASE] = s.walk[0];
                 x[fi::BLEND] = s.walk[1];
@@ -798,7 +851,7 @@ impl Hulls {
     }
     // VehicleEffects.update: every hull with effects, drawn or a wreck
     // whose record remains, from the pose just published.
-    fn effects(&mut self, receiver: &Receiver, tick: f64, dt: f64, fx: &mut super::hull_effects::HullEffects) {
+    fn effects(&mut self, receiver: &Receiver, dt: f64, fx: &mut super::hull_effects::HullEffects) {
         use super::hull_effects::Frame;
         for body in &mut self.bodies {
             body.2 = false;
@@ -814,14 +867,14 @@ impl Hulls {
             let state = row[r::STATE];
             let slot = self.bound.get(&key).copied().filter(|&i| self.slots[i].active && state != 4.);
             let nodes = slot.and_then(|i| self.owner.slot_nodes(self.slots[i].rig, 0)).map(|nodes| (nodes, n::STRIDE, n::WORLD));
-            let at = match self.bodies.iter().position(|(k, _, _)| *k == key) {
+            let at = match self.bodies.iter().position(|(k, _, _, _)| *k == key) {
                 Some(at) => at,
                 None => {
                     if state == 4. {
                         // A wreck first seen already destroyed shows nothing.
                         continue;
                     }
-                    self.bodies.push((key, Default::default(), false));
+                    self.bodies.push((key, Default::default(), false, model));
                     self.bodies.len() - 1
                 }
             };
@@ -830,7 +883,7 @@ impl Hulls {
             let (health, velocity, dying) = match slot {
                 Some(i) => {
                     let s = &self.slots[i];
-                    (s.health, s.velocity, s.dying_since.map_or(0., |since| (tick - since).max(0.) / 60.))
+                    (s.health, s.velocity, if s.dying { (self.models[model].death_span - row[r::POWER] / 1000.).max(0.) } else { 0. })
                 }
                 None => (row[r::HEALTH], std::array::from_fn(|i| row[r::VELOCITY + i]), 0.),
             };
@@ -847,7 +900,26 @@ impl Hulls {
             };
             fx.hull(class, &mut entry.1, frame, dt);
         }
-        self.bodies.retain(|b| b.2);
+        // NetworkEntityGame.remove destroys a qualified hull on its tombstone.
+        // Instant deaths have no final vehicle row: retain the last posed
+        // nodes for the same destruction transition and its delayed dust.
+        for (key, body, seen, model) in &mut self.bodies {
+            if *seen { continue; }
+            let retired = receiver.publications.iter().any(|field| {
+                let row = &field.row;
+                row[r::KIND] == k::TOMBSTONE as f64
+                    && row[r::ID] == key.0 as f64 && row[r::GENERATION] == key.1 as f64
+            });
+            if !retired && !body.pending() { continue; }
+            let Some(class) = self.models[*model].fx.as_ref() else { continue; };
+            fx.hull(class, body, Frame {
+                key: (key.0 as u64) << 20 | (key.1 as u64 & 0xfffff),
+                generation: key.1, state: 2, dying: 0., health: 0.,
+                thrusting: false, velocity: [0.; 3], nodes: None, water: None,
+            }, dt);
+        }
+        self.bodies.retain(|b| b.2 || b.1.pending());
+        self.receive_tethers(receiver);
     }
     // Shadow storage covers the largest admitted rig, including models that
     // have not appeared in a snapshot yet.

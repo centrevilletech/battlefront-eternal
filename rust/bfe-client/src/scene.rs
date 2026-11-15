@@ -43,7 +43,7 @@ pub struct MapCamera {
     phase_camera: bool,
     subject_eye: [f64; 3],
     flight_mode: bool,
-    perspectives: [bool; 2],
+    flight_first_person: bool,
     far_plane: f64,
 }
 impl MapCamera {
@@ -103,7 +103,7 @@ impl MapCamera {
             phase_camera: false,
             subject_eye: position,
             flight_mode: false,
-            perspectives: [false; 2],
+            flight_first_person: false,
             far_plane: 20000.0,
         })
     }
@@ -135,18 +135,21 @@ impl MapCamera {
     pub fn subject_eye(&self) -> [f64; 3] {
         self.subject_eye
     }
-    // VehicleDriver and flight perspective keep independent choices. A bail
-    // returns to the ground view without copying the cockpit preference.
+    // Boarding loads flightFirstPerson. Leaving keeps the active view, as
+    // VehicleDriver.exit does; later ground toggles do not change that setting.
     pub fn set_flight_perspective(&mut self, first: bool) {
-        self.perspectives[1] = first;
+        self.flight_first_person = first;
         if self.flight_mode {
             self.first_person = first;
         }
     }
     pub fn set_flight_mode(&mut self, flight: bool) {
         if self.flight_mode != flight {
-            self.perspectives[self.flight_mode as usize] = self.first_person;
-            self.first_person = self.perspectives[flight as usize];
+            if flight {
+                self.first_person = self.flight_first_person;
+            } else {
+                self.flight_first_person = self.first_person;
+            }
             self.flight_mode = flight;
         }
     }
@@ -394,6 +397,8 @@ pub struct Scene {
     water: Option<crate::water_host::WaterHost>,
     water_data: usize,
     water_time: f64,
+    // The soldiers on foot, gathered each frame for the water's waders.
+    water_soldiers: Vec<(u32, [f64; 3], [f64; 3])>,
     storm: Option<crate::storm_host::StormHost>,
     flyers: Option<crate::sky_host::SkyHost>,
     pub online: Option<Box<crate::online::replicas::Replicas>>,
@@ -1237,6 +1242,7 @@ impl Scene {
                 water: water_host.take(),
                 water_data: water_fx,
                 water_time: f64::NAN,
+                water_soldiers: Vec::new(),
                 storm,
                 flyers,
                 online,
@@ -1699,7 +1705,7 @@ impl Scene {
             resources.hud.target(&mut self.bridge, receiver, replay, ray);
             let reticle = mounted.or_else(||
                 resources.reticle_point(receiver).map(|point| crate::online::hud::Aim { point, project_x: false }));
-            resources.hud.aim(&mut self.bridge, camera.snapshot(), reticle);
+            resources.hud.aim(&mut self.bridge, camera.snapshot(), reticle, &resources.hulls);
             resources.sound.bleed = [resources.hud.teams[1][3], resources.hud.teams[2][3]];
             resources.sound.frame(receiver,&world.elements,dt,replay,resources.hud.audio_facts());
             self.bridge.r.core.profile.cpu("HUD and sound presentation", hud_timer);
@@ -1912,6 +1918,11 @@ impl Scene {
         self.publish(r::IMAGE, k::SCREEN, 0, 0, 1);
         if let Some(online)=&self.online{self.bridge.r.frames.meta[r::TRANSPARENT*m::LEN+m::FX_WORDS]=online.combat.particles.words as f64;}
         self.publish(r::TRANSPARENT, k::TRANSPARENT, records, bones, 0);
+        if component == Component::All {
+            if let Some(online) = &mut self.online {
+                online.hulls.draw_tethers(&view.values, &mut self.bridge)?;
+            }
+        }
         if let Some(online)=&self.online{let (view_records,view_bones)=online.first_person.append(&online.units,&mut self.bridge);if view_records!=0{
                 // Graphics.render gives the view camera the drawn camera's own
                 // field of view and aspect each frame (near 0.3, far 10), so the
@@ -1972,6 +1983,12 @@ impl Scene {
         }
         let light = self.storm.as_mut().and_then(|storm| storm.frame(&mut self.bridge, view, host.time() + dt));
         host.storm_light(light);
+        if let Some(online) = &self.online {
+            let mut soldiers = std::mem::take(&mut self.water_soldiers);
+            online.soldiers_on_foot(&mut soldiers);
+            host.soldiers(dt, &soldiers);
+            self.water_soldiers = soldiers;
+        }
         host.frame(&mut self.bridge, &mut self.resources, &view.values, dt, self.water_data, self.online.as_ref().map(|online| online.water_collision()))?;
         if host.plan.probe {
             if let Some(probe) = host.ocean().and_then(|o| o.probe) { self.sky_probe(view, probe); }
@@ -2342,23 +2359,24 @@ mod camera_tests {
     use super::*;
 
     #[test]
-    fn saved_cockpit_perspective_does_not_replace_the_ground_choice() {
+    fn saved_cockpit_perspective_applies_only_when_boarding() {
         let mut camera = MapCamera::new([0.; 3], [1280, 720]).unwrap();
         camera.set_flight_perspective(true);
         assert!(!camera.first_person);
         camera.set_flight_mode(true);
         assert!(camera.first_person);
         camera.set_flight_mode(false);
-        assert!(!camera.first_person);
+        assert!(camera.first_person);
     }
 
     #[test]
-    fn exiting_a_cockpit_restores_the_independent_ground_perspective() {
+    fn exiting_keeps_the_view_and_ground_toggles_preserve_the_flight_setting() {
         let mut camera = MapCamera::new([0.; 3], [1280, 720]).unwrap();
         camera.set_flight_mode(true);
         camera.first_person = true;
         camera.set_flight_mode(false);
-        assert!(!camera.first_person);
+        assert!(camera.first_person);
+        camera.first_person = false;
         camera.set_flight_mode(true);
         assert!(camera.first_person);
         camera.set_flight_mode(false);
@@ -2366,7 +2384,7 @@ mod camera_tests {
         camera.set_flight_mode(true);
         camera.first_person = false;
         camera.set_flight_mode(false);
-        assert!(camera.first_person);
+        assert!(!camera.first_person);
     }
 
     #[test]

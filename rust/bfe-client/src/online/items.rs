@@ -20,6 +20,11 @@ pub struct Views {
     pub owner: Items,
     definitions: Vec<Option<usize>>,
     models: Vec<Option<Model>>,
+    // Each definition's steady light (LightColor as 0..1 times its alpha,
+    // LightRadius), none when the radius is 0.
+    lights: Vec<Option<([f64; 3], f64)>>,
+    /// Item lights added, summed over frames.
+    pub lit: u64,
     remote_models: Vec<Option<Model>>,
     remotes: Vec<(usize, [f64; 3], f64)>,
     pub hide_piloted_remote: bool,
@@ -42,6 +47,7 @@ impl Views {
         let mut owner = Items::new();
         let mut definitions = vec![None; defs.registry.combat.len() + 1];
         let mut models = Vec::new();
+        let mut lights = Vec::new();
         let mut remote_models: Vec<Option<Model>> = (0..=defs.registry.combat.len()).map(|_| None).collect();
         for (i, (_, def)) in defs.registry.combat.iter().enumerate() {
             if budget.tick().await {
@@ -71,6 +77,12 @@ impl Views {
             row[d::MINE] = (base == "mine") as u8 as f64;
             row[d::RADIUS] = bfe_content::derived::item_radius(content.content.weapon_models.get(name)).0;
             row[d::LIGHT_RADIUS] = def.get("LightRadius").and_then(bfe_content::Value::as_f64).unwrap_or(0.).max(0.);
+            // items.js color01: a missing colour is black, no light.
+            let color = def.get("LightColor").and_then(bfe_content::Value::as_array);
+            let channel = |k: usize, default: f64| color.and_then(|c| c.get(k)).and_then(bfe_content::Value::as_f64).unwrap_or(default);
+            let alpha = channel(3, 255.) / 255.;
+            let rgb: [f64; 3] = std::array::from_fn(|k| channel(k, 0.) / 255. * alpha);
+            lights.push((row[d::LIGHT_RADIUS] > 0.).then_some((rgb, row[d::LIGHT_RADIUS])));
             row[d::MESH] = model.is_some() as u8 as f64;
             owner.define(index);
             models.push(model);
@@ -85,6 +97,8 @@ impl Views {
             owner,
             definitions,
             models,
+            lights,
+            lit: 0,
             remote_models,
             remotes: Vec::with_capacity(64),
             hide_piloted_remote: false,
@@ -254,6 +268,16 @@ impl Views {
     // rigid draw matrix without advancing bob, fall or water a second time.
     // Optional missing models consume no record or skin slot, and the common
     // model submission checks both renderer budgets before copying a row.
+    /// Items.update: each mine or power-up with a LightRadius lights its
+    /// surroundings steadily while it lies there.
+    pub fn light(&mut self, lights: &mut super::lights::SceneLights) {
+        for view in self.owner.views.chunks_exact(v::STRIDE).take(self.owner.header[h::VIEWS] as usize) {
+            if let Some(&Some((rgb, radius))) = self.lights.get(view[v::DEFINITION] as usize) {
+                lights.add([view[v::POSITION], view[v::POSITION + 1], view[v::POSITION + 2]], rgb, radius, 1.);
+                self.lit += 1;
+            }
+        }
+    }
     pub fn append(&self, bridge: &mut Bridge, mut records: usize, mut bones: usize) -> (usize, usize) {
         for view in self.owner.views.chunks_exact(v::STRIDE).take(self.owner.header[h::VIEWS] as usize) {
             let Some(model) = self.models.get(view[v::DEFINITION] as usize).and_then(Option::as_ref) else {

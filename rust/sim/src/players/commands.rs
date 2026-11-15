@@ -162,8 +162,10 @@ pub fn apply(w: &mut World, players: &mut Players, key: usize, unit: Ref<Unit>, 
     }
     // Older clients still send N (nextSpawn): dropped, so it never piles up.
     while p.controls.take(names.next_spawn) {}
-    // combat.firstPerson only chooses the page's own view; a flown droid's
-    // first-person flag reaches its camera through the unit phase's row.
+    // Mounted guns aim from the selected view's origin as well as drawing it.
+    if let (Some(first_person), Some(u)) = (command.first_person, w.sim.store.unit.get_mut(unit)) {
+        u.combat.first_person = first_person;
+    }
     if let (Some(first_person), Some(context)) = (command.first_person, crate::recon::module::context_in(w, unit)) {
         if w.sim.store.unit.get(unit).is_some_and(|u| u.combat.has_remotes) {
             w.sim.store.recon_context.get_mut(context).unwrap().first_person = first_person;
@@ -301,5 +303,23 @@ pub fn stop(w: &mut World, players: &mut Players, key: usize) {
     shadow.network = Some(NetworkFacts { shots: [None, None], view: None, lead: None, playout: None });
     if let Some((lease, Some(hull), _, 0)) = seat_of(w, unit) {
         seat_command(w, unit, F2SeatOp::ResetSticks, Some(hull), Some(lease), 0.0, hull_life(w, hull), 1.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn player_view_commands_reach_the_combat_state_used_by_mounted_guns() {
+        use crate::players::{commands::{apply, Command}, owner::{Player, Players}};
+        let mut world = crate::world::owner::World::new();
+        crate::units::f3::f3_init_in(&mut world, 0, 0., 0);
+        let unit = world.sim.store.unit.insert(crate::gen::Unit::default());
+        let mut players = Players::new();
+        players.activate(&mut world.sim.strings, 1);
+        let key = players.admit(Player::new(0, 0., 4)).unwrap();
+        for (view, expected) in [(Some(true), true), (None, true), (Some(false), false)] {
+            apply(&mut world, &mut players, key, unit, &Command { first_person: view, ..Default::default() }, &[], 1., 1., 0.);
+            assert_eq!(world.sim.store.unit.get(unit).unwrap().combat.first_person, expected);
+        }
     }
 }

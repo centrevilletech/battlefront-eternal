@@ -38,7 +38,10 @@ impl<F:Factory> Callbacks for Scope<'_,F> {
         // Human admission has no later bot attach hook. Refresh its command
         // life at the F4 reassignment, before another controller reads crew,
         // followers or Enhanced population from the same Character object.
-        if let Some(index)=self.state.roster.storage_index(reference) {self.state.roster.replace(index,handle.clone());}
+        self.state.bind_character(reference,handle);
+        let count=self.state.roster.handles().len();
+        assert!(count<=self.core.by_character.len(),"admit native AI Character capacity before a roster birth");
+        self.core.character_count=count;
     }
     fn hull_born(&mut self,hull:crate::store::Ref<crate::gen::Vehicle>,member:crate::gen::Member) {
         if let Some(entry)=self.state.mounts.activate_target(&self.state.entities,hull,member) {self.state.queries.target(member,entry);}
@@ -66,14 +69,8 @@ impl<F:Factory> Callbacks for Scope<'_,F> {
             if let Some(reference)=crate::battle::f4_core::resolve_character_ref(&w.battle,&w.sim.store,handle) {
                 // Roster replacement advances F4 command life on the same
                 // Character object. Its AI index and unit link stay stable.
-                if let Some(index)=self.state.roster.storage_index(reference) {self.state.roster.replace(index,handle.clone());}else{
-                    let index=self.state.roster.add(handle.clone());self.state.units.character(reference,index);
-                }
-                self.state.entities.register(super::entities::Entity::Character(reference));
+                self.character_reassigned(reference,handle);
                 if let Some(unit)=w.sim.store.character.get(reference).and_then(|c|c.unit) {self.state.entities.register(super::entities::Entity::Unit(unit));}
-                let count=self.state.roster.handles().len();
-                assert!(count<=self.core.by_character.len(),"admit native AI Character capacity before a roster birth");
-                self.core.character_count=count;
             }
         }
         let mut services=self.factory.services(recon,queries);let mut random=self.random.share();

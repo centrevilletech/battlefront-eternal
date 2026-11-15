@@ -1354,14 +1354,7 @@ impl Combat {
                 .debris
                 .parts(wreck.class)
                 .iter()
-                .map(|part| {
-                    let node = wreck.names.iter().position(|n| !part.node.is_empty() && *n == part.node).unwrap_or(0);
-                    let mut matrix = three::Matrix4::default();
-                    if let Some(m) = wreck.nodes.get(node * 16..node * 16 + 16) {
-                        matrix.elements.copy_from_slice(m);
-                    }
-                    matrix
-                })
+                .map(|part| wreck.matrix(&part.node))
                 .collect();
             for (part, matrix) in starts.into_iter().enumerate() {
                 self.debris.blow_apart_hull(wreck.class, part, matrix, wreck.origin, wreck.velocity);

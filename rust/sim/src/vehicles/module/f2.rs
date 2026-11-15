@@ -699,6 +699,24 @@ impl Scheduler {
 mod native_firing_inputs {
     use super::*;
     #[test]
+    fn native_hull_respawn_clock_belongs_to_its_authored_pad() {
+        let mut w = crate::world::owner::World::new();
+        w.sim.store.vehicles.slots.resize_with(3, Default::default);
+        w.fleet.scheduler.descs = [15., 30., 45.].into_iter().map(|respawn_time|
+            super::super::super::spawn::SlotDesc { respawn_time, ..Default::default() }).collect();
+        // Fleet order differs from pad order when earlier pads are neutral.
+        let hull = Hull { slot_index: 2, ..Default::default() };
+        let row = hull.initial_record(&mut w.sim.strings);
+        let r = w.sim.store.vehicle.insert(row);
+        w.sim.store.vehicles.vehicles.push(r);
+        w.sim.store.vehicles.slots[2].vehicle = Some(r);
+        respawn_clock_in(&mut w, 0);
+        assert_eq!(w.sim.store.vehicles.slots.iter().map(|s|s.remaining).collect::<Vec<_>>(), [0., 0., 45.]);
+        let mut reloaded = Hull::default();
+        reloaded.load(w.sim.store.vehicle.get(r).unwrap());
+        assert_eq!(reloaded.slot_index, 2);
+    }
+    #[test]
     fn firing_subsegment_uses_phase_bank_and_refuses_overflow() {
         let mut w = crate::world::owner::World::new();
         let start = F2Input::WORDS + 3;

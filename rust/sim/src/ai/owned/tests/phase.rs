@@ -2460,6 +2460,31 @@ fn initial_mission_arguments_keep_numeric_coercion_separate_from_numeric_class_q
 
 
 #[test]
+fn late_human_roster_admission_is_visible_to_unit_queries() {
+    use bfe_sim::{gen::*,battle::commands::Commands,ai::{nav::Nav,owned::{state::{State,Capacity},entities::Entity}}};
+    let mut store=crate::ai::owned::tests::empty_world();
+    let mut commands=Commands::new(2);
+    let mut state=State::new(Nav::empty(Default::default()),false,Capacity {registry:2,characters:2,posts:0,hulls:0,buildings:0,controls:0,scopes:1,cameras:0});
+    state.units.class(DefId(0),Default::default(),"trooper".into());
+    state.prepare_roster(&store,&commands,&[]).unwrap();
+    let character=store.character.insert(Character {human:true,..Default::default()});
+    let handle=commands.adopt(&store,character);
+    state.bind_character(character,&handle);
+    let body=store.unit.insert(Unit {character:Some(character),human:true,..Default::default()});
+    store.character.get_mut(character).unwrap().unit=Some(body);
+    assert!(state.admit_body(&store,body));
+    let key=state.entities.find(Entity::Unit(body)).unwrap();
+    assert_eq!(state.units.read(&store,&state.entities,key).unwrap().character,Some(0));
+    assert!(state.entities.find(Entity::Character(character)).is_some());
+    assert_eq!(state.roster.read(&store,&commands,&state.entities,&state.population,0).unwrap().unit,Some(key));
+    let replacement=commands.adopt(&store,character);
+    state.bind_character(character,&replacement);
+    assert_eq!(state.roster.handles().len(),1);
+    assert_eq!(state.roster.reference(&store,&commands,0),Some(character));
+    assert_eq!(state.units.read(&store,&state.entities,key).unwrap().character,Some(0));
+}
+
+#[test]
 fn late_network_body_admission_precedes_roster_reads_and_rejects_stale_units() {
     use bfe_sim::{gen::*,store::Ref,battle::commands::Commands,ai::{nav::Nav,owned::{state::{State,Capacity},entities::Entity}}};
     let mut store=crate::ai::owned::tests::empty_world();
