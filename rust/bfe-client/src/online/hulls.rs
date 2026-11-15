@@ -116,6 +116,9 @@ pub struct Hulls {
     bound: Index,
     pub visible: usize,
     pub refused: u64,
+    /// BFE_AI_TRACE: world vehicles against bound and linked hulls every 10 s.
+    census: bool,
+    census_tick: u64,
     collision: Collision,
     world: u32,
     // Each hull's life as its effects see it, by identity, kept while its
@@ -380,6 +383,8 @@ impl Hulls {
             bound: Index::new(POOL.max(128)),
             visible: 0,
             refused: 0,
+            census: std::env::var_os("BFE_AI_TRACE").is_some(),
+            census_tick: u64::MAX,
             collision,
             world,
             bodies: Vec::with_capacity(POOL),
@@ -518,6 +523,15 @@ impl Hulls {
                 }
             }
         }
+        if self.census && (tick as u64) % 600 == 0 && tick as u64 != self.census_tick {
+            self.census_tick = tick as u64;
+            let world = receiver.active().filter(|r| r[r::KIND] == k::VEHICLE as f64 && r[r::STATE] != 4.).count();
+            let unmapped = receiver.active().filter(|r| r[r::KIND] == k::VEHICLE as f64 && r[r::STATE] != 4.)
+                .filter(|r| self.classes.get(r[r::CLASS_ID] as usize).copied().flatten().is_none()).count();
+            let bound = self.slots.iter().filter(|s| s.active && s.identity.is_some()).count();
+            let unlinked = self.slots.iter().filter(|s| s.active && s.identity.is_some() && !self.owner.network.live(s.rig)).count();
+            eprintln!("vehicles census t={}s world={world} bound={bound} unmapped={unmapped} unlinked={unlinked} refused={}", tick as u64 / 60, self.refused);
+        }
         self.visible = 0;
         let blank_mount = [0.; mo::STRIDE];
         let mut mount_index = 0;
@@ -542,9 +556,12 @@ impl Hulls {
                 self.slots[i].identity = Some(key);
                 self.slots[i].dying_since = None;
                 self.bound.insert(key, i);
-                self.owner.network.bind(self.slots[i].rig, key.0 as f64, key.1 as f64, 1., &receiver.network);
                 i
             };
+            // As for soldiers (replicas.rs): a link retired on its birth frame,
+            // while the timeline still showed the previous life, would leave a
+            // respawned hull deferred, never placed, for its whole life.
+            self.owner.network.keep(self.slots[slot].rig, key.0 as f64, key.1 as f64, 1., &receiver.network);
             let s = &mut self.slots[slot];
             s.active = true;
             let m = &self.models[s.model];

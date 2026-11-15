@@ -137,6 +137,14 @@ pub struct Replicas {
     // By class: a class's own skin on its shared body (OverrideTexture), as
     // the body's draw textures and spawn screen preview parts.
     skins: Vec<Option<([f64; 4], Vec<Appearance>)>>,
+    // game.js lightAt for every drawn body and the first-person view.
+    light: super::unit_light::UnitLight,
+    // The sun's direction toward the scene, the frame's dt, the player's feet,
+    // and FirstPersonView.sunSeen (eased: is the sun seen from the gun?).
+    sun: [f64; 3],
+    dt: f64,
+    own_feet: Option<[f64; 3]>,
+    sun_seen: f64,
     dive_times: Vec<f64>,
     preview_weapons: Vec<Option<usize>>,
     preview_banks: Vec<usize>,
@@ -361,6 +369,12 @@ impl Replicas {
                 }
             }
         }
+        let world = &content.content.battle.world;
+        let lumi = world.get("lumi").and_then(|l| l.get("file")).and_then(bfe_content::Value::as_str)
+            .and_then(|file| content.textures.read(&format!("maps/{}/{file}", content.content.battle.map)).ok());
+        let light = super::unit_light::UnitLight::new(world, lumi);
+        let sun = serde_json::from_value::<[f64; 3]>(content.map["lighting"]["sunDirection"].clone()).unwrap_or([0., -1., 0.]);
+        let sun = { let n = (sun[0] * sun[0] + sun[1] * sun[1] + sun[2] * sun[2]).sqrt().max(1e-9); [sun[0] / n, sun[1] / n, sun[2] / n] };
         let mut skins: Vec<Option<([f64; 4], Vec<Appearance>)>> = (0..classes.len()).map(|_| None).collect();
         for class in &defs.classes {
             let (Some(id), Some(model)) = (class.registry_id, class.registry_id.and_then(|id| classes[id as usize])) else {
@@ -600,6 +614,11 @@ impl Replicas {
             classes,
             class_names,
             skins,
+            light,
+            sun,
+            dt: 0.,
+            own_feet: None,
+            sun_seen: 1.,
             dive_times,
             preview_weapons,
             preview_banks,
@@ -628,9 +647,11 @@ impl Replicas {
         bridge: &mut Bridge,
     ) {
         if let Some(census) = &mut self.census {
-            census.observe(tick, receiver, &self.slots, &self.units.output, &self.units.input, &self.class_names);
+            census.observe(tick, receiver, &self.slots, &self.units.output, &self.units.input, &self.class_names, &self.light);
         }
         self.tick = tick;
+        self.dt = dt;
+        self.own_feet = None;
         self.hud.frame(bridge, receiver, prediction, dt);
         self.combat.frame(receiver, tick, dt);
         // The player's own rounds fired in this frame's replay are drawn
@@ -939,6 +960,9 @@ impl Replicas {
                     input[i::DIVE_TIME] = body.dive_time;
                 }
             }
+            if input[i::OWN] != 0. {
+                self.own_feet = Some([input[i::POSITION], input[i::POSITION + 1], input[i::POSITION + 2]]);
+            }
             self.visible += usize::from(input[i::PRESENT] != 0. && input[i::OWN] == 0.);
         }
         // Every body of this frame is bound: show what the server said of them.
@@ -1017,6 +1041,17 @@ impl Replicas {
     // Finalize after the camera selector: FirstPersonView hangs below the
     // selected view and consumes this frame's camera-motion cue.
     pub fn finish_frame(&mut self, receiver: &Receiver, prediction: &super::replay::Replay, camera: &[f64; 16], cue: f64) {
+        // FirstPersonView.light: the player's light, with its sun scaled by
+        // whether a 500 m ray from the view toward the sun is clear, eased
+        // half the way per 1/30 s.
+        if let Some(feet) = self.own_feet {
+            let ray = bfe_sim::collision::Ray { ox: camera[12], oy: camera[13], oz: camera[14], dx: -self.sun[0], dy: -self.sun[1], dz: -self.sun[2] };
+            let blocked = self.collision.borrow_mut().ray_hit(self.world, ray, 500., -1).is_some();
+            self.sun_seen += (if blocked { 0. } else { 1. } - self.sun_seen) * (1. - 0.5f64.powf(self.dt.max(0.) * 30.));
+            let mut look = self.light.at(feet);
+            look[0] *= self.sun_seen;
+            self.first_person.look = look;
+        }
         if receiver.own.mount_kind != k::VEHICLE {
             self.first_person.frame(&mut self.units, receiver, prediction, &self.guns, camera, cue);
             self.units.pose_frame();
@@ -1581,6 +1616,7 @@ impl Replicas {
             if let Some((maps, _)) = self.skins.get(slot.class).and_then(Option::as_ref) {
                 row[draw::REC_TEXTURES..draw::REC_TEXTURES + 4].copy_from_slice(maps);
             }
+            row[draw::REC_LOOK..draw::REC_LOOK + 4].copy_from_slice(&self.light.at([matrix[12], matrix[13], matrix[14]]));
             row[draw::REC_WORLD..draw::REC_WORLD + 16].copy_from_slice(&output[o::ROOT_WORLD..o::ROOT_WORLD + 16]);
             row[draw::REC_BIND_INVERSE..draw::REC_BIND_INVERSE + 16].copy_from_slice(&output[o::BIND_INVERSE..o::BIND_INVERSE + 16]);
             row[draw::REC_BONES] = count as f64;
@@ -1667,7 +1703,7 @@ struct DisplayCensus {
     seconds: u32,
 }
 impl DisplayCensus {
-    fn observe(&mut self, tick: f64, receiver: &Receiver, slots: &[Slot], output: &[f64], inputs: &[f64], names: &[String]) {
+    fn observe(&mut self, tick: f64, receiver: &Receiver, slots: &[Slot], output: &[f64], inputs: &[f64], names: &[String], light: &super::unit_light::UnitLight) {
         let own = receiver.own.id;
         if tick < self.next {
             return;
@@ -1709,6 +1745,7 @@ impl DisplayCensus {
                 }
             }
             let mut astray = Vec::new();
+            let (mut shaded, mut dimmed) = (0, 0);
             for slot in slots.iter().filter(|s| s.active && s.identity.is_some()) {
                 let out = &output[slot.actor * o::STRIDE..][..o::STRIDE];
                 if slot.identity.is_some_and(|key| world.contains_key(&key)) && (out[o::DEAD] != 0. || out[o::GONE] == -1.) {
@@ -1719,18 +1756,21 @@ impl DisplayCensus {
                 if out[o::DEAD] == 0. && out[o::GONE] != -1. {
                     let entry = by_class.entry(slot.class).or_default();
                     entry.1 += 1;
+                    let look = light.at([out[o::ROOT_WORLD + 12], out[o::ROOT_WORLD + 13], out[o::ROOT_WORLD + 14]]);
+                    shaded += usize::from(look[0] < 1. || look[1] > 0. || look[2] > 0.);
+                    dimmed += usize::from(look[3] < 1.);
                     if let Some(at) = slot.identity.and_then(|key| world.get(&key)) {
                         let drawn = [out[o::ROOT_WORLD + 12], out[o::ROOT_WORLD + 13], out[o::ROOT_WORLD + 14]];
                         let off = ((drawn[0] - at[0]).powi(2) + (drawn[1] - at[1]).powi(2) + (drawn[2] - at[2]).powi(2)).sqrt();
                         if off > 3. {
                             entry.2 += 1;
-                            astray.push(format!("{}@{:.0},{:.0},{:.0}->{:.0},{:.0},{:.0}", slot.identity.map_or(0, |k| k.0), at[0], at[1], at[2], drawn[0], drawn[1], drawn[2]));
+                            astray.push(format!("{}{}@{:.0},{:.0},{:.0}->{:.0},{:.0},{:.0}", slot.identity.map_or(0, |k| k.0), if slot.mount.is_some() { "(seated)" } else { "" }, at[0], at[1], at[2], drawn[0], drawn[1], drawn[2]));
                         }
                     }
                 }
             }
             let line = by_class.iter().map(|(c, (w, d, a))| format!("{}={w}/{d}/{a}", names.get(*c).map_or("?", String::as_str))).collect::<Vec<_>>().join(" ");
-            eprintln!("units census t={}s world/drawn/astray {line} astray=[{}]", (tick / 60.) as u64, astray.join(" "));
+            eprintln!("units census t={}s world/drawn/astray {line} astray=[{}] light: shaded={shaded} dimmed={dimmed}", (tick / 60.) as u64, astray.join(" "));
         }
     }
 }
