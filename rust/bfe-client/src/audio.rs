@@ -24,19 +24,35 @@ pub fn wanted_channels() -> usize {
 }
 /// Which of an output layout's channels (L R C LFE SL SR; FL FR FC LFE BL BR SL
 /// SR TFL TFR TBL TBR) device channel `device` plays. Windows and macOS take
-/// that order as it is. ALSA's (Linux) puts the rear or side pair before the
-/// centre and LFE: FL FR RL RR FC LFE [SL SR].
+/// that order as it is. ALSA's (Linux) puts the rear pair before the centre
+/// and LFE: FL FR RL RR FC LFE [SL SR]. ALSA has no 12-channel order; the
+/// PipeWire plugin's is FL FR FC LFE SL SR RL RR and the four heights.
 pub fn order(channels: usize, device: usize) -> usize {
-    if cfg!(target_os = "linux") && (channels == 6 || channels == 8 || channels == 12) {
-        match device {
-            2 => 4,
-            3 => 5,
-            4 => 2,
-            5 => 3,
-            d => d,
+    if !cfg!(target_os = "linux") {
+        return device;
+    }
+    match (channels, device) {
+        (6 | 8, 2) => 4,
+        (6 | 8, 3) => 5,
+        (6 | 8, 4) => 2,
+        (6 | 8, 5) => 3,
+        (12, 4) => 6,
+        (12, 5) => 7,
+        (12, 6) => 4,
+        (12, 7) => 5,
+        (_, d) => d,
+    }
+}
+
+#[cfg(test)]
+mod order_tests {
+    #[test]
+    fn every_layout_channel_reaches_one_device_channel() {
+        for channels in [2, 6, 8, 12] {
+            let mut seen: Vec<usize> = (0..channels).map(|d| super::order(channels, d)).collect();
+            seen.sort();
+            assert_eq!(seen, (0..channels).collect::<Vec<_>>());
         }
-    } else {
-        device
     }
 }
 

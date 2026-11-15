@@ -61,8 +61,8 @@ impl MultiplayerKind {
     }
 }
 
-/// Host game configuration (`SET GAME OPTIONS`) submitted from the `HOST` screen
-/// (`ScreenId::HostDialog`) and mapped to `bfe_desktop::host::HostOptions`.
+/// The HOST A BATTLE form's choices (`ScreenId::HostDialog`, the browser's hostDialog),
+/// mapped to `bfe_desktop::host::HostOptions` when the hosted server starts.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostConfig {
     /// Public server name shown in the LAN/online browser.
@@ -79,26 +79,10 @@ pub struct HostConfig {
     pub mode: String,
     /// Maximum human player slots (`2..=64`, default `8`).
     pub max_players: u32,
-    /// AI bot count per team (`0..=32`, default `16`).
-    pub bots: u32,
     /// Whether the server only listens on the local network (`true` = LAN only).
     pub lan_only: bool,
-    /// Relay policy (`"auto"`, `"always"`, `"direct"`).
+    /// Relay policy (`"auto"`, `"always"`, `"never"`).
     pub relay_policy: String,
-    /// AI difficulty (`"easy"`, `"medium"`, `"hard"`).
-    pub ai_difficulty: String,
-    /// Reinforcements percentage (`50`, `100`, `150`, `200`).
-    pub reinforcements_pct: u32,
-    /// Victory timer in seconds (`0` = untimed, `300`, `600`, `900`, `1200`).
-    pub victory_timer_sec: u32,
-    /// Friendly fire toggle (`false` by default).
-    pub friendly_fire: bool,
-    /// AI heroes toggle (`true` by default).
-    pub heroes_enabled: bool,
-    /// Auto-assign teams (`true` = auto-assign, `false` = player chooses).
-    pub auto_assign_teams: bool,
-    /// Auto-spawn toggle (`false` by default).
-    pub auto_spawn: bool,
 }
 
 impl Default for HostConfig {
@@ -111,16 +95,8 @@ impl Default for HostConfig {
             era: "cw".to_string(),
             mode: DEFAULT_MODE.to_string(),
             max_players: 8,
-            bots: 16,
             lan_only: true,
             relay_policy: "auto".to_string(),
-            ai_difficulty: "medium".to_string(),
-            reinforcements_pct: 100,
-            victory_timer_sec: 0,
-            friendly_fire: false,
-            heroes_enabled: true,
-            auto_assign_teams: false,
-            auto_spawn: false,
         }
     }
 }
@@ -388,7 +364,8 @@ pub fn hosted_server_entry(config: &HostConfig) -> ServerEntry {
             side: side.to_string(),
             era: config.era.clone(),
             mode: mode.to_string(),
-            bots: Some(config.bots > 0),
+            // A hosted server always fills its teams with bots ("ai": "enhanced").
+            bots: Some(true),
             ..BattleSummary::default()
         }),
         rotation: vec![RotationItem::Slug(format!(
@@ -1083,22 +1060,8 @@ impl ShellApp {
                     }
                 }
             }
-            // `HostDialog` (`SET GAME OPTIONS`): pressing `Enter` on `"launch"`
-            // starts the hosted session via `execute_host`; pressing `Enter` on
-            // any option row steps that option forward (`+1`).
-            ScreenId::HostDialog => {
-                let rows = self.rows_for(screen);
-                let idx = self.selected_row_index(screen);
-                if let Some(row) = rows.get(idx) {
-                    if row.id == "launch" {
-                        self.execute_host();
-                    } else {
-                        self.adjust_host_option(1);
-                    }
-                } else {
-                    self.execute_host();
-                }
-            }
+            // `HostDialog`: Enter starts the hosted session with the form's choices.
+            ScreenId::HostDialog => self.execute_host(),
             ScreenId::Popup => {}
         }
     }

@@ -1664,14 +1664,29 @@ export component ScoreStatSheet inherits Surface {
                     alignment: start;
                     spacing: root.value-size * 0.8;
 
-                    if line.tag != "" : Text {
-                        text: line.tag;
-                        font-family: Theme.font-family;
-                        font-size: root.value-size * 0.72;
-                        font-weight: 800;
-                        letter-spacing: 0.14 * root.value-size;
-                        color: line-row.tag-col;
-                        vertical-alignment: center;
+                    // The team's name as an outlined tag in its colour (the browser's .bfe-board-tag).
+                    if line.tag != "" : VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            property <length> tag-size: root.value-size * 0.72;
+                            width: tag-text.preferred-width + self.tag-size * 1.3;
+                            height: self.tag-size * 1.6;
+                            background: transparent;
+                            border-width: 1px;
+                            border-color: line-row.tag-col;
+                            tag-text := Text {
+                                x: parent.tag-size * 0.65;
+                                y: 0px;
+                                height: parent.height;
+                                text: line.tag;
+                                font-family: Theme.font-family;
+                                font-size: parent.tag-size;
+                                font-weight: 800;
+                                letter-spacing: 0.14 * parent.tag-size;
+                                color: line-row.tag-col;
+                                vertical-alignment: center;
+                            }
+                        }
                     }
 
                     Text {

@@ -221,6 +221,8 @@ pub struct SettingsPatch {
     pub discord_presence: Option<bool>,
     /// Remember the one-time offer answer and its activity detail across launches.
     pub presence: Option<PresenceSettingsRecord>,
+    /// Remember the Steam library answer (declined, launch through Steam) across launches.
+    pub steam: Option<SteamSettingsRecord>,
     /// Optional replacement for `preparations`.
     pub preparations: Option<BTreeMap<String, PreparationRecord>>,
 }
@@ -271,6 +273,9 @@ impl SettingsStore {
         }
         if let Some(presence) = &patch.presence {
             current.presence = Some(presence.clone());
+        }
+        if let Some(steam) = &patch.steam {
+            current.steam = Some(steam.clone());
         }
         if let Some(preps) = &patch.preparations {
             current.preparations = preps.clone();
