@@ -135,6 +135,8 @@ pub struct Replicas {
     slots: Vec<Slot>,
     bound: Index,
     pub visible: usize,
+    /// BFE_AI_TRACE: the drawn soldiers' census, beside the world's.
+    census: Option<Box<DisplayCensus>>,
     pub refused: u64,
     frame: u64,
 }
@@ -524,6 +526,7 @@ impl Replicas {
             slots,
             bound: Index::new(POOL),
             visible: 0,
+            census: std::env::var_os("BFE_AI_TRACE").map(|_| Box::default()),
             refused: 0,
             frame: 0,
         })
@@ -538,13 +541,16 @@ impl Replicas {
         history: &super::replay::History,
         bridge: &mut Bridge,
     ) {
+        if let Some(census) = &mut self.census {
+            census.observe(tick, receiver.own.id, &self.slots, &self.units.output);
+        }
         self.tick = tick;
         self.hud.frame(bridge, receiver, prediction, dt);
         self.combat.frame(receiver, tick, dt, &mut self.lights, bridge);
         // SnapshotPresentation samples once for the whole display batch.
         // The unit links then borrow its output by identity and generation.
         receiver.network.borrow_mut().present(tick, -1., prediction.fleet.identity.map_or(-1., |p| p.0));
-        self.hulls.frame(receiver, tick, dt, &prediction.fleet, history);
+        self.hulls.frame(receiver, tick, dt, &prediction.fleet, history, &mut self.combat.hull_fx);
         self.turrets.frame(receiver, history, dt);
         self.items.frame(receiver, tick);
         self.frame = self.frame.wrapping_add(1);
@@ -697,6 +703,20 @@ impl Replicas {
                     c[command::ACTOR] = self.slots[slot].actor as f64;
                     c[command::KIND] = kind::DIE as f64;
                     c[command::CLIP] = self.models[model].death_clip;
+                    self.units.input[f::COMMANDS] += 1.;
+                }
+            }
+            if !dead && self.slots[slot].dead {
+                // The same body is alive again (a first spawn keeps the
+                // generation it was admitted with): stand it up, or it
+                // keeps its death pose while it walks.
+                for operation in [kind::RESET, kind::PRESENTATION_RESET] {
+                    let at = self.units.input[f::COMMANDS] as usize * command::STRIDE;
+                    let c = &mut self.units.commands[at..at + command::STRIDE];
+                    c.fill(0.);
+                    c[command::ACTOR] = self.slots[slot].actor as f64;
+                    c[command::KIND] = operation as f64;
+                    c[command::YAW] = row[r::YAW];
                     self.units.input[f::COMMANDS] += 1.;
                 }
             }
@@ -1107,6 +1127,7 @@ impl Replicas {
     /// texture of the opaque scene's depth, which soft particles read.
     pub fn present_shields(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], size: [i32; 2], depth: u32, bridge: &mut Bridge) {
         self.combat.particles.project(bridge, camera, self.soft.then_some((size, depth)));
+        self.combat.map_effects.view(camera, eye);
         self.combat.project(bridge, camera, size[1] as f64);
         self.presented.shown[11] = self.combat.total_blasters;
         self.shields.begin();
@@ -1156,6 +1177,12 @@ impl Replicas {
     }
     /// Pausing is a cold observation point; the canonical clocks and blend
     /// layers stay in Units rather than a second client animation model.
+    /// The player's own body animation and its model's clip names, for telemetry.
+    pub fn own_animation(&self, receiver: &Receiver) -> Option<(&bfe_pose::display::Animator, &[(String, f64)])> {
+        let key = (receiver.own.id as u32, receiver.own.generation as u32);
+        let slot = self.slots.iter().find(|slot| slot.active && slot.identity == Some(key))?;
+        Some((self.units.actor_animation(slot.actor)?, &self.models[slot.model].clips))
+    }
     pub fn log_motion(&self, receiver: &Receiver) {
         let key = (receiver.own.id as u32, receiver.own.generation as u32);
         let Some(slot) = self
@@ -1359,5 +1386,48 @@ impl Replicas {
         let (records, bones) = self.turrets.append(bridge, records, bones);
         let (records, bones) = self.items.append(bridge, records, bones);
         self.combat.append(bridge, records, bones)
+    }
+}
+
+/// Once a second, the drawn soldiers (last frame's placement): how many are
+/// drawn alive, how many of those moved more than a metre since the second
+/// before and how many of those walk (a gait with its clip clock running);
+/// every ten seconds a
+/// line on stderr to set beside the world's census.
+#[derive(Default)]
+struct DisplayCensus {
+    last: std::collections::HashMap<(u32, u32), [f64; 3]>,
+    next: f64,
+    seconds: u32,
+}
+impl DisplayCensus {
+    fn observe(&mut self, tick: f64, own: f64, slots: &[Slot], output: &[f64]) {
+        if tick < self.next {
+            return;
+        }
+        self.next = tick + 60.;
+        self.seconds += 1;
+        let (mut drawn, mut moving, mut walking) = (0, 0, 0);
+        let mut next = std::collections::HashMap::with_capacity(self.last.len());
+        for slot in slots.iter().filter(|s| s.active && !s.dead) {
+            let Some(key) = slot.identity else { continue };
+            if f64::from(key.0) == own {
+                continue;
+            }
+            let out = &output[slot.actor * o::STRIDE..][..o::STRIDE];
+            let at = [out[o::ROOT_WORLD + 12], out[o::ROOT_WORLD + 14], out[o::ANIMATOR]];
+            drawn += 1;
+            if let Some(was) = self.last.get(&key) {
+                let moved = (at[0] - was[0]).hypot(at[1] - was[1]) > 1.;
+                moving += usize::from(moved);
+                // A moving body in a gait whose clip clock runs.
+                walking += usize::from(moved && out[o::ANIMATOR + 4] != 0. && at[2] != was[2]);
+            }
+            next.insert(key, at);
+        }
+        self.last = next;
+        if self.seconds % 10 == 0 {
+            eprintln!("ai census display t={}s drawn={drawn} moving={moving} walking={walking}", (tick / 60.) as u64);
+        }
     }
 }

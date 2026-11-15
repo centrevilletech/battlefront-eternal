@@ -187,7 +187,12 @@ impl Prepared {
                 continue;
             }
             let prefix = format!("{name}/");
-            let meshes: Vec<_> = content.models.iter().filter(|m| m.name.starts_with(&prefix)).collect();
+            let mut meshes: Vec<_> = content.models.iter().filter(|m| m.name.starts_with(&prefix)).collect();
+            // A map effect's model comes from the map's environment pack.
+            if meshes.is_empty() {
+                let prefix = format!("environment/{name}/");
+                meshes = content.models.iter().filter(|m| m.name.starts_with(&prefix)).collect();
+            }
             let Some(first) = meshes.first() else {
                 effect_glows.push(None);
                 continue;

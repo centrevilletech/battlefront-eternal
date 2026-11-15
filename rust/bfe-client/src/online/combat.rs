@@ -144,6 +144,10 @@ pub struct Combat {
     flames: Vec<Flame>,
     /// Classic jet exhaust effects started so far.
     pub total_flames: u64,
+    /// The map's placed effects (torches, smoke, steam).
+    pub map_effects: super::map_effects::MapEffects,
+    /// The hulls' thrust, damage and death effects.
+    pub hull_fx: super::hull_effects::HullEffects,
 }
 struct Flame {
     unit: (u32, u32),
@@ -310,6 +314,20 @@ impl Combat {
         particles.words += STREAK_FLOATS + FLARE_FLOATS;
         bridge.fx_reserve(particles.words as u32);
         let debris = super::debris::Debris::new(content, bridge, textures, &effect_names, collision, world)?;
+        // environment-effects.js warmup: each group's longest particle life,
+        // at most 4 s.
+        let lifetime = |d: &serde_json::Value| d["transformer"]["lifetime"].as_f64().unwrap_or(0.);
+        let definitions_json = library.descriptor["definitions"].as_array().map_or(&[][..], |v| v.as_slice());
+        let warmups: Vec<f64> = library.descriptor["groups"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|group| {
+                let longest = group.as_array().into_iter().flatten().filter_map(|d| d.as_u64()).filter_map(|d| definitions_json.get(d as usize)).map(lifetime).fold(0., f64::max);
+                longest.min(4.)
+            })
+            .collect();
+        let map_effects = super::map_effects::MapEffects::new(content, &effect_names, &warmups);
         let mut scratch = bfe_sim::wire::cosmetics::Compact::default();
         scratch.offset.reserve(3);
         Ok(Self {
@@ -361,6 +379,8 @@ impl Combat {
             total_streaks: 0,
             flames: Vec::with_capacity(16),
             total_flames: 0,
+            map_effects,
+            hull_fx: super::hull_effects::HullEffects::new(),
         })
     }
     // Effects.play for a one-shot: its handle is never used again. A missing
@@ -457,6 +477,8 @@ impl Combat {
             self.epoch = receiver.epoch;
             self.pending.clear();
             self.flames.clear();
+            self.map_effects.reset(&mut self.effects);
+            self.hull_fx.clear(&mut self.effects);
             self.debris.clear();
             self.bound.clear();
             self.free.clear();
@@ -704,7 +726,11 @@ impl Combat {
             x[r::KEY] = bolt.key as f64;
             x[r::STYLE] = bolt.style as f64;
             x[r::SOURCE] = slot as f64;
-            x[r::FLAGS] = ((1 << flag::HAS_CLOCK) | (1 << flag::HAS_OFFSET) | (1 << flag::RESOLVE_SHOWN)) as f64;
+            // linearBoltFrame: a replicated bolt flies from its flight tick
+            // at its speed for its life, on the displayed clock. Without
+            // LINEAR the owner reads it as a stepped bolt that has flown
+            // nothing, and draws it at the muzzle until its record expires.
+            x[r::FLAGS] = ((1 << flag::LINEAR) | (1 << flag::HAS_CLOCK) | (1 << flag::HAS_OFFSET) | (1 << flag::RESOLVE_SHOWN)) as f64;
             x[r::ALPHA] = 1.;
             x[r::CLOCK_TICK] = tick;
             x[r::FADE] = 1.;
@@ -840,6 +866,40 @@ impl Combat {
         // Debris.update runs before Effects.update: a piece's trail moves
         // and its bounce plays in this frame's batch.
         self.debris.step(dt, &mut self.effects, &mut self.total_effects, &mut self.refused);
+        self.map_effects.update(&mut self.effects, dt);
+        self.hull_fx.apply(&mut self.effects);
+        // A wrecked hull's chunks, each from its node (else the root).
+        for wreck in std::mem::take(&mut self.hull_fx.wrecks) {
+            let starts: Vec<three::Matrix4> = self
+                .debris
+                .parts(wreck.class)
+                .iter()
+                .map(|part| {
+                    let node = wreck.names.iter().position(|n| !part.node.is_empty() && *n == part.node).unwrap_or(0);
+                    let mut matrix = three::Matrix4::default();
+                    if let Some(m) = wreck.nodes.get(node * 16..node * 16 + 16) {
+                        matrix.elements.copy_from_slice(m);
+                    }
+                    matrix
+                })
+                .collect();
+            for (part, matrix) in starts.into_iter().enumerate() {
+                self.debris.blow_apart_hull(wreck.class, part, matrix, wreck.origin, wreck.velocity);
+            }
+        }
+        if let Some(clock) = self.map_effects.report.as_mut() {
+            *clock += dt;
+            if *clock >= 10. {
+                *clock = 0.;
+                let particles = self.effects.owner.header[bfe_presentation::layout::header::PARTICLES];
+                let (seen, lowest) = (self.hull_fx.seen, self.hull_fx.lowest);
+                let live = self.hull_fx.live_count();
+                eprintln!(
+                    "fx-count map={} in-view={} hull={} hull-frames={seen} lowest={lowest:.2} live={live} particles={particles} effects={}",
+                    self.map_effects.started, self.map_effects.visible, self.hull_fx.started, self.total_effects
+                );
+            }
+        }
         self.effects.frame();
         // The owners publish planar quad attributes and analytic particle
         // records. The retained renderer batches consume those publications;

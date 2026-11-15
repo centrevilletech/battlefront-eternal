@@ -405,6 +405,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         context: None,
         gl: None,
         focused: true,
+        hidden: false,
         pointer_locked: false,
         pointer_icon: winit::window::CursorIcon::Default,
         cursor_physical: [0.0; 2],
@@ -503,6 +504,9 @@ struct StandaloneWindowApp {
     gl: Option<glow::Context>,
     /// Whether the OS window currently has input focus.
     focused: bool,
+    /// Whether the compositor says the window cannot be seen (minimized or
+    /// covered): the page's `document.hidden`, which suspends a local battle.
+    hidden: bool,
     /// Whether the cursor is currently locked and hidden for 3D combat mouselook.
     pointer_locked: bool,
     pointer_icon: winit::window::CursorIcon,
@@ -1230,6 +1234,9 @@ impl ApplicationHandler for StandaloneWindowApp {
             WindowEvent::CloseRequested => {
                 // Consult `HostController::close_prompt()` before exiting the event loop.
                 self.request_app_close(event_loop);
+            }
+            WindowEvent::Occluded(hidden) => {
+                self.hidden = hidden && self.gate.is_none() && self.platform_smoke.is_none();
             }
             WindowEvent::Focused(focused) => {
                 // Keep focus active during headless Xorg `--script gate` runs; otherwise
@@ -2290,6 +2297,7 @@ impl StandaloneWindowApp {
                     let transition = battle.step_and_draw(
                         dt,
                         self.focused,
+                        self.hidden,
                         &mut self.settings,
                         &self.audio_router,
                     )?;

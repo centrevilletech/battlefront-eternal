@@ -112,11 +112,15 @@ impl Debris {
         let mut models = Vec::new();
         let mut classes = Vec::new();
         classes.resize_with(defs.registry.classes.len() + 1, Vec::new);
-        for class in &defs.classes {
-            let Some(id) = class.registry_id else {
+        // A droid's chunks are its class's; a hull's are in its effects
+        // (VehicleEffects.blowApart).
+        let droids = defs.classes.iter().map(|c| (c.registry_id, c.record.get("chunks")));
+        let hulls = defs.vehicles.iter().map(|c| (c.registry_id, c.record.get("fx").and_then(|fx| fx.get("chunks"))));
+        for (id, chunks) in droids.chain(hulls) {
+            let Some(id) = id else {
                 continue;
             };
-            for chunk in class.record.get("chunks").and_then(Value::as_array).unwrap_or(&[]) {
+            for chunk in chunks.and_then(Value::as_array).unwrap_or(&[]) {
                 // The piece's model, made once however many classes use it.
                 let name = chunk.get("ChunkGeometryName").and_then(Value::as_str).unwrap_or("");
                 let model = match names.iter().position(|known| known == name) {
@@ -194,6 +198,19 @@ impl Debris {
                 floor: f64::NEG_INFINITY,
             },
         ));
+        true
+    }
+    /// VehicleEffects.blowApart for one chunk of a wrecked hull: it flies at
+    /// full speed (the hull's pace is not traced) and starts no lower than
+    /// the ground the hull stood on.
+    pub fn blow_apart_hull(&mut self, class: usize, part: usize, matrix: Matrix4, origin: [f64; 3], velocity: [f64; 3]) -> bool {
+        let floor = origin[1];
+        if !self.blow_apart(class, part, matrix, origin, velocity, -50.) {
+            return false;
+        }
+        if let Some((_, launch)) = self.queued.last_mut() {
+            launch.floor = floor;
+        }
         true
     }
     /// Debris.update, after the launches asked for since the last frame.

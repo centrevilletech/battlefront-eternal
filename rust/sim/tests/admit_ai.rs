@@ -17,6 +17,7 @@ fn options() -> Options {
         heroes: true,
         unit: None,
         name: None,
+        bots: Default::default(),
     }
 }
 fn text(strings: &Strings, id: StrId) -> String {

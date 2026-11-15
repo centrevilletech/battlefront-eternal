@@ -198,7 +198,7 @@ fn options(v: &Value) -> Result<Options, String> {
         enhanced: v.get("enhanced").is_some_and(Value::truthy),
         heroes: v.get("heroes").is_some_and(Value::truthy),
         unit: None,
-        name: None,
+        name: None, bots: Default::default(),
     })
 }
 fn setup(v: &Value, strings: &mut Strings) -> Result<Call, String> {

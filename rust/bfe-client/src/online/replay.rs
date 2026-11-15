@@ -27,6 +27,10 @@ pub struct History {
     at: usize,
     count: usize,
     pub refused: u64,
+    // The keys of the newest command the authority has applied, and its life.
+    // Replay holds them through ticks that have no pending command of their own.
+    held: u32,
+    held_generation: f64,
 }
 impl Default for History {
     fn default() -> Self {
@@ -37,6 +41,8 @@ impl Default for History {
             at: 0,
             count: 0,
             refused: 0,
+            held: 0,
+            held_generation: -1.,
         }
     }
 }
@@ -44,12 +50,21 @@ impl History {
     pub fn clear(&mut self) {
         self.at = 0;
         self.count = 0;
+        self.held = 0;
+        self.held_generation = -1.;
     }
     pub fn acknowledge(&mut self, sequence: f64) {
         while self.count != 0 && self.rows[self.at].sequence <= sequence {
+            self.held = self.rows[self.at].held;
+            self.held_generation = self.rows[self.at].generation;
             self.at = (self.at + 1) % COMMANDS;
             self.count -= 1;
         }
+    }
+    // The world keeps the last applied keys down until a newer command
+    // replaces them. Another life starts with none.
+    pub fn held(&self, generation: f64) -> u32 {
+        if self.held_generation == generation { self.held } else { 0 }
     }
     pub fn push(&mut self, c: &ClientCommand, look: &ClientLook, flight: &ClientFlightCommand, tick: f64, generation: f64, sequence: f64) {
         if self.count == COMMANDS {
@@ -130,6 +145,11 @@ pub struct Replay {
     pub displayed: Option<Soldier>,
     before: Option<Soldier>,
     look_yaw: f64,
+    // The last tick shown and where the body was at it. When newer authority
+    // moves that tick, the difference is eased out of the picture, not popped.
+    shown_tick: f64,
+    shown_position: [f64; 3],
+    pub smoother: bfe_pose::smoothing::SmootherState,
     display: super::own_view::Display,
     life: [f64; 3],
     pub fleet: Box<super::hull_replay::Fleet>,
@@ -191,7 +211,8 @@ impl Replay {
             classes,
             words: Vec::with_capacity(16384),
             class: usize::MAX,
-            body: None, displayed: None, before: None, look_yaw: 0., display: Default::default(), life: [0.; 3],
+            body: None, displayed: None, before: None, look_yaw: 0., shown_tick: 0., shown_position: [0.; 3],
+            smoother: Default::default(), display: Default::default(), life: [0.; 3],
             ticks: 0,
             weapon_at: 0,
             weapon_count: 0,
@@ -220,6 +241,14 @@ impl Replay {
     }
     pub fn present(&mut self, alpha: f64, dt: f64) {
         self.displayed = self.body.as_ref().map(|body| self.display.sample(body, self.before.as_ref(), self.look_yaw, self.life, alpha, dt));
+        if self.smoother.decay(0.05, dt) || self.displayed.is_none() {
+            self.smoother.reset();
+        }
+        if let Some(shown) = &mut self.displayed {
+            for axis in 0..3 {
+                shown.position[axis] += self.smoother.offset[axis];
+            }
+        }
     }
     pub fn frame(&mut self, r: &Receiver, sender: &Sender) -> Result<(), &'static str> {
         // Clear result presence before examining the new correction. A dead
@@ -228,8 +257,13 @@ impl Replay {
         // publications are admitted only by this frame's qualified mode.
         self.body = None;
         self.displayed = None;
-        self.before = None;
-        self.life = [r.epoch, r.own.id, r.own.generation];
+        let interval = self.before.take();
+        let life = [r.epoch, r.own.id, r.own.generation];
+        if self.life != life {
+            self.shown_tick = 0.;
+            self.smoother.reset();
+        }
+        self.life = life;
         self.weapon_count = 0;
         self.fleet.frame(r, sender, &mut self.words, &mut collision_mut(&self.collision))?;
         if r.own.remote.is_some() {
@@ -368,6 +402,8 @@ impl Replay {
             kick: self.arsenal.kick,
             commands_at,
             commands_count,
+            held: sender.history.held(r.own.generation),
+            check_tick: self.shown_tick,
             mouse_scale: 1.,
             ..Default::default()
         };
@@ -378,12 +414,24 @@ impl Replay {
             self.weapon_at = result.weapons_at as usize;
             self.weapon_count = self.owner.output.get(self.weapon_at).copied().unwrap_or(0.) as usize;
             if result.actor_words as usize == Soldier::WORDS {
-                self.body = Some(Soldier::take(&self.owner.output[result.actor_at as usize..], &[]));
+                let body = Soldier::take(&self.owner.output[result.actor_at as usize..], &[]);
+                if result.check_found {
+                    if self.smoother.note(self.shown_position, result.check_position, 2.5).reset {
+                        self.smoother.reset();
+                    }
+                }
+                self.shown_tick = result.tick;
+                self.shown_position = body.position;
+                self.body = Some(body);
                 if result.ticks != 0 {
                     let at = result.before_at as usize;
                     self.before = self.owner.output.get(at..at + Soldier::WORDS).map(|row| Soldier::take(row, &[]));
+                    self.look_yaw = result.look_yaw;
+                } else if result.continued {
+                    // A display frame between two ticks: the same body, still
+                    // drawn part way along the tick it last took.
+                    self.before = interval;
                 }
-                self.look_yaw = result.look_yaw;
                 self.ticks += result.ticks as u64;
             }
         }
@@ -426,7 +474,23 @@ mod control_settings_tests {
         // Applied authority checkpoints retire only the named command tail.
         history.acknowledge(6.);
         assert_eq!(history.write(&mut words).1, 1);
+        assert_eq!(history.held(1.), 0);
         history.acknowledge(7.);
         assert_eq!(history.write(&mut words).1, 0);
+    }
+
+    #[test]
+    fn replay_holds_the_keys_of_the_last_applied_command() {
+        let forward = ClientCommand { held: 1, ..Default::default() };
+        let mut history = History::default();
+        history.push(&forward, &ClientLook::default(), &ClientFlightCommand::default(), 10., 4., 1.);
+        history.push(&ClientCommand::default(), &ClientLook::default(), &ClientFlightCommand::default(), 13., 4., 2.);
+        // The world has applied the first: ticks 11 and 12 replay with its key down.
+        history.acknowledge(1.);
+        assert_eq!(history.held(4.), 1);
+        // Another life starts with nothing held.
+        assert_eq!(history.held(5.), 0);
+        history.acknowledge(2.);
+        assert_eq!(history.held(4.), 0);
     }
 }
