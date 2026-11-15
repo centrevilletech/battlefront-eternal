@@ -287,7 +287,7 @@ mod tests {
         let movies = other.join("gamedata").join("DATA").join("_lvl_pc").join("movies");
         std::fs::create_dir_all(&movies).unwrap();
         std::fs::write(movies.join("SHELL.MVS"), archive(&["main"])).unwrap();
-        let library = MovieLibrary::open(None, &[other.clone()]);
+        let library = MovieLibrary::open(None, std::slice::from_ref(&other));
         assert_eq!(library.game_dir(), Some(other.as_path()));
         let main = library.resolve("/common/shell/movies/main.webm").unwrap();
         assert_eq!(main.path, movies.join("SHELL.MVS"));
