@@ -606,6 +606,8 @@ export component BattlePauseScreen inherits Rectangle {
                     width: parent.width;
                     label: item.label;
                     disabled: !item.enabled;
+                    // Under the YES/NO popup the rows neither light (the clicked row keeps the focus) nor answer.
+                    interactive: BattleModel.pause-subscreen != "confirm";
                     highlighted: item.highlighted;
                     selected => { BattleModel.pause-row-hovered(idx); }
                     activated => { BattleModel.pause-row-activated(idx); }
