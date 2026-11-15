@@ -39,19 +39,17 @@ fn content_version() -> &'static ContentVersion {
     })
 }
 
-/// Resolves the persistent server state directory (`directory` in `src/main.js`:
-/// `resolve(process.env.BFE_STATE_DIR ?? join(homedir(), ".local/share/bfeserver"))`).
+/// The server state directory when `--dir` is not given: `BFE_STATE_DIR`, else
+/// `$XDG_DATA_HOME/bfeserver`, else `~/.local/share/bfeserver`.
 pub fn state_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("BFE_STATE_DIR") {
-        let path = PathBuf::from(dir);
-        if !path.as_os_str().is_empty() {
-            return path;
-        }
+    let set = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if let Some(dir) = set("BFE_STATE_DIR") {
+        return dir;
     }
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
-    home.join(".local/share/bfeserver")
+    if let Some(dir) = set("XDG_DATA_HOME") {
+        return dir.join("bfeserver");
+    }
+    set("HOME").unwrap_or_else(|| PathBuf::from(".")).join(".local/share/bfeserver")
 }
 
 /// Returns the path to `config.json` inside `dir` (`join(directory, "config.json")` in `src/main.js`).
@@ -431,16 +429,69 @@ impl ServerConfig {
         Value::Object(map)
     }
 
-    /// Loads `config.json` from `dir` or returns `ServerConfig::default()` if absent (`src/main.js`).
+    /// Loads `config.json` from `dir` or returns `ServerConfig::default()` if absent or unreadable.
     pub fn load_from_dir(dir: &Path) -> Self {
+        Self::load_checked(dir).unwrap_or_default()
+    }
+
+    /// Loads `config.json` from `dir`: the defaults when the file does not exist, an error naming
+    /// the file when it exists but cannot be read or is not a JSON object.
+    pub fn load_checked(dir: &Path) -> Result<Self, String> {
         let path = config_path_in(dir);
-        let Ok(raw) = fs::read_to_string(&path) else {
-            return Self::default();
+        let raw = match fs::read_to_string(&path) {
+            Ok(raw) => raw,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(e) => return Err(format!("cannot read {}: {e}", path.display())),
         };
-        let Ok(val) = serde_json::from_str::<Value>(&raw) else {
-            return Self::default();
+        match serde_json::from_str::<Value>(&raw) {
+            Ok(val) if val.is_object() => Ok(Self::from_json_value(&val)),
+            Ok(_) => Err(format!("{} is not a JSON object", path.display())),
+            Err(e) => Err(format!("{} is not valid JSON: {e}", path.display())),
+        }
+    }
+
+    /// Applies the documented environment overrides (`BFE_DATA_DIR`, `BFE_GAME_PORT`, `BFE_BIND`,
+    /// `BFE_DISCOVERY_PORT`, `BFE_MASTER_URL`, `BFE_ACCEPT_ONLINE=1`, `BFE_RELAY_POLICY`) through
+    /// `get`. Returns the variables that were set but not usable.
+    pub fn apply_env(&mut self, get: impl Fn(&str) -> Option<String>) -> Vec<String> {
+        let mut bad = Vec::new();
+        let var = |name: &str| get(name).filter(|v| !v.trim().is_empty());
+        let port = |name: &str, bad: &mut Vec<String>| {
+            let raw = var(name)?;
+            match raw.trim().parse::<u16>() {
+                Ok(p) if p > 0 => Some(p),
+                _ => {
+                    bad.push(format!("{name}={raw}"));
+                    None
+                }
+            }
         };
-        Self::from_json_value(&val)
+        if let Some(v) = var("BFE_DATA_DIR") {
+            self.data = v;
+        }
+        if let Some(p) = port("BFE_GAME_PORT", &mut bad) {
+            self.game_port = Some(p);
+        }
+        if let Some(v) = var("BFE_BIND") {
+            self.bind = Some(v);
+        }
+        if let Some(p) = port("BFE_DISCOVERY_PORT", &mut bad) {
+            self.discovery_port = p;
+        }
+        if let Some(v) = var("BFE_MASTER_URL") {
+            self.master = v;
+        }
+        if let Some(v) = var("BFE_ACCEPT_ONLINE") {
+            self.online_notice_accepted = v.trim() == "1";
+        }
+        if let Some(v) = var("BFE_RELAY_POLICY") {
+            if matches!(v.as_str(), "auto" | "never" | "always") {
+                self.relay_policy = v;
+            } else {
+                bad.push(format!("BFE_RELAY_POLICY={v}"));
+            }
+        }
+        bad
     }
 
     /// Writes `config.json` into `dir` with mode `0600` (`save()` in `src/main.js`:
@@ -609,4 +660,43 @@ pub fn check_content(data: &str, rotation: &[String], ai: &str) -> Result<Checke
         fingerprint: fp,
         first_query,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn environment_overrides_config_values() {
+        let mut cfg = ServerConfig { data: "/old".into(), game_port: Some(1), ..Default::default() };
+        let env = |name: &str| {
+            match name {
+                "BFE_DATA_DIR" => Some("/new"),
+                "BFE_GAME_PORT" => Some("19000"),
+                "BFE_DISCOVERY_PORT" => Some("nope"),
+                "BFE_ACCEPT_ONLINE" => Some("1"),
+                "BFE_RELAY_POLICY" => Some("never"),
+                _ => None,
+            }
+            .map(str::to_string)
+        };
+        let bad = cfg.apply_env(env);
+        assert_eq!(cfg.data, "/new");
+        assert_eq!(cfg.game_port, Some(19000));
+        assert_eq!(cfg.discovery_port, 18452);
+        assert!(cfg.online_notice_accepted);
+        assert_eq!(cfg.relay_policy, "never");
+        assert_eq!(bad, vec!["BFE_DISCOVERY_PORT=nope".to_string()]);
+    }
+
+    #[test]
+    fn broken_config_file_is_an_error_and_missing_is_defaults() {
+        let dir = std::env::temp_dir().join(format!("bfe-config-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        assert!(ServerConfig::load_checked(&dir).is_ok());
+        fs::write(config_path_in(&dir), "{\"data\": ").unwrap();
+        assert!(ServerConfig::load_checked(&dir).unwrap_err().contains("not valid JSON"));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

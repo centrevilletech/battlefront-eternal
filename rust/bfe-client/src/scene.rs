@@ -1175,7 +1175,7 @@ impl Scene {
         let solid = {
             let gl = &bridge.r.core.gl;
             let texture = unsafe {
-                let t = gl.create_texture()?;
+                let t = bridge.r.core.hold_texture(gl.create_texture()?);
                 gl.bind_texture(glow::TEXTURE_2D, Some(t));
                 gl.tex_image_2d(
                     glow::TEXTURE_2D,
@@ -1708,6 +1708,7 @@ impl Scene {
             resources.hud.aim(&mut self.bridge, camera.snapshot(), reticle, &resources.hulls);
             resources.sound.bleed = [resources.hud.teams[1][3], resources.hud.teams[2][3]];
             resources.sound.own_feet = resources.own_feet(receiver);
+            std::mem::swap(&mut resources.sound.turret_seats, &mut resources.hulls.sound_turrets);
             resources.sound.frame(receiver,&world.elements,dt,replay,resources.hud.audio_facts(),&resources.hulls);
             self.bridge.r.core.profile.cpu("HUD and sound presentation", hud_timer);
         }

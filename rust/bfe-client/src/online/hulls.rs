@@ -78,6 +78,8 @@ pub(super) fn integers(v: Value) -> Value {
 // identity, pose clocks and skin output belong to an admitted replica.
 // Separating them avoids both object construction and class lookup on draw.
 struct Model {
+    // Each seat's turret node (its sounds' place) and top turn rate, rad/s.
+    turret_seats: Vec<(Option<usize>, f64)>,
     rows: Vec<[f64; draw::REC_STRIDE]>,
     inverses: Vec<Matrix4>,
     walk_length: f64,
@@ -140,6 +142,10 @@ pub struct Hulls {
     bodies: Vec<((u32, u32), super::hull_effects::Body, bool, usize)>,
     // Every walker slot's feet, where each comes down this frame.
     feet: bfe_presentation::feet::Feet,
+    /// Each turret seat as drawn this frame, for its sounds (VehicleSounds.
+    /// updateTurrets): unit, a stable id, manned, aim yaw and pitch, top turn
+    /// rate, and where it is.
+    pub sound_turrets: Vec<((u32, u32), usize, bool, f64, f64, f64, [f64; 3])>,
     water: Option<bfe_sim::units::water::WaterState>,
 }
 impl Hulls {
@@ -357,6 +363,9 @@ impl Hulls {
             }
             descriptors.push(descriptor);
             models.push(Model {
+                turret_seats: records["seats"].as_array().unwrap().iter()
+                    .map(|s| (s["view"]["turret"].as_u64().map(|n| n as usize), s["view"]["turnRate"].as_f64().unwrap_or(2.)))
+                    .collect(),
                 views: records["seats"].as_array().unwrap().iter().map(|s| super::seat_view::View::new(&s["view"])).collect(),
                 tow_node: records["seats"][1]["view"]["turret"].as_u64()
                     .or_else(|| records["seats"].as_array().unwrap().iter().find_map(|s| s["view"]["turret"].as_u64()))
@@ -437,6 +446,7 @@ impl Hulls {
             world,
             bodies: Vec::with_capacity(POOL),
             feet,
+            sound_turrets: Vec::with_capacity(POOL),
             water: super::water::new(content),
         })
         .inspect(|hulls: &Self| {
@@ -821,6 +831,7 @@ impl Hulls {
             }
         }
         self.effects(receiver, dt, fx);
+        self.turret_seats();
         self.stomp(dt, fx);
     }
     // VehicleEffects.updateStomp: where a walker's foot comes down this
@@ -879,6 +890,22 @@ impl Hulls {
                 for (key, count) in [(k, out[fe::COUNT]), (6, out[fe::LIFTS])] {
                     if count > 0. { emit(identity, key, count as usize, point); }
                 }
+            }
+        }
+    }
+    fn turret_seats(&mut self) {
+        use bfe_presentation::layout::vehicle_seat_input as seat;
+        self.sound_turrets.clear();
+        for (index, s) in self.slots.iter().enumerate() {
+            let (Some(unit), true, false) = (s.identity, s.active, s.dying) else { continue };
+            let m = &self.models[s.model];
+            let Some(nodes) = self.owner.slot_nodes(s.rig, 0) else { continue };
+            let start = self.owner.slot_seats(s.rig, 0);
+            for (k, &(turret, top)) in m.turret_seats.iter().enumerate().take(m.seats).skip(1) {
+                let x = &self.owner.stream_in[start + k * seat::STRIDE..];
+                let at = turret.map_or(n::WORLD, |node| node * n::STRIDE + n::WORLD);
+                let point = [nodes[at + 12], nodes[at + 13], nodes[at + 14]];
+                self.sound_turrets.push((unit, index * 8 + k.min(7), x[seat::HELD] != 0., x[seat::AIM_YAW], x[seat::PITCH], top, point));
             }
         }
     }

@@ -204,9 +204,9 @@ impl<C: HasContext> PostPass<C> {
     pub fn new<M: MultiDraw>(core: &mut Core<C, M>) -> PostPass<C> {
         let gl = &core.gl;
         let (vao, buffer) = unsafe {
-            let vao = gl.create_vertex_array().unwrap();
+            let vao = core.hold_vertex_array(gl.create_vertex_array().unwrap());
             gl.bind_vertex_array(Some(vao));
-            let buffer = gl.create_buffer().unwrap();
+            let buffer = core.hold_buffer(gl.create_buffer().unwrap());
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(buffer));
             crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, crate::core::bytes(&TRIANGLE), glow::STATIC_DRAW);
@@ -237,7 +237,7 @@ impl<C: HasContext> PostPass<C> {
     pub fn add_target<M: MultiDraw>(&mut self, core: &mut Core<C, M>, texture: u32) -> u32 {
         let gl = &core.gl;
         unsafe {
-            let fb = gl.create_framebuffer().unwrap();
+            let fb = core.hold_framebuffer(gl.create_framebuffer().unwrap());
             gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fb));
             gl.framebuffer_texture_2d(glow::FRAMEBUFFER, glow::COLOR_ATTACHMENT0, glow::TEXTURE_2D, Some(core.textures[texture as usize]), 0);
             #[cfg(target_arch = "wasm32")] gl.bind_framebuffer(glow::FRAMEBUFFER, None); #[cfg(not(target_arch = "wasm32"))] gl.bind_framebuffer(glow::FRAMEBUFFER, core.canvas_framebuffer);

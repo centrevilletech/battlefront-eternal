@@ -101,17 +101,17 @@ impl<C: HasContext> HudPass<C> {
 // next HUD may have lived only in a lost GPU buffer before reconstruction.
         let gl = &core.gl;
         unsafe {
-            let vao = gl.create_vertex_array().unwrap();
+            let vao = core.hold_vertex_array(gl.create_vertex_array().unwrap());
             gl.bind_vertex_array(Some(vao));
             for (k, size) in SIZES.iter().enumerate() {
-                let b = gl.create_buffer().unwrap();
+                let b = core.hold_buffer(gl.create_buffer().unwrap());
                 gl.bind_buffer(glow::ARRAY_BUFFER, Some(b));
                 gl.buffer_data_size(glow::ARRAY_BUFFER, (QUADS * 4 * size * 4) as i32, glow::DYNAMIC_DRAW);
                 gl.enable_vertex_attrib_array(LOCATIONS[k]);
                 gl.vertex_attrib_pointer_f32(LOCATIONS[k], *size as i32, glow::FLOAT, false, 0, 0);
                 self.buffers.push(b);
             }
-            let ib = gl.create_buffer().unwrap();
+            let ib = core.hold_buffer(gl.create_buffer().unwrap());
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(ib));
             crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, bytes(index), glow::STATIC_DRAW);

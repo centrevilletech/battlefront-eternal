@@ -195,9 +195,9 @@ impl<C: HasContext> FoliagePass<C> {
         let gl = &core.gl;
         let p = core.programs[program].program;
         let (vao, buffers, rows_buffer) = unsafe {
-            let vao = gl.create_vertex_array().unwrap();
+            let vao = core.hold_vertex_array(gl.create_vertex_array().unwrap());
             gl.bind_vertex_array(Some(vao));
-            let vertex_buffer = gl.create_buffer().unwrap();
+            let vertex_buffer = core.hold_buffer(gl.create_buffer().unwrap());
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(vertex_buffer));
             crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes(vertices), glow::STATIC_DRAW);
@@ -211,7 +211,7 @@ impl<C: HasContext> FoliagePass<C> {
                 }
                 offset += size;
             }
-            let rows_buffer = gl.create_buffer().unwrap();
+            let rows_buffer = core.hold_buffer(gl.create_buffer().unwrap());
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(rows_buffer));
             gl.buffer_data_size(glow::ARRAY_BUFFER, (bounds.len() / BOUNDS * ROW * 4).max(ROW * 4) as i32, glow::DYNAMIC_DRAW);
             let mut offset = 0;
@@ -225,7 +225,7 @@ impl<C: HasContext> FoliagePass<C> {
                 }
                 offset += size;
             }
-            let index_buffer = gl.create_buffer().unwrap();
+            let index_buffer = core.hold_buffer(gl.create_buffer().unwrap());
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(index_buffer));
             crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, bytes(index), glow::STATIC_DRAW);

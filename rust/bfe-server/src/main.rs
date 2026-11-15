@@ -10,6 +10,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bfe_server::browser_info::{browser_info, map_names};
+use bfe_server::cli::{self, Command};
 use bfe_server::config::{state_dir, ServerConfig};
 use bfe_server::identity::ServerIdentity;
 use bfe_server::local_server::LocalDedicatedServer;
@@ -495,9 +496,7 @@ fn launch_match(
     Ok(())
 }
 
-/// Runs the dedicated server service (`async function serve()` in `src/main.js`).
-/// Runs the headless dedicated server (`bfeserver --serve` or menu option `1`), porting
-/// `serve(dir)` from `packages/bfe-server/src/main.js`.
+/// Runs the headless dedicated server (`bfeserver --serve` or the menu's Start server).
 fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
     // SAFETY: `handle_signal` is an `extern "C"` function that only performs an atomic store to
     // `SHUTDOWN_REQUESTED`, which is async-signal-safe under POSIX for `SIGINT` and `SIGTERM`.
@@ -513,7 +512,28 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
     }
 
     let started_at = now_unix_ms();
-    let config = ServerConfig::load_from_dir(directory);
+    // Why no match can start, for stderr and the health page; `fault` when the config is broken.
+    let mut not_started: Option<(&str, String)> = None;
+    let mut config = match ServerConfig::load_checked(directory) {
+        Ok(config) => config,
+        Err(err) => {
+            not_started = Some(("fault", err));
+            ServerConfig::default()
+        }
+    };
+    for bad in config.apply_env(|name| std::env::var(name).ok()) {
+        eprintln!("bfeserver: ignoring unusable environment value {bad}");
+    }
+    if not_started.is_none() && config.data.trim().is_empty() {
+        not_started = Some((
+            "setup",
+            format!(
+                "no prepared game data configured: set \"data\" in {} or BFE_DATA_DIR",
+                bfe_server::config::config_path_in(directory).display()
+            ),
+        ));
+    }
+    eprintln!("bfeserver: state directory {}", directory.display());
     let operator = Arc::new(OperatorStore::open(directory)?);
 
     let control = Arc::new(ServiceControl {
@@ -534,12 +554,16 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
         Arc::clone(&control) as Arc<dyn OperatorControl>,
     )?;
 
-    if !config.data.trim().is_empty() {
-        if let Err(err) = launch_match(directory, &config, &operator, &control, started_at, None) {
-            *control.status.write().unwrap() = "fault".to_string();
-            *control.error.write().unwrap() = Some(err.clone());
-            eprintln!("{err}");
-        }
+    if let Some((status, why)) = not_started {
+        *control.status.write().unwrap() = status.to_string();
+        *control.error.write().unwrap() = Some(why.clone());
+        eprintln!("bfeserver: not hosting a match: {why}");
+    } else if let Err(err) =
+        launch_match(directory, &config, &operator, &control, started_at, None)
+    {
+        *control.status.write().unwrap() = "fault".to_string();
+        *control.error.write().unwrap() = Some(err.clone());
+        eprintln!("bfeserver: match admission failed: {err}");
     }
 
     println!("bfeserver service started; control menu: bfeserver");
@@ -627,11 +651,28 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
     Ok(())
 }
 
-/// CLI entrypoint (`src/main.js`), dispatching `--admin`, `--serve`, `--version`, or the interactive `menu`.
-/// CLI entry point for `bfeserver`, porting the top-level CLI dispatcher in
-/// `packages/bfe-server/src/main.js`.
+/// CLI entry point: parses the flags in `bfe_server::cli::USAGE` and dispatches.
 fn main() {
-    let directory = state_dir();
+    let cli = match cli::parse(std::env::args().skip(1)) {
+        Ok(cli) => cli,
+        Err(err) => {
+            eprintln!("bfeserver: {err}\n\n{}", cli::USAGE);
+            std::process::exit(2);
+        }
+    };
+    match cli.command {
+        Command::Help => {
+            print!("{}", cli::USAGE);
+            return;
+        }
+        Command::Version => {
+            println!("bfeserver 0.1.0 (pre-release)");
+            return;
+        }
+        _ => {}
+    }
+
+    let directory = cli.dir.unwrap_or_else(state_dir);
     let _ = fs::create_dir_all(&directory);
     #[cfg(unix)]
     {
@@ -644,39 +685,34 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(18450);
 
-    let args: Vec<String> = std::env::args().collect();
-    if let Some(idx) = args.iter().position(|a| a == "--admin") {
-        let raw_json = args
-            .get(idx + 1)
-            .map(String::as_str)
-            .unwrap_or("{\"action\":\"status\"}");
-        let cmd: Value = match serde_json::from_str(raw_json) {
-            Ok(v) => v,
-            Err(err) => {
-                eprintln!("{err}");
-                std::process::exit(1);
+    match cli.command {
+        Command::Admin(raw_json) => {
+            let cmd: Value = match serde_json::from_str(&raw_json) {
+                Ok(v) => v,
+                Err(err) => {
+                    eprintln!("{err}");
+                    std::process::exit(1);
+                }
+            };
+            match operator_request(&directory, &cmd, operator_port) {
+                Ok(resp) => {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&resp).unwrap_or_else(|_| "{}".to_string())
+                    );
+                }
+                Err(err) => {
+                    eprintln!("{err}");
+                    std::process::exit(1);
+                }
             }
-        };
-        match operator_request(&directory, &cmd, operator_port) {
-            Ok(resp) => {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&resp).unwrap_or_else(|_| "{}".to_string())
-                );
-            }
-            Err(err) => {
+        }
+        Command::Serve => {
+            if let Err(err) = serve(&directory, operator_port) {
                 eprintln!("{err}");
                 std::process::exit(1);
             }
         }
-    } else if args.iter().any(|a| a == "--serve") {
-        if let Err(err) = serve(&directory, operator_port) {
-            eprintln!("{err}");
-            std::process::exit(1);
-        }
-    } else if args.iter().any(|a| a == "--version") {
-        println!("bfeserver 0.1.0 (pre-release)");
-    } else {
-        menu(&directory, operator_port);
+        _ => menu(&directory, operator_port),
     }
 }

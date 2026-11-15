@@ -72,7 +72,7 @@ impl<C: HasContext> CanopiesPass<C> {
             gl.bind_vertex_array(Some(g.vao));
             for (&location, &size) in locations.iter().zip(sizes) {
                 let size = size as usize;
-                let b = gl.create_buffer().unwrap();
+                let b = core.hold_buffer(gl.create_buffer().unwrap());
                 gl.bind_buffer(glow::ARRAY_BUFFER, Some(b));
                 gl.buffer_data_size(glow::ARRAY_BUFFER, (max * size * 4) as i32, glow::DYNAMIC_DRAW);
                 gl.enable_vertex_attrib_array(location);
