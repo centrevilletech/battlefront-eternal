@@ -1,0 +1,236 @@
+//! `BFE_BENCH`: start straight into one Instant Action battle and log it.
+//!
+//! `BFE_BENCH="map=nab2&era=cw&side=rep&unit=rep_inf_ep3_rifleman&spawn=cp1&seed=7&out=run.jsonl"`
+//! skips the menus, launches the battle, picks the team, class and command
+//! post on the spawn screen and spawns once. Only `map` is required. With
+//! `out`, the client appends one JSON line per simulation tick: the player
+//! (with the weapons the client predicts for him) and every soldier,
+//! droideka, vehicle and turret it knows, in the columns of `UNIT_COLUMNS`. The battle itself is the ordinary one: the world
+//! thread, its publications and the spawn screen are untouched.
+use super::{
+    battle::{BattleAuthority, BattleController},
+    shell::ShellTransition,
+};
+use bfe_battle_ui::spawn::model::{SpawnPort, TeamSwitchSource};
+use bfe_presentation::network_layout::{net_kind as k, net_record as r};
+use bfe_shell::launch::BattleRequest;
+use std::{
+    fs::File,
+    io::{BufWriter, Write},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+const UNIT_COLUMNS: &str =
+    r#"["id","kind","team","alive","health","x","y","z","vx","vy","vz","yaw","posture","state","weapon","fired","walkPhase","walkBlend"]"#;
+const POSTURES: [&str; 3] = ["stand", "crouch", "prone"];
+const KINDS: [&str; 4] = ["soldier", "droideka", "vehicle", "turret"];
+
+fn value(key: &str) -> Option<String> {
+    let query = std::env::var("BFE_BENCH").ok()?;
+    query
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .find(|(name, value)| *name == key && !value.is_empty())
+        .map(|(_, value)| value.to_string())
+}
+
+/// The battle's seed, when `BFE_BENCH` names one.
+pub fn seed() -> Option<u32> {
+    value("seed")?.parse().ok()
+}
+
+pub struct Bench {
+    map: String,
+    era: Option<String>,
+    side: Option<String>,
+    unit: Option<String>,
+    post: Option<String>,
+    launched: bool,
+    spawned: bool,
+    waiting: &'static str,
+    out: Option<BufWriter<File>>,
+    tick: f64,
+}
+
+impl Bench {
+    pub fn from_env() -> Option<Self> {
+        let map = value("map")?;
+        let out = value("out").and_then(|path| match File::create(&path) {
+            Ok(file) => Some(BufWriter::new(file)),
+            Err(error) => {
+                eprintln!("bench: cannot write {path}: {error}");
+                None
+            }
+        });
+        Some(Self {
+            map,
+            era: value("era"),
+            side: value("side"),
+            unit: value("unit"),
+            post: value("spawn"),
+            launched: false,
+            spawned: false,
+            waiting: "",
+            out,
+            tick: f64::NAN,
+        })
+    }
+
+    /// The battle to launch, once, as soon as the front end is up.
+    pub fn launch(&mut self) -> Option<ShellTransition> {
+        if std::mem::replace(&mut self.launched, true) {
+            return None;
+        }
+        let era = self.era.clone().or_else(|| {
+            self.side.as_deref().map(|side| if matches!(side, "all" | "imp") { "gcw" } else { "cw" }.to_string())
+        });
+        match BattleRequest::single(self.map.as_str(), era) {
+            Ok(request) => Some(ShellTransition::StartInstantAction(request)),
+            Err(error) => {
+                eprintln!("bench: {error}");
+                None
+            }
+        }
+    }
+
+    /// `captured`: the window holds the mouse, so its motion turns the player.
+    pub fn step_battle(&mut self, battle: &mut BattleController, captured: bool) {
+        if !self.spawned && battle.spawn_ctrl.is_open() {
+            let waiting = self.spawn(battle);
+            if waiting != self.waiting {
+                self.waiting = waiting;
+                if !waiting.is_empty() {
+                    eprintln!("bench: spawn screen waiting for {waiting}");
+                }
+            }
+        }
+        if self.out.is_some() {
+            if let Err(error) = self.log(battle, captured) {
+                eprintln!("bench: log failed: {error}");
+                self.out = None;
+            }
+        }
+    }
+
+    // The spawn screen's own model makes each pick, as a click on it would.
+    fn spawn(&mut self, battle: &mut BattleController) -> &'static str {
+        let port = &battle.spawn_port;
+        let model = &mut battle.spawn_ctrl.model;
+        if let Some(side) = &self.side {
+            let Some(team) = (1..=2u8).find(|&team| port.team_facts(team).is_some_and(|facts| facts.side == *side)) else {
+                return "a team of that side";
+            };
+            if model.team != team {
+                model.switch_team(port, TeamSwitchSource::Key, 0.);
+                battle.spawn_ctrl.sync_model_events();
+                return "the team switch";
+            }
+        }
+        if let Some(unit) = &self.unit {
+            let Some(index) = model.roster(port).iter().position(|class| class.class_name == *unit) else {
+                return "that class on the team's roster";
+            };
+            if model.class_index != index && !model.select_class(port, index) {
+                return "that class to be selectable";
+            }
+        }
+        if let Some(post) = &self.post {
+            if model.post.as_deref() != Some(post) && !model.select_post(port, post) {
+                return "that command post to be selectable";
+            }
+        }
+        battle.spawn_ctrl.sync_model_events();
+        battle.trigger_spawn();
+        if battle.spawn_ctrl.is_open() {
+            return "the spawn to be accepted";
+        }
+        self.spawned = true;
+        eprintln!("bench: spawn sent");
+        ""
+    }
+
+    fn log(&mut self, battle: &BattleController, captured: bool) -> std::io::Result<()> {
+        let BattleAuthority::InstantAction { receiver, sender, replay, map_id, .. } = &battle.authority else {
+            return Ok(());
+        };
+        let Some(out) = &mut self.out else { return Ok(()) };
+        let tick = receiver.latest;
+        if tick == self.tick || !tick.is_finite() {
+            return Ok(());
+        }
+        if self.tick.is_nan() {
+            writeln!(out, r#"{{"bench":1,"build":"native","map":"{map_id}","hz":60,"unitColumns":{UNIT_COLUMNS}}}"#)?;
+        }
+        self.tick = tick;
+        let wall = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0., |d| d.as_secs_f64() * 1000.);
+        let own = &receiver.own;
+        let [x, y, z] = own.position;
+        let [vx, vy, vz] = own.velocity;
+        write!(
+            out,
+            r#"{{"t":{:.4},"wall":{wall:.1},"tick":{tick},"player":{{"id":{},"team":{},"alive":{},"health":{:.1},"pos":[{x:.3},{y:.3},{z:.3}],"vel":[{vx:.3},{vy:.3},{vz:.3}],"yaw":{:.4},"pitch":{:.4},"posture":"{}","air":{},"spawnScreen":{},"captured":{captured},"selected":{:?},"weapons":["#,
+            tick / 60.,
+            own.id,
+            own.team,
+            own.alive,
+            own.health,
+            sender.yaw,
+            sender.pitch,
+            POSTURES.get(own.posture).copied().unwrap_or("?"),
+            own.air,
+            battle.spawn_ctrl.is_open(),
+            replay.selected(),
+        )?;
+        // The player's own weapons as the client predicts them: definition, rounds in the
+        // magazine, magazines in reserve, heat, and seconds of reload left.
+        let mut first = true;
+        for weapon in replay.weapons() {
+            if !std::mem::replace(&mut first, false) {
+                out.write_all(b",")?;
+            }
+            let rounds = if weapon.per_shot > 0. { (weapon.clip / weapon.per_shot).round() } else { 0. };
+            // A weapon that never runs out has no finite reserve: -1.
+            let reserve = if weapon.reserve.is_finite() { weapon.reserve } else { -1. };
+            write!(out, "[{},{rounds},{reserve},{:.3},{:.3}]", weapon.def.0, weapon.heat, weapon.reload_left)?;
+        }
+        out.write_all(br#"]},"units":["#)?;
+        let mut first = true;
+        for row in receiver.active() {
+            let kind = row[r::KIND] as u32;
+            if !matches!(kind, k::SOLDIER | k::DROIDEKA | k::VEHICLE | k::TURRET) {
+                continue;
+            }
+            if !std::mem::replace(&mut first, false) {
+                out.write_all(b",")?;
+            }
+            write!(
+                out,
+                r#"[{},"{}",{},{},{:.1},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.4},"{}",{},{},{},{:.4},{:.3}]"#,
+                row[r::ID],
+                KINDS[kind as usize],
+                row[r::TEAM],
+                row[r::DEAD] == 0. && row[r::HEALTH] > 0.,
+                row[r::HEALTH],
+                row[r::POSITION],
+                row[r::POSITION + 1],
+                row[r::POSITION + 2],
+                row[r::VELOCITY],
+                row[r::VELOCITY + 1],
+                row[r::VELOCITY + 2],
+                row[r::YAW],
+                POSTURES.get(row[r::POSTURE] as usize).copied().unwrap_or("?"),
+                row[r::STATE],
+                row[r::WEAPON],
+                row[r::FIRE_COUNTER],
+                row[r::WALK_PHASE],
+                row[r::WALK_BLEND],
+            )?;
+        }
+        out.write_all(b"]}\n")?;
+        // A reader follows the file while the battle runs.
+        if tick % 6. == 0. {
+            out.flush()?;
+        }
+        Ok(())
+    }
+}
