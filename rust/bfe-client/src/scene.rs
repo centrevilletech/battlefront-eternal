@@ -1351,7 +1351,7 @@ impl Scene {
         while i<self.post_images.len(){
             let(_,sample,texture,slot,_)=self.post_images[i];
             if wanted.iter().any(|(s,_)|*s==slot){i+=1;continue;}
-            self.bridge.r.core.forget_texture(texture);self.resources.dispose_sample(sample)?;
+            self.bridge.r.forget_texture(texture);self.resources.dispose_sample(sample)?;
             self.bridge.r.post_chain.input[pf::RESOURCES+slot*pr::STRIDE..][..pr::STRIDE].fill(-1.);self.post_images.remove(i);
         }
         for(slot,factor)in wanted{
