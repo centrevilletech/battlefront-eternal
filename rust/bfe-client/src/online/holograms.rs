@@ -102,8 +102,8 @@ pub fn textures(content: &BattleContent) -> Vec<String> {
     }
     for (_, desc) in pad_descriptors(content) {
         let Some(name) = desc.get("unbuilt").and_then(|u|u.get("holo")).and_then(|h| h.get("image")).and_then(Value::as_str) else { continue };
-        for part in common.get("holograms").and_then(|h|h.get(name)).and_then(Value::as_array).unwrap_or(&[]) {
-            if let Some(name) = part.get("texture").and_then(Value::as_str) { names.push(name.into()); }
+        for part in content.content.props_models.as_ref().and_then(|m| m.get(name)).into_iter().flat_map(|m| m.iter()) {
+            if let Some(name) = part.field("texture").and_then(Value::as_str) { names.push(name.into()); }
         }
     }
     names
@@ -275,12 +275,11 @@ impl Holograms {
                 .map(|source|model(bridge,source,gradient)).transpose()?;
             let mut icons = Vec::new();
             let name = raw.get("image").and_then(Value::as_str).unwrap_or("");
-            for part in common.get("holograms").and_then(|h|h.get(name)).and_then(Value::as_array).unwrap_or(&[]) {
-                let number = |key| part.get(key).and_then(Value::as_f64).unwrap_or(0.) as u64;
-                let record = serde_json::json!({"kind":"model","parts":[{"vertexOffset":number("vertexOffset"),"vertexCount":number("vertexCount"),
-                    "indexOffset":number("indexOffset"),"indexCount":number("indexCount")}]});
-                if let Some(source) = bridge.actor_source(&record.to_string(),&vertices,&indices)? {
-                    icons.push(model(bridge,source,image(part.get("texture").and_then(Value::as_str).unwrap_or("")))?);
+            for part in content.content.props_models.as_ref().and_then(|m| m.get(name)).into_iter().flat_map(|m| m.iter()) {
+                let record = serde_json::json!({"kind":"model","parts":[{"vertexOffset":0,"vertexCount":part.count(),
+                    "indexOffset":0,"indexCount":part.index.len()}]});
+                if let Some(source) = bridge.actor_source(&record.to_string(),&part.data,&part.index)? {
+                    icons.push(model(bridge,source,image(part.field("texture").and_then(Value::as_str).unwrap_or("")))?);
                 }
             }
             holograms.pads.push(Pad { building,anchor,look,color,size:raw.get("size").and_then(Value::as_f64).unwrap_or(1.),
