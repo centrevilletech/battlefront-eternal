@@ -82,7 +82,7 @@ pub struct Units {
     pub skin: Vec<f32>,
     pub header: [f64; h::STRIDE],
     pub weapon_input: Vec<f64>,
-    contents: Vec<Content>,
+    contents: Vec<std::sync::Arc<Content>>,
     actors: Vec<Actor>,
     views: Vec<View>,
     weapons: [Weapon; MAX_WEAPONS],
@@ -129,9 +129,17 @@ impl Units {
         }
     }
     pub fn load(&mut self, input: Input) -> usize {
+        self.share(std::sync::Arc::new(input.load()))
+    }
+    /// The same loaded content in another owner (the spawn screen's preview
+    /// shows the class the battle loaded), without a second copy.
+    pub fn share(&mut self, content: std::sync::Arc<Content>) -> usize {
         let id = self.contents.len();
-        self.contents.push(input.load());
+        self.contents.push(content);
         id
+    }
+    pub fn content(&self, id: usize) -> std::sync::Arc<Content> {
+        self.contents[id].clone()
     }
     pub fn actor(&mut self, content: usize, inverses: &[[f64; 16]]) -> usize {
         assert!(
