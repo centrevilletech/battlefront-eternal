@@ -326,6 +326,14 @@ impl Bench {
             }
         }
         out.write_all(b"]")?;
+        out.write_all(br#","creatureHolds":["#)?;
+        if let Some(scene) = battle.scene.online.as_ref() {
+            for (index, held) in scene.animated.creature_holds().enumerate() {
+                if index != 0 { out.write_all(b",")?; }
+                serde_json::to_writer(&mut *out, &held)?;
+            }
+        }
+        out.write_all(b"]")?;
         out.write_all(br#","items":["#)?;
         let mut first = true;
         for row in receiver.active().filter(|row| row[r::KIND] == k::ITEM as f64) {

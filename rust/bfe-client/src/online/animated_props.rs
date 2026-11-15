@@ -400,6 +400,12 @@ impl Animated {
         if row[o::HELD_PLACED] == 0. { return None; }
         Some((std::array::from_fn(|i|row[o::HELD_FRAME+i]),row[o::HELD_TIME],clip))
     }
+    pub fn creature_holds(&self) -> impl Iterator<Item = (usize, u32, u32, usize, f64, Option<([f64; 16], f64, usize)>)> + '_ {
+        self.holds.iter().enumerate().filter_map(|(index, hold)| {
+            let h = hold.as_ref()?;
+            Some((index, h.id, h.generation, h.grab, h.since, self.held(h.id, h.generation)))
+        })
+    }
     pub fn max_bones(&self) -> usize {
         self.views
             .iter()
