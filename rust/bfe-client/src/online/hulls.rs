@@ -497,6 +497,16 @@ impl Hulls {
         center.apply_matrix4(&matrix);
         Some([center.x, center.y, center.z])
     }
+    pub fn seat_angles(&self, key: (u32, u32)) -> Option<Value> {
+        let slot = &self.slots[*self.bound.get(&key)?];
+        let start = self.owner.slot_seats(slot.rig, 0);
+        let seats: Vec<_> = (0..self.models[slot.model].seats).map(|i| {
+            let x = &self.owner.stream_in[start + i * seat::STRIDE..];
+            [x[seat::AIM_YAW], x[seat::PITCH], x[seat::HELD]]
+        }).collect();
+        let aimers: Vec<_> = self.owner.aimer_angles(slot.rig).collect();
+        Some(json!({"seats": seats, "aimers": aimers}))
+    }
     pub fn frame(
         &mut self,
         receiver: &Receiver,

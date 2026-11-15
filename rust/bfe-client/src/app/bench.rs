@@ -268,6 +268,11 @@ impl Bench {
         out.write_all(b"]")?;
         write!(out, r#","mount":{},"vehicle":{},"flight":{}"#,
             serde_json::to_string(&own.mount)?, own.vehicle, serde_json::to_string(&own.flight)?)?;
+        if let Some((id, generation, _)) = own.mount {
+            if let Some(angles) = battle.scene.online.as_ref().and_then(|scene| scene.hulls.seat_angles((id, generation))) {
+                write!(out, r#","mountPose":{}"#, angles)?;
+            }
+        }
         if let Some(hull) = &replay.fleet.state {
             write!(out, r#","hull":{}"#, serde_json::json!({
                 "pos": hull.position, "vel": hull.velocity, "yaw": hull.yaw,
