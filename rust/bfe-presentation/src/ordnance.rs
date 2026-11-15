@@ -1295,7 +1295,7 @@ impl Ordnance {
         // A beam is its sampled endpoints, drawn as they are; everything else
         // gets the correction that hides a new sample arriving off its path.
         if n.kind != nt::BEAM {
-            self.smooth(slot, &mut position, &velocity, &path, tick, last.tick, a.changed || b.changed);
+            self.smooth(slot, &mut position, &velocity, &path, tick, last.tick, a.changed || b.changed, render_tick >= n.samples[0].tick);
         }
         let previous = position;
         let mut q = Quaternion::new(a.quaternion[0], a.quaternion[1], a.quaternion[2], a.quaternion[3]);
@@ -1335,7 +1335,13 @@ impl Ordnance {
     /// ProjectilePresentation.smooth: a correction carried across a new
     /// sample and faded out over SMOOTH_SECONDS.
     #[allow(clippy::too_many_arguments)]
-    fn smooth(&mut self, slot: u32, position: &mut Vector3, velocity: &Vector3, path: &Vector3, tick: f64, latest: f64, discontinuous: bool) {
+    // `flying`: the clock has reached the round's first sample. A frame
+    // before that shows it waiting at its launch point with no motion to
+    // carry on from, so the frame it starts on takes no correction either.
+    // (The JavaScript carries one there, which holds the round at its
+    // launch point for a frame and then catches it up: a tick's flight at 60
+    // frames a second, several metres at 20.)
+    fn smooth(&mut self, slot: u32, position: &mut Vector3, velocity: &Vector3, path: &Vector3, tick: f64, latest: f64, discontinuous: bool, flying: bool) {
         // A bounce or authoritative stop (`discontinuous`), a clock run back,
         // or the first frame shown, starts again from no correction.
         let n = &mut self.net[slot as usize];
@@ -1360,7 +1366,7 @@ impl Ordnance {
                 }
             }
         }
-        n.shown = true;
+        n.shown = flying;
         n.shown_raw = *position;
         n.shown_velocity = *path;
         n.shown_tick = tick;
