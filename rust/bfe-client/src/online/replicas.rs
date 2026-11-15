@@ -1560,8 +1560,9 @@ impl Replicas {
                 continue;
             }
             let output = &self.units.output[slot.actor * o::STRIDE..];
+            // Enclosed seats hide their occupants, including their held gear.
             // A body gone up is undrawn for the rest of its life.
-            if output[o::GONE] == -1. {
+            if output[o::SEAT_VISIBLE] == 0. || output[o::GONE] == -1. {
                 continue;
             }
             let count = output[o::SKIN_COUNT] as usize;

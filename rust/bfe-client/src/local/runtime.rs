@@ -333,7 +333,7 @@ impl<E: Engine> Runtime<E> {
             generation: self.receiver.own.generation,
             view_tick: Some(bfe_client::online::clock::rendered_tick(self.receiver.clock.shown, self.receiver.latest)),
             fire_aim: None,
-            flight_mode: self.receiver.own.body_schema == 7,
+            flight_mode: self.receiver.in_aircraft(),
         })?;
         let output = self.engine.step(input)?;
         if let Err(error) = self.clock.complete(&output) {
@@ -372,7 +372,7 @@ impl<E: Engine> Runtime<E> {
             generation: self.receiver.own.generation,
             view_tick: Some(view_tick),
             fire_aim,
-            flight_mode: self.receiver.own.body_schema == 7,
+            flight_mode: self.receiver.in_aircraft(),
         })
     }
 
