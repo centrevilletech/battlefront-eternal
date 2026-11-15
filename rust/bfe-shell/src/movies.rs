@@ -260,13 +260,10 @@ mod tests {
             ));
             std::fs::create_dir_all(&root).unwrap();
             let path = root.join("pattern.bik");
-            std::fs::write(
-                &path,
-                include_bytes!("../../../tests/fixtures/video/pattern.bik"),
-            )
-            .unwrap();
+            let movie = include_bytes!("../../../tests/fixtures/video/pattern.bik");
+            std::fs::write(&path, movie).unwrap();
             let mut library = MovieLibrary::default();
-            library.insert("pattern", bfe_video::Source { path, offset: 0 });
+            library.insert("pattern", bfe_video::Source { path, offset: 0, length: movie.len() as u64 });
             Self(root, library)
         }
     }
