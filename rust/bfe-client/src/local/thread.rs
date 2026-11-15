@@ -114,6 +114,8 @@ pub enum WorldMessage {
         flight: ClientFlightCommand,
         // The target sample actually displayed when this command was captured.
         view_tick: f64,
+        // The converged aim sampled for this command's fire presses.
+        fire_aim: Option<[f64; 2]>,
     },
     /// Pauses (`true`) or resumes (`false`) the 60 Hz world simulation loop.
     Pause(bool),
@@ -571,7 +573,6 @@ impl WorldThread {
     /// the caller displays the error to the player.
     pub fn admit_instant_action(
         options: &super::options::Options,
-        ai_enabled: bool,
     ) -> Result<(Self, AdmittedWorldInfo), String> {
         let owned_options = super::options::Options {
             root: options.root.clone(),
@@ -579,6 +580,7 @@ impl WorldThread {
             audio: options.audio,
             duration: options.duration,
             name: options.name.clone(),
+            bots: options.bots,
         };
         let shared = Arc::new(SharedState::new());
         shared.paused.store(true, Ordering::Release);
@@ -594,10 +596,7 @@ impl WorldThread {
                     (Runtime<super::context::Native>, AdmittedWorldInfo),
                     String,
                 > {
-                    let mut prepared = super::launch::Prepared::with_spawn_screen(&owned_options, true)?;
-                    // Battle AI OFF disables the same phase as the browser's
-                    // battle option before the world thread takes its first tick.
-                    prepared.admission.tick.ai = ai_enabled;
+                    let prepared = super::launch::Prepared::with_spawn_screen(&owned_options, true)?;
                     let info = AdmittedWorldInfo {
                         query: prepared.admission.query.clone(),
                         registry: prepared.admission.registry.clone(),
@@ -793,7 +792,9 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
             };
             let Some(msg) = msg else { break };
             let done = match msg {
-                WorldMessage::Step { command, look, flight, view_tick } => runtime.submit(&command, &look, &flight, view_tick),
+                WorldMessage::Step { command, look, flight, view_tick, fire_aim } => {
+                    runtime.submit(&command, &look, &flight, view_tick, fire_aim)
+                }
                 WorldMessage::Pause(p) => {
                     paused = p;
                     Ok(())

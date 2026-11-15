@@ -68,6 +68,8 @@ pub struct Native {
     counters: HostCounters,
     host_content: bfe_sim::host::Content,
     explosions: Vec<u32>,
+    /// BFE_AI_TRACE: a census of the bots every ten seconds on stderr.
+    census: Option<bfe_sim::host::census::Census>,
 }
 
 impl Native {
@@ -116,6 +118,7 @@ impl Native {
             counters: HostCounters::default(),
             host_content: admission.host_content.clone(),
             explosions: admission.explosions.clone(),
+            census: std::env::var_os("BFE_AI_TRACE").map(|_| Default::default()),
         })
     }
 
@@ -262,9 +265,15 @@ impl Engine for Native {
         // Step via `Context::world_tick` so the authority host runs `advance_edges`,
         // pre-step input bank writes (including AI hearing), `world_step`, notice
         // draining into `SimEvents` and `Capture`, shot/view mirrors, and `consumed_edges`.
+        let tick = input.tick;
         match self.context.value.world_tick(input) {
             Ok(output) => {
                 self.sample_host_journal();
+                if let Some(census) = &mut self.census {
+                    if let Ok(Some(line)) = census.sample(&self.context.value, tick as u64, 600) {
+                        eprintln!("ai census local {line}");
+                    }
+                }
                 Ok(output)
             }
             Err(error) => {
@@ -369,6 +378,14 @@ impl Native {
             input.view_tick,
             input.flight_mode,
         )?;
+        // The converged aim the client sampled for this command's fire presses
+        // travels with them; the world uses the actor's own aim for edges without one.
+        if let Some([yaw, pitch]) = input.fire_aim {
+            for edge in &mut self.commands.fires {
+                edge.aim_yaw = Some(yaw);
+                edge.aim_pitch = Some(pitch);
+            }
+        }
         let now = input.now;
         self.commands.mailbox.tick = now;
         let call = &self.commands.mailbox;

@@ -17,6 +17,6 @@ pub mod options;
 pub mod water;
 pub use admission::Admission;
 pub use assets::{manifest, Asset};
-pub use clock::{battle_clock, TickRows};
+pub use clock::{battle_clock, first_tick, TickRows};
 pub use options::{Ai, BattleOptions};
 pub use water::tick_setup;

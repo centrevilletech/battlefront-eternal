@@ -10,6 +10,8 @@ pub struct Options {
     pub duration: Option<Duration>,
     /// The profile's player name, when the launch has a profile.
     pub name: Option<String>,
+    /// The player's bot settings (aiMode off, aiDifficulty, battleSize).
+    pub bots: bfe_sim::world::admit::Bots,
 }
 
 // NetworkSession: String(playerName || '').replace(/[\x00-\x1f\x7f]/g,'')
@@ -28,7 +30,7 @@ impl Options {
         use bfe_content_native::setup::{Ai, BattleOptions};
         let options = BattleOptions::from_args(&self.battle)?;
         Ok(bfe_sim::world::admit::Options { map: options.map, side: options.side,
-            enhanced: options.ai == Ai::Enhanced, seed: options.seed, heroes: options.heroes, unit: options.unit, name: self.name.as_deref().map(session_name) })
+            enhanced: options.ai == Ai::Enhanced, seed: options.seed, heroes: options.heroes, unit: options.unit, name: self.name.as_deref().map(session_name), bots: self.bots })
     }
     // session_window::Options::read selects its mode before making a window.
     // Keep the existing online/archive parser authoritative for other modes;
@@ -66,6 +68,6 @@ impl Options {
             }
             at += 1;
         }
-        Ok(Some(Self { root: root.ok_or("content directory required (argument or BFE_CONTENT_DIR)")?, battle, audio, duration, name: None }))
+        Ok(Some(Self { root: root.ok_or("content directory required (argument or BFE_CONTENT_DIR)")?, battle, audio, duration, name: None, bots: Default::default() }))
     }
 }

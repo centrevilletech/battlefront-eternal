@@ -62,10 +62,17 @@ pub struct BattleContent {
     pub textures: Library,
     pub texture_paths:BTreeMap<String,String>,
     pub effects: Vec<(String, crate::effects::Effects)>,
+    /// The map's placed effects: each plays its (prefixed) effect group.
+    pub environment_instances: Vec<EnvironmentInstance>,
     pub first_person: Option<bfe_presentation::unit_content::FirstPersonInput>,
     pub units: Vec<(String, bfe_presentation::unit_content::Input)>,
     pub buildings_bvh: BvhTree,
     pub terrain_bvh: Option<BvhTree>,
+}
+pub struct EnvironmentInstance {
+    pub effect: String,
+    /// Column-major world matrix, as three's Matrix4.fromArray reads it.
+    pub matrix: [f64; 16],
 }
 pub struct Loader {
     root: PathBuf,
@@ -454,18 +461,31 @@ impl Loader {
                 .as_ref()
                 .and_then(|v| v.get("effects")),
         );
-        let mut effects = vec![(
+        // The map's placed effects (torches, smoke, steam, fountains) play
+        // through the same player as everything else, under names of their
+        // own so a battle effect of the same name keeps its own data.
+        let mut environment_instances = Vec::new();
+        let environment_library = environment.as_ref().and_then(|data| {
+            for item in data.get("instances").and_then(Authored::as_array).into_iter().flatten() {
+                let name = item.get("effect").and_then(Authored::as_str);
+                let matrix = item.get("matrix").and_then(Authored::as_array);
+                if let (Some(name), Some(matrix)) = (name, matrix.filter(|m| m.len() == 16)) {
+                    environment_instances.push(EnvironmentInstance {
+                        effect: format!("{}{name}", crate::effects::ENVIRONMENT),
+                        matrix: std::array::from_fn(|i| matrix[i].as_f64().unwrap_or(0.)),
+                    });
+                }
+            }
+            crate::effects::prefixed(data.get("effects"), crate::effects::ENVIRONMENT)
+        });
+        libraries.push(environment_library.as_ref());
+        if let Some(data) = &environment {
+            any.push(table(&format!("{map_path}/environment"), data.get("textures")));
+        }
+        let effects = vec![(
             "battle".into(),
             crate::effects::Effects::compile(&crate::effects::merge(libraries))?,
         )];
-        if let Some(data) = environment {
-            if let Some(library) = data.get("effects") {
-                effects.push((
-                    "environment".into(),
-                    crate::effects::Effects::compile(library)?,
-                ));
-            }
-        }
         let collision = &content.collision;
         validate_triangles(&collision.positions, &collision.indices)?;
         validate_triangles(&collision.terrain_positions, &collision.terrain_indices)?;
@@ -491,6 +511,7 @@ impl Loader {
             units,
             first_person,
             effects,
+            environment_instances,
             buildings_bvh,
             terrain_bvh,
         })

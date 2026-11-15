@@ -1,0 +1,187 @@
+//! The effects the map's placed objects carry (environment-effects.js):
+//! torches, campfires, smoke, mist, waterspouts, steam vents and fountains.
+//! Each plays its stock effect while it is in view, out to the near scene's
+//! end, and is killed when it leaves; on entering view it is stepped ahead
+//! by up to its particles' lifetime, so a torch is already burning.
+//! The browser's Enhanced forms of fountains and steam vents (water and
+//! volume shaders) are not drawn natively; those play their stock effect in
+//! both modes.
+use super::effects::Spawner;
+use bfe_content_native::BattleContent;
+
+struct Instance {
+    group: usize,
+    position: [f64; 3],
+    turn: [f64; 4],
+    // The sphere tested against the view: smoke and mist rise well above
+    // where they start.
+    center: [f64; 3],
+    handle: Option<u32>,
+    // Seconds stepped at once when it comes into view.
+    warmup: f64,
+}
+
+pub struct MapEffects {
+    instances: Vec<Instance>,
+    reach: f64,
+    // The last frame's projection then view matrix, and its eye.
+    camera: Option<([f64; 32], [f64; 3])>,
+    /// Map effects started so far, and those in view in the last update.
+    pub started: u64,
+    pub visible: usize,
+    // BFE_FX_SHOW=name,name,...: each named effect group in turn, every 3 s,
+    // 6 m ahead of the camera, for side-by-side captures with the browser.
+    show: Vec<(String, usize)>,
+    show_next: usize,
+    show_clock: f64,
+    show_handle: Option<u32>,
+    // With BFE_FX_SHOW set (even empty), a count line every 10 s.
+    pub report: Option<f64>,
+}
+
+impl MapEffects {
+    pub fn new(content: &BattleContent, names: &[(String, usize)], warmups: &[f64]) -> Self {
+        let mut instances = Vec::new();
+        for item in &content.environment_instances {
+            let Some(&(_, group)) = names.iter().find(|(n, _)| *n == item.effect) else {
+                continue;
+            };
+            let mut matrix = three::Matrix4::default();
+            matrix.from_array(&item.matrix, 0);
+            let (mut position, mut turn, mut scale) = (three::Vector3::default(), three::Quaternion::default(), three::Vector3::default());
+            matrix.decompose(&mut position, &mut turn, &mut scale);
+            let position = [position.x, position.y, position.z];
+            instances.push(Instance {
+                group,
+                position,
+                turn: [turn.x, turn.y, turn.z, turn.w],
+                center: [position[0], position[1] + 8., position[2]],
+                handle: None,
+                warmup: warmups.get(group).copied().unwrap_or(0.),
+            });
+        }
+        // `Math.max(90, lighting.fade.value.y)`: the near scene's end.
+        let range = &content.map["distance"]["nearScene"];
+        let end = range[3].as_f64().filter(|v| v.is_finite() && *v > 0.3).unwrap_or(500.);
+        let show = std::env::var("BFE_FX_SHOW")
+            .map(|list| list.split(',').filter_map(|name| names.iter().find(|(n, _)| n == name.trim()).cloned()).collect())
+            .unwrap_or_default();
+        if std::env::var_os("BFE_FX_SHOW").is_some() {
+            eprintln!("fx-map placed={} of {} reach={}", instances.len(), content.environment_instances.len(), end.max(90.));
+        }
+        Self { instances, reach: end.max(90.), camera: None, started: 0, visible: 0, show, show_next: 0, show_clock: 0., show_handle: None, report: std::env::var_os("BFE_FX_SHOW").map(|_| 0.) }
+    }
+
+    /// The frame's camera, once it is chosen: the next update tests
+    /// visibility against it.
+    pub fn view(&mut self, camera: &[f64], eye: [f64; 3]) {
+        if (self.instances.is_empty() && self.show.is_empty()) || camera.len() < 32 {
+            return;
+        }
+        self.camera = Some((std::array::from_fn(|i| camera[i]), eye));
+    }
+
+    /// Start the effects that came into view and kill the ones that left.
+    pub fn update(&mut self, effects: &mut Spawner, dt: f64) {
+        let Some((camera, eye)) = self.camera else {
+            return;
+        };
+        if !self.show.is_empty() {
+            self.show_clock += dt;
+            // Each stops emitting after 1.3 s, so a lasting one (a burning
+            // hull's flame) does not run on into the next.
+            if self.show_clock >= 1.3 {
+                if let Some(handle) = self.show_handle.take() {
+                    effects.stop(handle);
+                }
+            }
+            if self.show_clock >= 3. {
+                self.show_clock = 0.;
+                let (name, group) = &self.show[self.show_next % self.show.len()];
+                self.show_next += 1;
+                // The camera's forward (its view's third row, negated), level.
+                let (x, z) = (-camera[16 + 2], -camera[16 + 10]);
+                let length = x.hypot(z).max(1e-6);
+                let at = [eye[0] + x / length * 6., eye[1] - 1.5, eye[2] + z / length * 6.];
+                self.show_handle = effects.start(*group, at, [0.; 3], None, self.show_next as u32);
+                let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |t| t.as_millis());
+                eprintln!("fx-show {name} {ms} {:.2} {:.2} {:.2}", at[0], at[1], at[2]);
+            }
+        }
+        let planes = frustum(&camera);
+        let reach = self.reach * self.reach;
+        self.visible = 0;
+        for (at, i) in self.instances.iter_mut().enumerate() {
+            let far = (0..3).map(|k| (i.position[k] - eye[k]).powi(2)).sum::<f64>();
+            let visible = far < reach && planes.iter().all(|p| p[0] * i.center[0] + p[1] * i.center[1] + p[2] * i.center[2] + p[3] >= -16.);
+            self.visible += visible as usize;
+            match (visible, i.handle) {
+                (true, None) => {
+                    i.handle = effects.start_turned(i.group, i.position, [0.; 3], i.turn, at as u32 + 1);
+                    if let Some(handle) = i.handle {
+                        effects.prewarm(handle, i.warmup);
+                        self.started += 1;
+                    }
+                }
+                (false, Some(handle)) => {
+                    effects.kill(handle);
+                    i.handle = None;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// A new battle: each starts again when next in view.
+    pub fn reset(&mut self, effects: &mut Spawner) {
+        for i in &mut self.instances {
+            if let Some(handle) = i.handle.take() {
+                effects.kill(handle);
+            }
+        }
+    }
+}
+
+// The six planes of a projection-then-view pair, normalised, as three's
+// Frustum.setFromProjectionMatrix builds them from their product.
+fn frustum(camera: &[f64; 32]) -> [[f64; 4]; 6] {
+    let (p, v) = (&camera[..16], &camera[16..]);
+    let mut m = [0.; 16];
+    for c in 0..4 {
+        for r in 0..4 {
+            m[c * 4 + r] = (0..4).map(|k| p[k * 4 + r] * v[c * 4 + k]).sum();
+        }
+    }
+    let row = |r: usize| [m[r], m[4 + r], m[8 + r], m[12 + r]];
+    let (x, y, z, w) = (row(0), row(1), row(2), row(3));
+    let mut planes = [[0.; 4]; 6];
+    for (k, sign, axis) in [(0, -1., x), (1, 1., x), (2, 1., y), (3, -1., y), (4, -1., z), (5, 1., z)] {
+        let plane: [f64; 4] = std::array::from_fn(|i| w[i] + sign * axis[i]);
+        let length = (plane[0] * plane[0] + plane[1] * plane[1] + plane[2] * plane[2]).sqrt().max(1e-12);
+        planes[k] = plane.map(|v| v / length);
+    }
+    planes
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn frustum_keeps_what_is_ahead() {
+        // A camera at the origin looking down -z (identity view), 90 degree lens.
+        let mut camera = [0.; 32];
+        let (near, far) = (0.5, 1000.);
+        camera[0] = 1.;
+        camera[5] = 1.;
+        camera[10] = -(far + near) / (far - near);
+        camera[11] = -1.;
+        camera[14] = -2. * far * near / (far - near);
+        for i in 0..4 {
+            camera[16 + i * 5] = 1.;
+        }
+        let planes = super::frustum(&camera);
+        let inside = |c: [f64; 3]| planes.iter().all(|p| p[0] * c[0] + p[1] * c[1] + p[2] * c[2] + p[3] >= -1.);
+        assert!(inside([0., 0., -20.]));
+        assert!(!inside([0., 0., 20.]));
+        assert!(!inside([50., 0., -20.]));
+    }
+}

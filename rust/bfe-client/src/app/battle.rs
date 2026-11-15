@@ -922,7 +922,7 @@ impl BattleController {
         content_dir: &Path,
         request: BattleRequest,
         playlist_index: usize,
-        ai_enabled: bool,
+        bots: &BotSettings,
         player_name: &str,
     ) -> Result<InstantAdmission, String> {
         // Resolve the target map ID and era from `request.playlist[playlist_index]` or `request`.
@@ -969,13 +969,19 @@ impl BattleController {
                 policy.class_name,
                 "--seed".to_string(),
                 super::bench::seed().unwrap_or(playlist_index as u32 + 1).to_string(),
-            ],
+                "--ai".to_string(),
+                if bots.mode == "enhanced" { "enhanced" } else { "classic" }.to_string(),
+            ]
+            .into_iter()
+            .chain(bots.heroes.then(|| "--heroes".to_string()))
+            .collect(),
             audio: true,
             duration: None,
             name: Some(player_name.to_string()),
+            bots: bfe_sim::world::admit::Bots::read(&bots.mode, &bots.difficulty, &bots.size),
         };
 
-        let (world, admitted) = WorldThread::admit_instant_action(&local_options, ai_enabled)?;
+        let (world, admitted) = WorldThread::admit_instant_action(&local_options)?;
         let graphics = Scene::prepare_online(content_dir, &admitted.query)?;
         Ok(InstantAdmission {
             request,
@@ -1023,6 +1029,7 @@ impl BattleController {
                 .ok_or("native prediction resources already admitted")?,
         );
         let mut sender = Box::new(Sender::new(&replicas.turns));
+        sender.aim_scene=Some(replicas.shot_aim.clone());
         sender.auto_spawn = false;
 
         // Drain the initial tick-0 publication so `replicas.hud` has the mission's
@@ -1603,6 +1610,7 @@ impl BattleController {
         &mut self,
         dt: f64,
         focused: bool,
+        hidden: bool,
         settings: &mut AppSettingsStore,
         _audio_router: &SharedAudioRouter,
     ) -> Result<Option<BattleTransition>, String> {
@@ -1828,7 +1836,10 @@ impl BattleController {
                     *now_ms += dt * 1000.0;
                 }
                 world.set_paused(self.pause_menu.is_open);
-                world.set_suspended(!focused);
+                // As the page's world worker: a battle without the window's
+                // focus plays on (a released mouse opens the pause menu, which
+                // freezes it); only a hidden window suspends it.
+                world.set_suspended(hidden);
                 world.poll_publications(receiver, *now_ms)?;
                 if self.frames == 60 {
                     eprintln!("local HUD publications: focused={} welcomed={} packets={} corrections={} alive={} active={} visible={}",
@@ -1864,7 +1875,8 @@ impl BattleController {
                         command: cmd,
                         look,
                         flight,
-                        view_tick: receiver.clock.shown,
+                        view_tick: crate::online::clock::rendered_tick(receiver.clock.shown, receiver.latest),
+                        fire_aim: sender.fire_aim,
                     });
                 }
                 if !halted {
@@ -2483,7 +2495,9 @@ impl BattleController {
         self.stats_utf16.clear();
         self.stats_utf16.extend(self.stats_text.encode_utf16());
         let hud = &mut self.scene.bridge.hud_model;
-        hud.fonts[0].draw(&mut hud.batch, root_anchor(self.height), 8., self.height - 8.,
+        // The glyphs hang down from y: leave the line's own height above the bottom edge.
+        let y = self.height - 8. - hud.fonts[0].height * 0.65;
+        hud.fonts[0].draw(&mut hud.batch, root_anchor(self.height), 8., y,
             &self.stats_utf16, [1.; 4], 0, 0.65, 1., 0.);
     }
 
@@ -3293,5 +3307,25 @@ mod startup_policy_tests {
             ("imp", "imp_soldier", 1.)
         );
         assert!(cw.screen && gcw.screen);
+    }
+}
+
+/// The player's bot settings as the options screen keeps them (game.js reads
+/// the same four: aiMode, aiDifficulty, aiHeroes, battleSize).
+#[derive(Clone, Debug, Default)]
+pub struct BotSettings {
+    pub mode: String,
+    pub difficulty: String,
+    pub heroes: bool,
+    pub size: String,
+}
+impl BotSettings {
+    pub fn read(settings: &bfe_interface::Settings) -> Self {
+        Self {
+            mode: settings.get_string("aiMode"),
+            difficulty: settings.get_string("aiDifficulty"),
+            heroes: settings.get_bool("aiHeroes"),
+            size: settings.get_string("battleSize"),
+        }
     }
 }
