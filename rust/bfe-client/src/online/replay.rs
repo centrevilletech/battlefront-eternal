@@ -31,6 +31,8 @@ pub struct History {
     // Replay holds them through ticks that have no pending command of their own.
     held: u32,
     held_generation: f64,
+    // The same for a flyer's controls (throttle, brake, roll, boost).
+    flight_held: u32,
     // The newest command sent had the primary trigger down, and its life.
     firing: bool,
     firing_generation: f64,
@@ -46,6 +48,7 @@ impl Default for History {
             refused: 0,
             held: 0,
             held_generation: -1.,
+            flight_held: 0,
             firing: false,
             firing_generation: -1.,
         }
@@ -57,11 +60,15 @@ impl History {
         self.count = 0;
         self.held = 0;
         self.held_generation = -1.;
+        self.flight_held = 0;
+        self.firing = false;
+        self.firing_generation = -1.;
     }
     pub fn acknowledge(&mut self, sequence: f64) {
         while self.count != 0 && self.rows[self.at].sequence <= sequence {
             self.held = self.rows[self.at].held;
             self.held_generation = self.rows[self.at].generation;
+            self.flight_held = self.flights[self.at].held;
             self.at = (self.at + 1) % COMMANDS;
             self.count -= 1;
         }
@@ -70,6 +77,9 @@ impl History {
     // replaces them. Another life starts with none.
     pub fn held(&self, generation: f64) -> u32 {
         if self.held_generation == generation { self.held } else { 0 }
+    }
+    pub fn flight_held(&self, generation: f64) -> u32 {
+        if self.held_generation == generation { self.flight_held } else { 0 }
     }
     /// The primary trigger is down in the newest command of this life.
     pub fn firing(&self, generation: f64) -> bool {
@@ -335,6 +345,7 @@ impl Replay {
         if self.life != life {
             self.shown_tick = 0.;
             self.smoother.reset();
+            self.walker_next = 0.;
         }
         self.life = life;
         self.weapon_count = 0;
@@ -367,6 +378,9 @@ impl Replay {
                 mounts_count,
                 commands_at,
                 commands_count,
+                // Ticks before the first pending command keep the last
+                // applied trigger, as the world does.
+                held: sender.history.held(r.own.generation),
                 ..Default::default()
             };
             frame.put(x, &mut Vec::new());
@@ -392,9 +406,11 @@ impl Replay {
                 let index = weapon.def.0.saturating_sub(1) as usize;
                 let delay = self.shot_delays.get(index).copied().unwrap_or(0.);
                 self.walker_ahead = delay > 0.;
-                if !sender.history.firing(r.own.generation) {
+                // Folded or overheated, the repeater cannot fire: its first
+                // bolt after that waits out its timer, as when the trigger is up.
+                if !sender.history.firing(r.own.generation) || r.own.walker_mode >= 11 || weapon.overheated {
                     self.walker_next = r.latest + weapon.wait.max(0.) * 60.;
-                } else if delay > 0. && r.own.walker_mode < 11 && !weapon.overheated && r.latest >= self.walker_next {
+                } else if delay > 0. && r.latest >= self.walker_next {
                     let aim = sender.fire_aim.unwrap_or([sender.yaw, sender.pitch]);
                     self.shots.push(Shot {
                         tick: r.latest + 1.,
@@ -625,5 +641,28 @@ mod control_settings_tests {
         assert_eq!(history.held(5.), 0);
         history.acknowledge(2.);
         assert_eq!(history.held(4.), 0);
+    }
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::*;
+    #[test]
+    fn applied_flight_controls_carry_over_and_a_new_life_starts_with_none() {
+        let mut history = History::default();
+        let command = ClientCommand { held: 1 << bfe_sim::gen::ClientHeld::Primary as u8, ..Default::default() };
+        let flight = ClientFlightCommand { held: 5, ..Default::default() };
+        history.push(&command, &ClientLook::default(), &flight, 10., 1., 1.);
+        history.acknowledge(1.);
+        // The world keeps the flyer's last applied controls through ticks
+        // that have no pending command, as it keeps a soldier's keys.
+        assert_eq!(history.flight_held(1.), 5);
+        assert_eq!(history.held(1.), command.held);
+        assert!(history.firing(1.));
+        // A restarted match can number its first life as the old one.
+        history.clear();
+        assert!(!history.firing(1.));
+        assert_eq!(history.flight_held(1.), 0);
+        assert_eq!(history.held(1.), 0);
     }
 }

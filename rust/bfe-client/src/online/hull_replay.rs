@@ -207,19 +207,25 @@ impl Fleet {
         self.identity = None;
         self.continued = false;
         self.prediction_tick = 0.;
-        self.active = None;
+        // A hull the player stopped piloting (another seat, on foot, dead)
+        // starts again from authority when the player takes it back: its
+        // old continuation would replay the commands of the other seat.
+        let was = self.active.take();
         self.frozen_weapons = false;
-        if receiver.own.vehicle == 0. || ![7, 10].contains(&receiver.own.body_schema) {
-            return Ok(());
+        let piloted = (receiver.own.vehicle != 0. && [7, 10].contains(&receiver.own.body_schema))
+            .then(|| receiver.active().find(|row| {
+                row[bfe_presentation::network_layout::net_record::ID] == receiver.own.vehicle
+                    && row[bfe_presentation::network_layout::net_record::GENERATION] == receiver.own.vehicle_generation
+            }))
+            .flatten();
+        let index = piloted.map(|row| self.classes.get(row[bfe_presentation::network_layout::net_record::CLASS_ID] as usize).copied().flatten());
+        if let Some(was) = was.filter(|was| index != Some(Some(*was))) {
+            self.hulls[was].owner.reset();
         }
-        let Some(row) = receiver.active().find(|row| {
-            row[bfe_presentation::network_layout::net_record::ID] == receiver.own.vehicle
-                && row[bfe_presentation::network_layout::net_record::GENERATION] == receiver.own.vehicle_generation
-        }) else {
+        let Some(row) = piloted else {
             return Ok(());
         };
-        let class = row[bfe_presentation::network_layout::net_record::CLASS_ID] as usize;
-        let Some(index) = self.classes.get(class).copied().flatten() else {
+        let Some(index) = index.flatten() else {
             return Err("missing private hull class");
         };
         let Hull { owner, arsenal, .. } = &mut self.hulls[index];
@@ -279,6 +285,7 @@ impl Fleet {
             commands_at,
             commands_count,
             held: sender.history.held(receiver.own.generation),
+            flight_held: sender.history.flight_held(receiver.own.generation),
             mouse_scale: 1.,
             ..Default::default()
         };
