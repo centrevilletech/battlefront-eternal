@@ -111,7 +111,10 @@ fn falling_foot_plants_once_preserves_primitive_turns_and_resets_on_new_generati
     // Staying at 1.0 or rising does not plant again.
     assert_eq!(step_single_foot(&mut feet, start, 1.0, 1.0, &matrix), 0.0);
     assert_eq!(step_single_foot(&mut feet, start, 1.5, 1.0, &matrix), 0.0);
+    assert_eq!(feet.output[o::LIFTS], 1.0);
+    assert_eq!(feet.output[o::HEIGHT], 1.5);
     assert_eq!(step_single_foot(&mut feet, start, 1.5, 1.0, &matrix), 0.0);
+    assert_eq!(feet.output[o::LIFTS], 0.0);
 
     // A new generation resets descent state and plants on the next bottoming out.
     assert_eq!(step_single_foot(&mut feet, start, 2.0, 2.0, &matrix), 0.0);

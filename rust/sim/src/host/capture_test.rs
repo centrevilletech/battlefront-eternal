@@ -145,3 +145,25 @@ fn dead_soldiers_stop_counting_toward_posts_classic() {
 fn dead_soldiers_stop_counting_toward_posts_enhanced() {
     dead_soldiers_stop_counting(true);
 }
+
+/// Geonosis: every post with a destructible building (the Techno Union ships,
+/// the forward command centre) knows it, arrives at its sphere and lends the
+/// building its team, so destroying the building takes the post out.
+#[test]
+fn destructible_posts_know_their_buildings() {
+    let Some(content) = std::env::var_os("BFE_CONTENT_DIR") else { return };
+    let context = Context::new();
+    let options = Options { map: "geo1".into(), side: "cis".into(), enhanced: false, seed: 1, heroes: false, unit: None, name: None, bots: Default::default() };
+    let files = bfe_content::files::DirFiles::new(std::path::Path::new(&content));
+    context.world_admit(&files, &options).expect("admission");
+    let linked = context.owned(|w| {
+        let store = &w.sim.store;
+        store.post.iter().filter_map(|(_, p)| p.building.map(|b| (String::from_utf16_lossy(w.sim.strings.units(p.name)), p.team, p.radius, b))).collect::<Vec<_>>()
+    }).unwrap();
+    assert_eq!(linked.len(), 4, "geo1 has four destructible posts: {linked:?}");
+    for (name, team, radius, _) in &linked {
+        assert!(radius.is_some_and(|r| r > 5.0), "{name} arrives at its building's sphere, not its middle: {radius:?}");
+        assert!(*team == 1.0 || *team == 2.0, "{name} belongs to an army");
+    }
+    context.dispose().unwrap();
+}

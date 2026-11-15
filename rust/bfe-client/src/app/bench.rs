@@ -235,6 +235,11 @@ impl Bench {
                 return "that command post to be selectable";
             }
         }
+        if std::env::var_os("BFE_AI_TRACE").is_some() {
+            let team = model.team;
+            let posts: Vec<String> = port.posts(team).iter().map(|p| format!("{}:{}:{}:{:.0},{:.0},{:.0}", p.name, p.owner, u8::from(p.eligible), p.position[0], p.position[1], p.position[2])).collect();
+            eprintln!("bench: spawn post {:?} team {team} posts {}", model.post, posts.join(" "));
+        }
         battle.spawn_ctrl.sync_model_events();
         battle.trigger_spawn();
         if battle.spawn_ctrl.is_open() {
@@ -322,6 +327,8 @@ impl Bench {
             use bfe_render::hud_model::layout::HudFrame as h;
             let x = &battle.scene.bridge.hud_model.input;
             write!(out, r#","reticle":[{:.5},{:.5},{}]"#, x[h::RETICLE_X], x[h::RETICLE_Y], x[h::RETICLE])?;
+            // What the reticle is on: 1 friend, 2 enemy, 3 locals, 4 nothing; then the scope texture.
+            write!(out, r#","aimed":[{},{},{}]"#, x[h::TARGET_RELATION], x[h::SECOND_RELATION], x[h::SCOPE])?;
         }
         if let Some(hull) = &replay.fleet.state {
             write!(out, r#","hull":{}"#, serde_json::json!({
@@ -419,6 +426,9 @@ impl Bench {
             }))?;
         }
         out.write_all(b"]")?;
+        if let Some(scene) = battle.scene.online.as_ref() {
+            write!(out, r#","soundFeet":{:?}"#, scene.sound.foot_counts)?;
+        }
         out.write_all(br#","debris":["#)?;
         if let Some(scene) = battle.scene.online.as_ref() {
             for (index, piece) in scene.combat.debris.pieces().iter().enumerate() {

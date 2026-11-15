@@ -660,6 +660,7 @@ pub mod event_kind {
     pub const ACTOR_DEATH: usize = 24;
     pub const TEST_CHANNEL: usize = 25;
     pub const TEST_AROUND: usize = 26;
+    pub const HULL_FOOT: usize = 27;
 }
 pub mod emitter_kind {
     pub const ABSENT: usize = 0;

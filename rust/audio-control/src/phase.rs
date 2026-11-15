@@ -226,6 +226,13 @@ impl Phase {
             k::SPLASH => { self.play_class(class, c::SPLASH, WEAPONS, NONE, position, None); }
             k::EXPLOSION => { self.play_class(class, c::EXPLOSION, EXPLOSIONS, NONE, position, None); }
             k::SOUND => { let mut ask = Ask::new(self.named(row[ev::SOUND] as u32), FOLEY); ask.position = position; self.play(ask); }
+            k::HULL_FOOT => {
+                // VALUE 0..5 names a displayed foot, 6 its hydraulics.
+                if let Some(hull) = self.emitters.get(owner).copied().filter(|h| h[e::KIND] == 3. && h[e::ALIVE] != 0. && self.near_hull(h)) {
+                    let foot = row[ev::VALUE] as usize;
+                    if foot <= 6 { self.play_class(index(hull[e::CLASS]), if foot < 6 { c::STEP0 + foot } else { c::HYDRAULIC }, FOLEY, NONE, position, None); }
+                }
+            }
             k::POWERUP => { self.play_class(class, c::POWERUP, FOLEY, NONE, position, None); }
             k::TURRET_FIRE => { self.play_class(class, c::FIRE, WEAPONS, NONE, position, None); }
             k::INTERFACE => {

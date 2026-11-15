@@ -19,14 +19,6 @@ pub struct Primitive {bone:i32,point:[f64;3],turn:Option<[f64;4]>}
 pub struct Content {bones:Vec<Bone>,root:i32,clips:Vec<Animation>,pub feet:Vec<Primitive>,length:f64,
     detection:bool,threshold:f64,hydraulic:f64,centred:bool,rate:f64}
 
-/// What a walker's foot sounds need (the audio's Foot::new for each foot):
-/// every foot's point and cycle heights, and the class's rules.
-pub struct SoundFeet {pub feet:Vec<([f64;3],Vec<f64>)>,pub length:f64,pub detection:bool,pub threshold:f64,pub hydraulic:f64,pub centred:bool,pub rate:f64}
-pub fn sound_feet(content:&Content)->SoundFeet {
-    let heights=heights(content);
-    SoundFeet{feet:content.feet.iter().zip(heights).map(|(f,h)|(f.point,h)).collect(),length:content.length,detection:content.detection,
-        threshold:content.threshold,hydraulic:content.hydraulic,centred:content.centred,rate:content.rate}
-}
 // cycleHeights deliberately samples a separate tree. Its root is identity,
 // its feet retain authored scales, and unused clip tracks never move it.
 pub fn heights(content:&Content)->Vec<Vec<f64>> {
@@ -62,6 +54,7 @@ fn v(p:[f64;3])->Vector3 {Vector3::new(p[0],p[1],p[2])}
 struct Body {start:usize,count:usize,phase:Option<f64>,walking:bool,generation:Option<f64>}
 struct Detector {definition:Foot,state:State,turn:Option<Quaternion>}
 pub struct Feet {bodies:Vec<Body>,detectors:Vec<Detector>,pub input:Vec<f64>,pub output:Vec<f64>}
+// FootEvent HEIGHT retains the primitive's height for sound; dust uses ROOT_Y.
 impl Default for Feet {fn default()->Self{Self{bodies:Vec::new(),detectors:Vec::new(),input:vec![0.0;f::STRIDE],output:Vec::new()}}}
 impl Feet {
     /// The returned first foot remains stable for the resource's lifetime.
@@ -86,9 +79,12 @@ impl Feet {
                 let x=&self.input[f::STRIDE+k*i::STRIDE..];let d=&mut self.detectors[k];d.state.reset_generation(x[i::GENERATION]);
                 let mut matrix=Matrix4::default();matrix.elements.copy_from_slice(&x[i::MATRIX..i::MATRIX+16]);let mut point=v(d.definition.point);point.apply_matrix4(&matrix);
                 // Stable crossing order comes from the shared audio detector.
-                // A frame needs only down-event multiplicity for its one point.
+                // Both consumers use this detector: dust on plants, sound on
+                // plants and lifts, each at the same displayed primitive.
                 let mut events=[0u8;lim::EVENTS];let count=d.definition.events(&mut d.state,body.phase,body.walking,phase,walking,point.y,dt,&mut events);
                 let out=&mut self.output[k*o::STRIDE..(k+1)*o::STRIDE];out[o::COUNT]=events[..count].iter().filter(|&&kind|kind==1).count()as f64;
+                out[o::LIFTS]=events[..count].iter().filter(|&&kind|kind==2).count()as f64;
+                out[o::HEIGHT]=point.y;
                 out[o::POSITION..o::POSITION+3].copy_from_slice(&[point.x,x[i::ROOT_Y],point.z]);
                 // Authored primitive turns follow the full displayed matrix,
                 // including parent scale, before their local turn is applied.

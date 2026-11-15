@@ -2,12 +2,10 @@
   uniform sampler2D colorMap;
   uniform highp sampler2D motionMap;
   uniform sampler2D historyMap;
-  uniform vec2 inputSize;
-  uniform vec2 outputSize;
+  vec2 outputSize;
   uniform vec2 jitter;
   uniform float reset;
-  uniform float maxWeight;
-  uniform float kernel;
+  const float kernel = 2.29;
   uniform mat3 narrowWeights;
   uniform mat3 wideWeights;
   vec3 toYCoCg(vec3 c) { return vec3(0.25 * c.r + 0.5 * c.g + 0.25 * c.b, 0.5 * c.r - 0.5 * c.b, -0.25 * c.r + 0.5 * c.g - 0.25 * c.b); }
@@ -31,6 +29,10 @@
     return sum / (w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y);
   }
   void main() {
+    vec2 inputSize = vec2(textureSize(colorMap, 0));
+    outputSize = vec2(textureSize(historyMap, 0));
+    float ratio = min(inputSize.x / outputSize.x, 1.0);
+    float maxWeight = clamp(12.0 * ratio * ratio, 4.0, 12.0);
     vec2 q = gl_FragCoord.xy * inputSize / outputSize;
     ivec2 size = ivec2(inputSize);
     ivec2 base = ivec2(floor(q + jitter));
@@ -62,7 +64,15 @@
       lo = min(lo, s); hi = max(hi, s);
     }
     vec3 plain = wide / wideWeight;
-    vec3 moved = texelFetch(motionMap, clamp(base, ivec2(0), size - 1), 0).rgb;
+    vec3 moved;
+    if (all(greaterThanEqual(inputSize, outputSize))) {
+      moved = nearestMotion(clamp(base, ivec2(0), size - 1));
+      // Preserve the half-float motion buffer's precision when bypassing it.
+      moved.rg = unpackHalf2x16(packHalf2x16(moved.rg));
+      moved.b = unpackHalf2x16(packHalf2x16(vec2(moved.b, 0.0))).x;
+    } else {
+      moved = texelFetch(motionMap, clamp(base, ivec2(0), size - 1), 0).rgb;
+    }
     vec2 motion = moved.rg;
     vec2 before = gl_FragCoord.xy / outputSize - motion;
     vec4 past = pastAt(before);

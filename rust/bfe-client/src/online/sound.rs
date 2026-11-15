@@ -216,10 +216,6 @@ pub struct Sound {
     pub own_feet: [f64; 3],
     /// Every turret seat as drawn this frame (Hulls::sound_turrets).
     pub turret_seats: Vec<((u32, u32), usize, bool, f64, f64, f64, [f64; 3])>,
-    /// Every walker's feet as drawn this frame (Hulls::sound_feet).
-    pub walker_feet: Vec<((u32, u32), [f64; 2], Vec<(usize, usize, [f64; 16])>)>,
-    // The foot cycle heights handed to the audio so far.
-    heights: usize,
     // The client's replay ran for the player's own body this frame.
     replaying: bool,
     assets: super::stream_assets::Assets,
@@ -236,7 +232,8 @@ pub struct Sound {
     stations: Vec<(usize, [f64; 3], bool)>,
     // Whether each live building stands ("built"), as the server last said.
     built: Vec<bool>,
-    pub event_counts: [u64; 27],
+    pub event_counts: [u64; 28],
+    pub foot_counts: [u64; 2],
     /// How many supply stations play their ambient loop now.
     pub station_loops: u64,
     pub bleed: [f64; 2],
@@ -273,9 +270,7 @@ impl Sound {
             ahead: Default::default(),
             volumes: [1.; 6],
             own_feet: [f64::NAN; 3],
-            walker_feet: Vec::new(),
             turret_seats: Vec::new(),
-            heights: 0,
             replaying: false,
             assets: prepared.streams,
             decoded: 0,
@@ -290,7 +285,8 @@ impl Sound {
             combat_classes: prepared.combat_classes,
             built: vec![true; prepared.stations.len()],
             stations: prepared.stations,
-            event_counts: [0;27],
+            event_counts: [0;28],
+            foot_counts: [0;2],
             station_loops: 0,
             bleed: [0.;2],
             epoch: f64::NAN,
@@ -362,40 +358,6 @@ impl Sound {
         self.events += 1;
         if self.trace_explosions {
             eprintln!("fx-sound explosion definition={definition} class={class} at={position:.1?}");
-        }
-    }
-
-    /// Footfalls for a walker class's foot sounds (the old page host's
-    /// prepareFeet): each foot's point, cycle heights and the class's rules.
-    pub fn walker_class_feet(&mut self, class: usize, feet: &bfe_presentation::feet::SoundFeet) {
-        let Some(&audio) = self.actors.get(class.wrapping_sub(1)).filter(|c| **c != usize::MAX) else {
-            return;
-        };
-        let cycle = feet.length > 0.;
-        for (index, (point, heights)) in feet.feet.iter().enumerate() {
-            let heights: &[f64] = if cycle { heights } else { &[] };
-            if heights.len() > self.runtime.input.len() {
-                return;
-            }
-            let mut row = [0.; foot_def::STRIDE];
-            row[foot_def::CLASS] = audio as f64;
-            row[foot_def::INDEX] = index as f64;
-            row[foot_def::X..foot_def::X + 3].copy_from_slice(point);
-            row[foot_def::LENGTH] = if cycle { feet.length } else { 0. };
-            row[foot_def::DETECTION] = feet.detection as u8 as f64;
-            row[foot_def::THRESHOLD] = feet.threshold;
-            row[foot_def::HYDRAULIC] = feet.hydraulic;
-            row[foot_def::CENTRED] = feet.centred as u8 as f64;
-            row[foot_def::RATE] = feet.rate;
-            row[foot_def::FIRST] = self.heights as f64;
-            row[foot_def::COUNT] = heights.len() as f64;
-            if !heights.is_empty() {
-                self.runtime.input[..heights.len()].copy_from_slice(heights);
-                self.runtime.import(import::HEIGHT, heights.len());
-                self.heights += heights.len();
-            }
-            self.runtime.input[..row.len()].copy_from_slice(&row);
-            self.runtime.import(import::FOOT_DEF, row.len());
         }
     }
 
@@ -555,6 +517,7 @@ impl Sound {
         dt: f64,
         prediction: &super::replay::Replay,
         battle: ([f64; 4], bool),
+        hulls: &super::hulls::Hulls,
     ) {
         if self.output.is_some() {
             return;
@@ -706,6 +669,21 @@ impl Sound {
             held.expiry >= receiver.latest
         });
         self.held = held;
+        // Keep every displayed crossing even when the device has not consumed
+        // another quantum yet. Do not run a second detector at audio cadence.
+        hulls.foot_sounds(|identity, foot, count, point| {
+            let Some((slot, _)) = receiver.active_slots().find(|(_, row)|
+                row[r::KIND] == k::VEHICLE as f64 &&
+                (row[r::ID] as u32, row[r::GENERATION] as u32) == identity) else { return; };
+            let mut event = super::sound_events::placed(event_kind::HULL_FOOT, usize::MAX, point);
+            event[event::OWNER] = (slot + 1) as f64;
+            event[event::VALUE] = foot as f64;
+            for _ in 0..count {
+                if self.pending_effects.len() < self.pending_effects.capacity() {
+                    self.pending_effects.push(event);
+                } else { self.refused += 1; }
+            }
+        });
         // Preserve control state while the device is stopped or its bounded
         // queue is full. Advancing it after dropping START would orphan a loop.
         let clock = self.mail.clock.load(Ordering::Acquire);
@@ -817,12 +795,7 @@ impl Sound {
             self.pilots.insert((id, generation), 1);
         }
 
-        // Feet and turrets not seen this frame (their hull gone or not drawn)
-        // are silent.
-        let count = runtime.phase.foot_count;
-        for f in &mut runtime.phase.feet[..count] {
-            f[foot::PRESENT] = 0.;
-        }
+        // Turrets not seen this frame (their hull gone or not drawn) are silent.
         let count = runtime.phase.turret_count;
         for t in &mut runtime.phase.turrets[..count] {
             t[turret::PRESENT] = 0.;
@@ -885,7 +858,6 @@ impl Sound {
             e[emitter::GENERATION] = row[r::GENERATION];
             e[emitter::AIR] = row[r::STATE];
             e[emitter::POSTURE] = row[r::POSTURE];
-            // A walker's cycle as drawn and its feet (Footfalls.update).
             let unit = (row[r::ID] as u32, row[r::GENERATION] as u32);
             // Its turret seats (VehicleSounds.updateTurrets), the hull's class
             // sounding them; PitchRate is taken as the default 1 rad/s.
@@ -910,22 +882,6 @@ impl Sound {
                     runtime.phase.turret_state[turret_id] = Default::default();
                 }
                 runtime.phase.turret_count = runtime.phase.turret_count.max(turret_id + 1);
-            }
-            if let Some((_, walk, feet)) = self.walker_feet.iter().find(|(u, _, _)| *u == unit) {
-                e[emitter::WALK_PHASE] = walk[0];
-                e[emitter::WALK_BLEND] = walk[1];
-                for (foot_id, index, matrix) in feet {
-                    if *foot_id >= runtime.phase.feet.len() {
-                        continue;
-                    }
-                    let f = &mut runtime.phase.feet[*foot_id];
-                    f[foot::ID] = *foot_id as f64;
-                    f[foot::OWNER] = id as f64;
-                    f[foot::INDEX] = *index as f64;
-                    f[foot::M0..=foot::M15].copy_from_slice(matrix);
-                    f[foot::PRESENT] = 1.;
-                    runtime.phase.foot_count = runtime.phase.foot_count.max(foot_id + 1);
-                }
             }
             if let Some(event) =
                 super::sound_events::damage(&runtime.phase.emitters[id], &emitter_row, false)
@@ -1177,6 +1133,9 @@ impl Sound {
         for event in &runtime.events {
             if let Some(count) = self.event_counts.get_mut(event[event::KIND] as usize) {
                 *count += 1;
+            }
+            if event[event::KIND] == event_kind::HULL_FOOT as f64 {
+                self.foot_counts[(event[event::VALUE] == 6.) as usize] += 1;
             }
         }
         runtime.step(&mut self.queries);

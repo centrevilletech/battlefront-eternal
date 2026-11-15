@@ -4,7 +4,10 @@
 //! battle. Needs prepared game files: `BFE_CONTENT_DIR=... cargo test --release
 //! -p bfe-client --test world_digest -- --ignored --nocapture`. A list of
 //! MAP[:SIDE] in `BFE_DIGEST_MAPS` (default nab2,tat2,hot1:all) and the tick count in
-//! `BFE_DIGEST_TICKS` (default 3600) are optional.
+//! `BFE_DIGEST_TICKS` (default 3600) are optional, and so is the seed in
+//! `BFE_DIGEST_SEED` (default 1), and the bots in `BFE_DIGEST_BOTS`
+//! ("classic,medium" by default; "enhanced,hard" and so on). With BFE_AI_TRACE set the bot census prints
+//! on stderr, which makes this a whole battle with no player for comparing bots.
 use bfe_client::local::{launch::Prepared, options::Options, runtime::Runtime, thread::PublicationSlot};
 use bfe_content_native::setup::admission::{CLOCK_START_MS, CLOCK_UNIX_MS};
 use std::time::Instant;
@@ -50,11 +53,19 @@ fn mix(mut hash: u64, bytes: &[u8]) -> u64 {
 
 fn run(root: &str, battle: &str, ticks: usize) {
     let (map, side) = battle.split_once(':').unwrap_or((battle, "rep"));
-    let args: Vec<String> = ["--local", map, root, "--side", side, "--seed", "1", "--ai", "classic"]
+    let seed = std::env::var("BFE_DIGEST_SEED").unwrap_or_else(|_| "1".into());
+    let args: Vec<String> = ["--local", map, root, "--side", side, "--seed", &seed, "--ai", "classic"]
         .iter()
         .map(|s| s.to_string())
         .collect();
-    let options = Options::parse(&args, None).unwrap().unwrap();
+    let mut options = Options::parse(&args, None).unwrap().unwrap();
+    // BFE_DIGEST_BOTS="MODE,DIFFICULTY" (classic|enhanced, easy|medium|hard).
+    if let Ok(bots) = std::env::var("BFE_DIGEST_BOTS") {
+        let (mode, difficulty) = bots.split_once(',').unwrap_or((bots.as_str(), "medium"));
+        options.bots = bfe_sim::world::admit::Bots::read(mode, difficulty, "full");
+        let at = options.battle.iter().position(|a| a == "--ai").unwrap();
+        options.battle[at + 1] = mode.into();
+    }
     let prepared = Prepared::new(&options).unwrap();
     let mut runtime =
         Runtime::new(*prepared.engine, *prepared.admission, CLOCK_START_MS, CLOCK_UNIX_MS).unwrap();

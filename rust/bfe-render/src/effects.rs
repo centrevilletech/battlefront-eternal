@@ -189,6 +189,7 @@ struct Mesh<C: HasContext> {
 // geometry (core.rs) at that program's locations, where the program keeps
 // its model-view matrix and each of the model's material values.
 struct ModelPass<C: HasContext> {
+    profile: &'static str,
     program: usize,
     side: u32,
     geometry: usize,
@@ -811,7 +812,9 @@ impl<C: HasContext> EffectsPass<C> {
             }
         }
         let cache=reserve_values(&mut self.held,&mut self.value_ids,program as usize,&m.values);
-        m.passes.push(ModelPass { program: program as usize, side, geometry: geometry as usize, model_view, normal, slots, model, cache });
+        let profile = core.owned_programs.iter().find(|(_, id)| *id == program)
+            .and_then(|(key, _)| crate::programs::spec(key).ok()).map_or("effect model", |s| s.key);
+        m.passes.push(ModelPass { profile, program: program as usize, side, geometry: geometry as usize, model_view, normal, slots, model, cache });
         (m.passes.len() - 1) as u32
     }
 
@@ -877,6 +880,62 @@ impl<C: HasContext> EffectsPass<C> {
             *v = self.input[at + 1 + k] as usize;
         }
         (self.input[at] as usize, e)
+    }
+
+    // A view retains only data its draws and emitter uploads consume. Cold
+    // batch reservations can leave large unused gaps between these ranges.
+    pub(crate) fn data_ranges(&self, ranges: &mut Vec<std::ops::Range<usize>>) {
+        ranges.clear();
+        for owner in 0..(self.input[IN_OWNERS] as usize).min(MAX_OWNERS) {
+            let e = &self.input[OWNER_AT + owner * OWNER_STRIDE..];
+            if let Some(owner) = self.owners.get(e[0] as usize) {
+                let at = e[3] as usize;
+                if let Some(written) = crate::effect_resources::emitter_span(e[2] as usize, at, owner.rows, self.data.len()) {
+                    if written > 0 { ranges.push(at..at + written * EMITTER_FLOATS); }
+                }
+            }
+        }
+        for draw in 0..(self.input[IN_DRAWS] as usize).min(MAX_DRAWS) {
+            let (kind, e) = self.entry(draw);
+            let range = match kind {
+                KIND_BATCH | KIND_INTO => {
+                    let [bi, count, from, at, capacity] = if kind == KIND_INTO { [e[0], e[1], 0, e[2], e[1].max(1 << 20)] } else { e };
+                    self.batches.get(bi).and_then(|b| {
+                        let capacity = if b.bounded { b.capacity } else { capacity.max(count).min(crate::effect_resources::MAX_PARTICLES) };
+                        let values = b.values.iter().map(|v| v.1).sum();
+                        crate::effect_resources::BatchSpan::new(count, from, at, b.stride, values, capacity, self.data.len(), b.fixed_instances, b.multiplier)
+                            .filter(|s| s.count > 0).map(|s| at..s.values + values)
+                    })
+                }
+                KIND_MESH => self.meshes.get(e[0]).and_then(|m| {
+                    let [_, vertices, indices, at, _] = e;
+                    if vertices == 0 || indices == 0 || (m.bounded && (vertices > m.vertex_capacity || indices > m.index_capacity)) { return None; }
+                    vertices.checked_mul(m.stride).and_then(|n| at.checked_add(n))
+                        .and_then(|n| n.checked_add(if m.fixed_index { 0 } else { indices }))
+                        .and_then(|n| n.checked_add(if m.fixed_values.is_some() { 0 } else { m.values.iter().map(|v| v.1).sum() }))
+                        .map(|end| at..end)
+                }),
+                KIND_MODEL => self.models.get(e[0]).and_then(|m| {
+                    let values = m.values.iter().map(|v| v.1).sum::<usize>()
+                        .max(m.input_samplers.iter().map(|(at, _)| at.saturating_add(1)).max().unwrap_or(0))
+                        .max(m.input_blend.map_or(0,|at|at.saturating_add(1)));
+                    e[2].checked_add(values).map(|end| e[2]..end)
+                }),
+                _ => None,
+            };
+            if let Some(range) = range.filter(|r| r.start < r.end && r.end <= self.data.len()) { ranges.push(range); }
+        }
+        ranges.sort_unstable_by_key(|r| r.start);
+        let mut used = 0;
+        for read in 0..ranges.len() {
+            if used > 0 && ranges[read].start <= ranges[used - 1].end {
+                ranges[used - 1].end = ranges[used - 1].end.max(ranges[read].end);
+            } else {
+                ranges[used] = ranges[read].clone(); used += 1;
+            }
+        }
+        ranges.truncate(used);
+        for range in ranges { range.start *= 4; range.end *= 4; }
     }
 
     // FountainJets.capture: resolve the current color into the jets' scene
@@ -1143,6 +1202,7 @@ impl<C: HasContext> EffectsPass<C> {
         let gl = &core.gl;
         let (state, stats) = (&mut core.state, &mut core.stats);
         for pass in &m.passes {
+            let timer = core.profile.begin(gl);
             let program = &mut core.programs[pass.program];
 
             state.use_program(gl, stats, program.program);
@@ -1181,12 +1241,15 @@ impl<C: HasContext> EffectsPass<C> {
             if m.input_blend.is_some_and(|at|self.data.get(values_at+at).copied().unwrap_or(0.)>0.){state.blend(gl,stats,false);}else{blending(gl, state, stats, &m.blend);}
             let geo = &core.geometries[pass.geometry];
             unsafe {
+                if program.depth_clamp { gl.enable(glow::DEPTH_CLAMP); stats.gl_calls += 1; }
                 gl.bind_vertex_array(Some(geo.vao));
                 gl.draw_elements(glow::TRIANGLES, geo.index_count, geo.index_type, 0);
                 core.profile.draw(geo.index_count.max(0) as u64,1,1);
+                if program.depth_clamp { gl.disable(glow::DEPTH_CLAMP); stats.gl_calls += 1; }
             }
             stats.gl_calls += 2;
             stats.pass_draws[PASS_EFFECTS] += 1;
+            core.profile.end(gl, pass.profile, timer);
         }
     }
 

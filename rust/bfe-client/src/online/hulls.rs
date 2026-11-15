@@ -87,6 +87,7 @@ struct Model {
     bounds: [f64; 6],
     flying: bool,
     walking: bool,
+    bike: bool,
     max_speed: f64,
     camera_blend: f64,
     seats: usize,
@@ -141,10 +142,6 @@ pub struct Hulls {
     bodies: Vec<((u32, u32), super::hull_effects::Body, bool, usize)>,
     // Every walker slot's feet, where each comes down this frame.
     feet: bfe_presentation::feet::Feet,
-    /// Each walker's feet as drawn this frame, for its foot sounds: its
-    /// unit, walk phase and blend, and each foot's detector id, number and
-    /// bone matrix.
-    pub sound_feet: Vec<((u32, u32), [f64; 2], Vec<(usize, usize, [f64; 16])>)>,
     /// Each turret seat as drawn this frame, for its sounds (VehicleSounds.
     /// updateTurrets): unit, a stable id, manned, aim yaw and pitch, top turn
     /// rate, and where it is.
@@ -379,6 +376,7 @@ impl Hulls {
                 bounds: [lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]],
                 flying,
                 walking,
+                bike: defs.names.text(class.name).contains("speederbike"),
                 max_speed: motion.speed,
                 camera_blend: if flying {
                     bfe_sim::flight::config::Tuning::of(bfe_sim::flight::config::flight_class(defs.names.text(class.name))).camera_blend_time
@@ -448,7 +446,6 @@ impl Hulls {
             world,
             bodies: Vec::with_capacity(POOL),
             feet,
-            sound_feet: Vec::with_capacity(POOL),
             sound_turrets: Vec::with_capacity(POOL),
             water: super::water::new(content),
         })
@@ -482,6 +479,7 @@ impl Hulls {
         x[f::VEHICLE_ID] = id;
         x[f::VEHICLE_FLYING] = m.flying as u8 as f64;
         x[f::VEHICLE_WALKING] = m.walking as u8 as f64;
+        x[f::VEHICLE_BIKE] = m.bike as u8 as f64;
         x[f::VEHICLE_SEAT] = seat as f64;
         x[f::VEHICLE_EYE_HULL] = (seat == 0 || !view.turret) as u8 as f64;
         x[f::VEHICLE_HULL..f::VEHICLE_HULL + 16].copy_from_slice(matrix);
@@ -687,13 +685,12 @@ impl Hulls {
             x[e::VELOCITY..e::VELOCITY + 3].copy_from_slice(&row[r::VELOCITY..r::VELOCITY + 3]);
             x[e::SPEED] = row[r::VELOCITY..r::VELOCITY + 3].iter().map(|n| n * n).sum::<f64>().sqrt();
             x[e::SOURCE_YAW_RATE] = row[r::LEAN];
-            x[e::WALK_PHASE] = row[r::WALK_PHASE];
-            x[e::WALK_BLEND] = row[r::WALK_BLEND];
+            x[e::WALK_PHASE] = row[r::WALK_PHASE] / 1000.;
+            x[e::WALK_BLEND] = row[r::WALK_BLEND] / 255.;
             if mount[mo::VALID] != 0. {
                 x[e::WALK_PHASE] = mount[mo::WALK_PHASE];
                 x[e::WALK_BLEND] = mount[mo::WALK_BLEND];
             }
-            s.walk = [x[e::WALK_PHASE], x[e::WALK_BLEND]];
             x[e::HOVER] = m.hover;
             x[e::AGE] = tick / 60.;
             x[e::NOW] = tick / 60.;
@@ -709,6 +706,14 @@ impl Hulls {
             if prediction.identity == Some((row[r::ID], row[r::GENERATION])) {
                 if let Some(p) = &prediction.state {
                     x[e::LOCAL_PRESENT] = 1.;
+                    // Vehicle.present draws the solver's last two tick states
+                    // at the input clock's fraction, including its walk cycle.
+                    x[e::ALPHA] = prediction.alpha;
+                    x[e::TICK_FROM..e::TICK_FROM + 3].copy_from_slice(&p.tick_from.unwrap_or(p.position));
+                    x[e::TICK_QUATERNION..e::TICK_QUATERNION + 4].copy_from_slice(&p.flight_tick_q.unwrap_or(p.quaternion));
+                    x[e::TICK_YAW] = p.tick_from_yaw.unwrap_or(p.yaw);
+                    x[e::TICK_TILT] = p.tick_from_tilt.unwrap_or(p.tilt);
+                    x[e::TICK_ROLL] = p.tick_from_roll.unwrap_or(p.roll);
                     x[e::POSITION..e::POSITION + 3].copy_from_slice(&p.position);
                     x[e::QUATERNION..e::QUATERNION + 4].copy_from_slice(&p.quaternion);
                     x[e::VELOCITY..e::VELOCITY + 3].copy_from_slice(&p.velocity);
@@ -800,7 +805,14 @@ impl Hulls {
             if !s.active {
                 continue;
             }
+            // Prediction and pose interpolation can replace the input gait.
+            // Feet must follow the phase actually sampled into these bones.
+            let output = self.owner.slot_output(s.rig, 0);
+            s.walk = [self.owner.stream_out[output + o::SHOWN_PHASE], self.owner.stream_out[output + o::SHOWN_BLEND]];
             let m = &self.models[s.model];
+            if m.flying {
+                s.flight_frame.copy_from_slice(&self.owner.stream_out[output + o::FRAME..output + o::FRAME + 4]);
+            }
             // Walkers publish leg-side values before aimers and nodes. The
             // pose owner supplies the node block instead of host offset math.
             let Some(nodes) = self.owner.slot_nodes(s.rig, 0) else {
@@ -831,7 +843,6 @@ impl Hulls {
             return;
         }
         self.feet.input[ff::DT] = dt;
-        self.sound_feet.clear();
         for s in &self.slots {
             let (Some(first), Some((_, _, bones))) = (s.feet, &self.models[s.model].feet) else {
                 continue;
@@ -850,26 +861,34 @@ impl Hulls {
                 x[fi::ROOT_Y] = nodes[n::WORLD + 13];
                 let at = (bone + 1) * n::STRIDE + n::WORLD;
                 x[fi::MATRIX..fi::MATRIX + 16].copy_from_slice(&nodes[at..at + 16]);
-                if let (Some(unit), false) = (s.identity, s.dying) {
-                    if k == 0 {
-                        self.sound_feet.push((unit, s.walk, Vec::with_capacity(bones.len())));
-                    }
-                    if let Some(last) = self.sound_feet.last_mut() {
-                        last.2.push((first + k, k, std::array::from_fn(|i| nodes[at + i])));
-                    }
-                }
             }
         }
         self.feet.frame();
         for s in self.slots.iter().filter(|s| s.active) {
-            let (Some(first), Some((_, Some(group), bones))) = (s.feet, &self.models[s.model].feet) else {
+            let (Some(first), Some((_, group, bones))) = (s.feet, &self.models[s.model].feet) else {
                 continue;
             };
             for k in 0..bones.len() {
                 let out = &self.feet.output[(first + k) * fe::STRIDE..][..fe::STRIDE];
-                if out[fe::COUNT] > 0. {
+                if let Some(group) = group.filter(|_| out[fe::COUNT] > 0.) {
                     let turn = if out[fe::HAS_TURN] != 0. { std::array::from_fn(|i| out[fe::TURN + i]) } else { [0., 0., 0., 1.] };
-                    fx.shot(*group, std::array::from_fn(|i| out[fe::POSITION + i]), turn);
+                    fx.shot(group, std::array::from_fn(|i| out[fe::POSITION + i]), turn);
+                }
+            }
+        }
+    }
+    /// Footfall facts from the displayed pose, including walkers without a
+    /// dust effect. Audio keeps its own distance and playback gates.
+    pub fn foot_sounds(&self, mut emit: impl FnMut((u32, u32), usize, usize, [f64; 3])) {
+        use bfe_presentation::layout::foot_event as fe;
+        for s in self.slots.iter().filter(|s| s.active && !s.dying) {
+            let (Some(identity), Some(first), Some((_, _, bones))) =
+                (s.identity, s.feet, &self.models[s.model].feet) else { continue; };
+            for k in 0..bones.len() {
+                let out = &self.feet.output[(first + k) * fe::STRIDE..][..fe::STRIDE];
+                let point = [out[fe::POSITION], out[fe::HEIGHT], out[fe::POSITION + 2]];
+                for (key, count) in [(k, out[fe::COUNT]), (6, out[fe::LIFTS])] {
+                    if count > 0. { emit(identity, key, count as usize, point); }
                 }
             }
         }
@@ -889,18 +908,6 @@ impl Hulls {
                 self.sound_turrets.push((unit, index * 8 + k.min(7), x[seat::HELD] != 0., x[seat::AIM_YAW], x[seat::PITCH], top, point));
             }
         }
-    }
-    /// Every walker class's feet for its foot sounds, by registry class.
-    pub fn walker_sound_feet(&self) -> Vec<(usize, bfe_presentation::feet::SoundFeet)> {
-        self.classes
-            .iter()
-            .enumerate()
-            .filter_map(|(class, model)| {
-                let (content, _, _) = self.models[(*model)?].feet.as_ref()?;
-                let content: bfe_presentation::feet::Content = array(content).ok()?;
-                Some((class, bfe_presentation::feet::sound_feet(&content)))
-            })
-            .collect()
     }
     // VehicleEffects.update: every hull with effects, drawn or a wreck
     // whose record remains, from the pose just published.
@@ -1041,7 +1048,7 @@ impl Hulls {
     }
 }
 
-// gait() and Footfalls' content for a walker with a StompEffect: its bones
+// gait() and Footfalls' content for a walker: its bones
 // as bound, its two walk clips, each foot primitive's bone and the point it
 // meets the ground at, and the class's stomp rules.
 fn walker_feet(
@@ -1053,7 +1060,6 @@ fn walker_feet(
     effect: &dyn Fn(&str) -> Option<usize>,
 ) -> Option<(Value, Option<usize>, Vec<usize>)> {
     let fx = authored_json(record.get("fx")?);
-    // The StompEffect, when the class has one; the feet sound either way.
     let group = fx["stomp"]["effect"].as_str().and_then(effect);
     let feet = fx["feet"].as_array().filter(|f| !f.is_empty())?;
     let clips = clips?;

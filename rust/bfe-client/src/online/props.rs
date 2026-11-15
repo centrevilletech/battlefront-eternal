@@ -18,6 +18,9 @@ pub struct Props {
     rows: Vec<Building>,
 }
 impl Props {
+    pub fn built_body(&self, building: usize) -> Option<u32> {
+        self.rows.iter().find(|row| row.live == Some(building))?.looks[0]
+    }
     /// Every building's bodies, in instance order and look order, as the
     /// world makes them. Only a building's first look is enabled: unbuilt
     /// where it starts that way, else built.

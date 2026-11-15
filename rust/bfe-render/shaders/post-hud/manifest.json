@@ -60,7 +60,10 @@
     {
       "key": "post-hud/motion",
       "vertex": "motion.vert",
-      "fragment": "motion.frag",
+      "fragment": [
+        "motion-sample.frag",
+        "motion.frag"
+      ],
       "attributes": {
         "position": 0,
         "uv": 1
@@ -68,15 +71,18 @@
       "uniforms": {
         "depthMap": 32,
         "velocityMap": 32,
-        "inverseJittered": 16,
-        "currentViewProjection": 16,
-        "previousViewProjection": 16
+        "currentFromJittered": 16,
+        "previousFromJittered": 16,
+        "cameraStill": 1
       }
     },
     {
       "key": "post-hud/resolve",
       "vertex": "resolve.vert",
-      "fragment": "resolve.frag",
+      "fragment": [
+        "motion-sample.frag",
+        "resolve.frag"
+      ],
       "attributes": {
         "position": 0,
         "uv": 1
@@ -85,14 +91,15 @@
         "colorMap": 32,
         "motionMap": 32,
         "historyMap": 32,
-        "inputSize": 2,
-        "outputSize": 2,
         "jitter": 2,
         "reset": 1,
-        "maxWeight": 1,
-        "kernel": 1,
         "narrowWeights": 9,
-        "wideWeights": 9
+        "wideWeights": 9,
+        "depthMap": 32,
+        "velocityMap": 32,
+        "currentFromJittered": 16,
+        "previousFromJittered": 16,
+        "cameraStill": 1
       }
     },
     {
