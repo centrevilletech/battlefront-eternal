@@ -1834,7 +1834,7 @@ impl BattleController {
                         look,
                         flight,
                         ack,
-                        view_tick: receiver.clock.shown,
+                        view_tick: crate::online::clock::rendered_tick(receiver.clock.shown, receiver.latest),
                     });
                 }
 

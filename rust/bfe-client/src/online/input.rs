@@ -290,7 +290,7 @@ impl Sender {
             if !fire.held {
                 let yaw = self.yaw;
                 let pitch = self.pitch;
-                let view = (receiver.latest - 6.).max(0.);
+                let view = super::clock::rendered_tick(receiver.clock.shown, receiver.latest);
                 let edge = self.edge(1., tick);
                 edge[e::BUTTON] = fire.button as f64;
                 edge[e::PRESSED] = fire.pressed as u8 as f64;
@@ -427,7 +427,7 @@ impl Sender {
             x[start + v::PROFILE_FOUND] = 1.;
             x[start + v::MOUSE_SCALE] = self.mouse_scale;
             x[start + v::ASPECT] = self.aspect;
-            x[start + v::VIEW_TICK] = (receiver.latest - 6.).max(0.);
+            x[start + v::VIEW_TICK] = super::clock::rendered_tick(receiver.clock.shown, receiver.latest);
             for state in &states[..commands] {
                 for n in [1., state.sequence, state.tick, 0.] {
                     put(&mut x, &mut at, n);

@@ -326,7 +326,7 @@ impl<E: Engine> Runtime<E> {
             at_ms: self.now_ms,
             epoch: self.receiver.epoch,
             generation: self.receiver.own.generation,
-            view_tick: Some(self.receiver.clock.shown),
+            view_tick: Some(bfe_client::online::clock::rendered_tick(self.receiver.clock.shown, self.receiver.latest)),
             flight_mode: self.receiver.own.body_schema == 7,
         })?;
         let output = self.engine.step(input)?;
