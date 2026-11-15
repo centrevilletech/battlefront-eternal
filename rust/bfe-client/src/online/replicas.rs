@@ -706,6 +706,7 @@ impl Replicas {
             let [yaw, pitch] = shot.fire;
             self.combat.predict(
                 shot.weapon,
+                shot.level,
                 shot.tick,
                 shot.button,
                 [basis.origin.x, basis.origin.y, basis.origin.z],
@@ -1191,7 +1192,19 @@ impl Replicas {
             point.apply_matrix4(&matrix);
             Some([point.x, point.y, point.z])
         };
-        self.combat.draw(dt, own, &muzzle, &mut self.lights, bridge);
+        // The drawn bodies' hit shapes, as the frame's shot scene took them
+        // (online/shot_aim.rs), but for the player's own.
+        let scene = self.shot_aim.borrow();
+        let strike = |from: [f64; 3], direction: [f64; 3], length: f64| {
+            let (from, direction) = (three::Vector3::new(from[0], from[1], from[2]), three::Vector3::new(direction[0], direction[1], direction[2]));
+            scene
+                .targets
+                .iter()
+                .filter(|(id, _)| *id != own.0)
+                .filter_map(|(_, shape)| bfe_sim::units::shapes::segment_shape(&from, &direction, length, shape))
+                .fold(None, |nearest: Option<f64>, distance| Some(nearest.map_or(distance, |n| n.min(distance))))
+        };
+        self.combat.draw(dt, own, &muzzle, &strike, &mut self.lights, bridge);
     }
     /// Lightning.update, once the frame's bodies are posed. A bolt held to
     /// its shooter starts at his gun origin as he is drawn now
@@ -1213,7 +1226,11 @@ impl Replicas {
         let mut turn = three::Quaternion::default();
         turn.set_from_rotation_matrix(camera);
         let eye = [camera.elements[12], camera.elements[13], camera.elements[14]];
-        self.arcs.begin(dt, eye, [turn.x, turn.y, turn.z, turn.w]);
+        // ArcLightning's view layer: with the first person arms shown, the
+        // crackle on the player's own gun and a strike on his arms are
+        // drawn with the arms, after them.
+        let arms = self.first_person.enabled && self.units.header[bfe_presentation::layout::unit_header::FIRST_PERSON_VISIBLE] != 0.;
+        self.arcs.begin(dt, eye, [turn.x, turn.y, turn.z, turn.w], arms);
         if self.arcs.reads_units() {
             let own = (receiver.own.id as u32, receiver.own.generation as u32);
             // The local player's charge is his predicted weapon's; everyone
@@ -1257,6 +1274,7 @@ impl Replicas {
                     mounted: seated,
                     walker: slot.walker,
                     first_person: mine && self.first_person.enabled,
+                    own: mine,
                     shown: !hidden,
                     root: std::array::from_fn(|axis| out[o::POSITION + axis]),
                     origin: (!slot.dead && !seated).then(|| std::array::from_fn(|axis| out[o::COMBAT_BASIS + axis])),
@@ -1388,7 +1406,12 @@ impl Replicas {
             );
             matrix.multiply(&local);
             let opacity = color[3] * (2. * left / length.max(1e-3)).min(1.);
-            if self.combat.particles.flash(bridge, &matrix.elements, &color[..3], opacity) {
+            let shown = if eyes {
+                self.combat.particles.flash_view(bridge, &matrix.elements, &color[..3], opacity)
+            } else {
+                self.combat.particles.flash(bridge, &matrix.elements, &color[..3], opacity)
+            };
+            if shown {
                 self.presented.shown[10] += 1;
             }
         }
