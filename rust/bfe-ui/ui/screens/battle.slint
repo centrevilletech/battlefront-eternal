@@ -579,7 +579,7 @@ export component BattlePauseScreen inherits Rectangle {
             backdrop: false;
         }
 
-        if !OptionsModel.battle-open : ScreenFrame {
+        if !OptionsModel.battle-open : pframe := ScreenFrame {
             x: 0px;
             y: 0px;
             width: parent.width;
@@ -597,7 +597,7 @@ export component BattlePauseScreen inherits Rectangle {
 
             m-pause := VerticalLayout { visible: false; x: 0px; y: 0px; for item in BattleModel.pause-main-rows: PageButton { label: item.label; } }
             if BattleModel.pause-subscreen == "main" || BattleModel.pause-subscreen == "confirm" : VerticalLayout {
-                x: (parent.width - self.width) * 0.5;
+                x: (pframe.body-width - self.width) * 0.5;
                 y: 4px;
                 width: min(max(root.button-width, m-pause.preferred-width), 86 * Theme.vw - 16px);
                 spacing: Theme.bfe-gap;
@@ -606,6 +606,8 @@ export component BattlePauseScreen inherits Rectangle {
                     width: parent.width;
                     label: item.label;
                     disabled: !item.enabled;
+                    // Under the YES/NO popup the rows neither light (the clicked row keeps the focus) nor answer.
+                    interactive: BattleModel.pause-subscreen != "confirm";
                     highlighted: item.highlighted;
                     selected => { BattleModel.pause-row-hovered(idx); }
                     activated => { BattleModel.pause-row-activated(idx); }
@@ -614,7 +616,7 @@ export component BattlePauseScreen inherits Rectangle {
 
             m-popt := VerticalLayout { visible: false; x: 0px; y: 0px; for label in ["GAME OPTIONS", "VIDEO OPTIONS", "AUDIO OPTIONS", "CONTROL OPTIONS", "ONLINE OPTIONS"]: PageButton { label: label; } }
             if BattleModel.pause-subscreen == "options" : VerticalLayout {
-                x: (parent.width - self.width) * 0.5;
+                x: (pframe.body-width - self.width) * 0.5;
                 y: 4px;
                 width: min(max(root.button-width, m-popt.preferred-width), 86 * Theme.vw - 16px);
                 spacing: Theme.bfe-gap;
@@ -636,8 +638,8 @@ export component BattlePauseScreen inherits Rectangle {
             if BattleModel.pause-subscreen == "playerlist" : PageList {
                 x: 0px;
                 y: 0px;
-                width: parent.width;
-                height: parent.height;
+                width: pframe.body-width;
+                height: pframe.body-height;
                 columns: [1];
                 entries: BattleModel.pause-players;
                 selected-index: BattleModel.pause-selected-player;
