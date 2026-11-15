@@ -249,6 +249,9 @@ pub struct Sound {
     trace_explosions: bool,
     pub refused: u64,
     last_clock: u64,
+    // Game time of the frames that ran no control step (the device had not
+    // moved), handed to the next step so delays and fades keep real time.
+    carried: f64,
     music: Vec<[f64; music_slot::STRIDE]>,
     starts: [f64; 2],
     ui_paused: bool,
@@ -294,6 +297,7 @@ impl Sound {
             trace_explosions: crate::app::bench::fx().is_some(),
             refused: 0,
             last_clock: 0,
+            carried: 0.,
             music: prepared.music,
             starts: [f64::NAN; 2],
             ui_paused: false,
@@ -659,14 +663,19 @@ impl Sound {
         // Preserve control state while the device is stopped or its bounded
         // queue is full. Advancing it after dropping START would orphan a loop.
         let clock = self.mail.clock.load(Ordering::Acquire);
+        // At most a quarter second carried, so a stall does not jump a fade.
+        let dt = (self.carried + dt).min(0.25);
         if clock == self.last_clock {
+            self.carried = dt;
             return;
         }
         self.last_clock = clock;
         if !self.mail.available() {
+            self.carried = dt;
             self.refused += 1;
             return;
         }
+        self.carried = 0.;
         // Device time governs scheduled sample starts and stream parts.
         // Game dt still governs the control phase's frame transitions. Using
         // window wall time for both clocks makes pause/resume schedule audio
