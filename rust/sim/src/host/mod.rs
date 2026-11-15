@@ -29,6 +29,8 @@ mod after;
 mod before;
 mod capture;
 pub mod census;
+#[cfg(test)]
+mod capture_test;
 mod content;
 pub use content::{content_tables, content_tables_files, content_tables_from_registry};
 mod drain;

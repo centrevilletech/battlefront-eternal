@@ -366,6 +366,39 @@ impl Bench {
             }
         }
         out.write_all(b"]")?;
+        out.write_all(br#","traps":["#)?;
+        if let Some(scene) = battle.scene.online.as_ref() {
+            for (index, trap) in scene.animated.trap_states().enumerate() {
+                if index != 0 { out.write_all(b",")?; }
+                serde_json::to_writer(&mut *out, &trap)?;
+            }
+        }
+        out.write_all(b"]")?;
+        out.write_all(br#","creatureHolds":["#)?;
+        if let Some(scene) = battle.scene.online.as_ref() {
+            for (index, held) in scene.animated.creature_holds().enumerate() {
+                if index != 0 { out.write_all(b",")?; }
+                serde_json::to_writer(&mut *out, &held)?;
+            }
+        }
+        out.write_all(b"]")?;
+        out.write_all(br#","items":["#)?;
+        let mut first = true;
+        for row in receiver.active().filter(|row| row[r::KIND] == k::ITEM as f64) {
+            if !std::mem::replace(&mut first, false) { out.write_all(b",")?; }
+            serde_json::to_writer(&mut *out, &(row[r::ID],row[r::GENERATION],row[r::ACTIVE],row[r::DEFINITION_ID],
+                &row[r::POSITION..r::POSITION+3]))?;
+        }
+        out.write_all(b"]")?;
+        out.write_all(br#","itemViews":["#)?;
+        if let Some(scene) = battle.scene.online.as_ref() {
+            use bfe_presentation::items_layout::{item_header as h,item_view as v};
+            for (index,row) in scene.items.owner.views.chunks_exact(v::STRIDE).take(scene.items.owner.header[h::VIEWS] as usize).enumerate() {
+                if index != 0 { out.write_all(b",")?; }
+                serde_json::to_writer(&mut *out,&row)?;
+            }
+        }
+        out.write_all(b"]")?;
         out.write_all(b"}\n")?;
         // A reader follows the file while the battle runs.
         if tick % 6. == 0. {

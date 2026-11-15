@@ -1633,6 +1633,7 @@ impl Scene {
                 replay,history,&mut self.bridge);
             let rider_eye = resources.prepare_camera(receiver, replay, &world.elements);
             let drawn = crate::online::cameras::DrawnDeath {
+                held_camera: resources.animated.held_camera(receiver.own.id as u32, receiver.own.generation as u32),
                 chest: resources.drawn_chest(receiver),
                 killer_feet: resources
                     .cameras

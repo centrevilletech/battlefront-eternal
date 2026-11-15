@@ -232,7 +232,7 @@ impl Views {
             // (`weapons.find(w => w.bank === event.bank && w.busy)`). The
             // view ignores it while it is not the one shown.
             let (weapon, action) = match event.kind {
-                "shot" if prediction.body.is_some() && !event.repair && !event.melee && ahead(event.weapon_id) => continue,
+                "shot" if prediction.ahead() && !event.repair && !event.melee && ahead(event.weapon_id) => continue,
                 "shot" => (units.input[f::FIRST_PERSON_SHOWN], 0.),
                 "weaponAction" if event.prepare => {
                     let held = prediction
