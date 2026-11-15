@@ -1060,6 +1060,9 @@ mod tests {
         };
         let count = rows(&ctrl);
         assert!(count > 10);
+        if let Some(Widget::Options(o)) = ctrl.stack.top_mut().unwrap().widget_mut("rows") {
+            o.shown = 13;
+        }
         for _ in 0..count {
             ctrl.on_key_down("ArrowDown", false);
         }
