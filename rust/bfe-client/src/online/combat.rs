@@ -1031,7 +1031,7 @@ impl Combat {
         &mut self,
         dt: f64,
         own: (u32, u32),
-        muzzle: &dyn Fn((u32, u32), usize) -> Option<[f64; 3]>,
+        muzzle: &mut dyn FnMut((u32, u32), usize) -> Option<[f64; 3]>,
         lights: &mut super::lights::SceneLights,
         bridge: &mut Bridge,
     ) {

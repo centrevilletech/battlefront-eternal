@@ -49,7 +49,7 @@ impl<C: HasContext> Profile<C> {
         self.gpu_supported = !gl.version().is_embedded || gl.supported_extensions().iter().any(|e| e.contains("disjoint_timer_query"));
         eprintln!("graphics trace GPU={} CPU={} renderer={}", self.gpu_supported, if thread_cpu_ms().is_some(){"thread"}else{"wall"}, unsafe { gl.get_parameter_string(glow::RENDERER) });
     }
-    pub fn clock(&self) -> Option<CpuSample> { (self.enabled && self.frame % 8 == 0).then(CpuSample::now) }
+    pub fn clock(&self) -> Option<CpuSample> { (self.enabled && self.frame % 7 == 0).then(CpuSample::now) }
     pub fn cpu(&mut self, label: &'static str, start: Option<CpuSample>) {
         if let Some(start) = start { self.samples.entry(label).or_default().cpu(self.frame,start.elapsed_ms()); }
     }
@@ -89,7 +89,7 @@ impl<C: HasContext> Profile<C> {
     pub fn report(&mut self, gl: &C) {
         if !self.enabled {return;}
         self.frame(gl);
-        eprintln!("graphics table: section | samples | CPU p50/p95 ms | GPU p50/p95 ms | draws/frame | triangles/frame");
+        eprintln!("graphics table: section | samples | CPU p50/p95 ms | GPU p50/p95 ms | draws/active frame | triangles/active frame");
         for (label,s) in &mut self.samples {
             fn pct(v:&mut [f64])->(f64,f64) {v.sort_by(f64::total_cmp);if v.is_empty(){return (0.,0.);} (v[v.len()/2],v[((v.len() as f64*0.95).ceil() as usize).saturating_sub(1)])}
             if s.cpu_pending {s.cpu.push(s.cpu_sum);s.cpu_pending=false;}

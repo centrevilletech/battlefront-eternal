@@ -1050,8 +1050,19 @@ impl Replicas {
         // draw boundary; both instance culling and rider attachments need
         // the composed root and skin, not the preceding frame's bind pose.
         let mut places = 0;
+        let killer = self.cameras.killer();
         for slot in &self.slots {
-            if slot.active {
+            if !slot.active { continue; }
+            let input = &self.units.input[f::STRIDE + slot.actor * i::STRIDE..];
+            let out = &self.units.output[slot.actor * o::STRIDE..];
+            let visible = (0..6).all(|plane| {
+                let at = f::FRUSTUM + plane * 4;
+                self.units.input[at] * out[o::POSITION]
+                    + self.units.input[at + 1] * (out[o::POSITION + 1] + 0.9)
+                    + self.units.input[at + 2] * out[o::POSITION + 2]
+                    + self.units.input[at + 3] >= -2.2
+            });
+            if visible || input[i::OWN] != 0. || slot.mount.is_some() || slot.identity == killer {
                 self.units.places[places] = slot.actor as u32;
                 places += 1;
             }
@@ -1067,14 +1078,15 @@ impl Replicas {
     /// a seated or unknown shooter, whose bolt keeps its launch point).
     pub fn present_ordnance(&mut self, receiver: &Receiver, dt: f64, bridge: &mut Bridge) {
         let own = (receiver.own.id as u32, receiver.own.generation as u32);
-        let (bound, slots, units, models, guns, first_person) = (&self.bound, &self.slots, &self.units, &self.models, &self.guns, &self.first_person);
-        let muzzle = |shooter: (u32, u32), round: usize| {
+        let (bound, slots, units, models, guns, first_person) = (&self.bound, &self.slots, &mut self.units, &self.models, &self.guns, &self.first_person);
+        let mut muzzle = |shooter: (u32, u32), round: usize| {
             let slot = &slots[*bound.get(&shooter)?];
             if !slot.active || slot.mount.is_some() {
                 return None;
             }
             let weapon = guns.shooters.get(round)?.iter().find(|(class, _)| *class == slot.class)?.1;
             let local = guns.muzzles.get(weapon).copied().flatten()?;
+            units.refresh_actor(slot.actor);
             let hand = if shooter == own && first_person.enabled && !slot.dead {
                 first_person.hand_node(units)?
             } else {
@@ -1087,7 +1099,7 @@ impl Replicas {
             point.apply_matrix4(&matrix);
             Some([point.x, point.y, point.z])
         };
-        self.combat.draw(dt, own, &muzzle, &mut self.lights, bridge);
+        self.combat.draw(dt, own, &mut muzzle, &mut self.lights, bridge);
     }
     /// Lightning.update, once the frame's bodies are posed. A bolt held to
     /// its shooter starts at his gun origin as he is drawn now
@@ -1110,6 +1122,11 @@ impl Replicas {
         turn.set_from_rotation_matrix(camera);
         let eye = [camera.elements[12], camera.elements[13], camera.elements[14]];
         self.arcs.begin(dt, eye, [turn.x, turn.y, turn.z, turn.w]);
+        let mut aims = 0;
+        for slot in &self.slots {
+            if slot.active { self.units.places[aims] = slot.actor as u32; aims += 1; }
+        }
+        self.units.aim_frame(aims);
         if self.arcs.reads_units() {
             let own = (receiver.own.id as u32, receiver.own.generation as u32);
             // The local player's charge is his predicted weapon's; everyone
@@ -1121,6 +1138,7 @@ impl Replicas {
                 if !slot.active {
                     continue;
                 }
+                self.units.refresh_actor(slot.actor);
                 let out = &self.units.output[slot.actor * o::STRIDE..];
                 let mine = slot.identity == Some(own);
                 let hand = self.models[slot.model].hand.map(|hand| {
@@ -1177,6 +1195,7 @@ impl Replicas {
             }
             // Bone i is node i + 2 of the actor's posed tree.
             let slot = &self.slots[at];
+            self.units.refresh_actor(slot.actor);
             let start = self.units.actor_node_start(slot.actor) + 2;
             let nodes = &self.units.nodes;
             self.arcs.pose(at, &self.models[slot.model].bones, |bone| {
@@ -1205,6 +1224,8 @@ impl Replicas {
             let out = &self.units.output[slot.actor * o::STRIDE..];
             // Air::Jet on the wire and in the own body's prediction.
             let active = out[o::AIR] == 4. && !slot.dead && out[o::GONE] != -1.;
+            let velocity = std::array::from_fn(|axis| out[o::VELOCITY + axis]);
+            if active { self.units.refresh_actor(slot.actor); }
             // Bone i is node i + 2 of the actor's posed tree.
             let node = (self.units.actor_node_start(slot.actor) + 2 + chest) * bfe_presentation::layout::unit_node::STRIDE
                 + bfe_presentation::layout::unit_node::WORLD;
@@ -1214,7 +1235,6 @@ impl Replicas {
             matrix.decompose(&mut position, &mut turn, &mut scale);
             let position = [position.x, position.y, position.z];
             let turn = [turn.x, turn.y, turn.z, turn.w];
-            let velocity = std::array::from_fn(|axis| out[o::VELOCITY + axis]);
             let class = slot.class;
             self.jets.update(unit, class, active, position, turn, velocity, dt);
             if active && !self.jets.enhanced {
@@ -1270,6 +1290,7 @@ impl Replicas {
             let (Some(hand), Some(point)) = (hand, self.guns.muzzles.get(weapon).copied().flatten()) else {
                 continue;
             };
+            self.units.refresh_actor(slot.actor);
             let node = hand * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
             let mut matrix = Matrix4::default();
             matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
@@ -1518,7 +1539,7 @@ impl Replicas {
         let d=std::array::from_fn::<_,3,_>(|i|to[i]-from[i]);let length=d.iter().map(|v|v*v).sum::<f64>().sqrt();if length<0.4{return true;}
         let ray=bfe_sim::collision::Ray{ox:from[0],oy:from[1],oz:from[2],dx:d[0]/length,dy:d[1]/length,dz:d[2]/length};self.collision.borrow_mut().ray_hit(self.world,ray,(length-0.35).max(0.),-1).is_none()
     }
-    pub fn append(&self, bridge: &mut Bridge, mut records: usize, mut bones: usize) -> (usize, usize) {
+    pub fn append(&mut self, bridge: &mut Bridge, mut records: usize, mut bones: usize) -> (usize, usize) {
         // Drawing clips at the renderer's existing record and bone budgets.
         // Filling either leaves gameplay, transport and the next frame alive.
         let camera = bridge.r.core.camera();
@@ -1535,13 +1556,13 @@ impl Replicas {
             if output[o::GONE] == -1. {
                 continue;
             }
+            // An off-camera actor retains stale bone matrices. Cull from
+            // its current displayed feet, then place only an actual draw.
+            let center = [output[o::POSITION], output[o::POSITION + 1] + 0.9, output[o::POSITION + 2]];
+            if !camera.frustum.sphere(&center, 2.2) { continue; }
+            self.units.refresh_actor(slot.actor);
+            let output = &self.units.output[slot.actor * o::STRIDE..];
             let count = output[o::SKIN_COUNT] as usize;
-            let mut matrix = [0.; 16];
-            matrix.copy_from_slice(&output[o::ROOT_WORLD..o::ROOT_WORLD + 16]);
-            let (center, radius) = bfe_render::math::sphere_to_world(&matrix, &[0., 0.9, 0.], 2.2);
-            if !camera.frustum.sphere(&center, radius) {
-                continue;
-            }
             if records == draw::MAX_RECORDS || bones + count > draw::MAX_BONES {
                 continue;
             }

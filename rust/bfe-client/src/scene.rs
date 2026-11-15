@@ -1599,6 +1599,7 @@ impl Scene {
         replay:&crate::online::replay::Replay, history:&crate::online::replay::History,
         camera:&mut MapCamera,dt:f64) {
         let timer=self.bridge.r.core.profile.clock();
+        if let Some(shadows) = &mut self.shadows { shadows.frame_time(dt); }
         if let Some(resources)=&mut self.online {
             let mut world=Matrix4::default();
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
@@ -1823,7 +1824,7 @@ impl Scene {
             })
             .max()
             .unwrap_or(0);
-        if component==Component::All{if let Some(online)=&self.online{(records,bones)=online.append(&mut self.bridge,records,bones);}}
+        if component==Component::All{if let Some(online)=&mut self.online{(records,bones)=online.append(&mut self.bridge,records,bones);}}
         self.bridge.r.core.profile.cpu("instance list and culling",cull_timer);
         self.lamps.begin();
         let online=&self.online;

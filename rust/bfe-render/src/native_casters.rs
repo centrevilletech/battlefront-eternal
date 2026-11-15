@@ -92,8 +92,9 @@ impl Casters {
             }
             let id = self.ids[record];
             let base = self.skins.get(id).unwrap().base;
-            self.skins.bones[base..base + count * 16]
-                .copy_from_slice(&core.bones[start..start + count * 16]);
+            let source = &core.bones[start..start + count * 16];
+            if self.skins.bones[base..base + count * 16] == *source { continue; }
+            self.skins.bones[base..base + count * 16].copy_from_slice(source);
             let slot = self.skins.slot(id).unwrap();
             self.skins.input[slot] = self.serial as f64;
         }

@@ -12,6 +12,8 @@ pub struct Shadows {
     maps: Vec<u32>,
     samples: Vec<(u32,u32)>,
     size: usize,
+    frame_ms: f64,
+    slow: bool,
     caches: Vec<u32>,
     casters: bfe_render::native_casters::Casters,
 }
@@ -75,7 +77,7 @@ impl Shadows {
         bridge.frame_shadow_reserve_frame();
         eprintln!("native shadows: cascades={count} size={size} comparison=LEQUAL");
         Ok(Self {
-            maps, samples, size,
+            maps, samples, size, frame_ms: 0., slow: false,
             caches,
             casters,
         })
@@ -84,6 +86,13 @@ impl Shadows {
         bridge.set_shadow_maps(&[]);
         for(texture,sample)in self.samples{bridge.r.core.forget_texture(texture);resources.dispose_sample(sample)?;}
         bridge.r.cameras.input[I::CASCADE_COUNT]=0.;Ok(())
+    }
+    pub fn frame_time(&mut self, seconds: f64) {
+        if !seconds.is_finite() || seconds <= 0. || seconds > 0.25 { return; }
+        let ms = seconds * 1000.;
+        self.frame_ms += 0.05 * (ms - self.frame_ms);
+        if self.frame_ms > 1000. / 30. { self.slow = true; }
+        else if self.frame_ms < 1000. / 40. { self.slow = false; }
     }
     pub fn publish(
         &mut self,
@@ -124,7 +133,13 @@ impl Shadows {
             .copy_from_slice(&view.values[SF::SUN_DIRECTION..SF::SUN_DIRECTION + 3]);
         bridge.r.cameras.main();
         bridge.camera_cascades_frame();
+        bridge.r.frames.plan.shadow_periods = if self.slow { [1, 2, 4, 4] } else { [1; 4] };
+        bridge.r.frames.plan.facts[F::SHADOW_COUNT] = count as f64;
         for cascade in 0..count {
+            let at = cascade * bfe_render::cameras::layout::cascade::LEN;
+            bridge.r.frames.plan.facts[F::SHADOW_DIRTY + cascade] = bridge.r.cameras.cascades.output[at + bfe_render::cameras::layout::cascade::DIRTY];
+            bridge.r.frames.plan.facts[F::SHADOW_MOVED + cascade] = bridge.r.cameras.cascades.output[at + bfe_render::cameras::layout::cascade::MOVED];
+            if !bridge.r.frames.plan.shadow_due(cascade) { continue; }
             bridge.camera_shadow_frame(cascade as u32);
             bridge.camera_static_shadow_frame(cascade as u32);
             bridge.r.shadow.static_view[bfe_render::static_layout::SHADOW_TIME] =
@@ -155,11 +170,6 @@ impl Shadows {
             bridge.r.frames.meta[role * M::LEN + M::BOUND] = 1.;
             bridge.r.frames.meta[role * M::LEN + M::KIND] = K::SHADOW as f64;
             bridge.frame_publish_frame(role as u32);
-            let at = cascade * bfe_render::cameras::layout::cascade::LEN;
-            bridge.r.frames.plan.facts[F::SHADOW_DIRTY + cascade] =
-                bridge.r.cameras.cascades.output[at + bfe_render::cameras::layout::cascade::DIRTY];
-            bridge.r.frames.plan.facts[F::SHADOW_MOVED + cascade] =
-                bridge.r.cameras.cascades.output[at + bfe_render::cameras::layout::cascade::MOVED];
             // Copy cached static depth into the live comparison map before
             // moving casters. FramePlan retains its last-cascade cadence.
             bridge.r.shadow.input[S::S_TARGET] = self.maps[cascade] as f64;
