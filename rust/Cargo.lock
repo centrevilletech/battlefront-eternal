@@ -412,6 +412,7 @@ dependencies = [
  "arboard",
  "audio",
  "audio-control",
+ "audio-decode",
  "base64 0.22.1",
  "bfe-battle-ui",
  "bfe-content-native",

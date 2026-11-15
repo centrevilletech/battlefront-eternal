@@ -34,6 +34,7 @@ png = "0.18"
 fontdue = "0.9"
 
 audio-control = { path = "../audio-control" }
+audio-decode = { path = "../audio-decode" }
 three = { path = "../three" }
 jsrt = { path = "../jsrt" }
 

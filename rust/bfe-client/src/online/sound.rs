@@ -299,6 +299,13 @@ pub struct Sound {
     // The reverb last sent, so a new configuration starts in the same room.
     room: [f64; audio::reverb::PARAM_COUNT],
     room_mask: u32,
+    // The upscaled samples: waiting for Enhanced to be chosen, then loading.
+    enhanced_items: Vec<super::enhanced_audio::Item>,
+    enhanced_base: usize,
+    enhanced_loading: Option<std::sync::mpsc::Receiver<super::enhanced_audio::Loaded>>,
+    /// How many upscaled samples have arrived.
+    pub enhanced_loaded: u64,
+    headphones: Option<(std::sync::Arc<Vec<f32>>, usize)>,
 }
 impl Sound {
     pub fn new(prepared: Prepared, collision: Collision, world: u32) -> Self {
@@ -357,6 +364,11 @@ impl Sound {
             pending_config: None,
             room: [0.; audio::reverb::PARAM_COUNT],
             room_mask: 0,
+            enhanced_items: prepared.enhanced,
+            enhanced_base: prepared.enhanced_base,
+            enhanced_loading: None,
+            enhanced_loaded: 0,
+            headphones: prepared.headphones,
         }
     }
     /// The player's audio settings (Settings > Audio). A change builds the new
@@ -370,8 +382,13 @@ impl Sound {
         }
         let room = (self.room_mask != 0).then_some((&self.room, self.room_mask));
         let (mut next, rendering) =
-            super::sound_output::build(settings, default, max, room, self.volumes[0].clamp(0., 1.) as f32, None);
+            super::sound_output::build(settings, default, max, room, self.volumes[0].clamp(0., 1.) as f32,
+                self.headphones.as_ref().map(|(filters, frames)| (filters.as_slice(), *frames)));
         crate::audio::want_channels(rendering.channels);
+        if rendering.enhanced && self.enhanced_loading.is_none() && !self.enhanced_items.is_empty() {
+            self.enhanced_loading =
+                Some(super::enhanced_audio::load(std::mem::take(&mut self.enhanced_items), self.enhanced_base));
+        }
         self.audio = settings.clone();
         self.rendering = rendering;
         self.configuration += 1.;
@@ -765,6 +782,23 @@ impl Sound {
                     starts[(row[music_slot::TEAM] as usize).saturating_sub(1).min(1)];
                 runtime.input[..row.len()].copy_from_slice(row);
                 runtime.import(import::MUSIC_SLOT, row.len());
+            }
+        }
+        // Upscaled samples that have decoded: the control runtime may pick them
+        // from this frame on; their PCM goes to the device in this batch.
+        let mut arrived = Vec::new();
+        if let Some(loading) = &self.enhanced_loading {
+            for loaded in loading.try_iter().take(32) {
+                let input = &mut runtime.input[..enhanced_sample::STRIDE];
+                input[enhanced_sample::ID] = loaded.index as f64;
+                input[enhanced_sample::RENDER_ID] = loaded.render_id as f64;
+                input[enhanced_sample::DURATION] = loaded.pcm.frames as f64 / loaded.pcm.rate;
+                input[enhanced_sample::RATE] = loaded.pcm.rate;
+                input[enhanced_sample::SCALE] = 1.;
+                input[enhanced_sample::AVAILABLE] = 1.;
+                runtime.import(import::ENHANCED_SAMPLE, enhanced_sample::STRIDE);
+                arrived.push((loaded.render_id, Some(loaded.pcm)));
+                self.enhanced_loaded += 1;
             }
         }
         runtime.clear_output();
@@ -1221,6 +1255,7 @@ impl Sound {
         drop(batch.retired.take());
         batch.config = self.pending_config.take();
         batch.samples.clear();
+        batch.samples.append(&mut arrived);
         batch.commands.clear();
         batch.commands.extend_from_slice(commands);
         batch.placements.clear();
