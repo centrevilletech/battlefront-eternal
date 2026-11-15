@@ -65,6 +65,11 @@ impl Phase {
     // Native receive supplies valid rows before resource admission. A duplicate lookup
     // of the same tick never inserts a second endpoint or prunes its history.
     pub fn ingest(&mut self, row: &[f64]) {
+        // A dying hull no longer publishes crew angles. Keep its last live
+        // lean through the death animation, as EntityGame.mount does.
+        if row[r::STATE] == 6. {
+            return;
+        }
         let id = row[r::ID];
         let generation = row[r::GENERATION];
         let at = if let Some(at) = self.hulls.iter().position(|h| h.id == id) {
@@ -212,5 +217,44 @@ impl Phase {
                 hull.len -= at;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dying_hull_retains_live_lean_until_its_next_life() {
+        let mut phase = Phase::new();
+        let mut row = [0.; r::STRIDE];
+        row[r::ID] = 16.;
+        row[r::GENERATION] = 1.;
+        row[r::TICK] = 10.;
+        row[r::TILT] = 0.094;
+        row[r::MOUNT_ROLL] = -0.03;
+        phase.ingest(&row);
+        row[r::TICK] = 11.;
+        row[r::STATE] = 6.;
+        row[r::TILT] = 0.;
+        row[r::MOUNT_ROLL] = 0.;
+        phase.ingest(&row);
+        phase.frame[f::COUNT] = 1.;
+        phase.input[i::ID] = 16.;
+        phase.input[i::GENERATION] = 1.;
+        phase.input[i::ALIVE] = 1.;
+        phase.present(11.);
+        assert_eq!(phase.output[o::TILT], 0.094);
+        assert_eq!(phase.output[o::ROLL], -0.03);
+
+        row[r::GENERATION] = 2.;
+        row[r::TICK] = 12.;
+        row[r::STATE] = 5.;
+        row[r::TILT] = -0.2;
+        phase.ingest(&row);
+        phase.input[i::GENERATION] = 2.;
+        phase.present(12.);
+        assert_eq!(phase.output[o::TILT], -0.2);
+        assert_eq!(phase.output[o::ROLL], 0.);
     }
 }
