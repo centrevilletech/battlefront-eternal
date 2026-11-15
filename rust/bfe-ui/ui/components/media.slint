@@ -1,6 +1,6 @@
 import { Theme } from "../theme.slint";
 
-// Movie pixels come from the renderer's current libvpx frame. These image
+// Movie pixels come from the renderer's current decoded movie frame. These image
 // inputs are also usable by the standalone gallery; no poster asset is used.
 export component MovieLayer inherits Rectangle {
     in property <image> current-frame;

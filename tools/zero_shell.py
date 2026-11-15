@@ -18,6 +18,7 @@ flyovers the movies), and writes only gitignored, retail-derived data:
     public/common/raster-hud/         4x WebP atlases (tools/upscale_hud.py; needs Pillow)
     public/common/shell/shell.json    movies by screen, the map catalog, music, whooshes, the loading screen
     public/common/shell/movies/       Movies/shell.mvs's Bink movies as VP9 WebM, with manifest.json
+                                      (--movie-index: the manifest alone, for the native client)
     public/common/shell/load/         the loading screen's pictures
     public/audio/shell/               the music (Ogg Opus), the whooshes (FLAC), and the shell's
                                       sound for the audio engine (sound.json, bank.bin)
@@ -570,6 +571,41 @@ def write_movies(catalog, game=GAME, public=PUBLIC, jobs=2, only=None, force=Fal
     return manifest
 
 
+def write_movie_index(catalog, game=GAME, public=PUBLIC):
+    """movies/manifest.json without encoding anything: each movie's name, hash, archive and Bink header,
+    for the native client, which plays the Bink files from the game's own archives. An entry an encode
+    already wrote is kept as it is (it has the same hash), so a later encode still finds its WebMs."""
+    out = public / "common" / "shell" / "movies"
+    out.mkdir(parents=True, exist_ok=True)
+    manifest_path = out / "manifest.json"
+    manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+    movies = manifest.get("movies", {})
+    install = game.parents[2]
+    for name, movie in catalog.items():
+        if name in movies and movies[name].get("hash"):
+            continue
+        source = Path(movie.get("archive") or archives(game)["movies"])
+        with open(source, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
+            info = bink_info(data, movie["offset"])
+        try:
+            archive = source.relative_to(install).as_posix()
+        except ValueError:
+            archive = str(source)
+        movies[name] = {
+            "hash": hexname(movie["hash"]), "kind": movie_kind(name, info), "width": info["width"],
+            "height": info["height"], "frames": info["frames"], "fps": info["fps"], "duration": info["duration"],
+            "audio": bool(info["audio"]),
+            "source": {"archive": archive, "offset": movie["offset"], "length": movie["length"],
+                       "width": info["width"], "height": info["height"]},
+        }
+    manifest = {"version": 1, "movies": dict(sorted(movies.items(), key=lambda kv: (kv[1]["source"].get("archive", ""), kv[1]["source"]["offset"])))}
+    part = manifest_path.with_suffix(".json.part")
+    part.write_text(json.dumps(manifest, indent=1) + "\n")
+    part.replace(manifest_path)
+    print(f"  movie index: {len(movies)} movies", flush=True)
+    return manifest
+
+
 def screen_movies(catalog, config):
     """shell.json's movies: each screen's intro and loop, and their fades."""
     by_hash = {movie["hash"]: name for name, movie in catalog.items()}
@@ -1098,11 +1134,13 @@ def main():
     parser.add_argument("--audio", action="store_true", help="public/audio/shell: music, whooshes, interface sounds")
     parser.add_argument("--catalog", action="store_true", help="shell.json and the loading screen's pictures")
     parser.add_argument("--movies", action="store_true", help="transcode Movies/shell.mvs")
+    parser.add_argument("--movie-index", action="store_true",
+                        help="only list the movies in movies/manifest.json (the native client plays the Bink files)")
     parser.add_argument("--jobs", type=int, default=2, help="movies encoded at once (each uses four threads)")
     parser.add_argument("--only", nargs="*", help="only these movies (by file name without .webm)")
     parser.add_argument("--force", action="store_true", help="encode movies again even if up to date")
     args = parser.parse_args()
-    every = not (args.common or args.audio or args.catalog or args.movies)
+    every = not (args.common or args.audio or args.catalog or args.movies or args.movie_index)
     paths = archives()
     missing = [str(p) for p in paths.values() if not p.exists()]
     if missing:
@@ -1119,6 +1157,9 @@ def main():
         music, whooshes = write_shell_audio()
     if every or args.catalog or args.audio:
         write_catalog(locl, music=music, whooshes=whooshes)
+    if args.movie_index:
+        catalog, _ = movie_sources()
+        write_movie_index(catalog)
     if every or args.movies:
         catalog, _ = movie_sources()
         write_movies(catalog, jobs=args.jobs, only=set(args.only) if args.only else None, force=args.force)

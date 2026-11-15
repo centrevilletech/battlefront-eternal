@@ -360,10 +360,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install libvpx source configuration tools
-        shell: bash
-        run: choco install make --no-progress -y
-
       - name: The Rust toolchain rust/rust-toolchain.toml pins
         working-directory: rust
         shell: bash

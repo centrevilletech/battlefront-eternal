@@ -26,6 +26,7 @@ the game, on the player's machine.
 
 | Component | Copyright | License |
 | --- | --- | --- |
+| bink-decoder 0.1.0, the native client's movie decoder (Bink 1 video and Bink audio), a Rust port of FFmpeg's Bink demuxer and decoders | FFmpeg's code: Copyright Konstantin Shishkov, Peter Ross and Daniel Verkamp; the port: Copyright Josh Lambert | GPL-3.0-only; the FFmpeg code it derives from is LGPL-2.1-or-later, placed under the GPL as section 3 of that license allows |
 | [Slint](https://slint.dev) 1.18.1, compiled native menu components and FemtoVG renderer | Copyright SixtyFPS GmbH and the Slint contributors | GPL-3.0-only, selected from its offered license alternatives; full text in `licenses/Slint-GPL-3.0.txt` |
 | [Claxon](https://github.com/ruuda/claxon) 0.4.3, pure Rust FLAC decoder | Copyright 2014-2019 Ruud van Asseldonk and contributors | Apache-2.0 (full text in `rust/audio-decode/licenses/Claxon.txt`, installed as `legal/audio-codecs/Claxon.txt`) |
 | [opus-pure](https://github.com/stephenberry/opus-pure) 0.2.2, pure Rust Opus decoder | Copyright 2026 Stephen Berry; Copyright 2026 restsend.com; Copyright 2001-2023 Xiph.Org and contributors | BSD-3-Clause (full notices in `rust/audio-decode/licenses/Opus.txt`, installed as `legal/audio-codecs/Opus.txt`) |
@@ -249,72 +250,6 @@ across the shipped native targets (`x86_64-unknown-linux-gnu`,
 | `zlib-rs` | `0.6.8` | Zlib | The crate authors | <https://github.com/trifectatechfoundation/zlib-rs> |
 | `zmij` | `1.0.23` | MIT | David Tolnay &lt;dtolnay@gmail.com&gt; | <https://github.com/dtolnay/zmij> |
 <!-- END CARGO METADATA CRATES -->
-
-<!-- BEGIN LIBVPX -->
-## libvpx 1.17.0
-
-The native movie decoder statically links libvpx (BSD-3-Clause).
-Source: <https://github.com/webmproject/libvpx/tree/v1.17.0>.
-
-```text
-Copyright (c) 2010, The WebM Project authors. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-  * Redistributions of source code must retain the above copyright
-    notice, this list of conditions and the following disclaimer.
-
-  * Redistributions in binary form must reproduce the above copyright
-    notice, this list of conditions and the following disclaimer in
-    the documentation and/or other materials provided with the
-    distribution.
-
-  * Neither the name of Google, nor the WebM Project, nor the names
-    of its contributors may be used to endorse or promote products
-    derived from this software without specific prior written
-    permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-```
-
-```text
-Additional IP Rights Grant (Patents)
-------------------------------------
-
-"These implementations" means the copyrightable works that implement the WebM
-codecs distributed by Google as part of the WebM Project.
-
-Google hereby grants to you a perpetual, worldwide, non-exclusive, no-charge,
-royalty-free, irrevocable (except as stated in this section) patent license to
-make, have made, use, offer to sell, sell, import, transfer, and otherwise
-run, modify and propagate the contents of these implementations of WebM, where
-such license applies only to those patent claims, both currently owned by
-Google and acquired in the future, licensable by Google that are necessarily
-infringed by these implementations of WebM. This grant does not include claims
-that would be infringed only as a consequence of further modification of these
-implementations. If you or your agent or exclusive licensee institute or order
-or agree to the institution of patent litigation or any other patent
-enforcement activity against any entity (including a cross-claim or
-counterclaim in a lawsuit) alleging that any of these implementations of WebM
-or any code incorporated within any of these implementations of WebM
-constitute direct or contributory patent infringement, or inducement of
-patent infringement, then any patent rights granted to you under this License
-for these implementations of WebM shall terminate as of the date such
-litigation is filed.
-```
-<!-- END LIBVPX -->
 
 ## Tools bundled in desktop packages
 
