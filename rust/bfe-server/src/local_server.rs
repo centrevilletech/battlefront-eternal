@@ -316,6 +316,10 @@ impl LocalDedicatedServer {
                                             &player_welcome,
                                         );
                                         u.send_events(&id, &welcome_msg);
+                                        // Joined during the end table: follow the announced battle.
+                                        if let Some(next) = u.pending_match_event() {
+                                            u.send_events(&id, &next);
+                                        }
                                     }
                                     Err(err) => {
                                         // Refuse join with `gameplay-error` (`GameSession.refuse` in `src/game-session.js`).
@@ -522,6 +526,8 @@ impl LocalDedicatedServer {
     /// Broadcasts a `match` rotation event to all connected players (`match(value)` in `src/udp-server.js`).
     pub fn match_rotate(&self, query: &str, delay_ms: u64) {
         let mut u = self.udp.lock().unwrap();
+        let deadline = u.now_ms() + delay_ms as f64;
+        u.pending_match = Some((query.to_string(), deadline));
         u.broadcast_events(&json!({
             "type": "match",
             "query": query,

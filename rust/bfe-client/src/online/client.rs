@@ -8,7 +8,7 @@ use crate::{
     scene::{MapCamera, View},
 };
 use bfe_presentation::{aim::View as AimView, cameras::math::V8};
-use bfe_transport::{connection::Lane, endpoint::Endpoint};
+use bfe_transport::{connection::Lane, endpoint::Endpoint, layout::close_code};
 use std::time::Duration;
 pub struct Client {
     pub receiver: Box<Receiver>,
@@ -18,6 +18,11 @@ pub struct Client {
     pub camera: Box<MapCamera>,
     rotation_probe: Option<super::rotation::Probe>,
     pub rotation_ready: bool,
+    // The `HOST:PORT` that answered /info, and the battle query loaded from it.
+    target: String,
+    query: String,
+    // Refused for content before the welcome: did the server change battle meanwhile?
+    rejoin: Option<(super::rotation::Probe, f64, String)>,
     dt: f64,
     started: bool,
     authenticated: bool,
@@ -27,7 +32,7 @@ pub struct Client {
 impl Client {
     // Discovery, identity and DNS finish before the window event loop starts.
     // Handshake retries belong to receive(), so close and paint remain live.
-    pub fn connect(endpoint: Box<Endpoint>, resources: &mut Replicas, camera: MapCamera) -> Result<Self, String> {
+    pub fn connect(endpoint: Box<Endpoint>, resources: &mut Replicas, camera: MapCamera, target: String, query: String) -> Result<Self, String> {
         let receiver = Box::new(Receiver::new(resources.descriptor.clone()));
         let replay = Box::new(resources.replay.take().ok_or("native prediction resources already admitted")?);
         let connecting_at = endpoint.now();
@@ -39,6 +44,9 @@ impl Client {
             camera: Box::new(camera),
             rotation_probe: None,
             rotation_ready: false,
+            target,
+            query,
+            rejoin: None,
             dt: 0.,
             started: false,
             authenticated: false,
@@ -58,6 +66,29 @@ impl Client {
                 }
             })
             .map_err(|e| self.endpoint.failure(e));
+        // The handshake starts only once the battle has loaded. A server that changed battle
+        // in the meantime refuses the old battle's content: follow it instead of failing.
+        let refused = self.endpoint.connection.as_ref().and_then(|c| c.closed).is_some_and(|c| c.code == close_code::VERSION as u64);
+        if refused && !self.receiver.welcomed && self.rejoin.is_none() {
+            if let Err(error) = &receipt {
+                eprintln!("online join: refused ({error}); checking whether the server changed battle");
+                let probe = super::rotation::Probe::changed(self.target.clone(), self.query.clone());
+                self.rejoin = Some((probe, self.endpoint.now(), error.clone()));
+            }
+        }
+        if let Some((probe, since, error)) = &self.rejoin {
+            match probe.answer() {
+                Some(true) => {
+                    eprintln!("online join: the server changed battle while this one loaded; joining the new one");
+                    self.rotation_ready = true;
+                }
+                Some(false) => return Err(error.clone()),
+                None if self.endpoint.now() - since > 60_000. => return Err(error.clone()),
+                None => return Ok(()),
+            }
+        }
+
+        if self.rotation_ready { return Ok(()); }
         if self.receiver.next_match.is_none() { receipt?; }
         let receiver = &mut *self.receiver;
         if !self.authenticated && self.endpoint.ready() {
@@ -114,11 +145,11 @@ impl Client {
     }
     // NetworkSession.scheduleRotation waits out the advertised delay before
     // probing. Starting one worker is a cold match-boundary operation.
-    pub fn poll_rotation(&mut self, host: &str, port: u16) {
+    pub fn poll_rotation(&mut self) {
         if self.rotation_ready { return; }
         if let Some(next) = &self.receiver.next_match {
             if self.rotation_probe.is_none() && self.endpoint.now() >= next.ready_at {
-                self.rotation_probe = Some(super::rotation::Probe::start(format!("{host}:{port}"), next.query.clone()));
+                self.rotation_probe = Some(super::rotation::Probe::start(self.target.clone(), next.query.clone()));
             }
         }
         if self.rotation_probe.as_ref().is_some_and(|p| p.ready()) { self.rotation_ready = true; }

@@ -161,6 +161,8 @@ pub struct InstantAdmission {
 }
 pub struct OnlineAdmission {
     launch: MultiplayerLaunch,
+    /// The `HOST:PORT` that answered; later /info probes (rotation, rejoin) ask it.
+    target: String,
     server_info: crate::online::info::Server,
     endpoint: Box<bfe_transport::endpoint::Endpoint>,
     graphics: crate::scene::Prepared,
@@ -1194,7 +1196,7 @@ impl BattleController {
             ) {
                 Ok(ready) => {
                     eprintln!("online join: {target} answered");
-                    admitted = Some(ready);
+                    admitted = Some((target.clone(), ready));
                     break;
                 }
                 Err(error) => {
@@ -1206,7 +1208,7 @@ impl BattleController {
                 }
             }
         }
-        let (server_info, endpoint) = match admitted {
+        let (target, (server_info, endpoint)) = match admitted {
             Some(ready) => ready,
             None => return Err(failure.map(|(_, e)| e).unwrap_or_default()),
         };
@@ -1214,6 +1216,7 @@ impl BattleController {
         let graphics = Scene::prepare_online(content_dir, &server_info.query,textures)?;
         Ok(OnlineAdmission {
             launch,
+            target,
             server_info,
             endpoint,
             graphics,
@@ -1229,6 +1232,7 @@ impl BattleController {
     ) -> Result<Self, String> {
         let OnlineAdmission {
             launch,
+            target,
             server_info,
             endpoint,
             graphics,
@@ -1269,7 +1273,7 @@ impl BattleController {
         );
 
         // Open the WebRTC / UDP session to `bfeserver`.
-        let mut client = Box::new(OnlineClient::connect(endpoint, replicas, camera)?);
+        let mut client = Box::new(OnlineClient::connect(endpoint, replicas, camera, target, server_info.query.clone())?);
         client.sender.auto_spawn = false;
 
         let leaving = super::leaving::LeavingFeed::load(content_dir, &map_id);
@@ -1752,8 +1756,8 @@ impl BattleController {
         self.pause_page.save(settings);
         self.elapsed_s += elapsed_dt;
 
-        if let BattleAuthority::Online { client, launch, .. } = &mut self.authority {
-            client.poll_rotation(launch.address.as_deref().unwrap_or(""), launch.port.unwrap_or(18451));
+        if let BattleAuthority::Online { client, .. } = &mut self.authority {
+            client.poll_rotation();
             self.scoreboard_port.next_ready = client.rotation_ready;
         }
 

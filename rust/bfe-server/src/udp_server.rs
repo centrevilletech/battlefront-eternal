@@ -260,6 +260,9 @@ pub struct UdpGameServer {
     pub content: String,
     /// `bfe-content-sha256-...` digest verified during `on_admit`.
     pub fingerprint: String,
+    /// The announced next battle (`query`, deadline in `now_ms` time) once this battle has
+    /// ended: players who join during the end table are told it too, so they follow it.
+    pub pending_match: Option<(String, f64)>,
     /// Monotonic start instant for `now_ms()` (`performance.now()` in `src/game-session.js`).
     start_instant: Instant,
     /// Reusable 1500-byte UDP receive buffer.
@@ -314,6 +317,7 @@ impl UdpGameServer {
             state_bytes_per_second,
             content,
             fingerprint,
+            pending_match: None,
             start_instant: Instant::now(),
             recv_buf: [0u8; MAX_PACKET],
         })
@@ -789,6 +793,14 @@ impl UdpGameServer {
 
     /// Serializes `payload` once and sends it to all connected peers on the `events` lane
     /// (`WorldRouter.broadcastEvents` in `src/game-session.js` and `match(value)` in `src/udp-server.js`).
+    /// The pending rotation as the `match` event a newly welcomed player needs, with the
+    /// delay that is left of it.
+    pub fn pending_match_event(&self) -> Option<Value> {
+        let (query, deadline) = self.pending_match.as_ref()?;
+        let left = (deadline - self.now_ms()).max(0.).round() as u64;
+        Some(json!({ "type": "match", "query": query, "delayMs": left }))
+    }
+
     pub fn broadcast_events(&mut self, payload: &Value) {
         let Ok(bytes) = serde_json::to_vec(payload) else {
             return;
