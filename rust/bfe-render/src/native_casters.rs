@@ -108,8 +108,10 @@ impl Casters {
         records: usize,
         view: &[f64],
         projection: &[f64],
-    ) -> Result<(), String> {
-        let frustum = crate::math::Frustum::from_matrix(&crate::math::mul(projection.try_into().unwrap(), view.try_into().unwrap()));
+    ) -> Result<Option<[f64; 4]>, String> {
+        let clip = crate::math::mul(projection.try_into().unwrap(), view.try_into().unwrap());
+        let frustum = crate::math::Frustum::from_matrix(&clip);
+        let mut bounds: Option<[f64; 4]> = None;
         let mut count = 0;
         for record in 0..records.min(I::MAX_RECORDS) {
             let row = &core.input[I::IN_RECORDS + record * I::REC_STRIDE..][..I::REC_STRIDE];
@@ -122,6 +124,11 @@ impl Casters {
             let world = row[I::REC_WORLD..I::REC_WORLD + 16].try_into().unwrap();
             let (center, radius) = crate::math::sphere_to_world(world, row[I::REC_SPHERE..I::REC_SPHERE + 3].try_into().unwrap(), row[I::REC_SPHERE + 3]);
             if !frustum.sphere(&center, radius) { continue; }
+            let rect = projected_sphere(&clip, center, radius);
+            bounds = Some(match bounds {
+                None => rect,
+                Some([x0, y0, x1, y1]) => [rect[0].min(x0), rect[1].min(y0), rect[2].max(x1), rect[3].max(y1)],
+            });
             let model_view = crate::math::mul(view.try_into().unwrap(), world);
             let skinned = row[I::REC_KIND] == 1. || row[I::REC_KIND] == I::KIND_BLENDED;
             for group in 0..(row[I::REC_GROUPS] as usize).clamp(1, 4) {
@@ -166,6 +173,21 @@ impl Casters {
             }
         }
         input[S::S_DRAWS] = count as f64;
-        Ok(())
+        Ok(bounds)
     }
+}
+
+// Cascades are orthographic: each projected sphere extent is the length of
+// one matrix row times its world radius. Unknown bounds conservatively cover
+// the whole map, just as a newly positioned cascade does.
+fn projected_sphere(clip: &crate::math::Mat4, center: [f64; 3], radius: f64) -> [f64; 4] {
+    if clip[3] != 0. || clip[7] != 0. || clip[11] != 0. || clip[15] != 1.
+        || !radius.is_finite() || radius < 0. || center.iter().any(|x| !x.is_finite()) {
+        return [-1., -1., 1., 1.];
+    }
+    let p = crate::math::transform4(clip, [center[0], center[1], center[2], 1.]);
+    let rx = radius * (clip[0]*clip[0] + clip[4]*clip[4] + clip[8]*clip[8]).sqrt();
+    let ry = radius * (clip[1]*clip[1] + clip[5]*clip[5] + clip[9]*clip[9]).sqrt();
+    let rect = [p[0]-rx, p[1]-ry, p[0]+rx, p[1]+ry];
+    if rect.iter().any(|x| !x.is_finite()) { [-1., -1., 1., 1.] } else { rect }
 }

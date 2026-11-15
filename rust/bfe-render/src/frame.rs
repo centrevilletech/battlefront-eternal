@@ -380,7 +380,11 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
             },
             K::SCENE=>if role==R::NEAR{self.frame(records)?}else{self.mirror_frame(records)?},
             K::TRANSPARENT=>if role==R::TRANSPARENT{self.transparent_frame(0,0)?}else{self.mirror_transparent_frame(0,0)?},
-            K::SHADOW=>self.shadow_frame()?, K::VIEW=>self.view_frame(records)?,
+            K::SHADOW=>{
+                let b=&self.frames.bindings[role*B::LEN..(role+1)*B::LEN];
+                self.shadow.copy_rect = if b[B::CLIPPED] != 0. { Some(std::array::from_fn(|i| b[B::SCISSOR+i] as i32)) } else { None };
+                self.shadow_frame()?
+            }, K::VIEW=>self.view_frame(records)?,
             K::MOTION=>self.motion_frame(records)?, K::SCREEN=>self.screen_frame(steps)?,
             K::HUD=>self.hud_frame()?,
             K::INTERFACE=>{self.core.begin_phase();self.interface.draw(&mut self.core,count.min(crate::interface_scene::layout::MAX_DRAWS));self.core.end_phase()?},
