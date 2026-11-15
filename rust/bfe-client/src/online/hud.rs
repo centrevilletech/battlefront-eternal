@@ -47,6 +47,62 @@ pub struct HudClassMeta {
     pub weapons: Vec<String>,
 }
 
+/// Names for the end-of-match records (contentLabels, src/battle-stats.js):
+/// the registry's class and weapon names (id - 1), and the label of each
+/// class, weapon and vehicle by its name.
+#[derive(Default)]
+pub struct RecordNames {
+    pub classes: Vec<String>,
+    pub weapons: Vec<String>,
+    labels: [HashMap<String, String>; 3],
+}
+impl RecordNames {
+    fn new(content: &bfe_content::content::Content, registry: &bfe_content::registry::EntityRegistry) -> Self {
+        use bfe_content::Value as V;
+        let text = |v: Option<&V>| v.and_then(V::as_str).map(|s| s.trim().replace('\n', " ")).filter(|s| !s.is_empty());
+        let mut labels: [HashMap<String, String>; 3] = Default::default();
+        let mut weapon = |labels: &mut [HashMap<String, String>; 3], def: &V| {
+            if let Some(class) = def.get("class").and_then(V::as_str) {
+                if let (false, Some(label)) = (labels[1].contains_key(class), text(def.get("displayName").or_else(|| def.get("label")))) {
+                    labels[1].insert(class.to_string(), label);
+                }
+            }
+        };
+        let sides = bfe_content::registry::registry_content(content);
+        for side in sides.get("sides").and_then(V::as_object).map(|o| o.values().collect::<Vec<_>>()).unwrap_or_default() {
+            for (class, def) in side.get("units").and_then(V::as_object).map(|o| o.entries().collect::<Vec<_>>()).unwrap_or_default() {
+                if let Some(label) = text(def.get("displayName")) {
+                    labels[0].insert(class.to_string(), label);
+                }
+                for w in def.get("weapons").and_then(V::as_array).unwrap_or(&[]) {
+                    weapon(&mut labels, w);
+                }
+            }
+        }
+        let vehicles = content.battle.vehicle_def.as_ref().and_then(|v| v.get("classes")).and_then(V::as_object);
+        for (name, def) in vehicles.map(|o| o.entries().collect::<Vec<_>>()).unwrap_or_default() {
+            if let Some(label) = text(def.get("label")) {
+                labels[2].insert(name.to_string(), label);
+            }
+            for seat in def.get("seats").and_then(V::as_array).unwrap_or(&[]) {
+                for w in seat.get("weapons").and_then(V::as_array).unwrap_or(&[]) {
+                    if let Some(def) = w.get("def") {
+                        weapon(&mut labels, def);
+                    }
+                }
+            }
+        }
+        Self { classes: registry.classes.clone(), weapons: registry.weapons.clone(), labels }
+    }
+    /// A record's favourite (`which`: 0 class, 1 weapon, 2 vehicle) by its
+    /// registry id: its name and label. Vehicles are named among the classes.
+    pub fn favourite(&self, which: usize, id: u16) -> Option<(&str, Option<&str>)> {
+        let names = if which == 1 { &self.weapons } else { &self.classes };
+        let key = names.get(usize::from(id).checked_sub(1)?)?;
+        Some((key, self.labels.get(which)?.get(key).map(String::as_str)))
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct HudPostMeta {
     pub id: usize,
@@ -193,6 +249,7 @@ pub struct Prepared {
     radar: super::radar::Teams,map:Option<[f64;5]>,posts:Vec<Post>,max_health:Vec<f64>,unit_defs:Vec<[f64;U::WORDS]>,
     class_meta: Vec<HudClassMeta>,
     post_meta: Vec<HudPostMeta>,
+    record_names: RecordNames,
     feed: super::hud_feed::Tables,
     team_names: [String; 8],
     reticles: Vec<super::hud_target::Reticle>,
@@ -232,6 +289,7 @@ pub struct Hud {
     pub strings: HashMap<String, String>,
     pub class_meta: Vec<HudClassMeta>,
     pub post_meta: Vec<HudPostMeta>,
+    pub record_names: RecordNames,
     pub own_summary: HudOwnSummary,
     pub auto_build: bool,
     flight_key: String,
@@ -291,6 +349,7 @@ impl Prepared {
             strings: common["strings"].clone(),radar:super::radar::Teams::new(content),map:None,posts:vec![],max_health:vec![],unit_defs:vec![],
             class_meta: vec![],
             post_meta: vec![],
+            record_names: RecordNames::default(),
             feed: super::hud_feed::Tables::new(&defs, &bfe_sim::world::admit::rows::props::live_sources(&content.content.battle)),
             reticles: vec![],
             target_classes: vec![],
@@ -369,6 +428,7 @@ impl Prepared {
             }
             result.fonts.push((font["lineHeight"].as_f64().unwrap_or(0.), rows));
         }
+        result.record_names = RecordNames::new(&content.content, &defs.registry);
         result.max_health=vec![300.;defs.registry.classes.len()+1];result.unit_defs=vec![[0.;U::WORDS];defs.registry.classes.len()+1];
         for c in &defs.classes {
             if let Some(reg_id) = c.registry_id {
@@ -850,6 +910,7 @@ impl Prepared {
             strings,
             class_meta: self.class_meta,
             post_meta: self.post_meta,
+            record_names: self.record_names,
             own_summary: HudOwnSummary::default(),
             auto_build: true,
             flight_key: String::new(),
