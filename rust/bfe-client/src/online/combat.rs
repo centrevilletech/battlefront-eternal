@@ -1148,6 +1148,7 @@ impl Combat {
         own: (u32, u32),
         muzzle: &mut dyn FnMut((u32, u32), usize) -> Option<[f64; 3]>,
         strike: &dyn Fn([f64; 3], [f64; 3], f64) -> Option<f64>,
+        drop_shadows: (&[[f64; 3]], [f64; 3]),
         lights: &mut super::lights::SceneLights,
         bridge: &mut Bridge,
     ) {
@@ -1406,6 +1407,7 @@ impl Combat {
             }
         }
         self.particles.effects(bridge, &self.effects.owner, &self.gpu_indices);
+        self.particles.drop_shadows(bridge, drop_shadows.0, drop_shadows.1);
         self.particles.finish(bridge);
         // BlasterBatch.load: the owner's capsules, plane after plane, then
         // the batch's value, which `project` fills once the lens is known.
