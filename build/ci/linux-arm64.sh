@@ -37,8 +37,6 @@ base_test_crates=(
   audio
   audio-decode
   basis-transcode
-  texture-codec
-  image-codec
   bfe-environment
   audio-control
   bfe-client

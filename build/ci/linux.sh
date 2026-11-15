@@ -29,7 +29,6 @@ fi
 # on the baseline branch.
 strict_clippy_crates=(
   basis-transcode
-  texture-codec
   bfe-online
 )
 
@@ -65,7 +64,6 @@ pre_hygiene_crates=(
   three
   audio
   audio-decode
-  image-codec
   bfe-environment
   audio-control
   bfe-client
@@ -106,8 +104,6 @@ base_test_crates=(
   audio
   audio-decode
   basis-transcode
-  texture-codec
-  image-codec
   bfe-environment
   audio-control
   bfe-client

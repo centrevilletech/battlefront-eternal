@@ -1087,9 +1087,6 @@ fn color_track(keys: &[Key], age: f64, c: &mut [f64; 4]) {
     }
 }
 
-#[cfg(all(target_arch = "wasm32", feature = "web"))]
-mod web;
-
 pub mod unit_content;
 
 pub mod units;
