@@ -109,6 +109,7 @@ impl Prepared {
         textures: &[u32],
         resources: &mut Resources,
     ) -> Result<Particles, String> {
+        let shadow_cascades = bridge.shadow_cascades();
         let effects = content.effects.iter().find(|(n, _)| n == "battle").map(|(_, e)| e).ok_or("missing effect library")?;
         let bytes = effects.gpu_tracks.iter().flat_map(|n| n.to_le_bytes()).collect::<Vec<_>>();
         let source=resources.source(&json!({"width":effects.gpu_size[0],"height":effects.gpu_size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1015,"srgb":false}).to_string())?;
@@ -168,7 +169,7 @@ impl Prepared {
         // additive and double-sided with its first part's texture, tinted
         // by the particle. One renderer model serves every particle of a
         // part; a model the content lacks draws nothing.
-        let shadows = crate::shadows::COUNT > 0;
+        let shadows = shadow_cascades > 0;
         let mut fields = GlowFields::default();
         for &(name, size) in bfe_render::effect_layout::PRODUCERS[bfe_render::effect_layout::ACTOR_GLOW].1 {
             match name {

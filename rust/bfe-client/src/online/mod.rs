@@ -10,11 +10,13 @@ pub mod input;
 pub mod receiver;
 pub mod replay;
 pub mod replicas;
+pub mod unit_light;
 
 pub mod checkpoint;
 
 pub mod hulls;
 
+pub mod props;
 pub mod publications;
 
 pub mod hud;
@@ -70,3 +72,9 @@ mod sound_events;
 
 mod own_view;
 mod radar;
+
+pub mod shot_aim;
+
+pub mod buildings;
+
+pub mod animated_props;

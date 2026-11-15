@@ -83,7 +83,7 @@ impl Rain {
         };
         let mut seeds = vec![0.; capacity * 4];
         rain::seeds(&mut seeds);
-        let shadows = crate::shadows::COUNT > 0;
+        let shadows = bridge.shadow_cascades() > 0;
         // The cover cache: a square of float heights, nearest sampling.
         let cover_size = 32;
         let source = gpu.source(&cover_desc(cover_size))?;
@@ -349,7 +349,7 @@ impl Snow {
             .and_then(|path| content.textures.load(&path).ok())
             .and_then(|image| textures.get(image).copied())
             .map_or(-1, |t| t as i32);
-        let shadows = crate::shadows::COUNT > 0;
+        let shadows = bridge.shadow_cascades() > 0;
         let flakes = floats(gpu, bridge, &rgba_desc(count, 2), count * 2 * 16)?;
         let boxes = floats(gpu, bridge, &rgba_desc(box_limit, 1), box_limit * 16)?;
         let cover = floats(gpu, bridge, &cover_desc(16), 16 * 16 * 4)?;

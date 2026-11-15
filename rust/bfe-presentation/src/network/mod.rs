@@ -110,6 +110,19 @@ impl Bindings {
         let mut table=self.table.borrow_mut();if table.rows.len()<=key{table.rows.resize(key+1,None);}
         table.rows[key]=Some(Binding{id,generation,kind,slot:owner.borrow().timeline.slot(id),lease:owner.borrow().lease});table.states[key*link::STRIDE+link::ACTIVE]=1.;
     }
+    // network-entity-game.js binds a soldier with every record it applies,
+    // a no-op while the binding holds. A binding retired on a life mismatch
+    // (the timeline still showing the previous life just after a respawn)
+    // is admitted again here; without this the body never samples again.
+    pub fn keep(&mut self,key:usize,id:f64,generation:f64,kind:f64,owner:&Shared){
+        let live=self.owner.as_ref().is_some_and(|o|Rc::ptr_eq(o,owner))&&{let table=self.table.borrow();
+            table.rows.get(key).and_then(Option::as_ref).is_some_and(|b|b.id==id&&b.generation==generation&&b.kind==kind&&b.lease==owner.borrow().lease)
+            &&table.states[key*link::STRIDE+link::ACTIVE]!=0.};
+        if !live{self.bind(key,id,generation,kind,owner);}
+    }
+    /// Whether the link of this key samples the timeline (bound, same lease, not retired).
+    pub fn live(&self,key:usize)->bool{let Some(owner)=&self.owner else{return false;};let table=self.table.borrow();
+        table.rows.get(key).and_then(Option::as_ref).is_some_and(|b|b.lease==owner.borrow().lease)&&table.states.get(key*link::STRIDE+link::ACTIVE).is_some_and(|a|*a!=0.)}
     // Resource removal clears only this key. The native frame never walks a
     // JavaScript binding map or constructs a per-entity sampled-pose facade.
     pub fn unbind(&mut self,key:usize){let mut table=self.table.borrow_mut();if let Some(row)=table.rows.get_mut(key){*row=None;table.states[key*link::STRIDE+link::ACTIVE]=0.;}}

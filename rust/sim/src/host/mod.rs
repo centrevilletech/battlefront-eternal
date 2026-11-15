@@ -29,6 +29,7 @@ mod after;
 pub mod battles; // matrix-b
 mod before;
 mod capture;
+pub mod census;
 mod content;
 pub use content::{content_tables, content_tables_files, content_tables_from_registry};
 mod drain;
@@ -96,6 +97,10 @@ pub struct Authority {
     /// store generation, life, for the dispenser bindings a new life needs.
     lives: Vec<(u32, u32, f64)>,
     lives_known: bool,
+    /// The units' facts the host reads, refilled when it reads them.
+    units: UnitTable,
+    /// `bind_dispensers`' rows with a new life, kept for its next tick.
+    changed_lives: Vec<usize>,
     /// `c.bodies[i].enabled` as the page kept them: the kernels' enabled
     /// flags written before every step (`bodiesIn`), toggled by the fleet's
     /// body changes and the buildings' shown states.
@@ -138,6 +143,8 @@ impl Default for Authority {
             event_offset: 0,
             lives: Vec::new(),
             lives_known: false,
+            units: UnitTable::default(),
+            changed_lives: Vec::new(),
             enabled: Vec::new(),
             written: Vec::new(),
             toggles: Vec::new(),
@@ -355,25 +362,6 @@ fn write_bank(context: &Context, name: &str, words: &[f64]) -> Result<(), String
     }
 }
 
-/// The store's unit rows (`KIND_UNIT`, full): slot, store generation, row.
-pub fn unit_rows(context: &Context) -> Result<Vec<(u32, u32, gen::Unit)>, String> {
-    let units = context
-        .export(u32::from(gen::KIND_UNIT), 1)
-        .map_err(|e| e.message().to_string())?;
-    let stride = units[B::STRIDE] as usize;
-    let rows = units[B::ROWS] as usize;
-    let heap_at = units[B::HEAP] as usize;
-    let heap = &units[heap_at..heap_at + units[B::HEAP_WORDS] as usize];
-    let mut out = Vec::with_capacity(rows);
-    for i in 0..rows {
-        let row = &units[B::WORDS + i * stride..B::WORDS + (i + 1) * stride];
-        let mut unit = gen::Unit::default();
-        unit.take_full(row, heap);
-        out.push((row[0] as u32, row[1] as u32, unit));
-    }
-    Ok(out)
-}
-
 /// The seat leases (`KIND_SEAT_LEASE`, full), by slot.
 fn lease_rows(context: &Context) -> Result<Vec<(u32, gen::SeatLease)>, String> {
     let words = context
@@ -393,12 +381,62 @@ fn lease_rows(context: &Context) -> Result<Vec<(u32, gen::SeatLease)>, String> {
     Ok(out)
 }
 
-/// A unit's store generation (the reference's) by slot, 0 for an unknown slot.
-fn unit_generation(units: &[(u32, u32, gen::Unit)], slot: u32) -> u32 {
-    units
-        .iter()
-        .find(|(s, _, _)| *s == slot)
-        .map_or(0, |(_, g, _)| *g)
+/// What the host reads of the units, straight from the store
+/// (`store.unit`, slot order): each unit's slot, its reference's generation,
+/// its life, its team and its weapons' definitions. Kept on the authority
+/// and refilled in place, so reading it allocates nothing.
+#[derive(Default)]
+pub(crate) struct UnitTable {
+    rows: Vec<UnitFacts>,
+    weapons: Vec<crate::store::DefId>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct UnitFacts {
+    pub slot: u32,
+    pub gen: u32,
+    /// `unit.generation`, the life.
+    pub life: f64,
+    pub team: f64,
+    first: u32,
+    count: u32,
+}
+
+impl UnitTable {
+    pub(crate) fn refresh(&mut self, context: &Context) -> Result<(), String> {
+        let (rows, weapons) = (&mut self.rows, &mut self.weapons);
+        rows.clear();
+        weapons.clear();
+        context
+            .with_store(|s| {
+                for (r, unit) in s.unit.iter() {
+                    let first = weapons.len() as u32;
+                    weapons.extend(unit.combat.weapons.iter().map(|w| w.def));
+                    rows.push(UnitFacts {
+                        slot: r.slot,
+                        gen: r.gen,
+                        life: unit.generation,
+                        team: unit.team,
+                        first,
+                        count: unit.combat.weapons.len() as u32,
+                    });
+                }
+            })
+            .map_err(|e| e.message().to_string())
+    }
+    pub(crate) fn rows(&self) -> &[UnitFacts] {
+        &self.rows
+    }
+    pub(crate) fn find(&self, slot: u32) -> Option<&UnitFacts> {
+        self.rows.iter().find(|u| u.slot == slot)
+    }
+    /// A unit's store generation (the reference's) by slot, 0 for an unknown slot.
+    pub(crate) fn generation(&self, slot: u32) -> u32 {
+        self.find(slot).map_or(0, |u| u.gen)
+    }
+    pub(crate) fn weapons(&self, unit: &UnitFacts) -> &[crate::store::DefId] {
+        &self.weapons[unit.first as usize..(unit.first + unit.count) as usize]
+    }
 }
 
 /// `b.strings.id(text)`: the store's id for a UTF-16 string.

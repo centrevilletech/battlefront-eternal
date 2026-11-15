@@ -33,6 +33,10 @@ pub const REC_WORLD: usize = 20; // matrixWorld
 pub const REC_BIND_INVERSE: usize = 36;
 pub const REC_LOOK: usize = 52; // sunScale, ambientPull, brightness
 pub const REC_FLAGS: usize = 56; // cull side (0 front, 1 back, 2 both) | 4 alpha to coverage | 8 depth write
+// Native temporal identity uses the three reserved scalar slots after flags.
+pub const REC_MOTION_ID:usize=57;
+pub const REC_MOTION_GENERATION:usize=58;
+pub const REC_MOTION_PART:usize=59;
 pub const REC_BIND: usize = 60; // bindMatrix (skinned)
 pub const REC_EXTRA: usize = 76; // a material's own values the instance gives (shader.rs EXTRAS: its row from ROW_EXTRA)
 // A blending rig's or part's: its blend (add_blend), then three's key for it but z:
@@ -91,6 +95,7 @@ pub struct InstancePass<C: HasContext> {
 }
 
 impl<C: HasContext> InstancePass<C> {
+    pub fn texture_bytes(&self) -> u64 { ((MAX_ROWS*ROW_TEXELS+BONE_TEXELS*BONE_ROWS+1)*16) as u64 }
     pub fn new<M: MultiDraw>(core: &mut Core<C, M>) -> InstancePass<C> {
         let gl = &core.gl;
         let instance_texture = upload_texture(gl, ROW_TEXELS as i32, MAX_ROWS as i32);
@@ -257,7 +262,7 @@ impl<C: HasContext> InstancePass<C> {
                     j += 1;
                 }
                 let (p, g) = (key[0] as usize, key[1] as usize);
-                let program = &programs[p];
+                let program = &programs[core.instance_programs.get(p).copied().unwrap_or(p)];
                 state.use_program(gl, stats, program.program);
                 gl.uniform_1_i32(program.instance_base.as_ref(), i as i32);
                 let geo = &geometries[g];
@@ -270,6 +275,7 @@ impl<C: HasContext> InstancePass<C> {
                 gl.bind_vertex_array(Some(geo.vao));
                 let (start, count) = if key[5] == 0 || geo.groups.is_empty() { (0, geo.index_count) } else { geo.groups[key[2] as usize] };
                 gl.draw_elements_instanced(glow::TRIANGLES, count, geo.index_type, start * geo.index_bytes, (j - i) as i32);
+                core.profile.draw(count.max(0) as u64,(j-i) as u64,1);
                 stats.gl_calls += 3;
                 stats.instance_draws += 1;
                 stats.pass_draws[PASS_INSTANCES] += 1;
@@ -331,7 +337,7 @@ impl<C: HasContext> InstancePass<C> {
             state.depth_func(gl, stats, blend.depth.1);
             state.depth_write(gl, stats, blend.depth.2);
             for &(p, side) in &blend.passes {
-                let Some(program) = programs.get(p) else { continue };
+                let Some(program) = programs.get(core.instance_programs.get(p).copied().unwrap_or(p)) else { continue };
                 state.use_program(gl, stats, program.program);
                 // As three culls a side: back faces, the front wound the
                 // other way for a back pass (and for a mirrored object).
@@ -342,8 +348,10 @@ impl<C: HasContext> InstancePass<C> {
                     gl.bind_vertex_array(Some(geo.vao));
                     gl.draw_elements_instanced(glow::TRIANGLES, geo.index_count, geo.index_type, 0, 1);
                 }
+
                 stats.gl_calls += 3;
                 stats.instance_draws += 1;
+                core.profile.draw(geo.index_count.max(0) as u64,1,1);
                 stats.pass_draws[PASS_INSTANCES] += 1;
             }
         }

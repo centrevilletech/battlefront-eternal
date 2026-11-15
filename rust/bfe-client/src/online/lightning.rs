@@ -70,6 +70,18 @@ pub struct Guns {
     pub colors: Vec<Option<[f64; 4]>>,
     pub holds: Vec<f64>,
     pub casters: Vec<Option<(usize, f64)>>,
+    /// By a round's wire class: the classes that fire it, each with the
+    /// weapon it fires it from.
+    pub shooters: Vec<Vec<(usize, usize)>>,
+    /// The weapons whose shot the player's own client shows at the trigger
+    /// press (PredictedShots.fire: any that fires a round, but for thrown
+    /// ones and lightning), and each weapon's registry id by its place in
+    /// the battle's weapon list.
+    pub ahead: Vec<bool>,
+    pub ids: Vec<usize>,
+    /// Each weapon's ChargeUpEffect, the glow at its fire point while it is
+    /// held at a charge.
+    pub charge_effects: Vec<Option<String>>,
 }
 impl Guns {
     pub fn new(content: &BattleContent) -> Result<Self, String> {
@@ -83,6 +95,10 @@ impl Guns {
             colors: vec![None; weapons],
             holds: vec![0.; weapons],
             casters: vec![None; defs.registry.classes.len() + 1],
+            shooters: vec![Vec::new(); defs.registry.combat.len() + 1],
+            ahead: vec![false; weapons],
+            charge_effects: vec![None; weapons],
+            ids: defs.weapons.iter().map(|weapon| weapon.registry_id.map_or(0, usize::from)).collect(),
         };
         for weapon in &defs.weapons {
             let Some(id) = weapon.registry_id.map(usize::from) else {
@@ -110,7 +126,15 @@ impl Guns {
                 }
             }
             guns.flashes[id] = (length, color);
+            if guns.charge_effects[id].is_none() {
+                guns.charge_effects[id] = weapon.record.get("ChargeUpEffect").and_then(Value::as_str).map(str::to_string);
+            }
             let ordnance = weapon.record.get("ordnance");
+            let base = ordnance.and_then(|o| o.get("base")).and_then(Value::as_str);
+            guns.ahead[id] |= base.is_some_and(|base| !["sticky", "grenade", "emitterordnance"].contains(&base));
+            if let (Some(round), Some(class)) = (ordnance.and_then(|o| defs.combat_id(o)), defs.classes.get(weapon.owner).and_then(|c| c.registry_id)) {
+                guns.shooters[round as usize].push((class as usize, id));
+            }
             let effect = ordnance.and_then(|o| o.get("LightningEffect")).and_then(Value::as_str);
             guns.colors[id] = effect.and_then(|name| bolts.iter().find(|(known, _, _)| known == name)).and_then(|(_, bolt, _)| bolt.color);
             // `weapon.levels[0].MaxPressedTime`.
@@ -253,6 +277,7 @@ impl Arcs {
         images: &BTreeMap<String, usize>,
         data: usize,
     ) -> Result<Self, String> {
+        let shadow_cascades = bridge.shadow_cascades();
         // Definitions are admitted once, in the library's order; a record
         // then names its effect and the owner draws by the definition's id.
         let mut owner = Box::<Lightning>::default();
@@ -269,7 +294,7 @@ impl Arcs {
                     let mesh = match images.get(&texture) {
                         Some(image) => Some(bridge.effect_mesh(
                             bfe_render::effect_layout::LIGHTNING as u32,
-                            crate::shadows::COUNT > 0,
+                            shadow_cascades > 0,
                             textures[*image] as i32,
                             lim::VERTICES as u32,
                             (lim::VERTICES * 3) as u32,
@@ -289,7 +314,7 @@ impl Arcs {
         let batch = bridge.effect_batch(
             bfe_render::effect_layout::ARC as u32,
             0,
-            crate::shadows::COUNT > 0,
+            shadow_cascades > 0,
             -1,
             lim::CAPSULES as u32,
             -1,

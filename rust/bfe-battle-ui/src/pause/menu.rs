@@ -826,7 +826,8 @@ impl PauseMenu {
                     true
                 }
                 "Enter" | "NumpadEnter" | "Space" if !repeat => {
-                    self.options_request = Some(*focused_row);
+                    // The hub comes back with its first row lit, as the browser's options menu does.
+                    self.options_request = Some(std::mem::take(focused_row));
                     self.sounds.push("shell_menu_enter");
                     true
                 }

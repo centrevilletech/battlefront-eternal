@@ -54,7 +54,7 @@ pub use option_pages::{
 };
 pub use options::{
     all_performance_presets_in_choices, applies, format_option_value, option_entry, option_note,
-    options_for, render_resolution, reset_page, say, sound_note, step_option, ApplyMode,
+    options_for, render_resolution, reset_page, say, step_option, ApplyMode,
     ChoiceItem, ChoiceVal, OptionKind, OptionSpec, PageDef, SliderFormat, OPTIONS, OPTION_KEYS,
     PAGES, PROFILE_KEYS, THEME_KEYS,
 };

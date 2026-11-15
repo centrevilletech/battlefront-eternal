@@ -98,7 +98,7 @@ impl Fountains {
         let behind = target(gpu, bridge, true)?;
         let spray = target(gpu, bridge, false)?;
         let samplers = [atlas, foam, behind.2 as i32];
-        let shadows = crate::shadows::COUNT > 0;
+        let shadows = bridge.shadow_cascades() > 0;
         // Variant bits: 1 the near half, 2 the tier, groups of particles in
         // bits 2-3 (0 the pools, 1 the soft spray, 2 the sharp drops).
         const TIER: u32 = 2;

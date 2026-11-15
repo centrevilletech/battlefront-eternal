@@ -231,6 +231,7 @@ impl<C: HasContext> HudPass<C> {
             core.state.bind_texture(&core.gl, &mut core.stats, 1, Some(mask));
             set(core, slots[2], Value::I(masked as i32));
             unsafe { core.gl.draw_elements(glow::TRIANGLES, count, glow::UNSIGNED_INT, first * 4) };
+            core.profile.draw(count.max(0) as u64,1,1);
             core.stats.gl_calls += 1;
             core.stats.pass_draws[PASS_HUD] += 1;
         }

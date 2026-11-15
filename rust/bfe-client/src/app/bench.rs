@@ -24,6 +24,7 @@ const UNIT_COLUMNS: &str =
     r#"["id","kind","team","alive","health","x","y","z","vx","vy","vz","yaw","posture","state","weapon","fired","walkPhase","walkBlend"]"#;
 const POSTURES: [&str; 3] = ["stand", "crouch", "prone"];
 const KINDS: [&str; 4] = ["soldier", "droideka", "vehicle", "turret"];
+const GAITS: [&str; 9] = ["idle", "walk", "run", "walkBack", "runBack", "turnLeft", "turnRight", "walkLeft", "walkRight"];
 
 fn value(key: &str) -> Option<String> {
     let query = std::env::var("BFE_BENCH").ok()?;
@@ -48,6 +49,31 @@ pub fn seed() -> Option<u32> {
     value("seed")?.parse().ok()
 }
 
+/// A fixed drawn view for map comparisons; simulation and player input stay live.
+/// `view=FILE` in BFE_BENCH reads the reference camera's numeric matrices.
+pub(super) fn apply_view(view: &mut crate::scene::View) -> bool {
+    static PATH: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    let Some(path) = PATH.get_or_init(|| value("view")) else { return false };
+    #[derive(serde::Deserialize)]
+    struct Shot { projection: [f64; 16], inverse: [f64; 16], position: [f64; 3] }
+    let Some(shot) = std::fs::read(path).ok()
+        .and_then(|bytes| serde_json::from_slice::<Shot>(&bytes).ok()) else { return false };
+    if !shot.projection.iter().chain(&shot.inverse).chain(&shot.position).all(|v| v.is_finite()) { return false; }
+    view.values[..16].copy_from_slice(&shot.projection);
+    view.values[16..32].copy_from_slice(&shot.inverse);
+    let at = bfe_render::shader::FRAME_OFFSETS[bfe_render::shader::FRAME_MEMBERS.iter()
+        .position(|(name, _)| *name == "cameraPosition").unwrap()];
+    view.values[at..at + 3].copy_from_slice(&shot.position);
+    true
+}
+
+pub(crate) fn apply_camera(camera: &mut crate::scene::MapCamera) {
+    let mut view = *camera.snapshot();
+    if apply_view(&mut view) {
+        camera.drawn_view(view);
+    }
+}
+
 pub struct Bench {
     map: String,
     era: Option<String>,
@@ -56,6 +82,8 @@ pub struct Bench {
     post: Option<String>,
     launched: bool,
     spawned: bool,
+    // `hold=1`: leave the spawn screen open for the bench to look at and click.
+    hold: bool,
     waiting: &'static str,
     out: Option<BufWriter<File>>,
     tick: f64,
@@ -79,6 +107,7 @@ impl Bench {
             post: value("spawn"),
             launched: false,
             spawned: false,
+            hold: value("hold").is_some(),
             waiting: "",
             out,
             tick: f64::NAN,
@@ -104,7 +133,7 @@ impl Bench {
 
     /// `captured`: the window holds the mouse, so its motion turns the player.
     pub fn step_battle(&mut self, battle: &mut BattleController, captured: bool) {
-        if !self.spawned && battle.spawn_ctrl.is_open() {
+        if !self.spawned && !self.hold && battle.spawn_ctrl.is_open() {
             let waiting = self.spawn(battle);
             if waiting != self.waiting {
                 self.waiting = waiting;
@@ -159,7 +188,7 @@ impl Bench {
     }
 
     fn log(&mut self, battle: &BattleController, captured: bool) -> std::io::Result<()> {
-        let BattleAuthority::InstantAction { receiver, sender, replay, map_id, .. } = &battle.authority else {
+        let BattleAuthority::InstantAction { receiver, sender, replay, map_id, camera, .. } = &battle.authority else {
             return Ok(());
         };
         let Some(out) = &mut self.out else { return Ok(()) };
@@ -173,11 +202,19 @@ impl Bench {
         self.tick = tick;
         let wall = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0., |d| d.as_secs_f64() * 1000.);
         let own = &receiver.own;
-        let [x, y, z] = own.position;
-        let [vx, vy, vz] = own.velocity;
+        // The player is the body the screen shows (the predicted one, as the
+        // reference's page reports); `auth` is the world's last word on it.
+        let [ax, ay, az] = own.position;
+        let [avx, avy, avz] = own.velocity;
+        let (position, velocity, posture, air) = replay.displayed.as_ref().map_or(
+            (own.position, own.velocity, own.posture, own.air),
+            |body| (body.position, body.velocity, body.posture as usize, body.air.map_or(0, |air| air as u8 + 1)),
+        );
+        let [x, y, z] = position;
+        let [vx, vy, vz] = velocity;
         write!(
             out,
-            r#"{{"t":{:.4},"wall":{wall:.1},"tick":{tick},"player":{{"id":{},"team":{},"alive":{},"health":{:.1},"pos":[{x:.3},{y:.3},{z:.3}],"vel":[{vx:.3},{vy:.3},{vz:.3}],"yaw":{:.4},"pitch":{:.4},"posture":"{}","air":{},"spawnScreen":{},"captured":{captured},"selected":{:?},"weapons":["#,
+            r#"{{"t":{:.4},"wall":{wall:.1},"tick":{tick},"player":{{"id":{},"team":{},"alive":{},"health":{:.1},"pos":[{x:.3},{y:.3},{z:.3}],"vel":[{vx:.3},{vy:.3},{vz:.3}],"yaw":{:.4},"pitch":{:.4},"posture":"{}","air":{},"spawnScreen":{},"captured":{captured},"selected":{:?},"auth":{{"tick":{},"pos":[{ax:.3},{ay:.3},{az:.3}],"vel":[{avx:.3},{avy:.3},{avz:.3}]}},"weapons":["#,
             tick / 60.,
             own.id,
             own.team,
@@ -185,10 +222,11 @@ impl Bench {
             own.health,
             sender.yaw,
             sender.pitch,
-            POSTURES.get(own.posture).copied().unwrap_or("?"),
-            own.air,
+            POSTURES.get(posture).copied().unwrap_or("?"),
+            air,
             battle.spawn_ctrl.is_open(),
             replay.selected(),
+            own.tick,
         )?;
         // The player's own weapons as the client predicts them: definition, rounds in the
         // magazine, magazines in reserve, heat, and seconds of reload left.
@@ -202,7 +240,43 @@ impl Bench {
             let reserve = if weapon.reserve.is_finite() { weapon.reserve } else { -1. };
             write!(out, "[{},{rounds},{reserve},{:.3},{:.3}]", weapon.def.0, weapon.heat, weapon.reload_left)?;
         }
-        out.write_all(br#"]},"units":["#)?;
+        out.write_all(b"]")?;
+        write!(out, r#","mount":{},"vehicle":{},"flight":{}"#,
+            serde_json::to_string(&own.mount)?, own.vehicle, serde_json::to_string(&own.flight)?)?;
+        if let Some(hull) = &replay.fleet.state {
+            write!(out, r#","hull":{}"#, serde_json::json!({
+                "pos": hull.position, "vel": hull.velocity, "yaw": hull.yaw,
+                "pitch": hull.tilt, "roll": hull.roll, "health": hull.health,
+                "throttle": hull.throttle, "airspeed": hull.airspeed, "power": hull.power,
+                "stick": [hull.stick_x, hull.stick_y], "walk": replay.fleet.walk,
+            }))?;
+        }
+        if let Some((animation, clips)) = battle.scene.online.as_ref().and_then(|scene| scene.own_animation(receiver)) {
+            write!(
+                out,
+                r#","anim":{{"action":"{}","gait":"{}","time":{:.3},"legs":{:.3},"clips":["#,
+                format!("{:?}", animation.action).to_lowercase(),
+                GAITS.get(animation.gait).copied().unwrap_or("?"),
+                animation.action_time,
+                animation.legs,
+            )?;
+            for (n, (clip, time, weight, rate)) in animation.base_layers().enumerate() {
+                write!(
+                    out,
+                    r#"{}["{}",{time:.3},{weight:.3},{rate:.3}]"#,
+                    if n == 0 { "" } else { "," },
+                    clips.get(clip).map_or("", |clip| clip.0.as_str()),
+                )?;
+            }
+            out.write_all(b"]}")?;
+        }
+        let [cx, cy, cz] = camera.position;
+        write!(
+            out,
+            r#","cam":{{"pos":[{cx:.3},{cy:.3},{cz:.3}],"fov":{:.2}}}"#,
+            (2. * (1. / camera.snapshot().values[5]).atan()).to_degrees(),
+        )?;
+        out.write_all(br#"},"units":["#)?;
         let mut first = true;
         for row in receiver.active() {
             let kind = row[r::KIND] as u32;
@@ -235,7 +309,25 @@ impl Bench {
                 row[r::WALK_BLEND],
             )?;
         }
-        out.write_all(b"]}\n")?;
+        out.write_all(b"]")?;
+        out.write_all(br#","buildings":["#)?;
+        if let Some(scene) = battle.scene.online.as_ref() {
+            for (index, state) in scene.buildings.states().enumerate() {
+                if index != 0 {out.write_all(b",")?;}
+                serde_json::to_writer(&mut *out, &state)?;
+            }
+        }
+        out.write_all(b"]")?;
+        out.write_all(br#","stations":["#)?;
+        if let Some(scene) = battle.scene.online.as_ref() {
+            for (index, station) in scene.buildings.station_frames().enumerate() {
+                if index != 0 { out.write_all(b",")?; }
+                serde_json::to_writer(&mut *out, &(station.id, station.destroyed, station.health,
+                    station.max_health, station.bounds, station.center))?;
+            }
+        }
+        out.write_all(b"]")?;
+        out.write_all(b"}\n")?;
         // A reader follows the file while the battle runs.
         if tick % 6. == 0. {
             out.flush()?;

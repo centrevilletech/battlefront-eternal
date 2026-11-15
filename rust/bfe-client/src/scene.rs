@@ -154,6 +154,12 @@ impl MapCamera {
         [self.yaw - std::f64::consts::PI, self.pitch]
     }
     pub fn snapshot(&self)->&View{&self.view}
+    pub(crate) fn drawn_view(&mut self, view: View) {
+        self.view = view;
+        self.phase_camera = true;
+        self.position.copy_from_slice(&view.values[self.slots[1]..self.slots[1] + 3]);
+        self.far_plane = view.values[14] / (view.values[10] + 1.);
+    }
     /// The far plane's distance, which bounds the lights the camera packs.
     pub fn far(&self) -> f64 {
         self.far_plane
@@ -257,9 +263,21 @@ fn set(view: &mut View, name: &str, values: &[f64]) {
     }
 }
 
-/// A sealed, exclusively owned graph of decoded CPU assets. Its constructors
-/// accept filesystem paths, never an existing Rc or a renderer resource.
-/// No reference into this graph escapes before open_prepared consumes it.
+#[derive(Clone,Copy)]
+pub(crate) struct TextureOptions{pub compressed:bool,pub max_size:u32,pub capabilities:u32}
+impl TextureOptions{
+    pub fn discover(gl:&glow::Context,compressed:bool)->Self{
+        let ext=gl.supported_extensions();
+        let mut capabilities=0;
+        if ext.contains("GL_KHR_texture_compression_astc_ldr"){capabilities|=1;}
+        if ext.contains("GL_ARB_texture_compression_bptc")||ext.contains("GL_EXT_texture_compression_bptc"){capabilities|=2;}
+        if ext.contains("GL_EXT_texture_compression_s3tc"){capabilities|=4;}
+        if ext.contains("GL_ARB_ES3_compatibility"){capabilities|=8;}
+        if bfe_render::texture_format::unpacks_bc7(&unsafe{gl.get_parameter_string(glow::RENDERER)}){capabilities|=64;}
+        Self{compressed,max_size:unsafe{gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE)}.max(1) as u32,capabilities}
+    }
+}
+/// Exclusively owned CPU assets moved from admission to the GL thread.
 pub(crate) struct Prepared {
     spawn_objectives: [Vec<String>; 2],
     spawn_vehicles: std::collections::HashMap<String, [Vec<String>; 2]>,
@@ -271,6 +289,8 @@ pub(crate) struct Prepared {
     details: Vec<Option<usize>>,
     foliage: Vec<bfe_content_native::foliage::Class>,
     foliage_images: Vec<usize>,
+    canopy_leaf: Option<usize>,
+    lamps:crate::lamps::Lamps,
     placed: bfe_content_native::placed::Placements,
     water_main: Option<usize>,
     /// The specular mask's frames in play order, and their frames per second.
@@ -283,6 +303,7 @@ pub(crate) struct Prepared {
     prepared_sound: Option<crate::online::sound_data::Prepared>,
     used: Vec<bool>,
     live: bool,
+    shadow_size: usize,
 }
 // SAFETY: Rc aliases exist only inside this sealed asset graph. Loader and
 // preparation temporaries are dropped before construction returns. There are
@@ -290,6 +311,25 @@ pub(crate) struct Prepared {
 // Moving its sole owner between threads cannot race a reference count; once
 // consumed by open_prepared, its ordinary Rc-bearing outputs are !Send again.
 unsafe impl Send for Prepared {}
+impl Prepared{
+    pub fn shadows(&mut self,choice:&str){let(count,size)=crate::shadows::quality(choice);self.features[L::FEATURES_SHADOWS]=count as u32;self.features[L::FEATURES_CSM]=(count>0) as u32;self.shadow_size=size;}
+}
+
+// Immediate native GL calls can wait for the GPU. That wait is not CPU pressure.
+pub(crate) struct CpuSample{wall:std::time::Instant,thread:Option<f64>}
+impl CpuSample{
+    pub fn now()->Self{Self{wall:std::time::Instant::now(),thread:thread_cpu_ms()}}
+    pub fn elapsed_ms(&self)->f64{self.thread.zip(thread_cpu_ms()).map_or_else(||self.wall.elapsed().as_secs_f64()*1000.,|(start,end)|(end-start).max(0.))}
+}
+#[cfg(all(target_os="linux",target_pointer_width="64"))]
+fn thread_cpu_ms()->Option<f64>{
+    #[repr(C)]struct Time{seconds:std::ffi::c_long,nanoseconds:std::ffi::c_long}
+    unsafe extern "C"{fn clock_gettime(clock:i32,value:*mut Time)->i32;}
+    let mut t=Time{seconds:0,nanoseconds:0};
+    if unsafe{clock_gettime(3,&mut t)}==0{Some(t.seconds as f64*1000.+t.nanoseconds as f64/1e6)}else{None}
+}
+#[cfg(not(all(target_os="linux",target_pointer_width="64")))]
+fn thread_cpu_ms()->Option<f64>{None}
 
 pub struct Scene {
     pub spawn_objectives: [Vec<String>;2],
@@ -311,20 +351,45 @@ pub struct Scene {
     depth_sample: u32,
     depth_color: u32,
     render_scale: f64,
+    adaptive_scale: f64,
+    resolution_target: f64,
+    resolution_limit:f64,
+    resolution_configured:bool,
+    resolution_last_frame:Option<std::time::Instant>,
+    resolution: bfe_sim::client::timing::Timing,
+    resolution_fence: Option<(glow::Fence,std::time::Instant)>,
+    resolution_queries:Option<(glow::Query,glow::Query,bool)>,
+    resolution_query_active:bool,
+    resolution_gpu_ms:f64,
+    resolution_cpu_ms:f64,
+    resolution_cpu_sample:Option<CpuSample>,
     render_size: [i32; 2],
     reduced_far_terrain: bool,
     shadows_enabled: bool,
+    shadow_bones: usize,
+    shadow_size: usize,
+    features: [u32; L::FEATURES_LENGTH],
     bump_mapping: bool,
     terrain_detail: bool,
     post_images: Vec<(u32, u32, u32, usize, f64)>,
     post_mode: usize,
+    temporal_motion: Option<bfe_render::native_motion::NativeMotion>,
+    blur_downsize: f64,
+    profile_start: Option<std::time::Instant>,
+    profile_rss_after: bool,
     bloom: bool,
     soft_focus: bool,
+    vehicle_blur: bool,
+    vehicle_speed: f64,
     depth_texture: u32,
     far_reach: f64,
     distance_scale: f64,
     near_range: [f64; 2],
     shadows: Option<crate::shadows::Shadows>,
+    canopies: Option<crate::canopies::Canopies>,
+    tree_sun: [f64;3],
+    lamps:crate::lamps::Lamps,
+    lamp_worlds:Vec<u32>,
     image_step: [f64; bfe_render::post::STEP],
     image_state: [f64; bfe_render::post::STATE],
     pub canvas: Canvas,
@@ -340,7 +405,7 @@ pub struct Scene {
     frame: Option<SceneFrame>,
     // Graphics.textures: the content's images, which follow the anisotropy
     // setting, and the value they were last given.
-    filtered: Vec<u32>,
+    filtered: Vec<(u32,bool)>,
     anisotropy: f64,
     pub online: Option<Box<crate::online::replicas::Replicas>>,
 }
@@ -360,6 +425,15 @@ struct SceneFrame {
     aa: usize,
     // Where aaSamples and farAaSamples sit in the frame's values.
     slots: [usize; 2],
+}
+// The canvas dimensions are already device pixels, as in getDrawingBufferSize.
+fn render_extent(canvas:[i32;2],base:f64,adaptive:f64)->[i32;2]{
+    let scale=(base*adaptive).max(base.min(0.25));
+    canvas.map(|v|(v as f64*scale).round().max(1.)as i32)
+}
+fn post_image(size:[i32;2],slot:usize)->String{
+    use bfe_render::post_chain::layout::resource as R;
+    if matches!(slot,R::HISTORY0|R::HISTORY1|R::MOTION|R::VELOCITY){serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1016,"srgb":false,"renderTarget":true}).to_string()}else{frame_image(size)}
 }
 // A frame-sized colour image a target draws into.
 fn frame_image(size: [i32; 2]) -> String {
@@ -411,12 +485,12 @@ impl Scene {
         root: &Path,
         query: &str,
         size: [i32; 2],
-        load: impl FnMut() -> glow::Context,
+        mut load: impl FnMut() -> glow::Context,
     ) -> Result<(Self, MapCamera), String> {
-        let prepared = Self::prepare_online(root, query)?;
+        let prepared = Self::prepare_online(root, query,TextureOptions::discover(&load(),true))?;
         crate::loading_work::finish(Self::open_prepared(prepared, size, load))
     }
-    pub(crate) fn prepare_online(root: &Path, query: &str) -> Result<Prepared, String> {
+    pub(crate) fn prepare_online(root: &Path, query: &str, textures:TextureOptions) -> Result<Prepared, String> {
         let selection = bfe_content::mission::Query::parse(query);
         let map = if selection.get("map").is_empty() {
             "nab2"
@@ -424,7 +498,9 @@ impl Scene {
             selection.get("map")
         };
         let mut loader = Loader::new(root);
-        loader.compressed = false;
+        loader.compressed = textures.compressed;
+        loader.max_texture_size=textures.max_size;
+        loader.texture_capabilities=textures.capabilities;
         Self::prepare_scene(loader.load(map, query)?, map, None, true)
     }
     fn admit(
@@ -433,7 +509,7 @@ impl Scene {
         size: [i32; 2],
         random_values: Option<&[f64]>,
         live: bool,
-        load: impl FnMut() -> glow::Context,
+        mut load: impl FnMut() -> glow::Context,
     ) -> Result<(Self, MapCamera), String> {
         let prepared = Self::prepare_scene(content, map, random_values, live)?;
         crate::loading_work::finish(Self::open_prepared(prepared, size, load))
@@ -536,6 +612,9 @@ impl Scene {
                 }
             }
         }
+        let canopy_leaf=content.map["treeCanopies"]["texture"].as_str().map(|name|{
+            let path=layers.get(&name.to_lowercase()).cloned().unwrap_or_else(||format!("maps/{map}/{name}"));content.textures.load(&path)
+        }).transpose()?;
         let mut details = Vec::with_capacity(content.world.len());
         let mut layer_ids = Vec::with_capacity(content.world.len());
         for mesh in &content.world {
@@ -644,7 +723,7 @@ impl Scene {
             0
         };
         let mut features = [0; L::FEATURES_LENGTH];
-        features[L::FEATURES_SHADOWS] = if live { crate::shadows::COUNT as u32 } else { 0 };
+        features[L::FEATURES_SHADOWS] = if live { 4 } else { 0 };
         features[L::FEATURES_CSM] = live as u32;
         features[L::FEATURES_POINTS] = (ORDNANCE_LIGHTS + posts) as u32;
         let prepared_views = if live {
@@ -707,6 +786,7 @@ impl Scene {
         if live {
             used.fill(true);
         }
+        let lamps=crate::lamps::Lamps::prepare(&content)?;
         Ok(Prepared {
             spawn_objectives,
             spawn_vehicles,
@@ -717,7 +797,7 @@ impl Scene {
             layer_ids,
             details,
             foliage,
-            foliage_images,
+            foliage_images, canopy_leaf, lamps,
             placed,
             water_main,
             water_mask,
@@ -728,7 +808,7 @@ impl Scene {
             prepared_hud,
             prepared_sound,
             used,
-            live,
+            live, shadow_size:2048,
         })
     }
     pub(crate) async fn open_prepared(
@@ -746,7 +826,7 @@ impl Scene {
             layer_ids,
             details,
             foliage,
-            foliage_images,
+            foliage_images, canopy_leaf, lamps,
             placed,
             water_main,
             water_mask,
@@ -757,7 +837,7 @@ impl Scene {
             prepared_hud,
             prepared_sound,
             used,
-            live,
+            live, shadow_size,
         } = prepared;
         crate::loading_work::frame().await;
         let canvas = Canvas::new(load(), size)?;
@@ -765,6 +845,8 @@ impl Scene {
         resources.canvas = Some(canvas.framebuffer);
         let mut bridge = Bridge::new_boxed(load(), Ranges::new(load()));
         bridge.r.core.canvas_framebuffer = Some(canvas.framebuffer);
+        let shadow_count=features[L::FEATURES_SHADOWS] as usize;
+        bridge.r.cameras.input[bfe_render::cameras::layout::input::CASCADE_COUNT]=shadow_count as f64;
         let sampling = &content_sampling(1.);
         let mut textures = vec![u32::MAX; content.textures.images.len()];
         let mut filtered = Vec::new();
@@ -774,14 +856,16 @@ impl Scene {
             if !used[i] {
                 continue;
             }
-            if image.format != bfe_render::texture_format::Format::Rgba {
-                return Err("inspection expects decoded RGBA assets".into());
-            }
-            let source=resources.source(&serde_json::json!({"width":image.width,"height":image.height,"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1009,"srgb":false}).to_string())?;
-            resources.source_pixels(source, &image.data)?;
-            let sample = resources.sample(source, sampling)?;
+            let compressed=image.format!=bfe_render::texture_format::Format::Rgba||image.mips.len()>1;
+            let source=resources.source(&serde_json::json!({"width":image.width,"height":image.height,"depth":1,"target":glow::TEXTURE_2D,"format":image.format.descriptor(),"dataType":1009,"srgb":false}).to_string())?;
+            if compressed{
+                let mips=image.mips.iter().map(|m|serde_json::json!({"width":m.width,"height":m.height,"offset":m.offset,"length":m.length})).collect::<Vec<_>>();
+                resources.source_blocks(source,&image.data,&serde_json::to_string(&mips).map_err(|e|e.to_string())?)?;
+            }else{resources.source_pixels(source,&image.data)?;}
+            let sampling=if compressed{sampling.replace("\"mipmaps\":true","\"mipmaps\":false")}else{sampling.clone()};
+            let sample = resources.sample(source, &sampling)?;
             resources.upload(sample)?;
-            filtered.push(sample);
+            filtered.push((sample,compressed));
             textures[i] = bridge.r.core.add_texture(resources.texture(sample)?);
             if i % 8 == 7 {
                 crate::loading_work::frame().await;
@@ -798,6 +882,7 @@ impl Scene {
         // Zero state rows retain the authored billboard LOD in this inspector;
         // the existing tree descriptor still owns grouping and mask geometry.
         let canopy = &content.map["treeCanopies"];
+        let mut canopy_state=None;
         let canopy_texture =
             if let Some(instances) = canopy["instances"].as_array().filter(|v| !v.is_empty()) {
                 if instances.len() > 65536 {
@@ -805,6 +890,7 @@ impl Scene {
                 }
                 let state = resources
                     .canopy_state(instances.len() as u32, &vec![0; instances.len() * 16])?;
+                canopy_state=Some(state);
                 Some(bridge.r.core.add_texture(resources.texture(state)?))
             } else {
                 None
@@ -839,7 +925,7 @@ impl Scene {
             ocean_mask = bridge.r.core.add_texture(resources.texture(sample)?);
         }
         let mut static_content =
-            crate::static_scene::props(&mut bridge, &content, &textures, placed, if live { crate::shadows::COUNT } else { 0 })?;
+            crate::static_scene::props(&mut bridge, &content, &textures, placed, shadow_count)?;
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         for (class, image) in foliage.iter().zip(foliage_images) {
@@ -919,7 +1005,7 @@ impl Scene {
                 vertices,
                 mesh.geometry.indices.clone(),
             )?;
-            if live && !mesh.material.far {
+            if live && !mesh.material.far && mesh.material.blend == Blend::Opaque {
                 bridge.static_depth_add(source, mesh.material.texture.map_or(-1, |id| textures[id] as i32))?;
             }
             if let Some(weights) = mesh.geometry.buffers.get(1) {
@@ -969,7 +1055,7 @@ impl Scene {
                 far_slot as u32,
                 admitted as u32,
             )?;
-            if !mesh.material.far {
+            if !mesh.material.far && mesh.material.blend == Blend::Opaque {
                 near_world_ids.push(world_id);
             }
             if mesh.material.far {
@@ -1014,33 +1100,15 @@ impl Scene {
         // must stay outside the live program bank, never alias world shader 0.
         use bfe_render::post_chain::layout::{facts as pf, program as pp};
         bridge.r.post_chain.input[pf::PROGRAMS..pf::PROGRAMS + pp::COUNT].fill(u32::MAX as f64);
-        let mut post_images = Vec::new();
+        let post_images = Vec::new();
         let frame = if live {
             let source = resources.source(&frame_image(size))?;
             let sample = resources.sample(source, r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
             let target = resources.target(&frame_target(size, sample, true, 0))?;
             let texture = bridge.r.core.add_texture(resources.texture(sample)?);
-            // The chain's programs that need no target of their own: the
-            // composite, and FXAA over a frame with nothing to composite.
-            for (program, key) in [(pp::COPY, "post-hud/copy"), (pp::EXTRACT, "post-hud/bloom-extract"), (pp::BLUR, "post-hud/bloom-blur"), (pp::BILINEAR, "post-hud/bilinear"), (pp::SPATIAL, "post-hud/spatial"), (pp::COMPOSITE, "post-hud/composite"), (pp::FXAA, "post-hud/fxaa"), (pp::FXAA_FAST, "post-hud/fxaa-fast")] {
-                bridge.r.post_chain.input[pf::PROGRAMS + program] = bridge.add_owned_program(key)? as f64;
-            }
-            use bfe_render::post_chain::layout::resource as pr;
             let blur = &content.map["post"]["blur"];
             bridge.r.post_chain.input[pf::BLUR_ENABLED] = blur["enabled"].as_bool().unwrap_or(false) as u8 as f64;
             bridge.r.post_chain.input[pf::BLUR_BLEND] = blur["blend"].as_f64().unwrap_or(0.3);
-            let factor = blur["downsize"].as_f64().filter(|v| v.is_finite() && *v > 0.).unwrap_or(0.25);
-            for (slot, factor) in [(pr::QUARTER, factor), (pr::BLOOM, 0.25), (pr::SCRATCH, 0.25), (pr::POST, 1.), (pr::AA, 1.)] {
-                let extent = size.map(|v| (v as f64 * factor).ceil().max(1.) as i32);
-                let source = resources.source(&frame_image(extent))?;
-                let sample = resources.sample(source, r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
-                resources.upload(sample)?;
-                let texture = bridge.r.core.add_texture(resources.texture(sample)?);
-                let target = bridge.post_target(texture);
-                let row = &mut bridge.r.post_chain.input[pf::RESOURCES + slot * pr::STRIDE..][..pr::STRIDE];
-                row.copy_from_slice(&[texture as f64, target as f64, extent[0] as f64, extent[1] as f64]);
-                post_images.push((source, sample, texture, slot, factor));
-            }
             let slots = ["aaSamples", "farAaSamples"].map(|name| {
                 shader::FRAME_OFFSETS[shader::FRAME_MEMBERS.iter().position(|(n, _)| *n == name).expect("frame catalog member")]
             });
@@ -1093,8 +1161,61 @@ impl Scene {
             usize::from(static_content.water.is_some()),
             static_content.skies.len()
         );
+        if std::env::var_os("BFE_BENCH").is_some() {
+            let mut foliage_counts = std::collections::BTreeMap::<&str, usize>::new();
+            for instance in content.map["foliage"]["instances"].as_array().into_iter().flatten() {
+                *foliage_counts.entry(instance["class"].as_str().unwrap_or("")).or_default() += 1;
+            }
+            let meshes: Vec<_> = content.world.iter().enumerate().map(|(i, m)| serde_json::json!({
+                "segment": i, "name": m.name, "kind": format!("{:?}", m.material.kind),
+                "flags": m.material.flags, "cutout": m.material.cutout,
+                "blended": m.material.blend != Blend::Opaque, "doubleSided": m.material.double_sided,
+                "far": m.material.far, "vertices": m.geometry.vertices, "triangles": m.geometry.indices.len()/3,
+                "admitted": inspectable(m) || m.material.kind == MaterialKind::Sky,
+            })).collect();
+            let props = content.content.battle.props.as_ref().map(bfe_content_native::loader::authored_json);
+            eprintln!("bench world census: {}", serde_json::json!({
+                "map": content.map["name"], "world": meshes,
+                "props": props.as_ref().map(|p| &p["instances"]),
+                "propParts": static_content.props, "deferred": deferred,
+                "foliageClasses": static_content.foliage,
+                "foliage": {"classes": content.map["foliage"]["classes"], "instancesByClass": foliage_counts},
+                "waterSurfaces": usize::from(static_content.water.is_some()), "water": content.map["water"],
+                "skyLayers": static_content.skies.len(), "lights": content.map["lighting"],
+                "lightRegions": content.map["lightRegions"], "lumi": content.map["lumi"],
+                "collision": {"buildingsTriangles": content.content.collision.indices.len()/3,
+                    "terrainTriangles": content.content.collision.terrain_indices.len()/3,
+                    "propBodies": content.content.prop_bodies.len()},
+            }));
+        }
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
+        // The HUD's solid art (rings, rules, bars) is a white pixel tinted per quad; the world's empty
+        // fallback is transparent black and drew none of them.
+        let solid = {
+            let gl = &bridge.r.core.gl;
+            let texture = unsafe {
+                let t = gl.create_texture()?;
+                gl.bind_texture(glow::TEXTURE_2D, Some(t));
+                gl.tex_image_2d(
+                    glow::TEXTURE_2D,
+                    0,
+                    glow::RGBA8 as i32,
+                    1,
+                    1,
+                    0,
+                    glow::RGBA,
+                    glow::UNSIGNED_BYTE,
+                    glow::PixelUnpackData::Slice(Some(&[255; 4])),
+                );
+                for key in [glow::TEXTURE_MIN_FILTER, glow::TEXTURE_MAG_FILTER] {
+                    gl.tex_parameter_i32(glow::TEXTURE_2D, key, glow::NEAREST as i32);
+                }
+                t
+            };
+            bridge.r.core.state.reset();
+            bridge.r.core.add_texture(texture)
+        };
         let online = if live {
             Some(Box::new(
                 crate::online::replicas::Replicas::new(
@@ -1106,7 +1227,7 @@ impl Scene {
                     prepared_particles.ok_or("missing battle particle resources")?,
                     prepared_sound.ok_or("missing battle audio resources")?,
                     &mut resources,
-                    empty,
+                    solid,
                     size,
                 )
                 .await?,
@@ -1120,8 +1241,8 @@ impl Scene {
             .max()
             .unwrap_or(1)
             .max(1);
-        let shadows = if live {
-            Some(crate::shadows::Shadows::new(&mut bridge, &mut resources, bones).await?)
+        let shadows = if live && shadow_count>0 {
+            Some(crate::shadows::Shadows::new(&mut bridge, &mut resources, bones,shadow_count,shadow_size).await?)
         } else {
             None
         };
@@ -1136,14 +1257,17 @@ impl Scene {
                 far_target,
                 depth_target,
                 depth_source, depth_color_source, depth_sample, depth_color,
-                render_scale: 1., render_size: size,
-                post_images, post_mode: 0, bloom: false, soft_focus: false,
-                reduced_far_terrain: false, shadows_enabled: true, bump_mapping: true, terrain_detail: true,
+                render_scale: 1., render_size: size, adaptive_scale:1., resolution_target:0.,resolution_limit:0.,resolution_configured:false,resolution_last_frame:None, resolution:bfe_sim::client::timing::Timing::new(), resolution_fence:None,resolution_queries:None,resolution_query_active:false,resolution_gpu_ms:f64::NAN,resolution_cpu_ms:f64::NAN,resolution_cpu_sample:None,
+                profile_start: None, profile_rss_after: false,
+                post_images, post_mode: 0, temporal_motion:None, blur_downsize:content.map["post"]["blur"]["downsize"].as_f64().filter(|v|v.is_finite()&&*v>0.).unwrap_or(0.25), bloom: false, soft_focus: false, vehicle_blur:false,vehicle_speed:0.,
+                reduced_far_terrain: false, shadows_enabled: shadow_count>0, shadow_bones:bones, shadow_size, features, bump_mapping: true, terrain_detail: true,
                 depth_texture,
                 far_reach,
                 distance_scale: 1.,
                 near_range: [camera.view.values[bfe_render::cameras::layout::shader_frame::FADE], camera.view.values[bfe_render::cameras::layout::shader_frame::FADE + 1]],
-                shadows,
+                shadows,lamps,lamp_worlds:vec![],
+                tree_sun:camera.view.values[bfe_render::cameras::layout::shader_frame::SUN_DIRECTION..][..3].try_into().unwrap(),
+                canopies:canopy_leaf.zip(canopy_state).map(|(leaf,state)|crate::canopies::Canopies::new(content.map["treeCanopies"].clone(),textures[leaf],state)),
                 image_step,
                 image_state,
                 canvas,
@@ -1167,6 +1291,22 @@ impl Scene {
             camera,
         ))
     }
+    pub fn profile_memory(&self, label: &str) {
+        if !self.bridge.r.core.profile.enabled {return;}
+        let rss=std::fs::read_to_string("/proc/self/status").unwrap_or_default().lines().find(|l|l.starts_with("VmRSS:")).unwrap_or("VmRSS: unavailable").to_owned();
+        let internal=self.bridge.r.instances.texture_bytes()+self.bridge.r.motion.texture_bytes()+self.bridge.r.effects.texture_bytes()+self.bridge.r.core.texture_bytes();
+        let textures=self.resources.texture_bytes()+internal;
+        eprintln!("graphics memory: {label} texture-bytes={} resource-texture-bytes={} internal-texture-bytes={} renderbuffer-bytes={} canvas-bytes={} {}",textures,self.resources.texture_bytes(),internal,self.resources.target_bytes(),self.size[0] as u64*self.size[1] as u64*8,rss);
+
+    }
+    pub fn finish_profile(&mut self) {
+        self.resolution_gpu_end();
+        if let Some((fence,_))=self.resolution_fence.take(){unsafe{self.bridge.r.core.gl.delete_sync(fence);}}
+        if let Some((a,b,_))=self.resolution_queries.take(){unsafe{self.bridge.r.core.gl.delete_query(a);self.bridge.r.core.gl.delete_query(b);}}
+        self.profile_memory("battle end");
+        self.bridge.r.core.profile.report(&self.bridge.r.core.gl);
+    }
+
     pub fn set_view_distance(&mut self, choice: &str) -> [f64; 2] {
         self.distance_scale = match choice { "far" => 2., "max" => 4., _ => 1. };
         let far = self.far_reach * self.distance_scale;
@@ -1176,26 +1316,97 @@ impl Scene {
     }
 
     pub fn log_graphics(&self) {
+        self.log_resolution();
         use bfe_render::post_chain::layout::state;
         eprintln!("battle graphics: scene={:?} canvas={:?} shadows={} farReduced={} bump={} terrainEnhanced={} bloom={} softFocus={} postSteps={}",
             self.render_size, self.size, self.shadows_enabled, self.reduced_far_terrain,
             self.bump_mapping, self.terrain_detail, self.bloom, self.soft_focus,
             self.bridge.r.post_chain.state[state::STEPS]);
+        eprintln!("battle graphics distance: factor={} adaptive={} shadow-cascades={} shadow-size={}",self.distance_scale,self.adaptive_scale,self.features[L::FEATURES_SHADOWS],self.shadow_size);
     }
 
-    pub fn set_post_effects(&mut self, bloom: bool, soft_focus: bool, upscaler: &str) {
+    pub fn set_post_effects(&mut self, bloom: bool, soft_focus: bool, upscaler: &str) -> Result<(),String> {
         use bfe_render::post_chain::layout::mode;
         self.bloom = bloom;
         self.soft_focus = soft_focus;
-        self.post_mode = match upscaler { "bilinear" => mode::BILINEAR, "spatial" => mode::SPATIAL, _ => mode::OFF };
+        self.post_mode = match upscaler { "bilinear" => mode::BILINEAR, "spatial" => mode::SPATIAL, "off"=>mode::OFF, _ => mode::TEMPORAL };
+        self.configure_post()
     }
 
+    fn configure_post(&mut self)->Result<(),String>{
+        use bfe_render::post_chain::layout::{facts as pf,program as pp,resource as pr,mode,aa};
+        let intermediate=self.bloom||self.soft_focus&&self.bridge.r.post_chain.input[pf::BLUR_ENABLED]!=0.||self.post_mode>=mode::SPATIAL||self.vehicle_blur&&self.vehicle_speed>0.0001/0.085;
+        let fxaa=self.frame.as_ref().is_some_and(|f|f.aa!=aa::OFF);
+        let temporal=self.post_mode==mode::TEMPORAL;
+        if temporal&&self.temporal_motion.is_none(){self.temporal_motion=Some(bfe_render::native_motion::NativeMotion::new(&mut self.bridge.r.core)?);self.bridge.r.post_chain.invalidate();}
+        if !temporal{self.temporal_motion=None;}
+        if intermediate||fxaa{
+            for (program,key) in [(pp::COPY,"post-hud/copy"),(pp::EXTRACT,"post-hud/bloom-extract"),(pp::BLUR,"post-hud/bloom-blur"),(pp::BILINEAR,"post-hud/bilinear"),(pp::SPATIAL,"post-hud/spatial"),(pp::COMPOSITE,"post-hud/composite"),(pp::FXAA,"post-hud/fxaa"),(pp::FXAA_FAST,"post-hud/fxaa-fast"),(pp::MOTION,"post-hud/motion"),(pp::RESOLVE,"post-hud/resolve"),(pp::SHARPEN,"post-hud/sharpen")]{
+                self.bridge.r.post_chain.input[pf::PROGRAMS+program]=self.bridge.add_owned_program(key)? as f64;
+            }
+        }
+        let mut wanted=Vec::new();
+        if intermediate{wanted.extend([(pr::QUARTER,self.blur_downsize),(pr::BLOOM,0.25),(pr::SCRATCH,0.25),(pr::POST,1.),(pr::AA,1.)]);}
+        if temporal{wanted.extend([(pr::HISTORY0,-1.),(pr::HISTORY1,-1.),(pr::MOTION,1.),(pr::VELOCITY,1.)]);}
+        let mut i=0;
+        while i<self.post_images.len(){
+            let(_,sample,texture,slot,_)=self.post_images[i];
+            if wanted.iter().any(|(s,_)|*s==slot){i+=1;continue;}
+            self.bridge.r.core.forget_texture(texture);self.resources.dispose_sample(sample)?;
+            self.bridge.r.post_chain.input[pf::RESOURCES+slot*pr::STRIDE..][..pr::STRIDE].fill(-1.);self.post_images.remove(i);
+        }
+        for(slot,factor)in wanted{
+            if self.post_images.iter().any(|r|r.3==slot){continue;}
+            let extent=if factor<0.{self.size}else{self.render_size.map(|v|(v as f64*factor).ceil().max(1.) as i32)};
+            let source=self.resources.source(&post_image(extent,slot))?;
+            let sample=self.resources.sample(source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
+            self.resources.upload(sample)?;let texture=self.bridge.r.core.add_texture(self.resources.texture(sample)?);let target=self.bridge.post_target(texture);
+            self.bridge.r.post_chain.input[pf::RESOURCES+slot*pr::STRIDE..][..pr::STRIDE].copy_from_slice(&[texture as f64,target as f64,extent[0]as f64,extent[1]as f64]);
+            self.post_images.push((source,sample,texture,slot,factor));
+        }
+        self.bridge.r.core.state.reset();Ok(())
+    }
+
+    pub fn set_lamp_lighting(&mut self,enabled:bool)->Result<(),String>{
+        if !self.lamps.configure(&mut self.bridge.r.core,enabled)?{return Ok(());}
+        self.features[L::FEATURES_LAMPS]=enabled as u32;
+        let count=self.features[L::FEATURES_SHADOWS];
+        self.bridge.r.core.configure_instance_programs(count,enabled)?;self.bridge.actor_settings(count,enabled)?;
+        self.bridge.static_world_settings(&self.features,&[0;L::FEATURES_LENGTH])?;
+        self.lamp_worlds.clear();for &id in &self.near_world_ids{if self.bridge.world_uses_lamps(id){self.lamp_worlds.push(id);}}
+        self.bridge.r.world.sort(false);self.bridge.r.core.state.reset();Ok(())
+    }
+    pub fn set_vehicle_blur(&mut self,enabled:bool)->Result<(),String>{self.vehicle_blur=enabled;self.configure_post()}
+    pub fn vehicle_motion(&mut self,amount:f64,turn:f64,dt:f64)->Result<(),String>{
+        use bfe_render::post_chain::layout::facts as F;
+        let was=self.vehicle_blur&&self.vehicle_speed>0.0001/0.085;
+        self.vehicle_speed+=(amount.clamp(0.,1.)-self.vehicle_speed)*(1.-(-4.*dt.max(0.)).exp());
+        let f=&mut self.bridge.r.post_chain.input;f[F::SPEED_ENABLED]=self.vehicle_blur as u8 as f64;f[F::SPEED_AMOUNT]=self.vehicle_speed;f[F::SPEED_TURN]=turn.clamp(-2.,2.);
+        if was!=(self.vehicle_blur&&self.vehicle_speed>0.0001/0.085){self.configure_post()?;}
+        Ok(())
+    }
+    pub fn set_tree_detail(&mut self,enhanced:bool)->Result<(),String>{
+        if let Some(canopies)=&mut self.canopies{
+            canopies.configure(&mut self.bridge,enhanced,self.tree_sun)?;
+        }Ok(())
+    }
     pub fn set_far_terrain(&mut self, reduced: bool) {
         self.reduced_far_terrain = reduced;
     }
 
-    pub fn set_shadows_enabled(&mut self, enabled: bool) {
-        self.shadows_enabled = enabled;
+    pub fn set_shadows(&mut self,choice:&str)->Result<(),String>{
+        let(count,size)=crate::shadows::quality(choice);
+        if self.features[L::FEATURES_SHADOWS] as usize==count&&self.shadow_size==size{return Ok(());}
+        if let Some(shadows)=self.shadows.take(){shadows.dispose(&mut self.bridge,&mut self.resources)?;}
+        self.features[L::FEATURES_SHADOWS]=count as u32;self.features[L::FEATURES_CSM]=(count>0) as u32;self.shadow_size=size;self.shadows_enabled=count>0;
+        self.bridge.r.cameras.input[bfe_render::cameras::layout::input::CASCADE_COUNT]=count as f64;
+        self.bridge.r.core.configure_instance_programs(count as u32,self.lamps.enabled)?;
+        self.bridge.actor_settings(count as u32,self.lamps.enabled)?;
+        self.bridge.effect_settings(count>0)?;
+        self.bridge.r.foliage.configure_shadows(&mut self.bridge.r.core,count>0)?;
+        self.bridge.static_world_settings(&self.features,&[0;L::FEATURES_LENGTH])?;
+        if count>0{self.shadows=Some(crate::loading_work::finish(crate::shadows::Shadows::new(&mut self.bridge,&mut self.resources,self.shadow_bones,count,size))?);}
+        self.bridge.r.world.sort(false);self.bridge.r.core.state.reset();Ok(())
     }
 
     pub fn set_material_detail(&mut self, bump: bool, terrain: bool) {
@@ -1203,13 +1414,71 @@ impl Scene {
         self.terrain_detail = terrain;
     }
 
-    pub fn set_render_scale(&mut self, scale: f64) -> Result<(), String> {
-        self.render_scale = if scale.is_finite() { scale.clamp(0.25, 2.) } else { 1. };
-        self.resize_scene_targets()
+    pub fn set_resolution(&mut self,base:f64,target:f64,limit:f64)->Result<(),String>{
+        let base=if base.is_finite(){base.clamp(0.25,2.)}else{1.};
+        let target=if target.is_finite(){target.max(0.)}else{0.};
+        let limit=if limit.is_finite(){limit.max(0.)}else{0.};
+        let target=if limit>0.{target.min(limit)}else{target};
+        let changed=!self.resolution_configured||self.render_scale!=base||self.resolution_target!=target||self.resolution_limit!=limit;
+        if !changed{return Ok(());}
+        if let Some((a,b,_))=self.resolution_queries.take(){unsafe{self.bridge.r.core.gl.delete_query(a);self.bridge.r.core.gl.delete_query(b);}}
+        if let Some((fence,_))=self.resolution_fence.take(){unsafe{self.bridge.r.core.gl.delete_sync(fence);}}
+        self.resolution_last_frame=None;self.resolution_cpu_ms=f64::NAN;self.resolution_gpu_ms=f64::NAN;self.resolution_query_active=false;
+        self.resolution_configured=true;self.resolution_target=target;self.resolution_limit=limit;self.render_scale=base;self.adaptive_scale=1.;
+        self.resolution.run(15,target,0.,0.,0.,0.);
+        let previous=self.render_size;self.resize_scene_targets()?;
+        if previous==self.render_size{self.log_resolution();}
+        Ok(())
+    }
+    pub(crate) fn resolution_frame_begin(&mut self){self.resolution_cpu_sample=self.resolution_enabled().then(CpuSample::now);}
+    pub(crate) fn resolution_presented(&mut self,paused:bool)->Result<(),String>{
+        self.resolution_gpu_end();
+        if let Some(sample)=self.resolution_cpu_sample.take(){self.adapt_resolution(sample.elapsed_ms(),paused)?;}
+        Ok(())
+    }
+    fn resolution_gpu_begin(&mut self){
+        if !self.resolution_enabled(){return;}
+        let gl=&self.bridge.r.core.gl;
+        if self.resolution_queries.is_none()&&(!gl.version().is_embedded||gl.supported_extensions().iter().any(|e|e.contains("disjoint_timer_query"))){unsafe{
+            if let Ok(a)=gl.create_query(){match gl.create_query(){Ok(b)=>self.resolution_queries=Some((a,b,false)),Err(_)=>gl.delete_query(a)}}
+        }}
+        if let Some((a,b,false))=self.resolution_queries{
+            if gl.version().is_embedded&&self.bridge.r.core.profile.enabled{return;}
+            unsafe{if gl.version().is_embedded{gl.begin_query(glow::TIME_ELAPSED,b);}else{gl.query_counter(a,glow::TIMESTAMP);}}self.resolution_query_active=true;
+        }
+    }
+    fn resolution_gpu_end(&mut self){
+        if self.resolution_query_active{if let Some((_,b,pending))=&mut self.resolution_queries{unsafe{let gl=&self.bridge.r.core.gl;if gl.version().is_embedded{gl.end_query(glow::TIME_ELAPSED);}else{gl.query_counter(*b,glow::TIMESTAMP);}}*pending=true;}self.resolution_query_active=false;}
+    }
+    pub fn resolution_enabled(&self)->bool{self.resolution_target>0.}
+    pub fn adapt_resolution(&mut self,cpu_ms:f64,paused:bool)->Result<(),String>{
+        if !self.resolution_enabled(){return Ok(());}
+        self.resolution_cpu_ms=cpu_ms;
+        let now=std::time::Instant::now();
+        let interval_ms=self.resolution_last_frame.replace(now).map_or(f64::NAN,|last|now.duration_since(last).as_secs_f64()*1000.);
+        let gl=&self.bridge.r.core.gl;
+        if let Some((a,b,pending))=&mut self.resolution_queries{if *pending&&unsafe{gl.get_query_parameter_u32(*b,glow::QUERY_RESULT_AVAILABLE)}!=0{
+            let start=if gl.version().is_embedded{0}else{unsafe{gl.get_query_parameter_u64(*a,glow::QUERY_RESULT)}};let end=unsafe{gl.get_query_parameter_u64(*b,glow::QUERY_RESULT)};
+            self.resolution_gpu_ms=if gl.version().is_embedded&&unsafe{gl.get_parameter_i32(0x8FBB)}!=0{f64::NAN}else{end.saturating_sub(start)as f64/1e6};*pending=false;
+        }}
+        let(behind,latency)=if let Some((fence,sent))=self.resolution_fence.take(){
+            let state=unsafe{gl.client_wait_sync(fence,0,0)};
+            unsafe{gl.delete_sync(fence);}
+            if state==glow::WAIT_FAILED{(f64::NAN,f64::NAN)}else{((state==glow::TIMEOUT_EXPIRED) as u8 as f64,sent.elapsed().as_secs_f64()*1000.)}
+        }else{(f64::NAN,f64::NAN)};
+        self.resolution_fence=unsafe{gl.fence_sync(glow::SYNC_GPU_COMMANDS_COMPLETE,0)}.ok().map(|f|(f,std::time::Instant::now()));
+        if paused{self.resolution.run(16,0.,0.,0.,0.,0.);return Ok(());}
+        let scale=self.resolution.run(17,interval_ms,cpu_ms,self.resolution_gpu_ms,behind,latency);
+        if scale!=self.adaptive_scale{self.adaptive_scale=scale;self.resize_scene_targets()?;}
+        Ok(())
+    }
+    fn log_resolution(&self){
+        let scale=(self.render_scale*self.adaptive_scale).max(self.render_scale.min(0.25));
+        eprintln!("battle resolution: canvas-device={}x{} renderScale={} adaptive={} effective={} scene-device={}x{} target-fps={} GPU-ms={} CPU-thread-ms={}",self.size[0],self.size[1],self.render_scale,self.adaptive_scale,scale,self.render_size[0],self.render_size[1],self.resolution_target,self.resolution_gpu_ms,self.resolution_cpu_ms);
     }
 
     fn resize_scene_targets(&mut self) -> Result<(), String> {
-        let size = self.size.map(|v| ((v as f64 * self.render_scale).round() as i32).max(1));
+        let size=render_extent(self.size,self.render_scale,self.adaptive_scale);
         if size == self.render_size { return Ok(()); }
         self.bridge.r.core.state.reset();
         self.resources.source_desc(self.far_source, &frame_image(size))?;
@@ -1227,8 +1496,8 @@ impl Scene {
         self.bridge.r.core.replace_sample_texture(self.depth_texture as usize, self.resources.texture(self.depth_sample)?)?;
         for &(source, sample, texture, slot, factor) in &self.post_images {
             use bfe_render::post_chain::layout::{facts as pf, resource as pr};
-            let extent = size.map(|v| (v as f64 * factor).ceil().max(1.) as i32);
-            self.resources.source_desc(source, &frame_image(extent))?;
+            let extent=if factor<0.{self.size}else{size.map(|v|(v as f64*factor).ceil().max(1.)as i32)};
+            self.resources.source_desc(source, &post_image(extent,slot))?;
             self.resources.upload(sample)?;
             self.bridge.r.core.replace_sample_texture(texture as usize, self.resources.texture(sample)?)?;
             let at = pf::RESOURCES + slot * pr::STRIDE;
@@ -1237,7 +1506,7 @@ impl Scene {
         }
         self.render_size = size;
         self.bridge.r.core.state.reset();
-        eprintln!("battle render size: {}x{} (scale {})", size[0], size[1], self.render_scale);
+        self.log_resolution();
         Ok(())
     }
     /// Graphics.applyAntialiasing for the antialiasing setting: the near
@@ -1277,7 +1546,7 @@ impl Scene {
             self.resources.resize_target(self.far_target, &frame_target(self.render_size, self.far_sample, false, far_samples))?;
         }
         self.bridge.r.core.state.reset();
-        Ok(())
+        self.configure_post()
     }
     /// Graphics.filter for the anisotropy setting: every content image takes
     /// the new value at once, with no decode and no upload. A value that is
@@ -1289,7 +1558,8 @@ impl Scene {
         }
         self.anisotropy = value;
         let sampling = content_sampling(value);
-        for &sample in &self.filtered {
+        for &(sample,compressed) in &self.filtered {
+            let sampling=if compressed{sampling.replace("\"mipmaps\":true","\"mipmaps\":false")}else{sampling.clone()};
             self.resources.sampling(sample, &sampling)?;
         }
         self.bridge.r.core.state.reset();
@@ -1352,7 +1622,9 @@ impl Scene {
     pub fn present_network(&mut self, receiver:&crate::online::receiver::Receiver,
         replay:&crate::online::replay::Replay, history:&crate::online::replay::History,
         camera:&mut MapCamera,dt:f64) {
+        let timer=self.bridge.r.core.profile.clock();
         if let Some(resources)=&mut self.online {
+            crate::app::bench::apply_camera(camera);
             let mut world=Matrix4::default();
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
             resources.items.hide_piloted_remote = receiver.own.remote.is_some()
@@ -1377,6 +1649,9 @@ impl Scene {
                 drawn,
                 dt,
             );
+            // Fixed comparison views must select the same lights and effects
+            // as their drawn camera, after the player's camera phase too.
+            crate::app::bench::apply_camera(camera);
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
             resources.first_person.enabled = resources.cameras.eye_view;
             let scope_view = if receiver.own.remote.is_some() {
@@ -1391,6 +1666,8 @@ impl Scene {
                     0.
                 };
             resources.finish_frame(receiver, replay, &world.elements, cue);
+            resources.capture_shot_scene(receiver, camera);
+            resources.present_ordnance(receiver, replay, dt.min(8./60.), &mut self.bridge);
             resources.present_arcs(receiver, replay, dt.min(8./60.), &world, &camera.snapshot().values[..16], self.size[1] as f64, &mut self.bridge);
             resources.present_shields(dt.min(8./60.), camera.position, &camera.snapshot().values, self.render_size, self.depth_texture, &mut self.bridge);
             resources.present_weather(dt.min(8./60.), camera.position, &camera.snapshot().values, self.render_size, &mut self.resources, &mut self.bridge);
@@ -1411,6 +1688,7 @@ impl Scene {
             resources.sound.bleed = [resources.hud.teams[1][3], resources.hud.teams[2][3]];
             resources.sound.frame(receiver,&world.elements,dt,replay,resources.hud.audio_facts());
         }
+        self.bridge.r.core.profile.cpu("presentation",timer);
     }
     pub fn set_flight_hud_key(&mut self, key: &str) {
         if let Some(online) = &mut self.online {
@@ -1425,6 +1703,16 @@ impl Scene {
         self.draw_selected(view, Component::All)
     }
     fn draw_selected(&mut self, view: &View, component: Component) -> Result<(), String> {
+        if self.profile_start.is_none() && self.frame.is_some() && std::env::var_os("BFE_GRAPHICS_TRACE").is_some() {
+            self.bridge.r.core.profile.enable(&self.bridge.r.core.gl);
+            self.profile_start=Some(std::time::Instant::now());
+            self.profile_memory("battle start");
+        }
+        if !self.profile_rss_after && self.profile_start.is_some_and(|s|s.elapsed().as_secs()>=60) {
+            self.profile_rss_after=true;self.profile_memory("after 60 seconds");
+        }
+        self.resolution_gpu_begin();
+        let build_timer=self.bridge.r.core.profile.clock();
         use bfe_render::frame_plan::layout::{
             binding as b, facts as f, kind as k, meta as m, role as r, stats as t,
         };
@@ -1461,7 +1749,7 @@ impl Scene {
         }
         // ParticleDepth: with soft particles on, the frame plan copies the
         // opaque scene's depth into the depth target before the first blend.
-        if self.online.as_ref().is_some_and(|online| online.soft_particles()) {
+        if self.temporal_motion.is_some()||self.online.as_ref().is_some_and(|online| online.soft_particles()) {
             let row = &mut self.bridge.r.frames.bindings[r::DEPTH * b::LEN..(r::DEPTH + 1) * b::LEN];
             row.fill(0.);
             row[b::TARGET] = self.depth_target as f64;
@@ -1493,8 +1781,16 @@ impl Scene {
             scene[pr::TEXTURE] = frame.texture as f64;
             scene[pr::WIDTH] = self.render_size[0] as f64;
             scene[pr::HEIGHT] = self.render_size[1] as f64;
+            facts[pf::PROJECTION..pf::PROJECTION+16].copy_from_slice(&view.values[..16]);facts[pf::VIEW..pf::VIEW+16].copy_from_slice(&view.values[16..32]);
+            let mut world=Matrix4::default();world.elements.copy_from_slice(&view.values[16..32]);world.invert();facts[pf::WORLD..pf::WORLD+16].copy_from_slice(&world.elements);
+            facts[pf::RESOURCES+pr::DEPTH*pr::STRIDE+pr::TEXTURE]=self.depth_texture as f64;
             self.bridge.post_chain_begin_frame();
+            if self.temporal_motion.is_some(){use bfe_render::post_chain::layout::state as ps;
+                view.values[8]-=self.bridge.r.post_chain.state[ps::SHIFT];view.values[9]-=self.bridge.r.post_chain.state[ps::SHIFT+1];
+                self.bridge.r.frames.plan.facts[f::TEMPORAL]=1.;
+            }
         }
+        if let Some(canopies)=&self.canopies{canopies.frame(&mut self.bridge,&mut self.resources,view,self.shadows_enabled)?;}
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         crate::static_scene::update(&mut self.static_content, &mut self.bridge, &view.values);
         if matches!(component, Component::All | Component::Sky) {
@@ -1554,6 +1850,19 @@ impl Scene {
             .max()
             .unwrap_or(0);
         if component==Component::All{if let Some(online)=&self.online{(records,bones)=online.append(&mut self.bridge,records,bones);}}
+        self.lamps.begin();
+        let online=&self.online;
+        self.lamps.instances(&mut self.bridge.r.core,records,false,&mut |from,to|online.as_ref().is_none_or(|online|online.lamp_visible(from,to)));
+        if !self.lamp_worlds.is_empty(){let values=self.lamps.select((1u64<<49,0,0,0),[0.;3],&mut |from,to|online.as_ref().is_none_or(|online|online.lamp_visible(from,to)));for &id in &self.lamp_worlds{self.bridge.world_lamps(id,&values);}}
+        if let Some(native)=&mut self.temporal_motion{
+            use bfe_render::{motion as M,post_chain::layout::{facts as pf,resource as pr,state as ps}};
+            let motion=&mut self.bridge.r.motion;let f=&self.bridge.r.post_chain.input;let state=&self.bridge.r.post_chain.state;
+            motion.input[M::IN_PROJECTION..M::IN_PROJECTION+16].copy_from_slice(&view.values[..16]);motion.input[M::IN_VIEW..M::IN_VIEW+16].copy_from_slice(&view.values[16..32]);
+            motion.input[M::IN_VIEW_VIEW..M::IN_VIEW_VIEW+16].copy_from_slice(&view.values[16..32]);
+            motion.input[M::IN_CURRENT..M::IN_CURRENT+16].copy_from_slice(&state[ps::CURRENT..ps::CURRENT+16]);motion.input[M::IN_PREVIOUS..M::IN_PREVIOUS+16].copy_from_slice(&state[ps::PREVIOUS..ps::PREVIOUS+16]);
+            motion.input[M::IN_RANGE..M::IN_RANGE+2].copy_from_slice(&[0.,1.]);motion.input[M::IN_TARGET]=f[pf::RESOURCES+pr::VELOCITY*pr::STRIDE+pr::TEXTURE];motion.input[M::IN_SIZE..M::IN_SIZE+2].copy_from_slice(&self.render_size.map(|v|v as f64));motion.input[M::IN_DEPTH]=self.depth_texture as f64;motion.input[M::IN_CLEAR]=1.;
+            native.prepare(&self.bridge.r.core,motion,records,state[ps::VALID]!=0.);
+        }
         if self.shadows_enabled { if let Some(shadows) = &mut self.shadows {
             let shadow_records = self.online.as_ref().map_or(records, |online| {
                 online.append_hidden_shadows(&mut self.bridge, records, bones)
@@ -1575,9 +1884,18 @@ impl Scene {
                 let top = 0.3 / view.values[5];
                 let right = 0.3 / view.values[0];
                 projection.make_perspective(-right, right, top, -top, 0.3, 10., CoordinateSystem::WebGL);
+                projection.elements[8]=view.values[8];projection.elements[9]=view.values[9];
+                let source=&self.online;self.lamps.instances(&mut self.bridge.r.core,view_records,true,&mut |from,to|source.as_ref().is_none_or(|online|online.lamp_visible(from,to)));
+                if let Some(native)=&mut self.temporal_motion{use bfe_render::motion as M;self.bridge.r.motion.input[M::IN_VIEW_PROJECTION..M::IN_VIEW_PROJECTION+16].copy_from_slice(&projection.elements);native.view(&self.bridge.r.core,&mut self.bridge.r.motion,view_records);}
                 self.bridge.r.core.input[..16].copy_from_slice(&projection.elements);self.bridge.r.frames.plan.facts[f::VIEW_SHOWN]=1.;self.publish(r::VIEW,k::VIEW,view_records,view_bones,0);}}
+        if let Some(native)=&self.temporal_motion{let count=native.count;self.publish(r::MOTION,k::MOTION,count,0,0);}
         if self.online.is_some(){self.publish(r::HUD0,k::HUD,0,0,0);}
+        self.bridge.r.core.profile.cpu("draw list building",build_timer);
+        let submit_timer=self.bridge.r.core.profile.clock();
         let success = self.bridge.battle_frame(&mut self.resources);
+        if let Some(native)=&mut self.temporal_motion{native.complete(success);}
+        self.bridge.r.core.profile.cpu("GL submit",submit_timer);
+        self.bridge.r.core.profile.frame(&self.bridge.r.core.gl);
         self.bridge.r.water.input[bfe_render::water::S_SHOWN] = water_shown;
         if !success {
             return Err(self
@@ -1692,13 +2010,11 @@ impl Scene {
     }
 }
 
-// Blended world buckets need their own authored transparent descriptors.
-// Sky, opaque far meshes and the independent static passes are admitted above.
+// Sky layers have their own admission; every nonempty world material is drawn.
 fn inspectable(mesh: &bfe_content_native::loader::Mesh) -> bool {
     mesh.geometry.vertices != 0
         && !mesh.geometry.indices.is_empty()
         && mesh.material.kind != MaterialKind::Sky
-        && mesh.material.blend == Blend::Opaque
 }
 
 // materials.js::setLighting/setFog read only authored map content. The inspector
@@ -1790,4 +2106,11 @@ mod camera_tests {
         assert_eq!(camera.aim()[1], -0.2);
         assert_eq!(camera.snapshot().values[camera.slots[2]], 0.1);
     }
+    #[test]
+    fn render_scale_applies_once_to_device_pixels_and_keeps_the_adaptive_floor(){
+        assert_eq!(render_extent([2512,1500],1.5,1.),[3768,2250]);
+        assert_eq!(render_extent([2512,1500],1.5,0.5),[1884,1125]);
+        assert_eq!(render_extent([2512,1500],0.25,0.5),[628,375]);
+    }
+
 }

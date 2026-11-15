@@ -346,6 +346,14 @@ impl Journal {
         *cursor = head;
     }
 
+    /// The records from sequence `start` (at most the ring's capacity back)
+    /// to the head, in sequence order.
+    pub fn since(&self, start: usize) -> impl Iterator<Item = &Record> {
+        let head = self.seq;
+        (start.max(head.saturating_sub(CAPACITY))..head)
+            .filter_map(move |seq| self.ring[seq % CAPACITY].as_ref().filter(|record| record.seq == seq))
+    }
+
     /// `g.simEvents.ring.filter(Boolean)`: every filled slot in slot order.
     pub fn records(&self) -> impl Iterator<Item = &Record> {
         self.ring.iter().flatten()

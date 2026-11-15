@@ -229,7 +229,11 @@ impl Replicas {
             });
             look
         };
-        for part in &data.preview_parts {
+        let parts = match self.skins.get(class).and_then(Option::as_ref) {
+            Some((_, parts)) => parts,
+            None => &data.preview_parts,
+        };
+        for part in parts {
             part.push(
                 bridge,
                 &mut records,

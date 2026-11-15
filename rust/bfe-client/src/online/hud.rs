@@ -106,6 +106,30 @@ struct Asset {
     width: f64,
     height: f64,
 }
+impl Asset {
+    fn load(textures: &mut bfe_content_native::textures::Library, path: &str, raster: &Value) -> Result<Self, String> {
+        // Larger HUD atlases keep the original layout dimensions and UVs.
+        // An absent, invalid or unsupported upgrade retains the source art.
+        let upgraded = (|| {
+            let entry = raster.get("textures")?.get(path.strip_prefix("common/")?)?;
+            let width = u32::try_from(entry.get("width")?.as_u64()?).ok()?;
+            let height = u32::try_from(entry.get("height")?.as_u64()?).ok()?;
+            let scale = u32::try_from(raster.get("scale")?.as_u64()?).ok()?;
+            if width == 0 || height == 0 || scale == 0 { return None; }
+            let size = [width.checked_mul(scale)?, height.checked_mul(scale)?];
+            let file = entry.get("file")?.as_str()?;
+            let image = textures.load(&format!("common/raster-hud/{file}")).ok()?;
+            let decoded = &textures.images[image];
+            (size == [decoded.width, decoded.height]).then_some(Self {
+                image: Some(image), width: width as f64, height: height as f64,
+            })
+        })();
+        if let Some(asset) = upgraded { return Ok(asset); }
+        let image = textures.load(path)?;
+        let decoded = &textures.images[image];
+        Ok(Self { image: Some(image), width: decoded.width as f64, height: decoded.height as f64 })
+    }
+}
 // HudModel weapon ids follow prediction admission order, including mounted
 // weapons. Their immutable reticle, label and ammunition metadata resolve
 // before load completes; a frame supplies only the completed mutable row.
@@ -224,6 +248,9 @@ impl Prepared {
     // uses handle zero, while present art resolves through TextureLibrary.
     pub fn new(content: &mut BattleContent) -> Result<Self, String> {
         let common = authored_json(&content.content.battle.common);
+        let raster = content.textures.read("common/raster-hud/manifest.json")
+            .ok().and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .unwrap_or(Value::Null);
         let map = content
             .content
             .battle
@@ -284,13 +311,10 @@ impl Prepared {
             // side, common, map, vehicles, then the other admitted sides.
             // Icons and reticles often live only in a side's texture table.
             let path = content.texture_paths.get(&lower).cloned();
-            let image = path.map(|s| content.textures.load(&s)).transpose()?;
-            let (width, height) = image.map_or((0., 0.), |i| {
-                let im = &content.textures.images[i];
-                (im.width as f64, im.height as f64)
-            });
+            let loaded = path.map(|s| Asset::load(&mut content.textures, &s, &raster)).transpose()?
+                .unwrap_or(Asset { image: None, width: 0., height: 0. });
             let id = result.assets.len() as u32;
-            result.assets.push(Asset { image, width, height });
+            result.assets.push(loaded);
             result.names.insert(name.into(), id);
             result.names.insert(lower, id);
             Ok(id)
@@ -1439,6 +1463,33 @@ fn flight_status(own: &super::receiver::Own) -> [f64; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raster_hud_upgrades_pixels_without_scaling_layout_and_falls_back() {
+        let root = std::env::temp_dir().join(format!("bfe-hud-atlas-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("common/raster-hud")).unwrap();
+        for (path, width, height) in [("common/icon.png", 2, 3), ("common/raster-hud/icon.png", 8, 12)] {
+            let file = std::fs::File::create(root.join(path)).unwrap();
+            let mut encoder = png::Encoder::new(file, width, height);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder.write_header().unwrap().write_image_data(&vec![255; (width * height * 4) as usize]).unwrap();
+        }
+        let mut textures = bfe_content_native::textures::Library::new(&root, false, 1024, 0).unwrap();
+        let mut raster = serde_json::json!({"scale":4,"textures":{"icon.png":{"file":"icon.png","width":2,"height":3}}});
+        let upgraded = Asset::load(&mut textures, "common/icon.png", &raster).unwrap();
+        assert_eq!((upgraded.width, upgraded.height), (2., 3.));
+        let image = &textures.images[upgraded.image.unwrap()];
+        assert_eq!((image.width, image.height), (8, 12));
+        raster["textures"]["icon.png"]["width"] = 3.into();
+        for manifest in [raster, Value::Null] {
+            let original = Asset::load(&mut textures, "common/icon.png", &manifest).unwrap();
+            assert_eq!((original.width, original.height), (2., 3.));
+            let image = &textures.images[original.image.unwrap()];
+            assert_eq!((image.width, image.height), (2, 3));
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn flight_prompts_follow_the_pilot_checkpoint_and_refusal() {

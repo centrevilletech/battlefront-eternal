@@ -49,7 +49,7 @@ impl Steam {
             return Ok(None);
         }
         let fountains = content.environment_instances.iter().any(|i| i.effect.ends_with("/waterfountain"));
-        let shadows = crate::shadows::COUNT > 0;
+        let shadows = bridge.shadow_cascades() > 0;
         // EnvironmentVolume.noiseTexture: 32 cubed bytes, repeating, linear.
         let noise_source = gpu.source(
             &serde_json::json!({"width":32,"height":32,"depth":32,"target":glow::TEXTURE_3D,"format":1028,"dataType":1009,"srgb":false}).to_string(),

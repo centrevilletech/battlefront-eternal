@@ -13,7 +13,7 @@ use crate::gen::{
     F3EffectNotice, F3HullEvent, F3HullNotice, F3OptionalState, F3OrdnanceEvent, F3OrdnanceNotice,
     F3PowerupEffect, F3PresentKind, F3Presentation, F3ProjectileKind, F3PropDamage, F3PropEffect,
     F3PropEffectKind, F3SeatNotice, F3ShieldNotice, F3ShotNotice, F3WeaponAction, F4Effect,
-    F4Serve, F4SpawnNotice, FfShot, PbStateName, PickupArgs, PlayerSquad, Posture, Unit, UnitSplash,
+    F4Serve, F4SpawnNotice, FfShot, PbStateName, PickupArgs, PlayerSquad, Posture, UnitSplash,
     WbEncode,
     WireDynamicFact,
 };
@@ -37,7 +37,7 @@ pub struct Drain<'a> {
     /// Each network human's presses (`u.networkShots`) by his unit's
     /// slot, by button, as the host last mirrored them.
     pub presses: &'a [(u32, [Option<f64>; 2])],
-    pub units: &'a [(u32, u32, Unit)],
+    pub units: &'a super::UnitTable,
     /// The seat leases (`KIND_SEAT_LEASE`), by slot.
     pub leases: &'a [(u32, gen::SeatLease)],
     /// The body flags the page toggled this tick (kernel slot, enabled),
@@ -426,14 +426,15 @@ impl Drain<'_> {
                 );
                 let slot = e.key.slot;
                 let life = e.key.life;
-                let Some((_, _, unit)) = self.units.iter().find(|(s, _, _)| *s == slot) else {
+                let Some(unit) = self.units.find(slot) else {
                     return Ok(());
                 };
                 // c.arsenal.weapons[row.weapon].name: the class of the weapon.
-                let mut names = Vec::with_capacity(unit.combat.weapons.len());
-                for weapon in &unit.combat.weapons {
+                let weapons = self.units.weapons(unit);
+                let mut names = Vec::with_capacity(weapons.len());
+                for def in weapons {
                     let levels = context
-                        .weapon_levels(weapon.def.0)
+                        .weapon_levels(def.0)
                         .map_err(|e| e.message().to_string())?;
                     let base = levels.first().cloned().unwrap_or_default();
                     names.push((
@@ -958,6 +959,10 @@ impl Drain<'_> {
                     &record[F3DamageNotice::WORDS..],
                 );
                 let info = &e.info;
+                if std::env::var_os("BFE_HUD_TRACE").is_some() {
+                    eprintln!("[combat-damage] {}",serde_json::json!({"target":e.key.slot,"attacker":e.has_attacker_ref.then_some(e.attacker_ref.id),
+                        "amount":info.amount.unwrap_or(e.amount),"healthDamage":e.amount,"point":info.point,"position":e.position}));
+                }
                 let target = Life {
                     id: e.key.slot,
                     generation: e.key.life,
@@ -1306,13 +1311,13 @@ impl Drain<'_> {
                 });
                 let (attacker, attacker_team) = match e.attacker {
                     Attacker::Unit(r) => {
-                        let unit = self.units.iter().find(|(slot, _, _)| *slot == r.slot);
+                        let unit = self.units.find(r.slot);
                         (
-                            unit.map(|(slot, _, u)| Life {
-                                id: *slot,
-                                generation: u.generation,
+                            unit.map(|u| Life {
+                                id: u.slot,
+                                generation: u.life,
                             }),
-                            unit.map_or(0.0, |(_, _, u)| u.team),
+                            unit.map_or(0.0, |u| u.team),
                         )
                     }
                     Attacker::OwnerSnapshot(r) => {
@@ -1396,8 +1401,8 @@ impl Drain<'_> {
                 };
                 let owner = e
                     .unit
-                    .and_then(|r| self.units.iter().find(|(slot, _, _)| *slot == r.slot))
-                    .map(|(slot, _, u)| (f64::from(*slot), u.generation));
+                    .and_then(|r| self.units.find(r.slot))
+                    .map(|u| (f64::from(u.slot), u.life));
                 capture.emit(
                     context,
                     self.tick,

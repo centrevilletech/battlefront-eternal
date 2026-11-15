@@ -27,3 +27,19 @@ impl Clock{
     use super::*;
     #[test]fn arrival_loss_and_long_pause_keep_a_bounded_monotonic_clock(){let mut c=Clock::default();let mut previous=0.;for tick in (2..2400).step_by(2){if tick%10!=0{c.arrive(tick as f64,tick as f64/60.,2.).unwrap();}let shown=c.advance(1./30.).unwrap();assert!(shown>=previous);assert!(shown<=tick as f64);previous=shown;}}
 }
+
+/// The displayed sample, bounded exactly as the page's renderedViewTick.
+pub fn rendered_tick(clock: f64, latest: f64) -> f64 {
+    if clock.is_finite() && latest.is_finite() { clock.min(latest.floor()).max(0.) } else { 0. }
+}
+#[cfg(test)]
+mod view_tests {
+    use super::rendered_tick;
+    #[test]
+    fn fire_uses_the_fractional_display_sample_instead_of_a_fixed_delay() {
+        assert_eq!(rendered_tick(97.25, 100.), 97.25);
+        assert_eq!(rendered_tick(110., 100.75), 100.);
+        assert_eq!(rendered_tick(-1., 100.), 0.);
+        assert_eq!(rendered_tick(f64::NAN, 100.), 0.);
+    }
+}

@@ -12,6 +12,14 @@ pub fn battle_clock() -> WorldClockState {
     WorldClockState { hz: 60.0, dt: 1.0 / 60.0, max_steps: 8.0, budget: 0.035, max_debt: 8.0, ..Default::default() }
 }
 
+/// The first tick's row, the same for every host (Instant Action's world
+/// thread and the dedicated server): the battle clock, the admission's
+/// foreign unit rows, live owners on, and the AI phase run unless the
+/// player fields no bots (game.js runs no AI when AI_MODE is off).
+pub fn first_tick(units: u32, bots: &bfe_sim::world::admit::Bots) -> WorldTickInput {
+    WorldTickInput { dt: 1.0 / 60.0, tick: 1.0, clock: battle_clock(), units, ai: bots.fielded, live: true, mouse_scale: 1.0, ..Default::default() }
+}
+
 /// One battle's tick rows: the clock between ticks and the row for the next.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TickRows {

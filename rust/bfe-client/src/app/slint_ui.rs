@@ -346,6 +346,7 @@ impl SlintHost {
                     MenuSound::Select => "shell_select_change",
                     MenuSound::Accept => "shell_menu_accept",
                     MenuSound::Back => "shell_menu_cancel",
+                    MenuSound::Exit => "shell_menu_exit",
                     MenuSound::Error => "shell_menu_error",
                 };
                 q.borrow_mut().push(UiAction::SoundRequested(cue));

@@ -37,7 +37,7 @@ pub struct Trails {
 
 impl Trails {
     pub fn new(content: &bfe_content_native::BattleContent, bridge: &mut Bridge, collision: Collision, world: u32, at: usize) -> Result<Self, String> {
-        let batch = bridge.effect_batch(layout::TRAIL as u32, 0, crate::shadows::COUNT > 0, -1, CAPACITY as u32, -1, &[])?;
+        let batch = bridge.effect_batch(layout::TRAIL as u32, 0, bridge.shadow_cascades() > 0, -1, CAPACITY as u32, -1, &[])?;
         bridge.fx_batch_interleaved(batch);
         bridge.fx_reserve((at + TRAILS * FLOATS) as u32);
         let name = content.map["name"].as_str().or_else(|| content.map["map"].as_str()).unwrap_or("").to_string();

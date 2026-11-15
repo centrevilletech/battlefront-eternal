@@ -7,6 +7,8 @@
   void main() {
     vec3 n = normalize(cross(dFdx(vView), dFdy(vView)));
     vec3 toEye = normalize(-vView);
+    // The screen-space derivative's sign follows the target's row order; a face seen is one facing the eye.
+    if (dot(n, toEye) < 0.0) n = -n;
     float key = max(dot(n, normalize(vec3(-0.4, 0.9, 0.5))), 0.0);
     float edge = pow(1.0 - max(dot(n, toEye), 0.0), 2.0);
     vec3 c = color * (0.45 + 0.9 * key) + rim * edge * 0.55;

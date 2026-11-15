@@ -405,9 +405,13 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         context: None,
         gl: None,
         focused: true,
+        hidden: false,
         pointer_locked: false,
         pointer_icon: winit::window::CursorIcon::Default,
         cursor_physical: [0.0; 2],
+        cursor_seen: false,
+        hover_screen: None,
+        hover_frames: 0,
         text_input: text_input::TextInput::default(),
         modifiers: ModifiersState::empty(),
         ime_preedit: false,
@@ -466,6 +470,10 @@ fn content_is_current(dir: &Path) -> bool {
 struct StandaloneWindowApp {
     // Physical window coordinates are mapped once into the active interface plane.
     cursor_physical: [f64; 2],
+    // Whether the pointer has been seen over the window, and the front-end screen it last lit a row on.
+    cursor_seen: bool,
+    hover_screen: Option<bfe_shell::screens::ScreenId>,
+    hover_frames: u8,
     text_input: text_input::TextInput,
     modifiers: ModifiersState,
     ime_preedit: bool,
@@ -503,6 +511,9 @@ struct StandaloneWindowApp {
     gl: Option<glow::Context>,
     /// Whether the OS window currently has input focus.
     focused: bool,
+    /// Whether the compositor says the window cannot be seen (minimized or
+    /// covered): the page's `document.hidden`, which suspends a local battle.
+    hidden: bool,
     /// Whether the cursor is currently locked and hidden for 3D combat mouselook.
     pointer_locked: bool,
     pointer_icon: winit::window::CursorIcon,
@@ -552,6 +563,30 @@ struct StandaloneWindowApp {
 }
 
 impl StandaloneWindowApp {
+    /// A screen that comes up under a parked pointer lights the row there at once, as the browser does
+    /// (it sends a pointer move after the page changes); winit only reports real motion.
+    fn hover_where_the_pointer_is(&mut self) {
+        let screen = match (&self.state, &self.shell) {
+            (AppState::Shell, Some(shell)) => Some(shell.app.current_screen()),
+            _ => None,
+        };
+        if screen != self.hover_screen {
+            self.hover_screen = screen;
+            // The screen settles over a few frames (its rows are rebuilt as it comes up).
+            self.hover_frames = 4;
+        }
+        if self.hover_frames == 0 {
+            return;
+        }
+        self.hover_frames -= 1;
+        if screen.is_some() && self.cursor_seen {
+            let [x, y] = self.interface_cursor();
+            if let Some(shell) = &mut self.shell {
+                shell.handle_cursor_move(x, y);
+            }
+        }
+    }
+
     fn interface_cursor(&self) -> [f64; 2] {
         let size = match &self.state {
             AppState::Battle(battle) => battle.size,
@@ -984,7 +1019,7 @@ impl StandaloneWindowApp {
     /// Uses `glBlitFramebuffer` with `GL_LINEAR` filtering from `READ_FRAMEBUFFER = src_fb`
     /// to `DRAW_FRAMEBUFFER = 0` (the default window surface) and immediately swaps the
     /// window backbuffer via `glutin::surface::Surface::swap_buffers`.
-    fn blit_framebuffer_to_window(&self, src_fb: glow::Framebuffer, src_size: [i32; 2]) -> Result<(), String> {
+    fn blit_framebuffer_to_window(&mut self, src_fb: glow::Framebuffer, src_size: [i32; 2]) -> Result<(), String> {
         let (Some(ui), Some(surface), Some(context)) = (&self.slint_ui, &self.surface, &self.context)
         else {
             return Err("window presentation resources missing".into());
@@ -992,6 +1027,7 @@ impl StandaloneWindowApp {
         // The Slint notifier copies this frame after its transparent clear and
         // before its UI draw. Only this host swaps the shared window surface.
         ui.render(src_fb, src_size)?;
+        if let AppState::Battle(battle)=&mut self.state{battle.scene.resolution_presented(battle.pause_menu.is_open||!self.focused||self.hidden)?;}
         surface.swap_buffers(context).map_err(|e| format!("window presentation failed: {e}"))
     }
 
@@ -1102,6 +1138,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                 glow::Context::from_loader_function_cstr(|name| display.get_proc_address(name))
             };
             let gl = make_gl();
+            crate::resources::Ranges::install_multi_draw(&gl,display.get_proc_address(std::ffi::CStr::from_bytes_with_nul(if gl.version().is_embedded{b"glMultiDrawElementsEXT\0"}else{b"glMultiDrawElements\0"}).unwrap()));
             let physical = window.inner_size();
             self.opts.size = [physical.width as i32, physical.height as i32];
             let shell = Box::new(ShellHost::new(
@@ -1230,6 +1267,9 @@ impl ApplicationHandler for StandaloneWindowApp {
                 // Consult `HostController::close_prompt()` before exiting the event loop.
                 self.request_app_close(event_loop);
             }
+            WindowEvent::Occluded(hidden) => {
+                self.hidden = hidden && self.gate.is_none() && self.platform_smoke.is_none();
+            }
             WindowEvent::Focused(focused) => {
                 // Keep focus active during headless Xorg `--script gate` runs; otherwise
                 // clear held combat inputs and open the pause menu on focus loss.
@@ -1306,6 +1346,7 @@ impl ApplicationHandler for StandaloneWindowApp {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor_physical = [position.x, position.y];
+                self.cursor_seen = true;
                 let [x, y] = self.interface_cursor();
                 // Forward cursor coordinates to `ShellHost` (including `bfe-interface` hit regions)
                 // or to the active `BattleController` overlays.
@@ -1494,6 +1535,8 @@ impl ApplicationHandler for StandaloneWindowApp {
             }
             WindowEvent::RedrawRequested => {
                 self.redraw(event_loop);
+                // After the frame: the page's hit regions are those of the screen just drawn.
+                self.hover_where_the_pointer_is();
             }
             _ => {}
         }
@@ -1627,6 +1670,11 @@ impl StandaloneWindowApp {
     fn sync_battle_options(&mut self) {
         if let AppState::Battle(battle) = &mut self.state {
             Self::sync_battle_options_of(battle, &mut self.shell, &mut self.slint_ui, &self.settings);
+            if let Some(kind) = self.shell.as_mut().and_then(|shell| shell.speaker_request.take()) {
+                self.audio_router.speaker_test(Some(&kind));
+            } else if !battle.options_open && self.audio_router.testing() {
+                self.audio_router.speaker_test(None);
+            }
         }
     }
 
@@ -2289,6 +2337,7 @@ impl StandaloneWindowApp {
                     let transition = battle.step_and_draw(
                         dt,
                         self.focused,
+                        self.hidden,
                         &mut self.settings,
                         &self.audio_router,
                     )?;
@@ -2325,6 +2374,7 @@ impl StandaloneWindowApp {
                             return Err("window presentation resources missing".into());
                         };
                         ui.render_pass(fb, sz, 2)?;
+                        battle.scene.resolution_presented(battle.pause_menu.is_open||!self.focused||self.hidden)?;
                         surface
                             .swap_buffers(context)
                             .map_err(|e| format!("window presentation failed: {e}"))?;
