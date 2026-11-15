@@ -1661,6 +1661,12 @@ impl Replicas {
         self.trails.frame(dt, &self.rollers, bridge);
         if let Some(rain) = &mut self.rain {
             rain.frame(dt, eye, gpu, bridge);
+            let group = rain.ground.as_ref().and_then(|(name, _, _)| self.combat.effect_names.iter().find(|(n, _)| n == name)).map(|(_, id)| *id);
+            for at in rain.splashes.drain(..) {
+                if let Some(group) = group {
+                    self.combat.hull_fx.once(group, at);
+                }
+            }
         }
         if let Some(snow) = &mut self.snow {
             snow.frame(dt, eye, camera, gpu, bridge);
