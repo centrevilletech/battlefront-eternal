@@ -730,7 +730,11 @@ impl Combat {
             x[r::KEY] = bolt.key as f64;
             x[r::STYLE] = bolt.style as f64;
             x[r::SOURCE] = slot as f64;
-            x[r::FLAGS] = ((1 << flag::HAS_CLOCK) | (1 << flag::HAS_OFFSET) | (1 << flag::RESOLVE_SHOWN)) as f64;
+            // linearBoltFrame: a replicated bolt flies from its flight tick
+            // at its speed for its life, on the displayed clock. Without
+            // LINEAR the owner reads it as a stepped bolt that has flown
+            // nothing, and draws it at the muzzle until its record expires.
+            x[r::FLAGS] = ((1 << flag::LINEAR) | (1 << flag::HAS_CLOCK) | (1 << flag::HAS_OFFSET) | (1 << flag::RESOLVE_SHOWN)) as f64;
             x[r::ALPHA] = 1.;
             x[r::CLOCK_TICK] = tick;
             x[r::FADE] = 1.;
