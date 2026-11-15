@@ -453,8 +453,25 @@ fn motion(source: &str) -> Result<String, String> {
     Ok(out)
 }
 
+// The shaders are GLSL ES 3.00. A desktop context compiles them as they are when it
+// has GL_ARB_ES3_compatibility (Mesa from Sandy Bridge on, every GL 4.3 driver);
+// without it (a GL 3.3 driver, macOS) the version line must name desktop GLSL
+// 3.30, which takes the same language and ignores the precision statements.
+pub fn desktop_glsl(embedded: bool, es3_compatible: bool) -> bool { !embedded && !es3_compatible }
+pub fn to_desktop_glsl(source: &str) -> String {
+    match source.strip_prefix("#version 300 es") {
+        Some(rest) => format!("#version 330 core{rest}"),
+        None => source.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_desktop_context_without_es3_compatibility_gets_glsl_330() {
+        assert!(super::desktop_glsl(false, false) && !super::desktop_glsl(false, true) && !super::desktop_glsl(true, false));
+        assert_eq!(super::to_desktop_glsl("#version 300 es\nprecision highp float;\nvoid main(){}\n"), "#version 330 core\nprecision highp float;\nvoid main(){}\n");
+    }
     use super::*;
     #[test]
     fn declarations() {

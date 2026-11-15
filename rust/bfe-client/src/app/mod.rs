@@ -192,8 +192,11 @@ pub fn run(with_audio: bool) {
         }
         Ok(CliDispatch::Standalone(opts)) => {
             // Launch the default standalone native game lifecycle.
+            // Scripted and bench runs have nobody to click a dialog away.
+            let attended = opts.script.is_none() && std::env::var_os("BFE_BENCH").is_none();
             if let Err(err) = run_standalone_game(opts, with_audio) {
                 eprintln!("{err}");
+                if attended { folder_dialog::fatal_message(&err); }
                 std::process::exit(1);
             }
         }
@@ -993,7 +996,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                     .create_context(&config, &ctx_attrs)
                     .or_else(|_| display.create_context(&config, &fallback_attrs))
             }
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("The graphics driver offers neither OpenGL ES 3.0 nor OpenGL 3.3, which the game needs ({e}). Update the graphics driver; a GPU older than OpenGL 3.3 cannot run it."))?;
 
             let surface_attrs = window
                 .build_surface_attributes(Default::default())
@@ -1009,6 +1012,8 @@ impl ApplicationHandler for StandaloneWindowApp {
                 glow::Context::from_loader_function_cstr(|name| display.get_proc_address(name))
             };
             let gl = make_gl();
+            // gl_PointSize is always live in OpenGL ES; desktop GL needs it switched on.
+            if !gl.version().is_embedded { unsafe { gl.enable(glow::PROGRAM_POINT_SIZE); } }
             self.settings.adopt_gpu_preset(&unsafe { gl.get_parameter_string(glow::RENDERER) }, &unsafe { gl.get_parameter_string(glow::VENDOR) })?;
             crate::resources::Ranges::install_multi_draw(&gl,display.get_proc_address(std::ffi::CStr::from_bytes_with_nul(if gl.version().is_embedded{b"glMultiDrawElementsEXT\0"}else{b"glMultiDrawElements\0"}).unwrap()));
             let physical = window.inner_size();
