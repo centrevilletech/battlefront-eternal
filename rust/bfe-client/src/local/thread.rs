@@ -571,7 +571,6 @@ impl WorldThread {
     pub fn admit_instant_action(
         options: &super::options::Options,
     ) -> Result<(Self, AdmittedWorldInfo), String> {
-        let ai_enabled = options.bots.fielded;
         let owned_options = super::options::Options {
             root: options.root.clone(),
             battle: options.battle.clone(),
@@ -594,10 +593,7 @@ impl WorldThread {
                     (Runtime<super::context::Native>, AdmittedWorldInfo),
                     String,
                 > {
-                    let mut prepared = super::launch::Prepared::with_spawn_screen(&owned_options, true)?;
-                    // aiMode off fields no bots (the admission's unit scale is
-                    // zero) and, as game.js, runs no AI phase.
-                    prepared.admission.tick.ai = ai_enabled;
+                    let prepared = super::launch::Prepared::with_spawn_screen(&owned_options, true)?;
                     let info = AdmittedWorldInfo {
                         query: prepared.admission.query.clone(),
                         registry: prepared.admission.registry.clone(),

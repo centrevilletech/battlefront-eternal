@@ -217,3 +217,17 @@ fn admit_policy(world: &mut World, files: &dyn Files, options: &Options, rows: &
         .map_err(|message| AdmitError::Content { stage: Stage::Content, message })?;
     sequence::run_into(world, &content, files, options, rows)
 }
+
+#[cfg(test)]
+mod bot_settings {
+    use super::Bots;
+    #[test]
+    fn off_fields_no_bots_and_sizes_scale_the_rosters() {
+        let off = Bots::read("off", "hard", "small");
+        assert!(!off.fielded);
+        assert_eq!(off.unit_scale(), 0.0);
+        let classic = Bots::read("classic", "Easy", "large");
+        assert_eq!((classic.fielded, classic.tier(), classic.unit_scale()), (true, 1.0, 0.75));
+        assert_eq!(Bots::read("enhanced", "", "full"), Bots::default());
+    }
+}

@@ -152,7 +152,7 @@ use bfe_content::content::Content;
 use bfe_content::defs::Defs;
 use bfe_content::files::DirFiles;
 use bfe_content_native::fingerprint;
-use bfe_content_native::setup::battle_clock;
+use bfe_content_native::setup::first_tick;
 use bfe_sim::abi::context::Context;
 use bfe_sim::abi::context_step::{bank, Publication};
 use bfe_sim::gen::{
@@ -1263,24 +1263,7 @@ impl NativeWorldHost {
             match_seed: admit_options.seed,
             links: Vec::with_capacity(256),
             world_admitted,
-            tick_input: WorldTickInput {
-                dt: 1.0 / 60.0,
-                tick: 1.0,
-                clock: battle_clock(),
-                units: initial_units,
-                // game.js omits AI advancement when AI_MODE is off. Keep the
-                // server's advertised bot setting and authoritative tick aligned.
-                ai: !query
-                    .trim_start_matches('?')
-                    .split('&')
-                    .any(|part| part == "ai=off"),
-                live: true,
-                camera: 0,
-                offline_camera: true,
-                squads: 0,
-                at: 0.0,
-                mouse_scale: 1.0,
-            },
+            tick_input: first_tick(initial_units, &admit_options.bots),
             admitted_handles,
             admitted_player_id,
             publication_session,
