@@ -2,7 +2,6 @@
 //
 // Ports `src/pause/index.js`, `src/pause/overrides.js`, and `stillCommand` from `src/runtime/commands.js`
 // across `menu` (state machine), `draw` (25-degree tilted Classic renderer), and `overrides` (URL settings).
-pub mod draw;
 pub mod menu;
 pub mod overrides;
 

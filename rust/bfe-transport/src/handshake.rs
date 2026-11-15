@@ -1,15 +1,5 @@
 //! Cryptographic handshake state machines (`ClientHandshake` and `ServerHandshakes`)
 //! matching `src/net/handshake.js`.
-//!
-//! Implements a 3-message SIGMA-I (`INITIATION` -> `RESPONSE` -> `CONFIRM`) key
-//! exchange over X25519 ephemeral Diffie-Hellman, Ed25519 identity signatures,
-//! SHA-256 transcript hashing, and ChaCha20-Poly1305 AEAD protection:
-//! - `INITIATION` is padded to 1,200 bytes (`lim::INITIATION_BYTES`) so clients
-//!   demonstrate path MTU and cannot be used as amplification vectors.
-//! - Stateless `RETRY` cookies bind the client's source path, session ID, and
-//!   ephemeral public key before the server allocates a `Pending` slot.
-//! - Transcript hashes `t1`, `t2`, and `t3` bind every header field, ephemeral
-//!   key, identity DER, and application hello JSON byte in both directions.
 use std::collections::VecDeque;
 use base64::{Engine,engine::general_purpose::STANDARD};
 use crate::{Error,Result,crypto::{self,Aead,Identity,RetryTokens}};

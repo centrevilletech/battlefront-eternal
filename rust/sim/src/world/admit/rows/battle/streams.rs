@@ -6,11 +6,6 @@
 //! stream, while two bare generators with equal seeds stay two. The native
 //! twin keys by text: `streams:<name>` for a named draw of the battle's
 //! `RandomStreams(SEED)`, `classic:<which>` for a bare generator.
-//!
-//! The ids matter bit for bit: F4Tail's setup, the AI's two streams and
-//! both player bindings carry them, so each owner registers at the seam the
-//! JavaScript did (game.js 1392 configure at attachF3's end, ai-world-load.js
-//! 27 at ai_world_begin, f4-tail.js 44, f3-factory.js 75 at each bindPlayer).
 
 /// `streams.draw("gameplay")`: combat's chunks, drops and the player's
 /// gameplay draws (game.js 194).

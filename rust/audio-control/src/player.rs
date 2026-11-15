@@ -4,36 +4,6 @@
 //! placed at the unit's origin (its feet) and follows it; none is 2D except
 //! the scope's zoom. Other soldiers' weapons and voices are SoldierSounds'
 //! (soldiers.js), by the same rules.
-//!
-//! Weapons keep three voices each, as the game does (weapons.js): one for
-//! the state sound (charge, overheat, reload, the fusion cutter's loop), one
-//! for firing and the empty click, one for movement.
-//!
-//! Footsteps come from two detectors sharing a flag per foot. The feet: a
-//! foot dropping faster than 0.3 m/s is flagged; flagged and then rising as
-//! fast, it is unflagged, and steps if it rose from under 0.17 m (its
-//! plant). The stride, a fallback: every half stride (FootstepStride, 1.75 m
-//! unless set) of distance flags the next foot (right first); a full stride,
-//! or stopping, steps the flagged foot.
-//! Flagging a foot plays the unit's ClothingRustleSound (no class on Theed
-//! sets one). A step plays the foley entry's FootstepLeftRun or
-//! FootstepRightRun (the walk variants need RunSpeed, which no class sets),
-//! plus the weapon's movement slot for it.
-//!
-//! The 2004 game runs both detectors side by side. Run literally on this
-//! port's animation (blended clips whose planted foot wobbles a few
-//! millimetres a frame), they gave two or three steps a footfall, so here a
-//! foot must lift 5 cm above its last plant before it can step again, and
-//! the stride only steps while the feet haven't planted for 0.75 s (no
-//! skeleton, a still pose, the air). In the 2004 game the stride counts
-//! the full 3D speed in every state, so the original mode steps in the air
-//! too, a step every 1.75 m of a jump or a jetpack flight; the enhanced mode
-//! steps only on the ground.
-//! The entry is the FoleyFXSoldier of the surface's material group
-//! (terrain_foley, water_foley while wading, or the object's FoleyFXGroup)
-//! whose Class is the unit's FoleyFXClass; most CIS droids have none, so they
-//! make no foley at all.
-//!
 use crate::{Collision, Point};
 use crate::engine::{Ask, NONE, SILENT, EFFECTS, FOLEY, INTERFACE};
 use crate::phase::{Phase, index};

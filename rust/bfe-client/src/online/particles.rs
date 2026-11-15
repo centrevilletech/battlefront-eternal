@@ -41,6 +41,14 @@ impl Prepared {
         names.extend(super::shields::textures(content));
         // The command posts' holograms: their flare and the logos' texture.
         names.extend(super::holograms::textures(content));
+        // The Enhanced steam's wisps (steam.rs).
+        names.push("thicksmoke2".into());
+        // The Enhanced fountains' foam (fountains.rs).
+        names.push("waterfoam1".into());
+        // The map's snowflake, which the snow draws (weather.rs).
+        if let Some(name) = content.map["weather"]["precipitation"]["Texture"][0].as_str() {
+            names.push(name.into());
+        }
         for (_, effects) in &content.effects {
             for d in effects.descriptor["definitions"].as_array().into_iter().flatten() {
                 if let Some(name) = d["geometry"]["texture"].as_str() {
@@ -499,11 +507,12 @@ impl Particles {
     /// setting is on (particle-depth.js): the particle and arc shaders then
     /// fade against the scene's depth, which they turn into metres with the
     /// lens's near and far planes.
-    pub fn project(&self, bridge: &mut Bridge, camera: &[f64], soft: Option<([i32; 2], u32)>) {
-        if let Some((size, depth)) = soft {
+    /// The scene's depth goes over whatever the setting: the steam needs it.
+    pub fn project(&self, bridge: &mut Bridge, camera: &[f64], soft: Option<(bool, [i32; 2], u32)>) {
+        if let Some((on, size, depth)) = soft {
             let (near, far) = (camera[14] / (camera[10] - 1.), camera[14] / (camera[10] + 1.));
             bridge.r.effects.input[render::IN_SOFT..render::IN_SOFT + 6]
-                .copy_from_slice(&[1., size[0] as f64, size[1] as f64, near, far, depth as f64]);
+                .copy_from_slice(&[on as u8 as f64, size[0] as f64, size[1] as f64, near, far, depth as f64]);
         }
         for at in 0..self.model_rows.len() {
             let values = &mut bridge.r.effects.data[self.model_at + at * self.fields.length + self.fields.projection..][..16];

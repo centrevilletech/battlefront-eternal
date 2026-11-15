@@ -6,13 +6,6 @@
 //! earlier calls returned), dispatches the calls they make and feeds what
 //! the bodies returned back into the context for the owners after them.
 //! Nothing here touches an owner or the store.
-//!
-//! The recorder's admission call log (tools/world-hash.mjs --record-calls)
-//! is the oracle each builder is checked against, word for word: `args` are
-//! the export's scalar arguments, `row`/`heap` the `bridge.callArgs` block,
-//! `scratch` the bytes written first, `strings` the texts interned for the
-//! call, in order. In a comparison test the recorded `returned` values stand
-//! in for the live bodies' answers.
 pub mod ai;
 pub mod battle;
 pub mod cameras;
@@ -63,17 +56,6 @@ pub type Calls = Vec<(Stage, &'static str, Call)>;
 /// The identity tables the owners assign at admission, in JS order: each
 /// owner reads the earlier owners' entries and adds its own. Never
 /// recomputed, never invented. Producers store, consumers read.
-///
-/// Definition ids are keyed by the definition's identity, not its name:
-/// the key is `<kind>:<JSON path>` where the path (a JSON array of keys
-/// from the battle's content root: sides/<side>/units/..., vehicles/...,
-/// props/..., common/..., effects/..., world/..., soldier/...) names the
-/// shared `bfe_content::Value` object, so two equal-looking definitions
-/// stay two ids. Kinds: `weapon:`, `class:`, `blast:` in `defs`;
-/// `ordnance:`, `explosion:` in `ordnance`; `item:` in `items`; `recon:` in
-/// `classes`. A `<kind>-sent:<path>` marker records what the host has
-/// already sent to the simulation (F3's sent scans). Plain names may sit
-/// beside them for owners that look up by name.
 #[derive(Default)]
 pub struct Ids {
     /// The collision world's kernel ids (Stage::Kernels).

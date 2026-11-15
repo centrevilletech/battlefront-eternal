@@ -51,11 +51,3 @@ was retired. Publishing mirrors must not advance cameras or recompute flight.
 The unit coordinator supplies the phase entry, command boundary, native world
 services, sparse mirror binding and event delivery.
 
-`recon_authority` runs without game content. Its whole-phase golden test
-checks 240 updates each over ground, water, crash and triangle geometry, with
-first-person/chase views, firing, countdown, owner death, rebinding, detached
-strikes and blast. The synthetic fixture preserves the original little-endian
-scalar observations as a word count and bit-sensitive hash per tick. Separate
-fixtures check admission, tick deduplication, old-life weapon exclusion, nested
-explosion order, static cover and warmed allocation counts. Live battle hashes
-and authority observations are checked separately against recorded scalar observations.

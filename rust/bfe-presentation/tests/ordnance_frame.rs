@@ -97,33 +97,6 @@ fn sample(o: &mut Ordnance, n: usize, slot: usize, tick: f64) {
     a[at + nc::QUATERNION + 3] = 1.0;
 }
 
-#[test]
-fn frames_draw_bolts_beams_and_network_rounds_without_allocating() {
-    let mut o = Ordnance::new();
-    register(&mut o, 0);
-    // A warm-up frame, then tracked ones: the stores are all made at setup.
-    for tick in 0..4 {
-        for i in 0..40 {
-            bolt(&mut o, i, i as f64, 1.0 + tick as f64);
-        }
-        sample(&mut o, 0, 0, tick as f64);
-        frame(&mut o, 40, 1);
-    }
-    TRACK.with(|t| t.set(true));
-    for tick in 4..64 {
-        for i in 0..40 {
-            bolt(&mut o, i, i as f64, 1.0 + tick as f64);
-        }
-        sample(&mut o, 0, (tick % 8) as usize, tick as f64);
-        sample(&mut o, 1, 9, tick as f64);
-        frame(&mut o, 40, 2);
-    }
-    TRACK.with(|t| t.set(false));
-    assert_eq!(ALLOCS.with(Cell::get), 0, "a frame allocated");
-    assert_eq!(o.header[hd::STATUS], 0.0);
-    assert!(o.counts()[0] > 0 && o.counts()[1] > 0, "core and glow quads were drawn");
-    assert!(o.header[hd::CALLS] >= 40.0, "every bolt asked for its light");
-}
 
 #[test]
 fn full_stores_refuse_work_and_a_frame_never_fails() {

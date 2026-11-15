@@ -1,19 +1,5 @@
 //! World capture, control, and death region geometry tests ported from
 //! `tests/capture-regions.test.js`.
-//!
-//! These cases exercise `bfe_sim::battle::regions::{build_region, in_region,
-//! region_desc, DeathRegions}` across sphere, cylinder, and box regions with
-//! non-uniform transforms and rotations.
-//!
-//! Coverage includes:
-//! - Sphere radius computed as `hypot3(size.x, size.y, size.z)` independent of
-//!   the transform's scale axes (e.g. Tatooine Dune Sea's `HOMESTEAD` sized
-//!   `[0.1, 8.15, 0.1]` has radius `8.151m`, not `0.1m`).
-//! - Cylinder radius computed as `hypot(size.x * scale.x, size.z * scale.z)`
-//!   with `size.y * scale.y` as half-height (e.g. Tatooine's `Sarlac01` pit
-//!   sized `[2.135, 6.056, 8.158]` has radius `8.43m` and half-height `6.06m`).
-//! - Box and cylinder half-extents scaled by the transform's basis axis lengths
-//!   while keeping unit-length local axes for inverse point containment checks.
 
 use bfe_sim::battle::regions::{build_region, in_region, region_desc, DeathRegions};
 use bfe_sim::gen::RegionType;

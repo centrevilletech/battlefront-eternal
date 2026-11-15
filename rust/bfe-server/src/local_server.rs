@@ -1,51 +1,4 @@
 //! Local dedicated server orchestrator (`src/local-server.js` and `src/game-session.js`).
-//!
-//! Why `LocalDedicatedServer` coordinates the game port, `/info` HTTP listener, LAN discovery,
-//! and the 60 Hz world tick loop:
-//! In `src/local-server.js` (`export async function startLocalServer`), LAN and JOIN IP play
-//! share the same port number (`config.gamePort ?? 18451`) across two protocols:
-//! 1. **HTTP `GET /info` on the TCP game port (`18451`)**:
-//!    Returns the full server browser metadata (`id`, `name`, `protocol`, `profile`, `simulation`,
-//!    `content`, `rotation`, `players`, `maxPlayers`, `relayPolicy: "never"`, `fingerprint`,
-//!    `query`, `port`, `transport: "udp"`, plus `browser()` fields `description`, `sponsor`,
-//!    `location`, `battle`, `bots`, `autoAssignTeams`, `uptime`) with `Access-Control-Allow-Origin: *`.
-//! 2. **`BFE-UDP/1` gameplay on the UDP game port (`18451`)**:
-//!    Managed by [`crate::udp_server::UdpGameServer`], which accepts handshakes, enforces bans and
-//!    per-prefix limits, and exchanges `events` and `state` frames with connected players.
-//! 3. **`BFE-LAN/1` UDP discovery on port `18452` (`startLanDiscovery` in `src/lan.js`)**:
-//!    Answers broadcast/multicast discovery probes with `lanInfo(info())` (`description` and
-//!    `sponsor` stripped so the reply fits in one UDP datagram).
-//! 4. **60 Hz world tick and publication router (`src/world-worker.js` and `WorldRouter` in `src/game-session.js`)**:
-//!    Steps [`crate::world_worker::NativeWorldHost`] every `16.666_667 ms`, sends `entity-registry`
-//!    followed by `welcome` on player join (`handle("join")` in `src/world-worker.js`), and fans
-//!    out `BNS1` shared baseline groups, `BNO1` own-player datagrams, `input-ack`,
-//!    `entity-edge-results`, and `gameplay-events`.
-//!    Crucially, `LocalDedicatedServer.ready` (`multiplayerReady` on `/healthz`) is set to
-//!    `host.world_admitted`, which is `true` **only** when `Context::world_admit` has admitted a
-//!    real mission world (never when running a fallback/unadmitted context).
-//!
-//! Why `LocalDedicatedServer` separates the TCP `/info` listener, `BFE-LAN/1` UDP discovery
-//! responder, and `BFE-UDP/1` 60 Hz world tick thread instead of multiplexing them on a single
-//! Node.js libuv event loop (`startLocalServer` in `src/local-server.js` and `GameSession` in
-//! `src/game-session.js`):
-//! - In Node (`src/local-server.js`), HTTP `/info` requests (`http.createServer`), LAN discovery
-//!   broadcasts (`startLanDiscovery` in `src/lan.js`), UDP game socket reads (`UdpServer` in
-//!   `src/udp-server.js`), and `MessagePort` IPC with `src/world-worker.js` all contend for the
-//!   same single-threaded V8 event loop. That contention requires `GameSession.drainSlice()` to
-//!   enforce a `WORLD_SLICE_MS = 4` ms per-turn budget (`let count = 0; while (count < 64 &&
-//!   performance.now() - start < WORLD_SLICE_MS)`).
-//! - In `bfeserver`, `start_info_http_listener` runs on a lightweight non-blocking TCP thread,
-//!   `LanDiscoveryResponder` runs on its own UDP responder thread (`lan.rs`), and the authoritative
-//!   simulation (`NativeWorldHost`) runs on a dedicated 60 Hz OS thread (`TICK_DURATION = 16,666,667` ns).
-//! - Late ticks on the 60 Hz world thread are bounded by the `4 * TICK_DURATION` (`66.67` ms)
-//!   catch-up clamp (`if now > next_tick + TICK_DURATION * 4`), which drops excess backlog,
-//!   increments `w.dropped_ticks` (`WireWorldFacts::DROPPED_TICKS` and `input-ack.dropped`), and
-//!   resynchronizes `next_tick = now + TICK_DURATION`.
-//! - Readiness honesty (`LocalDedicatedServer.ready` -> `/healthz` `multiplayerReady`):
-//!   `init_tx` reports `host.world_admitted`, which is `true` if and only if `Context::world_admit`
-//!   succeeded on the active map and query. When `Context::world_admit` returns
-//!   `SimErrorKind::Unavailable` (before cold admission finishes for a stage), `ready` remains
-//!   `false` so `/healthz` never advertises `multiplayerReady: true` on an unadmitted world.
 
 use crate::browser_info::{browser_info, map_names, BrowserInfo};
 use crate::config::{check_content, check_state_budget, ServerConfig};
@@ -113,18 +66,6 @@ struct WorldTickCounters {
 }
 
 /// Running local dedicated server instance (`export async function startLocalServer` in `src/local-server.js`).
-///
-/// Coordinates:
-/// - `NativeWorldHost` (`world-worker.js` equivalent): 60 Hz authoritative simulation tick,
-///   entity registry construction (`build_entity_registry_descriptor`), and per-client `Publication` blocks
-/// - `UdpGameServer` (`udp-server.js` + `udp-peer.js`): encrypted UDP transport, `AdmitDecision`
-///   callback, `/24` and `/48` prefix limits, and token-bucket rate limits
-/// - `LanDiscoveryResponder` (`lan.js`): optional IPv4 broadcast + IPv6 multicast LAN responder
-/// - Optional TCP browser-info listener (`local-server.js` `infoServer`) serving `build_info_json`
-///
-/// Why `ready` reflects `NativeWorldHost::world_admitted`:
-/// A server whose `Context::world_admit` returned `ErrorKind::Unavailable` (or failed) is running
-/// an empty placeholder `Context` and must NEVER report `multiplayerReady: true` on `/healthz`.
 pub struct LocalDedicatedServer {
     pub id: String,
     pub port: u16,

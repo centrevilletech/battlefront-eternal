@@ -21,7 +21,6 @@
 //! `Euler`, `Box3`, `TransformTree` with three's Euler sync, deferred), and
 //! `math` computes with rust/v8math (V8 13.6's functions, bit for bit).
 
-pub mod clips;
 pub mod content;
 pub mod droideka;
 pub mod hull;

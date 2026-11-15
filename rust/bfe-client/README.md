@@ -39,10 +39,6 @@ ready records used by the browser. Its computed commands, placements and room
 updates drive `audio::output::Output`, including Master, through cpal. Samples
 are admitted before device startup. Partial device quanta retain every sample;
 commands and forwarding storage are reserved before the first callback.
-`native-sound SOUND_DIR [--device]` checks native control banks and final PCM
-against the production WASM host and optionally opens the audio device.
-`tools/native-sound/capture.mjs OUTPUT [SCENE]` records the synthetic production
-host fixtures, including pause, voice stealing, room queries and cached speech.
 The current sound archive supports stereo speakers and imported analytic
 collision planes. A battle recording with a live collision-world handle is
 rejected until its native World collision owner is supplied. Streaming decode

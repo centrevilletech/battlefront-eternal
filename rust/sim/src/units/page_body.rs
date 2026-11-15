@@ -195,32 +195,3 @@ mod tests {
     }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn body_construct(ptr: *const u8, len: u32) -> *const f64 { let w = crate::abi::facade::world(); let Some(bytes) = w.sim.scratch_bytes(ptr, len as usize) else { return std::ptr::null() }; let Ok(def) = bfe_content::json::parse_bytes(bytes) else { return std::ptr::null() }; module::body_construct_in(w, def).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn body_spawn_droideka(world:u32) ->*const f64 { module::body_spawn_droideka_in(crate::abi::facade::world(), world).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn body_spawn(world: u32) -> *const f64 { module::body_spawn_in(crate::abi::facade::world(), world).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn body_aim_ptr() ->*mut f64 { module::body_aim_ptr_in(crate::abi::facade::cold()).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn body_aim_capacity() ->u32 { module::body_aim_capacity_in(crate::abi::facade::cold()) }
-    #[no_mangle]
-    pub extern "C" fn body_aim_batch(count:u32,resume:u32) { module::body_aim_batch_in(crate::abi::facade::cold(), count, resume) }
-    #[no_mangle]
-    pub extern "C" fn body_preview_frame_ptr() -> *mut f64 { module::body_preview_frame_ptr_in(crate::abi::facade::cold()).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn body_preview_looks_ptr() -> *mut f64 { module::body_preview_looks_ptr_in(crate::abi::facade::cold()).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn body_preview_capacity() -> u32 { module::body_preview_capacity_in(crate::abi::facade::cold()) }
-    #[no_mangle]
-    pub extern "C" fn body_preview(with_aim: u32) { module::body_preview_in(crate::abi::facade::cold(), with_aim) }
-    #[no_mangle]
-    pub extern "C" fn body_preview_resolve() { module::body_preview_resolve_in(crate::abi::facade::cold()) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{body_construct, body_spawn_droideka, body_spawn, body_aim_ptr, body_aim_capacity, body_aim_batch, body_preview_frame_ptr, body_preview_looks_ptr, body_preview_capacity, body_preview, body_preview_resolve};

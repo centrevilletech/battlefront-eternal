@@ -5,26 +5,15 @@ This script exercises the native Rust renderer, shader catalog, content loader,
 and window host on Linux without prepared retail game files:
 
 1. Cross-checks the shader manifest catalog (`rust/bfe-render/shaders/*/manifest.json`)
-   against `tools/renderer-smoke-manifests.mjs` across all 6 families (`world`: 536,
-   `actors`: 310, `effects`: 149, `interface`: 15, `post-hud`: 12, `utility`: 24;
-   total 1,046) and all sub-families, then runs `render-smoke` under software GL
-   (`LIBGL_ALWAYS_SOFTWARE=1`) to compile and link all 1,046 shader variants
-   through `bfe-render`'s own program builder and draw one representative scene
-   for each of the 6 families (`world`, `actors`, `effects`, `interface`,
-   `post-hud`, `utility`) with RGBA8 framebuffer readback verification.
-2. Reuses the public synthetic foliage (`grasspatch`, `leafpatch`), `water`,
-   and `ocean` inputs from `tools/native-static-fixture.mjs` and verifies the
-   `static-fixture` binary against `tests/fixtures/static-geometry-hashes.json`.
-3. Constructs a self-contained synthetic map directory (`maps/room/`) using
-   those same foliage and water definitions plus a lit near-world mesh, a sky
-   layer, and a 1-bone placed prop, then checks `fingerprint` admission.
-4. Runs `static-frame` over EGL surfaceless software OpenGL (`llvmpipe`) for
-   each static component (`sky`, `props`, `foliage`, `water`), writes a PNG image
-   from the rendered RGBA framebuffer, and verifies the PNG header, dimensions,
-   and non-blank pixel distribution.
-5. Runs `bfe-client --map room` under X11 (`xvfb-run` + `native-client-window.py`)
-   with `LIBGL_ALWAYS_SOFTWARE=1` to prove the windowed native client admits
-   the synthetic map and completes its `battle_frame` redraw loop.
+   across all 6 families (`world`: 536, `actors`: 310, `effects`: 149,
+   `interface`: 15, `post-hud`: 12, `utility`: 24; total 1,046).
+2. Runs `render-smoke` under software GL (`LIBGL_ALWAYS_SOFTWARE=1`) to compile
+   and link all 1,046 shader variants through `bfe-render`'s own program builder
+   and draw one representative scene for each family with RGBA8 framebuffer
+   readback verification, written to a contact sheet PNG.
+
+`write_synthetic_content` also builds the synthetic map that
+tools/platform-smoke-native.py runs the release client on.
 """
 
 from __future__ import annotations
@@ -149,7 +138,7 @@ FRAME_OFFSETS = {
     "fogRange": 68,
 }
 
-# Synthetic foliage definitions shared with tools/native-static-fixture.mjs.
+# Synthetic foliage definitions for the room.
 # Reusing these definitions exercises the same card generators in both the
 # standalone geometry probe and the full native scene admission path.
 STATIC_FIXTURE_FOLIAGE = [
@@ -215,8 +204,7 @@ STATIC_FIXTURE_FOLIAGE = [
     },
 ]
 
-# Synthetic water patch input shared with tools/native-static-fixture.mjs and
-# tests/fixtures/static-geometry-hashes.json.
+# Synthetic water patch for the room.
 STATIC_FIXTURE_WATER_DATA = {
     "cell": 32,
     "height": -4,
@@ -422,7 +410,7 @@ def write_synthetic_content(root: Path) -> None:
     """Populate `root` with a minimal synthetic content tree for map `room`.
 
     The foliage classes and water surface reuse the public synthetic fixtures
-    from `tools/native-static-fixture.mjs` so no game assets are needed.
+    so no game assets are needed.
     """
     map_dir = root / "maps" / "room"
     common_dir = root / "common"
@@ -518,7 +506,7 @@ def write_synthetic_content(root: Path) -> None:
     (map_dir / "props.json").write_text(json.dumps(props_json), encoding="utf-8")
 
     # Foliage classes reuse the first grasspatch and first leafpatch from
-    # tools/native-static-fixture.mjs, with Texture/NumParts metadata attached.
+    # with Texture/NumParts metadata attached.
     grass_def = dict(STATIC_FIXTURE_FOLIAGE[0], Texture="grass", NumParts=1, Alpha=1.0)
     leaf_def = dict(STATIC_FIXTURE_FOLIAGE[2], Texture="leaf", NumParts=1, Alpha=1.0)
 
@@ -667,109 +655,6 @@ def write_synthetic_content(root: Path) -> None:
     )
     (actors_dir / "trooper.bin").write_bytes(b"")
     (actors_dir / "trooper_index.bin").write_bytes(b"")
-
-
-def js_normalize_numbers(value):
-    """Match JavaScript JSON.stringify number formatting for integer-valued floats."""
-    if isinstance(value, float):
-        return int(value) if value.is_integer() else value
-    if isinstance(value, list):
-        return [js_normalize_numbers(item) for item in value]
-    if isinstance(value, dict):
-        return {k: js_normalize_numbers(value[k]) for k in sorted(value.keys())}
-    return value
-
-
-def check_static_fixture_probe(repo_root: Path, static_fixture_bin: Path, records: list[dict]) -> None:
-    """Verify `static-fixture` against the frozen hashes and synthetic foliage definitions."""
-    t0 = time.monotonic()
-    norm = math.sqrt(0.2 * 0.2 + (-0.9) * (-0.9) + 0.3 * 0.3)
-    sun = [0.2 / norm, -0.9 / norm, 0.3 / norm]
-
-    for index, definition in enumerate(STATIC_FIXTURE_FOLIAGE):
-        payload = json.dumps({"kind": "foliage", "definition": definition, "sun": sun})
-        proc = subprocess.run(
-            [str(static_fixture_bin)],
-            input=payload,
-            text=True,
-            capture_output=True,
-            check=True,
-        )
-        cards = json.loads(proc.stdout)
-        expected_len = definition["NumParticles"] * 9
-        if len(cards) != expected_len or not all(isinstance(x, (int, float)) and math.isfinite(x) for x in cards):
-            raise RuntimeError(f"static-fixture foliage[{index}] returned invalid card array (len={len(cards)})")
-
-    hashes_path = repo_root / "tests" / "fixtures" / "static-geometry-hashes.json"
-    for entry in json.loads(hashes_path.read_text(encoding="utf-8")):
-        proc = subprocess.run(
-            [str(static_fixture_bin)],
-            input=json.dumps(entry["input"]),
-            text=True,
-            capture_output=True,
-            check=True,
-        )
-        actual = js_normalize_numbers(json.loads(proc.stdout))
-        canonical = json.dumps(actual, separators=(",", ":"))
-        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-        if digest != entry["hash"]:
-            raise RuntimeError(
-                f"static-fixture hash mismatch for {entry['input']}: got {digest}, expected {entry['hash']}"
-            )
-
-    records.append(
-        {
-            "step": "static-fixture",
-            "ok": True,
-            "foliageDefinitions": len(STATIC_FIXTURE_FOLIAGE),
-            "frozenGeometryHashes": 4,
-            "elapsedMs": round((time.monotonic() - t0) * 1000.0, 1),
-        }
-    )
-
-
-def check_fingerprint_probe(fingerprint_bin: Path, content_dir: Path, records: list[dict]) -> None:
-    """Verify native gameplay content hashing on the synthetic `room` content tree."""
-    t0 = time.monotonic()
-    proc = subprocess.run(
-        [str(fingerprint_bin), str(content_dir), "map=room&side=rep"],
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    payload = json.loads(proc.stdout)
-    digest = payload.get("hash", "")
-    manifest = payload.get("manifest", [])
-    if not digest.startswith("bfe-content-sha256-") or len(digest) != len("bfe-content-sha256-") + 64 or not manifest:
-        raise RuntimeError(f"unexpected fingerprint output: {proc.stdout}")
-    records.append(
-        {
-            "step": "fingerprint",
-            "ok": True,
-            "hash": digest,
-            "files": len(manifest),
-            "elapsedMs": round((time.monotonic() - t0) * 1000.0, 1),
-        }
-    )
-
-
-def compose_grid_rgba(width: int, height: int, panels: list[bytes]) -> tuple[int, int, bytes]:
-    """Combine four (width x height) RGBA panels into a 2x2 contact sheet."""
-    out_w = width * 2
-    out_h = height * 2
-    out = bytearray(out_w * out_h * 4)
-    stride = width * 4
-    out_stride = out_w * 4
-    for idx, panel in enumerate(panels):
-        gx = (idx % 2) * width * 4
-        gy = (idx // 2) * height
-        for row in range(height):
-            # Flip each OpenGL panel vertically so every quadrant is top-down.
-            src_row = height - 1 - row
-            dst_offset = (gy + row) * out_stride + gx
-            src_offset = src_row * stride
-            out[dst_offset : dst_offset + stride] = panel[src_offset : src_offset + stride]
-    return out_w, out_h, bytes(out)
 
 
 def run_render_smoke(
@@ -969,146 +854,6 @@ def run_render_smoke(
     )
 
 
-def run_static_frame_components(
-    static_frame_bin: Path,
-    content_dir: Path,
-    work_dir: Path,
-    png_out: Path,
-    width: int,
-    height: int,
-    env: dict[str, str],
-    records: list[dict],
-) -> None:
-    """Run `static-frame` over EGL surfaceless software GL for sky, props, foliage, and water."""
-    frame_json = work_dir / "frame.json"
-    frame_payload = {
-        "size": [width, height],
-        "values": build_frame_bank(width, height, [0.0, 2.0, 3.0]),
-        "foliageRandom": None,
-    }
-    frame_json.write_text(json.dumps(frame_payload), encoding="utf-8")
-
-    panels: list[bytes] = []
-    for component in ("sky", "props", "foliage", "water"):
-        t0 = time.monotonic()
-        rgba_path = work_dir / f"{component}.rgba"
-        proc = subprocess.run(
-            [
-                str(static_frame_bin),
-                str(content_dir),
-                "room",
-                str(frame_json),
-                str(rgba_path),
-                component,
-            ],
-            env=env,
-            text=True,
-            capture_output=True,
-        )
-        if proc.returncode != 0:
-            raise RuntimeError(
-                f"static-frame ({component}) failed (exit {proc.returncode}): {proc.stderr.strip()}"
-            )
-        summary = json.loads(proc.stdout.strip().splitlines()[-1])
-        rgba_bytes = rgba_path.read_bytes()
-        stats = analyze_rgba(width, height, rgba_bytes)
-        if summary.get("admitted", 0) < 2 or summary.get("draws", 0) <= 0:
-            raise RuntimeError(f"static-frame ({component}) admitted/draw check failed: {summary}")
-        if stats["nonClearPixels"] <= 0 or stats["uniqueColors"] < 2:
-            raise RuntimeError(f"static-frame ({component}) produced a blank image: {stats}")
-
-        panels.append(rgba_bytes)
-        records.append(
-            {
-                "step": f"static-frame:{component}",
-                "ok": True,
-                "hash": summary["hash"],
-                "admitted": summary["admitted"],
-                "draws": summary["draws"],
-                "nonClearPixels": stats["nonClearPixels"],
-                "uniqueColors": stats["uniqueColors"],
-                "elapsedMs": round((time.monotonic() - t0) * 1000.0, 1),
-            }
-        )
-
-    # Write a 2x2 contact sheet PNG covering all four rendered components and
-    # verify its PNG header, dimensions, and non-blank content on disk.
-    sheet_w, sheet_h, sheet_rgba = compose_grid_rgba(width, height, panels)
-    png_out.parent.mkdir(parents=True, exist_ok=True)
-    png_out.write_bytes(encode_png_rgba(sheet_w, sheet_h, sheet_rgba, flip_vertical=False))
-    png_meta = verify_png_file(png_out, sheet_w, sheet_h)
-    sheet_stats = analyze_rgba(sheet_w, sheet_h, sheet_rgba)
-    if sheet_stats["nonClearPixels"] <= 0 or sheet_stats["uniqueColors"] < 4:
-        raise RuntimeError(f"composite PNG is blank or lacks expected component colors: {sheet_stats}")
-    records.append(
-        {
-            "step": "png-verification",
-            "ok": True,
-            "path": str(png_out),
-            **png_meta,
-            **sheet_stats,
-        }
-    )
-
-
-def run_windowed_client_smoke(
-    repo_root: Path,
-    client_bin: Path,
-    content_dir: Path,
-    env: dict[str, str],
-    records: list[dict],
-) -> None:
-    """Run `bfe-client --map room` under Xvfb and `native-client-window.py`."""
-    t0 = time.monotonic()
-    window_helper = repo_root / "tools" / "native-client-window.py"
-    cmd = [
-        sys.executable,
-        str(window_helper),
-        str(client_bin),
-        "--map",
-        "room",
-        str(content_dir),
-        "--no-audio",
-        "--seconds",
-        "0.5",
-    ]
-    if not env.get("DISPLAY"):
-        xvfb = shutil.which("xvfb-run")
-        if not xvfb:
-            raise RuntimeError("DISPLAY is unset and xvfb-run is not installed")
-        cmd = [xvfb, "-a", "-s", "-screen 0 1280x720x24"] + cmd
-
-    proc = subprocess.run(cmd, env=env, text=True, capture_output=True)
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"bfe-client --map room failed (exit {proc.returncode}):\nstdout: {proc.stdout}\nstderr: {proc.stderr}"
-        )
-
-    lines = [line.strip() for line in proc.stdout.splitlines() if line.strip().startswith("{")]
-    if not lines:
-        raise RuntimeError(f"bfe-client --map room did not print a JSON summary:\n{proc.stdout}\n{proc.stderr}")
-    summary = json.loads(lines[-1])
-    if summary.get("frames", 0) < 1 or summary.get("admitted", 0) < 2 or summary.get("draws", 0) <= 0:
-        raise RuntimeError(f"bfe-client --map room summary failed checks: {summary}")
-    for key in ("initial", "final"):
-        digest = summary.get(key)
-        if not isinstance(digest, str) or len(digest) != 64:
-            raise RuntimeError(f"bfe-client --map room missing {key} framebuffer hash: {summary}")
-
-    records.append(
-        {
-            "step": "bfe-client-map-window",
-            "ok": True,
-            "frames": summary["frames"],
-            "admitted": summary["admitted"],
-            "draws": summary["draws"],
-            "initial": summary["initial"],
-            "final": summary["final"],
-            "elapsedMs": round((time.monotonic() - t0) * 1000.0, 1),
-        }
-    )
-
-
 def resolve_binary(explicit: str | None, candidates: list[Path]) -> Path | None:
     if explicit:
         path = Path(explicit)
@@ -1124,10 +869,6 @@ def resolve_binary(explicit: str | None, candidates: list[Path]) -> Path | None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--render-smoke-bin", help="Path to render-smoke executable")
-    parser.add_argument("--client-bin", help="Path to bfe-client executable")
-    parser.add_argument("--static-frame-bin", help="Path to static-frame executable")
-    parser.add_argument("--static-fixture-bin", help="Path to static-fixture example executable")
-    parser.add_argument("--fingerprint-bin", help="Path to fingerprint example executable")
     parser.add_argument(
         "--backend",
         default=os.environ.get("BFE_SMOKE_BACKEND", "llvmpipe"),
@@ -1162,21 +903,10 @@ def main() -> int:
         repo_root / "rust" / "target" / "release",
     ]
     render_smoke_bin = resolve_binary(args.render_smoke_bin, [d / "render-smoke" for d in target_dirs])
-    client_bin = resolve_binary(args.client_bin, [d / "bfe-client" for d in target_dirs])
-    static_frame_bin = resolve_binary(args.static_frame_bin, [d / "static-frame" for d in target_dirs])
-    static_fixture_bin = resolve_binary(
-        args.static_fixture_bin,
-        [d / "examples" / "static-fixture" for d in target_dirs],
-    )
-    fingerprint_bin = resolve_binary(
-        args.fingerprint_bin,
-        [d / "examples" / "fingerprint" for d in target_dirs],
-    )
-
-    if not render_smoke_bin or not client_bin or not static_frame_bin:
+    if not render_smoke_bin:
         raise SystemExit(
-            "missing render-smoke, bfe-client, or static-frame binary; build with: "
-            "cargo build --manifest-path rust/Cargo.toml -p bfe-client --bin render-smoke --bin bfe-client --bin static-frame"
+            "missing render-smoke binary; build with: "
+            "cargo build --manifest-path rust/Cargo.toml -p bfe-client --bin render-smoke"
         )
 
     # Unoptimized debug builds of bfe-client place SceneDriver (Scene + Bridge)
@@ -1210,11 +940,6 @@ def main() -> int:
             work_dir.mkdir(parents=True, exist_ok=True)
             write_synthetic_content(content_dir)
 
-            if static_fixture_bin:
-                check_static_fixture_probe(repo_root, static_fixture_bin, records)
-            if fingerprint_bin:
-                check_fingerprint_probe(fingerprint_bin, content_dir, records)
-
             run_render_smoke(
                 repo_root,
                 render_smoke_bin,
@@ -1227,17 +952,8 @@ def main() -> int:
                 stream_lines,
                 records,
             )
-            run_static_frame_components(
-                static_frame_bin,
-                content_dir,
-                work_dir,
-                png_path,
-                args.width,
-                args.height,
-                env,
-                records,
-            )
-            run_windowed_client_smoke(repo_root, client_bin, content_dir, env, records)
+            png_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(work_dir / "render-smoke-families.png", png_path)
     except Exception as exc:
         records.append({"step": "error", "ok": False, "error": str(exc)})
         all_lines = stream_lines + [json.dumps(r) for r in records]

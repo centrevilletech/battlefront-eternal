@@ -109,19 +109,3 @@ pub fn network_seats_run_in<T: Transport>(w: &mut crate::world::owner::World, tr
     &calls.block
 }
 
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    use crate::gen::{import_network_seats_world, NetworkSeatsQuery};
-    struct Js { context: u32 }
-    impl Transport for Js {
-        fn call(&mut self, op: Op, values: Vec<f64>) -> Result<Vec<f64>, ()> {
-            let answer = import_network_seats_world(&NetworkSeatsQuery { context: self.context, op, values });
-            if answer.ok { Ok(answer.values) } else { Err(()) }
-        }
-    }
-    #[no_mangle]
-    pub extern "C" fn network_seats_words(result: u32) -> u32 { super::network_seats_words(result) }
-    #[no_mangle]
-    pub extern "C" fn network_seats_run() -> *const f64 { network_seats_run_in(crate::abi::facade::world(), |context| Js { context }).ptr() }
-}

@@ -1,18 +1,4 @@
 //! Stops a window from flipping between two sizes forever.
-//!
-//! A Wayland compositor that resizes a floating window to whatever size its
-//! client last committed (sway and others do) and a client that redraws at
-//! whatever size it was last configured can chase each other: one frame is in
-//! flight at the old size when the compositor settles on the new one, the
-//! compositor takes that frame as a request for the old size, and from then
-//! on each side answers the other's previous size. Nothing ends it, and the
-//! window is redrawn at alternating sizes every frame.
-//!
-//! The guard watches the sizes the window is told to take. Once two sizes
-//! have alternated five times within two seconds it picks one and reports it
-//! for the window to request each time the other comes back, until the other
-//! has stayed away for half a second. A third size ends the hold at once, so
-//! a tile or fullscreen change the compositor decides is never refused.
 
 /// Alternating sizes kept, oldest first.
 const HISTORY: usize = 5;

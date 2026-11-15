@@ -170,14 +170,3 @@ mod tests {
     }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn wire_registry_words(op: u32) -> u32 { super::wire_registry_words(op) }
-    #[no_mangle]
-    pub extern "C" fn wire_registry_run(op: u32) -> *const f64 { wire_registry_run_in(crate::abi::facade::world(), op).map_or(std::ptr::null(), |b| b.as_ptr()) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{wire_registry_run};

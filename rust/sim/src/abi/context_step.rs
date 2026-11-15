@@ -6,37 +6,9 @@
 //! `world_step_run`, `wire_publish` and bank-reading exports JavaScript
 //! calls on the module; they share the exports' bodies and never call back
 //! into a host.
-//!
-//! Frozen signatures (hosts bind against this table; a change is announced
-//! before it lands):
-//!
-//! | Entry | Signature | Notes |
-//! | --- | --- | --- |
-//! | step setup | `world_step_init(&self, WorldTickSetup) -> Result<(), Error>` | `World::step_init`: binds the water clock once a battle |
-//! | step | `world_step(&self, WorldTickInput) -> Result<WorldTickOutput, Error>` | `World::step` under `catch_unwind`; a panic poisons the context |
-//! | tick | `world_tick(&self, WorldTickInput) -> Result<WorldTickOutput, Error>` | native only: the authority host's duties around `world_step` (crate::host); publication stays the caller's |
-//! | publish | `world_publish_into(&self, session: u32, facts: &[f64], out: &mut Publication) -> Result<(), Error>` | `facts` is a `WireWorldFacts` row; the shared `wire_publish_in` body; spans in the block are offsets into `Publication::bytes`; `out` keeps its capacity |
-//! | publish, owned | `world_publish(&self, session: u32, facts: &[f64]) -> Result<Publication, Error>` | the same into a new publication |
-//! | read | `read_bank(&self, bank: u32, out: &mut Vec<f64>) -> Result<usize, Error>` | copies one `bank::*` block into `out`, returns its word count |
-//! | operate | `run_operation_into(&self, op: u32, args: &[f64], out: &mut Block) -> Result<(), Fault>` | a body from the generated operation table (`OPERATION_*`); `args` is its scalars then its call record; the result replaces `out`'s words |
-//! | operate, owned | `run_operation(&self, op: u32, args: &[f64]) -> Result<Block, Fault>` | the same into a new block |
-//! | replay admit | `world_replay_admit(&self, &Value) -> Result<WorldTickSetup, Error>` | harness only: recorded options and cold assets |
-//! | replay prepare | `world_replay_prepare(&self, &Value) -> Result<(), Error>` | harness only: one frame's input, fire and mount commands |
-//! | replay publish | `world_replay_publish(&self, &Value, &[WorldTickOutput]) -> Result<Value, Error>` | harness only: ACKs, then the observation |
-//! | live handles | `world_replay_live_handles(&self) -> usize` | diagnostic; readable after disposal |
-//! | panic | `world_replay_panic(&self) -> Result<(), Error>` | diagnostic; poisons the context and fails Poisoned |
-//! | provided | `provided() -> Provided` | which entries have bodies, for a host's handshake flags |
-//!
-//! Errors: `Disposed` after `dispose`, `Poisoned` after an escaped panic
-//! (disposal still succeeds), `Busy` while another entry is active,
-//! `Unavailable` while an entry has no native body yet (its message names
-//! the entry). Nothing here answers with a made-up value: an entry without
-//! a body fails.
 #[path = "context_publish.rs"]
 mod publish;
 pub use publish::{bank, Fault, Publication};
-#[path = "context_replay.rs"]
-mod replay;
 #[path = "context_admit.rs"]
 mod admit;
 #[path = "context_observe.rs"]
@@ -48,11 +20,6 @@ use crate::gen::{WorldTickInput, WorldTickOutput, WorldTickSetup};
 use crate::world::owner::World;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-/// The stable refusal of an entry whose body has not landed. Its message
-/// is the entry's name, so a host can tell which call it reached.
-pub(crate) fn unavailable(entry: &'static str) -> Error {
-    Error::new(ErrorKind::Unavailable, entry)
-}
 
 /// Which entries have bodies. A host reports these in its handshake instead
 /// of hard-coding them, so a build with a refusing entry says so.

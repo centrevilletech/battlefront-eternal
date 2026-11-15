@@ -1270,8 +1270,8 @@ impl Combat {
                 let (seen, lowest) = (self.hull_fx.seen, self.hull_fx.lowest);
                 let live = self.hull_fx.live_count();
                 eprintln!(
-                    "fx-count map={} in-view={} hull={} hull-frames={seen} lowest={lowest:.2} live={live} particles={particles} effects={}",
-                    self.map_effects.started, self.map_effects.visible, self.hull_fx.started, self.total_effects
+                    "fx-count map={} in-view={} hull={} stomps={} hull-frames={seen} lowest={lowest:.2} live={live} particles={particles} effects={}",
+                    self.map_effects.started, self.map_effects.visible, self.hull_fx.started, self.hull_fx.stomps, self.total_effects
                 );
             }
         }

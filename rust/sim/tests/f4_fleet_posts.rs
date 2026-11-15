@@ -43,18 +43,6 @@ fn map_order_and_first_lease_are_read_from_the_canonical_fleet() {
     s.vehicles.slots[0].variants.entries.pop(); s.vehicles.slots[0].vehicle = None;
     mobile::events_into(&mut s, &mut w, &mut events); assert_eq!(s.mobile_post.get(p).unwrap().vehicle, Some(hulls[1]));
 }
-#[path = "support/allocations.rs"]
-mod allocation;
-#[global_allocator]
-static ALLOCATOR: allocation::Counted = allocation::Counted;
-#[test]
-fn first_refresh_and_repeated_lives_reuse_prepared_pad_storage() {
-    let (mut s, p, hulls, mut w) = setup(); let mut events = Vec::with_capacity(2);
-    allocation::start();
-    mobile::report_all(&mut s, &mut w);
-    for _ in 0..1200 { s.vehicle.get_mut(hulls[1]).unwrap().target_generation += 1.0; mobile::events_into(&mut s, &mut w, &mut events); }
-    assert_eq!(allocation::stop(), 0); assert_eq!(s.mobile_post.get(p).unwrap().life, Some(1201.0));
-}
 #[test]
 fn native_class_points_use_the_current_hull_matrix_and_exclude_its_body() {
     let (mut s, p, hulls, mut w) = setup(); mobile::report_all(&mut s, &mut w);

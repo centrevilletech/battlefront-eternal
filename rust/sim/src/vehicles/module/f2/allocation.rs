@@ -54,17 +54,3 @@ pub fn f2_stage_allocations(stage: usize) -> u32 {
     fleet(|c| c.stages.get(stage).copied().unwrap_or(0))
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    #[no_mangle]
-    pub extern "C" fn f2_allocations() -> u32 { super::f2_allocations() }
-    #[no_mangle]
-    pub extern "C" fn f2_core_allocations() -> u32 { super::f2_core_allocations() }
-    #[no_mangle]
-    pub extern "C" fn f2_ordnance_allocations() -> u32 { super::f2_ordnance_allocations() }
-    #[no_mangle]
-    pub extern "C" fn f2_lifecycle_allocations() -> u32 { super::f2_lifecycle_allocations() }
-    #[no_mangle]
-    pub extern "C" fn f2_stage_allocations(stage: usize) -> u32 { super::f2_stage_allocations(stage) }
-}

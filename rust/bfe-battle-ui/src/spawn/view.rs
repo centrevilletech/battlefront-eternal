@@ -1,18 +1,5 @@
 //! Classic spawn screen view (`src/spawn-screen/classic/view.js`,
 //! `src/spawn-screen/classic/preview.js`).
-//!
-//! Renders the 2004 `ifs_spawndisplay` as a layer of the battle HUD:
-//! - Under the HUD's quads (`render_before`): the translucent blue grid room
-//!   (`shell_cube`).
-//! - In the HUD's main quad batch (`draw`): five tilted soldier class windows
-//!   (`border_3_pieces`) with orange title bars (`headerbutton*`) and weapon
-//!   lists; the objectives and spawn point windows on the right; and the tipped
-//!   `SPAWN` button (`opaque_rect`) at the bottom.
-//! - Over the HUD's quads (`render_after`): the two spinning faction logos
-//!   (`com_icon_*`) at the top (the picked team's large and green on the left,
-//!   the other small and red at `0.35` strength on the right) and the standing
-//!   soldier body in the center.
-//! - Over everything (`draw_over`): the mouse cursor (`mousecursor`).
 
 use std::f64::consts::PI;
 

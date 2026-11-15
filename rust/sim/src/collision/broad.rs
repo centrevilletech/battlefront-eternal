@@ -1,19 +1,5 @@
 //! A broad phase for the bodies a cast tries (lib.rs world_candidates_for),
 //! which keeps their order.
-//!
-//! A cast tries, in the world's order, every body that is not left out and
-//! whose bounds its ray meets; the ray's test ignores how far the cast
-//! reaches, so every body is tested for every cast (96 of them on Bespin
-//! Platforms, where four casts in five reach less than 5 m). Here the fixed
-//! bodies are filed in a grid over x and z, and a short cast takes only
-//! those filed where its segment can reach, then gives each of them and
-//! every moving body the same tests as before, in the world's order. A
-//! fixed body left out this way lies wholly clear of the segment, by far
-//! more than any rounding: none of its triangles can be hit within the
-//! cast's reach, so it could never have changed the cast's answer. Moving
-//! bodies are cast against in their own frame (their own rounding of
-//! distance), so they all keep the ray's test. Long casts, and casts with no
-//! finite reach, test every body as before.
 
 // The grid's own arithmetic (its bounds and cells, never NaN and never
 // seen by a cast's answer) uses the host's min and max (clippy.toml).
