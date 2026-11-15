@@ -768,6 +768,7 @@ impl Replicas {
         self.turrets.frame(receiver, history, dt, &mut self.combat.hull_fx);
         self.buildings.frame(receiver, dt, &mut self.combat.hull_fx);
         self.items.frame(receiver, tick);
+        self.items.light(&mut self.lights);
         self.frame = self.frame.wrapping_add(1);
         self.visible = 0;
         self.units.input[f::COMMANDS] = 0.;
@@ -1582,6 +1583,7 @@ impl Replicas {
         }
         let (slots, models, units, names) = (&self.slots, &self.models, &self.units, &self.held_names);
         let mut lookup = |unit: (u32, u32)| slots.iter().position(|s| s.active && s.identity == Some(unit)).and_then(|i| body_of(slots, models, units, names, i));
+        self.combat.destruction.stations(self.buildings.station_frames());
         self.combat.destruction.frame(dt, eye, &mut lookup);
         let hidden = std::mem::take(&mut self.combat.destruction.hidden);
         for unit in &hidden {
@@ -1635,7 +1637,7 @@ impl Replicas {
         // With the bench's fx key, how often each was drawn, every 600 frames.
         if self.frame % 600 == 0 && crate::app::bench::fx().is_some() {
             eprintln!(
-                "fx-weather rain={} rain-enhanced={} snow={} steam={} vents={} fountains={} dust={} jets-in-view={}",
+                "fx-weather rain={} rain-enhanced={} snow={} steam={} vents={} fountains={} dust={} jets-in-view={} item-lights={}",
                 self.rain.as_ref().map_or(0, |r| r.frames),
                 self.rain.as_ref().is_some_and(|r| r.enhanced),
                 self.snow.as_ref().map_or(0, |s| s.frames),
@@ -1643,7 +1645,8 @@ impl Replicas {
                 self.combat.map_effects.volumes.len(),
                 self.fountains.as_ref().map_or(0, |f| f.frames),
                 self.trails.drawn,
-                self.combat.map_effects.fountains.len()
+                self.combat.map_effects.fountains.len(),
+                self.items.lit
             );
         }
     }
@@ -1698,6 +1701,21 @@ impl Replicas {
             camera,
             world,
             &|name| hud.post_meta.iter().find(|post| post.name == name).map(|post| (post.team, post.active)),
+            &|name, out| {
+                use bfe_presentation::visual_effects_layout::{post_state as s, post_team as t};
+                let Some((_, toward, progress, neutralize, teams)) = hud.post_capture(name) else { return false };
+                let (team, count) = super::hud::Hud::team_count_words();
+                out[s::TOWARD] = toward;
+                out[s::PROGRESS] = progress;
+                out[s::NEUTRALIZE] = neutralize;
+                let n = teams.len().min((out.len() - s::TEAMS) / t::STRIDE);
+                out[s::COUNT] = n as f64;
+                for (k, row) in teams.iter().take(n).enumerate() {
+                    out[s::TEAMS + k * t::STRIDE + t::TEAM] = row[team];
+                    out[s::TEAMS + k * t::STRIDE + t::POPULATION] = row[count];
+                }
+                true
+            },
             &|id| self.buildings.states().any(|(i,state,_,_,_)|i==id && state=="unbuilt") || self.animated.unbuilt(id),
             can_repair,
             &|team| hud.team_look(viewer, team),

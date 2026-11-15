@@ -832,6 +832,17 @@ impl Prepared {
 impl Hud {
     /// How a team looks to the viewer's: 0 neutral, 1 friendly, 2 enemy, 3
     /// locals (radarRelation in hud-units.js).
+    /// A post's capture as the world summary last gave it, by name: owner,
+    /// the team it is turning toward, capture and neutralize progress, and
+    /// each team standing in it with its head count.
+    pub fn post_capture(&self, name: &str) -> Option<(f64, f64, f64, f64, &[[f64; PC::WORDS]])> {
+        let id = self.post_meta.iter().find(|post| post.name == name)?.id;
+        let post = self.posts.iter().find(|post| post.id == id)?;
+        Some((post.row[P::TEAM], post.row[P::TOWARD], post.row[P::PROGRESS], post.row[P::NEUTRALIZE], &post.counts[..post.count]))
+    }
+    pub fn team_count_words() -> (usize, usize) {
+        (PC::TEAM, PC::COUNT)
+    }
     pub fn team_look(&self, viewer: u8, team: usize) -> usize {
         self.radar.color_relation(viewer, team) as usize
     }
