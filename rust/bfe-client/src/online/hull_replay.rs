@@ -224,6 +224,16 @@ impl Fleet {
         words.clear();
         words.resize(ClientFrame::WORDS, 0.);
         let hull_at = owner.native_hull_frame(words, receiver.own.body_schema as u32, self.water.as_ref().map_or(f64::NAN,|w|w.level()))?;
+        // Compact motion corrections omit gait. On a rewind the page clones
+        // the authoritative facade's walk cursor, not the previous prediction
+        // (which would advance the same pending ticks a second time).
+        let mut hull = ClientHull::take(&words[hull_at as usize..], &[]);
+        use bfe_presentation::network_layout::net_record as r;
+        hull.walk_phase = row[r::WALK_PHASE] / 1000.;
+        hull.walk_blend = row[r::WALK_BLEND] / 255.;
+        hull.walk_from_phase = hull.walk_phase;
+        hull.walk_from_blend = hull.walk_blend;
+        hull.put(&mut words[hull_at as usize..], &mut Vec::new());
         // Collision presence follows the current snapshot's qualified hull
         // identities. The piloted hull is excluded from its own query world;
         // other live hulls remain available to all replayed collision steps.

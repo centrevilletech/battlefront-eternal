@@ -55,7 +55,7 @@ pub struct GateDriver {
     /// so a recording of the run has what happens to it in view.
     hunt: Option<String>,
     hunt_input_tick: u32,
-    audio_events: [u64; 27],
+    audio_events: [u64; 28],
     /// Unit presentation events shown, by `presented::SHOWN`'s names.
     presented: [u64; crate::online::replicas::presented::SHOWN.len()],
     voice_decodes: u64,
@@ -114,7 +114,7 @@ impl GateDriver {
         Self {
             hunt: std::env::var("BFE_GATE_HUNT").ok(),
             hunt_input_tick: u32::MAX,
-            audio_events: [0; 27],
+            audio_events: [0; 28],
             presented: [0; crate::online::replicas::presented::SHOWN.len()],
             voice_decodes: 0,
             station_loops: 0,

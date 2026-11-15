@@ -78,9 +78,12 @@ impl Feet {
                 let x=&self.input[f::STRIDE+k*i::STRIDE..];let d=&mut self.detectors[k];d.state.reset_generation(x[i::GENERATION]);
                 let mut matrix=Matrix4::default();matrix.elements.copy_from_slice(&x[i::MATRIX..i::MATRIX+16]);let mut point=v(d.definition.point);point.apply_matrix4(&matrix);
                 // Stable crossing order comes from the shared audio detector.
-                // A frame needs only down-event multiplicity for its one point.
+                // Both consumers use this detector: dust on plants, sound on
+                // plants and lifts, each at the same displayed primitive.
                 let mut events=[0u8;lim::EVENTS];let count=d.definition.events(&mut d.state,body.phase,body.walking,phase,walking,point.y,dt,&mut events);
                 let out=&mut self.output[k*o::STRIDE..(k+1)*o::STRIDE];out[o::COUNT]=events[..count].iter().filter(|&&kind|kind==1).count()as f64;
+                out[o::LIFTS]=events[..count].iter().filter(|&&kind|kind==2).count()as f64;
+                out[o::HEIGHT]=point.y;
                 out[o::POSITION..o::POSITION+3].copy_from_slice(&[point.x,x[i::ROOT_Y],point.z]);
                 // Authored primitive turns follow the full displayed matrix,
                 // including parent scale, before their local turn is applied.

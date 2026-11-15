@@ -53,3 +53,28 @@ fn virtual_time_and_stale_handles_keep_voice_lifetimes_separate() {
     for n in 0..27 { p.frame[frame::DT] = 1.0/60.0; p.frame[frame::NOW] = n as f64/60.0; p.frame[frame::WALL_NOW] = n as f64/60.0; p.step(&mut Room, &[]); }
     assert!(!p.playing(one)); let two = p.play(audio_control::engine::Ask::new(0, 0)); assert!(p.playing(two)); p.stop(one, 0.0); assert!(p.playing(two), "stale handle cannot stop the replacement");
 }
+
+#[test]
+fn displayed_hull_feet_keep_placed_sounds_and_vehicle_gates() {
+    let mut runtime = Runtime::new(7); bank(&mut runtime, 0.4);
+    let p = &mut runtime.phase; p.engine.running = true;
+    p.classes[0][class::STEP2] = 0.;
+    p.classes[0][class::HYDRAULIC] = 0.;
+    p.emitters[1][emitter::KIND] = 3.;
+    p.emitters[1][emitter::ALIVE] = 1.;
+    p.emitters[1][emitter::CLASS] = 0.;
+    let mut row = [0.; event::STRIDE];
+    row[event::KIND] = event_kind::HULL_FOOT as f64;
+    row[event::OWNER] = 1.; row[event::VALUE] = 2.; row[event::PLACED] = 1.;
+    row[event::X..event::X + 3].copy_from_slice(&[3., 1.5, 4.]);
+    p.event(&row);
+    let active = |p: &audio_control::phase::Phase| p.engine.voices.iter().filter(|v| v.sound != usize::MAX && !v.done).count();
+    assert_eq!(active(p), 1);
+    assert_eq!(p.engine.voices.iter().find(|v| v.sound != usize::MAX && !v.done).unwrap().position, Some([3., 1.5, 4.]));
+    row[event::VALUE] = 6.; p.event(&row);
+    assert_eq!(active(p), 2, "hydraulics are a separate placed one-shot");
+    p.emitters[1][emitter::X] = 1000.; p.event(&row);
+    p.emitters[1][emitter::X] = 0.; p.emitters[1][emitter::ALIVE] = 0.; p.event(&row);
+    p.emitters[1][emitter::ALIVE] = 1.; row[event::VALUE] = 7.; p.event(&row);
+    assert_eq!(active(p), 2, "distant, dead and invalid feet stay silent");
+}

@@ -97,7 +97,7 @@ struct Model {
     fx: Option<super::hull_effects::ClassFx>,
     // A walker's feet (vehicle-feet.js): its foot detector's content, its
     // StompEffect group and each foot's bone.
-    feet: Option<(Value, usize, Vec<usize>)>,
+    feet: Option<(Value, Option<usize>, Vec<usize>)>,
 }
 struct Slot {
     rig: usize,
@@ -672,13 +672,12 @@ impl Hulls {
             x[e::VELOCITY..e::VELOCITY + 3].copy_from_slice(&row[r::VELOCITY..r::VELOCITY + 3]);
             x[e::SPEED] = row[r::VELOCITY..r::VELOCITY + 3].iter().map(|n| n * n).sum::<f64>().sqrt();
             x[e::SOURCE_YAW_RATE] = row[r::LEAN];
-            x[e::WALK_PHASE] = row[r::WALK_PHASE];
-            x[e::WALK_BLEND] = row[r::WALK_BLEND];
+            x[e::WALK_PHASE] = row[r::WALK_PHASE] / 1000.;
+            x[e::WALK_BLEND] = row[r::WALK_BLEND] / 255.;
             if mount[mo::VALID] != 0. {
                 x[e::WALK_PHASE] = mount[mo::WALK_PHASE];
                 x[e::WALK_BLEND] = mount[mo::WALK_BLEND];
             }
-            s.walk = [x[e::WALK_PHASE], x[e::WALK_BLEND]];
             x[e::HOVER] = m.hover;
             x[e::AGE] = tick / 60.;
             x[e::NOW] = tick / 60.;
@@ -785,6 +784,10 @@ impl Hulls {
             if !s.active {
                 continue;
             }
+            // Prediction and pose interpolation can replace the input gait.
+            // Feet must follow the phase actually sampled into these bones.
+            let output = self.owner.slot_output(s.rig, 0);
+            s.walk = [self.owner.stream_out[output + o::SHOWN_PHASE], self.owner.stream_out[output + o::SHOWN_BLEND]];
             let m = &self.models[s.model];
             // Walkers publish leg-side values before aimers and nodes. The
             // pose owner supplies the node block instead of host offset math.
@@ -842,9 +845,25 @@ impl Hulls {
             };
             for k in 0..bones.len() {
                 let out = &self.feet.output[(first + k) * fe::STRIDE..][..fe::STRIDE];
-                if out[fe::COUNT] > 0. {
+                if let Some(group) = group.filter(|_| out[fe::COUNT] > 0.) {
                     let turn = if out[fe::HAS_TURN] != 0. { std::array::from_fn(|i| out[fe::TURN + i]) } else { [0., 0., 0., 1.] };
-                    fx.shot(*group, std::array::from_fn(|i| out[fe::POSITION + i]), turn);
+                    fx.shot(group, std::array::from_fn(|i| out[fe::POSITION + i]), turn);
+                }
+            }
+        }
+    }
+    /// Footfall facts from the displayed pose, including walkers without a
+    /// dust effect. Audio keeps its own distance and playback gates.
+    pub fn foot_sounds(&self, mut emit: impl FnMut((u32, u32), usize, usize, [f64; 3])) {
+        use bfe_presentation::layout::foot_event as fe;
+        for s in self.slots.iter().filter(|s| s.active && !s.dying) {
+            let (Some(identity), Some(first), Some((_, _, bones))) =
+                (s.identity, s.feet, &self.models[s.model].feet) else { continue; };
+            for k in 0..bones.len() {
+                let out = &self.feet.output[(first + k) * fe::STRIDE..][..fe::STRIDE];
+                let point = [out[fe::POSITION], out[fe::HEIGHT], out[fe::POSITION + 2]];
+                for (key, count) in [(k, out[fe::COUNT]), (6, out[fe::LIFTS])] {
+                    if count > 0. { emit(identity, key, count as usize, point); }
                 }
             }
         }
@@ -988,7 +1007,7 @@ impl Hulls {
     }
 }
 
-// gait() and Footfalls' content for a walker with a StompEffect: its bones
+// gait() and Footfalls' content for a walker: its bones
 // as bound, its two walk clips, each foot primitive's bone and the point it
 // meets the ground at, and the class's stomp rules.
 fn walker_feet(
@@ -998,9 +1017,9 @@ fn walker_feet(
     clips: Option<&bfe_content::clips::Clips>,
     length: f64,
     effect: &dyn Fn(&str) -> Option<usize>,
-) -> Option<(Value, usize, Vec<usize>)> {
+) -> Option<(Value, Option<usize>, Vec<usize>)> {
     let fx = authored_json(record.get("fx")?);
-    let group = effect(fx["stomp"]["effect"].as_str()?)?;
+    let group = fx["stomp"]["effect"].as_str().and_then(effect);
     let feet = fx["feet"].as_array().filter(|f| !f.is_empty())?;
     let clips = clips?;
     let walk: Vec<Value> = ["walk_leftfoot_rightfoot", "walk_rightfoot_leftfoot"]
