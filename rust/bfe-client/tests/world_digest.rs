@@ -5,7 +5,6 @@
 //! -p bfe-client --test world_digest -- --ignored --nocapture`. A list of
 //! MAP[:SIDE] in `BFE_DIGEST_MAPS` (default nab2,tat2,hot1:all) and the tick count in
 //! `BFE_DIGEST_TICKS` (default 3600) are optional.
-use bfe_client::generated_input::{ClientCommand, ClientFlightCommand, ClientLook};
 use bfe_client::local::{launch::Prepared, options::Options, runtime::Runtime, thread::PublicationSlot};
 use bfe_content_native::setup::admission::{CLOCK_START_MS, CLOCK_UNIX_MS};
 use std::time::Instant;
@@ -60,14 +59,13 @@ fn run(root: &str, battle: &str, ticks: usize) {
     let mut runtime =
         Runtime::new(*prepared.engine, *prepared.admission, CLOCK_START_MS, CLOCK_UNIX_MS).unwrap();
     let mut slot = PublicationSlot::new_preallocated();
-    let (command, look, flight) = (ClientCommand::default(), ClientLook::default(), ClientFlightCommand::default());
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     let mut times = Vec::with_capacity(ticks);
     let mut steady_allocations = 0;
     for tick in 1..=ticks {
         let before = allocations();
         let start = Instant::now();
-        runtime.step_into_slot(&command, &look, &flight, [0., 0.], 0., &mut slot).unwrap();
+        runtime.step_into_slot(&mut slot).unwrap();
         times.push(start.elapsed().as_secs_f64() * 1000.);
         if tick > 60 {
             steady_allocations += allocations() - before;
