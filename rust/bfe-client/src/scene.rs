@@ -1650,7 +1650,7 @@ impl Scene {
                 } else {
                     0.
                 };
-            resources.finish_frame(receiver, replay, &world.elements, cue);
+            resources.finish_frame(receiver, replay, &world.elements, cue, &mut self.bridge.r.core.profile);
             resources.capture_shot_scene(receiver, camera);
             resources.present_ordnance(receiver, dt.min(8./60.), &mut self.bridge);
             resources.present_arcs(receiver, replay, dt.min(8./60.), &world, &camera.snapshot().values[..16], self.size[1] as f64, &mut self.bridge);
@@ -1809,6 +1809,7 @@ impl Scene {
         self.bridge.r.far.input[bfe_render::far::FAR_DRAW] = 1.;
         self.publish(r::FAR, k::FAR, 0, 0, 0);
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
+        let cull_timer=self.bridge.r.core.profile.clock();
         let mut records = if matches!(component, Component::All | Component::Props) {
             let room=if component==Component::All{self.online.as_ref().map_or(0,|r|(r.record_budget()+r.hidden_shadow_budget()).min(bfe_render::instances::MAX_RECORDS))}else{0};
             self.static_content.select_limit(&mut self.bridge,bfe_render::instances::MAX_RECORDS-room)
@@ -1834,6 +1835,7 @@ impl Scene {
             .max()
             .unwrap_or(0);
         if component==Component::All{if let Some(online)=&self.online{(records,bones)=online.append(&mut self.bridge,records,bones);}}
+        self.bridge.r.core.profile.cpu("instance list and culling",cull_timer);
         self.lamps.begin();
         let online=&self.online;
         self.lamps.instances(&mut self.bridge.r.core,records,false,&mut |from,to|online.as_ref().is_none_or(|online|online.lamp_visible(from,to)));
@@ -1847,12 +1849,14 @@ impl Scene {
             motion.input[M::IN_RANGE..M::IN_RANGE+2].copy_from_slice(&[0.,1.]);motion.input[M::IN_TARGET]=f[pf::RESOURCES+pr::VELOCITY*pr::STRIDE+pr::TEXTURE];motion.input[M::IN_SIZE..M::IN_SIZE+2].copy_from_slice(&self.render_size.map(|v|v as f64));motion.input[M::IN_DEPTH]=self.depth_texture as f64;motion.input[M::IN_CLEAR]=1.;
             native.prepare(&self.bridge.r.core,motion,records,state[ps::VALID]!=0.);
         }
+        let shadow_timer=self.bridge.r.core.profile.clock();
         if self.shadows_enabled { if let Some(shadows) = &mut self.shadows {
             let shadow_records = self.online.as_ref().map_or(records, |online| {
                 online.append_hidden_shadows(&mut self.bridge, records, bones)
             });
             shadows.publish(&mut self.bridge, view, shadow_records)?;
         }}
+        self.bridge.r.core.profile.cpu("shadow preparation",shadow_timer);
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         self.publish(r::NEAR, k::SCENE, records, bones, 0);
         self.bridge.r.post.input[..bfe_render::post::STEP].copy_from_slice(&self.image_step);

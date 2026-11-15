@@ -41,6 +41,7 @@ pub struct WebMultiDraw(Option<web_sys::WebglMultiDraw>, web_sys::WebGl2Renderin
     Option<(Option<web_sys::WebGlFramebuffer>, Option<web_sys::WebGlFramebuffer>)>);
 
 impl MultiDraw for WebMultiDraw {
+    fn multi_draw_calls(&self, ranges: usize) -> u64 { if self.0.is_some() { u64::from(ranges > 0) } else { ranges as u64 } }
     fn context_lost(&self) -> bool { self.1.is_context_lost() }
     fn multi_draw(&self, mode: u32, counts: &mut [i32], element_type: u32, offsets: &mut [i32]) {
         match &self.0 {

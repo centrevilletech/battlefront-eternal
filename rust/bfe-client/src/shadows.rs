@@ -92,7 +92,9 @@ impl Shadows {
         records: usize,
     ) -> Result<(), String> {
         let count=self.maps.len();let size=self.size;
+        let skin_timer=bridge.r.core.profile.clock();
         self.casters.prepare(&mut bridge.r.core, records)?;
+        bridge.r.core.profile.cpu("shadow skin upload",skin_timer);
         let mut world = three::Matrix4::default();
         world
             .elements
@@ -162,6 +164,7 @@ impl Shadows {
             // moving casters. FramePlan retains its last-cascade cadence.
             bridge.r.shadow.input[S::S_TARGET] = self.maps[cascade] as f64;
             bridge.r.shadow.input[S::S_FROM] = self.caches[cascade] as f64;
+            let caster_timer=bridge.r.core.profile.clock();
             let shadow_view = &bridge.r.shadow.static_view;
             self.casters.publish(
                 &bridge.r.core,
@@ -170,6 +173,7 @@ impl Shadows {
                 &shadow_view[16..32],
                 &shadow_view[..16],
             )?;
+            bridge.r.core.profile.cpu("shadow caster lists",caster_timer);
             let live_role = R::SHADOW_DYNAMIC0 + cascade;
             let binding: [f64; B::LEN] = bridge.r.frames.bindings
                 [role * B::LEN..(role + 1) * B::LEN]

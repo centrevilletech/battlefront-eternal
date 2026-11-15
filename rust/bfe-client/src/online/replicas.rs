@@ -1006,11 +1006,14 @@ impl Replicas {
     }
     // Finalize after the camera selector: FirstPersonView hangs below the
     // selected view and consumes this frame's camera-motion cue.
-    pub fn finish_frame(&mut self, receiver: &Receiver, prediction: &super::replay::Replay, camera: &[f64; 16], cue: f64) {
+    pub fn finish_frame(&mut self, receiver: &Receiver, prediction: &super::replay::Replay, camera: &[f64; 16], cue: f64, profile: &mut bfe_render::profile::Profile<glow::Context>) {
+        let pose_timer = profile.clock();
         if receiver.own.mount_kind != k::VEHICLE {
             self.first_person.frame(&mut self.units, receiver, prediction, &self.guns, camera, cue);
             self.units.pose_frame();
         }
+        profile.cpu("unit animation", pose_timer);
+        let skin_timer = profile.clock();
         self.units.attachment_frame();
         // Unit.present consumes deathPending only at the historical death.
         // Retain it through earlier samples, then retire it without replaying.
@@ -1037,6 +1040,7 @@ impl Replicas {
             }
         }
         self.units.place_actors(places);
+        profile.cpu("unit placement and skin", skin_timer);
 
     }
     /// The frame's rounds, once its bodies are posed: a bolt leaves the gun
