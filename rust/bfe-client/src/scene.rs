@@ -835,6 +835,9 @@ impl Scene {
             let sampling=if compressed{sampling.replace("\"mipmaps\":true","\"mipmaps\":false")}else{sampling.clone()};
             let sample = resources.sample(source, &sampling)?;
             resources.upload(sample)?;
+            // The texture is the only copy kept: anisotropy changes it in
+            // place and compression applies at the next map load.
+            resources.release_pixels(source)?;
             filtered.push((sample,compressed));
             textures[i] = bridge.r.core.add_texture(resources.texture(sample)?);
             if budget.tick().await {
