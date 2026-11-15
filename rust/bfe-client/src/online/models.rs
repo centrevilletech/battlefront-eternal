@@ -19,10 +19,7 @@ fn array<T: serde::de::DeserializeOwned>(v: &Value) -> Result<T, String> {
 }
 impl Model {
     pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], name: &str, cascades: usize) -> Result<Option<Self>, String> {
-        let Some(parts) = content.content.weapon_models.get(name) else {
-            return Ok(None);
-        };
-        let parts: Vec<_> = parts
+        let parts: Vec<_> = if let Some(parts) = content.content.weapon_models.get(name) { parts
             .iter()
             .map(|p| {
                 let mut r = authored_json(&p.record);
@@ -30,7 +27,19 @@ impl Model {
                 r["index"] = json!(p.index);
                 r
             })
-            .collect();
+            .collect() } else {
+                // Placed buildings' chunks live in the map's visible extras pack.
+                let prefix = format!("{name}/");
+                content.models.iter().filter(|m| m.name.starts_with(&prefix)).map(|mesh| {
+                    let mut record = mesh.material.record.clone();
+                    let data = mesh.geometry.buffers[0].chunks_exact(4)
+                        .map(|v| f32::from_le_bytes(v.try_into().unwrap())).collect::<Vec<_>>();
+                    record["data"] = json!(data);
+                    record["index"] = json!(mesh.geometry.indices);
+                    record
+                }).collect()
+            };
+        if parts.is_empty() { return Ok(None); }
         let bytes = bfe_pose::rig::construction::batches(
             &serde_json::to_vec(&super::hulls::integers(json!({"rig":{"bones":[]},"parts":parts,"separate":[]})))
                 .map_err(|e| e.to_string())?,

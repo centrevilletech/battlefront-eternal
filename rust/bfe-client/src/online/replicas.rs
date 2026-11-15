@@ -507,7 +507,7 @@ impl Replicas {
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         let turrets = Box::new(super::turrets::Turrets::new(content, bridge, textures)?);
-        let buildings = super::buildings::Buildings::new(content, bridge, textures)?;
+        let buildings = super::buildings::Buildings::new(content, bridge, textures, &combat.effect_names, registry.classes.len() + 1)?;
         let animated = super::animated_props::Animated::new(content, bridge, textures)?;
         units.rider_sources.bind(&hulls.owner.sources, &turrets.owner.sources);
         crate::loading_work::frame().await;
@@ -652,7 +652,7 @@ impl Replicas {
         receiver.network.borrow_mut().present(tick, -1., prediction.fleet.identity.map_or(-1., |p| p.0));
         self.hulls.frame(receiver, tick, dt, &prediction.fleet, history, &mut self.combat.hull_fx);
         self.turrets.frame(receiver, history, dt);
-        self.buildings.frame(receiver, dt);
+        self.buildings.frame(receiver, dt, &mut self.combat.hull_fx);
         self.animated.frame(receiver, tick, dt);
         self.items.frame(receiver, tick);
         self.frame = self.frame.wrapping_add(1);
