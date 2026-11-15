@@ -122,6 +122,11 @@ pub struct MoviePlayer {
     activating: Option<u64>,
     pub stats: MovieStats,
     pub intro_ended: bool,
+    /// What `play` was last given, for `resume`.
+    last: Option<ScreenMovie>,
+    /// Layers that ended without playing: the movie could not be opened, read or decoded, or
+    /// showed nothing in time. The owner takes the count to pass over such a movie.
+    pub failures: u32,
 }
 impl Default for MoviePlayer {
     fn default() -> Self {
@@ -133,6 +138,8 @@ impl Default for MoviePlayer {
             activating: None,
             stats: MovieStats::default(),
             intro_ended: false,
+            last: None,
+            failures: 0,
         }
     }
 }
@@ -140,7 +147,25 @@ impl MoviePlayer {
     pub fn has_frame(&self) -> bool {
         self.layers.iter().flatten().any(|l| l.frame.is_some())
     }
+    /// Stops every layer: its decoder thread ends and its frames are freed. `resume` starts the
+    /// last movie again from its start.
+    pub fn suspend(&mut self) {
+        self.layers = std::array::from_fn(|_| None);
+        self.next = None;
+        self.delayed = None;
+        self.activating = None;
+    }
+    pub fn resume(&mut self, movies: &MovieLibrary) {
+        if let Some(movie) = self.last.clone() {
+            self.play(movies, movie, false, 0.);
+        }
+    }
+    /// Nothing playing and nothing waiting to play.
+    pub fn idle(&self) -> bool {
+        self.layers.iter().all(Option::is_none) && self.next.is_none() && self.delayed.is_none()
+    }
     pub fn play(&mut self, movies: &MovieLibrary, movie: ScreenMovie, intro: bool, delay: f64) {
+        self.last = Some(movie.clone());
         self.delayed = Some((movie, intro, delay));
         self.next = None;
         self.intro_ended = false;
@@ -207,8 +232,17 @@ impl MoviePlayer {
         for slot in &mut self.layers {
             if let Some(layer) = slot {
                 let done = layer.advance(dt, &mut self.stats);
-                if self.activating == Some(layer.serial) && (layer.frame.is_some() || done) {
-                    activate = true;
+                let broken = done && (layer.failed || (!layer.started && layer.fading.is_none()));
+                if self.activating == Some(layer.serial) {
+                    if layer.frame.is_some() || (done && (!broken || layer.intro)) {
+                        activate = true;
+                    } else if broken {
+                        // A replacement that cannot play leaves the movie that plays alone.
+                        self.activating = None;
+                    }
+                }
+                if broken {
+                    self.failures += 1;
                 }
                 if done {
                     finish |= layer.intro && layer.fading.is_none();
