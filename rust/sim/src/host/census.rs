@@ -38,6 +38,9 @@ struct Behaviour {
     hits_50m: u32,
     /// Of `hits`, those on hulls and props.
     object_hits: u32,
+    /// Bot-seconds manned in turrets and in vehicles.
+    turret_seconds: u32,
+    vehicle_seconds: u32,
     hits_100m: u32,
     hits_on_players: u32,
     hits_by_players: u32,
@@ -157,6 +160,9 @@ impl Census {
                 behaviour.health.insert(r.slot, (hp, unit.generation));
                 let seated = unit.seat.is_some();
                 t.seated += u32::from(seated);
+                if let Some(lease) = unit.seat.and_then(|l| store.seat_lease.get(l)) {
+                    if lease.turret.is_some() { behaviour.turret_seconds += 1; } else if lease.vehicle.is_some() { behaviour.vehicle_seconds += 1; }
+                }
                 let mut moved = false;
                 if let Some(&(x, z, life)) = last.get(&r.slot) {
                     moved = life != unit.generation || (p.x - x).hypot(p.z - z) > 1.0;
@@ -360,7 +366,7 @@ impl Census {
             serde_json::json!({
                 "t": second, "shots": map(&b.shots), "mounted": map(&b.mounted), "grenades": map(&b.grenades),
                 "repair": b.repair, "melee": b.melee, "boards": b.boards, "unboards": b.unboards,
-                "hits": b.hits, "objectHits": b.object_hits, "hits50m": b.hits_50m, "hits100m": b.hits_100m,
+                "hits": b.hits, "objectHits": b.object_hits, "turretSeconds": b.turret_seconds, "vehicleSeconds": b.vehicle_seconds, "hits50m": b.hits_50m, "hits100m": b.hits_100m,
                 "hitsOnPlayers": b.hits_on_players, "hitsByPlayers": b.hits_by_players,
                 "teamShots": b.team_shots[..3], "teamHits": b.team_hits[..3],
                 "damageSum": b.damage_sum.round(), "zeroHits": b.zero_hits,
