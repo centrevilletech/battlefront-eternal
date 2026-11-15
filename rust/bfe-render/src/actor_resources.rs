@@ -164,6 +164,12 @@ pub struct Style {
 #[derive(Deserialize)]
 pub struct Selector {pub key:String,pub defines:Vec<(String,String)>,pub skin:bool,pub cascades:u32,pub mode:String,pub lamps:bool}
 fn selectors()->&'static[Selector]{static TABLE:std::sync::OnceLock<Vec<Selector>>=std::sync::OnceLock::new();TABLE.get_or_init(||serde_json::from_str(include_str!("actor-selectors.json")).expect("generated actor selectors"))}
+pub fn variant(key:&str,cascades:u32,lamps:bool)->Option<String>{
+    let from=selectors().iter().find(|s|s.key==key)?;
+    let cascades=if from.mode=="plain"{0}else{cascades};
+    let lamps=lamps&&from.mode!="plain"&&from.defines.iter().any(|(n,_)|n=="DYNAMIC");
+    selectors().iter().find(|s|s.defines==from.defines&&s.skin==from.skin&&s.mode==from.mode&&s.cascades==cascades&&s.lamps==lamps).map(|s|s.key.clone())
+}
 #[derive(Serialize)]
 pub struct Material {pub key:String,pub flags:u32,pub blend:[u32;7],pub blended:bool,pub lamps:bool,pub heated:bool,pub scroll:[f64;2],pub defines:Vec<(String,String)>}
 impl Material {
@@ -258,4 +264,23 @@ pub fn flyer_bounds(bounds:&[f64;10],matrices:&[f32])->[f64;4]{
     fn expand(c:&mut[f64;3],r:&mut f64,p:[f64;3]){let d=std::array::from_fn::<_,3,_>(|i|p[i]-c[i]);let length=d[0]*d[0]+d[1]*d[1]+d[2]*d[2];if length>*r**r{let length=length.sqrt();let delta=(length-*r)*0.5;for i in 0..3{c[i]+=d[i]*(delta/length);}*r+=delta;}}
     let mut center=[0.;3];let mut radius=-1.;for raw in matrices.as_chunks::<16>().0.iter().take(256){let m=std::array::from_fn(|i|raw[i]as f64);let(c,r)=crate::math::sphere_to_world(&m,&[bounds[0],bounds[1],bounds[2]],bounds[3]);if radius<0.{center=c;radius=r;}else if center==c{radius=radius.max(r);}else{let d=std::array::from_fn::<_,3,_>(|i|c[i]-center[i]);let length=(d[0]*d[0]+d[1]*d[1]+d[2]*d[2]).sqrt();let scale=r/length;let edge=d.map(|x|x*scale);expand(&mut center,&mut radius,std::array::from_fn(|i|c[i]+edge[i]));expand(&mut center,&mut radius,std::array::from_fn(|i|c[i]-edge[i]));}}
     [center[0],center[1],center[2],radius]
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+    #[test]
+    fn shadow_changes_preserve_actor_material_and_vertex_layout() {
+        let style=Style{kind:"dynamic".into(),..Style::default()};
+        for skin in [false,true]{
+            let off=Material::new(&style,skin,0,false,false).unwrap();
+            for count in [0,2,3,4]{
+                let key=variant(&off.key,count,true).unwrap();
+                let material=Material::new(&style,skin,count,true,false).unwrap();
+                assert_eq!(key,material.key);
+                assert_eq!(crate::programs::spec(&off.key).unwrap().attributes,crate::programs::spec(&key).unwrap().attributes);
+                assert_eq!(variant(&key,0,false).unwrap(),off.key);
+            }
+        }
+    }
 }

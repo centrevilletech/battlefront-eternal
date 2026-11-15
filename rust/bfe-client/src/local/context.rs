@@ -70,6 +70,7 @@ pub struct Native {
     explosions: Vec<u32>,
     /// BFE_AI_TRACE: a census of the bots every ten seconds on stderr.
     census: Option<bfe_sim::host::census::Census>,
+    graphics_trace: bool,
 }
 
 impl Native {
@@ -119,6 +120,7 @@ impl Native {
             host_content: admission.host_content.clone(),
             explosions: admission.explosions.clone(),
             census: std::env::var_os("BFE_AI_TRACE").map(|_| Default::default()),
+            graphics_trace: std::env::var_os("BFE_GRAPHICS_TRACE").is_some(),
         })
     }
 
@@ -269,6 +271,7 @@ impl Engine for Native {
         match self.context.value.world_tick(input) {
             Ok(output) => {
                 self.sample_host_journal();
+                if self.graphics_trace&&tick as u64%60==0{eprintln!("graphics living: tick={} teams={:?}",tick,self.context.value.world_living_units().unwrap_or_default());}
                 if let Some(census) = &mut self.census {
                     if let Ok(Some(line)) = census.sample(&self.context.value, tick as u64, 600) {
                         eprintln!("ai census local {line}");

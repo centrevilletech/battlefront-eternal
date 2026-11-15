@@ -237,6 +237,7 @@ impl Combat {
         collision: super::replay::Collision,
         world: u32,
     ) -> Result<Self, String> {
+        let shadow_cascades = bridge.shadow_cascades();
         let defs = bfe_content::defs::Defs::build(&content.content)?;
         let library = content.effects.iter().find(|(name, _)| name == "battle").map(|(_, e)| e).ok_or("missing battle effect library")?;
         let effect_names = library.handles.clone();
@@ -318,13 +319,8 @@ impl Combat {
             for at in [s::LOOK_GLOW, s::LOOK_CORE, s::LOOK_LENGTH, s::LOOK_BRIGHTNESS, s::LOOK_LIGHT_RADIUS] {
                 row[at] = look[at];
             }
-            let hue = style::resources(&authored, 0, true)["hue"].as_str().and_then(|name| prepared.textures.get(name)).map(|image| {
-                let image = &content.textures.images[*image];
-                let texels = (image.width as usize * image.height as usize * 4).min(image.data.len());
-                // Only plain RGBA images can be read here; a compressed one
-                // keeps the authored colour.
-                if matches!(image.format, bfe_render::texture_format::Format::Rgba) { style::texture_hue(&image.data[..texels]) } else { Vec::new() }
-            });
+            let hue=style::resources(&authored,0,true)["hue"].as_str().and_then(|name|prepared.textures.get(name))
+                .and_then(|image|content.textures.cpu_pixels(*image).ok()).map(|pixels|style::texture_hue(&pixels));
             if let Some(hue) = hue.filter(|hue| !hue.is_empty()) {
                 row[s::LOOK_COLOR..s::LOOK_COLOR + 3].copy_from_slice(&style::vivid(&hue, 1.6));
             }
@@ -356,7 +352,7 @@ impl Combat {
                 let color = std::array::from_fn(|i| rgb.and_then(|c| c.get(i)).and_then(bfe_content::Value::as_f64).unwrap_or([120., 160., 255.][i]));
                 (color, number(def, "Velocity") * number(def, "LifeSpan"))
             });
-            styles.push(Style { model: Model::new(content, bridge, textures, name, crate::shadows::COUNT)?, impact, explosion, trail, rail });
+            styles.push(Style { model: Model::new(content, bridge, textures, name, shadow_cascades)?, impact, explosion, trail, rail });
         }
         // PredictedShots.fire: only a bolt flies straight enough to draw
         // ahead of the world.
@@ -387,13 +383,13 @@ impl Combat {
         let mut particles = prepared.admit(content, bridge, textures, resources)?;
         // BlasterBatch: one instanced draw of every Enhanced bolt, after the
         // particles' own data.
-        let blasters = bridge.effect_batch(bfe_render::effect_layout::BLASTER as u32, 0, crate::shadows::COUNT > 0, -1, limits::BLASTERS as u32, -1, &[])?;
+        let blasters = bridge.effect_batch(bfe_render::effect_layout::BLASTER as u32, 0, shadow_cascades > 0, -1, limits::BLASTERS as u32, -1, &[])?;
         let blasters_at = particles.words;
         particles.words += BLASTER_FLOATS;
         // SniperTrace's two instanced draws: capsules (bolts, tracer lines,
         // vapour, sparks), then flares.
-        let streaks = bridge.effect_batch(bfe_render::effect_layout::SNIPER_STREAKS as u32, 0, crate::shadows::COUNT > 0, -1, sn::STREAKS as u32, -1, &[])?;
-        let flares = bridge.effect_batch(bfe_render::effect_layout::SNIPER_FLARES as u32, 0, crate::shadows::COUNT > 0, -1, sn::FLARES as u32, -1, &[])?;
+        let streaks = bridge.effect_batch(bfe_render::effect_layout::SNIPER_STREAKS as u32, 0, shadow_cascades > 0, -1, sn::STREAKS as u32, -1, &[])?;
+        let flares = bridge.effect_batch(bfe_render::effect_layout::SNIPER_FLARES as u32, 0, shadow_cascades > 0, -1, sn::FLARES as u32, -1, &[])?;
         let streaks_at = particles.words;
         particles.words += STREAK_FLOATS + FLARE_FLOATS;
         bridge.fx_reserve(particles.words as u32);
@@ -567,6 +563,29 @@ impl Combat {
                 barrel.speed
             );
         }
+    }
+    /// PlayerCombat.presentCharge's glow: a weapon's ChargeUpEffect at its
+    /// fire point, turned as the gun is, its colour and alpha scaled by the
+    /// charge. `handle` is the one this gave last frame for the same gun
+    /// (None starts it); call before `draw`.
+    pub fn glow(&mut self, handle: Option<u32>, group: usize, position: [f64; 3], turn: [f64; 4], tint: f64) -> Option<u32> {
+        let handle = match handle {
+            Some(handle) => {
+                self.effects.sync(handle, position, Some(turn), None);
+                Some(handle)
+            }
+            None => self.effects.start_turned(group, position, [0.; 3], turn, 0),
+        };
+        if let Some(handle) = handle {
+            self.effects.tint(handle, tint);
+            // The tint rides on the effect's next command.
+            self.effects.sync(handle, position, Some(turn), None);
+        }
+        handle
+    }
+    /// `glow.kill()`: the charge is over, or the gun is no longer drawn.
+    pub fn end_glow(&mut self, handle: u32) {
+        self.effects.kill(handle);
     }
     // An effect another owner asks for between two frames (a droid's death
     // blast). It joins the next frame's spawn batch, as any deferred impact.

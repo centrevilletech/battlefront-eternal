@@ -224,6 +224,16 @@ impl Bench {
             write!(out, "[{},{rounds},{reserve},{:.3},{:.3}]", weapon.def.0, weapon.heat, weapon.reload_left)?;
         }
         out.write_all(b"]")?;
+        write!(out, r#","mount":{},"vehicle":{},"flight":{}"#,
+            serde_json::to_string(&own.mount)?, own.vehicle, serde_json::to_string(&own.flight)?)?;
+        if let Some(hull) = &replay.fleet.state {
+            write!(out, r#","hull":{}"#, serde_json::json!({
+                "pos": hull.position, "vel": hull.velocity, "yaw": hull.yaw,
+                "pitch": hull.tilt, "roll": hull.roll, "health": hull.health,
+                "throttle": hull.throttle, "airspeed": hull.airspeed, "power": hull.power,
+                "stick": [hull.stick_x, hull.stick_y], "walk": replay.fleet.walk,
+            }))?;
+        }
         if let Some((animation, clips)) = battle.scene.online.as_ref().and_then(|scene| scene.own_animation(receiver)) {
             write!(
                 out,

@@ -927,6 +927,7 @@ impl BattleController {
         playlist_index: usize,
         bots: &BotSettings,
         player_name: &str,
+        textures:crate::scene::TextureOptions,
     ) -> Result<InstantAdmission, String> {
         // Resolve the target map ID and era from `request.playlist[playlist_index]` or `request`.
         let default_era = request.era.clone().unwrap_or_else(|| "cw".to_string());
@@ -985,7 +986,7 @@ impl BattleController {
         };
 
         let (world, admitted) = WorldThread::admit_instant_action(&local_options)?;
-        let graphics = Scene::prepare_online(content_dir, &admitted.query)?;
+        let graphics = Scene::prepare_online(content_dir, &admitted.query,textures)?;
         Ok(InstantAdmission {
             request,
             playlist_index,
@@ -1014,6 +1015,8 @@ impl BattleController {
             admitted,
             graphics,
         } = prepared;
+        let mut graphics=graphics;
+        graphics.shadows(&settings.interface.get_string("shadows"));
         let (mut scene, camera) = Scene::open_prepared(graphics, size, &mut make_gl).await?;
         // Route the live battle sound mixer into `SharedAudioRouter`.
         let replicas = scene.online.as_mut().ok_or("missing online replicas")?;
@@ -1100,6 +1103,7 @@ impl BattleController {
         launch: MultiplayerLaunch,
         server_address: Option<String>,
         settings: &AppSettingsStore,
+        textures:crate::scene::TextureOptions,
     ) -> Result<OnlineAdmission, String> {
         // Resolve the target `HOST:PORT` from explicit override, `launch.address`, or `BFE_SERVER_TARGET`.
         let raw_target = launch.direct_target().or(server_address)
@@ -1119,7 +1123,7 @@ impl BattleController {
             &settings.player.profile_name,
         )?;
 
-        let graphics = Scene::prepare_online(content_dir, &server_info.query)?;
+        let graphics = Scene::prepare_online(content_dir, &server_info.query,textures)?;
         Ok(OnlineAdmission {
             launch,
             server_info,
@@ -1162,6 +1166,8 @@ impl BattleController {
         };
 
         // Load the 3D scene and HUD replicas for the server's active mission query.
+        let mut graphics=graphics;
+        graphics.shadows(&settings.interface.get_string("shadows"));
         let (mut scene, camera) = Scene::open_prepared(graphics, size, &mut make_gl).await?;
 
         let replicas = scene.online.as_mut().ok_or("missing online replicas")?;
@@ -1504,17 +1510,21 @@ impl BattleController {
         }
         self.settings_revision = rev;
         // Graphics settings the browser applies as they change.
-        if let Err(err) = self.scene.set_render_scale(settings.interface.get_f64("renderScale")) {
-            eprintln!("battle settings: render scale not applied: {err}");
-        }
+        let target=settings.interface.get_string("dynamicResolution").parse().unwrap_or(0.);
+        let limit=settings.interface.get_string("frameLimit").parse().unwrap_or(0.);
+        if let Err(err)=self.scene.set_resolution(settings.interface.get_f64("renderScale"),target,limit){eprintln!("battle settings: resolution not applied: {err}");}
+        self.scene.bridge.r.post_chain.input[bfe_render::post_chain::layout::facts::SHARPNESS]=settings.interface.get_f64("upscaleSharpness").clamp(0.,1.);
         let distance = self.scene.set_view_distance(&settings.interface.get_string("viewDistance"));
         match &mut self.authority {
             BattleAuthority::InstantAction { camera, .. } => camera.set_view_distance(distance),
             BattleAuthority::Online { client, .. } => client.camera.set_view_distance(distance),
         }
-        self.scene.set_post_effects(settings.interface.get_bool("bloom"), settings.interface.get_bool("softFocus"), &settings.interface.get_string("upscaler"));
+        if let Err(err)=self.scene.set_post_effects(settings.interface.get_bool("bloom"), settings.interface.get_bool("softFocus"), &settings.interface.get_string("upscaler")){eprintln!("battle settings: post effects not applied: {err}");}
+        if let Err(err)=self.scene.set_tree_detail(settings.interface.get_string("treeDetail")!="original"){eprintln!("battle settings: tree detail not applied: {err}");}
+        if let Err(err)=self.scene.set_vehicle_blur(settings.interface.get_bool("vehicleMotionBlur")){eprintln!("battle settings: vehicle blur not applied: {err}");}
+        if let Err(err)=self.scene.set_lamp_lighting(settings.interface.get_bool("lampLighting")){eprintln!("battle settings: lamp lighting not applied: {err}");}
         self.scene.set_far_terrain(settings.interface.get_string("farTerrain") == "reduced");
-        self.scene.set_shadows_enabled(settings.interface.get_string("shadows") != "off");
+        if let Err(err)=self.scene.set_shadows(&settings.interface.get_string("shadows")){eprintln!("battle settings: shadows not applied: {err}");}
         self.scene.set_material_detail(settings.interface.get_bool("bumpMapping"), settings.interface.get_string("terrainDetail") == "enhanced");
         if let Err(err) = self
             .scene
@@ -1620,6 +1630,8 @@ impl BattleController {
         _audio_router: &SharedAudioRouter,
     ) -> Result<Option<BattleTransition>, String> {
         if dt.is_finite() && dt >= 0. { self.frame_seconds += dt; }
+        let frame_timer=self.scene.bridge.r.core.profile.clock();
+        self.scene.resolution_frame_begin();
         let dt = dt.clamp(0.0, 0.1);
         self.pause_page.save(settings);
         self.elapsed_s += dt;
@@ -1789,10 +1801,10 @@ impl BattleController {
 
         let (generation, flight_mode) = match &self.authority {
             BattleAuthority::InstantAction { receiver, .. } => {
-                (receiver.own.generation as u32, receiver.own.body_schema == 7)
+                (receiver.own.generation as u32, receiver.in_aircraft())
             }
             BattleAuthority::Online { client, .. } => {
-                (client.generation(), client.receiver.own.body_schema == 7)
+                (client.generation(), client.receiver.in_aircraft())
             }
         };
         self.input.flight_mode = flight_mode;
@@ -1822,6 +1834,7 @@ impl BattleController {
             }
         }
 
+        let receive_timer=self.scene.bridge.r.core.profile.clock();
         let mut view: View = match &mut self.authority {
             BattleAuthority::InstantAction {
                 world,
@@ -1857,12 +1870,12 @@ impl BattleController {
                 sender.feedback(receiver);
                 receiver.clock.advance(dt).map_err(str::to_string)?;
 
-                camera.set_flight_mode(receiver.own.flight.is_some());
+                camera.set_flight_mode(receiver.in_aircraft());
                 let mut held_now = 0;
                 for (mut cmd, look, flight, actions) in step_cmds.into_iter().flatten() {
                     if actions.perspective {
                         camera.first_person = !camera.first_person;
-                        if receiver.own.flight.is_some() {
+                        if receiver.in_aircraft() {
                             settings.interface.set("flightFirstPerson", camera.first_person);
                         }
                     }
@@ -1942,6 +1955,7 @@ impl BattleController {
                     camera.follow([aim.eye.x, aim.eye.y, aim.eye.z], sender.yaw, sender.pitch, dt);
                 }
                 camera.present(alpha_interp);
+                self.scene.bridge.r.core.profile.cpu("receive/predict",receive_timer);
                 self.scene
                     .present_network(receiver, replay, &sender.history, camera, dt);
                 receiver.publications.clear();
@@ -1957,7 +1971,7 @@ impl BattleController {
                     if let Err(err) = client.step(&cmd, &look, &flight, &actions, STEP) {
                         return Ok(Some(BattleTransition::LeaveOnline { reason: Some(err) }));
                     }
-                    if actions.perspective && client.receiver.own.flight.is_some() {
+                    if actions.perspective && client.receiver.in_aircraft() {
                         settings.interface.set("flightFirstPerson", client.camera.first_person);
                     }
                 }
@@ -1965,6 +1979,7 @@ impl BattleController {
                 if let Err(err) = client.send() {
                     return Ok(Some(BattleTransition::LeaveOnline { reason: Some(err) }));
                 }
+                self.scene.bridge.r.core.profile.cpu("receive/predict",receive_timer);
                 self.scene.online_frame(client, dt);
                 if self.frames == 60 {
                     eprintln!("online HUD publications: welcomed={} packets={} corrections={} alive={} active={} visible={}",
@@ -2113,8 +2128,11 @@ impl BattleController {
         let pause_groups=self.scene.bridge.r.hud.input[render_hud::IN_GROUPS];
         if self.pause_menu.is_open||page_spawn||page_score {self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=0.;}
         if page_spawn {self.page_battle.direct(&mut view);}
+        let motion=match &self.authority{BattleAuthority::InstantAction{replay,..}=>replay.fleet.vehicle_motion(),BattleAuthority::Online{client,..}=>client.replay.fleet.vehicle_motion()};
+        self.scene.vehicle_motion(motion.0,motion.1,dt)?;
         super::bench::apply_view(&mut view);
         self.scene.draw(&view)?;
+        self.scene.bridge.r.core.profile.cpu("frame CPU",frame_timer);
         if page_spawn || page_score {
             if page_spawn {
                 let class = self.page_battle.class_id;
@@ -2335,12 +2353,28 @@ impl BattleController {
         let height = self.height;
         let width = self.height * self.aspect;
         let limit = (650.0 * height / self.size[1] as f64).min(width * 0.85);
+        let solid = self.scene.online.as_ref().and_then(|scene| scene.hud.names.get("opaque_rect").copied()).unwrap_or(A::SOLID);
         let hud = &mut self.scene.bridge.hud_model;
         let font = &hud.fonts[0];
         // Match the browser feed's word wrapping without allocating line lists
         // each frame. A long word can break anywhere, like overflow-wrap.
-        let mut draw = |text: &[u16], color| {
+        let mut draw = |text: &[u16], color, backed: bool| {
             let mut start = 0;
+            if backed {
+                // The entry's own backing, `#001020cc` with 6 px around it (`bfe-chat-entry` in src/chat.js).
+                let pad = 6.0 * height / self.size[1] as f64;
+                let left = width * 0.03;
+                hud.batch.quad(
+                    root_anchor(height),
+                    [left, y - pad, left + limit, y + font.height * 1.3 + pad],
+                    solid,
+                    // The middle of the opaque panel art, a dark fill (a plain white texture is not in the HUD's table).
+                    [0.45, 0.45, 0.55, 0.55],
+                    [1.0, 1.0, 1.0, 0.8],
+                    0.0,
+                    0,
+                );
+            }
             while start < text.len() {
                 let mut end = start;
                 let mut advance = 0.0;
@@ -2402,14 +2436,14 @@ impl BattleController {
                 bfe_battle_ui::ChatChannel::Team => [80.0 / 255.0, 1.0, 112.0 / 255.0, 1.0],
                 bfe_battle_ui::ChatChannel::Server => [96.0 / 255.0, 184.0 / 255.0, 1.0, 1.0],
             };
-            draw(&self.chat_text, color);
+            draw(&self.chat_text, color, false);
             visible = true;
         }
         if let Some(channel) = self.chat.active_channel {
             self.chat_text.clear();
             self.chat_text.extend(channel.prompt().encode_utf16());
             self.chat_text.extend(self.chat.draft.encode_utf16());
-            draw(&self.chat_text, [1.0; 4]);
+            draw(&self.chat_text, [1.0; 4], true);
         }
         visible || open
     }
@@ -3300,7 +3334,12 @@ mod tests {
 }
 
 impl Drop for BattleController {
-    fn drop(&mut self){self.page_battle.dispose(&self.scene);self.pause_page.blur.dispose(&self.scene.bridge.r.core.gl);}
+    fn drop(&mut self){
+        if self.scene.bridge.r.core.profile.enabled {
+            if let Some(stats)=self.world_tick_stats() {eprintln!("graphics world tick: {:?}",stats);}
+        }
+        self.scene.finish_profile();
+        self.page_battle.dispose(&self.scene);self.pause_page.blur.dispose(&self.scene.bridge.r.core.gl);}
 }
 
 #[cfg(test)]

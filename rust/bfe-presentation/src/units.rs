@@ -482,6 +482,7 @@ impl Units {
                 a.vanished = true;
             }
             let seated = input[i::MOUNT_PRESENT] != 0.0;
+            let was_seated = a.rider_seat >= 0.0;
             if seated && (a.rider_seat != input[i::RIDER_SEAT]
                 || a.mount_generation != input[i::MOUNT_GENERATION] || a.mount_id != input[i::MOUNT_ID]) {
                 a.rider_lean = 0.0;
@@ -589,6 +590,17 @@ impl Units {
                 rider_sample(a, input, &mut state, out, content.clips.len());
             }
             let held = input[i::HELD] != 0.0;
+            // Out of a seat (seats.js placeOnFoot, unseatBody) or a
+            // creature's hold (Unit.letGo) the body takes its own clips
+            // again; a live soldier leaving a seat starts standing, facing
+            // his aim. Nothing else clears a seat's pose, and a pooled body
+            // keeps its animator from one life to the next.
+            if !seated && !held && a.animator.gunning.is_some() {
+                a.animator.gunner(None);
+                if was_seated && out[o::DEAD] == 0.0 {
+                    a.animator.reset(state.yaw);
+                }
+            }
             if held {
                 let m = matrix(input, i::HELD_MATRIX);
                 a.rig

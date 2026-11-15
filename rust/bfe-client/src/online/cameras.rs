@@ -143,7 +143,7 @@ impl Cameras {
         dt: f64,
     ) -> f64 {
         let lease = receiver.own.mount;
-        camera.set_flight_mode(receiver.own.flight.is_some());
+        camera.set_flight_mode(receiver.in_aircraft());
         // PlayerCombat.usesEyeView also selects eyes for an authored scoped
         // weapon; zooming must not change the player's saved perspective.
         let scoped_eye = receiver.own.zoom > 1.

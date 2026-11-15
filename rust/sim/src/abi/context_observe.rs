@@ -63,6 +63,17 @@ pub struct PropTargetFacts {
 }
 
 impl Context {
+    /// Living units by team, sampled from the authoritative unit store.
+    pub fn world_living_units(&self) -> Result<[usize; 3], Error> {
+        self.world(|w| {
+            let mut counts=[0;3];
+            for (_,unit) in w.sim.store.unit.iter() {
+                if unit.alive && !unit.removed {counts[(unit.team as usize).min(2)]+=1;}
+            }
+            counts
+        })
+    }
+
     /// The authored turret's current registry life for a seat request.
     pub fn turret_life(&self, index: usize) -> Result<Option<f64>, Error> {
         // matrix-b
