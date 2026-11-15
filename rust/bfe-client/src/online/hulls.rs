@@ -693,6 +693,14 @@ impl Hulls {
             if prediction.identity == Some((row[r::ID], row[r::GENERATION])) {
                 if let Some(p) = &prediction.state {
                     x[e::LOCAL_PRESENT] = 1.;
+                    // Vehicle.present draws the solver's last two tick states
+                    // at the input clock's fraction, including its walk cycle.
+                    x[e::ALPHA] = prediction.alpha;
+                    x[e::TICK_FROM..e::TICK_FROM + 3].copy_from_slice(&p.tick_from.unwrap_or(p.position));
+                    x[e::TICK_QUATERNION..e::TICK_QUATERNION + 4].copy_from_slice(&p.flight_tick_q.unwrap_or(p.quaternion));
+                    x[e::TICK_YAW] = p.tick_from_yaw.unwrap_or(p.yaw);
+                    x[e::TICK_TILT] = p.tick_from_tilt.unwrap_or(p.tilt);
+                    x[e::TICK_ROLL] = p.tick_from_roll.unwrap_or(p.roll);
                     x[e::POSITION..e::POSITION + 3].copy_from_slice(&p.position);
                     x[e::QUATERNION..e::QUATERNION + 4].copy_from_slice(&p.quaternion);
                     x[e::VELOCITY..e::VELOCITY + 3].copy_from_slice(&p.velocity);
@@ -789,6 +797,9 @@ impl Hulls {
             let output = self.owner.slot_output(s.rig, 0);
             s.walk = [self.owner.stream_out[output + o::SHOWN_PHASE], self.owner.stream_out[output + o::SHOWN_BLEND]];
             let m = &self.models[s.model];
+            if m.flying {
+                s.flight_frame.copy_from_slice(&self.owner.stream_out[output + o::FRAME..output + o::FRAME + 4]);
+            }
             // Walkers publish leg-side values before aimers and nodes. The
             // pose owner supplies the node block instead of host offset math.
             let Some(nodes) = self.owner.slot_nodes(s.rig, 0) else {
