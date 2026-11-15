@@ -919,7 +919,7 @@ impl Scene {
                 vertices,
                 mesh.geometry.indices.clone(),
             )?;
-            if live && !mesh.material.far {
+            if live && !mesh.material.far && mesh.material.blend == Blend::Opaque {
                 bridge.static_depth_add(source, mesh.material.texture.map_or(-1, |id| textures[id] as i32))?;
             }
             if let Some(weights) = mesh.geometry.buffers.get(1) {
@@ -969,7 +969,7 @@ impl Scene {
                 far_slot as u32,
                 admitted as u32,
             )?;
-            if !mesh.material.far {
+            if !mesh.material.far && mesh.material.blend == Blend::Opaque {
                 near_world_ids.push(world_id);
             }
             if mesh.material.far {
@@ -1093,6 +1093,28 @@ impl Scene {
             usize::from(static_content.water.is_some()),
             static_content.skies.len()
         );
+        if std::env::var_os("BFE_BENCH").is_some() {
+            let meshes: Vec<_> = content.world.iter().enumerate().map(|(i, m)| serde_json::json!({
+                "segment": i, "name": m.name, "kind": format!("{:?}", m.material.kind),
+                "flags": m.material.flags, "cutout": m.material.cutout,
+                "blended": m.material.blend != Blend::Opaque, "doubleSided": m.material.double_sided,
+                "far": m.material.far, "vertices": m.geometry.vertices, "triangles": m.geometry.indices.len()/3,
+                "admitted": inspectable(m) || m.material.kind == MaterialKind::Sky,
+            })).collect();
+            let props = content.content.battle.props.as_ref().map(bfe_content_native::loader::authored_json);
+            eprintln!("bench world census: {}", serde_json::json!({
+                "map": content.map["name"], "world": meshes,
+                "props": props.as_ref().map(|p| &p["instances"]),
+                "propParts": static_content.props, "deferred": deferred,
+                "foliageClasses": static_content.foliage, "foliage": content.map["foliage"],
+                "waterSurfaces": usize::from(static_content.water.is_some()), "water": content.map["water"],
+                "skyLayers": static_content.skies.len(), "lights": content.map["lighting"],
+                "lightRegions": content.map["lightRegions"], "lumi": content.map["lumi"],
+                "collision": {"buildingsTriangles": content.content.collision.indices.len()/3,
+                    "terrainTriangles": content.content.collision.terrain_indices.len()/3,
+                    "propBodies": content.content.prop_bodies.len()},
+            }));
+        }
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         let online = if live {
@@ -1692,13 +1714,12 @@ impl Scene {
     }
 }
 
-// Blended world buckets need their own authored transparent descriptors.
-// Sky, opaque far meshes and the independent static passes are admitted above.
+// Sky layers have their own admission; every nonempty world material is drawn.
 fn inspectable(mesh: &bfe_content_native::loader::Mesh) -> bool {
     mesh.geometry.vertices != 0
         && !mesh.geometry.indices.is_empty()
         && mesh.material.kind != MaterialKind::Sky
-        && mesh.material.blend == Blend::Opaque
+
 }
 
 // materials.js::setLighting/setFog read only authored map content. The inspector
