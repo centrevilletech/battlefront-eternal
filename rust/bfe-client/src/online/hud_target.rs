@@ -115,11 +115,13 @@ pub struct Aimed {
 }
 
 /// What the search found: each channel's relation code for the reticle (1
-/// friendly, 2 enemy, 0 neutral, 4 nothing), and channel 0's enemy as his
-/// record's kind, class or building, and health.
+/// friendly, 2 enemy, 0 neutral, 4 nothing), channel 0's enemy as his
+/// record's kind, class or building, and health, and where each channel's
+/// kept launcher lock is aimed (the middle of its target).
 pub struct Found {
     pub relations: [f64; 2],
     pub enemy: Option<(u32, usize, f64)>,
+    pub locks: [Option<[f64; 3]>; 2],
 }
 
 // How a candidate answers a sight line: the hull body a ray may end on,
@@ -134,6 +136,7 @@ struct Sight {
     alive: bool,
     relation: f64,
     key: (u32, u32),
+    point: [f64; 3],
 }
 
 pub struct Targets {
@@ -166,7 +169,7 @@ impl Targets {
         weapons: [Option<Aimed>; 2],
     ) -> Found {
         self.rows(receiver, teams, bodies, viewer);
-        let mut found = Found { relations: [NOTHING; 2], enemy: None };
+        let mut found = Found { relations: [NOTHING; 2], enemy: None, locks: [None; 2] };
         for (channel, aimed) in weapons.iter().enumerate() {
             let Some(aimed) = aimed else { continue };
             // lockedUnit: a kept lock is the target while that life lives.
@@ -175,6 +178,9 @@ impl Targets {
             });
             let Some(target) = kept.or_else(|| self.search(collision, world, ray, &aimed.reticle)) else { continue };
             let sight = self.sights[target];
+            if kept.is_some() {
+                found.locks[channel] = Some(sight.point);
+            }
             found.relations[channel] = super::hud_feed::relation_code(sight.relation);
             if channel == 0 && sight.relation < 0. {
                 found.enemy = Some((sight.kind, sight.source, sight.health));
@@ -300,6 +306,7 @@ impl Targets {
                 }
             }
             row.point = bounds.center;
+            sight.point = bounds.center;
             row.center = bounds.center;
             row.radius = bounds.radius;
             row.box_radius = bounds.radius;

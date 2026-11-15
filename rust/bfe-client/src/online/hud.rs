@@ -232,6 +232,8 @@ pub struct Hud {
     reticles: Vec<super::hud_target::Reticle>,
     target_icons: Vec<u32>,
     aimed: [Option<super::hud_target::Aimed>; 2],
+    // Where each channel's kept launcher lock points, from the last target search.
+    locks: [Option<[f64; 3]>; 2],
     corrected: u64,
     // The score the HUD was last given.
     score: Option<[f64; 4]>,
@@ -813,6 +815,7 @@ impl Prepared {
             reticles: self.reticles,
             target_icons: self.target_icons,
             aimed: [None; 2],
+            locks: [None; 2],
             corrected: 0,
             score: None,
             shield_max: self.shield_max,
@@ -1370,6 +1373,7 @@ impl Hud {
             self.targets.find(receiver, &self.radar, &prediction.fleet.bodies, &mut collision, prediction.world, ray, viewer, weapons)
         });
         let x = &mut bridge.hud_model.input;
+        self.locks = found.as_ref().map_or([None; 2], |found| found.locks);
         x[H::TARGET_RELATION] = found.as_ref().map_or(4., |found| found.relations[0]);
         x[H::SECOND_RELATION] = found.as_ref().map_or(4., |found| found.relations[1]);
         if let Some((kind, source, health)) = found.and_then(|found| found.enemy) {
@@ -1405,12 +1409,38 @@ impl Hud {
                 x[H::RETICLE] = 0.;
             }
         }
+        lock_marker(x, view, self.locks);
         if self.auto_build {
             bridge.hud_model_update();
             bridge.hud_model_build(0, true);
             self.quads = bridge.hud_model.batch.count;
             self.frames += 1;
         }
+    }
+}
+
+// presentWeaponLock (src/game.js): a launcher's target diamond, at its kept
+// target projected against the camera drawn, while the launcher is ready to
+// fire (not reloading, not between shots). It grows in as acquisition runs:
+// progress is the lock time so far over LockTime, else MaxPressedTime.
+fn lock_marker(x: &mut [f64], view: &crate::scene::View, locks: [Option<[f64; 3]>; 2]) {
+    x[H::MARKER] = 0.;
+    let seat = x[H::VEHICLE] != 0.;
+    for (channel, point) in locks.into_iter().enumerate() {
+        let Some(point) = point.filter(|_| channel == 0 || seat) else { continue };
+        let w = &x[hud_model::WEAPONS + (channel + 2) * W::WORDS..][..W::WORDS];
+        if w[W::LOCK] == 0. || w[W::RELOADING] != 0. || w[W::WAIT] > 0. {
+            continue;
+        }
+        let Some([ax, ay]) = aim_anchor(view, point) else { continue };
+        let duration = if w[W::LOCK_TIME] > 0. { w[W::LOCK_TIME] } else { w[W::MAX_PRESSED] };
+        let progress = if duration > 0. { (w[W::LOCK_ELAPSED] / duration).min(1.) } else { 0. };
+        x[H::MARKER] = 1.;
+        x[H::MARKER_X] = ax;
+        x[H::MARKER_Y] = ay;
+        x[H::MARKER_PROGRESS] = progress;
+        x[H::LOCK_CHANNEL] = channel as f64;
+        return;
     }
 }
 
