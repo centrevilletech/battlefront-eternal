@@ -589,6 +589,9 @@ fn memory(battle: Option<&BattleController>) -> String {
     }
     if let Some(battle) = battle {
         line += &live_gl_names(&battle.scene.bridge.r.core.gl, 0);
+        if let Some(t) = battle.world_tick_stats() {
+            line += &format!(" world_tick_mean_ms={:.3} world_tick_max_ms={:.2} world_ticks={}", t.mean_ms, t.max_ms, t.count);
+        }
         let core = &battle.scene.bridge.r.core;
         line += &format!(
             " gl_textures={} gl_texture_mb={} gl_geometries={} gl_programs={} res_texture_mb={} res_target_mb={}",

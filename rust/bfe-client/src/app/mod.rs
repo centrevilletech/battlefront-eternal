@@ -177,6 +177,7 @@ pub enum AppState {
 /// Parses command-line arguments first so `--help` / `--version` exit 0 immediately
 /// before touching any display server or audio device, then runs [`run_standalone_game`].
 pub fn run(with_audio: bool) {
+    keep_large_allocations_mapped();
     let args: Vec<String> = std::env::args().skip(1).collect();
     match parse_args(args) {
         Ok(CliDispatch::Help(text)) => {
@@ -2327,6 +2328,22 @@ impl StandaloneWindowApp {
             self.error = Some(err);
             event_loop.exit();
         }
+    }
+}
+
+/// Keeps every allocation over 128 KiB in its own mapping, returned to the system when freed.
+/// glibc otherwise raises that limit to the largest block freed so far (up to 32 MiB), so after
+/// the first battle its large buffers went into the heap arenas, fragmented, and stayed resident:
+/// each battle sat higher than the one before (bes2: 1.2, 1.4, 1.6 GB; with this 1.13, 1.17, 1.19).
+fn keep_large_allocations_mapped() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        extern "C" {
+            fn mallopt(param: std::ffi::c_int, value: std::ffi::c_int) -> std::ffi::c_int;
+        }
+        const M_MMAP_THRESHOLD: std::ffi::c_int = -3;
+        // SAFETY: mallopt only changes the allocator's policy; called before other threads start.
+        unsafe { mallopt(M_MMAP_THRESHOLD, 128 * 1024) };
     }
 }
 
