@@ -452,9 +452,28 @@ impl Sound {
         let name = |id: usize| self.sound_names.get(id).map_or("", String::as_str);
         let streams: Vec<_> = p.streams.census().map(|(sound, category)| serde_json::json!([name(sound), category])).collect();
         let track = p.director.tracks.iter().find(|t| t.playing()).map(|t| name(t.sound));
+        // Heard placed voices past 4 m: how many, their mean occlusion, how many
+        // more than half occluded, their mean distance; and the fastest radial
+        // speed among heard ones (Doppler), with how many move over 5 m/s.
+        let (mut n, mut occluded, mut over, mut far, mut fastest, mut moving) = (0u32, 0., 0u32, 0., 0f64, 0u32);
+        for v in e.voices.iter().filter(|v| !v.done && v.real && v.mode3d) {
+            if v.distance > 4. {
+                let o = v.occluded.unwrap_or(0.);
+                n += 1;
+                occluded += o;
+                over += (o > 0.5) as u32;
+                far += v.distance;
+            }
+            if v.radial.abs() < 172. {
+                fastest = fastest.max(v.radial.abs());
+                moving += (v.radial.abs() > 5.) as u32;
+            }
+        }
+        let occlusion = [n as f64, if n > 0 { occluded / n as f64 } else { 0. }, over as f64, if n > 0 { far / n as f64 } else { 0. }];
         let worst = self.mail.worst.swap(0, Ordering::Relaxed) as f64 / 1000.;
         serde_json::json!({ "live": live, "heard": heard, "stats": e.stats, "streams": streams,
-            "stage": p.director.stage, "track": track, "worstUs": worst, "voAsked": self.vo_asked })
+            "stage": p.director.stage, "track": track, "worstUs": worst, "voAsked": self.vo_asked,
+            "occlusion": occlusion, "doppler": [fastest, moving as f64] })
     }
     pub fn rendering(&self) -> super::sound_output::Rendering {
         self.rendering
