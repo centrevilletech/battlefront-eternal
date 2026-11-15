@@ -77,13 +77,6 @@ pub fn default_rotation() -> Vec<String> {
 /// Resolved dedicated-server configuration matching the normalized runtime shape produced by
 /// `loadConfig(dir)` in `packages/bfe-server/src/config.js` and consumed by
 /// `packages/bfe-server/src/main.js` and `packages/bfe-server/src/local-server.js`.
-///
-/// Why both defaults and strict bounds are enforced inside `ServerConfig`:
-/// Operator config files (`config.json`), interactive menu edits (`main.js` `menu()`), and
-/// Host launch parameters share this schema. Clamping ports (`1..=65535`), state
-/// byte budgets (`512..=1200`), and playlist strings at load time guarantees that
-/// `LocalDedicatedServer`, `OnlineServer`, `MasterClient`, and `OperatorStore` all observe
-/// valid, mutually consistent settings before any socket is bound.
 pub struct ServerConfig {
     /// Server display name shown in `/info`, LAN discovery, and the online browser (`defaults.name`).
     pub name: String,
@@ -465,11 +458,6 @@ impl ServerConfig {
 /// `Number.isFinite(config.stateBytesPerSecond) && config.stateBytesPerSecond > 0 ? config.stateBytesPerSecond : 100000`).
 /// Validates the per-tick unreliable state snapshot byte budget (`512..=1200` bytes), porting
 /// `checkStateBudget(value)` from `packages/bfe-server/src/config.js`.
-///
-/// Why `512..=1200` bytes is enforced:
-/// Below 512 bytes, a single vehicle + soldier baseline header cannot fit in one datagram; above
-/// 1200 bytes, adding the 15-byte `bni1` header, 16-byte AEAD tag, and IPv6/UDP headers risks IP
-/// fragmentation across residential PPPoE / VPN links (1280-1492 MTU).
 pub fn check_state_budget(value: Option<usize>) -> Result<usize, String> {
     let raw = value.unwrap_or(DEFAULT_STATE_BYTES_PER_SECOND);
     if raw == 0 {
@@ -480,11 +468,6 @@ pub fn check_state_budget(value: Option<usize>) -> Result<usize, String> {
 
 /// Resolves a rotation entry like `"swbf1/nab2:rep:conquest"` or `"swbf1/nab2/cw"` into a battle
 /// query (`launch()` and `battleQuery(map, side)` in `src/main.js`).
-///
-/// Entries beginning with `"swbf2/"` are rejected with `"BF2 simulation is not implemented"`
-/// matching `if (mission.startsWith("swbf2/")) throw Error("BF2 simulation is not implemented")`
-/// in `src/main.js`.
-/// A battle query with the server's friendly fire rule: off adds `ff=0`.
 pub fn with_friendly_fire(query: &str, friendly_fire: bool) -> String {
     if friendly_fire { query.to_string() } else { format!("{query}&ff=0") }
 }

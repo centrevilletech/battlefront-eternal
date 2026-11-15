@@ -59,13 +59,6 @@ impl NetworkContract {
 }
 
 /// Validates a network contract JSON object (`export function validateNetworkContract(value)` in `src/network-contract.js`).
-///
-/// Enforces:
-/// - `manifestVersion === 1` (`"Unsupported engine network manifest version"`)
-/// - `serverAdapterABI === 4` (`"Unsupported engine server adapter ABI"`)
-/// - `protocol === 3 && profile === "snapshot-delta-v1"` (`"Unsupported engine transport contract"`)
-/// - `simulation` matches `/^bfe-sim-[1-9][0-9]{0,5}$/` (`"Invalid engine simulation revision"`)
-/// - `ownCorrectionSchema` is an integer in `1..=65535` (`"Invalid engine own correction schema"`)
 pub fn validate_network_contract(value: &Value) -> Result<NetworkContract, String> {
     let Some(obj) = value.as_object() else {
         return Err("Missing engine network contract".to_string());

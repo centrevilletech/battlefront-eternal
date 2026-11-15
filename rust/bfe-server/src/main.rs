@@ -32,11 +32,6 @@ extern "C" fn handle_signal(_sig: libc::c_int) {
 
 /// Shared service state connecting `OperatorHttpServer` (`/admin` and `/healthz`) to the active
 /// `LocalDedicatedServer` and `OnlineServer` (`serve()` in `src/main.js`).
-///
-/// Why `ServiceControl` owns `status`, `error`, `local`, and `online` behind locks:
-/// In `src/main.js`, the loopback operator HTTP server starts *before* `launch()` loads the game
-/// data or registers with the online master so `/healthz` and `bfeserver --admin` are reachable
-/// during `"setup"`, `"loading"`, `"running"`, and `"fault"` states.
 struct ServiceControl {
     started_at: u64,
     status: RwLock<String>,
@@ -175,9 +170,6 @@ fn prompt(stdin: &mut io::StdinLock<'_>, label: &str) -> io::Result<String> {
 /// (`choice === "3"` in `menu()` in `src/main.js`).
 /// Validates an interactive playlist rotation string (`map=<id>&mode=<id>...`), porting
 /// `validPlaylistEntry(entry)` from `packages/bfe-server/src/main.js`.
-///
-/// Rejects empty entries, whitespace/control characters, or entries missing a `map=` parameter
-/// before saving to `config.json`.
 fn valid_playlist_entry(entry: &str) -> bool {
     let Some(rest) = entry
         .strip_prefix("swbf1/")
@@ -198,15 +190,6 @@ fn valid_playlist_entry(entry: &str) -> bool {
 }
 
 /// Interactive live server administration submenu (`async function adminMenu(io)` in `src/main.js`).
-///
-/// Translates numbered menu choices (`1`..`7`) into authenticated `operator_request` JSON calls
-/// to the local `POST /admin` endpoint.
-/// Interactive operator administration submenu porting `adminMenu(rl, dir, port)` from
-/// `packages/bfe-server/src/main.js`.
-///
-/// Communicates with the running `bfeserver` process over loopback HTTP (`127.0.0.1:<operator_port>`)
-/// using `operator_request` authenticated with `<dir>/operator.token` (`operator.js`), supporting:
-/// - Live status, player list, kick, ban, unban, system announcement, map rotation, and stop.
 fn admin_menu(stdin: &mut io::StdinLock<'_>, directory: &Path, port: u16) -> io::Result<()> {
     println!(
         "1  Status and players\n2  Kick player\n3  Ban identity\n4  Unban identity\n5  Player statistics\n6  Server message\n7  Restart match"
@@ -647,13 +630,6 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
 /// CLI entrypoint (`src/main.js`), dispatching `--admin`, `--serve`, `--version`, or the interactive `menu`.
 /// CLI entry point for `bfeserver`, porting the top-level CLI dispatcher in
 /// `packages/bfe-server/src/main.js`.
-///
-/// Supported flags (matching `main.js`):
-/// - `--health-check` / `--healthz`: probes `http://localhost:<operator_port>/healthz` (`health-check.js`)
-/// - `--serve` / `--headless`: skips the interactive TUI and launches `serve()` directly
-/// - `--dir <path>` / `--state-dir <path>`: overrides `BFE_SERVER_DIR` state directory
-/// - `--operator-port <port>`: overrides `BFE_OPERATOR_PORT` (default `19421`)
-/// - `--admin <json>`: executes a one-shot authenticated operator RPC (`operator_request`)
 fn main() {
     let directory = state_dir();
     let _ = fs::create_dir_all(&directory);

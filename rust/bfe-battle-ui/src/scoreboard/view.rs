@@ -281,11 +281,6 @@ impl ClassicScoreboardView {
 
     /// Rebuilds the 8 mini award hologram slots (`self.icons`) when entering `AWARDS`
     /// (`ensureIcons` in `src/scoreboard/classic/view.js`).
-    ///
-    /// For each award with a winning `team` (`1` or `2`), starts a `Flight` from that team's
-    /// table logo position (`size = table.logo_size`, `alpha = 0.2`) to `page_layout.icons[k]`
-    /// (`size = 0.2`, `alpha = 0.3`) over `ENTRY` (`0.4s`), spinning at `+-20 OmegaY` (`+-600 deg/s`)
-    /// with `rest = None` until the flights land.
     fn ensure_icons(&mut self, awards: &[AwardRow], port: &dyn ScoreboardPort, height: f64) {
         self.icons.clear();
         let teams = port.teams();

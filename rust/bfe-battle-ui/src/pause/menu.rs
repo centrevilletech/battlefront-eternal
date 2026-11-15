@@ -224,13 +224,6 @@ impl PauseScreenState {
 }
 
 /// Configuration for the `RESTART MISSION` row (`restart` option in `createPauseMenu`).
-///
-/// Matches the three `restart` modes in `src/pause/index.js`:
-/// - `Url`: single-player / local battle default (`restart === undefined`), reloading the battle URL
-///   with current option overrides applied via [`with_settings`].
-/// - `Custom`: multiplayer host action (`restart = { label, prompt, run }`), invoking a host reset
-///   and resuming play.
-/// - `Hidden`: remote multiplayer client (`restart === false`), omitting the row altogether.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PauseRestartMode {
     /// Default single-player / local battle behavior: navigates to `with_settings(restart_url, settings)`.
@@ -695,12 +688,6 @@ impl PauseMenu {
     }
 
     /// Handles a key press or release (`onKey` / `onKeyUp` + `ScreenStack` navigation in `src/pause/index.js`).
-    ///
-    /// - `Escape` on a sub-screen (`Confirm`, `Options`, `PlayerList`) pops back to `Main`
-    ///   immediately on keydown.
-    /// - `Escape` on `Main` sets `resume_on_release = true` on keydown (unless suppressed by
-    ///   [`LOCK_GRACE`] after a pointer-unlock open) and closes the menu on the subsequent keyup.
-    /// - Arrow keys / `WASD`, `Enter` / `Space`, and `Backspace` navigate the active screen.
     pub fn handle_key(
         &mut self,
         code: &str,

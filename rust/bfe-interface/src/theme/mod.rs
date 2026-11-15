@@ -51,10 +51,6 @@ pub const PULSE_LOW: f64 = 0.3;
 /// Computes the horizontal shift that centers an angled stack of `count` rows
 /// (`rowsShift(width, pitch, count)` in `src/menus/themes/classic/index.js` and
 /// `rows_shift` in `rust/bfe-shell/src/render.rs`).
-///
-/// Replicates the 2004 `AddVerticalButtons` container offset: the bar width steps outward by
-/// `pitch` per row down to the middle (`count / 2`) and inward past it, starting one `pitch`
-/// wider when `count` is odd, then shifts the whole container left by half the widest bar.
 pub fn rows_shift(width: f64, pitch: f64, count: usize) -> f64 {
     // Odd row counts start one `pitch` wider at the top row (`count % 2 === 1 ? pitch : 0`
     // in `rowsShift` in `src/menus/themes/classic/index.js`).
@@ -75,10 +71,6 @@ pub fn rows_shift(width: f64, pitch: f64, count: usize) -> f64 {
 /// Computes `(bar_width, flipped)` for row `k` (`0..n`) in a stack of `n` visible rows
 /// (`rowBars(width, pitch, n)` in `src/menus/themes/classic/index.js` and
 /// `row_bar_at` in `rust/bfe-shell/src/render.rs`).
-///
-/// Mirrors the 2004 `ShowHideVerticalButtons` chevron geometry: rows above the middle grow wider
-/// by `pitch` with an unflipped right triangle cap, while rows below the middle (`i > half`)
-/// flip the right cap vertically (`uv = [0, 1, 1, 0]`) and step narrower by `pitch`.
 pub fn row_bar_at(width: f64, pitch: f64, n: usize, k: usize) -> (f64, bool) {
     let half = n / 2;
     let mut w = width;
@@ -285,10 +277,6 @@ pub fn piece_quad(
 /// Draws a 3-piece horizontal bar (`buttonleft`/`buttonmid`/`buttonright` or
 /// `headerbuttonleft`/`headerbuttonmid`/`headerbuttonright`), matching `draw_bar`
 /// in `rust/bfe-shell/src/render.rs` and `bar` in `src/menus/themes/classic/draw.js`.
-///
-/// The left cap spans `[x0, x0 + h]`, the stretched middle spans `[x0 + h, x0 + max(width, h)]`,
-/// and the right triangle cap spans `[mid_end, mid_end + h]` (with vertically inverted UVs when
-/// `flipped` is `true` for rows below the vertical midpoint of an angled menu stack).
 #[allow(clippy::too_many_arguments)]
 pub fn draw_bar(
     batch: &mut Batch,

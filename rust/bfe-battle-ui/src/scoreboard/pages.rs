@@ -67,12 +67,6 @@ pub struct FlightPoint {
 }
 
 /// Linear 3D model flight with spin (`Flight` in `src/scoreboard/classic/view.js`).
-///
-/// Interpolates linearly from `from` to `to` over `length` seconds (`ENTRY = 0.4s` for `gShellAnimTime`).
-/// While `time < length` (`flying()`), Y rotation advances at `omega * OMEGA` radians/sec (`1.0` when
-/// appearing in place, `+-20.0` = `+-600 deg/s` when flying across the screen); once landed, spin
-/// settles to `rest * OMEGA` (`0.3` for left logo / `DETAILS`, `0.25` for right logo, or `[-0.45, 0.45]`
-/// for landed award icons).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Flight {
     pub from: FlightPoint,
@@ -779,15 +773,6 @@ impl ClassicScoreboardView {
     }
 
     /// Draws text playing a `TitleIntro` (`drawText` in `src/scoreboard/classic/view.js`).
-    ///
-    /// Reproduces the 2004 scoreboard's horizontal glyph compression (`h_scale = ROW_SCALE = 0.8`
-    /// on table rows, `1.0` on sub-pages):
-    /// 1. While `state.block` is active, a white cursor block of width `fh * h_scale` and height `fh`
-    ///    sweeps across `[left, left + width]`.
-    /// 2. The text itself is drawn with uniform scale `h_scale` inside `surface.draw_text`, and the
-    ///    vertical scale of `scale_m` is set to `state.text / h_scale` around the line midpoint
-    ///    `mid = y + fh / 2.0` so glyphs narrow horizontally to 80% while stretching back to 100%
-    ///    full line height (`fh`) once `state.text` reaches `1.0`.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_flashy_text(
         surface: &dyn BattleUiSurface,

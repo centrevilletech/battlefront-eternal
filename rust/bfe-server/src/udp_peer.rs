@@ -222,12 +222,6 @@ impl UdpPeerState {
 
     /// Queues a message or binary datagram on `lane` (`UdpPeer.sendEncoded`, `UdpPeer.sendBinary`,
     /// and `GameSession.entityPacket` in `src/udp-peer.js` and `src/game-session.js`).
-    ///
-    /// Enforces:
-    /// - `EVENTS_MESSAGE_BYTES` (256 KiB) and `STATE_MESSAGE_BYTES` (32 KiB) payload limits.
-    /// - `STATE_STALE_MS` (100 ms) staleness drop on `Lane::State`.
-    /// - Congestion hysteresis skip (`state_congested`) and `StateBudget` token bucket on `Lane::State`.
-    /// - Connection close (`close_code::PROTOCOL`) if the reliable `Lane::Events` backlog exceeds `EVENTS_MESSAGE_BYTES`.
     #[allow(clippy::too_many_arguments)]
     pub fn send_lane(
         &mut self,

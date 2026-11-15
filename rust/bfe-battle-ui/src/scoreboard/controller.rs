@@ -207,14 +207,6 @@ impl ScoreboardController {
     }
 
     /// Steps one frame of the scoreboard (`update` in `src/scoreboard/index.js`).
-    ///
-    /// Handles:
-    /// 1. Automatic transition into `BoardState::End` once `port.state().finished` becomes `true`.
-    /// 2. Auto-closing `BoardState::Peek` if `game_over` or `spawn_open` becomes `true`.
-    /// 3. Pausing scoreboard input and hiding its cursor while `menu_open` (the pause menu) covers it.
-    /// 4. Draining queued keyboard/mouse inputs and button actions.
-    /// 5. Stepping `TabHold` and live-refreshing roster scores while in `Peek` mode.
-    /// 6. Advancing the 30-second end-of-match idle timer and `ClassicScoreboardView` animations.
     pub fn update(
         &mut self,
         dt: f64,

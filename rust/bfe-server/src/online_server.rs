@@ -241,13 +241,6 @@ impl OnlineServer {
     }
 
     /// Sends a heartbeat `PUT /v1/servers/:id` to the master (`async beat()` in `src/online-server.js`).
-    ///
-    /// When `relayPolicy == "never"`, alternates between IPv4 (`4`) and IPv6 (`6`) on each beat;
-    /// if a forced family fails at the socket/routing layer (`err.status.is_none()`), marks that
-    /// family down for 600 seconds and retries with `family = 0`.
-    /// Sends a signed `POST /api/servers/heartbeat` listing update to the master server and
-    /// captures any `stunServer` hint returned in the response, porting `OnlineServer.beat()` in
-    /// `packages/bfe-server/src/online-server.js`.
     pub fn beat(&self) -> Result<(), String> {
         let family = if self.config.relay_policy == "never" {
             let mut b = self.beats.lock().map_err(|_| "lock poisoned")?;
@@ -308,11 +301,6 @@ impl OnlineServer {
 
     /// Queries the STUN server from the game port to discover the server's reflexive IPv4 and IPv6
     /// addresses (`async discover()` in `src/online-server.js`).
-    ///
-    /// Skipped when `relayPolicy == "always"` so a relay-only server never sends direct STUN packets.
-    /// Runs a STUN Binding Request on the live game UDP socket (`UdpGameServer::reflexive`) to
-    /// discover the server's public `srflx` IPv4/IPv6 mapping and detect symmetric/cone NAT,
-    /// porting `OnlineServer.discover()` in `packages/bfe-server/src/online-server.js`.
     pub fn discover(&self) {
         if self.config.relay_policy == "always" {
             return;
@@ -383,12 +371,6 @@ impl OnlineServer {
 
     /// Assembles up to 8 direct (`host` + `srflx`) UDP candidates to answer a client's offer
     /// (`OnlineServer.candidates(clientCandidates)` in `src/online-server.js`).
-    ///
-    /// Includes private LAN `host` candidates only when the client's candidate list contains one
-    /// of this server's own reflexive public addresses (indicating both share the same NAT).
-    /// Assembles the server's ICE-style UDP candidate list (`host`, `srflx`, and optional TURN
-    /// `relay` candidates) in response to a client's candidate offer, porting
-    /// `OnlineServer.candidates(clientCandidates)` in `packages/bfe-server/src/online-server.js`.
     pub fn candidates(&self, client_candidates: &[CandidateEntry]) -> Vec<CandidateEntry> {
         if self.config.relay_policy == "always" {
             return Vec::new();

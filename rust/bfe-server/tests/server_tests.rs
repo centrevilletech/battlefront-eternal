@@ -789,10 +789,6 @@ fn local_dedicated_server_healthz_reports_multiplayer_ready_truth_and_sqlite_com
 /// - 1 command (`seq`, `tick`, `KeyW` held in bit 0, `look = [0.5, -0.25]`)
 /// - 2 discrete edges (`kind = 2` team select `1`, `kind = 3` spawn `class = 1, post = 2`)
 /// - 1 piggybacked snapshot acknowledgement (`epoch`, `tick - 1`).
-///
-/// Constructs a valid `BFEI` v2 client entity-input frame (`magic = "BFEI"`, `version = 2`,
-/// `kind = 0x01`) for testing `decode_entity_input` (`world_worker.rs`) and `UdpGameServer::poll`
-/// (`udp_server.rs`) on Channel 1 (`Lane::Input`).
 fn build_sample_bni1_packet(epoch: u32, generation: u32, seq: u32, tick: u32) -> Vec<u8> {
     let mut pkt = Vec::new();
     pkt.extend_from_slice(&INPUT_MAGIC.to_le_bytes());
@@ -890,10 +886,6 @@ fn build_synthetic_publication(
 /// - 1 shared `BNS1` entity snapshot baseline group fanned out to all `native_client_ids`
 /// - Per-client `BNO1` own-player datagrams (`OWN_CORRECTION_SCHEMA = 1`)
 /// - Per-client `input-ack`, `entity-edge-results`, and `gameplay-events` records.
-///
-/// Constructs a multi-client `bfe_sim::Publication` block containing per-slot `bni1` state
-/// snapshots, input acks, and broadcast gameplay events for `client_slots` (up to 16 concurrent
-/// clients) to exercise `LocalDedicatedServer` fan-out under full 16-player load.
 fn build_multi_client_publication(
     native_client_ids: &[u32],
     epoch: u32,
