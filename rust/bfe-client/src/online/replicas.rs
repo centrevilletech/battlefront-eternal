@@ -83,6 +83,8 @@ struct Slot {
     // the tick it fired on (negative: none), how long the flash lasts and
     // its colour and alpha.
     flash: (usize, f64, f64, [f64; 4]),
+    // The charge-up glow playing at his gun, while he holds a charge.
+    glow: Option<u32>,
 }
 /// The player's VIDEO settings that pick a look here. Each effect setting is
 /// Enhanced unless it says "classic", as the browser reads it.
@@ -146,6 +148,8 @@ pub struct Replicas {
     // The first person arms' muzzle flash: the tick of the shot it is for
     // and the seconds it has left.
     eye_flash: (f64, f64),
+    // Each registry weapon's ChargeUpEffect group, where the library has it.
+    charge_effects: Vec<Option<usize>>,
     bound: Index,
     pub visible: usize,
     /// BFE_AI_TRACE: the drawn soldiers' census, beside the world's.
@@ -428,6 +432,7 @@ impl Replicas {
                     charge: 0.,
                     gone: None,
                     flash: (0, -1., 0., [0.; 4]),
+                    glow: None,
                 });
             }
         }
@@ -519,6 +524,11 @@ impl Replicas {
         let jets = Box::new(super::jetpacks::Jetpacks::new(content, bridge, renderer, &combat.effect_names, jets_at)?);
         let arcs = Box::new(super::lightning::Arcs::new(content, bridge, textures, &arc_images, combat.particles.words)?);
         let guns = super::lightning::Guns::new(content)?;
+        let charge_effects = guns
+            .charge_effects
+            .iter()
+            .map(|name| name.as_ref().and_then(|name| combat.effect_names.iter().find(|(known, _)| known == name).map(|(_, group)| *group)))
+            .collect();
         sound.ahead = (guns.ahead.clone(), guns.ids.clone());
         let (collision, world) = (resources.collision.clone(), resources.world);
         bridge.r.core.state.reset();
@@ -599,6 +609,7 @@ impl Replicas {
             preview_held,
             slots,
             eye_flash: (-1., 0.),
+            charge_effects,
             bound: Index::new(POOL),
             visible: 0,
             census: std::env::var_os("BFE_AI_TRACE").map(|_| Box::default()),
@@ -1038,13 +1049,54 @@ impl Replicas {
         self.units.place_actors(places);
 
     }
+    // PlayerCombat.presentCharge's glow for every body drawn: the weapon's
+    // ChargeUpEffect sits at its fire point as drawn (on the first person
+    // arms for the player in that view), its colour and alpha scaled by the
+    // charge, and is gone at once when the charge ends or the gun is not
+    // drawn.
+    fn present_charges(&mut self, own: (u32, u32), prediction: &super::replay::Replay) {
+        for at in 0..self.slots.len() {
+            let charge = if self.slots[at].active { self.charge(at, own, prediction) } else { None };
+            let slot = &self.slots[at];
+            let place = charge.and_then(|(weapon, held, most)| {
+                let group = self.charge_effects.get(weapon).copied().flatten()?;
+                let local = self.guns.muzzles.get(weapon).copied().flatten()?;
+                let hand = if slot.identity == Some(own) && self.first_person.enabled {
+                    self.first_person.hand_node(&self.units)?
+                } else if self.units.output[slot.actor * o::STRIDE + o::GONE] == -1. {
+                    return None;
+                } else {
+                    self.units.actor_node_start(slot.actor) + self.models[slot.model].hand?
+                };
+                let node = hand * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
+                let mut matrix = Matrix4::default();
+                matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
+                let mut point = Matrix4::default();
+                point.make_translation(local[0], local[1], local[2]);
+                matrix.multiply(&point);
+                let (mut position, mut turn, mut scale) = (three::Vector3::default(), three::Quaternion::default(), three::Vector3::default());
+                matrix.decompose(&mut position, &mut turn, &mut scale);
+                Some((group, [position.x, position.y, position.z], [turn.x, turn.y, turn.z, turn.w], (held / if most > 0. { most } else { 1. }).min(1.)))
+            });
+            let glow = self.slots[at].glow.take();
+            self.slots[at].glow = match (place, glow) {
+                (Some((group, position, turn, tint)), glow) => self.combat.glow(glow, group, position, turn, tint),
+                (None, Some(glow)) => {
+                    self.combat.end_glow(glow);
+                    None
+                }
+                (None, None) => None,
+            };
+        }
+    }
     /// The frame's rounds, once its bodies are posed: a bolt leaves the gun
     /// of its shooter as he is drawn now (EntityGameState's `muzzle`: the
     /// fire point of the weapon of his that fires that class of round, on
     /// the first person arms for the player's own in that view; nothing for
     /// a seated or unknown shooter, whose bolt keeps its launch point).
-    pub fn present_ordnance(&mut self, receiver: &Receiver, dt: f64, bridge: &mut Bridge) {
+    pub fn present_ordnance(&mut self, receiver: &Receiver, prediction: &super::replay::Replay, dt: f64, bridge: &mut Bridge) {
         let own = (receiver.own.id as u32, receiver.own.generation as u32);
+        self.present_charges(own, prediction);
         let (bound, slots, units, models, guns, first_person) = (&self.bound, &self.slots, &self.units, &self.models, &self.guns, &self.first_person);
         let muzzle = |shooter: (u32, u32), round: usize| {
             let slot = &slots[*bound.get(&shooter)?];
@@ -1101,8 +1153,11 @@ impl Replicas {
                 }
                 let out = &self.units.output[slot.actor * o::STRIDE..];
                 let mine = slot.identity == Some(own);
-                let hand = self.models[slot.model].hand.map(|hand| {
-                    let node = (self.units.actor_node_start(slot.actor) + hand) * bfe_presentation::layout::unit_node::STRIDE
+                // In first person the player's own gun is the arms' gun.
+                let eyes = mine && self.first_person.enabled && !slot.dead;
+                let hand = if eyes { self.first_person.hand_node(&self.units) } else { self.models[slot.model].hand.map(|hand| self.units.actor_node_start(slot.actor) + hand) };
+                let hand = hand.map(|hand| {
+                    let node = hand * bfe_presentation::layout::unit_node::STRIDE
                         + bfe_presentation::layout::unit_node::WORLD;
                     let mut matrix = Matrix4::default();
                     matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
