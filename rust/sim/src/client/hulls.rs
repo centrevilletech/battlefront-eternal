@@ -134,7 +134,10 @@ impl Session {
         let incoming_seat = self.restore_correction(f, &h, words)?;
         if !continued && same && !self.hull.flying && f.authority_tick > self.authority && f.authority_tick <= self.tick {
             let mut bytes = [0; GROUND_BYTES];
-            ground_bytes(&self.row, seats, true, &mut bytes)?;
+            // The authority body just restored the pilot's seat. The cold
+            // prerequisite block still contains the previous prediction's
+            // seat, so it cannot identify an acknowledged checkpoint.
+            encode_ground(&self.row, &incoming_seat, true, &mut bytes)?;
             continued = self.history.iter().any(|c| c.tick == f.authority_tick && c.bytes == bytes);
         }
         // Ground equality admits the previous continuation, preserving wheel
@@ -424,10 +427,6 @@ impl LookAccess for Look<'_> {
 
 // hullState ignores pilot yaw-rate history: world aimSeats advances it, but
 // replay does not. Preserve its exact nullable tags and little-endian doubles.
-fn ground_bytes(v: &Vehicle, seats: &[f64], normalized: bool, out: &mut [u8; GROUND_BYTES]) -> Result<(), &'static str> {
-    let s = ClientHullSeat::take(seats, &[]);
-    encode_ground(v, &s, normalized, out)
-}
 fn ground_hull_bytes(v: &Vehicle, hull: &Hull, normalized: bool, out: &mut [u8; GROUND_BYTES]) -> Result<(), &'static str> {
     let s = &hull.seats[0]; let p = &hull.pose.as_ref().unwrap().seats[0];
     encode_ground(v, &ClientHullSeat { aim_yaw: s.aim_yaw, pitch: s.pitch, look_yaw: s.look_yaw,

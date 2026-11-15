@@ -137,16 +137,22 @@ impl PostChain {
                 // The read bank stays immutable until the final sharpen has
                 // succeeded. Resolve writes the other bank, never in place.
                 let read = R::HISTORY0 + index(s[S::READ],1); let write = R::HISTORY0 + 1 - index(s[S::READ],1);
-                p.step(P::MOTION,Some(R::MOTION)); p.sampler(U::motion::DEPTH_MAP,R::DEPTH); p.sampler(U::motion::VELOCITY_MAP,R::VELOCITY);
-                p.value(U::motion::INVERSE_JITTERED,&s[S::INVERSE_JITTERED..S::INVERSE_JITTERED+16]);
-                p.value(U::motion::CURRENT_VIEW_PROJECTION,&s[S::CURRENT..S::CURRENT+16]); p.value(U::motion::PREVIOUS_VIEW_PROJECTION,&s[S::PREVIOUS..S::PREVIOUS+16]);
-                p.step(P::RESOLVE,Some(write)); p.sampler(U::resolve::COLOR_MAP,image); p.sampler(U::resolve::MOTION_MAP,R::MOTION); p.sampler(U::resolve::HISTORY_MAP,read);
-                p.value(U::resolve::INPUT_SIZE,&[w,h]); p.value(U::resolve::OUTPUT_SIZE,&[dimension(f[F::OUTPUT_WIDTH]),dimension(f[F::OUTPUT_HEIGHT])]);
+                let (current, previous, still) = reprojection(&matrix(s,S::CURRENT), &matrix(s,S::PREVIOUS), &matrix(s,S::INVERSE_JITTERED));
+                // Avoid the intermediate write/read when each input pixel is
+                // reconstructed at most once. Upscaling keeps the cheaper
+                // shared motion image instead of repeating work per output.
+                let reconstruct = w >= dimension(f[F::OUTPUT_WIDTH]) && h >= dimension(f[F::OUTPUT_HEIGHT]);
+                if !reconstruct {
+                    p.step(P::MOTION,Some(R::MOTION)); p.sampler(U::motion::DEPTH_MAP,R::DEPTH); p.sampler(U::motion::VELOCITY_MAP,R::VELOCITY);
+                    p.value(U::motion::CURRENT_FROM_JITTERED,&current);
+                    p.value(U::motion::PREVIOUS_FROM_JITTERED,&previous);
+                    p.value(U::motion::CAMERA_STILL,&[still as u8 as f64]);
+                }
+                p.step(P::RESOLVE,Some(write)); p.sampler(U::resolve::COLOR_MAP,image); p.sampler(U::resolve::MOTION_MAP,if reconstruct {R::VELOCITY} else {R::MOTION}); p.sampler(U::resolve::HISTORY_MAP,read);
+                p.sampler(U::resolve::DEPTH_MAP,R::DEPTH); p.sampler(U::resolve::VELOCITY_MAP,R::VELOCITY);
+                p.value(U::resolve::CURRENT_FROM_JITTERED,&current); p.value(U::resolve::PREVIOUS_FROM_JITTERED,&previous);
+                p.value(U::resolve::CAMERA_STILL,&[still as u8 as f64]);
                 p.value(U::resolve::JITTER,&s[S::JITTER..S::JITTER+2]); p.value(U::resolve::RESET,&[if s[S::VALID] != 0. {0.} else {1.}]);
-                // Upscaler.resize limits confidence by source-pixel area;
-                // sparse input retains fewer old samples after disocclusion.
-                let ratio = (w/dimension(f[F::OUTPUT_WIDTH])).min(1.);
-                p.value(U::resolve::MAX_WEIGHT,&[(12. * ratio * ratio).clamp(4., 12.)]); p.value(U::resolve::KERNEL,&[2.29]);
                 let jitter = [s[S::JITTER], s[S::JITTER + 1]];
                 p.value(U::resolve::NARROW_WEIGHTS, &temporal_weights(jitter, 2.29));
                 p.value(U::resolve::WIDE_WEIGHTS, &temporal_weights(jitter, 1.2));
@@ -189,6 +195,12 @@ impl PostChain {
     }
 }
 
+// World-space homogeneous division cancels when the next projection divides
+// by w. Compose the camera transforms once instead of at every sampled pixel.
+fn reprojection(current: &math::Mat4, previous: &math::Mat4, inverse: &math::Mat4) -> (math::Mat4, math::Mat4, bool) {
+    (math::mul(current, inverse), math::mul(previous, inverse), current == previous)
+}
+
 fn temporal_weights(jitter: [f64; 2], kernel: f64) -> [f64; 9] {
     std::array::from_fn(|i| {
         let x = (i / 3) as f64 - 1. - jitter[0];
@@ -199,7 +211,53 @@ fn temporal_weights(jitter: [f64; 2], kernel: f64) -> [f64; 9] {
 
 #[cfg(test)]
 mod tests {
-    use super::temporal_weights;
+    use super::*;
+    #[test]
+    fn temporal_resize_retains_history_and_uses_shared_motion_only_for_upscaling() {
+        let mut chain = PostChain::default();
+        chain.input[F::MODE] = M::TEMPORAL as f64;
+        chain.input[F::OUTPUT_WIDTH] = 1280.; chain.input[F::OUTPUT_HEIGHT] = 720.;
+        for program in 0..P::COUNT { chain.input[F::PROGRAMS + program] = program as f64; }
+        let mut steps = vec![0.; post::MAX_STEPS * post::STEP];
+        for (width, height, motion) in [(1280., 720., false), (640., 360., true), (1920., 1080., false)] {
+            chain.input[F::INPUT_WIDTH] = width; chain.input[F::INPUT_HEIGHT] = height;
+            chain.begin();
+            let bank = chain.state[S::READ];
+            let count = chain.plan(&mut steps);
+            let rows = &steps[..count * post::STEP];
+            assert_eq!(rows.chunks_exact(post::STEP).any(|s| s[post::STEP_PROGRAM] == P::MOTION as f64), motion);
+            let resolve = rows.chunks_exact(post::STEP).find(|s| s[post::STEP_PROGRAM] == P::RESOLVE as f64).unwrap();
+            assert!(resolve[post::STEP_UNIFORMS] as usize <= post::MAX_UNIFORMS);
+            chain.complete(count, false);
+            assert_ne!(chain.state[S::READ], bank);
+            assert_eq!(chain.state[S::VALID], 1.);
+        }
+    }
+    #[test]
+    fn composed_reprojection_preserves_perspective_motion() {
+        let uniforms = crate::programs::spec("post-hud/motion").unwrap().uniforms;
+        assert_eq!(uniforms[U::motion::CURRENT_FROM_JITTERED], ("currentFromJittered", 16));
+        assert_eq!(uniforms[U::motion::PREVIOUS_FROM_JITTERED], ("previousFromJittered", 16));
+        assert_eq!(uniforms[U::motion::CAMERA_STILL], ("cameraStill", 1));
+        let mut projection = Matrix4::default();
+        projection.make_perspective(-0.6,0.6,0.4,-0.4,0.5,300.,three::CoordinateSystem::WebGL);
+        let mut view = IDENTITY; view[12]=2.5; view[13]=-1.; view[14]=-10.;
+        let current = math::mul(&projection.elements,&view);
+        view[12]=2.; view[14]=-9.;
+        let previous = math::mul(&projection.elements,&view);
+        let mut shifted=current; shifted[8]-=0.001;
+        let mut inverse=Matrix4{elements:shifted};inverse.invert();
+        let (now,then,still)=reprojection(&current,&previous,&inverse.elements);
+        assert!(!still);
+        for clip in [[-0.3,0.2,0.6,1.],[0.,0.,1.,1.]] {
+            let mut world=math::transform4(&inverse.elements,clip);let w=world[3];
+            for value in &mut world {*value/=w;}
+            for (a,b) in [(math::transform4(&current,world),math::transform4(&now,clip)),(math::transform4(&previous,world),math::transform4(&then,clip))] {
+                for i in 0..2 {assert!((a[i]/a[3]-b[i]/b[3]).abs()<1e-11);}
+            }
+        }
+        assert!(reprojection(&current,&current,&inverse.elements).2);
+    }
     #[test]
     fn temporal_kernel_uses_the_shader_column_order_and_jitter() {
         let weights = temporal_weights([0.25, -0.125], 2.29);

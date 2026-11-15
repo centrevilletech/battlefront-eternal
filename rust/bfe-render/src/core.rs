@@ -100,6 +100,7 @@ pub(crate) enum Value {
 
 pub(crate) struct Program<C: HasContext> {
     pub(crate) program: C::Program,
+    pub(crate) depth_clamp: bool,
     // Effects and retained basic objects can share a catalog program. Their
     // separate value caches are valid only while that program has one owner.
     pub(crate) material_owners: std::cell::Cell<u8>,
@@ -611,7 +612,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
                 uniforms.extend(WORLD_LAMP_UNIFORMS.iter().map(|n| (n.to_string(), gl.get_uniform_location(program, n), None)));
             }
             let p = Program {
-                program, uniforms, material_owners: std::cell::Cell::new(0),
+                program, uniforms, depth_clamp: false, material_owners: std::cell::Cell::new(0),
                 zero_lights: gl.get_uniform_location(program, "zeroLights"),
                 zero_light_count: gl.get_uniform_location(program, "zeroLightCount"),
                 instance_base: gl.get_uniform_location(program, "bfeInstanceBase"),

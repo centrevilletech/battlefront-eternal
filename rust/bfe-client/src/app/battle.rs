@@ -1574,6 +1574,13 @@ impl BattleController {
         // The effect looks the browser reads the same two settings for.
         if let Some(online) = &mut self.scene.online {
             let enhanced = |name: &str| settings.interface.get_string(name) != "classic";
+            let volume = |name: &str| {
+                let v = settings.interface.get_f64(name);
+                if v.is_finite() { v.clamp(0., 1.) } else { 1. }
+            };
+            online.set_volumes(
+                ["masterVolume", "effectsVolume", "ambienceVolume", "musicVolume", "voiceVolume", "interfaceVolume"].map(volume),
+            );
             online.set_looks(crate::online::replicas::Looks {
                 arcs: enhanced("arcCasterEffects"),
                 shields: enhanced("droidekaEffects"),
