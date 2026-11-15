@@ -28,6 +28,8 @@ pub struct Entry {
 pub struct ClassFx {
     thrust: Vec<Entry>,
     damage: Vec<Entry>,
+    // A hover's WaterEffect, raised on the water under it.
+    water: Option<usize>,
     speed: [f64; 2],
     max_health: f64,
     // DeathDustEffect: group, offset from the root, delay.
@@ -76,6 +78,7 @@ impl ClassFx {
         let max_health = bfe_content::odf::num(record.get("settings").unwrap_or(record).get("MaxHealth"), 1000.);
         let fx = Self {
             thrust: list("thrust"),
+            water: fx.get("water").and_then(Value::as_str).and_then(&effect),
             damage: list("damage"),
             speed: [speed.and_then(|s| s.first()).and_then(Value::as_f64).unwrap_or(10.), speed.and_then(|s| s.get(1)).and_then(Value::as_f64).unwrap_or(30.)],
             max_health,
@@ -85,7 +88,7 @@ impl ClassFx {
             chunks: fx.get("chunks").and_then(Value::as_array).is_some_and(|c| !c.is_empty()),
             names: names.iter().map(|n| n.to_lowercase()).collect(),
         };
-        (!fx.thrust.is_empty() || !fx.damage.is_empty() || fx.dust.is_some() || fx.dying.is_some() || fx.chunks).then_some(fx)
+        (!fx.thrust.is_empty() || !fx.damage.is_empty() || fx.water.is_some() || fx.dust.is_some() || fx.dying.is_some() || fx.chunks).then_some(fx)
     }
 }
 
@@ -134,6 +137,8 @@ pub struct Frame<'a> {
     /// Each node's world matrix, `stride` values apart from `at`; none once
     /// the hull is no longer drawn.
     pub nodes: Option<(&'a [f64], usize, usize)>,
+    /// The water's level under the hull's root, when there is water there.
+    pub water: Option<f64>,
 }
 
 struct Want {
@@ -169,6 +174,8 @@ pub struct HullEffects {
     pub started: u64,
     pub seen: u64,
     pub lowest: f64,
+    /// Walker footfalls so far.
+    pub stomps: u64,
 }
 
 fn place(nodes: &[f64], stride: usize, at: usize, node: usize, offset: &[f64; 3]) -> Option<([f64; 3], [f64; 4])> {
@@ -283,6 +290,13 @@ impl HullEffects {
             return;
         };
         let speed = hull.velocity.iter().map(|v| v * v).sum::<f64>().sqrt();
+        // updateWater: within WATER_HEIGHT (4 m) of the surface, its spray
+        // on the water under the root, moving with the hull.
+        if let (Some(group), Some(level), Some(root)) = (fx.water, hull.water, nodes.get(at..at + 16)) {
+            if (root[13] - level).abs() < 4. {
+                self.wanted.push(Want { key: hull.key << 8 | 64, group, position: [root[12], level, root[14]], turn: [0., 0., 0., 1.], velocity: hull.velocity, scale: 1., inherit: 0. });
+            }
+        }
         if hull.thrusting {
             for (i, e) in fx.thrust.iter().enumerate() {
                 if let Some((position, turn)) = place(nodes, stride, at, e.node, &e.offset) {
@@ -301,7 +315,12 @@ impl HullEffects {
         }
     }
 
-    fn wreck(&mut self, fx: &ClassFx, body: &Body) {
+    /// An effect that goes off once where it is placed (a walker's stomp).
+    pub fn shot(&mut self, group: usize, position: [f64; 3], turn: [f64; 4]) {
+        self.stomps += 1;
+        self.shots.push((group, position, turn));
+    }
+        fn wreck(&mut self, fx: &ClassFx, body: &Body) {
         if fx.chunks && !body.nodes.is_empty() {
             self.wrecks.push(Wreck {
                 class: fx.class,
@@ -320,6 +339,11 @@ impl HullEffects {
             live.2 = false;
         }
         for want in self.wanted.drain(..) {
+            // `if (!handle || handle.done) handle = play(...)`: a burnt-out
+            // effect (a spark's few bursts) starts again.
+            if let Some(at) = self.live.iter().position(|(key, handle, _)| *key == want.key && !effects.playing(*handle)) {
+                self.live.swap_remove(at);
+            }
             match self.live.iter_mut().find(|(key, _, _)| *key == want.key) {
                 Some(live) => {
                     live.2 = true;

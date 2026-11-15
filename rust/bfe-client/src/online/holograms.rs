@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 use three::{Matrix4, Quaternion, Vector3};
 
 // Holograms drawn at once: a map has a handful of posts.
-pub const HOLOGRAMS: usize = 24;
+pub const HOLOGRAMS: usize = 64;
 // A hologram's draws: beam, flare, halo and logo.
 const PARTS: usize = 4;
 /// Matrices of the effect bank this owner writes, counted back from its end.
@@ -37,6 +37,17 @@ struct Post {
     index: usize,
     name: String,
     anchor: [f64; 3],
+}
+struct Pad {
+    building: usize,
+    anchor: [f64; 3],
+    look: Look,
+    color: [f64; 3],
+    size: f64,
+    fade: f64,
+    flicker: f64,
+    beam: Option<Model>,
+    icons: Vec<Model>,
 }
 // A renderer model with the material values it starts from.
 struct Model {
@@ -55,6 +66,7 @@ struct Fields {
 pub struct Holograms {
     owner: Posts,
     posts: Vec<Post>,
+    pads: Vec<Pad>,
     // neutral, friendly, enemy, locals, as Teams::color_relation numbers them.
     colors: [[f64; 3]; 4],
     height: f64,
@@ -88,7 +100,18 @@ pub fn textures(content: &BattleContent) -> Vec<String> {
             names.push(texture.to_string());
         }
     }
+    for (_, desc) in pad_descriptors(content) {
+        let Some(name) = desc.get("unbuilt").and_then(|u|u.get("holo")).and_then(|h| h.get("image")).and_then(Value::as_str) else { continue };
+        for part in content.content.props_models.as_ref().and_then(|m| m.get(name)).into_iter().flat_map(|m| m.iter()) {
+            if let Some(name) = part.field("texture").and_then(Value::as_str) { names.push(name.into()); }
+        }
+    }
     names
+}
+fn pad_descriptors(content: &BattleContent) -> Vec<(usize, &Value)> {
+    let Some(data) = &content.content.battle.props else { return vec![] };
+    bfe_sim::world::admit::rows::props::live_sources(&content.content.battle).into_iter().enumerate()
+        .filter_map(|(id,source)|data.get("instances")?.at(source).filter(|d|d.get("unbuilt").and_then(|u|u.get("holo")).is_some()).map(|d|(id,d))).collect()
 }
 // The mission's teams with the logo model their side shows
 // (world.commandPost.logos by the team's lowercased name).
@@ -150,6 +173,7 @@ impl Holograms {
             light_radius: map["hologram"]["lightRadius"].as_f64().unwrap_or(0.),
             owner: Posts::new(Descriptor { look, posts: listed }),
             posts,
+            pads: Vec::new(),
             beam: None,
             flare: None,
             halo: None,
@@ -174,7 +198,7 @@ impl Holograms {
             }
         }
         bridge.fx_reserve((data + HOLOGRAMS * PARTS * holograms.fields.length) as u32);
-        if holograms.posts.is_empty() {
+        if holograms.posts.is_empty() && pad_descriptors(content).is_empty() {
             return Ok(holograms);
         }
         let length = holograms.fields.length;
@@ -234,6 +258,33 @@ impl Holograms {
             }
             holograms.logos[team] = Some((model(bridge, source, image(texture))?, texture.eq_ignore_ascii_case(LOGO_TEXTURE)));
         }
+        for (building, instance) in pad_descriptors(content).into_iter().take(HOLOGRAMS.saturating_sub(holograms.posts.len())) {
+            let Some(desc) = instance.get("unbuilt") else { continue };
+            let Some(raw) = desc.get("holo") else { continue };
+            let look: Look = serde_json::from_value(bfe_content_native::loader::authored_json(raw)).unwrap_or_default();
+            let mut anchor = std::array::from_fn(|i| desc.get("hologram").and_then(|a|a.at(i)).and_then(Value::as_f64).unwrap_or(0.));
+            if let Some(pad) = instance.get("trap").and_then(|t|t.get("pad")) {
+                let matrix = std::array::from_fn(|i|instance.get("matrix").and_then(|a|a.at(i)).and_then(Value::as_f64).unwrap_or(0.));
+                let at = std::array::from_fn(|i|pad.get("at").and_then(|a|a.at(i)).and_then(Value::as_f64).unwrap_or(0.));
+                let matrix = bfe_content_native::pad::placement(matrix,at,&content.content.collision)?;
+                let mut p = Vector3::new(0.,pad.get("hologram").and_then(|a|a.at(1)).and_then(Value::as_f64).unwrap_or(0.25),0.);
+                p.apply_matrix4(&Matrix4 { elements:matrix }); anchor = [p.x,p.y,p.z];
+            }
+            let color = std::array::from_fn(|i| raw.get("color").and_then(|a|a.at(i)).and_then(Value::as_f64).unwrap_or(255.)/255.);
+            let beam = bridge.actor_source(&serde_json::json!({"kind":"cylinder","height":look.height}).to_string(),&[],&[])?
+                .map(|source|model(bridge,source,gradient)).transpose()?;
+            let mut icons = Vec::new();
+            let name = raw.get("image").and_then(Value::as_str).unwrap_or("");
+            for part in content.content.props_models.as_ref().and_then(|m| m.get(name)).into_iter().flat_map(|m| m.iter()) {
+                let record = serde_json::json!({"kind":"model","parts":[{"vertexOffset":0,"vertexCount":part.count(),
+                    "indexOffset":0,"indexCount":part.index.len()}]});
+                if let Some(source) = bridge.actor_source(&record.to_string(),&part.data,&part.index)? {
+                    icons.push(model(bridge,source,image(part.field("texture").and_then(Value::as_str).unwrap_or("")))?);
+                }
+            }
+            holograms.pads.push(Pad { building,anchor,look,color,size:raw.get("size").and_then(Value::as_f64).unwrap_or(1.),
+                fade:0.,flicker:1.,beam,icons });
+        }
         Ok(holograms)
     }
     /// One past the last float of effect data this owner writes.
@@ -284,12 +335,14 @@ impl Holograms {
         camera: &[f64],
         world: &[f64; 16],
         owners: &dyn Fn(&str) -> Option<(u8, bool)>,
+        unbuilt: &dyn Fn(usize) -> bool,
+        can_repair: bool,
         relation: &dyn Fn(usize) -> usize,
         lights: &mut super::lights::SceneLights,
         bridge: &mut Bridge,
     ) {
         self.drawn = 0;
-        if self.posts.is_empty() {
+        if self.posts.is_empty() && self.pads.is_empty() {
             return;
         }
         self.time += dt;
@@ -379,6 +432,37 @@ impl Holograms {
                 self.draw(bridge, &model, &matrix, camera, color, x[f::IMAGE], scroll);
                 self.logos[team] = Some((model, scrolls));
             }
+        }
+        // BuildHologram uses the same draw resources, with its authored icon
+        // and colour. Only a living soldier carrying a repair tool sees it.
+        for index in 0..self.pads.len() {
+            let pad = &mut self.pads[index];
+            let on = unbuilt(pad.building);
+            pad.fade = if on { (pad.fade + dt / pad.look.fade_in_time.max(1e-3)).min(1.) } else { 0. };
+            let mut random = || {
+                self.seed = self.seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+                (self.seed >> 11) as f64 / (1u64 << 53) as f64
+            };
+            if random() < pad.look.flicker_rate * 60. * dt {
+                pad.flicker = pad.look.flicker_alpha[0] + random() * (pad.look.flicker_alpha[1] - pad.look.flicker_alpha[0]);
+            }
+            let distance = eye.iter().zip(pad.anchor).map(|(a,b)|(a-b)*(a-b)).sum::<f64>().sqrt();
+            let reach = ((pad.look.visible_distance-distance)/(pad.look.visible_distance*0.1)).clamp(0.,1.);
+            if !on || !can_repair || reach <= 0. { continue; }
+            let (anchor,color,size) = (pad.anchor,pad.color,pad.size);
+            let (height,angle) = (pad.look.height,self.time*pad.look.rotate_rate*std::f64::consts::TAU);
+            let (beam_alpha,icon_alpha) = (0.35*pad.look.beam_intensity*pad.fade*reach,pad.look.image_intensity*pad.flicker*pad.fade*reach);
+            let beam = pad.beam.take();
+            let icons = std::mem::take(&mut pad.icons);
+            if let Some(beam) = beam {
+                let mut matrix = Matrix4::default(); matrix.make_translation(anchor[0],anchor[1],anchor[2]);
+                self.draw(bridge,&beam,&matrix,camera,color,beam_alpha,0.);
+                self.pads[index].beam = Some(beam);
+            }
+            let mut turn = Quaternion::default(); turn.set_from_axis_angle(&Vector3::new(0.,1.,0.),angle);
+            let mut matrix = Matrix4::default(); matrix.compose(&Vector3::new(anchor[0],anchor[1]+height,anchor[2]),&turn,&Vector3::new(size,size,size));
+            for icon in &icons { self.draw(bridge,icon,&matrix,camera,color,icon_alpha,0.); }
+            self.pads[index].icons = icons;
         }
     }
 }

@@ -12,7 +12,7 @@ pub mod placed;
 pub mod foliage;
 pub mod water;
 
-mod pad;
+pub mod pad;
 
 pub mod fingerprint;
 

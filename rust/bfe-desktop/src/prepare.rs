@@ -1,17 +1,5 @@
 //! Prepared content version checks, toolchain paths, progress estimation, and
 //! subprocess driver (`tools/prepare.py`).
-//!
-//! Mirrors the desktop host and the desktop host.
-//!
-//! Note on `ContentVersion`:
-//! `tools/content-version.json` is the single shared source of truth for both
-//! the Python preparer and the desktop client. This module never defines a
-//! hardcoded `Default` for `ContentVersion`. At runtime, the client loads
-//! `<tools_dir>/content-version.json` via [`read_content_version`], where a
-//! missing or unparsable file is returned as an explicit error. For checkout
-//! builds and tests, [`checkout_content_version`] parses the compile-time
-//! embedded `include_str!("../../../tools/content-version.json")` so moving or
-//! corrupting the file breaks the build immediately.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;

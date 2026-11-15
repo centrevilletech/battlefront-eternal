@@ -24,27 +24,12 @@ cargo build --manifest-path rust/Cargo.toml -p bfe-client --bin bfe-client
 ```text
 USAGE:
     bfe-client [CONTENT_DIR] [OPTIONS]
-    bfe-client [CONTENT_DIR] --local [<MISSION>] [LOCAL_OPTIONS]
-    bfe-client [CONTENT_DIR] --join <TARGET> [ONLINE_OPTIONS]
-    bfe-client [CONTENT_DIR] --map <MAP> [INSPECT_OPTIONS]
-    bfe-client <SESSION_DIR> [REPLAY_OPTIONS]
 ```
 
 - **Default (`bfe-client [CONTENT_DIR]`)**: Runs the standalone native game
   through the startup loader, first-run content/update gate (when needed), main
   menu shell, `bfe-interface` options pages, Instant Action playlists, and
   multiplayer server browser / local server hosting.
-- **`--local [<MISSION>]`**: Skips the shell menu and launches an Instant Action
-  battle directly (for example `--local nab2` or `--local "map=nab2&era=cw"`).
-  Pressing `Quit to Main Menu` from the in-battle pause menu returns to the
-  shell rather than exiting the process.
-- **`--join <TARGET>`**: Joins an online `bfeserver` directly (`HOST:PORT` or
-  `master:URL#ID`). When launched inside the standalone shell, disconnecting or
-  leaving an online match returns to the Multiplayer server browser.
-- **`--map <MAP>`**: Admits a static map inspection scene with a free camera
-  (`--seconds <S>`, `--screenshot <PNG>`).
-- **`<SESSION_DIR>`**: Replays a version-2 recorded native session archive
-  against prepared content (`--pcm STEREO_F32LE`, `--sound ARCHIVE_DIR`).
 - **Common flags**:
   - `--content-dir <DIR>` (or `BFE_CONTENT_DIR`): Prepared content root.
   - `--no-audio`: Disables `cpal` audio device initialization.
@@ -130,28 +115,13 @@ and publication boundary used by the online path:
   the render thread (`steadyFrameAllocationsAfterWarmup == 0`), tracked by the
   counting `GlobalAlloc` wrapper in `rust/bfe-client (main.rs)`.
 
-## Direct online sessions, map inspection, and recorded-session replay
+## Online sessions and content
 
-`bfe-client --join HOST:PORT CONTENT_DIR` reads the server's public battle
-information, loads that mission, and authenticates `BFE-UDP/1` with a persistent
-Ed25519 identity (`bfe-online::PlayerIdentity`). Online sessions receive
-snapshots directly into the Rust network owner (`bfe_client::online::client::OnlineClient`)
-and sample its retained timeline from the presentation phases without creating a
-local authoritative world.
-
-`bfe-content-native::Loader` reads prepared maps, sides, and common files using
-the shared native definition, clip, model, collision, and BVH loaders, then
-constructs visible geometry, material descriptors, texture resources, and
-unit/first-person presentation content.
-
-`bfe-client --map MAP CONTENT_DIR --seconds 20` admits an inspection scene from
-prepared files with a free camera, opaque near/far world and terrain, sky layers,
-initial built/unbuilt prop rigs, grounded trap pads, placed foliage, and Low
-water or Classic ocean surfaces.
-
-`bfe-client SESSION_DIR CONTENT_DIR` replays version-2 recorded session archives.
-`BFE_SESSION_VALIDATE=1` validates recorded renderer submissions and
-`BFE_SESSION_GL_CHECK=1` checks GL errors after each pass.
+Online sessions authenticate `BFE-UDP/1` with a persistent Ed25519 identity
+(`bfe-online::PlayerIdentity`) and receive snapshots directly into the Rust
+network owner (`bfe_client::online::client::OnlineClient`) without creating a
+local authoritative world. `bfe-content-native::Loader` reads prepared maps,
+sides and common files.
 
 ## Hosting from the native client (`HostController`)
 

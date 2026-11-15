@@ -24,6 +24,7 @@ pub struct Cameras {
     zoom_eyes: Vec<bool>,
     weapon_channels: Vec<usize>,
     pub eye_view: bool,
+    pub scoped_eye: bool,
     was_dead: bool,
     death_serial: u32,
     death_hfov: f64,
@@ -39,6 +40,8 @@ pub struct DrawnDeath {
     pub chest: Option<[f64; 3]>,
     /// The killer's actor root, while he is drawn.
     pub killer_feet: Option<[f64; 3]>,
+    /// A creature holds the player; its flag selects the death view immediately.
+    pub held_camera: Option<bool>,
 }
 struct Queries {
     collision: Collision,
@@ -117,6 +120,7 @@ impl Cameras {
             zoom_eyes,
             weapon_channels,
             eye_view: false,
+            scoped_eye: false,
             was_dead: false,
             death_serial: 0,
             death_hfov: 0.837758,
@@ -141,7 +145,10 @@ impl Cameras {
         dt: f64,
     ) -> f64 {
         let lease = receiver.own.mount;
-        camera.set_flight_mode(receiver.own.flight.is_some());
+        if drawn.held_camera.is_some() {
+            camera.first_person = false;
+        }
+        camera.set_flight_mode(receiver.in_aircraft());
         // PlayerCombat.usesEyeView also selects eyes for an authored scoped
         // weapon; zooming must not change the player's saved perspective.
         let scoped_eye = receiver.own.zoom > 1.
@@ -158,6 +165,7 @@ impl Cameras {
                 .and_then(|weapon| self.zoom_eyes.get(weapon.def.0.saturating_sub(1) as usize))
                 .copied()
                 .unwrap_or(false);
+        self.scoped_eye = scoped_eye;
         self.eye_view = receiver.own.alive && receiver.own.remote.is_none() && (camera.first_person || scoped_eye);
         hulls.hidden = None;
         turrets.hidden = None;
@@ -250,7 +258,8 @@ impl Cameras {
         }
         // game.js startDeathCamera: while the dead soldier's corpse remains in
         // the world (4 s linger, non-walker), DeathShot frames the body and killer.
-        let dead_active = receiver.own.dead && !receiver.own.removed && !receiver.own.walker;
+        let dead_active = (receiver.own.dead || drawn.held_camera == Some(true))
+            && !receiver.own.removed && !receiver.own.walker;
         if dead_active && !self.was_dead {
             self.death_serial = self.death_serial.wrapping_add(1);
             // startDeathCamera measures the world's camera (simulationCamera),
@@ -548,6 +557,7 @@ mod mounted_tests {
             zoom_eyes: vec![],
             weapon_channels: vec![],
             eye_view: false,
+            scoped_eye: false,
             was_dead: false,
             death_serial: 0,
             death_hfov: 0.837758,

@@ -34,7 +34,7 @@ impl Client {
         Ok(Self {
             receiver,
             replay,
-            sender: Box::new(Sender::new(&resources.turns)),
+            sender: Box::new({let mut sender=Sender::new(&resources.turns);sender.aim_scene=Some(resources.shot_aim.clone());sender}),
             endpoint,
             camera: Box::new(camera),
             rotation_probe: None,
@@ -135,7 +135,7 @@ impl World for Client {
         self.receiver.own.generation as u32
     }
     fn step(&mut self, c: &ClientCommand, look: &ClientLook, flight: &ClientFlightCommand, actions: &ViewActions, _: f64) -> Result<(), String> {
-        self.camera.set_flight_mode(self.receiver.own.flight.is_some());
+        self.camera.set_flight_mode(self.receiver.in_aircraft());
         if actions.perspective { self.camera.first_person = !self.camera.first_person; }
         let mut command = c.clone();
         command.first_person = Some(self.camera.first_person);

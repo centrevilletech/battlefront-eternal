@@ -4,19 +4,6 @@
 //! of its own it keeps on them (a control's steering bag, a hull's decay,
 //! an attack pattern's vehicle state), and [`World`], every call it makes
 //! across its boundary.
-//!
-//! The JavaScript reaches these as live objects; the Rust names each by an
-//! [`Obj`], the caller's identity token for the object (a unit, a hull, a
-//! registry entry, a lease, a controller, a post, a hint), and reads it
-//! through the trait's views. Where the JavaScript's `?.` or `??` can find
-//! a field missing the view has an `Option` (`None`: undefined or null).
-//!
-//! The calls are the methods src/ai/classic/vehicles/world.js holds (other
-//! packages' module functions and reads worked out when asked) and the
-//! methods of live objects the vehicle AI calls (the collision world, the
-//! registry, the navigation, the seats, the controllers, helpers and
-//! trackers), each as the JavaScript makes it; the capture's labels
-//! (tools/sim-capture/vehicle-ai.mjs) name them the same.
 
 use three::Vector3;
 use std::rc::Rc;

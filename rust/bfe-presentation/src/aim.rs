@@ -49,7 +49,7 @@ impl View {
         let basis=Basis::new::<M>(self.position,self.yaw,self.pitch,self.posture,self.air);
         let eye=if self.walker{V::new(self.feet.x,self.feet.y+if self.rolled{1.0}else{self.eye_height},self.feet.z)}
             else{basis.eye(self.feet,self.position,self.posture,self.air,self.zoom)};
-        let needs_reach=self.camera.is_some()&&!self.uses_eye;let mut from=V::default();
+        let needs_reach=self.camera.is_some()&&!self.uses_eye&&!self.walker;let mut from=V::default();
         if let Some(camera)=self.camera.filter(|_|needs_reach){
             let behind=sub(camera,basis.pivot).dot(&basis.direction);from=plus(camera,basis.direction,-behind);
             let posture=if self.air{0}else{self.posture.min(2)};from=plus(from,basis.direction,self.track_offsets[posture]+2.0);
@@ -65,5 +65,27 @@ impl CommandAim {
         let mut direction=self.from;direction.add_scaled_vector(&self.basis.direction,reach);
         direction.sub(&self.basis.origin).normalize();self.yaw=M::atan2(direction.x,direction.z);
         self.pitch=M::asin(v8math::max(-1.0,v8math::min(1.0,direction.y)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cameras::math::V8;
+    #[test]
+    fn converged_fire_matches_the_live_camera_ray_and_eye_views_keep_body_aim() {
+        let mut view=View {position:V::new(-156.68114711235845,-50.04499710083008,87.94857544127457),
+            camera:Some(V::new(-156.68114711235845,-47.69683062868016,91.40538227979053)),
+            yaw:std::f64::consts::PI,pitch:-0.07,track_offsets:[3.5;3],..Default::default()};
+        let mut aim=view.sample::<V8>();aim.resolve::<V8>(13.948355251622601);
+        assert!((aim.yaw - -3.138465488710734).abs()<1e-12);
+        assert!((aim.pitch - -0.0437119141364).abs()<1e-12);
+        for posture in 0..3 {
+            view.posture=posture;view.uses_eye=true;
+            let mut eye=view.sample::<V8>();eye.resolve::<V8>(5.);
+            assert_eq!((eye.yaw,eye.pitch),(view.yaw,view.pitch));
+        }
+        view.uses_eye=false;view.walker=true;
+        assert!(!view.sample::<V8>().needs_reach);
     }
 }

@@ -322,3 +322,28 @@ fn oversized_source_counts_clip_and_reused_radar_leases_forget_prior_owners() {
     assert_eq!(h.radar[1].shots[0].1, 0.1);
     h.shot(usize::MAX, 1., 1.);
 }
+
+#[test]
+fn on_foot_only_the_primary_reticle_draws_and_takes_the_target_colour() {
+    let mut h = model();
+    h.input[H::RETICLE] = 1.;
+    h.input[H::RETICLE_X] = 0.5;
+    h.input[H::RETICLE_Y] = 0.4;
+    h.input[H::TARGET_RELATION] = 1.;
+    h.input[H::SECOND_RELATION] = 4.;
+    for (ch, texture) in [(2, 20.), (3, 21.)] {
+        let o = WEAPONS + ch * W::WORDS;
+        h.input[o + W::ID] = ch as f64;
+        h.input[o + W::RETICLE] = texture;
+    }
+    h.batch.begin();
+    h.reticle();
+    assert_eq!(h.batch.count, 1, "a soldier's secondary weapon adds no second reticle");
+    assert_eq!(h.batch.draws[0].texture, 20);
+    assert_eq!(h.batch.tint[..3], [GREEN[0] as f32, GREEN[1] as f32, GREEN[2] as f32]);
+    h.input[H::VEHICLE] = 1.;
+    h.batch.begin();
+    h.reticle();
+    assert_eq!(h.batch.count, 2, "a vehicle seat shows both channels' reticles");
+    assert_eq!(h.batch.tint[16..19], [RETICLE[0] as f32, RETICLE[1] as f32, RETICLE[2] as f32]);
+}

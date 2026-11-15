@@ -7,7 +7,7 @@ use bfe_content_native::BattleContent;
 use bfe_sim::{
     client::ClientPrediction,
     collision::CollisionOwner,
-    gen::{ClientFrame, ClientResult, Soldier},
+    gen::{ClientFrame, ClientResult, ClientShot, Soldier},
 };
 use std::{cell::RefCell, rc::Rc};
 pub const COMMANDS: usize = 128;
@@ -31,6 +31,9 @@ pub struct History {
     // Replay holds them through ticks that have no pending command of their own.
     held: u32,
     held_generation: f64,
+    // The newest command sent had the primary trigger down, and its life.
+    firing: bool,
+    firing_generation: f64,
 }
 impl Default for History {
     fn default() -> Self {
@@ -43,6 +46,8 @@ impl Default for History {
             refused: 0,
             held: 0,
             held_generation: -1.,
+            firing: false,
+            firing_generation: -1.,
         }
     }
 }
@@ -66,7 +71,13 @@ impl History {
     pub fn held(&self, generation: f64) -> u32 {
         if self.held_generation == generation { self.held } else { 0 }
     }
+    /// The primary trigger is down in the newest command of this life.
+    pub fn firing(&self, generation: f64) -> bool {
+        self.firing && self.firing_generation == generation
+    }
     pub fn push(&mut self, c: &ClientCommand, look: &ClientLook, flight: &ClientFlightCommand, tick: f64, generation: f64, sequence: f64) {
+        self.firing = c.held & (1 << bfe_sim::gen::ClientHeld::Primary as u8) != 0;
+        self.firing_generation = generation;
         if self.count == COMMANDS {
             self.at = (self.at + 1) % COMMANDS;
             self.count -= 1;
@@ -130,6 +141,28 @@ impl History {
         (start as u32, self.count as u32)
     }
 }
+/// A round the player's own weapon fired in this frame's replay, ahead of
+/// the world's answer (WeaponPrediction's shot notice): the tick it fired
+/// on, the weapon (its place in the battle's weapon list), the trigger, the
+/// spread it drew and his body as it fired.
+pub struct Shot {
+    pub tick: f64,
+    pub weapon: usize,
+    // The charge level it fired at (0: none; n: the weapon's nth charge).
+    pub level: usize,
+    pub button: u32,
+    pub spread: [f64; 2],
+    pub position: [f64; 3],
+    pub aim: [f64; 2],
+    // Where the shot was sent to aim (the command's fire aim: converged on
+    // the point under the crosshair in third person), which the world's
+    // round follows; the body's own aim when no command carried one.
+    pub fire: [f64; 2],
+    pub posture: usize,
+    pub air: bool,
+    // A droideka's: from its eye, a metre up, not a soldier's gun origin.
+    pub walker: bool,
+}
 // ClientPrediction is the sole private gameplay continuation. This adapter
 // retains only prerequisites, acknowledged commands and generated results.
 // It cannot spawn entities, publish authoritative state or run a World tick.
@@ -153,11 +186,21 @@ pub struct Replay {
     display: super::own_view::Display,
     life: [f64; 3],
     pub fleet: Box<super::hull_replay::Fleet>,
+    props: super::props::Props,
     pub ticks: u64,
     weapon_at: usize,
     weapon_count: usize,
     arsenal: Box<super::checkpoint::Arsenal>,
     mounted: Box<super::checkpoint::Mounted>,
+    /// The rounds this frame's replay fired for the first time.
+    pub shots: Vec<Shot>,
+    // Each weapon's ShotDelay in ticks, by its place in the weapon list, and
+    // the tick a droideka's repeater may next be shown firing: a droideka's
+    // weapons are not replayed here, so its bolts are drawn from the held
+    // trigger at the weapon's own rate until the world's copies arrive.
+    shot_delays: Vec<f64>,
+    walker_next: f64,
+    walker_ahead: bool,
 }
 impl Replay {
     pub fn new(content: &BattleContent) -> Result<Self, String> {
@@ -192,6 +235,7 @@ impl Replay {
             s.put(&mut row, &mut Vec::new());
             classes[id as usize] = Some(row);
         }
+        let props = super::props::Props::new(&mut collision.borrow_mut(), installed.world, &content.content)?;
         let mut owner = Box::new(ClientPrediction::default());
         owner.configure_actor(&[0.], &mut collision.borrow_mut().state).map_err(str::to_string)?;
         let fleet = Box::new(super::hull_replay::Fleet::new(content, &mut collision.borrow_mut(), installed.world)?);
@@ -202,6 +246,7 @@ impl Replay {
         let mounted = Box::new(super::checkpoint::Mounted::new(&defs, &mut owner, None, &buildings)?);
         owner.reserve_native(4096, 32);
         Ok(Self {
+            props,
             fleet,
             arsenal,
             mounted,
@@ -216,6 +261,10 @@ impl Replay {
             ticks: 0,
             weapon_at: 0,
             weapon_count: 0,
+            shots: Vec::with_capacity(32),
+            shot_delays: defs.weapons.iter().map(|weapon| weapon.record.get("ShotDelay").and_then(bfe_content::Value::as_f64).unwrap_or(0.) * 60.).collect(),
+            walker_next: 0.,
+            walker_ahead: false,
         })
     }
     // HUD, arms and audio borrow the same completed arsenal. Iteration
@@ -231,6 +280,12 @@ impl Replay {
             .take(self.weapon_count)
             .map(|row| bfe_sim::gen::Weapon::take(row, &[]))
             .chain(self.fleet.weapons())
+    }
+    /// The player's own shots are shown from this client's own firing (the
+    /// replayed arsenal, or a droideka's held trigger), so the world's
+    /// record of each is not shown again.
+    pub fn ahead(&self) -> bool {
+        self.body.is_some() || self.walker_ahead
     }
     pub fn selected(&self) -> [f64; 2] {
         if self.fleet.identity.is_some() {
@@ -257,6 +312,8 @@ impl Replay {
         // publications are admitted only by this frame's qualified mode.
         self.body = None;
         self.displayed = None;
+        self.shots.clear();
+        self.walker_ahead = false;
         let interval = self.before.take();
         let life = [r.epoch, r.own.id, r.own.generation];
         if self.life != life {
@@ -265,6 +322,7 @@ impl Replay {
         }
         self.life = life;
         self.weapon_count = 0;
+        self.props.frame(r, &mut collision_mut(&self.collision));
         self.fleet.frame(r, sender, &mut self.words, &mut collision_mut(&self.collision))?;
         if r.own.remote.is_some() {
             return Ok(());
@@ -311,6 +369,33 @@ impl Replay {
             let (at, _) = self.arsenal.write(&mut self.owner.output);
             self.weapon_at = at as usize;
             self.weapon_count = self.arsenal.rows.len();
+            // The repeater in hand (the first weapon), deployed and not
+            // overheated, with the trigger down: one bolt every ShotDelay.
+            let repeater = self.weapons().next();
+            if let Some(weapon) = repeater {
+                let index = weapon.def.0.saturating_sub(1) as usize;
+                let delay = self.shot_delays.get(index).copied().unwrap_or(0.);
+                self.walker_ahead = delay > 0.;
+                if !sender.history.firing(r.own.generation) {
+                    self.walker_next = r.latest + weapon.wait.max(0.) * 60.;
+                } else if delay > 0. && r.own.walker_mode < 11 && !weapon.overheated && r.latest >= self.walker_next {
+                    let aim = sender.fire_aim.unwrap_or([sender.yaw, sender.pitch]);
+                    self.shots.push(Shot {
+                        tick: r.latest + 1.,
+                        weapon: index,
+                        level: 0,
+                        button: 0,
+                        spread: [0.; 2],
+                        position: r.own.position,
+                        aim,
+                        fire: aim,
+                        posture: 0,
+                        air: false,
+                        walker: true,
+                    });
+                    self.walker_next = r.latest.max(self.walker_next) + delay;
+                }
+            }
             return Ok(());
         }
         if !r.own.alive || r.own.body_schema != 6 || r.own.vehicle != 0. {
@@ -433,6 +518,38 @@ impl Replay {
                     self.before = interval;
                 }
                 self.ticks += result.ticks as u64;
+                // Each notice is followed by the body as it fired.
+                let stride = ClientShot::WORDS + Soldier::WORDS;
+                let mut shots = std::mem::take(&mut self.shots);
+                for n in 0..result.shots_count as usize {
+                    let at = result.shots_at as usize + n * stride;
+                    let Some(row) = self.owner.output.get(at..at + stride) else {
+                        break;
+                    };
+                    let shot = ClientShot::take(row, &[]);
+                    let Some(weapon) = self.weapons().nth(shot.weapon as usize) else {
+                        continue;
+                    };
+                    // Kind 0 is a round; repairs and melee swings fire none.
+                    if shot.kind != 0 || shots.len() == shots.capacity() {
+                        continue;
+                    }
+                    let body = Soldier::take(&row[ClientShot::WORDS..], &[]);
+                    shots.push(Shot {
+                        tick: shot.tick,
+                        weapon: weapon.def.0.saturating_sub(1) as usize,
+                        level: shot.level as usize,
+                        button: shot.button,
+                        spread: [shot.yaw, shot.pitch],
+                        position: body.position,
+                        aim: [body.aim_yaw, body.aim_pitch],
+                        fire: sender.fire_aim.unwrap_or([body.aim_yaw, body.aim_pitch]),
+                        posture: body.posture as usize,
+                        air: body.air.is_some(),
+                        walker: false,
+                    });
+                }
+                self.shots = shots;
             }
         }
         Ok(())

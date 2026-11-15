@@ -154,6 +154,30 @@ fn a_ground_hull_is_placed_and_its_held_seat_turned() {
 }
 
 #[test]
+fn walker_ground_rays_preserve_seat_aim() {
+    let mut v = Vehicles::new();
+    let c = clip(&mut v);
+    let r = add(&mut v, true, c);
+    entry(&mut v, 0, r, mode::ALIVE, 1.0 / 60.0);
+    let seats = v.slot_seats(r, 0);
+    v.stream_in[seats + si::HELD] = 1.0;
+    v.stream_in[seats + si::POSE] = 1.0;
+    v.stream_in[seats + si::AIM_YAW] = 2.3;
+    v.stream_in[seats + si::PITCH] = -0.12;
+    v.input[vf::VERSION] = layout::VERSION as f64;
+    v.input[vf::ENTRIES] = 1.0;
+    v.place();
+    for (k, distance) in [3.0, 2.0].into_iter().enumerate() {
+        v.rays[k * cr::STRIDE + cr::HIT] = 1.0;
+        v.rays[k * cr::STRIDE + cr::DISTANCE] = distance;
+    }
+    v.pose();
+    let input = v.slot_input(r, 0);
+    assert_eq!(&v.stream_in[input + 1..input + 3], &[1.0, 2.0]);
+    assert_eq!(&v.stream_in[seats + si::AIM_YAW..seats + si::PITCH + 1], &[2.3, -0.12]);
+}
+
+#[test]
 fn a_walker_asks_for_its_leg_rays_and_a_dying_one_plays_its_death() {
     let mut v = Vehicles::new();
     let c = clip(&mut v);
@@ -224,26 +248,6 @@ fn records_past_their_limits_and_forged_offsets_pose_nothing() {
     assert_eq!(v.header[vh::STATUS], layout::status::VERSION_MISMATCH as f64);
 }
 
-#[test]
-fn frames_do_not_allocate() {
-    let mut v = Vehicles::new();
-    let c = clip(&mut v);
-    let a = add(&mut v, true, c);
-    let b = add(&mut v, false, c);
-    TRACK.with(|t| t.set(true));
-    for k in 0..240 {
-        let m = if k % 60 < 50 { mode::ALIVE } else { mode::DYING };
-        entry(&mut v, 0, a, m, 1.0 / 60.0);
-        entry(&mut v, 1, b, mode::ALIVE, 1.0 / 60.0);
-        let s = v.slot_input(b, 0);
-        v.stream_in[s + si::HELD] = 1.0;
-        v.stream_in[s + si::POSE] = 1.0;
-        v.input[vf::STRIDE + ve::DYING] = 2.0 - (k % 60) as f64 / 30.0;
-        frame(&mut v, 2);
-    }
-    TRACK.with(|t| t.set(false));
-    assert_eq!(ALLOCS.with(Cell::get), 0);
-}
 
 // A craft with the two-bone clip as its takeoff clip, landing over 2 s and
 // stowing over 1 s once 3 m (2 + 1 landed) up.

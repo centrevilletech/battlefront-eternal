@@ -5,26 +5,13 @@
 //! branch by branch (rust/sim/src/ordnance/math.rs has the arithmetic), and
 //! reaches the rest of the battle through [`World`] only, at the points and
 //! in the order the JavaScript calls src/ordnance-world.js.
-//!
-//! The state is the store's (`gen::Store`: the ordnance's lists and the
-//! rounds by slot). A [`Cx`] reborrows it through its world and releases each
-//! row loan before a callback, so a world whose calls come
-//! back into the module (an explosion's damage reaching the items, a death
-//! dropping one) finds the store as the phase left it, as the JavaScript
-//! does. A round taken off its list is retired, not dropped: whatever
-//! JavaScript still holds of it (a sim event keeps a grenade's position)
-//! gets its last state.
-//!
-//! What only draws (trails, models, lights, impact effects, sounds no
-//! capture hears) is not here: a world draws nothing.
 
 pub mod defs;
 pub mod math;
-// The module's exports and the world its imports make (WebAssembly only).
+// The ordnance owner's world entry points.
 pub mod module;
 pub mod world;
 pub mod resources;
-pub mod control;
 
 use std::f64::consts::PI;
 
@@ -967,6 +954,11 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
             g.gone = Some(true);
             (g.def, g.position, g.owner)
         };
+        if trace::enabled() {
+            let notice=crate::gen::F3OrdnanceNotice {key:crate::gen::F3OrdnanceKey {
+                kind:crate::gen::F3ProjectileKind::Grenade,slot:r.slot,generation:r.gen},point:position,surface:5.,..Default::default()};
+            trace::end(&notice,None);
+        }
         let expire = self.ord(def).explosion_expire.clone();
         if expire.truthy() {
             self.w.explosion(&expire, position, owner);
@@ -1025,3 +1017,5 @@ fn orient(velocity: Vec3, quaternion: &mut Quat) {
 pub fn blast_distance(position: Vec3, center: Vec3, radius: f64) -> f64 {
     distance_to(center, position) - 0.5 * radius
 }
+
+mod trace;

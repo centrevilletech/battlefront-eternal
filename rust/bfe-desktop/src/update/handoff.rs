@@ -204,18 +204,6 @@ pub struct HandoffOutcome {
 }
 
 /// Checks `<root>/versions` for a newer eligible version than the running build.
-///
-/// Tries up to 4 candidate versions (newest first). For each candidate:
-/// 1. Increments `attempts[<version>]` in `<root>/state.json` (marking it `bad` if it
-///    reaches `MAX_ATTEMPTS` without having been confirmed `healthy`).
-/// 2. Spawns the candidate executable with `BFE_LAUNCH_DIR` and `BFE_LAUNCH_TOKEN`
-///    and waits up to `ctx.launch_timeout_ms` for the readiness token file.
-/// 3. If the child signals readiness, logs `handed off to <version>` in `<root>/update.log`
-///    and returns `handed_off: true`.
-/// 4. Otherwise logs `handoff to <version> failed (<reason>)` and falls back to the
-///    next older installed version or the running build.
-///
-/// Mirrors `handOff` in the desktop host.
 pub fn hand_off(ctx: &UpdaterContext) -> HandoffOutcome {
     let Some(resolved) = ctx.resolve_active() else {
         return HandoffOutcome {

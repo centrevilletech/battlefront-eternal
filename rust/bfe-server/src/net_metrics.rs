@@ -1,16 +1,4 @@
 //! Sliding-window and lifetime network metrics (`src/net-metrics.js`).
-//!
-//! Tracks per-session and per-endpoint transport timing and byte/packet counters for the
-//! operator status view (`operatorRequest` / `metrics`) and qualification probes:
-//! - Sliding 5-second throughput (`bytesInPerSec`, `bytesOutPerSec`, `packetsInPerSec`,
-//!   `packetsOutPerSec`) bucketed at 1-second resolution so spikes decay cleanly without
-//!   retaining unbounded sample arrays.
-//! - Exponentially weighted moving average round-trip time (`rttMs`, `0.8 * prev + 0.2 * sample`)
-//!   and recent datagram loss fraction (`loss`, `0.0..=1.0`).
-//! - Lifetime totals (`totalBytesIn`, `totalBytesOut`, `totalPacketsIn`, `totalPacketsOut`) and
-//!   per-lane queue/drop counters (`stateQueued`, `stateDropped`, `eventsQueued`, `eventsDropped`)
-//!   corresponding to `counters` in `src/net-metrics.js` and `GameSession.transportCounters` in
-//!   `src/game-session.js`.
 
 use serde_json::{json, Value};
 

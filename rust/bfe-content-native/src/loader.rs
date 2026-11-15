@@ -59,11 +59,17 @@ pub struct BattleContent {
     pub world: Vec<Mesh>,
     pub models: Vec<Mesh>,
     pub actors: Vec<ActorMesh>,
+    /// A class's own skin, by "<side>/<class>", for classes whose
+    /// OverrideTexture or OverrideTexture2 re-skins a shared body: its body's
+    /// material textures in the body's order, with the overrides in place.
+    pub skins: Vec<(String, Vec<Option<usize>>)>,
     pub textures: Library,
     pub texture_paths:BTreeMap<String,String>,
     pub effects: Vec<(String, crate::effects::Effects)>,
     /// The map's placed effects: each plays its (prefixed) effect group.
     pub environment_instances: Vec<EnvironmentInstance>,
+    /// The fountains' basins: centre and radius.
+    pub environment_basins: Vec<[f64; 4]>,
     pub first_person: Option<bfe_presentation::unit_content::FirstPersonInput>,
     pub units: Vec<(String, bfe_presentation::unit_content::Input)>,
     pub buildings_bvh: BvhTree,
@@ -73,6 +79,8 @@ pub struct EnvironmentInstance {
     pub effect: String,
     /// Column-major world matrix, as three's Matrix4.fromArray reads it.
     pub matrix: [f64; 16],
+    /// The node of its object it hangs from.
+    pub hardpoint: String,
 }
 pub struct Loader {
     root: PathBuf,
@@ -388,9 +396,53 @@ impl Loader {
                 &mut textures,
             )?;
         }
+        // units.js: a class's textures come from its own side first
+        // (`side.texture(name) || anyTexture(name)`).
+        let side_tables: Vec<(String, BTreeMap<String, String>)> = content
+            .battle
+            .sides
+            .iter()
+            .map(|side| (side.name.clone(), table(&side.dir, side.units_file.get("textures"))))
+            .collect();
+        let side_resolve = |side: &str, name: &str| {
+            side_tables
+                .iter()
+                .find(|(n, _)| n == side)
+                .and_then(|(_, t)| t.get(&name.to_lowercase()).cloned())
+                .or_else(|| resolve(name))
+        };
         let mut actors = Vec::new();
         for (name, body) in &content.battle.bodies {
-            actors.push(actor_mesh(name, body, &resolve, &mut textures)?);
+            let side = name.split_once('/').map_or("", |(side, _)| side);
+            actors.push(actor_mesh(name, body, &|t: &str| side_resolve(side, t), &mut textures)?);
+        }
+        let mut skins = Vec::new();
+        for side in &content.battle.sides {
+            for (class, def) in side.units.as_object().into_iter().flat_map(|u| u.entries()) {
+                let wanted = ["OverrideTexture", "OverrideTexture2"]
+                    .map(|key| def.get(key).and_then(Authored::as_str).filter(|s| !s.is_empty()));
+                if wanted.iter().all(Option::is_none) {
+                    continue;
+                }
+                let model = def.get("model").and_then(Authored::as_str).unwrap_or("");
+                let key = format!("{}/{model}", side.name);
+                let (Some((_, body)), Some(mesh)) = (
+                    content.battle.bodies.iter().find(|(n, _)| *n == key),
+                    actors.iter().find(|a| a.name == key),
+                ) else {
+                    continue;
+                };
+                let mut skin = mesh.textures.clone();
+                for (slot, name) in override_slots(&body.def, wanted) {
+                    match side_resolve(&side.name, name) {
+                        Some(path) => skin[slot] = Some(textures.load(&path)?),
+                        None => eprintln!("native unit admission: class {}/{class} skin {name} has no texture; it keeps its body's", side.name),
+                    }
+                }
+                if skin != mesh.textures {
+                    skins.push((format!("{}/{class}", side.name), skin));
+                }
+            }
         }
         let mut units: Vec<(String, bfe_presentation::unit_content::Input)> = content
             .actors
@@ -465,6 +517,17 @@ impl Loader {
         // through the same player as everything else, under names of their
         // own so a battle effect of the same name keeps its own data.
         let mut environment_instances = Vec::new();
+        let environment_basins: Vec<[f64; 4]> = environment
+            .as_ref()
+            .and_then(|data| data.get("basins").and_then(Authored::as_array))
+            .into_iter()
+            .flatten()
+            .map(|b| {
+                let c = b.get("center").and_then(Authored::as_array);
+                let at = |i: usize| c.and_then(|c| c.get(i)).and_then(Authored::as_f64).unwrap_or(0.);
+                [at(0), at(1), at(2), b.get("radius").and_then(Authored::as_f64).unwrap_or(0.)]
+            })
+            .collect();
         let environment_library = environment.as_ref().and_then(|data| {
             for item in data.get("instances").and_then(Authored::as_array).into_iter().flatten() {
                 let name = item.get("effect").and_then(Authored::as_str);
@@ -473,6 +536,7 @@ impl Loader {
                     environment_instances.push(EnvironmentInstance {
                         effect: format!("{}{name}", crate::effects::ENVIRONMENT),
                         matrix: std::array::from_fn(|i| matrix[i].as_f64().unwrap_or(0.)),
+                        hardpoint: item.get("hardpoint").and_then(Authored::as_str).unwrap_or("").to_string(),
                     });
                 }
             }
@@ -506,12 +570,14 @@ impl Loader {
             world,
             models,
             actors,
+            skins,
             textures,
             texture_paths,
             units,
             first_person,
             effects,
             environment_instances,
+            environment_basins,
             buildings_bvh,
             terrain_bvh,
         })
@@ -591,6 +657,29 @@ impl Files for CheckedFiles<'_> {
         self.library.path(path).ok()?;
         self.files.read(path)
     }
+}
+
+/// units.js textureOverrides: OverrideTexture takes the place of the texture
+/// most of the body's vertices use, OverrideTexture2 of the next. Gives the
+/// body material slot (textures in first-use order, as actor_mesh numbers
+/// them) and the override's name for each override the class has.
+fn override_slots<'a>(def: &Authored, wanted: [Option<&'a str>; 2]) -> Vec<(usize, &'a str)> {
+    let mut names: Vec<(String, f64)> = Vec::new();
+    for part in def.get("parts").and_then(Authored::as_array).into_iter().flatten() {
+        let texture = part.get("texture").and_then(Authored::as_str).unwrap_or("");
+        let count = part.get("vertexCount").and_then(Authored::as_f64).unwrap_or(0.0);
+        match names.iter_mut().find(|(n, _)| n == texture) {
+            Some((_, n)) => *n += count,
+            None => names.push((texture.to_string(), count)),
+        }
+    }
+    let mut by_use: Vec<usize> = (0..names.len()).collect();
+    by_use.sort_by(|a, b| names[*b].1.total_cmp(&names[*a].1));
+    wanted
+        .into_iter()
+        .zip(by_use)
+        .filter_map(|(name, slot)| name.map(|name| (slot, name)))
+        .collect()
 }
 
 /// actor.js keeps one vertex stream for all material groups, with four skin

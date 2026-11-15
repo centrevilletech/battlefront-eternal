@@ -12,13 +12,6 @@ struct Entry<T> {
 /// (`insert`, which takes the slot freed last, else a new one: no
 /// JavaScript order depends on which), or slots its kind's JavaScript
 /// numbers (`insert_at`: a unit's `id`, whose generation is 0).
-///
-/// Removing an entity bumps its slot's generation, so a reference to it is
-/// seen to be stale (`get` gives None) rather than naming whatever takes the
-/// slot next. Retiring one (`retire`) removes it the same way and keeps its
-/// last state until the kind is next exported, so JavaScript that still
-/// holds its mirror (an event that kept a grenade's position) sees that
-/// state, as it saw the last state of the JavaScript object it held.
 pub struct Slab<T> {
     entries: Vec<Entry<T>>,
     free: Vec<u32>,

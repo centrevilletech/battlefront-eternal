@@ -39,6 +39,8 @@ pub struct Views {
     pub active: Option<usize>,
     pub enabled: bool,
     pub frames: u64,
+    /// FirstPersonView.light: the player's light, its sun seen from the gun.
+    pub look: [f64; 4],
 }
 impl Prepared {
     pub fn new(content: &mut BattleContent) -> Result<Self, String> {
@@ -131,15 +133,21 @@ impl Prepared {
             weapons.push(Model::new(content, bridge, textures, name, 0)?);
             banks.push(bank.to_string());
         }
-        Ok(Views { views, weapons, banks, active: None, enabled: false, frames: 0 })
+        Ok(Views { views, weapons, banks, active: None, enabled: false, frames: 0, look: [1., 0., 0., 1.] })
     }
 }
 impl Views {
+    /// Where the view's hand (hp_weapons) is in the units' node bank, while
+    /// a class with a view is played.
+    pub fn hand_node(&self, units: &Units) -> Option<usize> {
+        let view = &self.views[self.active?];
+        Some(units.view_node_start(view.id) + view.hand)
+    }
     // FirstPersonView receives the current private arsenal and body facts.
     // The units owner selects clips, samples bones and places its attachment
     // beneath the view camera. Neither weapon timers nor animation time is
     // advanced by the native resource shell.
-    pub fn frame(&mut self, units: &mut Units, receiver: &Receiver, prediction: &Replay, camera: &[f64; 16], cue: f64) {
+    pub fn frame(&mut self, units: &mut Units, receiver: &Receiver, prediction: &Replay, guns: &super::lightning::Guns, camera: &[f64; 16], cue: f64) {
         self.active = self.views.iter().position(|view| view.classes.contains(&receiver.own.class));
         let index = self.active.map_or(-1., |i| self.views[i].id as f64);
         units.input[f::FIRST_PERSON] = index;
@@ -173,6 +181,22 @@ impl Views {
             }
             primary += 1;
         }
+        // PredictedShots.fire: `combat.view?.play('shoot', weapon)` on the
+        // tick the player's weapon fires in the client's replay. The world's
+        // record of the same shot is then not played again.
+        let ahead = |weapon: usize| guns.ahead.get(weapon) == Some(&true);
+        for shot in &prediction.shots {
+            let at = units.input[f::COMMANDS] as usize * c::STRIDE;
+            if !ahead(guns.ids.get(shot.weapon).copied().unwrap_or(0)) || at + c::STRIDE > units.commands.len() {
+                continue;
+            }
+            let row = &mut units.commands[at..at + c::STRIDE];
+            row.fill(0.);
+            row[c::KIND] = kind::FIRST_PERSON_PLAY as f64;
+            row[c::WEAPON] = units.input[f::FIRST_PERSON_SHOWN];
+            row[c::SHOOTING] = 1.;
+            units.input[f::COMMANDS] += 1.;
+        }
         for field in receiver.publications.iter() {
             if field.row[r::KIND] != k::COMBAT as f64 || field.row[r::SCHEMA] != 8. {
                 continue;
@@ -181,6 +205,12 @@ impl Views {
             #[serde(rename_all = "camelCase")]
             struct Event<'a> {
                 kind: &'a str,
+                #[serde(default)]
+                weapon_id: usize,
+                #[serde(default)]
+                repair: bool,
+                #[serde(default)]
+                melee: bool,
                 #[serde(default)]
                 owner_id: u32,
                 #[serde(default)]
@@ -202,6 +232,7 @@ impl Views {
             // (`weapons.find(w => w.bank === event.bank && w.busy)`). The
             // view ignores it while it is not the one shown.
             let (weapon, action) = match event.kind {
+                "shot" if prediction.ahead() && !event.repair && !event.melee && ahead(event.weapon_id) => continue,
                 "shot" => (units.input[f::FIRST_PERSON_SHOWN], 0.),
                 "weaponAction" if event.prepare => {
                     let held = prediction
@@ -248,13 +279,13 @@ impl Views {
         for (node, model) in &view.parts {
             let at = (start + node) * n::STRIDE + n::WORLD;
             let matrix: [f64; 16] = units.nodes[at..at + 16].try_into().unwrap();
-            (records, bones) = model.append(bridge, &matrix, records, bones);
+            (records, bones) = model.append_look(bridge, &matrix, records, bones, Some(self.look));
         }
         let model = units.header[h::FIRST_PERSON_MODEL] as usize;
         if let Some(model) = self.weapons.get(model).and_then(Option::as_ref) {
             let at = (start + view.hand) * n::STRIDE + n::WORLD;
             let matrix: [f64; 16] = units.nodes[at..at + 16].try_into().unwrap();
-            (records, bones) = model.append(bridge, &matrix, records, bones);
+            (records, bones) = model.append_look(bridge, &matrix, records, bones, Some(self.look));
         }
         (records, bones)
     }

@@ -51,11 +51,6 @@ pub mod view;
 pub mod water;
 pub mod water_resources;
 pub mod ocean_resources;
-#[cfg(target_arch = "wasm32")]
-pub mod web;
-#[cfg(target_arch = "wasm32")]
-pub mod resources;
-#[cfg(not(target_arch = "wasm32"))]
 #[path = "native_resources.rs"]
 pub mod resources;
 mod resource_policy;
@@ -73,3 +68,6 @@ pub mod scene_transform_layout;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native_casters;
+pub mod native_motion;
+
+pub mod profile;

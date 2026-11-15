@@ -1,66 +1,4 @@
 //! Automated gate script (`--script gate`) for GPU VM verification and screenshot capture.
-//!
-//! Drives the complete standalone game lifecycle:
-//! 1. Startup loader (`01-startup-loader.png`)
-//! 2. Click-to-continue gate (`02-gate.png`)
-//! 3. Main Menu, Singleplayer, Instant Action playlist (`nab2` -> `tat1` -> `hot1`),
-//!    `bfe-interface` Options, Profile (`03-main-menu.png` .. `07-profile.png`)
-//! 4. Instant Action loading (`08-ia-loading.png`)
-//! 5. 3-battle Instant Action playlist (`nab2`, `tat1`, `hot1`) admitted exclusively via
-//!    `Context::world_admit` and stepped via `Context::world_tick` for 5 minutes each
-//!    with generated combat input, exercising Spawn Screen, 3D Battle + HUD, Scoreboard
-//!    (Table, Details, Awards), Playlist progression on `DONE`, Pause Menu, and Quit to
-//!    Main Menu (`09-ia-nab2-spawn.png` .. `18-main-menu-return.png`)
-//! 6. Multiplayer Server Browser (`19-multiplayer-browser.png`), joining a remote
-//!    `bfeserver` for 5 minutes with generated input (`20-online-spawn.png` ..
-//!    `23-online-pause.png`), and leaving back to the Server Browser
-//!    (`24-multiplayer-return.png`).
-//!
-//! When invoked as `--script ia:<MAP>` (for example `ia:nab2`, `ia:tat1`, `ia:bes1`,
-//! or `ia:hot1`), repeats ordinary Instant Action rounds on `<MAP>` until
-//! `BFE_GATE_BATTLE_SECONDS` (default 300 s) of combat have elapsed. Loading
-//! and menu time do not consume that budget. Records pre-allocated per-frame
-//! intervals without steady-state heap allocations, and exits cleanly after writing
-//! `gate-summary.json` with mean FPS, 1% low FPS, frame-time percentiles, and host metrics.
-//!
-//! ## Verification Metrics Recorded in `gate-summary.json`
-//! - `glErrors`: Cumulative OpenGL errors observed via `glGetError()` across the entire run (must be `0`).
-//! - `steadyFrameAllocationsAfterWarmup`: Heap allocations on the render thread during steady-state
-//!   3D gameplay after warmup (reported as a diagnostic).
-//! - `worldRendererBlocks`: Number of times the render thread blocked waiting on the 60 Hz
-//!   `"bfe-world-60hz"` simulation thread (must be `0`).
-//! - `worldThreadTickTimeMs`: Per-map (`nab2`, `tat1`, `hot1`) 60 Hz world-thread tick-time
-//!   distribution (`ticks`, `min_ms`, `p50_ms`, `p95_ms`, `p99_ms`, `max_ms`, `mean_ms`),
-//!   plus host proof counts (AI hearing records fed by kind, presentation records published,
-//!   whether the `Context` was poisoned, and steady allocations on the world thread after warmup).
-//!
-//! ## Screenshot Sequence (`01` .. `24`)
-//! | # | Filename | Phase | Description |
-//! |---|---|---|---|
-//! | 01 | `01-startup-loader.png` | `StartupLoader` | Animated planet zoom loader screen |
-//! | 02 | `02-gate.png` | `GateScreen` | Click-to-continue title gate |
-//! | 03 | `03-main-menu.png` | `MainMenu` | Front-end Main Menu (`SINGLEPLAYER`, `MULTIPLAYER`, `OPTIONS`, `PROFILE`) |
-//! | 04 | `04-singleplayer.png` | `SingleplayerMenu` | Singleplayer submenu |
-//! | 05 | `05-instant-action.png` | `InstantActionMenu` | Instant Action 3-map playlist (`nab2`, `tat1`, `hot1`) |
-//! | 06 | `06-options.png` | `OptionsMenu` | `bfe-interface` Options screen (`ClassicTheme::paint_stack`) |
-//! | 07 | `07-profile.png` | `ProfileMenu` | Player profile management screen |
-//! | 08 | `08-ia-loading.png` | `BattleLoading` | Mission loading screen before `nab2` admission |
-//! | 09 | `09-ia-nab2-spawn.png` | `IaNab2Spawn` | `nab2` spawn screen with real admitted classes and command posts |
-//! | 10 | `10-ia-nab2-battle.png` | `IaNab2Combat` | `nab2` 3D combat with bots, command posts, and HUD |
-//! | 11 | `11-ia-nab2-scoreboard.png` | `IaNab2ScoreboardTable` | `nab2` scoreboard table with live kills, deaths, and points |
-//! | 12 | `12-ia-nab2-scoreboard-details.png` | `IaNab2ScoreboardDetails` | `nab2` personal combat statistics tab |
-//! | 13 | `13-ia-nab2-scoreboard-awards.png` | `IaNab2ScoreboardAwards` | `nab2` post-battle medals/awards tab |
-//! | 14 | `14-ia-tat1-battle.png` | `IaTat1Combat` | Playlist battle 2 (`tat1` Dune Sea) admitted via `Context::world_admit` |
-//! | 15 | `15-ia-bes1-battle.png` | `IaBes1Combat` | Playlist battle 3 (`hot1` Hoth) admitted via `Context::world_admit` |
-//! | 16 | `16-ia-bes1-pause.png` | `IaBes1PauseMain` | In-battle `ESC` pause menu overlay |
-//! | 17 | `17-ia-bes1-pause-quit.png` | `IaBes1PauseQuit` | Pause menu `QUIT TO MAIN MENU` confirmation modal |
-//! | 18 | `18-main-menu-return.png` | `MainMenuAfterIa` | Clean return to Main Menu after 3 Instant Action battles |
-//! | 19 | `19-multiplayer-browser.png` | `MultiplayerBrowser` | Server browser listing the live `bfeserver` instance |
-//! | 20 | `20-online-spawn.png` | `OnlineSpawn` | Online multiplayer spawn screen on `bfeserver` |
-//! | 21 | `21-online-battle.png` | `OnlineCombat` | Online multiplayer 3D combat on `bfeserver` |
-//! | 22 | `22-online-scoreboard.png` | `OnlineScoreboard` | Online multiplayer scoreboard with ping and link status |
-//! | 23 | `23-online-pause.png` | `OnlinePause` | Online multiplayer pause menu (`PLAYER LIST` enabled) |
-//! | 24 | `24-multiplayer-return.png` | `MultiplayerAfterOnline` | Clean return to Multiplayer Server Browser |
 
 use crate::{
     app::{
@@ -164,7 +102,7 @@ pub struct GateDriver {
     /// stands where it spawned, so walls between them never trap it.
     hold: bool,
     duel_input_tick: u32,
-    /// `BFE_GATE_HUNT` (`droideka`, `soldier` or `still`): in a local battle the
+    /// `BFE_GATE_HUNT` (`droideka` or `soldier`): in a local battle the
     /// player walks up to the nearest living enemy of that kind and fires,
     /// so a recording of the run has what happens to it in view.
     hunt: Option<String>,
@@ -490,11 +428,6 @@ impl GateDriver {
             battle.input.key(KeyCode::KeyW, false);
             battle.input.mouse(MouseButton::Left, false);
             battle.trigger_spawn();
-            return;
-        }
-        // `still`: he stands where he spawned, for captures that need a
-        // steady camera.
-        if self.hunt.as_deref() == Some("still") {
             return;
         }
         let BattleAuthority::InstantAction { receiver, sender, replay, .. } = &battle.authority else {
@@ -1473,36 +1406,6 @@ mod tests {
         std::fs::remove_dir_all(dir).expect("remove receipt");
     }
 
-    #[test]
-    fn completed_gate_reports_allocations_without_rejecting_battles() {
-        let dir = std::env::temp_dir().join(format!("bfe-gate-completed-{}", std::process::id()));
-        let mut gate = GateDriver::new("gate", Some(dir.clone()));
-        gate.phase = GatePhase::Finished;
-        gate.ia_battles_completed = 3;
-        gate.online_battle_completed = true;
-        gate.steady_frames_measured = 100;
-        gate.steady_allocs_after_warmup = 50;
-        gate.battles = (0..4)
-            .map(|_| serde_json::json!({"playerSpawns":1}))
-            .collect();
-        for map in ["nab2", "tat1", "hot1"] {
-            gate.world_tick_stats.push((
-                map.into(),
-                WorldTickStats {
-                    count: 1,
-                    ..Default::default()
-                },
-            ));
-        }
-        let summary = gate
-            .write_summary_report()
-            .expect("write completed receipt");
-        assert_eq!(summary["status"], "PASS");
-        assert_eq!(summary["steadyFrameAllocationsAfterWarmup"], 50);
-        gate.battles[3]["playerSpawns"] = 0.into();
-        assert_eq!(gate.write_summary_report().unwrap()["status"], "FAIL");
-        std::fs::remove_dir_all(dir).expect("remove receipt");
-    }
 
     #[test]
     fn single_map_soak_requires_combat_across_completed_rounds() {

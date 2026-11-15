@@ -1,49 +1,4 @@
 //! Standalone native game application (`bfe-client` with no arguments).
-//!
-//! Coordinates the complete lifecycle:
-//! `Startup` (bounded update handoff/check + hosted server `attach()`) ->
-//! `StartupLoader` (`bfe-desktop` content discovery and preparation) ->
-//! `Shell` (`bfe-shell` + `bfe-interface` options + `bfe-online` + `HostController`) ->
-//! `HostStarting` (progress until `/info` answers) ->
-//! `BattleLoading` -> `Battle` (`InstantAction` on `WorldThread` via `Context::world_admit`
-//! or `Online` on `online::client::Client` with `bfe-battle-ui` overlays) -> `Shell` -> `Exit`.
-//!
-//! ## Threading and Allocation Invariants
-//! - The main (`winit`) thread owns the OpenGL context, the front-end [`ShellHost`],
-//!   and the 3D battle [`BattleController`].
-//! - During an Instant Action battle, the authoritative simulation runs on a dedicated
-//!   60 Hz thread (`"bfe-world-60hz"`) admitted via `Context::world_admit`, exchanging
-//!   inputs and frame publications over lock-free bounded channels without ever blocking
-//!   the render thread.
-//! - A thread-local allocation counter (`RENDER_THREAD_ALLOCS`) is incremented by the
-//!   global allocator in `main.rs` so `--script gate` can verify zero steady-state
-//!   heap allocations on the render thread after initial warmup.
-//!
-//! ## Subsystem Ownership Summary
-//! | Subsystem | Crate / Module | Responsibility |
-//! |---|---|---|
-//! | Window & GL Context | `winit` + `glutin` + `glow` | OS windowing, EGL/GLX surface, GLES 3.0 / GL 3.3 context |
-//! | Desktop Lifecycle | `bfe_desktop` | Paths, atomic settings, self-update check, `PrepareSession`, `HostController`, Discord Rich Presence |
-//! | Front-End Shell | `bfe_shell` | Gate, Main Menu, Singleplayer, Instant Action playlist, Profile, Multiplayer browser, Host dialog |
-//! | Options & Settings | `bfe_interface` | 59-key `Settings` schema, `OptionsController`, `ClassicTheme::paint_stack` (`GAME`, `VIDEO`, `AUDIO`, `CONTROLS`) |
-//! | Server Browser | `bfe_online` | Master directory queries, LAN UDP broadcast discovery, direct `/info` probes |
-//! | Battle UI Overlays | `bfe_battle_ui` | `SpawnScreenController`, `ScoreboardController`, `PauseMenu`, `ChatController` |
-//! | Local Simulation | `WorldThread` (`Context::world_admit`) | Dedicated 60 Hz mission simulation thread (`"bfe-world-60hz"`) |
-//! | Online Client | `crate::online::client::Client` | Authenticated UDP/WebRTC session, snapshot receiver, client-side prediction replay |
-//! | 3D Scene & HUD | `crate::scene::Scene` + `bfe_render` | Terrain, sky, water, skeletal/skinned models, particles, and 3D-anchored HUD batch |
-//! | Audio Routing | `SharedAudioRouter` | Lock-free switch between front-end `ShellAudioMixer` and in-battle 3D `Stream` |
-//!
-//! ## Hosted Server Lifecycle (`bfe_desktop::host::HostController`)
-//! - **Startup Re-Attach**: `run_standalone_game` constructs `HostController` pointing at
-//!   `<user_data>/server` and calls `attach()` so any detached `bfeserver` left running
-//!   from a previous session (`CloseChoice::KeepRunning`) is adopted automatically.
-//! - **Create & Launch**: Selecting `CREATE` on `ScreenId::HostDialog` maps `HostConfig`
-//!   into `HostOptions` (`host_options_from_shell`) and transitions to `AppState::HostStarting`,
-//!   which spawns `bfeserver` and polls `/admin` and `/info` on `"bfe-host-start"` while
-//!   rendering the loading screen. Once `/info` answers, the local player joins through
-//!   the standard `BattleLoadTarget::Online` path (`BattleController::prepare_online`).
-//! - **Close Prompt**: Closing the window while a hosted server is active opens the
-//!   3-button `ClosePrompt` modal (`KeepRunning`, `StopAndQuit`, `Cancel`).
 
 //! ## State Machine Transitions
 //! ```text
@@ -60,18 +15,8 @@
 //!                    v                                         |
 //!        [AppState::BattleLoading] ----------------------------> [AppState::Battle]
 //! ```
-//!
-//! ## Key Handling and Coordinate Spaces
-//! - **Front-end Shell (`AppState::Shell`)**: Logical keys (`Key::Named` / `Key::Character`)
-//!   are mapped via [`map_shell_key`]. When `ScreenId::Options` or `ScreenId::OptionsPage(_)`
-//!   is active, pointer and keyboard events route through `bfe_interface::OptionsController`
-//!   and `bfe_interface::ClassicTheme::paint_stack`.
-//! - **In-Battle (`AppState::Battle`)**: Physical key codes (`PhysicalKey::Code`) are mapped
-//!   to DOM `KeyboardEvent.code` strings via [`keycode_to_dom_code`] so `bfe-battle-ui`
-//!   (`PauseMenu`, `ChatController`, `SpawnScreenController`, `ScoreboardController`)
-//!   and 3D movement (`Input`) share identical key identifiers with the web reference.
 pub mod battle;
-mod bench;
+pub(crate) mod bench;
 pub mod cli;
 mod loading;
 mod folder_dialog;
@@ -248,8 +193,7 @@ pub enum AppState {
 /// Main entry point for `bfe-client`.
 ///
 /// Parses command-line arguments first so `--help` / `--version` exit 0 immediately
-/// before touching any display server or audio device, and routes either to legacy
-/// diagnostic sub-modes (`--local`, `--join`, `--map`) or to [`run_standalone_game`].
+/// before touching any display server or audio device, then runs [`run_standalone_game`].
 pub fn run(with_audio: bool) {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match parse_args(args) {
@@ -262,25 +206,6 @@ pub fn run(with_audio: bool) {
             // Print package version to stdout and exit 0 cleanly.
             println!("{ver}");
             std::process::exit(0);
-        }
-        Ok(CliDispatch::LegacyLocal(raw)) => {
-            // Dispatch legacy `--local` single-battle CLI mode.
-            if !crate::local::launch::dispatch() {
-                let result = crate::local::options::Options::parse(
-                    &raw,
-                    std::env::var_os("BFE_CONTENT_DIR"),
-                )
-                .and_then(|options| options.ok_or_else(|| "missing local battle mode".into()))
-                .and_then(crate::local::launch::run);
-                if let Err(error) = result {
-                    eprintln!("bfe-client: {error}");
-                    std::process::exit(1);
-                }
-            }
-        }
-        Ok(CliDispatch::LegacyJoin(_)) | Ok(CliDispatch::LegacyWindow(_)) => {
-            // Dispatch legacy `--join`, `--map`, or recorded `SESSION_DIR` window.
-            crate::session_window::run_with_audio(with_audio);
         }
         Ok(CliDispatch::Standalone(opts)) => {
             // Launch the default standalone native game lifecycle.
@@ -298,21 +223,6 @@ pub fn run(with_audio: bool) {
 }
 
 /// Runs the standalone native game (`Startup` -> `StartupLoader` -> `Shell` -> `Battle`).
-///
-/// ## Initialization Sequence
-/// 1. **Paths & Settings**: Resolves [`DesktopPaths`] (`current_desktop_paths`) and loads
-///    `DesktopSettings`, `bfe_interface::Settings` (all 59 keys), and `PersistedPlayerSettings`
-///    via [`AppSettingsStore::load`].
-/// 2. **Bounded Update Check**: Executes [`run_bounded_update_check`] with a hard `<= 1.5s`
-///    timeout so offline environments proceed immediately.
-/// 3. **Startup Content Resolution**: Invokes [`StartupContentState::resolve`] to locate
-///    prepared content (`common/common.json`) or start a background `PrepareSession`.
-/// 4. **`HostController::attach`**: Initializes [`bfe_desktop::host::HostController`] pointing
-///    at `<user_data>/server` and calls `attach()` so any detached `bfeserver` left running
-///    from a prior session (`CloseChoice::KeepRunning`) is adopted automatically.
-/// 5. **Dynamic Audio Router**: Opens a hardware `cpal` stream via [`AudioDevice::open_dynamic`]
-///    or falls back to deterministic headless quantum pumping (`pump_headless_audio`).
-/// 6. **Event Loop Execution**: Enters `winit`'s `ControlFlow::Poll` loop via `event_loop.run_app`.
 pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<(), String> {
     // 1. Resolve application data paths and load `DesktopSettings`, `bfe_interface::Settings`,
     //    and `PersistedPlayerSettings`.
@@ -409,6 +319,9 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         pointer_locked: false,
         pointer_icon: winit::window::CursorIcon::Default,
         cursor_physical: [0.0; 2],
+        cursor_seen: false,
+        hover_screen: None,
+        hover_frames: 0,
         text_input: text_input::TextInput::default(),
         modifiers: ModifiersState::empty(),
         ime_preedit: false,
@@ -467,6 +380,10 @@ fn content_is_current(dir: &Path) -> bool {
 struct StandaloneWindowApp {
     // Physical window coordinates are mapped once into the active interface plane.
     cursor_physical: [f64; 2],
+    // Whether the pointer has been seen over the window, and the front-end screen it last lit a row on.
+    cursor_seen: bool,
+    hover_screen: Option<bfe_shell::screens::ScreenId>,
+    hover_frames: u8,
     text_input: text_input::TextInput,
     modifiers: ModifiersState,
     ime_preedit: bool,
@@ -556,6 +473,34 @@ struct StandaloneWindowApp {
 }
 
 impl StandaloneWindowApp {
+    /// A screen that comes up under a parked pointer lights the row there at once, as the browser does
+    /// (it sends a pointer move after the page changes); winit only reports real motion.
+    fn hover_where_the_pointer_is(&mut self) {
+        let screen = match (&self.state, &self.shell) {
+            (AppState::Shell, Some(shell)) => Some(shell.app.current_screen()),
+            _ => None,
+        };
+        if screen != self.hover_screen {
+            self.hover_screen = screen;
+            // The screen settles over a few frames (its rows are rebuilt as it comes up).
+            self.hover_frames = 4;
+        }
+        if self.hover_frames == 0 {
+            return;
+        }
+        self.hover_frames -= 1;
+        if screen.is_some() && self.cursor_seen {
+            let [x, y] = self.interface_cursor();
+            if let Some(shell) = &mut self.shell {
+                shell.handle_cursor_move(x, y);
+            }
+            if let Some(ui) = &mut self.slint_ui {
+                ui.set_keyboard_nav(false);
+                ui.repeat_pointer();
+            }
+        }
+    }
+
     fn interface_cursor(&self) -> [f64; 2] {
         let size = match &self.state {
             AppState::Battle(battle) => battle.size,
@@ -642,14 +587,6 @@ impl StandaloneWindowApp {
     /// Synchronizes OS cursor grab (`Locked` / `Confined` vs `None`) and cursor visibility
     /// with the active state: locked during 3D combat when no battle UI overlay is open,
     /// and unlocked whenever the shell, spawn screen, scoreboard, or pause menu is active.
-    ///
-    /// ## Pointer Grab Rules
-    /// - In `AppState::Battle`, pointer lock is requested if and only if `self.focused` is
-    ///   `true` and `battle.wants_pointer_lock()` is `true` (all 2D overlays closed).
-    /// - Attempts `CursorGrabMode::Locked` first (relative raw motion via `DeviceEvent::MouseMotion`)
-    ///   and falls back to `CursorGrabMode::Confined` on window managers that disallow lock.
-    /// - In all other states (`StartupLoader`, `Shell`, `HostStarting`, `BattleLoading`),
-    ///   releases cursor grab and restores OS cursor visibility.
     fn sync_pointer_lock(&mut self) {
         let Some(window) = &self.window else {
             return;
@@ -845,15 +782,6 @@ impl StandaloneWindowApp {
 
     /// Updates Discord Rich Presence (`PresenceController::set_activity`) whenever the
     /// high-level application phase, map, era, or multiplayer room changes.
-    ///
-    /// ## Activity Mapping
-    /// - `StartupLoader` -> `phase = "preparing"`
-    /// - `Shell` (`Multiplayer` screen) -> `phase = "lobby"`
-    /// - `Shell` (all other screens) -> `phase = "menu"`
-    /// - `HostStarting` -> `phase = "loading"`, `room_name = options.name`
-    /// - `BattleLoading` -> `phase = "loading"`, `map_id = target.map_id()`
-    /// - `Battle` (`InstantAction`) -> `phase = "match"`, `mode = "instant-action"`
-    /// - `Battle` (`Online`) -> `phase = "match"`, `mode = "multiplayer"`, `party_size = 1`
     fn update_rich_presence(&mut self) {
         let raw = match &self.state {
             AppState::StartupLoader(_) => RawPresenceInput {
@@ -940,17 +868,6 @@ impl StandaloneWindowApp {
 
     /// Handles window/application close requests, consulting `HostController::close_prompt()`
     /// first when a hosted server is active.
-    ///
-    /// ## Hosted Server Close-Prompt Flow
-    /// 1. Queries `HostController::close_prompt()`, which returns `Some(ClosePrompt)` when
-    ///    the local `bfeserver` child process is still running (`status == "running"`).
-    /// 2. If active (and not running headless `--script gate`), transitions to `AppState::Shell`
-    ///    and opens the 3-button `PopupState::HostClosePrompt` modal:
-    ///    - `[0]` `"Keep server running and quit"` -> `CloseChoice::KeepRunning` (`detach()`)
-    ///    - `[1]` `"Stop server and quit"` -> `CloseChoice::StopAndQuit` (`stop()`)
-    ///    - `[2]` `"Cancel"` -> `CloseChoice::Cancel` (remain in app)
-    /// 3. If no hosted server is running, writes any `--script gate` summary report and
-    ///    calls `event_loop.exit()`.
     fn request_app_close(&mut self, event_loop: &ActiveEventLoop) {
         // When not running an automated gate script, check if `HostController` has a running
         // hosted server that requires the 3-choice close prompt (`KeepRunning`, `StopAndQuit`, `Cancel`).
@@ -988,7 +905,7 @@ impl StandaloneWindowApp {
     /// Uses `glBlitFramebuffer` with `GL_LINEAR` filtering from `READ_FRAMEBUFFER = src_fb`
     /// to `DRAW_FRAMEBUFFER = 0` (the default window surface) and immediately swaps the
     /// window backbuffer via `glutin::surface::Surface::swap_buffers`.
-    fn blit_framebuffer_to_window(&self, src_fb: glow::Framebuffer, src_size: [i32; 2]) -> Result<(), String> {
+    fn blit_framebuffer_to_window(&mut self, src_fb: glow::Framebuffer, src_size: [i32; 2]) -> Result<(), String> {
         let (Some(ui), Some(surface), Some(context)) = (&self.slint_ui, &self.surface, &self.context)
         else {
             return Err("window presentation resources missing".into());
@@ -996,6 +913,7 @@ impl StandaloneWindowApp {
         // The Slint notifier copies this frame after its transparent clear and
         // before its UI draw. Only this host swaps the shared window surface.
         ui.render(src_fb, src_size)?;
+        if let AppState::Battle(battle)=&mut self.state{battle.scene.resolution_presented(battle.pause_menu.is_open||!self.focused||self.hidden)?;}
         surface.swap_buffers(context).map_err(|e| format!("window presentation failed: {e}"))
     }
 
@@ -1021,16 +939,6 @@ impl StandaloneWindowApp {
 
 impl ApplicationHandler for StandaloneWindowApp {
     /// Initializes the OS window, GL surface/context, and [`ShellHost`] on first resume.
-    ///
-    /// ## GL Context Creation Strategy
-    /// 1. Builds the native OS window at `self.opts.size` (`1280x720` default) and
-    ///    selects a single-sample `RGBA8 + D24S8` `glutin` surface configuration.
-    /// 2. Requests an OpenGL ES 3.0 context by default (matching `bfe-render`'s `#version 300 es`
-    ///    shaders), falling back transparently to Desktop OpenGL 3.3 Core if GLES is unavailable.
-    /// 3. Sets `SwapInterval::DontWait` so the 60 Hz simulation and gate script never
-    ///    stall on compositor vsync throttling.
-    /// 4. Constructs [`ShellHost`] with the built-in 5x7 ASCII fallback font so frame 1
-    ///    renders the startup loader immediately.
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -1106,6 +1014,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                 glow::Context::from_loader_function_cstr(|name| display.get_proc_address(name))
             };
             let gl = make_gl();
+            crate::resources::Ranges::install_multi_draw(&gl,display.get_proc_address(std::ffi::CStr::from_bytes_with_nul(if gl.version().is_embedded{b"glMultiDrawElementsEXT\0"}else{b"glMultiDrawElements\0"}).unwrap()));
             let physical = window.inner_size();
             self.opts.size = [physical.width as i32, physical.height as i32];
             let shell = Box::new(ShellHost::new(
@@ -1163,20 +1072,6 @@ impl ApplicationHandler for StandaloneWindowApp {
     }
 
     /// Routes window lifecycle, focus, resize, pointer, and keyboard events to the active state.
-    ///
-    /// ## Event Routing Table
-    /// - `WindowEvent::CloseRequested`: Invokes [`Self::request_app_close`].
-    /// - `WindowEvent::Focused`: Updates `self.focused`, auto-opens `PauseMenu` when
-    ///   focus is lost during active 3D combat, and updates pointer lock.
-    /// - `WindowEvent::Resized`: Resizes the `glutin` window surface (`NonZeroU32`).
-    /// - `WindowEvent::CursorMoved`: Routes pointer hover to `ShellHost` (including
-    ///   `bfe-interface` hit regions) or `BattleController` overlays.
-    /// - `WindowEvent::MouseInput`: Routes clicks to `ShellHost`, `BattleController`,
-    ///   or the folder-picker fallback.
-    /// - `WindowEvent::MouseWheel`: Scrolls `SpawnScreen`, `Scoreboard`, or weapon cycle.
-    /// - `WindowEvent::KeyboardInput`: Handles `F11` (fullscreen) and `F9` (content folder),
-    ///   then forwards logical keys to `ShellHost` or physical DOM codes to `BattleController`.
-    /// - `WindowEvent::RedrawRequested`: Steps and draws one frame via [`Self::step_frame`].
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -1313,6 +1208,10 @@ impl ApplicationHandler for StandaloneWindowApp {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor_physical = [position.x, position.y];
+                self.cursor_seen = true;
+                if let Some(ui) = &mut self.slint_ui {
+                    ui.set_keyboard_nav(false);
+                }
                 let [x, y] = self.interface_cursor();
                 // Forward cursor coordinates to `ShellHost` (including `bfe-interface` hit regions)
                 // or to the active `BattleController` overlays.
@@ -1394,6 +1293,11 @@ impl ApplicationHandler for StandaloneWindowApp {
             }
             WindowEvent::KeyboardInput { event, is_synthetic, .. } => {
                 let down = event.state == ElementState::Pressed;
+                if down && matches!(self.state, AppState::Shell) {
+                    if let Some(ui) = &mut self.slint_ui {
+                        ui.set_keyboard_nav(true);
+                    }
+                }
                 let key_capture_active = matches!(self.state, AppState::Shell)
                     && self
                         .shell
@@ -1501,6 +1405,8 @@ impl ApplicationHandler for StandaloneWindowApp {
             }
             WindowEvent::RedrawRequested => {
                 self.redraw(event_loop);
+                // After the frame: the page's hit regions are those of the screen just drawn.
+                self.hover_where_the_pointer_is();
             }
             _ => {}
         }
@@ -1634,6 +1540,11 @@ impl StandaloneWindowApp {
     fn sync_battle_options(&mut self) {
         if let AppState::Battle(battle) = &mut self.state {
             Self::sync_battle_options_of(battle, &mut self.shell, &mut self.slint_ui, &self.settings);
+            if let Some(kind) = self.shell.as_mut().and_then(|shell| shell.speaker_request.take()) {
+                self.audio_router.speaker_test(Some(&kind));
+            } else if !battle.options_open && self.audio_router.testing() {
+                self.audio_router.speaker_test(None);
+            }
         }
     }
 
@@ -1670,18 +1581,6 @@ impl StandaloneWindowApp {
 
     /// Applies a [`ShellTransition`] emitted by [`ShellHost`] (`StartInstantAction`,
     /// `StartOnline`, `StartHost`, `HostCloseDecision`, or `Exit`).
-    ///
-    /// ## Transition Handling
-    /// - `StartInstantAction(req)`: Prepares map loading screen (`ShellHost::prepare_map_loading`)
-    ///   and enters `AppState::BattleLoading` for `playlist_index = 0`.
-    /// - `StartOnline(launch)`: Prepares map loading screen and enters `AppState::BattleLoading`
-    ///   for `BattleLoadTarget::Online`.
-    /// - `StartHost(options, launch)`: Synchronizes `content_root` and `online_consent` on
-    ///   `HostController`, spawns the `"bfe-host-start"` background thread to execute
-    ///   `HostController::start(&options)`, and enters `AppState::HostStarting` until `/info` answers.
-    /// - `HostCloseDecision(idx)`: Converts button index `0..=2` via `ClosePrompt::choice_for_index`
-    ///   and calls `HostController::apply_close_choice`, exiting when `Ok(true)`.
-    /// - `Exit`: Invokes [`Self::request_app_close`].
     fn apply_shell_transition(
         &mut self,
         transition: Option<ShellTransition>,
@@ -1870,15 +1769,6 @@ impl StandaloneWindowApp {
 
     /// Advances the active [`AppState`] by one frame, renders into the offscreen FBO,
     /// blits to the window surface, and checks for OpenGL errors.
-    ///
-    /// ## Per-Frame Pipeline
-    /// 1. Computes clamped frame delta `dt` (`0.001..=0.1` seconds).
-    /// 2. Pumps 6 stereo 128-frame audio quantums (`pump_headless_audio`) when running
-    ///    without a hardware `cpal` output stream.
-    /// 3. Updates Discord Rich Presence (`update_rich_presence`) and OS cursor grab (`sync_pointer_lock`).
-    /// 4. Dispatches the active [`AppState`] variant (`StartupLoader`, `Shell`, `HostStarting`,
-    ///    `BattleLoading`, or `Battle`), blitting the resulting FBO to the window.
-    /// 5. Polls `glGetError()` via [`Self::check_gl_errors`] to enforce the zero-GL-error gate.
     fn step_frame(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
         let dt = (now - self.last_frame).as_secs_f64().clamp(0.001, 0.1);
@@ -2333,6 +2223,7 @@ impl StandaloneWindowApp {
                             return Err("window presentation resources missing".into());
                         };
                         ui.render_pass(fb, sz, 2)?;
+                        battle.scene.resolution_presented(battle.pause_menu.is_open||!self.focused||self.hidden)?;
                         surface
                             .swap_buffers(context)
                             .map_err(|e| format!("window presentation failed: {e}"))?;

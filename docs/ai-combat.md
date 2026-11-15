@@ -24,7 +24,7 @@ under "Further behavior details".
 | `rust/sim/rust/ai/combat/agent.rs`, `binding.rs` | the engagement dispatcher, `CombatAgent`, `Patterns`, `Cover`, the combat services the control core calls (`CombatAi`) |
 | `rust/sim` (`weapons`) | additive AI options on `Weapon`/`Arsenal` (below) |
 | `tools/zero_ai_classes.py` | `public/sides/<side>/ai.json` |
-| `rust/sim/tests/ai_combat_twin.rs`, `ai_combat_control.rs`, `replay_ai_combat.rs`, `rust/sim/tests/fixtures/ai-combat-golden.json` | tests; synthetic golden cases |
+| `rust/sim/tests/ai_combat_control.rs` | tests |
 
 ## Where it runs
 
@@ -518,14 +518,7 @@ pace.
 
 ## Tests
 
-`cargo test` in `rust/sim`: `rust/sim/tests/ai_combat_twin.rs` compares the priority
-heaps, Classic aim and ballistic leads, weapon records, triggers and
-priorities, the Enhanced reaction and noise, attributed shot and damage
-alerts with crew alerts, and acoustic recipients with synthetic golden cases
-(`rust/sim/tests/fixtures/ai-combat-golden.json`);
-`rust/sim/tests/ai_combat_control.rs` and `rust/sim/rust/ai/owned/tests/phase.rs` cover the combat
+`cargo test` in `rust/sim`: `rust/sim/tests/ai_combat_control.rs` and `rust/sim/rust/ai/owned/tests/phase.rs` cover the combat
 services inside the native phase (Classic and Enhanced acceptance policies,
-the Enhanced aimer); `rust/sim/tests/replay_ai_combat.rs` replays captured combat
-service and agent calls with exact state and random-stream order when a
-capture corpus is supplied. Checks against optional local reference data
+the Enhanced aimer). Checks against optional local reference data
 skip when it is absent.

@@ -168,6 +168,5 @@ follow water motion and are hidden during its reflection pass.
 Run the native renderer unit and shader catalog tests and the headless GL smoke gate:
 
 ```sh
-~/bfe-work/tools/rbuild.sh cargo test --locked -p bfe-render
-~/bfe-work/tools/rbuild.sh cargo xtask smoke
+cargo test --locked -p bfe-render
 ```

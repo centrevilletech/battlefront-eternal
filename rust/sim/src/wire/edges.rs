@@ -241,18 +241,3 @@ mod tests {
     }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn wire_edges_words() -> u32 { super::wire_edges_words() }
-    #[no_mangle]
-    pub extern "C" fn wire_edges_create() -> *mut Host { wire_edges_create_in(crate::abi::facade::world()) as *mut Host }
-    #[no_mangle]
-    pub extern "C" fn wire_edges_drop(host: *mut Host) { wire_edges_drop_in(crate::abi::facade::world(), host as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_edges_run(host: *mut Host) -> *const f64 { wire_edges_run_in(crate::abi::facade::world(), host as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{wire_edges_create, wire_edges_drop, wire_edges_run};

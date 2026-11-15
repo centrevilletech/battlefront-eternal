@@ -1,23 +1,4 @@
 //! Signed master ban-list verification and caching (`src/bans.js`).
-//!
-//! `BanCache` in `src/bans.js` protects dedicated servers from forged or replayed global ban lists
-//! without requiring a hard-coded root certificate in the binary:
-//! - On first contact (`this.key == null`), `BanCache.refresh` fetches `/v1/info` from the master
-//!   server and pins `info.publicKey` (trust-on-first-use / TOFU), writing it to `master-ban-key`
-//!   in `BFE_STATE_DIR` with mode `0600` (`flag: 'wx'`).
-//! - On every subsequent refresh, if `document.publicKey !== this.key`, `BanCache.refresh` rejects
-//!   the document with `"Master ban signing key changed"` so a compromised or replaced master
-//!   cannot silently rotate its ban signing key without operator intervention.
-//! - The Ed25519 signature (`document.signature`, base64) is verified over the canonical JSON
-//!   serialization `JSON.stringify(document.payload)` using the pinned SPKI public key.
-//! - Replay and resource exhaustion are prevented by enforcing the exact lifetime and size bounds
-//!   from `BanCache.refresh` in `src/bans.js`:
-//!   - `Array.isArray(p.bans)` and `p.bans.length <= 10000`
-//!   - `p.issued <= now + 60000` (at most 60 s clock skew into the future)
-//!   - `p.expires >= now` and `p.expires <= now + 600000` (must not be expired and may live at most 10 min)
-//! - `BanCache.contains(id)` checks both that the signed ban list itself has not expired
-//!   (`this.expires > Date.now()`) and that an entry matching `b.player === id` has
-//!   `b.expires > Date.now()`.
 
 use crate::identity::{verify, write_mode_600};
 use serde::{Deserialize, Serialize};

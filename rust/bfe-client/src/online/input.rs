@@ -35,6 +35,8 @@ struct Pointer {
     invert: bool,
 }
 pub struct Sender {
+    pub aim_scene: Option<super::shot_aim::Shared>,
+    pub fire_aim: Option<[f64;2]>,
     pub history: Box<super::replay::History>,
     owner: Box<Outbound>,
     life: [f64; 2],
@@ -66,6 +68,15 @@ pub struct Sender {
     measured: bool,
     last_ack: f64,
     turns: Vec<(f64, [f64; 2])>,
+    // Instant Action's lead: one tick above the local world's next tick,
+    // raised a tick when the world takes a command late (Electron's local
+    // InputLead keeps the same feedback).
+    local: bool,
+    extra: f64,
+    cooldown: u32,
+    calm: u32,
+    late_seen: u64,
+    local_next: Option<f64>,
 }
 const KEYS: [&str; 9] = ["KeyW", "KeyS", "KeyD", "KeyA", "NumpadMultiply", "NumpadDivide", "Mouse0", "Mouse2", "Space"];
 // ClientCommand.actions bit order (ClientAction).
@@ -82,6 +93,8 @@ impl Default for Sender {
         let actions =
             ACTIONS.map(|name| INPUT_ACTIONS.iter().position(|n| *n == name).unwrap_or(if name == "firePrimary" { 21 } else { 22 }));
         Self {
+            aim_scene: None,
+            fire_aim: None,
             history: Box::new(Default::default()),
             owner: Box::new(Outbound::default()),
             life: [0.; 2],
@@ -112,6 +125,12 @@ impl Default for Sender {
             ahead: false,
             measured: false,
             last_ack: f64::NEG_INFINITY,
+            local: false,
+            extra: 0.,
+            cooldown: 0,
+            calm: 0,
+            late_seen: 0,
+            local_next: None,
             turns: Vec::new(),
         }
     }
@@ -131,6 +150,31 @@ impl Sender {
     /// that much early and wait, and every frame would replay that many ticks.
     pub fn pace(&self) -> f64 {
         if self.ahead { 0.9 } else { 1. }
+    }
+    /// A local world's count of commands it took after their tick. As the
+    /// page's InputLead for its own world: a late command raises the extra
+    /// margin a tick (once per 30 commands, those in flight were stamped
+    /// before), 600 on-time commands in a row lower it a tick.
+    pub fn local_lateness(&mut self, late_total: u64) {
+        self.local = true;
+        if late_total > self.late_seen {
+            self.calm = 0;
+            if self.cooldown == 0 {
+                self.extra = (self.extra + 1.).min(12.);
+                self.cooldown = 30;
+            }
+        }
+        self.late_seen = late_total;
+    }
+    /// A local world's next tick (the one it has not run yet). Its commands
+    /// are stamped one tick above it: the world may be running that next
+    /// tick while the command is on its way.
+    pub fn local_next_tick(&mut self, next: f64) {
+        self.local_next = Some(next);
+    }
+    /// The extra margin a local world's lateness has added, in ticks.
+    pub fn extra_lead(&self) -> f64 {
+        self.extra
     }
     pub fn new(turns: &[(f64, [f64; 2])]) -> Self {
         Self { turns: turns.to_vec(), ..Self::default() }
@@ -205,18 +249,26 @@ impl Sender {
         self.sequence = self.sequence.wrapping_add(1).max(1);
         // TargetLead uses the same transit estimate and future bound as the
         // page. Sequences remain distinct even when that bound holds a tick.
-        let target = target_lead(LeadTargetInput {
+        if self.local {
+            self.cooldown = self.cooldown.saturating_sub(1);
+            self.calm += 1;
+            if self.calm >= 600 {
+                self.calm = 0;
+                self.extra = (self.extra - 1.).max(0.);
+            }
+        }
+        let target = if let (true, Some(next)) = (self.local, self.local_next) { next + 1. + self.extra } else { target_lead(LeadTargetInput {
             hz: 60.,
             margin: 2.,
             max_lead: 16.,
             worst_gap: 0.,
-            extra: 0.,
+            extra: self.extra,
             extrapolate: true,
             estimate: receiver.estimator.estimate(now / 1000.),
             latest: receiver.latest,
             round_trip_seconds: rtt / 1000.,
         })
-        .bounded;
+        .bounded };
         let tick = target.floor().max(self.last_tick + 1.).min(receiver.latest + 30.);
         // Measured on a frame's first command: a slow frame's later ones are
         // stamped for the ticks after it and are not ahead of anything.
@@ -309,11 +361,26 @@ impl Sender {
             self.pointer_count += 1;
         }
         self.preview(receiver);
+        self.fire_aim = Some([self.yaw,self.pitch]);
+        if let Some(scene)=&self.aim_scene {
+            let (aim,reach,target)=scene.borrow().sample(&receiver.own,self.yaw,self.pitch,self.first_person);
+            self.fire_aim=Some([aim.yaw,aim.pitch]);
+            if fires[..fc].iter().any(|fire|fire.pressed && !fire.held) && std::env::var_os("BFE_HUD_TRACE").is_some() {
+                use bfe_presentation::network_layout::net_record as record;
+                let velocity=target.and_then(|id|receiver.active().find(|row|row[record::ID]==id as f64).map(|row|[row[record::VELOCITY],row[record::VELOCITY+1],row[record::VELOCITY+2]]));
+                let team=target.and_then(|id|receiver.active().find(|row|row[record::ID]==id as f64).map(|row|row[record::TEAM]));
+                eprintln!("[combat-client] {}",serde_json::json!({"sequence":self.sequence,"player":receiver.own.id,
+                    "displayedTick":super::clock::rendered_tick(receiver.clock.shown,receiver.latest),
+                    "bodyAim":[self.yaw,self.pitch],"fireAim":self.fire_aim,"camera":scene.borrow().camera,
+                    "viewProjection":scene.borrow().view_projection,"position":scene.borrow().position,"posture":receiver.own.posture,"zoom":receiver.own.zoom,
+                    "rayFrom":[aim.from.x,aim.from.y,aim.from.z],"rayDirection":[aim.basis.direction.x,aim.basis.direction.y,aim.basis.direction.z],
+                    "origin":[aim.basis.origin.x,aim.basis.origin.y,aim.basis.origin.z],"reach":reach,"target":target,"targetTeam":team,"targetVelocity":velocity,"team":receiver.own.team}));
+            }
+        }
         for fire in &fires[..fc] {
             if !fire.held {
-                let yaw = self.yaw;
-                let pitch = self.pitch;
-                let view = (receiver.latest - 6.).max(0.);
+                let [yaw,pitch] = self.fire_aim.unwrap_or([self.yaw,self.pitch]);
+                let view = super::clock::rendered_tick(receiver.clock.shown, receiver.latest);
                 let edge = self.edge(1., tick);
                 edge[e::BUTTON] = fire.button as f64;
                 edge[e::PRESSED] = fire.pressed as u8 as f64;
@@ -450,7 +517,7 @@ impl Sender {
             x[start + v::PROFILE_FOUND] = 1.;
             x[start + v::MOUSE_SCALE] = self.mouse_scale;
             x[start + v::ASPECT] = self.aspect;
-            x[start + v::VIEW_TICK] = (receiver.latest - 6.).max(0.);
+            x[start + v::VIEW_TICK] = super::clock::rendered_tick(receiver.clock.shown, receiver.latest);
             for state in &states[..commands] {
                 for n in [1., state.sequence, state.tick, 0.] {
                     put(&mut x, &mut at, n);
@@ -571,5 +638,29 @@ mod tests {
         assert_eq!(pointer.scale, 0.5);
         assert!(pointer.invert);
         assert_eq!((pointer.x, pointer.y), (12., -8.));
+    }
+
+    #[test]
+    fn a_local_world_gets_commands_one_tick_above_its_next_tick() {
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        receiver.welcomed = true;
+        receiver.complete = true;
+        receiver.corrections = 1;
+        receiver.own.generation = 1.;
+        receiver.latest = 100.;
+        let mut sender = Sender::default();
+        let step = |sender: &mut Sender, next: f64| {
+            sender.local_next_tick(next);
+            sender.tick(&ClientCommand::default(), &ClientLook::default(), &Default::default(), &receiver, 0., 0.);
+            sender.command_tick()
+        };
+        sender.local_lateness(0);
+        assert_eq!(step(&mut sender, 101.), 102.);
+        // A second command in the same frame goes to the tick after.
+        assert_eq!(step(&mut sender, 101.), 103.);
+        assert_eq!(step(&mut sender, 103.), 104.);
+        // The world took one late: a tick more from now on.
+        sender.local_lateness(1);
+        assert_eq!(step(&mut sender, 104.), 106.);
     }
 }

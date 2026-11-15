@@ -52,6 +52,9 @@ impl<C: HasContext> CanopiesPass<C> {
         unsafe { core.gl.bind_buffer(glow::ARRAY_BUFFER, None); }
     }
 
+    pub fn configure_shadows<M:MultiDraw>(&mut self,core:&mut Core<C,M>,enabled:bool)->Result<(),String>{
+        if let Some(mesh)=&mut self.mesh{if enabled{mesh.programs[1]=core.add_owned_program("world/canopies")?;}}Ok(())
+    }
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> CanopiesPass<C> {
         CanopiesPass { input: vec![0.0; INPUT_LEN], leaves: vec![], mesh: None }
     }
@@ -128,6 +131,7 @@ impl<C: HasContext> CanopiesPass<C> {
         unsafe {
             gl.bind_vertex_array(Some(g.vao));
             gl.draw_elements_instanced(glow::TRIANGLES, mesh.count, g.index_type, 0, instances as i32);
+            core.profile.draw(mesh.count.max(0) as u64,instances as u64,1);
         }
         stats.gl_calls += 2;
         stats.pass_draws[PASS_CANOPIES] += 1;

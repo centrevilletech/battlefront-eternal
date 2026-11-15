@@ -3,8 +3,6 @@
 // Its handle is closed before the backing bytes are dropped, even on errors.
 use std::{ffi::c_void, ops::Range, ptr::NonNull, sync::Once};
 // Link the bare-WASM allocator and libc forwarders used by the C++ archive.
-#[cfg(target_arch = "wasm32")]
-use basisu_wasm_libcxx as _;
 
 extern "C" {
     // Named scalar accessors avoid a duplicated C/Rust structure layout.
