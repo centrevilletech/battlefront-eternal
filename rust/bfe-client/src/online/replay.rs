@@ -211,7 +211,7 @@ impl Replay {
             &content.buildings_bvh,
             content.terrain_bvh.as_ref(),
         )?;
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
+        let defs = content.defs()?;
         let mut classes = vec![None; defs.registry.classes.len() + 1];
         // Soldier constants come from the authority's class constructor. The
         // private owner never substitutes a native movement implementation.

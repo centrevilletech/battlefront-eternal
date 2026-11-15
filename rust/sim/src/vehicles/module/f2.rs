@@ -175,10 +175,10 @@ pub(crate) fn world_level_in(world_ctx: &mut crate::world::owner::World, level:f
 // Seat commands and cable writes can change canonical fields outside physics.
 // Invalidate working copies as well as publication, since the next native
 // substep must see those changes even if a mirror was already published.
-pub(crate) fn mark_in(fleet: &mut crate::vehicles::module::Fleet, r: Ref<Vehicle>) { fleet.scheduler.mark(&mut fleet.geometry, r) }
+pub(crate) fn mark_in(fleet: &mut crate::vehicles::module::Fleet, r: Ref<Vehicle>) { fleet.scheduler.mark(r) }
 /// A completed native substep already has the canonical dynamic fields. Keep
 /// that working row current; other spare rows reload only after a real write.
-pub(crate) fn stored_in(fleet: &mut crate::vehicles::module::Fleet, hull: &Hull) { fleet.scheduler.stored(&mut fleet.geometry, hull) }
+pub(crate) fn stored_in(fleet: &mut crate::vehicles::module::Fleet, hull: &Hull) { fleet.scheduler.stored(hull) }
 pub(crate) fn mark_changed_in(fleet: &mut crate::vehicles::module::Fleet, r: Ref<Vehicle>) { mark_in(fleet, r); }
 pub(crate) fn has_pending_in(world_ctx: &mut crate::world::owner::World)->bool { world_ctx.fleet.scheduler.has_pending() }
 pub(crate) fn pending_in(fleet: &mut crate::vehicles::module::Fleet) { { fleet.scheduler.pending = true; } }
@@ -342,7 +342,6 @@ pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) {
     // JavaScript host. Nothing native reads them.
     p.discard(&mut world_ctx.sim.store);
     veh_changes_in(world_ctx);
-    geometry::publish_in(world_ctx);
     world_ctx.fleet.scheduler.descriptor[F2Phase::ACC] = world_ctx.fleet.scheduler.acc;
     world_ctx.fleet.scheduler.descriptor[F2Phase::FLIGHT_ACC] = world_ctx.fleet.flight_acc;
     world_ctx.fleet.scheduler.descriptor[F2Phase::TIME] = world_ctx.fleet.scheduler.time;
@@ -437,8 +436,6 @@ fn spawns_in(world_ctx: &mut crate::world::owner::World, dt: f64,mut services:Op
             v.boost_speed = Some(hull.flight.boost_speed); v.speed = hull.speed; v.turn_rate = hull.turn_rate;
         }
         store_flight_in(world_ctx, &hull);
-        // Spawn's render is observable by boarding in the following latch.
-        geometry::mark_in(&mut world_ctx.fleet, r);
         if crate::units::f3::active_in(&world_ctx.units) {
             // Vehicle.spawn resets retained mounted rows before latching.
             // It must not rebuild JS weapons or reenter module exports here.
@@ -682,16 +679,16 @@ impl Scheduler {
         }
     }
     fn recycle(&mut self, hull: Hull) { self.hull_rows[hull.id.slot as usize].as_mut().unwrap().pool.push(hull); }
-    fn mark(&mut self, geometry: &mut geometry::Geometry, r: Ref<Vehicle>) {
+    fn mark(&mut self, r: Ref<Vehicle>) {
         self.pending = true;
         if let Some(Some(row)) = self.hull_rows.get_mut(r.slot as usize) { row.revision += 1; }
-        self.publication.get_or_insert_with(Default::default).mark(r); geometry.mark(r);
+        self.publication.get_or_insert_with(Default::default).mark(r);
     }
-    fn stored(&mut self, geometry: &mut geometry::Geometry, hull: &Hull) {
+    fn stored(&mut self, hull: &Hull) {
         self.pending = true;
         let row = self.hull_rows[hull.id.slot as usize].as_mut().unwrap();
         row.revision += 1; hull.f2_revision.set(row.revision);
-        self.publication.get_or_insert_with(Default::default).mark(hull.id); geometry.mark(hull.id);
+        self.publication.get_or_insert_with(Default::default).mark(hull.id);
     }
     fn revision(&self, r: Ref<Vehicle>) -> u64 {
         self.hull_rows[r.slot as usize].as_ref().expect("registered target hull").revision

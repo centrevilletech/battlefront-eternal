@@ -260,7 +260,7 @@ impl Prepared {
             .unwrap_or("")
             .to_string();
         let world = authored_json(&content.content.battle.world);
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
+        let defs = content.defs()?;
         let mut result = Self {
             assets: vec![Asset {
                 image: None,
@@ -1547,7 +1547,7 @@ mod tests {
         let mut loader = bfe_content_native::loader::Loader::new(root);
         loader.compressed = false;
         let mut content = loader.load("nab2", "map=nab2&side=rep&seed=1").unwrap();
-        let defs = bfe_content::defs::Defs::build(&content.content).unwrap();
+        let defs = content.defs().unwrap();
         let class = defs
             .classes
             .iter()

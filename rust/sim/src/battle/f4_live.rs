@@ -137,7 +137,10 @@ pub(crate) fn traps_bank_in(w: &Root) -> Option<&[f64]> { w.battle.live.as_ref()
 pub(crate) fn publish_in(w: &mut Root) {
     if crate::world::deferred_in(&w.tick) {return;}
     if w.battle.io.is_none() { return; }
-    let rows = f4::live_in(&mut w.battle).flush();
+    // The changed buildings, animated props and traps were encoded here as
+    // deltas for the JavaScript host. Nothing native reads them.
+    f4::live_in(&mut w.battle).discard();
+    let rows = 0;
     let words = { let live = f4::live_in(&mut w.battle); live.buildings.publication.words.len() + live.animated.publication.words.len() + live.traps.publication.words.len() };
     record_publication(&mut w.battle, rows, words - 3 * crate::store::block::HEADER);
     let io = io(&mut w.battle);

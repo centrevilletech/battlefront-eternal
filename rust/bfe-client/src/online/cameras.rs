@@ -55,7 +55,7 @@ impl Cast for Queries {
 }
 impl Cameras {
     pub fn new(content: &bfe_content_native::BattleContent, collision: Collision, world: u32) -> Result<Self, String> {
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
+        let defs = content.defs()?;
         let mut cameras = Content::default();
         // game.js constructs SoldierCamera with common.cameraMotions. These
         // curves belong to visual motion, never authority or prediction replay.

@@ -171,6 +171,7 @@ impl Live {
         self.flush()
     }
     pub fn flush(&mut self) -> usize { self.buildings.flush() + self.animated.flush() + self.traps.flush() }
+    pub fn discard(&mut self) { self.buildings.discard(); self.animated.discard(); self.traps.discard(); }
 }
 
 /// Animated props keep the native pose solver's state and prepared clip/rig

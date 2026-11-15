@@ -80,6 +80,9 @@ pub const F_TRANSPARENT: u32 = 64; // in three's transparent list
 pub const F_PLACED: u32 = 128; // its matrix comes from the input
 pub const F_CULLED: u32 = 256; // frustum culled by its bounding sphere
 pub const F_BLEND: u32 = 512;
+// Transparent double-sided world materials draw backs before fronts, as
+// WebGLRenderer does when forceSinglePass is false.
+pub const F_DOUBLE_PASS: u32 = 1024;
 
 // GL uniform types.
 const FLOAT: u32 = 0x1406;
@@ -211,6 +214,9 @@ pub struct FarPass<C: HasContext> {
     // Vertex values the page writes for items whose buffers it refreshes.
     pub vertices: Vec<f32>,
     tables: Vec<Vec<Uniform<C>>>,
+    // A program's uniforms are shared by all its material tables. A table's
+    // cache is valid only while it is the last one that wrote that program.
+    uniform_owners: Vec<usize>,
     items: Vec<Item<C>>,
     // This frame's items and their depths (three's z), in drawing order.
     list: Vec<(usize, f64)>,
@@ -252,7 +258,7 @@ impl<C: HasContext> FarPass<C> {
     }
 
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> FarPass<C> {
-        FarPass { input: vec![0.0; FAR_INPUT_LEN], vertices: vec![0.0; FAR_VERTICES_LEN], tables: vec![], items: vec![], list: vec![], value: vec![], vao: None, units: HashMap::new(), probe_ubos: vec![], counted: PASS_FAR }
+        FarPass { input: vec![0.0; FAR_INPUT_LEN], vertices: vec![0.0; FAR_VERTICES_LEN], tables: vec![], uniform_owners: vec![], items: vec![], list: vec![], value: vec![], vao: None, units: HashMap::new(), probe_ubos: vec![], counted: PASS_FAR }
     }
 
     // Native resource admission knows the complete item bank before play.
@@ -265,6 +271,7 @@ impl<C: HasContext> FarPass<C> {
     // core's get units of their own. None when it reads a type the pass
     // can't set, or needs more units than there are.
     pub fn add_table<M: MultiDraw>(&mut self, core: &mut Core<C, M>, program: u32, names: &str, types: &[u32], counts: &[u32]) -> Option<u32> {
+        self.uniform_owners.resize(self.uniform_owners.len().max(program as usize + 1), usize::MAX);
         let gl = &core.gl;
         let handle = core.programs[program as usize].program;
         let mut uniforms = vec![];
@@ -565,6 +572,9 @@ impl<C: HasContext> FarPass<C> {
     // target cleared as three clears it (unless three's autoClear is off),
     // then the items in three's order.
     fn draw_items<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
+        // Another pass may have used these same linked programs since the
+        // last far draw (including a mirror or a probe face).
+        self.uniform_owners.fill(usize::MAX);
         let camera = core.camera();
         let mut projection = [0.0; 16];
         projection.copy_from_slice(&core.input[0..16]);
@@ -741,6 +751,10 @@ impl<C: HasContext> FarPass<C> {
         let world = matrix_of(item, input);
         let mut model_view: Option<Mat4> = None;
         let table = &mut self.tables[item.table];
+        if self.uniform_owners[item.program] != item.table {
+            for uniform in table.iter_mut() { uniform.value.fill(f32::NAN); }
+            self.uniform_owners[item.program] = item.table;
+        }
         for (u, source) in &item.sources {
             let uniform = &mut table[*u];
             let value = &mut self.value;
@@ -806,7 +820,6 @@ impl<C: HasContext> FarPass<C> {
         }
         // three's setMaterial: culling, blending, depth, colour, coverage.
         let f = item.flags;
-        state.cull(gl, stats, f & 3);
         if f & F_BLEND != 0 && !item.input_blend.is_some_and(|at|self.input.get(at).copied().unwrap_or(0.)>0.) {
             let b = item.blend;
             state.blend(gl, stats, true);
@@ -825,25 +838,30 @@ impl<C: HasContext> FarPass<C> {
             self.vao = Some(geo.vao);
             stats.gl_calls += 1;
         }
-        unsafe {
-            if ranges > 1 {
-                match &mut item.draw {
-                    Draw::Cells(c) => core.multi.multi_draw(glow::TRIANGLES, &mut c.counts[..ranges], geo.index_type, &mut c.offsets[..ranges]),
-                    Draw::Terrain(t) => core.multi.multi_draw(glow::TRIANGLES, &mut t.counts[..ranges], glow::UNSIGNED_INT, &mut t.offsets[..ranges]),
-                    Draw::Range(..) => {}
-                }
-            } else if matches!(item.draw, Draw::Terrain(_)) {
-                gl.draw_elements(glow::TRIANGLES, count, glow::UNSIGNED_INT, first * 4);
-            } else if instances > 0 {
-                gl.draw_elements_instanced(glow::TRIANGLES, count, geo.index_type, first * geo.index_bytes, instances as i32);
-            } else {
-                gl.draw_elements(glow::TRIANGLES, count, geo.index_type, first * geo.index_bytes);
-            }
-        }
+        let double = f & F_DOUBLE_PASS != 0;
+        let sides = [if double { 3 } else { f & 3 }, 0];
         let submitted=if ranges>1 {match &item.draw {Draw::Cells(c)=>c.counts[..ranges].iter().map(|v|*v as u64).sum(),Draw::Terrain(t)=>t.counts[..ranges].iter().map(|v|*v as u64).sum(),_=>count.max(0) as u64}} else {count.max(0) as u64};
-        core.profile.draw(submitted,instances.max(1) as u64,if ranges>1 {core.multi.multi_draw_calls(ranges)} else {1});
-        stats.gl_calls += 1;
-        stats.pass_draws[counted] += 1;
+        for &side in &sides[..if double { 2 } else { 1 }] {
+            state.cull(gl, stats, side);
+            unsafe {
+                if ranges > 1 {
+                    match &mut item.draw {
+                        Draw::Cells(c) => core.multi.multi_draw(glow::TRIANGLES, &mut c.counts[..ranges], geo.index_type, &mut c.offsets[..ranges]),
+                        Draw::Terrain(t) => core.multi.multi_draw(glow::TRIANGLES, &mut t.counts[..ranges], glow::UNSIGNED_INT, &mut t.offsets[..ranges]),
+                        Draw::Range(..) => {}
+                    }
+                } else if matches!(item.draw, Draw::Terrain(_)) {
+                    gl.draw_elements(glow::TRIANGLES, count, glow::UNSIGNED_INT, first * 4);
+                } else if instances > 0 {
+                    gl.draw_elements_instanced(glow::TRIANGLES, count, geo.index_type, first * geo.index_bytes, instances as i32);
+                } else {
+                    gl.draw_elements(glow::TRIANGLES, count, geo.index_type, first * geo.index_bytes);
+                }
+            }
+            core.profile.draw(submitted,instances.max(1) as u64,if ranges>1 {core.multi.multi_draw_calls(ranges)} else {1});
+            stats.gl_calls += 1;
+            stats.pass_draws[counted] += 1;
+        }
     }
 
     // How many items are registered (the page's checks).
@@ -936,6 +954,7 @@ impl<C:HasContext> FarPass<C> {
     pub fn effect_settings<M:MultiDraw>(&mut self,core:&mut Core<C,M>,shadows:bool)->Result<(),String>{
         for item in &mut self.items {
             let program=crate::effect_settings::program(core,item.program,shadows)?;
+            self.uniform_owners.resize(self.uniform_owners.len().max(program + 1), usize::MAX);
             if program==item.program {continue;}
             for uniform in &mut self.tables[item.table] {
                 uniform.location=crate::effect_settings::location(core,program,&uniform.name);

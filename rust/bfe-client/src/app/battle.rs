@@ -158,7 +158,6 @@ pub struct InstantAdmission {
     era: String,
     world: WorldThread,
     admitted: crate::local::thread::AdmittedWorldInfo,
-    graphics: crate::scene::Prepared,
 }
 pub struct OnlineAdmission {
     launch: MultiplayerLaunch,
@@ -917,7 +916,8 @@ impl BattleController {
         playlist_index: usize,
         bots: &BotSettings,
         player_name: &str,
-        textures:crate::scene::TextureOptions,
+        textures: crate::scene::TextureOptions,
+        scene_ready: impl FnOnce(Result<crate::scene::Prepared, String>) + Send,
     ) -> Result<InstantAdmission, String> {
         // Resolve the target map ID and era from `request.playlist[playlist_index]` or `request`.
         let default_era = request.era.clone().unwrap_or_else(|| "cw".to_string());
@@ -978,8 +978,28 @@ impl BattleController {
             },
         };
 
-        let (world, admitted) = WorldThread::admit_instant_action(&local_options)?;
-        let graphics = Scene::prepare_online(content_dir, &admitted.query,textures)?;
+        // The world thread admits the battle while this worker reads the
+        // scene's content for the same mission query (the query the admission
+        // reports back, checked below) and hands it to the window at once.
+        let query = format!("{}&spawnscreen=1", local_options.world()?.query());
+        let started = std::time::Instant::now();
+        let (admission, world_time) = std::thread::scope(|scope| {
+            let world = scope.spawn(|| {
+                let admission = WorldThread::admit_instant_action(&local_options);
+                (admission, started.elapsed())
+            });
+            scene_ready(Scene::prepare_online(content_dir, &query, textures));
+            eprintln!(
+                "battle loading: scene content prepared in {:.0} ms",
+                started.elapsed().as_secs_f64() * 1000.
+            );
+            world.join().unwrap_or_else(|_| (Err("world admission stopped".into()), started.elapsed()))
+        });
+        eprintln!("battle loading: world admitted in {:.0} ms", world_time.as_secs_f64() * 1000.);
+        let (world, admitted) = admission?;
+        if admitted.query != query {
+            return Err(format!("world admitted {} but the scene was read for {query}", admitted.query));
+        }
         Ok(InstantAdmission {
             request,
             playlist_index,
@@ -987,18 +1007,23 @@ impl BattleController {
             era,
             world,
             admitted,
-            graphics,
         })
     }
 
+    /// Creates the scene's display resources, then waits for the world's
+    /// admission (`world`), which may still be under way on its thread.
     pub async fn open_instant_action(
         content_dir: &Path,
-        prepared: InstantAdmission,
+        graphics: crate::scene::Prepared,
+        world: impl std::future::Future<Output = Result<InstantAdmission, String>>,
         size: [i32; 2],
         settings: &AppSettingsStore,
-        _audio_router: &SharedAudioRouter,
         mut make_gl: impl FnMut() -> glow::Context,
     ) -> Result<Self, String> {
+        let mut graphics = graphics;
+        graphics.shadows(&settings.interface.get_string("shadows"));
+        let (mut scene, camera) = Scene::open_prepared(graphics, size, &mut make_gl).await?;
+        crate::loading_work::frame().await;
         let InstantAdmission {
             request,
             playlist_index,
@@ -1006,11 +1031,7 @@ impl BattleController {
             era,
             mut world,
             admitted,
-            graphics,
-        } = prepared;
-        let mut graphics=graphics;
-        graphics.shadows(&settings.interface.get_string("shadows"));
-        let (mut scene, camera) = Scene::open_prepared(graphics, size, &mut make_gl).await?;
+        } = world.await?;
         // Route the live battle sound mixer into `SharedAudioRouter`.
         let replicas = scene.online.as_mut().ok_or("missing online replicas")?;
         replicas.hud.auto_build = false;
@@ -1035,12 +1056,14 @@ impl BattleController {
         // Drain the initial tick-0 publication so `replicas.hud` has the mission's
         // authoritative command posts, unit classes, and reinforcement counts.
         world.poll_publications(&mut receiver, 0.0)?;
+        crate::loading_work::frame().await;
         eprintln!("local welcome received: welcomed={} packets={} corrections={} alive={}",
             receiver.welcomed, receiver.packets, receiver.corrections, receiver.own.alive);
         replicas
             .hud
             .frame(&mut scene.bridge, &receiver, &replay, 0.0);
         receiver.publications.clear();
+        crate::loading_work::frame().await;
 
         let mut spawn_port = LiveSpawnPort::from_hud_meta(
             &replicas.hud.class_meta,
@@ -1056,6 +1079,7 @@ impl BattleController {
             receiver.own.team,
         );
 
+        crate::loading_work::frame().await;
         let leaving = super::leaving::LeavingFeed::load(content_dir, &map_id);
         let mut battle = Self::finish_init(
             BattleAuthority::InstantAction {
@@ -1533,6 +1557,11 @@ impl BattleController {
         if let Err(err) = self.scene.set_anisotropy(settings.interface.get_f64("anisotropy")) {
             eprintln!("battle settings: anisotropy not applied: {err}");
         }
+        let water = crate::water_host::Settings {
+            quality: settings.interface.get_string("waterQuality"),
+            ocean: settings.interface.get_string("oceanEffects"),
+        };
+        if let Err(err) = self.scene.set_water_settings(&water) { eprintln!("battle settings: water not applied: {err}"); }
         // The effect looks the browser reads the same two settings for.
         if let Some(online) = &mut self.scene.online {
             let enhanced = |name: &str| settings.interface.get_string(name) != "classic";

@@ -246,7 +246,7 @@ fn color(v: &bfe_content::Value, key: &str) -> [f64; 3] {
     std::array::from_fn(|i| a.and_then(|a| a.get(i)).and_then(bfe_content::Value::as_f64).unwrap_or(255.) / 255. * alpha)
 }
 impl Combat {
-    pub fn new(
+    pub async fn new(
         content: &BattleContent,
         mut prepared: particles::Prepared,
         bridge: &mut Bridge,
@@ -256,7 +256,7 @@ impl Combat {
         world: u32,
     ) -> Result<Self, String> {
         let shadow_cascades = bridge.shadow_cascades();
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
+        let defs = content.defs()?;
         let library = content.effects.iter().find(|(name, _)| name == "battle").map(|(_, e)| e).ok_or("missing battle effect library")?;
         let effect_names = library.handles.clone();
         let effect = |name: &str| effect_names.iter().find(|(n, _)| n == name).map(|(_, id)| *id);
@@ -283,7 +283,11 @@ impl Combat {
         // Definition ids are wire ids, whereas styles are densely admitted
         // visual resources. Keep an explicit map so omitted unsupported or
         // model-less definitions cannot shift every later style association.
+        let mut budget = crate::loading_work::Budget::new();
         for (id, (_, def)) in defs.registry.combat.iter().enumerate() {
+            if budget.tick().await {
+                bridge.r.core.state.reset();
+            }
             let base = def.get("base").and_then(bfe_content::Value::as_str).unwrap_or("");
             if !["bolt", "laser", "bullet", "fatray", "beam", "shell", "missile", "grenade", "sticky", "explosion"].contains(&base) {
                 continue;
@@ -422,7 +426,7 @@ impl Combat {
         bridge.fx_reserve(particles.words as u32);
         let destruction = super::destruction::Destructions::new(content, bridge, textures, collision.clone(), world, particles.words)?;
         particles.words = destruction.end();
-        let debris = super::debris::Debris::new(content, bridge, textures, &effect_names, collision, world)?;
+        let debris = super::debris::Debris::new(content, bridge, textures, &effect_names, collision, world).await?;
         // The explosions droids that come apart die in: Enhanced draws its own
         // blast for them and leaves the stock effect out (Destruction.explosion).
         let droid_explosions: Vec<usize> = defs
