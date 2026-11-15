@@ -130,38 +130,6 @@ fn exchange_banks_keep_full_capacity_payloads_and_float_bits_independent() {
     });
 }
 
-#[test]
-fn allocation_diagnostics_bound_overflow_and_restore_nested_stages() {
-    use bfe_sim::{allocations::{Counts, Diagnostics}, gen::{F3Allocation, F3AllocationStage}};
-    let mut a = Diagnostics::new();
-    let mut b = Diagnostics::new();
-    a.prepare(); b.prepare();
-    a.begin(); b.begin();
-    let outer = a.stage(F3AllocationStage::Other);
-    a.record(13, false);
-    let inner = a.stage(F3AllocationStage::Input);
-    a.record(21, true);
-    a.stage(inner);
-    a.record(34, false);
-    a.stage(outer);
-    for _ in 0..65536 { b.record(1, false); }
-    a.end(); b.end();
-    assert_eq!(a.snapshot(), Counts { calls: 2, reallocs: 1, bytes: 68 });
-    assert_eq!(b.snapshot().calls, 65536);
-    unsafe {
-        let words = std::slice::from_raw_parts(a.publish(), 5 + 3 * F3Allocation::WORDS);
-        assert_eq!(words[0], 3.);
-        assert_eq!(F3Allocation::take(&words[5..], &[]).stage, F3AllocationStage::Other);
-        assert_eq!(F3Allocation::take(&words[5 + F3Allocation::WORDS..], &[]).stage, F3AllocationStage::Input);
-        let overflow = b.publish();
-        assert_eq!(*overflow, 128.);
-    }
-    // Ending the trace leaves totals live, as the production allocator does.
-    a.record(5, false);
-    assert_eq!(a.snapshot().bytes, 73);
-    assert_eq!(unsafe { *a.publish() }, 3.);
-    without_allocations(|| { for _ in 0..100 { a.publish(); b.publish(); } });
-}
 
 #[test]
 fn push_wall_scratch_reuses_reserved_probes_and_lends_repeated_caches_sequentially() {

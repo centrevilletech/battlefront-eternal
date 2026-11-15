@@ -495,35 +495,6 @@ fn indices_words(indices: Vec<usize>) -> Vec<f64> {
 /// A stateless numeric exchange. Flags are 0/1, nullable numbers are
 /// [present,value], and a list is [length,...values]. Outputs are owned before
 /// any host callback; this same Session can therefore serve nested callers.
-///
-/// Opcodes and word layouts:
-/// - 0: [] -> [at,count,offset?,offset,dropped?,dropped] after estimator reset.
-/// - 1: [hz,window,at,count,offset?,offset,dropped?,dropped,tick,now,newDropped,
-///   offsetsList] -> [at,count,offset?,offset,dropped?,dropped,writeIndex,value].
-/// - 2: [hz,offset?,offset,now] -> [estimate?,estimate].
-/// - 3: [margin] -> LeadReset::words(), after host estimator reset and gap fill.
-/// - 4: [hz,latest,arrived?,arrived,arrivedTick,gapAt,gapCount,tick,now,gapsList]
-///   -> [latest,arrived?,arrived,arrivedTick,gapAt,gapCount,writeIndex,value].
-/// - 5: [maxLead,cooldownAcks,calmAcks,recover,lateCount,extra,cooldown,calm,
-///   late,elapsedTicks,capped] -> [lateCount,extra,cooldown,calm].
-/// - 6: [gapCount,gapAt,measuredKey] -> [changed,key]. Publish key before 7.
-/// - 7: [gapCount,gapsList] -> [gap]. gapCount is an integer within the list;
-///   sampled NaNs require the host's original numeric sort.
-/// - 8: [hz,margin,maxLead,worstGap,extra,extrapolate,estimate?,estimate,latest,
-///   roundTrip] -> [bounded,capped,lead], after host measure and estimate calls.
-/// - 9: [] -> [x,y,z] after smoother reset; statistics are retained by the host.
-/// - 10: [x,y,z,count,worst,snap,oldXYZ,newXYZ]
-///   -> [size,changed,x,y,z,count,worst,reset]. Publish before reset/snaps++.
-/// - 11: [x,y,z,tau,dt] -> [x,y,z,reset]. Publish before the reset callback.
-/// - 12: [x,y,z] -> [length].
-/// - 13: [sameLife,authorityTick,cAuthorityTick,cTick,limit] -> [WindowDecision].
-/// - 14: [checkpointSequence,sequencesList] -> [count,...sourceIndices].
-/// - 15: [tick,generation,epoch,limit,count,...(generation,epoch,tick)]
-///   -> [count,...sourceIndices].
-///
-/// Ring writeIndex is -1 if no valid element was written. Other ring bytes
-/// must not be republished. Inputs with observable getters or coercions stay
-/// in the host's original phase; no JavaScript object identity crosses here.
 #[derive(Default)]
 pub struct Session {
     pub input: Vec<f64>,

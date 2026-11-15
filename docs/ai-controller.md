@@ -27,7 +27,7 @@ contract. Further behavior details are under "Further behavior details".
 | `rust/sim/rust/ai/control/mod.rs` | `Core`: binding, the per-service update, every state machine's entries, interrupts priorities 1 to 8, squad delivery, the scheduler and the AI input step |
 | `rust/sim/rust/ai/control/world.rs` | `AiWorld`, what the core asks of the rest of the battle |
 | `rust/sim/rust/ai/owned/runtime.rs` | the battle's AI entry points over the canonical stores |
-| `rust/sim/tests/ai_control_twin.rs`, `replay_ai.rs`, `rust/sim/rust/ai/owned/tests/phase.rs`, `rust/sim/rust/ai/owned/tests/native_phase.rs` | tests |
+| `rust/sim/rust/ai/owned/tests/phase.rs`, `rust/sim/rust/ai/owned/tests/native_phase.rs` | tests |
 
 ## Using it
 
@@ -479,6 +479,4 @@ post to AI passengers; AI passengers copy the current AI driver's post.
 Human occupants are never republished. Seat changes are read on each query.
 
 `rust/sim/rust/ai/owned/tests/phase.rs` checks follow handles across recycled actors
-and previous lives, and following humans; the per-phase replays
-(`rust/sim/tests/replay_ai.rs`) cover sampling, trails and objective propagation
-against captured battles when a capture corpus is supplied.
+and previous lives, and following humans.

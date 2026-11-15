@@ -654,6 +654,10 @@ impl Vehicles {
     pub fn slot_input(&self, rig: usize, slot: usize) -> usize {
         self.rigs.get(rig).map_or(0, |r| r.slots[slot.min(lim::SLOTS - 1)].0)
     }
+    /// Seat records follow the walker's leg sides and ground ray results.
+    pub fn slot_seats(&self, rig: usize, slot: usize) -> usize {
+        self.rigs.get(rig).map_or(0, |r| r.slots[slot.min(lim::SLOTS - 1)].0 + r.in_seats())
+    }
     pub fn slot_output(&self, rig: usize, slot: usize) -> usize {
         self.rigs.get(rig).map_or(0, |r| r.slots[slot.min(lim::SLOTS - 1)].1)
     }

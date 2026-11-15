@@ -2,23 +2,6 @@
 //! `PROFILE MANAGEMENT`, `MULTIPLAYER`, `EXIT TO WINDOWS`) and integration with
 //! [`bfe_online::browser::ServerBrowserService`] (`src/shell/screens.js`,
 //! `src/shell/index.js`).
-//!
-//! Ports `createScreens` from `src/shell/screens.js` natively:
-//! - Screen construction and state transitions are pure and renderer-independent
-//!   so all menu navigation, Instant Action playlist editing, era picker popups,
-//!   options pages, profile management, multiplayer gating, and exit confirmation
-//!   can be exercised in headless tests and drawn onto `bfe_render::interface::Batch`.
-//! - Every screen maps to its [`ShellMedia`] cue via [`ScreenId::media_id`]
-//!   (`"start"`, `"main"`, `"sp"`, `"ia"`, `"options"`, `"profile"`, `"mp"`),
-//!   matching `SCREEN_MEDIA` in `src/shell/media.js` and `mediaId()` in
-//!   `src/shell/index.js`.
-//! - Row lists are cached in `ShellApp::cached_rows` whenever the active screen
-//!   or underlying state changes so `draw_shell` can render at 60+ FPS with
-//!   zero per-frame heap allocations.
-//! - Sound cues (`"shell_select_change"`, `"shell_menu_accept"`,
-//!   `"shell_menu_enter"`, `"shell_menu_cancel"`, `"shell_menu_error"`,
-//!   `"shell_menu_exit"`, `"shell_keyboard_key"`, `"shell_keyboard_backspace"`)
-//!   are queued in `ShellApp::sound_queue` (`INTERFACE_SOUNDS` in `src/shell/audio.js`).
 
 use crate::{
     data::ShellData,
@@ -1112,7 +1095,8 @@ impl ShellApp {
                 if self.stack.len() > 1 {
                     self.stack.pop();
                     self.rebuild_cached_rows();
-                    self.sound_queue.push("shell_menu_cancel");
+                    // Coming back to a screen is `exit`; `cancel` is a popup's NO (`ScreenStack.pop` in src/menus/stack.js).
+                    self.sound_queue.push("shell_menu_exit");
                     let top = self.current_screen();
                     let evs = self.media.begin_enter(&self.data, top.media_id(), true);
                     self.media_events.extend(evs);

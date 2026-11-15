@@ -94,10 +94,11 @@ pub struct ClientPrediction {
     flags: Vec<u8>,
     barrels: Vec<u32>,
     correction: Vec<u8>,
+    // The crowd as this replay has pushed it: the world moves both bodies of
+    // a contact apart, so the other one must give way here too.
+    crowd: Vec<f64>,
     notices: Vec<f64>,
     before: Vec<f64>,
-    #[cfg(target_arch = "wasm32")]
-    error: Option<&'static str>,
 }
 
 impl ClientPrediction {
@@ -149,7 +150,7 @@ impl ClientPrediction {
     pub fn reserve_native(&mut self, bodies: usize, weapons: usize) {
         self.output.reserve(32768); self.before.reserve(4096);
         self.flags.reserve(bodies); self.correction.reserve(2200);
-        self.notices.reserve(16384); self.barrels.reserve(128);
+        self.notices.reserve(16384); self.barrels.reserve(128); self.crowd.reserve(1024 * ClientCrowd::WORDS);
         self.arsenal.reserve_native(weapons);
     }
 
@@ -230,6 +231,9 @@ impl ClientPrediction {
         let same_life = self.life == Some(life);
         let continued = same_life && (frame.authority_tick == self.authority_tick || frame.authority_tick < self.tick - LIMIT);
         if frame.dead { self.life = None; self.output.clear(); return Ok(()); }
+        // A fresh authority brings the others' places with it; a kept
+        // continuation keeps the places it has pushed them to.
+        if !continued || self.crowd.len() != crowd.len() { self.crowd.clear(); self.crowd.extend_from_slice(crowd); }
         // restorePrediction restored the compact body and arsenal together.
         // The generated body row supplies prerequisites; correction bytes own
         // the exact solver fields and reset local interpolation/look history.
@@ -369,7 +373,7 @@ impl ClientPrediction {
             // separatePredictedSoldier ran after movement and before weapons.
             // Only this private body moves; remote actors are frozen facts for
             // the page frame, regardless of how many pending ticks replay.
-            separate(&mut self.actor.unit.soldier, frame.identity, crowd);
+            separate(&mut self.actor.unit.soldier, frame.identity, &mut self.crowd);
             if !action(actions, Action::FirePrimary) { counts[0] = 0; }
             if !action(actions, Action::FireSecondary) { counts[1] = 0; }
             self.step_weapons(&frame, actions, forward, right, counts, ids)?;
@@ -560,21 +564,22 @@ impl ClientPrediction {
     }
 }
 
-/// Page crowd separation is asymmetric: only the owned body moves, in roster
-/// order, against the once-per-frame remote poses (game.js separatePredictedSoldier).
-fn separate(body: &mut UnitBody, identity: f64, crowd: &[f64]) {
+/// The crowd push on the owned body, in roster order, against the remote
+/// poses of the frame (game.js separatePredictedSoldier). The other body of a
+/// contact gives way in this replay's own copy, as it does in the world.
+fn separate(body: &mut UnitBody, identity: f64, crowd: &mut [f64]) {
     let (p, shape) = match body {
         UnitBody::Soldier(s) => (&mut s.position, if s.dive != 0.0 { [0.45, 1.45, 0.65] } else if s.air.is_some() { [0.57, 1.65, 0.9] } else { match s.posture { Posture::Stand => [0.57, 1.65, 0.9], Posture::Crouch => [0.45, 1.45, 0.65], Posture::Prone => [0.8, 0.45, 0.25] } }),
         UnitBody::Droideka(d) => (&mut d.position, [1.0, 2.0, 1.0]),
     };
     // separatePredictedSoldier uses a dive's crouch shape before airborne
-    // standing shape. Its vertical overlap and volume-weighted share are
-    // deliberately asymmetric; a global two-body separation would move peers.
+    // standing shape, the world's vertical overlap test and its
+    // volume-weighted share.
     let [r, h, y] = shape;
     let volume = std::f64::consts::PI * r * r * h;
     let bottom = p[1] + y - h / 2.0; let top = p[1] + y + h / 2.0;
     let far = (r + 1.0) * (r + 1.0);
-    for row in crowd.chunks_exact(ClientCrowd::WORDS) {
+    for row in crowd.chunks_exact_mut(ClientCrowd::WORDS) {
         let other = ClientCrowd::take(row, &[]); let o = other.position;
         let mut dx = p[0] - o[0]; let mut dz = p[2] - o[2]; let d2 = dx * dx + dz * dz;
         if d2 >= far || top <= o[1] + other.center - other.height / 2.0 || o[1] + other.center + other.height / 2.0 <= bottom { continue; }
@@ -584,8 +589,13 @@ fn separate(body: &mut UnitBody, identity: f64, crowd: &[f64]) {
         // when the two horizontal centers coincide. Do not draw randomness.
         if d < 1e-4 { dx = v8math::sin(identity); dz = v8math::cos(identity); d = 1.0; }
         let ov = std::f64::consts::PI * other.radius * other.radius * other.height;
-        let share = ((reach - v8math::sqrt(d2)) / (volume + ov)) * ov;
+        let overlap = (reach - v8math::sqrt(d2)) / (volume + ov);
+        let share = overlap * ov;
         p[0] += (dx / d) * share; p[2] += (dz / d) * share;
+        // separateSoldiers moves the other body the rest of the way. Only
+        // this replay's copy of it moves: the page's stays where it was told.
+        row[ClientCrowd::POSITION] -= (dx / d) * overlap * volume;
+        row[ClientCrowd::POSITION + 2] -= (dz / d) * overlap * volume;
     }
 }
 
@@ -656,144 +666,4 @@ fn capture(body: &UnitBody, out: &mut Vec<u8>) -> Result<(), &'static str> {
 // createClientPrediction owns this ABI handle for one page battle. Setup
 // operations load immutable facts; client_predict_session is the sole hot
 // crossing and returns all poses, weapon state and notices in one allocation.
-#[cfg(target_arch = "wasm32")]
-mod module {
-    use super::*;
-    use crate::gen::ClientOp;
-    pub(crate) fn client_prediction_create_in(w: &mut crate::world::owner::World) -> usize { w.page.prediction.insert(ClientPrediction::default()).unwrap_or(0) }
-    /// # Safety
-    /// Handles are numeric keys checked by this World's pools, never addresses.
-    /// No caller-side memory-safety precondition is needed; the signature keeps
-    /// compatibility with existing boundary callers.
-    pub(crate) unsafe fn client_prediction_drop_in(w: &mut crate::world::owner::World, p: usize) { w.page.prediction.remove(p as usize); }
-    /// # Safety
-    /// Handles are numeric keys checked by this World's pools, never addresses.
-    /// No caller-side memory-safety precondition is needed; the signature keeps
-    /// compatibility with existing boundary callers.
-    pub(crate) unsafe fn client_prediction_room_in(w: &mut crate::world::owner::World, p: usize, n: u32) -> Option<&mut [f64]> { let Some(s) = w.page.prediction.get_mut(p as usize) else { return None }; s.input.resize(n as usize, 0.0); Some(&mut s.input[..]) }
-    // The shared generated enum names the ABI commands. Reject an oversized
-    // operation before narrowing it, rather than aliasing another command.
-    /// # Safety
-    /// Handles are numeric keys checked by this World's pools, never addresses.
-    /// No caller-side memory-safety precondition is needed; the signature keeps
-    /// compatibility with existing boundary callers.
-    pub(crate) unsafe fn client_prediction_run_in(w: &mut crate::world::owner::World, p: usize, op: u32) -> u32 {
-        let operation = u8::try_from(op).ok().and_then(ClientOp::from_u8);
-        // predictionVehicle resolves its private fleet source before the
-        // session loan, so retained page storage never aliases that lookup.
-        let hull = if matches!(operation, Some(ClientOp::ConfigureHull)) {
-            let Some(s) = w.page.prediction.get(p as usize) else { return 0 };
-            let reference = span(&s.input, 0, 1, crate::gen::ClientHullRef::WORDS).map(|row| crate::gen::ClientHullRef::take(row, &[]));
-            reference.and_then(|r| crate::vehicles::module::prediction_hull_in(w, crate::store::Ref::new(r.slot,r.generation)).ok_or(INVALID))
-        } else { Err(INVALID) };
-        let Some(s) = w.page.prediction.get_mut(p as usize) else { return 0 };
-        // Move the exchange buffer out, retaining its capacity across frames.
-        let words = std::mem::take(&mut s.input);
-        let result = match operation {
-            Some(ClientOp::ConfigureActor) => s.configure_actor(&words, &mut w.collision.state),
-            Some(ClientOp::ConfigureWeapon) => s.configure_weapon(&words),
-            Some(ClientOp::Predict) => s.predict_session(&words, &mut w.collision.state),
-            Some(ClientOp::Reset) => { s.reset(); Ok(()) },
-            Some(ClientOp::ConfigureMuzzles) => s.configure_muzzles(&words),
-            Some(ClientOp::ConfigureHull) => hull.map(|owner| s.install_hull(owner)),
-            Some(ClientOp::ConfigureRecon) => s.configure_recon(&words),
-            None => Err(INVALID),
-        };
-        s.input = words; s.error = result.err(); if s.error.is_some() { s.reset(); } u32::from(s.error.is_none())
-    }
-    /// The hot page boundary. Input storage is reserved separately when its
-    /// capacity grows; the result header describes the complete output block.
-    // Moving the vector preserves its allocation while letting the session
-    // borrow the input independently. A failed frame invalidates continuation
-    // and returns an error pointer; it cannot fall back to page simulation.
-    /// # Safety
-    /// Handles are numeric keys checked by this World's pools, never addresses.
-    /// No caller-side memory-safety precondition is needed; the signature keeps
-    /// compatibility with existing boundary callers.
-    pub(crate) unsafe fn client_predict_session_in(w: &mut crate::world::owner::World, p: usize, n: u32) -> Option<&[f64]> {
-        let Some(s) = w.page.prediction.get_mut(p as usize) else { return None };
-        let words = std::mem::take(&mut s.input);
-        let result = words.get(..n as usize).ok_or(INVALID)
-            .and_then(|input| s.predict_session(input, &mut w.collision.state));
-        s.input = words; s.error = result.err();
-        if s.error.is_some() { s.reset(); None } else { Some(&s.output[..]) }
-    }
-    /// # Safety
-    /// Handles are numeric keys checked by this World's pools, never addresses.
-    /// No caller-side memory-safety precondition is needed; the signature keeps
-    /// compatibility with existing boundary callers.
-    pub(crate) unsafe fn client_prediction_output_in(w: &mut crate::world::owner::World, p: usize) -> Option<&[f64]> { w.page.prediction.get(p as usize).map_or(None, |s| Some(&s.output[..])) }
-    /// # Safety
-    /// Handles are numeric keys checked by this World's pools, never addresses.
-    /// No caller-side memory-safety precondition is needed; the signature keeps
-    /// compatibility with existing boundary callers.
-    pub(crate) unsafe fn client_prediction_output_len_in(w: &mut crate::world::owner::World, p: usize) -> u32 { w.page.prediction.get(p as usize).map_or(0, |s| s.output.len() as u32) }
-    /// # Safety
-    /// Handles are numeric keys checked by this World's pools, never addresses.
-    /// No caller-side memory-safety precondition is needed; the signature keeps
-    /// compatibility with existing boundary callers.
-    pub(crate) unsafe fn client_prediction_error_in(w: &mut crate::world::owner::World, p: usize) -> Option<&[u8]> { w.page.prediction.get(p as usize).map_or(None, |s| Some(s.error.unwrap_or("").as_bytes())) }
-    /// # Safety
-    /// Handles are numeric keys checked by this World's pools, never addresses.
-    /// No caller-side memory-safety precondition is needed; the signature keeps
-    /// compatibility with existing boundary callers.
-    pub(crate) unsafe fn client_prediction_error_len_in(w: &mut crate::world::owner::World, p: usize) -> u32 { w.page.prediction.get(p as usize).map_or(0, |s| s.error.unwrap_or("").len() as u32) }
-}
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn client_prediction_create() -> *mut ClientPrediction { module::client_prediction_create_in(crate::abi::facade::world()) as *mut ClientPrediction }
-    #[no_mangle]
-    /// # Safety
-    /// Pointer-shaped handles are checked numeric pool keys, not addresses.
-    pub unsafe extern "C" fn client_prediction_drop(p: *mut ClientPrediction) {
-        // SAFETY: the shared body validates keys in this instance's pools.
-        module::client_prediction_drop_in(crate::abi::facade::world(), p as usize) }
-    #[no_mangle]
-    /// # Safety
-    /// Pointer-shaped handles are checked numeric pool keys, not addresses.
-    pub unsafe extern "C" fn client_prediction_room(p: *mut ClientPrediction, n: u32) -> *mut f64 {
-        // SAFETY: the shared body validates keys in this instance's pools.
-        module::client_prediction_room_in(crate::abi::facade::world(), p as usize, n).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
-    #[no_mangle]
-    /// # Safety
-    /// Pointer-shaped handles are checked numeric pool keys, not addresses.
-    pub unsafe extern "C" fn client_prediction_run(p: *mut ClientPrediction, op: u32) -> u32 {
-        // SAFETY: the shared body validates keys in this instance's pools.
-        module::client_prediction_run_in(crate::abi::facade::world(), p as usize, op) }
-    #[no_mangle]
-    /// # Safety
-    /// Pointer-shaped handles are checked numeric pool keys, not addresses.
-    pub unsafe extern "C" fn client_predict_session(p: *mut ClientPrediction, n: u32) -> *const f64 {
-        // SAFETY: the shared body validates keys in this instance's pools.
-        module::client_predict_session_in(crate::abi::facade::world(), p as usize, n).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    /// # Safety
-    /// Pointer-shaped handles are checked numeric pool keys, not addresses.
-    pub unsafe extern "C" fn client_prediction_output(p: *const ClientPrediction) -> *const f64 {
-        // SAFETY: the shared body validates keys in this instance's pools.
-        module::client_prediction_output_in(crate::abi::facade::world(), p as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    /// # Safety
-    /// Pointer-shaped handles are checked numeric pool keys, not addresses.
-    pub unsafe extern "C" fn client_prediction_output_len(p: *const ClientPrediction) -> u32 {
-        // SAFETY: the shared body validates keys in this instance's pools.
-        module::client_prediction_output_len_in(crate::abi::facade::world(), p as usize) }
-    #[no_mangle]
-    /// # Safety
-    /// Pointer-shaped handles are checked numeric pool keys, not addresses.
-    pub unsafe extern "C" fn client_prediction_error(p: *const ClientPrediction) -> *const u8 {
-        // SAFETY: the shared body validates keys in this instance's pools.
-        module::client_prediction_error_in(crate::abi::facade::world(), p as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    /// # Safety
-    /// Pointer-shaped handles are checked numeric pool keys, not addresses.
-    pub unsafe extern "C" fn client_prediction_error_len(p: *const ClientPrediction) -> u32 {
-        // SAFETY: the shared body validates keys in this instance's pools.
-        module::client_prediction_error_len_in(crate::abi::facade::world(), p as usize) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{client_prediction_create, client_prediction_drop, client_prediction_room, client_prediction_run, client_predict_session, client_prediction_output, client_prediction_output_len, client_prediction_error, client_prediction_error_len};

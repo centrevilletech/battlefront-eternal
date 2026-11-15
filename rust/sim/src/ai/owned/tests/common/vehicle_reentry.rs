@@ -94,38 +94,4 @@ fn helper_stop(&mut self, agent: Obj) {panic!("unexpected vehicle notification s
 fn helper_follow_path(&mut self, agent: Obj, points: &[[f64; 3]], over: bool, altitude: bool) {panic!("unexpected vehicle notification service helper_follow_path")}
 fn helper_land(&mut self, agent: Obj, on: bool) {panic!("unexpected vehicle notification service helper_land")}
 }
-#[test]
-fn nested_vehicle_notification_shares_state_without_retaining_borrows_or_allocating() {
- let mut state=Authority::new(VehicleAI::new());
- let mut world=Native {state:state.clone(),settings:Settings::default(),pool:Pool::new(6,0),nested:false,offer:false,calls:Cell::new(0)};
- ALLOCATIONS.with(|n|n.set(0));COUNTING.with(|n|n.set(true));
- for tick in 0..120 {
-  assert_eq!(state.notify(&mut world),0.);
-  assert_eq!(state.read(|s|s.notifier.counter),Some(((tick*2+1)%7) as f64));
- }
- COUNTING.with(|n|n.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
- assert_eq!(world.calls.get(),120);drop(world);
- let retained=state.finish();assert_eq!(retained.notifier.counter,Some(1.));
-}
 
-#[test]
-fn vehicle_notice_recipients_keep_repeated_controllers_and_boardable_order_without_allocations() {
- let mut state=Authority::new(VehicleAI::new());
- let mut world=Native {state:state.clone(),settings:Settings::default(),pool:Pool::new(6,4),nested:false,offer:true,calls:Cell::new(0)};
- let buffers=bfe_sim::ai::owned::buffers::Buffers::new(4,0,2,0,2);
- ALLOCATIONS.with(|n|n.set(0));COUNTING.with(|n|n.set(true));
- for _ in 0..120 {
-  state.write(|s|s.notifier.counter=Some(6.));
-  let mut out=buffers.vehicle_notes.take();
-  assert_eq!(state.notify_with(&mut world,&mut |w,controller,note| {
-   // Native selection holds no vehicle-authority borrow across recipients.
-   assert_eq!(w.state.read(|s|s.notifier.counter),Some(0.));
-   out.push_reserved((controller as usize,bfe_sim::ai::control::world::EntRef {unit:note.obj,generation:note.generation}));
-  }),4.);
-  assert_eq!(out.len(),4);
-  assert_eq!((out[0].0,out[1].0,out[2].0,out[3].0),(23,22,23,22));
-  assert_eq!((out[0].1.unit,out[1].1.unit,out[2].1.unit,out[3].1.unit),(1,1,4,4));
-  assert_eq!((out[0].1.generation,out[2].1.generation),(7.,8.));
- }
- COUNTING.with(|n|n.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
-}

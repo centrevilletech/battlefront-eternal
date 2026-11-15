@@ -1,21 +1,5 @@
 //! Server configuration loading, saving, defaults, and prepared content inspection
 //! (`src/main.js` and `src/world-worker.js`).
-//!
-//! In `src/main.js`, the dedicated server stores its configuration in
-//! `join(directory, "config.json")` with mode `0600` inside
-//! `BFE_STATE_DIR ?? join(homedir(), ".local/share/bfeserver")`.
-//!
-//! This module ports:
-//! - `defaults`, `config`, and `save()` in `src/main.js` (`ServerConfig`, `state_dir`,
-//!   `config_path_in`, `load_from_dir`, `save_to_dir`).
-//! - `aiMode` and `battleQuery(map, side)` in `src/main.js` (`query_for_rotation`), which
-//!   normalizes rotation entries like `"swbf1/nab2:rep:conquest"` into the battle query
-//!   `"?map=nab2&side=rep&ai=classic&seed=1"`, rejecting `"swbf2/..."` entries with
-//!   `"BF2 simulation is not implemented"`.
-//! - Content root resolution and `contentHash(query)` in `src/world-worker.js`
-//!   (`resolve_content_root` and `check_content`), using `bfe_content_native::fingerprint::hash`
-//!   so the Rust server computes the exact `bfe-content-sha256-...` digest expected by the
-//!   native clients.
 
 use crate::identity::write_mode_600;
 use bfe_content::files::DirFiles;
@@ -203,17 +187,6 @@ impl Default for ServerConfig {
 impl ServerConfig {
     /// Merges a parsed `config.json` value over `ServerConfig::default()`
     /// (`{ ...defaults, ...JSON.parse(readFileSync(file, "utf8")) }` in `src/main.js`).
-    ///
-    /// Accepts both integer and finite floating-point JSON numbers for numeric fields (`maxPlayers`,
-    /// `maxPlayersPerAddress`, `stateBytesPerSecond`) and accepts either a string or string array
-    /// for `stun` so hand-edited `config.json` files behave identically to Node's `JSON.parse`.
-    /// Parses a `serde_json::Value` into a validated `ServerConfig`, porting `normalizeConfig(raw)`
-    /// from `packages/bfe-server/src/config.js`.
-    ///
-    /// Why missing or out-of-range fields fall back to `ServerConfig::default()` instead of panicking:
-    /// In `config.js`, partially written or hand-edited `config.json` files inherit defaults for any
-    /// omitted property while clamping numeric fields (`port`, `maxPlayers`, `stateBudgetBytes`) so
-    /// an operator typo does not brick the interactive TUI (`main.js` `menu()`).
     pub fn from_json_value(value: &Value) -> Self {
         let mut cfg = Self::default();
         let Some(obj) = value.as_object() else {

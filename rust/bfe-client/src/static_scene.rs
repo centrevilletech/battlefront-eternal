@@ -31,12 +31,16 @@ pub struct Water {
     /// The specular mask's frames and rate, and where its two samplers and
     /// their blend sit in the surface's uniform rows.
     masks: Option<(Vec<u32>, f64, [usize; 3])>,
+    camera_range: Option<(usize, usize)>,
     /// Where the bobbing surface's height goes: its world row and model uniform.
     bob: Option<(usize, Option<usize>)>,
 }
 // Water.update (water.js): the surface bobs this far, this often.
 const BOB: f64 = 0.06;
 const BOB_RATE: f64 = 0.3;
+fn camera_range(projection: &[f64]) -> [f64; 2] {
+    [projection[14] / (projection[10] - 1.), projection[14] / (projection[10] + 1.)]
+}
 #[inline(never)]
 fn new_ocean_phase(
     model: usize,
@@ -459,6 +463,11 @@ pub fn update(a: &mut Admission, bridge: &mut Bridge, view: &[f64]) {
         for &(at, from, len) in &w.uniforms {
             bridge.r.water.input[at..at + len].copy_from_slice(&view[from..from + len]);
         }
+        if let Some((at, from)) = w.camera_range {
+            // The water shader writes depth explicitly, so it must use the
+            // same clipping planes as the opaque scene in this view.
+            bridge.r.water.input[at..at + 2].copy_from_slice(&camera_range(&view[from..]));
+        }
         // Water.update: the mask plays as a flip book, blended frame to frame.
         let time = view[w.time_from];
         if let Some((textures, fps, [a, b, mix])) = &w.masks {
@@ -601,6 +610,7 @@ pub fn water(
     let mut model = base;
     let mut model_uniform = None;
     let mut mask_rows = [None; 3];
+    let mut camera_range = None;
     let mut wind = three::Vector2::new(
         look["WindDirection"][0].as_f64().unwrap_or(1.),
         look["WindDirection"][1].as_f64().unwrap_or(0.),
@@ -650,7 +660,10 @@ pub fn water(
             "velocity" => pair("Velocity", 0., if classic_ocean { 1. } else { 1. / scale }),
             "maskTile" => pair("SpecularMaskTile", 1., scale),
             "maskVelocity" => pair("SpecularMaskScrollSpeed", 0., 1. / scale),
-            "cameraRange" => vec![0.3, 20000.],
+            "cameraRange" => {
+                camera_range = Some((base + at + 2, frame("projectionMatrix").unwrap().0));
+                vec![0.; 2]
+            }
             "toSun" => {
                 sun = Some(base + at + 2);
                 let (from, len) = frame("sunDirection").unwrap();
@@ -686,6 +699,7 @@ pub fn water(
             [Some(a), Some(b), Some(mix)] if !masks.is_empty() => Some((masks.to_vec(), mask_fps, [a, b, mix])),
             _ => None,
         },
+        camera_range,
         // The ocean's surface follows the eye at its own height instead.
         bob: (!classic_ocean && look["OscillationEnable"][0].as_f64().unwrap_or(1.) > 0.)
             .then_some((base + W::S_WORLD, model_uniform)),
@@ -719,6 +733,7 @@ fn pack_rows(records: &[[f64; I::REC_STRIDE]], bones: &[f32], selected: &[usize]
         let at = I::IN_RECORDS + to * I::REC_STRIDE;
         input[at..at + I::REC_STRIDE].copy_from_slice(row);
         input[at + I::REC_BONE_AT] = (bone / 16) as f64;
+        input[at+I::REC_MOTION_ID]=4294967296.+from as f64;
         let first = row[I::REC_BONE_AT] as usize * 16;
         let count = row[I::REC_BONES] as usize * 16;
         output_bones[bone..bone + count].copy_from_slice(&bones[first..first + count]);
@@ -761,6 +776,20 @@ fn select_rows(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn water_depth_uses_the_drawn_camera_clipping_planes() {
+        for (near, far) in [(0.3, 20000.), (0.3, 200.), (0.5, 200.), (0.5, 220.)] {
+            let mut projection = Matrix4::default();
+            projection.make_perspective(-1., 1., 1., -1., near, far, three::CoordinateSystem::WebGL);
+            let p = projection.elements;
+            let [n, f] = camera_range(&p);
+            for depth in [near, 1., 10., far] {
+                let opaque = ((-p[10] * depth + p[14]) / depth + 1.) * 0.5;
+                let water = (f - n * f / depth) / (f - n);
+                assert!((opaque - water).abs() < 1e-12);
+            }
+        }
+    }
     #[test]
     fn static_prefix_survives_a_view_packet_restoring_the_shared_bank() {
         let mut row = [0.; I::REC_STRIDE];

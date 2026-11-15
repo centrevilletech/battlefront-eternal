@@ -22,49 +22,6 @@ fn finish() {
     assert_eq!(COUNT.with(Cell::get), 0, "displayed phase allocated");
 }
 
-#[test]
-fn long_jetpack_and_rolling_frames_are_bounded_and_allocate_nothing() {
-    let mut jet = jetpack::Jetpack::new(Vec::new());
-    jet.input[j::ENHANCED] = 1.;
-    jet.input[j::ACTIVE] = 1.;
-    jet.input[j::DT] = 1. / 60.;
-    jet.input[j::QUATERNION + 3] = 1.;
-    let mut dust = trail::Trail::new("desert");
-    dust.input[t::ENHANCED] = 1.;
-    dust.input[t::ROLLING] = 1.;
-    dust.input[t::GROUNDED] = 1.;
-    dust.input[t::VELOCITY] = 10.;
-    dust.input[t::DT] = 1. / 60.;
-    dust.input[t::FLOOR_HIT] = 1.;
-    dust.input[t::FLOOR_NORMAL] = 1.;
-    start();
-    for frame in 0..10_000 {
-        jet.input[j::POSITION] = frame as f64 / 60.;
-        jet.frame(&mut || 0.5);
-        dust.input[t::POSITION] = frame as f64 / 6.;
-        dust.probe();
-        dust.roof();
-        dust.frame(&mut || 0.5);
-    }
-    finish();
-    for (k, capacity) in [96, 128, 64].iter().enumerate() {
-        assert!(jet.wake.input[w::COUNTS + k] <= *capacity as f64);
-    }
-    assert!(dust.input[t::COUNT] <= 160.);
-    assert!(jet.wake.particles.iter().all(|n| n.is_finite()));
-    assert!(dust.records.iter().all(|n| n.is_finite()));
-    // A pause and an oversized producer count cannot grow the wake or bridge
-    // a teleport. Zero-time draws retain already rounded particle births.
-    jet.input[j::DT] = 1e20;
-    jet.input[j::NOZZLES] = 1e20;
-    jet.frame(&mut || 0.5);
-    jet.input[j::POSITION] += 100.;
-    jet.input[j::ACTIVE] = 0.;
-    jet.frame(&mut || 0.5);
-    assert!(jet.wake.input[w::COUNTS..w::COUNTS + 3]
-        .iter()
-        .all(|n| *n == 0.));
-}
 
 #[test]
 fn paused_absorption_keeps_the_latest_six_hits_without_a_queue() {

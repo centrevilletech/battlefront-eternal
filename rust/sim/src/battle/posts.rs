@@ -9,10 +9,6 @@
 //! post (one with a building) goes inactive for the battle when its
 //! building is destroyed. The command vehicles' posts follow the placed
 //! ones in all() and owned() (src/mobile-posts.js).
-//!
-//! The state is the store's (rust/sim/schema/battle.mjs): the
-//! `commandPosts` singleton and its posts, the `mobilePosts` singleton and
-//! its command vehicles' posts.
 
 use super::mobile::{self, MobileEvent};
 use super::regions::in_region;

@@ -183,6 +183,16 @@ pub(crate) fn player_in(world_ctx: &mut crate::world::owner::World, character: R
     let request=F3PlayerRealization {class_name:class,previous,local,metadata,
         combat_random,weapon_random,recon_key,recon_seed};
     let reference=realize_in(world_ctx, &request,services.reborrow())?;
+    // A body of another class is another unit, with a life count of its own.
+    // It takes the player's on (multiplayer-world.js: `unit.generation =
+    // Math.max(unit.generation, previous.generation)`), so the spawn below
+    // starts a life newer than his last. Without it his controls, which
+    // refuse the stamps of an older life, refused every command of the new
+    // one: he could look around and never move.
+    if let Some(old)=request.previous.as_ref().filter(|old|old.slot!=reference.slot) {
+        let unit=world_ctx.sim.store.unit.get_mut(reference).unwrap();
+        unit.generation=v8math::max(unit.generation,old.life);
+    }
     world_ctx.sim.store.unit.get_mut(reference).unwrap().combat.player=true;
     f3::spawn_native_in(world_ctx, reference,character,position,yaw,services.reborrow());
     // PlayerCombat.reset creates fresh weapon state. Rebind after that reset,
@@ -278,24 +288,3 @@ impl Factory {
     }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn f3_factory_reserve(limit: u32) { f3_factory_reserve_in(crate::abi::facade::world(), limit) }
-    #[no_mangle]
-    pub extern "C" fn f3_factory_stage() { f3_factory_stage_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_factory_player_bind() { f3_factory_player_bind_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_factory_finish() { f3_factory_finish_in(&mut crate::abi::facade::world().units) }
-    #[no_mangle]
-    pub extern "C" fn f3_factory_acquire(class:u32)->i32 { f3_factory_acquire_in(crate::abi::facade::world(), class) }
-    #[no_mangle]
-    pub extern "C" fn f3_factory_realize()->i32 { f3_factory_realize_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_factory_player_spawn()->i32 { f3_factory_player_spawn_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_factory_resident() { f3_factory_resident_in(crate::abi::facade::world()) }
-}

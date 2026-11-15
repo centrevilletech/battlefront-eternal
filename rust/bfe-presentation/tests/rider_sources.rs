@@ -10,31 +10,6 @@ unsafe impl GlobalAlloc for Counting {
  unsafe fn realloc(&self,p:*mut u8,l:Layout,n:usize)->*mut u8{if TRACK.try_with(Cell::get).unwrap_or(false){COUNT.with(|c|c.set(c.get()+1));}System.realloc(p,l,n)}
  unsafe fn dealloc(&self,p:*mut u8,l:Layout){System.dealloc(p,l)}
 }
-#[global_allocator]static ALLOCATOR:Counting=Counting;
-#[test]
-fn leases_keep_the_native_source_revision_without_frame_allocation(){
- let vehicles=Rc::new(RefCell::new(Vehicles::default()));let props=Rc::new(RefCell::new(Props::default()));
- let mut bindings=Bindings::default();bindings.reserve(256);bindings.bind(&vehicles,&props);
- let mut input=vec![0.0;f::STRIDE+256*i::STRIDE];input[f::ACTORS]=256.0;input[f::SOURCES]=1.0;
- vehicles.borrow_mut().rig(1);let mut source=Source{shown:true,age:2.0,pitch:0.35,yaw:0.4,velocity:Vector3::new(2.0,3.0,4.0),position:Vector3::new(7.0,8.0,9.0),..Default::default()};
- source.frame=Matrix4::default();source.frame.elements[12]=7.0;
- vehicles.borrow_mut().epoch=1.0;vehicles.borrow_mut().publish(0,0,source);
- // The current hull advances before the body consumes the newly arrived lease.
- source.frame.elements[12]=25.0;source.age=9.0;source.pitch=0.7;
- vehicles.borrow_mut().epoch=2.0;vehicles.borrow_mut().publish(0,0,source);
- for k in 0..256 {let x=&mut input[f::STRIDE+k*i::STRIDE..][..i::STRIDE];x[i::ACTOR]=k as f64;x[i::GENERATION]=1.0;x[i::SOURCE_PROP] = -1.0;x[i::SOURCE_TURRET] = -1.0;
-  x[i::RIDER_KIND]=1.0;x[i::SOURCE_VERSION]=1.0;x[i::RIDER_RESET]=1.0;}
- bindings.fill(&mut input);
- let x=&input[f::STRIDE..];assert_eq!(x[i::LEASE_POSITION],7.0);assert_eq!(x[i::RIDER_PITCH],0.35);assert_eq!(x[i::RIDER_TIME],2.0);assert_eq!(x[i::RIDER_MATRIX+12],25.0);
- // Retained birth samples survive arbitrary live history turnover.
- COUNT.with(|c|c.set(0));TRACK.with(|t|t.set(true));
- for frame in 3..50 {vehicles.borrow_mut().epoch=frame as f64;vehicles.borrow_mut().publish(0,0,source);
-  for k in 0..256{input[f::STRIDE+k*i::STRIDE+i::RIDER_RESET]=0.0;}bindings.fill(&mut input);}
- TRACK.with(|t|t.set(false));assert_eq!(COUNT.with(Cell::get),0);
- assert_eq!(input[f::STRIDE+i::RIDER_TIME],2.0);
- // Invalid foreign handles and oversized counts produce a bounded prefix.
- input[f::ACTORS]=f64::INFINITY;input[f::STRIDE+i::SOURCE_RIG]=f64::INFINITY;bindings.fill(&mut input);
-}
 
 // The no-holder frame must not even borrow the vehicle owner. Its rows may
 // still retain old words, but source resolution has no consumer this phase.

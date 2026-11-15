@@ -1,7 +1,6 @@
 //! CI fixtures for the native registry, connection and publication admission.
 //! Authored test objects retain aliases, so identical-looking definitions can
 //! prove that source binding uses identity rather than a name or list index.
-#![cfg(not(target_arch = "wasm32"))]
 use bfe_content::{battle::{Battle, FetchLog, SideFiles}, files::MemFiles, mission::{Policy, Query}, Value as ContentValue};
 use bfe_sim::{gen::*, store::Strings, world::{admit::{rows::{Calls, Cx}, session::*, Options}, owner::World}};
 use serde_json::{json, Value};

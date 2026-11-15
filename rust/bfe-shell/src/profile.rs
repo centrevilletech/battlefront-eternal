@@ -1,14 +1,4 @@
 //! Profile management rules (`src/shell/profile-dialog.js` and `src/shell/screens.js`).
-//!
-//! Ported from `src/shell/profile-dialog.js` and `src/shell/screens.js`:
-//! - `PLAYER_NAME_LIMIT = 32`
-//! - `DEFAULT_PLAYER_NAME = "PLAYER 1"`
-//! - `cleanPlayerName`: strips ASCII control characters (`\x00-\x1f\x7f`),
-//!   collapses runs of whitespace (`\s+`) to a single `' '`, trims leading and
-//!   trailing whitespace, truncates to `PLAYER_NAME_LIMIT` (32) characters, and
-//!   returns `fallback` (`DEFAULT_PLAYER_NAME`) when empty.
-//! - Multiplayer (`HOST`, `LAN`, `ONLINE`, direct connect) requires a
-//!   non-default profile (`clean_player_name(name) != DEFAULT_PLAYER_NAME`).
 
 use serde::{Deserialize, Serialize};
 

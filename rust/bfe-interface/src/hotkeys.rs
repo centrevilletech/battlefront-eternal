@@ -1,15 +1,6 @@
 //! Control tabs, default bindings, key label formatting, and exclusive rebinding
 //! (`src/menus/hotkeys.js`, `src/input.js`, `src/flight/controls.js`,
 //! `src/runtime/network-entity-input.js`).
-//!
-//! Ports:
-//! - [`TABS`]: the three control tabs (`infantry`, `vehicle`, `starfighter`).
-//! - [`INFANTRY_ROWS`] (32 rows), [`VEHICLE_ROWS`] (19 rows), and [`FLIGHT_BINDINGS`] (16 rows).
-//! - [`INPUT_CODES`] and [`RESERVED`] (`bindable(code)`).
-//! - [`key_name`] and [`keys_text`] for formatting key codes into uppercase Battlefront UI labels.
-//! - [`flat_bindings`], [`player_bindings`], [`default_flight_bindings`], [`flight_bindings`],
-//!   and [`rebind`] for exclusive key reassignment (`rebind` removes `code` from any other
-//!   action in the same table and returns only the diff from `defaults`).
 
 use crate::options::say;
 use std::collections::{BTreeMap, HashMap};

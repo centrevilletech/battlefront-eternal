@@ -1,29 +1,4 @@
 //! Native UDP interoperability test suite with two native endpoints.
-//!
-//! Mirrors `tests/native-transport.mjs`:
-//! - Handshake authentication, stateless retry tokens, and duplicate response confirmation
-//! - All three message lanes (`State`, `Events`, `Bulk`) with binary and text payloads
-//! - Head-of-line isolation across independent ordered streams and the replaceable state lane
-//! - Reliable stream convergence under deterministic bidirectional packet loss
-//! - AEAD authentication failure and replay-window protection without advancing valid packets
-//! - Key-phase rotation in both directions while ordered stream delivery remains exact
-//! - Authenticated malformed ACK rejection (`close_code::PROTOCOL`), ordinary close propagation,
-//!   oversized frame bounds refusal, and wrong server identity rejection (`Event::IdentityMismatch`)
-//! - Idle keepalive exchange and authenticated idle timeout (`close_code::IDLE`)
-//! - Live UDP socket `Endpoint` and `ServerEndpoint` authentication, lane exchange, and reconnect
-//!   with one persistent Ed25519 identity
-//!
-//! All tests run in-process between two native Rust endpoints (`ClientHandshake` / `Connection` /
-//! `Endpoint` and `ServerHandshakes` / `Connection` / `ServerEndpoint`) without Node or N-API.
-//!
-//! Why this test lives in `rust/bfe-transport/tests/interop.rs`:
-//! - Replaces the Node-hosted `tests/native-transport.mjs` harness so `cargo test -p bfe-transport`
-//!   exercises full two-endpoint interoperability in CI without a JavaScript runtime or N-API addon.
-//! - Uses deterministic synthetic clocks (`now` in milliseconds) for protocol state-machine tests
-//!   so loss recovery, selective ACKs, key rotation, and idle timeouts execute in milliseconds
-//!   with zero timing flake.
-//! - Uses OS-assigned loopback UDP sockets (`127.0.0.1:0`) for the live socket test to prove
-//!   `Endpoint` and `ServerEndpoint` frame, encrypt, and reassemble real kernel UDP datagrams.
 
 #![deny(warnings)]
 

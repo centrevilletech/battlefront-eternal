@@ -446,6 +446,46 @@ pub fn audio_page(settings: &Settings, ctx: &OptionsContext) -> MenuScreen {
     screen
 }
 
+/// The battle's AUDIO DETAILS: what the output is and a speaker test (`AudioPanel` in `src/audio/panel.js`).
+/// The native output is stereo, so the test names LEFT and RIGHT, plays both in turn, and sweeps a burst round the
+/// room. The game's sound is muted while a tone plays; the host plays it (named actions `speaker:*`).
+pub fn audio_panel_page(ctx: &OptionsContext) -> MenuScreen {
+    let row = |id: &str, label: &str, value: &str, action: Option<WidgetAction>| OptionsItem {
+        id: id.to_string(),
+        label: label.to_string(),
+        value_text: value.to_string(),
+        kind: if action.is_some() { OptionKind::Action } else { OptionKind::Fixed },
+        ratio: 0.0,
+        min: 0.0,
+        max: 1.0,
+        step: 1.0,
+        disabled: false,
+        dim: action.is_none(),
+        hidden: false,
+        note: if action.is_some() { "GAME SOUND IS MUTED WHILE THE TEST PLAYS".to_string() } else { String::new() },
+        action,
+    };
+    let named = |name: &str| Some(WidgetAction::Named(name.to_string()));
+    let items = vec![
+        row("output", "OUTPUT", "STEREO, 48000 HZ", None),
+        row("speaker-left", "SPEAKER TEST", "LEFT", named("speaker:left")),
+        row("speaker-right", "SPEAKER TEST", "RIGHT", named("speaker:right")),
+        row("speaker-all", "SPEAKER TEST", "ALL IN TURN", named("speaker:all")),
+        row("speaker-around", "SPEAKER TEST", "AROUND THE ROOM", named("speaker:around")),
+    ];
+    let options = OptionsWidget::with_layout("rows", OptionsLayoutKind::Audio, items, ctx.surface_height);
+    let mut screen = MenuScreen::new(
+        "options-audio-panel",
+        vec![
+            Widget::Text(TextWidget::title("title", "AUDIO DETAILS".to_string(), 0.0)),
+            Widget::Options(options),
+            Widget::Button(back_button(&ctx.strings)),
+        ],
+    );
+    screen.dim_behind = true;
+    screen
+}
+
 /// Window metrics for `CONTROL OPTIONS` (`controlsWindow` in `src/menus/option-pages.js`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ControlsWindow {
@@ -903,6 +943,9 @@ impl OptionsController {
                             *vp = !*vp;
                         }
                         self.refresh_active_screen();
+                    } else if name == "audioPanel" {
+                        let panel = audio_panel_page(&self.context);
+                        self.stack.push(panel);
                     } else if name == "credits" {
                         let mut popup = ok_popup(
                             "BATTLEFRONT ETERNAL\nA fan-made mod for the Steam versions of\nStar Wars: Battlefront (2004) and Battlefront II (2005).\nBattlefront II support is planned.",

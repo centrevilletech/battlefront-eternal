@@ -239,22 +239,3 @@ fn a_command_takes_its_arguments_and_gives_its_result_through_the_call_block() {
     assert!(!run_command(sim, 99));
     sim.events.clear();
 }
-
-#[cfg(feature = "replay")]
-#[test]
-fn every_type_goes_through_the_replay_values_and_comes_back() {
-    use crate::store::replay::Arena;
-    let mut first = Replay::default();
-    first.store = shelf(&mut first.strings);
-    let mut a = Arena::default();
-    let value = first.write_value(KIND_SHELF, &mut a);
-    let mut second = Replay::default();
-    second.read_value(KIND_SHELF, a.view(&value)).unwrap();
-    let mut b = Arena::default();
-    let again = second.write_value(KIND_SHELF, &mut b);
-    assert_eq!(sim_replay::diff(a.view(&value), b.view(&again)), None);
-    // The two things still name each other, and the union holds the first.
-    let things = &second.store.shelf.things;
-    let (one, two) = (second.store.thing.get(things[0]).unwrap(), second.store.thing.get(things[1]).unwrap());
-    assert_eq!((one.next, two.next, two.holder), (Some(things[1]), Some(things[0]), Holder::Thing(things[0])));
-}

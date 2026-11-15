@@ -4,11 +4,6 @@
 //! written twice keeps its first place and its last value). Everything the
 //! simulation reads of a content file reads it through this, so a loop over
 //! an object's entries visits them as `Object.entries` would.
-//!
-//! Values are reference-counted: a subtree the JavaScript shares between
-//! two places (a picked mission is both `world.mission` and
-//! `world.missions[name].mission`) is one allocation here too, so walks
-//! that skip what they have seen (the combat registry) can tell.
 
 use std::collections::HashMap;
 use std::rc::Rc;

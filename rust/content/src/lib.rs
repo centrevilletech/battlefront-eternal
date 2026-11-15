@@ -5,19 +5,9 @@
 //! wheels, clip lengths, the terrain grid, built regions, ODF numbers) made
 //! the same way, to the last bit. The simulation's Rust reads its
 //! definitions from here.
-//!
-//! The proof is the canonical dump (src/dump.rs): tools/content-dump.mjs
-//! writes one from the JavaScript loaders themselves, the content-dump
-//! binary writes one from this crate, and the two must be identical for
-//! every map, battle and side.
-//!
-//! Plain Rust structures; nothing here knows the simulation's entity store.
-//! A host hands files over by path (src/files.rs) and asks for a battle's
-//! content (src/battle.rs).
 
 pub mod actor;
 pub mod battle;
-pub mod battle_dump;
 pub mod bin_arrays;
 pub mod catalog;
 pub mod clips;

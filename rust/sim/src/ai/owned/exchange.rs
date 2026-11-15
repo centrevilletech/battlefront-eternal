@@ -51,22 +51,12 @@ impl Exchange {
         let mut descriptor=AiPhaseBoundary {camera_capacity:(self.camera_words.len()/AiPhaseCamera::WORDS) as u32,
             journal_capacity:(self.journal_words.len()/AiJournalEvent::WORDS) as u32,
             control_count:self.control_output[1],control_version:self.control_output[2],..Default::default()};
-        #[cfg(target_arch = "wasm32")]
-        self.bind_descriptor(&mut descriptor);
         descriptor.put(&mut self.descriptor,&mut Vec::new());counters.put(&mut self.counters,&mut Vec::new());&self.descriptor
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-impl Exchange {
-    fn bind_descriptor(&self,descriptor:&mut AiPhaseBoundary) {
-        descriptor.header=self.header.as_ptr() as usize as u32;descriptor.cameras=self.camera_words.as_ptr() as usize as u32;
-        descriptor.journal=self.journal_words.as_ptr() as usize as u32;descriptor.counters=self.counters.as_ptr() as usize as u32;
-        descriptor.controls=self.control_output[0];descriptor.control_ack=self.control_output[3];
-    }
-}
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]

@@ -471,6 +471,7 @@ impl<C: HasContext> TransparentPass<C> {
             unsafe {
                 gl.bind_vertex_array(Some(geo.vao));
                 gl.draw_elements(glow::TRIANGLES, o.count, geo.index_type, o.start * geo.index_bytes);
+                core.profile.draw(o.count.max(0) as u64,1,1);
             }
             stats.gl_calls += 2;
             stats.pass_draws[PASS_TRANSPARENT] += 1;
@@ -522,6 +523,7 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for TransparentPass<C> {
     }
 
     fn draw_run(&mut self, core: &mut Core<C, M>, view: &View, run: &[Item]) {
+        let timer=core.profile.begin(&core.gl);
         let light_count = view.camera.light_count;
         for item in run {
             if item.record & OBJECT_ITEM != 0 {
@@ -551,11 +553,13 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for TransparentPass<C> {
                 unsafe {
                     gl.bind_vertex_array(Some(geo.vao));
                     gl.draw_elements(glow::TRIANGLES, geo.index_count, geo.index_type, 0);
+                    core.profile.draw(geo.index_count.max(0) as u64,1,1);
                 }
                 stats.gl_calls += 2;
                 stats.pass_draws[PASS_TRANSPARENT] += 1;
             }
         }
+        core.profile.end(&core.gl,"transparent",timer);
     }
 }
 

@@ -2,18 +2,6 @@
 //! 2004 game gives every occupied control its own controller, and they
 //! differ only in which source goals they turn into which states, and in
 //! the flyer's objective agent.
-//!
-//! - UnitMobileController (hover and walker pilots): 1..6 to the same
-//!   states, 8 to 9, 9 to 10, 10 to 11;
-//! - UnitStationaryController (gunner and passenger seats, turrets): 1 and
-//!   3 to Wait, 2 to Combat, 6 to Unboard; its wait looks round +-30
-//!   degrees when the control belongs to a building (a turret);
-//! - UnitFlyController (flyer pilots): 2 to Combat, 3 to the flyer agent's
-//!   state 7, 4 to the crew wait, 10 to Hold (11).
-//!
-//! The Classic AI's controller consults the policy when its unit is a
-//! control: the explicit form of what index.js adaptClassicAI patches in
-//! (the service's adaptController, mountedState and agentFor).
 
 use super::world::UnitView;
 

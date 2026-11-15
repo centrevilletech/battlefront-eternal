@@ -169,8 +169,7 @@ pub fn direct_info(address: &str, port: i64, timeout: Duration) -> Result<Server
     Ok(info)
 }
 
-// Resolves `HOST:PORT`, measures TCP connect latency, and fetches `/info` for
-// `online-tool ping HOST:PORT`.
+// Resolves `HOST:PORT`, measures TCP connect latency, and fetches `/info`.
 pub fn ping_host_port(target: &str, timeout: Duration) -> Result<(ServerEntry, u32), String> {
     let (host, addr) = resolve_host_port(target)?;
     let latency = measure_latency(addr.ip(), addr.port(), timeout)

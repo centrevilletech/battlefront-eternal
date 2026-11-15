@@ -329,8 +329,8 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
             ("auto", "TEAMS: AUTO ASSIGN")
         };
         let plate = layout.teams[side];
-        let emblem = (h * 0.074).clamp(46., 80.);
-        let gap = w * 0.007;
+        let emblem = layout.metrics.emblem();
+        let gap = 0.7 * layout.metrics.vw;
         let logo_x = if side == 0 {
             plate[0] - gap - emblem * 0.5
         } else {
@@ -357,13 +357,21 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
         }
     };
 
+    // The page's entrance and change animations (view.js entering/turning/changed), in seconds since each;
+    // held at 2 once over, so the cached layer is not redrawn for them.
+    let pb = &battle.page_battle;
+    let since = |age: f64| if age < pb.age { age.min(2.) } else { 2. } as f32;
+    bm.set_entry(pb.age.min(2.) as f32);
+    bm.set_turn(since(pb.team_age));
+    bm.set_class_change(since(pb.class_age));
+    bm.set_post_change(since(pb.post_age));
     bm.set_team_one(build_team(0));
     bm.set_team_two(build_team(1));
     bm.set_can_switch_teams(can_switch);
-    bm.set_swap_size((h * 0.046).clamp(32., 46.) as f32);
+    bm.set_swap_size(layout.metrics.swap() as f32);
     bm.set_swap_x((w * 0.5) as f32);
     bm.set_swap_y(((layout.teams[0][1] + layout.teams[0][3]) * 0.5) as f32);
-    bm.set_switch_hint_y((layout.teams[0][3] + h * 0.005) as f32);
+    bm.set_switch_hint_y(layout.keys_y as f32);
 
     let pulse_alpha = if ((battle.page_battle.age * 2.0) as u64).is_multiple_of(2) {
         1.0
@@ -382,14 +390,14 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
         bm.set_countdown_visible(true);
         bm.set_countdown_text(format!("{label} {clock}").into());
         bm.set_countdown_winning(!losing);
-        bm.set_countdown_y((layout.roster[1] - h * 0.024) as f32);
+        bm.set_countdown_y(layout.countdown_y as f32);
     } else {
         bm.set_countdown_visible(false);
         bm.set_countdown_text(SharedString::default());
     }
 
     bm.set_roster_x(layout.roster[0] as f32);
-    bm.set_roster_y(layout.roster[1] as f32);
+    bm.set_roster_y(layout.label[1] as f32);
     bm.set_roster_w((layout.roster[2] - layout.roster[0]) as f32);
 
     let roster = model.roster(port);
@@ -431,12 +439,10 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
     bm.set_figure_h((layout.figure[3] - layout.figure[1]) as f32);
     bm.set_figure_dragging(battle.page_battle.dragging());
     bm.set_figure_turned(battle.page_battle.turned());
-    bm.set_title_y((layout.figure[3] + h * 0.008) as f32);
     // The caption runs the width of the stage column (the grid's middle track), not just the figure's.
-    let column_gap = w * 0.016;
-    let stage_x = layout.roster[2] + column_gap;
-    bm.set_title_x(stage_x as f32);
-    bm.set_title_w((layout.objectives[0] - column_gap - stage_x) as f32);
+    bm.set_title_y(layout.caption[1] as f32);
+    bm.set_title_x(layout.caption[0] as f32);
+    bm.set_title_w((layout.caption[2] - layout.caption[0]) as f32);
 
     let selected_title = roster
         .get(model.class_index)

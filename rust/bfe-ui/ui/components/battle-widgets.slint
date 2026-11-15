@@ -6,6 +6,18 @@ import { Theme } from "../theme.slint";
 import { Surface } from "surface.slint";
 import { PageButton } from "button.slint";
 
+// The page font's "line-height: normal" as the browser rounds it: its ascent and descent, each to a pixel.
+export global SpawnCss {
+    public pure function line(f: length) -> length {
+        return (round(f / 1px * 1.05) + round(f / 1px * 0.525)) * 1px;
+    }
+    // A CSS animation's progress at `time` s: `delay` s late, `duration` s long, eased out
+    // (the page's cubic-bezier(.2, .8, .2, 1)).
+    public pure function appear(time: float, delay: float, duration: float) -> float {
+        return 1 - pow(1 - clamp((time - delay) / duration, 0, 1), 3);
+    }
+}
+
 export struct BattleTeamModel {
     id: int,
     name: string,
@@ -217,12 +229,20 @@ export component BattleTeamCard inherits Rectangle {
     property <color> border-col: root.model.own
         ? Theme.bfe-team-own
         : (root.model.interactive && root.hovered ? Theme.bfe-accent : Theme.bfe-team-card-border);
-    property <length> pad-x: 1.1 * Theme.vw;
-    property <length> name-size: clamp(16px, 2.6 * Theme.vh, 28px);
-    property <length> count-size: clamp(18px, 2.8 * Theme.vh, 30px);
-    property <length> top-y: 0.16 * root.height;
-    property <length> badge-size: clamp(9px, 1.15 * Theme.vh, 11px);
-    property <length> badge-y: 0.62 * root.height;
+    // .bfe-spawn-side-plate: padding .8vh 1.2vw 1vh; the name over its state (.4vh apart) on one side,
+    // the count on the other, both centred on the content box.
+    property <length> border: Theme.bfe-panel-border.width;
+    property <length> pad-x: 1.2 * Theme.vw;
+    property <length> name-size: clamp(2.6 * Theme.vh, 16px, 28px);
+    property <length> count-size: clamp(2.8 * Theme.vh, 18px, 30px);
+    property <length> badge-size: clamp(1.2 * Theme.vh, 9px, 12px);
+    property <length> state-h: SpawnCss.line(root.badge-size) + (root.model.badge-mode == "switch" ? 0.5 * root.badge-size : 0px);
+    property <length> content-y: root.border + 0.8 * Theme.vh;
+    property <length> content-h: root.height - 2 * root.border - 1.8 * Theme.vh;
+    property <length> text-y: root.content-y + (root.content-h - root.name-size - 0.4 * Theme.vh - root.state-h) * 0.5;
+    property <length> badge-y: root.text-y + root.name-size + 0.4 * Theme.vh;
+    property <length> inner-x: root.border + root.pad-x;
+    property <length> inner-w: root.width - 2 * root.inner-x;
 
     Surface {
         width: 100%;
@@ -231,7 +251,7 @@ export component BattleTeamCard inherits Rectangle {
         chamfer: 0px;
         radius: Theme.bfe-panel-radius;
         edge: {
-            width: Theme.bfe-panel-border.width,
+            width: root.border,
             color: root.border-col,
         };
         shadows: root.model.own
@@ -256,14 +276,14 @@ export component BattleTeamCard inherits Rectangle {
         }
 
         Text {
-            x: root.pad-x;
-            y: root.top-y;
-            width: parent.width - root.pad-x * 2;
-            height: root.name-size * 1.3;
+            x: root.inner-x;
+            y: root.text-y;
+            width: root.inner-w;
+            height: root.name-size;
             text: root.model.name;
             font-family: Theme.font-family;
             font-size: root.name-size;
-            font-weight: 800;
+            font-weight: 900;
             letter-spacing: 0.12 * root.name-size;
             color: root.model.own ? Theme.bfe-team-own : Theme.bfe-team-foe;
             horizontal-alignment: root.right-aligned ? right : left;
@@ -272,10 +292,10 @@ export component BattleTeamCard inherits Rectangle {
         }
 
         Text {
-            x: root.pad-x;
-            y: root.top-y - 2px;
-            width: parent.width - root.pad-x * 2;
-            height: root.count-size * 1.15;
+            x: root.inner-x;
+            y: root.content-y + (root.content-h - self.height) * 0.5;
+            width: root.inner-w;
+            height: SpawnCss.line(root.count-size);
             text: root.model.tickets;
             font-family: Theme.font-family;
             font-size: root.count-size;
@@ -287,18 +307,18 @@ export component BattleTeamCard inherits Rectangle {
         }
 
         if root.model.badge-mode == "own" : HorizontalLayout {
-            x: root.pad-x;
+            x: root.inner-x;
             y: root.badge-y;
-            width: parent.width - root.pad-x * 2;
-            height: root.badge-size + 6px;
+            width: root.inner-w;
+            height: root.state-h;
             alignment: root.right-aligned ? end : start;
-            spacing: 6px;
+            spacing: 0.5 * root.badge-size;
 
             Rectangle {
-                width: 5px;
-                height: 5px;
+                width: 0.5 * root.badge-size;
+                height: self.width;
                 y: (parent.height - self.height) / 2;
-                border-radius: 2.5px;
+                border-radius: self.width * 0.5;
                 background: Theme.bfe-team-own;
             }
 
@@ -306,25 +326,25 @@ export component BattleTeamCard inherits Rectangle {
                 text: root.model.badge-text;
                 font-family: Theme.font-family;
                 font-size: root.badge-size;
-                font-weight: 700;
-                letter-spacing: 0.12 * root.badge-size;
+                font-weight: 800;
+                letter-spacing: 0.22 * root.badge-size;
                 color: Theme.bfe-team-own;
                 vertical-alignment: center;
             }
         }
 
         if root.model.badge-mode == "switch" : HorizontalLayout {
-            x: root.pad-x;
-            y: root.badge-y - 1px;
-            width: parent.width - root.pad-x * 2;
-            height: root.badge-size + 6px;
+            x: root.inner-x;
+            y: root.badge-y;
+            width: root.inner-w;
+            height: root.state-h;
             alignment: root.right-aligned ? end : start;
 
             Rectangle {
-                width: switch-label.preferred-width + 12px;
+                width: switch-label.preferred-width + 1.6 * root.badge-size;
                 height: parent.height;
-                border-radius: 2px;
-                background: Theme.bfe-accent;
+                border-radius: Theme.bfe-dialog-button-radius;
+                background: Theme.bfe-accent-fill;
 
                 switch-label := Text {
                     width: 100%;
@@ -332,8 +352,8 @@ export component BattleTeamCard inherits Rectangle {
                     text: root.model.badge-text;
                     font-family: Theme.font-family;
                     font-size: root.badge-size;
-                    font-weight: 700;
-                    letter-spacing: 0.12 * root.badge-size;
+                    font-weight: 800;
+                    letter-spacing: 0.22 * root.badge-size;
                     color: Theme.bfe-accent-ink;
                     horizontal-alignment: center;
                     vertical-alignment: center;
@@ -342,16 +362,16 @@ export component BattleTeamCard inherits Rectangle {
         }
 
         if root.model.badge-mode == "auto" : Text {
-            x: root.pad-x;
+            x: root.inner-x;
             y: root.badge-y;
-            width: parent.width - root.pad-x * 2;
-            height: root.badge-size + 6px;
+            width: root.inner-w;
+            height: root.state-h;
             text: root.model.badge-text;
             font-family: Theme.font-family;
             font-size: root.badge-size;
-            font-weight: 700;
-            letter-spacing: 0.12 * root.badge-size;
-            color: Theme.bfe-text-faint;
+            font-weight: 800;
+            letter-spacing: 0.22 * root.badge-size;
+            color: Theme.bfe-text-dim;
             horizontal-alignment: root.right-aligned ? right : left;
             vertical-alignment: center;
         }
@@ -397,26 +417,32 @@ export component BattleSwapControl inherits Rectangle {
     in property <float> switch-hint-y: 0.0;
     callback toggled();
 
-    property <length> hint-size: clamp(9px, 1.2 * Theme.vh, 11px);
+    property <length> hint-size: clamp(1.1 * Theme.vh, 9px, 11px);
 
     width: 100%;
     height: 100%;
     background: transparent;
 
+    // .bfe-spawn-swap: the accent's arrows on black at .5, a 1px border of the accent at 55%, its glow.
     if root.active : Rectangle {
         x: (root.swap-x - root.swap-size * 0.5) * 1px;
         y: (root.swap-y - root.swap-size * 0.5) * 1px;
         width: root.swap-size * 1px;
         height: root.swap-size * 1px;
         border-radius: (root.swap-size * 0.5) * 1px;
-        background: Theme.bfe-panel-bg;
+        background: swap-touch.has-hover ? Theme.bfe-accent.with-alpha(0.28) : rgba(0, 0, 0, 0.5);
         border-width: 1px;
-        border-color: swap-touch.has-hover ? Theme.bfe-accent : Theme.bfe-swap-border;
+        border-color: Theme.bfe-accent.with-alpha(0.55);
+        drop-shadow-blur: 16px;
+        drop-shadow-color: Theme.bfe-accent.with-alpha(0.25);
 
+        // The "\u{21c4}" glyph at clamp(16px, 2.5vh, 26px) (CSS order).
         BattleSwapIcon {
             x: (parent.width - self.width) * 0.5;
             y: (parent.height - self.height) * 0.5;
-            ink: swap-touch.has-hover ? Theme.bfe-accent : Theme.bfe-text;
+            width: 0.8 * clamp(2.5 * Theme.vh, 16px, 26px);
+            height: 0.7 * clamp(2.5 * Theme.vh, 16px, 26px);
+            ink: Theme.bfe-accent;
         }
 
         swap-touch := TouchArea {
@@ -427,42 +453,29 @@ export component BattleSwapControl inherits Rectangle {
         }
     }
 
+    // .bfe-spawn-teamkeys: two key caps (1.1em, line height 1.2, .1em/.4em padding, at least 1.9em wide,
+    // a 1px border in the dim text colour) and the words, .45em apart.
     if root.active : HorizontalLayout {
         x: 0px;
         y: root.switch-hint-y * 1px;
         width: parent.width;
-        height: root.hint-size + 8px;
+        height: root.hint-size * 1.54 + 2px;
         alignment: center;
-        spacing: 5px;
+        spacing: 0.45 * root.hint-size;
 
-        Rectangle {
-            width: 16px;
+        for right in [false, true] : Rectangle {
+            width: 2.09 * root.hint-size;
             height: parent.height;
-            border-radius: 2px;
-            background: Theme.bfe-kbd-bg;
+            border-radius: 3px;
             border-width: 1px;
-            border-color: Theme.bfe-kbd-border;
+            border-color: Theme.bfe-text-dim;
 
             BattleArrow {
                 x: (parent.width - self.width) * 0.5;
                 y: (parent.height - self.height) * 0.5;
-                right: false;
-                ink: Theme.bfe-text-dim;
-            }
-        }
-
-        Rectangle {
-            width: 16px;
-            height: parent.height;
-            border-radius: 2px;
-            background: Theme.bfe-kbd-bg;
-            border-width: 1px;
-            border-color: Theme.bfe-kbd-border;
-
-            BattleArrow {
-                x: (parent.width - self.width) * 0.5;
-                y: (parent.height - self.height) * 0.5;
-                right: true;
+                width: 1.0 * root.hint-size;
+                height: 0.8 * root.hint-size;
+                right: right;
                 ink: Theme.bfe-text-dim;
             }
         }
@@ -471,24 +484,25 @@ export component BattleSwapControl inherits Rectangle {
             text: "OR CLICK TO SWITCH TEAM";
             font-family: Theme.font-family;
             font-size: root.hint-size;
-            font-weight: 600;
-            letter-spacing: 0.12 * root.hint-size;
+            font-weight: 800;
+            letter-spacing: 0.24 * root.hint-size;
             color: Theme.bfe-text-faint;
             vertical-alignment: center;
         }
     }
 }
 
+// .bfe-spawn-label: small capitals in a line box, an accent rule running right from them, centred on it.
 export component BattleRosterHeader inherits Rectangle {
     in property <string> label: "SELECT SOLDIER";
-    property <length> sec-size: clamp(11px, 1.45 * Theme.vh, 14px);
-    height: self.sec-size * 1.8;
+    property <length> sec-size: clamp(1.45 * Theme.vh, 11px, 14px);
+    height: SpawnCss.line(self.sec-size);
     background: transparent;
 
     label-text := Text {
-        x: 2px;
+        x: 0px;
         y: 0px;
-        height: root.sec-size * 1.3;
+        height: root.height;
         text: root.label;
         font-family: Theme.font-family;
         font-size: root.sec-size;
@@ -499,8 +513,8 @@ export component BattleRosterHeader inherits Rectangle {
     }
 
     Rectangle {
-        x: label-text.x + label-text.preferred-width + 0.8 * root.sec-size;
-        y: root.sec-size * 0.65;
+        x: label-text.preferred-width + 0.8 * root.sec-size;
+        y: root.height * 0.5;
         width: parent.width - self.x;
         height: 1px;
         opacity: 0.7;
@@ -508,23 +522,32 @@ export component BattleRosterHeader inherits Rectangle {
     }
 }
 
+// .bfe-spawn-class: a window with its name on a bar (the 2005 look: a capsule inset .5vh/.5vw, the name
+// centred) and its weapons in two columns under it; the picked one lit, its weapons marked.
 export component BattleClassCard inherits Rectangle {
     in property <BattleClassModel> model;
+    // Its entrance (bfe-spawn-class: from 3vw left, transparent), 0..1.
+    in property <float> enter: 1.0;
     callback clicked();
 
-    x: root.model.rect-x * 1px;
+    // :hover slides a window 4px right (the picked one sits 10px over already).
+    x: root.model.rect-x * 1px + (touch.has-hover && !root.model.picked ? 4px : 0px) - 3 * Theme.vw * (1 - root.enter);
     y: root.model.rect-y * 1px;
     width: root.model.rect-w * 1px;
     height: root.model.rect-h * 1px;
     background: transparent;
-    opacity: (root.model.picked || touch.has-hover) ? 1.0 : 0.82;
+    opacity: ((root.model.picked || touch.has-hover) ? 1.0 : 0.82) * root.enter;
 
-    property <length> head-h: 0.36 * root.height;
-    property <length> head-size: clamp(13px, 1.9 * Theme.vh, 19px);
-    property <length> wep-size: clamp(10px, 1.3 * Theme.vh, 12px);
-    property <length> body-y: root.head-h + 2px;
-    property <length> row-h: (root.height - root.head-h - 4px) * 0.5;
-    property <length> col-w: (root.width - 20px) * 0.5;
+    property <length> border: Theme.bfe-panel-border.width;
+    property <length> head-size: clamp(1.9 * Theme.vh, 13px, 19px);
+    property <length> wep-size: clamp(1.3 * Theme.vh, 10px, 12px);
+    property <length> bar-margin: Theme.bf2 ? 0.5 * Theme.vh : 0px;
+    property <length> bar-inset: Theme.bf2 ? 0.5 * Theme.vw : 0px;
+    property <length> bar-h: 2 * (Theme.bf2 ? 0.35 : 0.55) * Theme.vh + SpawnCss.line(root.head-size);
+    property <length> body-y: root.border + root.bar-margin + root.bar-h + 0.7 * Theme.vh;
+    property <length> row-h: SpawnCss.line(root.wep-size);
+    property <length> row-pitch: root.row-h + 0.25 * root.wep-size;
+    property <length> col-w: (root.width - 2 * root.border - 2 * Theme.vw - root.wep-size) * 0.5;
 
     Surface {
         width: 100%;
@@ -533,32 +556,33 @@ export component BattleClassCard inherits Rectangle {
         chamfer: 0px;
         radius: Theme.bfe-battle-card-radius;
         edge: {
-            width: Theme.bfe-panel-border.width,
+            width: root.border,
             color: root.model.picked
                 ? Theme.bfe-class-picked-border
                 : (touch.has-hover ? Theme.bfe-class-hover-border : Theme.bfe-class-border),
         };
 
         BattleBarFill {
-            x: Theme.bf2 ? 6px : 0px;
-            y: Theme.bf2 ? 3px : 0px;
-            width: Theme.bf2 ? parent.width - 12px : parent.width;
-            height: Theme.bf2 ? root.head-h - 6px : root.head-h;
+            x: root.border + root.bar-inset;
+            y: root.border + root.bar-margin;
+            width: root.width - 2 * (root.border + root.bar-inset);
+            height: root.bar-h;
             active: root.model.picked;
             left-accent: true;
         }
 
         Text {
-            x: 10px;
-            y: 0px;
-            width: parent.width - 20px;
-            height: root.head-h;
+            x: root.border + root.bar-inset + Theme.vw;
+            y: root.border + root.bar-margin;
+            width: root.width - 2 * (root.border + root.bar-inset + Theme.vw);
+            height: root.bar-h;
             text: root.model.name;
             font-family: Theme.font-family;
             font-size: root.head-size;
             font-weight: 800;
             letter-spacing: 0.12 * root.head-size;
             color: root.model.picked ? Theme.bfe-accent-ink : Theme.bfe-bar-ink;
+            horizontal-alignment: Theme.bf2 ? center : left;
             vertical-alignment: center;
             overflow: elide;
         }
@@ -569,23 +593,27 @@ export component BattleClassCard inherits Rectangle {
             { text: root.model.w2, col: 0, row: 1 },
             { text: root.model.w3, col: 1, row: 1 },
         ] : Rectangle {
-            x: 10px + slot.col * root.col-w;
-            y: root.body-y + slot.row * root.row-h;
-            width: root.col-w - 4px;
+            x: root.border + Theme.vw + slot.col * (root.col-w + root.wep-size);
+            y: root.body-y + slot.row * root.row-pitch;
+            width: root.col-w;
             height: root.row-h;
             background: transparent;
             visible: slot.text != "";
 
+            // li::before: a .45em square turned 45 degrees, .5em before the name.
             if root.model.picked : BattleDiamond {
-                x: 0px;
+                x: 0.225 * root.wep-size - self.width * 0.5;
                 y: (parent.height - self.height) * 0.5;
+                width: 0.45 * root.wep-size * 1.414;
+                height: self.width;
                 ink: Theme.bfe-accent;
             }
 
             Text {
-                x: root.model.picked ? 11px : 0px;
+                property <length> mark: root.model.picked ? 0.95 * root.wep-size : 0px;
+                x: self.mark;
                 y: 0px;
-                width: parent.width - (root.model.picked ? 11px : 0px);
+                width: parent.width - self.mark;
                 height: 100%;
                 text: slot.text;
                 font-family: Theme.font-family;
@@ -614,37 +642,43 @@ export component BattleTurntableArea inherits Rectangle {
     callback pointer-move(float, float);
     callback pointer-up();
 
-    property <length> hint-size: clamp(9px, 1.15 * Theme.vh, 11px);
+    property <length> hint-size: clamp(1.15 * Theme.vh, 9px, 11px);
 
     background: transparent;
 
+    // .bfe-spawn-hint: right 0, top 3%; padding .35em .8em; the turn arrow (1.5em, accent) .6em before the
+    // words; black at .42 with a 1px border of the accent at 35%.
     if !root.turned : Rectangle {
-        property <length> pill-w: turn-label.preferred-width + 30px;
-        property <length> pill-h: root.hint-size + 8px;
-        x: parent.width - self.pill-w - 8px;
-        y: 8px;
+        property <length> f: root.hint-size;
+        property <length> icon: 1.05 * self.f;
+        property <length> pill-w: 1.6 * self.f + self.icon + 0.6 * self.f + turn-label.preferred-width + 2px;
+        property <length> pill-h: max(SpawnCss.line(self.f), 1.5 * self.f) + 0.7 * self.f + 2px;
+        x: parent.width - self.pill-w;
+        y: 0.03 * parent.height;
         width: self.pill-w;
         height: self.pill-h;
         border-radius: self.pill-h * 0.5;
-        background: Theme.bfe-pill-bg;
+        background: rgba(0, 0, 0, 0.42);
         border-width: 1px;
-        border-color: Theme.bfe-pill-border;
+        border-color: Theme.bfe-accent.with-alpha(0.35);
 
         BattleTurnIcon {
-            x: 9px;
+            x: 0.8 * parent.f + 1px;
             y: (parent.height - self.height) * 0.5;
-            ink: Theme.bfe-text-dim;
+            width: parent.icon;
+            height: parent.icon;
+            ink: Theme.bfe-accent;
         }
 
         turn-label := Text {
-            x: 23px;
+            x: 1px + 0.8 * parent.f + parent.icon + 0.6 * parent.f;
             y: 0px;
             height: 100%;
             text: "DRAG TO TURN";
             font-family: Theme.font-family;
-            font-size: root.hint-size;
-            font-weight: 600;
-            letter-spacing: 0.14 * root.hint-size;
+            font-size: parent.f;
+            font-weight: 800;
+            letter-spacing: 0.26 * parent.f;
             color: Theme.bfe-text-dim;
             vertical-alignment: center;
         }
@@ -677,28 +711,37 @@ export component BattleTurntableArea inherits Rectangle {
     }
 }
 
+// .bfe-spawn-caption: the class's name (line height 1) with a 3px rule .3em under it, 60% of its width;
+// under that (.7vh) COMMAND POST, the post's name, VEHICLES and the list, on one baseline.
 export component BattleClassBanner inherits Rectangle {
     in property <string> class-title: "";
     in property <string> post-name: "";
     in property <string> vehicles: "";
+    // The post's name coming in again after a pick (bfe-spawn-post-name.changed), 0..1.
+    in property <float> post-enter: 1.0;
 
-    property <length> title-size: clamp(22px, 4.2 * Theme.vh, 46px);
-    property <length> meta-size: clamp(11px, 1.45 * Theme.vh, 14px);
-    property <length> line-w: min(root.width * 0.72, max(title-measure.preferred-width + 24px, 120px));
+    property <length> title-size: clamp(4.2 * Theme.vh, 22px, 46px);
+    property <length> meta-size: clamp(1.35 * Theme.vh, 10px, 13px);
+    property <length> post-size: clamp(2.2 * Theme.vh, 15px, 24px);
+    property <length> at-y: root.title-size * 1.3 + 3px + 0.7 * Theme.vh;
+    // Saira's ascent: the line's baseline sits this far under its top.
+    property <length> baseline: root.at-y + 1.05 * max(root.post-size, root.meta-size);
+    property <length> title-w: min(root.width, title-measure.preferred-width);
 
-    height: self.title-size * 1.9;
+    height: root.at-y + SpawnCss.line(max(root.post-size, root.meta-size));
     background: transparent;
 
-    // The dark pool behind the caption (.bfe-spawn-caption::before: an ellipse of black at 50% fading out by 75%,
-    // inset 1.2vh / 4vw / .6vh). A round gradient on a square, stretched sideways.
+    // ::before: an ellipse of black (.5, .25 at 55%, gone at 75%) over the caption's own box grown by
+    // 1.2vh above, 4vw each side and .6vh below.
     Rectangle {
-        property <length> side: root.height + 1.8 * Theme.vh;
-        x: (parent.width - self.side) * 0.5;
+        property <length> w: root.title-w + 8 * Theme.vw;
+        property <length> h: root.height + 1.8 * Theme.vh;
+        x: (parent.width - self.h) * 0.5;
         y: -1.2 * Theme.vh;
-        width: self.side;
-        height: self.side;
-        border-radius: self.side * 0.5;
-        transform-scale-x: (root.width + 8 * Theme.vw) / self.side;
+        width: self.h;
+        height: self.h;
+        border-radius: self.h * 0.5;
+        transform-scale-x: self.w / self.h;
         background: @radial-gradient(circle, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0.25) 55%, transparent 75%);
     }
 
@@ -706,7 +749,7 @@ export component BattleClassBanner inherits Rectangle {
         x: 0px;
         y: 0px;
         width: 100%;
-        height: root.title-size * 1.15;
+        height: root.title-size;
         text: root.class-title;
         font-family: Theme.font-family;
         font-size: root.title-size;
@@ -720,60 +763,65 @@ export component BattleClassBanner inherits Rectangle {
     }
 
     Rectangle {
-        x: (parent.width - root.line-w) * 0.5;
-        y: root.title-size * 1.15;
-        width: root.line-w;
+        x: (parent.width - root.title-w * 0.6) * 0.5;
+        y: root.title-size * 1.3;
+        width: root.title-w * 0.6;
         height: 3px;
         background: Theme.bfe-accent-center-rule;
     }
 
-    HorizontalLayout {
-        x: 0px;
-        y: root.title-size * 1.15 + 0.8 * Theme.vh;
-        width: 100%;
-        height: root.meta-size * 1.4;
-        alignment: center;
-        spacing: 6px;
+    property <length> gap: 0.7 * root.meta-size;
+    property <length> line-w: l1.preferred-width + root.gap + l2.preferred-width + root.gap + 0.9 * root.meta-size
+        + l3.preferred-width + root.gap + l4.preferred-width;
+    property <length> line-x: (root.width - root.line-w) * 0.5;
 
-        Text {
-            text: "COMMAND POST";
-            font-family: Theme.font-family;
-            font-size: root.meta-size;
-            font-weight: 700;
-            letter-spacing: 0.08 * root.meta-size;
-            color: Theme.bfe-text-faint;
-            vertical-alignment: center;
-        }
+    l1 := Text {
+        x: root.line-x;
+        y: root.baseline - 1.05 * root.meta-size;
+        text: "COMMAND POST";
+        font-family: Theme.font-family;
+        font-size: root.meta-size;
+        font-weight: 700;
+        letter-spacing: 0.16 * root.meta-size;
+        color: Theme.bfe-text-faint;
+        vertical-alignment: top;
+    }
 
-        Text {
-            text: root.post-name != "" ? root.post-name : "PICK A COMMAND POST";
-            font-family: Theme.font-family;
-            font-size: root.meta-size;
-            font-weight: 700;
-            letter-spacing: 0.08 * root.meta-size;
-            color: root.post-name != "" ? Theme.bfe-text : Theme.bfe-text-faint;
-            vertical-alignment: center;
-        }
+    l2 := Text {
+        x: l1.x + l1.preferred-width + root.gap;
+        y: root.baseline - 1.05 * (root.post-name != "" ? root.post-size : root.meta-size) + 1.2 * Theme.vh * (1 - root.post-enter);
+        opacity: root.post-enter;
+        text: root.post-name != "" ? root.post-name : "PICK A COMMAND POST";
+        font-family: Theme.font-family;
+        font-size: root.post-name != "" ? root.post-size : root.meta-size;
+        font-weight: root.post-name != "" ? 900 : 700;
+        letter-spacing: 0.1 * self.font-size;
+        color: root.post-name != "" ? Theme.bfe-spawn-title : Theme.bfe-text-faint;
+        vertical-alignment: top;
+    }
 
-        Text {
-            text: "  VEHICLES";
-            font-family: Theme.font-family;
-            font-size: root.meta-size;
-            font-weight: 700;
-            letter-spacing: 0.08 * root.meta-size;
-            color: Theme.bfe-text-faint;
-            vertical-alignment: center;
-        }
+    l3 := Text {
+        x: l2.x + l2.preferred-width + root.gap + 0.9 * root.meta-size;
+        y: root.baseline - 1.05 * root.meta-size;
+        text: "VEHICLES";
+        font-family: Theme.font-family;
+        font-size: root.meta-size;
+        font-weight: 700;
+        letter-spacing: 0.16 * root.meta-size;
+        color: Theme.bfe-text-faint;
+        vertical-alignment: top;
+    }
 
-        Text {
-            text: root.vehicles != "" ? root.vehicles : "NONE";
-            font-family: Theme.font-family;
-            font-size: root.meta-size;
-            font-weight: 700;
-            letter-spacing: 0.08 * root.meta-size;
-            color: Theme.bfe-text;
-            vertical-alignment: center;
-        }
+    l4 := Text {
+        x: l3.x + l3.preferred-width + root.gap;
+        y: root.baseline - 1.05 * root.meta-size;
+        text: root.vehicles != "" ? root.vehicles : "NONE";
+        font-family: Theme.font-family;
+        font-size: root.meta-size;
+        font-weight: 700;
+        letter-spacing: 0.16 * root.meta-size;
+        color: Theme.bfe-text;
+        vertical-alignment: top;
     }
 }
 
@@ -781,11 +829,21 @@ export component BattleSpawnButton inherits Rectangle {
     in property <bool> can-spawn: true;
     callback clicked();
 
-    property <length> main-size: clamp(20px, 3.0 * Theme.vh, 32px);
-    property <length> key-size: clamp(9px, 1.2 * Theme.vh, 12px);
+    // .bfe-spawn-go: clamp(20px, 3vh, 32px) (CSS order), .32em tracking; the 2005 look's button face wins over it
+    // (its own size, .02em). The key: .15em/.5em padding, 1px border, at .65.
+    property <length> main-size: Theme.bf2 ? Theme.button-font-size : clamp(3.0 * Theme.vh, 20px, 32px);
+    property <length> key-size: clamp(1.2 * Theme.vh, 9px, 12px);
 
     background: transparent;
-    opacity: root.can-spawn ? 1.0 : 0.45;
+
+    // .bfe-spawn-go-slot.ready breathes a drop shadow of the accent between 4px/40% and 18px/85%; held at its
+    // middle here (an animated blur re-renders the shadow every frame).
+    if root.can-spawn : Rectangle {
+        border-radius: Theme.bf2 ? self.height * 0.5 : 0px;
+        background: Theme.bfe-accent.with-alpha(0.01);
+        drop-shadow-blur: 11px;
+        drop-shadow-color: Theme.bfe-accent.with-alpha(0.62);
+    }
 
     PageButton {
         width: 100%;
@@ -800,21 +858,21 @@ export component BattleSpawnButton inherits Rectangle {
         width: 100%;
         height: 100%;
         alignment: center;
-        spacing: 14px;
+        spacing: root.main-size;
 
         Text {
             text: Theme.bf2 ? "Spawn" : "SPAWN";
             font-family: Theme.font-family;
             font-size: root.main-size;
             font-weight: 900;
-            letter-spacing: (Theme.bf2 ? 0.04 : 0.28) * root.main-size;
+            letter-spacing: (Theme.bf2 ? 0.02 : 0.32) * root.main-size;
             color: Theme.bfe-accent-ink;
             vertical-alignment: center;
         }
 
         Rectangle {
-            width: key-lbl.preferred-width + 12px;
-            height: root.key-size + 6px;
+            width: key-lbl.preferred-width + root.key-size + 2px;
+            height: root.key-size * 1.875 + 2px;
             y: (parent.height - self.height) * 0.5;
             border-radius: 3px;
             border-width: 1px;
@@ -838,67 +896,75 @@ export component BattleSpawnButton inherits Rectangle {
     }
 }
 
+// .bfe-spawn-panel OBJECTIVES: a title bar (the 2005 look: a capsule inset .5vh/.5vw, centred), then the
+// goals (padding .9vh/1vh, .5vh apart), each after an accent diamond.
 export component BattleObjectivesCard inherits Surface {
     in property <[string]> objectives: [];
 
     fill: Theme.bfe-panel-bg;
     chamfer: 0px;
-    radius: Theme.bfe-battle-card-radius;
+    radius: Theme.bfe-panel-radius;
     edge: Theme.bfe-panel-border;
 
-    property <length> head-h: 0.34 * root.height;
-    property <length> head-size: clamp(12px, 1.6 * Theme.vh, 15px);
-    property <length> obj-size: clamp(12px, 1.6 * Theme.vh, 16px);
+    property <length> border: Theme.bfe-panel-border.width;
+    property <length> head-size: clamp(1.5 * Theme.vh, 11px, 14px);
+    property <length> obj-size: clamp(1.55 * Theme.vh, 11px, 15px);
+    property <length> bar-margin: Theme.bf2 ? 0.5 * Theme.vh : 0px;
+    property <length> bar-inset: Theme.bf2 ? 0.5 * Theme.vw : 0px;
+    property <length> head-h: 2 * (Theme.bf2 ? 0.35 : 0.55) * Theme.vh + SpawnCss.line(root.head-size);
+    property <length> list-y: root.border + root.bar-margin + root.head-h + 0.9 * Theme.vh;
+    property <length> line-h: SpawnCss.line(root.obj-size);
 
     BattleBarFill {
-        x: Theme.bf2 ? 6px : 0px;
-        y: Theme.bf2 ? 3px : 0px;
-        width: Theme.bf2 ? parent.width - 12px : parent.width;
-        height: Theme.bf2 ? root.head-h - 6px : root.head-h;
+        x: root.border + root.bar-inset;
+        y: root.border + root.bar-margin;
+        width: root.width - 2 * (root.border + root.bar-inset);
+        height: root.head-h;
         active: false;
         left-accent: true;
     }
 
     Text {
-        x: 12px;
-        y: 0px;
-        width: parent.width - 24px;
+        x: root.border + root.bar-inset + Theme.vw;
+        y: root.border + root.bar-margin;
+        width: root.width - 2 * (root.border + root.bar-inset + Theme.vw);
         height: root.head-h;
         text: "OBJECTIVES";
         font-family: Theme.font-family;
         font-size: root.head-size;
-        font-weight: 700;
-        letter-spacing: 0.14 * root.head-size;
+        font-weight: 800;
+        letter-spacing: 0.24 * root.head-size;
         color: Theme.bfe-bar-ink;
+        horizontal-alignment: left;
         vertical-alignment: center;
     }
 
-    property <length> list-y: root.head-h + 0.16 * (root.height - root.head-h);
-    property <length> line-h: (root.height - root.head-h) * 0.38;
-
     for line[idx] in root.objectives : Rectangle {
-        x: 12px;
-        y: root.list-y + idx * root.line-h;
-        width: parent.width - 24px;
+        x: root.border + Theme.vw;
+        y: root.list-y + idx * (root.line-h + 0.5 * Theme.vh);
+        width: root.width - 2 * (root.border + Theme.vw);
         height: root.line-h;
         background: transparent;
 
+        // li::before: a .5em square turned 45 degrees at .45em from the top.
         BattleDiamond {
-            x: 0px;
-            y: (parent.height - self.height) * 0.5;
+            x: 0.25 * root.obj-size - self.width * 0.5;
+            y: 0.7 * root.obj-size - self.height * 0.5;
+            width: 0.5 * root.obj-size * 1.414;
+            height: self.width;
             ink: Theme.bfe-accent;
         }
 
         Text {
-            x: 12px;
+            x: 1.2 * root.obj-size;
             y: 0px;
-            width: parent.width - 12px;
+            width: parent.width - self.x;
             height: 100%;
             text: line;
             font-family: Theme.font-family;
             font-size: root.obj-size;
-            font-weight: 600;
-            letter-spacing: 0.04 * root.obj-size;
+            font-weight: 700;
+            letter-spacing: 0.08 * root.obj-size;
             color: Theme.bfe-text;
             vertical-alignment: center;
             overflow: elide;
@@ -1046,14 +1112,14 @@ export component ScoreTeamPanel inherits Rectangle {
         : root.tone == 2 ? Theme.bfe-team-foe-header : Theme.bfe-text-dim;
     property <length> head-h: 4.2 * Theme.vh;
     property <length> head-gap: 0.9 * Theme.vh;
-    property <length> col-h: clamp(30px, 3.8 * Theme.vh, 40px);
-    property <length> row-h: clamp(26px, 3.4 * Theme.vh, 38px);
-    property <length> team-font: clamp(16px, 2.5 * Theme.vh, 26px);
-    property <length> sub-font: clamp(10px, 1.3 * Theme.vh, 13px);
+    property <length> col-h: clamp(3.8 * Theme.vh, 30px, 40px);
+    property <length> row-h: clamp(3.4 * Theme.vh, 26px, 38px);
+    property <length> team-font: clamp(2.5 * Theme.vh, 16px, 26px);
+    property <length> sub-font: clamp(1.3 * Theme.vh, 10px, 13px);
     // The table's columns are set in multiples of the rows' text size (u) for the bar and the rows alike, and
     // the numbers keep the sort arrow's room (mark) so they end where their labels do.
-    property <length> u: clamp(12px, 1.6 * Theme.vh, 16px);
-    property <length> hs: clamp(12px, 1.75 * Theme.vh, 16px);
+    property <length> u: clamp(1.6 * Theme.vh, 12px, 16px);
+    property <length> hs: clamp(1.75 * Theme.vh, 12px, 16px);
     property <length> mark: root.hs * 1.2;
     property <length> pad: 1.1 * Theme.vw;
     property <length> inset: 0.3 * Theme.vw;
@@ -1384,13 +1450,13 @@ export component ScoreStatSheet inherits Surface {
     radius: Theme.bfe-battle-card-radius;
     edge: Theme.bfe-panel-border;
 
-    property <length> bar-font: clamp(11px, 1.45 * Theme.vh, 14px);
+    property <length> bar-font: clamp(1.45 * Theme.vh, 11px, 14px);
     property <length> bar-h: self.bar-font * 1.65 + 1.1 * Theme.vh;
-    property <length> name-size: clamp(20px, 3.3 * Theme.vh, 34px);
-    property <length> chip-size: clamp(10px, 1.3 * Theme.vh, 12px);
-    property <length> row-min: root.show-subject ? clamp(30px, 4.2 * Theme.vh, 44px) : clamp(34px, 5.0 * Theme.vh, 50px);
-    property <length> label-size: clamp(12px, 1.65 * Theme.vh, 17px);
-    property <length> value-size: clamp(13px, 1.8 * Theme.vh, 18px);
+    property <length> name-size: clamp(3.3 * Theme.vh, 20px, 34px);
+    property <length> chip-size: clamp(1.3 * Theme.vh, 10px, 12px);
+    property <length> row-min: root.show-subject ? clamp(4.2 * Theme.vh, 30px, 44px) : clamp(5.0 * Theme.vh, 34px, 50px);
+    property <length> label-size: clamp(1.65 * Theme.vh, 12px, 17px);
+    property <length> value-size: clamp(1.8 * Theme.vh, 13px, 18px);
     property <color> subj-tag-col: root.subject-tone == 1
         ? Theme.bfe-team-own-header
         : root.subject-tone == 2 ? Theme.bfe-team-foe-header : Theme.bfe-text-dim;

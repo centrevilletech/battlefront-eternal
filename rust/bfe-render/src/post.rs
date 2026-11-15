@@ -275,6 +275,7 @@ impl<C: HasContext> PostPass<C> {
             if program >= core.programs.len() {
                 continue;
             }
+            let timer=core.profile.begin(&core.gl);
             let target = step[STEP_TARGET];
             if target != TARGET_BOUND {
                 let gl = &core.gl;
@@ -315,6 +316,8 @@ impl<C: HasContext> PostPass<C> {
                 }
             }
             core.stats.gl_calls += 2;
+            core.profile.draw(if flags & STATE_OWN_GEOMETRY != 0 {own[STATE_GEOMETRY+1] as u64} else {3},1,1);
+            core.profile.end(&core.gl,if stated {"screen composite"} else {["post step 0","post step 1","post step 2","post step 3","post step 4","post step 5","post step 6","post step 7"][s]},timer);
             core.stats.pass_draws[counted] += 1;
         }
     }

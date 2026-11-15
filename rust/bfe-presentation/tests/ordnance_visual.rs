@@ -25,8 +25,8 @@
 use bfe_presentation::lights::Lights;
 use bfe_presentation::ordnance::Ordnance;
 use bfe_presentation::ordnance_layout::{
-    call_kind as ck, ordnance_call as cl, ordnance_flag as fl, ordnance_frame as fr,
-    ordnance_header as hd, ordnance_kind as kind, ordnance_limits as lim, ordnance_record as rc,
+    call_kind as ck, net_command as nc, net_flag as nf, net_kind as nk, net_type as nt, ordnance_call as cl, ordnance_flag as fl,
+    ordnance_frame as fr, ordnance_header as hd, ordnance_kind as kind, ordnance_limits as lim, ordnance_record as rc,
     ordnance_style as st, VERSION,
 };
 use bfe_presentation::page_layout::{
@@ -317,4 +317,64 @@ fn light_pool_ranks_eight_strongest_lights_and_decays_flashes() {
     lights.frame();
     assert_eq!(lights.header[lh::COUNT], 0.0);
     assert_eq!(lights.header[lh::TIMED], 0.0);
+}
+
+// A rocket first shown before the tick of its first sample waits at its
+// launch point; on the frame the clock passes that tick it is drawn on its
+// sampled path, not held back at the launch point, and after an impact
+// record it is gone at that record's tick.
+#[test]
+fn a_rocket_starts_on_its_path_and_ends_at_its_impact() {
+    let mut o = Ordnance::new();
+    register_style(&mut o, 0, 0.1, 1.0, 3.0, 0.0);
+    let sample = |o: &mut Ordnance, at: usize, tick: f64| {
+        let x = &mut o.net_input[at * nc::STRIDE..][..nc::STRIDE];
+        x.fill(0.0);
+        x[nc::KIND] = nk::SAMPLE as f64;
+        x[nc::GENERATION] = 1.0;
+        x[nc::SCHEMA] = 6.0;
+        x[nc::TYPE] = nt::ROUND as f64;
+        x[nc::FLAGS] = (1 << nf::MESH) as f64;
+        x[nc::TICK] = tick;
+        x[nc::EXPIRY_TICK] = tick + 18.0;
+        x[nc::LIFE] = 5.0;
+        x[nc::POSITION + 2] = (tick - 10.0);
+        x[nc::VELOCITY + 2] = 60.0;
+        x[nc::QUATERNION + 3] = 1.0;
+        x[nc::END + 2] = (tick - 10.0);
+    };
+    let present = |o: &mut Ordnance, commands: usize, tick: f64| -> Option<f64> {
+        o.input[fr::VERSION] = VERSION as f64;
+        o.input[fr::FRAME] += 1.0;
+        o.input[fr::RECORDS] = 1.0;
+        o.input[fr::NET_COMMANDS] = commands as f64;
+        let x = &mut o.input[fr::STRIDE..][..rc::STRIDE];
+        x.fill(0.0);
+        x[rc::KIND] = kind::NET as f64;
+        x[rc::CLOCK_TICK] = tick;
+        o.present();
+        let calls = o.header[hd::CALLS] as usize;
+        o.calls().chunks_exact(cl::STRIDE).take(calls).find(|c| c[cl::KIND] == ck::NET_MESH as f64).map(|c| c[cl::A + 2])
+    };
+    sample(&mut o, 0, 10.0);
+    // Two ticks before its first sample: at the launch point.
+    assert_eq!(present(&mut o, 1, 8.0), Some(0.0));
+    // Six ticks later, after a slow frame that took in twenty ticks of
+    // samples: on the path at the displayed tick.
+    for tick in 11..=30 {
+        sample(&mut o, tick - 11, tick as f64);
+    }
+    let drawn = present(&mut o, 20, 14.0).unwrap();
+    assert!((drawn - 4.0).abs() < 1e-9, "drawn at {drawn}, sampled path is at 4");
+    // Its impact record at tick 31: flown into that point, then gone.
+    let x = &mut o.net_input[..nc::STRIDE];
+    x.fill(0.0);
+    x[nc::KIND] = nk::END as f64;
+    x[nc::GENERATION] = 1.0;
+    x[nc::SCHEMA] = 2.0;
+    x[nc::TICK] = 31.0;
+    x[nc::POSITION + 2] = 20.5;
+    assert!(present(&mut o, 1, 30.5).is_some());
+    assert_eq!(present(&mut o, 0, 31.0), None);
+    assert_eq!(present(&mut o, 0, 40.0), None);
 }

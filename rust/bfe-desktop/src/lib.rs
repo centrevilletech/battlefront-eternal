@@ -8,14 +8,11 @@ use basis_transcode as _;
 
 pub mod archive;
 pub mod discover;
-pub mod gpu;
 pub mod host;
 pub mod launch;
-pub mod linux;
 pub mod paths;
 pub mod prepare;
 pub mod presence;
 pub mod settings;
-pub mod slow_links;
 pub mod steam;
 pub mod update;
