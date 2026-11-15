@@ -66,6 +66,7 @@ impl Hull {
         row.bound_radius=self.bound_radius;
         row.probe_radius=self.probe_radius;
         row.max_health=self.max_health;
+        row.slot_index=self.slot_index as f64;
         row.water_depth=self.water_depth;
         row.bounds_min=a3(&self.bounds_min);
         row.bounds_max=a3(&self.bounds_max);
