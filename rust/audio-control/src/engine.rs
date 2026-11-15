@@ -1,30 +1,5 @@
 //! The sound engine: one AudioContext, the game's buses, and its voices,
 //! following the 2004 game's sound library (docs/formats.md, "Sound"):
-//!
-//! - Voices: a pool of 64 virtual voices, of which 32 are heard. Every frame
-//!   each voice scores (1 - Bias) x its level here + Bias x Priority, and the
-//!   top 32 play; the rest keep time silently and come back where they would
-//!   be. A sound asked for with the pool full gets in only by stealing the
-//!   lowest-scoring voice, and only if (1 - Bias) x its bus gain + Bias x
-//!   Priority beats that score.
-//! - Out of earshot: a one-shot whose level where it is asked for is 0 (3D,
-//!   at or past its MuteDistance) doesn't start at all (the game's entity
-//!   sounds all ask it to), so a battle far off takes no voices and can't
-//!   steal the ones near.
-//! - Level: clamp(bus gain x (Gain +- GainDev), 0, 1) x the distance gain. A
-//!   bus's gain is its Gain times its parents' (core.lvl: root -> ingame ->
-//!   main -> soundfx and music; ambience and voiceover under ingame).
-//! - Ducking: while anything plays on a bus with AttenuateBus (voiceover), the
-//!   bus it names (main) ramps to 1 - Attenuation over AttenuationLeadIn, and
-//!   back over AttenuationLeadOut once the last voice is done.
-//! - Doppler (on unless ModeDoppler 0): the pitch times 1 + (the speed toward
-//!   the listener) / 344.
-//! - The listener: the camera, 2 m out in front of it for distance.
-//!
-//! The original mode adds what the Steam build's OpenAL output does: an extra
-//! falloff past half of MaxDistance, pitch changes gliding 1/256 of the way
-//! twice a frame, and 2D sounds always centred (its Pan never arrives).
-//!
 use crate::{cross, dot, length, normalize, sub, Point, Random, render};
 use crate::layout::{bus as b, entry as en, sample as sa, sound as s};
 

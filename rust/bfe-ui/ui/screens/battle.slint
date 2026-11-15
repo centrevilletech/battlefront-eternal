@@ -28,6 +28,7 @@ import {
     BattleClassBanner,
     BattleSpawnButton,
     BattleObjectivesCard,
+    SpawnCss,
     ScoreTeamPanel,
     ScoreStatSheet,
 } from "../components/battle-widgets.slint";
@@ -54,6 +55,11 @@ export global BattleModel {
     in-out property <bool> theme-picker-open: false;
 
     // Spawn screen properties
+    // Seconds since the screen opened, the team, class and post changed (2: over).
+    in-out property <float> entry: 2.0;
+    in-out property <float> turn: 2.0;
+    in-out property <float> class-change: 2.0;
+    in-out property <float> post-change: 2.0;
     in-out property <BattleTeamModel> team-one;
     in-out property <BattleTeamModel> team-two;
     in-out property <bool> can-switch-teams: false;
@@ -190,88 +196,130 @@ export component BattleSpawnScreen inherits Rectangle {
     height: 100%;
     background: transparent;
 
-    BattleTeamCard {
-        model: BattleModel.team-one;
-        right-aligned: false;
-        pulse-alpha: BattleModel.pulse-alpha;
-        clicked => { BattleModel.select-team(BattleModel.team-one.id); }
-    }
+    // The screen's chrome changes only on a pick, a hover or a clock tick: FemtoVG keeps it in one cached
+    // layer and redraws it only then (it cost every frame before). The post hit targets move with the
+    // stage's camera each frame, so they stay outside it.
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        cache-rendering-hint: true;
 
-    BattleTeamCard {
-        model: BattleModel.team-two;
-        right-aligned: true;
-        pulse-alpha: BattleModel.pulse-alpha;
-        clicked => { BattleModel.select-team(BattleModel.team-two.id); }
-    }
+        // .bfe-spawn-head: drops in from 3vh above (.6s after .15s).
+        Rectangle {
+            property <float> k: SpawnCss.appear(BattleModel.entry, 0.15, 0.6);
+            y: -3 * Theme.vh * (1 - self.k);
+            width: 100%;
+            height: 100%;
+            opacity: self.k;
 
-    BattleSwapControl {
-        active: BattleModel.can-switch-teams;
-        swap-x: BattleModel.swap-x;
-        swap-y: BattleModel.swap-y;
-        swap-size: BattleModel.swap-size;
-        switch-hint-y: BattleModel.switch-hint-y;
-        toggled => { BattleModel.toggle-team(); }
-    }
+            BattleTeamCard {
+                model: BattleModel.team-one;
+                right-aligned: false;
+                pulse-alpha: BattleModel.pulse-alpha;
+                clicked => { BattleModel.select-team(BattleModel.team-one.id); }
+            }
 
-    if BattleModel.countdown-visible : PageText {
-        x: 0px;
-        y: BattleModel.countdown-y * 1px;
-        width: parent.width;
-        role: TextRole.heading;
-        text: BattleModel.countdown-text;
-        color: BattleModel.countdown-winning ? Theme.bfe-team-own : Theme.bfe-team-foe;
-        opacity: BattleModel.countdown-winning ? 1.0 : BattleModel.pulse-alpha;
-        horizontal-alignment: center;
-    }
+            BattleTeamCard {
+                model: BattleModel.team-two;
+                right-aligned: true;
+                pulse-alpha: BattleModel.pulse-alpha;
+                clicked => { BattleModel.select-team(BattleModel.team-two.id); }
+            }
 
-    BattleRosterHeader {
-        x: BattleModel.roster-x * 1px;
-        y: BattleModel.roster-y * 1px;
-        width: BattleModel.roster-w * 1px;
-        label: "SELECT SOLDIER";
-    }
+            BattleSwapControl {
+                active: BattleModel.can-switch-teams;
+                swap-x: BattleModel.swap-x;
+                swap-y: BattleModel.swap-y;
+                swap-size: BattleModel.swap-size;
+                switch-hint-y: BattleModel.switch-hint-y;
+                toggled => { BattleModel.toggle-team(); }
+            }
+        }
 
-    for cls in BattleModel.classes : BattleClassCard {
-        model: cls;
-        clicked => { BattleModel.select-class(cls.index); }
-    }
+        if BattleModel.countdown-visible : PageText {
+            x: 0px;
+            y: BattleModel.countdown-y * 1px;
+            width: parent.width;
+            role: TextRole.heading;
+            text: BattleModel.countdown-text;
+            color: BattleModel.countdown-winning ? Theme.bfe-team-own : Theme.bfe-team-foe;
+            opacity: BattleModel.countdown-winning ? 1.0 : BattleModel.pulse-alpha;
+            horizontal-alignment: center;
+        }
 
-    BattleTurntableArea {
-        x: BattleModel.figure-x * 1px;
-        y: BattleModel.figure-y * 1px;
-        width: BattleModel.figure-w * 1px;
-        height: BattleModel.figure-h * 1px;
-        dragging: BattleModel.figure-dragging;
-        turned: BattleModel.figure-turned;
-        pointer-down(x, y) => { BattleModel.figure-pointer-down(x, y); }
-        pointer-move(x, y) => { BattleModel.figure-pointer-move(x, y); }
-        pointer-up => { BattleModel.figure-pointer-up(); }
-    }
+        BattleRosterHeader {
+            property <float> k: SpawnCss.appear(BattleModel.entry, 0.3, 0.6);
+            opacity: self.k;
+            x: BattleModel.roster-x * 1px - 4 * Theme.vw * (1 - self.k);
+            y: BattleModel.roster-y * 1px;
+            width: BattleModel.roster-w * 1px;
+            label: "SELECT SOLDIER";
+        }
 
-    if BattleModel.selected-class-title != "" : BattleClassBanner {
-        x: BattleModel.title-x * 1px;
-        y: BattleModel.title-y * 1px;
-        width: BattleModel.title-w * 1px;
-        class-title: BattleModel.selected-class-title;
-        post-name: BattleModel.selected-post-name;
-        vehicles: BattleModel.selected-vehicles;
-    }
+        // .bfe-spawn-classes clips its windows at the roster column (the picked one slides 10px into it).
+        Rectangle {
+            x: 0px;
+            y: 0px;
+            width: (BattleModel.roster-x + BattleModel.roster-w) * 1px;
+            height: parent.height;
+            clip: true;
 
-    BattleSpawnButton {
-        x: BattleModel.spawn-x * 1px;
-        y: BattleModel.spawn-y * 1px;
-        width: BattleModel.spawn-w * 1px;
-        height: BattleModel.spawn-h * 1px;
-        can-spawn: BattleModel.can-spawn;
-        clicked => { BattleModel.spawn-clicked(); }
-    }
+            for cls in BattleModel.classes : BattleClassCard {
+                model: cls;
+                // Entering: .5s each after .35s, 60ms apart; a team's classes (turning) without the .35s.
+                enter: BattleModel.turn < 2 ? SpawnCss.appear(BattleModel.turn, cls.index * 0.06, 0.5)
+                    : SpawnCss.appear(BattleModel.entry, 0.35 + cls.index * 0.06, 0.5);
+                clicked => { BattleModel.select-class(cls.index); }
+            }
+        }
 
-    BattleObjectivesCard {
-        x: BattleModel.objectives-x * 1px;
-        y: BattleModel.objectives-y * 1px;
-        width: BattleModel.objectives-w * 1px;
-        height: BattleModel.objectives-h * 1px;
-        objectives: BattleModel.objectives;
+        BattleTurntableArea {
+            x: BattleModel.figure-x * 1px;
+            y: BattleModel.figure-y * 1px;
+            width: BattleModel.figure-w * 1px;
+            height: BattleModel.figure-h * 1px;
+            dragging: BattleModel.figure-dragging;
+            turned: BattleModel.figure-turned;
+            pointer-down(x, y) => { BattleModel.figure-pointer-down(x, y); }
+            pointer-move(x, y) => { BattleModel.figure-pointer-move(x, y); }
+            pointer-up => { BattleModel.figure-pointer-up(); }
+        }
+
+        // The caption and SPAWN rise in (.7s after .6s); the caption again on another class (.5s).
+        if BattleModel.selected-class-title != "" : BattleClassBanner {
+            property <float> k: min(SpawnCss.appear(BattleModel.entry, 0.6, 0.7),
+                BattleModel.class-change < 2 ? SpawnCss.appear(BattleModel.class-change, 0, 0.5) : 1);
+            opacity: self.k;
+            post-enter: BattleModel.post-change < 2 ? SpawnCss.appear(BattleModel.post-change, 0, 0.45) : 1;
+            x: BattleModel.title-x * 1px;
+            y: BattleModel.title-y * 1px + 1.2 * Theme.vh * (1 - self.k);
+            width: BattleModel.title-w * 1px;
+            class-title: BattleModel.selected-class-title;
+            post-name: BattleModel.selected-post-name;
+            vehicles: BattleModel.selected-vehicles;
+        }
+
+        BattleSpawnButton {
+            property <float> k: SpawnCss.appear(BattleModel.entry, 0.6, 0.7);
+            opacity: self.k * (BattleModel.can-spawn ? 1.0 : 0.45);
+            x: BattleModel.spawn-x * 1px;
+            y: BattleModel.spawn-y * 1px + 1.2 * Theme.vh * (1 - self.k);
+            width: BattleModel.spawn-w * 1px;
+            height: BattleModel.spawn-h * 1px;
+            can-spawn: BattleModel.can-spawn;
+            clicked => { BattleModel.spawn-clicked(); }
+        }
+
+        // .bfe-spawn-tactical's windows slide in from 4vw right (.6s after .3s).
+        BattleObjectivesCard {
+            property <float> k: SpawnCss.appear(BattleModel.entry, 0.3, 0.6);
+            opacity: self.k;
+            x: BattleModel.objectives-x * 1px + 4 * Theme.vw * (1 - self.k);
+            y: BattleModel.objectives-y * 1px;
+            width: BattleModel.objectives-w * 1px;
+            height: BattleModel.objectives-h * 1px;
+            objectives: BattleModel.objectives;
+        }
     }
 
     for pin in BattleModel.pins : TouchArea {

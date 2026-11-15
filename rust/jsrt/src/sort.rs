@@ -1,44 +1,5 @@
 //! `Array.prototype.sort` and the TypedArray sorts, as V8 13.6 runs
 //! them.
-//!
-//! `js_sort` is a transliteration of V8's `ArrayTimSort`
-//! (`third_party/v8/builtins/array-sort.tq` in V8 13.6.233, itself a
-//! port of CPython's listsort; the Python Software Foundation's
-//! copyright in that file is noted in THIRD-PARTY-NOTICES.md). It is
-//! ported function by function — binary insertion sort for short
-//! runs, natural runs, the pending-runs stack with its two
-//! invariants, galloping merges with the same `minGallop` dynamics —
-//! so that not only stable order but also the result of an
-//! inconsistent comparator (one whose answers contradict a total
-//! order, as `a - b` does around Infinity and NaN) is V8's result.
-//! Rust's `sort_by` is stable too, but it is a different algorithm:
-//! with an inconsistent comparator its output is its own, not V8's,
-//! and the sim has sorts whose ties and edge cases are load-bearing.
-//!
-//! A comparator is a JavaScript comparefn: it returns a Number, of
-//! which only the sign matters, and NaN counts as +0
-//! (SortCompareUserFn). It must not mutate the array being sorted:
-//! V8 sorts a compacted snapshot, so such mutation is unobservable
-//! there except through the receiver afterwards, and no sim
-//! comparator does it.
-//!
-//! Densely typed Rust slices have no holes or `undefined`; where a
-//! ported array can hold them, [`js_sort_slots`] applies the
-//! compaction V8 does first (values sorted, then the undefineds,
-//! then the holes) — see `CompactReceiverElementsIntoWorkArray` and
-//! `CopyWorkArrayToReceiver` in the Torque.
-//!
-//! TypedArrays sort differently in V8, and so here:
-//! [`typed_sort`] with a comparator is V8's `TypedArrayMergeSort`
-//! (a plain recursive mergesort between two buffers), and the
-//! no-comparator numeric sort is [`typed_sort_f64`]. V8's
-//! no-comparator path is a C++ `std::sort` (`TypedArraySortFast`)
-//! under its `CompareNum`, which ranks -0 below +0 and numbers
-//! below NaN: `typed_sort_f64` runs that same comparison through
-//! the TimSort above. std::sort is not stable, so the one corner
-//! left is the order of NaNs among themselves (equal under
-//! CompareNum, distinguishable only by payload); every other
-//! element's place is determined by its value.
 
 use std::cmp::Ordering;
 

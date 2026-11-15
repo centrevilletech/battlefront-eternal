@@ -2,19 +2,6 @@
 //! docs/ai-population.md), and the spawn post choices it makes through
 //! src/ai/classic/goals.js (friendlySpawn, selectSpawnPost,
 //! retainSpawnPost, humanSpawnPost).
-//!
-//! Each team has a fixed roster of Characters. Each life a Character picks
-//! a class by its team's roster deficit, a post it can spawn at and a place
-//! in that post's queue, then waits for its wave: a wave every A seconds and
-//! a release every B seconds within it (Q = trunc(A / B)); a bot scheduled
-//! for wave S with queue ordinal J waits while (S - W) * Q - R + J >= 0. A
-//! post's queue is four counters (AI or human, at its own team's post or an
-//! ally's); joining returns the count before, plus, for a bot, the humans
-//! waiting in its category. Every draw goes through the shared generator A
-//! in the order the 2004 game makes it.
-//!
-//! The state is the store's (rust/sim/schema/battle.mjs): the `spawning`
-//! singleton (its teams, clocks and queues) and the battle's Characters.
 
 use super::names::{human_name, BotNames, NameLists};
 use super::posts::{self, post_ref, spawn_post, SpawnFacts};

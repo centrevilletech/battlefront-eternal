@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn stage_frames_the_body_and_projects_map_picks_after_a_drag() {
         for size in [[1280., 720.], [2560., 1440.]] {
-            let layout = SpawnLayout::new(size[0], size[1], 2);
+            let layout = SpawnLayout::new(size[0], size[1], bfe_shell::page::SpawnFacts::default());
             let mut rig = Rig::new();
             rig.frame(layout, false);
             // frame restores the animated pose. Measure the rest pose that

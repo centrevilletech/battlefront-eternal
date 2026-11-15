@@ -269,8 +269,6 @@ pub(crate) fn f2_init_in(world_ctx: &mut crate::world::owner::World, json: u32, 
     reserve_phase_in(world_ctx, world_ctx.sim.store.vehicles.vehicles.len());
     world_ctx.sim.events.reserve(262144, FfShot::WORDS, 1024);
     prepare_collision_in(world_ctx);
-    #[cfg(target_arch = "wasm32")]
-    world_ctx.fleet.scheduler.bind_input();
     world_ctx.fleet.scheduler.descriptor[F2Phase::CAPACITY] = CAPACITY as f64;
     // Vehicles construction owns the initial complete mirror. Later incoming
     // damage can then send a sparse delta even before Vehicles.update runs.
@@ -341,11 +339,11 @@ pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) {
     let sampled=world_ctx.fleet.scheduler.publication_pending&&!world_ctx.fleet.scheduler.pending;
     live_seats::publish_sampled_in(world_ctx, sampled);
     let p = world_ctx.fleet.scheduler.publication.get_or_insert_with(Default::default);
-    p.flush(&mut world_ctx.sim.store);
+    // The changed hulls, lives and pads were encoded here as deltas for the
+    // JavaScript host. Nothing native reads them.
+    p.discard(&mut world_ctx.sim.store);
     veh_changes_in(world_ctx);
     geometry::publish_in(world_ctx);
-    #[cfg(target_arch = "wasm32")]
-    bind_descriptor(world_ctx);
     world_ctx.fleet.scheduler.descriptor[F2Phase::ACC] = world_ctx.fleet.scheduler.acc;
     world_ctx.fleet.scheduler.descriptor[F2Phase::FLIGHT_ACC] = world_ctx.fleet.flight_acc;
     world_ctx.fleet.scheduler.descriptor[F2Phase::TIME] = world_ctx.fleet.scheduler.time;
@@ -354,26 +352,6 @@ pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) {
 
 // Shared publication completes every retained bank once. Only the facade
 // turns those completed banks into linear-memory offsets for its readers.
-#[cfg(target_arch = "wasm32")]
-impl Scheduler {
-    fn bind_input(&mut self) { self.descriptor[F2Phase::INPUT] = self.io.as_ptr() as usize as f64; }
-}
-#[cfg(target_arch = "wasm32")]
-fn bind_descriptor(w: &mut crate::world::owner::World) {
-    let firing = firing::phase_words_in(w).as_ptr() as usize as f64;
-    let poses = geometry::words_in(&w.fleet.geometry).as_ptr() as usize as f64;
-    let seats = live_seats::descriptor_words(&w.fleet).as_ptr();
-    let fleet = &mut w.fleet;
-    let p = fleet.scheduler.publication.as_ref().expect("prepared fleet publication");
-    let descriptor = &mut fleet.scheduler.descriptor;
-    descriptor[F2Phase::FIRING] = firing;
-    descriptor[F2Phase::SEATS] = seats as usize as f64;
-    descriptor[F2Phase::HULLS] = p.hulls.ptr() as usize as f64;
-    descriptor[F2Phase::PADS] = p.pads.ptr() as usize as f64;
-    descriptor[F2Phase::LIVES] = p.lives.ptr() as usize as f64;
-    descriptor[F2Phase::BODIES] = if fleet.collision.is_some() { fleet.changes.as_ptr() as usize as f64 } else { 0.0 };
-    descriptor[F2Phase::POSES] = poses;
-}
 
 /// Fresh pose output exists only after spawn rendering or the complete phase.
 // Vehicle.aimTick/render already completed the retained rig. Publish compact
@@ -733,27 +711,8 @@ impl Scheduler {
     }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn f2_register(slot: u32, generation: u32, prepared: u32) { f2_register_in(crate::abi::facade::world(), slot, generation, prepared) }
-    #[no_mangle]
-    pub extern "C" fn f2_prepare_body(kernel: u32) { f2_prepare_body_in(crate::abi::facade::world(), kernel) }
-    #[no_mangle]
-    pub extern "C" fn f2_init(json: u32, time: f64, acc: f64) -> *const f64 { f2_init_in(crate::abi::facade::world(), json, time, acc).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn f2_step(dt: f64, tick: f64) { f2_step_in(crate::abi::facade::world(), dt, tick) }
-    #[no_mangle]
-    pub extern "C" fn f2_command(slot: u32, generation: u32, life: f64, code: u32, value: f64, tag: u32, owner_slot: u32, owner_gen: u32) -> u32 { f2_command_in(crate::abi::facade::world(), slot, generation, life, code, value, tag, owner_slot, owner_gen) }
-    #[no_mangle]
-    pub extern "C" fn f2_retire(slot: u32, generation: u32) -> u32 { f2_retire_in(crate::abi::facade::world(), slot, generation) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{f2_register, f2_prepare_body, f2_init, f2_step, f2_command, f2_retire};
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod native_firing_inputs {
     use super::*;
     #[test]

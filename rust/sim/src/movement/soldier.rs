@@ -1,16 +1,6 @@
 //! src/soldier.js's Soldier.tick, operation by operation: the posture and
 //! jump states, the drive along the ground, the jetpack, and the collision
 //! pass against the terrain, the buildings and the bodies.
-//!
-//! Every value must come out as the JavaScript's own, to the last bit, so a
-//! world or a page may run either. Each method below repeats the method of
-//! the same name in soldier.js in the same order of operations, in f64, with
-//! three.js's Vector3 and Triangle methods spelt out as they compute
-//! (`V3`). JavaScript's Math.min and Math.max are `js_min` and `js_max`, and
-//! Math.hypot of two numbers is `js_hypot2`, V8's algorithm. The sines and
-//! cosines a tick reads (of the aim's yaw before and after the tick's turn,
-//! and of a hovering jet's pitch: `Trig`) are V8's (`v8math`), made by the
-//! caller once each.
 
 use super::scene::{Kind, Scene};
 use crate::collision::{js_max, js_min};

@@ -37,30 +37,10 @@ pub(crate) fn world_clock_run_in(w: &mut crate::world::owner::World) -> Option<&
 }
 pub fn world_clock_time(tick: f64, hz: f64) -> f64 { tick / hz }
 
-struct EventHost;
-impl events::Host for EventHost {
-    fn call(&mut self, state: &mut WorldEventState, op: WorldEventCall, index: f64) -> bool {
-        let reply = import_world_events(&WorldEventArgs { op, state: state.clone(), index });
-        *state = reply.state;
-        reply.present
-    }
-}
 pub fn world_events_words(which: u32) -> u32 {
     (match which { 0 => WorldEventInput::WORDS, 1 => WorldEventState::WORDS, _ => 0 }) as u32
 }
 
-pub(crate) fn world_events_run_in(w: &mut crate::world::owner::World) -> Option<&[f64]> {
-    let input = { let (row, heap) = w.sim.calls.args(); WorldEventInput::take(row, heap) };
-    let mut state = input.state;
-    match input.op {
-        WorldEventOperation::Emit => events::emit(&mut state, &mut EventHost),
-        WorldEventOperation::Read => events::read(&mut state, &mut EventHost),
-        WorldEventOperation::Reset => events::reset(&mut state, &mut EventHost),
-    }
-    let sim = &mut w.sim;
-    sim.calls.result(WorldEventState::WORDS, |row, heap| state.put(row, heap));
-    Some(&sim.calls.block.words[..])
-}
 
 struct LocalHost;
 impl local::Host for LocalHost {
@@ -85,22 +65,3 @@ pub(crate) fn world_local_run_in(w: &mut crate::world::owner::World) -> Option<&
     Some(&sim.calls.block.words[..])
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn world_clock_words(which: u32) -> u32 { super::world_clock_words(which) }
-    #[no_mangle]
-    pub extern "C" fn world_clock_time(tick: f64, hz: f64) -> f64 { super::world_clock_time(tick, hz) }
-    #[no_mangle]
-    pub extern "C" fn world_events_words(which: u32) -> u32 { super::world_events_words(which) }
-    #[no_mangle]
-    pub extern "C" fn world_local_words(which: u32) -> u32 { super::world_local_words(which) }
-    #[no_mangle]
-    pub extern "C" fn world_clock_run() -> *const f64 { world_clock_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn world_events_run() -> *const f64 { world_events_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn world_local_run() -> *const f64 { world_local_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-}

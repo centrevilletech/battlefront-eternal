@@ -11,7 +11,7 @@ use crate::{
     render::ShellTextures,
     screens::{PopupState, ScreenId, ShellApp},
 };
-pub use battle::{BattleLook, SpawnBattleStatus, SpawnLayout};
+pub use battle::{BattleLook, SpawnBattleStatus, SpawnFacts, SpawnLayout, SpawnMetrics, MAX_CLASSES};
 use bfe_render::interface::{anchor, rotate_z, translate, Batch, Color, Font, Matrix, UV};
 pub use browser::BrowserView;
 pub use media::{FrameTexture, MediaTextures};

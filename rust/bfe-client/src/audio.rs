@@ -73,6 +73,80 @@ impl MasterOutput {
 pub struct SharedAudioRouter {
     pub shell: Mutex<Option<bfe_shell::audio::ShellAudioMixer>>,
     pub live: Mutex<Option<crate::online::sound::LiveOutput>>,
+    /// The speaker test of the battle's AUDIO DETAILS: while one plays it is all the device hears.
+    test: Mutex<Option<SpeakerTest>>,
+}
+
+const TEST_RATE: f64 = 48_000.0;
+const BURST: f64 = 1.2;
+const AROUND: f64 = 4.0;
+
+/// Pink noise on one speaker at a time (`AudioPanel.test` in `src/audio/panel.js`), stereo here.
+pub struct SpeakerTest {
+    // Per burst: the speaker (0 left, 1 right, 2 swept round the room) and where in the test it is.
+    bursts: Vec<u8>,
+    frame: u64,
+    rng: u32,
+    b: [f32; 3],
+}
+
+impl SpeakerTest {
+    pub fn new(kind: &str) -> Option<Self> {
+        let bursts = match kind {
+            "left" => vec![0],
+            "right" => vec![1],
+            "all" => vec![0, 1],
+            "around" => vec![2],
+            _ => return None,
+        };
+        Some(Self { bursts, frame: 0, rng: 0x1234_5678, b: [0.0; 3] })
+    }
+
+    fn length(&self) -> u64 {
+        (self.bursts.iter().map(|b| if *b == 2 { AROUND } else { BURST }).sum::<f64>() * TEST_RATE) as u64
+    }
+
+    // One stereo frame, or None once the test is over.
+    fn next(&mut self) -> Option<[f32; 2]> {
+        let t = self.frame as f64 / TEST_RATE;
+        self.frame += 1;
+        if self.frame > self.length() {
+            return None;
+        }
+        let mut at = t;
+        let mut speaker = 0;
+        let mut local = 0.0;
+        for b in &self.bursts {
+            let length = if *b == 2 { AROUND } else { BURST };
+            if at < length {
+                speaker = *b;
+                local = at / length;
+                break;
+            }
+            at -= length;
+        }
+        // Paul Kellet's pink filter over white noise.
+        self.rng = self.rng.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        let white = (self.rng >> 8) as f32 / 8_388_608.0 - 1.0;
+        self.b[0] = 0.99765 * self.b[0] + white * 0.099_046;
+        self.b[1] = 0.963 * self.b[1] + white * 0.296_516_4;
+        self.b[2] = 0.57 * self.b[2] + white * 1.052_691_3;
+        let pink = (self.b[0] + self.b[1] + self.b[2] + white * 0.184_8) * 0.11;
+        // A short fade at each end of a burst keeps it from clicking.
+        let within = if speaker == 2 { local * AROUND } else { at };
+        let burst = if speaker == 2 { AROUND } else { BURST };
+        let fade = (within.min(burst - within) / 0.02).clamp(0.0, 1.0) as f32;
+        let level = pink * fade;
+        Some(match speaker {
+            0 => [level, 0.0],
+            1 => [0.0, level],
+            _ => {
+                // Round the room and back: equal-power pan from the left speaker to the right and home.
+                let angle = (1.0 - (local * 2.0 - 1.0).abs()) as f32 * std::f32::consts::FRAC_PI_2;
+                [level * angle.cos(), level * angle.sin()]
+            }
+        })
+    }
 }
 
 impl SharedAudioRouter {
@@ -86,6 +160,20 @@ impl SharedAudioRouter {
         }
     }
 
+    /// Starts the named speaker test (`left`, `right`, `all`, `around`), or stops the one playing (`None`).
+    pub fn speaker_test(&self, kind: Option<&str>) {
+        if let Ok(mut guard) = self.test.lock() {
+            *guard = kind.and_then(SpeakerTest::new);
+            if std::env::var_os("BFE_MENU_INPUT_TRACE").is_some() {
+                eprintln!("[speaker test] {kind:?}");
+            }
+        }
+    }
+
+    pub fn testing(&self) -> bool {
+        self.test.lock().is_ok_and(|test| test.is_some())
+    }
+
     pub fn set_live(&self, live: Option<crate::online::sound::LiveOutput>) {
         if let Ok(mut guard) = self.live.lock() {
             *guard = live;
@@ -93,6 +181,25 @@ impl SharedAudioRouter {
     }
 
     pub fn pump_headless(&self, status: &Status, scratch: &mut [f32; FRAMES * 2]) {
+        if let Ok(mut test_guard) = self.test.try_lock() {
+            if let Some(test) = test_guard.as_mut() {
+                let mut done = false;
+                for frame in scratch.chunks_mut(2) {
+                    let pair = if done { None } else { test.next() };
+                    done |= pair.is_none();
+                    let [left, right] = pair.unwrap_or([0.0, 0.0]);
+                    frame[0] = left;
+                    frame[1] = right;
+                }
+                if done {
+                    *test_guard = None;
+                    if std::env::var_os("BFE_MENU_INPUT_TRACE").is_some() {
+                        eprintln!("[speaker test] done");
+                    }
+                }
+                return;
+            }
+        }
         if let Ok(mut live_guard) = self.live.try_lock() {
             if let Some(live) = live_guard.as_mut() {
                 live.fill(scratch, status);
@@ -124,6 +231,23 @@ impl DynamicOutput {
     }
 
     pub fn fill<T: SizedSample + FromSample<f32>>(&mut self, data: &mut [T], status: &Status) {
+        if let Ok(mut test_guard) = self.router.test.try_lock() {
+            if let Some(test) = test_guard.as_mut() {
+                let mut done = false;
+                for frame in data.chunks_mut(2) {
+                    let pair = if done { None } else { test.next() };
+                    done |= pair.is_none();
+                    let [left, right] = pair.unwrap_or([0.0, 0.0]);
+                    for (i, sample) in frame.iter_mut().enumerate() {
+                        *sample = T::from_sample(if i == 0 { left } else { right });
+                    }
+                }
+                if done {
+                    *test_guard = None;
+                }
+                return;
+            }
+        }
         if let Ok(mut live_guard) = self.router.live.try_lock() {
             if let Some(live) = live_guard.as_mut() {
                 live.fill(data, status);

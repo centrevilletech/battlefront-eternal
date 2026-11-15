@@ -197,6 +197,12 @@ struct Held {
 const PAYLOAD: usize = 900;
 const HELD: usize = 64;
 pub struct Sound {
+    /// The weapons whose shot the player's own client plays at the trigger
+    /// press, by registry id, and each weapon's registry id by its place in
+    /// the battle's weapon list (lightning.rs Guns).
+    pub ahead: (Vec<bool>, Vec<usize>),
+    // The client's replay ran for the player's own body this frame.
+    replaying: bool,
     assets: super::stream_assets::Assets,
     pub decoded: u64,
     pub voice_decoded: u64,
@@ -240,6 +246,8 @@ impl Sound {
         let mail = Arc::new(Mailbox::new());
         let output = Some(LiveOutput { output: prepared.output, mail: mail.clone(), next: FRAMES * 2 });
         Self {
+            ahead: Default::default(),
+            replaying: false,
             assets: prepared.streams,
             decoded: 0,
             voice_decoded: 0,
@@ -421,6 +429,11 @@ impl Sound {
     fn audible(&mut self, receiver: &Receiver, source: &EventInput) {
         let event = match source.kind {
             "shot" => {
+                // Heard already, at the trigger press (PredictedShots.fire).
+                let own = source.owner_id as f64 == receiver.own.id && source.owner_generation as f64 == receiver.own.generation;
+                if own && self.replaying && !source.repair && self.ahead.0.get(source.weapon_id) == Some(&true) {
+                    return;
+                }
                 if self.pending.len() == self.pending.capacity() {
                     self.pending.remove(0);
                     self.refused += 1;
@@ -471,6 +484,22 @@ impl Sound {
             self.pending.clear();
             self.pending_effects.clear();
             self.held.clear();
+        }
+        // The player's own rounds fired in this frame's replay are heard now.
+        self.replaying = prediction.body.is_some();
+        for shot in &prediction.shots {
+            let weapon = self.ahead.1.get(shot.weapon).copied().unwrap_or(0);
+            if self.ahead.0.get(weapon) == Some(&true) && self.pending.len() < self.pending.capacity() {
+                self.pending.push(Shot {
+                    owner_id: receiver.own.id as u32,
+                    owner_generation: receiver.own.generation as u32,
+                    weapon_id: weapon,
+                    channel: shot.button as usize,
+                    position: None,
+                    repair: false,
+                });
+                self.events += 1;
+            }
         }
         for field in receiver.publications.iter() {
             // applyWorldSummary publishes post ownership before the audio

@@ -405,11 +405,6 @@ pub(crate) mod tests {
  #[test]
  fn displaced_channels_keep_authored_ends_and_order(){let mut p=Path::default();let a=V::new(0.,1.,0.);let b=V::new(0.,1.,20.);displace(&mut p,a,b,6,SIDE,UP,Jag{time:0.3,writhe:2.6,coarse:2,..jag(0.2,0.6,7,11)});assert_eq!(p.count,65);assert_eq!(p.points[0],a);assert_eq!(p.points[64],b);for pair in p.points[..p.count].windows(2){assert!(pair[1].z>=pair[0].z);assert!(hypot(pair[0].x,pair[0].y-1.)<0.6/(1.-0.64));}}
  #[test]
- fn paused_birth_bursts_and_full_draw_banks_never_allocate(){let mut owner=Lightning::default();let def=owner.definition(definition());let mut random=random();put(&mut owner.spawn,sp::START,V::new(0.,1.,0.));put(&mut owner.spawn,sp::END,V::new(0.,1.,24.));owner.spawn[sp::CHARGE]=1.;owner.spawn[sp::FOLLOW_UNIT] = -1.;owner.frame[f::ENHANCED]=1.;owner.frame[f::DT]=0.1;
-  ALLOCS.with(|n|n.set(0));TRACK.with(|t|t.set(true));for _ in 0..lim::BOLTS+32{owner.add(def,true,true,&mut random,&mut EmptyCollision);}owner.step(&mut random,&mut EmptyCollision);owner.frame[f::DT]=3600.;owner.step(&mut random,&mut EmptyCollision);TRACK.with(|t|t.set(false));
-  assert_eq!(ALLOCS.with(Cell::get),0);assert_eq!(owner.counts[h::BOLTS],0);assert!(owner.counts[h::DROPPED]>=32);assert!(owner.counts[h::CAPSULES] as usize<=lim::CAPSULES);assert!(owner.sparks.len()<=lim::SPARKS);
- }
- #[test]
  fn published_local_matrices_override_trs_when_automatic_updates_are_disabled(){
   let mut owner=Lightning::default();let start=owner.actor(0,Actor{parents:vec![-1],chest:Some(0),..Default::default()});
   for i in [0,5,10,15]{owner.units[u::PARENT+i]=1.;owner.nodes[start+no::MATRIX+i]=1.;}

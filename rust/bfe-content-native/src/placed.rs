@@ -88,7 +88,7 @@ fn admit_selected(content: &BattleContent,mode:u8, selection:Option<(usize,usize
         if mode==1&&matches!(base,"armedbuilding"|"powerupstation"|"commandpost")||mode==2&&base!="armedbuilding"{continue;}
         // AnimatedProp.present samples clips even without gameplay. Retain
         // that distinction instead of publishing an incorrect bind-pose door.
-        if matches!(base, "animatedprop" | "door") {
+        if mode!=3 && matches!(base, "animatedprop" | "door") {
             result.deferred += 1;
             continue;
         }

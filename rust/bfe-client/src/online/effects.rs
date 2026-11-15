@@ -22,13 +22,14 @@ pub struct Spawner {
     // Where each effect was last put, how fast it moved and how it is
     // turned, which a move without a velocity and a stop all keep.
     placed: Vec<[f64; 10]>,
-    // Each effect's drawn size and extra inherited velocity (Effect.scale,
-    // Effect.inherit), which every later command repeats.
-    scaled: Vec<[f64; 2]>,
+    // Each effect's drawn size, extra inherited velocity and tint
+    // (Effect.scale, Effect.inherit, Effect.tint), which every later
+    // command repeats.
+    scaled: Vec<[f64; 3]>,
 }
 impl Spawner {
     pub fn new(owner: Presentation) -> Self {
-        Self { owner, active: vec![false; SLOTS], generation: vec![0; SLOTS], free: (1..SLOTS).rev().collect(), sequence: 0, placed: vec![[0.; 10]; SLOTS], scaled: vec![[1., 0.]; SLOTS] }
+        Self { owner, active: vec![false; SLOTS], generation: vec![0; SLOTS], free: (1..SLOTS).rev().collect(), sequence: 0, placed: vec![[0.; 10]; SLOTS], scaled: vec![[1., 0., 1.]; SLOTS] }
     }
     // The slot's number and the low bits of its life, in one word.
     fn handle(&self, id: usize) -> u32 {
@@ -58,7 +59,7 @@ impl Spawner {
         row[c::GENERATION] = self.generation[id] as f64;
         row[c::TICK] = tick;
         row[c::QUATERNION + 3] = 1.;
-        row[c::TINT] = 1.;
+        row[c::TINT] = self.scaled[id][2];
         row[c::SCALE] = self.scaled[id][0];
         row[c::INHERIT] = self.scaled[id][1];
         Some(row)
@@ -88,7 +89,7 @@ impl Spawner {
         self.placed[id][..3].copy_from_slice(&position);
         self.placed[id][3..6].copy_from_slice(&velocity);
         self.placed[id][6..].copy_from_slice(&turn);
-        self.scaled[id] = [1., 0.];
+        self.scaled[id] = [1., 0., 1.];
         let row = self.command(k::SPAWN, id)?;
         row[c::CONTENT] = group as f64;
         row[c::SEED] = seed as f64;
@@ -96,6 +97,10 @@ impl Spawner {
         row[c::QUATERNION..c::QUATERNION + 4].copy_from_slice(&turn);
         row[c::VELOCITY..c::VELOCITY + 3].copy_from_slice(&velocity);
         Some(self.handle(id))
+    }
+    /// False once the effect a handle named has finished (`effect.done`).
+    pub fn playing(&self, handle: u32) -> bool {
+        self.live(handle).is_some()
     }
     /// Effect.move: the effect follows its owner. Without a turn or a
     /// velocity it keeps the one it had.
@@ -123,7 +128,14 @@ impl Spawner {
     /// own, from the next command on.
     pub fn scale(&mut self, handle: u32, scale: f64, inherit: f64) {
         if let Some(id) = self.live(handle) {
-            self.scaled[id] = [scale, inherit];
+            self.scaled[id][..2].copy_from_slice(&[scale, inherit]);
+        }
+    }
+    /// `effect.tint`: every particle's colour and alpha times this, from
+    /// the next command on.
+    pub fn tint(&mut self, handle: u32, tint: f64) {
+        if let Some(id) = self.live(handle) {
+            self.scaled[id][2] = tint;
         }
     }
     /// Effect.kill: gone at once, particles and all.

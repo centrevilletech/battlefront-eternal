@@ -19,22 +19,6 @@ use crate::pow_data::{
 
 /// `Math.pow(x, y)` and `x ** y`, as Node 24 (V8 13.6) computes them on the
 /// game's servers.
-///
-/// V8 13.6 answers NaN for a NaN `y` and for `(+-1) ** (+-Infinity)`,
-/// `x * x` for `y == 2` and `sqrt(x + 0)` for `y == 0.5` (`+Infinity` for
-/// `x == -Infinity`); every other case goes to the C library's `pow`, at run
-/// time. So the server's results depend on its C library and CPU: this is
-/// glibc's `pow` (Arm's code, in glibc since 2.28) as it runs on an x86-64
-/// CPU with FMA and AVX2, where glibc picks a variant built with fused
-/// multiply-adds; Ubuntu's glibc 2.39 and 2.43 compute the same. It matches
-/// Node 24.22 on such a machine for both `Math.pow` and `**`. (glibc's
-/// variant without FMA rounds about one random case in 6,000 the other way.)
-///
-/// The variant's fused multiply-adds are part of what it computes: `fma`
-/// below is one rounding, on every platform (Rust's `mul_add`, a hardware
-/// instruction where there is one and exact software elsewhere, as in
-/// WebAssembly), placed where GCC places them when it builds that variant
-/// (13.3 for glibc 2.39, 15.2 for 2.43, the same 21 operations).
 pub fn pow(x: f64, y: f64) -> f64 {
     if y.is_nan() {
         return f64::NAN;

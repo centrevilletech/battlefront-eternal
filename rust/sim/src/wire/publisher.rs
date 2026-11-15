@@ -344,14 +344,6 @@ impl Publisher {
         self.output.bytes = 0; self.output.byte_length = self.bytes.len() as u32;
         self.serialize();
     }
-    /// SnapshotHost.publish borrows the byte arena until the next publication.
-    /// Bind its address after all arena growth and numeric serialization finish.
-    #[cfg(target_arch = "wasm32")]
-    pub(crate) fn descriptor(&mut self) -> *const f64 {
-        self.output.bytes = self.bytes.as_ptr() as usize as u32;
-        self.block.words[crate::store::block::HEADER + WirePublicationOutput::BYTES] = self.output.bytes as f64;
-        self.block.ptr()
-    }
     // The generated layout writes descriptors, not one f64 per packet byte.
     // Reserve both halves of Block up front because finish appends the heap
     // after the fixed row. JS copies every span before the next native call.

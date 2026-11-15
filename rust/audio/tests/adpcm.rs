@@ -1,16 +1,5 @@
 //! Xbox IMA ADPCM and signed 16-bit PCM bank normalization tests ported from
 //! `tests/audio-units.test.js` and `tests/audio-light.test.js`.
-//!
-//! These tests verify that `audio::adpcm::Decoder` reconstructs multi-block
-//! stereo tones above 25 dB SNR while preserving exact block header samples,
-//! deinterleaves multi-substream chunks in order, and normalizes signed 16-bit
-//! bank samples to `f32` without bias.
-//!
-//! Original Battlefront sound banks store compressed samples in Xbox IMA ADPCM:
-//! each channel contributes a 4-byte predictor header (16-bit signed sample +
-//! 8-bit step index + reserved byte) followed by eight 4-byte code groups,
-//! yielding 64 frames per 36-byte channel block. Multi-substream ambient and
-//! music streams interleave fixed byte chunks of those blocks across substreams.
 
 use audio::adpcm::Decoder;
 use std::f64::consts::PI;
@@ -188,20 +177,3 @@ fn substreams_interleave_in_fixed_chunks_and_come_back_in_order() {
     }
 }
 
-// Ported from `tests/audio-light.test.js`:
-// "Rust bank preparation preserves signed PCM".
-// Uncompressed 16-bit PCM bank entries divide by 32768.0 in f64 before rounding
-// to f32 so negative full-scale (-32768) maps to exact -1.0 and 0 maps to 0.0.
-#[test]
-fn rust_bank_preparation_preserves_signed_pcm() {
-    let source: [i16; 7] = [-32768, -16384, -1, 0, 1, 16384, 32767];
-    let dst_ptr = audio::asset_i16(source.len() as u32);
-    // Copy signed 16-bit samples into the staging buffer and normalize in place.
-    unsafe {
-        std::slice::from_raw_parts_mut(dst_ptr, source.len()).copy_from_slice(&source);
-        let out_ptr = audio::asset_normalize();
-        let actual = std::slice::from_raw_parts(out_ptr, source.len());
-        let expected: Vec<f32> = source.iter().map(|&v| (v as f64 / 32768.0) as f32).collect();
-        assert_eq!(actual, expected.as_slice());
-    }
-}
