@@ -134,6 +134,7 @@ fn parse_matrix_options<'a>(args: &[&'a str]) -> Options {
             .position(|&a| a == "--unit")
             .and_then(|i| args.get(i + 1).map(|s| (*s).to_string())),
             name: None,
+            bots: Default::default(),
     }
 }
 

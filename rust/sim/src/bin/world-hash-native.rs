@@ -76,7 +76,7 @@ fn parse_args() -> Result<Args, String> {
         seed: 1,
         heroes: false,
         unit: None,
-        name: None,
+        name: None, bots: Default::default(),
     };
     let mut battles = 1;
     let mut args = env::args().skip(1);

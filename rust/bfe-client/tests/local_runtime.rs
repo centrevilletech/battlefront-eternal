@@ -646,6 +646,7 @@ fn battle_options() -> bfe_sim::world::admit::Options {
         heroes: true,
         unit: Some("trooper".into()),
         name: None,
+        bots: Default::default(),
     }
 }
 
@@ -1129,7 +1130,7 @@ fn cold_admission_delivers_welcome_publication_and_steps_three_maps() {
             ],
             audio: false,
             duration: None,
-            name: None,
+            name: None, bots: Default::default()
         };
         let prepared = local::launch::Prepared::new(&opts)
             .unwrap_or_else(|e| panic!("cold admission failed on {map}/{side}: {e}"));
@@ -1181,7 +1182,7 @@ fn menu_admission_waits_for_the_players_class_and_post_before_spawning() {
         battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into()],
         audio: false,
         duration: None,
-        name: None,
+        name: None, bots: Default::default()
     };
     let prepared = local::launch::Prepared::with_spawn_screen(&options, true).unwrap();
     let mut world = runtime::Runtime::new(*prepared.engine, *prepared.admission, 0.0, 0.0).unwrap();
@@ -1202,7 +1203,7 @@ fn menu_admission_waits_for_the_players_class_and_post_before_spawning() {
 fn native_local_controls_move_authority_and_keep_the_applied_heading() {
     let Some(root) = std::env::var_os("BFE_CONTENT_DIR").map(std::path::PathBuf::from) else { return; };
     std::thread::Builder::new().stack_size(8 << 20).spawn(move || {
-        let options = options::Options { root, battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into(), "--seed".into(), "1".into()], audio: false, duration: None, name: None };
+        let options = options::Options { root, battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into(), "--seed".into(), "1".into()], audio: false, duration: None, name: None, bots: Default::default() };
         let prepared = local::launch::Prepared::new(&options).unwrap();
         let mut runtime = runtime::Runtime::new(*prepared.engine, *prepared.admission, 1000., 1_700_000_000_000.).unwrap();
         let before = runtime.receiver.own;
@@ -1233,7 +1234,7 @@ fn native_local_battle_reserves_the_player_under_the_profile_name() {
     let Some(root) = std::env::var_os("BFE_CONTENT_DIR").map(std::path::PathBuf::from) else { return; };
     std::thread::Builder::new().stack_size(8 << 20).spawn(move || {
         // The page's session strips control characters and outer spaces.
-        let options = options::Options { root, battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into(), "--seed".into(), "1".into()], audio: false, duration: None, name: Some(" Scout\u{7} One ".into()) };
+        let options = options::Options { root, battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into(), "--seed".into(), "1".into()], audio: false, duration: None, name: Some(" Scout\u{7} One ".into()), bots: Default::default() };
         let prepared = local::launch::Prepared::new(&options).unwrap();
         let mut runtime = runtime::Runtime::new(*prepared.engine, *prepared.admission, 1000., 1_700_000_000_000.).unwrap();
         let generation = runtime.receiver.own.generation as u32;
@@ -1262,7 +1263,7 @@ fn native_menu_team_switch_keeps_publication_and_spawns_the_other_roster() {
                 battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into()],
                 audio: false,
                 duration: None,
-                name: None,
+                name: None, bots: Default::default()
             };
             let prepared = local::launch::Prepared::with_spawn_screen(&options, true).unwrap();
             let registry = prepared.admission.registry.clone();

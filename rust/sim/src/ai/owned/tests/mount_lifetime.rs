@@ -28,7 +28,7 @@ fn released_mount_observation_after_real_bot_exit() {
                 seed: 1,
                 heroes: false,
                 unit: None,
-                name: None,
+                name: None, bots: Default::default(),
             };
             let context = Context::new();
             let admitted = context

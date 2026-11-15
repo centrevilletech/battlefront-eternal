@@ -57,7 +57,7 @@ impl Work {
                             &content_root,
                             request,
                             playlist_index,
-                            snapshot.interface.get_string("aiMode") != "off",
+                            &super::battle::BotSettings::read(&snapshot.interface),
                             &snapshot.player.profile_name,
                         )
                         .map(Admitted::Instant),

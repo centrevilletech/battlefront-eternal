@@ -969,12 +969,18 @@ pub fn parse_admit_options(query: &str, fallback_map: &str) -> AdmitOptions {
     let mut seed = 1u32;
     let mut heroes = false;
     let mut unit = None;
+    let (mut mode, mut tier, mut size) = ("classic", "medium", "full");
     for pair in query.trim_start_matches('?').split('&') {
         if let Some((k, v)) = pair.split_once('=') {
             match k {
                 "map" if !v.is_empty() => map = v.to_string(),
                 "side" if !v.is_empty() => side = v.to_string(),
-                "ai" => enhanced = v == "enhanced",
+                "ai" => {
+                    enhanced = v == "enhanced";
+                    mode = v;
+                }
+                "tier" => tier = v,
+                "size" => size = v,
                 "seed" => {
                     if let Ok(parsed) = v.parse::<u32>() {
                         seed = parsed;
@@ -994,8 +1000,10 @@ pub fn parse_admit_options(query: &str, fallback_map: &str) -> AdmitOptions {
         heroes,
         unit,
         name: None,
+        bots: bfe_sim::world::admit::Bots::read(mode, tier, size),
     }
 }
+
 
 /// Native simulation world host wrapping `bfe_sim::abi::context::Context` (`src/world-worker.js`).
 ///
@@ -1007,6 +1015,8 @@ pub fn parse_admit_options(query: &str, fallback_map: &str) -> AdmitOptions {
 ///   `admit::provided()` to `true`), `world_admitted` is `false` so `/healthz` reports
 ///   `multiplayerReady: false`.
 pub struct NativeWorldHost {
+    /// BFE_AI_TRACE: a census of the bots every ten seconds on stderr.
+    census: Option<bfe_sim::host::census::Census>,
     content_root: std::path::PathBuf,
     registry_content: bfe_content::value::Value,
     match_seed: u32,
@@ -1298,6 +1308,7 @@ impl NativeWorldHost {
             view_field_str_ids,
             edge_kind_str_ids,
             fire_primary_str_id,
+            census: std::env::var_os("BFE_AI_TRACE").map(|_| Default::default()),
             fire_secondary_str_id,
             recorded_publications: Vec::new(),
             recorded_cursor: 0,
@@ -1963,6 +1974,11 @@ impl NativeWorldHost {
                 .context
                 .world_tick(self.tick_input.clone())
                 .map_err(|e| e.to_string())?;
+            if let Some(census) = &mut self.census {
+                if let Ok(Some(line)) = census.sample(&self.context, self.tick as u64, 600) {
+                    eprintln!("ai census server {line}");
+                }
+            }
             self.tick_input.clock.tick = output.clock.tick;
             self.tick_input.clock.elapsed = output.clock.elapsed;
             self.tick_input.clock.compensation = output.clock.compensation;

@@ -570,14 +570,15 @@ impl WorldThread {
     /// the caller displays the error to the player.
     pub fn admit_instant_action(
         options: &super::options::Options,
-        ai_enabled: bool,
     ) -> Result<(Self, AdmittedWorldInfo), String> {
+        let ai_enabled = options.bots.fielded;
         let owned_options = super::options::Options {
             root: options.root.clone(),
             battle: options.battle.clone(),
             audio: options.audio,
             duration: options.duration,
             name: options.name.clone(),
+            bots: options.bots,
         };
         let shared = Arc::new(SharedState::new());
         shared.paused.store(true, Ordering::Release);
@@ -594,8 +595,8 @@ impl WorldThread {
                     String,
                 > {
                     let mut prepared = super::launch::Prepared::with_spawn_screen(&owned_options, true)?;
-                    // Battle AI OFF disables the same phase as the browser's
-                    // battle option before the world thread takes its first tick.
+                    // aiMode off fields no bots (the admission's unit scale is
+                    // zero) and, as game.js, runs no AI phase.
                     prepared.admission.tick.ai = ai_enabled;
                     let info = AdmittedWorldInfo {
                         query: prepared.admission.query.clone(),

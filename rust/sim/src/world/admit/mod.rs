@@ -48,6 +48,38 @@ pub struct Options {
     /// The name createLocalServer gives its one player (the profile's
     /// playerName); None is addPlayer's default, "Player".
     pub name: Option<String>,
+    /// The player's bot settings (aiMode off, aiDifficulty, battleSize).
+    pub bots: Bots,
+}
+
+/// The settings game.js reads for the bots besides their flavour: whether
+/// any are fielded (aiMode "off" fields none: the player is alone), the
+/// Classic difficulty tier (easy 1, medium 2, hard 3) and the battle size's
+/// unit scale in percent (full 100, reduced 75, small 50).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Bots {
+    pub fielded: bool,
+    pub tier: u8,
+    pub scale_percent: u8,
+}
+impl Default for Bots {
+    fn default() -> Self { Self { fielded: true, tier: 2, scale_percent: 100 } }
+}
+impl Bots {
+    /// SetUnitCount's multiplier: none at all when no bots are fielded.
+    pub fn unit_scale(&self) -> f64 {
+        if self.fielded { f64::from(self.scale_percent.clamp(1, 100)) / 100.0 } else { 0.0 }
+    }
+    /// The difficulty tier the AI is built with, easy to hard.
+    pub fn tier(&self) -> f64 { f64::from(self.tier.clamp(1, 3)) }
+    /// The settings' words, as game.js reads them: aiMode ("off" fields no
+    /// bots), aiDifficulty (`TIER`: easy, medium, hard, else medium) and
+    /// battleSize (`BATTLE_SIZES`: full, large 3/4, small 1/2).
+    pub fn read(mode: &str, difficulty: &str, size: &str) -> Self {
+        let tier = match difficulty.to_ascii_lowercase().as_str() { "easy" => 1, "hard" => 3, _ => 2 };
+        let scale_percent = match size { "large" => 75, "small" => 50, _ => 100 };
+        Self { fielded: mode != "off", tier, scale_percent }
+    }
 }
 impl Options {
     /// world-hash.mjs: `['rep', 'cis'].includes(side) ? 'cw' : 'gcw'`.
