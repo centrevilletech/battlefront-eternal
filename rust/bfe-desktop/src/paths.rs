@@ -57,9 +57,6 @@ const CHECKOUT_PARENTS: &[&str] = &[
 ];
 
 /// Summary of the directories used by the desktop client on the current host.
-///
-/// Returned by [`desktop_paths`] and [`resolve_desktop_paths`] and printed as JSON
-/// by `desktop-tool paths`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopPaths {

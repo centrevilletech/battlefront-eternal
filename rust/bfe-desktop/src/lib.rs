@@ -2,7 +2,7 @@
 //! Desktop modules for paths, settings, discovery, preparation,
 //! archives, updates, launch handoff, rich presence, local server hosting,
 //! Steam, and Linux integration.
-//! Used by `bfe-client` and `desktop-tool` on Windows and Linux.
+//! Used by `bfe-client` on Windows and Linux.
 
 use basis_transcode as _;
 
