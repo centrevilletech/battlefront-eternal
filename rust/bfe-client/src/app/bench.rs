@@ -442,7 +442,7 @@ impl Bench {
                 row[r::ID],
                 KINDS[kind as usize],
                 row[r::TEAM],
-                row[r::DEAD] == 0. && row[r::HEALTH] > 0.,
+                row[r::DEAD] == 0. && row[r::HEALTH] > 0. && (kind != k::TURRET || row[r::STATE] == 1.),
                 row[r::HEALTH],
                 position[0],
                 position[1],
@@ -462,12 +462,25 @@ impl Bench {
             )?;
         }
         out.write_all(b"]")?;
+        out.write_all(br#","crews":["#)?;
+        for (index, row) in receiver.active().filter(|row| {
+            matches!(row[r::KIND] as u32, k::SOLDIER | k::DROIDEKA) && row[r::SEAT_PRESENT] != 0.
+        }).enumerate() {
+            if index != 0 { out.write_all(b",")?; }
+            serde_json::to_writer(&mut *out, &serde_json::json!({
+                "soldier": row[r::ID], "generation": row[r::GENERATION],
+                "mount": row[r::SEAT_VEHICLE_ID], "mountGeneration": row[r::SEAT_VEHICLE_GENERATION],
+                "index": row[r::SEAT_INDEX],
+            }))?;
+        }
+        out.write_all(b"]")?;
         out.write_all(br#","turrets":["#)?;
         for (index, row) in receiver.active().filter(|row| row[r::KIND] == k::TURRET as f64).enumerate() {
             if index != 0 { out.write_all(b",")?; }
             serde_json::to_writer(&mut *out, &serde_json::json!({
                 "id": row[r::ID], "generation": row[r::GENERATION],
                 "building": row[r::BUILDING], "health": row[r::HEALTH], "state": row[r::STATE],
+                "alive": row[r::STATE] == 1.,
                 "yaw": row[r::YAW], "pitch": row[r::PITCH],
                 "gunYaw": row[r::GUN_YAW], "gunPitch": row[r::GUN_PITCH],
             }))?;
