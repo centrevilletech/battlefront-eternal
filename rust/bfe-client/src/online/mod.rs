@@ -71,3 +71,5 @@ mod radar;
 pub mod shot_aim;
 
 pub mod buildings;
+
+pub mod animated_props;
