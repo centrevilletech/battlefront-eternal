@@ -1335,7 +1335,10 @@ impl BattleController {
         let chat = ChatController::new(&settings.player.profile_name);
         let pause_page = super::page_pause::PagePause::admit(&mut scene,size,settings)?;
 
-        let page_battle = super::page_battle::PageBattle::new(&mut scene,size,settings)?;
+        let page_battle = match super::page_battle::PageBattle::new(&mut scene,size,settings) {
+            Ok(page) => page,
+            Err(err) => { pause_page.blur.dispose(&scene.bridge.r.core.gl); return Err(err); }
+        };
         if page_battle.spawn { spawn_ctrl.view.theme_hotspots=Some(Vec::with_capacity(64)); }
         if page_battle.scoreboard { scoreboard_ctrl.view.theme_hotspots=Some(Vec::with_capacity(128)); }
         let mut ctrl = Self {
