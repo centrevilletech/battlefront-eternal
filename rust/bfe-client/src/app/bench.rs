@@ -220,6 +220,11 @@ impl Bench {
                 return "that command post to be selectable";
             }
         }
+        if std::env::var_os("BFE_AI_TRACE").is_some() {
+            let team = model.team;
+            let posts: Vec<String> = port.posts(team).iter().map(|p| format!("{}:{}:{}:{:.0},{:.0},{:.0}", p.name, p.owner, u8::from(p.eligible), p.position[0], p.position[1], p.position[2])).collect();
+            eprintln!("bench: spawn post {:?} team {team} posts {}", model.post, posts.join(" "));
+        }
         battle.spawn_ctrl.sync_model_events();
         battle.trigger_spawn();
         if battle.spawn_ctrl.is_open() {
