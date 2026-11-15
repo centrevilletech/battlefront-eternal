@@ -144,6 +144,24 @@ impl MasterClient {
         value: Option<&Value>,
         family: u8,
     ) -> Result<Value, MasterHttpError> {
+        let raw = self.request_text(path, method, value, family)?;
+        if raw.trim().is_empty() {
+            return Ok(serde_json::json!({}));
+        }
+        serde_json::from_str(&raw).map_err(|e| MasterHttpError {
+            message: e.to_string(),
+            status: None,
+        })
+    }
+
+    /// Like [`Self::request`], returning the response body as received.
+    pub fn request_text(
+        &self,
+        path: &str,
+        method: &str,
+        value: Option<&Value>,
+        family: u8,
+    ) -> Result<String, MasterHttpError> {
         let body = match value {
             Some(v) => serde_json::to_string(v).map_err(|e| MasterHttpError {
                 message: e.to_string(),
@@ -221,17 +239,16 @@ impl MasterClient {
             status: None,
         })?;
 
-        let parsed: Value = if raw.trim().is_empty() {
-            serde_json::json!({})
-        } else {
-            serde_json::from_str(&raw).map_err(|e| MasterHttpError {
-                message: e.to_string(),
-                status: None,
-            })?
-        };
-
         // Preserve `status` on HTTP >= 400 so `OnlineServer.beat` can distinguish HTTP rejections from family routing errors.
         if status >= 400 {
+            let parsed: Value = if raw.trim().is_empty() {
+                Value::Null
+            } else {
+                serde_json::from_str(&raw).map_err(|e| MasterHttpError {
+                    message: e.to_string(),
+                    status: None,
+                })?
+            };
             let err_msg = parsed
                 .get("error")
                 .and_then(|v| v.as_str())
@@ -242,7 +259,7 @@ impl MasterClient {
                 status: Some(status),
             });
         }
-        Ok(parsed)
+        Ok(raw)
     }
 
     /// Requests a single-use signal ticket via `POST /v1/signal-ticket` and opens the `/v1/signal`
@@ -384,8 +401,8 @@ impl Drop for MasterClient {
 }
 
 impl BanRequester for MasterClient {
-    fn request_json(&self, path: &str) -> Result<Value, String> {
-        self.request(path, "GET", None, 0).map_err(|e| e.message)
+    fn request_text(&self, path: &str) -> Result<String, String> {
+        MasterClient::request_text(self, path, "GET", None, 0).map_err(|e| e.message)
     }
 }
 

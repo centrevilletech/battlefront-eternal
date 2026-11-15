@@ -333,13 +333,73 @@ struct MockBanMaster {
 }
 
 impl BanRequester for MockBanMaster {
-    fn request_json(&self, path: &str) -> Result<Value, String> {
+    fn request_text(&self, path: &str) -> Result<String, String> {
         match path {
-            "/v1/info" => Ok(self.info.lock().unwrap().clone()),
-            "/v1/bans" => Ok(self.bans.lock().unwrap().clone()),
+            "/v1/info" => Ok(self.info.lock().unwrap().to_string()),
+            "/v1/bans" => Ok(self.bans.lock().unwrap().to_string()),
             _ => Err("unknown path".to_string()),
         }
     }
+}
+
+/// Serves `/v1/bans` as exact text, the way the master sends it.
+struct TextBanMaster {
+    info: String,
+    bans: String,
+}
+
+impl BanRequester for TextBanMaster {
+    fn request_text(&self, path: &str) -> Result<String, String> {
+        match path {
+            "/v1/info" => Ok(self.info.clone()),
+            "/v1/bans" => Ok(self.bans.clone()),
+            _ => Err("unknown path".to_string()),
+        }
+    }
+}
+
+/// The master signs JSON.stringify(payload) with its keys in insertion order (`issued`,
+/// `expires`, `bans`), not sorted. The signature must be checked over those received bytes.
+#[test]
+fn ban_list_signature_covers_the_payload_bytes_as_the_master_sent_them() {
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use base64::Engine;
+    let dir = temp_dir("bans-order");
+    let signing_key = SigningKey::from_bytes(&[0x17u8; 32]);
+    let mut spki = vec![0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00];
+    spki.extend_from_slice(&signing_key.verifying_key().to_bytes());
+    let key = BASE64.encode(&spki);
+    let now_ms = 1_794_777_583_759u64;
+    let banned = "cd".repeat(32);
+    let payload = format!(
+        r#"{{"issued":{now_ms},"expires":{},"bans":[{{"player":"{banned}","expires":{},"reason":"cheating"}}]}}"#,
+        now_ms + 300_000,
+        now_ms + 86_400_000
+    );
+    // Re-serializing the parsed payload gives other bytes (sorted keys): the old check failed here.
+    assert_ne!(serde_json::from_str::<Value>(&payload).unwrap().to_string(), payload);
+    let signature = BASE64.encode(signing_key.sign(payload.as_bytes()).to_bytes());
+    let document = format!(r#"{{"payload":{payload},"signature":"{signature}","publicKey":"{key}"}}"#);
+    let master = Arc::new(TextBanMaster { info: json!({"publicKey": key}).to_string(), bans: document.clone() });
+    let mut cache = BanCache::new(master, dir.join("master-ban-key"));
+    cache.refresh_at(now_ms).expect("ban list in the master's key order verifies");
+    assert!(cache.contains_at(&banned, now_ms));
+
+    // One changed byte in the payload breaks the signature.
+    let tampered = document.replace("cheating", "cheatinG");
+    let master = Arc::new(TextBanMaster { info: json!({"publicKey": key}).to_string(), bans: tampered });
+    let mut cache = BanCache::new(master, dir.join("master-ban-key-2"));
+    assert_eq!(cache.refresh_at(now_ms).unwrap_err(), "Invalid ban list signature");
+
+    // The empty list the live master served on 15 Nov 2026, signed with its real key.
+    let live = r#"{"payload":{"issued":1794777583759,"expires":1794777883759,"bans":[]},"signature":"SOgvoz1FJ73ZBV6pH6M+AEnMhMC4NZ0H75+brXbc0GlyUyOSK+bZ3rhD3HRs4xQ4OkuWJ/gYTNTaS6akrGvoCQ==","publicKey":"MCowBQYDK2VwAyEAKlRDMdNsYtZKosVjs1tqlD9J/Tji0ReizdwQvsM3PHE="}"#;
+    let master = Arc::new(TextBanMaster {
+        info: r#"{"publicKey":"MCowBQYDK2VwAyEAKlRDMdNsYtZKosVjs1tqlD9J/Tji0ReizdwQvsM3PHE="}"#.into(),
+        bans: live.into(),
+    });
+    let mut cache = BanCache::new(master, dir.join("master-ban-key-live"));
+    cache.refresh_at(1_794_777_584_000).expect("the live master's signed list verifies");
+    let _ = fs::remove_dir_all(&dir);
 }
 
 /// Verifies `BanCache` trust-on-first-use (TOFU) master key pinning (`master-ban-key`),
