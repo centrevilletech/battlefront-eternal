@@ -1535,6 +1535,31 @@ impl Replicas {
     pub fn class_name(&self, id: usize) -> &str {
         self.class_names.get(id).map_or("", String::as_str)
     }
+    /// The own body's feet as drawn, for its footsteps (PlayerSounds.updateFeet
+    /// and updateDroideka read the same bones): the heights of a soldier's
+    /// two foot bones, or a droideka's three lower legs, above the body's
+    /// origin. NaN where there is no posed bone.
+    pub fn own_feet(&mut self, receiver: &Receiver) -> [f64; 3] {
+        use bfe_presentation::layout::unit_node::{STRIDE, WORLD};
+        let mut feet = [f64::NAN; 3];
+        let own = (receiver.own.id as u32, receiver.own.generation as u32);
+        let Some(&slot) = self.bound.get(&own) else { return feet };
+        let s = &self.slots[slot];
+        if !s.active || s.dead {
+            return feet;
+        }
+        // Posed even while the first-person view hides it.
+        self.units.refresh_actor(s.actor);
+        let bones: &[&str] = if s.walker { &["bone_l_leg2", "bone_r_leg2", "bone_b_leg2"] } else { &["bone_l_foot", "bone_r_foot"] };
+        let start = self.units.actor_node_start(s.actor);
+        let origin = self.units.output[s.actor * o::STRIDE + o::POSITION + 1];
+        for (foot, name) in feet.iter_mut().zip(bones) {
+            if let Some(bone) = self.models[s.model].bones.iter().position(|b| b == name) {
+                *foot = self.units.nodes[(start + 2 + bone) * STRIDE + WORLD + 13] - origin;
+            }
+        }
+        feet
+    }
     /// The player's volumes: master, effects, ambience, music, voice, interface.
     pub fn set_volumes(&mut self, volumes: [f64; 6]) {
         self.sound.volumes = volumes;
