@@ -2148,6 +2148,8 @@ impl StandaloneWindowApp {
                             "battle loading: timeline and admission complete; entering battle"
                         );
                         self.state = AppState::Battle(battle);
+                        // What loading decoded and built on the CPU side and then dropped.
+                        release_freed_memory();
                         // The pointer may not move during admission; initialize the new
                         // overlay's hover and cursor icon from its actual window position.
                         let [x, y] = self.interface_cursor();
@@ -2328,9 +2330,10 @@ impl StandaloneWindowApp {
     }
 }
 
-/// Hands the heap pages a finished battle freed back to the system. glibc keeps freed memory in
-/// its per-thread arenas, and the next battle's threads allocate from other arenas, so without
-/// this each battle's heap stayed resident after it ended (about 0.5 GB per battle on bes2).
+/// Hands freed heap pages back to the system, after a battle's loading and when a battle ends.
+/// glibc keeps freed memory in its per-thread arenas, and the next battle's threads allocate from
+/// other arenas, so without this each battle's heap and its loading's scratch stayed resident
+/// (resident memory grew about 0.4 to 0.8 GB per battle on bes2).
 fn release_freed_memory() {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     {
@@ -2340,7 +2343,7 @@ fn release_freed_memory() {
         let start = std::time::Instant::now();
         // SAFETY: glibc's malloc_trim only releases free pages; any thread may call it.
         unsafe { malloc_trim(0) };
-        eprintln!("battle memory released in {:.0} ms", start.elapsed().as_secs_f64() * 1000.);
+        eprintln!("freed memory released in {:.0} ms", start.elapsed().as_secs_f64() * 1000.);
     }
 }
 
