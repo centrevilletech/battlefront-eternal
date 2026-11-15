@@ -29,12 +29,12 @@ const GAITS: [&str; 9] = ["idle", "walk", "run", "walkBack", "runBack", "turnLef
 pub(super) fn observe_tows(receiver: &crate::online::receiver::Receiver) {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     if !*ENABLED.get_or_init(|| std::env::var_os("BFE_BENCH").is_some()) { return; }
-    let Some((id, _, _)) = receiver.own.mount else { return; };
+    let mounted = receiver.own.mount.map(|(id, _, _)| id as f64);
     for field in receiver.publications.iter()
         .filter(|field| field.row[r::KIND] == k::SUMMARY as f64 && field.row[r::SCHEMA] == 8.)
     {
         if let Ok(state) = serde_json::from_slice::<serde_json::Value>(&field.bytes[..field.length]) {
-            if state[0].as_f64() == Some(id as f64) {
+            if state[0].as_f64() == mounted || state[1].as_f64().is_some_and(|id| id > 0.) {
                 eprintln!("bench: tow tick={} generation={} state={state}", field.row[r::TICK], field.row[r::GENERATION]);
             }
         }
