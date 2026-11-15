@@ -2,6 +2,13 @@
 use glow::HasContext;
 use std::{collections::{BTreeMap, VecDeque}};
 
+impl<C: HasContext, M: crate::core::MultiDraw> crate::core::Core<C, M> {
+    pub fn start_profile(&mut self) {
+        self.profile.enable(&self.gl);
+        eprintln!("graphics water: hardware-depth-clamp programs={}", self.programs.iter().filter(|p| p.depth_clamp).count());
+    }
+}
+
 pub struct CpuSample{wall:std::time::Instant,thread:Option<f64>}
 impl CpuSample{
     pub fn now()->Self{Self{wall:std::time::Instant::now(),thread:thread_cpu_ms()}}
@@ -48,7 +55,7 @@ impl<C: HasContext> Profile<C> {
     pub fn enable(&mut self, gl: &C) {
         self.enabled = true;
         self.gpu_supported = !gl.version().is_embedded || gl.supported_extensions().iter().any(|e| e.contains("disjoint_timer_query"));
-        eprintln!("graphics trace GPU={} CPU={} renderer={}", self.gpu_supported, if thread_cpu_ms().is_some(){"thread"}else{"wall"}, unsafe { gl.get_parameter_string(glow::RENDERER) });
+        eprintln!("graphics trace GPU={} CPU={} renderer={} API={}", self.gpu_supported, if thread_cpu_ms().is_some(){"thread"}else{"wall"}, unsafe { gl.get_parameter_string(glow::RENDERER) }, unsafe { gl.get_parameter_string(glow::VERSION) });
         // Some drivers expose a timestamp period that differs from wall time.
         // Calibrate once when tracing starts, before collecting battle samples.
         // Ordinary play never pays this synchronisation or diagnostic delay.

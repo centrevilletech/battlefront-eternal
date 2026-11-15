@@ -454,10 +454,8 @@ impl AppSettingsStore {
         self.interface.adopt_hardware_defaults(Some(&gpu), None);
         self.interface.fresh = false;
         eprintln!("first-run graphics: GPU={renderer} preset={}", self.interface.get_string("performancePreset"));
-        if gpu.is_old_intel {
-            self.player.shell = PersistedPlayerSettings::extract_shell_from_interface(&self.interface, &self.player.shell);
-            self.save_player()?;
-        }
+        self.player.shell = PersistedPlayerSettings::extract_shell_from_interface(&self.interface, &self.player.shell);
+        self.save_player()?;
         Ok(())
     }
 
@@ -621,6 +619,15 @@ mod tests {
         let mut saved = AppSettingsStore::load(paths.clone());
         saved.adopt_gpu_preset("Intel(R) HD Graphics 3000", "Intel").unwrap();
         assert_eq!(saved.interface.get_string("performancePreset"), "quality");
+        fs::remove_dir_all(&paths.user_data_dir).unwrap();
+        let mut fresh = AppSettingsStore::load(paths.clone());
+        fresh.adopt_gpu_preset("AMD Radeon R5 Graphics (radeonsi, kabini)", "AMD").unwrap();
+        let record: Value = serde_json::from_slice(&fs::read(&paths.player_settings_file).unwrap()).unwrap();
+        assert_eq!(record["values"]["performancePreset"], "custom");
+        assert_eq!(record["values"]["renderScale"], 1.);
+        let mut reloaded = AppSettingsStore::load(paths.clone());
+        reloaded.adopt_gpu_preset("Intel(R) HD Graphics 3000", "Intel").unwrap();
+        assert_eq!(reloaded.interface.get_string("performancePreset"), "custom");
         for name in ["AMD Radeon R5 Graphics (radeonsi, kabini)", "Intel(R) HD Graphics 4000", "llvmpipe (Intel(R) HD Graphics 3000)"] {
             assert!(!bfe_interface::settings::classify_gpu(name, "").is_old_intel, "{name}");
         }

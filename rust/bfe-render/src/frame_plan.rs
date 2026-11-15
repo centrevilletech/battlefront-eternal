@@ -102,10 +102,14 @@ impl FramePlan {
             for i in 0..count(self.facts[F::VOLUMES],L::VOLUMES) { self.draw(R::VOLUME0+i); self.emit(O::BIND,R::NEAR,0); }
         }
         if main && self.facts[F::FOUNTAIN_COPY]!=0. {self.emit(O::COPY_COLOR_DEPTH,R::NEAR,R::BASIN);}
-        if main && self.facts[F::DEPTH_LATE]!=0. {self.emit(O::COPY_DEPTH,R::NEAR,R::DEPTH);}
-        // WaterPass.draw formerly took its scene-color snapshot while
-        // preparing the first refraction reader, before any transparent draw.
+        // These readers take the same opaque depth before any transparent
+        // draw. Reuse a resolved snapshot instead of resolving MSAA twice.
         if main && self.facts[F::SURFACE_COPY]!=0. {self.emit(O::COPY_COLOR_DEPTH,R::NEAR,R::SURFACE);}
+        if main && self.facts[F::DEPTH_LATE]!=0. {
+            let source = if self.facts[F::SURFACE_COPY]!=0. { R::SURFACE }
+                else if self.facts[F::FOUNTAIN_COPY]!=0. { R::BASIN } else { R::NEAR };
+            self.emit(O::COPY_DEPTH,source,R::DEPTH);
+        }
         // The transparent owner retains sorted snapshots between readers,
         // including lines and the first particle depth request.
         self.draw(transparent);
@@ -211,6 +215,23 @@ mod shadow_cadence_test {
         assert!(resolves.next().is_none());
         let view = ops.iter().position(|o| o.kind == O::DRAW && o.role == R::VIEW).unwrap();
         assert!(resolve > view);
+    }
+    #[test]
+    fn particle_depth_reuses_the_opaque_water_snapshot() {
+        for snapshot in [None, Some((F::FOUNTAIN_COPY, R::BASIN)), Some((F::SURFACE_COPY, R::SURFACE))] {
+            let mut plan = FramePlan::default();
+            plan.facts[F::MAIN] = 1.;
+            plan.facts[F::DEPTH_LATE] = 1.;
+            if let Some((fact, _)) = snapshot { plan.facts[fact] = 1.; }
+            plan.select(); plan.plan();
+            let ops = &plan.operations[..plan.count];
+            let (index, copy) = ops.iter().enumerate().find(|(_, o)| o.kind == O::COPY_DEPTH && o.argument == R::DEPTH).unwrap();
+            assert_eq!(copy.role, snapshot.map_or(R::NEAR, |(_, role)| role));
+            if let Some((_, role)) = snapshot {
+                assert!(ops[..index].iter().any(|o| o.kind == O::COPY_COLOR_DEPTH && o.argument == role));
+                assert!(!ops[..index].iter().any(|o| o.kind == O::DRAW && o.role == R::TRANSPARENT));
+            }
+        }
     }
     #[test]
     fn moved_or_invalid_cascades_refresh_even_on_a_held_frame() {
