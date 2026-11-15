@@ -271,13 +271,33 @@ pub(crate) struct TextureOptions{pub compressed:bool,pub max_size:u32,pub capabi
 impl TextureOptions{
     pub fn discover(gl:&glow::Context,compressed:bool)->Self{
         let ext=gl.supported_extensions();
-        let mut capabilities=0;
-        if ext.contains("GL_KHR_texture_compression_astc_ldr"){capabilities|=1;}
-        if ext.contains("GL_ARB_texture_compression_bptc")||ext.contains("GL_EXT_texture_compression_bptc"){capabilities|=2;}
-        if ext.contains("GL_EXT_texture_compression_s3tc"){capabilities|=4;}
-        if ext.contains("GL_ARB_ES3_compatibility"){capabilities|=8;}
-        if bfe_render::texture_format::unpacks_bc7(&unsafe{gl.get_parameter_string(glow::RENDERER)}){capabilities|=64;}
+        let capabilities=texture_capabilities(|name|ext.contains(name),&unsafe{gl.get_parameter_string(glow::RENDERER)});
         Self{compressed,max_size:unsafe{gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE)}.max(1) as u32,capabilities}
+    }
+}
+// The formats the GPU samples itself (texture_format::Capabilities bits). ETC2 is
+// left out: desktop GL lists it with GL_ARB_ES3_compatibility and GLES 3.0 makes it
+// core, but desktop GPUs before Intel's Broadwell (and AMD's and NVIDIA's) have no
+// ETC2 sampler, so Mesa decodes every upload on the CPU into four bytes a texel.
+// A GPU with neither BC7 nor ASTC (Sandy Bridge) takes BC1/BC3 instead.
+fn texture_capabilities(has:impl Fn(&str)->bool,renderer:&str)->u32{
+    let mut capabilities=0;
+    if has("GL_KHR_texture_compression_astc_ldr"){capabilities|=1;}
+    if has("GL_ARB_texture_compression_bptc")||has("GL_EXT_texture_compression_bptc"){capabilities|=2;}
+    if has("GL_EXT_texture_compression_s3tc"){capabilities|=4;}
+    if bfe_render::texture_format::unpacks_bc7(renderer){capabilities|=64;}
+    capabilities
+}
+#[cfg(test)]
+mod texture_capability_tests {
+    use bfe_render::texture_format::{choose,Capabilities,Format};
+    // Sandy Bridge on desktop GL lists ES3 compatibility and S3TC, no BC7.
+    #[test]
+    fn desktop_gl_without_bc7_takes_s3tc_not_emulated_etc2() {
+        let bits=super::texture_capabilities(|n|matches!(n,"GL_ARB_ES3_compatibility"|"GL_EXT_texture_compression_s3tc"),"Mesa Intel(R) HD Graphics 2000 (SNB GT1)");
+        let c=Capabilities::from_bits(bits);
+        assert_eq!(choose(c,true,false,256,256,bits&64!=0),Format::Bc1);
+        assert_eq!(choose(c,true,true,256,256,bits&64!=0),Format::Bc3);
     }
 }
 /// Exclusively owned CPU assets moved from admission to the GL thread.
