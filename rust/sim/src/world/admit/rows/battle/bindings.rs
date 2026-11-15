@@ -63,6 +63,9 @@ pub fn buildings(world: &mut World, cx: &Cx) -> Result<Vec<props::BuildingBindin
                 // after the turrets; the fleet stage keeps that order.
                 let id = *objective_ids.get(objectives).ok_or_else(|| error("a destructible post has no registry target"))?;
                 objectives += 1;
+                // CommandPosts.attachBuildings: the building is its post's,
+                // and fights for the post's team.
+                if let Some(team) = post_team(cx, desc) { binding.team = team; binding.target_team = team; }
                 binding.member = Some(Member::ObjectiveTarget(Ref::new(id, 0)));
                 binding.generation = Some(1.0); binding.category = 4; binding.kind = 9.0;
                 buildings += 1;
@@ -90,6 +93,13 @@ pub fn buildings(world: &mut World, cx: &Cx) -> Result<Vec<props::BuildingBindin
         out.push(props::BuildingBinding { source: *source, binding });
     }
     Ok(out)
+}
+
+/// The team of the map post a destructible post's building names (`post`).
+fn post_team(cx: &Cx, desc: &Value) -> Option<f64> {
+    let name = desc.get("post").and_then(Value::as_str).filter(|n| !n.is_empty())?;
+    let posts = cx.battle.world.get("commandPosts").and_then(Value::as_array)?;
+    posts.iter().find(|p| p.get("name").and_then(Value::as_str) == Some(name)).map(|p| to_number(p.get("team")))
 }
 
 fn vec3(value: Option<&Value>) -> [f64; 3] {

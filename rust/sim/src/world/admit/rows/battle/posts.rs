@@ -122,13 +122,40 @@ pub fn posts(cx: &mut Cx, interns: &mut Call) -> Result<Vec<Post>, AdmitError> {
             }
         };
         let ai = post_ai(desc, index, position, &records, world.get("spawns"));
+        let (building, radius) = attached_building(cx, &name).unzip();
         out.push(Post { name: cx.intern(interns, &name), label: label.map(|l| cx.intern(interns, &l)), team: to_number(desc.get("team")),
             neutralize_time, capture_time, position,
             capture: desc.get("capture").filter(|v| v.truthy()).map(built).transpose()?,
             value_bleed: desc.get("valueBleed").filter(|v| !matches!(v, Value::Null)).map(|v| to_number(Some(v))),
-            kill_region, neutralize: 0.0, progress: 0.0, toward: 0.0, counts: NumMap::default(), contested: false, building: None, active: true, radius: None, ai: Some(ai) });
+            kill_region, neutralize: 0.0, progress: 0.0, toward: 0.0, counts: NumMap::default(), contested: false, building, active: true, radius, ai: Some(ai) });
     }
     Ok(out)
+}
+
+/// CommandPosts.attachBuildings: the destructible post's building (a live
+/// "commandpost" object naming this post), and the post's radius, the
+/// building's sphere (Building.sphere: an unbuilt look's model sphere, else
+/// half its model box's diagonal, else 1), where the AI arrives. Destroying
+/// the building takes the post out of the battle.
+fn attached_building(cx: &Cx, name: &str) -> Option<(crate::store::Ref<crate::gen::Building>, f64)> {
+    let data = cx.battle.props.as_ref()?;
+    let instances = data.get("instances").and_then(Value::as_array)?;
+    let models = data.get("models");
+    cx.ids.props.iter().find_map(|bound| {
+        let desc = instances.get(bound.source)?;
+        if desc.get("base").and_then(Value::as_str) != Some("commandpost") || desc.get("post").and_then(Value::as_str) != Some(name) { return None; }
+        let crate::gen::RepairTarget::Building(r) = bound.binding.target else { return None };
+        let model = |key: Option<&Value>| key.and_then(Value::as_str).and_then(|n| models?.get(n));
+        let unbuilt = model(desc.get("unbuilt").and_then(|u| u.get("model")));
+        let look = unbuilt.or_else(|| model(desc.get("model")));
+        let sphere = unbuilt.and_then(|m| m.get("sphere")).filter(|v| v.truthy()).and_then(Value::as_array).map(|s| to_number(s.get(3)));
+        let boxed = look.and_then(|m| m.get("box")).filter(|v| v.truthy()).and_then(|b| {
+            let (lo, hi) = (b.at(0)?, b.at(1)?);
+            let d = |i| to_number(hi.at(i)) - to_number(lo.at(i));
+            Some(v8math::hypot3(d(0), d(1), d(2)) / 2.0)
+        });
+        Some((r, sphere.or(boxed).unwrap_or(1.0)))
+    })
 }
 
 /// createNativeAI's imports before ai_world_begin: the posts, the command
