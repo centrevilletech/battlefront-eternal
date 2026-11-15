@@ -348,7 +348,7 @@ impl Hulls {
             bodies: Vec::with_capacity(POOL),
         })
         .inspect(|hulls: &Self| {
-            if std::env::var_os("BFE_FX_SHOW").is_some() {
+            if crate::app::bench::fx().is_some() {
                 eprintln!("fx-hulls classes={} with-effects={}", hulls.models.len(), hulls.models.iter().filter(|m| m.fx.is_some()).count());
             }
         })

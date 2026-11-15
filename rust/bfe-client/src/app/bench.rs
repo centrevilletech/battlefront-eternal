@@ -34,6 +34,15 @@ fn value(key: &str) -> Option<String> {
         .map(|(_, value)| value.to_string())
 }
 
+/// `fx=name,name,...`: effect groups the battle plays ahead of the camera
+/// in turn, every 3 s, for side-by-side captures, with an `fx-count` line
+/// every 10 s. Present (even empty) turns the count lines on.
+pub(crate) fn fx() -> Option<Vec<String>> {
+    let query = std::env::var("BFE_BENCH").ok()?;
+    let list = query.split('&').filter_map(|pair| pair.split_once('=')).find(|(name, _)| *name == "fx")?.1;
+    Some(list.split(',').map(str::trim).filter(|n| !n.is_empty()).map(str::to_string).collect())
+}
+
 /// The battle's seed, when `BFE_BENCH` names one.
 pub fn seed() -> Option<u32> {
     value("seed")?.parse().ok()

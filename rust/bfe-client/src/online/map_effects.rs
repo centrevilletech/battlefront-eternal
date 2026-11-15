@@ -29,13 +29,13 @@ pub struct MapEffects {
     /// Map effects started so far, and those in view in the last update.
     pub started: u64,
     pub visible: usize,
-    // BFE_FX_SHOW=name,name,...: each named effect group in turn, every 3 s,
+    // BFE_BENCH fx=name,name,...: each named effect group in turn, every 3 s,
     // 6 m ahead of the camera, for side-by-side captures with the browser.
     show: Vec<(String, usize)>,
     show_next: usize,
     show_clock: f64,
     show_handle: Option<u32>,
-    // With BFE_FX_SHOW set (even empty), a count line every 10 s.
+    // With the bench's fx key present (even empty), a count line every 10 s.
     pub report: Option<f64>,
 }
 
@@ -63,13 +63,12 @@ impl MapEffects {
         // `Math.max(90, lighting.fade.value.y)`: the near scene's end.
         let range = &content.map["distance"]["nearScene"];
         let end = range[3].as_f64().filter(|v| v.is_finite() && *v > 0.3).unwrap_or(500.);
-        let show = std::env::var("BFE_FX_SHOW")
-            .map(|list| list.split(',').filter_map(|name| names.iter().find(|(n, _)| n == name.trim()).cloned()).collect())
-            .unwrap_or_default();
-        if std::env::var_os("BFE_FX_SHOW").is_some() {
+        let wanted = crate::app::bench::fx();
+        let show = wanted.iter().flatten().filter_map(|name| names.iter().find(|(n, _)| n == name).cloned()).collect();
+        if wanted.is_some() {
             eprintln!("fx-map placed={} of {} reach={}", instances.len(), content.environment_instances.len(), end.max(90.));
         }
-        Self { instances, reach: end.max(90.), camera: None, started: 0, visible: 0, show, show_next: 0, show_clock: 0., show_handle: None, report: std::env::var_os("BFE_FX_SHOW").map(|_| 0.) }
+        Self { instances, reach: end.max(90.), camera: None, started: 0, visible: 0, show, show_next: 0, show_clock: 0., show_handle: None, report: wanted.map(|_| 0.) }
     }
 
     /// The frame's camera, once it is chosen: the next update tests
