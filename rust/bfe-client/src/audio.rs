@@ -3,7 +3,42 @@
 //! the unused samples, so a short callback never advances or loses DSP time.
 use ::audio::{master::Master, FRAMES};
 use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, FromSample, SizedSample};
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, AtomicU32, Ordering}};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, AtomicU32, AtomicUsize, Ordering}};
+
+// What the output device can take, learnt when it opens: its own channel
+// count (what Automatic follows) and the most it accepts at 48 kHz; and the
+// channel count the battle's output layout wants, which reopens the device.
+static DEVICE_DEFAULT: AtomicUsize = AtomicUsize::new(2);
+static DEVICE_MAX: AtomicUsize = AtomicUsize::new(2);
+static WANTED: AtomicUsize = AtomicUsize::new(2);
+/// The output device's own channel count and the most it accepts.
+pub fn device_channels() -> (usize, usize) {
+    (DEVICE_DEFAULT.load(Ordering::Relaxed), DEVICE_MAX.load(Ordering::Relaxed))
+}
+/// The battle's layout asks the device for this many channels.
+pub fn want_channels(channels: usize) {
+    WANTED.store(channels, Ordering::Relaxed);
+}
+pub fn wanted_channels() -> usize {
+    WANTED.load(Ordering::Relaxed)
+}
+/// Which of an output layout's channels (L R C LFE SL SR; FL FR FC LFE BL BR SL
+/// SR TFL TFR TBL TBR) device channel `device` plays. Windows and macOS take
+/// that order as it is. ALSA's (Linux) puts the rear or side pair before the
+/// centre and LFE: FL FR RL RR FC LFE [SL SR].
+pub fn order(channels: usize, device: usize) -> usize {
+    if cfg!(target_os = "linux") && (channels == 6 || channels == 8 || channels == 12) {
+        match device {
+            2 => 4,
+            3 => 5,
+            4 => 2,
+            5 => 3,
+            d => d,
+        }
+    } else {
+        device
+    }
+}
 
 // Device diagnostics never take the render thread lock. Relaxed atomics are
 // sufficient because none of these counters publishes audio sample ownership.
@@ -79,73 +114,108 @@ pub struct SharedAudioRouter {
 
 const TEST_RATE: f64 = 48_000.0;
 const BURST: f64 = 1.2;
-const AROUND: f64 = 4.0;
+const GAP: f64 = 0.25;
+const AROUND: f64 = 6.0;
 
-/// Pink noise on one speaker at a time (`AudioPanel.test` in `src/audio/panel.js`), stereo here.
+/// The speaker test of the battle's AUDIO DETAILS (`AudioPanel.test` and `around` in `src/audio/panel.js`): pink
+/// noise on one speaker at a time, the LFE a 50 Hz tone, or a burst carried once round the room from ahead to the
+/// left through the layout's panning. It plays in the output layout's channels; while it plays it is all the device
+/// hears.
 pub struct SpeakerTest {
-    // Per burst: the speaker (0 left, 1 right, 2 swept round the room) and where in the test it is.
-    bursts: Vec<u8>,
+    // The layout's channels and the speakers to sound in turn (or the sweep).
+    channels: usize,
+    lfe: i32,
+    turn: Vec<usize>,
+    around: Option<audio::mixer::Mixer>,
     frame: u64,
     rng: u32,
-    b: [f32; 3],
+    b: [f32; 7],
+    gains: Vec<f32>,
+    scratch: Vec<f32>,
 }
 
 impl SpeakerTest {
+    /// `kind`: a channel index of the battle's layout, `all`, or `around`.
     pub fn new(kind: &str) -> Option<Self> {
-        let bursts = match kind {
-            "left" => vec![0],
-            "right" => vec![1],
-            "all" => vec![0, 1],
-            "around" => vec![2],
-            _ => return None,
+        let layout = crate::online::sound_output::current_layout();
+        let channels = layout.speakers.len();
+        let (turn, around) = match kind {
+            "all" => ((0..channels).collect(), None),
+            "around" => {
+                let law = if channels == 2 { audio::mixer::PANPOT } else { audio::mixer::VBAP };
+                (Vec::new(), Some(audio::mixer::Mixer::new(1, channels, law, None, layout.speakers)))
+            }
+            // The stereo panel's names, kept for old saved actions.
+            "left" => (vec![0], None),
+            "right" => (vec![1], None),
+            n => (vec![n.parse::<usize>().ok().filter(|c| *c < channels)?], None),
         };
-        Some(Self { bursts, frame: 0, rng: 0x1234_5678, b: [0.0; 3] })
+        Some(Self { channels, lfe: layout.lfe, turn, around, frame: 0, rng: 0x1234_5678, b: [0.0; 7], gains: vec![0.0; channels],
+            scratch: vec![0.0; channels * audio::FRAMES] })
     }
 
-    fn length(&self) -> u64 {
-        (self.bursts.iter().map(|b| if *b == 2 { AROUND } else { BURST }).sum::<f64>() * TEST_RATE) as u64
+    fn length(&self) -> f64 {
+        if self.around.is_some() { AROUND } else { self.turn.len() as f64 * (BURST + GAP) }
     }
 
-    // One stereo frame, or None once the test is over.
-    fn next(&mut self) -> Option<[f32; 2]> {
+    fn pink(&mut self) -> f32 {
+        // Paul Kellet's pink filter over white noise, as the panel's.
+        self.rng = self.rng.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        let w = (self.rng >> 8) as f32 / 8_388_608.0 - 1.0;
+        let b = &mut self.b;
+        b[0] = 0.99886 * b[0] + w * 0.055_517_9;
+        b[1] = 0.99332 * b[1] + w * 0.075_075_9;
+        b[2] = 0.969 * b[2] + w * 0.153_852;
+        b[3] = 0.8665 * b[3] + w * 0.310_485_6;
+        b[4] = 0.55 * b[4] + w * 0.532_952_2;
+        b[5] = -0.7616 * b[5] - w * 0.016_898;
+        let v = (b[0] + b[1] + b[2] + b[3] + b[4] + b[5] + b[6] + w * 0.5362) * 0.11;
+        b[6] = w * 0.115_926;
+        v
+    }
+
+    /// The next frame in the layout's channels, or false once the test is over.
+    fn next(&mut self, out: &mut [f32]) -> bool {
+        out.fill(0.0);
         let t = self.frame as f64 / TEST_RATE;
         self.frame += 1;
-        if self.frame > self.length() {
-            return None;
+        if t >= self.length() {
+            return false;
         }
-        let mut at = t;
-        let mut speaker = 0;
-        let mut local = 0.0;
-        for b in &self.bursts {
-            let length = if *b == 2 { AROUND } else { BURST };
-            if at < length {
-                speaker = *b;
-                local = at / length;
-                break;
+        let pink = self.pink();
+        if let Some(mixer) = &mut self.around {
+            // Ahead, then round to the left, once (x right, z back).
+            if self.frame % audio::FRAMES as u64 == 1 {
+                let a = t / AROUND * std::f64::consts::TAU;
+                mixer.take(&[0.0, -a.sin() as f32, 0.0, -a.cos() as f32, 0.0, 0.0], self.frame == 1);
+                let input = [1.0f32; audio::FRAMES];
+                let mut block = audio::BlockMut { data: &mut self.scratch, channels: self.channels, frames: audio::FRAMES };
+                mixer.process(&input, &[1], &mut block, None);
+                for c in 0..self.channels {
+                    self.gains[c] = self.scratch[c * audio::FRAMES + audio::FRAMES - 1];
+                }
             }
-            at -= length;
+            let fade = (t.min(AROUND - t) / 0.02).clamp(0.0, 1.0) as f32;
+            for (o, g) in out.iter_mut().zip(&self.gains) {
+                *o = pink * 0.3 * fade * g;
+            }
+            return true;
         }
-        // Paul Kellet's pink filter over white noise.
-        self.rng = self.rng.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        let white = (self.rng >> 8) as f32 / 8_388_608.0 - 1.0;
-        self.b[0] = 0.99765 * self.b[0] + white * 0.099_046;
-        self.b[1] = 0.963 * self.b[1] + white * 0.296_516_4;
-        self.b[2] = 0.57 * self.b[2] + white * 1.052_691_3;
-        let pink = (self.b[0] + self.b[1] + self.b[2] + white * 0.184_8) * 0.11;
-        // A short fade at each end of a burst keeps it from clicking.
-        let within = if speaker == 2 { local * AROUND } else { at };
-        let burst = if speaker == 2 { AROUND } else { BURST };
-        let fade = (within.min(burst - within) / 0.02).clamp(0.0, 1.0) as f32;
-        let level = pink * fade;
-        Some(match speaker {
-            0 => [level, 0.0],
-            1 => [0.0, level],
-            _ => {
-                // Round the room and back: equal-power pan from the left speaker to the right and home.
-                let angle = (1.0 - (local * 2.0 - 1.0).abs()) as f32 * std::f32::consts::FRAC_PI_2;
-                [level * angle.cos(), level * angle.sin()]
-            }
-        })
+        let slot = (t / (BURST + GAP)) as usize;
+        let at = t - slot as f64 * (BURST + GAP);
+        let Some(&channel) = self.turn.get(slot) else { return false };
+        if at >= BURST || channel >= out.len() {
+            return true;
+        }
+        out[channel] = if channel as i32 == self.lfe {
+            // A 50 Hz tone for the subwoofer, 50 ms ramps.
+            let ramp = (at.min(BURST - at) / 0.05).clamp(0.0, 1.0);
+            (0.25 * ramp * (std::f64::consts::TAU * 50.0 * at).sin()) as f32
+        } else {
+            let fade = (at.min(BURST - at) / 0.02).clamp(0.0, 1.0) as f32;
+            pink * 0.35 * fade
+        };
+        true
     }
 }
 
@@ -184,12 +254,12 @@ impl SharedAudioRouter {
         if let Ok(mut test_guard) = self.test.try_lock() {
             if let Some(test) = test_guard.as_mut() {
                 let mut done = false;
+                let mut layout = [0.0f32; 12];
                 for frame in scratch.chunks_mut(2) {
-                    let pair = if done { None } else { test.next() };
-                    done |= pair.is_none();
-                    let [left, right] = pair.unwrap_or([0.0, 0.0]);
-                    frame[0] = left;
-                    frame[1] = right;
+                    done = done || !test.next(&mut layout[..test.channels]);
+                    if done { layout.fill(0.0); }
+                    frame[0] = layout[0];
+                    frame[1] = layout[1];
                 }
                 if done {
                     *test_guard = None;
@@ -202,7 +272,7 @@ impl SharedAudioRouter {
         }
         if let Ok(mut live_guard) = self.live.try_lock() {
             if let Some(live) = live_guard.as_mut() {
-                live.fill(scratch, status);
+                live.fill(scratch, 2, status);
                 return;
             }
         }
@@ -219,27 +289,34 @@ pub struct DynamicOutput {
     router: Arc<SharedAudioRouter>,
     shell_block: [f32; FRAMES * 2],
     shell_pos: usize,
+    // The device's channels per frame; the menus and the test play on the
+    // first two.
+    channels: usize,
 }
 
 impl DynamicOutput {
-    pub fn new(router: Arc<SharedAudioRouter>) -> Self {
+    pub fn new(router: Arc<SharedAudioRouter>, channels: usize) -> Self {
         Self {
             router,
             shell_block: [0.0; FRAMES * 2],
             shell_pos: FRAMES * 2,
+            channels: channels.max(1),
         }
     }
 
     pub fn fill<T: SizedSample + FromSample<f32>>(&mut self, data: &mut [T], status: &Status) {
+        let channels = self.channels;
         if let Ok(mut test_guard) = self.router.test.try_lock() {
             if let Some(test) = test_guard.as_mut() {
                 let mut done = false;
-                for frame in data.chunks_mut(2) {
-                    let pair = if done { None } else { test.next() };
-                    done |= pair.is_none();
-                    let [left, right] = pair.unwrap_or([0.0, 0.0]);
-                    for (i, sample) in frame.iter_mut().enumerate() {
-                        *sample = T::from_sample(if i == 0 { left } else { right });
+                let mut layout = [0.0f32; 12];
+                let have = test.channels;
+                for frame in data.chunks_mut(channels) {
+                    done = done || !test.next(&mut layout[..have]);
+                    if done { layout.fill(0.0); }
+                    for (device, sample) in frame.iter_mut().enumerate() {
+                        let source = order(have, device);
+                        *sample = T::from_sample(if source < have { layout[source] } else { 0.0 });
                     }
                 }
                 if done {
@@ -250,23 +327,25 @@ impl DynamicOutput {
         }
         if let Ok(mut live_guard) = self.router.live.try_lock() {
             if let Some(live) = live_guard.as_mut() {
-                live.fill(data, status);
+                live.fill(data, channels, status);
                 return;
             }
         }
         if let Ok(mut shell_guard) = self.router.shell.try_lock() {
             if let Some(shell) = shell_guard.as_mut() {
                 let mut peak = 0.0f32;
-                for sample in data {
+                for frame in data.chunks_mut(channels) {
                     if self.shell_pos >= self.shell_block.len() {
                         shell.render_interleaved(&mut self.shell_block);
                         status.blocks.fetch_add(1, Ordering::Relaxed);
                         self.shell_pos = 0;
                     }
-                    let val = self.shell_block[self.shell_pos];
-                    peak = peak.max(val.abs());
-                    *sample = T::from_sample(val);
-                    self.shell_pos += 1;
+                    for (i, sample) in frame.iter_mut().enumerate() {
+                        let val = if i < 2 { self.shell_block[self.shell_pos + i] } else { 0.0 };
+                        peak = peak.max(val.abs());
+                        *sample = T::from_sample(val);
+                    }
+                    self.shell_pos += 2;
                 }
                 status.peak.fetch_max(peak.to_bits(), Ordering::Relaxed);
                 return;
@@ -291,7 +370,7 @@ impl DeviceOutput {
         match self {
             Self::Pcm(p) => p.fill(data, status),
             Self::Sound(s) => s.fill(data, status),
-            Self::Live(s) => s.fill(data, status),
+            Self::Live(s) => s.fill(data, 2, status),
             Self::Dynamic(d) => d.fill(data, status),
         }
     }
@@ -301,28 +380,43 @@ impl DeviceOutput {
 pub struct AudioDevice {
     stream: cpal::Stream,
     pub status: Arc<Status>,
+    /// The channels the stream was opened with.
+    pub channels: usize,
 }
 impl AudioDevice {
     // Startup negotiates one supported sample format. Runtime errors are
     // visible to the window host; they never choose another render chain.
     pub fn open(pcm: Vec<f32>, rate: u32) -> Result<Self, String> {
-        Self::open_output(DeviceOutput::Pcm(MasterOutput::new(rate,pcm)?),rate)
+        Self::open_output(DeviceOutput::Pcm(MasterOutput::new(rate,pcm)?),rate,2)
     }
     pub fn open_sound(sound: crate::sound::SoundOutput) -> Result<Self,String> {
-        Self::open_output(DeviceOutput::Sound(sound),48000)
+        Self::open_output(DeviceOutput::Sound(sound),48000,2)
     }
-    pub fn open_live(output:crate::online::sound::LiveOutput)->Result<Self,String>{Self::open_output(DeviceOutput::Live(output),48000)}
-    pub fn open_dynamic(router: Arc<SharedAudioRouter>) -> Result<Self, String> {
-        Self::open_output(DeviceOutput::Dynamic(DynamicOutput::new(router)), 48000)
+    pub fn open_live(output:crate::online::sound::LiveOutput)->Result<Self,String>{Self::open_output(DeviceOutput::Live(output),48000,2)}
+    /// The application's one stream, `channels` wide (stereo, or the battle's
+    /// surround layout when the device takes it).
+    pub fn open_dynamic(router: Arc<SharedAudioRouter>, channels: usize) -> Result<Self, String> {
+        let wanted = channels.max(2) as u16;
+        Self::open_output_with(48000, wanted, |channels| DeviceOutput::Dynamic(DynamicOutput::new(router, channels)))
     }
-    fn open_output(output: DeviceOutput, rate: u32) -> Result<Self,String> {
+    fn open_output(output: DeviceOutput, rate: u32, channels: u16) -> Result<Self,String> {
+        let mut output = Some(output);
+        Self::open_output_with(rate, channels, move |_| output.take().unwrap())
+    }
+    fn open_output_with(rate: u32, channels: u16, output: impl FnOnce(usize) -> DeviceOutput) -> Result<Self,String> {
         let device = cpal::default_host().default_output_device().ok_or("no audio output device")?;
-        // Explicit rate and stereo prevent accidental speed or channel changes.
-        // The loader will eventually decode directly to this admitted rate.
-        let supported = device.supported_output_configs().map_err(|e| e.to_string())?
-            .find(|c| c.channels() == 2 && c.min_sample_rate().0 <= rate && c.max_sample_rate().0 >= rate
-                && matches!(c.sample_format(), cpal::SampleFormat::F32 | cpal::SampleFormat::I16 | cpal::SampleFormat::U16))
+        let usable = |c: &cpal::SupportedStreamConfigRange| c.min_sample_rate().0 <= rate && c.max_sample_rate().0 >= rate
+            && matches!(c.sample_format(), cpal::SampleFormat::F32 | cpal::SampleFormat::I16 | cpal::SampleFormat::U16);
+        let configs: Vec<_> = device.supported_output_configs().map_err(|e| e.to_string())?.filter(usable).collect();
+        let max = configs.iter().map(|c| c.channels() as usize).max().unwrap_or(2);
+        let default = device.default_output_config().map(|c| c.channels() as usize).unwrap_or(2);
+        DEVICE_MAX.store(max.max(2), Ordering::Relaxed);
+        DEVICE_DEFAULT.store(default.max(2), Ordering::Relaxed);
+        // Explicit rate and channel count prevent accidental speed or channel
+        // changes. A width the device lacks falls back to stereo.
+        let supported = configs.iter().find(|c| c.channels() == channels).or_else(|| configs.iter().find(|c| c.channels() == 2))
             .ok_or("audio device does not support stereo at the requested rate")?.with_sample_rate(cpal::SampleRate(rate));
+        let output = output(supported.channels() as usize);
         let format = supported.sample_format();
         let config = supported.config();
         let status = Arc::new(Status::default());
@@ -332,7 +426,8 @@ impl AudioDevice {
             cpal::SampleFormat::U16 => build::<u16>(&device, &config, output, &status),
             _ => unreachable!(),
         }?;
-        let result = Self { stream, status };
+        let result = Self { stream, status, channels: config.channels as usize };
+        eprintln!("audio device: {} channels at {rate} Hz (device default {default}, up to {max})", result.channels);
         result.play()?;
         Ok(result)
     }

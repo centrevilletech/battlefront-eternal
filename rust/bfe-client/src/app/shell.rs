@@ -1021,6 +1021,7 @@ impl ShellHost {
         ctx.has_integrations = false;
         ctx.has_credits = false;
         ctx.has_audio_panel = true;
+        ctx.audio_output = crate::online::sound_output::details();
         ctx.surface_height = self.interface_surface.height;
         ctx.viewport = Some([self.layout_size[0].max(1) as u32, self.layout_size[1].max(1) as u32]);
         self.front_end_options.get_or_insert(front_end);

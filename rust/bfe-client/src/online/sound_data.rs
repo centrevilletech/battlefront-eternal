@@ -225,6 +225,12 @@ pub struct Prepared {
     pub actor_limits: Vec<[f64; 3]>,
     pub streams: super::stream_assets::Assets,
     pub music: Vec<[f64; music_slot::STRIDE]>,
+    /// The upscaled samples Enhanced plays when prepared, and the first
+    /// render id they are stored under.
+    pub enhanced: Vec<super::enhanced_audio::Item>,
+    pub enhanced_base: usize,
+    /// The prepared headphone decoder's filters and their length, if any.
+    pub headphones: Option<(std::sync::Arc<Vec<f32>>, usize)>,
 }
 impl Prepared {
     pub fn new(content: &BattleContent) -> Result<Self, String> {
@@ -343,7 +349,37 @@ impl Prepared {
                 segments.push(super::stream_assets::Segment { file, offset, length, rate, channels, substreams, interleave });
             }
         }
-        output.voices.reserve_samples(samples.len() + 96);
+        // Stream segments take the 96 render ids after the bank; the upscaled
+        // samples (manifest order, non-fallback only) follow them.
+        let enhanced_base = samples.len() + 96;
+        let mut enhanced = Vec::new();
+        if let Ok(raw) = content.textures.read(&format!("audio/enhanced/{level}/manifest.json")) {
+            let manifest: serde_json::Value = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
+            for (name, entry) in manifest["samples"].as_object().into_iter().flatten() {
+                let (Some(&index), Some(file)) = (samples.get(name.as_str()), entry["file"].as_str()) else { continue };
+                if entry["fallback"].as_bool().unwrap_or(false) {
+                    continue;
+                }
+                let Ok(path) = content.textures.path(&format!("audio/enhanced/{level}/{file}")) else { continue };
+                enhanced.push(super::enhanced_audio::Item { index, file: path, gain_db: entry["playback_db"].as_f64().unwrap_or(0.) });
+            }
+        }
+        output.voices.reserve_samples(enhanced_base + enhanced.len());
+        // Enhanced headphones decode through a measured dummy head when its
+        // filters are prepared; otherwise they use the IRCAM HRTF.
+        let headphones = match (
+            content.textures.read("audio/hrtf/sadie2_d1_3oa_left.wav"),
+            content.textures.read("audio/hrtf/sadie2_d1_3oa_right.wav"),
+        ) {
+            (Ok(left), Ok(right)) => match super::enhanced_audio::headphone_filters(&left, &right) {
+                Ok((filters, frames)) => Some((std::sync::Arc::new(filters), frames)),
+                Err(err) => {
+                    eprintln!("audio: headphone decoder not used ({err})");
+                    None
+                }
+            },
+            _ => None,
+        };
         let mut names = BTreeMap::new();
         let mut ids = BTreeMap::new();
         let mut sounds = Vec::new();
@@ -980,6 +1016,9 @@ impl Prepared {
             actor_limits,
             music,
             streams: super::stream_assets::Assets::new(segments),
+            enhanced,
+            enhanced_base,
+            headphones,
         })
     }
 }
