@@ -207,9 +207,11 @@ pub fn setup_rows(
     let characters = js_max(65.0 + locals, total + 32.0);
     let hulls = facts.hull_seats.len() as f64;
     let buildings = facts.buildings as f64;
+    // The AI's queries and identities cover every body the unit factory may
+    // build (joins and class switches add bodies), plus the hull targets.
     let registry = js_max(
-        256.0,
-        facts.next_unit_id as f64 + characters * 2.0 + hulls + buildings + 64.0,
+        js_max(256.0, facts.next_unit_id as f64 + characters * 2.0 + hulls + buildings + 64.0),
+        facts.next_unit_id as f64 + crate::world::admit::rows::battle::stock::FACTORY_HEADROOM as f64 + js_max(8.0, hulls),
     );
     let seats: f64 = facts.hull_seats.iter().map(|n| *n as f64).sum();
     let capacity = AiCapacity {

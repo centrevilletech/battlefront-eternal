@@ -337,7 +337,16 @@ impl Network {
             .unwrap_or(0)
             < needed
         {
-            let limit = needed.saturating_add(512);
+            // The AI reserved its queries and identities for a fixed number
+            // of bodies; past that a new body would overflow them.
+            let room = w.ai.battle().map_or(u32::MAX, |b| b.state.unit_limit() as u32);
+            if room < needed {
+                self.ids = cx.ids;
+                self.definitions = cx.definitions;
+                self.holders = cx.holders;
+                return Err(failure("server full".into()));
+            }
+            let limit = needed.saturating_add(rows::battle::stock::FACTORY_HEADROOM).min(room);
             w.reserve_spawn_bodies(limit);
             if let Some(facts) = &mut cx.ids.battle {
                 facts.construction_limit = Some(limit);
@@ -551,6 +560,106 @@ mod tests {
                 })
                 .unwrap();
         }
+        context.dispose().unwrap();
+    }
+    /// Every connection that changes class takes a body of the new class, so
+    /// a full server whose players all switch together grows the unit
+    /// registry past what the AI reserved for the opening roster.
+    #[test]
+    fn class_switches_after_many_joins_stay_within_ai_query_capacity() {
+        let Ok(root) = std::env::var("BFE_CONTENT_DIR") else {
+            return;
+        };
+        let files = DirFiles::new(root);
+        let context = Context::new();
+        let options = Options {
+            map: "nab2".into(),
+            side: "rep".into(),
+            enhanced: false,
+            seed: 1,
+            heroes: false,
+            unit: None,
+            name: None, bots: Default::default(),
+        };
+        context.world_network_admit(&files, &options).unwrap();
+        let mut players = Vec::new();
+        for peer in 1..=64u32 {
+            let mailbox = context
+                .owned(|w| {
+                    let codes = session::input_codes()
+                        .iter()
+                        .map(|code| w.sim.strings.intern_str(code))
+                        .collect();
+                    let setup = InputMailboxSetup { epoch: 1., capacity: 256., codes };
+                    record(w, InputMailboxSetup::WORDS, &setup, InputMailboxSetup::put);
+                    crate::input::module::input_mailbox_create_in(w)
+                })
+                .unwrap();
+            let name = format!("P{peer}");
+            match context.world_network_join(&files, peer, &name, &name, false, true, false, mailbox, 1000.) {
+                Ok(p) => players.push(p),
+                Err(_) => break,
+            }
+        }
+        assert!(players.len() >= 16, "joined {}", players.len());
+        let classes = [
+            ["rep_inf_clone_trooper", "cis_inf_battledroid"],
+            ["rep_inf_arc_trooper", "cis_inf_assault"],
+            ["rep_inf_clone_pilot", "cis_inf_pilotdroid"],
+            ["rep_inf_clone_sharpshooter", "cis_inf_battledroid_sniper"],
+            ["rep_inf_jet_trooper", "cis_inf_droideka"],
+        ];
+        for _ in 0..3 {
+            for round in classes {
+                context
+                    .owned(|w| {
+                        for p in &players {
+                            let h = p.character.clone().unwrap();
+                            for op in [F4ConnectionOp::Unspawn, F4ConnectionOp::Spawn] {
+                                for class in round {
+                                    let cmd = F4ConnectionCommand {
+                                        op,
+                                        target: h.clone(),
+                                        class_name: Some(w.sim.strings.intern_str(class)),
+                                        ordinal: 1.,
+                                        ..Default::default()
+                                    };
+                                    record(w, F4ConnectionCommand::WORDS, &cmd, F4ConnectionCommand::put);
+                                    let words = crate::battle::f4_connections::f4_connection_command_in(w).unwrap();
+                                    if result(words, F4ConnectionView::take).accepted || op == F4ConnectionOp::Unspawn {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        let battle = w.ai.take_battle().unwrap();
+                        let capacity = battle.state.queries.objects().capacity();
+                        let members = w.sim.store.units.list.len();
+                        drop(battle.state.queries.living_live(w, &battle.state.entities));
+                        w.ai.return_battle(battle);
+                        assert!(members <= capacity, "{members} registry members, AI queries reserve {capacity}");
+                    })
+                    .unwrap();
+            }
+        }
+        // Once the factory is out of bodies a join is refused, not admitted
+        // past the AI's reservation.
+        let mailbox = context
+            .owned(|w| {
+                let codes = session::input_codes().iter().map(|code| w.sim.strings.intern_str(code)).collect();
+                let setup = InputMailboxSetup { epoch: 1., capacity: 256., codes };
+                record(w, InputMailboxSetup::WORDS, &setup, InputMailboxSetup::put);
+                crate::input::module::input_mailbox_create_in(w)
+            })
+            .unwrap();
+        let late = context.world_network_join(&files, 200, "Late", "Late", false, true, false, mailbox, 1000.);
+        assert!(late.is_err());
+        context
+            .owned(|w| {
+                let battle = w.ai.battle().unwrap();
+                assert!(w.sim.store.units.list.len() <= battle.state.queries.objects().capacity());
+            })
+            .unwrap();
         context.dispose().unwrap();
     }
 }
