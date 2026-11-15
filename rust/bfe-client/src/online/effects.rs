@@ -22,10 +22,14 @@ pub struct Spawner {
     // Where each effect was last put, how fast it moved and how it is
     // turned, which a move without a velocity and a stop all keep.
     placed: Vec<[f64; 10]>,
+    // Each effect's drawn size, extra inherited velocity and tint
+    // (Effect.scale, Effect.inherit, Effect.tint), which every later
+    // command repeats.
+    scaled: Vec<[f64; 3]>,
 }
 impl Spawner {
     pub fn new(owner: Presentation) -> Self {
-        Self { owner, active: vec![false; SLOTS], generation: vec![0; SLOTS], free: (1..SLOTS).rev().collect(), sequence: 0, placed: vec![[0.; 10]; SLOTS] }
+        Self { owner, active: vec![false; SLOTS], generation: vec![0; SLOTS], free: (1..SLOTS).rev().collect(), sequence: 0, placed: vec![[0.; 10]; SLOTS], scaled: vec![[1., 0., 1.]; SLOTS] }
     }
     // The slot's number and the low bits of its life, in one word.
     fn handle(&self, id: usize) -> u32 {
@@ -55,8 +59,9 @@ impl Spawner {
         row[c::GENERATION] = self.generation[id] as f64;
         row[c::TICK] = tick;
         row[c::QUATERNION + 3] = 1.;
-        row[c::TINT] = 1.;
-        row[c::SCALE] = 1.;
+        row[c::TINT] = self.scaled[id][2];
+        row[c::SCALE] = self.scaled[id][0];
+        row[c::INHERIT] = self.scaled[id][1];
         Some(row)
     }
     /// Effects.play: the effect group at a point, moving at `velocity`, its
@@ -84,6 +89,7 @@ impl Spawner {
         self.placed[id][..3].copy_from_slice(&position);
         self.placed[id][3..6].copy_from_slice(&velocity);
         self.placed[id][6..].copy_from_slice(&turn);
+        self.scaled[id] = [1., 0., 1.];
         let row = self.command(k::SPAWN, id)?;
         row[c::CONTENT] = group as f64;
         row[c::SEED] = seed as f64;
@@ -111,6 +117,45 @@ impl Spawner {
     pub fn stop(&mut self, handle: u32) {
         if let Some(id) = self.live(handle) {
             self.place(id, true);
+        }
+    }
+    /// `effect.scale` and `effect.inherit`: every particle drawn this much
+    /// larger, and taking this share of the effect's velocity on top of its
+    /// own, from the next command on.
+    pub fn scale(&mut self, handle: u32, scale: f64, inherit: f64) {
+        if let Some(id) = self.live(handle) {
+            self.scaled[id][..2].copy_from_slice(&[scale, inherit]);
+        }
+    }
+    /// `effect.tint`: every particle's colour and alpha times this, from
+    /// the next command on.
+    pub fn tint(&mut self, handle: u32, tint: f64) {
+        if let Some(id) = self.live(handle) {
+            self.scaled[id][2] = tint;
+        }
+    }
+    /// Effect.kill: gone at once, particles and all.
+    pub fn kill(&mut self, handle: u32) {
+        if let Some(id) = self.live(handle) {
+            let placed = self.placed[id];
+            if let Some(row) = self.command(k::SYNC, id) {
+                row[c::POSITION..c::POSITION + 3].copy_from_slice(&placed[..3]);
+                row[c::QUATERNION..c::QUATERNION + 4].copy_from_slice(&placed[6..]);
+                row[c::STOPPED] = 1.;
+                row[c::KILLED] = 1.;
+            }
+        }
+    }
+    /// Effects.step(effect, seconds) right after it starts: it is already
+    /// that far into its life when first drawn.
+    pub fn prewarm(&mut self, handle: u32, seconds: f64) {
+        if seconds <= 0. {
+            return;
+        }
+        if let Some(id) = self.live(handle) {
+            if let Some(row) = self.command(k::PREWARM, id) {
+                row[c::SECONDS] = seconds;
+            }
         }
     }
     fn place(&mut self, id: usize, stopped: bool) {

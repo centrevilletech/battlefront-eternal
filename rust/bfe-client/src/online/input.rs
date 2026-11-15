@@ -35,6 +35,8 @@ struct Pointer {
     invert: bool,
 }
 pub struct Sender {
+    pub aim_scene: Option<super::shot_aim::Shared>,
+    pub fire_aim: Option<[f64;2]>,
     pub history: Box<super::replay::History>,
     owner: Box<Outbound>,
     life: [f64; 2],
@@ -62,6 +64,8 @@ pub struct Sender {
     pub spawned: bool,
     pub auto_spawn: bool,
     last_tick: f64,
+    ahead: bool,
+    measured: bool,
     last_ack: f64,
     turns: Vec<(f64, [f64; 2])>,
 }
@@ -80,6 +84,8 @@ impl Default for Sender {
         let actions =
             ACTIONS.map(|name| INPUT_ACTIONS.iter().position(|n| *n == name).unwrap_or(if name == "firePrimary" { 21 } else { 22 }));
         Self {
+            aim_scene: None,
+            fire_aim: None,
             history: Box::new(Default::default()),
             owner: Box::new(Outbound::default()),
             life: [0.; 2],
@@ -107,6 +113,8 @@ impl Default for Sender {
             spawned: false,
             auto_spawn: true,
             last_tick: 0.,
+            ahead: false,
+            measured: false,
             last_ack: f64::NEG_INFINITY,
             turns: Vec::new(),
         }
@@ -115,6 +123,18 @@ impl Default for Sender {
 impl Sender {
     pub fn command_sequence(&self) -> f64 {
         self.sequence as f64
+    }
+    /// The world tick the newest command is stamped for.
+    pub fn command_tick(&self) -> f64 {
+        self.last_tick
+    }
+    /// The rate the 60 Hz command clock should run at. Stamps never go back,
+    /// so after the world has fallen behind them (a stall, a slow machine)
+    /// the clock runs a tenth slow until they are within a tick of where
+    /// they need to be. Otherwise every later command would reach the world
+    /// that much early and wait, and every frame would replay that many ticks.
+    pub fn pace(&self) -> f64 {
+        if self.ahead { 0.9 } else { 1. }
     }
     pub fn new(turns: &[(f64, [f64; 2])]) -> Self {
         Self { turns: turns.to_vec(), ..Self::default() }
@@ -152,6 +172,7 @@ impl Sender {
             self.pointer_count = 0;
             self.pointer_at = 0;
             self.last_tick = 0.;
+            self.ahead = false;
         }
         let mut n = 0;
         for at in 0..self.edge_count {
@@ -162,6 +183,7 @@ impl Sender {
             }
         }
         self.edge_count = n;
+        self.measured = false;
         receiver.received.count = 0;
         let mut ignored = [0.; 2];
         let _ = self.owner.run(op::OUTBOUND_ACK, &mut Words::new(&[receiver.ack]), &mut Output { values: &mut ignored, at: 0 });
@@ -198,9 +220,14 @@ impl Sender {
             latest: receiver.latest,
             round_trip_seconds: rtt / 1000.,
         })
-        .bounded
-        .floor();
-        let tick = target.max(self.last_tick + 1.).min(receiver.latest + 30.);
+        .bounded;
+        let tick = target.floor().max(self.last_tick + 1.).min(receiver.latest + 30.);
+        // Measured on a frame's first command: a slow frame's later ones are
+        // stamped for the ticks after it and are not ahead of anything.
+        if !self.measured {
+            self.ahead = tick > target + 1.;
+            self.measured = true;
+        }
         self.last_tick = tick;
         self.history.push(c, look, flight, tick, receiver.own.generation, self.sequence as f64);
         let mut x = [0.; 512];
@@ -286,11 +313,26 @@ impl Sender {
             self.pointer_count += 1;
         }
         self.preview(receiver);
+        self.fire_aim = Some([self.yaw,self.pitch]);
+        if let Some(scene)=&self.aim_scene {
+            let (aim,reach,target)=scene.borrow().sample(&receiver.own,self.yaw,self.pitch,self.first_person);
+            self.fire_aim=Some([aim.yaw,aim.pitch]);
+            if fires[..fc].iter().any(|fire|fire.pressed && !fire.held) && std::env::var_os("BFE_HUD_TRACE").is_some() {
+                use bfe_presentation::network_layout::net_record as record;
+                let velocity=target.and_then(|id|receiver.active().find(|row|row[record::ID]==id as f64).map(|row|[row[record::VELOCITY],row[record::VELOCITY+1],row[record::VELOCITY+2]]));
+                let team=target.and_then(|id|receiver.active().find(|row|row[record::ID]==id as f64).map(|row|row[record::TEAM]));
+                eprintln!("[combat-client] {}",serde_json::json!({"sequence":self.sequence,"player":receiver.own.id,
+                    "displayedTick":super::clock::rendered_tick(receiver.clock.shown,receiver.latest),
+                    "bodyAim":[self.yaw,self.pitch],"fireAim":self.fire_aim,"camera":scene.borrow().camera,
+                    "viewProjection":scene.borrow().view_projection,"position":scene.borrow().position,"posture":receiver.own.posture,"zoom":receiver.own.zoom,
+                    "rayFrom":[aim.from.x,aim.from.y,aim.from.z],"rayDirection":[aim.basis.direction.x,aim.basis.direction.y,aim.basis.direction.z],
+                    "origin":[aim.basis.origin.x,aim.basis.origin.y,aim.basis.origin.z],"reach":reach,"target":target,"targetTeam":team,"targetVelocity":velocity,"team":receiver.own.team}));
+            }
+        }
         for fire in &fires[..fc] {
             if !fire.held {
-                let yaw = self.yaw;
-                let pitch = self.pitch;
-                let view = (receiver.latest - 6.).max(0.);
+                let [yaw,pitch] = self.fire_aim.unwrap_or([self.yaw,self.pitch]);
+                let view = super::clock::rendered_tick(receiver.clock.shown, receiver.latest);
                 let edge = self.edge(1., tick);
                 edge[e::BUTTON] = fire.button as f64;
                 edge[e::PRESSED] = fire.pressed as u8 as f64;
@@ -427,7 +469,7 @@ impl Sender {
             x[start + v::PROFILE_FOUND] = 1.;
             x[start + v::MOUSE_SCALE] = self.mouse_scale;
             x[start + v::ASPECT] = self.aspect;
-            x[start + v::VIEW_TICK] = (receiver.latest - 6.).max(0.);
+            x[start + v::VIEW_TICK] = super::clock::rendered_tick(receiver.clock.shown, receiver.latest);
             for state in &states[..commands] {
                 for n in [1., state.sequence, state.tick, 0.] {
                     put(&mut x, &mut at, n);
@@ -549,4 +591,5 @@ mod tests {
         assert!(pointer.invert);
         assert_eq!((pointer.x, pointer.y), (12., -8.));
     }
+
 }

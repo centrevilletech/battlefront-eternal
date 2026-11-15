@@ -46,7 +46,7 @@
 //! | World Admission | `WorldThread::admit_instant_action` (`Context::world_admit`) | Remote/local `bfeserver` (`GET /info` + UDP/WebRTC) |
 //! | Simulation Thread | Dedicated 60 Hz `"bfe-world-60hz"` thread | Server-authoritative 60 Hz loop |
 //! | Snapshot Delivery | Lock-free `mpsc::Receiver<Publication>` (`poll_publications`) | Network datagrams (`OnlineClient::receive`) |
-//! | Input Delivery | `WorldMessage::Step { command, look, flight, actions, ack }` | `OnlineClient::step` + `OnlineClient::send` |
+//! | Input Delivery | `WorldMessage::Step { command, look, flight }`, stamped for its world tick | `OnlineClient::step` + `OnlineClient::send` |
 //! | Client Prediction | `Sender::tick` + `Replay::frame` + `MapCamera::follow` | `OnlineClient::step` + `OnlineClient::present` |
 //! | Spawn / Respawn | `WorldMessage::Spawn` / `WorldMessage::Respawn` | `Sender::request_spawn` / `Sender::request_suicide` |
 //! | Pause Behavior | Pauses `"bfe-world-60hz"` (`world.set_paused(true)`) | Simulation continues on server; shows `PLAYER LIST` |
@@ -114,7 +114,6 @@ use crate::{
     input::{Input, ViewActions},
     local::{
         options::Options as LocalOptions,
-        publication::Publication,
         thread::{WorldMessage, WorldThread, WorldTickStats},
     },
     online::{
@@ -846,6 +845,11 @@ pub struct BattleController {
     pub input_tick: u32,
     /// Fractional frame time accumulator for 60 Hz input stepping.
     pub input_accumulator: f64,
+    /// A paused or hidden local world has been sent the command that lets go of the keys.
+    keys_released: bool,
+    /// Commands sent to the local world, and when the input line was last logged.
+    commands_sent: u64,
+    input_logged_s: f64,
     /// Live data port feeding the spawn screen.
     pub spawn_port: LiveSpawnPort,
     /// `bfe-battle-ui` spawn screen state machine and renderer.
@@ -921,7 +925,7 @@ impl BattleController {
         content_dir: &Path,
         request: BattleRequest,
         playlist_index: usize,
-        ai_enabled: bool,
+        bots: &BotSettings,
         player_name: &str,
     ) -> Result<InstantAdmission, String> {
         // Resolve the target map ID and era from `request.playlist[playlist_index]` or `request`.
@@ -968,13 +972,19 @@ impl BattleController {
                 policy.class_name,
                 "--seed".to_string(),
                 super::bench::seed().unwrap_or(playlist_index as u32 + 1).to_string(),
-            ],
+                "--ai".to_string(),
+                if bots.mode == "enhanced" { "enhanced" } else { "classic" }.to_string(),
+            ]
+            .into_iter()
+            .chain(bots.heroes.then(|| "--heroes".to_string()))
+            .collect(),
             audio: true,
             duration: None,
             name: Some(player_name.to_string()),
+            bots: bfe_sim::world::admit::Bots::read(&bots.mode, &bots.difficulty, &bots.size),
         };
 
-        let (world, admitted) = WorldThread::admit_instant_action(&local_options, ai_enabled)?;
+        let (world, admitted) = WorldThread::admit_instant_action(&local_options)?;
         let graphics = Scene::prepare_online(content_dir, &admitted.query)?;
         Ok(InstantAdmission {
             request,
@@ -1022,6 +1032,7 @@ impl BattleController {
                 .ok_or("native prediction resources already admitted")?,
         );
         let mut sender = Box::new(Sender::new(&replicas.turns));
+        sender.aim_scene=Some(replicas.shot_aim.clone());
         sender.auto_spawn = false;
 
         // Drain the initial tick-0 publication so `replicas.hud` has the mission's
@@ -1273,6 +1284,9 @@ impl BattleController {
             input: Input::default(),
             input_tick: 0,
             input_accumulator: 0.0,
+            keys_released: false,
+            commands_sent: 0,
+            input_logged_s: 0.,
             spawn_port,
             spawn_ctrl,
             scoreboard_port,
@@ -1601,6 +1615,7 @@ impl BattleController {
         &mut self,
         dt: f64,
         focused: bool,
+        hidden: bool,
         settings: &mut AppSettingsStore,
         _audio_router: &SharedAudioRouter,
     ) -> Result<Option<BattleTransition>, String> {
@@ -1760,7 +1775,11 @@ impl BattleController {
         // `alpha_interp = (input_accumulator / STEP)` to smoothly interpolate the
         // 3D camera between the previous and current 60 Hz simulation states.
         // 3. Pump publications / packets, step input, and compute camera View.
-        self.input_accumulator = (self.input_accumulator + dt).min(0.25);
+        let pace = match &self.authority {
+            BattleAuthority::InstantAction { sender, .. } => sender.pace(),
+            BattleAuthority::Online { client, .. } => client.sender.pace(),
+        };
+        self.input_accumulator = (self.input_accumulator + dt * pace).min(0.25);
         let mut steps = 0usize;
         while self.input_accumulator >= STEP && steps < 4 {
             self.input_accumulator -= STEP;
@@ -1815,9 +1834,20 @@ impl BattleController {
             } => {
                 // Drain non-blocking publications from `"bfe-world-60hz"`, forward input steps,
                 // run client-side prediction replay, and interpolate the 3D camera.
-                *now_ms += dt * 1000.0;
+                // A stopped world's clock stops with it, or its tick estimate
+                // would run ahead of it for a second after it resumes.
+                // Stopped means what stops the world below: the pause menu or
+                // a hidden window. An unfocused window's world plays on and
+                // must keep getting commands (empty ones: input is shut).
+                let halted = self.pause_menu.is_open || hidden;
+                if !halted {
+                    *now_ms += dt * 1000.0;
+                }
                 world.set_paused(self.pause_menu.is_open);
-                world.set_suspended(!focused);
+                // As the page's world worker: a battle without the window's
+                // focus plays on (a released mouse opens the pause menu, which
+                // freezes it); only a hidden window suspends it.
+                world.set_suspended(hidden);
                 world.poll_publications(receiver, *now_ms)?;
                 if self.frames == 60 {
                     eprintln!("local HUD publications: focused={} welcomed={} packets={} corrections={} alive={} active={} visible={}",
@@ -1828,7 +1858,7 @@ impl BattleController {
                 receiver.clock.advance(dt).map_err(str::to_string)?;
 
                 camera.set_flight_mode(receiver.own.flight.is_some());
-                let ack = Publication::acknowledgement(receiver);
+                let mut held_now = 0;
                 for (mut cmd, look, flight, actions) in step_cmds.into_iter().flatten() {
                     if actions.perspective {
                         camera.first_person = !camera.first_person;
@@ -1836,18 +1866,43 @@ impl BattleController {
                             settings.interface.set("flightFirstPerson", camera.first_person);
                         }
                     }
+                    // A stopped world takes one more command, the empty one
+                    // that lets go of the held keys, and then none until it runs:
+                    // commands stamped while it stands still would all be early.
+                    if halted && self.keys_released {
+                        continue;
+                    }
+                    self.keys_released = halted;
                     cmd.first_person = Some(camera.first_person);
                     sender.tick(&cmd, &look, &flight, receiver, 0.0, *now_ms);
-                    // Corrections acknowledge the sender's command identities,
-                    // not the render clock or an independently advancing world tick.
+                    // The world takes each command at the tick the sender stamped
+                    // it for and acknowledges its sequence; prediction replays the
+                    // same stamps, so the two agree.
                     cmd.sequence = sender.command_sequence();
+                    cmd.tick = sender.command_tick();
+                    self.commands_sent += 1;
+                    held_now = cmd.held;
                     world.send(WorldMessage::Step {
                         command: cmd,
                         look,
                         flight,
-                        ack,
-                        view_tick: receiver.clock.shown,
+                        view_tick: crate::online::clock::rendered_tick(receiver.clock.shown, receiver.latest),
+                        fire_aim: sender.fire_aim,
                     });
+                }
+                if !halted {
+                    self.keys_released = false;
+                }
+                // Once a second: what became of the player's commands. "sent"
+                // against the world's "taken", "refused" and "late", the keys
+                // of the newest one, and everything that can shut input off.
+                if self.elapsed_s - self.input_logged_s >= 1. {
+                    self.input_logged_s = self.elapsed_s;
+                    let [taken, refused, late] = world.command_counts();
+                    eprintln!("battle input: sent={} taken={taken} refused={refused} late={late} worldTick={} stamp={} sequence={} applied={} held={held_now:#x} alive={} generation={} focused={focused} hidden={hidden} paused={} suspended={} halted={halted} spawnScreen={} scoreboard={} chat={} steps={steps} position={:?}",
+                        self.commands_sent, world.latest_tick(), sender.command_tick(), sender.command_sequence(), receiver.corrected_sequence,
+                        receiver.own.alive, receiver.own.generation, world.is_paused(), world.is_suspended(),
+                        self.spawn_ctrl.is_open(), self.scoreboard_ctrl.model.is_open(), self.chat.is_open(), receiver.own.position);
                 }
 
                 let mut own = receiver.own;
@@ -2058,6 +2113,7 @@ impl BattleController {
         let pause_groups=self.scene.bridge.r.hud.input[render_hud::IN_GROUPS];
         if self.pause_menu.is_open||page_spawn||page_score {self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=0.;}
         if page_spawn {self.page_battle.direct(&mut view);}
+        super::bench::apply_view(&mut view);
         self.scene.draw(&view)?;
         if page_spawn || page_score {
             if page_spawn {
@@ -2462,7 +2518,9 @@ impl BattleController {
         self.stats_utf16.clear();
         self.stats_utf16.extend(self.stats_text.encode_utf16());
         let hud = &mut self.scene.bridge.hud_model;
-        hud.fonts[0].draw(&mut hud.batch, root_anchor(self.height), 8., self.height - 8.,
+        // The glyphs hang down from y: leave the line's own height above the bottom edge.
+        let y = self.height - 8. - hud.fonts[0].height * 0.65;
+        hud.fonts[0].draw(&mut hud.batch, root_anchor(self.height), 8., y,
             &self.stats_utf16, [1.; 4], 0, 0.65, 1., 0.);
     }
 
@@ -3272,5 +3330,25 @@ mod startup_policy_tests {
             ("imp", "imp_soldier", 1.)
         );
         assert!(cw.screen && gcw.screen);
+    }
+}
+
+/// The player's bot settings as the options screen keeps them (game.js reads
+/// the same four: aiMode, aiDifficulty, aiHeroes, battleSize).
+#[derive(Clone, Debug, Default)]
+pub struct BotSettings {
+    pub mode: String,
+    pub difficulty: String,
+    pub heroes: bool,
+    pub size: String,
+}
+impl BotSettings {
+    pub fn read(settings: &bfe_interface::Settings) -> Self {
+        Self {
+            mode: settings.get_string("aiMode"),
+            difficulty: settings.get_string("aiDifficulty"),
+            heroes: settings.get_bool("aiHeroes"),
+            size: settings.get_string("battleSize"),
+        }
     }
 }
