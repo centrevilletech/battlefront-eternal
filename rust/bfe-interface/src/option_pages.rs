@@ -133,6 +133,17 @@ pub struct OptionsContext {
     pub viewport: Option<[u32; 2]>,
     /// The GL renderer string, for the QUALITY PRESET row's `GPU:` note (empty when unknown).
     pub gpu_renderer: String,
+    /// The battle's audio output for AUDIO DETAILS: what it is ("5.1 SURROUND, 6 CHANNELS, 48000 HZ"),
+    /// what renders it ("ENHANCED, PAIRWISE PANNING"), and its channels' names in device order.
+    pub audio_output: AudioOutputInfo,
+}
+
+/// What AUDIO DETAILS shows and tests.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AudioOutputInfo {
+    pub output: String,
+    pub rendering: String,
+    pub channels: Vec<String>,
 }
 
 impl Default for OptionsContext {
@@ -156,6 +167,7 @@ impl Default for OptionsContext {
             surface_height: 768.0,
             viewport: Some([1024, 768]),
             gpu_renderer: String::new(),
+            audio_output: AudioOutputInfo::default(),
         }
     }
 }
@@ -446,9 +458,10 @@ pub fn audio_page(settings: &Settings, ctx: &OptionsContext) -> MenuScreen {
     screen
 }
 
-/// The battle's AUDIO DETAILS: what the output is and a speaker test (`AudioPanel` in `src/audio/panel.js`).
-/// The native output is stereo, so the test names LEFT and RIGHT, plays both in turn, and sweeps a burst round the
-/// room. The game's sound is muted while a tone plays; the host plays it (named actions `speaker:*`).
+/// The battle's AUDIO DETAILS: what the output is and a speaker test (`AudioPanel` in `src/audio/panel.js`): each
+/// of the layout's speakers by name (the LFE a 50 Hz tone), all in turn, and a burst carried once round the room.
+/// The game's sound is muted while a tone plays; the host plays it (named actions `speaker:<channel>`,
+/// `speaker:all`, `speaker:around`).
 pub fn audio_panel_page(ctx: &OptionsContext) -> MenuScreen {
     let row = |id: &str, label: &str, value: &str, action: Option<WidgetAction>| OptionsItem {
         id: id.to_string(),
@@ -466,13 +479,19 @@ pub fn audio_panel_page(ctx: &OptionsContext) -> MenuScreen {
         action,
     };
     let named = |name: &str| Some(WidgetAction::Named(name.to_string()));
-    let items = vec![
-        row("output", "OUTPUT", "STEREO, 48000 HZ", None),
-        row("speaker-left", "SPEAKER TEST", "LEFT", named("speaker:left")),
-        row("speaker-right", "SPEAKER TEST", "RIGHT", named("speaker:right")),
-        row("speaker-all", "SPEAKER TEST", "ALL IN TURN", named("speaker:all")),
-        row("speaker-around", "SPEAKER TEST", "AROUND THE ROOM", named("speaker:around")),
-    ];
+    let info = &ctx.audio_output;
+    let output = if info.output.is_empty() { "STEREO, 2 CHANNELS, 48000 HZ" } else { &info.output };
+    let mut items = vec![row("output", "OUTPUT", output, None)];
+    if !info.rendering.is_empty() {
+        items.push(row("rendering", "RENDERING", &info.rendering, None));
+    }
+    let names: Vec<String> =
+        if info.channels.is_empty() { vec!["LEFT".into(), "RIGHT".into()] } else { info.channels.clone() };
+    for (channel, name) in names.iter().enumerate() {
+        items.push(row(&format!("speaker-{channel}"), "SPEAKER TEST", name, named(&format!("speaker:{channel}"))));
+    }
+    items.push(row("speaker-all", "SPEAKER TEST", "ALL IN TURN", named("speaker:all")));
+    items.push(row("speaker-around", "SPEAKER TEST", "AROUND THE ROOM", named("speaker:around")));
     let options = OptionsWidget::with_layout("rows", OptionsLayoutKind::Audio, items, ctx.surface_height);
     let mut screen = MenuScreen::new(
         "options-audio-panel",

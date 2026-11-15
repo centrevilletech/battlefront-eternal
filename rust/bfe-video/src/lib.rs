@@ -1,8 +1,14 @@
-//! Muted VP9 WebM movies. Container parsing and decoding stay off the UI thread.
-pub mod webm;
+//! The front end's movies: the Bink files inside the player's own game archives, read in place and decoded
+//! on a worker thread by the bink-decoder crate. Nothing is converted or copied.
+pub mod archive;
+pub mod library;
+
+pub use library::{MovieLibrary, Source};
+
+use bink_decoder::Decoder;
 use std::{
-    ffi::c_void,
-    path::PathBuf,
+    fs::File,
+    io::{Seek, SeekFrom},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, SyncSender},
@@ -11,19 +17,6 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-
-unsafe extern "C" {
-    fn bfe_vpx_new() -> *mut c_void;
-    fn bfe_vpx_free(ctx: *mut c_void);
-    fn bfe_vpx_decode(
-        ctx: *mut c_void,
-        data: *const u8,
-        len: u32,
-        planes: *mut *mut u8,
-        strides: *mut i32,
-        size: *mut u32,
-    ) -> i32;
-}
 
 /// Packed, top-down I420 planes, recycled through a bounded three-frame pool.
 #[derive(Default)]
@@ -35,66 +28,6 @@ pub struct Frame {
     pub duration: f64,
     pub decode_ms: f64,
 }
-struct Decoder(*mut c_void);
-impl Decoder {
-    fn new() -> Result<Self, String> {
-        let ctx = unsafe { bfe_vpx_new() };
-        if ctx.is_null() {
-            Err("VP9 decoder initialization failed".into())
-        } else {
-            Ok(Self(ctx))
-        }
-    }
-    fn decode(&mut self, data: &[u8], frame: &mut Frame) -> Result<bool, String> {
-        let mut planes = [std::ptr::null_mut(); 3];
-        let mut strides = [0; 3];
-        let mut size = [0; 2];
-        let start = Instant::now();
-        let result = unsafe {
-            bfe_vpx_decode(
-                self.0,
-                data.as_ptr(),
-                u32::try_from(data.len()).map_err(|_| "VP9 packet too large")?,
-                planes.as_mut_ptr(),
-                strides.as_mut_ptr(),
-                size.as_mut_ptr(),
-            )
-        };
-        if result < 0 {
-            return Err("Invalid VP9 frame or unsupported pixel format".into());
-        }
-        if result == 0 {
-            return Ok(false);
-        }
-        if size[0] == 0 || size[1] == 0 || size[0] > 8192 || size[1] > 8192 {
-            return Err("Invalid movie dimensions".into());
-        }
-        frame.width = size[0];
-        frame.height = size[1];
-        for i in 0..3 {
-            let w = if i == 0 { size[0] } else { size[0].div_ceil(2) } as usize;
-            let h = if i == 0 { size[1] } else { size[1].div_ceil(2) } as usize;
-            if planes[i].is_null() || strides[i] < w as i32 {
-                return Err("Invalid VP9 plane stride".into());
-            }
-            // Vec capacity survives recycling; only a resolution change allocates.
-            frame.planes[i].resize(w * h, 0);
-            for row in 0..h {
-                let src = unsafe {
-                    std::slice::from_raw_parts(planes[i].add(row * strides[i] as usize), w)
-                };
-                frame.planes[i][row * w..(row + 1) * w].copy_from_slice(src);
-            }
-        }
-        frame.decode_ms = start.elapsed().as_secs_f64() * 1000.;
-        Ok(true)
-    }
-}
-impl Drop for Decoder {
-    fn drop(&mut self) {
-        unsafe { bfe_vpx_free(self.0) }
-    }
-}
 
 /// Decoder lifetime is cancelled without joining on the render thread. Dropping
 /// either channel wakes a worker waiting for a free buffer or a queued frame.
@@ -103,8 +36,21 @@ pub struct Movie {
     recycle: SyncSender<Frame>,
     cancel: Arc<AtomicBool>,
 }
+
+fn open_decoder(source: &Source) -> Result<Decoder<File>, String> {
+    let mut file =
+        File::open(&source.path).map_err(|e| format!("{}: {e}", source.path.display()))?;
+    file.seek(SeekFrom::Start(source.offset))
+        .map_err(|e| format!("{}: {e}", source.path.display()))?;
+    let mut movie = Decoder::new(file).map_err(|e| e.to_string())?;
+    // The front end plays its movies without sound, as the Electron build does.
+    movie.disable_all_audio();
+    Ok(movie)
+}
+
 impl Movie {
-    pub fn open(path: PathBuf, looping: bool) -> Self {
+    /// Starts decoding `source` (None: the movie is not in the game's archives, which fails at once).
+    pub fn open(source: Option<Source>, looping: bool) -> Self {
         let (tx, rx) = mpsc::sync_channel(3);
         let (recycle, free) = mpsc::sync_channel(3);
         for _ in 0..3 {
@@ -114,49 +60,51 @@ impl Movie {
         let stop = cancel.clone();
         thread::spawn(move || {
             let run = || -> Result<(), String> {
-                let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-                let movie = webm::Webm::parse(&bytes)?;
+                let source = source.ok_or("Movie is not in the game's archives")?;
+                let mut movie = open_decoder(&source)?;
+                let duration = movie.header().duration();
                 let mut base = 0.;
-                let mut decoder = Decoder::new()?;
                 let mut unused = None;
                 loop {
-                    for packet in &movie.packets {
-                        if stop.load(Ordering::Relaxed) {
-                            return Ok(());
-                        }
-                        let mut frame = if let Some(frame) = unused.take() {
-                            frame
-                        } else {
-                            loop {
-                                match free.recv_timeout(Duration::from_millis(50)) {
-                                    Ok(frame) => break frame,
-                                    Err(mpsc::RecvTimeoutError::Timeout)
-                                        if !stop.load(Ordering::Relaxed) =>
-                                    {
-                                        continue
-                                    }
-                                    _ => return Ok(()),
+                    if stop.load(Ordering::Relaxed) {
+                        return Ok(());
+                    }
+                    let mut frame = if let Some(frame) = unused.take() {
+                        frame
+                    } else {
+                        loop {
+                            match free.recv_timeout(Duration::from_millis(50)) {
+                                Ok(frame) => break frame,
+                                Err(mpsc::RecvTimeoutError::Timeout)
+                                    if !stop.load(Ordering::Relaxed) =>
+                                {
+                                    continue
                                 }
+                                _ => return Ok(()),
                             }
-                        };
-                        if decoder.decode(&bytes[packet.range.clone()], &mut frame)? {
-                            frame.pts = base + packet.pts;
-                            frame.duration = movie.duration;
+                        }
+                    };
+                    let start = Instant::now();
+                    match movie.next_frame().map_err(|e| e.to_string())? {
+                        Some(decoded) => {
+                            decoded.picture.copy_i420(&mut frame.planes);
+                            frame.width = decoded.picture.width;
+                            frame.height = decoded.picture.height;
+                            frame.pts = base + decoded.time;
+                            frame.duration = duration;
+                            frame.decode_ms = start.elapsed().as_secs_f64() * 1000.;
                             if tx.send(Ok(frame)).is_err() {
                                 return Ok(());
                             }
-                        } else if stop.load(Ordering::Relaxed) {
-                            return Ok(());
-                        } else {
-                            // Non-display reference packets do not consume a
-                            // presentation buffer or advance its timestamp.
+                        }
+                        None if looping => {
+                            // The only keyframe is the first: a loop's last frame runs into it.
+                            movie.rewind();
+                            base += duration;
                             unused = Some(frame);
                         }
+                        None => return Ok(()),
                     }
-                    if !looping {
-                        return Ok(());
-                    }
-                    base += movie.duration;
                 }
             };
             if let Err(error) = run() {
@@ -185,67 +133,110 @@ impl Drop for Movie {
 #[cfg(test)]
 mod tests {
     use super::*;
-    const SAMPLE: &[u8] = include_bytes!("../../../tests/fixtures/video/pattern.webm");
-    #[test]
-    fn decodes_synthetic_vp9_pattern_and_reuses_planes() {
-        let webm = webm::Webm::parse(SAMPLE).unwrap();
-        assert_eq!(webm.packets.len(), 5);
-        assert!((webm.duration - 0.5).abs() < 0.001);
-        let mut decoder = Decoder::new().unwrap();
-        let mut frame = Frame::default();
-        let mut pointers = [std::ptr::null(); 3];
-        let mut first = 0;
-        for (index, packet) in webm.packets.iter().enumerate() {
-            assert!(decoder
-                .decode(&SAMPLE[packet.range.clone()], &mut frame)
-                .unwrap());
-            assert_eq!((frame.width, frame.height), (32, 24));
-            assert_eq!(
-                frame.planes.iter().map(Vec::len).collect::<Vec<_>>(),
-                [768, 192, 192]
-            );
-            let ptrs = std::array::from_fn(|i| frame.planes[i].as_ptr());
-            if index == 0 {
-                pointers = ptrs;
-                first = frame.planes[0].iter().map(|v| *v as u64).sum::<u64>();
-            } else {
-                assert_eq!(pointers, ptrs);
+    pub(crate) const PATTERN: &[u8] = include_bytes!("../../../tests/fixtures/video/pattern.bik");
+
+    fn fixture() -> (std::path::PathBuf, Source) {
+        let dir = std::env::temp_dir().join(format!(
+            "bfe-video-movie-{}-{:?}",
+            std::process::id(),
+            thread::current().id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("archive.bin");
+        // Stored in place after unrelated bytes, as inside an archive.
+        let mut bytes = vec![0xee; 300];
+        bytes.extend(PATTERN);
+        std::fs::write(&path, bytes).unwrap();
+        (dir, Source { path, offset: 300 })
+    }
+
+    fn next(movie: &Movie) -> Frame {
+        for _ in 0..2000 {
+            match movie.poll() {
+                Some(Ok(frame)) => return frame,
+                Some(Err(e)) => panic!("{e}"),
+                None => thread::sleep(Duration::from_millis(1)),
             }
         }
-        assert!(first > 10000);
-        assert!(decoder.decode(&[0; 32], &mut frame).is_err());
+        panic!("no frame");
     }
+
     #[test]
-    fn every_truncation_is_bounded() {
-        for end in 0..SAMPLE.len() {
-            let _ = webm::Webm::parse(&SAMPLE[..end]);
+    fn plays_the_synthetic_movie_in_place_and_loops() {
+        let (dir, source) = fixture();
+        let movie = Movie::open(Some(source), true);
+        let mut pointers = None;
+        for n in 0..12 {
+            let frame = next(&movie);
+            let k = n % 5;
+            assert_eq!((frame.width, frame.height), (32, 24));
+            assert_eq!(frame.planes[0], vec![20 + 40 * k as u8; 32 * 24]);
+            assert_eq!(frame.planes[1], vec![60 + 10 * k as u8; 16 * 12]);
+            assert_eq!(frame.planes[2], vec![200 - 20 * k as u8; 16 * 12]);
+            assert!(
+                (frame.pts - n as f64 * 0.1).abs() < 1e-9,
+                "{n}: {}",
+                frame.pts
+            );
+            assert!((frame.duration - 0.5).abs() < 1e-9);
+            let p: [*const u8; 3] = std::array::from_fn(|i| frame.planes[i].as_ptr());
+            pointers.get_or_insert(Vec::new()).push(p);
+            movie.recycle(frame);
         }
+        // Three buffers circulate; none is reallocated after the first round.
+        let seen = pointers.unwrap();
+        assert!(seen[3..].iter().all(|p| seen[..3].contains(p)));
+        drop(movie);
+        std::fs::remove_dir_all(dir).unwrap();
     }
+
     #[test]
-    fn prepared_movie_corpus_decodes_when_present() {
-        let Some(root) = std::env::var_os("BFE_CONTENT_DIR") else {
+    fn a_missing_movie_fails_at_once() {
+        let movie = Movie::open(None, true);
+        for _ in 0..2000 {
+            if let Some(result) = movie.poll() {
+                assert!(result.is_err());
+                return;
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+        panic!("no error");
+    }
+
+    #[test]
+    fn a_non_looping_movie_ends() {
+        let (dir, source) = fixture();
+        let movie = Movie::open(Some(source), false);
+        for _ in 0..5 {
+            let frame = next(&movie);
+            movie.recycle(frame);
+        }
+        thread::sleep(Duration::from_millis(50));
+        assert!(movie.poll().is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn real_movies_decode_when_the_game_is_there() {
+        // Local check: BFE_GAME_DIR names a game install; every movie of its archives decodes.
+        let Some(game) = std::env::var_os("BFE_GAME_DIR") else {
             return;
         };
-        let movies = std::path::Path::new(&root).join("common/shell/movies");
+        let library = MovieLibrary::open(None, &[game.into()]);
+        assert!(library.archive_count() > 0, "no movie archive found");
         let mut count = 0;
-        for path in std::fs::read_dir(movies)
-            .unwrap()
-            .flatten()
-            .map(|p| p.path())
-            .filter(|p| p.extension().is_some_and(|e| e == "webm"))
-        {
-            let bytes = std::fs::read(&path).unwrap();
-            let webm = webm::Webm::parse(&bytes)
-                .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-            let mut decoder = Decoder::new().unwrap();
-            let mut frame = Frame::default();
-            for packet in webm.packets {
-                assert!(decoder
-                    .decode(&bytes[packet.range], &mut frame)
-                    .unwrap_or_else(|error| panic!("{}: {error}", path.display())));
+        for source in library.sources() {
+            let mut movie = open_decoder(source).unwrap();
+            let frames = movie.header().frame_count;
+            let mut decoded = 0;
+            while let Some(frame) = movie.next_frame().unwrap() {
+                decoded += 1;
+                let _ = frame.picture;
             }
+            assert_eq!(decoded, frames);
             count += 1;
         }
-        assert!(count > 0);
+        eprintln!("{count} movies decoded");
+        assert!(count >= 55);
     }
 }

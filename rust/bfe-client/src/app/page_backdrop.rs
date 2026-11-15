@@ -2,10 +2,9 @@
 //! beneath every page; a screen without its own movie must not clear it.
 use bfe_shell::{
     data::{MovieClip, ScreenMovie},
-    movies::MoviePlayer,
+    movies::{MovieLibrary, MoviePlayer},
     page::FrameTexture,
 };
-use std::path::Path;
 
 // SIDES and CROSS in backdrop.js. The existing decoder and compositor own
 // frame recycling, sharpening and fades, independently of menu transitions.
@@ -26,7 +25,7 @@ pub(super) struct PageBackdrop {
     sides: [Side; 2],
 }
 impl PageBackdrop {
-    pub fn start(&mut self, root: &Path, left: &mut MoviePlayer, right: &mut MoviePlayer) {
+    pub fn start(&mut self, movies: &MovieLibrary, left: &mut MoviePlayer, right: &mut MoviePlayer) {
         for ((side, names), player) in self.sides.iter_mut().zip(SIDES).zip([left, right]) {
             *side = Side::default();
             // Missing optional movies are skipped exactly as SideMovie's error
@@ -38,16 +37,16 @@ impl PageBackdrop {
                     fade_in: CROSS,
                     fade_out: CROSS,
                 })
-                .filter(|clip| root.join(clip.url.trim_start_matches('/')).is_file())
+                .filter(|clip| movies.resolve(&clip.url).is_some())
                 .collect();
             if let Some(clip) = side.clips.first() {
-                Self::play(player, root, clip.clone());
+                Self::play(player, movies, clip.clone());
             }
         }
     }
-    fn play(player: &mut MoviePlayer, root: &Path, clip: MovieClip) {
+    fn play(player: &mut MoviePlayer, movies: &MovieLibrary, clip: MovieClip) {
         player.play(
-            root,
+            movies,
             ScreenMovie {
                 intro: None,
                 loop_clip: Some(clip),
@@ -58,13 +57,13 @@ impl PageBackdrop {
     }
     pub fn update(
         &mut self,
-        root: &Path,
+        movies: &MovieLibrary,
         dt: f64,
         left: &mut MoviePlayer,
         right: &mut MoviePlayer,
     ) {
         for (side, player) in self.sides.iter_mut().zip([left, right]) {
-            player.update(root, dt);
+            player.update(movies, dt);
             let front = player
                 .layers
                 .iter()
@@ -80,7 +79,7 @@ impl PageBackdrop {
                 {
                     side.queued_after = Some(layer.serial);
                     side.at = (side.at + 1) % side.clips.len();
-                    Self::play(player, root, side.clips[side.at].clone());
+                    Self::play(player, movies, side.clips[side.at].clone());
                 }
             }
         }
