@@ -543,7 +543,7 @@ impl Replicas {
         // SnapshotPresentation samples once for the whole display batch.
         // The unit links then borrow its output by identity and generation.
         receiver.network.borrow_mut().present(tick, -1., prediction.fleet.identity.map_or(-1., |p| p.0));
-        self.hulls.frame(receiver, tick, dt, &prediction.fleet, history);
+        self.hulls.frame(receiver, tick, dt, &prediction.fleet, history, &mut self.combat.hull_fx);
         self.turrets.frame(receiver, history, dt);
         self.items.frame(receiver, tick);
         self.frame = self.frame.wrapping_add(1);
@@ -1106,6 +1106,7 @@ impl Replicas {
     /// texture of the opaque scene's depth, which soft particles read.
     pub fn present_shields(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], size: [i32; 2], depth: u32, bridge: &mut Bridge) {
         self.combat.particles.project(bridge, camera, self.soft.then_some((size, depth)));
+        self.combat.map_effects.view(camera, eye);
         self.combat.project(bridge, camera, size[1] as f64);
         self.presented.shown[11] = self.combat.total_blasters;
         self.shields.begin();
