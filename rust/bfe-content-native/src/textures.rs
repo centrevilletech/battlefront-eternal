@@ -221,4 +221,20 @@ impl Library {
         self.ids.insert(requested.into(), id);
         Ok(id)
     }
+    pub fn cpu_source(&self,id:usize)->Result<PathBuf,String>{
+        let original=self.ids.iter().find(|(path,source)|**source==id&&!path.to_ascii_lowercase().ends_with(".ktx2")).map(|(path,_)|path).ok_or("missing original CPU texture")?;
+        self.path(original)
+    }
+    // CPU colour queries read the original image while GPU samples stay compressed.
+    pub fn cpu_pixels(&self,id:usize)->Result<std::borrow::Cow<'_,[u8]>,String>{
+        let image=self.images.get(id).ok_or("unknown CPU texture")?;
+        if image.format==Format::Rgba{
+            let length=image.width as usize*image.height as usize*4;
+            return image.data.get(..length).map(std::borrow::Cow::Borrowed).ok_or_else(||"invalid RGBA texture extent".into());
+        }
+        let original=self.ids.iter().find(|(path,source)|**source==id&&!path.to_ascii_lowercase().ends_with(".ktx2")).map(|(path,_)|path).ok_or("missing original CPU texture")?;
+        let decoded=bfe_render::texture_image::decode_image(&self.read(original)?,self.max_size)?;
+        Ok(std::borrow::Cow::Owned(decoded.rgba))
+    }
+
 }

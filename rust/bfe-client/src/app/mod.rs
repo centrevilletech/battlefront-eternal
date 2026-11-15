@@ -1023,7 +1023,7 @@ impl StandaloneWindowApp {
     /// Uses `glBlitFramebuffer` with `GL_LINEAR` filtering from `READ_FRAMEBUFFER = src_fb`
     /// to `DRAW_FRAMEBUFFER = 0` (the default window surface) and immediately swaps the
     /// window backbuffer via `glutin::surface::Surface::swap_buffers`.
-    fn blit_framebuffer_to_window(&self, src_fb: glow::Framebuffer, src_size: [i32; 2]) -> Result<(), String> {
+    fn blit_framebuffer_to_window(&mut self, src_fb: glow::Framebuffer, src_size: [i32; 2]) -> Result<(), String> {
         let (Some(ui), Some(surface), Some(context)) = (&self.slint_ui, &self.surface, &self.context)
         else {
             return Err("window presentation resources missing".into());
@@ -1031,6 +1031,7 @@ impl StandaloneWindowApp {
         // The Slint notifier copies this frame after its transparent clear and
         // before its UI draw. Only this host swaps the shared window surface.
         ui.render(src_fb, src_size)?;
+        if let AppState::Battle(battle)=&mut self.state{battle.scene.resolution_presented(battle.pause_menu.is_open||!self.focused||self.hidden)?;}
         surface.swap_buffers(context).map_err(|e| format!("window presentation failed: {e}"))
     }
 
@@ -1141,6 +1142,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                 glow::Context::from_loader_function_cstr(|name| display.get_proc_address(name))
             };
             let gl = make_gl();
+            crate::resources::Ranges::install_multi_draw(&gl,display.get_proc_address(std::ffi::CStr::from_bytes_with_nul(if gl.version().is_embedded{b"glMultiDrawElementsEXT\0"}else{b"glMultiDrawElements\0"}).unwrap()));
             let physical = window.inner_size();
             self.opts.size = [physical.width as i32, physical.height as i32];
             let shell = Box::new(ShellHost::new(
@@ -2384,6 +2386,7 @@ impl StandaloneWindowApp {
                             return Err("window presentation resources missing".into());
                         };
                         ui.render_pass(fb, sz, 2)?;
+                        battle.scene.resolution_presented(battle.pause_menu.is_open||!self.focused||self.hidden)?;
                         surface
                             .swap_buffers(context)
                             .map_err(|e| format!("window presentation failed: {e}"))?;

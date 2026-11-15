@@ -69,7 +69,11 @@ impl Ring {
     pub fn write(&mut self, tick: f64, epoch: f64, baseline: f64, correction: Option<&[u8]>, summaries: &[WireField]) -> Result<Prepared> {
         if !tick.is_finite() || tick.fract() != 0. || tick.abs() > 9007199254740991. { return Err("invalid snapshot ring tick"); }
         if self.ring.len() == self.ring.capacity() && tick < self.ring.oldest_tick() as f64 { return Err("snapshot not held"); }
-        let base = self.ring.get(baseline as i64, Some(epoch as u32)).copied();
+        // Baseline 0 names no snapshot (a keyframe), and the reader decodes
+        // it that way. A battle's own tick 0 is held here for its first 128
+        // ticks: reading it as the baseline made every correction in that
+        // time a delta the reader could not apply once the body had changed.
+        let base = if baseline == 0. { None } else { self.ring.get(baseline as i64, Some(epoch as u32)).copied() };
         let at = self.free.pop().ok_or("own ring capacity exceeded")?;
         let (left, right) = self.rows.split_at_mut(at); let (row, right) = right.split_first_mut().unwrap();
         let old = base.map(|p| if p < at { &left[p].value } else { &right[p - at - 1].value });

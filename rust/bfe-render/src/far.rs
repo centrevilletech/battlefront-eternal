@@ -840,6 +840,8 @@ impl<C: HasContext> FarPass<C> {
                 gl.draw_elements(glow::TRIANGLES, count, geo.index_type, first * geo.index_bytes);
             }
         }
+        let submitted=if ranges>1 {match &item.draw {Draw::Cells(c)=>c.counts[..ranges].iter().map(|v|*v as u64).sum(),Draw::Terrain(t)=>t.counts[..ranges].iter().map(|v|*v as u64).sum(),_=>count.max(0) as u64}} else {count.max(0) as u64};
+        core.profile.draw(submitted,instances.max(1) as u64,ranges.max(1) as u64);
         stats.gl_calls += 1;
         stats.pass_draws[counted] += 1;
     }

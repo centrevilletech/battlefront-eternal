@@ -156,6 +156,7 @@ fn as_f32(v: &[f64]) -> [f32; 16] {
 }
 
 impl<C: HasContext> MotionPass<C> {
+    pub fn texture_bytes(&self) -> u64 { ((ROW_TEXELS*MAX_RECORDS+2*BONE_TEXELS*BONE_ROWS)*16) as u64 }
     pub fn new<M: MultiDraw>(core: &mut Core<C, M>) -> MotionPass<C> {
         let gl = &core.gl;
         let rows_texture = upload_texture(gl, ROW_TEXELS as i32, MAX_RECORDS as i32);
@@ -396,6 +397,7 @@ impl<C: HasContext> MotionPass<C> {
                     gl.draw_elements_instanced(glow::TRIANGLES, k[4] as i32, geo.index_type, k[3] as i32 * geo.index_bytes, (j - i) as i32);
                 }
                 core.stats.gl_calls += 3;
+                core.profile.draw(k[4].max(0.)as u64,(j-i)as u64,1);
                 core.stats.instance_draws += 1;
                 core.stats.pass_draws[PASS_MOTION] += 1;
             }

@@ -20,8 +20,45 @@ use bfe_render::instances as draw;
 use serde_json::{json, Value};
 use three::Matrix4;
 const POOL: usize = 64;
+fn camera_angles(quaternion: &three::Quaternion, flying: bool) -> three::Euler {
+    let mut angles = three::Euler::default();
+    // Camera seat pivots follow the displayed root's Euler order.
+    let order = if flying { three::EulerOrder::XYZ } else { three::EulerOrder::YXZ };
+    angles.set_from_quaternion(quaternion, Some(order));
+    angles
+}
+fn hull_heading(row: &[f64]) -> f64 {
+    // Vehicle records carry a quaternion, not the soldier yaw field.
+    let q = &row[r::QUATERNION..r::QUATERNION + 4];
+    let mut angles = three::Euler::default();
+    angles.set_from_quaternion(&three::Quaternion::new(q[0], q[1], q[2], q[3]), Some(three::EulerOrder::YXZ));
+    angles.y
+}
 fn array<T: serde::de::DeserializeOwned>(v: &Value) -> Result<T, String> {
     serde_json::from_value(v.clone()).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod heading_tests {
+    use super::*;
+
+    #[test]
+    fn passenger_arc_uses_the_published_hull_orientation() {
+        let mut row = [0.; r::STRIDE];
+        let yaw = 3.02_f64;
+        row[r::QUATERNION + 1] = (yaw * 0.5).sin();
+        row[r::QUATERNION + 3] = (yaw * 0.5).cos();
+        assert!((hull_heading(&row) - yaw).abs() < 1e-12);
+        assert_eq!(row[r::YAW], 0.);
+    }
+
+    #[test]
+    fn passenger_camera_retains_the_aircraft_root_order() {
+        let yaw = 3.02_f64;
+        let q = three::Quaternion::new(0., (yaw * 0.5).sin(), 0., (yaw * 0.5).cos());
+        assert!((camera_angles(&q, false).y - yaw).abs() < 1e-12);
+        assert!((camera_angles(&q, true).y - (std::f64::consts::PI - yaw)).abs() < 1e-12);
+    }
 }
 // Authored JSON uses floating numbers, whereas rig indices are integral. The
 // numerical builder's resource boundary accepts their exact integer spelling.
@@ -79,6 +116,9 @@ pub struct Hulls {
     bound: Index,
     pub visible: usize,
     pub refused: u64,
+    /// BFE_AI_TRACE: world vehicles against bound and linked hulls every 10 s.
+    census: bool,
+    census_tick: u64,
     collision: Collision,
     world: u32,
     // Each hull's life as its effects see it, by identity, kept while its
@@ -87,6 +127,7 @@ pub struct Hulls {
 }
 impl Hulls {
     pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], collision: Collision, world: u32) -> Result<Self, String> {
+        let shadow_cascades = bridge.shadow_cascades();
         let defs = bfe_content::defs::Defs::build(&content.content)?;
         let mut owner = Box::new(Vehicles::new());
         let mut models = Vec::new();
@@ -154,7 +195,7 @@ impl Hulls {
                     radius: array(&b["radius"])?,
                 });
             }
-            let admission = crate::static_scene::props(bridge, content, textures, placements, crate::shadows::COUNT)?;
+            let admission = crate::static_scene::props(bridge, content, textures, placements, shadow_cascades)?;
             let base = class.record.get("base").and_then(bfe_content::Value::as_str).unwrap_or("hover");
             let flying = base == "flyer";
             let walking = base == "walker" || base == "commandwalker";
@@ -343,6 +384,8 @@ impl Hulls {
             bound: Index::new(POOL.max(128)),
             visible: 0,
             refused: 0,
+            census: std::env::var_os("BFE_AI_TRACE").is_some(),
+            census_tick: u64::MAX,
             collision,
             world,
             bodies: Vec::with_capacity(POOL),
@@ -369,8 +412,7 @@ impl Hulls {
         let matrix = &nodes[n::WORLD..n::WORLD + 16];
         let q = &output[o::QUATERNION..o::QUATERNION + 4];
         let quaternion = three::Quaternion::new(q[0], q[1], q[2], q[3]);
-        let mut angles = three::Euler::default();
-        angles.set_from_quaternion(&quaternion, Some(three::EulerOrder::YXZ));
+        let angles = camera_angles(&quaternion, m.flying);
         x[f::VEHICLE_ACTIVE] = 1.;
         x[f::VEHICLE_ID] = id;
         x[f::VEHICLE_FLYING] = m.flying as u8 as f64;
@@ -399,7 +441,7 @@ impl Hulls {
             x[f::VEHICLE_CENTER + k] = (m.bounds[k] + m.bounds[k + 3]) * 0.5;
             x[f::VEHICLE_SIZE + k] = m.bounds[k + 3] - m.bounds[k];
         }
-        let at = self.owner.slot_input(slot.rig, 0) + seat * bfe_presentation::layout::vehicle_seat_input::STRIDE;
+        let at = self.owner.slot_seats(slot.rig, 0) + seat * bfe_presentation::layout::vehicle_seat_input::STRIDE;
         x[f::SEAT_YAW] = self.owner.stream_in[at + bfe_presentation::layout::vehicle_seat_input::AIM_YAW];
         x[f::SEAT_PITCH] = self.owner.stream_in[at + bfe_presentation::layout::vehicle_seat_input::PITCH];
         view.seat(x);
@@ -482,6 +524,15 @@ impl Hulls {
                 }
             }
         }
+        if self.census && (tick as u64) % 600 == 0 && tick as u64 != self.census_tick {
+            self.census_tick = tick as u64;
+            let world = receiver.active().filter(|r| r[r::KIND] == k::VEHICLE as f64 && r[r::STATE] != 4.).count();
+            let unmapped = receiver.active().filter(|r| r[r::KIND] == k::VEHICLE as f64 && r[r::STATE] != 4.)
+                .filter(|r| self.classes.get(r[r::CLASS_ID] as usize).copied().flatten().is_none()).count();
+            let bound = self.slots.iter().filter(|s| s.active && s.identity.is_some()).count();
+            let unlinked = self.slots.iter().filter(|s| s.active && s.identity.is_some() && !self.owner.network.live(s.rig)).count();
+            eprintln!("vehicles census t={}s world={world} bound={bound} unmapped={unmapped} unlinked={unlinked} refused={}", tick as u64 / 60, self.refused);
+        }
         self.visible = 0;
         let blank_mount = [0.; mo::STRIDE];
         let mut mount_index = 0;
@@ -506,9 +557,12 @@ impl Hulls {
                 self.slots[i].identity = Some(key);
                 self.slots[i].dying_since = None;
                 self.bound.insert(key, i);
-                self.owner.network.bind(self.slots[i].rig, key.0 as f64, key.1 as f64, 1., &receiver.network);
                 i
             };
+            // As for soldiers (replicas.rs): a link retired on its birth frame,
+            // while the timeline still showed the previous life, would leave a
+            // respawned hull deferred, never placed, for its whole life.
+            self.owner.network.keep(self.slots[slot].rig, key.0 as f64, key.1 as f64, 1., &receiver.network);
             let s = &mut self.slots[slot];
             s.active = true;
             let m = &self.models[s.model];
@@ -589,19 +643,18 @@ impl Hulls {
             // The camera must not infer velocity from its own eased pose.
             s.velocity.copy_from_slice(&x[e::VELOCITY..e::VELOCITY + 3]);
             s.flight_frame.copy_from_slice(&x[e::QUATERNION..e::QUATERNION + 4]);
-            let start = self.owner.slot_input(s.rig, 0);
+            let start = self.owner.slot_seats(s.rig, 0);
+            let held = receiver.vehicle_seats(key.0, key.1);
             for seat_no in 0..m.seats {
                 let x = &mut self.owner.stream_in[start + seat_no * seat::STRIDE..][..seat::STRIDE];
                 x.fill(0.);
+                x[seat::HELD] = ((held >> seat_no) & 1) as f64;
+                x[seat::POSE] = x[seat::HELD];
                 if seat_no < (row[r::SEAT_COUNT] as usize).min(16) {
-                    x[seat::HELD] = 1.;
-                    x[seat::POSE] = 1.;
                     x[seat::AIM_YAW] = row[r::SEAT_ANGLES + seat_no * 2];
                     x[seat::PITCH] = row[r::SEAT_ANGLES + seat_no * 2 + 1];
                 }
                 if mount[mo::VALID] != 0. && seat_no < (mount[mo::SEAT_COUNT] as usize).min(16) {
-                    x[seat::HELD] = 1.;
-                    x[seat::POSE] = 1.;
                     x[seat::AIM_YAW] = mount[mo::SEAT_ANGLES + seat_no * 2];
                     x[seat::PITCH] = mount[mo::SEAT_ANGLES + seat_no * 2 + 1];
                 }
@@ -625,7 +678,7 @@ impl Hulls {
                     a[p::ZOOM] = 1.;
                     a[p::VEHICLE_ACTIVE] = 1.;
                     a[p::SEAT_INDEX] = seat_no as f64;
-                    a[p::HULL_YAW] = row[r::YAW];
+                    a[p::HULL_YAW] = hull_heading(row);
                     a[p::SEAT_YAW] = mount.values[0];
                     a[p::SEAT_PITCH] = mount.values[1];
                     a[p::HAS_LOOK_YAW] = (mount.flags & 1 != 0) as u8 as f64;
@@ -772,12 +825,13 @@ impl Hulls {
                 continue;
             };
             let root = &nodes[n::WORLD..n::WORLD + 16];
-            for template in &m.rows {
+            for (part,template) in m.rows.iter().enumerate() {
                 let count = m.inverses.len();
                 if records == draw::MAX_RECORDS || bones + count > draw::MAX_BONES {
                     continue;
                 }
                 let mut row = *template;
+                let(id,generation)=s.identity.unwrap_or((0,0));row[draw::REC_MOTION_ID]=12884901888.+id as f64;row[draw::REC_MOTION_GENERATION]=generation as f64;row[draw::REC_MOTION_PART]=part as f64;
                 row[draw::REC_WORLD..draw::REC_WORLD + 16].copy_from_slice(root);
                 let mut inverse = Matrix4::default();
                 inverse.elements.copy_from_slice(root);

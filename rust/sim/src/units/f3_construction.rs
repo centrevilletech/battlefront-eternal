@@ -183,6 +183,16 @@ pub(crate) fn player_in(world_ctx: &mut crate::world::owner::World, character: R
     let request=F3PlayerRealization {class_name:class,previous,local,metadata,
         combat_random,weapon_random,recon_key,recon_seed};
     let reference=realize_in(world_ctx, &request,services.reborrow())?;
+    // A body of another class is another unit, with a life count of its own.
+    // It takes the player's on (multiplayer-world.js: `unit.generation =
+    // Math.max(unit.generation, previous.generation)`), so the spawn below
+    // starts a life newer than his last. Without it his controls, which
+    // refuse the stamps of an older life, refused every command of the new
+    // one: he could look around and never move.
+    if let Some(old)=request.previous.as_ref().filter(|old|old.slot!=reference.slot) {
+        let unit=world_ctx.sim.store.unit.get_mut(reference).unwrap();
+        unit.generation=v8math::max(unit.generation,old.life);
+    }
     world_ctx.sim.store.unit.get_mut(reference).unwrap().combat.player=true;
     f3::spawn_native_in(world_ctx, reference,character,position,yaw,services.reborrow());
     // PlayerCombat.reset creates fresh weapon state. Rebind after that reset,
