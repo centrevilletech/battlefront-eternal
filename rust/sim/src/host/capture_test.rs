@@ -19,8 +19,11 @@ struct Battle {
 
 impl Battle {
     fn new(content: &std::path::Path, enhanced: bool) -> Battle {
+        Self::on(content, "nab2", "rep", 1, enhanced)
+    }
+    fn on(content: &std::path::Path, map: &str, side: &str, seed: u32, enhanced: bool) -> Battle {
         let context = Context::new();
-        let options = Options { map: "nab2".into(), side: "rep".into(), enhanced, seed: 1, heroes: false, unit: None, name: None, bots: Default::default() };
+        let options = Options { map: map.into(), side: side.into(), enhanced, seed, heroes: false, unit: None, name: None, bots: Default::default() };
         let files = bfe_content::files::DirFiles::new(content);
         let admitted = context.world_admit(&files, &options).expect("admission");
         context.world_step_init(admitted.setup.clone()).unwrap();
@@ -56,9 +59,24 @@ impl Battle {
                     if Some(r.slot) == watched { seen = Some((u.alive, u.removed)); }
                     if u.alive && !u.dead && !u.removed && u.seat.is_none() && (0.0..8.0).contains(&u.team) { living[u.team as usize] += 1.0; }
                 }
+                // Locals may count for an army they side with (geo1's Geonosians count for the CIS).
+                let locals: f64 = living[3..].iter().sum();
+                living[1] += locals;
+                living[2] += locals;
                 for (team, &n) in post.counts.iter() {
-                    if (1.0..3.0).contains(&team) {
-                        assert!(n <= living[team as usize], "{what}: post {} counts {n} of team {team}, {} alive inside",
+                    if (1.0..3.0).contains(&team) && n > living[team as usize] {
+                        // Who of that team is in or near the region, and how.
+                        let mut near = String::new();
+                        for (r, u) in store.unit.iter().filter(|(_, u)| u.team == team || u.team > 2.0) {
+                            let at = u.position();
+                            let d = ((at.x - post.position[0]).powi(2) + (at.y - post.position[1]).powi(2) + (at.z - post.position[2]).powi(2)).sqrt();
+                            if crate::battle::posts::contains(post, &at) || d < 30.0 {
+                                near += &format!("\n  unit {} team {} class {} human {} inside {} d {d:.1} alive {} dead {} removed {} seated {} held {} at {:.2},{:.2},{:.2}",
+                                    r.slot, u.team, u.class_def.0, u.human, crate::battle::posts::contains(post, &at),
+                                    u.alive, u.dead, u.removed, u.seat.is_some(), matches!(u.held, crate::store::Nullable::Value(_)), at.x, at.y, at.z);
+                            }
+                        }
+                        panic!("{what}: post {} counts {n} of team {team}, {} alive inside{near}",
                             String::from_utf16_lossy(w.sim.strings.units(post.name)), living[team as usize]);
                     }
                 }
@@ -144,6 +162,29 @@ fn dead_soldiers_stop_counting_toward_posts_classic() {
 #[test]
 fn dead_soldiers_stop_counting_toward_posts_enhanced() {
     dead_soldiers_stop_counting(true);
+}
+
+/// Whole battles on maps with droidekas, vehicles, turrets and locals: on
+/// every tick no post counts more soldiers of a team than stand alive on foot
+/// inside it (dying bodies, corpses, riders and gunners never count).
+/// BFE_CAPTURE_MAPS (MAP:SIDE:SEED,...) and BFE_CAPTURE_TICKS choose them.
+#[test]
+#[ignore]
+fn posts_count_only_the_living_on_foot_all_battle() {
+    let Some(content) = std::env::var_os("BFE_CONTENT_DIR") else { return };
+    let maps = std::env::var("BFE_CAPTURE_MAPS").unwrap_or_else(|_| "nab2:rep:1,geo1:rep:1,kas2:cis:1,hot1:imp:1".into());
+    let ticks: u32 = std::env::var("BFE_CAPTURE_TICKS").ok().and_then(|t| t.parse().ok()).unwrap_or(60 * 900);
+    for spec in maps.split(',') {
+        let mut part = spec.split(':');
+        let (map, side, seed) = (part.next().unwrap(), part.next().unwrap_or("rep"), part.next().and_then(|s| s.parse().ok()).unwrap_or(1));
+        let mut battle = Battle::on(std::path::Path::new(&content), map, side, seed, false);
+        for tick in 0..ticks {
+            battle.tick();
+            battle.check(None, &format!("{map} tick {tick}"));
+        }
+        eprintln!("{map}: {ticks} ticks, no post counted more than its living soldiers on foot");
+        battle.context.dispose().unwrap();
+    }
 }
 
 /// Geonosis: every post with a destructible building (the Techno Union ships,
