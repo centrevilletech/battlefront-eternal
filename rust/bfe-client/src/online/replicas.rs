@@ -162,6 +162,8 @@ pub struct Replicas {
     own_feet: Option<[f64; 3]>,
     sun_seen: f64,
     dive_times: Vec<f64>,
+    // By class: a droideka's AnimationSpeed, the rate its mode clips play at.
+    walker_rates: Vec<f64>,
     preview_weapons: Vec<Option<usize>>,
     preview_banks: Vec<usize>,
     preview_class: usize,
@@ -362,6 +364,7 @@ impl Replicas {
             class_names[i + 1] = name.to_string();
         }
         let mut dive_times = vec![0.; classes.len()];
+        let mut walker_rates = vec![1.; classes.len()];
         let mut can_repair = vec![false; classes.len()];
         for class in &defs.classes {
             let Some(id) = class.registry_id else {
@@ -370,6 +373,7 @@ impl Replicas {
             let body_constants = bfe_sim::units::class::soldier_body(&class.record, 1e6, class.getup_time, class.dive_time);
             turns[id as usize] = (body_constants.max_turn, body_constants.pitch_limits);
             dive_times[id as usize] = class.dive_time;
+            walker_rates[id as usize] = bfe_sim::units::class::droideka_body(&class.record, -1., 0.).speed;
             can_repair[id as usize] = class.weapons.iter().any(|w|defs.weapons[*w].record.get("base").and_then(bfe_content::Value::as_str)==Some("repair"));
             let Some(body) = class.body else {
                 continue;
@@ -668,6 +672,7 @@ impl Replicas {
             own_feet: None,
             sun_seen: 1.,
             dive_times,
+            walker_rates,
             preview_weapons,
             preview_banks,
             preview_class:usize::MAX,
@@ -948,6 +953,9 @@ impl Replicas {
             // duration. Prediction can override this for the owned body;
             // placement below must not replace either with a fixed duration.
             input[i::DIVE_TIME] = self.dive_times[row[r::CLASS_ID] as usize];
+            // Droideka.present plays each mode clip at the class's
+            // AnimationSpeed, the player's own droideka included.
+            input[i::WALKER_SPEED] = self.walker_rates[row[r::CLASS_ID] as usize];
             if let Some((id, generation, seat)) = lease {
                 let pick = self.slots[slot].rider;
                 input[i::MOUNT_ID] = id as f64;
@@ -1006,7 +1014,6 @@ impl Replicas {
                     input[i::WALKER_LEGS] = receiver.own.walker_legs;
                     input[i::WALKER_ROLL] = receiver.own.walker_roll;
                     input[i::WALKER_LEAN] = receiver.own.walker_lean;
-                    input[i::WALKER_SPEED] = receiver.own.walker_speed;
                 }
                 if let Some(body) = &prediction.displayed {
                     input[i::POSITION..i::POSITION + 3].copy_from_slice(&body.position);
