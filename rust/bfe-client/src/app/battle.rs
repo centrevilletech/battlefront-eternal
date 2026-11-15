@@ -151,6 +151,11 @@ use bfe_shell::{launch::BattleRequest, screens::MultiplayerLaunch};
 use std::path::Path;
 use winit::{event::MouseButton, keyboard::KeyCode};
 
+/// Commands one rendered frame may make: as the page's input clock
+/// (runtime/fixed-clock.js maxSteps), so a frame of 0.1 s still makes one
+/// for each of its six ticks.
+const MAX_FRAME_STEPS: usize = 8;
+
 fn initial_policy(source: &bfe_content::Value, era: &str) -> bfe_content::mission::Policy {
     let query = bfe_content::mission::Query::parse(&format!("?era={era}"));
     let world = bfe_content::mission::select_mission(source, &query);
@@ -1616,7 +1621,7 @@ impl BattleController {
     /// 2. **Overlay Transition Check**: Inspects `PauseMenu` (`ExitToWindows`, `RestartMission`,
     ///    `QuitToMainMenu`, `LeaveOnline`) and `ScoreboardPort::done_triggered` (`NextPlaylistBattle`).
     /// 3. **Simulation / Network Step & Camera Interpolation**:
-    ///    - Accumulates `dt` into 60 Hz `STEP` (`1/60 s`) increments and samples up to 4
+    ///    - Accumulates `dt` into 60 Hz `STEP` (`1/60 s`) increments and samples up to 8
     ///      [`ClientCommand`] steps via [`Self::take_step_command`].
     ///    - In `InstantAction`, drains non-blocking `Publication` frames from `WorldThread`,
     ///      sends `WorldMessage::Step`, steps client-side `Replay`, updates `MapCamera`,
@@ -1794,8 +1799,9 @@ impl BattleController {
                 //
         // The render loop runs at display refresh rate while simulation and network
         // input ticks run at a fixed 60 Hz (`STEP = 1.0 / 60.0` seconds).
-        // We accumulate `dt` (clamped to `0.25s` max catch-up), consume up to 4
-        // discrete 60 Hz steps per rendered frame, and use the residual fraction
+        // We accumulate `dt` (clamped to `0.25s` max catch-up), consume up to 8
+        // discrete 60 Hz steps per rendered frame (the page's input clock
+        // takes as many: a slow frame sends a command for every tick it spans), and use the residual fraction
         // `alpha_interp = (input_accumulator / STEP)` to smoothly interpolate the
         // 3D camera between the previous and current 60 Hz simulation states.
         // 3. Pump publications / packets, step input, and compute camera View.
@@ -1805,7 +1811,7 @@ impl BattleController {
         };
         self.input_accumulator = (self.input_accumulator + dt * pace).min(0.25);
         let mut steps = 0usize;
-        while self.input_accumulator >= STEP && steps < 4 {
+        while self.input_accumulator >= STEP && steps < MAX_FRAME_STEPS {
             self.input_accumulator -= STEP;
             steps += 1;
         }
@@ -1825,7 +1831,7 @@ impl BattleController {
             ClientLook,
             ClientFlightCommand,
             ViewActions,
-        )>; 4] = [None, None, None, None];
+        )>; MAX_FRAME_STEPS] = std::array::from_fn(|_| None);
         for slot in step_cmds.iter_mut().take(steps) {
             *slot = Some(self.take_step_command(generation, active_gameplay, settings));
         }
