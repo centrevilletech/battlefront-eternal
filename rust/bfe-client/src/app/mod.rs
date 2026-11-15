@@ -71,6 +71,7 @@
 //!   (`PauseMenu`, `ChatController`, `SpawnScreenController`, `ScoreboardController`)
 //!   and 3D movement (`Input`) share identical key identifiers with the web reference.
 pub mod battle;
+mod bench;
 pub mod cli;
 mod loading;
 mod folder_dialog;
@@ -429,6 +430,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         presence: PresenceController::default(),
         last_presence_key: String::new(),
         gate,
+        bench: bench::Bench::from_env(),
         error: None,
     };
 
@@ -539,6 +541,8 @@ struct StandaloneWindowApp {
     last_presence_key: String,
     /// Optional automated `--script gate` driver.
     gate: Option<GateDriver>,
+    /// `BFE_BENCH`: one battle started directly and logged (`bench.rs`).
+    bench: Option<bench::Bench>,
     platform_smoke: Option<platform_smoke::Smoke>,
     folder_dialog: Option<mpsc::Receiver<Result<Option<PathBuf>,String>>>,
     /// What the open chooser's answer is for.
@@ -2091,6 +2095,9 @@ impl StandaloneWindowApp {
                             transition = gate.step_shell(shell, &mut self.settings)?;
                         }
                     }
+                    if let Some(bench) = &mut self.bench {
+                        transition = bench.launch().or(transition);
+                    }
                     self.apply_shell_transition(transition, event_loop);
                     if let (Some(smoke), Some(shell), Some(context)) =
                         (&mut self.platform_smoke, &mut self.shell, &self.context)
@@ -2275,6 +2282,9 @@ impl StandaloneWindowApp {
                     // and handle post-battle playlist progression or pause menu exits.
                     if let Some(gate) = &mut self.gate {
                         gate.step_battle(battle, &mut self.settings)?;
+                    }
+                    if let Some(bench) = &mut self.bench {
+                        bench.step_battle(battle);
                     }
                     let transition = battle.step_and_draw(
                         dt,
