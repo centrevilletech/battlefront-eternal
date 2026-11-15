@@ -24,6 +24,7 @@ pub struct Cameras {
     zoom_eyes: Vec<bool>,
     weapon_channels: Vec<usize>,
     pub eye_view: bool,
+    pub scoped_eye: bool,
     was_dead: bool,
     death_serial: u32,
     death_hfov: f64,
@@ -117,6 +118,7 @@ impl Cameras {
             zoom_eyes,
             weapon_channels,
             eye_view: false,
+            scoped_eye: false,
             was_dead: false,
             death_serial: 0,
             death_hfov: 0.837758,
@@ -141,7 +143,7 @@ impl Cameras {
         dt: f64,
     ) -> f64 {
         let lease = receiver.own.mount;
-        camera.set_flight_mode(receiver.own.flight.is_some());
+        camera.set_flight_mode(receiver.in_aircraft());
         // PlayerCombat.usesEyeView also selects eyes for an authored scoped
         // weapon; zooming must not change the player's saved perspective.
         let scoped_eye = receiver.own.zoom > 1.
@@ -158,6 +160,7 @@ impl Cameras {
                 .and_then(|weapon| self.zoom_eyes.get(weapon.def.0.saturating_sub(1) as usize))
                 .copied()
                 .unwrap_or(false);
+        self.scoped_eye = scoped_eye;
         self.eye_view = receiver.own.alive && receiver.own.remote.is_none() && (camera.first_person || scoped_eye);
         hulls.hidden = None;
         turrets.hidden = None;
@@ -548,6 +551,7 @@ mod mounted_tests {
             zoom_eyes: vec![],
             weapon_channels: vec![],
             eye_view: false,
+            scoped_eye: false,
             was_dead: false,
             death_serial: 0,
             death_hfov: 0.837758,

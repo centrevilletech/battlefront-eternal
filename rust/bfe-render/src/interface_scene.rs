@@ -131,8 +131,10 @@ impl InterfacePass {
                     core.gl.bind_vertex_array(Some(geo.vao));
                     if geo.indexed {
                         core.gl.draw_elements(r[PRIMITIVE] as u32, r[COUNT] as i32, geo.index_type, r[FIRST] as i32 * geo.index_bytes);
+                        core.profile.draw(if r[PRIMITIVE] as u32 == glow::TRIANGLES {r[COUNT] as u64}else{0},1,1);
                     } else {
                         core.gl.draw_arrays(r[PRIMITIVE] as u32, r[FIRST] as i32, r[COUNT] as i32);
+                        core.profile.draw(if r[PRIMITIVE] as u32 == glow::TRIANGLES {r[COUNT] as u64}else{0},1,1);
                     }
                 }
                 core.stats.gl_calls += 2;

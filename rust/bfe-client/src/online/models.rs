@@ -75,7 +75,11 @@ impl Model {
     }
     // A one-bone rigid model uses the same attached skin convention as all
     // other instance rows. No geometry or material is constructed at draw.
-    pub fn append(&self, bridge: &mut Bridge, matrix: &[f64; 16], mut records: usize, mut bones: usize) -> (usize, usize) {
+    pub fn append(&self, bridge: &mut Bridge, matrix: &[f64; 16], records: usize, bones: usize) -> (usize, usize) {
+        self.append_look(bridge, matrix, records, bones, None)
+    }
+    /// As append, with the instance's light ([sun, darken, lighten, brightness], unit_light.rs) when given.
+    pub fn append_look(&self, bridge: &mut Bridge, matrix: &[f64; 16], mut records: usize, mut bones: usize, look: Option<[f64; 4]>) -> (usize, usize) {
         let mut inverse = Matrix4 { elements: *matrix };
         inverse.invert();
         let identity = Matrix4::default().elements;
@@ -92,6 +96,9 @@ impl Model {
                 bridge.r.core.bones[bones * 16 + i] = *v as f32;
             }
             row[draw::REC_BIND..draw::REC_BIND + 16].copy_from_slice(&identity);
+            if let Some(look) = look {
+                row[draw::REC_LOOK..draw::REC_LOOK + 4].copy_from_slice(&look);
+            }
             let at = draw::IN_RECORDS + records * draw::REC_STRIDE;
             bridge.r.core.input[at..at + draw::REC_STRIDE].copy_from_slice(&row);
             records += 1;

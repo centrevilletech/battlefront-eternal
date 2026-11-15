@@ -49,7 +49,7 @@ impl Work {
         settings: &AppSettingsStore,
         audio: Arc<SharedAudioRouter>,
         server_target: &Option<String>,
-        load: impl FnMut() -> glow::Context + 'static,
+        mut load: impl FnMut() -> glow::Context + 'static,
     ) -> Result<(), String> {
         if !self.started {
             super::page_battle::PageBattle::prefetch();
@@ -58,6 +58,7 @@ impl Work {
             let target = target.clone();
             let server_target = server_target.clone();
             let snapshot = settings.clone();
+            let textures=crate::scene::TextureOptions::discover(&load(),snapshot.interface.get_bool("textureCompression"));
             std::thread::Builder::new()
                 .name("bfe-battle-admission".into())
                 .stack_size(8 << 20)
@@ -75,6 +76,7 @@ impl Work {
                                 playlist_index,
                                 &super::battle::BotSettings::read(&snapshot.interface),
                                 &snapshot.player.profile_name,
+                                textures,
                                 move |prepared| {
                                     let _ = scene.send(Message::Scene(prepared));
                                 },
@@ -85,6 +87,7 @@ impl Work {
                             launch,
                             server_target,
                             &snapshot,
+                            textures,
                         )),
                     };
                     eprintln!(

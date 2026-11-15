@@ -994,6 +994,7 @@ impl runtime::Engine for ThreadedBoundary {
         Ok(())
     }
     fn input(&mut self, input: runtime::Input<'_>) -> Result<(), String> {
+        if input.command.sequence>0. {assert_eq!(input.fire_aim,Some([0.2,-0.03]));}
         self.view_tick.store(input.view_tick.unwrap_or(-1.).to_bits(), std::sync::atomic::Ordering::SeqCst);
         self.sequence.store(input.command.sequence as u64, std::sync::atomic::Ordering::SeqCst);
         Ok(())
@@ -1075,8 +1076,8 @@ fn submitted_commands_keep_their_tick_stamps() {
     let (look, flight) = (ClientLook::default(), ClientFlightCommand::default());
     let ahead = ClientCommand { sequence: 1., tick: 3., ..Default::default() };
     let stale = ClientCommand { sequence: 2., tick: 0., ..Default::default() };
-    local.submit(&ahead, &look, &flight, 0.).unwrap();
-    local.submit(&stale, &look, &flight, 0.).unwrap();
+    local.submit(&ahead, &look, &flight, 0., None).unwrap();
+    local.submit(&stale, &look, &flight, 0., None).unwrap();
     assert_eq!(*seen.borrow(), [[3., 0.], [1., 0.]]);
 }
 
@@ -1155,6 +1156,7 @@ fn threaded_world_steps_at_60hz_without_blocking_or_allocating_on_render_thread(
             look: ClientLook { x: 1.0, y: 0.0 },
             flight: ClientFlightCommand::default(),
             view_tick: 42.5,
+            fire_aim: Some([0.2,-0.03]),
         });
         let _ = world
             .poll_publications(&mut receiver, 200.0 + i as f64)

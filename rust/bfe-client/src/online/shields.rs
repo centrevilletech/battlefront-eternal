@@ -137,6 +137,7 @@ impl Shields {
         images: &BTreeMap<String, usize>,
         data: usize,
     ) -> Result<Self, String> {
+        let shadow_cascades = bridge.shadow_cascades();
         let defs = content.defs()?;
         let authored = looks(content);
         let number = |v: &Value, key: &str| v.get(key).and_then(Value::as_f64);
@@ -206,7 +207,7 @@ impl Shields {
                     };
                     let policy = serde_json::json!({"Color": colors("Color"), "SpecularColor": colors("SpecularColor")}).to_string();
                     let texture = look.get("Texture").and_then(Value::as_str).and_then(|name| images.get(name)).map_or(-1, |image| textures[*image] as i32);
-                    let row = bridge.actor_effect(sphere, layout::ACTOR_SHIELD as u32, crate::shadows::COUNT > 0, false, texture, &policy)?;
+                    let row = bridge.actor_effect(sphere, layout::ACTOR_SHIELD as u32, shadow_cascades > 0, false, texture, &policy)?;
                     if row.len() != 4 + fields.length {
                         return Err("shield model values differ from the catalog".into());
                     }
@@ -214,7 +215,7 @@ impl Shields {
                     let veil = bridge
                         .actor_source(r#"{"kind":"sphere","radius":1,"widthSegments":48,"heightSegments":24}"#, &[], &[])?
                         .ok_or("shield aura sphere refused")?;
-                    let veil = bridge.actor_effect(veil, layout::ACTOR_AURA as u32, crate::shadows::COUNT > 0, false, texture, &policy)?;
+                    let veil = bridge.actor_effect(veil, layout::ACTOR_AURA as u32, shadow_cascades > 0, false, texture, &policy)?;
                     if veil.len() != 4 + aura.length {
                         return Err("shield aura values differ from the catalog".into());
                     }

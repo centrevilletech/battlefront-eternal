@@ -102,6 +102,8 @@ struct Input<'a> {
     #[serde(default)]
     hit_kind: Option<&'a str>,
 }
+// The animation banks a charge doesn't put on alert (combat.js).
+const UNALERTED_BANKS: [&str; 4] = ["tool", "lightsabre", "sabre", "gam"];
 pub struct Presented {
     // Every bank name a record can carry, with the animator's bank for it
     // (SoldierAnimator.setBank: an unknown bank is the rifle's, 0).
@@ -358,12 +360,54 @@ impl Replicas {
                     row[command::BANK] = bank as f64;
                 }
             }
+            // PlayerCombat.presentCharge: a gun held at a charge keeps the
+            // soldier in the alert stance, aim up, every frame it is held
+            // (but for the banks a charge doesn't put on alert).
+            if let Some((weapon, _, _)) = self.charge(at, own, prediction) {
+                let alert = self.presented.weapons.get(weapon).copied().flatten().is_some_and(|(bank, thrown)| {
+                    !thrown && !UNALERTED_BANKS.contains(&self.presented.banks[bank].0.as_str())
+                });
+                if alert {
+                    self.command(actor, kind::HOLD_ALERT);
+                }
+            }
+        }
+    }
+    /// The weapon a drawn body holds at a charge, with the seconds it has
+    /// been held and the longest it can be: the player's own from his
+    /// predicted arsenal's weapon in hand, anyone else's from his record's
+    /// charge step (applyChargeStep: 63 steps of the weapon's longest hold).
+    pub(super) fn charge(&self, at: usize, own: (u32, u32), prediction: &crate::online::replay::Replay) -> Option<(usize, f64, f64)> {
+        let slot = &self.slots[at];
+        if slot.dead || slot.walker || slot.mount.is_some() {
+            return None;
+        }
+        if slot.identity == Some(own) {
+            let weapon = prediction.weapons().nth(prediction.selected()[0] as usize).filter(|weapon| weapon.charging)?;
+            let id = self.presented.definitions.get((weapon.def.0 as usize).checked_sub(1)?)?.2;
+            Some((id, weapon.held, self.guns.holds.get(id).copied().unwrap_or(0.)))
+        } else {
+            let most = self.guns.holds.get(slot.primary).copied().unwrap_or(0.);
+            (slot.charge > 0. && most > 0.).then(|| (slot.primary, slot.charge / 63. * most, most))
         }
     }
     // CombatPresentation.receive shows a record as it arrives and
     // CombatPresentation.present asks again, each frame, for the ones whose
     // unit this client did not know yet, until they expire.
-    pub(super) fn present_events(&mut self, receiver: &Receiver, tick: f64) {
+    pub(super) fn present_events(&mut self, receiver: &Receiver, prediction: &super::super::replay::Replay, tick: f64) {
+        // PredictedShots.fire: the player's own round shows its shoot clip,
+        // raised stance and muzzle flash on the tick his weapon fires in the
+        // client's replay; the world's record of that shot, about a tenth of
+        // a second later, is then not shown again (presentEntityEvent's
+        // `predictedShots.claim`).
+        let own = (receiver.own.id as u32, receiver.own.generation as u32);
+        let ahead = prediction.body.is_some();
+        for shot in &prediction.shots {
+            let weapon = self.guns.ids.get(shot.weapon).copied().unwrap_or(0);
+            if self.guns.ahead.get(weapon) == Some(&true) {
+                self.present_event(&Event { owner: own, expiry: tick + EXPIRY, seed: 0, act: Act::Shot { weapon, repair: false, melee: false } });
+            }
+        }
         for field in receiver.publications.iter() {
             if field.row[r::KIND] != k::COMBAT as f64 || field.row[r::SCHEMA] != 8. {
                 continue;
@@ -374,6 +418,11 @@ impl Replicas {
             let Some(act) = self.presented.decode(&source) else {
                 continue;
             };
+            if let Act::Shot { weapon, repair: false, melee: false } = act {
+                if ahead && (source.owner_id, source.owner_generation) == own && self.guns.ahead.get(weapon) == Some(&true) {
+                    continue;
+                }
+            }
             // presentEvent: a blast or a blow-apart naming nobody shows
             // nothing, and is not asked for again.
             if source.owner_id == 0 && matches!(act, Act::DeathBlast | Act::BlowApart { .. } | Act::ShieldHit { .. }) {

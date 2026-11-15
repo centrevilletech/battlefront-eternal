@@ -227,10 +227,9 @@ pub fn camera_cascades_frame(&mut self)  { self.r.cameras.cascades(); }
 pub fn camera_shadow_frame(&mut self, index: u32)  { self.r.cameras.cascades.publish(index as usize); }
 pub fn camera_invalidate_frame(&mut self, index: u32)  { self.r.cameras.cascades.invalidate_window(index as usize); }
 pub fn canopies_mesh(&mut self, max: u32) -> Result<(), String> { if max as usize > bfe_render::static_layout::CANOPIES_MAX_GROUPS * bfe_render::static_layout::CANOPIES_LEAVES { return Err(String::from("invalid canopy capacity or program")); }
-        // The two settings variants share locations and geometry. Compile them
-        // cold so switching shadows needs no frame allocation or host program.
-        let mut programs=[0;2];
-        for (i,key) in ["world/canopies-no-shadows","world/canopies"].iter().enumerate() {programs[i]=self.r.core.add_owned_program(key).map_err(|e|e.to_string())?;}
+        // Both variants share locations; an off scene admits only its variant.
+        let plain=self.r.core.add_owned_program("world/canopies-no-shadows")?;
+        let programs=[plain,if self.shadow_cascades()>0{self.r.core.add_owned_program("world/canopies")?}else{plain}];
         let spec=bfe_render::programs::spec("world/canopies").map_err(|e|e.to_string())?;
         let core = &mut self.r.core;
         let geometry = core.add_geometry();
@@ -411,7 +410,7 @@ pub fn foliage_class(&mut self, texture: u32, grass: bool, shadows: bool, defini
             || map_matrix.len() != 9 { return Err(String::from("invalid foliage descriptor")); }
         // FoliageGpuBatch material policy selects only closed native variants.
         // The host supplies the shadow feature, never a program or locations.
-        let key=match (grass,shadows) {(true,true)=>"world/foliage-grass-shadows",(true,false)=>"world/foliage-grass",(false,true)=>"world/foliage-leaves-shadows",(false,false)=>"world/foliage-leaves"};
+        let key=match (grass,shadows && self.shadow_cascades()>0) {(true,true)=>"world/foliage-grass-shadows",(true,false)=>"world/foliage-grass",(false,true)=>"world/foliage-leaves-shadows",(false,false)=>"world/foliage-leaves"};
         let program=self.r.core.add_owned_program(key).map_err(|e|e.to_string())?;
         let spec=bfe_render::programs::spec(key).map_err(|e|e.to_string())?;
         let mut locations = [-1; 12];
@@ -541,6 +540,7 @@ pub fn renderer_diagnostics_frame(&mut self) -> String { let calls:u64=self.r.fr
         serde_json::json!({"frame":self.r.core.scene_stamp,"calls":calls,"programs":self.r.core.program_count(),"geometries":self.r.core.geometry_total(),"samples":self.r.core.native_texture_count()}).to_string() }
 pub fn scene_stamp_frame(&mut self, advance: bool) -> u32 { if advance { self.r.core.scene_stamp=self.r.core.scene_stamp.wrapping_add(1); }
         self.r.core.scene_stamp }
+pub fn shadow_cascades(&self) -> usize { self.r.cameras.input[bfe_render::cameras::layout::input::CASCADE_COUNT] as usize }
 pub fn set_shadow_maps(&mut self, ids: &[u32])  { self.r.core.set_shadow_maps(ids) }
 pub fn add_texture(&mut self, resources: &Resources, id: u32) -> Result<u32, String> { let texture = resources.descriptor_texture(id)?;
         
@@ -1758,7 +1758,7 @@ impl BfeRenderer {
 
 pub(super) struct StaticSource {pub record:Record,pub geometry:Geometry,pub terrain:Option<Terrain>,pub weights:Vec<u8>}
 #[derive(Clone,Copy)]
-pub(super) struct StaticSlot {pub far:bool,pub item:u32,pub geometry:u32}
+pub(super) struct StaticSlot {pub far:bool,pub transparent:bool,pub item:u32,pub geometry:u32}
 impl BfeRenderer {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn compile_static_world(&mut self, source:u32, far_view:bool, low_res_scale:f64, samplers:&[i32], features:&[u32], order:u32,slot:u32,object:u32,old:Option<StaticSlot>)->Result<StaticSlot,String> {
@@ -1767,7 +1767,8 @@ impl BfeRenderer {
         // Only their small material policy differs between the two views.
         let mut record=source.record.clone();record.far=far_view;record.low_res_scale=Some(low_res_scale);
         let geometry=&source.geometry;let weights=&source.weights;let terrain=&source.terrain;
-        let material=Material::new(&record,geometry,weights,samplers,features).map_err(|e|String::from(&e))?;
+        let blended = !record.terrain && (record.flags & 128 != 0 || record.flags & 4 != 0 && record.flags & 2 == 0);
+        let material=Material::new(&record,geometry,weights,samplers,features)?;
         let mut bounds=geometry.bounds;
         if let Some(t)=terrain {bounds[..4].copy_from_slice(&t.sphere);}
         if samplers.iter().any(|id| *id>=0 && *id as usize >= self.r.core.native_texture_count()) { return Err(String::from("invalid world sampler")); }
@@ -1776,7 +1777,7 @@ impl BfeRenderer {
         // Typed settings changes rebuild only a changed catalog variant.
         // Reusing geometry and item ids preserves visibility and draw order.
         if let Some(old)=old {
-            let current=if old.far {self.r.far.program_id(old.item)} else {self.r.world.program_id(old.item)};
+            let current=if old.far {self.r.far.program_id(old.item)} else if old.transparent {self.r.transparent.bucket_program(old.item)} else {self.r.world.program_id(old.item)};
             if current==Some(program) {return Ok(old);}
         }
         let core = &mut self.r.core;
@@ -1790,7 +1791,24 @@ impl BfeRenderer {
                 core.geometry_pointer(g,w,*location,4,glow::UNSIGNED_BYTE,true,8,if *name=="weights0" {0} else {4});
             }}
         }
-        if !record.far {
+        if !record.far && blended {
+            let pass = &mut self.r.transparent;
+            let id = if let Some(old) = old { pass.reset_bucket(old.item); old.item } else {
+                let id = pass.add_bucket(g, &material.blend.unwrap(), glow::LEQUAL, 5, material.flags & 16 != 0, &bounds[4..]);
+                pass.native_bucket(id, bounds[..4].try_into().unwrap(), object);
+                id
+            };
+            // These world shaders shade authored normals in world space.
+            // Keep their double-sided program and draw back faces then front.
+            for side in [3, 0] {
+                let p = pass.bucket_pass(id, program, side);
+                for (name, value) in &material.values { pass.bucket_uniform(core, id, p, name, value, false); }
+                pass.bucket_uniform(core, id, p, "receiveShadow", &[if material.receive_shadow {1.} else {0.}], true);
+            }
+            for (_, unit, texture) in &material.samplers { pass.bucket_texture(core, id, *unit, *texture); }
+            core.state.reset();
+            Ok(StaticSlot {far:false,transparent:true,item:id,geometry:g})
+        } else if !record.far {
             let world = &mut self.r.world;
             let id=if let Some(old)=old {world.reprogram(old.item,program);old.item} else {world.add_world(g, program, order, material.flags, &bounds)};
             // Material policy names only closed catalog uniforms and sampler
@@ -1807,7 +1825,7 @@ impl BfeRenderer {
                 world.world_runs(id,&ranges,&boxes);
             } else if geometry.cells() { world.world_cells(id,&geometry.positions(),&geometry.index,48.); }}
             core.state.reset();
-            Ok(StaticSlot {far:false,item:id,geometry:g})
+            Ok(StaticSlot {far:false,transparent:false,item:id,geometry:g})
         } else {
             // FarPass.registerItem's immutable table/sources/raster descriptor.
             // Only the numeric admission slot is written by the frame adapter.
@@ -1816,9 +1834,9 @@ impl BfeRenderer {
             let names = uniforms.iter().map(|(n,_)|*n).collect::<Vec<_>>().join(",");
             let types = uniforms.iter().map(|(_,ty)| match ty { 1=>glow::FLOAT,2=>glow::FLOAT_VEC2,3=>glow::FLOAT_VEC3,4=>glow::FLOAT_VEC4,5=>glow::INT,32=>glow::SAMPLER_2D,_=>0 }).collect::<Vec<_>>();
             let table = self.r.far.add_table(core,program,&names,&types,&vec![1;uniforms.len()]).ok_or_else(||String::from("invalid native far table"))?;
-            let flags = (material.flags&3) | 4 | 8 | 16 | if material.flags&4!=0 { 32 } else { 0 } | if record.terrain { 0 } else { 256 };
+            let flags = (material.flags&3) | 4 | 16 | if blended { 64 | 512 } else { 8 | if material.flags&4!=0 {32} else {0} } | if record.terrain { 0 } else { 256 };
             let id=if let Some(old)=old {self.r.far.reprogram(old.item,program,table);old.item} else {
-                self.r.far.add_item(core,program,table,g,flags,glow::LEQUAL,&[0;6],&[0.,0.,order as f64,object as f64],&bounds[..4],slot)
+                self.r.far.add_item(core,program,table,g,flags,glow::LEQUAL,&material.blend.map_or([0;6], |b| b[1..].try_into().unwrap()),&[0.,0.,order as f64,object as f64],&bounds[..4],slot)
             };
             for (u,(name,_)) in uniforms.iter().enumerate() {
                 if let Some((_,_,texture)) = material.samplers.iter().find(|(n,_,_)|n==name) { self.r.far.source(id,u as u32,2,&[],*texture); }
@@ -1830,9 +1848,9 @@ impl BfeRenderer {
             if old.is_none() { if let Some(t) = &terrain {
                 self.r.far.terrain(core,id,0,&geometry.index,&t.full.cells.iter().flatten().copied().collect::<Vec<_>>());
                 self.r.far.terrain(core,id,1,&t.reduced.index,&t.reduced.cells.iter().flatten().copied().collect::<Vec<_>>());
-            } else if geometry.cells() { self.r.far.cells(id,&geometry.positions(),&geometry.index,48.); }}
+            } else if !blended && geometry.cells() { self.r.far.cells(id,&geometry.positions(),&geometry.index,48.); }}
             core.state.reset();
-            Ok(StaticSlot {far:true,item:id,geometry:g})
+            Ok(StaticSlot {far:true,transparent:false,item:id,geometry:g})
         }
     }
 }

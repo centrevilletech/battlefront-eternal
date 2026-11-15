@@ -70,6 +70,7 @@ pub struct Native {
     explosions: Vec<u32>,
     /// BFE_AI_TRACE: a census of the bots every ten seconds on stderr.
     census: Option<bfe_sim::host::census::Census>,
+    graphics_trace: bool,
 }
 
 impl Native {
@@ -119,6 +120,7 @@ impl Native {
             host_content: admission.host_content.clone(),
             explosions: admission.explosions.clone(),
             census: std::env::var_os("BFE_AI_TRACE").map(|_| Default::default()),
+            graphics_trace: std::env::var_os("BFE_GRAPHICS_TRACE").is_some(),
         })
     }
 
@@ -137,11 +139,7 @@ impl Native {
         let mut counters = self.counters;
         match self.context.value.world_host_journal(|journal| {
             let head = journal.seq;
-            let start = seen.max(head.saturating_sub(bfe_sim::host::journal::CAPACITY));
-            for record in journal
-                .records()
-                .filter(|record| record.seq >= start && record.seq < head)
-            {
+            for record in journal.since(seen) {
                 let kind = record.event.kind();
                 // The typed journal uses these same kinds for AI hearing.
                 if kind == "shot" {
@@ -269,6 +267,7 @@ impl Engine for Native {
         match self.context.value.world_tick(input) {
             Ok(output) => {
                 self.sample_host_journal();
+                if self.graphics_trace&&tick as u64%60==0{eprintln!("graphics living: tick={} teams={:?}",tick,self.context.value.world_living_units().unwrap_or_default());}
                 if let Some(census) = &mut self.census {
                     if let Ok(Some(line)) = census.sample(&self.context.value, tick as u64, 600) {
                         eprintln!("ai census local {line}");
@@ -378,6 +377,14 @@ impl Native {
             input.view_tick,
             input.flight_mode,
         )?;
+        // The converged aim the client sampled for this command's fire presses
+        // travels with them; the world uses the actor's own aim for edges without one.
+        if let Some([yaw, pitch]) = input.fire_aim {
+            for edge in &mut self.commands.fires {
+                edge.aim_yaw = Some(yaw);
+                edge.aim_pitch = Some(pitch);
+            }
+        }
         let now = input.now;
         self.commands.mailbox.tick = now;
         let call = &self.commands.mailbox;

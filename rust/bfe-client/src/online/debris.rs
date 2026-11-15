@@ -101,6 +101,7 @@ impl Debris {
         collision: Collision,
         world: u32,
     ) -> Result<Self, String> {
+        let shadow_cascades = bridge.shadow_cascades();
         let defs = content.defs()?;
         let effect = |chunk: &Value, key: &str| {
             let name = chunk.get(key).and_then(Value::as_str).filter(|name| !name.is_empty())?;
@@ -129,7 +130,7 @@ impl Debris {
                 let model = match names.iter().position(|known| known == name) {
                     Some(model) => model,
                     None => {
-                        let Some(model) = Model::new(content, bridge, textures, name, crate::shadows::COUNT)? else {
+                        let Some(model) = Model::new(content, bridge, textures, name, shadow_cascades)? else {
                             continue;
                         };
                         names.push(name.into());

@@ -322,6 +322,7 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
 // GpuResources implements this bridge natively. A platform may supply its own
 // target owner; no operation calls a browser scene or material callback.
 pub trait FrameTargets {
+    fn present(&mut self,_source:i32,_width:i32,_height:i32)->Result<bool,String>{Ok(false)}
     fn bind(&mut self, binding: &[f64]) -> Result<(),String>;
     fn resolve(&mut self, target:i32) -> Result<(),String>;
     fn copy(&mut self, from:i32, to:i32, mask:u32) -> Result<(),String>;
@@ -371,6 +372,7 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
         let at=role*M::LEN;let meta=&self.frames.meta[at..at+M::LEN];
         let kind=meta[M::KIND] as usize;let records=meta[M::RECORDS] as usize;let steps=(meta[M::STEPS] as usize).min(crate::post::MAX_STEPS);
         let (batch,texture,count,offset,capacity)=(meta[M::BATCH] as usize,meta[M::TEXTURE] as u32,meta[M::COUNT] as usize,meta[M::OFFSET] as usize,meta[M::CAPACITY] as usize);
+        let timer=if matches!(kind,K::SHADOW|K::HUD|K::VIEW) {self.core.profile.begin(&self.core.gl)} else {None};
         let stats=match kind {
             K::FAR=>{
                 // Probe mipmaps are a separate final operation. Reflected sky
@@ -395,6 +397,8 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
             },
             _=>return Ok(()),
         };
+        let label=if kind==K::SHADOW { ["shadow static 0","shadow static 1","shadow static 2","shadow static 3","shadow dynamic 0","shadow dynamic 1","shadow dynamic 2","shadow dynamic 3"][if role>=R::SHADOW_DYNAMIC0 {4+role-R::SHADOW_DYNAMIC0} else {role-R::SHADOW_STATIC0}] } else if kind==K::HUD {"HUD"} else {"first person"};
+        self.core.profile.end(&self.core.gl,label,timer);
         self.frame_stats(role,stats);Ok(())
     }
     // One loaded battle entry point: prepare packets have already been sealed.
@@ -423,14 +427,28 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
                         if op.argument>=R::COUNT || self.frames.meta[role*M::LEN+M::BOUND]==0. || self.frames.meta[op.argument*M::LEN+M::BOUND]==0. {self.frames.clipped=true;continue;}
                         let source=row[B::TARGET] as i32;
                         let Some(to)=self.frames.bindings.get(op.argument*B::LEN+B::TARGET) else {self.frames.clipped=true;continue};
+                        let timer=self.core.profile.begin(&self.core.gl);
                         targets.copy(source,*to as i32,if op.kind==O::COPY_DEPTH{glow::DEPTH_BUFFER_BIT}else{glow::COLOR_BUFFER_BIT|glow::DEPTH_BUFFER_BIT})?;
+                        self.core.profile.end(&self.core.gl,"depth/color copy",timer);
                     },
                     O::MIPMAP=>targets.mipmap(row[B::SAMPLE] as i32)?,
                     O::CLEAR_DEPTH=>{
                         self.core.state.depth_write(&self.core.gl,&mut self.core.stats,true);
                         unsafe {self.core.gl.clear_depth_f32(1.);self.core.gl.clear(glow::DEPTH_BUFFER_BIT);}
                     },
-                    O::POST=>{let stats=self.post_chain_draw()?;post_drawn=stats.pass_draws[crate::core::PASS_POST] as usize;self.frame_stats(role,stats);},
+                    O::POST=>{
+                        use crate::post_chain::layout::{facts as pf,mode,aa,state as ps};
+                        let f=&self.post_chain.input;
+                        let plain=f[pf::MODE]<=mode::BILINEAR as f64&&f[pf::AA]==aa::OFF as f64&&f[pf::BLOOM]==0.&&!(f[pf::SOFT_FOCUS]!=0.&&f[pf::BLUR_ENABLED]!=0.)&&!(f[pf::SPEED_ENABLED]!=0.&&f[pf::SPEED_AMOUNT]>0.0001/0.085);
+                        let source=self.frames.bindings[R::NEAR*B::LEN+B::TARGET] as i32;
+                        if plain&&source>=0{
+                            let timer=self.core.profile.begin(&self.core.gl);
+                            let presented=targets.present(source,f[pf::CANVAS_WIDTH] as i32,f[pf::CANVAS_HEIGHT] as i32)?;
+                            self.core.profile.end(&self.core.gl,"present blit",timer);
+                            if presented{self.core.state.reset();self.post_chain.state[ps::STEPS]=0.;continue;}
+                        }
+                        let stats=self.post_chain_draw()?;post_drawn=stats.pass_draws[crate::core::PASS_POST] as usize;self.frame_stats(role,stats);
+                    },
                     O::HISTORY_COMMIT=>self.post_chain.complete(post_drawn,self.frames.clipped || self.frames.plan.state[S::CLIPPED]!=0. || self.core.multi.context_lost()),
                     _=>{},
                 }
