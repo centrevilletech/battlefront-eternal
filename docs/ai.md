@@ -361,8 +361,7 @@ extraction (`tools/extract.py`) writes them too.
   with synthetic fixtures (tracked); checks against optional local reference
   data skip when it is absent.
 - `cargo test` in `rust/sim`: the AI's native tests (`rust/sim/rust/ai/owned/tests/phase.rs`,
-  `rust/sim/rust/ai/owned/tests/native_phase.rs`, `ai_combat_control.rs`, `ai_control_twin.rs`,
-  `ai_combat_twin.rs`, `vehicle_ai_twin.rs`, the replay suites, and
+  `rust/sim/rust/ai/owned/tests/native_phase.rs`, `ai_combat_control.rs` and
   `rust/sim/rust/ai/nav/tests.rs`).
 - The historical headless measurements quoted below predate the native AI.
   Current checks use the native world tick and its canonical publications.

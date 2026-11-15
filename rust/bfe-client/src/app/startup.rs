@@ -216,7 +216,7 @@ impl StartupContentState {
         let exe_path = env::current_exe().unwrap_or_else(|_| cwd.join("bfe-client"));
         let found_dir = store.desktop.found_content_dir.as_ref().map(PathBuf::from);
         let home_ref = home.as_deref().unwrap_or(cwd.as_path());
-        let mut likely = likely_content_dirs(
+        let likely = likely_content_dirs(
             found_dir.as_deref(),
             false,
             &store.paths.project_root,
@@ -224,12 +224,6 @@ impl StartupContentState {
             None,
             home_ref,
         );
-        // Include common workspace content locations when running from a worktree.
-        if let Some(h) = &home {
-            likely.push(h.join("bfe-work/content"));
-            likely.push(h.join("bfe-work/main/content"));
-            likely.push(h.join("bfe-work/fable-integration/content"));
-        }
 
         // Locate `tools/content-version.json` if present so `resolve_startup_content` can verify stamps.
         let tools_dir = store.paths.project_root.join("tools");
