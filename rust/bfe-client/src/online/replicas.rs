@@ -531,7 +531,11 @@ impl Replicas {
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         let turrets = Box::new(super::turrets::Turrets::new(content, bridge, textures)?);
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let buildings = super::buildings::Buildings::new(content, bridge, textures)?;
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let animated = super::animated_props::Animated::new(content, bridge, textures)?;
         units.rider_sources.bind(&hulls.owner.sources, &turrets.owner.sources);
         crate::loading_work::frame().await;
