@@ -79,6 +79,11 @@ fn run(root: &str, battle: &str, ticks: usize) {
         }
     }
     let mean = times.iter().sum::<f64>() / times.len() as f64;
+    let mut worst: Vec<usize> = (0..times.len()).collect();
+    worst.sort_by(|a, b| times[*b].total_cmp(&times[*a]));
+    for &at in worst.iter().take(5) {
+        println!("worst {map} tick {} {:.3} ms", at + 1, times[at]);
+    }
     times.sort_by(f64::total_cmp);
     let p95 = times[(times.len() - 1) * 95 / 100];
     let max = times[times.len() - 1];
