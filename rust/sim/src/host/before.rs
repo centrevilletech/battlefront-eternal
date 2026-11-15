@@ -69,29 +69,29 @@ impl Authority {
         // page saw those as its bodies' `enabled` too. Adopt what changed
         // since the last write, then the buildings' shown states the page
         // toggled (F3Props.show), and hand both kernels the same flags.
-        if let Ok(Returned::Bytes(movement)) =
-            context.invoke_export("bank:MOVEMENT_FLAGS", &Call::default())
-        {
-            for (i, (now, was)) in movement.iter().zip(&self.written).enumerate() {
-                if now != was && i < self.enabled.len() {
-                    self.enabled[i] = *now;
+        // Both kernels' flag arrays are read and written in place.
+        let (enabled, written, toggles) = (&mut self.enabled, &self.written, &mut self.toggles);
+        context
+            .world(|w| {
+                for (i, (now, was)) in w.movement.flags_mut().iter().zip(written).enumerate() {
+                    if now != was && i < enabled.len() {
+                        enabled[i] = *now;
+                    }
                 }
-            }
-        }
-        for (kernel, enabled) in self.toggles.drain(..) {
-            if kernel < self.enabled.len() {
-                self.enabled[kernel] = enabled;
-            }
-        }
-        let flags = Call {
-            scratch: self.enabled.clone(),
-            ..Default::default()
-        };
-        for bank_name in ["bank:COLLISION_ENABLED", "bank:MOVEMENT_FLAGS"] {
-            if let Err(e) = context.invoke_export(bank_name, &flags) {
-                return Err(format!("{bank_name}: {}", e.message()));
-            }
-        }
+                for (kernel, on) in toggles.drain(..) {
+                    if kernel < enabled.len() {
+                        enabled[kernel] = on;
+                    }
+                }
+                let n = enabled.len();
+                if n > crate::collision::MAX_BODIES {
+                    return Err("bank:COLLISION_ENABLED: body flags exceed the kernels".to_string());
+                }
+                w.collision.enabled_mut()[..n].copy_from_slice(enabled);
+                w.movement.flags_mut()[..n].copy_from_slice(enabled);
+                Ok(())
+            })
+            .map_err(|e| e.message().to_string())??;
         self.written.clone_from(&self.enabled);
         // preparePhase: a server world separates every pair everywhere.
         let separation = F3Separation {
