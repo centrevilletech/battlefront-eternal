@@ -1454,23 +1454,16 @@ pub fn option_note(
     if !custom.is_empty() {
         return custom;
     }
-    // Generic timing note based on whether the option applies on map load or battle start.
+    // The timing note of a change that does not take effect at once (`NOTES` in `src/menus/options.js`).
     match spec.apply {
-        ApplyMode::Map => {
-            if in_battle {
-                "TAKES EFFECT AFTER RESTARTING THE MISSION".to_string()
-            } else {
-                "TAKES EFFECT ON THE NEXT MAP".to_string()
-            }
-        }
-        ApplyMode::Battle => {
-            if in_battle {
-                "TAKES EFFECT AFTER RESTARTING THE MISSION".to_string()
-            } else {
-                "TAKES EFFECT IN THE NEXT BATTLE".to_string()
-            }
-        }
-        ApplyMode::Live | ApplyMode::Fixed => String::new(),
+        ApplyMode::Map => "TAKES EFFECT WHEN A MAP NEXT LOADS".to_string(),
+        ApplyMode::Battle => if in_battle {
+            "TAKES EFFECT WHEN A BATTLE STARTS (RESTART MISSION)".to_string()
+        } else {
+            "TAKES EFFECT WHEN A BATTLE STARTS".to_string()
+        },
+        ApplyMode::Fixed => "THE BATTLE ALWAYS RUNS AT 60 HZ".to_string(),
+        ApplyMode::Live => String::new(),
     }
 }
 
