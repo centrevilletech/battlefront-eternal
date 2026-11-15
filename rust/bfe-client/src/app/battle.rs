@@ -1022,6 +1022,7 @@ impl BattleController {
                 .ok_or("native prediction resources already admitted")?,
         );
         let mut sender = Box::new(Sender::new(&replicas.turns));
+        sender.aim_scene=Some(replicas.shot_aim.clone());
         sender.auto_spawn = false;
 
         // Drain the initial tick-0 publication so `replicas.hud` has the mission's
@@ -1835,6 +1836,7 @@ impl BattleController {
                         flight,
                         ack,
                         view_tick: crate::online::clock::rendered_tick(receiver.clock.shown, receiver.latest),
+                        fire_aim: sender.fire_aim,
                     });
                 }
 

@@ -993,6 +993,7 @@ impl runtime::Engine for ThreadedBoundary {
         Ok(())
     }
     fn input(&mut self, input: runtime::Input<'_>) -> Result<(), String> {
+        if input.command.sequence>0. {assert_eq!(input.fire_aim,Some([0.2,-0.03]));}
         self.view_tick.store(input.view_tick.unwrap_or(-1.).to_bits(), std::sync::atomic::Ordering::SeqCst);
         self.sequence.store(input.command.sequence as u64, std::sync::atomic::Ordering::SeqCst);
         Ok(())
@@ -1093,6 +1094,7 @@ fn threaded_world_steps_at_60hz_without_blocking_or_allocating_on_render_thread(
             flight: ClientFlightCommand::default(),
             ack: [1.0, receiver.latest],
             view_tick: 42.5,
+            fire_aim: Some([0.2,-0.03]),
         });
         let _ = world
             .poll_publications(&mut receiver, 200.0 + i as f64)

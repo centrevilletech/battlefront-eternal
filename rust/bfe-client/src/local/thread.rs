@@ -115,6 +115,7 @@ pub enum WorldMessage {
         ack: [f64; 2],
         // The target sample actually displayed when this command was captured.
         view_tick: f64,
+        fire_aim: Option<[f64;2]>,
     },
     /// Pauses (`true`) or resumes (`false`) the 60 Hz world simulation loop.
     Pause(bool),
@@ -785,6 +786,7 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
     let mut latest_flight = ClientFlightCommand::default();
     let mut latest_ack = [1.0, 0.0];
     let mut latest_view_tick = 0.;
+    let mut latest_fire_aim = None;
     let mut accum_look_x = 0.0;
     let mut accum_look_y = 0.0;
     let mut spawn_reply_pending = false;
@@ -804,6 +806,7 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
                         mut flight,
                         ack,
                         view_tick,
+                        fire_aim,
                     } => {
                         if step_queued {
                             merge_press_edges(&latest_cmd, &mut command);
@@ -815,6 +818,7 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
                         latest_flight = flight;
                         latest_ack = ack;
                         latest_view_tick = view_tick;
+                        latest_fire_aim = fire_aim;
                         step_queued = true;
                     }
                     WorldMessage::Pause(p) => {
@@ -927,6 +931,7 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
             &latest_flight,
             latest_ack,
             latest_view_tick,
+            latest_fire_aim,
             &mut slot,
         );
         let tick_elapsed_ns = tick_start.elapsed().as_nanos() as u64;

@@ -369,6 +369,9 @@ impl Native {
             input.view_tick,
             input.flight_mode,
         )?;
+        if let Some([yaw,pitch])=input.fire_aim {
+            for edge in &mut self.commands.fires {edge.aim_yaw=Some(yaw);edge.aim_pitch=Some(pitch);}
+        }
         let now = input.tick - 1.;
         self.commands.mailbox.tick = now;
         let call = &self.commands.mailbox;

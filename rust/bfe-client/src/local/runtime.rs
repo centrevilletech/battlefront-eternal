@@ -44,6 +44,7 @@ pub struct Input<'a> {
     pub epoch: f64,
     pub generation: f64,
     pub view_tick: Option<f64>,
+    pub fire_aim: Option<[f64;2]>,
     pub flight_mode: bool,
 }
 
@@ -327,6 +328,7 @@ impl<E: Engine> Runtime<E> {
             epoch: self.receiver.epoch,
             generation: self.receiver.own.generation,
             view_tick: Some(bfe_client::online::clock::rendered_tick(self.receiver.clock.shown, self.receiver.latest)),
+            fire_aim: None,
             flight_mode: self.receiver.own.body_schema == 7,
         })?;
         let output = self.engine.step(input)?;
@@ -348,6 +350,7 @@ impl<E: Engine> Runtime<E> {
         _render_ack: [f64; 2],
         // The world receiver never advances a display clock.
         view_tick: f64,
+        fire_aim: Option<[f64;2]>,
         slot: &mut PublicationSlot,
     ) -> Result<f64, String> {
         if self.closed {
@@ -366,6 +369,7 @@ impl<E: Engine> Runtime<E> {
             epoch: self.receiver.epoch,
             generation: self.receiver.own.generation,
             view_tick: Some(view_tick),
+            fire_aim,
             flight_mode: self.receiver.own.body_schema == 7,
         })?;
         let output = self.engine.step(input)?;
