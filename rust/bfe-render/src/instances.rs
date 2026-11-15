@@ -91,6 +91,7 @@ pub struct InstancePass<C: HasContext> {
 }
 
 impl<C: HasContext> InstancePass<C> {
+    pub fn texture_bytes(&self) -> u64 { ((MAX_ROWS*ROW_TEXELS+BONE_TEXELS*BONE_ROWS+1)*16) as u64 }
     pub fn new<M: MultiDraw>(core: &mut Core<C, M>) -> InstancePass<C> {
         let gl = &core.gl;
         let instance_texture = upload_texture(gl, ROW_TEXELS as i32, MAX_ROWS as i32);
@@ -270,6 +271,7 @@ impl<C: HasContext> InstancePass<C> {
                 gl.bind_vertex_array(Some(geo.vao));
                 let (start, count) = if key[5] == 0 || geo.groups.is_empty() { (0, geo.index_count) } else { geo.groups[key[2] as usize] };
                 gl.draw_elements_instanced(glow::TRIANGLES, count, geo.index_type, start * geo.index_bytes, (j - i) as i32);
+                core.profile.draw(count.max(0) as u64,(j-i) as u64,1);
                 stats.gl_calls += 3;
                 stats.instance_draws += 1;
                 stats.pass_draws[PASS_INSTANCES] += 1;
@@ -342,8 +344,10 @@ impl<C: HasContext> InstancePass<C> {
                     gl.bind_vertex_array(Some(geo.vao));
                     gl.draw_elements_instanced(glow::TRIANGLES, geo.index_count, geo.index_type, 0, 1);
                 }
+
                 stats.gl_calls += 3;
                 stats.instance_draws += 1;
+                core.profile.draw(geo.index_count.max(0) as u64,1,1);
                 stats.pass_draws[PASS_INSTANCES] += 1;
             }
         }

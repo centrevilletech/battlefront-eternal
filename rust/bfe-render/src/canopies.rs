@@ -128,6 +128,7 @@ impl<C: HasContext> CanopiesPass<C> {
         unsafe {
             gl.bind_vertex_array(Some(g.vao));
             gl.draw_elements_instanced(glow::TRIANGLES, mesh.count, g.index_type, 0, instances as i32);
+            core.profile.draw(mesh.count.max(0) as u64,instances as u64,1);
         }
         stats.gl_calls += 2;
         stats.pass_draws[PASS_CANOPIES] += 1;

@@ -156,6 +156,7 @@ fn as_f32(v: &[f64]) -> [f32; 16] {
 }
 
 impl<C: HasContext> MotionPass<C> {
+    pub fn texture_bytes(&self) -> u64 { ((ROW_TEXELS*MAX_RECORDS+2*BONE_TEXELS*BONE_ROWS)*16) as u64 }
     pub fn new<M: MultiDraw>(core: &mut Core<C, M>) -> MotionPass<C> {
         let gl = &core.gl;
         let rows_texture = upload_texture(gl, ROW_TEXELS as i32, MAX_RECORDS as i32);

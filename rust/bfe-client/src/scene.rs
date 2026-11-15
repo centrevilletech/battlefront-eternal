@@ -318,6 +318,8 @@ pub struct Scene {
     terrain_detail: bool,
     post_images: Vec<(u32, u32, u32, usize, f64)>,
     post_mode: usize,
+    profile_start: Option<std::time::Instant>,
+    profile_rss_after: bool,
     bloom: bool,
     soft_focus: bool,
     depth_texture: u32,
@@ -1137,6 +1139,7 @@ impl Scene {
                 depth_target,
                 depth_source, depth_color_source, depth_sample, depth_color,
                 render_scale: 1., render_size: size,
+                profile_start: None, profile_rss_after: false,
                 post_images, post_mode: 0, bloom: false, soft_focus: false,
                 reduced_far_terrain: false, shadows_enabled: true, bump_mapping: true, terrain_detail: true,
                 depth_texture,
@@ -1167,6 +1170,19 @@ impl Scene {
             camera,
         ))
     }
+    pub fn profile_memory(&self, label: &str) {
+        if !self.bridge.r.core.profile.enabled {return;}
+        let rss=std::fs::read_to_string("/proc/self/status").unwrap_or_default().lines().find(|l|l.starts_with("VmRSS:")).unwrap_or("VmRSS: unavailable").to_owned();
+        let internal=self.bridge.r.instances.texture_bytes()+self.bridge.r.motion.texture_bytes()+self.bridge.r.effects.texture_bytes()+self.bridge.r.core.texture_bytes();
+        let textures=self.resources.texture_bytes()+internal;
+        eprintln!("graphics memory: {label} texture-bytes={} resource-texture-bytes={} internal-texture-bytes={} renderbuffer-bytes={} canvas-bytes={} {}",textures,self.resources.texture_bytes(),internal,self.resources.target_bytes(),self.size[0] as u64*self.size[1] as u64*8,rss);
+
+    }
+    pub fn finish_profile(&mut self) {
+        self.profile_memory("battle end");
+        self.bridge.r.core.profile.report(&self.bridge.r.core.gl);
+    }
+
     pub fn set_view_distance(&mut self, choice: &str) -> [f64; 2] {
         self.distance_scale = match choice { "far" => 2., "max" => 4., _ => 1. };
         let far = self.far_reach * self.distance_scale;
@@ -1352,6 +1368,7 @@ impl Scene {
     pub fn present_network(&mut self, receiver:&crate::online::receiver::Receiver,
         replay:&crate::online::replay::Replay, history:&crate::online::replay::History,
         camera:&mut MapCamera,dt:f64) {
+        let timer=self.bridge.r.core.profile.clock();
         if let Some(resources)=&mut self.online {
             let mut world=Matrix4::default();
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
@@ -1410,6 +1427,7 @@ impl Scene {
             resources.sound.bleed = [resources.hud.teams[1][3], resources.hud.teams[2][3]];
             resources.sound.frame(receiver,&world.elements,dt,replay,resources.hud.audio_facts());
         }
+        self.bridge.r.core.profile.cpu("presentation",timer);
     }
     pub fn set_flight_hud_key(&mut self, key: &str) {
         if let Some(online) = &mut self.online {
@@ -1424,6 +1442,15 @@ impl Scene {
         self.draw_selected(view, Component::All)
     }
     fn draw_selected(&mut self, view: &View, component: Component) -> Result<(), String> {
+        if self.profile_start.is_none() && self.frame.is_some() && std::env::var_os("BFE_GRAPHICS_TRACE").is_some() {
+            self.bridge.r.core.profile.enable(&self.bridge.r.core.gl);
+            self.profile_start=Some(std::time::Instant::now());
+            self.profile_memory("battle start");
+        }
+        if !self.profile_rss_after && self.profile_start.is_some_and(|s|s.elapsed().as_secs()>=60) {
+            self.profile_rss_after=true;self.profile_memory("after 60 seconds");
+        }
+        let build_timer=self.bridge.r.core.profile.clock();
         use bfe_render::frame_plan::layout::{
             binding as b, facts as f, kind as k, meta as m, role as r, stats as t,
         };
@@ -1576,7 +1603,11 @@ impl Scene {
                 projection.make_perspective(-right, right, top, -top, 0.3, 10., CoordinateSystem::WebGL);
                 self.bridge.r.core.input[..16].copy_from_slice(&projection.elements);self.bridge.r.frames.plan.facts[f::VIEW_SHOWN]=1.;self.publish(r::VIEW,k::VIEW,view_records,view_bones,0);}}
         if self.online.is_some(){self.publish(r::HUD0,k::HUD,0,0,0);}
+        self.bridge.r.core.profile.cpu("draw list building",build_timer);
+        let submit_timer=self.bridge.r.core.profile.clock();
         let success = self.bridge.battle_frame(&mut self.resources);
+        self.bridge.r.core.profile.cpu("GL submit",submit_timer);
+        self.bridge.r.core.profile.frame(&self.bridge.r.core.gl);
         self.bridge.r.water.input[bfe_render::water::S_SHOWN] = water_shown;
         if !success {
             return Err(self

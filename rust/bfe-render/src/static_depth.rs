@@ -136,6 +136,7 @@ impl Bank {
         state.cull(gl,stats,r.side);state.front_face(gl,stats,glow::CCW);
         let g=&core.geometries[r.geometry as usize];
         unsafe {gl.bind_vertex_array(Some(g.vao));gl.draw_elements(glow::TRIANGLES,count as i32,g.index_type,first as i32*g.index_bytes);}
+        core.profile.draw(count as u64,1,1);
         stats.gl_calls+=2;stats.pass_draws[crate::core::PASS_SHADOW]+=1;
     }
 }

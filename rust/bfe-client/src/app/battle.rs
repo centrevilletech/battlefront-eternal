@@ -1605,6 +1605,7 @@ impl BattleController {
         _audio_router: &SharedAudioRouter,
     ) -> Result<Option<BattleTransition>, String> {
         if dt.is_finite() && dt >= 0. { self.frame_seconds += dt; }
+        let frame_timer=self.scene.bridge.r.core.profile.clock();
         let dt = dt.clamp(0.0, 0.1);
         self.pause_page.save(settings);
         self.elapsed_s += dt;
@@ -1803,6 +1804,7 @@ impl BattleController {
             }
         }
 
+        let receive_timer=self.scene.bridge.r.core.profile.clock();
         let mut view: View = match &mut self.authority {
             BattleAuthority::InstantAction {
                 world,
@@ -1887,6 +1889,7 @@ impl BattleController {
                     camera.follow([aim.eye.x, aim.eye.y, aim.eye.z], sender.yaw, sender.pitch, dt);
                 }
                 camera.present(alpha_interp);
+                self.scene.bridge.r.core.profile.cpu("receive/predict",receive_timer);
                 self.scene
                     .present_network(receiver, replay, &sender.history, camera, dt);
                 receiver.publications.clear();
@@ -1910,6 +1913,7 @@ impl BattleController {
                 if let Err(err) = client.send() {
                     return Ok(Some(BattleTransition::LeaveOnline { reason: Some(err) }));
                 }
+                self.scene.bridge.r.core.profile.cpu("receive/predict",receive_timer);
                 self.scene.online_frame(client, dt);
                 if self.frames == 60 {
                     eprintln!("online HUD publications: welcomed={} packets={} corrections={} alive={} active={} visible={}",
@@ -2059,6 +2063,7 @@ impl BattleController {
         if self.pause_menu.is_open||page_spawn||page_score {self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=0.;}
         if page_spawn {self.page_battle.direct(&mut view);}
         self.scene.draw(&view)?;
+        self.scene.bridge.r.core.profile.cpu("frame CPU",frame_timer);
         if page_spawn || page_score {
             if page_spawn {
                 let class = self.page_battle.class_id;
@@ -3242,7 +3247,12 @@ mod tests {
 }
 
 impl Drop for BattleController {
-    fn drop(&mut self){self.page_battle.dispose(&self.scene);self.pause_page.blur.dispose(&self.scene.bridge.r.core.gl);}
+    fn drop(&mut self){
+        if self.scene.bridge.r.core.profile.enabled {
+            if let Some(stats)=self.world_tick_stats() {eprintln!("graphics world tick: {:?}",stats);}
+        }
+        self.scene.finish_profile();
+        self.page_battle.dispose(&self.scene);self.pause_page.blur.dispose(&self.scene.bridge.r.core.gl);}
 }
 
 #[cfg(test)]

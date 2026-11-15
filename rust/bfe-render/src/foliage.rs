@@ -392,6 +392,7 @@ impl<C: HasContext> FoliagePass<C> {
                     core.stats.gl_calls += 3;
                 }
                 gl.draw_elements_instanced(glow::TRIANGLES, class.index_count, glow::UNSIGNED_INT, 0, class.selected.len() as i32);
+            core.profile.draw(class.index_count.max(0) as u64,class.selected.len() as u64,1);
             }
             core.stats.gl_calls += 2;
             core.stats.pass_draws[PASS_FOLIAGE] += 1;

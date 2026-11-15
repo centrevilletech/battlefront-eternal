@@ -365,6 +365,7 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
         let at=role*M::LEN;let meta=&self.frames.meta[at..at+M::LEN];
         let kind=meta[M::KIND] as usize;let records=meta[M::RECORDS] as usize;let steps=(meta[M::STEPS] as usize).min(crate::post::MAX_STEPS);
         let (batch,texture,count,offset,capacity)=(meta[M::BATCH] as usize,meta[M::TEXTURE] as u32,meta[M::COUNT] as usize,meta[M::OFFSET] as usize,meta[M::CAPACITY] as usize);
+        let timer=if matches!(kind,K::SHADOW|K::HUD|K::VIEW) {self.core.profile.begin(&self.core.gl)} else {None};
         let stats=match kind {
             K::FAR=>{
                 // Probe mipmaps are a separate final operation. Reflected sky
@@ -389,6 +390,8 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
             },
             _=>return Ok(()),
         };
+        let label=if kind==K::SHADOW { ["shadow static 0","shadow static 1","shadow static 2","shadow static 3","shadow dynamic 0","shadow dynamic 1","shadow dynamic 2","shadow dynamic 3"][if role>=R::SHADOW_DYNAMIC0 {4+role-R::SHADOW_DYNAMIC0} else {role-R::SHADOW_STATIC0}] } else if kind==K::HUD {"HUD"} else {"first person"};
+        self.core.profile.end(&self.core.gl,label,timer);
         self.frame_stats(role,stats);Ok(())
     }
     // One loaded battle entry point: prepare packets have already been sealed.
@@ -417,7 +420,9 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
                         if op.argument>=R::COUNT || self.frames.meta[role*M::LEN+M::BOUND]==0. || self.frames.meta[op.argument*M::LEN+M::BOUND]==0. {self.frames.clipped=true;continue;}
                         let source=row[B::TARGET] as i32;
                         let Some(to)=self.frames.bindings.get(op.argument*B::LEN+B::TARGET) else {self.frames.clipped=true;continue};
+                        let timer=self.core.profile.begin(&self.core.gl);
                         targets.copy(source,*to as i32,if op.kind==O::COPY_DEPTH{glow::DEPTH_BUFFER_BIT}else{glow::COLOR_BUFFER_BIT|glow::DEPTH_BUFFER_BIT})?;
+                        self.core.profile.end(&self.core.gl,"depth/color copy",timer);
                     },
                     O::MIPMAP=>targets.mipmap(row[B::SAMPLE] as i32)?,
                     O::CLEAR_DEPTH=>{

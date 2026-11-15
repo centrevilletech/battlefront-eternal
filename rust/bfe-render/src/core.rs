@@ -387,6 +387,7 @@ pub struct Core<C: HasContext, M: MultiDraw> {
     pub bones: Vec<f32>,
     pub state: GlState<C>,
     pub stats: Stats,
+    pub profile: crate::profile::Profile<C>,
     pub log: Vec<String>,
     // The first failure a pass met where it cannot return one (a draw run inside
     // the transparent sort); the phase's end hands it back to the page as its error.
@@ -473,7 +474,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
             gl, multi, scene_stamp: 0, programs: vec![], owned_programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![],
             shadow_input: vec![0.0; SHADOW_FLOATS], shadow: vec![0.0; SHADOW_FLOATS], shadow_ubo, shadow_maps: vec![],
             lamp_texture, lamps: vec![], lamps_dirty: false, frame: vec![0.0; FRAME_FLOATS],
-            input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), log: vec![], fault: None, #[cfg(not(target_arch = "wasm32"))] canvas_framebuffer: None,
+            input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), profile: crate::profile::Profile::default(), log: vec![], fault: None, #[cfg(not(target_arch = "wasm32"))] canvas_framebuffer: None,
         }
     }
 
@@ -746,6 +747,10 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
 
     // A phase's start: its stats from zero, nothing known of the GL state.
     // Only explicit diagnostics reads these retained allocation counts.
+    pub fn texture_bytes(&self) -> u64 {
+        let rows=(self.lamps.len()/4).div_ceil(LAMP_TABLE_WIDTH).max(1);
+        (if self.lamps.is_empty(){1}else{LAMP_TABLE_WIDTH*rows}) as u64*16
+    }
     pub fn program_count(&self)->usize {self.programs.len()}
     pub fn geometry_total(&self)->usize {self.geometries.len()}
     pub fn begin_phase(&mut self) {

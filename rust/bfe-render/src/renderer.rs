@@ -97,7 +97,9 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     // The far scene's phase, drawn into the far target before the near scene.
     pub(crate) fn far_frame(&mut self) -> Result<Stats, String> {
         self.core.begin_phase();
+        let timer=self.core.profile.begin(&self.core.gl);
         self.far.draw(&mut self.core, VIEW_FAR);
+        self.core.profile.end(&self.core.gl,"far terrain/sky",timer);
         self.core.end_phase()
     }
 
@@ -134,10 +136,16 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         core.bind_far_map();
         // TreeCanopies creates its material before buildWorld creates the
         // map's materials. Keep three's opaque order at multisampled edges.
+        let timer=core.profile.begin(&core.gl);
         self.canopies.draw(core);
+        core.profile.end(&core.gl,"canopies",timer);
         self.world.draw(core, &camera);
+        let timer=core.profile.begin(&core.gl);
         self.instances.draw(core, &camera, records);
+        core.profile.end(&core.gl,"skinned units",timer);
+        let timer=core.profile.begin(&core.gl);
         self.foliage.draw(core);
+        core.profile.end(&core.gl,"foliage",timer);
         self.far.draw_near(core);
         core.end_phase()
     }

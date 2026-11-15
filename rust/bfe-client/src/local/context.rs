@@ -68,6 +68,7 @@ pub struct Native {
     counters: HostCounters,
     host_content: bfe_sim::host::Content,
     explosions: Vec<u32>,
+    graphics_trace: bool,
 }
 
 impl Native {
@@ -116,6 +117,7 @@ impl Native {
             counters: HostCounters::default(),
             host_content: admission.host_content.clone(),
             explosions: admission.explosions.clone(),
+            graphics_trace: std::env::var_os("BFE_GRAPHICS_TRACE").is_some(),
         })
     }
 
@@ -262,9 +264,13 @@ impl Engine for Native {
         // Step via `Context::world_tick` so the authority host runs `advance_edges`,
         // pre-step input bank writes (including AI hearing), `world_step`, notice
         // draining into `SimEvents` and `Capture`, shot/view mirrors, and `consumed_edges`.
+        let tick=input.tick;
         match self.context.value.world_tick(input) {
             Ok(output) => {
                 self.sample_host_journal();
+                if self.graphics_trace && tick as u64 % 60 == 0 {
+                    eprintln!("graphics living: tick={} teams={:?}",tick,self.context.value.world_living_units().unwrap_or_default());
+                }
                 Ok(output)
             }
             Err(error) => {
