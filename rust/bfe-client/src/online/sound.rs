@@ -32,6 +32,10 @@ struct Batch {
     // commands, and the one it replaced, handed back to be dropped here.
     config: Option<Box<Output>>,
     retired: Option<Box<Output>>,
+    // The samples this batch's arrivals replaced (released or swapped for
+    // their upscaled versions), handed back to be freed here, not on the
+    // device thread.
+    freed: Vec<audio::voices::Sample>,
 }
 // A stream completion writes at most a bind and a start command.
 const READY_WORDS: usize = 5 + 8;
@@ -49,6 +53,7 @@ impl Batch {
             samples: Vec::with_capacity(512),
             config: None,
             retired: None,
+            freed: Vec::with_capacity(512),
         }
     }
 }
@@ -58,6 +63,9 @@ struct Mailbox {
     write: AtomicUsize,
     clock: AtomicU64,
     peak: AtomicU32,
+    // The longest device quantum (control batches and the render) since the
+    // window last read it, in nanoseconds (bench telemetry).
+    worst: AtomicU64,
 }
 // There is exactly one window producer and one device consumer. A release
 // store publishes the complete slot; the matching acquire grants exclusive
@@ -73,6 +81,7 @@ impl Mailbox {
             write: AtomicUsize::new(0),
             clock: AtomicU64::new(0),
             peak: AtomicU32::new(0),
+            worst: AtomicU64::new(0),
         }
     }
     fn available(&self) -> bool {
@@ -91,6 +100,7 @@ impl LiveOutput {
     // across callbacks of arbitrary device buffer length. A callback does not
     // advance the gameplay control runtime or ask a window thread for work.
     fn quantum(&mut self) {
+        let began = std::time::Instant::now();
         let mut read = self.mail.read.load(Ordering::Relaxed);
         let write = self.mail.write.load(Ordering::Acquire);
         while read != write {
@@ -104,7 +114,10 @@ impl LiveOutput {
                 batch.retired = Some(next);
             }
             for (id, pcm) in batch.samples.drain(..) {
-                self.output.voices.set_sample(id, pcm.map(|pcm| pcm.sample));
+                if let Some(old) = self.output.voices.set_sample(id, pcm.map(|pcm| pcm.sample)) {
+                    // The window reserved room for every arrival of the batch.
+                    batch.freed.push(old);
+                }
             }
             if let Some(master) = &mut self.output.master {
                 if batch.mask != 0 {
@@ -130,6 +143,7 @@ impl LiveOutput {
         }
         self.output.process();
         self.mail.clock.store(self.output.frame, Ordering::Release);
+        self.mail.worst.fetch_max(began.elapsed().as_nanos() as u64, Ordering::Relaxed);
         self.next = 0;
     }
     /// Fills interleaved device frames of `channels` channels. The output's
@@ -307,6 +321,11 @@ pub struct Sound {
     /// How many upscaled samples have arrived.
     pub enhanced_loaded: u64,
     headphones: Option<(std::sync::Arc<Vec<f32>>, usize)>,
+    sound_names: Vec<String>,
+    // The device generation the output was last resolved against.
+    device_seen: u64,
+    // Chatter records received, by property (bench telemetry).
+    vo_asked: Vec<(String, u64)>,
 }
 impl Sound {
     pub fn new(prepared: Prepared, collision: Collision, world: u32) -> Self {
@@ -325,6 +344,8 @@ impl Sound {
             posts: prepared.posts,
             post_building: prepared.post_building,
             runtime: prepared.runtime,
+            sound_names: prepared.sound_names,
+            vo_asked: Vec::new(),
             pending: Vec::with_capacity(2048),
             pending_effects: Vec::with_capacity(2048),
             held: Vec::with_capacity(HELD),
@@ -357,10 +378,12 @@ impl Sound {
             starts: [f64::NAN; 2],
             ui_paused: false,
             ui_board: false,
-            audio: super::sound_output::AudioSettings { enhanced: false, output: "stereo".into(), ..Default::default() },
+            // No settings yet: the first set_audio always builds and publishes the output in force.
+            audio: super::sound_output::AudioSettings { output: String::new(), ..Default::default() },
             rendering: super::sound_output::Rendering {
-                layout: "stereo", channels: 2, enhanced: false, light: true, hrtf: false, binaural: false, lfe: false,
+                layout: "stereo", asked: "stereo", channels: 2, enhanced: false, light: true, hrtf: false, binaural: false, lfe: false,
             },
+            device_seen: crate::audio::device_generation(),
             configuration: 0.,
             pending_config: None,
             room: [0.; audio::reverb::PARAM_COUNT],
@@ -376,14 +399,15 @@ impl Sound {
     /// mix configuration here, off the device thread; the device installs it
     /// before the next batch, keeping every sound that plays.
     pub fn set_audio(&mut self, settings: &super::sound_output::AudioSettings) {
-        let (default, max) = crate::audio::device_channels();
-        let wanted = super::sound_output::resolve(&settings.output, default, max).name;
+        let (default, widths) = crate::audio::device_channels();
+        self.device_seen = crate::audio::device_generation();
+        let wanted = super::sound_output::resolve(&settings.output, default, widths).name;
         if *settings == self.audio && wanted == self.rendering.layout {
             return;
         }
         let room = (self.room_mask != 0).then_some((&self.room, self.room_mask));
         let (mut next, rendering) =
-            super::sound_output::build(settings, default, max, room, self.volumes[0].clamp(0., 1.) as f32,
+            super::sound_output::build(settings, default, widths, room, self.volumes[0].clamp(0., 1.) as f32,
                 self.headphones.as_ref().map(|(filters, frames)| (filters.as_slice(), *frames)));
         crate::audio::want_channels(rendering.channels);
         if rendering.enhanced && self.enhanced_loading.is_none() && !self.enhanced_items.is_empty() {
@@ -402,6 +426,24 @@ impl Sound {
         }
     }
     /// The output's layout and rendering in force.
+    /// The bench telemetry's sound state: voices per category (playing, and heard of those),
+    /// the engine's counters (heard, silent, started, stolen, dropped, culled), stream voices
+    /// by sound name and category, the music stage and the track playing.
+    pub fn bench(&self) -> serde_json::Value {
+        let p = &self.runtime.phase;
+        let e = &p.engine;
+        let (mut live, mut heard) = ([0u32; 8], [0u32; 8]);
+        for v in e.voices.iter().filter(|v| !v.done) {
+            live[v.category.min(7)] += 1;
+            heard[v.category.min(7)] += v.real as u32;
+        }
+        let name = |id: usize| self.sound_names.get(id).map_or("", String::as_str);
+        let streams: Vec<_> = p.streams.census().map(|(sound, category)| serde_json::json!([name(sound), category])).collect();
+        let track = p.director.tracks.iter().find(|t| t.playing()).map(|t| name(t.sound));
+        let worst = self.mail.worst.swap(0, Ordering::Relaxed) as f64 / 1000.;
+        serde_json::json!({ "live": live, "heard": heard, "stats": e.stats, "streams": streams,
+            "stage": p.director.stage, "track": track, "worstUs": worst, "voAsked": self.vo_asked })
+    }
     pub fn rendering(&self) -> super::sound_output::Rendering {
         self.rendering
     }
@@ -588,7 +630,13 @@ impl Sound {
                 self.events += 1;
                 return;
             }
-            "vo" => self.chatter(receiver, source),
+            "vo" => {
+                match self.vo_asked.iter_mut().find(|(p, _)| *p == source.property) {
+                    Some((_, n)) => *n += 1,
+                    None => self.vo_asked.push((source.property.to_string(), 1)),
+                }
+                self.chatter(receiver, source)
+            }
             "bounce" | "pickup" => self.ordnance(source),
             "serve" => self.serve(source),
             "towAttach" | "towRelease" => self.tow(receiver, source),
@@ -614,6 +662,12 @@ impl Sound {
     ) {
         if self.output.is_some() {
             return;
+        }
+        // The device was opened again (another width, or a fallback after a
+        // width it would not play): resolve the layout against it again.
+        if crate::audio::device_generation() != self.device_seen {
+            let settings = self.audio.clone();
+            self.set_audio(&settings);
         }
         // Device time can stand still between two window frames. Retain
         // authoritative fire facts before that early return; the scene may
@@ -1254,6 +1308,7 @@ impl Sound {
         let write = self.mail.write.load(Ordering::Relaxed);
         let batch = unsafe { &mut *self.mail.slots[write % QUEUE].get() };
         drop(batch.retired.take());
+        batch.freed.clear();
         batch.config = self.pending_config.take();
         batch.samples.clear();
         batch.samples.append(&mut arrived);
@@ -1325,6 +1380,7 @@ impl Sound {
             }
             submit_requests(runtime, &self.assets, batch, &mut self.refused);
         }
+        batch.freed.reserve(batch.samples.len());
         self.mail
             .write
             .store(write.wrapping_add(1), Ordering::Release);

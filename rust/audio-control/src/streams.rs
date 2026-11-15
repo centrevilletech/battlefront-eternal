@@ -51,6 +51,8 @@ impl Streams {
     pub fn configure(&mut self) { self.cache_order.reserve(self.segments.len()); self.queues.resize(self.definitions.len(), [None; 4]); }
     fn id(&self, handle: u64) -> Option<usize> { let id = (handle % STREAM_VOICES as u64) as usize; (handle != SILENT && self.voices[id].generation == handle / STREAM_VOICES as u64).then_some(id) }
     pub fn playing(&self, handle: u64) -> bool { self.id(handle).is_some_and(|id| self.voices[id].active) }
+    /// The sound and category of every stream voice playing (bench telemetry).
+    pub fn census(&self) -> impl Iterator<Item = (usize, usize)> + '_ { self.voices.iter().filter(|v| v.active && v.sounding).map(|v| (v.sound, v.category)) }
     pub fn busy(&self, bus: usize, e: &Engine) -> bool { self.voices.iter().any(|v| v.active && v.sounding && e.sounds[v.sound].bus == bus) }
     pub fn free(&self, stream: usize) -> bool { self.definitions.get(stream).is_some_and(|s| self.voices.iter().filter(|v| v.active && v.stream == stream).count() < s.slots) }
     /// ports Streams.score: a far line still has its bias/priority score and

@@ -231,6 +231,8 @@ pub struct Prepared {
     pub enhanced_base: usize,
     /// The prepared headphone decoder's filters and their length, if any.
     pub headphones: Option<(std::sync::Arc<Vec<f32>>, usize)>,
+    /// Each sound's first authored name, by sound id (bench telemetry).
+    pub sound_names: Vec<String>,
 }
 impl Prepared {
     pub fn new(content: &BattleContent) -> Result<Self, String> {
@@ -412,6 +414,7 @@ impl Prepared {
         let mut names = BTreeMap::new();
         let mut ids = BTreeMap::new();
         let mut sounds = Vec::new();
+        let mut sound_names: Vec<String> = Vec::new();
         for kind in ["SoundProperties", "SoundLayered", "SoundParameterized", "SoundStreamProperties", "SoundStream"] {
             for (name, object) in data.table(kind) {
                 if names.contains_key(name) {
@@ -423,6 +426,8 @@ impl Prepared {
                     id
                 });
                 names.insert(name.clone(), id);
+                if sound_names.len() <= id { sound_names.resize(id + 1, String::new()); }
+                if sound_names[id].is_empty() { sound_names[id] = name.clone(); }
                 import(
                     &mut runtime,
                     import::NAME,
@@ -1048,6 +1053,7 @@ impl Prepared {
             enhanced,
             enhanced_base,
             headphones,
+            sound_names,
         })
     }
 }

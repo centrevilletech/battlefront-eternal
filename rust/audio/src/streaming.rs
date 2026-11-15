@@ -9,10 +9,12 @@ use std::cell::Cell;
 /// 48 kHz): many quanta, even at a high pitch.
 const RING_FRAMES: usize = 8192;
 const MAX_CHANNELS: usize = 12;
-/// A client codec that decodes a streamed segment a window at a time (the
+/// A client codec feeding a streamed segment a window at a time (the
 /// enhanced mode's Opus streams): the next window of at most `frames`
-/// frames, channel-major with the window's own length as stride, or None at
-/// the end. It runs on the device thread between quanta.
+/// frames, channel-major with the window's own length as stride; a window of
+/// no frames when none is ready yet (asked again next quantum); None at the
+/// end. It is called on the device thread between quanta, so it must only
+/// hand over windows decoded elsewhere.
 pub trait Producer: Send {
     fn produce(&mut self, frames: usize) -> Option<(&[f32], usize)>;
 }
@@ -72,30 +74,35 @@ impl Sample {
         if channels == 0 || channels > MAX_CHANNELS || frames == 0 {
             return None;
         }
-        let mut sample = Self::streaming(frames, channels, rate, frames.min(CODEC_RING_FRAMES));
+        // Room for two whole windows past the segment's length, so a short
+        // segment (or a decoder giving a few frames more than the header said)
+        // always has the 2048 frames of room a window needs.
+        let mut sample = Self::streaming(frames, channels, rate, (frames + 2 * 2048).min(CODEC_RING_FRAMES));
         sample.feed = Some(Box::new(Feed::Codec(producer)));
         sample.feed();
         Some(sample)
     }
     /// Decodes whole blocks while the ring has room for them; never
-    /// allocates, so it runs on the device thread between quanta.
+    /// allocates or frees, so it runs on the device thread between quanta. A
+    /// feed that has ended stays with its sample, to be freed with it off
+    /// the device thread.
     pub fn feed(&mut self) {
+        if self.ring.as_ref().is_none_or(|r| r.eof) { return; }
         let Some(mut feed) = self.feed.take() else { return };
-        let more = match &mut *feed {
-            Feed::Adpcm(adpcm) => self.feed_adpcm(adpcm),
-            Feed::Codec(producer) => self.feed_codec(producer.as_mut()),
-        };
-        if more {
-            self.feed = Some(feed);
+        match &mut *feed {
+            Feed::Adpcm(adpcm) => { self.feed_adpcm(adpcm); }
+            Feed::Codec(producer) => { self.feed_codec(producer.as_mut()); }
         }
+        self.feed = Some(feed);
     }
     // Windows of at most 2048 frames while the ring has room; false once the
     // producer has ended (the ring then knows its true length).
     fn feed_codec(&mut self, producer: &mut dyn Producer) -> bool {
         while self.writable() >= 2048 {
             match producer.produce(2048) {
+                Some((_, 0)) => return true,
                 Some((pcm, frames)) => {
-                    if frames == 0 || !self.append(&pcm[..frames * self.channels], frames, false) {
+                    if !self.append(&pcm[..frames * self.channels], frames, false) {
                         self.append(&[], 0, true);
                         return false;
                     }
@@ -203,7 +210,7 @@ mod tests {
                     assert_eq!(sample.value(c, index).to_bits(), whole.output[c][index].to_bits(), "channel {c} frame {index}");
                 }
             }
-            assert!(sample.ring.as_ref().unwrap().eof && sample.feed.is_none());
+            assert!(sample.ring.as_ref().unwrap().eof);
         }
     }
     // A ramp in windows of 300 frames, two channels (the second negated).
@@ -217,6 +224,36 @@ mod tests {
             self.next += n;
             Some((&self.out, n))
         }
+    }
+    // The ramp, ready only every third time it is asked (a decoder running behind).
+    struct Late { ramp: Ramp, asked: usize }
+    impl super::Producer for Late {
+        fn produce(&mut self, frames: usize) -> Option<(&[f32], usize)> {
+            self.asked += 1;
+            if self.asked % 3 != 0 { return Some((&[], 0)); }
+            self.ramp.produce(frames)
+        }
+    }
+    #[test]
+    fn a_window_not_ready_yet_is_asked_for_again_and_nothing_is_lost() {
+        let total = 20_000;
+        let mut sample = Sample::codec(48000., 2, total, Box::new(Late { ramp: Ramp { next: 0, total, out: Vec::new() }, asked: 0 })).unwrap();
+        let mut index = 0;
+        for _ in 0..100_000 {
+            if index == total { break; }
+            if sample.available(index) {
+                assert_eq!(sample.value(0, index), index as f32);
+                index += 1;
+            } else {
+                sample.consumed(index);
+                sample.feed();
+            }
+        }
+        assert_eq!(index, total);
+        sample.consumed(total);
+        // The end, too, may take a few quanta to be told.
+        for _ in 0..3 { sample.feed(); }
+        assert!(sample.ring.as_ref().unwrap().eof && sample.frames == total);
     }
     #[test]
     fn a_codec_fed_segment_plays_every_frame_in_order_then_ends() {
@@ -232,6 +269,6 @@ mod tests {
         }
         sample.consumed(total);
         sample.feed();
-        assert!(sample.ring.as_ref().unwrap().eof && sample.feed.is_none() && sample.frames == total);
+        assert!(sample.ring.as_ref().unwrap().eof && sample.frames == total);
     }
 }

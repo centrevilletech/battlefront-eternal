@@ -8,12 +8,28 @@ use std::sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, AtomicU32, AtomicUsi
 // What the output device can take, learnt when it opens: its own channel
 // count (what Automatic follows) and the most it accepts at 48 kHz; and the
 // channel count the battle's output layout wants, which reopens the device.
+// The widths it takes are a mask (bit n: n channels); a width it would not
+// open is struck off. Each open (or failure) moves the generation on, so a
+// battle re-resolves its layout against what the device really plays.
 static DEVICE_DEFAULT: AtomicUsize = AtomicUsize::new(2);
-static DEVICE_MAX: AtomicUsize = AtomicUsize::new(2);
+static DEVICE_WIDTHS: AtomicU32 = AtomicU32::new(1 << 2);
+static STRUCK: AtomicU32 = AtomicU32::new(0);
+static DEVICE_GENERATION: AtomicU64 = AtomicU64::new(0);
 static WANTED: AtomicUsize = AtomicUsize::new(2);
-/// The output device's own channel count and the most it accepts.
-pub fn device_channels() -> (usize, usize) {
-    (DEVICE_DEFAULT.load(Ordering::Relaxed), DEVICE_MAX.load(Ordering::Relaxed))
+/// The output device's own channel count and the widths it plays (bit n: n channels; stereo always).
+pub fn device_channels() -> (usize, u32) {
+    (DEVICE_DEFAULT.load(Ordering::Relaxed), (DEVICE_WIDTHS.load(Ordering::Relaxed) & !STRUCK.load(Ordering::Relaxed)) | 1 << 2)
+}
+/// Moves on whenever the device is opened again or a width is struck off.
+pub fn device_generation() -> u64 {
+    DEVICE_GENERATION.load(Ordering::Relaxed)
+}
+/// The device would not play `channels` wide: no layout asks for that again.
+pub fn strike_width(channels: usize) {
+    if channels != 2 && channels < 32 {
+        STRUCK.fetch_or(1u32 << channels, Ordering::Relaxed);
+        DEVICE_GENERATION.fetch_add(1, Ordering::Relaxed);
+    }
 }
 /// The battle's layout asks the device for this many channels.
 pub fn want_channels(channels: usize) {
@@ -425,9 +441,10 @@ impl AudioDevice {
             && matches!(c.sample_format(), cpal::SampleFormat::F32 | cpal::SampleFormat::I16 | cpal::SampleFormat::U16);
         let configs: Vec<_> = device.supported_output_configs().map_err(|e| e.to_string())?.filter(usable).collect();
         let max = configs.iter().map(|c| c.channels() as usize).max().unwrap_or(2);
+        let widths = configs.iter().filter(|c| c.channels() < 32).fold(0u32, |m, c| m | 1 << c.channels());
         let default = device.default_output_config().map(|c| c.channels() as usize).unwrap_or(2);
-        DEVICE_MAX.store(max.max(2), Ordering::Relaxed);
         DEVICE_DEFAULT.store(default.max(2), Ordering::Relaxed);
+        DEVICE_WIDTHS.store(widths, Ordering::Relaxed);
         // Explicit rate and channel count prevent accidental speed or channel
         // changes. A width the device lacks falls back to stereo.
         let supported = configs.iter().find(|c| c.channels() == channels).or_else(|| configs.iter().find(|c| c.channels() == 2))
@@ -444,7 +461,12 @@ impl AudioDevice {
         }?;
         let result = Self { stream, status, channels: config.channels as usize };
         eprintln!("audio device: {} channels at {rate} Hz (device default {default}, up to {max})", result.channels);
-        result.play()?;
+        let played = result.play();
+        DEVICE_GENERATION.fetch_add(1, Ordering::Relaxed);
+        if result.channels != channels as usize {
+            strike_width(channels as usize);
+        }
+        played?;
         Ok(result)
     }
     pub fn play(&self) -> Result<(), String> { self.stream.play().map_err(|e| e.to_string()) }

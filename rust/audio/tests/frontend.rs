@@ -266,3 +266,48 @@ fn a_narrower_queued_segment_preserves_the_first_segments_surround_lanes() {
         }
     }
 }
+
+// A 5.1 or 7.1 bed still playing when the output narrows, and a 7.1 bed on
+// 7.1.4: every lane lands on a speaker of the new layout, by its role.
+fn bed_levels(output_channels: usize, bed_channels: usize, lane: usize) -> Vec<f32> {
+    let mut out = Output::new(48000.0, output_channels, true, false, false, false, false);
+    {
+        let pcm = out.voices.sample_channels(1, 48000, bed_channels, 48000.0);
+        pcm[lane * 48000..(lane + 1) * 48000].fill(0.1);
+    }
+    out.commands = vec![
+        STREAM_BIND as f64, 0.0, bed_channels as f64, 2.0, 0.0,
+        STREAM_GAIN as f64, 0.0, 1.0, 0.0, 0.0, 1.0,
+        STREAM_START as f64, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0,
+    ];
+    let len = out.commands.len();
+    out.apply(len);
+    let mut energy = vec![0f32; output_channels];
+    for block in 0..40 {
+        out.process();
+        if block >= 20 {
+            for (c, e) in energy.iter_mut().enumerate() {
+                *e += out.output[c * FRAMES..(c + 1) * FRAMES].iter().map(|v| v * v).sum::<f32>();
+            }
+        }
+    }
+    energy
+}
+#[test]
+fn a_surround_bed_on_a_narrower_output_keeps_every_lane_by_its_role() {
+    // 5.1 on stereo: the centre in both, equally; the LFE nowhere; a surround on its side.
+    let centre = bed_levels(2, 6, 2);
+    assert!(centre[0] > 1e-3 && (centre[0] / centre[1] - 1.0).abs() < 0.01, "{centre:?}");
+    let lfe = bed_levels(2, 6, 3);
+    assert!(lfe.iter().all(|&e| e < 1e-9), "{lfe:?}");
+    let surround = bed_levels(2, 6, 5);
+    assert!(surround[1] > 1e-3 && surround[0] < 1e-9, "{surround:?}");
+    // 7.1 on 5.1: the side left joins the surround left.
+    let side = bed_levels(6, 8, 6);
+    assert!(side[4] > 1e-3 && side.iter().enumerate().all(|(c, &e)| c == 4 || e < 1e-9), "{side:?}");
+    // 7.1 on 7.1.4: each lane on its own speaker.
+    for lane in [2, 4, 7] {
+        let e = bed_levels(12, 8, lane);
+        assert!(e[lane] > 1e-3 && e.iter().enumerate().all(|(c, &v)| c == lane || v < 1e-9), "lane {lane}: {e:?}");
+    }
+}
