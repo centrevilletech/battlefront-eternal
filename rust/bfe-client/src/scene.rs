@@ -925,7 +925,8 @@ impl Scene {
                 vertices,
                 mesh.geometry.indices.clone(),
             )?;
-            if live && !mesh.material.far && mesh.material.blend == Blend::Opaque {
+            if live && !mesh.material.far && mesh.material.blend == Blend::Opaque
+                && mesh.material.kind != MaterialKind::Terrain {
                 bridge.static_depth_add(source, mesh.material.texture.map_or(-1, |id| textures[id] as i32))?;
             }
             if let Some(weights) = mesh.geometry.buffers.get(1) {
