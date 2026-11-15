@@ -1869,6 +1869,7 @@ impl BattleController {
                         receiver.active().count(), self.scene.online.as_ref().map_or(0, |r| r.visible));
                 }
                 sender.feedback(receiver);
+                sender.local_lateness(world.command_counts()[2]);
                 receiver.clock.advance(dt).map_err(str::to_string)?;
 
                 camera.set_flight_mode(receiver.in_aircraft());
@@ -1888,6 +1889,7 @@ impl BattleController {
                     }
                     self.keys_released = halted;
                     cmd.first_person = Some(camera.first_person);
+                    sender.local_next_tick(world.latest_tick() + 1.);
                     sender.tick(&cmd, &look, &flight, receiver, 0.0, *now_ms);
                     // The world takes each command at the tick the sender stamped
                     // it for and acknowledges its sequence; prediction replays the
@@ -1913,8 +1915,8 @@ impl BattleController {
                 if self.elapsed_s - self.input_logged_s >= 1. {
                     self.input_logged_s = self.elapsed_s;
                     let [taken, refused, late] = world.command_counts();
-                    eprintln!("battle input: sent={} taken={taken} refused={refused} late={late} worldTick={} stamp={} sequence={} applied={} held={held_now:#x} alive={} generation={} focused={focused} hidden={hidden} paused={} suspended={} halted={halted} spawnScreen={} scoreboard={} chat={} steps={steps} position={:?}",
-                        self.commands_sent, world.latest_tick(), sender.command_tick(), sender.command_sequence(), receiver.corrected_sequence,
+                    eprintln!("battle input: sent={} taken={taken} refused={refused} late={late} extra={} worldTick={} stamp={} sequence={} applied={} held={held_now:#x} alive={} generation={} focused={focused} hidden={hidden} paused={} suspended={} halted={halted} spawnScreen={} scoreboard={} chat={} steps={steps} position={:?}",
+                        self.commands_sent, sender.extra_lead(), world.latest_tick(), sender.command_tick(), sender.command_sequence(), receiver.corrected_sequence,
                         receiver.own.alive, receiver.own.generation, world.is_paused(), world.is_suspended(),
                         self.spawn_ctrl.is_open(), self.scoreboard_ctrl.model.is_open(), self.chat.is_open(), receiver.own.position);
                 }
