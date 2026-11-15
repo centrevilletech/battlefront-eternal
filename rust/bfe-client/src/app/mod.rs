@@ -71,7 +71,7 @@
 //!   (`PauseMenu`, `ChatController`, `SpawnScreenController`, `ScoreboardController`)
 //!   and 3D movement (`Input`) share identical key identifiers with the web reference.
 pub mod battle;
-mod bench;
+pub(crate) mod bench;
 pub mod cli;
 mod loading;
 mod folder_dialog;
