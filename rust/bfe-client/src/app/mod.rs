@@ -2307,6 +2307,9 @@ impl StandaloneWindowApp {
                                 self.request_app_close(event_loop);
                             }
                         }
+                        if !matches!(self.state, AppState::Battle(_)) {
+                            release_freed_memory();
+                        }
                     }
                 }
             }
@@ -2322,6 +2325,22 @@ impl StandaloneWindowApp {
             self.error = Some(err);
             event_loop.exit();
         }
+    }
+}
+
+/// Hands the heap pages a finished battle freed back to the system. glibc keeps freed memory in
+/// its per-thread arenas, and the next battle's threads allocate from other arenas, so without
+/// this each battle's heap stayed resident after it ended (about 0.5 GB per battle on bes2).
+fn release_freed_memory() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        extern "C" {
+            fn malloc_trim(pad: usize) -> std::ffi::c_int;
+        }
+        let start = std::time::Instant::now();
+        // SAFETY: glibc's malloc_trim only releases free pages; any thread may call it.
+        unsafe { malloc_trim(0) };
+        eprintln!("battle memory released in {:.0} ms", start.elapsed().as_secs_f64() * 1000.);
     }
 }
 
