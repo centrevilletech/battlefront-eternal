@@ -2193,15 +2193,14 @@ impl StandaloneWindowApp {
                     if let Some(bench) = &mut self.bench {
                         bench.step_battle(battle, self.pointer_locked);
                     }
-                    // Plain play with nothing of the interface over it draws straight
-                    // into the window (Scene::set_direct).
-                    let direct = self.platform_smoke.is_none()
+                    // Plain play with nothing of the interface over it draws straight into the
+                    // window (Scene::set_direct). The battle decides just before it draws, once
+                    // it knows whether this frame opened a spawn screen or scoreboard; a frame
+                    // that returns before drawing keeps the canvas.
+                    battle.direct_allowed = self.platform_smoke.is_none()
                         && self.gate.as_ref().is_none_or(|gate| gate.allows_direct())
-                        && !battle.pause_menu.is_open
-                        && !battle.spawn_ctrl.is_open()
-                        && !battle.scoreboard_ctrl.model.is_open()
                         && self.slint_ui.as_ref().is_some_and(|ui| !ui.battle_overlay_visible());
-                    battle.scene.set_direct(direct);
+                    battle.scene.set_direct(false);
                     let transition = battle.step_and_draw(
                         elapsed_dt,
                         self.focused,

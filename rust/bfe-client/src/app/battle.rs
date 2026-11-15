@@ -925,6 +925,8 @@ pub struct BattleController {
     pub overlay_was_active: bool,
     /// Last synced `settings.interface.revision` for zero-allocation binding/flight updates.
     pub settings_revision: u64,
+    /// Whether the window's own state (no interface over the battle) lets this frame draw straight into the window.
+    pub direct_allowed: bool,
     /// True when `Shift` or `Ctrl` is held (`overlayChord` guard for `Backquote`).
     pub modifiers_shift_or_ctrl: bool,
     /// True when `Ctrl`, `Alt`, or `Meta` is held (chat open guard).
@@ -1379,6 +1381,7 @@ impl BattleController {
             first_life_spawned: false,
             overlay_was_active: true,
             settings_revision: u64::MAX,
+            direct_allowed: false,
             modifiers_shift_or_ctrl: false,
             modifiers_chat: false,
         };
@@ -2214,6 +2217,7 @@ impl BattleController {
         let motion=match &self.authority{BattleAuthority::InstantAction{replay,..}=>replay.fleet.vehicle_motion(),BattleAuthority::Online{client,..}=>client.replay.fleet.vehicle_motion()};
         self.scene.vehicle_motion(motion.0,motion.1,dt)?;
         super::bench::apply_view(&mut view);
+        self.scene.set_direct(self.direct_allowed && !overlay_active && !self.pause_menu.is_open && !page_spawn && !page_score);
         let behind=if page_spawn {self.page_battle.backdrop()} else {super::page_battle::Backdrop::Draw};
         if behind==super::page_battle::Backdrop::Draw {
             self.scene.draw(&view)?;
