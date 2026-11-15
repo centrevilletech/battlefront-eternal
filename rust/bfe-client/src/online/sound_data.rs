@@ -231,6 +231,26 @@ pub struct Prepared {
     pub enhanced_base: usize,
     /// The prepared headphone decoder's filters and their length, if any.
     pub headphones: Option<(std::sync::Arc<Vec<f32>>, usize)>,
+    /// Each sound's first authored name, by sound id (bench telemetry).
+    pub sound_names: Vec<String>,
+    /// The sub-level's spaces (reverb send and room) and the boxes that pick them.
+    pub spaces: Vec<(f64, [f64; room::STRIDE])>,
+    pub space_boxes: Vec<SpaceBox>,
+}
+/// A `soundspace` region: a box (its world matrix and half extents) and the
+/// space a listener inside it takes.
+#[derive(Clone, Copy)]
+pub struct SpaceBox {
+    pub matrix: [f64; 16],
+    pub size: [f64; 3],
+    pub space: usize,
+}
+impl SpaceBox {
+    pub fn holds(&self, p: [f64; 3]) -> bool {
+        let m = &self.matrix;
+        let d = [p[0] - m[12], p[1] - m[13], p[2] - m[14]];
+        (0..3).all(|axis| (d[0] * m[axis * 4] + d[1] * m[axis * 4 + 1] + d[2] * m[axis * 4 + 2]).abs() <= self.size[axis])
+    }
 }
 impl Prepared {
     pub fn new(content: &BattleContent) -> Result<Self, String> {
@@ -412,6 +432,7 @@ impl Prepared {
         let mut names = BTreeMap::new();
         let mut ids = BTreeMap::new();
         let mut sounds = Vec::new();
+        let mut sound_names: Vec<String> = Vec::new();
         for kind in ["SoundProperties", "SoundLayered", "SoundParameterized", "SoundStreamProperties", "SoundStream"] {
             for (name, object) in data.table(kind) {
                 if names.contains_key(name) {
@@ -423,6 +444,8 @@ impl Prepared {
                     id
                 });
                 names.insert(name.clone(), id);
+                if sound_names.len() <= id { sound_names.resize(id + 1, String::new()); }
+                if sound_names[id].is_empty() { sound_names[id] = name.clone(); }
                 import(
                     &mut runtime,
                     import::NAME,
@@ -889,30 +912,58 @@ impl Prepared {
                     resolve(found.and_then(|r| r.at(2)));
             }
         }
-        let space = data.table("space").last().map(|(_, id)| &data.objects[*id].data);
-        let preset =
-            space.and_then(|s| s.get("I3DL2ReverbPreset")).and_then(Value::as_str).and_then(|name| data.object("I3DL2ReverbPreset", name));
-        config[config::SPACE_SEND] = space.and_then(|s| field(s, "RoomGain")).map_or(0., |v| number(Some(v)));
-        let mut room = [f64::NAN; room::STRIDE];
-        for (at, key, default) in [
-            (room::ROOM, "RoomGain", 0.),
-            (room::ROOM_HF, "RoomHFGain", 1.),
-            (room::DECAY, "DecayTime", 1.),
-            (room::HF_RATIO, "DecayHFRatio", 0.5),
-            (room::REFLECTIONS, "ERGain", 0.),
-            (room::REFL_DELAY, "ERDelay", 0.02),
-            (room::REVERB, "ReverbGain", 0.),
-            (room::REVERB_DELAY, "ReverbDelay", 0.04),
-            (room::DIFFUSION, "Diffusion", 1.),
-            (room::HF_REFERENCE, "HFReference", 5000.),
-        ] {
-            room[at] = preset.and_then(|p| field(p, key)).map_or(default, |v| number(Some(v)));
+        // Each space of the sub-level: its reverb send (RoomGain) and its
+        // I3DL2 preset as the reverb's parameters.
+        let room_of = |space: Option<&Value>| -> (f64, [f64; room::STRIDE]) {
+            let preset =
+                space.and_then(|s| s.get("I3DL2ReverbPreset")).and_then(Value::as_str).and_then(|name| data.object("I3DL2ReverbPreset", name));
+            let send = space.and_then(|s| field(s, "RoomGain")).map_or(0., |v| number(Some(v)));
+            let mut room = [f64::NAN; room::STRIDE];
+            for (at, key, default) in [
+                (room::ROOM, "RoomGain", 0.),
+                (room::ROOM_HF, "RoomHFGain", 1.),
+                (room::DECAY, "DecayTime", 1.),
+                (room::HF_RATIO, "DecayHFRatio", 0.5),
+                (room::REFLECTIONS, "ERGain", 0.),
+                (room::REFL_DELAY, "ERDelay", 0.02),
+                (room::REVERB, "ReverbGain", 0.),
+                (room::REVERB_DELAY, "ReverbDelay", 0.04),
+                (room::DIFFUSION, "Diffusion", 1.),
+                (room::HF_REFERENCE, "HFReference", 5000.),
+            ] {
+                room[at] = preset.and_then(|p| field(p, key)).map_or(default, |v| number(Some(v)));
+            }
+            room[room::ROOM_HF] = room[room::ROOM_HF].max(0.001);
+            room[room::DIFFUSION] = room[room::DIFFUSION].clamp(0., 1.);
+            room[room::DENSITY] = 1.;
+            room[room::MASK] = if preset.is_some() { 2047. } else { 1. };
+            (send, room)
+        };
+        // The world's `soundspace <name>` boxes, in load order, name the space
+        // a listener inside them takes (docs/formats.md, "Sound": the earliest
+        // box holding the listener, kept while he stays inside it); outside
+        // every box the space is the dry default.
+        let mut spaces = Vec::new();
+        let mut space_ids = BTreeMap::new();
+        for (name, id) in data.table("space") {
+            space_ids.entry(key(name)).or_insert(spaces.len());
+            spaces.push(room_of(Some(&data.objects[*id].data)));
         }
-        room[room::ROOM_HF] = room[room::ROOM_HF].max(0.001);
-        room[room::DIFFUSION] = room[room::DIFFUSION].clamp(0., 1.);
-        room[room::DENSITY] = 1.;
-        room[room::MASK] = if preset.is_some() { 2047. } else { 1. };
-        import(&mut runtime, import::ROOM, &room)?;
+        let mut space_boxes = Vec::new();
+        for source in data.manifest.get("world").and_then(|w| w.get("regions")).and_then(Value::as_array).unwrap_or(&[]) {
+            let mut parts = text(source.get("name")).split_whitespace();
+            if !parts.next().is_some_and(|s| s.eq_ignore_ascii_case("soundspace")) {
+                continue;
+            }
+            let Some(&space) = space_ids.get(&key(parts.next().unwrap_or(""))) else { continue };
+            let m: [f64; 16] = std::array::from_fn(|k| number(source.get("matrix").and_then(|m| m.at(k))));
+            let size: [f64; 3] = std::array::from_fn(|k| number(source.get("size").and_then(|m| m.at(k))));
+            if m.iter().chain(&size).all(|v| v.is_finite()) {
+                space_boxes.push(SpaceBox { matrix: m, size, space });
+            }
+        }
+        let (_, dry) = room_of(None);
+        import(&mut runtime, import::ROOM, &dry)?;
 
         import(&mut runtime, import::CONFIG, &config)?;
         let defs = content.defs()?;
@@ -1048,6 +1099,9 @@ impl Prepared {
             enhanced,
             enhanced_base,
             headphones,
+            sound_names,
+            spaces,
+            space_boxes,
         })
     }
 }
