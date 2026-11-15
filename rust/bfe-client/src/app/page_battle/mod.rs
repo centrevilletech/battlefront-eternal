@@ -227,6 +227,7 @@ impl PageBattle {
             switchable: model.can_switch_teams(port),
             classes: roster.len().min(MAX_CLASSES),
             scale: self.scale,
+            picked: model.class_index,
             ..SpawnFacts::default()
         };
         for (row, class) in facts.rows.iter_mut().zip(roster) {

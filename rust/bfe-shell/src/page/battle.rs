@@ -75,11 +75,13 @@ pub struct SpawnFacts {
     pub rows: [u8; MAX_CLASSES],
     /// Device pixels per logical pixel (line boxes round in device pixels).
     pub scale: f64,
+    /// The picked class (it keeps its full window when the roster folds).
+    pub picked: usize,
 }
 pub const MAX_CLASSES: usize = 16;
 impl Default for SpawnFacts {
     fn default() -> Self {
-        Self { look: 2, goals: 2, countdown: false, switchable: true, classes: 0, rows: [2; MAX_CLASSES], scale: 1. }
+        Self { look: 2, goals: 2, countdown: false, switchable: true, classes: 0, rows: [2; MAX_CLASSES], scale: 1., picked: 0 }
     }
 }
 
@@ -135,6 +137,10 @@ impl SpawnMetrics {
         self.class_bar().1 * 2. + self.line(self.class_font())
     }
     /// One class window: border, bar, weapon grid (padding .7vh/.8vh, rows .25em apart).
+    /// A folded window (.bfe-spawn-roster.compact): its weapons on one line, padding .45vh/.55vh.
+    pub fn compact_height(&self) -> f64 {
+        2. * self.border + self.class_bar().0 + self.class_bar_height() + self.vh + self.line(self.weapon_font())
+    }
     pub fn class_height(&self, rows: u8) -> f64 {
         let f = self.weapon_font();
         let rows = f64::from(rows.max(1));
@@ -225,6 +231,8 @@ pub struct SpawnLayout {
     pub keys_y: f64,
     pub countdown_y: f64,
     pub center: f64,
+    /// The classes do not fit: all but the picked one fold to a line (view.js keys.compact).
+    pub compact: bool,
     class_tops: [f64; MAX_CLASSES + 1],
 }
 impl SpawnLayout {
@@ -271,13 +279,24 @@ impl SpawnLayout {
         // SELECT SOLDIER (padding-top 1vh), 1.1vh, then the class windows .9vh apart.
         let label_y = body + vh;
         let label_h = m.line(m.label_font());
-        let mut class_tops = [0.; MAX_CLASSES + 1];
-        let mut y = label_y + label_h + 1.1 * vh;
-        for (top, &row) in class_tops[..MAX_CLASSES].iter_mut().zip(facts.rows.iter()) {
-            *top = y;
-            y += m.class_height(row) + 0.9 * vh;
+        let first_y = label_y + label_h + 1.1 * vh;
+        let stack = |compact: bool| {
+            let mut tops = [0.; MAX_CLASSES + 1];
+            let mut y = first_y;
+            for (i, (top, &row)) in tops[..MAX_CLASSES].iter_mut().zip(facts.rows.iter()).enumerate() {
+                *top = y;
+                let h = if compact && i != facts.picked { m.compact_height() } else { m.class_height(row) };
+                y += h + 0.9 * vh;
+            }
+            tops[MAX_CLASSES] = y;
+            tops
+        };
+        let mut class_tops = stack(false);
+        let n = facts.classes.min(MAX_CLASSES);
+        let compact = n > 0 && class_tops[n] - 0.9 * vh > foot + 2.;
+        if compact {
+            class_tops = stack(true);
         }
-        class_tops[MAX_CLASSES] = y;
         // The stage: his place, the caption (.4vh above it), SPAWN (1.4vh above it, at most 360 wide).
         let go_h = m.go_height();
         let go_w = (middle[1] - middle[0]).min(360.);
@@ -318,6 +337,7 @@ impl SpawnLayout {
             teams: [plate(0), plate(1)],
             keys_y,
             countdown_y,
+            compact,
             class_tops,
         }
     }
@@ -380,6 +400,16 @@ mod spawn_layout_tests {
         near(l.class_rect(4, false)[1], 465.5);
         near(l.objectives[3] - l.objectives[1], 82.9);
         near(l.spawn[1], 649.5);
+    }
+    #[test]
+    fn a_roster_that_does_not_fit_folds_all_but_the_picked_class() {
+        let facts = SpawnFacts { look: 1, classes: 9, picked: 2, ..SpawnFacts::default() };
+        let l = SpawnLayout::new(1280., 720., facts);
+        assert!(l.compact);
+        let picked = l.class_rect(2, true);
+        let other = l.class_rect(3, false);
+        assert!(picked[3] - picked[1] > other[3] - other[1] + 10.);
+        assert!(!SpawnLayout::new(1280., 720., SpawnFacts { look: 1, classes: 5, ..SpawnFacts::default() }).compact);
     }
     #[test]
     fn line_boxes_round_in_device_pixels() {

@@ -48,6 +48,8 @@ export struct BattleClassModel {
     w3: string,
     w4: string,
     w5: string,
+    // The roster is folded and this is not the picked class: its weapons on one line.
+    compact: bool,
     rect-x: float,
     rect-y: float,
     rect-w: float,
@@ -639,6 +641,29 @@ export component BattleClassCard inherits Rectangle {
             overflow: elide;
         }
 
+        // Folded (.bfe-spawn-roster.compact): the weapons in one line, .9em apart, cut at the window's edge.
+        if root.model.compact : Rectangle {
+            x: root.border + Theme.vw;
+            y: root.border + root.bar-margin + root.bar-h + 0.45 * Theme.vh;
+            width: root.width - 2 * (root.border + Theme.vw);
+            height: root.row-h;
+            clip: true;
+            HorizontalLayout {
+                spacing: 0.9 * root.wep-size;
+                alignment: start;
+                for w in [root.model.w0, root.model.w1, root.model.w2, root.model.w3, root.model.w4, root.model.w5] : Text {
+                    visible: w != "";
+                    text: w;
+                    font-family: Theme.font-family;
+                    font-size: root.wep-size;
+                    font-weight: 700;
+                    letter-spacing: 0.08 * root.wep-size;
+                    color: Theme.bfe-text-faint;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
         for slot in [
             { text: root.model.w0, col: 0, row: 0 },
             { text: root.model.w1, col: 1, row: 0 },
@@ -652,7 +677,7 @@ export component BattleClassCard inherits Rectangle {
             width: root.col-w;
             height: root.row-h;
             background: transparent;
-            visible: slot.text != "";
+            visible: slot.text != "" && !root.model.compact;
 
             // li::before: a .45em square turned 45 degrees, .5em before the name.
             if root.model.picked : BattleDiamond {

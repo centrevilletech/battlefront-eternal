@@ -422,6 +422,7 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
                 w3: w_slots[3].clone(),
                 w4: w_slots[4].clone(),
                 w5: w_slots[5].clone(),
+                compact: layout.compact && !picked,
                 rect_x: r[0] as f32,
                 rect_y: r[1] as f32,
                 rect_w: (r[2] - r[0]) as f32,
