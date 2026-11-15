@@ -257,6 +257,12 @@ impl GateDriver {
         Ok(())
     }
 
+    /// Whether the battle may draw straight into the window: never on a frame whose
+    /// canvas a screenshot reads (the spawn and pause shots, and combat's at frame 45).
+    pub fn allows_direct(&self) -> bool {
+        self.phase == GatePhase::Combat && self.phase_frames >= 45
+    }
+
     /// Captures the current 3D battle + HUD framebuffer and writes it as `filename`.
     pub fn save_battle_shot(
         &mut self,

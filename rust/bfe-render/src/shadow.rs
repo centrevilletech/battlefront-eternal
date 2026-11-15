@@ -113,7 +113,7 @@ impl<C: HasContext> ShadowPass<C> {
             if v[S_FROM] < 0.0 {
                 // three clears the map before it draws (renderer.clear()).
                 unsafe {
-                    gl.clear_depth_f32(1.0);
+                    gl.clear_depth(1.0);
                     gl.clear(glow::DEPTH_BUFFER_BIT);
                 }
                 stats.gl_calls += 2;

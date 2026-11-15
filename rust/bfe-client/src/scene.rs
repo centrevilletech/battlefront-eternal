@@ -271,13 +271,33 @@ pub(crate) struct TextureOptions{pub compressed:bool,pub max_size:u32,pub capabi
 impl TextureOptions{
     pub fn discover(gl:&glow::Context,compressed:bool)->Self{
         let ext=gl.supported_extensions();
-        let mut capabilities=0;
-        if ext.contains("GL_KHR_texture_compression_astc_ldr"){capabilities|=1;}
-        if ext.contains("GL_ARB_texture_compression_bptc")||ext.contains("GL_EXT_texture_compression_bptc"){capabilities|=2;}
-        if ext.contains("GL_EXT_texture_compression_s3tc"){capabilities|=4;}
-        if ext.contains("GL_ARB_ES3_compatibility"){capabilities|=8;}
-        if bfe_render::texture_format::unpacks_bc7(&unsafe{gl.get_parameter_string(glow::RENDERER)}){capabilities|=64;}
+        let capabilities=texture_capabilities(|name|ext.contains(name),&unsafe{gl.get_parameter_string(glow::RENDERER)});
         Self{compressed,max_size:unsafe{gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE)}.max(1) as u32,capabilities}
+    }
+}
+// The formats the GPU samples itself (texture_format::Capabilities bits). ETC2 is
+// left out: desktop GL lists it with GL_ARB_ES3_compatibility and GLES 3.0 makes it
+// core, but desktop GPUs before Intel's Broadwell (and AMD's and NVIDIA's) have no
+// ETC2 sampler, so Mesa decodes every upload on the CPU into four bytes a texel.
+// A GPU with neither BC7 nor ASTC (Sandy Bridge) takes BC1/BC3 instead.
+fn texture_capabilities(has:impl Fn(&str)->bool,renderer:&str)->u32{
+    let mut capabilities=0;
+    if has("GL_KHR_texture_compression_astc_ldr"){capabilities|=1;}
+    if has("GL_ARB_texture_compression_bptc")||has("GL_EXT_texture_compression_bptc"){capabilities|=2;}
+    if has("GL_EXT_texture_compression_s3tc"){capabilities|=4;}
+    if bfe_render::texture_format::unpacks_bc7(renderer){capabilities|=64;}
+    capabilities
+}
+#[cfg(test)]
+mod texture_capability_tests {
+    use bfe_render::texture_format::{choose,Capabilities,Format};
+    // Sandy Bridge on desktop GL lists ES3 compatibility and S3TC, no BC7.
+    #[test]
+    fn desktop_gl_without_bc7_takes_s3tc_not_emulated_etc2() {
+        let bits=super::texture_capabilities(|n|matches!(n,"GL_ARB_ES3_compatibility"|"GL_EXT_texture_compression_s3tc"),"Mesa Intel(R) HD Graphics 2000 (SNB GT1)");
+        let c=Capabilities::from_bits(bits);
+        assert_eq!(choose(c,true,false,256,256,bits&64!=0),Format::Bc1);
+        assert_eq!(choose(c,true,true,256,256,bits&64!=0),Format::Bc3);
     }
 }
 /// Exclusively owned CPU assets moved from admission to the GL thread.
@@ -363,6 +383,8 @@ pub struct Scene {
     temporal_motion: Option<bfe_render::native_motion::NativeMotion>,
     blur_downsize: f64,
     profile_start: Option<std::time::Instant>,
+    /// This frame's last passes draw into the window itself, not the canvas (see `set_direct`).
+    pub direct: bool,
     profile_rss_after: bool,
     bloom: bool,
     soft_focus: bool,
@@ -1257,7 +1279,7 @@ impl Scene {
                 depth_target,
                 depth_source, depth_color_source, depth_sample, depth_color,
                 render_scale: 1., render_size: size, adaptive_scale:1., resolution_target:0.,resolution_limit:0.,resolution_configured:false,resolution_last_frame:None, resolution:bfe_sim::client::timing::Timing::new(), resolution_fence:None,resolution_queries:None,resolution_query_active:false,resolution_gpu_ms:f64::NAN,resolution_cpu_ms:f64::NAN,resolution_cpu_sample:None,
-                profile_start: None, profile_rss_after: false,
+                profile_start: None, profile_rss_after: false, direct: false,
                 post_images, post_mode: 0, temporal_motion:None, blur_downsize:content.map["post"]["blur"]["downsize"].as_f64().filter(|v|v.is_finite()&&*v>0.).unwrap_or(0.25), bloom: false, soft_focus: false, vehicle_blur:false,vehicle_speed:0.,
                 reduced_far_terrain: false, shadows_enabled: shadow_count>0, shadow_bones:bones, shadow_size, features, bump_mapping: true, terrain_detail: true,
                 depth_texture,
@@ -1297,6 +1319,19 @@ impl Scene {
         let textures=self.resources.texture_bytes()+internal;
         eprintln!("graphics memory: {label} texture-bytes={} resource-texture-bytes={} internal-texture-bytes={} renderbuffer-bytes={} canvas-bytes={} {}",textures,self.resources.texture_bytes(),internal,self.resources.target_bytes(),self.size[0] as u64*self.size[1] as u64*8,rss);
 
+    }
+    /// Draws this frame's last passes (the stretch to the window's size and the HUD)
+    /// straight into the window instead of the canvas, which the interface pass would
+    /// otherwise copy into the window: one window-sized copy less a frame, plus the
+    /// interface's own clear and draw. Only a frame whose scene has its own target
+    /// (nothing reads the canvas back); the caller asks only when no interface is shown
+    /// over the battle. Returns whether the frame draws direct.
+    pub fn set_direct(&mut self, wanted: bool) -> bool {
+        self.direct = wanted && self.frame.is_some();
+        let target = if self.direct { None } else { Some(self.canvas.framebuffer) };
+        self.resources.canvas = target;
+        self.bridge.r.core.canvas_framebuffer = target;
+        self.direct
     }
     pub fn finish_profile(&mut self) {
         self.resolution_gpu_end();
