@@ -113,6 +113,9 @@ pub struct ServerConfig {
     pub auto_assign_teams: bool,
     /// Bot mode: `"classic"` (default) or `"off"` (`aiMode` in `src/main.js`).
     pub ai: String,
+    /// Whether a hit from the victim's own team hurts (`friendlyFire`, on by default as in the
+    /// 2004 game). Off adds `ff=0` to the battle query, which the world's admission reads.
+    pub friendly_fire: bool,
     /// UDP game port and `/info` HTTP port (`config.gamePort ?? 18451`).
     pub game_port: Option<u16>,
     /// Optional bind address for the UDP game port and `/info` HTTP listener (`config.bind ?? null`).
@@ -168,6 +171,7 @@ impl Default for ServerConfig {
             auto_spawn: false,
             auto_assign_teams: false,
             ai: "classic".to_string(),
+            friendly_fire: true,
             game_port: None,
             bind: None,
             discovery: true,
@@ -252,6 +256,9 @@ impl ServerConfig {
         if let Some(s) = obj.get("ai").and_then(Value::as_str) {
             cfg.ai = s.to_string();
         }
+        if let Some(b) = obj.get("friendlyFire").and_then(Value::as_bool) {
+            cfg.friendly_fire = b;
+        }
         if let Some(n) = obj.get("gamePort").and_then(Value::as_u64) {
             if (1..=65535).contains(&n) {
                 cfg.game_port = Some(n as u16);
@@ -311,6 +318,7 @@ impl ServerConfig {
             "autoSpawn",
             "autoAssignTeams",
             "ai",
+            "friendlyFire",
             "gamePort",
             "bind",
             "discovery",
@@ -381,6 +389,9 @@ impl ServerConfig {
         }
         if self.auto_assign_teams {
             map.insert("autoAssignTeams".to_string(), Value::Bool(true));
+        }
+        if !self.friendly_fire {
+            map.insert("friendlyFire".to_string(), Value::Bool(false));
         }
         if self.ai != "classic" {
             map.insert("ai".to_string(), Value::String(self.ai.clone()));
@@ -473,6 +484,11 @@ pub fn check_state_budget(value: Option<usize>) -> Result<usize, String> {
 /// Entries beginning with `"swbf2/"` are rejected with `"BF2 simulation is not implemented"`
 /// matching `if (mission.startsWith("swbf2/")) throw Error("BF2 simulation is not implemented")`
 /// in `src/main.js`.
+/// A battle query with the server's friendly fire rule: off adds `ff=0`.
+pub fn with_friendly_fire(query: &str, friendly_fire: bool) -> String {
+    if friendly_fire { query.to_string() } else { format!("{query}&ff=0") }
+}
+
 pub fn query_for_rotation(entry: &str, ai: &str) -> Result<String, String> {
     if entry.starts_with("swbf2/") {
         return Err("BF2 simulation is not implemented".to_string());
