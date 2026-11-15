@@ -25,6 +25,7 @@ pub struct Census {
     behaviour: Behaviour,
     deka: Deka,
     classes: Classes,
+    decisions: Decisions,
     /// The battle's end has been reported.
     ended: bool,
 }
@@ -65,6 +66,38 @@ struct Classes {
     /// Hull damage records whose amount is not a number.
     hull_nan: u32,
     hull_alive: HashMap<u32, bool>,
+}
+
+/// Bot decisions counted every tick, by the bot's team: ticks alive on foot
+/// with a controller, ticks in each controller state and agent state, with a
+/// firing target, with each fire request, target acquisitions and switches,
+/// distance to the target (all target ticks and validated-fire ticks, by
+/// 10/20/40/80 m), the requested stance, and the current goal's kind. A bot
+/// in a seat drives through another controller and is not counted here.
+/// The browser build's decisions.mjs counts the same fields.
+#[derive(Default)]
+struct Decisions {
+    teams: BTreeMap<u32, TeamDecisions>,
+    /// Each controller's target last tick (unit key, life).
+    last: HashMap<usize, Option<(u64, f64)>>,
+}
+#[derive(Default)]
+struct TeamDecisions {
+    ticks: u32,
+    state: BTreeMap<String, u32>,
+    agent: BTreeMap<String, u32>,
+    goal: BTreeMap<String, u32>,
+    target: u32,
+    target_soldier: u32,
+    fire_a: u32,
+    fire_b: u32,
+    acquired: u32,
+    switched: u32,
+    lost: u32,
+    target_range: [u32; 5],
+    fire_range: [u32; 5],
+    stance: [u32; 3],
+    lod_skipped: u32,
 }
 
 #[derive(Default)]
@@ -185,6 +218,64 @@ impl Census {
                 deka.fast += u32::from(d.velocity[0].hypot(d.velocity[2]) > 6.0);
                 let was = deka.mode.insert(r.slot, (unit.generation, d.mode));
                 deka.folds += u32::from(d.mode == 11.0 && was.is_some_and(|(g, m)| g == unit.generation && m != 11.0));
+            }
+        })?;
+        let decisions = &mut self.decisions;
+        context.owned(|w| {
+            use crate::ai::owned::entities::Entity;
+            if tick == 60 {
+                for (_, u) in w.sim.store.unit.iter().filter(|(_, u)| u.human && u.alive) {
+                    let p = u.position();
+                    eprintln!("ai census player alive {} {:.1},{:.1} team {}", String::from_utf16_lossy(w.sim.strings.units(u.class_name)), p.x, p.z, u.team);
+                }
+            }
+            let Some(battle) = w.ai.battle() else { return };
+            let store = &w.sim.store;
+            let entities = &battle.state.entities;
+            let unit_of = |key: u64| match entities.get(key) { Some(Entity::Unit(r)) => store.unit.get(r), _ => None };
+            let bucket = |d: f64| [10.0, 20.0, 40.0, 80.0].iter().take_while(|&&edge| d >= edge).count();
+            let core = &battle.runtime.core;
+            let mut squad = [0u32; 2];
+            for &ci in &core.live {
+                let c = &core.controllers[ci];
+                let Some(unit) = c.unit.and_then(unit_of) else { continue };
+                if unit.human || !unit.alive || unit.dead || unit.generation != c.generation { continue; }
+                if !(0.0..TEAMS as f64).contains(&unit.team) { continue; }
+                let t = decisions.teams.entry(unit.team as u32).or_default();
+                if unit.seat.is_some() { decisions.last.insert(ci, None); continue; }
+                t.ticks += 1;
+                if c.fsm.state == 10.0 { squad[0] += 1; } else if c.fsm.state == 11.0 { squad[1] += 1; }
+                *t.state.entry(format!("{}", c.fsm.state)).or_default() += 1;
+                let agent = c.agent.as_ref().map_or(-1.0, |a| a.fsm.state);
+                *t.agent.entry(format!("{}:{}", c.fsm.state, agent)).or_default() += 1;
+                *t.goal.entry(format!("{}", c.commands.current.kind)).or_default() += 1;
+                t.stance[(c.stance as usize).min(2)] += 1;
+                t.fire_a += u32::from(c.fire_a);
+                t.fire_b += u32::from(c.fire_b);
+                t.lod_skipped += u32::from(c.lod_skipped);
+                let target = c.target.filter(|r| unit_of(r.unit).is_some_and(|u| u.alive && !u.dead && u.generation == r.generation)
+                    || !matches!(entities.get(r.unit), Some(Entity::Unit(_))));
+                let now = target.map(|r| (r.unit, r.generation));
+                let was = decisions.last.insert(ci, now).flatten();
+                match (was, now) {
+                    (None, Some(_)) => t.acquired += 1,
+                    (Some(a), Some(b)) if a != b => t.switched += 1,
+                    (Some(_), None) => t.lost += 1,
+                    _ => {}
+                }
+                if let Some(r) = target {
+                    t.target += 1;
+                    if let Some(u) = unit_of(r.unit) {
+                        if matches!(u.soldier, crate::gen::UnitBody::Soldier(_) | crate::gen::UnitBody::Droideka(_)) { t.target_soldier += 1; }
+                        let (a, b) = (unit.position(), u.position());
+                        let d = ((a.x - b.x).powi(2) + (a.z - b.z).powi(2)).sqrt();
+                        t.target_range[bucket(d)] += 1;
+                        if c.fire_b { t.fire_range[bucket(d)] += 1; }
+                    }
+                }
+            }
+            if tick % 60 == 0 && squad != [0, 0] {
+                eprintln!("ai census squad t={} follow={} hold={}", tick / 60, squad[0], squad[1]);
             }
         })?;
         if tick % 60 != 0 {
@@ -529,6 +620,11 @@ impl Census {
             v["relations"] = serde_json::json!((1..5).map(|a| (1..5).map(|b| crate::units::f3::relation_in(&w.units, a as f64, b as f64)).collect::<Vec<_>>()).collect::<Vec<_>>());
             v["classObjectHits"] = map(&cl.object_hits);
             v["negative"] = serde_json::json!(b.negative);
+            v["decisions"] = serde_json::Value::Object(self.decisions.teams.iter().map(|(team, t)| (format!("{team}"), serde_json::json!({
+                "ticks": t.ticks, "state": t.state, "agent": t.agent, "goal": t.goal, "target": t.target,
+                "targetSoldier": t.target_soldier, "fireA": t.fire_a, "fireB": t.fire_b, "acquired": t.acquired, "switched": t.switched,
+                "lost": t.lost, "targetRange": t.target_range, "fireRange": t.fire_range, "stance": t.stance, "lodSkipped": t.lod_skipped,
+            }))).collect());
             v["spawns"] = serde_json::Value::Object(b.spawns.iter().map(|((t, p), n)| (format!("t{t}:{}", if *p == 0 { "?".into() } else { name(p) }), (*n).into())).collect());
             v.to_string()
         })

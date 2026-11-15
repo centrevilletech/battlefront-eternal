@@ -1,8 +1,7 @@
 //! Short, asset-independent window diagnostic for release platform builds.
 //! It uses the ordinary startup and menu hosts, then the renderer smoke's room.
-use super::{script::write_png, settings::AppSettingsStore, shell::ShellHost};
+use super::{script::write_png, shell::ShellHost};
 use crate::{
-    audio::SharedAudioRouter,
     host::World,
     scene::{MapCamera, Scene},
 };
@@ -65,17 +64,15 @@ impl Smoke {
     pub fn advance(
         &mut self,
         shell: &mut ShellHost,
-        settings: &mut AppSettingsStore,
-        audio: &SharedAudioRouter,
         load: impl FnMut() -> glow::Context,
     ) -> Result<Option<Box<Scene>>, String> {
         if self.started.elapsed().as_secs() > 90 {
-            return Err("platform smoke timed out before the main menu".into());
+            return Err(format!("platform smoke timed out before the main menu (still on {:?})", shell.app.current_screen()));
         }
         match shell.app.current_screen() {
-            ScreenId::Gate => {
-                shell.handle_key("Enter", settings, audio);
-            }
+            // Lift the gate itself, as the battle script does: a key there also opens the main menu's first
+            // item (SINGLEPLAYER), and this smoke draws the main menu.
+            ScreenId::Gate => shell.app.unlock_gate(),
             ScreenId::Main => {
                 self.menu_frames += 1;
                 // Let the ordinary menu timeline render before reading its target.

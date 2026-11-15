@@ -2,7 +2,7 @@
 
 use crate::identity::{verify, write_mode_600};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{value::RawValue, Value};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -11,8 +11,19 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Abstraction over `MasterClient.request(path)` in `src/master-client.js` so `BanCache` can be
 /// exercised both against the live HTTPS master client and deterministic unit-test mocks.
 pub trait BanRequester: Send + Sync {
-    /// Performs an authenticated `GET` request to `path` on the master server (`this.master.request(path)`).
-    fn request_json(&self, path: &str) -> Result<Value, String>;
+    /// Performs an authenticated `GET` request to `path` on the master server and returns the
+    /// response body exactly as received: the ban list's signature covers the payload's own bytes.
+    fn request_text(&self, path: &str) -> Result<String, String>;
+}
+
+/// The signed document of `/v1/bans`, with the payload kept as the bytes the master sent.
+#[derive(Deserialize)]
+struct SignedBans<'a> {
+    #[serde(borrow)]
+    payload: &'a RawValue,
+    signature: String,
+    #[serde(rename = "publicKey", default)]
+    public_key: String,
 }
 
 /// A single global ban entry inside `document.payload.bans` (`src/bans.js`).
@@ -69,7 +80,7 @@ impl<R: BanRequester> BanCache<R> {
     }
 
     /// Fetches `/v1/bans` (and `/v1/info` on first run), verifies the Ed25519 signature over
-    /// `JSON.stringify(document.payload)`, validates lifetime bounds, and persists `master-ban-key`
+    /// the payload's received bytes, validates lifetime bounds, and persists `master-ban-key`
     /// (`async refresh()` in `src/bans.js`).
     pub fn refresh(&mut self) -> Result<(), String> {
         let now_ms = SystemTime::now()
@@ -82,11 +93,13 @@ impl<R: BanRequester> BanCache<R> {
     /// Deterministic implementation of `BanCache.refresh()` in `src/bans.js` parameterized by
     /// `now_ms` (`Date.now()`).
     pub fn refresh_at(&mut self, now_ms: u64) -> Result<(), String> {
-        // `const document = await this.master.request('/v1/bans');`
-        let document = self.master.request_json("/v1/bans")?;
+        let text = self.master.request_text("/v1/bans")?;
+        let document: SignedBans =
+            serde_json::from_str(&text).map_err(|_| "Invalid ban list signature".to_string())?;
         // `if (!this.key) { const info = await this.master.request('/v1/info'); this.key = info.publicKey; }`
         if self.key.is_none() {
-            let info = self.master.request_json("/v1/info")?;
+            let info: Value = serde_json::from_str(&self.master.request_text("/v1/info")?)
+                .map_err(|e| e.to_string())?;
             let info_key = info
                 .get("publicKey")
                 .and_then(Value::as_str)
@@ -94,26 +107,17 @@ impl<R: BanRequester> BanCache<R> {
             self.key = Some(info_key.to_string());
         }
         // `if (document.publicKey !== this.key) throw Error('Master ban signing key changed');`
-        let doc_key = document
-            .get("publicKey")
-            .and_then(Value::as_str)
-            .unwrap_or("");
+        let doc_key = document.public_key.as_str();
         if Some(doc_key) != self.key.as_deref() {
             return Err("Master ban signing key changed".to_string());
         }
-        // Verify Ed25519 signature over `Buffer.from(JSON.stringify(document.payload))`.
-        let payload = document
-            .get("payload")
-            .ok_or_else(|| "Invalid ban list signature".to_string())?;
-        let signature = document
-            .get("signature")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "Invalid ban list signature".to_string())?;
-        let payload_json =
-            serde_json::to_string(payload).map_err(|_| "Invalid ban list signature".to_string())?;
-        if !verify(doc_key, &payload_json, signature) {
+        // The master signs JSON.stringify(payload) and sends those same bytes. Verify them as
+        // received: serializing the parsed payload again would reorder its keys.
+        if !verify(doc_key, document.payload.get(), &document.signature) {
             return Err("Invalid ban list signature".to_string());
         }
+        let payload: Value = serde_json::from_str(document.payload.get())
+            .map_err(|_| "Invalid ban list signature".to_string())?;
         // Validate list size (`<= 10000`), issue skew (`<= now + 60000`), and expiry window
         // (`now <= expires <= now + 600000`) (`BanCache.refresh` in `src/bans.js`).
         let bans_arr = payload

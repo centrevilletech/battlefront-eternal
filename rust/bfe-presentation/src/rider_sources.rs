@@ -85,6 +85,8 @@ impl Bindings {
         let vehicles=vehicles.borrow();let props=props.borrow();
         let count=(input[f::ACTORS]as usize).min(input.len().saturating_sub(f::STRIDE)/i::STRIDE);
         for n in 0..count {let row=&mut input[f::STRIDE+n*i::STRIDE..][..i::STRIDE];
+            // Rows not presented this frame keep their last values; the unit phase skips them, so this does too.
+            if row[i::PRESENT]==0.0||row[i::REMOVED]!=0.0 {continue;}
             if row[i::SOURCE_PROP]<0.0&&row[i::RIDER_KIND]==0.0 {continue;}
             let Some(birth)=self.births.get_mut(row[i::ACTOR]as usize)else{continue};
             if row[i::SOURCE_PROP]>=0.0 {

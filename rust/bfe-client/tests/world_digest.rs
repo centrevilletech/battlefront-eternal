@@ -7,7 +7,9 @@
 //! `BFE_DIGEST_TICKS` (default 3600) are optional, and so is the seed in
 //! `BFE_DIGEST_SEED` (default 1), and the bots in `BFE_DIGEST_BOTS`
 //! ("classic,medium" by default; "enhanced,hard" and so on). With BFE_AI_TRACE set the bot census prints
-//! on stderr, which makes this a whole battle with no player for comparing bots.
+//! on stderr, which makes this a whole battle with an idle player for comparing bots. `BFE_DIGEST_ORDERS`
+//! ("600:follow,1800:atease"; moveout, hold, follow, atease) has that player give squad orders at those ticks.
+use bfe_client::generated_input::{ClientCommand, ClientFlightCommand, ClientLook};
 use bfe_client::local::{launch::Prepared, options::Options, runtime::Runtime, thread::PublicationSlot};
 use bfe_content_native::setup::admission::{CLOCK_START_MS, CLOCK_UNIX_MS};
 use std::time::Instant;
@@ -73,7 +75,16 @@ fn run(root: &str, battle: &str, ticks: usize) {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     let mut times = Vec::with_capacity(ticks);
     let mut steady_allocations = 0;
+    let orders: Vec<(usize, u32)> = std::env::var("BFE_DIGEST_ORDERS").unwrap_or_default().split(',').filter_map(|order| {
+        let (at, kind) = order.split_once(':')?;
+        let bit = ["moveout", "hold", "follow", "atease"].iter().position(|k| *k == kind)? as u32 + 11;
+        Some((at.parse().ok()?, bit))
+    }).collect();
     for tick in 1..=ticks {
+        for &(_, bit) in orders.iter().filter(|(at, _)| *at == tick) {
+            let command = ClientCommand { generation: runtime.receiver().own.generation, sequence: tick as f64, actions: 1 << bit, ..Default::default() };
+            runtime.submit(&command, &ClientLook::default(), &ClientFlightCommand::default(), runtime.tick(), None, false).unwrap();
+        }
         let before = allocations();
         let start = Instant::now();
         runtime.step_into_slot(&mut slot).unwrap();

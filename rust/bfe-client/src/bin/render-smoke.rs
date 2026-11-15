@@ -1039,23 +1039,30 @@ fn draw_effects_family(
         1.8, 2.4, -4.0, 0.20, 0.80, 0.95, 0.92, 2.2, 0.3, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0,
         0.0, 0.0, 1.0, 1.0,
     ];
+    // Run `water` to prepare the water surface and camera matrices, then re-publish
+    // `R::TRANSPARENT` with `FX_WORDS = 42` so both `WaterPass` and `EffectsPass` execute.
+    // The textured water pass (effects/water-textured-s2) is what the low water quality draws; the higher
+    // qualities read a scene copy only the whole frame plan makes.
+    scene.set_water_settings(&bfe_client::scene::WaterSettings { quality: "low".into(), ocean: "classic".into() })?;
+    scene.draw_component(view, "water")?;
+    // The water step starts the effect list (no battle builds one) with its own surface rows; the two quads
+    // are appended after them.
     scene.bridge.r.effects.data[0..21].copy_from_slice(&q0);
     scene.bridge.r.effects.data[21..42].copy_from_slice(&q1);
-    scene.bridge.r.effects.input[fx::IN_DRAWS] = 1.0;
+    let index = scene.bridge.r.effects.input[fx::IN_DRAWS] as usize;
+    scene.bridge.r.effects.input[fx::IN_DRAWS] = (index + 1) as f64;
     scene.bridge.r.effects.input[fx::IN_OWNERS] = 0.0;
     scene.bridge.r.effects.input[fx::IN_SOFT..fx::IN_SOFT + 6]
         .copy_from_slice(&[0.0, 1.0, 1.0, 0.3, 20000.0, -1.0]);
     {
-        let row = &mut scene.bridge.r.effects.input[fx::DRAW_AT..fx::DRAW_AT + fx::DRAW_STRIDE];
+        let at = fx::DRAW_AT + index * fx::DRAW_STRIDE;
+        let row = &mut scene.bridge.r.effects.input[at..at + fx::DRAW_STRIDE];
         row.fill(0.0);
         row[..6].copy_from_slice(&[fx::KIND_BATCH as f64, batch as f64, 2.0, 0.0, 0.0, 4.0]);
         row[fx::DRAW_KEY + 1] = 10.0;
         row[fx::DRAW_KEY + 5] = batch as f64;
     }
 
-    // Run `water` to prepare the water surface and camera matrices, then re-publish
-    // `R::TRANSPARENT` with `FX_WORDS = 42` so both `WaterPass` and `EffectsPass` execute.
-    scene.draw_component(view, "water")?;
     scene.bridge.r.frames.meta[R::TRANSPARENT * M::LEN + M::FX_WORDS] = 42.0;
     scene.bridge.frame_publish_frame(R::TRANSPARENT as u32);
     scene.bridge.r.frames.stats.fill(0.0);

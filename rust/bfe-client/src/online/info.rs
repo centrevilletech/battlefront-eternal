@@ -66,6 +66,8 @@ fn response(bytes:&[u8])->Result<Vec<u8>,String>{
         if &body[end..end+2]!=b"\r\n"{return Err("invalid HTTP chunk terminator".into());}out.extend_from_slice(&body[cursor..end]);cursor=end+2;
     }Ok(out)
 }
+// Errors of Server::read that mean nothing answered at that address.
+pub fn unreachable(error:&str)->bool{error.starts_with("cannot resolve server")||error.starts_with("cannot reach server")}
 // Profiles survive process restarts. Platform application data, rather than
 // the executable directory, gives ordinary launches the same durable key.
 pub fn default_identity()->Result<PathBuf,String>{
@@ -99,8 +101,11 @@ pub fn identity(path:&Path)->Result<Identity,String>{
 
 // Resolve discovery, content identity and transport candidates before creating
 // a visible window. The endpoint remains nonblocking during window admission.
-pub fn prepare(address:&str,root:&Path,path:&Path,name:&str)->Result<(Server,Box<bfe_transport::endpoint::Endpoint>),String>{
+// `expected` is the identity an internet listing named for this server: an
+// endpoint that answers with another identity is not the listed server.
+pub fn prepare(address:&str,root:&Path,path:&Path,name:&str,expected:Option<&str>)->Result<(Server,Box<bfe_transport::endpoint::Endpoint>),String>{
     let server=Server::read(address)?;
+    if expected.is_some_and(|id|!id.eq_ignore_ascii_case(&server.id)){return Err("The server at the listed address is not the listed server. Refresh the list and try again.".into());}
     let files=bfe_content::files::DirFiles::new(root);
     let hash=bfe_content_native::fingerprint::hash(&files,&server.query)?;
     let endpoint=Box::new(bfe_transport::endpoint::Endpoint::connect(address,identity(path)?,server.identity()?,&Server::hello(&hash,name)).map_err(|e|e.to_string())?);
