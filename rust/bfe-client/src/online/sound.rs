@@ -324,6 +324,13 @@ pub struct Sound {
     sound_names: Vec<String>,
     // The device generation the output was last resolved against.
     device_seen: u64,
+    // The sub-level's spaces, the boxes that pick them, the dry default, and
+    // the listener's space now (Classic's reverb).
+    spaces: Vec<(f64, [f64; room::STRIDE])>,
+    space_boxes: Vec<super::sound_data::SpaceBox>,
+    dry: (f64, [f64; room::STRIDE]),
+    space: Option<usize>,
+    space_set: bool,
     // Chatter records received, by property (bench telemetry).
     vo_asked: Vec<(String, u64)>,
 }
@@ -384,6 +391,11 @@ impl Sound {
                 layout: "stereo", asked: "stereo", channels: 2, enhanced: false, light: true, hrtf: false, binaural: false, lfe: false,
             },
             device_seen: crate::audio::device_generation(),
+            spaces: prepared.spaces,
+            space_boxes: prepared.space_boxes,
+            dry: (0., { let mut r = [0.; room::STRIDE]; r[room::ROOM_HF] = 1.; r[room::DECAY] = 1.; r[room::HF_RATIO] = 0.5; r[room::REFL_DELAY] = 0.02; r[room::REVERB_DELAY] = 0.04; r[room::DIFFUSION] = 1.; r[room::DENSITY] = 1.; r[room::HF_REFERENCE] = 5000.; r[room::MASK] = 1.; r }),
+            space: None,
+            space_set: false,
             configuration: 0.,
             pending_config: None,
             room: [0.; audio::reverb::PARAM_COUNT],
@@ -1287,6 +1299,27 @@ impl Sound {
                 self.foot_counts[(event[event::VALUE] == 6.) as usize] += 1;
             }
         }
+        // Classic's reverb: the listener's space (Sound::listener_space).
+        let p = &runtime.phase.frame;
+        let ear = [p[frame::PX] + 2. * p[frame::FX], p[frame::PY] + 2. * p[frame::FY], p[frame::PZ] + 2. * p[frame::FZ]];
+        let space = listener_space(&self.space_boxes, self.space, ear);
+        if space != self.space || !self.space_set {
+            self.space = space;
+            self.space_set = true;
+            let (send, row) = space.map_or(self.dry, |id| self.spaces[id]);
+            let phase = &mut runtime.phase;
+            phase.space_send = send;
+            phase.original_room = audio_control::acoustics::Room {
+                room: row[room::ROOM], room_hf: row[room::ROOM_HF], decay: row[room::DECAY], hf_ratio: row[room::HF_RATIO],
+                reflections: row[room::REFLECTIONS], refl_delay: row[room::REFL_DELAY], reverb: row[room::REVERB],
+                reverb_delay: row[room::REVERB_DELAY], diffusion: row[room::DIFFUSION], density: row[room::DENSITY],
+                hf_reference: row[room::HF_REFERENCE],
+            };
+            phase.original_room_mask = row[room::MASK] as u32;
+            if !phase.engine.enhanced {
+                phase.room_pending |= phase.original_room_mask;
+            }
+        }
         runtime.step(&mut self.queries);
         // For a battle's summary: the supply stations humming after this step.
         self.station_loops = self
@@ -1386,6 +1419,18 @@ impl Sound {
             .store(write.wrapping_add(1), Ordering::Release);
         self.batches += 1;
     }
+}
+
+/// The space a listener at `ear` takes (docs/formats.md, "Sound"): the one
+/// he has while still inside one of its boxes, else the earliest box (in load
+/// order) holding him, else none (the dry default).
+fn listener_space(boxes: &[super::sound_data::SpaceBox], current: Option<usize>, ear: [f64; 3]) -> Option<usize> {
+    if let Some(space) = current {
+        if boxes.iter().any(|b| b.space == space && b.holds(ear)) {
+            return current;
+        }
+    }
+    boxes.iter().find(|b| b.holds(ear)).map(|b| b.space)
 }
 
 // Disappearance freezes followed one-shots at their last published point,
@@ -1511,6 +1556,19 @@ mod batch_tests {
 
     // A frame may publish up to COMMANDS words of its own; stream completions
     // received after that must not take the batch past the device's reserve.
+    #[test]
+    fn the_listener_keeps_his_space_while_inside_it_else_takes_the_earliest_box() {
+        use super::super::sound_data::SpaceBox;
+        let at = |x: f64, space: usize| SpaceBox { matrix: [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., x, 0., 0., 1.], size: [5., 5., 5.], space };
+        let boxes = [at(0., 1), at(4., 2)];
+        assert_eq!(listener_space(&boxes, None, [100., 0., 0.]), None);
+        assert_eq!(listener_space(&boxes, None, [3., 0., 0.]), Some(1));
+        // Inside both: the space he has stays; entering fresh, the earliest box wins.
+        assert_eq!(listener_space(&boxes, Some(2), [3., 0., 0.]), Some(2));
+        assert_eq!(listener_space(&boxes, None, [8., 0., 0.]), Some(2));
+        assert_eq!(listener_space(&boxes, Some(1), [8., 0., 0.]), Some(2));
+        assert_eq!(listener_space(&boxes, Some(1), [20., 0., 0.]), None);
+    }
     #[test]
     fn a_full_frame_batch_reaches_the_device_without_overrunning_it() {
         let mut output = Output::new(48000., 2, false, false, false, false, Default::default());
