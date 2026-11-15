@@ -36,6 +36,8 @@ struct Behaviour {
     unboards: u32,
     hits: u32,
     hits_50m: u32,
+    /// Of `hits`, those on hulls and props.
+    object_hits: u32,
     hits_100m: u32,
     hits_on_players: u32,
     hits_by_players: u32,
@@ -43,6 +45,20 @@ struct Behaviour {
     team_shots: [u32; TEAMS],
     /// Damage bots dealt to soldiers, and their hits that dealt none.
     damage_sum: f64,
+    /// Bot hits on soldiers by the attacker's class.
+    class_hits: BTreeMap<u32, u32>,
+    class_shots: BTreeMap<u32, u32>,
+    /// Explosions, and the soldier damage records just before each (its
+    /// blast's victims, which the world journals ahead of the explosion).
+    /// Health living soldiers gained second to second (healing), and each
+    /// one's health and life a second ago.
+    healed: f64,
+    /// Bot hits on soldiers by damage: under 10, 10-30, 30-60, 60-120, more.
+    amounts: [u32; 5],
+    health: HashMap<u32, (f64, f64)>,
+    explosions: u32,
+    blast_victims: u32,
+    run: u32,
     zero_hits: u32,
     team_hits: [u32; TEAMS],
     /// Alive bot soldiers' seconds standing, crouched and prone.
@@ -99,10 +115,11 @@ impl Census {
         let report = tick % every.max(60) == 0;
         let last = std::mem::take(&mut self.last);
         let behaviour = &mut self.behaviour;
-        let (teams, reinforcements, humans) = context.owned(|w| {
+        let (teams, reinforcements, humans, classes) = context.owned(|w| {
             let store = &w.sim.store;
             let mut teams = [Team::default(); TEAMS];
             let mut humans = HashSet::new();
+            let mut classes: HashMap<u32, u32> = HashMap::new();
             let mut next = HashMap::with_capacity(last.len());
             for (r, unit) in store.unit.iter() {
                 let p = unit.position();
@@ -110,6 +127,7 @@ impl Census {
                 if unit.human {
                     humans.insert(r.slot);
                 }
+                classes.insert(r.slot, unit.class_name.0);
                 if unit.human || !(0.0..TEAMS as f64).contains(&unit.team) {
                     continue;
                 }
@@ -132,6 +150,11 @@ impl Census {
                     continue;
                 }
                 t.alive += 1;
+                let hp = unit.combat.health;
+                if let Some(&(was, life)) = behaviour.health.get(&r.slot) {
+                    if life == unit.generation && hp > was { behaviour.healed += hp - was; }
+                }
+                behaviour.health.insert(r.slot, (hp, unit.generation));
                 let seated = unit.seat.is_some();
                 t.seated += u32::from(seated);
                 let mut moved = false;
@@ -219,7 +242,7 @@ impl Census {
             }
             let reinforcements: Vec<(f64, f64)> = store.battle.reinforcements.iter().filter(|(t, _)| *t < 3.0).map(|(t, v)| (t, *v)).collect();
             self.last = next;
-            (teams, reinforcements, humans)
+            (teams, reinforcements, humans, classes)
         })?;
         let seen = self.journal_seen;
         let positions = &self.last;
@@ -231,12 +254,18 @@ impl Census {
             let human = |life: &Option<super::journal::Life>| life.is_some_and(|l| humans.contains(&l.id));
             for record in journal.records().filter(|r| r.seq >= start && r.seq < head) {
                 match &record.event {
+                    Event::Damage { .. } | Event::HullDamage { .. } | Event::PropDamage { .. } => behaviour.run += 1,
+                    Event::Explosion { .. } => { behaviour.explosions += 1; behaviour.blast_victims += behaviour.run; behaviour.run = 0; }
+                    _ => behaviour.run = 0,
+                }
+                match &record.event {
                     Event::Shot { source, team, weapon, repair, melee, .. } => {
                         *shots += 1;
                         if humans.contains(&source.id) {
                             continue;
                         }
                         if !*repair && (0.0..TEAMS as f64).contains(team) { behaviour.team_shots[*team as usize] += 1; }
+                        if !*repair { if let Some(&class) = classes.get(&source.id) { *behaviour.class_shots.entry(class).or_default() += 1; } }
                         *behaviour.shots.entry(weapon.map_or(0, |w| w.0)).or_default() += 1;
                         behaviour.repair += u32::from(*repair);
                         behaviour.melee += u32::from(*melee);
@@ -263,9 +292,11 @@ impl Census {
                             behaviour.hits_by_players += 1;
                         } else {
                             behaviour.hits += 1;
-                            behaviour.damage_sum += amount;
+                            if amount.is_finite() { behaviour.damage_sum += amount; }
+                            behaviour.amounts[[10.0, 30.0, 60.0, 120.0].iter().take_while(|&&edge| *amount >= edge).count()] += 1;
                             behaviour.zero_hits += u32::from(!(*amount > 0.0));
                             if (0.0..TEAMS as f64).contains(attacker_team) { behaviour.team_hits[*attacker_team as usize] += 1; }
+                            if let Some(&class) = attacker.and_then(|a| classes.get(&a.id)) { *behaviour.class_hits.entry(class).or_default() += 1; }
                             // The attacker where the census last saw him (within a second).
                             if let Some(&(x, z, _)) = attacker.and_then(|a| positions.get(&a.id)) {
                                 let d = ((position[0] - x).powi(2) + (position[2] - z).powi(2)).sqrt();
@@ -274,7 +305,17 @@ impl Census {
                             }
                         }
                     }
-                    Event::HullDamage { .. } | Event::PropDamage { .. } => *damage += 1,
+                    // Hits on hulls and props count as hits too, as the page's
+                    // journal names every one of them a `damage` record.
+                    Event::HullDamage { attacker, attacker_team, .. } | Event::PropDamage { attacker, attacker_team, .. } => {
+                        *damage += 1;
+                        if !human(attacker) {
+                            behaviour.hits += 1;
+                            behaviour.object_hits += 1;
+                            if (0.0..TEAMS as f64).contains(attacker_team) { behaviour.team_hits[*attacker_team as usize] += 1; }
+                            if let Some(&class) = attacker.and_then(|a| classes.get(&a.id)) { *behaviour.class_hits.entry(class).or_default() += 1; }
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -319,10 +360,12 @@ impl Census {
             serde_json::json!({
                 "t": second, "shots": map(&b.shots), "mounted": map(&b.mounted), "grenades": map(&b.grenades),
                 "repair": b.repair, "melee": b.melee, "boards": b.boards, "unboards": b.unboards,
-                "hits": b.hits, "hits50m": b.hits_50m, "hits100m": b.hits_100m,
+                "hits": b.hits, "objectHits": b.object_hits, "hits50m": b.hits_50m, "hits100m": b.hits_100m,
                 "hitsOnPlayers": b.hits_on_players, "hitsByPlayers": b.hits_by_players,
                 "teamShots": b.team_shots[..3], "teamHits": b.team_hits[..3],
                 "damageSum": b.damage_sum.round(), "zeroHits": b.zero_hits,
+                "classHits": map(&b.class_hits), "classShots": map(&b.class_shots),
+                "explosions": b.explosions, "blastVictims": b.blast_victims, "healed": b.healed.round(), "hitAmounts": b.amounts,
                 "postureSeconds": {"stand": b.posture[0], "crouch": b.posture[1], "prone": b.posture[2]},
                 "firstCapture": b.first_capture, "stoodStill10s": b.stood.len(),
                 "stoodByClass": map(&b.stood.values().fold(BTreeMap::new(), |mut m, c| { *m.entry(*c).or_default() += 1; m })),
