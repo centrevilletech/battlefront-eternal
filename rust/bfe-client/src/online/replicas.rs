@@ -93,6 +93,7 @@ pub struct Looks {
     /// jetpackEffects: Enhanced only when it says "enhanced".
     pub jetpack: bool,
     pub rain: bool,
+    pub environment: bool,
 }
 pub struct Replicas {
     pub first_person: super::first_person::Views,
@@ -108,6 +109,7 @@ pub struct Replicas {
     jets: Box<super::jetpacks::Jetpacks>,
     pub rain: Option<Box<super::weather::Rain>>,
     pub snow: Option<Box<super::weather::Snow>>,
+    pub steam: Option<Box<super::steam::Steam>>,
     guns: super::lightning::Guns,
     soft: bool,
     // The tick of the frame being drawn.
@@ -477,6 +479,8 @@ impl Replicas {
         let rain = super::weather::Rain::new(content, bridge, renderer, resources.collision.clone(), resources.world, holograms.end())?.map(Box::new);
         let snow_at = rain.as_ref().map_or(holograms.end(), |r| r.end());
         let snow = super::weather::Snow::new(content, bridge, textures, renderer, resources.collision.clone(), resources.world, snow_at)?.map(Box::new);
+        let steam_at = snow.as_ref().map_or(snow_at, |s| s.end());
+        let steam = super::steam::Steam::new(content, bridge, textures, renderer, steam_at)?.map(Box::new);
         bridge.r.core.state.reset();
         // Weapon actions resolve their clips once, per body and bank.
         let sets = content.content.battle.anim_meta.get("sets");
@@ -506,6 +510,7 @@ impl Replicas {
             jets,
             rain,
             snow,
+            steam,
             guns,
             // The browser's defaults, until the player's settings arrive.
             soft: true,
@@ -1092,6 +1097,7 @@ impl Replicas {
         if let Some(rain) = &mut self.rain {
             rain.enhanced = looks.rain;
         }
+        self.combat.map_effects.enhanced = looks.environment;
     }
     /// The softParticles setting: particles and arcs fade where they meet
     /// the scene, which needs the frame's depth copy.
@@ -1114,7 +1120,10 @@ impl Replicas {
     }
     /// Weather.update once the camera is posed: the rain's draws, and its
     /// cover cache's texture when cells changed.
-    pub fn present_weather(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], gpu: &mut crate::resources::Resources, bridge: &mut Bridge) {
+    pub fn present_weather(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], screen: [i32; 2], gpu: &mut crate::resources::Resources, bridge: &mut Bridge) {
+        if let Some(steam) = &mut self.steam {
+            steam.frame(dt, &self.combat.map_effects.volumes, screen, true, gpu, bridge);
+        }
         if let Some(rain) = &mut self.rain {
             rain.frame(dt, eye, gpu, bridge);
         }
@@ -1124,10 +1133,12 @@ impl Replicas {
         // With the bench's fx key, how often each was drawn, every 600 frames.
         if self.frame % 600 == 0 && crate::app::bench::fx().is_some() {
             eprintln!(
-                "fx-weather rain={} rain-enhanced={} snow={}",
+                "fx-weather rain={} rain-enhanced={} snow={} steam={} vents={}",
                 self.rain.as_ref().map_or(0, |r| r.frames),
                 self.rain.as_ref().is_some_and(|r| r.enhanced),
-                self.snow.as_ref().map_or(0, |s| s.frames)
+                self.snow.as_ref().map_or(0, |s| s.frames),
+                self.steam.as_ref().map_or(0, |s| s.frames),
+                self.combat.map_effects.volumes.len()
             );
         }
     }
@@ -1137,7 +1148,7 @@ impl Replicas {
     /// `size` is the frame's size in pixels and `depth` the renderer's
     /// texture of the opaque scene's depth, which soft particles read.
     pub fn present_shields(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], size: [i32; 2], depth: u32, bridge: &mut Bridge) {
-        self.combat.particles.project(bridge, camera, self.soft.then_some((size, depth)));
+        self.combat.particles.project(bridge, camera, Some((self.soft, size, depth)));
         self.combat.map_effects.view(camera, eye);
         self.combat.project(bridge, camera, size[1] as f64);
         self.presented.shown[11] = self.combat.total_blasters;

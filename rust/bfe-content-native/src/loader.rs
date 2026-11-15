@@ -73,6 +73,8 @@ pub struct EnvironmentInstance {
     pub effect: String,
     /// Column-major world matrix, as three's Matrix4.fromArray reads it.
     pub matrix: [f64; 16],
+    /// The node of its object it hangs from.
+    pub hardpoint: String,
 }
 pub struct Loader {
     root: PathBuf,
@@ -473,6 +475,7 @@ impl Loader {
                     environment_instances.push(EnvironmentInstance {
                         effect: format!("{}{name}", crate::effects::ENVIRONMENT),
                         matrix: std::array::from_fn(|i| matrix[i].as_f64().unwrap_or(0.)),
+                        hardpoint: item.get("hardpoint").and_then(Authored::as_str).unwrap_or("").to_string(),
                     });
                 }
             }

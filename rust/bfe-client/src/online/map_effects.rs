@@ -19,6 +19,9 @@ struct Instance {
     handle: Option<u32>,
     // Seconds stepped at once when it comes into view.
     warmup: f64,
+    // A steam vent's Enhanced volume (environment-effects.js), none for the
+    // effects that have no Enhanced form.
+    volume: Option<super::steam::Volume>,
 }
 
 pub struct MapEffects {
@@ -26,11 +29,16 @@ pub struct MapEffects {
     reach: f64,
     // The last frame's projection then view matrix, and its eye.
     camera: Option<([f64; 32], [f64; 3])>,
+    /// The environmentEffects setting: Enhanced draws the vents' steam as
+    /// volumes (steam.rs) instead of their stock effect.
+    pub enhanced: bool,
+    /// The vents in view this frame, for the Enhanced steam.
+    pub volumes: Vec<super::steam::Volume>,
     /// Map effects started so far, and those in view in the last update.
     pub started: u64,
     pub visible: usize,
     // BFE_BENCH fx=name,name,...: each named effect group in turn, every 3 s,
-    // 6 m ahead of the camera, for side-by-side captures with the browser.
+    // 6 m ahead of the camera and 2.5 m right, for side-by-side captures with the browser.
     show: Vec<(String, usize)>,
     show_next: usize,
     show_clock: f64,
@@ -51,7 +59,20 @@ impl MapEffects {
             let (mut position, mut turn, mut scale) = (three::Vector3::default(), three::Quaternion::default(), three::Vector3::default());
             matrix.decompose(&mut position, &mut turn, &mut scale);
             let position = [position.x, position.y, position.z];
+            let volume = super::steam::is_steam(&item.effect).then(|| {
+                let pipe = item.effect.ends_with("/prop_steampipe");
+                let mut direction = if pipe { three::Vector3::new(0., 0., 1.) } else { three::Vector3::new(0., 1., 0.) };
+                direction.apply_quaternion(&turn);
+                let big = !pipe && ["hp_steam_1", "hp_steam_5"].contains(&item.hardpoint.as_str());
+                super::steam::Volume {
+                    position,
+                    direction: [direction.x, direction.y, direction.z],
+                    extent: if pipe { [2.5, 4., 2.5] } else if big { [7., 6., 7.] } else { [6., 5.5, 6.] },
+                    kind: pipe as u8 as f64,
+                }
+            });
             instances.push(Instance {
+                volume,
                 group,
                 position,
                 turn: [turn.x, turn.y, turn.z, turn.w],
@@ -68,7 +89,7 @@ impl MapEffects {
         if wanted.is_some() {
             eprintln!("fx-map placed={} of {} reach={}", instances.len(), content.environment_instances.len(), end.max(90.));
         }
-        Self { instances, reach: end.max(90.), camera: None, started: 0, visible: 0, show, show_next: 0, show_clock: 0., show_handle: None, report: wanted.map(|_| 0.) }
+        Self { instances, reach: end.max(90.), camera: None, enhanced: true, volumes: Vec::with_capacity(32), started: 0, visible: 0, show, show_next: 0, show_clock: 0., show_handle: None, report: wanted.map(|_| 0.) }
     }
 
     /// The frame's camera, once it is chosen: the next update tests
@@ -101,7 +122,10 @@ impl MapEffects {
                 // The camera's forward (its view's third row, negated), level.
                 let (x, z) = (-camera[16 + 2], -camera[16 + 10]);
                 let length = x.hypot(z).max(1e-6);
-                let at = [eye[0] + x / length * 6., eye[1] - 1.5, eye[2] + z / length * 6.];
+                // 6 m ahead, 2.5 m right of the view (clear of the player's
+                // own body), 1.5 m below the eye.
+                let (fx, fz) = (x / length, z / length);
+                let at = [eye[0] + fx * 6. - fz * 2.5, eye[1] - 1.5, eye[2] + fz * 6. + fx * 2.5];
                 self.show_handle = effects.start(*group, at, [0.; 3], None, self.show_next as u32);
                 let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |t| t.as_millis());
                 eprintln!("fx-show {name} {ms} {:.2} {:.2} {:.2}", at[0], at[1], at[2]);
@@ -110,8 +134,22 @@ impl MapEffects {
         let planes = frustum(&camera);
         let reach = self.reach * self.reach;
         self.visible = 0;
+        self.volumes.clear();
         for (at, i) in self.instances.iter_mut().enumerate() {
             let far = (0..3).map(|k| (i.position[k] - eye[k]).powi(2)).sum::<f64>();
+            // Enhanced vents: a volume while in view out to 90 m, the sphere
+            // 2 m along the vent and 7 m round; their stock effect stops.
+            if let (true, Some(v)) = (self.enhanced, i.volume) {
+                if let Some(handle) = i.handle.take() {
+                    effects.kill(handle);
+                }
+                let center: [f64; 3] = std::array::from_fn(|k| v.position[k] + v.direction[k] * 2.);
+                if far < 90. * 90. && planes.iter().all(|p| p[0] * center[0] + p[1] * center[1] + p[2] * center[2] + p[3] >= -7.) {
+                    self.visible += 1;
+                    self.volumes.push(v);
+                }
+                continue;
+            }
             let visible = far < reach && planes.iter().all(|p| p[0] * i.center[0] + p[1] * i.center[1] + p[2] * i.center[2] + p[3] >= -16.);
             self.visible += visible as usize;
             match (visible, i.handle) {

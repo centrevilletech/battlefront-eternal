@@ -40,6 +40,7 @@ mod holograms;
 mod lights;
 pub mod particles;
 
+pub mod steam;
 pub mod turrets;
 pub mod weather;
 
