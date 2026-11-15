@@ -1136,6 +1136,7 @@ impl Replicas {
                 } else {
                     self.units.actor_node_start(slot.actor) + self.models[slot.model].hand?
                 };
+                self.units.refresh_actor(slot.actor);
                 let node = hand * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
                 let mut matrix = Matrix4::default();
                 matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
@@ -1225,12 +1226,19 @@ impl Replicas {
                 if !slot.active {
                     continue;
                 }
-                self.units.refresh_actor(slot.actor);
-                let out = &self.units.output[slot.actor * o::STRIDE..];
                 let mine = slot.identity == Some(own);
+                let caster = self.guns.casters.get(slot.class).copied().flatten();
+                let color = self.guns.colors.get(slot.primary).copied().flatten();
+                let most = self.guns.holds.get(slot.primary).copied().unwrap_or(0.);
+                let pressed = if mine { own_hold.unwrap_or(0.) } else { slot.charge / 63. * most };
+                // Arc bolts read a caster's muzzle; crackle reads a charged
+                // gun. Other bodies supply their bones only if prepare asks.
+                let needs_muzzle = caster.is_some() || color.is_some() && pressed > 0. || mine && self.first_person.enabled;
+                if needs_muzzle { self.units.refresh_actor(slot.actor); }
+                let out = &self.units.output[slot.actor * o::STRIDE..];
                 // In first person the player's own gun is the arms' gun.
                 let eyes = mine && self.first_person.enabled && !slot.dead;
-                let hand = if eyes { self.first_person.hand_node(&self.units) } else { self.models[slot.model].hand.map(|hand| self.units.actor_node_start(slot.actor) + hand) };
+                let hand = if !needs_muzzle { None } else if eyes { self.first_person.hand_node(&self.units) } else { self.models[slot.model].hand.map(|hand| self.units.actor_node_start(slot.actor) + hand) };
                 let hand = hand.map(|hand| {
                     let node = hand * bfe_presentation::layout::unit_node::STRIDE
                         + bfe_presentation::layout::unit_node::WORLD;
@@ -1245,10 +1253,6 @@ impl Replicas {
                     point.apply_matrix4(hand.as_ref()?);
                     Some([point.x, point.y, point.z])
                 };
-                let caster = self.guns.casters.get(slot.class).copied().flatten();
-                let color = self.guns.colors.get(slot.primary).copied().flatten();
-                let most = self.guns.holds.get(slot.primary).copied().unwrap_or(0.);
-                let pressed = if mine { own_hold.unwrap_or(0.) } else { slot.charge / 63. * most };
                 let seated = slot.mount.is_some();
                 let hidden = out[o::GONE] == -1. || (mine && self.first_person.enabled && !slot.dead);
                 let bubble = slot.bubble.and_then(|bubble| self.shields.shell(bubble));
