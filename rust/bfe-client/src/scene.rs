@@ -469,14 +469,16 @@ fn effective_scale(canvas:[i32;2],base:f64,adaptive:f64)->f64{
     let floor=(720./canvas[1].max(1) as f64).clamp(0.5,1.);
     (base*adaptive).max(base.min(floor))
 }
-// Whether drawing the scene smaller could bring a slow frame under the controller's slow line
-// (85% of the budget): the GPU time that is not the scene's (the stretch or post chain to the
-// window, the HUD, the interface) stays whatever the scene's size. Unknown split: yes.
+// Whether drawing the scene smaller is worth it for a slow frame: the floor would bring it under
+// the controller's slow line (85% of the budget), or take at least a quarter off it. The GPU time
+// that is not the scene's (the stretch or post chain to the window, the HUD, the interface) stays
+// whatever the scene's size. Unknown split: yes.
 fn resolution_can_help(total_ms:f64,scene_ms:f64,scale:f64,floor:f64,budget_ms:f64)->bool{
     if !(scene_ms.is_finite()&&total_ms.is_finite()&&scale>0.)||budget_ms<=0.{return true;}
     if total_ms<=budget_ms*0.85{return true;}
     let ratio=(floor/scale).min(1.);
-    total_ms-scene_ms.max(0.)*(1.-ratio*ratio)<=budget_ms*0.85
+    let saving=scene_ms.clamp(0.,total_ms)*(1.-ratio*ratio);
+    total_ms-saving<=budget_ms*0.85||saving>=total_ms*0.25
 }
 fn post_image(size:[i32;2],slot:usize)->String{
     use bfe_render::post_chain::layout::resource as R;
@@ -2534,6 +2536,8 @@ mod camera_tests {
         assert!(resolution_can_help(20.,16.,1.,floor,b));
         // A slow frame made of window-size work (an interface layer, the stretch): it cannot.
         assert!(!resolution_can_help(20.,6.,1.,floor,b));
+        // Sixty is out of reach, but the floor takes a third off the frame: worth it.
+        assert!(resolution_can_help(28.,16.,1.,floor,b));
         // Already at the floor: nothing left to take.
         assert!(!resolution_can_help(20.,16.,floor,floor,b));
         // Under the line, or no split measured: the controller decides as before.
