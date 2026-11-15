@@ -33,6 +33,7 @@ impl Samples {
 pub struct Profile<C: HasContext> {
     pub enabled: bool,
     pub gpu_supported: bool,
+    gpu_scale: f64,
     frame: u64,
     pending: VecDeque<(&'static str, C::Query, C::Query, u64)>,
     free: Vec<C::Query>,
@@ -41,13 +42,18 @@ pub struct Profile<C: HasContext> {
     pub triangles: u64,
 }
 impl<C: HasContext> Default for Profile<C> {
-    fn default() -> Self { Self { enabled:false, gpu_supported:false, frame:0, pending:VecDeque::new(), free:vec![], samples:BTreeMap::new(), draws:0, triangles:0 } }
+    fn default() -> Self { Self { enabled:false, gpu_supported:false, gpu_scale:1., frame:0, pending:VecDeque::new(), free:vec![], samples:BTreeMap::new(), draws:0, triangles:0 } }
 }
 impl<C: HasContext> Profile<C> {
     pub fn enable(&mut self, gl: &C) {
         self.enabled = true;
         self.gpu_supported = !gl.version().is_embedded || gl.supported_extensions().iter().any(|e| e.contains("disjoint_timer_query"));
         eprintln!("graphics trace GPU={} CPU={} renderer={}", self.gpu_supported, if thread_cpu_ms().is_some(){"thread"}else{"wall"}, unsafe { gl.get_parameter_string(glow::RENDERER) });
+        // Some drivers expose a timestamp period that differs from wall time.
+        // Calibrate once when tracing starts, before collecting battle samples.
+        // Ordinary play never pays this synchronisation or diagnostic delay.
+        #[cfg(not(target_arch="wasm32"))]
+        if self.gpu_supported { self.gpu_scale = calibrate_gpu_clock(gl); }
     }
     pub fn clock(&self) -> Option<CpuSample> { (self.enabled && self.frame % 7 == 0).then(CpuSample::now) }
     pub fn cpu(&mut self, label: &'static str, start: Option<CpuSample>) {
@@ -94,7 +100,7 @@ impl<C: HasContext> Profile<C> {
             if unsafe {gl.get_query_parameter_u32(b,glow::QUERY_RESULT_AVAILABLE)}==0 {break;}
             let ns=unsafe {gl.get_query_parameter_u64(b,glow::QUERY_RESULT).saturating_sub(gl.get_query_parameter_u64(a,glow::QUERY_RESULT))};
             self.pending.pop_front();self.free.extend([a,b]);
-            self.samples.entry(label).or_default().gpu(frame,ns as f64/1e6);
+            self.samples.entry(label).or_default().gpu(frame,ns as f64*self.gpu_scale/1e6);
         }
     }
     pub fn report(&mut self, gl: &C) {
@@ -111,6 +117,32 @@ impl<C: HasContext> Profile<C> {
         eprintln!("graphics totals: frames={} draws={} triangles={} GPU-pending={}",self.frame,self.draws,self.triangles,self.pending.len());
         for q in self.free.drain(..).chain(self.pending.drain(..).flat_map(|(_,a,b,_)|[a,b])) {unsafe {gl.delete_query(q);}}
         self.enabled=false;
+    }
+}
+
+#[cfg(not(target_arch="wasm32"))]
+fn calibrate_gpu_clock<C: HasContext>(gl: &C) -> f64 {
+    unsafe {
+        let Ok(start) = gl.create_query() else { return 1.; };
+        let Ok(end) = gl.create_query() else { gl.delete_query(start); return 1.; };
+        gl.query_counter(start, glow::TIMESTAMP);
+        gl.finish();
+        let wall = std::time::Instant::now();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        gl.query_counter(end, glow::TIMESTAMP);
+        gl.finish();
+        let wall_ms = wall.elapsed().as_secs_f64()*1000.;
+        let gpu_ms = gl.get_query_parameter_u64(end, glow::QUERY_RESULT)
+            .saturating_sub(gl.get_query_parameter_u64(start, glow::QUERY_RESULT)) as f64/1e6;
+        let disjoint = gl.version().is_embedded && gl.get_parameter_i32(0x8FBB) != 0;
+        gl.delete_query(start);gl.delete_query(end);
+        let scale = wall_ms/gpu_ms;
+        if disjoint || !scale.is_finite() || !(0.1..10.).contains(&scale) {
+            eprintln!("graphics GPU clock: calibration unavailable (wall={wall_ms:.3} ms raw={gpu_ms:.3} ms disjoint={disjoint})");
+            return 1.;
+        }
+        eprintln!("graphics GPU clock: wall={wall_ms:.3} ms raw={gpu_ms:.3} ms scale={scale:.6}");
+        scale
     }
 }
 
