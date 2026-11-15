@@ -135,10 +135,13 @@ pub struct Replicas {
     world: u32,
     shields: Box<super::shields::Shields>,
     holograms: Box<super::holograms::Holograms>,
+    blades: Box<super::blades::Blades>,
     /// The frame's point lights, packed for the camera once the owners
     /// have asked for theirs.
     pub lights: Box<super::lights::SceneLights>,
     held: Vec<Option<super::models::Model>>,
+    // Each held model's geometry name (a droid's blaster, thrown clear).
+    held_names: Vec<String>,
     weapon_classes: Vec<Option<usize>>,
     pub replay: Option<super::replay::Replay>,
     pub hulls: Box<super::hulls::Hulls>,
@@ -477,6 +480,7 @@ impl Replicas {
             }
         }
         let mut held = Vec::new();
+        let mut held_names = Vec::new();
         let mut weapon_classes = vec![None; registry.weapons.len() + 1];
         for weapon in &defs.weapons {
             crate::loading_work::frame().await;
@@ -494,6 +498,7 @@ impl Replicas {
             }
             weapon_classes[id as usize] = Some(held.len());
             held.push(model);
+            held_names.push(name.to_string());
         }
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
@@ -603,7 +608,18 @@ impl Replicas {
             textures,
             &arc_images,
             shields.end(),
-            bfe_render::effects::MAX_DRAWS - super::shields::BUBBLES - super::holograms::MATRICES,
+            // A bubble takes two matrices (shields.rs).
+            bfe_render::effects::MAX_DRAWS - 2 * super::shields::BUBBLES - super::holograms::MATRICES,
+        )?);
+        bridge.r.core.state.reset();
+        // The blades' values follow the holograms', their matrices just before them.
+        let blades = Box::new(super::blades::Blades::new(
+            content,
+            bridge,
+            textures,
+            &arc_images,
+            holograms.end(),
+            bfe_render::effects::MAX_DRAWS - 2 * super::shields::BUBBLES - super::holograms::MATRICES - super::blades::MATRICES,
         )?);
         bridge.r.core.state.reset();
         // The map's rain, its floats after the holograms'.
@@ -660,8 +676,10 @@ impl Replicas {
             world,
             shields,
             holograms,
+            blades,
             lights: Box::new(super::lights::SceneLights::new()),
             held,
+            held_names,
             weapon_classes,
             replay,
             hulls,
@@ -924,7 +942,7 @@ impl Replicas {
             if dead && !self.slots[slot].dead && self.slots[slot].gone.is_none() && self.combat.destruction.chunked(self.slots[slot].class) {
                 self.slots[slot].dead = true;
                 self.units.refresh_actor(self.slots[slot].actor);
-                if let Some(body) = body_of(&self.slots, &self.models, &self.units, slot) {
+                if let Some(body) = body_of(&self.slots, &self.models, &self.units, &self.held_names, slot) {
                     let body = super::destruction::Body { visible: true, ..body };
                     self.combat.destruction.died(&body);
                 }
@@ -1510,6 +1528,10 @@ impl Replicas {
         }
     }
     /// The looks the player's settings choose, as the browser reads them.
+    /// A class registry id's name ("" when unknown).
+    pub fn class_name(&self, id: usize) -> &str {
+        self.class_names.get(id).map_or("", String::as_str)
+    }
     pub fn set_looks(&mut self, looks: Looks) {
         self.arcs.enhanced = looks.arcs;
         self.shields.enhanced = looks.shields;
@@ -1558,8 +1580,8 @@ impl Replicas {
                 if self.slots[slot].active { self.units.refresh_actor(self.slots[slot].actor); }
             }
         }
-        let (slots, models, units) = (&self.slots, &self.models, &self.units);
-        let mut lookup = |unit: (u32, u32)| slots.iter().position(|s| s.active && s.identity == Some(unit)).and_then(|i| body_of(slots, models, units, i));
+        let (slots, models, units, names) = (&self.slots, &self.models, &self.units, &self.held_names);
+        let mut lookup = |unit: (u32, u32)| slots.iter().position(|s| s.active && s.identity == Some(unit)).and_then(|i| body_of(slots, models, units, names, i));
         self.combat.destruction.frame(dt, eye, &mut lookup);
         let hidden = std::mem::take(&mut self.combat.destruction.hidden);
         for unit in &hidden {
@@ -1574,6 +1596,9 @@ impl Replicas {
             } else {
                 self.lights.add(position, color, radius, amount);
             }
+        }
+        for (definition, position) in std::mem::take(&mut self.combat.destruction.sounds) {
+            self.sound.explosion(definition, position);
         }
         self.combat.destruction.draw(bridge);
     }
@@ -1680,6 +1705,25 @@ impl Replicas {
             bridge,
         );
         self.presented.shown[14] = self.holograms.draws;
+        // CombatPresentation's held hilts: a melee weapon in hand shows its blade.
+        self.blades.begin();
+        for slot in &self.slots {
+            let weapon = slot.primary;
+            if !slot.active || slot.held.is_none() || !self.blades.has(weapon) || slot.held != self.weapon_classes.get(weapon).copied().flatten() {
+                continue;
+            }
+            let input = &self.units.input[f::STRIDE + slot.actor * i::STRIDE..];
+            let output = &self.units.output[slot.actor * o::STRIDE..];
+            if output[o::DEAD] != 0. || output[o::GONE] == -1. || input[i::PRESENT] == 0. || (input[i::OWN] != 0. && self.first_person.enabled) {
+                continue;
+            }
+            let Some(hand) = self.models[slot.model].hand else { continue };
+            let node = (self.units.actor_node_start(slot.actor) + hand) * bfe_presentation::layout::unit_node::STRIDE
+                + bfe_presentation::layout::unit_node::WORLD;
+            let mut matrix = [0.; 16];
+            matrix.copy_from_slice(&self.units.nodes[node..node + 16]);
+            self.blades.draw(bridge, weapon, &matrix, camera);
+        }
     }
     /// Pausing is a cold observation point; the canonical clocks and blend
     /// layers stay in Units rather than a second client animation model.
@@ -2003,7 +2047,7 @@ impl DisplayCensus {
                 }
             }
             let mut astray = Vec::new();
-            let (mut shaded, mut dimmed) = (0, 0);
+            let (mut shaded, mut dimmed, mut far) = (0, 0, 0);
             for slot in slots.iter().filter(|s| s.active && s.identity.is_some()) {
                 let out = &output[slot.actor * o::STRIDE..][..o::STRIDE];
                 if slot.identity.is_some_and(|key| world.contains_key(&key)) && (out[o::DEAD] != 0. || out[o::GONE] == -1.) {
@@ -2017,6 +2061,7 @@ impl DisplayCensus {
                     let look = light.at([out[o::ROOT_WORLD + 12], out[o::ROOT_WORLD + 13], out[o::ROOT_WORLD + 14]]);
                     shaded += usize::from(look[0] < 1. || look[1] > 0. || look[2] > 0.);
                     dimmed += usize::from(look[3] < 1.);
+                    far += usize::from(out[o::SHADOW_NEAR] == 0.);
                     if let Some(at) = slot.identity.and_then(|key| world.get(&key)) {
                         let drawn = [out[o::ROOT_WORLD + 12], out[o::ROOT_WORLD + 13], out[o::ROOT_WORLD + 14]];
                         let off = ((drawn[0] - at[0]).powi(2) + (drawn[1] - at[1]).powi(2) + (drawn[2] - at[2]).powi(2)).sqrt();
@@ -2028,17 +2073,24 @@ impl DisplayCensus {
                 }
             }
             let line = by_class.iter().map(|(c, (w, d, a))| format!("{}={w}/{d}/{a}", names.get(*c).map_or("?", String::as_str))).collect::<Vec<_>>().join(" ");
-            eprintln!("units census t={}s world/drawn/astray {line} astray=[{}] light: shaded={shaded} dimmed={dimmed}", (tick / 60.) as u64, astray.join(" "));
+            eprintln!("units census t={}s world/drawn/astray {line} astray=[{}] light: shaded={shaded} dimmed={dimmed} unshadowed={far}", (tick / 60.) as u64, astray.join(" "));
         }
     }
 }
 
 // A droid's body as the destruction effects read it, None without one.
-fn body_of<'a>(slots: &'a [Slot], models: &'a [Model], units: &'a Units, slot: usize) -> Option<super::destruction::Body<'a>> {
+fn body_of<'a>(slots: &'a [Slot], models: &'a [Model], units: &'a Units, held_names: &'a [String], slot: usize) -> Option<super::destruction::Body<'a>> {
     let s = &slots[slot];
     let unit = s.identity?;
     let m = &models[s.model];
     let out = &units.output[s.actor * o::STRIDE..];
+    // The weapon in his hand, where the hand is (shown or not: a dead
+    // unit's is hidden, and Enhanced throws it clear).
+    let weapon = s.held.zip(m.hand).and_then(|(held, hand)| {
+        let name = held_names.get(held)?.as_str();
+        let node = (units.actor_node_start(s.actor) + hand) * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
+        Some((name, std::array::from_fn(|i| units.nodes[node + i])))
+    });
     Some(super::destruction::Body {
         unit,
         class: s.class,
@@ -2052,5 +2104,6 @@ fn body_of<'a>(slots: &'a [Slot], models: &'a [Model], units: &'a Units, slot: u
         nodes: &units.nodes,
         stride: bfe_presentation::layout::unit_node::STRIDE,
         at: (units.actor_node_start(s.actor) + 2) * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD,
+        weapon,
     })
 }

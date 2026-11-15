@@ -49,6 +49,8 @@ pub struct MapEffects {
     show_next: usize,
     show_clock: f64,
     show_handle: Option<u32>,
+    /// Destruction blasts the gallery asks for, for combat's destruction host.
+    pub blasts: Vec<[f64; 3]>,
     // With the bench's fx key present (even empty), a count line every 10 s.
     pub report: Option<f64>,
 }
@@ -97,11 +99,17 @@ impl MapEffects {
         let range = &content.map["distance"]["nearScene"];
         let end = range[3].as_f64().filter(|v| v.is_finite() && *v > 0.3).unwrap_or(500.);
         let wanted = crate::app::bench::fx();
-        let show = wanted.iter().flatten().filter_map(|name| names.iter().find(|(n, _)| n == name).cloned()).collect();
+        // `destruction-blast` names the Enhanced destruction blast, which
+        // combat's destruction host draws (group usize::MAX).
+        let show = wanted
+            .iter()
+            .flatten()
+            .filter_map(|name| if name == "destruction-blast" { Some((name.clone(), usize::MAX)) } else { names.iter().find(|(n, _)| n == name).cloned() })
+            .collect();
         if wanted.is_some() {
             eprintln!("fx-map placed={} of {} reach={}", instances.len(), content.environment_instances.len(), end.max(90.));
         }
-        Self { instances, reach: end.max(90.), camera: None, enhanced: true, jets: false, volumes: Vec::with_capacity(32), fountains: Vec::with_capacity(8), started: 0, visible: 0, show, show_next: 0, show_clock: 0., show_handle: None, report: wanted.map(|_| 0.) }
+        Self { instances, reach: end.max(90.), camera: None, enhanced: true, jets: false, volumes: Vec::with_capacity(32), fountains: Vec::with_capacity(8), started: 0, visible: 0, show, show_next: 0, show_clock: 0., show_handle: None, blasts: Vec::new(), report: wanted.map(|_| 0.) }
     }
 
     /// The frame's camera, once it is chosen: the next update tests
@@ -138,7 +146,11 @@ impl MapEffects {
                 // own body), 1.5 m below the eye.
                 let (fx, fz) = (x / length, z / length);
                 let at = [eye[0] + fx * 6. - fz * 2.5, eye[1] - 1.5, eye[2] + fz * 6. + fx * 2.5];
-                self.show_handle = effects.start(*group, at, [0.; 3], None, self.show_next as u32);
+                if *group == usize::MAX {
+                    self.blasts.push(at);
+                } else {
+                    self.show_handle = effects.start(*group, at, [0.; 3], None, self.show_next as u32);
+                }
                 let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |t| t.as_millis());
                 eprintln!("fx-show {name} {ms} {:.2} {:.2} {:.2}", at[0], at[1], at[2]);
             }

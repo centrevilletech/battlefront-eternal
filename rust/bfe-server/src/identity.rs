@@ -72,13 +72,6 @@ impl ServerIdentity {
     }
 
     /// Generates master request authentication headers (`export function headers(keys, method, path, body = "")` in `src/identity.js`).
-    ///
-    /// Returns:
-    /// - `x-bfe-notice: 2026-10-11`
-    /// - `x-bfe-key: <SPKI base64>`
-    /// - `x-bfe-time: <unix seconds>`
-    /// - `x-bfe-nonce: <32-char random hex>`
-    /// - `x-bfe-signature: <base64 Ed25519 signature over "${method}\n${path}\n${time}\n${nonce}\n${sha256(body)}">`
     pub fn headers(
         &self,
         method: &str,

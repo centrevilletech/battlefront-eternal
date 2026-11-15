@@ -135,11 +135,6 @@ impl ServerSink for SendOnlySink<'_> {
 
 /// `ServerSink` implementation used during [`UdpGameServer::poll`] to collect newly admitted
 /// sessions, incoming lane messages, path migrations, and closed sessions from `ServerEndpoint`.
-///
-/// Why callbacks buffer events into vectors (`admitted`, `messages`, `paths`, `closed`):
-/// `ServerEndpoint::receive` and `ServerEndpoint::poll` borrow `self.endpoint` mutably while
-/// invoking `ServerSink`. Buffering the callbacks allows `UdpGameServer::poll` to subsequently
-/// mutate `self.peers`, `self.by_session`, and `self.endpoint` without borrow conflicts.
 struct PollSink<'a, F: FnMut(&str) -> bool> {
     socket: &'a UdpSocket,
     content: &'a str,
@@ -411,15 +406,6 @@ impl UdpGameServer {
     }
 
     /// Schedules UDP hole-punch datagrams (`0xb8`, `endpoint.punch` in `src/udp-server.js`).
-    ///
-    /// Rejects any candidate IP that fails `valid_peer_ip` so the server never punches unspecified
-    /// or multicast addresses.
-    /// Sends low-TTL / empty hole-punch datagrams from the game UDP socket toward each client
-    /// `host` and `srflx` candidate (`MAX_PUNCH_TARGETS = 8`), porting `udp.punch(candidates)` in
-    /// `packages/bfe-server/src/udp-server.js`.
-    ///
-    /// Opens outbound state-table mappings on the server's local firewall/NAT so the client's
-    /// incoming `bfe_transport` ClientHello can traverse address-restricted cone NATs.
     pub fn punch(&mut self, candidates: &[CandidateEntry]) {
         let mut addrs = Vec::with_capacity(candidates.len());
         for candidate in candidates {

@@ -48,8 +48,6 @@ impl Delta {
         }
         changed
     }
-    // F2Delta is already a retained typed record. Its WASM source address is
-    // bound only by the boundary wrapper, without another encoding or buffer.
 }
 
 // Cache comparison is numeric storage work, not gameplay arithmetic. Integer

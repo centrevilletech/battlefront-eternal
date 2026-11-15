@@ -47,11 +47,8 @@ pub enum GatePhase {
 
 /// Automated driver for `--script ia:<MAP>`.
 ///
-/// Tracks the current [`GatePhase`], per-phase frame count and elapsed wall time,
-/// screenshot output paths, OpenGL error count, steady-state render-thread heap
-/// allocations after warmup, world/renderer contention blocks, and the 60 Hz
-/// world-thread tick-time distribution and host proof counts for every admitted
-/// Instant Action battle.
+/// Tracks the current [`GatePhase`], frame counts and times, screenshots, OpenGL
+/// errors, world/renderer contention and the world thread's tick times.
 pub struct GateDriver {
     /// `BFE_GATE_HUNT` (`droideka` or `soldier`): in a local battle the
     /// player walks up to the nearest living enemy of that kind and fires,
@@ -548,9 +545,8 @@ impl GateDriver {
         Ok(())
     }
 
-    /// Serializes the gate verification summary (`gate-summary.json`), including GL errors,
-    /// steady-state frame allocations, world/renderer blocks, and the 60 Hz world-thread
-    /// tick-time distribution (`min`, `p50`, `p95`, `p99`, `max`) and host proof counts.
+    /// Writes `gate-summary.json`: GL errors, world/renderer blocks, frame times and the
+    /// world thread's tick-time distribution and host counts.
     pub fn write_summary_report(&self) -> Result<serde_json::Value, String> {
         let mut world_stats_map = serde_json::Map::new();
         for (map, st) in &self.world_tick_stats {
@@ -565,7 +561,7 @@ impl GateDriver {
             .cloned()
             .unwrap_or(serde_json::Value::Null);
         // An interrupted run must not leave a success receipt. Require the
-        // completed choreography and actual world ticks before claiming proof.
+        // completed run and actual world ticks before claiming a pass.
         let expected_battles = self.ia_battles_completed.max(1);
         let choreography_complete = self.phase == GatePhase::Finished
             && self.ia_battles_completed == expected_battles

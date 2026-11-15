@@ -200,11 +200,6 @@ pub fn lan_info(info: &Value) -> Value {
 /// Dual-stack `BFE-LAN/1` UDP discovery responder (`export async function startLanDiscovery` in `src/lan.js`).
 /// Dual-stack LAN discovery responder porting `startLanResponder(port, infoFn)` from
 /// `packages/bfe-server/src/lan.js`.
-///
-/// Listens on both IPv4 (`0.0.0.0:<port>`) and IPv6 (`[::]:<port>` with `IPV6_V6ONLY = 1` and
-/// `IPV6_ADD_MEMBERSHIP` on `ff02::1` across all active multicast-capable interfaces discovered
-/// via `/sys/class/net/*/ifindex`). When a valid `{"type":"bfe-discover","v":1,"nonce":"..."}` probe
-/// arrives, replies with `lan_info(info_fn())` echoing the caller's `nonce`.
 pub struct LanDiscoveryResponder {
     stop: Arc<AtomicBool>,
     threads: Vec<JoinHandle<()>>,
@@ -358,13 +353,6 @@ fn responder_loop<F>(
 
 /// Discovers LAN servers via IPv4 broadcast + loopback and IPv6 multicast + loopback
 /// (`export async function discoverLan` in `src/lan.js`).
-///
-/// Deduplicates responses by server `id` (`clean_lan_server`), preferring IPv4 addresses over
-/// bracketed IPv6 addresses when both families answer for the same server.
-/// Broadcasts a `bfe-discover` probe over IPv4 (`255.255.255.255:<port>`) and IPv6 link-local
-/// multicast (`[ff02::1]:<port>`) and collects deduplicated `clean_lan_server` responses until
-/// `timeout_ms` elapses, porting `discoverLan(timeoutMs, port)` from
-/// `packages/bfe-server/src/lan.js`.
 pub fn discover_lan(timeout_ms: u64, port: u16) -> Vec<Value> {
     let nonce_bytes = random::<16>().unwrap_or([0x42; 16]);
     let nonce = hex_encode(&nonce_bytes);

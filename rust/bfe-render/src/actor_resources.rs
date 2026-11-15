@@ -170,6 +170,14 @@ pub fn variant(key:&str,cascades:u32,lamps:bool)->Option<String>{
     let lamps=lamps&&from.mode!="plain"&&from.defines.iter().any(|(n,_)|n=="DYNAMIC");
     selectors().iter().find(|s|s.defines==from.defines&&s.skin==from.skin&&s.mode==from.mode&&s.cascades==cascades&&s.lamps==lamps).map(|s|s.key.clone())
 }
+/// The same program with HEATED (destruction-debris.js heatMaterial): a
+/// droid's piece glowing where it tore, sooted, crumbling away.
+pub fn heated(key:&str)->Option<String>{
+    let from=selectors().iter().find(|s|s.key==key)?;
+    if from.defines.iter().any(|(n,_)|n=="HEATED"){return Some(key.to_string());}
+    let mut defines=from.defines.clone();defines.push(("HEATED".into(),"".into()));defines.sort();
+    selectors().iter().find(|s|s.defines==defines&&s.skin==from.skin&&s.mode==from.mode&&s.cascades==from.cascades&&s.lamps==from.lamps).map(|s|s.key.clone())
+}
 #[derive(Serialize)]
 pub struct Material {pub key:String,pub flags:u32,pub blend:[u32;7],pub blended:bool,pub lamps:bool,pub heated:bool,pub scroll:[f64;2],pub defines:Vec<(String,String)>}
 impl Material {
@@ -282,5 +290,15 @@ mod settings_tests {
                 assert_eq!(variant(&key,0,false).unwrap(),off.key);
             }
         }
+    }
+    #[test]
+    fn a_heated_twin_keeps_everything_but_adds_heated(){
+        let plain=selectors().iter().find(|s|s.mode=="rigid"&&!s.defines.iter().any(|(n,_)|n=="HEATED")&&s.defines.iter().any(|(n,_)|n=="DYNAMIC")).unwrap();
+        let twin=heated(&plain.key).unwrap();
+        let twin=selectors().iter().find(|s|s.key==twin).unwrap();
+        assert!(twin.defines.iter().any(|(n,_)|n=="HEATED"));
+        assert_eq!((twin.skin,&twin.mode,twin.cascades,twin.lamps),(plain.skin,&plain.mode,plain.cascades,plain.lamps));
+        assert_eq!(twin.defines.len(),plain.defines.len()+1);
+        assert_eq!(heated(&twin.key).as_deref(),Some(twin.key.as_str()));
     }
 }

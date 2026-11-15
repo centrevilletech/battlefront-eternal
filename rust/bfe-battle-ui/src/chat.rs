@@ -287,11 +287,6 @@ pub enum BattleKeyAction {
 
 /// Routes an in-battle key press across chat, map overlay (`M`), scoreboard (`Tab`),
 /// pause (`Escape`), viewpoint (`Q`/`V`), console (`Backquote`), and squad commands (`F1`..`F4`).
-///
-/// Chat runs first and may open even while the spawn screen or scoreboard is up (`can_open_chat = !pause_open`),
-/// matching `canOpen` in `src/chat.js`. Remaining bindings respect modal screen ownership:
-/// `Escape`, `Tab`, `Q`/`V`, and `F1`..`F4` require both spawn and scoreboard to be closed,
-/// while `KeyM` (map overlay) is only blocked by the scoreboard.
 #[allow(clippy::too_many_arguments)]
 pub fn route_battle_key(
     code: &str,

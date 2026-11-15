@@ -182,8 +182,7 @@ impl Publication {
         retired + self.selected.len()
     }
     pub fn borrowed_words(&self) -> usize { self.borrowed_words }
-    /// Inspect a qualified encoding without truncating a native pointer to the
-    /// WASM boundary's u32 address. Replayers use this on a 64-bit host too.
+    /// The last encoded words of a qualified entry.
     pub fn encoded(&self, h: &F4Handle) -> Option<&[f64]> {
         if let Some(r) = self.find(h) { return Some(&self.entries.get(r)?.cache.last.words); }
         self.published_retired.iter().find(|e| e.handle == *h).map(|e| e.cache.last.words.as_slice())

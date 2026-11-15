@@ -1,6 +1,6 @@
 //! One battle lifetime for canonical rows, phase services and page resources.
-//! Cold storage exposes fixed WASM addresses without allocating. Warm admission
-//! reserves the exchange core at the same first Sim access as the host bridge.
+//! Cold storage needs no allocation; warm admission reserves the exchange core
+//! at the first Sim access.
 use crate::abi::Sim;
 
 // One initializer list checks COLD's completeness and initializes its boxed

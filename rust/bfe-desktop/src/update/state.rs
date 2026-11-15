@@ -262,12 +262,6 @@ pub fn write_state(root: &Path, state: &State) -> Result<State, String> {
 }
 
 /// Lists all valid installed versions under `<root>/versions`, sorted newest-first.
-///
-/// Only directories containing a valid `.bfe-install.json` whose `version` matches
-/// the directory name and whose `executable` resolves inside the version directory
-/// and exists on disk are returned.
-///
-/// Mirrors `installedVersions` in the desktop host.
 pub fn installed_versions(root: &Path, platform: Option<&str>) -> Vec<InstalledVersion> {
     let dir = versions_dir(root);
     let Ok(entries) = fs::read_dir(&dir) else {

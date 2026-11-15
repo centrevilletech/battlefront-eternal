@@ -446,13 +446,6 @@ fn number(value: Option<&Value>, fallback: f64) -> f64 {
 /// Normalizes one movie clip `{ url, fade_in, fade_out }` from a path string or
 /// `{ file | url | movie, fadeIn, fadeOut }`, using `own` and `[fade_in, fade_out]`
 /// defaults where omitted.
-///
-/// Mirrors `readClip(value, [fadeIn, fadeOut], own)` in `src/shell/data.js`.
-/// Normalizes one movie clip `{ url, fade_in, fade_out }` from a path string or
-/// `{ file | url | movie, fadeIn, fadeOut }`, resolving `fadeIn` and `fadeOut`
-/// in priority order: explicit clip field -> `own_fades` override (`OWN_FADES`)
-/// -> `default_fades` (`FADES.intro`, `FADES.loop`, or `FADES.fly`).
-/// Returns `None` if `value` has no non-empty movie path.
 pub fn read_clip(
     value: Option<&Value>,
     default_fades: [f64; 2],
@@ -792,12 +785,6 @@ pub fn read_maps(maps: Option<&Value>, strings: &BTreeMap<String, String>) -> Ve
 
 /// Reads the loading screen's own art and timing `{ backdrop, disk, leds, edges,
 /// text, track, zoom, hold }`.
-///
-/// Art entries that contain no `'/'` or `'.'` are resolved as `common.json`
-/// texture names via `textures.get(name)`; paths with `'/'` or `'.'` are
-/// resolved via [`resolve_url`].
-///
-/// Mirrors `readLoad(load, texture)` in `src/shell/data.js`.
 pub fn read_load(load: Option<&Value>, textures: &TextureFiles) -> LoadChrome {
     let obj = load.and_then(Value::as_object);
     // Resolve a loading art reference: bare identifiers without `'/'` or `'.'`
@@ -870,11 +857,6 @@ pub fn read_load(load: Option<&Value>, textures: &TextureFiles) -> LoadChrome {
 
 /// Builds a [`TextureFiles`] lookup from `common.json` and
 /// `raster-hud/manifest.json`.
-///
-/// Mirrors `textureFiles(common, raster)` in `src/shell/data.js`:
-/// `common.textures[name]` gives `path` (e.g. `"textures/load_rotating_disk.png"`),
-/// and `raster.textures[path].file` gives its 4x upscale under
-/// `/common/raster-hud/` when present, else `/common/${path}`.
 pub fn texture_files(common: Option<&Value>, raster: Option<&Value>) -> TextureFiles {
     let mut common_textures = BTreeMap::new();
     if let Some(obj) = common

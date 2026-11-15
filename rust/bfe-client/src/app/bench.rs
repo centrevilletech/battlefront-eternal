@@ -21,7 +21,7 @@ use std::{
 };
 
 const UNIT_COLUMNS: &str =
-    r#"["id","kind","team","alive","health","x","y","z","vx","vy","vz","yaw","posture","state","weapon","fired","walkPhase","walkBlend"]"#;
+    r#"["id","kind","team","alive","health","x","y","z","vx","vy","vz","yaw","posture","state","weapon","fired","walkPhase","walkBlend","class"]"#;
 const POSTURES: [&str; 3] = ["stand", "crouch", "prone"];
 const KINDS: [&str; 4] = ["soldier", "droideka", "vehicle", "turret"];
 const GAITS: [&str; 9] = ["idle", "walk", "run", "walkBack", "runBack", "turnLeft", "turnRight", "walkLeft", "walkRight"];
@@ -87,6 +87,8 @@ pub struct Bench {
     // `respawn=SECONDS`: the pause menu's RESPAWN that long after the spawn, once (the death and the screen
     // reopening behind the death camera).
     respawn: Option<f64>,
+    // `again=1`: spawn again, the same way, whenever the spawn screen opens after a death.
+    again: bool,
     alive_since: Option<std::time::Instant>,
     // `frames=PATH`: one line per drawn frame: wall ms, spawn screen open, picked class, picked post.
     frames: Option<BufWriter<File>>,
@@ -115,6 +117,7 @@ impl Bench {
             spawned: false,
             hold: value("hold").is_some(),
             respawn: value("respawn").and_then(|s| s.parse().ok()),
+            again: value("again").is_some(),
             alive_since: None,
             frames: value("frames").and_then(|path| File::create(path).ok().map(BufWriter::new)),
             waiting: "",
@@ -142,6 +145,10 @@ impl Bench {
 
     /// `captured`: the window holds the mouse, so its motion turns the player.
     pub fn step_battle(&mut self, battle: &mut BattleController, captured: bool) {
+        let alive = matches!(&battle.authority, BattleAuthority::InstantAction { receiver, .. } if receiver.own.alive);
+        if self.again && self.spawned && battle.spawn_ctrl.is_open() && !alive {
+            self.spawned = false;
+        }
         if !self.spawned && !self.hold && battle.spawn_ctrl.is_open() {
             let waiting = self.spawn(battle);
             if waiting != self.waiting {
@@ -333,7 +340,7 @@ impl Bench {
             }
             write!(
                 out,
-                r#"[{},"{}",{},{},{:.1},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.4},"{}",{},{},{},{:.4},{:.3}]"#,
+                r#"[{},"{}",{},{},{:.1},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.4},"{}",{},{},{},{:.4},{:.3},"{}"]"#,
                 row[r::ID],
                 KINDS[kind as usize],
                 row[r::TEAM],
@@ -352,6 +359,8 @@ impl Bench {
                 row[r::FIRE_COUNTER],
                 row[r::WALK_PHASE],
                 row[r::WALK_BLEND],
+                // A turret's class id names a turret definition, not a class.
+                if kind == k::TURRET { "" } else { battle.scene.online.as_ref().map_or("", |scene| scene.class_name(row[r::CLASS_ID] as usize)) },
             )?;
         }
         out.write_all(b"]")?;

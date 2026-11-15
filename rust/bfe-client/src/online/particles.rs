@@ -41,6 +41,8 @@ impl Prepared {
         names.extend(super::shields::textures(content));
         // The command posts' holograms: their flare and the logos' texture.
         names.extend(super::holograms::textures(content));
+        // Lightsabre blades: each melee weapon's texture and the glow.
+        names.extend(super::blades::textures(content));
         // The Enhanced steam's wisps (steam.rs).
         names.push("thicksmoke2".into());
         // The Enhanced fountains' foam (fountains.rs).

@@ -22,4 +22,3 @@ impl std::error::Error for Error{}
 // All fallible transport operations return the zero-allocation protocol Error.
 pub type Result<T> = std::result::Result<T,Error>;
 
-// Steady-state zero-allocation verification tests run under a counting global allocator.

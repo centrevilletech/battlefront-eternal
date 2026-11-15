@@ -155,13 +155,6 @@ pub fn map_names(data_dir: &str) -> HashMap<String, String> {
 }
 
 /// Builds the full server browser metadata (`export function browserInfo` in `src/browser-info.js`).
-///
-/// Maps `side` (`rep`/`cis` -> `cw`, `all`/`imp` -> `gcw`) via `ERAS`, extracts `mode` from the
-/// third colon-delimited segment of `config.rotation[0]` (defaulting to `"conquest"`), determines
-/// `bots` from `params.get('ai') !== 'off'`, and computes `uptime` in seconds since `started_at_ms`.
-/// Builds the rich server-browser metadata object (`SponsorInfo`, `BattleInfo`, map title,
-/// description, banner HTTPS URL, and player/bot counts), porting `browserInfo(config, state, maps)`
-/// from `packages/bfe-server/src/browser-info.js`.
 pub fn browser_info(
     config: &ServerConfig,
     query: &str,

@@ -84,6 +84,17 @@ impl Model {
     }
     // A one-bone rigid model uses the same attached skin convention as all
     // other instance rows. No geometry or material is constructed at draw.
+    /// The same rows drawn with each program's HEATED twin (an Enhanced
+    /// droid's pieces, destruction.rs); None when one has no twin.
+    pub fn heated(&self, bridge: &mut Bridge) -> Option<Self> {
+        let mut rows = self.rows.clone();
+        for row in &mut rows {
+            let key = bridge.r.core.program_key(row[draw::REC_PROGRAM] as usize)?.to_string();
+            let heated = bfe_render::actor_resources::heated(&key)?;
+            row[draw::REC_PROGRAM] = bridge.add_owned_program(&heated).ok()? as f64;
+        }
+        Some(Self { rows, radius: self.radius })
+    }
     pub fn append(&self, bridge: &mut Bridge, matrix: &[f64; 16], records: usize, bones: usize) -> (usize, usize) {
         self.append_look(bridge, matrix, records, bones, None)
     }

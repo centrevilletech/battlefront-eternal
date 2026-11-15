@@ -273,12 +273,6 @@ pub fn planet_name(
 
 /// Fraction of a tracking line's travel remaining `t` seconds into a half-track
 /// of `h` seconds.
-///
-/// Every `step` (`0.05s`) the 2004 game moves each line `t / h` of what is left,
-/// so the remaining distance after `k` steps is the product of `(1 - j * step / h)`.
-/// This function evaluates the smooth log-integral of that product.
-///
-/// Mirrors `approach(t, h, step)` in `src/shell/loading.js`.
 pub fn approach(t: f64, h: f64, step: f64) -> f64 {
     if t <= 0.0 {
         return 1.0;

@@ -638,14 +638,6 @@ impl TitleIntro {
 
 
     /// Computes the current bar, block, vertical text scale, and text alpha (`TitleIntro.frame`).
-    ///
-    /// Evaluates which of the five `INTRO` stages `self.time` falls into:
-    /// - `t < 0.0`: waiting for the per-slot start delay (`bar = 0`, `text = 0`).
-    /// - `0.00..0.10s`: stage 0, backing bar expands horizontally from `0` to `1`.
-    /// - `0.10..0.15s`: stage 1, white cursor block fades in at `x = 0`.
-    /// - `0.15..0.20s`: stage 2, white cursor block sweeps from `x = 0` to `x = 1`.
-    /// - `0.20..0.35s`: stage 3, text unfolds vertically (`text = 0..1`) at `alpha = 1`.
-    /// - `0.35..0.50s`: stage 4, text blinks from `alpha = 0` back to `alpha = 1`.
     pub fn frame(&self) -> FlashyFrame {
         let t = self.time;
         let at = |stage: usize| -> f64 {

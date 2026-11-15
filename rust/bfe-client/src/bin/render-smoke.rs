@@ -961,12 +961,6 @@ fn admit_solid_white_texture(scene: &mut Scene) -> Result<u32, String> {
 
 /// Draws the `world` family scene (`world/static-lit-s0-cf-0-0-0`,
 /// `world/foliage-grass`, `world/foliage-leaves`) with sky, props, and water off.
-///
-/// Calling `scene.draw_component(view, "foliage")` first populates the foliage
-/// instance inputs and disables sky, prop instances, and water. Enabling world
-/// mesh 0 and re-running role `R::NEAR` onto a freshly cleared canvas then
-/// exercises both `WorldPass` (`PASS_WORLD`) and `FoliagePass` (`PASS_FOLIAGE`)
-/// in a single `world`-family frame.
 fn draw_world_family(scene: &mut Scene, view: &View) -> Result<(Vec<String>, [u64; 15]), String> {
     use bfe_render::frame_plan::layout::role as R;
     // First run `foliage` to populate the foliage frame inputs and clear `records`, `sky`, and `water`.
@@ -1088,12 +1082,6 @@ fn draw_effects_family(
 
 /// Draws the `interface` family scene (`interface/room` and `interface/model`
 /// via `InterfacePass`) into `scene.canvas.framebuffer`.
-///
-/// Admits two procedural 3D interface geometries through `Bridge::actor_source`:
-/// a backdrop plane (`interface/room`) and a lit 3D sphere (`interface/model`),
-/// registers their appearances via `Bridge::ui_appearance`, populates two
-/// `interface_scene::layout` draw rows with identity transforms and the policy
-/// defaults, and executes `InterfacePass::draw` (`PASS_VIEW`).
 fn draw_interface_family(
     scene: &mut Scene,
     solid_core_tex: u32,
@@ -1176,14 +1164,6 @@ fn draw_interface_family(
 
 /// Draws the `post-hud` family scene (`post-hud/copy` via `PostPass` and
 /// `post-hud/hud` via `HudPass`) into `scene.canvas.framebuffer`.
-///
-/// Exercises both sub-passes of the `post-hud` family:
-/// 1. `PostPass::draw` (`PASS_POST`) runs `post-hud/copy` with a 2x2 source
-///    texture whose `(0, 0)` texel matches the clear color `[10, 15, 23, 255]`
-///    and whose remaining quadrants carry distinct colors.
-/// 2. `HudPass::draw` (`PASS_HUD`) uploads 8 vertices (2 quads) across the
-///    position, UV, mask-UV, and RGBA tint streams and renders them with
-///    `post-hud/hud` over the post-processed background.
 fn draw_post_hud_family(
     scene: &mut Scene,
     solid_core_tex: u32,

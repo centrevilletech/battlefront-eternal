@@ -2327,13 +2327,6 @@ impl StandaloneWindowApp {
 
 /// Maps a `winit` logical [`Key`] to the string key identifier expected by `bfe-shell`
 /// and `bfe-interface` (`"ArrowUp"`, `"Enter"`, `"Escape"`, or printable character).
-///
-/// ## Key Mapping Rules
-/// - Navigation keys (`ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Enter`,
-///   `Escape`, `Backspace`, `Delete`, `Tab`) map to their canonical key names.
-/// - `NamedKey::Space` maps to `" "`.
-/// - Printable characters (`Key::Character`) map to their first non-control Unicode scalar
-///   for profile name entry and hotkey rebinding.
 fn map_shell_key(key: &Key) -> Option<String> {
     match key {
         Key::Named(NamedKey::ArrowUp) => Some("ArrowUp".to_string()),
@@ -2364,13 +2357,6 @@ fn map_shell_key(key: &Key) -> Option<String> {
 
 /// Maps a physical [`KeyCode`] to its DOM `KeyboardEvent.code` string (`"KeyW"`, `"Space"`,
 /// `"ArrowUp"`, etc.) for `BattleController::handle_key` and `bfe-battle-ui`.
-///
-/// ## Supported Physical Key Codes
-/// - Movement & posture: `KeyW`, `KeyA`, `KeyS`, `KeyD`, `Space`, `KeyC`, `KeyX`, `KeyZ`
-/// - Weapons & interaction: `KeyE`, `KeyR`, `KeyF`, `KeyQ`, `KeyV`, `Digit1..Digit4`
-/// - Overlays & chat: `KeyM` (Spawn), `Tab` (Scoreboard), `Escape` (Pause), `KeyT`/`KeyY` (Chat)
-/// - Navigation & camera: `ArrowUp..ArrowRight`, `PageUp`, `PageDown`, `Home`, `End`, `F1..F4`
-/// - Modifiers: `ShiftLeft`, `ShiftRight`, `ControlLeft`, `ControlRight`
 fn keycode_to_dom_code(code: KeyCode) -> Option<&'static str> {
     crate::input::keycode_to_dom_code(code)
 }

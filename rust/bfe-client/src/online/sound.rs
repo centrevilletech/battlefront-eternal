@@ -234,6 +234,8 @@ pub struct Sound {
     own_weapons: [u32; 2],
     pub batches: u64,
     pub events: u64,
+    // With the bench's fx key, a line for each explosion heard.
+    trace_explosions: bool,
     pub refused: u64,
     last_clock: u64,
     music: Vec<[f64; music_slot::STRIDE]>,
@@ -277,6 +279,7 @@ impl Sound {
             own_weapons: [0; 2],
             batches: 0,
             events: 0,
+            trace_explosions: crate::app::bench::fx().is_some(),
             refused: 0,
             last_clock: 0,
             music: prepared.music,
@@ -312,6 +315,25 @@ impl Sound {
         if paused != self.ui_paused {
             self.ui_paused = paused;
             self.ui_event(event_kind::PAUSE, "", paused as u8 as f64, 0.);
+        }
+    }
+
+    /// GameAudio.explosion: an explosion's SoundProperty at its point, by
+    /// its combat definition (one-based).
+    pub fn explosion(&mut self, definition: usize, position: [f64; 3]) {
+        let class = self.combat_classes.get(definition).copied().filter(|&c| c != usize::MAX && definition != 0);
+        if self.trace_explosions && class.is_none() {
+            eprintln!("fx-sound explosion definition={definition} has no sound class");
+        }
+        let Some(class) = class else { return };
+        if self.pending_effects.len() == self.pending_effects.capacity() {
+            self.pending_effects.remove(0);
+            self.refused += 1;
+        }
+        self.pending_effects.push(super::sound_events::placed(event_kind::EXPLOSION, class, position));
+        self.events += 1;
+        if self.trace_explosions {
+            eprintln!("fx-sound explosion definition={definition} class={class} at={position:.1?}");
         }
     }
 
@@ -573,6 +595,14 @@ impl Sound {
                             .push(super::sound_events::impact(&self.cosmetic, class));
                     }
                 }
+            }
+            // Ordnance.explosion's emitSound("explosion"): a blast heard where
+            // it went off (schema 5: definition, then its point).
+            if field.row[r::KIND] == k::COMBAT as f64 && field.row[r::SCHEMA] == 5. && field.length == 33 {
+                let b = &field.bytes[..33];
+                let definition = u32::from_le_bytes(b[4..8].try_into().unwrap()) as usize;
+                let position: [f64; 3] = std::array::from_fn(|i| f64::from_le_bytes(b[8 + i * 8..16 + i * 8].try_into().unwrap()));
+                self.explosion(definition, position);
             }
             if field.row[r::KIND] != k::COMBAT as f64 || field.row[r::SCHEMA] != 8. {
                 continue;
