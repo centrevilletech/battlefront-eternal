@@ -40,6 +40,7 @@ pub fn admit_live(content:&BattleContent)->Result<Placements,String>{admit_selec
 pub fn admit_turrets(content:&BattleContent)->Result<Placements,String>{admit_selected(content,2,None)}
 /// Admit one building look for the state-driven client owner.
 pub fn admit_look(content:&BattleContent, instance:usize, look:usize)->Result<Placements,String>{admit_selected(content,3,Some((instance,look)))}
+pub fn admit_trap_pad(content:&BattleContent, instance:usize)->Result<Placements,String>{admit_selected(content,3,Some((instance,3)))}
 fn admit_selected(content: &BattleContent,mode:u8, selection:Option<(usize,usize)>) -> Result<Placements, String> {
     let mut result = Placements {
         parts: vec![],
@@ -60,7 +61,11 @@ fn admit_selected(content: &BattleContent,mode:u8, selection:Option<(usize,usize
         if let Some((wanted,look))=selection {
             if instance!=wanted {continue;}
             let mut desc=desc.clone();
-            if look!=0 {
+            if look==3 {
+                let Some(model)=desc["trap"]["pad"]["model"].as_str() else {continue;};
+                let matrix=crate::pad::placement(array(&desc["matrix"])?,array(&desc["trap"]["pad"]["at"])?,&content.content.collision)?;
+                desc=json!({"base":"staticpad","model":model,"matrix":matrix});
+            } else if look!=0 {
                 let variant=if look==1 {"destroyed"} else {"unbuilt"};
                 if desc[variant]["model"].as_str().is_none(){continue;}
                 desc["model"]=desc[variant]["model"].clone();
@@ -70,7 +75,7 @@ fn admit_selected(content: &BattleContent,mode:u8, selection:Option<(usize,usize
             continue;
         }
         placements.push((instance,desc.clone()));
-        if desc["base"] == "trap" {
+        if mode!=1 && desc["base"] == "trap" {
             if let Some(model) = desc["trap"]["pad"]["model"].as_str() {
                 let matrix = crate::pad::placement(
                     array(&desc["matrix"])?,
@@ -85,7 +90,7 @@ fn admit_selected(content: &BattleContent,mode:u8, selection:Option<(usize,usize
     let mut cache = std::collections::BTreeMap::<String, Value>::new();
     for (instance,desc) in &placements {
         let base = desc["base"].as_str().unwrap_or("");
-        if mode==1&&matches!(base,"armedbuilding"|"powerupstation"|"commandpost")||mode==2&&base!="armedbuilding"{continue;}
+        if mode==1&&matches!(base,"armedbuilding"|"powerupstation"|"commandpost"|"trap")||mode==2&&base!="armedbuilding"{continue;}
         // AnimatedProp.present samples clips even without gameplay. Retain
         // that distinction instead of publishing an incorrect bind-pose door.
         if mode!=3 && matches!(base, "animatedprop" | "door") {

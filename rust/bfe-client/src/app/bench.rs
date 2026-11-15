@@ -300,6 +300,14 @@ impl Bench {
             }
         }
         out.write_all(b"]")?;
+        out.write_all(br#","traps":["#)?;
+        if let Some(scene) = battle.scene.online.as_ref() {
+            for (index, trap) in scene.animated.trap_states().enumerate() {
+                if index != 0 { out.write_all(b",")?; }
+                serde_json::to_writer(&mut *out, &trap)?;
+            }
+        }
+        out.write_all(b"]")?;
         out.write_all(b"}\n")?;
         // A reader follows the file while the battle runs.
         if tick % 6. == 0. {

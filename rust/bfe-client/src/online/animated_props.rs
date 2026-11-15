@@ -5,9 +5,9 @@ use bfe_content::{odf::num, Value};
 use bfe_content_native::BattleContent;
 use bfe_pose::rig::hull::HullRig;
 use bfe_presentation::{
-    layout::{prop_frame as f, prop_input as p, prop_limits as lim},
+    layout::{prop_frame as f, prop_input as p, prop_limits as lim, trap_input as t},
     network_layout::{net_kind as k, net_record as r},
-    props::{PropInput, Props, TriggerInput},
+    props::{PropInput, Props, TrapDesc, TriggerInput},
 };
 use bfe_render::instances as draw;
 use three::{Matrix4, Vector3};
@@ -18,9 +18,17 @@ struct View {
     rows: Vec<[f64; draw::REC_STRIDE]>,
     bone: usize,
 }
+struct TrapView {
+    view: View,
+    pad_rows: Vec<[f64; draw::REC_STRIDE]>,
+    pad_bones: Vec<f32>,
+    phase: u8,
+    started: f64,
+}
 pub struct Animated {
     owner: Box<Props>,
     views: Vec<View>,
+    traps: Vec<TrapView>,
 }
 impl Animated {
     pub fn new(
@@ -30,8 +38,9 @@ impl Animated {
     ) -> Result<Self, String> {
         let mut owner = Box::new(Props::new());
         let mut views = Vec::new();
+        let mut traps = Vec::new();
         let Some(data) = content.content.battle.props.as_ref() else {
-            return Ok(Self { owner, views });
+            return Ok(Self { owner, views, traps });
         };
         for (source, desc) in data
             .get("instances")
@@ -219,7 +228,41 @@ impl Animated {
                 bone: owner.bone_start(false, index),
             });
         }
-        Ok(Self { owner, views })
+        for (source, desc) in data.get("instances").and_then(Value::as_array).unwrap_or(&[]).iter().enumerate() {
+            if desc.get("base").and_then(Value::as_str) != Some("trap") { continue; }
+            let Some(name) = desc.get("model").and_then(Value::as_str) else { continue; };
+            let Some(model) = data.get("models").and_then(|m| m.get(name)) else { continue; };
+            let def = bfe_pose::rig::content::hull_records(&Value::Null, model, &[], vec![], false);
+            let root = def.bones.iter().position(|b| matches!(b.name.to_lowercase().as_str(), "dummyroot" | "dummy_root")).unwrap_or(0);
+            let mut rig = HullRig::new(&def);
+            let inverses = rig.bones.iter().chain(std::iter::once(&rig.static_bone)).map(|id| {
+                let mut m = rig.tree.node(*id).matrix_world; m.invert(); m
+            }).collect::<Vec<_>>();
+            let initial = rig.bones.iter().flat_map(|id| {
+                let n = rig.tree.node(*id);
+                [n.quaternion.x,n.quaternion.y,n.quaternion.z,n.quaternion.w,n.position.x,n.position.y,n.position.z]
+            }).collect();
+            let matrix = desc.get("matrix").and_then(Value::as_array).ok_or("trap has no placement")?;
+            for i in 0..16 { rig.tree.node_mut(rig.root).matrix.elements[i] = matrix[i].as_f64().unwrap_or(0.); }
+            rig.tree.node_mut(rig.root).matrix_auto_update = false;
+            let settings = desc.get("trap").unwrap_or(&Value::Null);
+            let bank = content.content.prop_clips.iter().find(|(n,_)| n == name).and_then(|(_,c)| c.as_ref());
+            let mut load = |key| settings.get(key).and_then(Value::as_str).and_then(|n| bank.and_then(|b| b.get(n))).map(|c| {
+                (owner.load_clip(c.frames_f64() as usize,c.fps,c.root_motion,c.tracks.iter().map(|n|*n as i32).collect(),c.data().to_vec()),c.frames_f64()/30.)
+            });
+            let trigger = load("trigger");
+            let build = load("build");
+            let index = owner.add_trap(TrapDesc { scene: Default::default(), root: root as i32, initial,
+                trigger_clip: trigger.map(|c|c.0), build_clip: build.map(|c|c.0), trigger_length: trigger.map_or(0.,|c|c.1) });
+            let admission = crate::static_scene::props(bridge,content,textures,
+                bfe_content_native::placed::admit_look(content,source,0)?,crate::shadows::COUNT)?;
+            let pad = crate::static_scene::props(bridge,content,textures,
+                bfe_content_native::placed::admit_trap_pad(content,source)?,crate::shadows::COUNT)?;
+            traps.push(TrapView { view: View { skin: vec![0.; inverses.len()*16], rig, inverses,
+                rows: admission.records, bone: owner.bone_start(true,index) }, pad_rows: pad.records, pad_bones: pad.bones,
+                phase: 0, started: 0. });
+        }
+        Ok(Self { owner, views, traps })
     }
     pub fn frame(&mut self, receiver: &Receiver, tick: f64, dt: f64) {
         self.owner.input[f::VERSION] = bfe_presentation::layout::VERSION as f64;
@@ -243,7 +286,18 @@ impl Animated {
         self.owner.input[f::FEET] = count as f64;
         self.owner.input[f::BODIES] = count.min(lim::BODIES) as f64;
         for field in receiver.publications.iter() {
-            if field.row[r::KIND] != k::SUMMARY as f64 || field.row[r::SCHEMA] != 9. {
+            if field.row[r::KIND] != k::SUMMARY as f64 { continue; }
+            if field.row[r::SCHEMA] == 10. {
+                if let Ok(s) = serde_json::from_slice::<[f64;4]>(&field.bytes[..field.length]) {
+                    if let Some(trap) = self.traps.get_mut(s[0] as usize) {
+                        trap.phase = s[1] as u8;
+                        trap.started = s[2];
+                        let row = &mut self.owner.trap_input[s[0] as usize * t::STRIDE..];
+                        row[t::PHASE] = s[1]; row[t::STARTED] = s[2];
+                    }
+                }
+            }
+            if field.row[r::SCHEMA] != 9. {
                 continue;
             }
             if let Ok(s) = serde_json::from_slice::<[f64; 8]>(&field.bytes[..field.length]) {
@@ -259,7 +313,7 @@ impl Animated {
             }
         }
         self.owner.frame();
-        for view in &mut self.views {
+        for view in self.views.iter_mut().chain(self.traps.iter_mut().map(|t| &mut t.view)) {
             for (i, id) in view.rig.bones.iter().enumerate() {
                 let row = &self.owner.bones[(view.bone + i) * 7..];
                 let n = view.rig.tree.node_mut(*id);
@@ -285,12 +339,16 @@ impl Animated {
     pub fn max_bones(&self) -> usize {
         self.views
             .iter()
+            .chain(self.traps.iter().map(|t| &t.view))
             .map(|v| v.inverses.len())
             .max()
             .unwrap_or(1)
     }
     pub fn record_budget(&self) -> usize {
-        self.views.iter().map(|v| v.rows.len()).sum()
+        self.views.iter().map(|v| v.rows.len()).sum::<usize>() + self.traps.iter().map(|t| t.view.rows.len() + if t.phase == 0 { t.pad_rows.len() } else { 0 }).sum::<usize>()
+    }
+    pub fn trap_states(&self) -> impl Iterator<Item=(usize,u8,f64)> + '_ {
+        self.traps.iter().enumerate().map(|(i,t)|(i,t.phase,t.started))
     }
     pub fn append(
         &self,
@@ -298,7 +356,7 @@ impl Animated {
         mut records: usize,
         mut bones: usize,
     ) -> (usize, usize) {
-        for view in &self.views {
+        for view in self.views.iter().chain(self.traps.iter().map(|t| &t.view)) {
             for recipe in &view.rows {
                 let count = view.inverses.len();
                 if records >= draw::MAX_RECORDS || bones + count > draw::MAX_BONES {
@@ -312,6 +370,19 @@ impl Animated {
                 bridge.r.core.input[at..at + draw::REC_STRIDE].copy_from_slice(&row);
                 records += 1;
                 bones += count;
+            }
+        }
+        for trap in self.traps.iter().filter(|t| t.phase == 0) {
+            for recipe in &trap.pad_rows {
+                let count = recipe[draw::REC_BONES] as usize;
+                let source = recipe[draw::REC_BONE_AT] as usize;
+                if records >= draw::MAX_RECORDS || bones + count > draw::MAX_BONES { continue; }
+                let mut row = *recipe;
+                row[draw::REC_BONE_AT] = bones as f64;
+                bridge.r.core.bones[bones*16..(bones+count)*16].copy_from_slice(&trap.pad_bones[source*16..(source+count)*16]);
+                let at = draw::IN_RECORDS + records*draw::REC_STRIDE;
+                bridge.r.core.input[at..at+draw::REC_STRIDE].copy_from_slice(&row);
+                records += 1; bones += count;
             }
         }
         (records, bones)
