@@ -140,6 +140,18 @@ struct Weapon {
     scope: u32,
     zoom_first_person: bool,
 }
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Lock {
+    key: (u32, u32),
+    progress: f64,
+}
+fn weapon_lock(row: &[f64; W::WORDS], weapon: &bfe_sim::gen::Weapon) -> Option<Lock> {
+    if row[W::LOCK] == 0. || weapon.lock_target_id < 0. || weapon.reload_left > 0. || weapon.busy() || weapon.wait > 0. {
+        return None;
+    }
+    let duration = if row[W::LOCK_TIME] > 0. { row[W::LOCK_TIME] } else { row[W::MAX_PRESSED] };
+    Some(Lock { key: (weapon.lock_target_id as u32, weapon.lock_generation as u32), progress: if duration > 0. { (weapon.lock_elapsed / duration).min(1.) } else { 0. } })
+}
 // Command-post identity is authored and stable for a battle. Summary fields
 // update its mutable capture facts in place. Capture regions and labels are
 // cold resources, while HudModel retains progress animation, icon state,
@@ -234,6 +246,7 @@ pub struct Hud {
     reticles: Vec<super::hud_target::Reticle>,
     target_icons: Vec<u32>,
     aimed: [Option<super::hud_target::Aimed>; 2],
+    locks: [Option<Lock>; 2],
     corrected: u64,
     // The score the HUD was last given.
     score: Option<[f64; 4]>,
@@ -614,11 +627,14 @@ impl Prepared {
         // Vehicle.current indexes its seat weapons by trigger channel; the
         // nested weapon definition only supplies the common firing constants.
         for (index, (weapon, mounted_channel)) in definitions.enumerate() {
+            let cooked = bfe_sim::world::admit::rows::combat::vehicle_missile_definition(weapon).map_err(|e| e.to_string())?;
+            let weapon = &cooked;
             let d = authored_json(weapon);
             let mut row = [0.; W::WORDS];
             row[W::ID] = (index + 1) as f64;
             row[W::ICON] = asset(d["IconTexture"].as_str().unwrap_or(""), &mut result)? as f64;
             row[W::RETICLE] = asset(d["ReticuleTexture"].as_str().unwrap_or(""), &mut result)? as f64;
+            row[W::LOCK] = (d["base"].as_str() == Some("launcher") && d["ordnance"]["base"].as_str() == Some("missile")) as u8 as f64;
             let scope = asset(d["ScopeTexture"].as_str().unwrap_or(""), &mut result)?;
             let zoom_first_person = d["ZoomFirstPerson"]
                 .as_bool()
@@ -846,6 +862,7 @@ impl Prepared {
             reticles: self.reticles,
             target_icons: self.target_icons,
             aimed: [None; 2],
+            locks: [None; 2],
             corrected: 0,
             score: None,
             shield_max: self.shield_max,
@@ -1262,6 +1279,7 @@ impl Hud {
         // The predicted arsenal is a borrowed generated result. HUD input
         // carries state facts; HudModel decides priority, fades and reticles.
         self.aimed = [None; 2];
+        self.locks = [None; 2];
         let mut any = false;
         self.scope = 0;
         self.zoom_first_person = false;
@@ -1337,6 +1355,7 @@ impl Hud {
                 }
                 let mut row = def.row;
                 row[W::CHARGING] = weapon.charging as u8 as f64;
+                self.locks[channel] = weapon_lock(&row, &weapon);
                 row[W::HELD] = weapon.held;
                 row[W::RELOADING] = weapon.reload_left.gt(&0.) as u8 as f64;
                 row[W::RELOAD_LEFT] = weapon.reload_left;
@@ -1435,7 +1454,7 @@ impl Hud {
 
     // PlayerCombat.updateHud projects the point 1024 m along the displayed
     // aim against the camera actually drawn, after its eye/chase phase.
-    pub fn aim(&mut self, bridge: &mut Bridge, view: &crate::scene::View, point: Option<Aim>) {
+    pub fn aim(&mut self, bridge: &mut Bridge, view: &crate::scene::View, point: Option<Aim>, hulls: &super::hulls::Hulls) {
         let x = &mut bridge.hud_model.input;
         x[H::FOV] = 2. * bfe_pose::rig::math::atan(1. / view.values[5]).to_degrees();
         x[H::ASPECT] = view.values[5] / view.values[0];
@@ -1449,6 +1468,25 @@ impl Hud {
                 x[H::RETICLE_Y] = ay;
             } else {
                 x[H::RETICLE] = 0.;
+            }
+        }
+        // presentWeaponLock follows the target's drawn pose and this frame's
+        // camera. Acquisition remains the weapon simulation's clock.
+        x[H::MARKER] = 0.;
+        let channel = if x[hud_model::WEAPONS + 2 * W::WORDS + W::LOCK] != 0. { 0 } else { 1 };
+        x[H::LOCK_CHANNEL] = channel as f64;
+        if let Some(lock) = self.locks[channel].filter(|_| x[H::RETICLE] != 0.) {
+            if let Some(point) = hulls.aim_point(lock.key).or_else(|| self.targets.point(lock.key)) {
+                let mut inverse = Matrix4::default(); inverse.elements.copy_from_slice(&view.values[16..32]);
+                let mut projection = Matrix4::default(); projection.elements.copy_from_slice(&view.values[..16]);
+                let mut p = three::Vector3::new(point[0], point[1], point[2]);
+                p.apply_matrix4(&inverse).apply_matrix4(&projection);
+                if (-1. ..=1.).contains(&p.z) {
+                    x[H::MARKER] = 1.;
+                    x[H::MARKER_X] = (p.x + 1.) / 2.;
+                    x[H::MARKER_Y] = (1. - p.y) / 2.;
+                    x[H::MARKER_PROGRESS] = lock.progress;
+                }
             }
         }
         if self.auto_build {
@@ -1516,6 +1554,29 @@ fn flight_status(own: &super::receiver::Own) -> [f64; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn launcher_marker_uses_simulation_progress_and_hides_while_busy() {
+        let mut row = [0.; W::WORDS];
+        row[W::LOCK] = 1.;
+        row[W::LOCK_TIME] = 1.;
+        let mut weapon = bfe_sim::gen::Weapon {
+            lock_target_id: 7., lock_generation: 3., lock_elapsed: 0.5,
+            throw_time: -1., ..Default::default()
+        };
+        assert_eq!(weapon_lock(&row, &weapon), Some(Lock { key: (7, 3), progress: 0.5 }));
+        weapon.salvos_left = 1.;
+        assert!(weapon_lock(&row, &weapon).is_none());
+        weapon.salvos_left = 0.; weapon.wait = 0.1;
+        assert!(weapon_lock(&row, &weapon).is_none());
+        weapon.wait = 0.; weapon.reload_left = 1.;
+        assert!(weapon_lock(&row, &weapon).is_none());
+        weapon.reload_left = 0.; weapon.lock_target_id = -1.;
+        assert!(weapon_lock(&row, &weapon).is_none());
+        weapon.lock_target_id = 7.; row[W::LOCK_TIME] = 0.; row[W::MAX_PRESSED] = 2.;
+        assert_eq!(weapon_lock(&row, &weapon).unwrap().progress, 0.25);
+        row[W::LOCK] = 0.;
+        assert!(weapon_lock(&row, &weapon).is_none());
+    }
 
     #[test]
     fn raster_hud_upgrades_pixels_without_scaling_layout_and_falls_back() {

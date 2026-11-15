@@ -476,6 +476,17 @@ impl Hulls {
     pub fn rig(&self, id: f64, generation: f64) -> Option<usize> {
         self.bound.get(&(id as u32, generation as u32)).map(|i| self.slots[*i].rig)
     }
+    pub fn aim_point(&self, key: (u32, u32)) -> Option<[f64; 3]> {
+        let slot = &self.slots[*self.bound.get(&key)?];
+        if !slot.active || slot.health <= 0. || slot.dying_since.is_some() { return None; }
+        let b = self.models[slot.model].bounds;
+        let nodes = self.owner.slot_nodes(slot.rig, 0)?;
+        let mut matrix = Matrix4::default();
+        matrix.elements.copy_from_slice(&nodes[n::WORLD..n::WORLD + 16]);
+        let mut center = three::Vector3::new((b[0] + b[3]) / 2., (b[1] + b[4]) / 2., (b[2] + b[5]) / 2.);
+        center.apply_matrix4(&matrix);
+        Some([center.x, center.y, center.z])
+    }
     pub fn frame(
         &mut self,
         receiver: &Receiver,

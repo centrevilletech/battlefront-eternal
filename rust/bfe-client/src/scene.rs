@@ -1688,7 +1688,7 @@ impl Scene {
             resources.hud.target(&mut self.bridge, receiver, replay, ray);
             let reticle = mounted.or_else(||
                 resources.reticle_point(receiver).map(|point| crate::online::hud::Aim { point, project_x: false }));
-            resources.hud.aim(&mut self.bridge, camera.snapshot(), reticle);
+            resources.hud.aim(&mut self.bridge, camera.snapshot(), reticle, &resources.hulls);
             resources.sound.bleed = [resources.hud.teams[1][3], resources.hud.teams[2][3]];
             resources.sound.frame(receiver,&world.elements,dt,replay,resources.hud.audio_facts());
         }
