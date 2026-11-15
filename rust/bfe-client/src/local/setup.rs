@@ -68,13 +68,7 @@ impl Admitted {
             publication_output: world.publication_output,
             host_content: Default::default(),
             explosions: Vec::new(),
-            tick: WorldTickInput {
-                clock: bfe_content_native::setup::battle_clock(),
-                units: world.units,
-                ai: true,
-                live: true,
-                ..Default::default()
-            },
+            tick: bfe_content_native::setup::first_tick(world.units, &options.bots),
         })
     }
 }

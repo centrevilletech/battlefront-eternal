@@ -1366,44 +1366,6 @@ pub fn render_resolution(settings: &Settings, viewport: Option<[u32; 2]>) -> Opt
     Some(format!("{w}x{h}"))
 }
 
-/// Note shown under `audioQuality` (`soundNote` in `src/menus/options.js`).
-///
-/// Describes either the classic 2004 stereo mix or the 3D positional sound stage.
-pub fn sound_note(settings: &Settings, strings: &HashMap<String, String>, in_battle: bool) -> String {
-    let restart = if in_battle {
-        "RESTART MISSION"
-    } else {
-        "NEXT BATTLE"
-    };
-    if settings.get_string("audioQuality") == "original" {
-        say(
-            strings,
-            Some("bfe.audio.classicSoundNote"),
-            &format!("CLASSIC SOUND: STEREO MIX, LIGHTER CPU USE ({restart})"),
-        )
-    } else {
-        say(
-            strings,
-            Some("bfe.audio.enhancedSoundNote"),
-            "3D POSITIONAL SOUND, DISTANCE AND ROOM ACOUSTICS",
-        )
-    }
-}
-
-/// Note shown under `audioOutput`, `audioDynamics`, and `audioClarity` when `audioQuality == "original"`
-/// (`enhancedSoundNote` in `src/menus/options.js`).
-pub fn enhanced_sound_note(settings: &Settings, strings: &HashMap<String, String>) -> String {
-    if settings.get_string("audioQuality") == "original" {
-        say(
-            strings,
-            Some("bfe.audio.usedWithEnhanced"),
-            "USED WHEN SOUND IS SET TO ENHANCED",
-        )
-    } else {
-        String::new()
-    }
-}
-
 /// Evaluates the footer note for `key` (`note` and `NOTES` in `src/menus/options.js`).
 ///
 /// Checks option-specific dynamic notes first (`renderScale`, `upscaler`, `upscaleSharpness`,
@@ -1412,55 +1374,42 @@ pub fn enhanced_sound_note(settings: &Settings, strings: &HashMap<String, String
 pub fn option_note(
     key: &str,
     settings: &Settings,
-    strings: &HashMap<String, String>,
+    _strings: &HashMap<String, String>,
     in_battle: bool,
     viewport: Option<[u32; 2]>,
 ) -> String {
     let Some(spec) = option_entry(key) else {
         return String::new();
     };
-    // Option-specific dynamic notes take precedence over generic `ApplyMode` timing notes.
+    // The notes of rows with their own (`note` in `src/menus/options.js`).
     let custom = match key {
-        "renderScale" => render_resolution(settings, viewport).unwrap_or_default(),
-        "upscaler" => {
-            if settings.get_string("upscaler") == "temporal" {
-                "ACCUMULATES DETAIL ACROSS FRAMES WHEN RENDER SCALE IS BELOW 1.00X".to_string()
-            } else {
-                String::new()
-            }
+        "renderScale" => match (render_resolution(settings, viewport), viewport) {
+            (Some(size), Some([vw, vh])) => format!("3D VIEW {}, WINDOW {vw}X{vh}", size.to_uppercase()),
+            _ => String::new(),
+        },
+        "upscaler" => match settings.get_string("upscaler").as_str() {
+            "off" => "STRETCHES THE WHOLE PICTURE, HUD INCLUDED: THE CHEAPEST",
+            "bilinear" => "STRETCHES THE 3D VIEW, HUD STAYS SHARP: ALMOST AS CHEAP AS OFF",
+            "spatial" => "SHARPER STRETCH: ONE EXTRA PASS AT WINDOW SIZE",
+            "temporal" => "REBUILDS DETAIL OVER FRAMES: SEVERAL PASSES AT WINDOW SIZE, HEAVY ON OLD GPUS",
+            _ => "",
         }
-        "upscaleSharpness" => {
-            let u = settings.get_string("upscaler");
-            if u != "spatial" && u != "temporal" {
-                "USED BY SPATIAL AND TEMPORAL UPSCALERS".to_string()
-            } else {
-                String::new()
-            }
-        }
-        "audioQuality" => sound_note(settings, strings, in_battle),
-        "audioOutput" | "audioDynamics" | "audioClarity" => enhanced_sound_note(settings, strings),
+        .to_string(),
         _ => String::new(),
     };
     if !custom.is_empty() {
         return custom;
     }
-    // Generic timing note based on whether the option applies on map load or battle start.
+    // The timing note of a change that does not take effect at once (`NOTES` in `src/menus/options.js`).
     match spec.apply {
-        ApplyMode::Map => {
-            if in_battle {
-                "TAKES EFFECT AFTER RESTARTING THE MISSION".to_string()
-            } else {
-                "TAKES EFFECT ON THE NEXT MAP".to_string()
-            }
-        }
-        ApplyMode::Battle => {
-            if in_battle {
-                "TAKES EFFECT AFTER RESTARTING THE MISSION".to_string()
-            } else {
-                "TAKES EFFECT IN THE NEXT BATTLE".to_string()
-            }
-        }
-        ApplyMode::Live | ApplyMode::Fixed => String::new(),
+        ApplyMode::Map => "TAKES EFFECT WHEN A MAP NEXT LOADS".to_string(),
+        ApplyMode::Battle => if in_battle {
+            "TAKES EFFECT WHEN A BATTLE STARTS (RESTART MISSION)".to_string()
+        } else {
+            "TAKES EFFECT WHEN A BATTLE STARTS".to_string()
+        },
+        ApplyMode::Fixed => "THE BATTLE ALWAYS RUNS AT 60 HZ".to_string(),
+        ApplyMode::Live => String::new(),
     }
 }
 

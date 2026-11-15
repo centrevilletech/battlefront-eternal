@@ -599,7 +599,9 @@ impl HudModel {
         for ch in 0..2 {
             let o = WEAPONS + (ch + 2) * W::WORDS;
             let id = self.input[o + W::ID];
-            if id == 0. || ch == 1 && id == self.input[WEAPONS + 2 * W::WORDS + W::ID] {
+            // On foot only the primary channel has a reticle; a vehicle seat
+            // shows both channels'. A weapon both channels hold draws once.
+            if id == 0. || ch == 1 && (self.input[H::VEHICLE] == 0. || id == self.input[WEAPONS + 2 * W::WORDS + W::ID]) {
                 continue;
             }
             // Dim between shots (63 rising to 127), reloading or overheated (63).

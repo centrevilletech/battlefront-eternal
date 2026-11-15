@@ -101,13 +101,32 @@ fn bot<W: RosterWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W)
     c.player_id = PlayerId::F64(-1.0);
     let name = world.bot_name(s, team);
     world.recycle_record(s, r);
+    let bots = fielded(s, team);
     let c = ch_mut(s, r);
     c.name = Some(name);
     reset(c);
+    if !bots {
+        vacate(c);
+        world.reassigned(s, r);
+        return;
+    }
     c.spawn.as_mut().expect("a Character the spawn manager made").timer = 0.0;
     world.reassigned(s, r);
     world.activate(s, r);
     world.ai_attach(s, r);
+}
+
+/// Whether the team fields bots: with aiMode off its unit count stays 0 and
+/// its places only wait for players (game.js makes no AI at all then).
+fn fielded(s: &Store, team: usize) -> bool {
+    s.spawning.teams[team].unit_count > 0.0
+}
+
+/// A place no bot plays: it never spawns until a player takes it.
+fn vacate(c: &mut Character) {
+    let spawn = c.spawn.as_mut().expect("a Character the spawn manager made");
+    spawn.ready = false;
+    spawn.timer = f64::INFINITY;
 }
 
 /// The roster's sizes (createMultiplayerRoster's armySize: a number, or
@@ -143,6 +162,7 @@ pub fn create_with<W: RosterWorld + ?Sized>(s: &mut Store, army_size: Option<f64
     }
     for number in [1usize, 2] {
         let unit_count = s.spawning.teams[number].unit_count;
+        let bots = fielded(s, number);
         let capacity = army_size.unwrap_or_else(|| v8math::min(MAX_TEAM_SIZE, v8math::max(1.0, unit_count)));
         while s.spawning.teams[number].characters.len() as f64 > capacity {
             let r = s.spawning.teams[number].characters.pop().unwrap();
@@ -155,7 +175,9 @@ pub fn create_with<W: RosterWorld + ?Sized>(s: &mut Store, army_size: Option<f64
             spawn.timer = f64::INFINITY;
         }
         s.spawning.teams[number].capacity = capacity;
-        s.spawning.teams[number].unit_count = capacity;
+        if bots {
+            s.spawning.teams[number].unit_count = capacity;
+        }
         while (s.spawning.teams[number].characters.len() as f64) < capacity {
             // Math.max(-1, ...indices) + 1
             let mut index = -1.0;
@@ -168,6 +190,10 @@ pub fn create_with<W: RosterWorld + ?Sized>(s: &mut Store, army_size: Option<f64
             let c = ch_mut(s, r);
             c.index = index;
             c.slot = Some(index);
+            if !bots {
+                vacate(c);
+                continue;
+            }
             world.activate(s, r);
             world.ai_attach(s, r);
         }

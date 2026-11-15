@@ -509,7 +509,7 @@ mod tests {
             seed: 1,
             heroes: false,
             unit: None,
-            name: None,
+            name: None, bots: Default::default(),
         };
         context.world_network_admit(&files, &options).unwrap();
         for (peer, name) in [(1, "First"), (2, "Second")] {

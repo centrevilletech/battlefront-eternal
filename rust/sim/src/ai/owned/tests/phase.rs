@@ -2530,3 +2530,20 @@ fn native_control_acknowledgement_checks_the_owning_publication() {
     assert!(!ai_controls_acknowledge_in(&mut w, version.wrapping_add(1)));
     assert!(ai_controls_acknowledge_in(&mut w, version));
 }
+
+#[test]
+fn ai_mode_off_scales_every_roster_to_no_bots_and_no_heroes() {
+    use bfe_sim::{gen::*,store::Strings,ai::owned::initial::Program};
+    let mut strings=Strings::default();let soldier=strings.intern_str("soldier");
+    let count=strings.intern_str("SetUnitCount");let class=strings.intern_str("AddUnitClass");
+    let calls=vec![
+        AiRosterCall {name:class,args:vec![AiClassScalar::F64(1.),AiClassScalar::Str(soldier),AiClassScalar::F64(4.)],..Default::default()},
+        AiRosterCall {name:count,args:vec![AiClassScalar::F64(1.),AiClassScalar::F64(16.)],..Default::default()},
+    ];
+    let read=|scale:f64,strings:&mut Strings| Program::read(&AiRosterSetup {unit_scale:scale,capacity:200.,heroes:true,prepared:vec![soldier],calls:calls.clone(),..Default::default()},strings);
+    assert_eq!(read(0.5,&mut strings).spawning.teams[1].unit_count,8.);
+    assert_eq!(read(0.01,&mut strings).spawning.teams[1].unit_count,1.,"a battle size keeps one bot a team");
+    let off=read(0.,&mut strings);
+    assert_eq!(off.spawning.teams[1].unit_count,0.,"aiMode off fields no bots");
+    assert!(!off.spawning.heroes);
+}

@@ -107,14 +107,15 @@ pub struct WorldTickStats {
 /// and reset its step timer without accumulating frame debt while paused.
 #[derive(Clone, Debug)]
 pub enum WorldMessage {
-    /// Queues one 60 Hz client input step and the latest receiver acknowledgement.
+    /// One 60 Hz client command, stamped (`command.tick`) for the world tick it is the input of.
     Step {
         command: ClientCommand,
         look: ClientLook,
         flight: ClientFlightCommand,
-        ack: [f64; 2],
         // The target sample actually displayed when this command was captured.
         view_tick: f64,
+        // The converged aim sampled for this command's fire presses.
+        fire_aim: Option<[f64; 2]>,
     },
     /// Pauses (`true`) or resumes (`false`) the 60 Hz world simulation loop.
     Pause(bool),
@@ -318,6 +319,11 @@ struct SharedState {
     suspended: AtomicBool,
     shutdown: AtomicBool,
     latest_tick_bits: AtomicU64,
+    /// Player commands the world has taken, those it refused, and those
+    /// stamped for a tick it had already run (applied on the next one).
+    commands_taken: AtomicU64,
+    commands_refused: AtomicU64,
+    commands_late: AtomicU64,
     renderer_blocks: AtomicU64,
     tick_count: AtomicU64,
     tick_sum_ns: AtomicU64,
@@ -359,6 +365,9 @@ impl SharedState {
             suspended: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
             latest_tick_bits: AtomicU64::new(0.0_f64.to_bits()),
+            commands_taken: AtomicU64::new(0),
+            commands_refused: AtomicU64::new(0),
+            commands_late: AtomicU64::new(0),
             renderer_blocks: AtomicU64::new(0),
             tick_count: AtomicU64::new(0),
             tick_sum_ns: AtomicU64::new(0),
@@ -572,7 +581,6 @@ impl WorldThread {
     /// the caller displays the error to the player.
     pub fn admit_instant_action(
         options: &super::options::Options,
-        ai_enabled: bool,
     ) -> Result<(Self, AdmittedWorldInfo), String> {
         let owned_options = super::options::Options {
             root: options.root.clone(),
@@ -580,6 +588,7 @@ impl WorldThread {
             audio: options.audio,
             duration: options.duration,
             name: options.name.clone(),
+            bots: options.bots,
         };
         let shared = Arc::new(SharedState::new());
         shared.paused.store(true, Ordering::Release);
@@ -595,10 +604,7 @@ impl WorldThread {
                     (Runtime<super::context::Native>, AdmittedWorldInfo),
                     String,
                 > {
-                    let mut prepared = super::launch::Prepared::with_spawn_screen(&owned_options, true)?;
-                    // Battle AI OFF disables the same phase as the browser's
-                    // battle option before the world thread takes its first tick.
-                    prepared.admission.tick.ai = ai_enabled;
+                    let prepared = super::launch::Prepared::with_spawn_screen(&owned_options, true)?;
                     let info = AdmittedWorldInfo {
                         query: prepared.admission.query.clone(),
                         registry: prepared.admission.registry.clone(),
@@ -660,7 +666,9 @@ impl WorldThread {
         }
     }
 
-    /// Queues a [`WorldMessage`] to the 60 Hz world thread without blocking the renderer.
+    /// Queues a [`WorldMessage`] to the 60 Hz world thread. The world holds
+    /// this lock only to take one message out, so a command is never dropped
+    /// (a dropped one loses its key presses) and the wait is negligible.
     #[inline]
     pub fn send(&self, msg: WorldMessage) {
         let is_wake = matches!(
@@ -671,35 +679,28 @@ impl WorldThread {
                 | WorldMessage::Respawn
                 | WorldMessage::Shutdown
         );
-        if let Ok(mut guard) = self.shared.commands.try_lock() {
-            guard.push(msg);
-            drop(guard);
-            if is_wake {
-                self.shared.wake.notify_all();
-            }
-        } else if matches!(msg, WorldMessage::Shutdown) {
-            self.shared.shutdown.store(true, Ordering::Release);
+        match self.shared.commands.lock() {
+            Ok(mut guard) => guard.push(msg),
+            Err(_) => self.shared.shutdown.store(true, Ordering::Release),
+        }
+        if is_wake {
             self.shared.wake.notify_all();
         }
     }
 
-    /// Sends an explicit pause or resume message to the 60 Hz world thread.
+    /// Pauses or resumes the 60 Hz world thread. Says so once, when it changes.
     #[inline]
     pub fn set_paused(&self, paused: bool) {
-        self.shared.paused.store(paused, Ordering::Release);
-        self.send(WorldMessage::Pause(paused));
-        if !paused {
-            self.shared.wake.notify_all();
+        if self.shared.paused.swap(paused, Ordering::AcqRel) != paused {
+            self.send(WorldMessage::Pause(paused));
         }
     }
 
-    /// Sends an explicit window suspension message to the 60 Hz world thread.
+    /// Suspends or resumes the world with the window's focus. Says so once, when it changes.
     #[inline]
     pub fn set_suspended(&self, suspended: bool) {
-        self.shared.suspended.store(suspended, Ordering::Release);
-        self.send(WorldMessage::Suspend(suspended));
-        if !suspended {
-            self.shared.wake.notify_all();
+        if self.shared.suspended.swap(suspended, Ordering::AcqRel) != suspended {
+            self.send(WorldMessage::Suspend(suspended));
         }
     }
 
@@ -732,6 +733,15 @@ impl WorldThread {
             }
         }
         Ok(count)
+    }
+
+    /// Player commands the world thread has taken, refused, and taken late.
+    pub fn command_counts(&self) -> [u64; 3] {
+        [&self.shared.commands_taken, &self.shared.commands_refused, &self.shared.commands_late].map(|n| n.load(Ordering::Relaxed))
+    }
+    /// Whether the world is suspended (its window cannot be seen).
+    pub fn is_suspended(&self) -> bool {
+        self.shared.suspended.load(Ordering::Acquire)
     }
 
     /// Latest authoritative tick completed by the 60 Hz world thread.
@@ -780,13 +790,6 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
     let mut next_deadline = Instant::now() + tick_duration;
     let mut paused = shared.paused.load(Ordering::Acquire);
     let mut suspended = shared.suspended.load(Ordering::Acquire);
-    let mut latest_cmd = ClientCommand::default();
-    let mut latest_look: ClientLook;
-    let mut latest_flight = ClientFlightCommand::default();
-    let mut latest_ack = [1.0, 0.0];
-    let mut latest_view_tick = 0.;
-    let mut accum_look_x = 0.0;
-    let mut accum_look_y = 0.0;
     let mut spawn_reply_pending = false;
 
     loop {
@@ -794,117 +797,71 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
             break;
         }
 
-        let mut step_queued = false;
-        if let Ok(mut ring) = shared.commands.lock() {
-            while let Some(msg) = ring.pop() {
-                match msg {
-                    WorldMessage::Step {
-                        mut command,
-                        look,
-                        mut flight,
-                        ack,
-                        view_tick,
-                    } => {
-                        if step_queued {
-                            merge_press_edges(&latest_cmd, &mut command);
-                            flight.actions |= latest_flight.actions;
-                        }
-                        latest_cmd = command;
-                        accum_look_x += look.x;
-                        accum_look_y += look.y;
-                        latest_flight = flight;
-                        latest_ack = ack;
-                        latest_view_tick = view_tick;
-                        step_queued = true;
+        // Take the lock for one message at a time: the render thread's send
+        // waits on it. Every command goes into the world's mailbox under its
+        // own tick stamp, as a remote player's does on a server; the tick
+        // below takes the ones that are due. Prediction replays the same
+        // stamps, so the two agree tick for tick.
+        loop {
+            let msg = match shared.commands.lock() {
+                Ok(mut ring) => ring.pop(),
+                Err(_) => None,
+            };
+            let Some(msg) = msg else { break };
+            let done = match msg {
+                WorldMessage::Step { command, look, flight, view_tick, fire_aim } => {
+                    shared.commands_taken.fetch_add(1, Ordering::Relaxed);
+                    if command.tick <= runtime.tick() {
+                        shared.commands_late.fetch_add(1, Ordering::Relaxed);
                     }
-                    WorldMessage::Pause(p) => {
-                        paused = p;
-                        shared.paused.store(p, Ordering::Release);
-                        if p {
-                            latest_cmd = ClientCommand::default();
-                            accum_look_x = 0.0;
-                            accum_look_y = 0.0;
-                        } else {
-                            next_deadline = Instant::now() + tick_duration;
-                        }
-                    }
-                    WorldMessage::Suspend(s) => {
-                        suspended = s;
-                        shared.suspended.store(s, Ordering::Release);
-                        if s {
-                            latest_cmd = ClientCommand::default();
-                            accum_look_x = 0.0;
-                            accum_look_y = 0.0;
-                        } else {
-                            next_deadline = Instant::now() + tick_duration;
-                        }
-                    }
-                    WorldMessage::Spawn {
-                        team,
-                        class_name,
-                        post_name,
-                    } => {
-                        spawn_reply_pending = true;
-                        eprintln!("world spawn request: team={team} class={class_name} post={post_name}");
-                        if let Err(err) = runtime.spawn_human(team, &class_name, &post_name) {
-                            eprintln!("world spawn request refused: {err}");
-                            if let Ok(mut fg) = shared.fault.lock() {
-                                *fg = Some(err);
-                            }
-                            runtime.close();
-                            return;
-                        }
-                    }
-                    WorldMessage::Respawn => {
-                        if let Err(err) = runtime.respawn_human() {
-                            if let Ok(mut fg) = shared.fault.lock() {
-                                *fg = Some(err);
-                            }
-                            runtime.close();
-                            return;
-                        }
-                    }
-                    WorldMessage::Shutdown => {
-                        shared.shutdown.store(true, Ordering::Release);
-                        runtime.close();
-                        return;
-                    }
+                    let done = runtime.submit(&command, &look, &flight, view_tick, fire_aim);
+                    shared.commands_refused.store(runtime.refusals(), Ordering::Relaxed);
+                    done
                 }
+                WorldMessage::Pause(p) => {
+                    paused = p;
+                    Ok(())
+                }
+                WorldMessage::Suspend(s) => {
+                    suspended = s;
+                    Ok(())
+                }
+                WorldMessage::Spawn {
+                    team,
+                    class_name,
+                    post_name,
+                } => {
+                    spawn_reply_pending = true;
+                    eprintln!("world spawn request: team={team} class={class_name} post={post_name}");
+                    runtime.spawn_human(team, &class_name, &post_name)
+                }
+                WorldMessage::Respawn => runtime.respawn_human(),
+                WorldMessage::Shutdown => {
+                    shared.shutdown.store(true, Ordering::Release);
+                    runtime.close();
+                    return;
+                }
+            };
+            if let Err(err) = done {
+                eprintln!("world message refused: {err}");
+                if let Ok(mut fg) = shared.fault.lock() {
+                    *fg = Some(err);
+                }
+                runtime.close();
+                return;
             }
         }
 
-        if paused
-            || suspended
-            || shared.paused.load(Ordering::Acquire)
-            || shared.suspended.load(Ordering::Acquire)
-        {
+        if paused || suspended {
             if let Ok(guard) = shared.commands.lock() {
-                if !shared.shutdown.load(Ordering::Acquire)
-                    && (shared.paused.load(Ordering::Acquire)
-                        || shared.suspended.load(Ordering::Acquire))
-                    && guard.len == 0
-                {
+                if !shared.shutdown.load(Ordering::Acquire) && guard.len == 0 {
                     let _ = shared.wake.wait_timeout(guard, Duration::from_millis(16));
                 }
             }
+            // The world resumes a whole tick after it is woken, with no debt.
             next_deadline = Instant::now() + tick_duration;
             continue;
         }
-
-        latest_look = ClientLook {
-            x: accum_look_x,
-            y: accum_look_y,
-        };
-        accum_look_x = 0.0;
-        accum_look_y = 0.0;
-
-        if !step_queued {
-            latest_cmd.actions = 0;
-            latest_cmd.primary_count = 0;
-            latest_cmd.secondary_count = 0;
-        }
-        // An authority tick can run without a new render command. Keep the
-        // original sequence so it cannot acknowledge future prediction input.
 
         let mut slot = if let Ok(mut q) = shared.publications.lock() {
             q.acquire_slot()
@@ -921,14 +878,7 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
             0
         };
         let tick_start = Instant::now();
-        let step_res = runtime.step_into_slot(
-            &latest_cmd,
-            &latest_look,
-            &latest_flight,
-            latest_ack,
-            latest_view_tick,
-            &mut slot,
-        );
+        let step_res = runtime.step_into_slot(&mut slot);
         let tick_elapsed_ns = tick_start.elapsed().as_nanos() as u64;
         let steady_alloc_delta = if measure_steady_allocs {
             crate::app::render_thread_alloc_count().saturating_sub(allocs_before)
@@ -967,47 +917,16 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
             }
         }
 
+        // Ticks keep to a fixed 60 Hz timetable: one that ran late is followed
+        // at once by the next, so the world does not drift behind the player's
+        // own clock. Over eight ticks behind, the lost time is given up.
         let now = Instant::now();
         if next_deadline > now {
             thread::sleep(next_deadline - now);
-            next_deadline += tick_duration;
-        } else {
-            next_deadline = now + tick_duration;
+        } else if now - next_deadline > tick_duration * 8 {
+            next_deadline = now;
         }
+        next_deadline += tick_duration;
     }
     runtime.close();
-}
-
-// Multiple render commands may arrive before one authority step. Held state
-// and identity come from the last command; a later empty catch-up row must
-// not erase earlier presses in the same batch.
-fn merge_press_edges(previous: &ClientCommand, next: &mut ClientCommand) {
-    next.actions |= previous.actions;
-    next.primary_count = next.primary_count.saturating_add(previous.primary_count).min(32);
-    next.secondary_count = next.secondary_count.saturating_add(previous.secondary_count).min(32);
-}
-
-#[cfg(test)]
-mod command_batch_tests {
-    use super::*;
-    #[test]
-    fn catch_up_rows_keep_device_presses_and_latest_held_identity() {
-        use crate::{input::Input, generated_input::{ClientAction, ClientHeld}};
-        use winit::{keyboard::KeyCode, event::MouseButton};
-        let mut input = Input::default();
-        input.key(KeyCode::Space, true);
-        input.key(KeyCode::KeyR, true);
-        input.mouse(MouseButton::Left, true);
-        input.mouse(MouseButton::Left, false);
-        let (first, _) = input.take(1, 2);
-        input.key(KeyCode::Space, false);
-        input.key(KeyCode::KeyW, true);
-        let (mut last, _) = input.take(2, 2);
-        merge_press_edges(&first, &mut last);
-        assert_eq!(last.sequence, 2.);
-        assert_eq!(last.held, 1 << ClientHeld::Forward as u8);
-        assert_ne!(last.actions & (1 << ClientAction::Jump as u8), 0);
-        assert_ne!(last.actions & (1 << ClientAction::Reload as u8), 0);
-        assert_eq!(last.primary_count, 1);
-    }
 }

@@ -15,6 +15,7 @@ pub mod checkpoint;
 
 pub mod hulls;
 
+pub mod props;
 pub mod publications;
 
 pub mod hud;
@@ -32,7 +33,9 @@ pub mod combat;
 mod debris;
 mod effects;
 pub mod jetpacks;
+pub mod hull_effects;
 pub mod lightning;
+pub mod map_effects;
 mod shields;
 mod holograms;
 mod lights;
@@ -64,3 +67,9 @@ mod sound_events;
 
 mod own_view;
 mod radar;
+
+pub mod shot_aim;
+
+pub mod buildings;
+
+pub mod animated_props;

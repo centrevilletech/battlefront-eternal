@@ -7,7 +7,7 @@ use bfe_content_native::BattleContent;
 use bfe_sim::{
     client::ClientPrediction,
     collision::CollisionOwner,
-    gen::{ClientFrame, ClientResult, Soldier},
+    gen::{ClientFrame, ClientResult, ClientShot, Soldier},
 };
 use std::{cell::RefCell, rc::Rc};
 pub const COMMANDS: usize = 128;
@@ -27,6 +27,10 @@ pub struct History {
     at: usize,
     count: usize,
     pub refused: u64,
+    // The keys of the newest command the authority has applied, and its life.
+    // Replay holds them through ticks that have no pending command of their own.
+    held: u32,
+    held_generation: f64,
 }
 impl Default for History {
     fn default() -> Self {
@@ -37,6 +41,8 @@ impl Default for History {
             at: 0,
             count: 0,
             refused: 0,
+            held: 0,
+            held_generation: -1.,
         }
     }
 }
@@ -44,12 +50,21 @@ impl History {
     pub fn clear(&mut self) {
         self.at = 0;
         self.count = 0;
+        self.held = 0;
+        self.held_generation = -1.;
     }
     pub fn acknowledge(&mut self, sequence: f64) {
         while self.count != 0 && self.rows[self.at].sequence <= sequence {
+            self.held = self.rows[self.at].held;
+            self.held_generation = self.rows[self.at].generation;
             self.at = (self.at + 1) % COMMANDS;
             self.count -= 1;
         }
+    }
+    // The world keeps the last applied keys down until a newer command
+    // replaces them. Another life starts with none.
+    pub fn held(&self, generation: f64) -> u32 {
+        if self.held_generation == generation { self.held } else { 0 }
     }
     pub fn push(&mut self, c: &ClientCommand, look: &ClientLook, flight: &ClientFlightCommand, tick: f64, generation: f64, sequence: f64) {
         if self.count == COMMANDS {
@@ -115,6 +130,24 @@ impl History {
         (start as u32, self.count as u32)
     }
 }
+/// A round the player's own weapon fired in this frame's replay, ahead of
+/// the world's answer (WeaponPrediction's shot notice): the tick it fired
+/// on, the weapon (its place in the battle's weapon list), the trigger, the
+/// spread it drew and his body as it fired.
+pub struct Shot {
+    pub tick: f64,
+    pub weapon: usize,
+    pub button: u32,
+    pub spread: [f64; 2],
+    pub position: [f64; 3],
+    pub aim: [f64; 2],
+    // Where the shot was sent to aim (the command's fire aim: converged on
+    // the point under the crosshair in third person), which the world's
+    // round follows; the body's own aim when no command carried one.
+    pub fire: [f64; 2],
+    pub posture: usize,
+    pub air: bool,
+}
 // ClientPrediction is the sole private gameplay continuation. This adapter
 // retains only prerequisites, acknowledged commands and generated results.
 // It cannot spawn entities, publish authoritative state or run a World tick.
@@ -130,14 +163,22 @@ pub struct Replay {
     pub displayed: Option<Soldier>,
     before: Option<Soldier>,
     look_yaw: f64,
+    // The last tick shown and where the body was at it. When newer authority
+    // moves that tick, the difference is eased out of the picture, not popped.
+    shown_tick: f64,
+    shown_position: [f64; 3],
+    pub smoother: bfe_pose::smoothing::SmootherState,
     display: super::own_view::Display,
     life: [f64; 3],
     pub fleet: Box<super::hull_replay::Fleet>,
+    props: super::props::Props,
     pub ticks: u64,
     weapon_at: usize,
     weapon_count: usize,
     arsenal: Box<super::checkpoint::Arsenal>,
     mounted: Box<super::checkpoint::Mounted>,
+    /// The rounds this frame's replay fired for the first time.
+    pub shots: Vec<Shot>,
 }
 impl Replay {
     pub fn new(content: &BattleContent) -> Result<Self, String> {
@@ -172,6 +213,7 @@ impl Replay {
             s.put(&mut row, &mut Vec::new());
             classes[id as usize] = Some(row);
         }
+        let props = super::props::Props::new(&mut collision.borrow_mut(), installed.world, &content.content)?;
         let mut owner = Box::new(ClientPrediction::default());
         owner.configure_actor(&[0.], &mut collision.borrow_mut().state).map_err(str::to_string)?;
         let fleet = Box::new(super::hull_replay::Fleet::new(content, &mut collision.borrow_mut(), installed.world)?);
@@ -182,6 +224,7 @@ impl Replay {
         let mounted = Box::new(super::checkpoint::Mounted::new(&defs, &mut owner, None, &buildings)?);
         owner.reserve_native(4096, 32);
         Ok(Self {
+            props,
             fleet,
             arsenal,
             mounted,
@@ -191,10 +234,12 @@ impl Replay {
             classes,
             words: Vec::with_capacity(16384),
             class: usize::MAX,
-            body: None, displayed: None, before: None, look_yaw: 0., display: Default::default(), life: [0.; 3],
+            body: None, displayed: None, before: None, look_yaw: 0., shown_tick: 0., shown_position: [0.; 3],
+            smoother: Default::default(), display: Default::default(), life: [0.; 3],
             ticks: 0,
             weapon_at: 0,
             weapon_count: 0,
+            shots: Vec::with_capacity(32),
         })
     }
     // HUD, arms and audio borrow the same completed arsenal. Iteration
@@ -220,6 +265,14 @@ impl Replay {
     }
     pub fn present(&mut self, alpha: f64, dt: f64) {
         self.displayed = self.body.as_ref().map(|body| self.display.sample(body, self.before.as_ref(), self.look_yaw, self.life, alpha, dt));
+        if self.smoother.decay(0.05, dt) || self.displayed.is_none() {
+            self.smoother.reset();
+        }
+        if let Some(shown) = &mut self.displayed {
+            for axis in 0..3 {
+                shown.position[axis] += self.smoother.offset[axis];
+            }
+        }
     }
     pub fn frame(&mut self, r: &Receiver, sender: &Sender) -> Result<(), &'static str> {
         // Clear result presence before examining the new correction. A dead
@@ -228,9 +281,16 @@ impl Replay {
         // publications are admitted only by this frame's qualified mode.
         self.body = None;
         self.displayed = None;
-        self.before = None;
-        self.life = [r.epoch, r.own.id, r.own.generation];
+        self.shots.clear();
+        let interval = self.before.take();
+        let life = [r.epoch, r.own.id, r.own.generation];
+        if self.life != life {
+            self.shown_tick = 0.;
+            self.smoother.reset();
+        }
+        self.life = life;
         self.weapon_count = 0;
+        self.props.frame(r, &mut collision_mut(&self.collision));
         self.fleet.frame(r, sender, &mut self.words, &mut collision_mut(&self.collision))?;
         if r.own.remote.is_some() {
             return Ok(());
@@ -368,6 +428,8 @@ impl Replay {
             kick: self.arsenal.kick,
             commands_at,
             commands_count,
+            held: sender.history.held(r.own.generation),
+            check_tick: self.shown_tick,
             mouse_scale: 1.,
             ..Default::default()
         };
@@ -378,13 +440,55 @@ impl Replay {
             self.weapon_at = result.weapons_at as usize;
             self.weapon_count = self.owner.output.get(self.weapon_at).copied().unwrap_or(0.) as usize;
             if result.actor_words as usize == Soldier::WORDS {
-                self.body = Some(Soldier::take(&self.owner.output[result.actor_at as usize..], &[]));
+                let body = Soldier::take(&self.owner.output[result.actor_at as usize..], &[]);
+                if result.check_found {
+                    if self.smoother.note(self.shown_position, result.check_position, 2.5).reset {
+                        self.smoother.reset();
+                    }
+                }
+                self.shown_tick = result.tick;
+                self.shown_position = body.position;
+                self.body = Some(body);
                 if result.ticks != 0 {
                     let at = result.before_at as usize;
                     self.before = self.owner.output.get(at..at + Soldier::WORDS).map(|row| Soldier::take(row, &[]));
+                    self.look_yaw = result.look_yaw;
+                } else if result.continued {
+                    // A display frame between two ticks: the same body, still
+                    // drawn part way along the tick it last took.
+                    self.before = interval;
                 }
-                self.look_yaw = result.look_yaw;
                 self.ticks += result.ticks as u64;
+                // Each notice is followed by the body as it fired.
+                let stride = ClientShot::WORDS + Soldier::WORDS;
+                let mut shots = std::mem::take(&mut self.shots);
+                for n in 0..result.shots_count as usize {
+                    let at = result.shots_at as usize + n * stride;
+                    let Some(row) = self.owner.output.get(at..at + stride) else {
+                        break;
+                    };
+                    let shot = ClientShot::take(row, &[]);
+                    let Some(weapon) = self.weapons().nth(shot.weapon as usize) else {
+                        continue;
+                    };
+                    // Kind 0 is a round; repairs and melee swings fire none.
+                    if shot.kind != 0 || shots.len() == shots.capacity() {
+                        continue;
+                    }
+                    let body = Soldier::take(&row[ClientShot::WORDS..], &[]);
+                    shots.push(Shot {
+                        tick: shot.tick,
+                        weapon: weapon.def.0.saturating_sub(1) as usize,
+                        button: shot.button,
+                        spread: [shot.yaw, shot.pitch],
+                        position: body.position,
+                        aim: [body.aim_yaw, body.aim_pitch],
+                        fire: sender.fire_aim.unwrap_or([body.aim_yaw, body.aim_pitch]),
+                        posture: body.posture as usize,
+                        air: body.air.is_some(),
+                    });
+                }
+                self.shots = shots;
             }
         }
         Ok(())
@@ -426,7 +530,23 @@ mod control_settings_tests {
         // Applied authority checkpoints retire only the named command tail.
         history.acknowledge(6.);
         assert_eq!(history.write(&mut words).1, 1);
+        assert_eq!(history.held(1.), 0);
         history.acknowledge(7.);
         assert_eq!(history.write(&mut words).1, 0);
+    }
+
+    #[test]
+    fn replay_holds_the_keys_of_the_last_applied_command() {
+        let forward = ClientCommand { held: 1, ..Default::default() };
+        let mut history = History::default();
+        history.push(&forward, &ClientLook::default(), &ClientFlightCommand::default(), 10., 4., 1.);
+        history.push(&ClientCommand::default(), &ClientLook::default(), &ClientFlightCommand::default(), 13., 4., 2.);
+        // The world has applied the first: ticks 11 and 12 replay with its key down.
+        history.acknowledge(1.);
+        assert_eq!(history.held(4.), 1);
+        // Another life starts with nothing held.
+        assert_eq!(history.held(5.), 0);
+        history.acknowledge(2.);
+        assert_eq!(history.held(4.), 0);
     }
 }

@@ -646,6 +646,7 @@ fn battle_options() -> bfe_sim::world::admit::Options {
         heroes: true,
         unit: Some("trooper".into()),
         name: None,
+        bots: Default::default(),
     }
 }
 
@@ -992,6 +993,7 @@ impl runtime::Engine for ThreadedBoundary {
         Ok(())
     }
     fn input(&mut self, input: runtime::Input<'_>) -> Result<(), String> {
+        if input.command.sequence>0. {assert_eq!(input.fire_aim,Some([0.2,-0.03]));}
         self.view_tick.store(input.view_tick.unwrap_or(-1.).to_bits(), std::sync::atomic::Ordering::SeqCst);
         self.sequence.store(input.command.sequence as u64, std::sync::atomic::Ordering::SeqCst);
         Ok(())
@@ -1014,6 +1016,68 @@ impl runtime::Engine for ThreadedBoundary {
         Ok(())
     }
     fn close(&mut self) {}
+}
+
+struct Stamps {
+    seen: std::rc::Rc<std::cell::RefCell<Vec<[f64; 2]>>>,
+    block: bfe_sim::store::block::Block,
+}
+impl runtime::Engine for Stamps {
+    fn initialize(&mut self, _: bfe_sim::gen::WorldTickSetup) -> Result<(), String> {
+        Ok(())
+    }
+    fn input(&mut self, input: runtime::Input<'_>) -> Result<(), String> {
+        self.seen.borrow_mut().push([input.tick, input.now]);
+        Ok(())
+    }
+    fn step(&mut self, input: WorldTickInput) -> Result<WorldTickOutput, String> {
+        Ok(WorldTickOutput {
+            accepted: true,
+            clock: WorldClockState { tick: input.tick, ..input.clock },
+            ..Default::default()
+        })
+    }
+    fn publish(&mut self, _: &[f64]) -> Result<publication::Publication<'_>, String> {
+        publication::Publication::new(&self.block, &[]).map_err(str::to_string)
+    }
+    fn acknowledge(&mut self, _: [f64; 2], _: f64, _: &[u32]) -> Result<(), String> {
+        Ok(())
+    }
+    fn close(&mut self) {}
+}
+
+#[test]
+/// A command reaches the world under the tick it was stamped for, so the world
+/// applies it on the tick prediction replays it on. A stamp already passed
+/// goes into the next tick.
+fn submitted_commands_keep_their_tick_stamps() {
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let engine = Stamps {
+        seen: seen.clone(),
+        block: published(&bfe_sim::gen::WirePublicationOutput::default()),
+    };
+    let admission = setup::Admitted {
+        setup: Default::default(),
+        tick: WorldTickInput {
+            clock: WorldClockState { hz: 60., dt: STEP, ..Default::default() },
+            ..Default::default()
+        },
+        handles: setup::Handles::default(),
+        player_id: 1.,
+        registry: serde_json::json!({}),
+        query: String::new(),
+        publication: Vec::new(),
+        publication_output: Default::default(),
+        host_content: Default::default(),
+        explosions: Vec::new(),
+    };
+    let mut local = runtime::Runtime::new(engine, admission, 1000., 1.7e12).unwrap();
+    let (look, flight) = (ClientLook::default(), ClientFlightCommand::default());
+    let ahead = ClientCommand { sequence: 1., tick: 3., ..Default::default() };
+    let stale = ClientCommand { sequence: 2., tick: 0., ..Default::default() };
+    local.submit(&ahead, &look, &flight, 0., None).unwrap();
+    local.submit(&stale, &look, &flight, 0., None).unwrap();
+    assert_eq!(*seen.borrow(), [[3., 0.], [1., 0.]]);
 }
 
 #[test]
@@ -1090,8 +1154,8 @@ fn threaded_world_steps_at_60hz_without_blocking_or_allocating_on_render_thread(
             command: cmd,
             look: ClientLook { x: 1.0, y: 0.0 },
             flight: ClientFlightCommand::default(),
-            ack: [1.0, receiver.latest],
             view_tick: 42.5,
+            fire_aim: Some([0.2,-0.03]),
         });
         let _ = world
             .poll_publications(&mut receiver, 200.0 + i as f64)
@@ -1140,7 +1204,7 @@ fn cold_admission_delivers_welcome_publication_and_steps_three_maps() {
             ],
             audio: false,
             duration: None,
-            name: None,
+            name: None, bots: Default::default()
         };
         let prepared = local::launch::Prepared::new(&opts)
             .unwrap_or_else(|e| panic!("cold admission failed on {map}/{side}: {e}"));
@@ -1192,7 +1256,7 @@ fn menu_admission_waits_for_the_players_class_and_post_before_spawning() {
         battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into()],
         audio: false,
         duration: None,
-        name: None,
+        name: None, bots: Default::default()
     };
     let prepared = local::launch::Prepared::with_spawn_screen(&options, true).unwrap();
     let mut world = runtime::Runtime::new(*prepared.engine, *prepared.admission, 0.0, 0.0).unwrap();
@@ -1213,7 +1277,7 @@ fn menu_admission_waits_for_the_players_class_and_post_before_spawning() {
 fn native_local_controls_move_authority_and_keep_the_applied_heading() {
     let Some(root) = std::env::var_os("BFE_CONTENT_DIR").map(std::path::PathBuf::from) else { return; };
     std::thread::Builder::new().stack_size(8 << 20).spawn(move || {
-        let options = options::Options { root, battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into(), "--seed".into(), "1".into()], audio: false, duration: None, name: None };
+        let options = options::Options { root, battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into(), "--seed".into(), "1".into()], audio: false, duration: None, name: None, bots: Default::default() };
         let prepared = local::launch::Prepared::new(&options).unwrap();
         let mut runtime = runtime::Runtime::new(*prepared.engine, *prepared.admission, 1000., 1_700_000_000_000.).unwrap();
         let before = runtime.receiver.own;
@@ -1244,7 +1308,7 @@ fn native_local_battle_reserves_the_player_under_the_profile_name() {
     let Some(root) = std::env::var_os("BFE_CONTENT_DIR").map(std::path::PathBuf::from) else { return; };
     std::thread::Builder::new().stack_size(8 << 20).spawn(move || {
         // The page's session strips control characters and outer spaces.
-        let options = options::Options { root, battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into(), "--seed".into(), "1".into()], audio: false, duration: None, name: Some(" Scout\u{7} One ".into()) };
+        let options = options::Options { root, battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into(), "--seed".into(), "1".into()], audio: false, duration: None, name: Some(" Scout\u{7} One ".into()), bots: Default::default() };
         let prepared = local::launch::Prepared::new(&options).unwrap();
         let mut runtime = runtime::Runtime::new(*prepared.engine, *prepared.admission, 1000., 1_700_000_000_000.).unwrap();
         let generation = runtime.receiver.own.generation as u32;
@@ -1273,7 +1337,7 @@ fn native_menu_team_switch_keeps_publication_and_spawns_the_other_roster() {
                 battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into()],
                 audio: false,
                 duration: None,
-                name: None,
+                name: None, bots: Default::default()
             };
             let prepared = local::launch::Prepared::with_spawn_screen(&options, true).unwrap();
             let registry = prepared.admission.registry.clone();
