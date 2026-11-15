@@ -244,6 +244,10 @@ pub struct LiveSpawnPort {
     /// Suicide / respawn flag queued when the player triggers respawn.
     pub pending_suicide: bool,
     post_vehicles:std::collections::HashMap<String,[Vec<String>;2]>,
+    /// The world's spawn eligibility for the player's team (its own summary):
+    /// the team and the registry ids of the posts it may spawn at. A post
+    /// held without a spawn path is not one; an ally's post with an ally path is.
+    world_eligible: Option<(u8, Vec<usize>)>,
 }
 
 /// The spawn screen's Math.random (spawn-screen/index.js gives its model no
@@ -367,14 +371,8 @@ impl LiveSpawnPort {
         // Populate command posts and their world-space `[x, y, z]` coordinates.
         let mut posts = Vec::new();
         let mut post_ids = Vec::new();
-        for (idx, pm) in post_meta.iter().enumerate() {
-            let owner = if pm.team == 1 || pm.team == 2 {
-                pm.team
-            } else if idx % 2 == 0 {
-                1
-            } else {
-                2
-            };
+        for pm in post_meta {
+            let owner = pm.team;
             posts.push(SpawnPostEntry {
                 name: pm.name.clone(),
                 display_name: pm.display_name.to_ascii_uppercase(),
@@ -442,6 +440,7 @@ impl LiveSpawnPort {
             pending_spawn: None,
             pending_suicide: false,
             post_vehicles:std::collections::HashMap::new(),
+            world_eligible: None,
         }
     }
 
@@ -491,6 +490,9 @@ impl LiveSpawnPort {
                 p.owner = pm.team;
             }
         }
+        self.world_eligible = (own_summary.valid && (1..=2).contains(&own_summary.team)).then(|| {
+            (own_summary.team, own_summary.posts[..own_summary.post_count.min(32)].iter().map(|&id| usize::from(id)).collect())
+        });
     }
 }
 
@@ -521,13 +523,17 @@ impl SpawnPort for LiveSpawnPort {
         }
     }
 
-    /// Returns all command posts, marking posts owned by `team` (or neutral) as eligible.
+    /// Returns all command posts, marking those `team` may spawn at as
+    /// eligible: the world's word for the player's own team, else the posts
+    /// the team holds (as the page does without its entity eligibility).
     fn posts(&self, team: u8) -> Vec<SpawnPostEntry> {
+        let world = self.world_eligible.as_ref().filter(|(t, _)| *t == team).map(|(_, ids)| ids);
         self.posts
             .iter()
-            .map(|p| {
+            .zip(&self.post_ids)
+            .map(|(p, id)| {
                 let mut e = p.clone();
-                e.eligible = p.owner == team;
+                e.eligible = world.map_or(p.owner == team, |ids| ids.contains(id));
                 if let Some(vehicles)=self.post_vehicles.get(&p.name) {e.vehicles.clone_from(&vehicles[usize::from(team==2)]);}
                 e
             })
@@ -3112,6 +3118,22 @@ fn reset_hud_layer(input: &mut [f64]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn spawn_posts_follow_the_worlds_eligibility_for_the_own_team() {
+        let post = |id, name: &str, team| HudPostMeta { id, name: name.into(), display_name: name.into(), position: [0.; 3], team, active: true };
+        // cp2 is the team's own post without a spawn path; cp3 an ally's
+        // post with an ally path (a local army friendly to team 2).
+        let posts = [post(1, "cp1", 2), post(2, "cp2", 2), post(3, "cp3", 3)];
+        let mut port = LiveSpawnPort::from_hud_meta(&[], &posts, &std::collections::HashMap::new(), "cw");
+        let eligible = |port: &LiveSpawnPort, team| port.posts(team).iter().filter(|p| p.eligible).map(|p| p.name.clone()).collect::<Vec<_>>();
+        assert_eq!(eligible(&port, 2), ["cp1", "cp2"]);
+        let mut own = HudOwnSummary { valid: true, team: 2, post_count: 2, ..HudOwnSummary::default() };
+        own.posts[..2].copy_from_slice(&[1, 3]);
+        port.sync_from_hud(&[[0.; 4]; 8], &posts, &own, false, 2);
+        assert_eq!(eligible(&port, 2), ["cp1", "cp3"]);
+        // The other team (a switch on the screen) keeps the ownership rule.
+        assert_eq!(eligible(&port, 1), Vec::<String>::new());
+    }
     #[test]
     fn mission_team_order_drives_spawn_classes() {
         let class = |team, side: &str, name: &str, id, order| HudClassMeta {
