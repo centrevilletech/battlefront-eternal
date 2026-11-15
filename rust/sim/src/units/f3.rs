@@ -2479,11 +2479,11 @@ mod native_banks {
     }
 
     #[test]
-    fn native_publication_keeps_widths_and_counts_without_linear_memory_addresses() {
+    fn native_descriptor_keeps_widths_and_counts_without_linear_memory_addresses() {
         let mut w = crate::world::owner::World::new();
         f3_init_in(&mut w, 0, f64::NAN, 0);
         prepare_bounds_in(&mut w, 3);
-        write_publication_in(&mut w);
+        descriptor_in(&mut w);
         let s = w.units.state.as_ref().unwrap();
         let d = &s.layout;
         assert_eq!(d.descriptor_words, F3Boundary::WORDS as u32);
