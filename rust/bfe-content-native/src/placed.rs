@@ -34,11 +34,13 @@ fn array<T: serde::de::DeserializeOwned>(v: &Value) -> Result<T, String> {
 // LiveObjects selects its initial unbuilt look when available. A built
 // power-up station or static building otherwise begins at its authored bind
 // pose. Damage, rebuilds and animation commands require a world owner.
-pub fn admit(content: &BattleContent) -> Result<Placements, String> {admit_selected(content,0)}
+pub fn admit(content: &BattleContent) -> Result<Placements, String> {admit_selected(content,0,None)}
 /// Direct joins pose armed buildings in the native prop owner instead.
-pub fn admit_live(content:&BattleContent)->Result<Placements,String>{admit_selected(content,1)}
-pub fn admit_turrets(content:&BattleContent)->Result<Placements,String>{admit_selected(content,2)}
-fn admit_selected(content: &BattleContent,mode:u8) -> Result<Placements, String> {
+pub fn admit_live(content:&BattleContent)->Result<Placements,String>{admit_selected(content,1,None)}
+pub fn admit_turrets(content:&BattleContent)->Result<Placements,String>{admit_selected(content,2,None)}
+/// Admit one building look for the state-driven client owner.
+pub fn admit_look(content:&BattleContent, instance:usize, look:usize)->Result<Placements,String>{admit_selected(content,3,Some((instance,look)))}
+fn admit_selected(content: &BattleContent,mode:u8, selection:Option<(usize,usize)>) -> Result<Placements, String> {
     let mut result = Placements {
         parts: vec![],
         deferred: 0,
@@ -55,6 +57,18 @@ fn admit_selected(content: &BattleContent,mode:u8) -> Result<Placements, String>
     };
     let mut placements = Vec::with_capacity(instances.len());
     for (instance,desc) in instances.iter().enumerate() {
+        if let Some((wanted,look))=selection {
+            if instance!=wanted {continue;}
+            let mut desc=desc.clone();
+            if look!=0 {
+                let variant=if look==1 {"destroyed"} else {"unbuilt"};
+                if desc[variant]["model"].as_str().is_none(){continue;}
+                desc["model"]=desc[variant]["model"].clone();
+            }
+            desc["unbuilt"]=Value::Null;
+            placements.push((instance,desc));
+            continue;
+        }
         placements.push((instance,desc.clone()));
         if desc["base"] == "trap" {
             if let Some(model) = desc["trap"]["pad"]["model"].as_str() {
@@ -71,7 +85,7 @@ fn admit_selected(content: &BattleContent,mode:u8) -> Result<Placements, String>
     let mut cache = std::collections::BTreeMap::<String, Value>::new();
     for (instance,desc) in &placements {
         let base = desc["base"].as_str().unwrap_or("");
-        if mode==1&&base=="armedbuilding"||mode==2&&base!="armedbuilding"{continue;}
+        if mode==1&&matches!(base,"armedbuilding"|"powerupstation"|"commandpost")||mode==2&&base!="armedbuilding"{continue;}
         // AnimatedProp.present samples clips even without gameplay. Retain
         // that distinction instead of publishing an incorrect bind-pose door.
         if matches!(base, "animatedprop" | "door") {
