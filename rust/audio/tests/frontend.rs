@@ -115,13 +115,13 @@ fn frontend_completion_events_retire_pcm_once_and_allow_a_slot_to_be_reused() {
 // Ported from `tests/audio-light.test.js`:
 // "Classic stereo has one required Rust source-to-output host".
 //
-// In Classic stereo (`light_mode`), voices bypass the Enhanced per-voice lowpass
-// and surround Master limiter, feeding the two-channel OpenAL Soft light panner
-// and WaveShaper table directly.
+// In the light mix (`Output::light`, Classic stereo's cheap path), voices bypass
+// the Enhanced per-voice lowpass and the Master chain, feeding the two-channel
+// OpenAL Soft light panner and WaveShaper table directly.
 #[test]
-fn classic_stereo_renders_panned_voice_without_host_dsp() {
-    let mut out = Output::new(48000.0, 2, false, false, false, false, false);
-    assert!(out.light_mode);
+fn light_mix_renders_panned_voice_without_host_dsp() {
+    let mut out = Output::light(48000.0, false, false);
+    assert!(out.light_mode && out.master.is_none());
 
     // Upload a 1000-frame mono buffer filled with 0.25 into sample id 1.
     out.voices
@@ -160,6 +160,14 @@ fn classic_stereo_renders_panned_voice_without_host_dsp() {
     assert!(right.iter().all(|&v| v == 0.0));
 }
 
+
+// Classic on stereo speakers plays the full original chain, as the surround
+// layouts do: the Master (reverb, dynamics, limiter), not the light mix.
+#[test]
+fn classic_stereo_builds_the_full_original_chain() {
+    let out = Output::new(48000.0, 2, false, false, false, false, false);
+    assert!(!out.light_mode && out.master.is_some() && !out.enhanced && out.channels == 2);
+}
 
 // Ported from `tests/audio-light.test.js`:
 // "speaker test reaches its named channel after the muted mono game mix".
