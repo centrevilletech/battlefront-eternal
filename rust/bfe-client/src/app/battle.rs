@@ -866,6 +866,8 @@ pub struct BattleController {
     pub(super) page_battle: super::page_battle::PageBattle,
     /// `bfe-battle-ui` in-battle text chat controller (`All` / `Team`).
     pub chat: ChatController,
+    /// The map's boundary and the LEAVING BATTLEFIELD warning's state.
+    leaving: super::leaving::LeavingFeed,
     // Retained UTF-16 storage for the native chat text field.
     chat_text: Vec<u16>,
     stats_text: String,
@@ -999,7 +1001,7 @@ impl BattleController {
     }
 
     pub async fn open_instant_action(
-        _content_dir: &Path,
+        content_dir: &Path,
         prepared: InstantAdmission,
         size: [i32; 2],
         settings: &AppSettingsStore,
@@ -1062,7 +1064,8 @@ impl BattleController {
             receiver.own.team,
         );
 
-        Self::finish_init(
+        let leaving = super::leaving::LeavingFeed::load(content_dir, &map_id);
+        let mut battle = Self::finish_init(
             BattleAuthority::InstantAction {
                 request,
                 playlist_index,
@@ -1081,7 +1084,9 @@ impl BattleController {
             &era,
             size,
             settings,
-        )
+        )?;
+        battle.leaving = leaving;
+        Ok(battle)
     }
 
     /// Handover owns both clocks: loading audio remains alive through the
@@ -1132,7 +1137,7 @@ impl BattleController {
         })
     }
     pub async fn open_online(
-        _content_dir: &Path,
+        content_dir: &Path,
         prepared: OnlineAdmission,
         size: [i32; 2],
         settings: &AppSettingsStore,
@@ -1184,7 +1189,8 @@ impl BattleController {
         let mut client = Box::new(OnlineClient::connect(endpoint, replicas, camera)?);
         client.sender.auto_spawn = false;
 
-        Self::finish_init(
+        let leaving = super::leaving::LeavingFeed::load(content_dir, &map_id);
+        let mut battle = Self::finish_init(
             BattleAuthority::Online {
                 launch,
                 map_id,
@@ -1197,7 +1203,9 @@ impl BattleController {
             &era,
             size,
             settings,
-        )
+        )?;
+        battle.leaving = leaving;
+        Ok(battle)
     }
 
     /// Shared initialization for `SpawnScreenController`, `ScoreboardController`, `PauseMenu`,
@@ -1302,6 +1310,7 @@ impl BattleController {
             pause_page,
             page_battle,
             chat,
+            leaving: Default::default(),
             chat_text: Vec::with_capacity(1024),
             stats_text: String::with_capacity(256),
             stats_utf16: Vec::with_capacity(256),
@@ -2100,6 +2109,7 @@ impl BattleController {
         }
         let overlay_active = self.is_overlay_open() || (game_over && !self.scoreboard_ctrl.ended);
         reset_hud_layer(&mut self.scene.bridge.hud_model.input);
+        self.present_leaving();
         if overlay_active {
             self.sync_ports_cold(&settings.player.profile_name);
             self.update_and_build_overlays(dt);
@@ -2446,6 +2456,18 @@ impl BattleController {
             draw(&self.chat_text, [1.0; 4], true);
         }
         visible || open
+    }
+
+    /// LEAVING BATTLEFIELD (`presentLeaving` in src/game.js): from what the player controls as this page
+    /// shows him, alive and outside the map's boundary.
+    fn present_leaving(&mut self) {
+        let (own, tick) = match &self.authority {
+            BattleAuthority::InstantAction { receiver, .. } => (&receiver.own, crate::online::clock::rendered_tick(receiver.clock.shown, receiver.latest)),
+            BattleAuthority::Online { client, .. } => (&client.receiver.own, crate::online::clock::rendered_tick(client.receiver.clock.shown, client.receiver.latest)),
+        };
+        let place = (own.alive && !own.dead && !own.removed).then_some(own.position);
+        let alpha = self.leaving.alpha(tick as f64, place);
+        self.scene.bridge.hud_model.input[H::LEAVING] = alpha;
     }
 
     /// Renders the faction emblems and team labels in the top-left corner of the spawn screen.

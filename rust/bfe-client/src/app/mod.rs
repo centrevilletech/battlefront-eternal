@@ -87,6 +87,7 @@ mod slint_mp;
 pub mod script;
 pub mod settings;
 pub mod shell;
+mod leaving;
 mod page_font;
 mod page_backdrop;
 mod page_blur;
