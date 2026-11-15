@@ -43,6 +43,8 @@ impl Prepared {
         names.extend(super::holograms::textures(content));
         // The Enhanced steam's wisps (steam.rs).
         names.push("thicksmoke2".into());
+        // The Enhanced fountains' foam (fountains.rs).
+        names.push("waterfoam1".into());
         // The map's snowflake, which the snow draws (weather.rs).
         if let Some(name) = content.map["weather"]["precipitation"]["Texture"][0].as_str() {
             names.push(name.into());

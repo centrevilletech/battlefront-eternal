@@ -22,6 +22,8 @@ struct Instance {
     // A steam vent's Enhanced volume (environment-effects.js), none for the
     // effects that have no Enhanced form.
     volume: Option<super::steam::Volume>,
+    // A fountain's slot and pool levels, for the Enhanced jets.
+    fountain: Option<super::fountains::Fountain>,
 }
 
 pub struct MapEffects {
@@ -32,8 +34,12 @@ pub struct MapEffects {
     /// The environmentEffects setting: Enhanced draws the vents' steam as
     /// volumes (steam.rs) instead of their stock effect.
     pub enhanced: bool,
+    /// Whether the Enhanced fountains can be drawn here (fountains.rs).
+    pub jets: bool,
     /// The vents in view this frame, for the Enhanced steam.
     pub volumes: Vec<super::steam::Volume>,
+    /// The fountains in view this frame, for the Enhanced jets.
+    pub fountains: Vec<super::fountains::Fountain>,
     /// Map effects started so far, and those in view in the last update.
     pub started: u64,
     pub visible: usize,
@@ -71,7 +77,13 @@ impl MapEffects {
                     kind: pipe as u8 as f64,
                 }
             });
+            let fountain = item.effect.ends_with("/waterfountain").then(|| {
+                let slot = content.environment_instances.iter().take_while(|other| !std::ptr::eq(*other, item)).filter(|other| other.effect.ends_with("/waterfountain")).count();
+                let (level, low) = super::fountains::levels(content, position);
+                super::fountains::Fountain { slot, position, level, low }
+            });
             instances.push(Instance {
+                fountain,
                 volume,
                 group,
                 position,
@@ -89,7 +101,7 @@ impl MapEffects {
         if wanted.is_some() {
             eprintln!("fx-map placed={} of {} reach={}", instances.len(), content.environment_instances.len(), end.max(90.));
         }
-        Self { instances, reach: end.max(90.), camera: None, enhanced: true, volumes: Vec::with_capacity(32), started: 0, visible: 0, show, show_next: 0, show_clock: 0., show_handle: None, report: wanted.map(|_| 0.) }
+        Self { instances, reach: end.max(90.), camera: None, enhanced: true, jets: false, volumes: Vec::with_capacity(32), fountains: Vec::with_capacity(8), started: 0, visible: 0, show, show_next: 0, show_clock: 0., show_handle: None, report: wanted.map(|_| 0.) }
     }
 
     /// The frame's camera, once it is chosen: the next update tests
@@ -135,10 +147,24 @@ impl MapEffects {
         let reach = self.reach * self.reach;
         self.visible = 0;
         self.volumes.clear();
+        self.fountains.clear();
         for (at, i) in self.instances.iter_mut().enumerate() {
             let far = (0..3).map(|k| (i.position[k] - eye[k]).powi(2)).sum::<f64>();
             // Enhanced vents: a volume while in view out to 90 m, the sphere
             // 2 m along the vent and 7 m round; their stock effect stops.
+            // Enhanced fountains: jets while in view out to 90 m (the sphere
+            // 2 m above the nozzle, 9 m round).
+            if let (true, Some(f)) = (self.enhanced && self.jets, i.fountain) {
+                if let Some(handle) = i.handle.take() {
+                    effects.kill(handle);
+                }
+                let center = [f.position[0], f.position[1] + 2., f.position[2]];
+                if far < 90. * 90. && planes.iter().all(|p| p[0] * center[0] + p[1] * center[1] + p[2] * center[2] + p[3] >= -9.) {
+                    self.visible += 1;
+                    self.fountains.push(f);
+                }
+                continue;
+            }
             if let (true, Some(v)) = (self.enhanced, i.volume) {
                 if let Some(handle) = i.handle.take() {
                     effects.kill(handle);

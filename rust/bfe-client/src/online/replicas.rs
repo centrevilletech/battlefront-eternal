@@ -110,6 +110,7 @@ pub struct Replicas {
     pub rain: Option<Box<super::weather::Rain>>,
     pub snow: Option<Box<super::weather::Snow>>,
     pub steam: Option<Box<super::steam::Steam>>,
+    pub fountains: Option<Box<super::fountains::Fountains>>,
     guns: super::lightning::Guns,
     soft: bool,
     // The tick of the frame being drawn.
@@ -481,6 +482,9 @@ impl Replicas {
         let snow = super::weather::Snow::new(content, bridge, textures, renderer, resources.collision.clone(), resources.world, snow_at)?.map(Box::new);
         let steam_at = snow.as_ref().map_or(snow_at, |s| s.end());
         let steam = super::steam::Steam::new(content, bridge, textures, renderer, steam_at)?.map(Box::new);
+        let fountains_at = steam.as_ref().map_or(steam_at, |s| s.end());
+        let fountains = super::fountains::Fountains::new(content, bridge, textures, renderer, fountains_at)?.map(Box::new);
+        combat.map_effects.jets = fountains.is_some();
         bridge.r.core.state.reset();
         // Weapon actions resolve their clips once, per body and bank.
         let sets = content.content.battle.anim_meta.get("sets");
@@ -511,6 +515,7 @@ impl Replicas {
             rain,
             snow,
             steam,
+            fountains,
             guns,
             // The browser's defaults, until the player's settings arrive.
             soft: true,
@@ -1124,6 +1129,9 @@ impl Replicas {
         if let Some(steam) = &mut self.steam {
             steam.frame(dt, &self.combat.map_effects.volumes, screen, true, gpu, bridge);
         }
+        if let Some(fountains) = &mut self.fountains {
+            fountains.frame(dt, &self.combat.map_effects.fountains, screen, gpu, bridge);
+        }
         if let Some(rain) = &mut self.rain {
             rain.frame(dt, eye, gpu, bridge);
         }
@@ -1133,12 +1141,14 @@ impl Replicas {
         // With the bench's fx key, how often each was drawn, every 600 frames.
         if self.frame % 600 == 0 && crate::app::bench::fx().is_some() {
             eprintln!(
-                "fx-weather rain={} rain-enhanced={} snow={} steam={} vents={}",
+                "fx-weather rain={} rain-enhanced={} snow={} steam={} vents={} fountains={} jets-in-view={}",
                 self.rain.as_ref().map_or(0, |r| r.frames),
                 self.rain.as_ref().is_some_and(|r| r.enhanced),
                 self.snow.as_ref().map_or(0, |s| s.frames),
                 self.steam.as_ref().map_or(0, |s| s.frames),
-                self.combat.map_effects.volumes.len()
+                self.combat.map_effects.volumes.len(),
+                self.fountains.as_ref().map_or(0, |f| f.frames),
+                self.combat.map_effects.fountains.len()
             );
         }
     }

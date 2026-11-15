@@ -32,6 +32,7 @@ pub mod combat;
 mod debris;
 mod effects;
 pub mod jetpacks;
+pub mod fountains;
 pub mod hull_effects;
 pub mod lightning;
 pub mod map_effects;

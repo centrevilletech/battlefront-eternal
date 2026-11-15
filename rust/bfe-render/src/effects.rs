@@ -935,7 +935,9 @@ impl<C: HasContext> EffectsPass<C> {
             core.state.color_mask(&core.gl, &mut core.stats, [true; 4]);
             core.gl.clear(glow::COLOR_BUFFER_BIT);
             self.bind_batch(core, batch);
-            self.draw_batch(core, [batch, count, 0, at, count]);
+            // A fixed batch (the fountains') counts fountains, each a block of
+            // its seeds: give it room for every block it holds.
+            self.draw_batch(core, [batch, count, 0, at, count.max(1 << 20)]);
             if external { core.multi.restore_framebuffers(); } else { core.gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, draw); }
             core.gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
             core.stats.gl_calls += 8;
