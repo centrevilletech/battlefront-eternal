@@ -61,6 +61,16 @@ impl<C: HasContext> Profile<C> {
         if let Some(q)=query { unsafe {gl.begin_query(glow::TIME_ELAPSED,q);} }
         Some(Token {start,query,draws:self.draws,triangles:self.triangles})
     }
+    // Measure a whole submission on a different frame from the pass queries:
+    // OpenGL ES permits only one active elapsed-time query.
+    pub fn begin_frame(&mut self, gl: &C) -> Option<Token<C::Query>> {
+        if !self.enabled || self.frame % 7 != 1 { return None; }
+        let query = if self.gpu_supported && self.pending.len() < 512 {
+            self.free.pop().or_else(|| unsafe { gl.create_query().ok() })
+        } else { None };
+        if let Some(q) = query { unsafe { gl.begin_query(glow::TIME_ELAPSED, q); } }
+        Some(Token { start: CpuSample::now(), query, draws: self.draws, triangles: self.triangles })
+    }
     pub fn end(&mut self, gl: &C, label: &'static str, token: Option<Token<C::Query>>) {
         if let Some(t)=token {
             if let Some(q)=t.query {unsafe {gl.end_query(glow::TIME_ELAPSED);} self.pending.push_back((label,q,self.frame));}

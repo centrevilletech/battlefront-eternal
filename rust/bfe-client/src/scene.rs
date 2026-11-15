@@ -1779,7 +1779,9 @@ impl Scene {
                 self.bridge.r.frames.plan.facts[f::TEMPORAL]=1.;
             }
         }
+        let canopy_timer = self.bridge.r.core.profile.clock();
         if let Some(canopies)=&self.canopies{canopies.frame(&mut self.bridge,&mut self.resources,view,self.shadows_enabled)?;}
+        self.bridge.r.core.profile.cpu("canopy preparation", canopy_timer);
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         crate::static_scene::update(&mut self.static_content, &mut self.bridge, &view.values);
         if matches!(component, Component::All | Component::Sky) {
@@ -1841,10 +1843,12 @@ impl Scene {
             .unwrap_or(0);
         if component==Component::All{if let Some(online)=&mut self.online{(records,bones)=online.append(&mut self.bridge,records,bones);}}
         self.bridge.r.core.profile.cpu("instance list and culling",cull_timer);
+        let lamp_timer = self.bridge.r.core.profile.clock();
         self.lamps.begin();
         let online=&self.online;
         self.lamps.instances(&mut self.bridge.r.core,records,false,&mut |from,to|online.as_ref().is_none_or(|online|online.lamp_visible(from,to)));
         if !self.lamp_worlds.is_empty(){let values=self.lamps.select((1u64<<49,0,0,0),[0.;3],&mut |from,to|online.as_ref().is_none_or(|online|online.lamp_visible(from,to)));for &id in &self.lamp_worlds{self.bridge.world_lamps(id,&values);}}
+        self.bridge.r.core.profile.cpu("lamp selection", lamp_timer);
         if let Some(native)=&mut self.temporal_motion{
             use bfe_render::{motion as M,post_chain::layout::{facts as pf,resource as pr,state as ps}};
             let motion=&mut self.bridge.r.motion;let f=&self.bridge.r.post_chain.input;let state=&self.bridge.r.post_chain.state;
@@ -1885,7 +1889,9 @@ impl Scene {
         if self.online.is_some(){self.publish(r::HUD0,k::HUD,0,0,0);}
         self.bridge.r.core.profile.cpu("draw list building",build_timer);
         let submit_timer=self.bridge.r.core.profile.clock();
+        let gpu_frame = self.bridge.r.core.profile.begin_frame(&self.bridge.r.core.gl);
         let success = self.bridge.battle_frame(&mut self.resources);
+        self.bridge.r.core.profile.end(&self.bridge.r.core.gl, "GPU frame", gpu_frame);
         if let Some(native)=&mut self.temporal_motion{native.complete(success);}
         self.bridge.r.core.profile.cpu("GL submit",submit_timer);
         self.bridge.r.core.profile.frame(&self.bridge.r.core.gl);
