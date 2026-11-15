@@ -52,6 +52,9 @@ pub(super) struct PageBattle {
     flare: f64,
     pins: Vec<gpu::Pin>,
     kept: backdrop::Kept,
+    behind: Backdrop,
+    // Seconds since the stage was last drawn (a kept frame skips its draw).
+    undrawn: f64,
     director: director::Director,
     post: Option<String>,
     pub shot: Option<bfe_battle_ui::spawn::CameraShot>,
@@ -111,6 +114,8 @@ impl PageBattle {
             flare: 0.,
             pins: Vec::new(),
             kept: backdrop::Kept::default(),
+            behind: Backdrop::Draw,
+            undrawn: 0.,
             director: director::Director::new(scene.spawn_shots.clone()),
             post: None,
             shot: None,
@@ -204,6 +209,7 @@ impl PageBattle {
         countdown: bool,
     ) {
         self.dt = dt;
+        self.undrawn += dt;
         let goals = port.teams[usize::from(model.team == 2)]
             .objectives
             .iter()
@@ -320,6 +326,7 @@ impl PageBattle {
         }
         self.flare = (self.flare - dt * 2.5).max(0.);
         self.rig.update(dt, size[0] as f64 / size[1] as f64);
+        self.behind = self.kept.choose(look, dt);
     }
     pub fn pointer(&mut self, p: [f64; 2]) {
         self.cursor = p;
@@ -359,6 +366,10 @@ impl PageBattle {
     /// The battlefield pass builds the same 360-unit map that the Page
     /// browser projects. Its temporary geometry never replaces the UI batch.
     pub fn map_texture(&self, scene: &mut Scene, _view: &ClassicSpawnView, ih: f64) {
+        // A kept frame already shows the hologram.
+        if self.behind == Backdrop::Reuse {
+            return;
+        }
         let bridge = &mut scene.bridge;
         let saved: [f64; M::WORDS] = bridge.hud_model.input[MAP_DRAW..MAP_DRAW + M::WORDS]
             .try_into()
@@ -460,13 +471,14 @@ impl PageBattle {
             scene.bridge.r.core.gl.depth_mask(true);
             scene.bridge.r.core.gl.clear(glow::DEPTH_BUFFER_BIT);
         }
+        let dt = std::mem::take(&mut self.undrawn);
         self.gpu.projector(
             &mut scene.bridge,
             &self.rig,
             look.index,
             self.strength,
             self.pulse,
-            self.dt,
+            dt,
         );
         let scale = if self.walker { 0.9 } else { 1. };
         if let Some(online) = &mut scene.online {
@@ -474,7 +486,7 @@ impl PageBattle {
                 &mut scene.bridge,
                 class,
                 &self.rig.parent(scale),
-                self.dt,
+                dt,
                 &self.rig.inverse,
                 &self.rig.projection,
                 look.index,
@@ -508,7 +520,7 @@ impl PageBattle {
                 0.07
             };
             let height = &mut self.pin_heights[index];
-            *height += (target - *height) * (self.dt * 9.).min(1.);
+            *height += (target - *height) * (dt * 9.).min(1.);
             self.pins.push(gpu::Pin {
                 x,
                 y,
@@ -580,15 +592,15 @@ impl PageBattle {
             }
         }
     }
-    /// What to put behind the screen this frame (backdrop.rs).
-    pub fn backdrop(&mut self, theme: &str) -> Backdrop {
-        self.kept.choose(BattleLook::new(theme).index, self.dt)
+    /// What goes under the screen's chrome this frame (backdrop.rs), chosen in update().
+    pub fn backdrop(&self) -> Backdrop {
+        self.behind
     }
-    /// After the battle was drawn behind the screen.
+    /// After the battle and the stage were drawn under the chrome.
     pub fn drawn_behind(&mut self, scene: &Scene) {
         self.kept.keep(&scene.bridge.r.core.gl, scene.canvas.framebuffer, scene.size);
     }
-    /// Instead of drawing the battle behind the screen.
+    /// Instead of drawing the battle (and, for a kept frame, the stage) under the chrome.
     pub fn show_behind(&self, scene: &mut Scene, choice: Backdrop) {
         self.kept.show(&scene.bridge.r.core.gl, scene.canvas.framebuffer, scene.size, choice);
         scene.bridge.r.core.state.reset();

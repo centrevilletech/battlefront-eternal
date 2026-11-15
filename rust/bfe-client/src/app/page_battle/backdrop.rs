@@ -1,7 +1,7 @@
 //! The battle behind the page spawn screen. The 2004 look's hologram room hides it completely, so it is not
 //! drawn. In the other looks it is darkened behind the screen; on a machine that cannot hold 45 frames a
-//! second the world is drawn every other frame and the kept frame shown in between, so the screen itself
-//! (pointer, picks, the stage) keeps twice the rate.
+//! second the battle and the stage over it (body, hologram) are drawn every other frame and that frame kept
+//! and shown in between, so the screen's chrome (pointer, picks) keeps twice the rate.
 use glow::HasContext;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
