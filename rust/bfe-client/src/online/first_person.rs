@@ -135,6 +135,12 @@ impl Prepared {
     }
 }
 impl Views {
+    /// Where the view's hand (hp_weapons) is in the units' node bank, while
+    /// a class with a view is played.
+    pub fn hand_node(&self, units: &Units) -> Option<usize> {
+        let view = &self.views[self.active?];
+        Some(units.view_node_start(view.id) + view.hand)
+    }
     // FirstPersonView receives the current private arsenal and body facts.
     // The units owner selects clips, samples bones and places its attachment
     // beneath the view camera. Neither weapon timers nor animation time is

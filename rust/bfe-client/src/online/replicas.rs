@@ -545,7 +545,7 @@ impl Replicas {
         }
         self.tick = tick;
         self.hud.frame(bridge, receiver, prediction, dt);
-        self.combat.frame(receiver, tick, dt, &mut self.lights, bridge);
+        self.combat.frame(receiver, tick, dt);
         // SnapshotPresentation samples once for the whole display batch.
         // The unit links then borrow its output by identity and generation.
         receiver.network.borrow_mut().present(tick, -1., prediction.fleet.identity.map_or(-1., |p| p.0));
@@ -905,6 +905,35 @@ impl Replicas {
         }
         self.units.place_actors(places);
 
+    }
+    /// The frame's rounds, once its bodies are posed: a bolt leaves the gun
+    /// of its shooter as he is drawn now (EntityGameState's `muzzle`: the
+    /// fire point of the weapon of his that fires that class of round, on
+    /// the first person arms for the player's own in that view; nothing for
+    /// a seated or unknown shooter, whose bolt keeps its launch point).
+    pub fn present_ordnance(&mut self, receiver: &Receiver, dt: f64, bridge: &mut Bridge) {
+        let own = (receiver.own.id as u32, receiver.own.generation as u32);
+        let (bound, slots, units, models, guns, first_person) = (&self.bound, &self.slots, &self.units, &self.models, &self.guns, &self.first_person);
+        let muzzle = |shooter: (u32, u32), round: usize| {
+            let slot = &slots[*bound.get(&shooter)?];
+            if !slot.active || slot.mount.is_some() {
+                return None;
+            }
+            let weapon = guns.shooters.get(round)?.iter().find(|(class, _)| *class == slot.class)?.1;
+            let local = guns.muzzles.get(weapon).copied().flatten()?;
+            let hand = if shooter == own && first_person.enabled && !slot.dead {
+                first_person.hand_node(units)?
+            } else {
+                units.actor_node_start(slot.actor) + models[slot.model].hand?
+            };
+            let node = hand * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
+            let mut matrix = Matrix4::default();
+            matrix.elements.copy_from_slice(&units.nodes[node..node + 16]);
+            let mut point = three::Vector3::new(local[0], local[1], local[2]);
+            point.apply_matrix4(&matrix);
+            Some([point.x, point.y, point.z])
+        };
+        self.combat.draw(dt, own, &muzzle, &mut self.lights, bridge);
     }
     /// Lightning.update, once the frame's bodies are posed. A bolt held to
     /// its shooter starts at his gun origin as he is drawn now
