@@ -55,6 +55,17 @@ impl Cast for Queries {
         self.collision.borrow_mut().ray_hit(self.world, ray, far, self.ignored).map(|(_, h)| h.distance)
     }
 }
+fn view_rotation(view: &crate::scene::View) -> Quaternion {
+    let mut world = Matrix4::default();
+    world.elements.copy_from_slice(&view.values[16..32]);
+    world.invert();
+    let mut rotation = Quaternion::default();
+    rotation.set_from_rotation_matrix(&world);
+    // Matrix round trips introduce small length errors. Feeding them back
+    // through chase slerp amplifies them into a skewed, turning camera.
+    rotation.normalize();
+    rotation
+}
 impl Cameras {
     pub fn new(content: &bfe_content_native::BattleContent, collision: Collision, world: u32) -> Result<Self, String> {
         let defs = content.defs()?;
@@ -201,11 +212,7 @@ impl Cameras {
             }
         }
         let view = camera.snapshot();
-        let mut world = Matrix4::default();
-        world.elements.copy_from_slice(&view.values[16..32]);
-        world.invert();
-        let mut q = Quaternion::default();
-        q.set_from_rotation_matrix(&world);
+        let q = view_rotation(view);
         let prev_fov = if self.owner.output[o::FOV] > 0. {
             self.owner.output[o::FOV]
         } else {
@@ -573,6 +580,26 @@ mod mounted_tests {
             death_classic: false,
             killer: None,
             killer_tick: f64::NEG_INFINITY,
+        }
+    }
+
+    #[test]
+    fn idle_chase_keeps_its_heading_across_view_matrix_round_trips() {
+        use bfe_presentation::cameras::math::slerp;
+        let camera = crate::scene::MapCamera::new([181., -1.2, -19.8], [1280, 720]).unwrap();
+        let mut view = *camera.snapshot();
+        let mut target = Quaternion::default();
+        target.set_from_euler(&three::Euler::new(-0.35, 1.86, 0., three::EulerOrder::YXZ));
+        let mut rotation = target;
+        rotation.x *= 1. + f64::EPSILON;
+        for _ in 0..1800 {
+            let mut matrix = Matrix4::default();
+            matrix.compose(&Vector3::new(181., -1.2, -19.8), &rotation, &Vector3::new(1., 1., 1.));
+            matrix.invert();
+            view.values[16..32].copy_from_slice(&matrix.elements);
+            rotation = slerp::<V8>(view_rotation(&view), target, 1. - (-9. / 60_f64).exp());
+            assert!((rotation.length_sq() - 1.).abs() < 1e-12);
+            assert!((rotation.dot(&target).abs() - 1.).abs() < 1e-12);
         }
     }
 
