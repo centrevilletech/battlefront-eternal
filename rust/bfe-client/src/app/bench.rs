@@ -322,6 +322,8 @@ impl Bench {
             use bfe_render::hud_model::layout::HudFrame as h;
             let x = &battle.scene.bridge.hud_model.input;
             write!(out, r#","reticle":[{:.5},{:.5},{}]"#, x[h::RETICLE_X], x[h::RETICLE_Y], x[h::RETICLE])?;
+            // What the reticle is on: 1 friend, 2 enemy, 3 locals, 4 nothing; then the scope texture.
+            write!(out, r#","aimed":[{},{},{}]"#, x[h::TARGET_RELATION], x[h::SECOND_RELATION], x[h::SCOPE])?;
         }
         if let Some(hull) = &replay.fleet.state {
             write!(out, r#","hull":{}"#, serde_json::json!({

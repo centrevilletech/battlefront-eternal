@@ -83,8 +83,9 @@ pub struct Holograms {
     beam: Option<Model>,
     flare: Option<Model>,
     halo: Option<Model>,
-    // Each team's logo by team number, with whether its texture scrolls.
-    logos: Vec<Option<(Model, bool)>>,
+    // Each team's logo by team number (every part of its model), with whether
+    // its texture scrolls.
+    logos: Vec<Option<(Vec<Model>, bool)>>,
     fields: Fields,
     // The posts' clock, which turns the logos and scrolls their texture.
     time: f64,
@@ -136,9 +137,13 @@ fn logo_models(content: &BattleContent) -> Vec<(usize, String)> {
     }
     out
 }
-// A logo model's one part in the common hologram pack.
+// A logo model's parts in the common hologram pack (the Republic's has two:
+// its ring and the cog inside it).
+fn parts<'a>(common: &'a Value, model: &str) -> &'a [Value] {
+    common.get("holograms").and_then(|h| h.get(model)).and_then(Value::as_array).unwrap_or(&[])
+}
 fn part<'a>(common: &'a Value, model: &str) -> Option<&'a Value> {
-    common.get("holograms")?.get(model)?.as_array()?.first()
+    parts(common, model).first()
 }
 impl Holograms {
     // `images` are the textures the particle owner loaded, by name; `data`
@@ -248,24 +253,31 @@ impl Holograms {
         let vertices = bfe_content_native::geometry::floats(&content.textures.read("common/holograms.bin")?)?;
         let indices = bfe_content_native::geometry::words(&content.textures.read("common/holograms_index.bin")?)?;
         for (team, name) in logo_models(content) {
-            let Some(part) = part(common, &name) else {
+            // Every part draws with the first part's texture, as the page's
+            // single logo material does.
+            let Some(texture) = part(common, &name).map(|p| p.get("texture").and_then(Value::as_str).unwrap_or("")) else {
                 continue;
             };
-            // The part's own span of the pack; the pack stores numbers as doubles.
-            let whole = |key: &str| part.get(key).and_then(Value::as_f64).unwrap_or(0.) as u64;
-            let record = serde_json::json!({"kind":"model","parts":[{
-                "vertexOffset": whole("vertexOffset"), "vertexCount": whole("vertexCount"),
-                "indexOffset": whole("indexOffset"), "indexCount": whole("indexCount"),
-            }]})
-            .to_string();
-            let Some(source) = bridge.actor_source(&record, &vertices, &indices)? else {
+            let mut models = Vec::new();
+            for part in parts(common, &name) {
+                // The part's own span of the pack; the pack stores numbers as doubles.
+                let whole = |key: &str| part.get(key).and_then(Value::as_f64).unwrap_or(0.) as u64;
+                let record = serde_json::json!({"kind":"model","parts":[{
+                    "vertexOffset": whole("vertexOffset"), "vertexCount": whole("vertexCount"),
+                    "indexOffset": whole("indexOffset"), "indexCount": whole("indexCount"),
+                }]})
+                .to_string();
+                if let Some(source) = bridge.actor_source(&record, &vertices, &indices)? {
+                    models.push(model(bridge, source, image(texture))?);
+                }
+            }
+            if models.is_empty() {
                 continue;
-            };
-            let texture = part.get("texture").and_then(Value::as_str).unwrap_or("");
+            }
             if holograms.logos.len() <= team {
                 holograms.logos.resize_with(team + 1, || None);
             }
-            holograms.logos[team] = Some((model(bridge, source, image(texture))?, texture.eq_ignore_ascii_case(LOGO_TEXTURE)));
+            holograms.logos[team] = Some((models, texture.eq_ignore_ascii_case(LOGO_TEXTURE)));
         }
         for (building, instance) in pad_descriptors(content).into_iter().take(HOLOGRAMS.saturating_sub(holograms.posts.len())) {
             let Some(desc) = instance.get("unbuilt") else { continue };
@@ -443,7 +455,7 @@ impl Holograms {
                 self.halo = Some(model);
             }
             let team = x[f::OWNER] as usize;
-            if let Some((model, scrolls)) = self.logos.get_mut(team).and_then(Option::take) {
+            if let Some((models, scrolls)) = self.logos.get_mut(team).and_then(Option::take) {
                 let mut turn = Quaternion::default();
                 turn.set_from_axis_angle(&Vector3::new(0., 1., 0.), x[f::ROTATION]);
                 let mut matrix = Matrix4::default();
@@ -453,8 +465,10 @@ impl Holograms {
                     &Vector3::new(self.size, self.size, self.size),
                 );
                 let scroll = if scrolls { x[f::LOGO_OFFSET] } else { 0. };
-                self.draw(bridge, &model, &matrix, camera, color, x[f::IMAGE], scroll);
-                self.logos[team] = Some((model, scrolls));
+                for model in &models {
+                    self.draw(bridge, model, &matrix, camera, color, x[f::IMAGE], scroll);
+                }
+                self.logos[team] = Some((models, scrolls));
             }
         }
         // BuildHologram uses the same draw resources, with its authored icon
