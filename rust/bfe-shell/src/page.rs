@@ -2,17 +2,14 @@
 //! src/menus/themes/page/style.js; looks follow electron/ui/looks.css.
 mod battle;
 mod browser;
-mod forms;
-mod heading;
 mod media;
 mod motion;
-mod widgets;
 use crate::{
     render::ShellTextures,
     screens::{PopupState, ScreenId, ShellApp},
 };
 pub use battle::{BattleLook, SpawnBattleStatus, SpawnFacts, SpawnLayout, SpawnMetrics, MAX_CLASSES};
-use bfe_render::interface::{anchor, rotate_z, translate, Batch, Color, Font, Matrix, UV};
+use bfe_render::interface::{anchor, Batch, Color, Font, Matrix, UV};
 pub use browser::BrowserView;
 pub use media::{FrameTexture, MediaTextures};
 use std::collections::HashMap;
@@ -39,7 +36,6 @@ pub struct Page {
     pub prose: Font,
     pub mono: Font,
     viewport: [f64; 2],
-    button_text: HashMap<String, Vec<u16>>,
     pub dropdown: bool,
     pub dropdown_cursor: usize,
     pub discord_offer: bool,
@@ -53,13 +49,6 @@ pub struct Page {
     text: HashMap<String, Vec<u16>>,
     screen: ScreenId,
     pub entered: f64,
-    row_spans: Vec<motion::RowSpan>,
-    leaving: Vec<motion::LeavingQuad>,
-    stack_depth: usize,
-    forward: bool,
-    brand_from: f64,
-    brand_target: f64,
-    brand_started: f64,
     depth_from: f64,
     depth_target: f64,
 }
@@ -88,7 +77,6 @@ impl Page {
             medium,
             bold,
             viewport: [1280., 720.],
-            button_text: HashMap::new(),
             browser: BrowserView::default(),
             media: MediaTextures::default(),
             input_state: None,
@@ -108,13 +96,6 @@ impl Page {
             text: HashMap::new(),
             screen: ScreenId::Gate,
             entered: 0.,
-            row_spans: Vec::with_capacity(16),
-            leaving: Vec::with_capacity(256),
-            stack_depth: 1,
-            forward: true,
-            brand_from: 1.,
-            brand_target: 1.,
-            brand_started: 0.,
             depth_from: 0.,
             depth_target: 0.,
         }
@@ -211,69 +192,6 @@ impl Page {
             .find(|(r, _)| x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3])
             .map(|(_, h)| *h)
     }
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn draw_text(
-        f: &Font,
-        b: &mut Batch,
-        m: Matrix,
-        x: f64,
-        y: f64,
-        text: &[u16],
-        c: Color,
-        align: u32,
-        size: f64,
-        spacing: f64,
-    ) {
-        let scale = size / f.height;
-        let width = text
-            .iter()
-            .filter_map(|ch| f.glyphs.get(ch))
-            .map(|g| g.advance * scale + spacing)
-            .sum::<f64>();
-        let mut pen = x - width
-            * match align {
-                1 => 1.,
-                2 => 0.5,
-                _ => 0.,
-            };
-        for ch in text {
-            if let Some(g) = f.glyphs.get(ch) {
-                let r = g.bounds.map(|v| v * scale);
-                if r[0] < r[2] {
-                    b.quad(
-                        m,
-                        [pen + r[0], y + r[1], pen + r[2], y + r[3]],
-                        g.page,
-                        g.uv,
-                        c,
-                        0.,
-                        0,
-                    );
-                }
-                pen += g.advance * scale + spacing;
-            }
-        }
-    }
-    #[allow(clippy::too_many_arguments)]
-    fn label(
-        &mut self,
-        b: &mut Batch,
-        m: Matrix,
-        x: f64,
-        y: f64,
-        s: &str,
-        size: f64,
-        spacing: f64,
-        c: Color,
-        align: u32,
-        logo: bool,
-    ) {
-        if !self.text.contains_key(s) {
-            self.text.insert(s.into(), s.encode_utf16().collect());
-        }
-        let f = if logo { &self.title } else { &self.body };
-        Self::draw_text(f, b, m, x, y, &self.text[s], c, align, size, spacing);
-    }
     fn rect(b: &mut Batch, m: Matrix, r: [f64; 4], solid: u32, c: Color) {
         b.quad(m, r, solid, UV, c, 0., 0);
     }
@@ -299,364 +217,6 @@ impl Page {
         b.start = b.start.min(first * 4);
         b.end = b.end.max((first + 1) * 4);
     }
-    #[allow(clippy::too_many_arguments)]
-    fn word(
-        &mut self,
-        b: &mut Batch,
-        m: Matrix,
-        x: f64,
-        y: f64,
-        s: &str,
-        size: f64,
-        align: u32,
-        look: usize,
-    ) {
-        // The logo's eight extrusion layers and text-clipped gradient are the
-        // .bfe-logo .word rules in electron/ui/looks.css, not a system font.
-        if !self.text.contains_key(s) {
-            self.text.insert(s.into(), s.encode_utf16().collect());
-        }
-        let depth_colors = match look {
-            0 => [
-                [111., 151., 216.],
-                [93., 134., 204.],
-                [76., 117., 191.],
-                [60., 100., 176.],
-                [47., 85., 160.],
-                [36., 71., 143.],
-                [26., 58., 125.],
-                [18., 47., 107.],
-            ],
-            1 => [
-                [154., 163., 173.],
-                [134., 144., 155.],
-                [115., 125., 137.],
-                [97., 107., 119.],
-                [80., 89., 101.],
-                [64., 72., 83.],
-                [49., 56., 66.],
-                [35., 41., 49.],
-            ],
-            _ => [
-                [138., 146., 158.],
-                [119., 128., 140.],
-                [100., 109., 122.],
-                [83., 91., 103.],
-                [67., 74., 85.],
-                [53., 59., 69.],
-                [41., 46., 54.],
-                [30., 34., 42.],
-            ],
-        };
-        let first = b.count;
-        for depth in (1..=8).rev() {
-            let c = depth_colors[depth - 1];
-            Self::draw_text(
-                &self.logo,
-                b,
-                m,
-                x,
-                y + depth as f64,
-                &self.text[s],
-                [c[0] / 255., c[1] / 255., c[2] / 255., 1.],
-                align,
-                size,
-                -size * 0.01,
-            );
-        }
-        let stops: &[(f64, [f64; 3])] = match look {
-            0 => &[
-                (0., [255., 255., 255.]),
-                (0.38, [226., 240., 255.]),
-                (0.70, [159., 198., 245.]),
-                (1., [111., 158., 227.]),
-            ],
-            1 => &[
-                (0., [255., 255., 255.]),
-                (0.30, [228., 232., 236.]),
-                (0.52, [169., 177., 186.]),
-                (0.74, [217., 222., 227.]),
-                (1., [255., 255., 255.]),
-            ],
-            _ => &[
-                (0., [255., 255., 255.]),
-                (0.40, [241., 244., 248.]),
-                (0.72, [185., 194., 207.]),
-                (1., [142., 152., 167.]),
-            ],
-        };
-        let chars = &self.text[s];
-        let font = &self.logo;
-        let scale = size / 64.;
-        let spacing = -size * 0.01;
-        let width = chars
-            .iter()
-            .filter_map(|ch| font.glyphs.get(ch))
-            .map(|g| g.advance * scale + spacing)
-            .sum::<f64>();
-        let mut pen = match align {
-            2 => x - width / 2.,
-            1 => x - width,
-            _ => x,
-        };
-        let Some(a) = font.glyphs.get(&65) else {
-            return;
-        };
-        let top = y + a.bounds[1] * scale;
-        let height = (a.bounds[3] - a.bounds[1]) * scale;
-        for ch in chars {
-            if let Some(g) = font.glyphs.get(ch) {
-                let r = g.bounds.map(|v| v * scale);
-                let y0 = y + r[1];
-                let y1 = y + r[3];
-                if r[0] < r[2] && y1 > y0 {
-                    for pair in stops.windows(2) {
-                        let lo = (top + height * pair[0].0).max(y0);
-                        let hi = (top + height * pair[1].0).min(y1);
-                        if hi <= lo {
-                            continue;
-                        }
-                        let tint = |py: f64| {
-                            let f = ((py - top) / height - pair[0].0) / (pair[1].0 - pair[0].0);
-                            let c = std::array::from_fn::<_, 3, _>(|i| {
-                                (pair[0].1[i] + (pair[1].1[i] - pair[0].1[i]) * f) / 255.
-                            });
-                            [c[0], c[1], c[2], 1.]
-                        };
-                        let v = |py: f64| g.uv[1] + (g.uv[3] - g.uv[1]) * (py - y0) / (y1 - y0);
-                        Self::gradient(
-                            b,
-                            m,
-                            [pen + r[0], lo, pen + r[2], hi],
-                            g.page,
-                            [g.uv[0], v(lo), g.uv[2], v(hi)],
-                            [tint(lo), tint(hi), tint(lo), tint(hi)],
-                        );
-                    }
-                }
-                pen += g.advance * scale + spacing;
-            }
-        }
-        // CSS perspective(1100px) rotateX(16deg), around the word's centre.
-        let cx = x + width
-            * match align {
-                1 => -0.5,
-                2 => 0.,
-                _ => 0.5,
-            };
-        let cy = y + font.caps_middle() * scale;
-        let angle = 16f64.to_radians();
-        for quad in first..b.count {
-            for corner in 0..4 {
-                let at = (quad * 4 + corner) * 3;
-                let px = (b.position[at] as f64 - m[12]) / m[0];
-                let py = (b.position[at + 1] as f64 - m[13]) / m[5];
-                let dy = py - cy;
-                let perspective = 1. / (1. - dy * angle.sin() / 1100.);
-                b.position[at] = ((cx + (px - cx) * perspective) * m[0] + m[12]) as f32;
-                b.position[at + 1] = ((cy + dy * angle.cos() * perspective) * m[5] + m[13]) as f32;
-            }
-        }
-        b.start = b.start.min(first * 4);
-        b.end = b.end.max(b.count * 4);
-    }
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn brand(
-        &mut self,
-        b: &mut Batch,
-        m: Matrix,
-        solid: u32,
-        w: f64,
-        h: f64,
-        home: f64,
-        theme: &str,
-        ink: Color,
-    ) {
-        // PageTheme's brand is shared between the gate/home and corner.
-        let large = (w * 0.055).min(h * 0.10).min(104.);
-        let small = (w * 0.017).min(h * 0.032).min(32.);
-        let logo_size = small + (large - small) * home;
-        if !self.text.contains_key("BATTLEFRONT") {
-            self.text
-                .insert("BATTLEFRONT".into(), "BATTLEFRONT".encode_utf16().collect());
-        }
-        let chars = &self.text["BATTLEFRONT"];
-        let width = chars
-            .iter()
-            .filter_map(|ch| self.logo.glyphs.get(ch))
-            .map(|g| g.advance * logo_size / 64. - logo_size * 0.01)
-            .sum::<f64>();
-        let lx = w * 0.03 + (w * 0.5 - width / 2. - w * 0.03) * home;
-        let ly = (h * 0.026 + small) * (1. - home) + (h * 0.16 + large * 0.78) * home;
-        let look = match theme {
-            "bf1" => 0,
-            "bf2" => 1,
-            _ => 2,
-        };
-        self.word(b, m, lx, ly, "BATTLEFRONT", logo_size, 0, look);
-        if !self.text.contains_key("ETERNAL") {
-            self.text
-                .insert("ETERNAL".into(), "ETERNAL".encode_utf16().collect());
-        }
-        let tag_size = logo_size * 0.25;
-        let tag_spacing = tag_size * 0.5;
-        let tag_w = self
-            .title
-            .width(&self.text["ETERNAL"], tag_size / 64., tag_spacing)
-            + tag_size * 3.3;
-        let brand_width = self.logo.width(
-            &self.text["BATTLEFRONT"],
-            logo_size / 64.,
-            -logo_size * 0.01,
-        );
-        let tag_right = lx + brand_width - tag_size * 0.1;
-        let tag_x = tag_right - tag_w;
-        let tag_y = ly + logo_size * 0.06 * home + tag_size * 0.42;
-        let tag_h = tag_size * 1.56;
-        // The tag's sloping right edge, padding and gradient are its CSS
-        // clip-path, not the chevron used for ordinary page buttons.
-        for row in 0..tag_h.ceil() as usize {
-            let top = row as f64;
-            let bottom = (top + 1.).min(tag_h);
-            let tint = |y: f64| {
-                let f = y / tag_h;
-                let (a, z, t) = if look == 1 {
-                    if f < 0.5 {
-                        ([240., 85., 74.], [210., 40., 28.], f / 0.5)
-                    } else {
-                        ([210., 40., 28.], [148., 21., 12.], (f - 0.5) / 0.5)
-                    }
-                } else if f < 0.42 {
-                    ([255., 210., 122.], [255., 164., 42.], f / 0.42)
-                } else {
-                    ([255., 164., 42.], [245., 117., 0.], (f - 0.42) / 0.58)
-                };
-                let c = std::array::from_fn::<_, 3, _>(|i| (a[i] + (z[i] - a[i]) * t) / 255.);
-                [c[0], c[1], c[2], 1.]
-            };
-            let cut = tag_size * 1.5 * (1. - (top + bottom) / 2. / tag_h);
-            Self::gradient(
-                b,
-                m,
-                [tag_x, tag_y + top, tag_right - cut, tag_y + bottom],
-                solid,
-                UV,
-                [tint(top), tint(bottom), tint(top), tint(bottom)],
-            );
-        }
-        let baseline = tag_y + tag_h / 2. - self.title.caps_middle() * tag_size / 64.;
-        self.label(
-            b,
-            m,
-            tag_x + tag_size * 0.9,
-            baseline,
-            "ETERNAL",
-            tag_size,
-            tag_spacing,
-            ink,
-            0,
-            true,
-        );
-    }
-    #[allow(dead_code, clippy::too_many_arguments)]
-    pub(super) fn picker(
-        &mut self,
-        b: &mut Batch,
-        m: Matrix,
-        solid: u32,
-        w: f64,
-        look: usize,
-        accent: Color,
-        ink: Color,
-        bg: Color,
-        white: Color,
-    ) {
-        // All looks are page surface sets; this dropdown never changes the
-        // shell stack or starts another menu implementation.
-        let tr = [w - w * 0.03 - 176., 18., w - w * 0.03, 56.];
-        Self::rect(b, m, tr, solid, [0.02, 0.03, 0.04, 0.9]);
-        self.label(
-            b,
-            m,
-            tr[0] - 12.,
-            tr[1] + 25.,
-            "THEME",
-            11.,
-            3.,
-            white,
-            1,
-            false,
-        );
-        let names = ["Battlefront (2004)", "Battlefront II (2005)", "Eternal"];
-        self.form_label(
-            b,
-            m,
-            tr[0] + 12.,
-            tr[1] + 25.,
-            names[look],
-            13.,
-            0.5,
-            white,
-            0,
-            forms::FormFace::Medium,
-        );
-        let border = [1., 1., 1., 0.28];
-        for r in [
-            [tr[0], tr[1], tr[2], tr[1] + 1.],
-            [tr[0], tr[3] - 1., tr[2], tr[3]],
-            [tr[0], tr[1], tr[0] + 1., tr[3]],
-            [tr[2] - 1., tr[1], tr[2], tr[3]],
-        ] {
-            Self::rect(b, m, r, solid, border);
-        }
-        let arrow_x = tr[2] - 22.;
-        let arrow_y = (tr[1] + tr[3]) / 2. - 2.;
-        let l = rotate_z(
-            translate(m, arrow_x, arrow_y, 0.),
-            std::f64::consts::FRAC_PI_4,
-        );
-        let r = rotate_z(
-            translate(m, arrow_x + 6., arrow_y + 6., 0.),
-            -std::f64::consts::FRAC_PI_4,
-        );
-        Self::rect(b, l, [0., -1., 8.5, 1.], solid, white);
-        Self::rect(b, r, [0., -1., 8.5, 1.], solid, white);
-        self.hits.push((tr, Hit::Theme));
-        if self.dropdown {
-            for (i, name) in names.iter().enumerate() {
-                let y = tr[3] + i as f64 * 30.;
-                let r = [tr[0], y, tr[2], y + 30.];
-                Self::rect(
-                    b,
-                    m,
-                    r,
-                    solid,
-                    if i == self.dropdown_cursor {
-                        accent
-                    } else {
-                        bg
-                    },
-                );
-                self.label(
-                    b,
-                    m,
-                    r[0] + 12.,
-                    y + 21.,
-                    name,
-                    13.,
-                    0.5,
-                    if i == self.dropdown_cursor {
-                        ink
-                    } else {
-                        white
-                    },
-                    0,
-                    false,
-                );
-                self.hits.push((r, Hit::Look(i)));
-            }
-        }
-    }
     pub fn draw(&mut self, b: &mut Batch, t: &ShellTextures, a: &ShellApp, w: f64, h: f64) {
         self.viewport = [w, h];
         self.modal_start = None;
@@ -679,23 +239,6 @@ impl Page {
             id
         };
         if self.screen != id {
-            motion::retain_rows(b, &self.row_spans, &mut self.leaving);
-            self.forward = a.stack.len() >= self.stack_depth;
-            self.stack_depth = a.stack.len();
-            let flight = motion::ease(
-                (a.pulse_elapsed - self.brand_started) / 0.62,
-                0.7,
-                0.,
-                0.25,
-                1.,
-            );
-            self.brand_from += (self.brand_target - self.brand_from) * flight;
-            self.brand_target = if matches!(id, ScreenId::Main | ScreenId::Gate) {
-                1.
-            } else {
-                0.
-            };
-            self.brand_started = a.pulse_elapsed;
             let drift = motion::ease((a.pulse_elapsed - self.entered) / 1.6, 0.2, 0.8, 0.2, 1.);
             self.depth_from += (self.depth_target - self.depth_from) * drift;
             self.depth_target = a.stack.len().saturating_sub(1).min(4) as f64;
@@ -706,19 +249,15 @@ impl Page {
             self.discord_offer = false;
         }
         b.begin();
-        self.row_spans.clear();
         // anchor uses a 1024-wide plane. Scale its two axes independently so
         // CSS viewport units retain their actual pixel positions at any aspect.
         let mut m = anchor(0., 0., false, h);
         m[0] *= 1024. / w;
         let solid = t.solid;
-        let (ink, bg) = match a.settings.menu_theme.as_str() {
-            "bf1" => ([0.07, 0.13, 0.29, 1.], [0.01, 0.03, 0.09, 1.]),
-            "bf2" => (
-                [1., 1., 1., 1.],
-                [16. / 255., 40. / 255., 79. / 255., 1.],
-            ),
-            _ => ([0.09, 0.05, 0.01, 1.], [0.012, 0.016, 0.024, 1.]),
+        let bg = match a.settings.menu_theme.as_str() {
+            "bf1" => [0.01, 0.03, 0.09, 1.],
+            "bf2" => [16. / 255., 40. / 255., 79. / 255., 1.],
+            _ => [0.012, 0.016, 0.024, 1.],
         };
         Self::rect(b, m, [0., 0., w, h], solid, bg);
         // MovieBackdrop's current left/right textures. Arrival, fade and depth
@@ -859,97 +398,6 @@ impl Page {
                 | ScreenId::InstantActionEra
         ) {
             Self::rect(b, m, [0., 0., w, h], solid, [0., 0., 0., 0.5]);
-        }
-        if !matches!(
-            id,
-            ScreenId::Gate
-                | ScreenId::Main
-                | ScreenId::Profile
-                | ScreenId::Options
-                | ScreenId::OptionsPage(_)
-                | ScreenId::Multiplayer
-                | ScreenId::MultiplayerList(_)
-                | ScreenId::HostDialog
-                | ScreenId::DirectConnect
-                | ScreenId::Singleplayer
-                | ScreenId::InstantAction
-                | ScreenId::InstantActionEra
-        ) {
-            let flight = motion::ease(
-                (a.pulse_elapsed - self.brand_started) / 0.62,
-                0.7,
-                0.,
-                0.25,
-                1.,
-            );
-            let brand = self.brand_from + (self.brand_target - self.brand_from) * flight;
-            self.brand(b, m, solid, w, h, brand, &a.settings.menu_theme, ink);
-            motion::leaving(
-                b,
-                &self.leaving,
-                a.pulse_elapsed - self.entered,
-                self.forward,
-            );
-            {
-                let rows = a.active_rows();
-                let n = rows.len();
-                let look = match a.settings.menu_theme.as_str() {
-                    "bf1" => 0,
-                    "bf2" => 1,
-                    _ => 2,
-                };
-                let (top, heading_y, bh, gap) = Self::row_layout(h, n, look);
-                let bw = (w * 0.30).min(400.).min(w * 0.86) - 16.;
-                self.heading(
-                    b,
-                    m,
-                    t,
-                    w / 2.,
-                    heading_y,
-                    a.screen_title_str(id),
-                    (h * 0.046).clamp(26., 50.),
-                    look,
-                );
-                let selected = a.selected_cached_row_index(id);
-                for (i, row) in rows.iter().enumerate() {
-                    let progress = ((a.pulse_elapsed - self.entered - 0.12 - i.min(10) as f64 * 0.038)
-                        / 0.42)
-                        .clamp(0., 1.);
-                    let eased = motion::ease(progress, 0.2, 0.8, 0.2, 1.);
-                    let x =
-                        (w - bw) / 2. + (1. - eased) * w * 0.06 * if self.forward { 1. } else { -1. };
-                    let first = b.count;
-                    let y = top + i as f64 * (bh + gap);
-                    let r = [x, y, x + bw, y + bh];
-                    let focused = i == selected && !row.disabled;
-                    let label = if look != 1 && row.label.bytes().any(|c| c.is_ascii_lowercase()) {
-                        std::borrow::Cow::Owned(row.label.to_uppercase())
-                    } else {
-                        std::borrow::Cow::Borrowed(row.label.as_str())
-                    };
-                    self.widget_button(b, m, t, r, &label, look, focused, row.disabled);
-                    self.row_spans.push(motion::RowSpan {
-                        first,
-                        end: b.count,
-                        index: i,
-                        selected: focused,
-                    });
-                    for quad in first..b.count {
-                        for vertex in 0..4 {
-                            b.tint[(quad * 4 + vertex) * 4 + 3] *= eased as f32;
-                        }
-                    }
-                    b.start = b.start.min(first * 4);
-                    b.end = b.end.max(b.count * 4);
-                    if !row.disabled && progress > 0.15 {
-                        self.hits.push((r, Hit::Row(i)));
-                    }
-                }
-                let edge = (w * 0.03).clamp(20., 56.);
-                let r = [edge, h * 0.923, edge + 140., h * 0.97];
-                self.widget_button(b, m, t, r, "BACK", look, false, false);
-                self.hits.push((r, Hit::Back));
-            }
         }
     }
 }
