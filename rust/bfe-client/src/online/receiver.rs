@@ -730,6 +730,24 @@ impl Receiver {
         // publish 5. Destroyed and dying hulls no longer carry their crew.
         row[r::GENERATION] == generation as f64 && (0. ..4.).contains(&row[r::STATE])
     }
+    pub fn vehicle_seats(&self, id: u32, generation: u32) -> u16 {
+        let mut seats = 0;
+        for row in self.active().filter(|row| row[r::ID] != self.own.id && matches!(row[r::KIND] as u32, k::SOLDIER | k::DROIDEKA)) {
+            if row[r::SEAT_PRESENT] != 0.
+                && row[r::SEAT_VEHICLE_ID] == id as f64
+                && row[r::SEAT_VEHICLE_GENERATION] == generation as f64
+            {
+                seats |= 1u16.checked_shl(row[r::SEAT_INDEX] as u32).unwrap_or(0);
+            }
+        }
+        // The own correction supersedes its delayed public seat lease.
+        if let Some((_, _, index)) = self.own.mount.filter(|lease| {
+            self.own.mount_kind == k::VEHICLE && lease.0 == id && lease.1 == generation
+        }) {
+            seats |= 1u16.checked_shl(index as u32).unwrap_or(0);
+        }
+        seats
+    }
     pub fn active(&self) -> impl Iterator<Item = &[f64; r::STRIDE]> {
         self.indices.values().map(|&index| &self.facts[index]).chain(std::iter::once(&self.own_fact).filter(|_| {
             self.corrections != 0
@@ -742,6 +760,30 @@ impl Receiver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vehicle_seat_occupancy_follows_qualified_leases() {
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        receiver.own.id = 1.;
+        receiver.own.mount_kind = k::VEHICLE;
+        receiver.own.mount = Some((9, 3, 0));
+        receiver.indices.insert((k::SOLDIER, 2), 0);
+        let row = &mut receiver.facts[0];
+        row[r::KIND] = k::SOLDIER as f64;
+        row[r::ID] = 2.;
+        row[r::SEAT_PRESENT] = 1.;
+        row[r::SEAT_VEHICLE_ID] = 9.;
+        row[r::SEAT_VEHICLE_GENERATION] = 3.;
+        row[r::SEAT_INDEX] = 2.;
+        assert_eq!(receiver.vehicle_seats(9, 3), 0b101);
+        assert_eq!(receiver.vehicle_seats(9, 4), 0);
+        receiver.own.mount = Some((9, 3, 1));
+        assert_eq!(receiver.vehicle_seats(9, 3), 0b110);
+        receiver.own.mount_kind = k::TURRET;
+        assert_eq!(receiver.vehicle_seats(9, 3), 0b100);
+        receiver.facts[0][r::SEAT_PRESENT] = 0.;
+        assert_eq!(receiver.vehicle_seats(9, 3), 0);
+    }
 
     #[test]
     fn aircraft_controls_follow_passenger_leases() {

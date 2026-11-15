@@ -626,18 +626,17 @@ impl Hulls {
             s.velocity.copy_from_slice(&x[e::VELOCITY..e::VELOCITY + 3]);
             s.flight_frame.copy_from_slice(&x[e::QUATERNION..e::QUATERNION + 4]);
             let start = self.owner.slot_seats(s.rig, 0);
+            let held = receiver.vehicle_seats(key.0, key.1);
             for seat_no in 0..m.seats {
                 let x = &mut self.owner.stream_in[start + seat_no * seat::STRIDE..][..seat::STRIDE];
                 x.fill(0.);
+                x[seat::HELD] = ((held >> seat_no) & 1) as f64;
+                x[seat::POSE] = x[seat::HELD];
                 if seat_no < (row[r::SEAT_COUNT] as usize).min(16) {
-                    x[seat::HELD] = 1.;
-                    x[seat::POSE] = 1.;
                     x[seat::AIM_YAW] = row[r::SEAT_ANGLES + seat_no * 2];
                     x[seat::PITCH] = row[r::SEAT_ANGLES + seat_no * 2 + 1];
                 }
                 if mount[mo::VALID] != 0. && seat_no < (mount[mo::SEAT_COUNT] as usize).min(16) {
-                    x[seat::HELD] = 1.;
-                    x[seat::POSE] = 1.;
                     x[seat::AIM_YAW] = mount[mo::SEAT_ANGLES + seat_no * 2];
                     x[seat::PITCH] = mount[mo::SEAT_ANGLES + seat_no * 2 + 1];
                 }
