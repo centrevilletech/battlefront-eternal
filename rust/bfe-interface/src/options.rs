@@ -371,9 +371,7 @@ const CHOICES_WATER_QUALITY: [ChoiceItem; 3] = [
 ];
 
 /// Near-scene full-detail view distance multiplier choices (`viewDistance` in `src/menus/options.js`).
-const CHOICES_VIEW_DISTANCE: [ChoiceItem; 4] = [
-    // The 2004 game's shortest near-scene range (`"short"`): the cheapest.
-    ChoiceItem::s("short", "SHORT"),
+const CHOICES_VIEW_DISTANCE: [ChoiceItem; 3] = [
     // Map's native 2004 near-scene range (`"original"`).
     ChoiceItem::s("original", "ORIGINAL"),
     // Twice the map's near-scene range (`"far"`).
