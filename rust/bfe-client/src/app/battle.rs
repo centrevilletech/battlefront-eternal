@@ -1830,6 +1830,7 @@ impl BattleController {
                     // Corrections acknowledge the sender's command identities,
                     // not the render clock or an independently advancing world tick.
                     cmd.sequence = sender.command_sequence();
+                    cmd.tick = sender.command_tick();
                     world.send(WorldMessage::Step {
                         command: cmd,
                         look,

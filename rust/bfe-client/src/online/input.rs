@@ -117,6 +117,7 @@ impl Default for Sender {
     }
 }
 impl Sender {
+    pub fn command_tick(&self) -> f64 { self.last_tick }
     pub fn command_sequence(&self) -> f64 {
         self.sequence as f64
     }
@@ -204,7 +205,9 @@ impl Sender {
         })
         .bounded
         .floor();
-        let tick = target.max(self.last_tick + 1.).min(receiver.latest + 30.);
+        // Several samples may share a world tick. Forcing a new tick for every
+        // sample accumulates clock drift into input latency and weapon replay.
+        let tick = target.max(self.last_tick).min(receiver.latest + 30.);
         self.last_tick = tick;
         self.history.push(c, look, flight, tick, receiver.own.generation, self.sequence as f64);
         let mut x = [0.; 512];
@@ -568,4 +571,19 @@ mod tests {
         assert!(pointer.invert);
         assert_eq!((pointer.x, pointer.y), (12., -8.));
     }
+    #[test]
+    fn input_samples_do_not_push_the_command_clock_ahead_of_its_target() {
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        receiver.welcomed = true;
+        receiver.corrections = 1;
+        receiver.own.generation = 1.;
+        receiver.latest = 100.;
+        let mut sender = Sender::default();
+        for _ in 0..40 {
+            sender.tick(&ClientCommand::default(), &ClientLook::default(), &Default::default(), &receiver, 0., 0.);
+        }
+        assert_eq!(sender.command_tick(), 102.);
+        assert_eq!(sender.command_sequence(), 40.);
+    }
+
 }

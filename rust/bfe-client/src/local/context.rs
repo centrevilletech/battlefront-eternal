@@ -357,13 +357,15 @@ impl Native {
         input: Input<'_>,
         mut run: impl FnMut(&Context, &mut Arguments, u32) -> Result<(), String>,
     ) -> Result<(), String> {
+        // Replay and authority consume the same stamped command. Restamping it
+        // for immediate execution makes its held inputs replay after their effects.
         self.commands.capture(
             input.command,
             input.look,
             input.flight,
             input.epoch,
             input.generation,
-            input.tick,
+            input.command.tick,
             input.command.first_person.unwrap_or(true),
             input.command.aspect,
             input.view_tick,
