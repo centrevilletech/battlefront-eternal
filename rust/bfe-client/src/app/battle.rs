@@ -982,7 +982,10 @@ impl BattleController {
             audio: true,
             duration: None,
             name: Some(player_name.to_string()),
-            bots: bfe_sim::world::admit::Bots::read(&bots.mode, &bots.difficulty, &bots.size),
+            bots: bfe_sim::world::admit::Bots {
+                friendly_fire: bots.friendly_fire,
+                ..bfe_sim::world::admit::Bots::read(&bots.mode, &bots.difficulty, &bots.size)
+            },
         };
 
         let (world, admitted) = WorldThread::admit_instant_action(&local_options)?;
@@ -3393,6 +3396,7 @@ pub struct BotSettings {
     pub difficulty: String,
     pub heroes: bool,
     pub size: String,
+    pub friendly_fire: bool,
 }
 impl BotSettings {
     pub fn read(settings: &bfe_interface::Settings) -> Self {
@@ -3401,6 +3405,7 @@ impl BotSettings {
             difficulty: settings.get_string("aiDifficulty"),
             heroes: settings.get_bool("aiHeroes"),
             size: settings.get_string("battleSize"),
+            friendly_fire: settings.get_bool("friendlyFire"),
         }
     }
 }
