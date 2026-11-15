@@ -291,6 +291,15 @@ impl Bench {
             }
         }
         out.write_all(b"]")?;
+        out.write_all(br#","stations":["#)?;
+        if let Some(scene) = battle.scene.online.as_ref() {
+            for (index, station) in scene.buildings.station_frames().enumerate() {
+                if index != 0 { out.write_all(b",")?; }
+                serde_json::to_writer(&mut *out, &(station.id, station.destroyed, station.health,
+                    station.max_health, station.bounds, station.center))?;
+            }
+        }
+        out.write_all(b"]")?;
         out.write_all(b"}\n")?;
         // A reader follows the file while the battle runs.
         if tick % 6. == 0. {

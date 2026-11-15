@@ -30,6 +30,16 @@ struct Building {
     direction: f64,
     span: f64,
     seed: u32,
+    station_bounds: [[f64; 3]; 2],
+}
+/// The wreck's world bounds and current repair progress for destruction effects.
+pub struct StationFrame {
+    pub id: usize,
+    pub destroyed: bool,
+    pub health: f64,
+    pub max_health: f64,
+    pub bounds: [[f64; 3]; 2],
+    pub center: [f64; 3],
 }
 pub struct Buildings {
     rows: Vec<Building>,
@@ -141,6 +151,23 @@ impl Buildings {
                 .cloned()
                 .unwrap_or(bfe_content::Value::Null);
             let wait = number(&settings, "IdleWaitTime", 2.);
+            let bounds_model = desc.get("destroyed").and_then(|d| d.get("model"))
+                .or_else(|| desc.get("model")).and_then(bfe_content::Value::as_str)
+                .and_then(|name| data.get("models").and_then(|m| m.get(name)));
+            let bounds = bounds_model.and_then(|m| m.get("box"));
+            let local: [[f64; 3]; 2] = std::array::from_fn(|side| std::array::from_fn(|axis|
+                bounds.and_then(|b| b.at(side)).and_then(|b| b.at(axis))
+                    .and_then(bfe_content::Value::as_f64)
+                    .unwrap_or([[-0.5, 0., -0.5], [0.5, 1.2, 0.5]][side][axis])));
+            let mut station_bounds = [[f64::INFINITY; 3], [f64::NEG_INFINITY; 3]];
+            for corner in 0..8 {
+                let mut p = Vector3::new(local[corner & 1][0], local[(corner >> 1) & 1][1], local[(corner >> 2) & 1][2]);
+                p.apply_matrix4(&placement);
+                for (axis, value) in [p.x, p.y, p.z].into_iter().enumerate() {
+                    station_bounds[0][axis] = station_bounds[0][axis].min(value);
+                    station_bounds[1][axis] = station_bounds[1][axis].max(value);
+                }
+            }
             rows.push(Building {
                 turret,
                 station: desc.get("base").and_then(bfe_content::Value::as_str)
@@ -159,6 +186,7 @@ impl Buildings {
                 direction: 1.,
                 span: 1.,
                 seed: (id as u32 + 1) * 7919,
+                station_bounds,
             });
         }
         Ok(Self { rows })
@@ -347,6 +375,16 @@ impl Buildings {
     }
     pub fn states(&self) -> impl Iterator<Item=(usize, &'static str, f64, bool, f64)> + '_ {
         self.rows.iter().map(|b|(b.id,["built","destroyed","unbuilt"][b.state],b.health,b.mode,b.active))
+    }
+    pub fn station_frames(&self) -> impl Iterator<Item = StationFrame> + '_ {
+        self.rows.iter().filter(|b| b.station).map(|b| StationFrame {
+            id: b.id,
+            destroyed: b.state == 1,
+            health: b.health,
+            max_health: number(&b.settings, "MaxHealth", 1.),
+            bounds: b.station_bounds,
+            center: std::array::from_fn(|i| (b.station_bounds[0][i] + b.station_bounds[1][i]) * 0.5),
+        })
     }
     pub fn max_bones(&self) -> usize {
         self.rows
