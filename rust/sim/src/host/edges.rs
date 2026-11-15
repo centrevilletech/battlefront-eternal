@@ -6,7 +6,7 @@
 //! then each lane's drained outcomes as op 6).
 use super::{block_row, Authority, Client};
 use crate::abi::context::Context;
-use crate::gen::{self, BlockHeader as B, PlayerLanes, WeCall, WeOutcome, WeResult};
+use crate::gen::{self, PlayerLanes, WeCall, WeOutcome, WeResult};
 use crate::store::StrId;
 
 /// `capacity` of `new EntityEdges(...)`.
