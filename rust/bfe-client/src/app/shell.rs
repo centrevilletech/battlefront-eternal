@@ -480,6 +480,20 @@ impl Default for SteamOfferState {
     }
 }
 
+/// With `BFE_MENU_INPUT_TRACE` set, once a second: the movie frames decoded since the last line and the wall time
+/// they took, so the playback rate of the backdrop can be read against the file's own.
+fn trace_movie_rate(trace: &mut (std::time::Instant, u64), decoded: u64, now: std::time::Instant) {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if !*ON.get_or_init(|| std::env::var_os("BFE_MENU_INPUT_TRACE").is_some()) {
+        return;
+    }
+    let wall = now.duration_since(trace.0).as_secs_f64();
+    if wall >= 1. {
+        eprintln!("[menu movie] decoded {} in {wall:.2} s ({:.1} per s)", decoded - trace.1, (decoded - trace.1) as f64 / wall);
+        *trace = (now, decoded);
+    }
+}
+
 pub struct ShellHost {
     pub movies: bfe_shell::movies::MoviePlayer,
     right_movies: bfe_shell::movies::MoviePlayer,
@@ -488,6 +502,7 @@ pub struct ShellHost {
     right_handle: u32,
     pub preview_movies: bfe_shell::movies::MoviePlayer,
     movie_clock: std::time::Instant,
+    movie_trace: (std::time::Instant, u64),
     pub movie_allocs_max: u64,
     movie_texture: bfe_shell::movie_gpu::MovieTexture,
     pub preview_texture: bfe_shell::movie_gpu::MovieTexture,
@@ -633,6 +648,7 @@ impl ShellHost {
             right_handle,
             preview_movies: Default::default(),
             movie_clock: std::time::Instant::now(),
+            movie_trace: (std::time::Instant::now(), 0),
             movie_allocs_max: 0,
             movie_texture,
             preview_texture,
@@ -1523,6 +1539,7 @@ impl ShellHost {
         let now = std::time::Instant::now();
         let movie_dt = now.duration_since(self.movie_clock).as_secs_f64();
         self.movie_clock = now;
+        trace_movie_rate(&mut self.movie_trace, self.movies.stats.decoded + self.right_movies.stats.decoded, now);
         self.backdrop.update(root,movie_dt,&mut self.movies,&mut self.right_movies);
         self.preview_movies.update(root, movie_dt);
         if std::mem::take(&mut self.movies.intro_ended) {
