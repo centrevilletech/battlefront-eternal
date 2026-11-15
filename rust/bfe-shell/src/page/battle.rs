@@ -73,11 +73,13 @@ pub struct SpawnFacts {
     pub classes: usize,
     /// Weapon rows of each class's window (the browser's two-column grid).
     pub rows: [u8; MAX_CLASSES],
+    /// Device pixels per logical pixel (line boxes round in device pixels).
+    pub scale: f64,
 }
 pub const MAX_CLASSES: usize = 16;
 impl Default for SpawnFacts {
     fn default() -> Self {
-        Self { look: 2, goals: 2, countdown: false, switchable: true, classes: 0, rows: [2; MAX_CLASSES] }
+        Self { look: 2, goals: 2, countdown: false, switchable: true, classes: 0, rows: [2; MAX_CLASSES], scale: 1. }
     }
 }
 
@@ -90,15 +92,21 @@ pub struct SpawnMetrics {
     /// Panel border width: 1px, the 2005 look 2px.
     pub border: f64,
     pub bf2: bool,
+    pub scale: f64,
 }
-/// "line-height: normal" of the page font (Saira) as the browser rounds it: its ascent (1.05 em) and
-/// descent (.525 em), each to a whole pixel (14 px at 9 px, 16 at 10, 18 at 11.6, 33 at 21: measured).
-pub fn line(f: f64) -> f64 {
-    (1.05 * f).round() + (0.525 * f).round()
+/// "line-height: normal" of the page font (Saira) as the browser computes it: the font's ascent (1.135 em) and
+/// descent (.439 em), each rounded to a whole device pixel. Fits every line box measured in the browser build
+/// (15 px at 10 px and scale 1, 16 at scale 2; 22 at 13.68 px; 33 at 21 px, scale 2).
+pub fn line_at(f: f64, scale: f64) -> f64 {
+    let d = f * scale;
+    ((d * 1.135).round() + (d * 0.439).round()) / scale
 }
 impl SpawnMetrics {
-    pub fn new(w: f64, h: f64, look: usize) -> Self {
-        Self { vh: h / 100., vw: w / 100., border: if look == 1 { 2. } else { 1. }, bf2: look == 1 }
+    pub fn new(w: f64, h: f64, look: usize, scale: f64) -> Self {
+        Self { vh: h / 100., vw: w / 100., border: if look == 1 { 2. } else { 1. }, bf2: look == 1, scale: scale.max(0.5) }
+    }
+    pub fn line(&self, f: f64) -> f64 {
+        line_at(f, self.scale)
     }
     fn clamp(&self, lo: f64, vh: f64, hi: f64) -> f64 {
         (vh * self.vh).clamp(lo, hi)
@@ -124,13 +132,13 @@ impl SpawnMetrics {
         }
     }
     pub fn class_bar_height(&self) -> f64 {
-        self.class_bar().1 * 2. + line(self.class_font())
+        self.class_bar().1 * 2. + self.line(self.class_font())
     }
     /// One class window: border, bar, weapon grid (padding .7vh/.8vh, rows .25em apart).
     pub fn class_height(&self, rows: u8) -> f64 {
         let f = self.weapon_font();
         let rows = f64::from(rows.max(1));
-        let grid = 1.5 * self.vh + rows * line(f) + (rows - 1.) * 0.25 * f;
+        let grid = 1.5 * self.vh + rows * self.line(f) + (rows - 1.) * 0.25 * f;
         2. * self.border + self.class_bar().0 + self.class_bar_height() + grid
     }
     // .bfe-spawn-side-*
@@ -151,9 +159,9 @@ impl SpawnMetrics {
     }
     /// A team plate's height: its name over its state (a badge while switchable) or the count.
     pub fn plate_height(&self, badge: bool) -> f64 {
-        let state = line(self.team_state_font()) + if badge { 0.5 * self.team_state_font() } else { 0. };
+        let state = self.line(self.team_state_font()) + if badge { 0.5 * self.team_state_font() } else { 0. };
         let text = self.team_name_font() + 0.4 * self.vh + state;
-        2. * self.border + 1.8 * self.vh + text.max(line(self.team_count_font()))
+        2. * self.border + 1.8 * self.vh + text.max(self.line(self.team_count_font()))
     }
     // .bfe-spawn-teamkeys: kbd at 1.1em, line height 1.2, .1em padding, 1px border.
     pub fn keys_height(&self) -> f64 {
@@ -171,7 +179,7 @@ impl SpawnMetrics {
     }
     pub fn caption_height(&self) -> f64 {
         let t = self.title_font();
-        t * 1.3 + 3. + 0.7 * self.vh + line(self.post_font()).max(line(self.at_font()))
+        t * 1.3 + 3. + 0.7 * self.vh + self.line(self.post_font()).max(self.line(self.at_font()))
     }
     pub fn go_height(&self) -> f64 {
         self.clamp(50., 7., 74.)
@@ -221,7 +229,7 @@ pub struct SpawnLayout {
 }
 impl SpawnLayout {
     pub fn new(w: f64, h: f64, facts: SpawnFacts) -> Self {
-        let m = SpawnMetrics::new(w, h, facts.look);
+        let m = SpawnMetrics::new(w, h, facts.look, facts.scale);
         let (vw, vh) = (m.vw, m.vh);
         // --bfe-gutter clamp(20px, 3vw, 56px); --bfe-page-frame min(100vw - 2 gutter, 1680px), centred.
         let gutter = (3. * vw).clamp(20., 56.);
@@ -256,13 +264,13 @@ impl SpawnLayout {
         }
         let countdown_y = top + head + 0.6 * vh;
         if facts.countdown {
-            head += 0.6 * vh + line(m.countdown_font());
+            head += 0.6 * vh + m.line(m.countdown_font());
         }
         let body = top + head;
         let foot = h - 2.8 * vh;
         // SELECT SOLDIER (padding-top 1vh), 1.1vh, then the class windows .9vh apart.
         let label_y = body + vh;
-        let label_h = line(m.label_font());
+        let label_h = m.line(m.label_font());
         let mut class_tops = [0.; MAX_CLASSES + 1];
         let mut y = label_y + label_h + 1.1 * vh;
         for (top, &row) in class_tops[..MAX_CLASSES].iter_mut().zip(facts.rows.iter()) {
@@ -284,13 +292,13 @@ impl SpawnLayout {
             0.
         } else {
             1.9 * vh
-                + facts.goals as f64 * line(m.goal_font())
+                + facts.goals as f64 * m.line(m.goal_font())
                 + (facts.goals as f64 - 1.) * 0.5 * vh
         };
         let objectives_h = if facts.goals == 0 {
             0.
         } else {
-            2. * m.border + bar_margin + 2. * bar_pad + line(m.panel_font()) + goals_h
+            2. * m.border + bar_margin + 2. * bar_pad + m.line(m.panel_font()) + goals_h
         };
         let objectives_y = body + vh;
         let map_y = if facts.goals == 0 { objectives_y } else { objectives_y + objectives_h + 1.2 * vh };
@@ -340,7 +348,7 @@ mod spawn_layout_tests {
     #[test]
     fn spawn_layout_matches_the_browser_build() {
         // The owner's 2512x1500 panel at scale 2, the 2005 look, the other team switchable.
-        let l = SpawnLayout::new(1256., 750., SpawnFacts { look: 1, classes: 5, ..SpawnFacts::default() });
+        let l = SpawnLayout::new(1256., 750., SpawnFacts { look: 1, classes: 5, scale: 2., ..SpawnFacts::default() });
         near(l.edge, 37.7);
         near(l.label[1], 105.8);
         let first = l.class_rect(0, false);
@@ -363,5 +371,20 @@ mod spawn_layout_tests {
         near(l.objectives[3] - l.objectives[1], 109.8);
         near(l.caption[1], 854.2);
         near(l.teams[0][0], 579.7);
+        // 1280x720 at scale 1, the 2005 look: 22px names and 15px weapon rows make 77.9px windows.
+        let l = SpawnLayout::new(1280., 720., SpawnFacts { look: 1, classes: 5, ..SpawnFacts::default() });
+        near(l.label[1], 103.1);
+        let first = l.class_rect(0, false);
+        near(first[1], 128.);
+        near(first[3] - first[1], 77.9);
+        near(l.class_rect(4, false)[1], 465.5);
+        near(l.objectives[3] - l.objectives[1], 82.9);
+        near(l.spawn[1], 649.5);
+    }
+    #[test]
+    fn line_boxes_round_in_device_pixels() {
+        for (f, scale, h) in [(10., 1., 15.), (10., 2., 16.), (13.68, 1., 22.), (14.25, 2., 22.5), (21., 2., 33.), (16.5, 2., 25.5)] {
+            assert_eq!(line_at(f, scale), h, "{f}px at {scale}");
+        }
     }
 }
