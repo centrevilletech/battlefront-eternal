@@ -458,18 +458,28 @@ fn motion(source: &str) -> Result<String, String> {
 // without it (a GL 3.3 driver, macOS) the version line must name desktop GLSL
 // 3.30, which takes the same language and ignores the precision statements.
 pub fn desktop_glsl(embedded: bool, es3_compatible: bool) -> bool { !embedded && !es3_compatible }
-// GLSL ES 3.00's half-float and norm packing functions came to desktop GLSL with
-// GL_ARB_shading_language_packing (4.20; Mesa has it on every GL 3.3 driver).
-pub fn to_desktop_glsl(source: &str) -> String {
-    match source.strip_prefix("#version 300 es") {
-        Some(rest) => {
-            let packing = ["packHalf2x16", "unpackHalf2x16", "packSnorm2x16", "unpackSnorm2x16", "packUnorm2x16", "unpackUnorm2x16"]
-                .iter().any(|f| rest.contains(f));
-            let extension = if packing { "\n#extension GL_ARB_shading_language_packing : enable" } else { "" };
-            format!("#version 330 core{extension}{rest}")
-        }
-        None => source.to_string(),
+// GLSL ES 3.00's half-float packing came to desktop GLSL with
+// GL_ARB_shading_language_packing (4.20). A driver without it (an old GL 3.3
+// driver, macOS's 4.1) gets the two functions the shaders use written out in
+// GLSL 3.30 (normal and zero halves; values past the half range become infinity).
+const HALF_FALLBACK: &str = "uint bfeHalf(float f){uint x=floatBitsToUint(f);uint s=(x>>16)&0x8000u;int e=int((x>>23)&0xffu)-112;uint m=x&0x7fffffu;if(e<=0)return s;if(e>=31)return s|0x7c00u;return s|((uint(e)<<10)+((m+0x1000u)>>13));}\nfloat bfeFloat(uint h){uint s=(h&0x8000u)<<16;uint e=(h>>10)&0x1fu;uint m=h&0x3ffu;if(e==0u){float v=float(m)*exp2(-24.0);return s!=0u?-v:v;}if(e==31u)return uintBitsToFloat(s|0x7f800000u|(m<<13));return uintBitsToFloat(s|((e+112u)<<23)|(m<<13));}\nuint bfePackHalf2x16(vec2 v){return bfeHalf(v.x)|(bfeHalf(v.y)<<16);}\nvec2 bfeUnpackHalf2x16(uint p){return vec2(bfeFloat(p&0xffffu),bfeFloat(p>>16));}\n";
+pub fn to_desktop_glsl(source: &str, packing: bool) -> String {
+    let Some(rest) = source.strip_prefix("#version 300 es") else { return source.to_string() };
+    if !rest.contains("packHalf2x16") {
+        return format!("#version 330 core{rest}");
     }
+    if packing {
+        return format!("#version 330 core\n#extension GL_ARB_shading_language_packing : enable{rest}");
+    }
+    // The functions go after the leading directives and before the first statement.
+    let body = rest.replace("unpackHalf2x16(", "bfeUnpackHalf2x16(").replace("packHalf2x16(", "bfePackHalf2x16(").replace("bfeUnbfePackHalf2x16(", "bfeUnpackHalf2x16(");
+    let mut at = 0;
+    for line in body.split_inclusive('\n') {
+        let t = line.trim();
+        if !(t.is_empty() || t.starts_with('#')) { break; }
+        at += line.len();
+    }
+    format!("#version 330 core{}{HALF_FALLBACK}{}", &body[..at], &body[at..])
 }
 
 #[cfg(test)]
@@ -477,8 +487,11 @@ mod tests {
     #[test]
     fn a_desktop_context_without_es3_compatibility_gets_glsl_330() {
         assert!(super::desktop_glsl(false, false) && !super::desktop_glsl(false, true) && !super::desktop_glsl(true, false));
-        assert_eq!(super::to_desktop_glsl("#version 300 es\nprecision highp float;\nvoid main(){}\n"), "#version 330 core\nprecision highp float;\nvoid main(){}\n");
-        assert!(super::to_desktop_glsl("#version 300 es\nuint h = packHalf2x16(v);\n").starts_with("#version 330 core\n#extension GL_ARB_shading_language_packing : enable\n"));
+        assert_eq!(super::to_desktop_glsl("#version 300 es\nprecision highp float;\nvoid main(){}\n", false), "#version 330 core\nprecision highp float;\nvoid main(){}\n");
+        assert!(super::to_desktop_glsl("#version 300 es\nuint h = packHalf2x16(v);\n", true).starts_with("#version 330 core\n#extension GL_ARB_shading_language_packing : enable\n"));
+        let fallback = super::to_desktop_glsl("#version 300 es\n#define A 1\nprecision highp float;\nvec2 r = unpackHalf2x16(packHalf2x16(v));\n", false);
+        assert!(fallback.starts_with("#version 330 core\n#define A 1\nuint bfeHalf("), "{fallback}");
+        assert!(fallback.ends_with("precision highp float;\nvec2 r = bfeUnpackHalf2x16(bfePackHalf2x16(v));\n"), "{fallback}");
     }
     use super::*;
     #[test]

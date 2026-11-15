@@ -37,6 +37,9 @@ pub const COMMAND_CAPACITY: usize = 64;
 /// Number of pre-allocated publication slots recycled between the world and render threads
 /// (over a second of 60 Hz ticks; a longer render stall grows the queue, see [`PublicationQueue`]).
 pub const PUBLICATION_SLOTS: usize = 64;
+/// Ten seconds of publications: past this the world waits for the renderer instead of queueing more (a window
+/// held in a modal loop, a long stall), so the queue stays bounded and still drops none.
+pub const MAX_QUEUED_PUBLICATIONS: usize = 600;
 
 /// Capacity of the lock-free ring buffer recording recent 60 Hz tick durations in nanoseconds.
 const RECENT_TICK_SAMPLES: usize = 4096;
@@ -230,8 +233,10 @@ impl PublicationSlot {
 /// no transport to lose one), so every publication must reach the receiver: a later
 /// delta is built on it and its reliable records are sent once. A render thread that
 /// stalls (a first frame compiling shaders on a slow GPU, a machine swapping) lets
-/// the queue grow past its preallocated slots instead of dropping the oldest; the
-/// extra slots are freed again once the queue drains.
+/// the queue grow past its preallocated slots instead of dropping the oldest, up to
+/// MAX_QUEUED_PUBLICATIONS, where the world waits for it; the extra slots are freed
+/// again once the queue drains. (A renderer slower than 60 Hz does not grow it: each
+/// poll takes everything queued.)
 struct PublicationQueue {
     ready: std::collections::VecDeque<PublicationSlot>,
     free: Vec<PublicationSlot>,
@@ -246,7 +251,12 @@ impl PublicationQueue {
     }
 
     fn acquire_slot(&mut self) -> PublicationSlot {
-        self.free.pop().unwrap_or_else(PublicationSlot::new_preallocated)
+        // Slots beyond the preallocated ones take only the memory their publication uses.
+        self.free.pop().unwrap_or_else(|| PublicationSlot { tick: 0.0, client: 1, block: Block { words: Vec::new(), heap: Vec::new() }, bytes: Vec::new() })
+    }
+
+    fn full(&self) -> bool {
+        self.ready.len() >= MAX_QUEUED_PUBLICATIONS
     }
 
     fn publish_slot(&mut self, slot: PublicationSlot) {
@@ -473,6 +483,8 @@ pub struct WorldThread {
     shared: Arc<SharedState>,
     join: Option<JoinHandle<()>>,
     pub delivered: u64,
+    // Publications taken from the queue in one poll, delivered with the queue unlocked.
+    draining: std::collections::VecDeque<PublicationSlot>,
 }
 
 impl WorldThread {
@@ -508,6 +520,7 @@ impl WorldThread {
             shared,
             join: Some(join),
             delivered: 0,
+            draining: std::collections::VecDeque::with_capacity(PUBLICATION_SLOTS),
         }
     }
 
@@ -590,6 +603,7 @@ impl WorldThread {
                     shared,
                     join: Some(join),
                     delivered: 0,
+                    draining: std::collections::VecDeque::with_capacity(PUBLICATION_SLOTS),
                 },
                 info,
             )),
@@ -659,20 +673,34 @@ impl WorldThread {
         receiver: &mut Receiver,
         now_ms: f64,
     ) -> Result<usize, String> {
-        let Ok(mut queue) = self.shared.publications.try_lock() else {
-            return Ok(0);
-        };
+        // Take everything queued at once and deliver it with the queue unlocked, so a
+        // long backlog never holds up the world thread's next publication.
+        match self.shared.publications.try_lock() {
+            Ok(mut queue) => std::mem::swap(&mut queue.ready, &mut self.draining),
+            Err(_) => return Ok(0),
+        }
         let mut count = 0usize;
-        while let Some(slot) = queue.pop_ready() {
-            let result = Publication::new(&slot.block, &slot.bytes)
+        let mut failed = None;
+        for slot in self.draining.iter() {
+            if let Err(err) = Publication::new(&slot.block, &slot.bytes)
                 .map_err(str::to_string)
-                .and_then(|pub_view| pub_view.deliver(slot.client, receiver, now_ms));
-            queue.release_slot(slot);
-            result?;
+                .and_then(|pub_view| pub_view.deliver(slot.client, receiver, now_ms))
+            {
+                failed = Some(err);
+                break;
+            }
             self.delivered += 1;
             count += 1;
         }
-        drop(queue);
+        if let Ok(mut queue) = self.shared.publications.lock() {
+            for slot in self.draining.drain(..) {
+                queue.release_slot(slot);
+            }
+        }
+        self.draining.clear();
+        if let Some(err) = failed {
+            return Err(err);
+        }
         if let Ok(mut fault_guard) = self.shared.fault.try_lock() {
             if let Some(err) = fault_guard.take() {
                 return Err(err);
@@ -810,10 +838,17 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
             continue;
         }
 
-        let mut slot = if let Ok(mut q) = shared.publications.lock() {
-            q.acquire_slot()
-        } else {
-            break;
+        let mut slot = match shared.publications.lock() {
+            // The renderer is ten seconds behind (it stopped polling): wait for it,
+            // with no tick debt, rather than queue without end.
+            Ok(q) if q.full() => {
+                drop(q);
+                thread::sleep(Duration::from_millis(16));
+                next_deadline = Instant::now() + tick_duration;
+                continue;
+            }
+            Ok(mut q) => q.acquire_slot(),
+            Err(_) => break,
         };
         let tick_start = Instant::now();
         let step_res = runtime.step_into_slot(&mut slot);
@@ -882,5 +917,23 @@ mod queue_tests {
         }
         assert_eq!(seen, 240.);
         assert_eq!(queue.free.len(), PUBLICATION_SLOTS);
+    }
+
+    // A renderer that stops polling for good holds the queue at ten seconds; the world waits there.
+    #[test]
+    fn a_renderer_that_never_polls_bounds_the_queue() {
+        let mut queue = PublicationQueue::new();
+        let mut published = 0;
+        for _ in 0..10_000 {
+            if queue.full() { break; }
+            let slot = queue.acquire_slot();
+            queue.publish_slot(slot);
+            published += 1;
+        }
+        assert_eq!(published, MAX_QUEUED_PUBLICATIONS);
+        assert_eq!(queue.ready.len(), MAX_QUEUED_PUBLICATIONS);
+        let slot = queue.pop_ready().unwrap();
+        queue.release_slot(slot);
+        assert!(!queue.full());
     }
 }
