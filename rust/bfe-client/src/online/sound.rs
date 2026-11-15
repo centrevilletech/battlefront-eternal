@@ -25,6 +25,8 @@ struct Batch {
     placements: Vec<f64>,
     room: [f64; audio::reverb::PARAM_COUNT],
     mask: u32,
+    // The master volume (masterVolume), applied at the output's master.
+    volume: f32,
     samples: Vec<(usize, Option<super::stream_assets::Pcm>)>,
 }
 impl Batch {
@@ -34,6 +36,7 @@ impl Batch {
             placements: Vec::with_capacity(PLACEMENTS),
             room: [0.; audio::reverb::PARAM_COUNT],
             mask: 0,
+            volume: 1.,
             samples: Vec::with_capacity(512),
         }
     }
@@ -69,6 +72,7 @@ pub struct LiveOutput {
     output: Output,
     mail: Arc<Mailbox>,
     next: usize,
+    volume: f32,
 }
 impl LiveOutput {
     // Output.process renders one fixed DSP quantum. Consume every published
@@ -87,9 +91,13 @@ impl LiveOutput {
                     self.output.voices.decoded_sample(id, 48000., 1, 0, Vec::new());
                 }
             }
-            if batch.mask != 0 {
-                if let Some(master) = &mut self.output.master {
+            if let Some(master) = &mut self.output.master {
+                if batch.mask != 0 {
                     master.room(&batch.room, batch.mask, false);
+                }
+                if batch.volume != self.volume {
+                    master.volume(batch.volume, 0., 0., true, 0.);
+                    self.volume = batch.volume;
                 }
             }
             self.output.commands[..batch.commands.len()].copy_from_slice(&batch.commands);
@@ -201,6 +209,9 @@ pub struct Sound {
     /// press, by registry id, and each weapon's registry id by its place in
     /// the battle's weapon list (lightning.rs Guns).
     pub ahead: (Vec<bool>, Vec<usize>),
+    /// The player's volumes, 0 to 1: master, effects, ambience, music, voice,
+    /// interface (engine.js applyVolumes and categoryVolume).
+    pub volumes: [f64; 6],
     // The client's replay ran for the player's own body this frame.
     replaying: bool,
     assets: super::stream_assets::Assets,
@@ -247,9 +258,10 @@ pub struct Sound {
 impl Sound {
     pub fn new(prepared: Prepared, collision: Collision, world: u32) -> Self {
         let mail = Arc::new(Mailbox::new());
-        let output = Some(LiveOutput { output: prepared.output, mail: mail.clone(), next: FRAMES * 2 });
+        let output = Some(LiveOutput { output: prepared.output, mail: mail.clone(), next: FRAMES * 2, volume: 1. });
         Self {
             ahead: Default::default(),
+            volumes: [1.; 6],
             replaying: false,
             assets: prepared.streams,
             decoded: 0,
@@ -713,14 +725,17 @@ impl Sound {
         }
         frame[frame::TEAM] = receiver.own.team as f64;
         frame[frame::HUMAN] = 1.;
-        for at in [
+        for (at, volume) in [
             frame::EFFECTS_VOLUME,
             frame::AMBIENCE_VOLUME,
             frame::MUSIC_VOLUME,
             frame::VOICE_VOLUME,
             frame::INTERFACE_VOLUME,
-        ] {
-            frame[at] = 1.;
+        ]
+        .into_iter()
+        .zip(&self.volumes[1..])
+        {
+            frame[at] = volume.clamp(0., 1.);
         }
         frame[frame::CHANNELS] = 2.;
         frame[frame::TICKETS1] = battle.0[0];
@@ -1070,6 +1085,7 @@ impl Sound {
         batch.placements.clear();
         batch.placements.extend_from_slice(placements);
         batch.mask = runtime.info[info::ROOM_CHANGED] as u32;
+        batch.volume = self.volumes[0].clamp(0., 1.) as f32;
         for (i, v) in batch.room.iter_mut().enumerate() {
             *v = runtime.info[info::ROOM + i];
         }

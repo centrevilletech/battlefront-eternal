@@ -109,6 +109,11 @@ varying vec3 vNormalW;
 varying vec3 vWorld;
 varying float vDepth;
 void main() {
+#ifdef HEATED
+// The vertex in its own frame, on every path below (not only the world
+// one): where a heated piece tore and its hot patches are found there.
+vHeatLocal = vec3( position );
+#endif
 #ifdef TERRAIN_LAYERS
 vWeights0 = weights0;
 vWeights1 = weights1;

@@ -1535,6 +1535,10 @@ impl Replicas {
     pub fn class_name(&self, id: usize) -> &str {
         self.class_names.get(id).map_or("", String::as_str)
     }
+    /// The player's volumes: master, effects, ambience, music, voice, interface.
+    pub fn set_volumes(&mut self, volumes: [f64; 6]) {
+        self.sound.volumes = volumes;
+    }
     pub fn set_looks(&mut self, looks: Looks) {
         self.arcs.enhanced = looks.arcs;
         self.shields.enhanced = looks.shields;
