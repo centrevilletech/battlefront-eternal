@@ -391,4 +391,8 @@ fn held_unkeyed_joints_retain_the_native_unit_pose_at_seizure(){
     frame(&mut props,0.0,1.0,&[],&[]);
     assert_eq!(props.prop_output[po::HELD_PLACED],1.0);
     assert_eq!(props.prop_output[po::HELD_FRAME+13],-2.0);
+    // Reusing the actor for a later seizure takes the new pose once.
+    props.refresh_unit_rider(rider,&rig);
+    frame(&mut props,0.0,2.0,&[],&[]);
+    assert_eq!(props.prop_output[po::HELD_FRAME+13],-3.0);
 }
