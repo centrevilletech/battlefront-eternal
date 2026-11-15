@@ -50,6 +50,8 @@ pub struct Bench {
     spawned: bool,
     // `hold=1`: leave the spawn screen open for the bench to look at and click.
     hold: bool,
+    // `frames=PATH`: one line per drawn frame: wall ms, spawn screen open, picked class, picked post.
+    frames: Option<BufWriter<File>>,
     waiting: &'static str,
     out: Option<BufWriter<File>>,
     tick: f64,
@@ -74,6 +76,7 @@ impl Bench {
             launched: false,
             spawned: false,
             hold: value("hold").is_some(),
+            frames: value("frames").and_then(|path| File::create(path).ok().map(BufWriter::new)),
             waiting: "",
             out,
             tick: f64::NAN,
@@ -107,6 +110,18 @@ impl Bench {
                     eprintln!("bench: spawn screen waiting for {waiting}");
                 }
             }
+        }
+        if let Some(frames) = &mut self.frames {
+            let wall = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0., |d| d.as_secs_f64() * 1000.);
+            let model = &battle.spawn_ctrl.model;
+            let _ = writeln!(
+                frames,
+                "{wall:.2} {} {} {}",
+                u8::from(battle.spawn_ctrl.is_open()),
+                model.class_index,
+                model.post.as_deref().unwrap_or("-")
+            );
+            let _ = frames.flush();
         }
         if self.out.is_some() {
             if let Err(error) = self.log(battle, captured) {
