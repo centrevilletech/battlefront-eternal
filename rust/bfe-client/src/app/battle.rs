@@ -1801,10 +1801,10 @@ impl BattleController {
 
         let (generation, flight_mode) = match &self.authority {
             BattleAuthority::InstantAction { receiver, .. } => {
-                (receiver.own.generation as u32, receiver.own.body_schema == 7)
+                (receiver.own.generation as u32, receiver.in_aircraft())
             }
             BattleAuthority::Online { client, .. } => {
-                (client.generation(), client.receiver.own.body_schema == 7)
+                (client.generation(), client.receiver.in_aircraft())
             }
         };
         self.input.flight_mode = flight_mode;
@@ -1870,12 +1870,12 @@ impl BattleController {
                 sender.feedback(receiver);
                 receiver.clock.advance(dt).map_err(str::to_string)?;
 
-                camera.set_flight_mode(receiver.own.flight.is_some());
+                camera.set_flight_mode(receiver.in_aircraft());
                 let mut held_now = 0;
                 for (mut cmd, look, flight, actions) in step_cmds.into_iter().flatten() {
                     if actions.perspective {
                         camera.first_person = !camera.first_person;
-                        if receiver.own.flight.is_some() {
+                        if receiver.in_aircraft() {
                             settings.interface.set("flightFirstPerson", camera.first_person);
                         }
                     }
@@ -1971,7 +1971,7 @@ impl BattleController {
                     if let Err(err) = client.step(&cmd, &look, &flight, &actions, STEP) {
                         return Ok(Some(BattleTransition::LeaveOnline { reason: Some(err) }));
                     }
-                    if actions.perspective && client.receiver.own.flight.is_some() {
+                    if actions.perspective && client.receiver.in_aircraft() {
                         settings.interface.set("flightFirstPerson", client.camera.first_person);
                     }
                 }
@@ -2353,12 +2353,28 @@ impl BattleController {
         let height = self.height;
         let width = self.height * self.aspect;
         let limit = (650.0 * height / self.size[1] as f64).min(width * 0.85);
+        let solid = self.scene.online.as_ref().and_then(|scene| scene.hud.names.get("opaque_rect").copied()).unwrap_or(A::SOLID);
         let hud = &mut self.scene.bridge.hud_model;
         let font = &hud.fonts[0];
         // Match the browser feed's word wrapping without allocating line lists
         // each frame. A long word can break anywhere, like overflow-wrap.
-        let mut draw = |text: &[u16], color| {
+        let mut draw = |text: &[u16], color, backed: bool| {
             let mut start = 0;
+            if backed {
+                // The entry's own backing, `#001020cc` with 6 px around it (`bfe-chat-entry` in src/chat.js).
+                let pad = 6.0 * height / self.size[1] as f64;
+                let left = width * 0.03;
+                hud.batch.quad(
+                    root_anchor(height),
+                    [left, y - pad, left + limit, y + font.height * 1.3 + pad],
+                    solid,
+                    // The middle of the opaque panel art, a dark fill (a plain white texture is not in the HUD's table).
+                    [0.45, 0.45, 0.55, 0.55],
+                    [1.0, 1.0, 1.0, 0.8],
+                    0.0,
+                    0,
+                );
+            }
             while start < text.len() {
                 let mut end = start;
                 let mut advance = 0.0;
@@ -2420,14 +2436,14 @@ impl BattleController {
                 bfe_battle_ui::ChatChannel::Team => [80.0 / 255.0, 1.0, 112.0 / 255.0, 1.0],
                 bfe_battle_ui::ChatChannel::Server => [96.0 / 255.0, 184.0 / 255.0, 1.0, 1.0],
             };
-            draw(&self.chat_text, color);
+            draw(&self.chat_text, color, false);
             visible = true;
         }
         if let Some(channel) = self.chat.active_channel {
             self.chat_text.clear();
             self.chat_text.extend(channel.prompt().encode_utf16());
             self.chat_text.extend(self.chat.draft.encode_utf16());
-            draw(&self.chat_text, [1.0; 4]);
+            draw(&self.chat_text, [1.0; 4], true);
         }
         visible || open
     }

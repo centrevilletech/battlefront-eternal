@@ -231,9 +231,18 @@ export component BattleSpawnScreen inherits Rectangle {
         label: "SELECT SOLDIER";
     }
 
-    for cls in BattleModel.classes : BattleClassCard {
-        model: cls;
-        clicked => { BattleModel.select-class(cls.index); }
+    // .bfe-spawn-classes clips its windows at the roster column (the picked one slides 10px into it).
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: (BattleModel.roster-x + BattleModel.roster-w) * 1px;
+        height: parent.height;
+        clip: true;
+
+        for cls in BattleModel.classes : BattleClassCard {
+            model: cls;
+            clicked => { BattleModel.select-class(cls.index); }
+        }
     }
 
     BattleTurntableArea {

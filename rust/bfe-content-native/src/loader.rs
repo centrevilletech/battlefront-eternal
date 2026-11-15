@@ -430,8 +430,9 @@ impl Loader {
                 };
                 let mut skin = mesh.textures.clone();
                 for (slot, name) in override_slots(&body.def, wanted) {
-                    if let Some(path) = side_resolve(&side.name, name) {
-                        skin[slot] = Some(textures.load(&path)?);
+                    match side_resolve(&side.name, name) {
+                        Some(path) => skin[slot] = Some(textures.load(&path)?),
+                        None => eprintln!("native unit admission: class {}/{class} skin {name} has no texture; it keeps its body's", side.name),
                     }
                 }
                 if skin != mesh.textures {

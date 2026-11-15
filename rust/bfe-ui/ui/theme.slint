@@ -13,7 +13,7 @@ export struct SurfaceBorder { width: length, color: color }
 export struct SurfaceShadow { x: length, y: length, blur: length, color: color, inset: bool }
 export struct MovieFilter { saturation: float, contrast: float, brightness: float }
 export struct Pattern { major: length, minor: length, major-color: color, minor-color: color, scanlines: bool }
-export enum MenuSound { select, accept, back, error }
+export enum MenuSound { select, accept, back, exit, error }
 export enum ControlState { idle, hover, pressed, focused, disabled }
 
 export global Theme {
@@ -253,7 +253,7 @@ export global Theme {
     out property <color> bfe-class-hover-border: rgba(255, 255, 255, 0.32);
     out property <color> bfe-class-picked-border: self.bf1 ? rgba(190, 230, 255, 0.90) : self.bf2 ? #cf2a1d : self.bfe-accent;
     out property <length> bfe-battle-card-radius: self.bf2 ? 12px : self.bfe-panel-radius;
-    out property <color> bfe-bar-ink: self.bf1 || self.bf2 ? #0b0e12 : self.bfe-text;
+    out property <color> bfe-bar-ink: self.bf1 ? #fff3dc : self.bf2 ? #0d1626 : self.bfe-text;
     out property <color> bfe-bar-dim-ink: self.bf1 || self.bf2 ? #0b0e12 : self.bfe-text-dim;
     out property <color> bfe-bar-active-ink: self.bf1 || self.bf2 ? #000000 : self.bfe-accent;
     out property <brush> bfe-bar-bg: self.bf2 ? @linear-gradient(180deg, #c9d4e2 0%, #9aa9bd 50%, #8496ad 52%, #b3c0d0 100%) : self.bf1 ? @linear-gradient(180deg, rgba(255, 196, 92, 0.78) 0%, rgba(220, 110, 10, 0.70) 100%) : rgba(255, 255, 255, 0.06);

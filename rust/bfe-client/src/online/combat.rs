@@ -564,6 +564,29 @@ impl Combat {
             );
         }
     }
+    /// PlayerCombat.presentCharge's glow: a weapon's ChargeUpEffect at its
+    /// fire point, turned as the gun is, its colour and alpha scaled by the
+    /// charge. `handle` is the one this gave last frame for the same gun
+    /// (None starts it); call before `draw`.
+    pub fn glow(&mut self, handle: Option<u32>, group: usize, position: [f64; 3], turn: [f64; 4], tint: f64) -> Option<u32> {
+        let handle = match handle {
+            Some(handle) => {
+                self.effects.sync(handle, position, Some(turn), None);
+                Some(handle)
+            }
+            None => self.effects.start_turned(group, position, [0.; 3], turn, 0),
+        };
+        if let Some(handle) = handle {
+            self.effects.tint(handle, tint);
+            // The tint rides on the effect's next command.
+            self.effects.sync(handle, position, Some(turn), None);
+        }
+        handle
+    }
+    /// `glow.kill()`: the charge is over, or the gun is no longer drawn.
+    pub fn end_glow(&mut self, handle: u32) {
+        self.effects.kill(handle);
+    }
     // An effect another owner asks for between two frames (a droid's death
     // blast). It joins the next frame's spawn batch, as any deferred impact.
     pub fn present_effect(&mut self, group: Option<usize>, position: [f64; 3], seed: u32) {

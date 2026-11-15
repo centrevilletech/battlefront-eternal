@@ -154,6 +154,12 @@ impl MapCamera {
         [self.yaw - std::f64::consts::PI, self.pitch]
     }
     pub fn snapshot(&self)->&View{&self.view}
+    pub(crate) fn drawn_view(&mut self, view: View) {
+        self.view = view;
+        self.phase_camera = true;
+        self.position.copy_from_slice(&view.values[self.slots[1]..self.slots[1] + 3]);
+        self.far_plane = view.values[14] / (view.values[10] + 1.);
+    }
     /// The far plane's distance, which bounds the lights the camera packs.
     pub fn far(&self) -> f64 {
         self.far_plane
@@ -1143,6 +1149,10 @@ impl Scene {
             static_content.skies.len()
         );
         if std::env::var_os("BFE_BENCH").is_some() {
+            let mut foliage_counts = std::collections::BTreeMap::<&str, usize>::new();
+            for instance in content.map["foliage"]["instances"].as_array().into_iter().flatten() {
+                *foliage_counts.entry(instance["class"].as_str().unwrap_or("")).or_default() += 1;
+            }
             let meshes: Vec<_> = content.world.iter().enumerate().map(|(i, m)| serde_json::json!({
                 "segment": i, "name": m.name, "kind": format!("{:?}", m.material.kind),
                 "flags": m.material.flags, "cutout": m.material.cutout,
@@ -1155,7 +1165,8 @@ impl Scene {
                 "map": content.map["name"], "world": meshes,
                 "props": props.as_ref().map(|p| &p["instances"]),
                 "propParts": static_content.props, "deferred": deferred,
-                "foliageClasses": static_content.foliage, "foliage": content.map["foliage"],
+                "foliageClasses": static_content.foliage,
+                "foliage": {"classes": content.map["foliage"]["classes"], "instancesByClass": foliage_counts},
                 "waterSurfaces": usize::from(static_content.water.is_some()), "water": content.map["water"],
                 "skyLayers": static_content.skies.len(), "lights": content.map["lighting"],
                 "lightRegions": content.map["lightRegions"], "lumi": content.map["lumi"],
@@ -1601,6 +1612,7 @@ impl Scene {
         let timer=self.bridge.r.core.profile.clock();
         if let Some(shadows) = &mut self.shadows { shadows.frame_time(dt); }
         if let Some(resources)=&mut self.online {
+            crate::app::bench::apply_camera(camera);
             let mut world=Matrix4::default();
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
             resources.items.hide_piloted_remote = receiver.own.remote.is_some()
@@ -1626,6 +1638,9 @@ impl Scene {
                 drawn,
                 dt,
             );
+            // Fixed comparison views must select the same lights and effects
+            // as their drawn camera, after the player's camera phase too.
+            crate::app::bench::apply_camera(camera);
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
             resources.first_person.enabled = resources.cameras.eye_view;
             let scope_view = if receiver.own.remote.is_some() {
@@ -1642,7 +1657,7 @@ impl Scene {
             resources.animation_view(camera);
             resources.finish_frame(receiver, replay, &world.elements, cue, &mut self.bridge.r.core.profile);
             resources.capture_shot_scene(receiver, camera);
-            resources.present_ordnance(receiver, dt.min(8./60.), &mut self.bridge);
+            resources.present_ordnance(receiver, replay, dt.min(8./60.), &mut self.bridge);
             resources.present_arcs(receiver, replay, dt.min(8./60.), &world, &camera.snapshot().values[..16], self.size[1] as f64, &mut self.bridge);
             resources.present_shields(dt.min(8./60.), camera.position, &camera.snapshot().values, self.render_size, self.depth_texture, &mut self.bridge);
             resources.present_holograms(receiver, dt.min(8./60.), camera.position, &camera.snapshot().values, &world.elements, &mut self.bridge);
@@ -1993,7 +2008,6 @@ fn inspectable(mesh: &bfe_content_native::loader::Mesh) -> bool {
     mesh.geometry.vertices != 0
         && !mesh.geometry.indices.is_empty()
         && mesh.material.kind != MaterialKind::Sky
-
 }
 
 // materials.js::setLighting/setFog read only authored map content. The inspector
