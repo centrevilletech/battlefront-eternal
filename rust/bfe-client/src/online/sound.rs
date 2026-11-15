@@ -1468,7 +1468,7 @@ mod batch_tests {
         }
         assert!(batch.commands.len() <= COMMANDS);
         mail.write.store(1, Ordering::Release);
-        let mut live = LiveOutput { output, mail, next: 0, volume: 1. };
+        let mut live = LiveOutput { output: Box::new(output), mail, next: 0, volume: 1. };
         live.quantum();
     }
 }
