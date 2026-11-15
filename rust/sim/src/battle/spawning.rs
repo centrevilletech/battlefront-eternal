@@ -506,6 +506,10 @@ pub fn pad_quotas(sp: &mut Spawning, t: usize, random: &mut dyn Draws) {
 
 /// activate(character) (spawning.js:422): class 0, the final heroCount slots
 /// take the hero classes, a bot draws its objective, then it prepares.
+/// A team fields each hero once: a bot activated later in a final slot (the
+/// roster's replacement for the local player) takes no hero class another
+/// Character of the team already holds, as the 2004 game, which activates
+/// only at the match start, never has two.
 pub fn activate<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn ContextText<W>, world: &mut W, random: &mut dyn ContextDraws<W>) {
     let t = ch(s, r).team;
     set_class(s, r, 0.0, strings, world);
@@ -517,7 +521,10 @@ pub fn activate<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, str
             let at = team.characters.len() as f64 - k;
             if at >= 0.0 && team.characters.get(at as usize) == Some(&r) {
                 let index = team.classes.len() as f64 - k;
-                set_class(s, r, index, strings, world);
+                let held = team.characters.iter().any(|&o| o != r && class_index(ch(s, o)) == Some(index));
+                if !held {
+                    set_class(s, r, index, strings, world);
+                }
                 break;
             }
             k -= 1.0;

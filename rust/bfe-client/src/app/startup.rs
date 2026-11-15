@@ -141,7 +141,9 @@ pub fn is_usable_content_dir(dir: &Path) -> bool {
 #[allow(clippy::large_enum_variant)]
 pub enum StartupContentState {
     /// Discovery runs before any content exists, while the window paints.
-    Searching(mpsc::Receiver<(Box<StartupContentState>, AppSettingsStore)>),
+    /// The search only changes desktop settings; it hands back those, never the whole store, so a choice made
+    /// while it ran (the first run's measured graphics preset) is not undone.
+    Searching(mpsc::Receiver<(Box<StartupContentState>, bfe_desktop::settings::DesktopSettings)>),
     /// Prepared content is ready at the given directory path.
     Ready(PathBuf),
     /// `PrepareSession` is actively building prepared content on a background worker thread.
@@ -169,7 +171,7 @@ impl StartupContentState {
         let mut snapshot = store.clone();
         thread::spawn(move || {
             let state = Self::resolve(cli.as_deref(), &mut snapshot);
-            let _ = tx.send((Box::new(state), snapshot));
+            let _ = tx.send((Box::new(state), snapshot.desktop));
         });
         Self::Searching(rx)
     }
@@ -316,8 +318,8 @@ impl StartupContentState {
         });
 
         if let Self::Searching(rx) = self {
-            if let Ok((state, settings)) = rx.try_recv() {
-                *store = settings;
+            if let Ok((state, desktop)) = rx.try_recv() {
+                store.desktop = desktop;
                 *self = *state;
             }
             return None;
@@ -629,6 +631,23 @@ mod tests {
         assert!(rgba.iter().any(|&b| b != 0));
         assert!(fonts.large.glyphs.contains_key(&(b'A' as u16)));
         assert!(fonts.small.glyphs.contains_key(&(b'a' as u16)));
+    }
+
+    /// The first run picks its graphics preset while the content search runs; the search's result must not
+    /// put the store it copied at start back over that choice.
+    #[test]
+    fn content_search_result_keeps_settings_chosen_while_it_ran() {
+        let mut store = AppSettingsStore::load(crate::app::settings::current_desktop_paths());
+        let (tx, rx) = mpsc::channel();
+        let mut state = StartupContentState::Searching(rx);
+        store.interface.set("performancePreset", "minimum");
+        let mut desktop = store.desktop.clone();
+        desktop.found_content_dir = Some("found".into());
+        tx.send((Box::new(StartupContentState::Ready(PathBuf::from("found"))), desktop)).unwrap();
+        state.poll(&mut store);
+        assert!(matches!(state, StartupContentState::Ready(_)));
+        assert_eq!(store.desktop.found_content_dir.as_deref(), Some("found"));
+        assert_eq!(store.interface.get_f64("renderScale"), 0.5);
     }
 
     /// Verifies that `run_bounded_update_check` returns immediately when `skip_network` is true.

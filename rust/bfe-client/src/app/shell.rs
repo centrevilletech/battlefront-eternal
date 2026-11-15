@@ -48,7 +48,7 @@ use glow::HasContext;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::mpsc,
+    sync::{mpsc, Arc},
     thread,
     time::{Duration, Instant},
 };
@@ -2490,14 +2490,46 @@ impl ShellHost {
 }
 
 /// Helper to pump headless audio when no `cpal` stream is open.
-pub fn pump_headless_audio(
-    router: &SharedAudioRouter,
-    status: &AudioStatus,
-    scratch: &mut [f32; ::audio::FRAMES * 2],
-) {
-    // Advance 6 stereo 128-frame quantums per 60 Hz video frame (~46.08 kHz equivalent).
-    for _ in 0..6 {
-        router.pump_headless(status, scratch);
+/// With no sound device the mix still runs, as a device would run it: on its own thread, at the device's pace
+/// (48 kHz, one 128-frame quantum at a time), so the battle's sounds drain at the real rate and no drawn frame pays
+/// for the mix.
+pub struct HeadlessAudio {
+    run: Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+impl HeadlessAudio {
+    pub fn start(router: Arc<SharedAudioRouter>, status: Arc<AudioStatus>) -> Self {
+        use std::sync::atomic::Ordering;
+        let run = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let running = run.clone();
+        let thread = std::thread::Builder::new()
+            .name("bfe-headless-audio".into())
+            .spawn(move || {
+                let mut scratch = [0f32; ::audio::FRAMES * 2];
+                let started = std::time::Instant::now();
+                let quantum = ::audio::FRAMES as f64 / 48_000.0;
+                let mut done = 0u64;
+                while running.load(Ordering::Relaxed) {
+                    let due = (started.elapsed().as_secs_f64() / quantum) as u64;
+                    // After a stall, catch up a little and drop the rest, as a device underrun would.
+                    if due > done + 8 { done = due - 8; }
+                    while done < due {
+                        router.pump_headless(&status, &mut scratch);
+                        done += 1;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                }
+            })
+            .ok();
+        Self { run, thread }
+    }
+}
+impl Drop for HeadlessAudio {
+    fn drop(&mut self) {
+        self.run.store(false, std::sync::atomic::Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 

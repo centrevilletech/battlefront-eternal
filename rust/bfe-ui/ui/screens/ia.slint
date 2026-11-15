@@ -104,7 +104,7 @@ export component SingleplayerScreen inherits Rectangle {
     }
     if !root.use-underlay: PagePattern { x: 0px; y: 0px; width: parent.width; height: parent.height; }
     if !root.use-underlay: PageScrim { x: 0px; y: 0px; width: parent.width; height: parent.height; }
-    ScreenFrame {
+    sp-frame := ScreenFrame {
         x: 0px; y: 0px; width: parent.width; height: parent.height;
         title: "SINGLEPLAYER";
         layout: ScreenLayout.rows;
@@ -117,7 +117,7 @@ export component SingleplayerScreen inherits Rectangle {
         left-activated => { IaModel.sp-back(); }
         m-sp := VerticalLayout { visible: false; x: 0px; y: 0px; for item in IaModel.sp-rows: PageButton { label: item.label; } }
         VerticalLayout {
-            x: (parent.width - self.width) / 2;
+            x: (sp-frame.body-width - self.width) / 2;
             y: 4px;
             width: min(max(root.button-width, m-sp.preferred-width), 86 * Theme.vw - 16px);
             spacing: Theme.bfe-gap;
@@ -322,7 +322,7 @@ export component InstantActionEraScreen inherits Rectangle {
     }
     if !root.use-underlay: PagePattern { x: 0px; y: 0px; width: parent.width; height: parent.height; }
     if !root.use-underlay: PageScrim { x: 0px; y: 0px; width: parent.width; height: parent.height; }
-    ScreenFrame {
+    era-frame := ScreenFrame {
         x: 0px; y: 0px; width: parent.width; height: parent.height;
         title: IaModel.era-map-title;
         layout: ScreenLayout.rows;
@@ -335,7 +335,7 @@ export component InstantActionEraScreen inherits Rectangle {
         left-activated => { IaModel.era-back(); }
         m-era := VerticalLayout { visible: false; x: 0px; y: 0px; for item in IaModel.era-rows: PageButton { label: item.label; } }
         VerticalLayout {
-            x: (parent.width - self.width) / 2;
+            x: (era-frame.body-width - self.width) / 2;
             y: 4px;
             width: min(max(root.button-width, m-era.preferred-width), 86 * Theme.vw - 16px);
             spacing: Theme.bfe-gap;
