@@ -14,7 +14,8 @@ fn enhanced(name:&str)->bool {matches!(name,"waterfountain"|"prop_steamgrate"|"p
 // Returning indices retains the authored JS identity needed by model caches.
 fn flyers(data:&Value,mission:&str,mode:bool)->Vec<usize> {
     let table=if mode&&data["enhanced"].is_object(){&data["enhanced"]}else{&data["missions"]};
-    array(&table[mission]).filter_map(Value::as_u64).map(|n|n as usize)
+    array(&table[mission]).filter_map(Value::as_f64)
+        .filter(|n|n.is_finite() && *n>=0. && n.fract()==0.).map(|n|n as usize)
         .filter(|&i|data["flyers"].get(i).is_some_and(|d|n(d,"count",0.)>0.)).collect()
 }
 // Snow.constructor rounds combined density before limiting the repeated boxes.
@@ -159,6 +160,12 @@ pub(crate) mod exports {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]fn flyer_selection_accepts_native_authored_numbers(){
+        let data=json!({"flyers":[{"count":2.},{"count":0.},{"count":3.}],
+            "missions":{"m":[2.,1.,0.]},"enhanced":{"m":[0.,2.]}});
+        assert_eq!(flyers(&data,"m",false),vec![2,0]);
+        assert_eq!(flyers(&data,"m",true),vec![0,2]);
+    }
     #[test]fn snow_and_weather_limits_follow_authored_rounding(){
         let v=json!({"precipitation":{"ParticleDensity":[15.25],"ParticleDensityRange":[0.25],"Range":[100.],"AlphaMinMax":[0.4],"Velocity":[2.]}});
         let s=snow(&v);assert_eq!(s["count"],16.);assert_eq!(s["range"],60.);assert_eq!(s["alpha"],json!([0.4,0.4]));

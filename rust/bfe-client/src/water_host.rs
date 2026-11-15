@@ -514,7 +514,7 @@ impl WaterHost {
 
     // The main camera as the camera owner takes it (PageCameras): pose,
     // lens and matrices, from the frame block's view and projection.
-    fn camera(bridge: &mut Bridge, view: &[f64], far_reach: f64, planar: bool, level: f64, fade: [f64; 2], water_far: f64) {
+    pub(crate) fn camera(bridge: &mut Bridge, view: &[f64], far_reach: f64, planar: bool, level: f64, fade: [f64; 2], water_far: f64) {
         let mut world = Matrix4::default();
         world.elements.copy_from_slice(&view[16..32]);
         world.invert();

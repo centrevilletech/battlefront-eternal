@@ -349,6 +349,7 @@ pub struct Scene {
     water_data: usize,
     water_time: f64,
     storm: Option<crate::storm_host::StormHost>,
+    flyers: Option<crate::sky_host::SkyHost>,
     pub online: Option<Box<crate::online::replicas::Replicas>>,
 }
 // Graphics.sceneTarget: the near scene is drawn over the far scene's image
@@ -686,6 +687,9 @@ impl Scene {
             if let Some(id) = mesh.material.texture {
                 used[id] = true;
             }
+        }
+        for mesh in content.models.iter().filter(|m| m.name.starts_with("sky/")) {
+            if let Some(id) = mesh.material.texture { used[id] = true; }
         }
         if live {
             used.fill(true);
@@ -1041,6 +1045,7 @@ impl Scene {
         let storm = if sea_water && rain.is_object() && !rain["Type"][0].as_str().unwrap_or("").eq_ignore_ascii_case("quads") {
             Some(crate::storm_host::StormHost::new(&mut bridge, &mut resources, &content.world, &textures, water_data, &mut far_slot)?)
         } else { None };
+        let flyers = crate::sky_host::SkyHost::new(&mut bridge, &mut resources, &content, &textures, &mut far_slot)?;
         bridge.r.far.prepare_frame_capacity();
         bridge.r.foliage.prepare_frame_caches();
         if admitted == 0 {
@@ -1181,6 +1186,7 @@ impl Scene {
                 water_data: water_fx,
                 water_time: f64::NAN,
                 storm,
+                flyers,
                 online,
                 bridge,
                 resources,
@@ -1265,6 +1271,7 @@ impl Scene {
     /// STEAM), applied as the page applied them: live.
     pub fn set_water_settings(&mut self, settings: &crate::water_host::Settings) -> Result<(), String> {
         if let Some(storm) = &mut self.storm { storm.enabled = settings.ocean == "enhanced"; }
+        if let Some(flyers) = &mut self.flyers { flyers.set_enhanced(settings.ocean == "enhanced"); }
         match &mut self.water {
             Some(host) => host.set_settings(&mut self.bridge, &mut self.resources, settings),
             None => Ok(()),
@@ -1565,6 +1572,16 @@ impl Scene {
         }
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         crate::static_scene::place_skies(&self.static_content, &mut self.bridge, &view.values, true);
+        if matches!(component, Component::All | Component::Sky) {
+            let far = self.far_reach * self.distance_scale;
+            if let Some(flyers) = &mut self.flyers {
+                if flyers.frame(&mut self.bridge, view, far) {
+                    let probe = flyers.probe;
+                    crate::water_host::WaterHost::camera(&mut self.bridge, &view.values, far, false, 0., [0.;2], 0.);
+                    self.sky_probe(view, probe);
+                }
+            }
+        } else if let Some(flyers) = &self.flyers { flyers.hide(&mut self.bridge.r.far.input); }
         if matches!(component, Component::All | Component::Water) { self.water_frame(view)?; }
         if matches!(component, Component::All | Component::Sky) {
             // Far terrain shares the displayed lens. Its separate clipping
@@ -1680,7 +1697,7 @@ impl Scene {
         host.storm_light(light);
         host.frame(&mut self.bridge, &mut self.resources, &view.values, dt, self.water_data, self.online.as_ref().map(|online| online.water_collision()))?;
         if host.plan.probe {
-            self.water_probe(view);
+            if let Some(probe) = host.ocean().and_then(|o| o.probe) { self.sky_probe(view, probe); }
         }
         let Some(host) = self.water.as_mut() else {
             return Ok(());
@@ -1808,21 +1825,17 @@ impl Scene {
     // SkyProbe.update's capture: the map's sky in the six faces of a cube
     // around the eye, drawn as the far scene draws it, which an Enhanced sea
     // reflects. The plan decides when one is due.
-    fn water_probe(&mut self, view: &View) {
+    fn sky_probe(&mut self, view: &View, probe: crate::ocean_host::Probe) {
         use bfe_render::{
             cameras::layout as cl,
             frame_plan::layout::{binding as b, kind as k, meta as m, role as r},
         };
-        let Some(host) = self.water.as_mut() else {
-            return;
-        };
-        let Some((target, sample, size)) = host.ocean().and_then(|o| o.probe.as_ref()).map(|p| (p.target, p.sample, p.size)) else {
-            return;
-        };
+        let (target, sample, size) = (probe.target, probe.sample, probe.size);
         self.bridge.camera_probe_frame(0);
         // The sky alone: no far scenery, no water.
-        host.hide_all_far(&mut self.bridge.r.far.input);
-        let mut block = std::mem::take(&mut host.plan.plain);
+        if let Some(host) = &self.water { host.hide_all_far(&mut self.bridge.r.far.input); }
+        if let Some(flyers) = &self.flyers { flyers.hide(&mut self.bridge.r.far.input); }
+        let mut block = [0.; shader::FRAME_FLOATS];
         for &at in &self.far_world_slots {
             self.bridge.r.far.input[at] = 0.;
         }
@@ -1862,9 +1875,7 @@ impl Scene {
         }
         crate::static_scene::place_skies(&self.static_content, &mut self.bridge, &view.values, true);
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
-        if let Some(host) = self.water.as_mut() {
-            host.plan.plain = block;
-        }
+        if let Some(flyers) = &mut self.flyers { flyers.place(&mut self.bridge, view, self.far_reach*self.distance_scale, 0.); }
     }
     // The near phase's packet. The sea's near surface is a far-pass item the
     // near phase draws (FarPass.drawNear), so that packet shows it alone.
@@ -1884,6 +1895,7 @@ impl Scene {
         }
         host.hide_all_far(far);
         if let Some(storm) = &self.storm { storm.hide(far); }
+        if let Some(flyers) = &self.flyers { flyers.hide(far); }
         far[slot] = 1.;
         far[bfe_render::far::FAR_NEAR] = 1.;
         // The sea draws over what the phase drew: the far pass would clear it.

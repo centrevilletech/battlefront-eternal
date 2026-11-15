@@ -27,5 +27,6 @@ mod static_scene;
 mod water_host;
 mod ocean_host;
 mod storm_host;
+mod sky_host;
 
 mod shadows;

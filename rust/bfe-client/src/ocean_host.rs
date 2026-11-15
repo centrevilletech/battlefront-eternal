@@ -41,6 +41,7 @@ impl Item {
 
 /// SkyProbe: the map's sky in a cube around the eye, which an Enhanced sea
 /// that does not storm reflects and fades into.
+#[derive(Clone, Copy)]
 pub struct Probe {
     pub target: u32,
     pub sample: u32,
@@ -67,7 +68,7 @@ pub struct Ocean {
 
 // Texture.createTarget's cube target: six RGBA8 faces with depth, a mip
 // chain, linear sampling (SkyProbe's WebGLCubeRenderTarget).
-fn cube(resources: &mut Resources, bridge: &mut Bridge, size: i32) -> Result<Probe, String> {
+pub(crate) fn cube(resources: &mut Resources, bridge: &mut Bridge, size: i32) -> Result<Probe, String> {
     let source = resources.source(&json!({"width":size,"height":size,"depth":1,"target":glow::TEXTURE_CUBE_MAP,"format":1023,"dataType":1009,"srgb":false,"renderTarget":true}).to_string())?;
     let sample = resources.sample(source, r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1008,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":4,"mipmaps":true,"compare":null}"#)?;
     let target = resources.target(&json!({"width":size,"height":size,"color":sample,"depth":null,"depthBuffer":true,"stencil":false,"samples":0,"resolveDepth":true,"resolveStencil":true,"cube":true}).to_string())?;
