@@ -226,7 +226,6 @@ pub fn f4_tail_ready_in(w: &mut Root) -> Option<&[f64]> {
 }
 pub fn f4_tail_in(w: &mut Root) {
     let input = super::f4_live::tail_input(&mut w.battle);
-    let before = crate::allocations::snapshot();
     let mut state = {
         w.battle.tail
             .take()
@@ -269,7 +268,7 @@ pub fn f4_tail_in(w: &mut Root) {
         w.battle.tail = Some(state);
     }
     outer.finish(w, true);
-    super::f4_live::count_tail(w, input.human_count as usize, before);
+    super::f4_live::count_tail(w, input.human_count as usize);
 }
 
 /// Roster commands run outside the phase and borrow its prepared post/class

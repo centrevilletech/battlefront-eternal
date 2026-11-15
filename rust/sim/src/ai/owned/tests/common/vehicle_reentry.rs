@@ -1,8 +1,7 @@
 //! Reentrant native vehicle notification must release its state before
 //! querying the world. Nested notification advances the same counter in place.
-use super::{ALLOCATIONS,COUNTING};
 use std::cell::Cell;
-use bfe_sim::ai::{owned::{scratch::{List,Pool},vehicles::Authority},vehicles::{VehicleAI,world::*,service::VehicleStorage,notify::VehicleNotify,random::Draws}};
+use bfe_sim::ai::{owned::{scratch::{List,Pool},vehicles::Authority},vehicles::{world::*,notify::VehicleNotify,random::Draws}};
 use bfe_sim::vehicles::{BodyId,Hit};
 use three::Vector3;
 struct Native {state:Authority,settings:Settings,pool:Pool<Obj>,nested:bool,offer:bool,calls:Cell<usize>}

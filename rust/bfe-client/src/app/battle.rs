@@ -52,18 +52,6 @@
 //! | Pause Behavior | Pauses `"bfe-world-60hz"` (`world.set_paused(true)`) | Simulation continues on server; shows `PLAYER LIST` |
 //! | Restart Mission | Re-admits current playlist entry from tick 0 | Hidden in online mode (`PauseRestartMode::Hidden`) |
 //!
-//! ## Steady-State Allocation Accounting
-//! - Frames `0..45` with overlays closed warm up any lazy internal buffers and the
-//!   first-tick welcome snapshot / initial combat presentation caches, matching
-//!   `phase_frames == 45` in `script.rs` (`reset_combat_measurement_window`).
-//! - Once `self.steady_frames >= 45` and `!self.is_overlay_open()`,
-//!   `BattleController::step_and_draw` samples `super::render_thread_alloc_count()`
-//!   before and after the entire simulation poll, input step, HUD build, and
-//!   `scene.draw(&view)` pass, accumulating any delta into `steady_allocs_after_warmup`.
-//! - The `--script gate` harness reports `steady_allocs_after_warmup` across
-//!   all three 2-minute Instant Action battles (`nab2`, `tat1`, `bes1`) and the
-//!   2-minute Online battle.
-//!
 //! ## Scoreboard Pages and Post-Match Flow (`LiveScoreboardPort` + `ScoreboardController`)
 //! - **`BoardPage::Table`**:
 //!   Displays the two faction headers (`REPUBLIC` vs `CIS` or `REBEL ALLIANCE` vs
@@ -890,8 +878,6 @@ pub struct BattleController {
     pub frames: u64,
     /// Count of steady gameplay frames rendered with all 2D overlays closed.
     pub steady_frames: u64,
-    /// Cumulative heap allocations on the render thread during steady gameplay after warmup.
-    pub steady_allocs_after_warmup: u64,
     /// Frames included in the allocation sample, excluding warmup and overlays.
     pub steady_frames_measured: u64,
     /// Total elapsed seconds in the current battle.
@@ -1351,7 +1337,6 @@ impl BattleController {
             cursor_px: [size[0] as f64 * 0.5, size[1] as f64 * 0.5],
             frames: 0,
             steady_frames: 0,
-            steady_allocs_after_warmup: 0,
             steady_frames_measured: 0,
             elapsed_s: 0.0,
             was_alive: false,
@@ -1818,12 +1803,7 @@ impl BattleController {
         if let Some(online) = &mut self.scene.online {
             online.cameras.death_classic = self.death_classic;
         }
-        let measure_steady_allocs = !self.is_overlay_open() && self.steady_frames >= 45;
-        let alloc_before = if measure_steady_allocs {
-            super::render_thread_alloc_count()
-        } else {
-            0
-        };
+        let measure_steady = !self.is_overlay_open() && self.steady_frames >= 45;
 
                 //
         // The render loop runs at display refresh rate while simulation and network
@@ -2212,9 +2192,7 @@ impl BattleController {
             self.scene.bridge.r.core.state.reset();
             self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=pause_groups;
         }
-        if measure_steady_allocs && !overlay_active {
-            let alloc_after = super::render_thread_alloc_count();
-            self.steady_allocs_after_warmup += alloc_after.saturating_sub(alloc_before);
+        if measure_steady && !overlay_active {
             self.steady_frames_measured += 1;
         }
         self.frames += 1;

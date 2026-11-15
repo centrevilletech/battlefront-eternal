@@ -83,8 +83,6 @@ pub struct GateDriver {
     pub screenshots_written: Vec<String>,
     /// Cumulative OpenGL errors observed via `glGetError()` across all frames.
     pub gl_errors: u64,
-    /// Maximum steady-state heap allocations observed on the render thread after warmup.
-    pub steady_allocs_after_warmup: u64,
     /// Total steady-state battle frames measured across all Instant Action and Online battles.
     pub steady_frames_measured: u64,
     /// Maximum contention blocks between the 60 Hz world thread and the render thread.
@@ -134,7 +132,6 @@ impl GateDriver {
             screenshot_dir: dir,
             screenshots_written: Vec::new(),
             gl_errors: 0,
-            steady_allocs_after_warmup: 0,
             steady_frames_measured: 0,
             world_renderer_blocks: 0,
             world_tick_stats: Vec::new(),
@@ -149,11 +146,10 @@ impl GateDriver {
     /// Transitions the driver to `next`, logging progress and resetting per-phase counters.
     pub fn transition_to(&mut self, next: GatePhase) {
         eprintln!(
-            "[gate] phase {:?} -> {:?} (frames={}, steady_allocs={}, world_blocks={})",
+            "[gate] phase {:?} -> {:?} (frames={}, world_blocks={})",
             self.phase,
             next,
             self.phase_frames,
-            self.steady_allocs_after_warmup,
             self.world_renderer_blocks
         );
         self.phase = next;
@@ -393,27 +389,17 @@ impl GateDriver {
             self.audio_frames = self.audio_frames.max(scene.sound.device_frames());
             self.audio_peak = self.audio_peak.max(scene.sound.peak());
         }
-        self.steady_allocs_after_warmup = self
-            .steady_allocs_after_warmup
-            .max(battle.steady_allocs_after_warmup);
         self.steady_frames_measured += 1;
         self.world_renderer_blocks = self
             .world_renderer_blocks
             .max(battle.world_renderer_blocks());
     }
 
-    /// Keep allocation counts beside each battle's frame-time measurements.
-    fn record_render_allocations(&mut self, battle: &BattleController) {
+    /// Keep the spawn and frame counts beside each battle's frame-time measurements.
+    fn record_battle_counts(&mut self, battle: &BattleController) {
         if let Some(row) = self.battles.last_mut() {
-            let frames = battle.steady_frames_measured;
             row["playerSpawns"] = battle.player_spawns.into();
-            row["steadyRenderAllocations"] = battle.steady_allocs_after_warmup.into();
-            row["steadyRenderFrames"] = frames.into();
-            row["renderAllocationsPerFrame"] = if frames > 0 {
-                (battle.steady_allocs_after_warmup as f64 / frames as f64).into()
-            } else {
-                serde_json::Value::Null
-            };
+            row["steadyRenderFrames"] = battle.steady_frames_measured.into();
         }
     }
 
@@ -498,7 +484,7 @@ impl GateDriver {
             GatePhase::Combat => {
                 if self.repeat_target_round(battle.scoreboard_ctrl.ended, elapsed) {
                     self.finish_combat_metrics(battle.map_id(), self.phase_frames, elapsed);
-                    self.record_render_allocations(battle);
+                    self.record_battle_counts(battle);
                     self.target_combat_seconds += elapsed;
                     self.ia_battles_completed += 1;
                     self.record_world_tick_stats(battle);
@@ -528,7 +514,7 @@ impl GateDriver {
                 {
                     self.target_combat_seconds += elapsed;
                     self.finish_combat_metrics(battle.map_id(), self.phase_frames, elapsed);
-                    self.record_render_allocations(battle);
+                    self.record_battle_counts(battle);
                     battle.input.clear();
                     if battle.spawn_ctrl.is_open() {
                         battle.spawn_ctrl.close(&mut battle.spawn_port);
@@ -602,7 +588,6 @@ impl GateDriver {
             "glErrors": self.gl_errors,
             "audio": {"eventCounts":self.audio_events.to_vec(),"stationLoops":self.station_loops,"voiceDecoded":self.voice_decodes,"frames":self.audio_frames,"peak":self.audio_peak},
             "presented": crate::online::replicas::presented::SHOWN.iter().zip(self.presented).map(|(name, count)| (name.to_string(), serde_json::Value::from(count))).collect::<serde_json::Map<_, _>>(),
-            "steadyFrameAllocationsAfterWarmup": self.steady_allocs_after_warmup,
             "steadyFramesMeasured": self.steady_frames_measured,
             "worldRendererBlocks": self.world_renderer_blocks,
             "worldThreadTickTimeMs": world_stats_map,

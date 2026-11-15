@@ -3,7 +3,6 @@
 pub use crate::vehicles::f2_seats as seats;
 pub mod live_seats;
 pub mod firing;
-pub(crate) use crate::vehicles::allocation;
 pub mod riders;
 pub(super) mod geometry;
 pub use crate::vehicles::f2_delta as delta;
@@ -532,20 +531,15 @@ pub(crate) fn step_in(world_ctx: &mut crate::world::owner::World, dt: f64, tick:
     assert!(active_in(&world_ctx.fleet), "F2 must be initialized");
     let dt = three::clamp(dt, 0.0, 0.1);
     { world_ctx.fleet.scheduler.time += dt; world_ctx.fleet.clock = Some(world_ctx.fleet.scheduler.io[F2Input::CLOCK]); }
-    allocation::begin();
     if services.is_none() { world_ctx.sim.events.clear(); }
     live_seats::import_phase_input_in(world_ctx, services.as_ref().is_some_and(|services|services.ai.is_some()));
-    { let _scope = allocation::enter(allocation::LIFECYCLE); spawns_in(world_ctx, dt,services.as_mut()); }
-    allocation::stage(allocation::Stage::Foreign);
+    spawns_in(world_ctx, dt,services.as_mut());
     foreign_in(world_ctx);
-    allocation::stage(allocation::Stage::Latch);
     live_seats::latch_in(world_ctx, world_ctx.fleet.scheduler.time, services.as_mut().map(crate::units::f3::WorldServices::reborrow));
     let flags = world_ctx.fleet.scheduler.io[F2Input::FLAGS] as u32 & (FLAG_POSES | FLAG_COSMETIC | FLAG_FLIGHT | FLAG_ASSISTS);
-    allocation::stage(allocation::Stage::Hulls);
     let left = ground_in(world_ctx, dt, world_ctx.fleet.scheduler.acc, world_ctx.fleet.flight_acc, world_ctx.fleet.scheduler.io[F2Input::LEVEL], world_ctx.fleet.scheduler.io[F2Input::CLOCK], flags, services.as_mut().map(crate::units::f3::WorldServices::reborrow));
     { world_ctx.fleet.scheduler.acc = left; }
     world_ctx.fleet.scheduler.descriptor[F2Phase::TICK] = tick;
-    allocation::stage(allocation::Stage::Publish);
     firing::flight_locks_in(world_ctx);
     if services.is_some() {
         // Vehicle.poseRider samples exposed geometry before mounted fire.
@@ -555,7 +549,6 @@ pub(crate) fn step_in(world_ctx: &mut crate::world::owner::World, dt: f64, tick:
         publish_posed_in(world_ctx);
         import_f2_posed(&VehNothing {});
     }
-    allocation::stage(allocation::Stage::Fire);
     firing::step_in(world_ctx, dt, world_ctx.fleet.scheduler.io[F2Input::CLOCK], services.as_mut().map(crate::units::f3::WorldServices::reborrow));
     // fireCrews changed weapons and cables. Publish those writes before the
     // presentation callback, replacing the already-consumed pose publication.
@@ -563,15 +556,10 @@ pub(crate) fn step_in(world_ctx: &mut crate::world::owner::World, dt: f64, tick:
         publish_in(world_ctx);
         import_f2_foreign(&VehNumber { value: dt });
     }
-    allocation::stage(allocation::Stage::Riders);
     for i in 0..world_ctx.sim.store.vehicles.vehicles.len() { riders::hull_in(world_ctx, world_ctx.sim.store.vehicles.vehicles[i], true); }
-    allocation::stage(allocation::Stage::Turrets);
     live_seats::turret_tick_in(world_ctx, dt, services);
-    allocation::stage(allocation::Stage::Publish);
     publish_in(world_ctx);
-    allocation::stage(allocation::Stage::Finish);
     live_seats::finish_in(world_ctx);
-    allocation::end();
 }
 
 /// Synchronous authoritative writes. Both slab generation and gameplay life
@@ -674,7 +662,6 @@ impl Scheduler {
         hull.flight.to_store_cached((*store).vehicle.get_mut(hull.id).unwrap(),texts);
     }
     fn take_hull(&mut self, store: &Store, r: Ref<Vehicle>, index: usize) -> Hull {
-        let _allocation = allocation::nested(allocation::Stage::Load);
         let row = self.hull_rows[r.slot as usize].as_mut().unwrap();
         let mut hull = row.pool.pop().expect("reserved reentrant hull row");
         hull.index = index;

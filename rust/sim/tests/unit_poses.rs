@@ -1,4 +1,4 @@
-use bfe_sim::{gen::{Half, HitShape, ShapeType}, pose::Clip, rig::{rider::RiderSample, skeleton::{BoneDesc, Skeleton}}, units::poses::BodyPose};
+use bfe_sim::{gen::HitShape, pose::Clip, rig::{rider::RiderSample, skeleton::{BoneDesc, Skeleton}}, units::poses::BodyPose};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use three::{Matrix4, Vector3};

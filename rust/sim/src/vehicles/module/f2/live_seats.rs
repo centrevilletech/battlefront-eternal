@@ -557,7 +557,7 @@ pub(super) fn publish_sampled_in(world_ctx: &mut crate::world::owner::World, sam
     publish_turrets_in(&mut world_ctx.units, st, &world_ctx.pose.clips, &mut world_ctx.fleet.riders, state,!sampled);
     state.owner.changed.clear();
     world_ctx.fleet.riders.publish_words();
-    let mut descriptor = F2SeatIo { emitter_mask: EMITTER_MASK, descriptor_words: F2SeatIo::WORDS as u32, capacity: INPUT_CAPACITY as u32,
+    let descriptor = F2SeatIo { emitter_mask: EMITTER_MASK, descriptor_words: F2SeatIo::WORDS as u32, capacity: INPUT_CAPACITY as u32,
         header_words: F2SeatHeader::WORDS as u32, unit_words: F2SeatUnitIn::WORDS as u32, control_words: SeatAiControl::WORDS as u32,
         look_words: F2SeatSample::WORDS as u32, ticks: state.owner.hulls.ticks, turret_ticks: st.turret_seats.ticks, turret_time: st.turret_seats.time,
         ..Default::default() };

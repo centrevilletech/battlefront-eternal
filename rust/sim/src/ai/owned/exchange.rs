@@ -48,7 +48,7 @@ impl Exchange {
     /// Pointers are rebuilt after construction or a native loan, never cached
     /// across moves of the fixed header. Publishing counters copies no bodies.
     pub fn descriptor(&mut self,counters:&AiPhaseCounters)->&[f64] {
-        let mut descriptor=AiPhaseBoundary {camera_capacity:(self.camera_words.len()/AiPhaseCamera::WORDS) as u32,
+        let descriptor=AiPhaseBoundary {camera_capacity:(self.camera_words.len()/AiPhaseCamera::WORDS) as u32,
             journal_capacity:(self.journal_words.len()/AiJournalEvent::WORDS) as u32,
             control_count:self.control_output[1],control_version:self.control_output[2],..Default::default()};
         descriptor.put(&mut self.descriptor,&mut Vec::new());counters.put(&mut self.counters,&mut Vec::new());&self.descriptor

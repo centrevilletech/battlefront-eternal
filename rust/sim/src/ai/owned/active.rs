@@ -116,7 +116,7 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> Hooks<C,M> for Active<'_,S> {
 impl<S:super::navigation::Environment> super::navigation::Environment for Active<'_,S> {
  fn time(&self)->f64 {self.services.time()}
  fn remembered(&mut self,target:super::navigation::Actor)->Option<crate::ai::nav::math::Vec3> {self.services.remembered(target)}
- fn clear_above(&mut self, w:&mut crate::world::owner::World,from:crate::ai::nav::math::Vec3,unit:&crate::gen::AiLifeHandle)->bool { {self.services.clear_above(w,from,unit)} }
+ fn clear_above(&mut self, w:&mut crate::world::owner::World,from:crate::ai::nav::math::Vec3,unit:&crate::gen::AiLifeHandle)->bool { self.services.clear_above(w,from,unit) }
  fn follow_far(&mut self)->f64 {self.services.follow_far()}
- fn seat_frame(&mut self, w:&mut crate::world::owner::World,hull:crate::vehicles::f2_seats::HullLife,index:usize)->Option<(crate::ai::nav::math::Vec3,crate::ai::nav::math::Vec3)> { {self.services.seat_frame(w,hull,index)} }
+ fn seat_frame(&mut self, w:&mut crate::world::owner::World,hull:crate::vehicles::f2_seats::HullLife,index:usize)->Option<(crate::ai::nav::math::Vec3,crate::ai::nav::math::Vec3)> { self.services.seat_frame(w,hull,index) }
 }
