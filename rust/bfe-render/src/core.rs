@@ -1076,3 +1076,73 @@ impl<C: HasContext, M: MultiDraw> Drop for Core<C, M> {
         }
     }
 }
+
+#[cfg(test)]
+mod teardown_tests {
+    use super::*;
+    use std::{cell::RefCell, collections::HashSet, ffi::c_void};
+    // A device that only hands out and takes back names.
+    #[derive(Default)]
+    struct Device { next: u32, live: HashSet<u32>, double: usize }
+    thread_local! { static DEVICE: RefCell<Device> = RefCell::default(); }
+    struct NoMulti;
+    impl MultiDraw for NoMulti { fn multi_draw(&self, _: u32, _: &mut [i32], _: u32, _: &mut [i32]) {} }
+    unsafe extern "system" fn gen(n: i32, out: *mut u32) {
+        DEVICE.with_borrow_mut(|d| for i in 0..n as usize {
+            d.next += 1;
+            d.live.insert(d.next);
+            // SAFETY: glGen* hands over exactly n writable names.
+            unsafe { *out.add(i) = d.next };
+        });
+    }
+    unsafe extern "system" fn del(n: i32, names: *const u32) {
+        DEVICE.with_borrow_mut(|d| for i in 0..n as usize {
+            // SAFETY: glDelete* lends exactly n names for the call.
+            if !d.live.remove(&unsafe { *names.add(i) }) { d.double += 1; }
+        });
+    }
+    unsafe extern "system" fn string(_: u32) -> *const u8 { c"3.3 synthetic".as_ptr().cast() }
+    unsafe extern "system" fn integer(_: u32, out: *mut i32) { unsafe { *out = 0 } }
+    unsafe extern "system" fn bind2(_: u32, _: u32) {}
+    unsafe extern "system" fn bind1(_: u32) {}
+    unsafe extern "system" fn data(_: u32, _: isize, _: *const c_void, _: u32) {}
+    unsafe extern "system" fn size(_: u32, _: u32, out: *mut i32) { unsafe { *out = 16 } }
+    unsafe extern "system" fn image(_: u32, _: i32, _: i32, _: i32, _: i32, _: i32, _: u32, _: u32, _: *const c_void) {}
+    unsafe extern "system" fn parameter(_: u32, _: u32, _: i32) {}
+
+    #[test]
+    fn dropping_the_renderer_deletes_every_object_it_made() {
+        // SAFETY: each address has the signature glow expects; only this thread calls them.
+        let gl = unsafe {
+            glow::Context::from_loader_function(|name| match name {
+                "glGetString" => string as *const c_void,
+                "glGetIntegerv" => integer as *const c_void,
+                "glGenBuffers" | "glGenTextures" | "glGenVertexArrays" | "glGenFramebuffers" => gen as *const c_void,
+                "glDeleteBuffers" | "glDeleteTextures" | "glDeleteVertexArrays" | "glDeleteFramebuffers" => del as *const c_void,
+                "glBindBuffer" | "glBindTexture" => bind2 as *const c_void,
+                "glBindVertexArray" => bind1 as *const c_void,
+                "glBufferData" => data as *const c_void,
+                "glGetBufferParameteriv" => size as *const c_void,
+                "glTexImage2D" => image as *const c_void,
+                "glTexParameteri" => parameter as *const c_void,
+                _ => std::ptr::null(),
+            })
+        };
+        let mut core = Core::new(gl, NoMulti, 4, 4);
+        let g = core.add_geometry();
+        core.geometry_buffer(g, &[0; 16]);
+        let buffer = unsafe { core.gl.create_buffer().unwrap() };
+        core.hold_buffer(buffer);
+        let replaced = unsafe { core.gl.create_buffer().unwrap() };
+        core.hold_buffer(replaced);
+        core.release_buffer(replaced);
+        let texture = unsafe { core.gl.create_texture().unwrap() };
+        core.hold_texture(texture);
+        assert!(DEVICE.with_borrow(|d| d.live.len()) >= 6);
+        drop(core);
+        DEVICE.with_borrow(|d| {
+            assert!(d.live.is_empty(), "still alive: {:?}", d.live);
+            assert_eq!(d.double, 0);
+        });
+    }
+}
