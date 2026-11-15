@@ -154,6 +154,12 @@ impl MapCamera {
         [self.yaw - std::f64::consts::PI, self.pitch]
     }
     pub fn snapshot(&self)->&View{&self.view}
+    pub(crate) fn drawn_view(&mut self, view: View) {
+        self.view = view;
+        self.phase_camera = true;
+        self.position.copy_from_slice(&view.values[self.slots[1]..self.slots[1] + 3]);
+        self.far_plane = view.values[14] / (view.values[10] + 1.);
+    }
     /// The far plane's distance, which bounds the lights the camera packs.
     pub fn far(&self) -> f64 {
         self.far_plane
@@ -1618,6 +1624,7 @@ impl Scene {
         camera:&mut MapCamera,dt:f64) {
         let timer=self.bridge.r.core.profile.clock();
         if let Some(resources)=&mut self.online {
+            crate::app::bench::apply_camera(camera);
             let mut world=Matrix4::default();
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
             resources.items.hide_piloted_remote = receiver.own.remote.is_some()
@@ -1642,6 +1649,9 @@ impl Scene {
                 drawn,
                 dt,
             );
+            // Fixed comparison views must select the same lights and effects
+            // as their drawn camera, after the player's camera phase too.
+            crate::app::bench::apply_camera(camera);
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
             resources.first_person.enabled = resources.cameras.eye_view;
             let scope_view = if receiver.own.remote.is_some() {

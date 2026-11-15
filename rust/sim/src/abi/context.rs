@@ -254,6 +254,11 @@ impl Context {
     pub fn intern_scratch(&self, units: usize) -> Result<StrId, Error> {
         self.store(|s| s.intern_scratch(units))
     }
+    /// The store itself, for host duties that read a few fields of many
+    /// entities (exporting a whole kind to read them costs far more).
+    pub(crate) fn with_store<T>(&self, f: impl FnOnce(&mut crate::gen::Store) -> T) -> Result<T, Error> {
+        self.store(|s| f(&mut s.store))
+    }
     pub fn export(&self, kind: u32, mode: u32) -> Result<Vec<f64>, Error> {
         self.store(|s| s.export(kind, mode).map(|b| b.words.clone()))?
             .ok_or_else(|| Error::new(ErrorKind::InvalidKind, "kind has no stored fields"))
