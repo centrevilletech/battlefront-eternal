@@ -49,11 +49,6 @@ const EDGE_KIND_NAMES: [&str; 6] = ["action", "fire", "team", "spawn", "suicide"
 
 /// Initial player state returned when `add_player` admits a client (`world.player(m.client)` in
 /// `handle("join")` in `src/world-worker.js`).
-///
-/// Why both `unit_id` and `player_id` are serialized:
-/// In `src/game-session.js` (`m.type === "joined"`), the server spreads `...m.player` (`unitId`,
-/// `generation`, `team`, `className`, `spectator`, `teamSelect`) and aliases `playerId: m.player.unitId`
-/// so both legacy and snapshot-delta client paths read the controlled unit handle.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerWelcome {
@@ -432,10 +427,6 @@ pub fn decode_entity_input(bytes: &[u8]) -> Result<DecodedInputPacket, &'static 
 /// Builds the canonical `entity-registry` JSON descriptor from prepared content
 /// (`entityRegistryDescriptor` in `src/runtime/network-entity-registry.js` and
 /// `ensureEntityHost().descriptor()` in `src/world-worker.js`).
-///
-/// Sent on the reliable `events` lane immediately before `welcome` when a player joins so the
-/// client's snapshot decoder knows the battle's 1-indexed class, weapon, command-post, and combat
-/// definition tables.
 pub fn build_entity_registry_descriptor(
     root: &Path,
     map: &str,
@@ -517,13 +508,6 @@ pub struct DecodedPublication {
 /// Decodes a `Publication` (`WirePublicationOutput` block + byte arena) into transport-ready
 /// shared `BNS1` groups, per-client `BNO1` packets, `input-ack`, `entity-edge-results`, and
 /// `gameplay-events` (`publish()` in `src/world-worker.js` and `WorldRouter.route` in `src/game-session.js`).
-///
-/// Layout of `pub_data`:
-/// - `pub_data.block.words` begins with a `BlockHeader` (`ROWS == 1`, `STRIDE == WirePublicationOutput::WORDS`),
-///   followed by the single `WirePublicationOutput` root row and the variable-length `heap` words.
-/// - `pub_data.bytes` holds the packed binary spans (`WireSpan { offset, length }`) for `BNS1`
-///   snapshot parts, `BNO1` own-player datagrams, UTF-16LE edge status strings, and binary combat
-///   event records.
 #[allow(clippy::chunks_exact_to_as_chunks)]
 pub fn decode_publication_block(
     pub_data: &Publication,
@@ -806,6 +790,7 @@ pub fn parse_admit_options(query: &str, fallback_map: &str) -> AdmitOptions {
     let mut heroes = false;
     let mut unit = None;
     let (mut mode, mut tier, mut size) = ("classic", "medium", "full");
+    let mut friendly_fire = true;
     for pair in query.trim_start_matches('?').split('&') {
         if let Some((k, v)) = pair.split_once('=') {
             match k {
@@ -824,6 +809,7 @@ pub fn parse_admit_options(query: &str, fallback_map: &str) -> AdmitOptions {
                 }
                 "heroes" => heroes = v == "1" || v == "true",
                 "unit" if !v.is_empty() => unit = Some(v.to_string()),
+                "ff" => friendly_fire = !(v == "0" || v == "false"),
                 _ => {}
             }
         }
@@ -836,20 +822,12 @@ pub fn parse_admit_options(query: &str, fallback_map: &str) -> AdmitOptions {
         heroes,
         unit,
         name: None,
-        bots: bfe_sim::world::admit::Bots::read(mode, tier, size),
+        bots: bfe_sim::world::admit::Bots { friendly_fire, ..bfe_sim::world::admit::Bots::read(mode, tier, size) },
     }
 }
 
 
 /// Native simulation world host wrapping `bfe_sim::abi::context::Context` (`src/world-worker.js`).
-///
-/// Calls `Context::world_admit` during `load_from_content`:
-/// - When `Context::world_admit` succeeds (`admit::provided() == true`), `world_admitted` is `true`,
-///   `world_step_init(admitted.setup)` is initialized, and `step()` drives `world_tick` +
-///   `world_publish_into` on the admitted world.
-/// - While `Context::world_admit` returns `ErrorKind::Unavailable` (before the `admit` lane flips
-///   `admit::provided()` to `true`), `world_admitted` is `false` so `/healthz` reports
-///   `multiplayerReady: false`.
 pub struct NativeWorldHost {
     /// BFE_AI_TRACE: a census of the bots every ten seconds on stderr.
     census: Option<bfe_sim::host::census::Census>,
@@ -945,12 +923,6 @@ pub struct NativeWorldHost {
 
 impl NativeWorldHost {
     /// Loads prepared content from `root` for `query` and initializes `Context` (`src/world-worker.js`).
-    ///
-    /// Invokes `Context::world_admit(&files, &admit_options)`:
-    /// - If `world_admit` succeeds, initializes `world_step_init(admitted.setup)` and marks
-    ///   `world_admitted = true`.
-    /// - If `world_admit` returns `ErrorKind::Unavailable`, marks `world_admitted = false` so
-    ///   `/healthz` never reports `multiplayerReady: true` for an unadmitted world.
     pub fn load_from_content(root: &Path, query: &str, epoch: u32) -> Result<Self, String> {
         let map = query
             .trim_start_matches('?')
@@ -1782,7 +1754,7 @@ impl NativeWorldHost {
                 .map_err(|e| e.to_string())?;
             if let Some(census) = &mut self.census {
                 if let Ok(Some(line)) = census.sample(&self.context, self.tick as u64, 600) {
-                    eprintln!("ai census server {line}");
+                    for line in line.lines() { eprintln!("ai census server {line}"); }
                 }
             }
             self.tick_input.clock.tick = output.clock.tick;
@@ -1873,5 +1845,15 @@ impl Drop for NativeWorldHost {
     /// returns to `0` across sequential battle loads, map rotations, and server teardown.
     fn drop(&mut self) {
         let _ = self.context.dispose();
+    }
+}
+
+#[cfg(test)]
+mod friendly_fire_tests {
+    #[test]
+    fn the_battle_query_carries_the_friendly_fire_rule_into_admission() {
+        assert!(super::parse_admit_options("?map=nab2&side=rep&ai=classic&seed=1", "nab2").bots.friendly_fire);
+        let off = crate::config::with_friendly_fire("?map=nab2&side=rep&ai=classic&seed=1", false);
+        assert!(!super::parse_admit_options(&off, "nab2").bots.friendly_fire);
     }
 }

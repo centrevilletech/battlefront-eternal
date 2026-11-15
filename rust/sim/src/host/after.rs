@@ -61,7 +61,7 @@ impl Authority {
                 .read_bank(bank::EVENTS, &mut events)
                 .map_err(|e| e.message().to_string())?;
             let (before, after) = ((tick - 1.0) / 60.0, tick / 60.0);
-            self.units.refresh(context)?;
+            self.units.refresh(context, true)?;
             let leases = lease_rows(context)?;
             let prop_bodies = context
                 .prop_body_kernels()
@@ -131,7 +131,7 @@ impl Authority {
     /// level's class; the native dispenser later asks for that key. The
     /// first call only learns the lives the admission bound.
     pub(super) fn bind_dispensers(&mut self, context: &Context) -> Result<(), String> {
-        self.units.refresh(context)?;
+        self.units.refresh(context, false)?;
         let mut changed = std::mem::take(&mut self.changed_lives);
         changed.clear();
         for (i, unit) in self.units.rows().iter().enumerate() {
@@ -154,6 +154,10 @@ impl Authority {
             }
         }
         self.lives_known = true;
+        // A new life binds its weapons: read them (the same rows, in order).
+        if !changed.is_empty() {
+            self.units.refresh(context, true)?;
+        }
         let result = self.bind_changed(context, &changed);
         self.changed_lives = changed;
         result

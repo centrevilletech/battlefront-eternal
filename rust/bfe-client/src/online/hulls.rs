@@ -138,7 +138,7 @@ pub struct Hulls {
 impl Hulls {
     pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], collision: Collision, world: u32) -> Result<Self, String> {
         let shadow_cascades = bridge.shadow_cascades();
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
+        let defs = content.defs()?;
         let mut owner = Box::new(Vehicles::new());
         let mut models = Vec::new();
         let mut descriptors = Vec::new();

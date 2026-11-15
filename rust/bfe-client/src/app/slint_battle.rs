@@ -5,7 +5,7 @@ use super::{
     battle::BattleController,
     settings::AppSettingsStore,
     slint_ui::{
-        BattleClassModel, BattleModel, BattlePauseActionModel, BattlePinModel,
+        BattleChatLine, BattleClassModel, BattleModel, BattlePauseActionModel, BattlePinModel,
         BattleScorePlayerModel, BattleStatLineModel, BattleTeamModel, GameUi, ListEntry,
         Theme,
     },
@@ -18,13 +18,15 @@ use bfe_battle_ui::{
 };
 use bfe_shell::page::SpawnBattleStatus;
 use super::slint_models::sync_rows;
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::{cell::RefCell, rc::Rc};
 
 /// The lists the battle screens repeat over. They live as long as the window does and are handed to the
 /// `BattleModel` global once; each sync brings them up to date row by row (slint_models.rs), so the rows
 /// keep their hover, held press and double-click state.
 pub(super) struct BattleLists {
+    chat_lines: Rc<VecModel<BattleChatLine>>,
+    chat_caret: slint::Timer,
     classes: Rc<VecModel<BattleClassModel>>,
     objectives: Rc<VecModel<SharedString>>,
     pins: Rc<VecModel<BattlePinModel>>,
@@ -42,6 +44,8 @@ impl BattleLists {
     pub(super) fn new(root: &GameUi) -> Self {
         let bm = root.global::<BattleModel>();
         let lists = Self {
+            chat_lines: Rc::default(),
+            chat_caret: slint::Timer::default(),
             classes: Rc::default(),
             objectives: Rc::default(),
             pins: Rc::default(),
@@ -54,6 +58,7 @@ impl BattleLists {
             player_names: RefCell::default(),
         };
         bm.set_classes(ModelRc::from(lists.classes.clone()));
+        bm.set_chat_lines(ModelRc::from(lists.chat_lines.clone()));
         bm.set_objectives(ModelRc::from(lists.objectives.clone()));
         bm.set_pins(ModelRc::from(lists.pins.clone()));
         bm.set_score_team1_rows(ModelRc::from(lists.team1_rows.clone()));
@@ -185,6 +190,9 @@ pub(super) fn register_battle_callbacks(
 pub(super) fn battle_overlay_visible(root: &GameUi) -> bool {
     let bm = root.global::<BattleModel>();
     bm.get_pause_open()
+        || !bm.get_stats_line().is_empty()
+        || bm.get_chat_open()
+        || bm.get_chat_lines().row_count() > 0
         || bm.get_waiting_prompt_visible()
         || (bm.get_spawn_visible() && bm.get_page_spawn_look())
         || (bm.get_scoreboard_visible() && bm.get_page_score_look())
@@ -220,9 +228,14 @@ pub(super) fn sync_battle(root: &GameUi, lists: &BattleLists, battle: &mut Battl
         _ => (2, "eternal"),
     };
     root.global::<Theme>().set_menu_theme(look_str.into());
+    root.global::<Theme>().set_scale_factor(battle.page_battle.scale as f32);
 
     let bm = root.global::<BattleModel>();
     bm.set_theme_index(look_idx);
+    if bm.get_stats_line().as_str() != battle.stats_text {
+        bm.set_stats_line(battle.stats_text.as_str().into());
+    }
+    sync_chat_model(root, lists, battle);
 
     let page_spawn = battle.page_battle.spawn;
     let page_score = battle.page_battle.scoreboard;
@@ -258,11 +271,45 @@ pub(super) fn sync_battle(root: &GameUi, lists: &BattleLists, battle: &mut Battl
     }
 }
 
+fn sync_chat_model(root: &GameUi, lists: &BattleLists, battle: &BattleController) {
+    use bfe_battle_ui::ChatChannel;
+    let bm = root.global::<BattleModel>();
+    let color = |channel| match channel {
+        ChatChannel::Global => slint::Color::from_rgb_u8(255, 255, 64),
+        ChatChannel::Team => slint::Color::from_rgb_u8(80, 255, 112),
+        ChatChannel::Server => slint::Color::from_rgb_u8(96, 184, 255),
+    };
+    let open = battle.chat.is_open();
+    if open && (!bm.get_chat_open() || bm.get_chat_draft().as_str() != battle.chat.draft) {
+        bm.set_chat_caret_visible(true);
+        let weak = root.as_weak();
+        lists.chat_caret.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(500), move || {
+            if let Some(root) = weak.upgrade() {
+                let bm = root.global::<BattleModel>();
+                bm.set_chat_caret_visible(!bm.get_chat_caret_visible());
+            }
+        });
+    } else if !open {
+        lists.chat_caret.stop();
+    }
+    bm.set_chat_open(open);
+    bm.set_chat_draft(battle.chat.draft.as_str().into());
+    let channel = battle.chat.active_channel.unwrap_or(ChatChannel::Global);
+    bm.set_chat_prompt(channel.prompt().into());
+    bm.set_chat_color(color(channel));
+    sync_rows(&lists.chat_lines, &battle.chat.log.messages.iter()
+        .filter(|message| open || battle.elapsed_s * 1000.0 - message.time <= 12_000.0)
+        .map(|message| BattleChatLine {
+            text: message.formatted_line().into(),
+            color: color(message.channel),
+        }).collect::<Vec<_>>());
+}
+
 fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleController) {
     let status = spawn_battle_status(battle);
     let layout = battle.page_battle.layout;
     let w = layout.width;
-    let h = layout.height;
+    let _h = layout.height;
     let model = &battle.spawn_ctrl.model;
     let port = &battle.spawn_port;
     let can_switch = model.can_switch_teams(port);
@@ -361,13 +408,8 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
         .map(|(i, entry)| {
             let picked = i == model.class_index;
             let r = layout.class_rect(i, picked);
-            let mut w_slots = [
-                SharedString::default(),
-                SharedString::default(),
-                SharedString::default(),
-                SharedString::default(),
-            ];
-            for (wi, w_name) in entry.weapons.iter().take(4).enumerate() {
+            let mut w_slots: [SharedString; 6] = Default::default();
+            for (wi, w_name) in entry.weapons.iter().take(6).enumerate() {
                 w_slots[wi] = w_name.to_uppercase().into();
             }
             BattleClassModel {
@@ -378,6 +420,9 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
                 w1: w_slots[1].clone(),
                 w2: w_slots[2].clone(),
                 w3: w_slots[3].clone(),
+                w4: w_slots[4].clone(),
+                w5: w_slots[5].clone(),
+                compact: layout.compact && !picked,
                 rect_x: r[0] as f32,
                 rect_y: r[1] as f32,
                 rect_w: (r[2] - r[0]) as f32,

@@ -176,6 +176,14 @@ impl<T: Publish> Rows<T> {
     }
     /// Called before a synchronous foreign reader and once at the phase's end.
     /// Unchanged rows, even if touched by a command, copy no scalar payload.
+    /// What a flush would have published, dropped unencoded: nothing native
+    /// reads these rows (the JavaScript host did).
+    pub fn discard(&mut self) {
+        if !self.pending { return; }
+        self.pending = false;
+        for &r in &self.order { self.rows.get_mut(r).unwrap().dirty = false; }
+        self.retired.clear();
+    }
     pub fn flush(&mut self) -> usize {
         // Most unit observer barriers change no live object. Clear the previous
         // transfer without revisiting the prepared buildings, traps or rigs.

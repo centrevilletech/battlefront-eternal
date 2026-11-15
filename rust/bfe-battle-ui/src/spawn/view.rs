@@ -177,10 +177,6 @@ pub struct SpawnLogoPlacement {
 /// 3D placement of the `shell_cube` room, team logos, and standing soldier
 /// preview body for the current frame (`renderRoom` and `renderModels` in
 /// `src/spawn-screen/classic/view.js`).
-///
-/// The soldier preview stands with its feet at `(W / 2, H / 1.2)` facing the camera
-/// without a turntable (`src/spawn-screen/classic/preview.js`), scaled to `BODY_UNITS`
-/// (`199.68` units/m) or `DROIDEKA_UNITS` (`0.9 * BODY_UNITS`) for droidekas.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Spawn3dPlacement {
     /// World-space center of the `shell_cube` background grid room.
@@ -389,11 +385,6 @@ impl ClassicSpawnView {
     /// Writes the spawn screen's HUD layer facts (`LAYER`, `SPAWN_MAP`, `VIEW_TEAMS`,
     /// `OWN`, `FOE`, `FLIP`, and `MAP_DRAW` selection rings) into `hud_input`
     /// (`HudModel::input`).
-    ///
-    /// Instructs `bfe-render`'s HUD pipeline to switch from the in-play corner minimap
-    /// to the large spawn-screen map (`SPAWN_MAP = 1`), display reinforcement bars from
-    /// the picked team's perspective (`VIEW_TEAMS = 1`, `OWN`, `FOE`, `FLIP`), and draw
-    /// pulsing/fading selection rings at each highlighted command post's world `(x, z)`.
     pub fn sync_hud_inputs(
         &self,
         model: &SpawnModel,
@@ -439,10 +430,6 @@ impl ClassicSpawnView {
     /// Computes the 3D placements for the `shell_cube` room, the two spinning
     /// faction logos, and the standing soldier preview (`renderRoom` and
     /// `renderModels` in `src/spawn-screen/classic/view.js`).
-    ///
-    /// When the pause menu covers the spawn screen (`covered == true`) or team
-    /// switching is disabled by the server, both faction logos hide while the
-    /// standing soldier preview body remains visible in the center.
     pub fn compute_3d_placement(
         &mut self,
         model: &SpawnModel,
@@ -576,11 +563,6 @@ impl ClassicSpawnView {
     /// Draws the 3-piece orange header bar (`headerbuttonleft`, `headerbuttonmid`,
     /// `headerbuttonright`), sweeping white cursor block, and vertically unfolding
     /// black title label above a tilted window (`ClassicView.drawTitle`).
-    ///
-    /// Bar offsets (`BAR_OVER = 6.3`, `BAR_UNDER = 0.3`, `BAR_LEFT = 1.75`,
-    /// `BAR_RIGHT = 3.9`, `TITLE_GAP = 5.0`, `TITLE_X = 18.0`) match the retail
-    /// `ifs_spawndisplay` screenshots where the orange header bar sits wider and
-    /// slightly lower than the Lua text box.
     #[allow(clippy::too_many_arguments)]
     fn draw_title(
         &mut self,
@@ -688,12 +670,6 @@ impl ClassicSpawnView {
     }
 
     /// Draws one of the five 35-degree tilted soldier class windows (`ClassicView.drawClassWindow`).
-    ///
-    /// Renders the 9-slice `border_3_pieces` frame, the class display name in the
-    /// orange header bar, and the uppercase weapon list centered inside `slot.text_h`
-    /// at `layout.info_scale` (`0.13 * H / 135`). Because the 2004 game's weapon list
-    /// string ends with a trailing newline, `count` adds one virtual line when the box
-    /// height permits (`clamp(n, n + 1)`), shifting the visible weapon lines slightly upward.
     fn draw_class_window(
         &mut self,
         surface: &mut dyn BattleUiSurface,
@@ -982,13 +958,6 @@ impl ClassicSpawnView {
     /// Hit-tests an interface point `(x, y)` against the `SPAWN` button, the
     /// team logo hotspot, the five class windows, and the team's eligible
     /// command posts on the map (`ClassicView.hit`).
-    ///
-    /// Both the 45-degree X-tipped `SPAWN` button and the five 35-degree Y-tilted
-    /// class windows project their local 3D bounds onto the `1024xH` interface plane
-    /// via [`projected_corners`] and test membership with [`inside_quad`] so clicks
-    /// on perspective-foreshortened edges match the rendered geometry.
-    /// Read the current themed regions without recomputing Classic geometry.
-    /// Cursor feedback and click dispatch query this same rendered publication.
     pub fn themed_target(&self,x:f64,y:f64)->Option<SpawnHitTarget>{
         self.theme_hotspots.as_ref()?.iter().rev().find_map(|(r,target)|
             (x>=r[0]&&y>=r[1]&&x<=r[2]&&y<=r[3]).then(||target.clone()))

@@ -37,7 +37,7 @@ use bfe_shell::{
     data::{load_shell_data_from_dir, ShellData},
     launch::BattleRequest,
     loading::{planet_name, LoadingTimeline, LookId},
-    render::{draw_loading, draw_shell, ShellFonts, ShellTextures, StageTexture},
+    render::{draw_loading, ShellFonts, ShellTextures, StageTexture},
     screens::{
         HostConfig, MultiplayerKind, MultiplayerLaunch, OptionsPageId, PopupState,
         ScreenId, ShellAction, ShellApp,
@@ -87,7 +87,7 @@ const NAMED_TEXTURES: &[&str] = &[
 ];
 
 /// Converts [`ShellTextures`] and viewport dimensions into [`bfe_interface::Surface`]
-/// so `ClassicTheme::paint_stack` uses the exact same GL texture handles as `draw_shell`.
+/// with the shell's GL texture handles.
 fn shell_textures_to_interface_surface(
     textures: &ShellTextures,
     size: [i32; 2],
@@ -187,13 +187,6 @@ impl LiveServerBrowser {
 
     /// Starts an asynchronous refresh of either the LAN broadcast list or the Internet
     /// master directory without blocking the render thread.
-    ///
-    /// ## Non-Blocking Discovery Flow
-    /// 1. Checks that the privacy notice has been accepted before querying `Source::Internet`.
-    /// 2. Acquires a monotonic refresh token from `ServerBrowser::begin_refresh(false)`.
-    /// 3. Spawns a short-lived background thread that runs either [`Self::fetch_lan`] or
-    ///    [`Self::fetch_online`] and sends `(token, res)` over `self.rx`.
-    /// 4. [`Self::poll`] drains `self.rx` via `try_recv` on the render thread.
     pub fn trigger_refresh(&mut self) {
         let source = self.inner.source();
         if source == Source::Internet && !self.privacy_accepted {
@@ -224,13 +217,6 @@ impl LiveServerBrowser {
 
     /// Probes an explicit `HOST:PORT` server via `GET /info` (`ping_host_port`), falling
     /// back to a UDP latency probe (`measure_latency`) if `/info` is unreachable.
-    ///
-    /// ## Direct Target Probe Strategy
-    /// 1. Attempts an HTTP `GET /info` query via `ping_host_port(target, DIRECT_INFO_TIMEOUT)`
-    ///    to retrieve the server's live name, map, era, player count, and rotation.
-    /// 2. If the TCP `/info` listener is unreachable, resolves `target` via `resolve_host_port`
-    ///    and sends a UDP ping probe (`bfe_online::measure_latency`) so local UDP test servers
-    ///    still appear in the server browser with measured RTT.
     fn probe_direct_target(target: &str) -> Option<ServerEntry> {
         if let Ok((entry, _)) = ping_host_port(target, DIRECT_INFO_TIMEOUT) {
             return Some(entry);
@@ -483,7 +469,6 @@ pub struct ShellHost {
     pub preview_movies: bfe_shell::movies::MoviePlayer,
     movie_clock: std::time::Instant,
     movie_trace: (std::time::Instant, u64),
-    pub movie_allocs_max: u64,
     movie_texture: bfe_shell::movie_gpu::MovieTexture,
     pub preview_texture: bfe_shell::movie_gpu::MovieTexture,
     /// Offscreen RGBA8 + Depth/Stencil framebuffer target.
@@ -492,13 +477,13 @@ pub struct ShellHost {
     pub core: Core<glow::Context, Ranges>,
     /// 2D/3D-anchored HUD/interface quad pass (`post-hud/hud`).
     pub hud: HudPass<glow::Context>,
-    /// CPU-side quad batch populated each frame by `draw_shell`, `draw_loading`, or `ClassicTheme::paint_stack`.
+    /// CPU-side quad batch: the page backdrop (`Page::draw`) or the loading screen (`draw_loading`).
     pub batch: Batch,
     /// Bitmap fonts (`large`, `medium`, `small`, `tiny`) for `bfe-shell`.
     pub fonts: ShellFonts,
     /// Uploaded texture handles and map-loading zoom stages for `bfe-shell`.
     pub textures: ShellTextures,
-    /// Viewport and texture handle table for `bfe_interface::ClassicTheme`.
+    /// Viewport and texture handle table for `bfe-interface`.
     pub interface_surface: InterfaceSurfaceState,
     /// Stateful `bfe-interface` controller driving `OPTIONS` and its 4 sub-pages (`GAME`, `VIDEO`, `AUDIO`, `CONTROLS`).
     pub options_ctrl: OptionsController,
@@ -544,14 +529,6 @@ pub struct ShellHost {
 impl ShellHost {
     /// Initializes the front-end GL pass with a built-in fallback font so the
     /// startup loader can render immediately before `common.json` is loaded.
-    ///
-    /// ## Initial GL Texture Table
-    /// - Texture handle `0`: 1x1 white dummy texture.
-    /// - Texture handle `1`: 1x1 solid white quad texture (`textures.solid = 1`).
-    /// - Texture handle `2`: 128x64 RGBA8 5x7 ASCII fallback font atlas (`build_fallback_ascii_font(2)`).
-    ///
-    /// Also constructs `self.options_ctrl` (`bfe_interface::OptionsController`) from
-    /// `settings.interface` so `OPTIONS` pages are immediately available.
     pub fn new(
         size: [i32; 2],
         settings: &AppSettingsStore,
@@ -629,7 +606,6 @@ impl ShellHost {
             preview_movies: Default::default(),
             movie_clock: std::time::Instant::now(),
             movie_trace: (std::time::Instant::now(), 0),
-            movie_allocs_max: 0,
             movie_texture,
             preview_texture,
             blur,
@@ -1046,14 +1022,6 @@ impl ShellHost {
 
     /// Drains sound cues and named actions from [`Self::options_ctrl`] and persists
     /// any modified settings into `settings` and `self.app`.
-    ///
-    /// ## Post-Input Synchronization
-    /// 1. Drains `SoundCue` events from `self.options_ctrl.stack.sounds` into `self.app.sound_queue`.
-    /// 2. Persists any modified keys from `self.options_ctrl.settings` into `settings`
-    ///    (`player-settings.json`) and `self.app.settings`.
-    /// 3. Handles named navigation actions (such as `"online"` -> `ScreenId::MultiplayerList`).
-    /// 4. Pops `ScreenId::Options` / `ScreenId::OptionsPage(_)` from `self.app.stack` when
-    ///    the user backs out of the root `bfe-interface` options screen.
     pub(super) fn flush_options_controller(&mut self, settings: &mut AppSettingsStore) {
         for cue in self.options_ctrl.stack.sounds.drain() {
             let name = cue.cue_name();
@@ -1491,7 +1459,6 @@ impl ShellHost {
             .content_dir
             .as_deref()
             .unwrap_or_else(|| Path::new("."));
-        let movie_alloc_start = super::render_thread_alloc_count();
         // Movie timestamps use wall time, independent of the simulation/UI dt clamp. Time the menu was not
         // stepped (a battle, a file dialog, a stalled frame) is not playback time: taken whole it made the
         // backdrop race through that many seconds of film on the way back, at several times its speed.
@@ -1513,11 +1480,6 @@ impl ShellHost {
             [rect[2].max(1.) as i32, rect[3].max(1.) as i32],
         );
         self.core.state.reset();
-        if self.frames > 120 {
-            self.movie_allocs_max = self
-                .movie_allocs_max
-                .max(super::render_thread_alloc_count().saturating_sub(movie_alloc_start));
-        }
         // Page consumes current textures/crops and never assumes a still image.
         self.page.media = self.page_media_textures();
         if !self.page.input_matches(&self.app) && std::env::var_os("BFE_MENU_INPUT_TRACE").is_some()
@@ -1563,15 +1525,13 @@ impl ShellHost {
                 self.page.modal_start = Some(self.batch.count);
             }
         } else {
-            let w = self.layout_size[0] as f64;
-            let h = self.layout_size[1] as f64;
-            draw_shell(
+            // A shell popup over OPTIONS: the same backdrop as under any other popup.
+            self.page.draw(
                 &mut self.batch,
-                &self.fonts,
                 &self.textures,
                 &self.app,
-                w,
-                h,
+                self.layout_size[0] as f64,
+                self.layout_size[1] as f64,
             );
         }
 
@@ -1606,14 +1566,6 @@ impl ShellHost {
 
     /// Flushes queued shell sound cues, media transitions, settings changes,
     /// and screen transition actions.
-    ///
-    /// ## Action and Audio Dispatch
-    /// - Drains `ShellApp::drain_sounds()` and `drain_media_events()` into the active
-    ///   [`ShellAudioMixer`] on `audio_router`.
-    /// - Persists any modified `ShellApp` settings (`profile.name`, `ia_entries`, etc.).
-    /// - Converts `ShellAction::LaunchMultiplayer` with `server_id == "local-host"` into
-    ///   `ShellTransition::StartHost(HostOptions, MultiplayerLaunch)` via [`host_options_from_shell`].
-    /// - Converts `ShellAction::HostCloseDecision(idx)` into `ShellTransition::HostCloseDecision(idx)`.
     pub fn flush_events(
         &mut self,
         settings: &mut AppSettingsStore,
@@ -1729,15 +1681,6 @@ impl ShellHost {
     }
 
     /// Handles a keyboard input event in the front-end shell.
-    ///
-    /// ## Keyboard Routing
-    /// - When [`Self::is_interface_options_active`] is `true`, synchronizes and forwards
-    ///   `key` to `self.options_ctrl.on_key_down(key, false)`, then flushes sound cues,
-    ///   settings changes, and screen stack pops via [`Self::flush_options_controller`].
-    /// - Otherwise forwards `key` to `ShellApp::handle_key`, resetting `self.options_ctrl`
-    ///   when entering `ScreenId::Options` and triggering an initial server browser refresh
-    ///   as soon as the online privacy notice is accepted.
-    /// Returns `true` when the `CONTROL OPTIONS` key-capture popup (`rebind`) is open.
     pub fn is_key_capture_active(&self) -> bool {
         self.is_interface_options_active()
             && self
@@ -1881,13 +1824,6 @@ impl ShellHost {
     }
 
     /// Updates hover focus when the mouse cursor moves to `(x_px, y_px)`.
-    ///
-    /// ## Pointer Hover Routing
-    /// - When [`Self::is_interface_options_active`] is `true`, maps `(x_px, y_px)` against
-    ///   `self.options_hits` via `self.options_ctrl.input.on_pointer_move` and queues any
-    ///   resulting hover sound cues.
-    /// - Otherwise maps `(x_px, y_px)` into the `1024x768` logical shell coordinate space
-    ///   and updates footer focus (`IaFocus`) or menu row selection.
     fn page_active(&self) -> bool {
         matches!(
             self.app.stack.last().copied().unwrap_or(ScreenId::Gate),
@@ -1995,7 +1931,7 @@ impl ShellHost {
         }
         self.page.dropdown = false;
         let hit = self.page.hit(x_px, y_px);
-        let double = self.last_page_click.is_some_and(|(previous, time)| {
+        let _double = self.last_page_click.is_some_and(|(previous, time)| {
             Some(previous) == hit && time.elapsed().as_secs_f64() < 0.35
         });
         self.last_page_click = hit.map(|hit| (hit, Instant::now()));
@@ -2182,12 +2118,6 @@ impl ShellHost {
 
     /// Uploads changed quads from `self.batch` to `self.hud` and renders them into
     /// `self.canvas.framebuffer`.
-    ///
-    /// ## GPU Upload and Draw Pass
-    /// - Copies the dirty quad vertex range (`start..end`) from `self.batch` (`position`,
-    ///   `uv`, `mask_uv`, `tint`) into `self.hud`.
-    /// - Encodes up to `MAX_GROUPS` textured/masked draw groups into `self.hud.input`.
-    /// - Binds `self.canvas.framebuffer`, clears color/depth, and invokes `self.hud.draw(&mut self.core)`.
     pub fn apply_modal_blur(&mut self) {
         self.blur.apply(&self.core.gl, self.canvas.framebuffer, 4.);
         self.core.state.reset();
@@ -2331,13 +2261,6 @@ impl ShellHost {
 
     /// Compiles the `post-hud/hud` shader program, uploads the static quad index buffer,
     /// and initializes the 3D perspective camera uniforms (`FOV = 30 deg`) on `hud`.
-    ///
-    /// ## Shader Uniform Layout (`post-hud/hud`)
-    /// - `map`: Primary glyph/UI texture sampler (`slots[0]`).
-    /// - `mask`: Secondary alpha mask texture sampler (`slots[1]`).
-    /// - `masked`: `1.0` when `draw.mask != 0`, `0.0` otherwise (`slots[2]`).
-    /// - `projectionMatrix`: 30-degree vertical FOV perspective matrix (`CoordinateSystem::WebGL`).
-    /// - `modelViewMatrix`: Identity 4x4 view matrix (`root_anchor` places UI quads at `z = -h / (2 * tan(15 deg))`).
     fn init_hud_pass(
         core: &mut Core<glow::Context, Ranges>,
         hud: &mut HudPass<glow::Context>,

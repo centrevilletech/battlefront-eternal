@@ -1,7 +1,7 @@
 //! main.js rotate's playlist position, fresh match token and admission deadline.
 //! Scheduling is cold: keep the finished world visible until its delay expires.
 use bfe_server::{
-    config::{query_for_rotation, ServerConfig},
+    config::{query_for_rotation, with_friendly_fire, ServerConfig},
     local_server::{random_match_hex, with_match_param},
 };
 use std::time::{Duration, Instant};
@@ -44,7 +44,7 @@ impl Rotation {
         active.rotation.rotate_left(index);
         let token = random_match_hex();
         let query = with_match_param(
-            &query_for_rotation(&active.rotation[0], &active.ai)?,
+            &with_friendly_fire(&query_for_rotation(&active.rotation[0], &active.ai)?, active.friendly_fire),
             &token,
         );
         let delay_ms = if advance {

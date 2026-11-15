@@ -91,14 +91,6 @@ pub fn resolve_game_port(env_map: &BTreeMap<String, String>) -> u16 {
 }
 
 /// Resolves the path to the bundled `bfeserver` binary (`bfeserver` on Unix, `bfeserver.exe` on Windows).
-///
-/// Search order:
-/// 1. `BFE_HOST_SERVER_BIN` environment variable when set and non-empty.
-/// 2. Sibling of the running client executable (`<exe_dir>/bfeserver[.exe]`), matching
-///    `build/native/stage.py` where `bfeserver` is staged next to `bfe-client`.
-/// 3. `<project_root>/rust/target/release/bfeserver[.exe]` and `<project_root>/rust/target/debug/bfeserver[.exe]`
-///    for development worktrees.
-/// 4. Packaged Linux installation paths (`/opt/Battlefront Eternal/bfeserver` and `/usr/bin/bfeserver`).
 pub fn resolve_server_executable(
     env_map: &BTreeMap<String, String>,
     current_exe: Option<&Path>,
@@ -1068,11 +1060,6 @@ impl HostController {
 
     /// Queries `/admin` (`{"action": "status"}`) and `GET /info` on the game port to build a
     /// [`HostJoinInfo`] for `127.0.0.1:<game_port>` (`async function joinInfo()` in the desktop host).
-    ///
-    /// Error strings match the desktop host verbatim:
-    /// - `"Cannot manage the hosted server"` if `/admin` is unreachable or unauthorized.
-    /// - `"Hosted server is still starting"` if `status != "running"`.
-    /// - `"Hosted server is unavailable"` if `GET /info` fails or returns non-2xx.
     pub fn join_info(&self) -> Result<HostJoinInfo, String> {
         // Verify `/admin` reports `status == "running"` (`if (current.status !== 'running') throw Error('Hosted server is still starting')`).
         let current = self.admin(&json!({ "action": "status" }))?;

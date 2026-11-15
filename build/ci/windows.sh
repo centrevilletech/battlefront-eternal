@@ -32,6 +32,7 @@ test_crates=(
 )
 
 optional_crates=(
+  sim-gen
   bfe-ui
   bfe-interface
   bfe-shell

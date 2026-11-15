@@ -363,14 +363,11 @@ pub(crate) fn wire_store_source_probe_in(w: &mut crate::world::owner::World, sou
 if owner.sources.get(source as usize).is_none() {return None;}
 if owner.shots.get(shots as usize).is_none() {return None;}
 
-    let before = crate::allocations::snapshot();
     let result = (owner.sources.get_mut(source as usize).unwrap()).capture(&Read {sim:&w.sim,input:&w.input,units:&w.units,fleet:&w.fleet,battle:&w.battle,combat:&w.combat,collision:&mut w.collision,movement:&mut w.movement}, owner.shots.get(shots as usize).unwrap());
-    let used = crate::allocations::snapshot().since(before);
-    let mut out = match result {
+    let out = match result {
         Ok(()) => WireStoreRecords { records: (owner.sources.get(source as usize).unwrap()).capture.records().to_vec(), ..Default::default() },
         Err(error) => WireStoreRecords { error: Some(w.sim.strings.intern_str(error)), ..Default::default() },
     };
-    out.allocations = used.calls as f64; out.reallocations = used.reallocs as f64;
     w.sim.calls.result(WireStoreRecords::WORDS, |row, heap| out.put(row, heap));
     Some(&w.sim.calls.block.words[..])
 

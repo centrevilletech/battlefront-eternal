@@ -13,7 +13,6 @@ use crate::gen::{
     self, AiPhaseFacts, AiPhaseHeader, AiPhaseReticle, F2Input, F2PadTeam,
     F3Separation, F4LiveInput, F4TailInput, FfInputs, Vehicles,
 };
-use crate::world::admit::{Call, Returned};
 
 impl Authority {
     /// The pre-step writes for the tick being stepped.
@@ -136,7 +135,7 @@ impl Authority {
         // each shot or damage record as an AiJournalEvent row, a unit
         // reference being its store reference and the life the record named.
         let heard = {
-            self.units.refresh(context)?;
+            self.units.refresh(context, false)?;
             let units = &self.units;
             let reference = |heard: Option<Life>| match heard {
                 Some(h) => gen::AiJournalRef {

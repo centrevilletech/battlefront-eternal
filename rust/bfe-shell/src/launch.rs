@@ -332,11 +332,6 @@ impl BattleRequest {
 
     /// Converts this battle request into [`BattleOptions`] for native battle
     /// setup (`bfe_content_native::setup`).
-    ///
-    /// `BattleOptions` selects the era via `side` (`"rep"`/`"cis"` for `"cw"`,
-    /// `"all"`/`"imp"` for `"gcw"`), so when `side` is not explicitly set on the
-    /// request, `era == "gcw"` maps to `"all"` and `"cw"` (default) maps to
-    /// `"rep"`.
     pub fn to_battle_options(&self) -> BattleOptions {
         let side = self
             .side
@@ -365,13 +360,6 @@ fn split_family_prefix(raw: &str) -> Option<(GameFamily, &str)> {
 /// Parses `"geo1:cw,hot1:gcw"` or family/mode-prefixed
 /// `"swbf1/geo1:cw:conquest,swbf2/hot1:gcw:ctf"` into a list of
 /// [`PlaylistEntry`] items.
-///
-/// An entry may omit its family prefix (defaulting to [`GameFamily::Swbf1`]),
-/// its era (`"geo1"`), or its mode (defaulting to [`DEFAULT_MODE`] `"conquest"`).
-/// Malformed entries are dropped, and the list stops at [`MAX_PLAYLIST`].
-///
-/// Mirrors `parseRotation(text)` in `src/launch.js` and the family/mode rules
-/// in `MULTIPLAYER.md` (lines 106-183).
 pub fn parse_rotation(text: Option<&str>) -> Vec<PlaylistEntry> {
     let Some(text) = text else {
         return Vec::new();

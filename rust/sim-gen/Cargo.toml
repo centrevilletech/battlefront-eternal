@@ -1,0 +1,10 @@
+[package]
+name = "sim-gen"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "The store code generator: rust/sim/schema to the sim crate's gen module (run by sim's build script) and the checked-in layouts xtask writes."
+
+[dependencies]
+serde_json = "1"

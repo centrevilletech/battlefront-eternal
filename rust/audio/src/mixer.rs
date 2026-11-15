@@ -8,7 +8,7 @@
 
 use crate::{host, js_max, js_min, BlockMut};
 
-/// The panning laws, by the numbers the WebAssembly skin passes.
+/// The panning laws, by number.
 pub const PANPOT: u32 = 0;
 pub const VBAP: u32 = 1;
 pub const ALSOFT: u32 = 2;

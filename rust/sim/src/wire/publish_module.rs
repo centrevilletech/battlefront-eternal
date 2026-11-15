@@ -1,7 +1,7 @@
 //! A publication names sibling banks by qualified instance-local identities.
 //! Each call resolves them once and passes disjoint field borrows to the
 //! single publisher. No session retains a Rust address or borrows JavaScript.
-use super::{publisher::{Publisher,Personal},host::Host,Runtime,shots::Counters,store_source::{Source,PublicationWorld},stagger::Stagger,combat::Capture};
+use super::{publisher::{Publisher,Personal},store_source::PublicationWorld};
 pub struct Session {publisher:Publisher,runtime:usize,source:usize,stagger:usize,shots:usize,host:usize,combat:usize}
 pub(crate) fn wire_publish_create_in(w: &mut crate::world::owner::World, runtime:usize,source:usize,stagger:usize,shots:usize,host:usize,combat:usize) ->usize {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
@@ -48,6 +48,9 @@ pub(crate) fn wire_publish_native_in<'a>(w: &'a mut crate::world::owner::World, 
     wire_publish_in(w, session)?;
     let s = w.wire.as_deref()?.publications.get(session)?;
     Some((&s.publisher.block.words[..], &s.publisher.bytes[..]))
+}
+pub(crate) fn published_own_in(w: &crate::world::owner::World, session: usize, client: u32) -> Option<super::publisher::OwnFacts> {
+    w.wire.as_deref()?.publications.get(session)?.publisher.own_facts.iter().find(|f| f.client == client).copied()
 }
 pub(crate) fn wire_publish_drop_in(w: &mut crate::world::owner::World, session:usize) {super::owner::with_in(w, |owner|{owner.publications.remove(session as usize);});}
 /// Occupancy observes retained banks without changing capture or ACK state.

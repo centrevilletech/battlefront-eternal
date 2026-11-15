@@ -86,8 +86,8 @@ impl Sim {
 }
 
 
-// Native callers use Context and explicit owners. These raw WASM entries
-// cannot acquire a process-global simulation in a native host.
+// There is no process-global simulation: callers use Context and explicit
+// owners. The few entries still shaped around one global world panic.
 pub(crate) fn cold() -> &'static mut crate::world::owner::World {
     panic!("WASM facade called by native host")
 }
@@ -154,7 +154,7 @@ pub(crate) fn sim_events_clear_in(w: &mut crate::world::owner::World) -> () { w.
 /// their explicit dispatcher instead; unsupported raw commands return null.
 pub fn command_available(code: u32) -> bool {
     // Relay asks the host back; only Context::command may dispatch a callback.
-    { code != crate::gen::COMMAND_RELAY }
+    code != crate::gen::COMMAND_RELAY
 }
 
 /// The store's own command (rust/sim/schema/store.mjs), for its tests and

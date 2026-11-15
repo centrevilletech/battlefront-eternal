@@ -18,7 +18,7 @@ use super::posing;
 use crate::flight::model::FlightInput;
 use crate::flight::state::GearClip;
 use crate::flight::config::Tunings;
-use crate::flight::{Config, Environment, Flight, FlightClass, FlightWorld, Member, Team, Tuning, Zone};
+use crate::flight::{Config, Environment, Flight, FlightClass, FlightWorld, Member, Team, Tuning};
 use bfe_content::content::VehicleTemplate;
 use bfe_content::value::Value;
 use super::{BodyId, Ground, Hit, Polygon, VehicleWorld};
@@ -751,7 +751,6 @@ impl VehicleWorld for JsWorld<'_, '_> {
     }
 
     fn spring_polygons<'a>(&'a mut self, hull: usize, index: usize, center: &Vector3, radius: f64, _out: &'a mut Vec<Polygon>) -> super::SpringPolygons<'a> { let world_ctx = &mut *self.world_ctx;
-        let _allocation = f2::allocation::nested(f2::allocation::Stage::Polygons);
         let Some(&reference) = world_ctx.sim.store.vehicles.vehicles.get(hull) else { return super::SpringPolygons::Native(&[]) };
         let Some(vehicle) = world_ctx.sim.store.vehicle.get(reference) else { return super::SpringPolygons::Native(&[]) };
         let Some(collision) = world_ctx.fleet.collision.as_mut() else { return super::SpringPolygons::Native(&[]) };
@@ -1146,7 +1145,6 @@ impl Fleet {
     }
 }
 
-// facade shims: callers outside the fleet bindings still enter through WASM.
 
 
 #[cfg(test)]

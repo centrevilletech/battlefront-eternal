@@ -21,8 +21,6 @@ const _: () = assert!(limit::BODIES == crate::collision::MAX_BODIES);
 // Zero and stale/excess ids cannot become an unchecked array index.
 // The input, command and output allocations stay put for each admitted owner.
 // Definition registration can grow content without replacing those buffers.
-// A WASM memory growth invalidates host views, not these record addresses.
-// The page bridge refreshes its typed views after every cold registration.
 fn phase(owner: &mut Owner, id: u32) -> Option<&mut cameras::Phase> {
     owner.phases.get_mut(id.wrapping_sub(1) as usize)?.as_mut()
 }

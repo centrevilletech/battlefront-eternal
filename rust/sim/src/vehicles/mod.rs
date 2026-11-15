@@ -2,8 +2,6 @@
 //! tick on the ground, two 1/120 s substeps a world tick, as the JavaScript
 //! steps it, to the last bit.
 
-#[path = "module/f2/allocation.rs"]
-pub(crate) mod allocation;
 pub mod build;
 pub mod class;
 pub mod damage;

@@ -146,9 +146,8 @@ pub struct State {
     pub fixed_version: u64,
 }
 
-/// Collision geometry and query scratch have one lifetime. The WASM facade
-/// lends individual fields to existing in-module services; owned calls split
-/// those fields explicitly and never invoke the host while they are borrowed.
+/// Collision geometry and query scratch have one lifetime. Owned calls split
+/// these fields explicitly and never invoke the host while they are borrowed.
 pub struct CollisionOwner {
     pub state: State,
     pub(crate) io: [f64; IO_LEN],
@@ -168,7 +167,7 @@ impl CollisionOwner {
 }
 impl Default for CollisionOwner { fn default() -> Self { Self::new() } }
 
-// Instance-local WASM entry storage. Field projections keep service loans
+// Field projections keep service loans
 // disjoint: a geometry loan must not also borrow the gather cache bank.
 // SAFETY: these field loans are instance-local; callers do not retain
 // an overlapping geometry or owner loan across a callback.

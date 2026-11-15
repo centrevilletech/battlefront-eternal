@@ -2,7 +2,7 @@
 //! Content and factory owners supply their existing identities; this module
 //! never assigns a second definition namespace or creates a simulation facade.
 use super::{rows::{Call, Calls, Cx}, AdmitError, Handles, Stage};
-use crate::{gen::*, world::owner::World, store::StrId};
+use crate::{gen::*, world::owner::World};
 use bfe_content::{battle::Battle, value::{Object, Value as ContentValue}};
 use serde_json::{json, Value};
 use std::rc::Rc;

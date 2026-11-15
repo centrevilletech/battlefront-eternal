@@ -93,12 +93,6 @@ pub struct LocalDedicatedServer {
 
 impl LocalDedicatedServer {
     /// Starts the local dedicated server (`export async function startLocalServer` in `src/local-server.js`).
-    ///
-    /// Binds:
-    /// 1. `UdpGameServer` on UDP `config.game_port` (default `18451`).
-    /// 2. `/info` HTTP server on TCP `actual_port` (`18451`).
-    /// 3. `LanDiscoveryResponder` on UDP `config.discovery_port` (default `18452`) unless `config.discovery == false`.
-    /// 4. The 60 Hz world tick thread hosting `NativeWorldHost`.
     pub fn start<B, S>(
         config: &ServerConfig,
         identity: &ServerIdentity,
@@ -133,7 +127,7 @@ impl LocalDedicatedServer {
         let match_token = match_token
             .map(str::to_owned)
             .unwrap_or_else(random_match_hex);
-        let active_query = with_match_param(&checked.first_query, &match_token);
+        let active_query = with_match_param(&crate::config::with_friendly_fire(&checked.first_query, config.friendly_fire), &match_token);
 
         // local-server.js info() includes the active battle, bot and team policy.
         let browser = browser_info(config, &active_query, 0, &map_names(&config.data), 0);

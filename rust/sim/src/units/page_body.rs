@@ -62,8 +62,7 @@ impl Owner { pub(crate) const fn new() -> Self { Self { aims: None, preview: Non
 pub(crate) mod module {
     use super::*;
     use crate::{gen::{BodySpawn,BodySpawnOutput}};
-    // Fixed pointers survive calls. Only WASM memory growth detaches a host
-    // view; another preview does not resize either reserved allocation.
+    // Another preview does not resize either reserved allocation.
     fn owner(w: &mut crate::world::owner::World) -> &mut Preview {
         // One thread owns the page preview; no borrow crosses a host import.
         w.page_body.preview.get_or_insert_with(|| Preview {

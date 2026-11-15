@@ -266,7 +266,7 @@ fn context_entry_uses_supplied_viewpoint_id_and_original_policy_bytes() {
     let battle=bfe_content::battle::Battle::load(&bfe_content::battle::Loader::new(&files),&options.map,&options.query()).unwrap();
     let content=fixture_content(battle);
     let defs=bfe_content::defs::Defs::build(&content).unwrap();
-    let battle=&content.battle;
+    let _battle=&content.battle;
     let mut cx=Cx::new(&content,&defs,&files,&options,Strings::new());
     assert_eq!(items::build(&mut cx).unwrap()[0].1,"items_pools");
     assert!(combat::build(&mut cx).is_err());

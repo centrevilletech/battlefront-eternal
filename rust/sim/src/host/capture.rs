@@ -26,28 +26,14 @@ pub const GENERATION: f64 = 1.0;
 /// `decodeCombat(record)` for a bolt or terminal record (schema 1 or 2):
 /// the fact's view from the codec's JSON.
 pub fn decode_view(tick: f64, schema: f64, payload: &[u8]) -> Result<View, String> {
-    let decoded = bfe_presentation::ordnance::codec::decode("combat", schema, tick, payload)
+    let facts = bfe_presentation::ordnance::codec::record_facts(schema, tick, payload)
         .map_err(|e| e.to_string())?;
-    let v: serde_json::Value = serde_json::from_str(&decoded).map_err(|e| e.to_string())?;
-    let vec3 = |value: &serde_json::Value| {
-        value.as_array().filter(|a| a.len() == 3).map(|a| {
-            [
-                a[0].as_f64().unwrap_or(0.0),
-                a[1].as_f64().unwrap_or(0.0),
-                a[2].as_f64().unwrap_or(0.0),
-            ]
-        })
-    };
     Ok(View {
-        expiry: v["expiryTick"].as_f64().unwrap_or(tick),
-        position: vec3(&v["position"]),
-        owner: match &v["ownerId"] {
-            serde_json::Value::Null if v.get("ownerId").is_some() => Some(None),
-            serde_json::Value::Number(n) => Some(n.as_f64()),
-            _ => None,
-        },
-        speed: v["speed"].as_f64().unwrap_or(f64::NAN),
-        life: v["life"].as_f64().unwrap_or(f64::NAN),
+        expiry: facts.expiry,
+        position: facts.position,
+        owner: facts.owner.map(Some),
+        speed: facts.speed,
+        life: facts.life,
     })
 }
 
@@ -94,6 +80,50 @@ pub struct Capture {
     /// lacks). Whoever admitted the world knows which object each
     /// explosion is; the store source's tables carry no explosions.
     pub explosions: Vec<u32>,
+}
+
+/// What `capture_bolt` answered for a launched round (src/runtime/
+/// network-entity-combat.js `captureBolt`), kept until its terminal. The
+/// page passed these numbers through JSON, where a value that is not finite
+/// is null and reads back as 0 (`expiry` stays raw: a terminal replaces a
+/// null expiry with `tick + 18`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Bolt {
+    pub launch_tick: f64,
+    pub execution_tick: f64,
+    pub id: f64,
+    pub generation: f64,
+    pub expiry: f64,
+    pub definition_id: f64,
+    pub owner_id: f64,
+    pub owner_generation: f64,
+    pub fire_id: f64,
+    pub channel: f64,
+}
+
+/// A number after a JSON round trip: not finite becomes null, read as 0.
+pub fn json_number(value: f64) -> f64 {
+    if value.is_finite() { value } else { 0.0 }
+}
+
+impl Bolt {
+    /// `captureBolt({sample: true, sampleTick, tick, id, generation, life,
+    /// definitionId, sampleOwner})`.
+    pub fn sampled(sample_tick: Option<f64>, tick: f64, id: f64, generation: f64, life: f64, definition_id: f64, owner: [f64; 4]) -> Self {
+        let launch = sample_tick.filter(|t| t.is_finite()).unwrap_or(json_number(tick));
+        Bolt {
+            launch_tick: json_number(launch),
+            execution_tick: json_number(tick),
+            id: json_number(id),
+            generation: json_number(generation),
+            expiry: bfe_presentation::ordnance::network::bolt_expiry(launch, json_number(life)),
+            definition_id: json_number(definition_id),
+            owner_id: json_number(owner[0]),
+            owner_generation: json_number(owner[1]),
+            fire_id: json_number(owner[2]),
+            channel: json_number(owner[3]),
+        }
+    }
 }
 
 /// What `decodeCombat(record)` gave the fact: the record's expiry, its
@@ -287,12 +317,9 @@ impl Capture {
         // decodeCombat(record): a presentation record decodes to its event
         // plus `expiryTick: tick + 120`; the fact reads the event's position
         // and owner, and has no speed or life.
-        let decoded = bfe_presentation::ordnance::codec::decode("combat", SCHEMA, tick, &payload)
-            .map_err(|e| e.to_string())?;
-        let expiry = serde_json::from_str::<serde_json::Value>(&decoded)
-            .ok()
-            .and_then(|v| v["expiryTick"].as_f64())
-            .unwrap_or(tick + 120.0);
+        // decodeCombat(record) gives a presentation record `expiryTick: tick +
+        // 120`. Its JSON event was checked field by field when it was encoded.
+        let expiry = tick + 120.0;
         let position = fields
             .iter()
             .find(|(k, _)| *k == "position")

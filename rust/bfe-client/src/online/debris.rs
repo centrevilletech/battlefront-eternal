@@ -93,7 +93,7 @@ impl Debris {
     // Each class's chunks, by its registry id. A chunk whose model the
     // content lacks is left out, as Debris.blowApart skips it; an effect
     // the library lacks plays nothing.
-    pub fn new(
+    pub async fn new(
         content: &BattleContent,
         bridge: &mut Bridge,
         textures: &[u32],
@@ -102,25 +102,32 @@ impl Debris {
         world: u32,
     ) -> Result<Self, String> {
         let shadow_cascades = bridge.shadow_cascades();
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
+        let defs = content.defs()?;
         let effect = |chunk: &Value, key: &str| {
             let name = chunk.get(key).and_then(Value::as_str).filter(|name| !name.is_empty())?;
             effects.iter().find(|(n, _)| n == name).map(|(_, id)| StrId(*id as u32))
         };
         let number = |chunk: &Value, key: &str| chunk.get(key).and_then(Value::as_f64).unwrap_or(0.);
         let mut names: Vec<String> = Vec::new();
+        let mut budget = crate::loading_work::Budget::new();
         let mut models = Vec::new();
         let mut classes = Vec::new();
-        classes.resize_with(defs.registry.classes.len() + 1, Vec::new);
+        let buildings_at = defs.registry.classes.len() + 1;
+        let building_count = content.content.battle.props.as_ref().and_then(|p| p.get("instances")).and_then(Value::as_array).map_or(0, |p| p.len());
+        classes.resize_with(buildings_at + building_count, Vec::new);
         // A droid's chunks are its class's; a hull's are in its effects
         // (VehicleEffects.blowApart).
         let droids = defs.classes.iter().map(|c| (c.registry_id, c.record.get("chunks")));
         let hulls = defs.vehicles.iter().map(|c| (c.registry_id, c.record.get("fx").and_then(|fx| fx.get("chunks"))));
-        for (id, chunks) in droids.chain(hulls) {
+        let buildings = defs.props.iter().map(|p| (Some((buildings_at + p.index) as u16), p.record.get("fx").and_then(|fx| fx.get("chunks"))));
+        for (id, chunks) in droids.chain(hulls).chain(buildings) {
             let Some(id) = id else {
                 continue;
             };
             for chunk in chunks.and_then(Value::as_array).unwrap_or(&[]) {
+                if budget.tick().await {
+                    bridge.r.core.state.reset();
+                }
                 // The piece's model, made once however many classes use it.
                 let name = chunk.get("ChunkGeometryName").and_then(Value::as_str).unwrap_or("");
                 let model = match names.iter().position(|known| known == name) {

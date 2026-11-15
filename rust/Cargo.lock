@@ -2667,15 +2667,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "image-codec"
-version = "0.1.0"
-dependencies = [
- "image-webp",
- "png",
- "sha2",
-]
-
-[[package]]
 name = "image-webp"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4529,8 +4520,16 @@ dependencies = [
  "content",
  "jsrt",
  "serde_json",
+ "sim-gen",
  "three",
  "v8math",
+]
+
+[[package]]
+name = "sim-gen"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -4964,14 +4963,6 @@ name = "text-size"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f18aa187839b2bdb1ad2fa35ead8c4c2976b64e4363c386d45ac0f7ee85c9233"
-
-[[package]]
-name = "texture-codec"
-version = "0.1.0"
-dependencies = [
- "basis-transcode",
- "serde_json",
-]
 
 [[package]]
 name = "thiserror"
@@ -6374,6 +6365,7 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "sha2",
+ "sim-gen",
 ]
 
 [[package]]

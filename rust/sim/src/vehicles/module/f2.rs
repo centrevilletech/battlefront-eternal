@@ -3,7 +3,6 @@
 pub use crate::vehicles::f2_seats as seats;
 pub mod live_seats;
 pub mod firing;
-pub(crate) use crate::vehicles::allocation;
 pub mod riders;
 pub(super) mod geometry;
 pub use crate::vehicles::f2_delta as delta;
@@ -176,10 +175,10 @@ pub(crate) fn world_level_in(world_ctx: &mut crate::world::owner::World, level:f
 // Seat commands and cable writes can change canonical fields outside physics.
 // Invalidate working copies as well as publication, since the next native
 // substep must see those changes even if a mirror was already published.
-pub(crate) fn mark_in(fleet: &mut crate::vehicles::module::Fleet, r: Ref<Vehicle>) { fleet.scheduler.mark(&mut fleet.geometry, r) }
+pub(crate) fn mark_in(fleet: &mut crate::vehicles::module::Fleet, r: Ref<Vehicle>) { fleet.scheduler.mark(r) }
 /// A completed native substep already has the canonical dynamic fields. Keep
 /// that working row current; other spare rows reload only after a real write.
-pub(crate) fn stored_in(fleet: &mut crate::vehicles::module::Fleet, hull: &Hull) { fleet.scheduler.stored(&mut fleet.geometry, hull) }
+pub(crate) fn stored_in(fleet: &mut crate::vehicles::module::Fleet, hull: &Hull) { fleet.scheduler.stored(hull) }
 pub(crate) fn mark_changed_in(fleet: &mut crate::vehicles::module::Fleet, r: Ref<Vehicle>) { mark_in(fleet, r); }
 pub(crate) fn has_pending_in(world_ctx: &mut crate::world::owner::World)->bool { world_ctx.fleet.scheduler.has_pending() }
 pub(crate) fn pending_in(fleet: &mut crate::vehicles::module::Fleet) { { fleet.scheduler.pending = true; } }
@@ -246,8 +245,7 @@ fn activate_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>) {
 /// each publication; output blocks may move, so their pointers are republished.
 
 // Vehicles construction supplies pad descriptions and fixed class names.
-// The descriptor is a generated record; buffers remain battle-local because
-// one WASM instance owns one battle and its callback stack.
+// The descriptor is a generated record; buffers are battle-local.
 pub(crate) fn f2_init_in(world_ctx: &mut crate::world::owner::World, json: u32, time: f64, acc: f64) -> Option<&[f64]> {
     let text = String::from_utf16_lossy(world_ctx.sim.strings.units(StrId(json)));
     let value = bfe_content::json::parse(&text).expect("F2 pad descriptions");
@@ -343,7 +341,6 @@ pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) {
     // JavaScript host. Nothing native reads them.
     p.discard(&mut world_ctx.sim.store);
     veh_changes_in(world_ctx);
-    geometry::publish_in(world_ctx);
     world_ctx.fleet.scheduler.descriptor[F2Phase::ACC] = world_ctx.fleet.scheduler.acc;
     world_ctx.fleet.scheduler.descriptor[F2Phase::FLIGHT_ACC] = world_ctx.fleet.flight_acc;
     world_ctx.fleet.scheduler.descriptor[F2Phase::TIME] = world_ctx.fleet.scheduler.time;
@@ -438,8 +435,6 @@ fn spawns_in(world_ctx: &mut crate::world::owner::World, dt: f64,mut services:Op
             v.boost_speed = Some(hull.flight.boost_speed); v.speed = hull.speed; v.turn_rate = hull.turn_rate;
         }
         store_flight_in(world_ctx, &hull);
-        // Spawn's render is observable by boarding in the following latch.
-        geometry::mark_in(&mut world_ctx.fleet, r);
         if crate::units::f3::active_in(&world_ctx.units) {
             // Vehicle.spawn resets retained mounted rows before latching.
             // It must not rebuild JS weapons or reenter module exports here.
@@ -535,20 +530,15 @@ pub(crate) fn step_in(world_ctx: &mut crate::world::owner::World, dt: f64, tick:
     assert!(active_in(&world_ctx.fleet), "F2 must be initialized");
     let dt = three::clamp(dt, 0.0, 0.1);
     { world_ctx.fleet.scheduler.time += dt; world_ctx.fleet.clock = Some(world_ctx.fleet.scheduler.io[F2Input::CLOCK]); }
-    allocation::begin();
     if services.is_none() { world_ctx.sim.events.clear(); }
     live_seats::import_phase_input_in(world_ctx, services.as_ref().is_some_and(|services|services.ai.is_some()));
-    { let _scope = allocation::enter(allocation::LIFECYCLE); spawns_in(world_ctx, dt,services.as_mut()); }
-    allocation::stage(allocation::Stage::Foreign);
+    spawns_in(world_ctx, dt,services.as_mut());
     foreign_in(world_ctx);
-    allocation::stage(allocation::Stage::Latch);
     live_seats::latch_in(world_ctx, world_ctx.fleet.scheduler.time, services.as_mut().map(crate::units::f3::WorldServices::reborrow));
     let flags = world_ctx.fleet.scheduler.io[F2Input::FLAGS] as u32 & (FLAG_POSES | FLAG_COSMETIC | FLAG_FLIGHT | FLAG_ASSISTS);
-    allocation::stage(allocation::Stage::Hulls);
     let left = ground_in(world_ctx, dt, world_ctx.fleet.scheduler.acc, world_ctx.fleet.flight_acc, world_ctx.fleet.scheduler.io[F2Input::LEVEL], world_ctx.fleet.scheduler.io[F2Input::CLOCK], flags, services.as_mut().map(crate::units::f3::WorldServices::reborrow));
     { world_ctx.fleet.scheduler.acc = left; }
     world_ctx.fleet.scheduler.descriptor[F2Phase::TICK] = tick;
-    allocation::stage(allocation::Stage::Publish);
     firing::flight_locks_in(world_ctx);
     if services.is_some() {
         // Vehicle.poseRider samples exposed geometry before mounted fire.
@@ -558,7 +548,6 @@ pub(crate) fn step_in(world_ctx: &mut crate::world::owner::World, dt: f64, tick:
         publish_posed_in(world_ctx);
         import_f2_posed(&VehNothing {});
     }
-    allocation::stage(allocation::Stage::Fire);
     firing::step_in(world_ctx, dt, world_ctx.fleet.scheduler.io[F2Input::CLOCK], services.as_mut().map(crate::units::f3::WorldServices::reborrow));
     // fireCrews changed weapons and cables. Publish those writes before the
     // presentation callback, replacing the already-consumed pose publication.
@@ -566,15 +555,10 @@ pub(crate) fn step_in(world_ctx: &mut crate::world::owner::World, dt: f64, tick:
         publish_in(world_ctx);
         import_f2_foreign(&VehNumber { value: dt });
     }
-    allocation::stage(allocation::Stage::Riders);
     for i in 0..world_ctx.sim.store.vehicles.vehicles.len() { riders::hull_in(world_ctx, world_ctx.sim.store.vehicles.vehicles[i], true); }
-    allocation::stage(allocation::Stage::Turrets);
     live_seats::turret_tick_in(world_ctx, dt, services);
-    allocation::stage(allocation::Stage::Publish);
     publish_in(world_ctx);
-    allocation::stage(allocation::Stage::Finish);
     live_seats::finish_in(world_ctx);
-    allocation::end();
 }
 
 /// Synchronous authoritative writes. Both slab generation and gameplay life
@@ -677,7 +661,6 @@ impl Scheduler {
         hull.flight.to_store_cached((*store).vehicle.get_mut(hull.id).unwrap(),texts);
     }
     fn take_hull(&mut self, store: &Store, r: Ref<Vehicle>, index: usize) -> Hull {
-        let _allocation = allocation::nested(allocation::Stage::Load);
         let row = self.hull_rows[r.slot as usize].as_mut().unwrap();
         let mut hull = row.pool.pop().expect("reserved reentrant hull row");
         hull.index = index;
@@ -695,16 +678,16 @@ impl Scheduler {
         }
     }
     fn recycle(&mut self, hull: Hull) { self.hull_rows[hull.id.slot as usize].as_mut().unwrap().pool.push(hull); }
-    fn mark(&mut self, geometry: &mut geometry::Geometry, r: Ref<Vehicle>) {
+    fn mark(&mut self, r: Ref<Vehicle>) {
         self.pending = true;
         if let Some(Some(row)) = self.hull_rows.get_mut(r.slot as usize) { row.revision += 1; }
-        self.publication.get_or_insert_with(Default::default).mark(r); geometry.mark(r);
+        self.publication.get_or_insert_with(Default::default).mark(r);
     }
-    fn stored(&mut self, geometry: &mut geometry::Geometry, hull: &Hull) {
+    fn stored(&mut self, hull: &Hull) {
         self.pending = true;
         let row = self.hull_rows[hull.id.slot as usize].as_mut().unwrap();
         row.revision += 1; hull.f2_revision.set(row.revision);
-        self.publication.get_or_insert_with(Default::default).mark(hull.id); geometry.mark(hull.id);
+        self.publication.get_or_insert_with(Default::default).mark(hull.id);
     }
     fn revision(&self, r: Ref<Vehicle>) -> u64 {
         self.hull_rows[r.slot as usize].as_ref().expect("registered target hull").revision

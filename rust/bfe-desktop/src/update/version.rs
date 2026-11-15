@@ -122,11 +122,6 @@ pub fn parse_version(value: &str) -> Option<ParsedVersion> {
 
 /// Compares two version strings, returning `-1`, `0`, or `1` (or `None` if either
 /// version string is invalid).
-///
-/// A release without a prerelease suffix (`prerelease.is_empty()`) sorts after
-/// every prerelease/preview of the same `major.minor.patch`.
-///
-/// Mirrors `compareVersions` in the desktop host.
 pub fn compare_versions(a: &str, b: &str) -> Option<i32> {
     let va = parse_version(a)?;
     let vb = parse_version(b)?;

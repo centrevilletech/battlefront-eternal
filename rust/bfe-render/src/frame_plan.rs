@@ -16,10 +16,13 @@ pub struct FramePlan {
     pub trace: [f64; L::OPERATIONS * C::LEN],
     pub operations: [Operation; L::OPERATIONS],
     pub count: usize,
+    // Native rendering may hold distant moving casters on a slow frame.
+    // The default retains the browser's cadence and every invalid window refreshes.
+    pub shadow_periods: [u32; 4],
 }
 impl Default for FramePlan {
     fn default() -> Self {
-        let mut plan = Self { facts: [0.; F::LEN], state: [0.; S::LEN], trace: [0.; L::OPERATIONS * C::LEN], operations: [Operation::default(); L::OPERATIONS], count: 0 };
+        let mut plan = Self { facts: [0.; F::LEN], state: [0.; S::LEN], trace: [0.; L::OPERATIONS * C::LEN], operations: [Operation::default(); L::OPERATIONS], count: 0, shadow_periods: [1; 4] };
         for i in 0..L::PROBES { plan.state[S::PROBE_LAST+i] = f64::NEG_INFINITY; plan.state[S::PROBE_EYE+3*i+1] = f64::INFINITY; }
         plan.state[S::CLOUD_LAST] = f64::NEG_INFINITY;
         for i in 0..L::MIRRORS { plan.state[S::MIRROR_LEVEL+i] = f64::NAN; }
@@ -30,7 +33,18 @@ fn count(value: f64, max: usize) -> usize { (value as usize).min(max) }
 fn distance(a: &[f64], b: &[f64]) -> f64 {
     let x = a[0]-b[0]; let y = a[1]-b[1]; let z = a[2]-b[2]; x*x+y*y+z*z
 }
+fn shadow_due(facts: &[f64], frame: f64, periods: &[u32; 4], index: usize) -> bool {
+    let cascades = count(facts[F::SHADOW_COUNT], L::CASCADES);
+    if index >= cascades { return false; }
+    if facts[F::SHADOW_DIRTY + index] != 0. || facts[F::SHADOW_MOVED + index] != 0. { return true; }
+    let period = periods[index].max(if cascades > 2 && index + 1 == cascades { 2 } else { 1 });
+    let phase = if periods[index] > 1 { index } else { 0 };
+    (count(frame, u32::MAX as usize) + phase).is_multiple_of(period as usize)
+}
 impl FramePlan {
+    pub fn shadow_due(&self, index: usize) -> bool {
+        shadow_due(&self.facts, self.state[S::FRAME], &self.shadow_periods, index)
+    }
     // Water.reflect's hold policy and SkyProbe.update's cadence. View/clip
     // numerics are facts until the scene owner consumes native camera rows.
     pub fn select(&mut self) {
@@ -61,9 +75,8 @@ impl FramePlan {
         let cascades = count(f[F::SHADOW_COUNT], L::CASCADES);
         for i in 0..L::CASCADES {
             let dirty = f[F::SHADOW_DIRTY+i] != 0.;
-            let last = cascades > 2 && i+1 == cascades;
             s[S::SHADOW_STATIC+i] = (i<cascades && dirty) as u8 as f64;
-            s[S::SHADOW_DYNAMIC+i] = (i<cascades && (dirty || f[F::SHADOW_MOVED+i] != 0. || !last || count(s[S::FRAME],u32::MAX as usize).is_multiple_of(2))) as u8 as f64;
+            s[S::SHADOW_DYNAMIC+i] = shadow_due(f, s[S::FRAME], &self.shadow_periods, i) as u8 as f64;
         }
     }
     // The operation store is bounded independently of imported view counts.
@@ -99,7 +112,10 @@ impl FramePlan {
         if main && self.state[S::FOG] != 0. {
             self.emit(O::COPY_COLOR_DEPTH,R::NEAR,R::SURFACE); self.draw(R::FOG);
         }
-        self.emit(O::RESOLVE,opaque,0);
+        // The view weapon draws into the same multisample target. Resolve
+        // its final colour once, after that draw; depth readers copy MSAA
+        // depth directly and never consume this intermediate colour image.
+        if !main || self.facts[F::VIEW_SHOWN] == 0. { self.emit(O::RESOLVE,opaque,0); }
     }
     // Graphics.render and game.frame formerly invoked these responsibilities
     // in nested hooks. The native owner states their dependencies directly.
@@ -177,5 +193,39 @@ impl FramePlan {
         }
         if f[F::MAIN] == 0. { return; }
         s[S::FRAME] = (count(s[S::FRAME],u32::MAX as usize) as u32).wrapping_add(1) as f64;
+    }
+}
+
+#[cfg(test)]
+mod shadow_cadence_test {
+    use super::*;
+    #[test]
+    fn scene_color_resolves_once_after_the_view_weapon() {
+        let mut plan = FramePlan::default();
+        plan.facts[F::MAIN] = 1.;
+        plan.facts[F::VIEW_SHOWN] = 1.;
+        plan.select();plan.plan();
+        let ops = &plan.operations[..plan.count];
+        let mut resolves = ops.iter().enumerate().filter(|(_,o)| o.kind == O::RESOLVE && o.role == R::NEAR);
+        let (resolve, _) = resolves.next().unwrap();
+        assert!(resolves.next().is_none());
+        let view = ops.iter().position(|o| o.kind == O::DRAW && o.role == R::VIEW).unwrap();
+        assert!(resolve > view);
+    }
+    #[test]
+    fn moved_or_invalid_cascades_refresh_even_on_a_held_frame() {
+        let mut plan = FramePlan::default();
+        plan.facts[F::SHADOW_COUNT] = 4.;
+        plan.shadow_periods = [1, 2, 4, 4];
+        plan.state[S::FRAME] = 1.;
+        assert!(plan.shadow_due(0));
+        assert!(!plan.shadow_due(2));
+        plan.facts[F::SHADOW_MOVED + 2] = 1.;
+        assert!(plan.shadow_due(2));
+        plan.facts[F::SHADOW_MOVED + 2] = 0.;
+        plan.facts[F::SHADOW_DIRTY + 2] = 1.;
+        plan.select();
+        assert_eq!(plan.state[S::SHADOW_STATIC + 2], 1.);
+        assert_eq!(plan.state[S::SHADOW_DYNAMIC + 2], 1.);
     }
 }

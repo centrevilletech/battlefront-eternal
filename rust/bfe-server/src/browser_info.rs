@@ -49,6 +49,8 @@ pub struct BrowserInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_assign_teams: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub friendly_fire: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub uptime: Option<u64>,
 }
 
@@ -153,13 +155,6 @@ pub fn map_names(data_dir: &str) -> HashMap<String, String> {
 }
 
 /// Builds the full server browser metadata (`export function browserInfo` in `src/browser-info.js`).
-///
-/// Maps `side` (`rep`/`cis` -> `cw`, `all`/`imp` -> `gcw`) via `ERAS`, extracts `mode` from the
-/// third colon-delimited segment of `config.rotation[0]` (defaulting to `"conquest"`), determines
-/// `bots` from `params.get('ai') !== 'off'`, and computes `uptime` in seconds since `started_at_ms`.
-/// Builds the rich server-browser metadata object (`SponsorInfo`, `BattleInfo`, map title,
-/// description, banner HTTPS URL, and player/bot counts), porting `browserInfo(config, state, maps)`
-/// from `packages/bfe-server/src/browser-info.js`.
 pub fn browser_info(
     config: &ServerConfig,
     query: &str,
@@ -201,6 +196,7 @@ pub fn browser_info(
         }),
         bots: Some(ai.as_deref() != Some("off")),
         auto_assign_teams: Some(config.auto_assign_teams),
+        friendly_fire: Some(config.friendly_fire),
         uptime: Some(uptime),
     }
 }

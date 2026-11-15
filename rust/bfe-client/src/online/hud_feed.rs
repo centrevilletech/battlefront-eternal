@@ -263,6 +263,11 @@ pub struct Feed {
     // BFE_HUD_TRACE names each hit, arc, kill line and message on stderr as
     // it is raised, for checking a battle's HUD against its log.
     trace: bool,
+    // BFE_HUD_TRACE: the newest world tick received and the displayed tick, at this frame.
+    trace_tick: [f64; 2],
+    /// Whether the player's squad orders show: with no bots (aiMode off) there is no squad to order and the
+    /// browser's game has no `ai.playerCommand`, so nothing shows.
+    pub squads: bool,
 }
 
 impl Feed {
@@ -280,6 +285,8 @@ impl Feed {
             buildings: Vec::with_capacity(256),
             slots: Vec::with_capacity(256),
             trace: std::env::var_os("BFE_HUD_TRACE").is_some(),
+            trace_tick: [0.; 2],
+            squads: true,
         }
     }
 
@@ -350,7 +357,7 @@ impl Feed {
     /// One command to the HUD, named on stderr when tracing.
     pub fn raise(&self, hud: &mut impl Sink, name: &str, kind: u32, values: [f64; 4]) {
         if self.trace {
-            eprintln!("hud feed: {name} {values:?}");
+            eprintln!("hud feed: {name} {values:?} latest={} shown={:.2}", self.trace_tick[0], self.trace_tick[1]);
         }
         hud.event(kind, values[0], values[1], values[2], values[3]);
     }
@@ -359,6 +366,7 @@ impl Feed {
     /// hands them on, then the shots still waiting for their unit
     /// (CombatPresentation.present).
     pub fn frame(&mut self, hud: &mut impl Sink, receiver: &Receiver, teams: &Teams) {
+        self.trace_tick = [receiver.latest, receiver.clock.shown];
         let lookup = |id: u32| find(receiver, id);
         let own = Own::of(receiver);
         let mut at = 0;
@@ -413,7 +421,7 @@ impl Feed {
                     // presentEntityEvent: only the page's own unit's order
                     // shows, as the line BattleHud.squadCommand lights.
                     if let Ok(squad) = serde_json::from_slice::<Squad>(bytes) {
-                        if let Some(order) = squad_order(squad.label).filter(|_| own.is((squad.owner_id, squad.owner_generation))) {
+                        if let Some(order) = squad_order(squad.label).filter(|_| self.squads && own.is((squad.owner_id, squad.owner_generation))) {
                             self.raise(hud, "squad", C::SQUAD, [order, 0., 0., 0.]);
                         }
                     }

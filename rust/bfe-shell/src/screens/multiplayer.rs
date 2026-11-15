@@ -206,10 +206,6 @@ impl MultiplayerLaunch {
 /// Resolves a server's battle target (`family`, `map`, `side`, `era`, `mode`,
 /// `address`, `port`, `relay_always`) from its [`ServerEntry`] `battle` summary
 /// or `<family>/<map>:<side>:<mode>` rotation entry.
-///
-/// Mirrors `joinServer(server, kind)` in `src/shell/screens.js` and the
-/// `<family>/<map>:<side>:<mode>` rotation format in `MULTIPLAYER.md`
-/// (lines 106-183).
 pub fn resolve_server_join(
     server: &ServerEntry,
     kind: MultiplayerKind,
