@@ -1,7 +1,7 @@
 //! The game's movie archives (`Movies/shell.mvs`, an add-on's `Movies/*.mvs`): a ucfb tree whose tags are
 //! name hashes. Its `Info` chunk lists each movie (`Segment`: `Name` hash, `Length`, `Padding`) in file
 //! order; its `Data` chunk holds the Bink files back to back, each followed by its padding. Only the
-//! chunk headers and the small `Info` chunk are read.
+//! chunk headers and the small `Info` chunk are read. Each movie must lie inside the `Data` chunk.
 use std::{
     fs::File,
     io::{Read, Seek, SeekFrom},
@@ -83,7 +83,7 @@ pub fn read_index(path: &Path) -> Result<Vec<Entry>, String> {
     let (info_start, info_end) = find(&mut f, 8, len, INFO, 0)
         .map_err(err)?
         .ok_or_else(missing)?;
-    let (data_start, _) = find(&mut f, 8, len, DATA, 0)
+    let (data_start, data_end) = find(&mut f, 8, len, DATA, 0)
         .map_err(err)?
         .ok_or_else(missing)?;
     if info_end - info_start > MAX_INFO {
@@ -128,9 +128,10 @@ pub fn read_index(path: &Path) -> Result<Vec<Entry>, String> {
     let mut entries = Vec::with_capacity(records.len());
     let mut offset = data_start;
     for (hash, length, padding) in records {
-        if offset + length > len {
+        // Each movie lies inside the Data chunk, and reading one never goes past its own length.
+        if length < 4 || offset + length > data_end {
             return Err(format!(
-                "{}: movie index runs past the file",
+                "{}: movie index runs past the movie data",
                 path.display()
             ));
         }
@@ -224,6 +225,27 @@ mod tests {
             std::fs::write(&path, &bytes[..end]).unwrap();
             let _ = read_index(&path);
         }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An entry whose length runs past the end of the Data chunk (into bytes that follow it in the
+    /// file) is not a movie of the archive.
+    #[test]
+    fn an_entry_running_past_the_data_chunk_is_refused() {
+        let movie = b"BIKi-movie".to_vec();
+        let mut bytes = synthetic_archive(&[("main", movie.clone(), 0)]);
+        // Claim more bytes than the Data chunk holds, then put bytes after the archive's chunks.
+        let length_at = bytes
+            .windows(8)
+            .position(|w| w[..4] == LENGTH.to_le_bytes() && w[4..] == (movie.len() as u32).to_le_bytes())
+            .unwrap();
+        bytes[length_at + 4..length_at + 8].copy_from_slice(&64u32.to_le_bytes());
+        bytes.extend([0x55u8; 128]);
+        let dir = std::env::temp_dir().join(format!("bfe-mvs-past-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("shell.mvs");
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(read_index(&path).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
