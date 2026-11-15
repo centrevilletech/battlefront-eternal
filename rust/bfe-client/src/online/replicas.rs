@@ -533,7 +533,7 @@ impl Replicas {
         let turrets = Box::new(super::turrets::Turrets::new(content, bridge, textures)?);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
-        let buildings = super::buildings::Buildings::new(content, bridge, textures)?;
+        let buildings = super::buildings::Buildings::new(content, bridge, textures).await?;
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         let animated = super::animated_props::Animated::new(content, bridge, textures)?;

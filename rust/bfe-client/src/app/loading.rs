@@ -52,6 +52,7 @@ impl Work {
         mut load: impl FnMut() -> glow::Context + 'static,
     ) -> Result<(), String> {
         if !self.started {
+            let started = std::time::Instant::now();
             super::page_battle::PageBattle::prefetch();
             let (tx, rx) = mpsc::sync_channel(2);
             let content_root = root.to_path_buf();
@@ -99,7 +100,7 @@ impl Work {
                 .map_err(|e| format!("cannot start battle admission: {e}"))?;
             self.rx = Some(rx);
             self.started = true;
-            eprintln!("battle loading: admission worker started");
+            eprintln!("battle loading: admission worker started ({:.0} ms)", started.elapsed().as_secs_f64() * 1000.);
         }
         let mut load = Some(load);
         while let Some(rx) = &self.rx {

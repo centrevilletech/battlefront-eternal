@@ -48,13 +48,14 @@ fn number(s: &bfe_content::Value, key: &str, default: f64) -> f64 {
     bfe_content::odf::num(s.get(key), default)
 }
 impl Buildings {
-    pub fn new(
+    pub async fn new(
         content: &BattleContent,
         bridge: &mut Bridge,
         textures: &[u32],
     ) -> Result<Self, String> {
         let cascades = bridge.shadow_cascades();
         let mut rows = Vec::new();
+        let mut budget = crate::loading_work::Budget::new();
         let Some(data) = content.content.battle.props.as_ref() else {
             return Ok(Self { rows });
         };
@@ -63,6 +64,9 @@ impl Buildings {
                 .into_iter()
                 .enumerate()
         {
+            if budget.tick().await {
+                bridge.r.core.state.reset();
+            }
             let desc = data
                 .get("instances")
                 .and_then(|v| v.at(source))

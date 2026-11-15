@@ -52,7 +52,11 @@ impl FrameLog {
             self.started = now;
         }
         if let Some(last) = self.last {
-            self.ms.push(now.duration_since(last).as_secs_f32() * 1000.);
+            let ms = now.duration_since(last).as_secs_f32() * 1000.;
+            if ms > 100. && self.phase == Phase::Loading {
+                eprintln!("frame times: a loading frame of {ms:.0} ms, {:.1} s into loading", now.duration_since(self.started).as_secs_f64());
+            }
+            self.ms.push(ms);
         }
         self.last = Some(now);
     }
