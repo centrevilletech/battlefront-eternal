@@ -1117,7 +1117,19 @@ impl Replicas {
             point.apply_matrix4(&matrix);
             Some([point.x, point.y, point.z])
         };
-        self.combat.draw(dt, own, &muzzle, &mut self.lights, bridge);
+        // The drawn bodies' hit shapes, as the frame's shot scene took them
+        // (online/shot_aim.rs), but for the player's own.
+        let scene = self.shot_aim.borrow();
+        let strike = |from: [f64; 3], direction: [f64; 3], length: f64| {
+            let (from, direction) = (three::Vector3::new(from[0], from[1], from[2]), three::Vector3::new(direction[0], direction[1], direction[2]));
+            scene
+                .targets
+                .iter()
+                .filter(|(id, _)| *id != own.0)
+                .filter_map(|(_, shape)| bfe_sim::units::shapes::segment_shape(&from, &direction, length, shape))
+                .fold(None, |nearest: Option<f64>, distance| Some(nearest.map_or(distance, |n| n.min(distance))))
+        };
+        self.combat.draw(dt, own, &muzzle, &strike, &mut self.lights, bridge);
     }
     /// Lightning.update, once the frame's bodies are posed. A bolt held to
     /// its shooter starts at his gun origin as he is drawn now

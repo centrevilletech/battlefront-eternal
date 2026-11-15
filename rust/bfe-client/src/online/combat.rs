@@ -77,6 +77,10 @@ struct Cosmetic {
     until: f64,
     aimed: bool,
     claimed: bool,
+    // How far it had flown when last drawn: the next frame sweeps on from
+    // there for a soldier in its way.
+    flown: f64,
+    fade: f64,
 }
 // What a weapon's bolt needs to be drawn ahead of the world: its round's
 // wire class and style, speed, life and FadeOutTime, and its ShotElevate.
@@ -88,6 +92,12 @@ struct Barrel {
     span: f64,
     fade: f64,
     elevate: f64,
+}
+impl Cosmetic {
+    // Its flight is over: nothing more to sweep.
+    fn claimed_end(&self) -> bool {
+        self.flown >= self.speed * self.life
+    }
 }
 const COSMETICS: usize = 32;
 struct Style {
@@ -142,6 +152,10 @@ pub struct Combat {
     tick: f64,
     // Network commands written for the owner since its last presentation.
     net_count: usize,
+    // End records whose bolt this client has not been sent yet (id,
+    // generation, the point, the tick), newest last: a launch that arrives
+    // after its end still stops there.
+    orphans: Vec<(u32, u32, [f64; 3], f64)>,
     cosmetics: Vec<Cosmetic>,
     // By weapon (its place in the battle's weapon list).
     barrels: Vec<Option<Barrel>>,
@@ -434,6 +448,7 @@ impl Combat {
             epoch: 0.,
             tick: 0.,
             net_count: 0,
+            orphans: Vec::with_capacity(64),
             cosmetics: Vec::with_capacity(COSMETICS),
             barrels,
             trace: std::env::var_os("BFE_HUD_TRACE").is_some(),
@@ -557,6 +572,8 @@ impl Combat {
             until: born + (life + barrel.fade).max(1.),
             aimed: false,
             claimed: false,
+            flown: 0.,
+            fade: barrel.fade,
         });
         if self.trace {
             eprintln!(
@@ -662,6 +679,7 @@ impl Combat {
         if self.epoch != receiver.epoch {
             self.epoch = receiver.epoch;
             self.pending.clear();
+            self.orphans.clear();
             self.cosmetics.clear();
             self.flames.clear();
             self.map_effects.reset(&mut self.effects);
@@ -740,6 +758,12 @@ impl Combat {
                             x[n::POSITION..n::POSITION + 3].copy_from_slice(&position);
                             net_count += 1;
                         }
+                        if flying.is_none() {
+                            if self.orphans.len() == self.orphans.capacity() {
+                                self.orphans.remove(0);
+                            }
+                            self.orphans.push((id, generation, position, stamp));
+                        }
                         if self.trace {
                             eprintln!(
                                 "ord: end id={id} tick={stamp} shown={tick:.3} surface={} at={position:.3?} {}",
@@ -802,6 +826,17 @@ impl Combat {
                         predicted,
                         ..Default::default()
                     };
+                    // A launch that comes after its own end record (its first
+                    // copy lost, or sent late) still flies only to that point.
+                    if let Some(at) = self.orphans.iter().position(|orphan| orphan.0 == id && orphan.1 == generation) {
+                        let (_, _, point, _) = self.orphans.remove(at);
+                        let bolt = &mut self.bolts[slot];
+                        if bolt.speed > 0. {
+                            let distance = (0..3).map(|i| (point[i] - bolt.position[i]) * bolt.direction[i]).sum::<f64>().max(0.);
+                            bolt.life = bolt.life.min(distance / bolt.speed);
+                        }
+                        bolt.terminal = true;
+                    }
                     if self.trace {
                         let b = &self.bolts[slot];
                         eprintln!(
@@ -836,9 +871,23 @@ impl Combat {
                         // now. A class drawn on where it stops (the sniper
                         // rifles) has its streak cut there (PredictedShots.stop).
                         let rail = self.styles[style].rail.is_some();
-                        if let Some(cosmetic) = self.cosmetics.iter_mut().find(|c| c.key == key && rail) {
+                        let now = self.clock;
+                        if let Some(cosmetic) = self.cosmetics.iter_mut().find(|c| c.key == key) {
+                            // The world's answer: where its round stopped.
+                            // A cosmetic still flying takes that as its own
+                            // end, nearer or further than the client's own
+                            // ray found (a round that struck nothing keeps
+                            // the life it was launched with). One whose
+                            // flight is over is only ever cut (the sniper
+                            // rifles' streak, PredictedShots.stop).
                             let along = (0..3).map(|i| (point[i] - cosmetic.origin[i]) * cosmetic.direction[i]).sum::<f64>().max(0.);
-                            cosmetic.life = cosmetic.life.min(along / cosmetic.speed);
+                            let answer = along / cosmetic.speed;
+                            if now - cosmetic.born < cosmetic.life {
+                                cosmetic.life = answer.max(now - cosmetic.born);
+                                cosmetic.until = cosmetic.born + (cosmetic.life + cosmetic.fade).max(1.);
+                            } else {
+                                cosmetic.life = cosmetic.life.min(answer);
+                            }
                         }
                         self.defer(group, point, id, stamp.min(tick), rail);
                     } else {
@@ -1053,12 +1102,18 @@ impl Combat {
     /// round (the wire's id) is drawn now, if it holds one: a bolt leaves
     /// that gun and joins its true path over MERGE metres
     /// (CombatPresentation.present, `bolt.visualMuzzle`). `own` is the
-    /// player's unit, whose bolts the trace follows.
+    /// player's unit, whose bolts the trace follows. `strike` gives the
+    /// distance to the first drawn body other than the player's on a
+    /// segment (from, direction, length): the player's own bolt, drawn
+    /// ahead of the world, stops at the first soldier it crosses as this
+    /// client shows him (PredictedShots.update), until the world's end
+    /// record says where its round really stopped.
     pub fn draw(
         &mut self,
         dt: f64,
         own: (u32, u32),
         muzzle: &dyn Fn((u32, u32), usize) -> Option<[f64; 3]>,
+        strike: &dyn Fn([f64; 3], [f64; 3], f64) -> Option<f64>,
         lights: &mut super::lights::SceneLights,
         bridge: &mut Bridge,
     ) {
@@ -1116,6 +1171,17 @@ impl Combat {
         let now = self.clock;
         self.cosmetics.retain(|cosmetic| now < cosmetic.until);
         for (at, cosmetic) in self.cosmetics.iter_mut().enumerate() {
+            let reach = cosmetic.speed * (now - cosmetic.born).min(cosmetic.life);
+            if reach > cosmetic.flown && !cosmetic.claimed_end() {
+                let from: [f64; 3] = std::array::from_fn(|i| cosmetic.origin[i] + cosmetic.direction[i] * cosmetic.flown);
+                if let Some(distance) = strike(from, cosmetic.direction, reach - cosmetic.flown) {
+                    cosmetic.life = cosmetic.life.min((cosmetic.flown + distance) / cosmetic.speed);
+                    if self.trace {
+                        eprintln!("ord: stop key={} flown={:.3} wall={:.1}", cosmetic.key, cosmetic.flown + distance, wall());
+                    }
+                }
+            }
+            cosmetic.flown = cosmetic.speed * (now - cosmetic.born).min(cosmetic.life);
             if !cosmetic.aimed {
                 cosmetic.aimed = true;
                 if let Some(muzzle) = muzzle(own, cosmetic.definition) {
