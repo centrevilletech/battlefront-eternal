@@ -214,6 +214,8 @@ pub struct Sound {
     pub volumes: [f64; 6],
     /// The own body's feet above its origin as drawn (Replicas::own_feet).
     pub own_feet: [f64; 3],
+    /// Every turret seat as drawn this frame (Hulls::sound_turrets).
+    pub turret_seats: Vec<((u32, u32), usize, bool, f64, f64, f64, [f64; 3])>,
     /// Every walker's feet as drawn this frame (Hulls::sound_feet).
     pub walker_feet: Vec<((u32, u32), [f64; 2], Vec<(usize, usize, [f64; 16])>)>,
     // The foot cycle heights handed to the audio so far.
@@ -272,6 +274,7 @@ impl Sound {
             volumes: [1.; 6],
             own_feet: [f64::NAN; 3],
             walker_feet: Vec::new(),
+            turret_seats: Vec::new(),
             heights: 0,
             replaying: false,
             assets: prepared.streams,
@@ -814,10 +817,15 @@ impl Sound {
             self.pilots.insert((id, generation), 1);
         }
 
-        // Feet not seen this frame (their walker gone or not drawn) are silent.
+        // Feet and turrets not seen this frame (their hull gone or not drawn)
+        // are silent.
         let count = runtime.phase.foot_count;
         for f in &mut runtime.phase.feet[..count] {
             f[foot::PRESENT] = 0.;
+        }
+        let count = runtime.phase.turret_count;
+        for t in &mut runtime.phase.turrets[..count] {
+            t[turret::PRESENT] = 0.;
         }
         for (slot, row) in receiver.active_slots() {
             if row[r::ID] == receiver.own.id && row[r::GENERATION] == receiver.own.generation {
@@ -879,6 +887,30 @@ impl Sound {
             e[emitter::POSTURE] = row[r::POSTURE];
             // A walker's cycle as drawn and its feet (Footfalls.update).
             let unit = (row[r::ID] as u32, row[r::GENERATION] as u32);
+            // Its turret seats (VehicleSounds.updateTurrets), the hull's class
+            // sounding them; PitchRate is taken as the default 1 rad/s.
+            for &(_, turret_id, held, yaw, pitch, top, point) in self.turret_seats.iter().filter(|t| t.0 == unit) {
+                if turret_id >= runtime.phase.turrets.len() {
+                    continue;
+                }
+                let t = &mut runtime.phase.turrets[turret_id];
+                let fresh = t[turret::PRESENT] == 0. && t[turret::OWNER] != id as f64;
+                t[turret::ID] = turret_id as f64;
+                t[turret::CLASS] = e[emitter::CLASS];
+                t[turret::OWNER] = id as f64;
+                t[turret::X..turret::X + 3].copy_from_slice(&point);
+                t[turret::HELD] = held as u8 as f64;
+                t[turret::ALIVE] = e[emitter::ALIVE];
+                t[turret::YAW] = yaw;
+                t[turret::PITCH] = pitch;
+                t[turret::YAW_TOP] = top;
+                t[turret::PITCH_TOP] = 1.;
+                t[turret::PRESENT] = 1.;
+                if fresh {
+                    runtime.phase.turret_state[turret_id] = Default::default();
+                }
+                runtime.phase.turret_count = runtime.phase.turret_count.max(turret_id + 1);
+            }
             if let Some((_, walk, feet)) = self.walker_feet.iter().find(|(u, _, _)| *u == unit) {
                 e[emitter::WALK_PHASE] = walk[0];
                 e[emitter::WALK_BLEND] = walk[1];
