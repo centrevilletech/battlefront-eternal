@@ -458,9 +458,16 @@ fn motion(source: &str) -> Result<String, String> {
 // without it (a GL 3.3 driver, macOS) the version line must name desktop GLSL
 // 3.30, which takes the same language and ignores the precision statements.
 pub fn desktop_glsl(embedded: bool, es3_compatible: bool) -> bool { !embedded && !es3_compatible }
+// GLSL ES 3.00's half-float and norm packing functions came to desktop GLSL with
+// GL_ARB_shading_language_packing (4.20; Mesa has it on every GL 3.3 driver).
 pub fn to_desktop_glsl(source: &str) -> String {
     match source.strip_prefix("#version 300 es") {
-        Some(rest) => format!("#version 330 core{rest}"),
+        Some(rest) => {
+            let packing = ["packHalf2x16", "unpackHalf2x16", "packSnorm2x16", "unpackSnorm2x16", "packUnorm2x16", "unpackUnorm2x16"]
+                .iter().any(|f| rest.contains(f));
+            let extension = if packing { "\n#extension GL_ARB_shading_language_packing : enable" } else { "" };
+            format!("#version 330 core{extension}{rest}")
+        }
         None => source.to_string(),
     }
 }
@@ -471,6 +478,7 @@ mod tests {
     fn a_desktop_context_without_es3_compatibility_gets_glsl_330() {
         assert!(super::desktop_glsl(false, false) && !super::desktop_glsl(false, true) && !super::desktop_glsl(true, false));
         assert_eq!(super::to_desktop_glsl("#version 300 es\nprecision highp float;\nvoid main(){}\n"), "#version 330 core\nprecision highp float;\nvoid main(){}\n");
+        assert!(super::to_desktop_glsl("#version 300 es\nuint h = packHalf2x16(v);\n").starts_with("#version 330 core\n#extension GL_ARB_shading_language_packing : enable\n"));
     }
     use super::*;
     #[test]
