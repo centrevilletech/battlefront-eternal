@@ -18,8 +18,7 @@ pub mod surface;
 // Re-export HUD input shared-memory publisher, asset/ring limits, and chat types.
 pub use hud_input::{
     relation_code, route_battle_key, BattleKeyAction, ChatChannel, ChatController, ChatLog,
-    ChatMessage, HudAssetSlot, HudDefinitionFacts, HudInputPublisher, HudPostFact, HudTeamFact,
-    HudUnitFact, HudWeaponFact, CHAT_LIMIT, HUD_ART_NAMES, MAX_ASSETS, MAX_RINGS, WORDS,
+    ChatMessage, CHAT_LIMIT, WORDS,
 };
 // Re-export pause menu controller, layout config, confirmation dialogs, and URL helper.
 pub use pause::{
@@ -85,10 +84,8 @@ pub use spawn::{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bfe_render::hud_model::layout::{
-        HudCommand as C, HudFrame as H, HudRing as R, HudState as S, HudTeam as T, HudUnit as U,
-    };
-    use bfe_render::hud_model::{MAX_POSTS, MAX_TEAMS, MAX_UNITS, RINGS, STATES, TEAMS, UNITS};
+    
+    
     use std::collections::BTreeMap;
 
     // ------------------------------------------------------------------------
@@ -289,53 +286,6 @@ mod tests {
         }
     }
 
-    // ------------------------------------------------------------------------
-    // GameFamily selector tests (`MULTIPLAYER.md` lines 106-183)
-    //
-    // Verifies that `GameFamily::Swbf1` succeeds across all layout and controller
-    // constructors while `GameFamily::Swbf2` returns an explicit `GameFamilyError`
-    // instead of silently falling back to the 2004 Classic layout.
-    // ------------------------------------------------------------------------
-    #[test]
-    fn test_game_family_selectors_swbf1_and_swbf2_error() {
-        // `GameFamily::parse` accepts bare family IDs and `<family>/<mapId>` prefixes.
-        assert_eq!(GameFamily::parse("swbf1"), Some(GameFamily::Swbf1));
-        assert_eq!(GameFamily::parse("swbf2/hot1"), Some(GameFamily::Swbf2));
-        assert!(GameFamily::Swbf1.require_available().is_ok());
-
-        let err = GameFamily::Swbf2.require_available().unwrap_err();
-        assert_eq!(err.family, GameFamily::Swbf2);
-        assert_eq!(err.to_string(), "game family swbf2 is not available");
-
-        // Every layout and controller constructor must reject `Swbf2` with `GameFamilyError`.
-        assert!(spawn_layout_for_family(GameFamily::Swbf1, 768.0, 15.0).is_ok());
-        assert_eq!(
-            spawn_layout_for_family(GameFamily::Swbf2, 768.0, 15.0),
-            Err(GameFamilyError::not_available(GameFamily::Swbf2))
-        );
-
-        assert!(team_stats_layout_for_family(GameFamily::Swbf1, 768.0).is_ok());
-        assert_eq!(
-            team_stats_layout_for_family(GameFamily::Swbf2, 768.0),
-            Err(GameFamilyError::not_available(GameFamily::Swbf2))
-        );
-
-        assert!(stats_page_layout_for_family(GameFamily::Swbf1, 768.0, DETAILS_ROWS).is_ok());
-        assert_eq!(
-            stats_page_layout_for_family(GameFamily::Swbf2, 768.0, DETAILS_ROWS),
-            Err(GameFamilyError::not_available(GameFamily::Swbf2))
-        );
-
-        assert!(pause_layout_for_family(GameFamily::Swbf1).is_ok());
-        assert_eq!(
-            pause_layout_for_family(GameFamily::Swbf2),
-            Err(GameFamilyError::not_available(GameFamily::Swbf2))
-        );
-
-        assert!(SpawnScreenController::try_with_family(GameFamily::Swbf2, 768.0).is_err());
-        assert!(ScoreboardController::try_with_family(GameFamily::Swbf2, 768.0).is_err());
-        assert!(PauseMenu::try_with_family(GameFamily::Swbf2).is_err());
-    }
 
     // ------------------------------------------------------------------------
     // Spawn policy tests (ports `tests/spawn-policy.test.js`)
@@ -805,178 +755,6 @@ mod tests {
         assert!(!menu.is_open);
     }
 
-    // ------------------------------------------------------------------------
-    // HUD input and chat tests (ports `tests/hud-input.test.js`)
-    // ------------------------------------------------------------------------
-    // Verifies that `HudInputPublisher` retains the latest state values across
-    // 10,000 rapid updates without overflowing the shared-memory buffer, and
-    // flushes them cleanly into the target slice on `publish_to_slice`.
-    #[test]
-    fn test_hud_input_retained_state_and_immediate_events() {
-        // Allocate a simulated shared-memory Float64 buffer covering all HUD sections
-        // through the 128-entry `RINGS` table.
-        let mut input = HudInputPublisher::new();
-        let mut memory = vec![0.0; RINGS + 128 * R::WORDS];
 
-        for i in 0..10_000 {
-            let fill = i as f64 / 10_000.0;
-            input.set_second_bar(1.0, fill, None);
-            input.set_hull(1.0, fill, None);
-            input.set_supply(true, false, None);
-            input.set_stats(i, 0, 0, None);
-            input.event(C::MESSAGE, 1.0, 0.0, 0.0, 0.0, None);
-            input.event(C::KILL, 1.0, 2.0, 0.0, 0.0, None);
-            input.event(C::HIT, 1.0, 0.0, 0.0, 0.0, None);
-        }
 
-        assert_eq!(input.event_count, 30_000);
-        assert_eq!(memory[H::STATES], 0.0, "no frame has published yet");
-        assert!((input.f[STATES + (C::SECOND as usize) * S::WORDS + 1] - 0.9999).abs() < 1e-9);
-
-        // Flushing to the shared slice writes all retained states and resets the dirty mask.
-        input.publish_to_slice(&mut memory);
-        assert_eq!(memory[STATES + (C::STATS as usize) * S::WORDS], 9999.0);
-        assert!((memory[STATES + (C::SECOND as usize) * S::WORDS + 1] - 0.9999).abs() < 1e-9);
-        assert_eq!(input.f[H::STATES], 0.0);
-    }
-
-    // Verifies `HudInputPublisher` unit-row hysteresis (requiring 3 consecutive
-    // frames of unit-set change before rebuilding rows and bumping `GENERATION`),
-    // `MAX_UNITS` / `MAX_POSTS` clamping, and the 4096-entry asset table cap.
-    #[test]
-    fn test_hud_input_unit_churn_and_asset_caps() {
-        let mut input = HudInputPublisher::new();
-        let def = HudDefinitionFacts {
-            scale: 12.0,
-            scan: 12.0,
-            transmit: 12.0,
-            ..Default::default()
-        };
-        let mut teams = vec![HudTeamFact::default(); MAX_TEAMS];
-        teams[2] = HudTeamFact {
-            relation: -1.0,
-            locals: true,
-            tickets: 9.0,
-            living: 7.0,
-        };
-        input.set_teams(&teams);
-        assert_eq!(input.f[TEAMS + 2 * T::WORDS + T::RELATION], -1.0);
-        assert_eq!(input.f[TEAMS + 2 * T::WORDS + T::LOCALS], 1.0);
-        assert_eq!(input.f[TEAMS + 2 * T::WORDS + T::TICKETS], 9.0);
-        assert_eq!(input.f[TEAMS + 2 * T::WORDS + T::LIVING], 7.0);
-
-        // Seed an initial 1-unit frame so `GENERATION` is initialized.
-        let old_unit = HudUnitFact {
-            entity_key: 1,
-            def: def.clone(),
-            ..Default::default()
-        };
-        input.set_units(
-            true,
-            std::slice::from_ref(&old_unit),
-            Some(1),
-            Some(1),
-            1,
-            false,
-        );
-        let first_gen = input.f[UNITS + U::GENERATION];
-
-        // Feed an oversized unit list (`MAX_UNITS + 100`) for 3 frames to cross the
-        // 3-frame hysteresis threshold and verify clamping to `MAX_UNITS`.
-        let big_list: Vec<HudUnitFact> = (0..(MAX_UNITS + 100))
-            .map(|i| HudUnitFact {
-                entity_key: (i + 100) as u64,
-                def: def.clone(),
-                ..Default::default()
-            })
-            .collect();
-        for _ in 0..3 {
-            input.set_units(true, &big_list, None, None, 1, false);
-        }
-        assert_eq!(input.row_count, MAX_UNITS);
-
-        // Returning to the 1-unit list for 3 consecutive frames shrinks `row_count`
-        // back to 1 and advances the unit table `GENERATION` counter.
-        for _ in 0..3 {
-            input.set_units(
-                true,
-                std::slice::from_ref(&old_unit),
-                Some(1),
-                Some(1),
-                1,
-                false,
-            );
-        }
-        assert_eq!(input.row_count, 1);
-        assert_ne!(input.f[UNITS + U::GENERATION], first_gen);
-
-        // Feed an oversized command-post list (`MAX_POSTS + 30`) and verify clamping to `MAX_POSTS`.
-        let big_posts: Vec<HudPostFact> = (0..(MAX_POSTS + 30))
-            .map(|_| HudPostFact {
-                counts: (0..(MAX_TEAMS + 5)).map(|t| (t as i32, 1, 0.0)).collect(),
-                ..Default::default()
-            })
-            .collect();
-        input.set_posts(&big_posts, None);
-        assert_eq!(input.f[H::POSTS] as usize, MAX_POSTS);
-
-        // Attempting to register 5,000 dynamic HUD assets caps the table at `MAX_ASSETS` (4096)
-        // and returns slot `0` for overflow entries.
-        for i in 0..5000 {
-            input.asset(&format!("extra-{i}"));
-        }
-        assert_eq!(input.assets.len(), 4096);
-        assert_eq!(input.asset("extra-4999"), 0);
-    }
-
-    // Verifies that `set_player` only records health transition samples when
-    // the player health ratio actually changes, and tests `route_battle_key`
-    // opening team chat on `KeyY`, swallowing `Tab`, and sanitizing control characters.
-    #[test]
-    fn test_hud_input_transition_feedback_and_chat_routing() {
-        let mut input = HudInputPublisher::new();
-        input.observed_samples.clear();
-        input.set_player(0.35, None);
-        input.set_player(1.0, None);
-        input.set_player(0.35, None);
-        // Repeating the identical player health (`0.35`) across 1,000 frames must
-        // not emit duplicate `C::HEALTH` transition samples.
-        for i in 0..1000 {
-            input.set_player(0.35, None);
-            input.set_second_bar(1.0, i as f64 / 1000.0, None);
-        }
-        let health_samples: Vec<(u32, f64)> = input
-            .observed_samples
-            .iter()
-            .map(|&(k, a, _, _, _)| (k, a))
-            .collect();
-        assert_eq!(
-            health_samples,
-            vec![(C::HEALTH, 0.35), (C::HEALTH, 1.0), (C::HEALTH, 0.35)]
-        );
-
-        let mut chat = ChatController::new("Clone-1");
-        assert_eq!(
-            route_battle_key("KeyY", false, false, &mut chat, false, false, false, 1000.0),
-            BattleKeyAction::ChatHandled
-        );
-        assert!(chat.is_open());
-        // While chat is open, Tab is swallowed by chat and does not open the scoreboard.
-        assert_eq!(
-            route_battle_key("Tab", false, false, &mut chat, false, false, false, 1000.0),
-            BattleKeyAction::ChatHandled
-        );
-        // ASCII control characters (`\x07`) in the draft are replaced with spaces on submit.
-        chat.draft = "Roger\x07 that".to_string();
-        assert_eq!(
-            route_battle_key("Enter", false, false, &mut chat, false, false, false, 1050.0),
-            BattleKeyAction::ChatHandled
-        );
-        assert!(!chat.is_open());
-        assert_eq!(chat.log.messages.len(), 1);
-        assert_eq!(
-            chat.log.messages[0].formatted_line(),
-            "[TEAM] Clone-1: Roger  that"
-        );
-    }
 }

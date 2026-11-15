@@ -2,7 +2,7 @@
 //!
 //! Ports `InterfaceSurface` and `commonTextureUrl` from `src/interface/surface.js`:
 //! tracks the virtual `1024 x H` coordinate height, named GPU texture handles,
-//! bitmap fonts, and quad batch used by [`crate::theme::ClassicTheme`].
+//! bitmap fonts, and quad batch.
 
 use crate::fonts::{Fonts, TextDraw, FONT_MEDIUM};
 use crate::space::{anchor_matrix, interface_height, Matrix, Point, IH, IW};
@@ -28,9 +28,7 @@ pub fn common_texture_url(common: &serde_json::Value, name: &str) -> Option<Stri
     None
 }
 
-/// Lightweight surface state (`height`, `solid` texture handle, and named texture map)
-/// used by [`crate::theme::ClassicTheme`] (`InterfaceSurface` in `src/interface/surface.js` and
-/// `ShellTextures` in `rust/bfe-shell/src/render.rs`).
+/// Lightweight surface state (`height`, `solid` texture handle, and named texture map).
 #[derive(Clone, Debug)]
 pub struct Surface {
     /// 1x1 solid white texture handle (default `1`).

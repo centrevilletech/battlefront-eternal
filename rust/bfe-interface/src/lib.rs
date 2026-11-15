@@ -68,7 +68,7 @@ pub use surface::{common_texture_url, Batch, Draw, InterfaceSurface, Surface, QU
 pub use theme::{
     cursor_pulse, draw_bar, draw_frame, draw_scroll_bar, draw_slider_bar, draw_str, fallback_color,
     menu_pulse, piece_quad, rotation_euler, row_bar_at, rows_shift, scaled_color, selected_color,
-    str_width, tint_color, ClassicTheme, HitRegion, HitTarget, BAR_X, BLACK, BUTTON_INSET, DIM,
+    str_width, tint_color, HitRegion, HitTarget, BAR_X, BLACK, BUTTON_INSET, DIM,
     DIMMED, GREY, NOTE_YELLOW, SLIDER_DIM, TEXT_X, THUMB_ALPHA, TRACK_ALPHA, WHITE,
 };
 pub use widgets::{
