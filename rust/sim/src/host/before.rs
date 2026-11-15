@@ -7,7 +7,7 @@
 //! (`ai.prepare`, after `simTime = tick / 60`). The native tick reads the
 //! banks; nothing in it writes them.
 use super::journal::{Event, Life};
-use super::{block_row, put, unit_generation, unit_rows, write_bank, Authority};
+use super::{block_row, put, write_bank, Authority};
 use crate::abi::context::Context;
 use crate::gen::{
     self, AiPhaseFacts, AiPhaseHeader, AiPhaseReticle, F2Input, F2PadTeam,
@@ -128,12 +128,13 @@ impl Authority {
         // each shot or damage record as an AiJournalEvent row, a unit
         // reference being its store reference and the life the record named.
         let heard = {
-            let units = unit_rows(context)?;
+            self.units.refresh(context)?;
+            let units = &self.units;
             let reference = |heard: Option<Life>| match heard {
                 Some(h) => gen::AiJournalRef {
                     member: Some(gen::Member::Unit(crate::store::Ref::new(
                         h.id,
-                        unit_generation(&units, h.id),
+                        units.generation(h.id),
                     ))),
                     generation: Some(h.generation),
                     direct: false,

@@ -53,19 +53,23 @@ fn lanes(context: &Context, player: u32, lane: u32, drain: bool) -> Result<Playe
 /// life count, from the store's unit export (0 without a body).
 fn unit_generation(context: &Context, unit: Option<u32>) -> Result<f64, String> {
     let Some(slot) = unit else { return Ok(0.0) };
-    let units = context
-        .export(u32::from(gen::KIND_UNIT), 0)
-        .map_err(|e| e.message().to_string())?;
-    let stride = units[B::STRIDE] as usize;
-    let rows = units[B::ROWS] as usize;
-    for i in 0..rows {
-        let row = &units[B::WORDS + i * stride..B::WORDS + (i + 1) * stride];
-        if row[0] == f64::from(slot) {
-            // Unit::take_export reads `generation` first, at word 2.
-            return Ok(row[2]);
-        }
-    }
-    Err(format!("a client's unit (slot {slot}) is not in the store"))
+    // The page exported the units in the mirror's mode here: the rows of the
+    // units retired since the last export came first (and the export took
+    // that list), then the store's units in slot order.
+    context
+        .with_store(|s| {
+            let life = s
+                .unit
+                .retired
+                .iter()
+                .find(|(r, _)| r.slot == slot)
+                .map(|(_, unit)| unit.generation)
+                .or_else(|| s.unit.at(slot).map(|(_, unit)| unit.generation));
+            s.unit.retired.clear();
+            life
+        })
+        .map_err(|e| e.message().to_string())?
+        .ok_or_else(|| format!("a client's unit (slot {slot}) is not in the store"))
 }
 
 /// EntityEdges.advance's world.fire/world.actions boundary. The argument
