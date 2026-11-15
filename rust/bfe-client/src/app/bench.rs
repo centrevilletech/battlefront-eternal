@@ -105,6 +105,13 @@ pub struct Bench {
     // `again=1`: spawn again, the same way, whenever the spawn screen opens after a death.
     again: bool,
     alive_since: Option<std::time::Instant>,
+    // `cycle=SECONDS`: that long after each spawn, write a `bench: memory` line and leave the battle
+    // the way `how` names: `restart` (pause menu RESTART MISSION), `end` (the end screen's DONE, the
+    // playlist's next battle) or `menu` (QUIT to the main menu, 5 s there, then the battle again).
+    // `cycles=N` (default 5) stops after N battles.
+    cycle: Option<(f64, &'static str, u32)>,
+    battles: u32,
+    at_menu: Option<std::time::Instant>,
     // `frames=PATH`: one line per drawn frame: wall ms, spawn screen open, picked class, picked post.
     frames: Option<BufWriter<File>>,
     waiting: &'static str,
@@ -134,6 +141,16 @@ impl Bench {
             respawn: value("respawn").and_then(|s| s.parse().ok()),
             again: value("again").is_some(),
             alive_since: None,
+            cycle: value("cycle").and_then(|s| s.parse().ok()).map(|seconds| {
+                let how = match value("how").as_deref() {
+                    Some("end") => "end",
+                    Some("menu") => "menu",
+                    _ => "restart",
+                };
+                (seconds, how, value("cycles").and_then(|s| s.parse().ok()).unwrap_or(5))
+            }),
+            battles: 0,
+            at_menu: None,
             frames: value("frames").and_then(|path| File::create(path).ok().map(BufWriter::new)),
             waiting: "",
             out,
@@ -142,7 +159,16 @@ impl Bench {
     }
 
     /// The battle to launch, once, as soon as the front end is up.
-    pub fn launch(&mut self) -> Option<ShellTransition> {
+    pub fn launch(&mut self, gl: Option<&glow::Context>) -> Option<ShellTransition> {
+        if let Some(since) = self.at_menu {
+            if since.elapsed().as_secs_f64() < 5. {
+                return None;
+            }
+            self.at_menu = None;
+            let names = gl.map(|gl| live_gl_names(gl, 1)).unwrap_or_default();
+            eprintln!("bench: memory at=menu after={} {}{names}", self.battles, memory(None));
+            self.launched = false;
+        }
         if std::mem::replace(&mut self.launched, true) {
             return None;
         }
@@ -180,6 +206,27 @@ impl Bench {
                     self.respawn = None;
                     battle.pause_menu.respawn_triggered += 1;
                     eprintln!("bench: respawn requested");
+                }
+            }
+        }
+        if let (Some((after, how, cycles)), true) = (self.cycle, alive && !battle.spawn_ctrl.is_open()) {
+            let since = *self.alive_since.get_or_insert_with(std::time::Instant::now);
+            if self.battles < cycles && since.elapsed().as_secs_f64() >= after {
+                self.battles += 1;
+                eprintln!("bench: memory at=battle battle={} {}", self.battles, memory(Some(battle)));
+                if self.battles < cycles {
+                    self.spawned = false;
+                    self.alive_since = None;
+                    match how {
+                        "end" => battle.scoreboard_port.done_triggered = true,
+                        "menu" => {
+                            battle.pause_menu.leaving =
+                                Some(bfe_battle_ui::pause::menu::LeavingRecord { url: String::new(), why: "quit" });
+                            self.at_menu = Some(std::time::Instant::now());
+                        }
+                        _ => battle.pause_menu.custom_restart_triggered += 1,
+                    }
+                    eprintln!("bench: cycle {how} after battle {}", self.battles);
                 }
             }
         }
@@ -395,7 +442,7 @@ impl Bench {
                 row[r::ID],
                 KINDS[kind as usize],
                 row[r::TEAM],
-                row[r::DEAD] == 0. && row[r::HEALTH] > 0.,
+                row[r::DEAD] == 0. && row[r::HEALTH] > 0. && (kind != k::TURRET || row[r::STATE] == 1.),
                 row[r::HEALTH],
                 position[0],
                 position[1],
@@ -415,12 +462,25 @@ impl Bench {
             )?;
         }
         out.write_all(b"]")?;
+        out.write_all(br#","crews":["#)?;
+        for (index, row) in receiver.active().filter(|row| {
+            matches!(row[r::KIND] as u32, k::SOLDIER | k::DROIDEKA) && row[r::SEAT_PRESENT] != 0.
+        }).enumerate() {
+            if index != 0 { out.write_all(b",")?; }
+            serde_json::to_writer(&mut *out, &serde_json::json!({
+                "soldier": row[r::ID], "generation": row[r::GENERATION],
+                "mount": row[r::SEAT_VEHICLE_ID], "mountGeneration": row[r::SEAT_VEHICLE_GENERATION],
+                "index": row[r::SEAT_INDEX],
+            }))?;
+        }
+        out.write_all(b"]")?;
         out.write_all(br#","turrets":["#)?;
         for (index, row) in receiver.active().filter(|row| row[r::KIND] == k::TURRET as f64).enumerate() {
             if index != 0 { out.write_all(b",")?; }
             serde_json::to_writer(&mut *out, &serde_json::json!({
                 "id": row[r::ID], "generation": row[r::GENERATION],
                 "building": row[r::BUILDING], "health": row[r::HEALTH], "state": row[r::STATE],
+                "alive": row[r::STATE] == 1.,
                 "yaw": row[r::YAW], "pitch": row[r::PITCH],
                 "gunYaw": row[r::GUN_YAW], "gunPitch": row[r::GUN_PITCH],
             }))?;
@@ -501,5 +561,135 @@ impl Bench {
             out.flush()?;
         }
         Ok(())
+    }
+}
+
+/// Resident memory, heap in use, GPU memory the driver charges to this process, and the battle's
+/// own renderer objects, for `cycle=` runs.
+fn memory(battle: Option<&BattleController>) -> String {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let kib = |key: &str| {
+        status.lines().find_map(|line| line.strip_prefix(key)?.trim().strip_suffix("kB")?.trim().parse::<u64>().ok())
+            .unwrap_or(0)
+    };
+    let (used, free, mapped) = heap();
+    let mut line = format!(
+        "rss={} anon={} file={} shmem={} heap={} heap_free={} heap_mapped={}",
+        kib("VmRSS:") / 1024,
+        kib("RssAnon:") / 1024,
+        kib("RssFile:") / 1024,
+        kib("RssShmem:") / 1024,
+        used >> 20,
+        free >> 20,
+        mapped >> 20
+    );
+    // The DRM driver's per-client counters (fdinfo); one client can sit behind several descriptors.
+    let mut clients = std::collections::BTreeMap::<String, Vec<(String, u64)>>::new();
+    for entry in std::fs::read_dir("/proc/self/fdinfo").into_iter().flatten().flatten() {
+        let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
+        let Some(id) = text.lines().find_map(|l| l.strip_prefix("drm-client-id:")) else { continue };
+        let fields = text.lines().filter_map(|l| {
+            let (key, rest) = l.split_once(':')?;
+            if !(key.starts_with("drm-memory-") || key.starts_with("drm-total-") || key.starts_with("drm-resident-")) {
+                return None;
+            }
+            let mut parts = rest.split_whitespace();
+            let n: u64 = parts.next()?.parse().ok()?;
+            let scale = match parts.next() { Some("KiB") => 1 << 10, Some("MiB") => 1 << 20, _ => 1 };
+            Some((key.to_string(), n * scale))
+        }).collect();
+        clients.insert(id.trim().to_string(), fields);
+    }
+    let mut totals = std::collections::BTreeMap::<String, u64>::new();
+    for (key, n) in clients.values().flatten() {
+        *totals.entry(key.clone()).or_default() += n;
+    }
+    for (key, n) in totals {
+        line += &format!(" {}={}", key.trim_start_matches("drm-"), n >> 20);
+    }
+    if let Some(battle) = battle {
+        line += &live_gl_names(&battle.scene.bridge.r.core.gl, 0);
+        if let Some(t) = battle.world_tick_stats() {
+            line += &format!(" world_tick_mean_ms={:.3} world_tick_max_ms={:.2} world_ticks={}", t.mean_ms, t.max_ms, t.count);
+        }
+        let core = &battle.scene.bridge.r.core;
+        line += &format!(
+            " gl_textures={} gl_texture_mb={} gl_geometries={} gl_programs={} res_texture_mb={} res_target_mb={}",
+            core.native_texture_count(),
+            core.texture_bytes() >> 20,
+            core.geometry_total(),
+            core.program_count(),
+            battle.scene.resources.texture_bytes() >> 20,
+            battle.scene.resources.target_bytes() >> 20
+        );
+    }
+    line
+}
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn heap() -> (u64, u64, u64) {
+    #[repr(C)]
+    #[allow(dead_code)]
+    struct MallInfo2 { arena: usize, ordblks: usize, smblks: usize, hblks: usize, hblkhd: usize,
+        usmblks: usize, fsmblks: usize, uordblks: usize, fordblks: usize, keepcost: usize }
+    extern "C" { fn mallinfo2() -> MallInfo2; }
+    // SAFETY: glibc's mallinfo2 takes no arguments and returns a plain struct by value.
+    let info = unsafe { mallinfo2() };
+    // In use, free inside the arenas, and everything malloc holds from the system.
+    ((info.uordblks + info.hblkhd) as u64, info.fordblks as u64, (info.arena + info.hblkhd) as u64)
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn heap() -> (u64, u64, u64) { (0, 0, 0) }
+
+/// How many names of each GL object type are alive in the context (all owners: battle, shell, UI).
+/// GL hands out the lowest free name, so a count that grows from battle to battle is a leak.
+fn live_gl_names(gl: &glow::Context, place: usize) -> String {
+    use glow::HasContext;
+    use std::num::NonZeroU32;
+    let count = |alive: &dyn Fn(NonZeroU32) -> bool| {
+        let (mut n, mut misses, mut name) = (0, 0, 1u32);
+        while misses < 4096 {
+            if alive(NonZeroU32::new(name).unwrap()) { n += 1; misses = 0 } else { misses += 1 }
+            name += 1;
+        }
+        n
+    };
+    // Texture names that appeared since the last sample at the same place (battle, menu), with their size.
+    static TEXTURES: std::sync::Mutex<[Option<std::collections::BTreeSet<u32>>; 2]> = std::sync::Mutex::new([None, None]);
+    let mut now = std::collections::BTreeSet::new();
+    let (mut name, mut misses) = (1u32, 0);
+    while misses < 4096 {
+        // SAFETY: as below.
+        if unsafe { gl.is_texture(glow::NativeTexture(NonZeroU32::new(name).unwrap())) } { now.insert(name); misses = 0 } else { misses += 1 }
+        name += 1;
+    }
+    if let Ok(mut all) = TEXTURES.lock() {
+        let previous = &mut all[place];
+        if let Some(before) = previous.as_ref() {
+            for &n in now.difference(before).take(16) {
+                let size = unsafe {
+                    gl.bind_texture(glow::TEXTURE_2D, Some(glow::NativeTexture(NonZeroU32::new(n).unwrap())));
+                    let w = gl.get_tex_level_parameter_i32(glow::TEXTURE_2D, 0, glow::TEXTURE_WIDTH);
+                    let h = gl.get_tex_level_parameter_i32(glow::TEXTURE_2D, 0, glow::TEXTURE_HEIGHT);
+                    let f = gl.get_tex_level_parameter_i32(glow::TEXTURE_2D, 0, glow::TEXTURE_INTERNAL_FORMAT);
+                    gl.bind_texture(glow::TEXTURE_2D, None);
+                    format!("{w}x{h}:{f:#x}")
+                };
+                eprintln!("bench: new texture name {n} {size}");
+            }
+        }
+        *previous = Some(now);
+    }
+    // SAFETY: glIs* only reads; the battle's context is current on this thread.
+    unsafe {
+        format!(
+            " names_buffers={} names_textures={} names_framebuffers={} names_renderbuffers={} names_programs={}",
+            count(&|n| gl.is_buffer(glow::NativeBuffer(n))),
+            count(&|n| gl.is_texture(glow::NativeTexture(n))),
+            count(&|n| gl.is_framebuffer(glow::NativeFramebuffer(n))),
+            count(&|n| gl.is_renderbuffer(glow::NativeRenderbuffer(n))),
+            count(&|n| gl.is_program(glow::NativeProgram(n))),
+        )
     }
 }

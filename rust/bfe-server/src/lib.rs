@@ -18,6 +18,7 @@
 
 pub mod bans;
 pub mod browser_info;
+pub mod cli;
 pub mod config;
 pub mod game_session;
 pub mod identity;

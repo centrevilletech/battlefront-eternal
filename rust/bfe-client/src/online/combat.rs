@@ -1350,6 +1350,13 @@ impl Combat {
         self.hull_fx.apply(&mut self.effects);
         // A wrecked hull's chunks, each from its node (else the root).
         for wreck in std::mem::take(&mut self.hull_fx.wrecks) {
+            if self.trace {
+                eprintln!("hull-wreck: {}", serde_json::json!({
+                    "class": wreck.class, "origin": wreck.origin,
+                    "body": wreck.matrix("bone_root").elements,
+                    "carrier": wreck.matrix("").elements,
+                }));
+            }
             let starts: Vec<three::Matrix4> = self
                 .debris
                 .parts(wreck.class)

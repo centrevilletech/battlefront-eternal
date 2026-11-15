@@ -159,9 +159,9 @@ impl<C: HasContext> MotionPass<C> {
     pub fn texture_bytes(&self) -> u64 { ((ROW_TEXELS*MAX_RECORDS+2*BONE_TEXELS*BONE_ROWS)*16) as u64 }
     pub fn new<M: MultiDraw>(core: &mut Core<C, M>) -> MotionPass<C> {
         let gl = &core.gl;
-        let rows_texture = upload_texture(gl, ROW_TEXELS as i32, MAX_RECORDS as i32);
-        let bones_texture = upload_texture(gl, BONE_TEXELS as i32, BONE_ROWS as i32);
-        let previous_texture = upload_texture(gl, BONE_TEXELS as i32, BONE_ROWS as i32);
+        let rows_texture = core.hold_texture(upload_texture(gl, ROW_TEXELS as i32, MAX_RECORDS as i32));
+        let bones_texture = core.hold_texture(upload_texture(gl, BONE_TEXELS as i32, BONE_ROWS as i32));
+        let previous_texture = core.hold_texture(upload_texture(gl, BONE_TEXELS as i32, BONE_ROWS as i32));
         unsafe { gl.bind_texture(glow::TEXTURE_2D, None) };
         MotionPass {
             actor_descriptors:vec![],
@@ -184,7 +184,7 @@ impl<C: HasContext> MotionPass<C> {
             for a in layout.as_chunks::<3>().0 {
                 let (location, columns, rows) = (a[0], a[1], a[2] as i32);
                 let floats = columns as usize * rows as usize;
-                let b = gl.create_buffer().unwrap();
+                let b = core.hold_buffer(gl.create_buffer().unwrap());
                 gl.bind_buffer(glow::ARRAY_BUFFER, Some(b));
                 gl.buffer_data_size(glow::ARRAY_BUFFER, (max.max(1) * floats * 4) as i32, glow::DYNAMIC_DRAW);
                 for c in 0..columns {

@@ -231,7 +231,7 @@ impl Gpu {
         let texture = {
             let gl = &bridge.r.core.gl;
             unsafe {
-                let t = gl.create_texture()?;
+                let t = bridge.r.core.hold_texture(gl.create_texture()?);
                 gl.bind_texture(glow::TEXTURE_2D, Some(t));
                 gl.tex_image_2d(
                     glow::TEXTURE_2D,

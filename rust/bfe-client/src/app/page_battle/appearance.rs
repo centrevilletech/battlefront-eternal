@@ -149,6 +149,8 @@ pub(super) fn texture(
 ) -> Result<u32, String> {
     let texture =
         super::super::shell::ShellHost::upload_rgba(&bridge.r.core.gl, width, height, rgba)?;
+    // Deleted with the battle's renderer.
+    let texture = bridge.r.core.hold_texture(texture);
     Ok(bridge.r.core.add_texture(texture))
 }
 

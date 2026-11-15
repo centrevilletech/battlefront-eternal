@@ -8,12 +8,16 @@ It drives the authoritative simulation (`bfe-sim`), content loaders
 Build with `cargo build --manifest-path rust/Cargo.toml -p bfe-server --release`
 and run `bfeserver --serve`, `bfeserver --admin '{"action":"status"}'`,
 `bfeserver --version`, or `bfeserver` for the interactive setup and
-administration menu.
+administration menu. `bfeserver --help` prints every flag and environment
+variable; an unknown flag prints the same text and exits with status 2.
 
 ## State directory and configuration
 
-`BFE_STATE_DIR` selects the server state directory (defaulting to
-`$XDG_DATA_HOME/bfeserver` or `$HOME/.local/share/bfeserver` with mode `0700`).
+`--dir <state dir>` (or `BFE_STATE_DIR`) selects the server state directory
+(defaulting to `$XDG_DATA_HOME/bfeserver` or `$HOME/.local/share/bfeserver`
+with mode `0700`). When `--serve` cannot host a match it says why on stderr
+and in the `error` field of `/healthz`: status `setup` while no game data is
+configured, `fault` when `config.json` cannot be read or admission fails.
 `bfeserver` reads and writes `config.json` with the following keys and defaults:
 
 | Key | Default | Description |

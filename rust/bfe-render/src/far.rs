@@ -401,7 +401,7 @@ impl<C: HasContext> FarPass<C> {
         let floats = columns as usize * rows as usize;
         let buffer = unsafe {
             gl.bind_vertex_array(Some(core.geometries[it.geometry].vao));
-            let b = gl.create_buffer().unwrap();
+            let b = core.hold_buffer(gl.create_buffer().unwrap());
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(b));
             gl.buffer_data_size(glow::ARRAY_BUFFER, (max as usize * floats * 4) as i32, glow::DYNAMIC_DRAW);
             for c in 0..columns {
@@ -470,7 +470,7 @@ impl<C: HasContext> FarPass<C> {
         // the geometry's vertex array, which then draws this level.
         let buffer = unsafe {
             gl.bind_vertex_array(Some(vao));
-            let b = gl.create_buffer().unwrap();
+            let b = core.hold_buffer(gl.create_buffer().unwrap());
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(b));
             crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, crate::core::bytes(index), glow::STATIC_DRAW);
@@ -491,7 +491,7 @@ impl<C: HasContext> FarPass<C> {
                 t.counts.resize(n, 0);
             }
             if let Some(old) = t.levels[level as usize].replace(Level { buffer, cells }) {
-                unsafe { gl.delete_buffer(old.buffer) };
+                core.release_buffer(old.buffer);
             }
             t.bound = Some(level as usize);
         }
@@ -536,7 +536,7 @@ impl<C: HasContext> FarPass<C> {
         let gl = &core.gl;
         while self.probe_ubos.len() < 6 {
             let ubo = unsafe {
-                let ubo = gl.create_buffer().unwrap();
+                let ubo = core.hold_buffer(gl.create_buffer().unwrap());
                 gl.bind_buffer(glow::UNIFORM_BUFFER, Some(ubo));
                 gl.buffer_data_size(glow::UNIFORM_BUFFER, (crate::shader::FRAME_FLOATS * 4) as i32, glow::DYNAMIC_DRAW);
                 gl.bind_buffer(glow::UNIFORM_BUFFER, None);
