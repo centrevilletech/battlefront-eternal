@@ -32,6 +32,7 @@ test_crates=(
 )
 
 optional_crates=(
+  sim-gen
   bfe-ui
   bfe-interface
   bfe-shell
@@ -56,22 +57,6 @@ cargo test --manifest-path "${manifest}" --locked --target "${target}" "${test_p
 
 echo "==> Step 3: Windows CLI startup smoke"
 bin_dir="rust/target/${target}/debug"
-online_tool="${bin_dir}/online-tool.exe"
-if [[ ! -f "${online_tool}" ]]; then
-  echo "error: expected ${online_tool} to exist after build" >&2
-  exit 1
-fi
-
-"${online_tool}" --help >/dev/null
-
-smoke_tmp="$(mktemp -d "${TMPDIR:-/tmp}/bfe-win-smoke.XXXXXX")"
-trap 'rm -rf "${smoke_tmp}"' EXIT
-
-identity_out="$("${online_tool}" --identity "${smoke_tmp}/identity.key" identity show)"
-if [[ "${identity_out}" != *"Fingerprint:"* ]]; then
-  echo "error: unexpected online-tool identity output on Windows: ${identity_out}" >&2
-  exit 1
-fi
 
 if [[ -f "rust/bfe-server/Cargo.toml" ]]; then
   bfeserver_bin="${bin_dir}/bfeserver.exe"

@@ -1,36 +1,4 @@
 //! Server-side peer wrapper over `bfe_transport` (`src/udp-peer.js` and `src/game-session.js`).
-//!
-//! Why `UdpPeerState` wraps each `bfe_transport::connection::Connection`:
-//! In `src/udp-peer.js` (`export class UdpPeer`) and `src/game-session.js` (`export class GameSession`),
-//! the transport layer owns packet encryption, sequence numbers, and ACKs, while the server peer
-//! layer enforces gameplay-specific framing, message size bounds, congestion hysteresis, and
-//! per-client bandwidth budgets:
-//! 1. **Wire framing & magic validation (`acceptStatePayload` in `src/udp-peer.js` and `binary()` in `src/game-session.js`)**:
-//!    Binary payloads on the `state` lane from a client must fit in a single MTU datagram
-//!    (`10..=1100` bytes) and start with a little-endian 32-bit magic:
-//!    - `0x31494e42` (`'BNI1'`, `INPUT_MAGIC`): client entity input datagram (`>= 16` bytes).
-//!    - `0x31414e42` (`'BNA1'`, `ACK_MAGIC`): 10-byte client snapshot-ack keepalive (`=== 10` bytes).
-//!
-//!    Outgoing server `state` datagrams (`entityPacket` in `src/game-session.js`) carry either:
-//!    - `0x31534e42` (`'BNS1'`, `SNAPSHOT_MAGIC`): shared entity delta snapshot part, or
-//!    - `0x314f4e42` (`'BNO1'`, `OWN_MAGIC`): per-client own-player correction datagram.
-//! 2. **Lane size limits (`EVENTS_MESSAGE_BYTES` and `STATE_MESSAGE_BYTES` in `src/udp-peer.js`)**:
-//!    - `EVENTS_MESSAGE_BYTES = 262_144` (256 KiB): the reliable `events` lane must carry the
-//!      battle's `entity-registry` descriptor and `welcome` at join time, plus split batches of
-//!      `gameplay-events`. If a peer's unacknowledged `events` backlog exceeds `EVENTS_MESSAGE_BYTES`,
-//!      the peer is closed (`close_code::PROTOCOL`).
-//!    - `STATE_MESSAGE_BYTES = 32_768` (32 KiB): bound on JSON messages (`input-ack`,
-//!      `entity-edge-results`) on the unordered `state` lane.
-//! 3. **Congestion hysteresis (`CONGESTED_MS = 120`, `CLEAR_MS = 50` in `src/udp-peer.js`, and
-//!    `STATE_BACKLOG_BYTES = 32_768`, `STATE_STALE_MS = 100` in `src/game-session.js`)**:
-//!    When a client's unacknowledged queue or path delay shows sustained queueing (`CONGESTED_MS = 120 ms`
-//!    above `STATE_BACKLOG_BYTES = 32 KiB`), `state_congested` transitions to `true` and non-essential
-//!    state datagrams are skipped until the backlog stays clear for `CLEAR_MS = 50 ms`, preventing
-//!    bufferbloat oscillation. Snapshots older than `STATE_STALE_MS = 100 ms` (`Date.now() - capturedAtUnixMs > 100`)
-//!    are dropped before transmission so stale state never queues behind fresh state.
-//! 4. **Per-peer outgoing state token bucket (`StateBudget`, `stateBytesPerSecond` in `src/world-worker.js`)**:
-//!    Caps outgoing `state` datagram bytes per client (`rate = stateBytesPerSecond`,
-//!    `burst = max(4096, rate * 0.25)`) so a 64-player battle stays within the operator's bandwidth budget.
 
 use crate::net_metrics::NetMetrics;
 use bfe_transport::connection::{Connection, Lane};
@@ -254,12 +222,6 @@ impl UdpPeerState {
 
     /// Queues a message or binary datagram on `lane` (`UdpPeer.sendEncoded`, `UdpPeer.sendBinary`,
     /// and `GameSession.entityPacket` in `src/udp-peer.js` and `src/game-session.js`).
-    ///
-    /// Enforces:
-    /// - `EVENTS_MESSAGE_BYTES` (256 KiB) and `STATE_MESSAGE_BYTES` (32 KiB) payload limits.
-    /// - `STATE_STALE_MS` (100 ms) staleness drop on `Lane::State`.
-    /// - Congestion hysteresis skip (`state_congested`) and `StateBudget` token bucket on `Lane::State`.
-    /// - Connection close (`close_code::PROTOCOL`) if the reliable `Lane::Events` backlog exceeds `EVENTS_MESSAGE_BYTES`.
     #[allow(clippy::too_many_arguments)]
     pub fn send_lane(
         &mut self,

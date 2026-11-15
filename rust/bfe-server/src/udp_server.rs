@@ -1,31 +1,5 @@
 //! UDP game server listener, client authentication, per-prefix player caps, and session routing
 //! (`src/udp-server.js` and `WorldRouter` in `src/game-session.js`).
-//!
-//! Why `UdpGameServer` owns one dual-stack `BFE-UDP/1` endpoint for LAN, JOIN IP, and online players:
-//! In `src/udp-server.js` (`export async function startUdpServer` and `export function hostCandidates`),
-//! a single native UDP endpoint on the game port (default `18451`) handles all player traffic:
-//! 1. **Handshake hello & admission policy (`hello` and `admit` callbacks in `startUdpServer` in `src/udp-server.js`)**:
-//!    - `on_hello`: returns `{ protocol, profile, simulation, content, fingerprint }` so the
-//!      handshake `RESPONSE` fits in a single UDP datagram.
-//!    - `on_admit`: verifies that the client's `hello` matches the active battle's `protocol` (`3`),
-//!      `profile` (`"snapshot-delta-v1"`), `simulation` (`"bfe-sim-..."`), and `content` / `fingerprint`.
-//!      Incompatible clients are rejected with `CLOSE_CODE.VERSION` (`"Incompatible game or content version."`).
-//!      Banned identities (`isBanned(client.id)`) are rejected with `CLOSE_CODE.REJECTED`
-//!      (`"You are banned from this server."`), and when `peers.size >= maxPlayers` the client is
-//!      rejected with `"The server is full."`.
-//! 2. **Per-prefix session cap (`maxPlayersPerAddress` / `maxSessionsPerPrefix` in `src/udp-server.js`)**:
-//!    Because Ed25519 identities are free to generate, `ServerEndpoint` caps concurrent sessions
-//!    from a single network prefix (an IPv4 `/32` or IPv6 `/64`, with loopback exempt) to
-//!    `maxPlayersPerAddress` (default `8`, enough for a household or LAN party behind one NAT).
-//! 3. **Immediate reconnect replacement (`admitSession` in `src/udp-server.js`)**:
-//!    When an already-connected identity completes a new handshake (`peers.get(session.id)`), the
-//!    stale session is closed immediately (`"reconnected"` / `"replaced"`) and replaced by the new
-//!    `UdpPeerState` and `GameSessionState`.
-//! 4. **STUN reflexive discovery and hole-punching (`reflexive` and `punch` in `src/udp-server.js`)**:
-//!    Uses the game port socket itself to send RFC 5389 STUN Binding Requests (`0x0001`) so the
-//!    NAT mapping discovered by `OnlineServer.discover` is the exact mapping players will send
-//!    `BFE-UDP/1` handshakes to, and sends `0xb8` punch datagrams only to validated `valid_peer_ip`
-//!    addresses.
 
 use crate::game_session::{GameSessionState, SessionAction};
 use crate::udp_peer::{valid_incoming_state_payload, PeerPath, UdpPeerState};
@@ -161,11 +135,6 @@ impl ServerSink for SendOnlySink<'_> {
 
 /// `ServerSink` implementation used during [`UdpGameServer::poll`] to collect newly admitted
 /// sessions, incoming lane messages, path migrations, and closed sessions from `ServerEndpoint`.
-///
-/// Why callbacks buffer events into vectors (`admitted`, `messages`, `paths`, `closed`):
-/// `ServerEndpoint::receive` and `ServerEndpoint::poll` borrow `self.endpoint` mutably while
-/// invoking `ServerSink`. Buffering the callbacks allows `UdpGameServer::poll` to subsequently
-/// mutate `self.peers`, `self.by_session`, and `self.endpoint` without borrow conflicts.
 struct PollSink<'a, F: FnMut(&str) -> bool> {
     socket: &'a UdpSocket,
     content: &'a str,
@@ -266,23 +235,6 @@ impl<F: FnMut(&str) -> bool> ServerSink for PollSink<'_, F> {
 /// Authoritative UDP game port server (`export async function startUdpServer` in `src/udp-server.js`).
 /// Authoritative UDP game server porting `createUdpServer(options)` from
 /// `packages/bfe-server/src/udp-server.js`.
-///
-/// Transport and security invariants (`udp-server.js` + `udp-peer.js`):
-/// - Wraps `bfe_transport::Server` (`UdpEndpoint` server mode in `packages/bfe-net`) on a
-///   non-blocking dual-stack UDP socket (`bind_dual_stack_udp`).
-/// - Enforces `MAX_PEERS_PER_PREFIX` (`4` concurrent sessions per IPv4 `/24` or IPv6 `/48` prefix
-///   via `ip_prefix_key` in `udp-peer.js`) inside `on_admit` so a single subnet cannot exhaust all
-///   player slots (`max_players`).
-/// - Rejects banned client Ed25519 fingerprints during the handshake (`AdmitDecision::Reject`)
-///   before allocating session state or spawning world entities.
-/// - Applies per-peer `PeerBuckets` token-bucket rate limits (`udp-peer.js`):
-///   - `input`: 120 Hz sustained, 240 packet burst (Channel 1 `entity-input` + `snapshot-ack`)
-///   - `events`: 30 Hz sustained, 60 message burst (Channel 0 reliable gameplay JSON)
-///   - `bytes`: 64 KiB/s sustained, 128 KiB burst across all inbound lanes
-///
-///   Exceeding `MAX_VIOLATIONS` (`24`) disconnects the offending peer with reason `"rate-limit"`.
-/// - Enforces `PEER_IDLE_TIMEOUT_MS` (`15_000` ms) so silent peers are reaped and their prefix
-///   and player slots are reclaimed.
 pub struct UdpGameServer {
     /// Non-blocking dual-stack UDP socket bound to the game port (`18451`).
     socket: UdpSocket,
@@ -396,18 +348,6 @@ impl UdpGameServer {
 
     /// Performs an RFC 5389 STUN Binding Request over the game port socket to discover the server's
     /// public reflexive address (`endpoint.reflexive` in `src/udp-server.js`).
-    ///
-    /// Why STUN runs on `self.socket` directly:
-    /// Symmetric and port-restricted cone NATs assign an external `ip:port` mapping per local UDP
-    /// socket. Sending the STUN Binding Request from `self.socket` discovers the exact external
-    /// mapping that remote clients will reach when hole-punching to the game port.
-    /// Sends a RFC 5389 STUN Binding Request directly from the live game UDP socket to `server`
-    /// and waits up to `timeout` for the `XOR-MAPPED-ADDRESS` / `MAPPED-ADDRESS` response, porting
-    /// `udp.reflexive(stunServer, timeoutMs)` in `packages/bfe-server/src/udp-server.js`.
-    ///
-    /// Why STUN must be sent from the game UDP socket itself rather than an ephemeral socket:
-    /// NAT bindings are keyed by the local `(ip, port)` tuple; querying STUN from the actual game
-    /// socket reveals the exact public `srflx` port that remote clients must hole-punch toward.
     pub fn reflexive(&self, server: SocketAddr, timeout: Duration) -> Result<ReflexiveMap, String> {
         let tx = stun::new_transaction().map_err(|e| e.to_string())?;
         let req = stun::encode_binding_request(&tx);
@@ -466,15 +406,6 @@ impl UdpGameServer {
     }
 
     /// Schedules UDP hole-punch datagrams (`0xb8`, `endpoint.punch` in `src/udp-server.js`).
-    ///
-    /// Rejects any candidate IP that fails `valid_peer_ip` so the server never punches unspecified
-    /// or multicast addresses.
-    /// Sends low-TTL / empty hole-punch datagrams from the game UDP socket toward each client
-    /// `host` and `srflx` candidate (`MAX_PUNCH_TARGETS = 8`), porting `udp.punch(candidates)` in
-    /// `packages/bfe-server/src/udp-server.js`.
-    ///
-    /// Opens outbound state-table mappings on the server's local firewall/NAT so the client's
-    /// incoming `bfe_transport` ClientHello can traverse address-restricted cone NATs.
     pub fn punch(&mut self, candidates: &[CandidateEntry]) {
         let mut addrs = Vec::with_capacity(candidates.len());
         for candidate in candidates {
@@ -518,16 +449,6 @@ impl UdpGameServer {
     /// handshake/session state machine, enforces per-peer rate limits and idle timeouts, and
     /// returns the ordered list of `WorldPeerEvent`s for `NativeWorldHost`, porting the socket
     /// receive + timer callbacks in `packages/bfe-server/src/udp-server.js`.
-    ///
-    /// Wire framing handled per lane (`udp-server.js` `onMessage`):
-    /// - `Lane::Control` / `Lane::Events` (`text == true`): UTF-8 JSON envelope (`{ type: "events", events: [...] }`
-    ///   or `{ type: "hello" }`), validated against `PeerBuckets.events` and `PeerBuckets.bytes`.
-    /// - `Lane::Events` (`text == false`): binary reliable messages on Channel 0.
-    /// - `Lane::Input` (`0x01` `entity-input`): 46-byte `BFEI` v2 player command frame decoded via
-    ///   `decode_entity_input` (`world-worker.js`) and rate-limited by `PeerBuckets.input`.
-    /// - `Lane::Input` (`0x02` `snapshot-ack` / `0x03` `keepalive`): 9-byte client baseline ack
-    ///   decoded via `decode_snapshot_ack_or_keepalive` (`world-worker.js`) so the server can
-    ///   delta-compress subsequent `bni1` state snapshots against `ack_seq`.
     pub fn poll<F>(&mut self, mut is_banned: F) -> Vec<WorldPeerEvent>
     where
         F: FnMut(&str) -> bool,

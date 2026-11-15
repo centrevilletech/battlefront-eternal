@@ -9,7 +9,7 @@ use super::super::super::{dispatch::{self, Returned}, sequence, AdmitError, Stag
 use super::super::{ai, combat::{self, DefinitionKind}, Call, Calls, Cx};
 use super::{stock, streams, Facts};
 use crate::gen::*;
-use crate::store::{DefId, Ref, StrId};
+use crate::store::{DefId, Ref};
 use crate::world::owner::World;
 use bfe_content::{js::to_number, value::Value};
 

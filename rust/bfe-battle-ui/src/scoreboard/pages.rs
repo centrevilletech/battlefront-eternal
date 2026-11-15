@@ -1,20 +1,5 @@
 //! `DETAILS` and `AWARDS` sub-pages, 3D hologram logo flights, and 2D batch drawing
 //! for `ClassicScoreboardView` (`src/scoreboard/classic/pages.js`, `src/scoreboard/classic/view.js`).
-//!
-//! Architecture and 2004 game fidelity (`ifs_teamstats`, `ifs_personalstats`, `ifs_awardstats`):
-//! - `Flight` models the 2004 `AnimationMgr` linear interpolation of a 3D hologram's 2D plane
-//!   coordinates `(x, y)`, scale parameter `size`, and opacity `alpha` over `length` seconds,
-//!   while rotating around the Y axis at `omega * OMEGA` (`30 deg/s` per `OmegaY` unit) in transit
-//!   and settling to `rest * OMEGA` once landed.
-//! - `StatsPage` renders both `DETAILS` (`ifs_personalstats`: `"PERSONAL STATS"`, player name,
-//!   and 9+1 stat rows in `gamefont_small` below 3 blank rows) and `AWARDS` (`ifs_awardstats`:
-//!   `"PLAYER AWARDS"` and 8 award rows in `gamefont_medium` below 2 blank rows, with a small
-//!   spinning team hologram icon in the center gap between each award label and winner).
-//! - `ClassicScoreboardView::draw_under` and `draw_over` split the 2D batch pass around the 3D
-//!   hologram pass (`logo_placements`): first drawing the `opaque_black` backdrop (`alpha = 119/255`)
-//!   and nine-sliced `border_3_pieces` window underneath the 3D hologram models, and then drawing
-//!   all team titles, column sort icons, scroll arrows, selection/hover cursors, 80%-width rows,
-//!   action buttons (`DONE`/`BACK`, `AWARDS`, and the 3-piece `DETAILS` tab), and `mousecursor` on top.
 
 use bfe_render::interface::{anchor, mul, scale, translate, Batch, Matrix};
 
@@ -82,12 +67,6 @@ pub struct FlightPoint {
 }
 
 /// Linear 3D model flight with spin (`Flight` in `src/scoreboard/classic/view.js`).
-///
-/// Interpolates linearly from `from` to `to` over `length` seconds (`ENTRY = 0.4s` for `gShellAnimTime`).
-/// While `time < length` (`flying()`), Y rotation advances at `omega * OMEGA` radians/sec (`1.0` when
-/// appearing in place, `+-20.0` = `+-600 deg/s` when flying across the screen); once landed, spin
-/// settles to `rest * OMEGA` (`0.3` for left logo / `DETAILS`, `0.25` for right logo, or `[-0.45, 0.45]`
-/// for landed award icons).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Flight {
     pub from: FlightPoint,
@@ -487,20 +466,6 @@ impl ClassicScoreboardView {
     }
 
     /// Draws one team's half of the `Table` page (`drawSide` in `src/scoreboard/classic/view.js`).
-    ///
-    /// Renders, from top to bottom / back to front:
-    /// 1. The team title (`"REPUBLIC : 150"`, uppercase team name and remaining reinforcements).
-    /// 2. The three `30x30` column sort icons (`stats_kills`, `stats_deaths`, `stats_cpp`), fading
-    ///    in over `ENTRY` (`0.4s`) and blinking between `0.4` and `1.0` when hovered.
-    /// 3. In network `Peek` mode (`Tab` in multiplayer), the `"PING"` column header one column-stride
-    ///    left of `KILLS`, level with the sort icons.
-    /// 4. The `small_arrow` up/down scroll indicators when `can_scroll_up()` / `can_scroll_down()` is true.
-    /// 5. The hovered row highlight (`listbox_hilight` at full opacity, unless it is the selected row)
-    ///    and the selected row frame (`listbox_cursor`, pulsing `1.0 <-> 0.5` on Team 2's right list
-    ///    and solid `1.0` on Team 1's left list, matching the 2004 Lua script's `ListManager` quirk).
-    /// 6. The visible rows (`0..layout.shown`) drawn in `gamefont_medium` at `ROW_SCALE` (`0.8` horizontal
-    ///    width): local player in `WHITE`, other human players in `HUMAN_COLOR` (yellow), and AI bots
-    ///    in `BOT_COLOR` (grey), with player names clipped by whole characters to fit `max_name_w`.
     #[allow(clippy::too_many_arguments)]
     fn draw_side(
         &self,
@@ -808,15 +773,6 @@ impl ClassicScoreboardView {
     }
 
     /// Draws text playing a `TitleIntro` (`drawText` in `src/scoreboard/classic/view.js`).
-    ///
-    /// Reproduces the 2004 scoreboard's horizontal glyph compression (`h_scale = ROW_SCALE = 0.8`
-    /// on table rows, `1.0` on sub-pages):
-    /// 1. While `state.block` is active, a white cursor block of width `fh * h_scale` and height `fh`
-    ///    sweeps across `[left, left + width]`.
-    /// 2. The text itself is drawn with uniform scale `h_scale` inside `surface.draw_text`, and the
-    ///    vertical scale of `scale_m` is set to `state.text / h_scale` around the line midpoint
-    ///    `mid = y + fh / 2.0` so glyphs narrow horizontally to 80% while stretching back to 100%
-    ///    full line height (`fh`) once `state.text` reaches `1.0`.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_flashy_text(
         surface: &dyn BattleUiSurface,

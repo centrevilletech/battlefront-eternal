@@ -1,25 +1,5 @@
 //! Shell data readers (`common/shell/shell.json`, `common/common.json`,
 //! `common/raster-hud/manifest.json`).
-//!
-//! This module ports `src/shell/data.js` (`SHELL_ROOT`, `FADES`,
-//! `MOVIE_SCREENS`, `resolveUrl`, `readClip`, `readMovies`, `readMapLoad`,
-//! `readMaps`, `readLoad`, `textureFiles`, `readFonts`, `readShellData`, and
-//! native filesystem loading). Any manifest or section may be missing (nothing
-//! extracted yet, or an older extraction); the reader runs on what is present
-//! and fills in the movie config fades (`shell.lvl` `mcfg`) where `shell.json`
-//! leaves them out.
-//!
-//! Key rules ported from `src/shell/data.js`:
-//! - `FADES`: base `[fadeIn, fadeOut]` pairs for `intro` (`[0.0, 0.2]`),
-//!   `loop` (`[0.1, 0.5]`), and `fly` (`[1.0, 1.0]`), plus `OWN_FADES`
-//!   overrides for `main` (`intro: [0, 0]`, `loop: [0, 0.5]`), `briefing`
-//!   (`intro: [1, 1]`), and `meta` (`intro: [1, 1]`).
-//! - `MOVIE_SCREENS`: indexes each movie under both its own lowercased key in
-//!   `shell.json` and the port's canonical screen id (`start`, `main`, `sp`,
-//!   `options`, `briefing`, `meta`, `galaxy`).
-//! - `textureFiles` / `readFonts`: resolves `common.json` texture names to
-//!   their 4x upscales in `/common/raster-hud/` when `manifest.json` has an
-//!   entry, falling back to `/common/<path>`.
 
 use crate::launch::GameFamily;
 use serde::{Deserialize, Serialize};
@@ -466,13 +446,6 @@ fn number(value: Option<&Value>, fallback: f64) -> f64 {
 /// Normalizes one movie clip `{ url, fade_in, fade_out }` from a path string or
 /// `{ file | url | movie, fadeIn, fadeOut }`, using `own` and `[fade_in, fade_out]`
 /// defaults where omitted.
-///
-/// Mirrors `readClip(value, [fadeIn, fadeOut], own)` in `src/shell/data.js`.
-/// Normalizes one movie clip `{ url, fade_in, fade_out }` from a path string or
-/// `{ file | url | movie, fadeIn, fadeOut }`, resolving `fadeIn` and `fadeOut`
-/// in priority order: explicit clip field -> `own_fades` override (`OWN_FADES`)
-/// -> `default_fades` (`FADES.intro`, `FADES.loop`, or `FADES.fly`).
-/// Returns `None` if `value` has no non-empty movie path.
 pub fn read_clip(
     value: Option<&Value>,
     default_fades: [f64; 2],
@@ -812,12 +785,6 @@ pub fn read_maps(maps: Option<&Value>, strings: &BTreeMap<String, String>) -> Ve
 
 /// Reads the loading screen's own art and timing `{ backdrop, disk, leds, edges,
 /// text, track, zoom, hold }`.
-///
-/// Art entries that contain no `'/'` or `'.'` are resolved as `common.json`
-/// texture names via `textures.get(name)`; paths with `'/'` or `'.'` are
-/// resolved via [`resolve_url`].
-///
-/// Mirrors `readLoad(load, texture)` in `src/shell/data.js`.
 pub fn read_load(load: Option<&Value>, textures: &TextureFiles) -> LoadChrome {
     let obj = load.and_then(Value::as_object);
     // Resolve a loading art reference: bare identifiers without `'/'` or `'.'`
@@ -890,11 +857,6 @@ pub fn read_load(load: Option<&Value>, textures: &TextureFiles) -> LoadChrome {
 
 /// Builds a [`TextureFiles`] lookup from `common.json` and
 /// `raster-hud/manifest.json`.
-///
-/// Mirrors `textureFiles(common, raster)` in `src/shell/data.js`:
-/// `common.textures[name]` gives `path` (e.g. `"textures/load_rotating_disk.png"`),
-/// and `raster.textures[path].file` gives its 4x upscale under
-/// `/common/raster-hud/` when present, else `/common/${path}`.
 pub fn texture_files(common: Option<&Value>, raster: Option<&Value>) -> TextureFiles {
     let mut common_textures = BTreeMap::new();
     if let Some(obj) = common

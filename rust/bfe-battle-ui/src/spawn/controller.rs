@@ -17,12 +17,6 @@ use crate::spawn::view::{ClassicSpawnView, SpawnSound};
 
 /// High-level Classic spawn screen controller (`src/spawn-screen/index.js`
 /// `createSpawnScreen`).
-///
-/// Wires [`SpawnModel`], [`SpawnInput`], and [`ClassicSpawnView`] together with:
-/// - `COMMIT_WAIT = 1.0s` timeout that withdraws an unrealized spawn request
-/// - Overview camera shot rotation on open and release on close
-/// - Spectator and battle-over guards
-/// - Sound event queue (`SpawnDisplaySpawnPointChange`, `SpawnDisplaySpawnPointAccept`)
 pub struct SpawnScreenController {
     /// Active game family (`Swbf1` in 2004 Classic mode).
     pub family: GameFamily,
@@ -170,11 +164,6 @@ impl SpawnScreenController {
 
     /// Steps the spawn screen by `dt` seconds (`update(dt)` in
     /// `src/spawn-screen/index.js`).
-    ///
-    /// Withdraws any pending committed request if the player enters spectator mode,
-    /// the battle ends, or `COMMIT_WAIT` (1.0 s) elapses without the world spawning
-    /// the unit; otherwise re-validates the picked command post, steps input and
-    /// hit-testing, and advances the view's flashy title and logo animations.
     pub fn update(
         &mut self,
         dt: f64,

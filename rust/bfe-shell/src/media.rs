@@ -1,17 +1,5 @@
 //! Screen media transitions (`SCREEN_MEDIA`, `PREVIEW_DELAY`, `previewRect`,
 //! `ShellMedia` in `src/shell/media.js` and `MoviePlayer` in `src/shell/movies.js`).
-//!
-//! Ports `src/shell/media.js` and `src/shell/movies.js`:
-//! - `SCREEN_MEDIA`: per-screen `{ movie, music }` assignment (`start`,
-//!   `profile`, `main`, `sp`, `options`, `briefing`, `meta`, `galaxy`, `ia`,
-//!   `mp`).
-//! - `PREVIEW_DELAY = 0.5` seconds and `previewRect(width, height, targetAspect)`.
-//! - `ShellMedia`: coordinates screen transitions between the movie backdrop,
-//!   whoosh sound effects, `shellmusic` bus dips (`fadeBus("shellmusic", 0, 1)`
-//!   on forward moves into a screen whose music isn't already playing, restoring
-//!   `fadeBus("shellmusic", 1, 1)` when the intro finishes), and `ShellMusic`.
-//!
-//! Native video decoding and compositing live in `movies` and `movie_gpu`.
 
 use crate::{
     data::{MovieClip, ScreenMovie, ShellData},
@@ -128,8 +116,6 @@ pub fn screen_media_of(id: &str) -> ScreenMediaSpec {
 /// (default `4.0 / 3.0`):
 /// `w = 530 * (1 + target_aspect - width / height) * (width / 800)`,
 /// `h = 400 * (height / 600)`.
-///
-/// Mirrors `previewRect(width, height, targetAspect)` in `src/shell/media.js`.
 pub fn preview_rect_with_aspect(width: f64, height: f64, target_aspect: f64) -> [f64; 4] {
     let w = 530.0 * (1.0 + target_aspect - width / height) * (width / 800.0);
     let h = 400.0 * (height / 600.0);
@@ -259,17 +245,6 @@ impl ShellMedia {
     }
 
     /// Enters screen `id` (`back = true` when popping back to an earlier screen).
-    ///
-    /// Mirrors `ShellMedia.enter(id, { back })` in `src/shell/media.js`:
-    /// - When `back == true` or the screen's movie has no `intro`, starts the
-    ///   loop immediately, restores `shellmusic` to `1.0` over `1.0s` (when not
-    ///   `back`), and sets the screen's music cue.
-    /// - When moving forward into a screen with an `intro`, increments `moves`,
-    ///   dips `shellmusic` to `0.0` over `1.0s` if the target music isn't
-    ///   already playing, starts the intro, and triggers a transition `Whoosh`.
-    ///   Once [`Self::finish_intro`] is called (or immediately when `immediate_intro`
-    ///   is used in non-blocking native transitions), `shellmusic` fades back to
-    ///   `1.0` over `1.0s` and the screen's music cue is set.
     pub fn begin_enter(&mut self, data: &ShellData, id: &str, back: bool) -> Vec<MediaEvent> {
         let mut events = Vec::new();
         let spec = screen_media_of(id);

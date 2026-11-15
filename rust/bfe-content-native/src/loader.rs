@@ -58,6 +58,7 @@ pub struct BattleContent {
     pub map: Value,
     pub world: Vec<Mesh>,
     pub models: Vec<Mesh>,
+    pub sky_flyers: Option<Value>,
     pub actors: Vec<ActorMesh>,
     /// A class's own skin, by "<side>/<class>", for classes whose
     /// OverrideTexture or OverrideTexture2 re-skins a shared body: its body's
@@ -68,15 +69,33 @@ pub struct BattleContent {
     pub effects: Vec<(String, crate::effects::Effects)>,
     /// The map's placed effects: each plays its (prefixed) effect group.
     pub environment_instances: Vec<EnvironmentInstance>,
+    /// The fountains' basins: centre and radius.
+    pub environment_basins: Vec<[f64; 4]>,
     pub first_person: Option<bfe_presentation::unit_content::FirstPersonInput>,
     pub units: Vec<(String, bfe_presentation::unit_content::Input)>,
     pub buildings_bvh: BvhTree,
     pub terrain_bvh: Option<BvhTree>,
+    /// The definitions derived from `content`, built once on first use.
+    defs: std::cell::OnceCell<std::rc::Rc<bfe_content::defs::Defs>>,
+}
+impl BattleContent {
+    /// `Defs::build(&self.content)`, built once: a dozen owners read it while
+    /// a battle loads, each costing tens of milliseconds on a slow PC.
+    pub fn defs(&self) -> Result<std::rc::Rc<bfe_content::defs::Defs>, String> {
+        if let Some(defs) = self.defs.get() {
+            return Ok(std::rc::Rc::clone(defs));
+        }
+        let defs = std::rc::Rc::new(bfe_content::defs::Defs::build(&self.content)?);
+        let _ = self.defs.set(std::rc::Rc::clone(&defs));
+        Ok(defs)
+    }
 }
 pub struct EnvironmentInstance {
     pub effect: String,
     /// Column-major world matrix, as three's Matrix4.fromArray reads it.
     pub matrix: [f64; 16],
+    /// The node of its object it hangs from.
+    pub hardpoint: String,
 }
 pub struct Loader {
     root: PathBuf,
@@ -315,6 +334,7 @@ impl Loader {
                 )?);
             }
         }
+        let mut sky_flyers = None;
         let sky_file = textures.path(&format!("{map_path}/sky/flyers.json"))?;
         if sky_file.exists() {
             let sky = bfe_content::json::parse(
@@ -322,6 +342,7 @@ impl Loader {
             )
             .map_err(|e| e.to_string())?;
             let sky_textures = table(&format!("{map_path}/sky"), sky.get("textures"));
+            sky_flyers = Some(authored_json(&sky));
             // Only a declared pack is required. Older prepared maps omit sky
             // flyers entirely, which is an authored absence on both clients.
             let path = textures.path(&format!("{map_path}/sky/flyers.bin"))?;
@@ -513,6 +534,17 @@ impl Loader {
         // through the same player as everything else, under names of their
         // own so a battle effect of the same name keeps its own data.
         let mut environment_instances = Vec::new();
+        let environment_basins: Vec<[f64; 4]> = environment
+            .as_ref()
+            .and_then(|data| data.get("basins").and_then(Authored::as_array))
+            .into_iter()
+            .flatten()
+            .map(|b| {
+                let c = b.get("center").and_then(Authored::as_array);
+                let at = |i: usize| c.and_then(|c| c.get(i)).and_then(Authored::as_f64).unwrap_or(0.);
+                [at(0), at(1), at(2), b.get("radius").and_then(Authored::as_f64).unwrap_or(0.)]
+            })
+            .collect();
         let environment_library = environment.as_ref().and_then(|data| {
             for item in data.get("instances").and_then(Authored::as_array).into_iter().flatten() {
                 let name = item.get("effect").and_then(Authored::as_str);
@@ -521,6 +553,7 @@ impl Loader {
                     environment_instances.push(EnvironmentInstance {
                         effect: format!("{}{name}", crate::effects::ENVIRONMENT),
                         matrix: std::array::from_fn(|i| matrix[i].as_f64().unwrap_or(0.)),
+                        hardpoint: item.get("hardpoint").and_then(Authored::as_str).unwrap_or("").to_string(),
                     });
                 }
             }
@@ -553,6 +586,7 @@ impl Loader {
             map: metadata,
             world,
             models,
+            sky_flyers,
             actors,
             skins,
             textures,
@@ -561,8 +595,10 @@ impl Loader {
             first_person,
             effects,
             environment_instances,
+            environment_basins,
             buildings_bvh,
             terrain_bvh,
+            defs: Default::default(),
         })
     }
 }

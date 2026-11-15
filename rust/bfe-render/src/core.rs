@@ -82,6 +82,7 @@ pub const PASSES: usize = 15;
 // The multi-draw call, which glow does not wrap (WEBGL_multi_draw on the web).
 pub trait MultiDraw {
     fn multi_draw(&self, mode: u32, counts: &mut [i32], element_type: u32, offsets: &mut [i32]);
+    fn multi_draw_calls(&self, ranges: usize) -> u64 { ranges as u64 }
     // WebGL may be drawing into a host-created framebuffer that glow cannot
     // adopt. Keep those handles on the platform side during sorted blits.
     fn save_framebuffers(&mut self) -> bool { false }

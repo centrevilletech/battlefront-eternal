@@ -147,6 +147,9 @@ impl PostChain {
                 // sparse input retains fewer old samples after disocclusion.
                 let ratio = (w/dimension(f[F::OUTPUT_WIDTH])).min(1.);
                 p.value(U::resolve::MAX_WEIGHT,&[(12. * ratio * ratio).clamp(4., 12.)]); p.value(U::resolve::KERNEL,&[2.29]);
+                let jitter = [s[S::JITTER], s[S::JITTER + 1]];
+                p.value(U::resolve::NARROW_WEIGHTS, &temporal_weights(jitter, 2.29));
+                p.value(U::resolve::WIDE_WEIGHTS, &temporal_weights(jitter, 1.2));
                 p.step(P::SHARPEN,None); p.sampler(U::sharpen::MAP,write); p.value(U::sharpen::SHARPNESS,&[f[F::SHARPNESS]]);
             } else {
                 p.step(if mode == M::BILINEAR {P::BILINEAR} else {P::SPATIAL},None); p.sampler(U::spatial::MAP,image);
@@ -183,6 +186,27 @@ impl PostChain {
         let out = &mut self.state[S::STATS..];
         out[..5].copy_from_slice(&[stats.world_draws as f64,stats.instance_draws as f64,stats.instances as f64,stats.program_switches as f64,stats.gl_calls as f64]);
         for (i,n) in stats.pass_draws.iter().enumerate() { out[5+i] = *n as f64; }
+    }
+}
+
+fn temporal_weights(jitter: [f64; 2], kernel: f64) -> [f64; 9] {
+    std::array::from_fn(|i| {
+        let x = (i / 3) as f64 - 1. - jitter[0];
+        let y = (i % 3) as f64 - 1. - jitter[1];
+        (-kernel * (x * x + y * y)).exp()
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::temporal_weights;
+    #[test]
+    fn temporal_kernel_uses_the_shader_column_order_and_jitter() {
+        let weights = temporal_weights([0.25, -0.125], 2.29);
+        // Right and top neighbours have different weights for this jitter.
+        assert!((weights[7] - (-2.29_f64 * 0.578125).exp()).abs() < 1e-12);
+        assert!((weights[5] - (-2.29_f64 * 1.328125).exp()).abs() < 1e-12);
+        assert_eq!(temporal_weights([0., 0.], 2.29)[4], 1.);
     }
 }
 

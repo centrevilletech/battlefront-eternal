@@ -10,10 +10,8 @@ publish = false
 [lib]
 name = "bfe_sim"
 
-[features]
-# Reading and writing the replay harness's values (rust/sim-replay, native
-# only): `cargo test -p sim --features replay` replays captured phases.
-replay = ["dep:sim-replay", "bfe-pose/replay"]
+[build-dependencies]
+sim-gen = { path = "../sim-gen" }
 
 [dependencies]
 bfe-presentation = { path = "../bfe-presentation" }
@@ -24,4 +22,3 @@ content = { path = "../content" }
 v8math = { path = "../v8math" }
 three = { path = "../three" }
 jsrt = { path = "../jsrt" }
-sim-replay = { path = "../sim-replay", optional = true }

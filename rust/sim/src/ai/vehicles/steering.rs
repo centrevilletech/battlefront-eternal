@@ -1,20 +1,6 @@
 //! The AI input step for a bot in a seat (src/ai/classic/vehicles/
 //! steering.js): the controller's movement request and aim become the
 //! vehicle's analogs, per family, as the 2004 game's AI input consumers do.
-//!
-//! - hover (6): ray avoidance on a copy of the request, the shared
-//!   translation, the nonlinear yaw and pitch, the moving-turn floor and
-//!   the reverse-and-turn stuck recovery;
-//! - flyer (5): the pilot's stick (src/flight/ai.js, the flight package's:
-//!   a call across the boundary), on the orbit's request while pattern 15
-//!   holds one;
-//! - walker (2): travel held after a yielding contact, forward and body
-//!   yaw only, head yaw and pitch from the aim, the stuck recovery;
-//! - anything else (7, gunners and turrets): yaw and pitch toward the aim.
-//!
-//! Every function takes the control it steers as a [`UnitView`] read once
-//! at its start (nothing moves a hull while the AI runs) and reaches its
-//! steering bag, its eye and its aim through the [`World`].
 
 use std::f64::consts::PI;
 

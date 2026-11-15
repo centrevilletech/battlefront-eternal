@@ -1,16 +1,6 @@
 //! Binary KeyValues (`shortcuts.vdf`) and text KeyValues (`loginusers.vdf`,
 //! `libraryfolders.vdf`, `registry.vdf`) parser, serializer, and non-Steam
 //! shortcut AppID CRC-32 helpers.
-//!
-//! Mirrors the desktop host (`TYPE`, `writeMap`, `parseShortcuts`,
-//! `serializeShortcuts`, `field`, `parseTextVdf`) and the AppID/quoting helpers
-//! in the desktop host (`shortcutAppId`, `rungameId`, `quoted`).
-//!
-//! Valve's binary VDF format represents hierarchical maps of typed key/value pairs:
-//! - `0x00`: nested map (`key\0` followed by child entries terminated by `0x08`)
-//! - `0x01`: null-terminated UTF-8 string (`key\0value\0`)
-//! - `0x02`: 32-bit little-endian integer (`key\0` + 4-byte LE int)
-//! - `0x08`: end-of-map marker
 
 use std::collections::BTreeMap;
 
@@ -142,11 +132,6 @@ pub fn quote_exe(exe: &str) -> String {
 
 /// Computes the deterministic 32-bit unsigned non-Steam shortcut AppID from `exe`
 /// and `app_name`: `(crc32(quoteExe(exe) + appName) | 0x80000000) >>> 0`.
-///
-/// Steam ROM Manager, BoilR, and Steam itself use this CRC-32 scheme with the
-/// top bit set so a non-Steam game keeps its library entry, play time, and artwork.
-///
-/// Mirrors `shortcutAppId` in the desktop host.
 pub fn compute_shortcut_app_id(exe: &str, app_name: &str) -> u32 {
     let quoted = quote_exe(exe);
     let mut input = String::with_capacity(quoted.len() + app_name.len());
@@ -286,13 +271,6 @@ fn read_vdf_map(
 }
 
 /// Parses a binary `shortcuts.vdf` byte buffer into a list of [`ShortcutEntry`] items.
-///
-/// Handles empty buffers, case-insensitive field names (`AppName` vs `appname`,
-/// `Exe` vs `exe`, matching `field` in the desktop host), and numeric
-/// index keys (`"0"`, `"1"`, ...).
-///
-/// Mirrors `parseShortcuts` in the desktop host and `describeShortcut`
-/// in the desktop host.
 pub fn parse_shortcuts_vdf(buffer: &[u8]) -> Result<Vec<ShortcutEntry>, String> {
     if buffer.is_empty() {
         return Ok(Vec::new());

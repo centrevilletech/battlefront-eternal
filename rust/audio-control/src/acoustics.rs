@@ -2,31 +2,6 @@
 //! (the same BVH the game's rays use). None of this is in the 2004 game,
 //! which has one reverb "space" per sub-level (Theed's is all but dry); the
 //! original mode skips it.
-//!
-//! - Air absorption: high frequencies fall off with distance, a lowpass whose
-//!   corner stays at 20 kHz to 20 m and then drops, to 9 kHz at 100 m and
-//!   4 kHz at 300 m: about half of what ISO 9613-1 gives at 20 C and 50%
-//!   humidity, so a battle across the plaza keeps its edge.
-//! - Occlusion: three rays from the listener to each heard voice, aimed a
-//!   metre above its origin (a soldier's origin is at his feet, where the
-//!   ground's bumps would block everything) and half a metre to either side
-//!   of it. The share blocked eases the voice toward -4.4 dB and a lowpass
-//!   near 2.8 kHz: muffled, not buried. Six rays a frame, each voice's next
-//!   in turn, so every voice is looked at again every few frames.
-//! - Rooms: a fan of 19 rays from the listener, two a frame (the whole fan
-//!   about six times a second), measures the space: how many walls are
-//!   within 60 m, how far they are, and whether there is a roof. Walls give early reflections; a roof gives the long,
-//!   wet tail. Under Theed's arcades a dense, wetter room of about a second;
-//!   in the plaza, ringed by buildings but open above, reflections and a
-//!   faint, shorter tail.
-//!
-//! The enhanced mode's loudness window (in the manner of "HDR audio"): the
-//! loudest sound playing sets the top of the window, and quieter kinds of
-//! sound make room under it. A blast close by pulls the ambience down by up
-//! to 6 dB and the foley by up to 3 dB for as long as it rings, then lets
-//! them back over about a second and a half; the voice-over duck stays the
-//! game's own (its bus attenuation). The original mode has none of this.
-//!
 use crate::{Collision, Point, length, sub, scale};
 use crate::engine::{Engine, Shape, CAPACITY, AMBIENCE, EXPLOSIONS, FOLEY, VOICE, WEAPONS};
 

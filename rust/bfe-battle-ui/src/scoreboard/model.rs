@@ -92,11 +92,6 @@ impl SortMode {
 
 /// Compares two rows on a single `SortMode` key in its natural (non-reversed) direction
 /// (`KEYS` in `src/scoreboard/model.js`).
-///
-/// - `Kills` and `Points`: higher values sort first (`b.cmp(&a)`).
-/// - `Deaths`: lower values sort first (`a.cmp(&b)`).
-/// - `Name`: reverse lexicographical order by UTF-16 code units (`b.encode_utf16().cmp(a.encode_utf16())`),
-///   reproducing the 2004 game's negated string comparator (`Z` before `A`).
 fn compare_key(key: SortMode, a: &ScoreRow, b: &ScoreRow) -> Ordering {
     match key {
         SortMode::Kills => b.kills.cmp(&a.kills),

@@ -1,36 +1,4 @@
 //! Native renderer smoke binary (`render-smoke`).
-//!
-//! Exercises the complete native shader catalog (all 1,046 variants across the
-//! 6 shader families in `rust/bfe-render/shaders/*/manifest.json`) through
-//! `bfe-render`'s own program builder (`Bridge::add_owned_program`) and draws
-//! one representative scene per family (`world`, `actors`, `effects`,
-//! `interface`, `post-hud`, `utility`) into an offscreen RGBA8 + depth/stencil
-//! target under either software GL (`llvmpipe`) or hardware GL.
-//!
-//! Why this binary exists alongside `static-frame`:
-//! - `static-frame` validates static map component admission (`sky`, `props`,
-//!   `foliage`, `water`), which touches only the handful of shader variants
-//!   referenced by the synthetic `room` fixture.
-//! - `render-smoke` closes the remaining gap between the shader catalog smoke and the native CI gate by compiling and
-//!   linking every declared shader variant on a cold `Bridge` before executing
-//!   all 6 shader families' draw passes (`WorldPass` + `FoliagePass`,
-//!   `InstancePass`, `WaterPass` + `EffectsPass`, `InterfacePass`,
-//!   `PostPass` + `HudPass`, and `Lines`) against the same offscreen target.
-//! - Structured JSONL progress events (`variant-start`, `variant-result`,
-//!   `family-result`, `family-draw`, and the final `runs` summary) mirror the
-//!   schema of `tools/renderer-smoke.mjs` so CI and `tools/renderer-smoke-native.py`
-//!   can cross-check the native and manifest catalogs without launching Chromium.
-//!
-//! Contract with adjacent crates:
-//! - `bfe_render::programs::specs()` owns the compiled-in shader table. Every
-//!   key in `rust/bfe-render/shaders/*/manifest.json` must resolve in `specs()`
-//!   and pass `shader::rewrite` + GLSL compilation + program linking via
-//!   `Bridge::add_owned_program`.
-//! - `bfe_client::scene::Scene` owns offscreen `Canvas` creation (`RGBA8` color
-//!   texture + `DEPTH24_STENCIL8` renderbuffer) and static map admission from
-//!   `content/maps/<map>/`.
-//! - `bfe_client::render_bridge::Bridge` exposes the native transport banks and
-//!   `frame_aux_frame` entry points used by `FramePlan` to drive each pass.
 
 #![deny(warnings, clippy::all)]
 
@@ -993,12 +961,6 @@ fn admit_solid_white_texture(scene: &mut Scene) -> Result<u32, String> {
 
 /// Draws the `world` family scene (`world/static-lit-s0-cf-0-0-0`,
 /// `world/foliage-grass`, `world/foliage-leaves`) with sky, props, and water off.
-///
-/// Calling `scene.draw_component(view, "foliage")` first populates the foliage
-/// instance inputs and disables sky, prop instances, and water. Enabling world
-/// mesh 0 and re-running role `R::NEAR` onto a freshly cleared canvas then
-/// exercises both `WorldPass` (`PASS_WORLD`) and `FoliagePass` (`PASS_FOLIAGE`)
-/// in a single `world`-family frame.
 fn draw_world_family(scene: &mut Scene, view: &View) -> Result<(Vec<String>, [u64; 15]), String> {
     use bfe_render::frame_plan::layout::role as R;
     // First run `foliage` to populate the foliage frame inputs and clear `records`, `sky`, and `water`.
@@ -1046,17 +1008,6 @@ fn draw_actors_family(scene: &mut Scene, view: &View) -> Result<(Vec<String>, [u
 
 /// Draws the `effects` family scene (`effects/water-textured-s2` via `WaterPass`
 /// plus `effects/particle-cpu` via `EffectsPass`) on a cleared canvas.
-///
-/// How the two `effects` passes are combined in role `R::TRANSPARENT`:
-/// - `WaterPass` (`PASS_WATER`) draws the subdivided water surface admitted from
-///   `map.json` using `effects/water-textured-s2`.
-/// - `EffectsPass` (`PASS_EFFECTS`) draws two billboarded particle quads from a
-///   CPU particle batch (`effect_layout::CPU`, 21 `f32` words per quad: center,
-///   RGBA tint, size, rotation, UV rect, velocity, and axis vectors) using
-///   `effects/particle-cpu`.
-/// - Setting `M::FX_WORDS = 42.0` on `R::TRANSPARENT` before `frame_publish_frame`
-///   instructs `FramePlan` to upload the 42 `f32` words of particle vertex data
-///   and execute both `WaterPass` and `EffectsPass` into `scene.canvas.framebuffer`.
 fn draw_effects_family(
     scene: &mut Scene,
     view: &View,
@@ -1131,12 +1082,6 @@ fn draw_effects_family(
 
 /// Draws the `interface` family scene (`interface/room` and `interface/model`
 /// via `InterfacePass`) into `scene.canvas.framebuffer`.
-///
-/// Admits two procedural 3D interface geometries through `Bridge::actor_source`:
-/// a backdrop plane (`interface/room`) and a lit 3D sphere (`interface/model`),
-/// registers their appearances via `Bridge::ui_appearance`, populates two
-/// `interface_scene::layout` draw rows with identity transforms and the policy
-/// defaults, and executes `InterfacePass::draw` (`PASS_VIEW`).
 fn draw_interface_family(
     scene: &mut Scene,
     solid_core_tex: u32,
@@ -1219,14 +1164,6 @@ fn draw_interface_family(
 
 /// Draws the `post-hud` family scene (`post-hud/copy` via `PostPass` and
 /// `post-hud/hud` via `HudPass`) into `scene.canvas.framebuffer`.
-///
-/// Exercises both sub-passes of the `post-hud` family:
-/// 1. `PostPass::draw` (`PASS_POST`) runs `post-hud/copy` with a 2x2 source
-///    texture whose `(0, 0)` texel matches the clear color `[10, 15, 23, 255]`
-///    and whose remaining quadrants carry distinct colors.
-/// 2. `HudPass::draw` (`PASS_HUD`) uploads 8 vertices (2 quads) across the
-///    position, UV, mask-UV, and RGBA tint streams and renders them with
-///    `post-hud/hud` over the post-processed background.
 fn draw_post_hud_family(
     scene: &mut Scene,
     solid_core_tex: u32,
@@ -1344,15 +1281,6 @@ fn draw_post_hud_family(
 
 /// Draws the `utility` family scene (`utility/line-plain-solid` and
 /// `utility/line-3-solid` via `Lines` and `R::LINES2`) into `scene.canvas.framebuffer`.
-///
-/// Exercises two distinct `utility/line-*` variants in role `R::LINES2` (`PASS_VIEW`):
-/// 1. `Bridge::line_source` + `Bridge::line_frame(2)` admits a `FLIGHT` line
-///    strip and a `TOW` cable strip using `utility/line-plain-solid` and writes
-///    their draw packets into `frames.lines` slots 0 and 1 of view 2.
-/// 2. A 3-axis vertex-colored line geometry (`Descriptor::axes()`, with `position`
-///    at attribute 0 and `color` at attribute 3) is admitted for
-///    `utility/line-3-solid` and written into slot 2 of view 2 so both uniform-
-///    colored and vertex-colored utility line shaders draw in the same pass.
 fn draw_utility_family(scene: &mut Scene) -> Result<(Vec<String>, [u64; 15]), String> {
     use bfe_render::{
         frame_plan::layout::{binding as B, role as R},

@@ -1,17 +1,6 @@
 //! Slint draws into the game's current GL context; the host alone presents.
 //! Keep the version-pinned cursor and composition hooks in this adapter so
 //! screen components never duplicate window-system or input-method plumbing.
-//!
-//! The winit/glutin host owns the only OS window, surface, context and swap.
-//! FemtoVG clears its transparent root before notifying BeforeRendering, so
-//! copying the completed game target there preserves movies and renderer blur.
-//! Both renderers retain resources; native state caches are invalidated when
-//! control returns to the game. The notifier restores the state it borrows.
-//!
-//! Text events use logical keys and Slint composition; battle bindings keep
-//! their original physical keys and raw device motion outside this module.
-//! Cursor and IME use the same version-pinned hooks as Slint's winit backend.
-//! Keep those hooks here when upgrading Slint, rather than in screen code.
 use glow::HasContext;
 use glutin::{
     context::PossiblyCurrentContext,
@@ -298,7 +287,6 @@ impl SlintHost {
         window: Arc<Window>,
         context: Rc<PossiblyCurrentContext>,
         surface: Rc<Surface<WindowSurface>>,
-        proof: bool,
     ) -> Result<Self, String> {
         let renderer = FemtoVGRenderer::new(Gl {
             context: context.clone(),
@@ -328,7 +316,6 @@ impl SlintHost {
         root.set_rows(slint::ModelRc::from(rows.clone()));
         let steam_paragraphs = Rc::new(slint::VecModel::<slint::SharedString>::default());
         root.set_steam_paragraphs(slint::ModelRc::from(steam_paragraphs.clone()));
-        root.set_proof_controls(proof);
         let actions: Rc<RefCell<Vec<UiAction>>> = Rc::new(RefCell::new(Vec::new()));
         let options_actions: Rc<RefCell<Vec<OptionsUiAction>>> = Rc::new(RefCell::new(Vec::new()));
         super::slint_options::register_callbacks(&root, options_actions.clone());
@@ -912,6 +899,18 @@ impl SlintHost {
     /// UI input is logical; combat continues to receive the original winit event.
     /// In particular physical bindings, XI2/raw motion and extra buttons never
     /// travel through Slint's text-oriented key event representation.
+    /// Tells the page again where the pointer is, so a screen that comes up under a parked pointer lights the row
+    /// there (winit reports only real motion; the browser sends one after the page changes).
+    pub fn set_keyboard_nav(&mut self, on: bool) {
+        self.root.global::<Theme>().set_keyboard_nav(on);
+    }
+
+    pub fn repeat_pointer(&mut self) {
+        self.root.window().dispatch_event(UiEvent::PointerMoved {
+            position: self.cursor_position,
+        });
+    }
+
     pub fn event(&mut self, event: &WindowEvent, locked: bool) -> bool {
         match event {
             WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => self.resize(),

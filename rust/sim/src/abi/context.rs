@@ -1,20 +1,4 @@
 //! Thread-affine native store/callback ownership, not a complete native world.
-//!
-//! Available only with panic=unwind. Clock's existing host trait is infallible:
-//! a private unwind stops it on a host error, entirely inside Rust. Unrelated
-//! panics retain their payload and propagate to the Rust caller. No method here
-//! calls an extern C export. An eventual foreign boundary must catch panics.
-//! Raw blocks and records are trusted, schema-encoded inputs, just as in the
-//! existing Store API; malformed records may panic. This is not a wire decoder.
-//!
-//! Clones are aliases, not new worlds. Dispose rejects active invocations and
-//! invalidates all aliases; creating a replacement never revives an old handle.
-//! Rc makes handles !Send and !Sync. Returned buffers are owned copies, except
-//! explicit reader loans that expire before returning. Owned copies stay valid
-//! after growth, nested calls and disposal. Entity and string IDs are local
-//! to this context. Store-only reset is deliberately not a context operation.
-#[path = "context_input.rs"]
-mod input;
 #[path = "context_world.rs"]
 mod world;
 pub use world::WorldFailure;
@@ -253,6 +237,11 @@ impl Context {
     }
     pub fn intern_scratch(&self, units: usize) -> Result<StrId, Error> {
         self.store(|s| s.intern_scratch(units))
+    }
+    /// The store itself, for host duties that read a few fields of many
+    /// entities (exporting a whole kind to read them costs far more).
+    pub(crate) fn with_store<T>(&self, f: impl FnOnce(&mut crate::gen::Store) -> T) -> Result<T, Error> {
+        self.store(|s| f(&mut s.store))
     }
     pub fn export(&self, kind: u32, mode: u32) -> Result<Vec<f64>, Error> {
         self.store(|s| s.export(kind, mode).map(|b| b.words.clone()))?

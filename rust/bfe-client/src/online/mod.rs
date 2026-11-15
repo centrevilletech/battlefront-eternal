@@ -33,17 +33,22 @@ pub mod sound_data;
 
 pub mod combat;
 mod debris;
+pub mod destruction;
 mod effects;
 pub mod jetpacks;
+pub mod fountains;
 pub mod hull_effects;
 pub mod lightning;
 pub mod map_effects;
-mod shields;
-mod holograms;
+pub(crate) mod shields;
+pub(crate) mod holograms;
 mod lights;
 pub mod particles;
 
+pub mod steam;
+pub mod trails;
 pub mod turrets;
+pub mod weather;
 
 pub mod cameras;
 
@@ -53,7 +58,7 @@ mod events;
 
 pub mod first_person;
 
-mod water;
+pub(crate) mod water;
 
 mod collision;
 

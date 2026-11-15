@@ -1,17 +1,4 @@
 //! Server browser metadata validation and sanitization (`src/browser-info.js`).
-//!
-//! What a server browser shows of a server beyond how to reach it:
-//! - the operator's `description`, `sponsor`, and `location` from `config.json`,
-//! - the battle it plays (`map`, `mapName`, `side`, `era`, `mode`, and the `query` a player's
-//!   client loads for it),
-//! - its rules (`bots`, `autoAssignTeams`), and
-//! - how long the service has run (`uptime` in whole seconds).
-//!
-//! Both the online directory listing relayed by the master (`OnlineServer.listing` in
-//! `src/online-server.js`) and the direct `/info` endpoint (`startLocalServer` in
-//! `src/local-server.js`) include these fields. LAN discovery replies (`lanInfo` in
-//! `src/local-server.js`) strip `description` and `sponsor` so the response fits in one UDP
-//! datagram.
 
 use crate::config::ServerConfig;
 use serde::{Deserialize, Serialize};
@@ -61,6 +48,8 @@ pub struct BrowserInfo {
     pub bots: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_assign_teams: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub friendly_fire: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uptime: Option<u64>,
 }
@@ -166,13 +155,6 @@ pub fn map_names(data_dir: &str) -> HashMap<String, String> {
 }
 
 /// Builds the full server browser metadata (`export function browserInfo` in `src/browser-info.js`).
-///
-/// Maps `side` (`rep`/`cis` -> `cw`, `all`/`imp` -> `gcw`) via `ERAS`, extracts `mode` from the
-/// third colon-delimited segment of `config.rotation[0]` (defaulting to `"conquest"`), determines
-/// `bots` from `params.get('ai') !== 'off'`, and computes `uptime` in seconds since `started_at_ms`.
-/// Builds the rich server-browser metadata object (`SponsorInfo`, `BattleInfo`, map title,
-/// description, banner HTTPS URL, and player/bot counts), porting `browserInfo(config, state, maps)`
-/// from `packages/bfe-server/src/browser-info.js`.
 pub fn browser_info(
     config: &ServerConfig,
     query: &str,
@@ -214,6 +196,7 @@ pub fn browser_info(
         }),
         bots: Some(ai.as_deref() != Some("off")),
         auto_assign_teams: Some(config.auto_assign_teams),
+        friendly_fire: Some(config.friendly_fire),
         uptime: Some(uptime),
     }
 }

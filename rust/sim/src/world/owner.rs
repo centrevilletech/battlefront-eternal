@@ -1,6 +1,6 @@
 //! One battle lifetime for canonical rows, phase services and page resources.
-//! Cold storage exposes fixed WASM addresses without allocating. Warm admission
-//! reserves the exchange core at the same first Sim access as the host bridge.
+//! Cold storage needs no allocation; warm admission reserves the exchange core
+//! at the first Sim access.
 use crate::abi::Sim;
 
 // One initializer list checks COLD's completeness and initializes its boxed
@@ -8,7 +8,6 @@ use crate::abi::Sim;
 macro_rules! cold_fields {
     ($build:ident) => {
         $build! {
-            #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
             network: None,
             sim: Sim::cold(), tick: super::Tick::cold(),
             input: crate::input::owner::Owner::new(),
@@ -46,7 +45,6 @@ macro_rules! cold_box {
 }
 
 pub struct World {
-    #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
     pub(crate) network: Option<Box<super::admit::network::Network>>,
     pub(crate) sim: Sim,
     pub(crate) tick: super::Tick,

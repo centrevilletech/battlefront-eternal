@@ -16,12 +16,9 @@ pub mod fsm;
 pub mod goals;
 pub mod patrol;
 pub mod policy;
-#[cfg(feature = "replay")]
-pub mod replay;
 pub mod scheduler;
 pub mod squads;
 pub mod vec;
-pub mod views;
 pub mod world;
 
 use crate::ai::owned::intent::Command as IntentCommand;

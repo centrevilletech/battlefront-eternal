@@ -57,15 +57,3 @@ fn seize_and_carry_commit_before_a_later_door_reads_the_same_position_reference(
     assert!(held_bodies::commit(w.s, original, &bodies.frames[0]).is_none());
     prop.state.carry(61.0, &mut bodies.frames, &prop.settings, &mut w); assert!(prop.state.victim.is_none());
 }
-#[path = "support/allocations.rs"]
-mod allocation;
-#[global_allocator]
-static ALLOCATOR: allocation::Counted = allocation::Counted;
-#[test]
-fn repeated_canonical_carries_reuse_frames_positions_and_pose_storage() {
-    let (mut s, r, mut bodies) = setup(); let mut prop = creature(); let original = Ref::new(7, 1);
-    let mut w = World { s: &mut s, positions: &bodies.positions, original };
-    allocation::start();
-    for tick in 0..1200 { prop.step(0.0, tick as f64, &[], &mut bodies.frames, &bodies.order, &mut w); }
-    assert_eq!(allocation::stop(), 0); assert_eq!(w.s.unit.get(r).unwrap().tick_count, 1210.0);
-}

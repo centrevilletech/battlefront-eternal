@@ -52,18 +52,6 @@
 //! | Pause Behavior | Pauses `"bfe-world-60hz"` (`world.set_paused(true)`) | Simulation continues on server; shows `PLAYER LIST` |
 //! | Restart Mission | Re-admits current playlist entry from tick 0 | Hidden in online mode (`PauseRestartMode::Hidden`) |
 //!
-//! ## Steady-State Allocation Accounting
-//! - Frames `0..45` with overlays closed warm up any lazy internal buffers and the
-//!   first-tick welcome snapshot / initial combat presentation caches, matching
-//!   `phase_frames == 45` in `script.rs` (`reset_combat_measurement_window`).
-//! - Once `self.steady_frames >= 45` and `!self.is_overlay_open()`,
-//!   `BattleController::step_and_draw` samples `super::render_thread_alloc_count()`
-//!   before and after the entire simulation poll, input step, HUD build, and
-//!   `scene.draw(&view)` pass, accumulating any delta into `steady_allocs_after_warmup`.
-//! - The `--script gate` harness reports `steady_allocs_after_warmup` across
-//!   all three 2-minute Instant Action battles (`nab2`, `tat1`, `bes1`) and the
-//!   2-minute Online battle.
-//!
 //! ## Scoreboard Pages and Post-Match Flow (`LiveScoreboardPort` + `ScoreboardController`)
 //! - **`BoardPage::Table`**:
 //!   Displays the two faction headers (`REPUBLIC` vs `CIS` or `REBEL ALLIANCE` vs
@@ -151,6 +139,11 @@ use bfe_shell::{launch::BattleRequest, screens::MultiplayerLaunch};
 use std::path::Path;
 use winit::{event::MouseButton, keyboard::KeyCode};
 
+/// Commands one rendered frame may make: as the page's input clock
+/// (runtime/fixed-clock.js maxSteps), so a frame of 0.1 s still makes one
+/// for each of its six ticks.
+const MAX_FRAME_STEPS: usize = 8;
+
 fn initial_policy(source: &bfe_content::Value, era: &str) -> bfe_content::mission::Policy {
     let query = bfe_content::mission::Query::parse(&format!("?era={era}"));
     let world = bfe_content::mission::select_mission(source, &query);
@@ -165,7 +158,6 @@ pub struct InstantAdmission {
     era: String,
     world: WorldThread,
     admitted: crate::local::thread::AdmittedWorldInfo,
-    graphics: crate::scene::Prepared,
 }
 pub struct OnlineAdmission {
     launch: MultiplayerLaunch,
@@ -866,10 +858,9 @@ pub struct BattleController {
     pub(super) page_battle: super::page_battle::PageBattle,
     /// `bfe-battle-ui` in-battle text chat controller (`All` / `Team`).
     pub chat: ChatController,
-    // Retained UTF-16 storage for the native chat text field.
-    chat_text: Vec<u16>,
-    stats_text: String,
-    stats_utf16: Vec<u16>,
+    /// The map's boundary and the LEAVING BATTLEFIELD warning's state.
+    leaving: super::leaving::LeavingFeed,
+    pub(super) stats_text: String,
     frame_seconds: f64,
     /// Scratch quad batch used when compositing overlays onto `scene.bridge.hud_model.batch`.
     pub overlay_batch: Batch,
@@ -887,8 +878,6 @@ pub struct BattleController {
     pub frames: u64,
     /// Count of steady gameplay frames rendered with all 2D overlays closed.
     pub steady_frames: u64,
-    /// Cumulative heap allocations on the render thread during steady gameplay after warmup.
-    pub steady_allocs_after_warmup: u64,
     /// Frames included in the allocation sample, excluding warmup and overlays.
     pub steady_frames_measured: u64,
     /// Total elapsed seconds in the current battle.
@@ -927,7 +916,8 @@ impl BattleController {
         playlist_index: usize,
         bots: &BotSettings,
         player_name: &str,
-        textures:crate::scene::TextureOptions,
+        textures: crate::scene::TextureOptions,
+        scene_ready: impl FnOnce(Result<crate::scene::Prepared, String>) + Send,
     ) -> Result<InstantAdmission, String> {
         // Resolve the target map ID and era from `request.playlist[playlist_index]` or `request`.
         let default_era = request.era.clone().unwrap_or_else(|| "cw".to_string());
@@ -982,11 +972,34 @@ impl BattleController {
             audio: true,
             duration: None,
             name: Some(player_name.to_string()),
-            bots: bfe_sim::world::admit::Bots::read(&bots.mode, &bots.difficulty, &bots.size),
+            bots: bfe_sim::world::admit::Bots {
+                friendly_fire: bots.friendly_fire,
+                ..bfe_sim::world::admit::Bots::read(&bots.mode, &bots.difficulty, &bots.size)
+            },
         };
 
-        let (world, admitted) = WorldThread::admit_instant_action(&local_options)?;
-        let graphics = Scene::prepare_online(content_dir, &admitted.query,textures)?;
+        // The world thread admits the battle while this worker reads the
+        // scene's content for the same mission query (the query the admission
+        // reports back, checked below) and hands it to the window at once.
+        let query = format!("{}&spawnscreen=1", local_options.world()?.query());
+        let started = std::time::Instant::now();
+        let (admission, world_time) = std::thread::scope(|scope| {
+            let world = scope.spawn(|| {
+                let admission = WorldThread::admit_instant_action(&local_options);
+                (admission, started.elapsed())
+            });
+            scene_ready(Scene::prepare_online(content_dir, &query, textures));
+            eprintln!(
+                "battle loading: scene content prepared in {:.0} ms",
+                started.elapsed().as_secs_f64() * 1000.
+            );
+            world.join().unwrap_or_else(|_| (Err("world admission stopped".into()), started.elapsed()))
+        });
+        eprintln!("battle loading: world admitted in {:.0} ms", world_time.as_secs_f64() * 1000.);
+        let (world, admitted) = admission?;
+        if admitted.query != query {
+            return Err(format!("world admitted {} but the scene was read for {query}", admitted.query));
+        }
         Ok(InstantAdmission {
             request,
             playlist_index,
@@ -994,18 +1007,23 @@ impl BattleController {
             era,
             world,
             admitted,
-            graphics,
         })
     }
 
+    /// Creates the scene's display resources, then waits for the world's
+    /// admission (`world`), which may still be under way on its thread.
     pub async fn open_instant_action(
-        _content_dir: &Path,
-        prepared: InstantAdmission,
+        content_dir: &Path,
+        graphics: crate::scene::Prepared,
+        world: impl std::future::Future<Output = Result<InstantAdmission, String>>,
         size: [i32; 2],
         settings: &AppSettingsStore,
-        _audio_router: &SharedAudioRouter,
         mut make_gl: impl FnMut() -> glow::Context,
     ) -> Result<Self, String> {
+        let mut graphics = graphics;
+        graphics.shadows(&settings.interface.get_string("shadows"));
+        let (mut scene, camera) = Scene::open_prepared(graphics, size, &mut make_gl).await?;
+        crate::loading_work::frame().await;
         let InstantAdmission {
             request,
             playlist_index,
@@ -1013,14 +1031,11 @@ impl BattleController {
             era,
             mut world,
             admitted,
-            graphics,
-        } = prepared;
-        let mut graphics=graphics;
-        graphics.shadows(&settings.interface.get_string("shadows"));
-        let (mut scene, camera) = Scene::open_prepared(graphics, size, &mut make_gl).await?;
+        } = world.await?;
         // Route the live battle sound mixer into `SharedAudioRouter`.
         let replicas = scene.online.as_mut().ok_or("missing online replicas")?;
         replicas.hud.auto_build = false;
+        replicas.hud.show_squad_orders(settings.interface.get_string("aiMode") != "off");
 
         // Initialize the local `Receiver`, client-side `Replay`, and `Sender`.
         let mut receiver = Box::new(Receiver::new(admitted.registry));
@@ -1041,12 +1056,14 @@ impl BattleController {
         // Drain the initial tick-0 publication so `replicas.hud` has the mission's
         // authoritative command posts, unit classes, and reinforcement counts.
         world.poll_publications(&mut receiver, 0.0)?;
+        crate::loading_work::frame().await;
         eprintln!("local welcome received: welcomed={} packets={} corrections={} alive={}",
             receiver.welcomed, receiver.packets, receiver.corrections, receiver.own.alive);
         replicas
             .hud
             .frame(&mut scene.bridge, &receiver, &replay, 0.0);
         receiver.publications.clear();
+        crate::loading_work::frame().await;
 
         let mut spawn_port = LiveSpawnPort::from_hud_meta(
             &replicas.hud.class_meta,
@@ -1062,7 +1079,9 @@ impl BattleController {
             receiver.own.team,
         );
 
-        Self::finish_init(
+        crate::loading_work::frame().await;
+        let leaving = super::leaving::LeavingFeed::load(content_dir, &map_id);
+        let mut battle = Self::finish_init(
             BattleAuthority::InstantAction {
                 request,
                 playlist_index,
@@ -1081,7 +1100,9 @@ impl BattleController {
             &era,
             size,
             settings,
-        )
+        )?;
+        battle.leaving = leaving;
+        Ok(battle)
     }
 
     /// Handover owns both clocks: loading audio remains alive through the
@@ -1132,7 +1153,7 @@ impl BattleController {
         })
     }
     pub async fn open_online(
-        _content_dir: &Path,
+        content_dir: &Path,
         prepared: OnlineAdmission,
         size: [i32; 2],
         settings: &AppSettingsStore,
@@ -1184,7 +1205,8 @@ impl BattleController {
         let mut client = Box::new(OnlineClient::connect(endpoint, replicas, camera)?);
         client.sender.auto_spawn = false;
 
-        Self::finish_init(
+        let leaving = super::leaving::LeavingFeed::load(content_dir, &map_id);
+        let mut battle = Self::finish_init(
             BattleAuthority::Online {
                 launch,
                 map_id,
@@ -1197,7 +1219,9 @@ impl BattleController {
             &era,
             size,
             settings,
-        )
+        )?;
+        battle.leaving = leaving;
+        Ok(battle)
     }
 
     /// Shared initialization for `SpawnScreenController`, `ScoreboardController`, `PauseMenu`,
@@ -1302,9 +1326,8 @@ impl BattleController {
             pause_page,
             page_battle,
             chat,
-            chat_text: Vec::with_capacity(1024),
+            leaving: Default::default(),
             stats_text: String::with_capacity(256),
-            stats_utf16: Vec::with_capacity(256),
             frame_seconds: 0.,
             overlay_batch: Batch::new(),
             size,
@@ -1314,7 +1337,6 @@ impl BattleController {
             cursor_px: [size[0] as f64 * 0.5, size[1] as f64 * 0.5],
             frames: 0,
             steady_frames: 0,
-            steady_allocs_after_warmup: 0,
             steady_frames_measured: 0,
             elapsed_s: 0.0,
             was_alive: false,
@@ -1535,6 +1557,11 @@ impl BattleController {
         if let Err(err) = self.scene.set_anisotropy(settings.interface.get_f64("anisotropy")) {
             eprintln!("battle settings: anisotropy not applied: {err}");
         }
+        let water = crate::water_host::Settings {
+            quality: settings.interface.get_string("waterQuality"),
+            ocean: settings.interface.get_string("oceanEffects"),
+        };
+        if let Err(err) = self.scene.set_water_settings(&water) { eprintln!("battle settings: water not applied: {err}"); }
         // The effect looks the browser reads the same two settings for.
         if let Some(online) = &mut self.scene.online {
             let enhanced = |name: &str| settings.interface.get_string(name) != "classic";
@@ -1545,6 +1572,9 @@ impl BattleController {
                 bolts: enhanced("boltEffects"),
                 sniper: enhanced("sniperEffects"),
                 jetpack: settings.interface.get_string("jetpackEffects") == "enhanced",
+                rain: settings.interface.get_string("rainEffects") == "enhanced",
+                environment: settings.interface.get_string("environmentEffects") != "classic",
+                destruction: settings.interface.get_string("destructionEffects") == "enhanced",
             });
         }
         let empty = std::collections::BTreeMap::new();
@@ -1605,7 +1635,7 @@ impl BattleController {
     /// 2. **Overlay Transition Check**: Inspects `PauseMenu` (`ExitToWindows`, `RestartMission`,
     ///    `QuitToMainMenu`, `LeaveOnline`) and `ScoreboardPort::done_triggered` (`NextPlaylistBattle`).
     /// 3. **Simulation / Network Step & Camera Interpolation**:
-    ///    - Accumulates `dt` into 60 Hz `STEP` (`1/60 s`) increments and samples up to 4
+    ///    - Accumulates `dt` into 60 Hz `STEP` (`1/60 s`) increments and samples up to 8
     ///      [`ClientCommand`] steps via [`Self::take_step_command`].
     ///    - In `InstantAction`, drains non-blocking `Publication` frames from `WorldThread`,
     ///      sends `WorldMessage::Step`, steps client-side `Replay`, updates `MapCamera`,
@@ -1629,12 +1659,13 @@ impl BattleController {
         settings: &mut AppSettingsStore,
         _audio_router: &SharedAudioRouter,
     ) -> Result<Option<BattleTransition>, String> {
-        if dt.is_finite() && dt >= 0. { self.frame_seconds += dt; }
+        let elapsed_dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
+        self.frame_seconds += elapsed_dt;
         let frame_timer=self.scene.bridge.r.core.profile.clock();
         self.scene.resolution_frame_begin();
         let dt = dt.clamp(0.0, 0.1);
         self.pause_page.save(settings);
-        self.elapsed_s += dt;
+        self.elapsed_s += elapsed_dt;
 
         if let BattleAuthority::Online { client, launch, .. } = &mut self.authority {
             client.poll_rotation(launch.address.as_deref().unwrap_or(""), launch.port.unwrap_or(18451));
@@ -1772,18 +1803,14 @@ impl BattleController {
         if let Some(online) = &mut self.scene.online {
             online.cameras.death_classic = self.death_classic;
         }
-        let measure_steady_allocs = !self.is_overlay_open() && self.steady_frames >= 45;
-        let alloc_before = if measure_steady_allocs {
-            super::render_thread_alloc_count()
-        } else {
-            0
-        };
+        let measure_steady = !self.is_overlay_open() && self.steady_frames >= 45;
 
                 //
         // The render loop runs at display refresh rate while simulation and network
         // input ticks run at a fixed 60 Hz (`STEP = 1.0 / 60.0` seconds).
-        // We accumulate `dt` (clamped to `0.25s` max catch-up), consume up to 4
-        // discrete 60 Hz steps per rendered frame, and use the residual fraction
+        // We accumulate `dt` (clamped to `0.25s` max catch-up), consume up to 8
+        // discrete 60 Hz steps per rendered frame (the page's input clock
+        // takes as many: a slow frame sends a command for every tick it spans), and use the residual fraction
         // `alpha_interp = (input_accumulator / STEP)` to smoothly interpolate the
         // 3D camera between the previous and current 60 Hz simulation states.
         // 3. Pump publications / packets, step input, and compute camera View.
@@ -1793,7 +1820,7 @@ impl BattleController {
         };
         self.input_accumulator = (self.input_accumulator + dt * pace).min(0.25);
         let mut steps = 0usize;
-        while self.input_accumulator >= STEP && steps < 4 {
+        while self.input_accumulator >= STEP && steps < MAX_FRAME_STEPS {
             self.input_accumulator -= STEP;
             steps += 1;
         }
@@ -1813,7 +1840,7 @@ impl BattleController {
             ClientLook,
             ClientFlightCommand,
             ViewActions,
-        )>; 4] = [None, None, None, None];
+        )>; MAX_FRAME_STEPS] = std::array::from_fn(|_| None);
         for slot in step_cmds.iter_mut().take(steps) {
             *slot = Some(self.take_step_command(generation, active_gameplay, settings));
         }
@@ -1861,6 +1888,7 @@ impl BattleController {
                 // focus plays on (a released mouse opens the pause menu, which
                 // freezes it); only a hidden window suspends it.
                 world.set_suspended(hidden);
+                world.set_friendly_fire(settings.interface.get_bool("friendlyFire"));
                 world.poll_publications(receiver, *now_ms)?;
                 if self.frames == 60 {
                     eprintln!("local HUD publications: focused={} welcomed={} packets={} corrections={} alive={} active={} visible={}",
@@ -1868,6 +1896,7 @@ impl BattleController {
                         receiver.active().count(), self.scene.online.as_ref().map_or(0, |r| r.visible));
                 }
                 sender.feedback(receiver);
+                sender.local_lateness(world.command_counts()[2]);
                 receiver.clock.advance(dt).map_err(str::to_string)?;
 
                 camera.set_flight_mode(receiver.in_aircraft());
@@ -1887,6 +1916,7 @@ impl BattleController {
                     }
                     self.keys_released = halted;
                     cmd.first_person = Some(camera.first_person);
+                    sender.local_next_tick(world.latest_tick() + 1.);
                     sender.tick(&cmd, &look, &flight, receiver, 0.0, *now_ms);
                     // The world takes each command at the tick the sender stamped
                     // it for and acknowledges its sequence; prediction replays the
@@ -1901,6 +1931,7 @@ impl BattleController {
                         flight,
                         view_tick: crate::online::clock::rendered_tick(receiver.clock.shown, receiver.latest),
                         fire_aim: sender.fire_aim,
+                        flight_mode: receiver.in_aircraft(),
                     });
                 }
                 if !halted {
@@ -1912,8 +1943,8 @@ impl BattleController {
                 if self.elapsed_s - self.input_logged_s >= 1. {
                     self.input_logged_s = self.elapsed_s;
                     let [taken, refused, late] = world.command_counts();
-                    eprintln!("battle input: sent={} taken={taken} refused={refused} late={late} worldTick={} stamp={} sequence={} applied={} held={held_now:#x} alive={} generation={} focused={focused} hidden={hidden} paused={} suspended={} halted={halted} spawnScreen={} scoreboard={} chat={} steps={steps} position={:?}",
-                        self.commands_sent, world.latest_tick(), sender.command_tick(), sender.command_sequence(), receiver.corrected_sequence,
+                    eprintln!("battle input: sent={} taken={taken} refused={refused} late={late} extra={} worldTick={} stamp={} sequence={} applied={} held={held_now:#x} alive={} generation={} focused={focused} hidden={hidden} paused={} suspended={} halted={halted} spawnScreen={} scoreboard={} chat={} steps={steps} position={:?}",
+                        self.commands_sent, sender.extra_lead(), world.latest_tick(), sender.command_tick(), sender.command_sequence(), receiver.corrected_sequence,
                         receiver.own.alive, receiver.own.generation, world.is_paused(), world.is_suspended(),
                         self.spawn_ctrl.is_open(), self.scoreboard_ctrl.model.is_open(), self.chat.is_open(), receiver.own.position);
                 }
@@ -2100,6 +2131,10 @@ impl BattleController {
         }
         let overlay_active = self.is_overlay_open() || (game_over && !self.scoreboard_ctrl.ended);
         reset_hud_layer(&mut self.scene.bridge.hud_model.input);
+        self.present_leaving();
+        // Fades and message lifetimes keep elapsed time when a slow frame
+        // exceeds the movement step limit.
+        self.scene.bridge.hud_model.input[H::DT] = elapsed_dt;
         if overlay_active {
             self.sync_ports_cold(&settings.player.profile_name);
             self.update_and_build_overlays(dt);
@@ -2112,13 +2147,13 @@ impl BattleController {
         }
 
         let full_sync = self.frames == 0 || self.overlay_was_active || overlay_active;
-        let chat_visible = self.draw_chat();
-        self.overlay_was_active = overlay_active || chat_visible;
+        self.overlay_was_active = overlay_active;
         let show_stats = settings.interface.get_bool("showStats");
-        // Page overlays cover the browser's statistics element. Keep the
-        // native diagnostic line below that same screen boundary.
-        if show_stats && !overlay_active { self.draw_stats_line(); }
-        self.scene.bridge.hud_sync_batch(full_sync || show_stats || chat_visible);
+        self.stats_text.clear();
+        if show_stats {
+            self.update_stats_line();
+        }
+        self.scene.bridge.hud_sync_batch(full_sync);
 
         // PageTheme is a compositor over the finished battle, just as its
         // CSS overlay is over the canvas. Defer only the pause UI until its
@@ -2131,12 +2166,21 @@ impl BattleController {
         let motion=match &self.authority{BattleAuthority::InstantAction{replay,..}=>replay.fleet.vehicle_motion(),BattleAuthority::Online{client,..}=>client.replay.fleet.vehicle_motion()};
         self.scene.vehicle_motion(motion.0,motion.1,dt)?;
         super::bench::apply_view(&mut view);
-        self.scene.draw(&view)?;
+        let behind=if page_spawn {self.page_battle.backdrop()} else {super::page_battle::Backdrop::Draw};
+        if behind==super::page_battle::Backdrop::Draw {
+            self.scene.draw(&view)?;
+        } else {
+            self.page_battle.show_behind(&mut self.scene,behind);
+        }
         self.scene.bridge.r.core.profile.cpu("frame CPU",frame_timer);
         if page_spawn || page_score {
             if page_spawn {
-                let class = self.page_battle.class_id;
-                self.page_battle.draw(&mut self.scene,class,&self.pause_page.theme,self.spawn_ctrl.view.map_proj,&self.spawn_ctrl.model,&self.spawn_port);
+                // A kept frame (a slow machine's in-between frame) already holds the stage.
+                if behind!=super::page_battle::Backdrop::Reuse {
+                    let class = self.page_battle.class_id;
+                    self.page_battle.draw(&mut self.scene,class,&self.pause_page.theme,self.spawn_ctrl.view.map_proj,&self.spawn_ctrl.model,&self.spawn_port);
+                    self.page_battle.drawn_behind(&self.scene);
+                }
             } else {
                 self.pause_page.blur.apply(&self.scene.bridge.r.core.gl,self.scene.canvas.framebuffer,4.);
             }
@@ -2148,9 +2192,7 @@ impl BattleController {
             self.scene.bridge.r.core.state.reset();
             self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=pause_groups;
         }
-        if measure_steady_allocs && !overlay_active {
-            let alloc_after = super::render_thread_alloc_count();
-            self.steady_allocs_after_warmup += alloc_after.saturating_sub(alloc_before);
+        if measure_steady && !overlay_active {
             self.steady_frames_measured += 1;
         }
         self.frames += 1;
@@ -2218,7 +2260,6 @@ impl BattleController {
     ///    `draw_over` (`Table`, `Details`, or `Awards` page) onto `hud_model.batch`.
     fn update_and_build_overlays(&mut self, dt: f64) {
         let fh = self.scene.bridge.hud_model.fonts[0].height;
-        self.scene.bridge.hud_model.input[H::DT] = dt;
         self.scene.bridge.hud_model.input[H::HEIGHT] = self.height;
         self.scene.bridge.hud_model.input[H::ASPECT] = self.aspect;
         self.scene.bridge.hud_model.input[H::FOV] = 60.0;
@@ -2256,6 +2297,7 @@ impl BattleController {
             self.scene.bridge.hud_model_update();
             if self.page_battle.spawn {
                 let status = super::slint_battle::spawn_battle_status(self);
+                self.page_battle.scale=self.size[0] as f64/self.page_size[0].max(1) as f64;
                 self.page_battle.update(dt,&self.spawn_ctrl.model,&self.spawn_port,self.page_size,&self.pause_page.theme,status.countdown.is_some());
                 self.page_battle.map_texture(&mut self.scene,&self.spawn_ctrl.view,self.height);
                 self.scene.bridge.hud_model.batch.begin();
@@ -2344,108 +2386,16 @@ impl BattleController {
         }
     }
 
-    /// createChat renders accepted lines for twelve seconds, or its whole
-    /// eight-message history while typing. Reuse UTF-16 storage on every frame.
-    fn draw_chat(&mut self) -> bool {
-        let open = self.chat.is_open();
-        let mut y = self.height * 0.2;
-        let mut visible = false;
-        let height = self.height;
-        let width = self.height * self.aspect;
-        let limit = (650.0 * height / self.size[1] as f64).min(width * 0.85);
-        let solid = self.scene.online.as_ref().and_then(|scene| scene.hud.names.get("opaque_rect").copied()).unwrap_or(A::SOLID);
-        let hud = &mut self.scene.bridge.hud_model;
-        let font = &hud.fonts[0];
-        // Match the browser feed's word wrapping without allocating line lists
-        // each frame. A long word can break anywhere, like overflow-wrap.
-        let mut draw = |text: &[u16], color, backed: bool| {
-            let mut start = 0;
-            if backed {
-                // The entry's own backing, `#001020cc` with 6 px around it (`bfe-chat-entry` in src/chat.js).
-                let pad = 6.0 * height / self.size[1] as f64;
-                let left = width * 0.03;
-                hud.batch.quad(
-                    root_anchor(height),
-                    [left, y - pad, left + limit, y + font.height * 1.3 + pad],
-                    solid,
-                    // The middle of the opaque panel art, a dark fill (a plain white texture is not in the HUD's table).
-                    [0.45, 0.45, 0.55, 0.55],
-                    [1.0, 1.0, 1.0, 0.8],
-                    0.0,
-                    0,
-                );
-            }
-            while start < text.len() {
-                let mut end = start;
-                let mut advance = 0.0;
-                let mut space = None;
-                while end < text.len() {
-                    let next = font.width(&text[end..end + 1], 1.0, 1.0);
-                    if end > start && advance + next > limit {
-                        break;
-                    }
-                    advance += next;
-                    if text[end] == 32 {
-                        space = Some(end);
-                    }
-                    end += 1;
-                }
-                if end < text.len() {
-                    if let Some(word) = space.filter(|word| *word > start) {
-                        end = word;
-                    }
-                }
-                font.draw(
-                    &mut hud.batch,
-                    root_anchor(height),
-                    width * 0.03,
-                    y,
-                    &text[start..end],
-                    color,
-                    0,
-                    1.0,
-                    1.0,
-                    0.0,
-                );
-                y += font.height * 1.3;
-                start = end;
-                while start < text.len() && text[start] == 32 {
-                    start += 1;
-                }
-            }
+    /// LEAVING BATTLEFIELD (`presentLeaving` in src/game.js): from what the player controls as this page
+    /// shows him, alive and outside the map's boundary.
+    fn present_leaving(&mut self) {
+        let (own, tick) = match &self.authority {
+            BattleAuthority::InstantAction { receiver, .. } => (&receiver.own, crate::online::clock::rendered_tick(receiver.clock.shown, receiver.latest)),
+            BattleAuthority::Online { client, .. } => (&client.receiver.own, crate::online::clock::rendered_tick(client.receiver.clock.shown, client.receiver.latest)),
         };
-        for message in &self.chat.log.messages {
-            if !open && self.elapsed_s * 1000.0 - message.time > 12_000.0 {
-                continue;
-            }
-            self.chat_text.clear();
-            let prefix = match message.channel {
-                bfe_battle_ui::ChatChannel::Team => "[TEAM] ",
-                bfe_battle_ui::ChatChannel::Server => "[SERVER] ",
-                _ => "",
-            };
-            self.chat_text.extend(prefix.encode_utf16());
-            if message.channel != bfe_battle_ui::ChatChannel::Server && !message.name.is_empty() {
-                self.chat_text.extend(message.name.encode_utf16());
-                self.chat_text.extend(": ".encode_utf16());
-            }
-            self.chat_text.extend(message.text.encode_utf16());
-            // CHAT_COLORS from src/chat.js, in the native batch's RGBA form.
-            let color = match message.channel {
-                bfe_battle_ui::ChatChannel::Global => [1.0, 1.0, 64.0 / 255.0, 1.0],
-                bfe_battle_ui::ChatChannel::Team => [80.0 / 255.0, 1.0, 112.0 / 255.0, 1.0],
-                bfe_battle_ui::ChatChannel::Server => [96.0 / 255.0, 184.0 / 255.0, 1.0, 1.0],
-            };
-            draw(&self.chat_text, color, false);
-            visible = true;
-        }
-        if let Some(channel) = self.chat.active_channel {
-            self.chat_text.clear();
-            self.chat_text.extend(channel.prompt().encode_utf16());
-            self.chat_text.extend(self.chat.draft.encode_utf16());
-            draw(&self.chat_text, [1.0; 4], true);
-        }
-        visible || open
+        let place = (own.alive && !own.dead && !own.removed).then_some(own.position);
+        let alpha = self.leaving.alpha(tick as f64, place);
+        self.scene.bridge.hud_model.input[H::LEAVING] = alpha;
     }
 
     /// Renders the faction emblems and team labels in the top-left corner of the spawn screen.
@@ -2541,21 +2491,13 @@ impl BattleController {
         dst.end = v1;
     }
 
-    // The stats hotkey is a visual preference. Reuse admitted text storage;
-    // enabling the line must not allocate in the steady render loop.
-    fn draw_stats_line(&mut self) {
+    // Format into retained storage; the page overlay supplies CSS-pixel sizing.
+    fn update_stats_line(&mut self) {
         use std::fmt::Write;
         self.stats_text.clear();
         let mean = self.frame_seconds / self.frames.max(1) as f64;
         let fps = if mean > 0. { 1. / mean } else { 0. };
         let _ = write!(&mut self.stats_text, "{fps:.0} fps | mean frame {:.2} ms | {}x{} Native", mean * 1000., self.size[0], self.size[1]);
-        self.stats_utf16.clear();
-        self.stats_utf16.extend(self.stats_text.encode_utf16());
-        let hud = &mut self.scene.bridge.hud_model;
-        // The glyphs hang down from y: leave the line's own height above the bottom edge.
-        let y = self.height - 8. - hud.fonts[0].height * 0.65;
-        hud.fonts[0].draw(&mut hud.batch, root_anchor(self.height), 8., y,
-            &self.stats_utf16, [1.; 4], 0, 0.65, 1., 0.);
     }
 
     // Pausing is a cold diagnostic boundary: record the actual displayed view
@@ -3380,6 +3322,7 @@ pub struct BotSettings {
     pub difficulty: String,
     pub heroes: bool,
     pub size: String,
+    pub friendly_fire: bool,
 }
 impl BotSettings {
     pub fn read(settings: &bfe_interface::Settings) -> Self {
@@ -3388,6 +3331,7 @@ impl BotSettings {
             difficulty: settings.get_string("aiDifficulty"),
             heroes: settings.get_bool("aiHeroes"),
             size: settings.get_string("battleSize"),
+            friendly_fire: settings.get_bool("friendlyFire"),
         }
     }
 }

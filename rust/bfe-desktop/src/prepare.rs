@@ -1,17 +1,5 @@
 //! Prepared content version checks, toolchain paths, progress estimation, and
 //! subprocess driver (`tools/prepare.py`).
-//!
-//! Mirrors the desktop host and the desktop host.
-//!
-//! Note on `ContentVersion`:
-//! `tools/content-version.json` is the single shared source of truth for both
-//! the Python preparer and the desktop client. This module never defines a
-//! hardcoded `Default` for `ContentVersion`. At runtime, the client loads
-//! `<tools_dir>/content-version.json` via [`read_content_version`], where a
-//! missing or unparsable file is returned as an explicit error. For checkout
-//! builds and tests, [`checkout_content_version`] parses the compile-time
-//! embedded `include_str!("../../../tools/content-version.json")` so moving or
-//! corrupting the file breaks the build immediately.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -231,13 +219,6 @@ pub struct ToolEnvOptions {
 }
 
 /// Builds the environment variable map for running `prepare.py`.
-///
-/// Prepends existing `toolchain/bin` and `toolchain/ktx/bin` directories to `PATH`,
-/// configures `KTX2_ENCODER` and shared library search paths when bundled KTX tools
-/// are present, sets `BFE_GAME_DIR` / `BFE_CONTENT_DIR` and Python UTF-8/unbuffered
-/// flags, and strips `PYTHONHOME` and `PYTHONPATH`.
-///
-/// Mirrors `toolEnv` in the desktop host.
 pub fn tool_env(opts: &ToolEnvOptions) -> BTreeMap<String, String> {
     let is_win = opts.platform == "win32" || opts.platform == "windows";
     let sep = if is_win { ";" } else { ":" };
@@ -529,11 +510,6 @@ pub fn prepared_summary(state: Option<&PrepareState>) -> PreparedSummary {
 
 /// Clears prepared output subdirectories (`maps`, `sides`, `common`, `audio`, `.prepare.json`)
 /// inside `content` if its existing `.prepare.json` was not built from `game`.
-///
-/// Returns `true` when existing prepared outputs were removed so a clean build
-/// from `game` can proceed without stale assets from another install.
-///
-/// Mirrors `clearPreparedFor` in the desktop host.
 pub fn clear_prepared_for(content: Option<&Path>, game: Option<&Path>, platform: &str) -> bool {
     let (Some(content_dir), Some(game_dir)) = (content, game) else {
         return false;
@@ -1035,12 +1011,6 @@ pub struct EstimateResult {
 }
 
 /// Estimates remaining preparation time and the human-readable phase label.
-///
-/// Calibrates baseline expectations against actual non-cached step durations once
-/// at least 3 samples have completed (clamped to `0.5..=3.0`) and accounts for
-/// parallel worker concurrency on map steps.
-///
-/// Mirrors `estimate` in the desktop host.
 pub fn estimate(
     snapshot: &PrepareSnapshot,
     timings: Option<&StepTimings>,
@@ -1256,12 +1226,6 @@ pub struct StartupContentResult {
 
 /// Resolves the startup content state from saved settings, candidate directories,
 /// and discovered game installations.
-///
-/// Loads `tools/content-version.json` from `tools_dir` (when provided) or from
-/// the compile-time embedded checkout copy, returning an explicit error if the
-/// version file is missing or unparsable.
-///
-/// Mirrors `startupContent` in the desktop host.
 pub fn resolve_startup_content(
     settings: &SettingsStore,
     likely_content_dirs: &[PathBuf],

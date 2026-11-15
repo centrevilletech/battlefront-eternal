@@ -118,25 +118,12 @@ pub(crate) fn wire_trap_in(battle: &BattleOwner, index: usize) -> Option<[f64; 3
 }
 
 pub(crate) fn descriptor_words(w: &mut Root) -> Option<&[f64]> {
-    let mut phase = F4Phase { version: io(&mut w.battle).version,
+    let phase = F4Phase { version: io(&mut w.battle).version,
         input_capacity: F4LiveInput::WORDS.max(F4TailInput::WORDS) as u32, ..F4Phase::default() };
-    #[cfg(target_arch = "wasm32")]
-    bind_descriptor(w, &mut phase);
     let io = io(&mut w.battle); io.dirty_counters = false; io.counts.put(&mut io.counters, &mut Vec::new()); phase.put(&mut io.descriptor, &mut Vec::new()); Some(&io.descriptor[..])
 }
 // The native publication owns typed banks; facade offsets are bound only
 // after the shared phase has completed its counters and changed rows.
-#[cfg(target_arch = "wasm32")]
-fn bind_descriptor(w: &mut Root, phase: &mut F4Phase) {
-    phase.live_input = io(&mut w.battle).live.as_ptr() as u32;
-    phase.tail_input = io(&mut w.battle).tail.as_ptr() as u32;
-    phase.buildings = f4::live_in(&mut w.battle).buildings.publication.ptr() as u32;
-    phase.animated = f4::live_in(&mut w.battle).animated.publication.ptr() as u32;
-    phase.traps = f4::live_in(&mut w.battle).traps.publication.ptr() as u32;
-    phase.counters = io(&mut w.battle).counters.as_ptr() as u32;
-    phase.battle = super::f4_core::publication_ptr(&mut w.battle);
-    phase.events = w.sim.events.ptr() as u32;
-}
 // The retained banks the descriptor names, for a native host that reads them
 // by name rather than by address (Context::read_bank); None before f4_live_init.
 pub(crate) fn counters_bank_in(w: &Root) -> Option<&[f64]> { w.battle.io.as_ref().map(|io| &io.counters[..]) }
@@ -150,9 +137,12 @@ pub(crate) fn traps_bank_in(w: &Root) -> Option<&[f64]> { w.battle.live.as_ref()
 pub(crate) fn publish_in(w: &mut Root) {
     if crate::world::deferred_in(&w.tick) {return;}
     if w.battle.io.is_none() { return; }
-    let rows = f4::live_in(&mut w.battle).flush();
+    // The changed buildings, animated props and traps were encoded here as
+    // deltas for the JavaScript host. Nothing native reads them.
+    f4::live_in(&mut w.battle).discard();
+    let rows = 0;
     let words = { let live = f4::live_in(&mut w.battle); live.buildings.publication.words.len() + live.animated.publication.words.len() + live.traps.publication.words.len() };
-    record_publication(&mut w.battle, rows, words - 3 * crate::store::block::HEADER);
+    record_publication(&mut w.battle, rows, words.saturating_sub(3 * crate::store::block::HEADER));
     let io = io(&mut w.battle);
     // Counters can advance without any changed reader row. Only actual live
     // or battle payloads invalidate the facade epoch at a foreign barrier.
@@ -273,7 +263,6 @@ impl traps::World for Logs<'_, '_, '_> {
 fn array(p: Vector3) -> [f64; 3] { [p.x, p.y, p.z] }
 
 pub fn f4_live_in(w: &mut Root) -> Option<&[f64]> {
-    let before = crate::allocations::snapshot(); crate::allocations::begin();
     let input = F4LiveInput::take(&io(&mut w.battle).live, &[]);
     let outer = f3::external_in(w);
     f3::with_services_in(w, |w, services| {
@@ -285,8 +274,6 @@ pub fn f4_live_in(w: &mut Root) -> Option<&[f64]> {
     });
     { let io = io(&mut w.battle); io.counts.live += 1.0; io.counts.input_words += F4LiveInput::WORDS as f64; }
     outer.finish(w, true);
-    crate::allocations::end(); let used = crate::allocations::snapshot().since(before);
-    io(&mut w.battle).counts.allocations = used.calls as u32; io(&mut w.battle).counts.reallocations = used.reallocs as u32; io(&mut w.battle).counts.allocation_bytes = used.bytes as u32;
     descriptor_words(w)
 }
 
@@ -351,10 +338,9 @@ pub(crate) fn owns_held_in(battle: &mut BattleOwner, prop:Ref<Prop>)->bool {
 }
 
 pub(crate) fn tail_input(battle: &mut BattleOwner) -> F4TailInput {F4TailInput::take(&io(battle).tail,&[])}
-pub(crate) fn count_tail(w: &mut Root, commands:usize,before:crate::allocations::Counts) {
-    let used=crate::allocations::snapshot().since(before);let counts=&mut io(&mut w.battle).counts;
+pub(crate) fn count_tail(w: &mut Root, commands:usize) {
+    let counts=&mut io(&mut w.battle).counts;
     counts.tail+=1.0;counts.input_words+=(F4TailInput::WORDS+commands*HsCommand::WORDS) as f64;
-    counts.allocations=used.calls as u32;counts.reallocations=used.reallocs as u32;counts.allocation_bytes=used.bytes as u32;
     descriptor_words(w);
 }
 
@@ -425,33 +411,5 @@ impl State {
     }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-
-    #[no_mangle]
-    pub extern "C" fn f4_live_init() -> *const f64 { f4_live_init_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn f4_building_handle(index: u32) -> *const f64 { f4_building_handle_in(crate::abi::facade::world(), index).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn f4_unit_class() { f4_unit_class_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f4_weapon_class() { f4_weapon_class_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f4_hull_class() { f4_hull_class_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f4_grip_class() { f4_grip_class_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f4_animated_birth() -> *const f64 { f4_animated_birth_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn f4_live_publish() -> *const f64 { f4_live_publish_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn f4_live() -> *const f64 { f4_live_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn f4_live_command() -> u32 { f4_live_command_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f4_viewpoint_clock() { f4_viewpoint_clock_in(crate::abi::facade::world()) }
-}
 
 impl super::stats::TextWorld for Logs<'_, '_, '_> { fn text_nonempty(&self,id:StrId)->bool { !self.w.sim.strings.units(id).is_empty() } }

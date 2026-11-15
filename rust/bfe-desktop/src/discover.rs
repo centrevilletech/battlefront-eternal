@@ -1,21 +1,5 @@
 //! Game installation and prepared content discovery across Steam, GOG, Heroic,
 //! Wine, CrossOver, and local filesystem directories.
-//!
-//! Mirrors the desktop host.
-//!
-//! ## Discovery Hierarchy
-//! - **Prepared content (`find_content`)**:
-//!   1. Explicit directories (`--content`, `BFE_CONTENT_DIR`, or user-saved `settings.contentDir`)
-//!      are checked first; the first valid folder wins with `source: "chosen"`.
-//!   2. Known likely locations (`default_prepared_dir`, `./prepared`, `<app>/prepared`, etc.)
-//!      are compared by map count (`richer_content`) and returned with `source: "found"`.
-//!   3. When `search` is enabled, a bounded breadth-first search of the user's home directory
-//!      (`depth: 4`, `budget_ms: 2500`, `max_dirs: 20_000`) returns the richest folder with
-//!      `source: "searched"`.
-//! - **Retail game installation (`find_game_installs`)**:
-//!   Validates `GameData/Data/_LVL_PC/SIDE` and `GameData/Data/_LVL_PC/Common/<LANG>/common.lvl`
-//!   case-insensitively so Linux/macOS filesystems handle any retail casing, and distinguishes
-//!   Star Wars Battlefront (2004) from Star Wars Battlefront II (2005).
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
@@ -120,12 +104,6 @@ pub struct ContentInfo {
 }
 
 /// Inspects `dir` to see if it is a valid prepared content folder.
-///
-/// A folder is considered prepared content when `<dir>/common/common.json` exists.
-/// Returns the resolved directory path and the sorted list of map subdirectories
-/// inside `<dir>/maps`.
-///
-/// Mirrors `inspectContent` in the desktop host.
 pub fn inspect_content(dir: &Path) -> Option<ContentInfo> {
     if dir.as_os_str().is_empty() {
         return None;
@@ -196,12 +174,6 @@ impl Default for SearchContentOptions {
 }
 
 /// Breadth-first searches `root` for the richest prepared content directory.
-///
-/// Stops descending into any directory that already contains a valid `common/common.json`,
-/// skips symlinks, hidden dot-directories, and names in [`SKIP_DIRS`], and respects
-/// `depth`, `budget_ms`, and `max_dirs`.
-///
-/// Mirrors `searchContent` in the desktop host.
 pub fn search_content(root: &Path, opts: &SearchContentOptions) -> Option<ContentInfo> {
     if root.as_os_str().is_empty() {
         return None;
@@ -317,12 +289,6 @@ pub fn find_content(opts: &FindContentOptions) -> Option<ContentInfo> {
 }
 
 /// Finds a direct child entry of `dir` matching `name` case-insensitively.
-///
-/// Performs an exact probe first (`dir.join(name)`), then scans directory entries
-/// comparing lowercase names so Linux/macOS case-sensitive filesystems still resolve
-/// retail `GameData/Data/_LVL_PC/Common/ENG/common.lvl` paths regardless of casing.
-///
-/// Mirrors `childIgnoreCase` in the desktop host.
 pub fn child_ignore_case(dir: &Path, name: &str) -> Option<PathBuf> {
     let direct = dir.join(name);
     if direct.exists() {
@@ -362,12 +328,6 @@ pub struct ValidatedInstall {
 }
 
 /// Inspects `dir` to verify that it contains a genuine Star Wars Battlefront (2004) install.
-///
-/// Checks that `<dir>/GameData/Data/_LVL_PC` has both a `SIDE` directory and a
-/// `Common` directory containing at least one language subfolder with `common.lvl`
-/// (e.g. `Common/ENG/common.lvl`), distinguishing SWBF1 from SWBF2.
-///
-/// Mirrors `inspectInstall` in the desktop host.
 pub fn inspect_install(dir: &Path) -> Option<ValidatedInstall> {
     let lvl = walk_ignore_case(dir, &["GameData", "Data", "_LVL_PC"])?;
     let side = child_ignore_case(&lvl, "SIDE")?;
@@ -753,12 +713,6 @@ fn common_folders(library: &Path) -> Vec<PathBuf> {
 }
 
 /// Discovers Wine and CrossOver prefix directories under `home` that contain `drive_c`.
-///
-/// Checks `~/.wine`, every subdirectory of `~/Games/*`, and every CrossOver bottle
-/// under `~/Library/Application Support/CrossOver/Bottles/*`, keeping only directories
-/// that contain a `drive_c` subdirectory.
-///
-/// Mirrors `winePrefixes` in the desktop host.
 fn wine_prefixes(home: Option<&Path>) -> Vec<PathBuf> {
     let Some(h) = home else {
         return Vec::new();
@@ -985,19 +939,6 @@ pub fn find_gog_install(opts: &FindGameOptions) -> Option<GameInstall> {
 }
 
 /// Discovers all valid Star Wars Battlefront (2004) installations on the system.
-///
-/// Preserves the exact discovery order and upgrade semantics of `findGameInstalls`
-/// in the desktop host:
-/// 1. User-chosen `extra` directories (`source: "chosen"`).
-/// 2. Steam manifest installs in listed libraries (`source: "steam"`).
-/// 3. Steam manifest installs in drive libraries (`source: "steam"`).
-/// 4. GOG registry / Heroic records (`source: "gog"`).
-/// 5. Unindexed `steamapps/common` folders (`source: "folder"`).
-/// 6. GOG parent folder subdirectories (`source: "folder"`).
-///
-/// If a folder initially added as `"chosen"` is later discovered as `"steam"` or
-/// `"gog"`, it is upgraded in place (`source: "steam" | "gog"`, `chosen: true`)
-/// while keeping its leading position in the returned list.
 pub fn find_game_installs(opts: &FindGameOptions) -> Vec<GameInstall> {
     let mut installs: Vec<GameInstall> = Vec::new();
     let mut by_key: BTreeMap<String, usize> = BTreeMap::new();
@@ -1127,12 +1068,6 @@ pub fn find_game_installs(opts: &FindGameOptions) -> Vec<GameInstall> {
 }
 
 /// Returns the highest-priority game installation discovered by [`find_game_installs`].
-///
-/// Returns `None` when no valid Star Wars Battlefront (2004) installation is found
-/// in any user-chosen folder, Steam library, GOG registry/Heroic manifest, or
-/// standard parent folder.
-///
-/// Mirrors `findGameInstall` in the desktop host.
 pub fn find_game_install(opts: &FindGameOptions) -> Option<GameInstall> {
     find_game_installs(opts).into_iter().next()
 }

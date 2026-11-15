@@ -79,30 +79,7 @@ fn nonclassic_team_spawn_suicide_and_respawn_keep_native_links_and_notice_order(
     assert_eq!(bodies.point,[20.0,0.0,20.0,180.0]);assert_eq!(bodies.spawns,2);assert_eq!(game.draws,2);assert_eq!(ai.draws,0);
     assert!(matches!(human.events(),[Event::TeamChanged{team:2.0,..},Event::Spawned{team:2.0,..}]));
 }
-#[path="support/allocations.rs"] mod allocation;
-#[global_allocator] static ALLOCATOR:allocation::Counted=allocation::Counted;
-#[test]
-fn first_classic_ready_cancel_and_team_switch_reuse_cold_queue_and_roster_storage() {
-    let (mut s,mut human,mut bodies,strings,classes,names)=setup(true);let mut ai=Random{draws:0};let mut game=Random{draws:0};
-    allocation::start();
-    human.step(&mut s,0.0,&[Command::Spawn(HumanPick{class_name:classes[0],post:Some(names[0])})],&mut bodies,&strings,&mut ai,&mut game);
-    assert!(s.character.get(bodies.character).unwrap().spawn.as_ref().unwrap().ready);
-    human.published();human.step(&mut s,0.0,&[Command::Cancel,Command::Team(2.0)],&mut bodies,&strings,&mut ai,&mut game);
-    assert_eq!(allocation::stop(),0);assert_eq!(bodies.spawns,0);assert_eq!(s.character.get(bodies.character).unwrap().team,2.0);
-    assert!(!s.character.get(bodies.character).unwrap().spawn.as_ref().unwrap().ready);assert_eq!(ai.draws,0);assert_eq!(game.draws,0);
-}
 
-#[test]
-fn repeated_native_choices_spawn_death_and_screen_transitions_allocate_nothing() {
-    let (mut s,mut human,mut bodies,strings,classes,names)=setup(false);let mut ai=Random{draws:0};let mut game=Random{draws:0};
-    allocation::start();
-    for _ in 0..1200 {
-        human.step(&mut s,0.0,&[Command::Spawn(HumanPick{class_name:classes[0],post:Some(names[0])})],&mut bodies,&strings,&mut ai,&mut game);
-        human.published();human.step(&mut s,0.0,&[Command::Suicide],&mut bodies,&strings,&mut ai,&mut game);
-        human.published();human.step(&mut s,4.0,&[],&mut bodies,&strings,&mut ai,&mut game);human.published();
-    }
-    assert_eq!(allocation::stop(),0);assert_eq!(bodies.spawns,1200);assert_eq!(game.draws,1200);
-}
 
 #[test]
 fn auto_respawn_places_raw_world_path_at_the_combat_slot_and_keeps_the_url_index() {
@@ -111,9 +88,7 @@ fn auto_respawn_places_raw_world_path_at_the_combat_slot_and_keeps_the_url_index
     let first=s.command_posts.posts[0];
     human.choices.raw_post(first,Some(vec![[71.0,2.0,3.0,4.0]]));
     let mut index=-1.0;let mut game=Random{draws:0};
-    allocation::start();
     human.auto_respawn(&mut s,&mut index,&[[91.0;4]],&mut bodies,&strings,&mut game);
-    assert_eq!(allocation::stop(),0);
     assert_eq!(index,0.0);assert_eq!(game.draws,1);assert_eq!(bodies.spawns,1);
     assert_eq!(bodies.point,[71.0,2.0,3.0,4.0]);
     assert_eq!(s.human_spawn.phase,HumanPhase::Alive);

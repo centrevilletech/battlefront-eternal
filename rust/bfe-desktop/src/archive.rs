@@ -1,32 +1,5 @@
 //! Portable prepared content archive export, verification, atomic import and
 //! game-install relocation.
-//!
-//! Ports `electron/content-archive.js` of the browser build: the archives players
-//! already hold (`.bfepack`, or `.zip`) are the standard, so this module reads and
-//! writes that one dialect and nothing else.
-//!
-//! An archive is a ZIP64-capable file holding:
-//! - `bfe-content-manifest.json` (`format: "battlefront-eternal-content"`,
-//!   `version: 1`, `created`, `source`, `files`), the first entry the exporter writes;
-//! - prepared content files under `common/`, `sides/`, `maps/`, `audio/`, and `.prepare.json`;
-//! - `linkTo` manifest records (no payload) for hardlinks and case-variant duplicates;
-//! - `source`, SHA-256 fingerprints of the original `.lvl` files, so
-//!   [`relocate_preparation`] can check that a local install matches what the
-//!   content was prepared from.
-//!
-//! Each `files` record is `{path, size, mtime, [linkTo, hardlink,] sha256}` exactly as
-//! the browser exporter writes it. The importer accepts deflated entries (the browser
-//! compresses at level 3) as well as stored ones, and streams both; the exporter stores
-//! its entries, which every ZIP reader accepts, because prepared content is already
-//! compressed audio, textures and packed blobs.
-//!
-//! ## Safety Invariants
-//! Every archive entry path and manifest path is validated through [`safe_path`]
-//! before touching the host filesystem:
-//! - No empty segments, `.` or `..` traversal components, backslashes, or drive colons.
-//! - No ASCII control characters (`<= 0x1f`) or trailing dots/spaces that Windows strips.
-//! - No Windows reserved device stems (`CON`, `PRN`, `AUX`, `NUL`, `COM1..9`, `LPT1..9`).
-//! - Content entries must live under `common/`, `sides/`, `maps/`, `audio/`, or `.prepare.json`.
 
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -510,18 +483,6 @@ impl ZipStoreWriter {
 
     /// Emits a 30-byte ZIP local file header (plus a 20-byte ZIP64 extra block
     /// when `size` or `offset` reaches `0xffffffff`) and returns the header offset.
-    ///
-    /// Local file header binary layout (little-endian):
-    /// - `0..4`: signature `0x04034b50` (`PK\x03\x04`)
-    /// - `4..6`: version needed to extract (`45` for ZIP64, `20` for standard)
-    /// - `6..8`: general purpose bit flag (`0x0800` for UTF-8 names)
-    /// - `8..10`: compression method (`0` = store)
-    /// - `10..14`: MS-DOS modification time (`0`) and date (`0x0021` = 1980-01-01)
-    /// - `14..18`: CRC-32 checksum
-    /// - `18..22`: compressed size (`0xffffffff` when ZIP64)
-    /// - `22..26`: uncompressed size (`0xffffffff` when ZIP64)
-    /// - `26..28`: filename length in bytes
-    /// - `28..30`: extra field length (`20` when ZIP64, `0` otherwise)
     fn write_local_header(&mut self, name: &[u8], crc: u32, size: u64) -> Result<u64, String> {
         let offset = self.offset;
         let zip64 = size >= 0xffff_ffff || offset >= 0xffff_ffff;
@@ -620,20 +581,6 @@ impl ZipStoreWriter {
     }
 
     /// Writes the central directory, optional ZIP64 EOCD + Locator, and standard EOCD.
-    ///
-    /// Central directory header binary layout (46 bytes + filename + optional 28-byte ZIP64 extra):
-    /// - `0..4`: signature `0x02014b50` (`PK\x01\x02`)
-    /// - `4..6`: version made by (`45`)
-    /// - `6..8`: version needed to extract (`45` for ZIP64, `20` for standard)
-    /// - `8..10`: general purpose bit flag (`0x0800` UTF-8)
-    /// - `10..12`: compression method (`0` = store)
-    /// - `12..16`: MS-DOS modification time and date
-    /// - `16..20`: CRC-32 checksum
-    /// - `20..24`: compressed size (`0xffffffff` when ZIP64)
-    /// - `24..28`: uncompressed size (`0xffffffff` when ZIP64)
-    /// - `28..34`: filename, extra, and comment lengths
-    /// - `34..42`: disk number, internal attributes, external attributes
-    /// - `42..46`: local header relative offset (`0xffffffff` when ZIP64)
     fn finish(mut self) -> Result<u64, String> {
         let central_offset = self.offset;
         let entries = std::mem::take(&mut self.entries);
@@ -817,13 +764,6 @@ fn read_exact_at(file: &mut File, offset: u64, len: usize) -> Result<Vec<u8>, St
 }
 
 /// Parses the ZIP / ZIP64 central directory of `file`.
-///
-/// Mirrors the `yauzl.open` central directory reader in `importContent` in the desktop host.
-///
-/// Scans backwards from the end of `file` to find the 22-byte End of Central Directory
-/// (EOCD) record, checks for a preceding 20-byte ZIP64 EOCD Locator (`PK\x06\x07`) and
-/// 56-byte ZIP64 EOCD record (`PK\x06\x06`), and parses every central directory entry
-/// into a `BTreeMap` keyed by entry name.
 pub fn read_zip_entries(file: &mut File) -> Result<BTreeMap<String, ZipEntryInfo>, String> {
     let total_size = file
         .metadata()
@@ -1079,11 +1019,6 @@ fn read_entry_bytes(
 
 /// Streams one ZIP entry (stored or deflated) to `dest`, verifying its CRC-32 and its
 /// manifest SHA-256 as the bytes pass, and calls `on_bytes` for every chunk.
-///
-/// Ports the per-entry loop of `importContent`: the target is created exclusively
-/// (`wx`), the hash is checked after the last byte (`Checksum mismatch: ...`), and the
-/// manifest's `mtime` is applied when it is finite. The callback runs every 64 KiB at
-/// most, so progress follows the bytes and an `Err` (a cancel) stops the copy at once.
 fn extract_entry_to_file(
     file: &mut File,
     entry: &ZipEntryInfo,
@@ -1190,15 +1125,6 @@ fn valid_sha256(sha: &str) -> bool {
 }
 
 /// Validates a parsed [`ArchiveManifest`] and returns the total byte count of its records.
-///
-/// Ports `validateManifest` in `electron/content-archive.js`, rule for rule and in its order:
-/// 1. `format`, `version` and a non-empty file list within `MAX_FILES`.
-/// 2. Per record: a content-only safe path, no duplicate path, no case variant that is not a
-///    `linkTo` alias with the same hash and size, a safe-integer size and a lowercase SHA-256,
-///    and a running total within `MAX_BYTES`.
-/// 3. Every `linkTo` names a stored (non-alias) record with the same hash and size.
-/// 4. `common/common.json` and at least one `maps/<id>/map.json` are present.
-/// 5. `source`, when present, is a `GameData` fingerprint of at most `MAX_FILES` safe records.
 pub fn validate_manifest(manifest: &ArchiveManifest) -> Result<u64, String> {
     if manifest.format != ARCHIVE_FORMAT
         || manifest.version != ARCHIVE_VERSION
@@ -1658,11 +1584,6 @@ pub fn import_content(
 /// (`Importing and verifying`, then `Restoring shared content`), as `onProgress` does in the
 /// browser build. The callback runs at least every 64 KiB of data; an `Err` from it cancels
 /// the import, removes the staging directory and is returned unchanged.
-///
-/// Ports `importContent`: stage into `.import-<id>`, extract and verify every stored file,
-/// restore the `linkTo` aliases, keep the manifest as `.bfe-import.json`, then rename the
-/// staging directory to `content-<id>`. Whether the content is current for this version is
-/// decided afterwards by the startup check, exactly as for a content folder.
 pub fn import_content_with_progress(
     archive_path: &Path,
     destination_parent: &Path,

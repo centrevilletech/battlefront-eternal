@@ -254,7 +254,6 @@ impl<'w, 'a> ModuleWorld<'w, 'a> {
     // Droidekas use their prepared clips and persistent collision sidecar.
     // The allocation-stage label counts real requests without changing solver order.
     fn move_body(&mut self, id: u32, unit: &mut Unit, input: &MoveInput, h: f64) {
-        let _allocations = crate::allocations::at(F3AllocationStage::Movement);
         match &mut unit.soldier {
             UnitBody::Soldier(s) => {
                 let pass_through = match s.pass_through {
@@ -276,7 +275,6 @@ impl<'w, 'a> ModuleWorld<'w, 'a> {
     // The native world services permit immediate hits and nested explosions.
     // The caller restores the combat row before publishing a boundary result.
     fn on_combat(&mut self, id: u32, unit: &mut Unit, f: impl FnOnce(&mut Combat, &mut Unit, &cb::CombatDefs, &Edges, &mut JsWorld)) {
-        let _allocations = crate::allocations::at(F3AllocationStage::Combat);
         // Damage can precede Unit.onMoved after an impact. Its barrier must
         // publish combat too rather than reusing the last consumed clocks.
         let reference = unit_ref_in(&self.w.sim.store,id);
@@ -341,7 +339,6 @@ impl UnitsWorld for ModuleWorld<'_, '_> {
     // The reply contains qualified scalar deltas, never another full body import.
     // No other gameplay callback may use this observation to start a second phase.
     fn aim(&mut self, id: u32, unit: &mut Unit, h: f64) {
-        let _allocations = crate::allocations::at(F3AllocationStage::Aimer);
         // The aimer only for a unit with a controller: without one the
         // AI's aim does nothing (src/ai/index.js aim).
         if unit.controller.is_none() {
@@ -558,16 +555,3 @@ pub(super) fn with_registry_in<T>(w: &mut crate::world::owner::World, run: impl 
     result
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn units_droideka_class() -> u32 { units_droideka_class_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn units_droideka_attach(unit: u32, class: u32) { units_droideka_attach_in(crate::abi::facade::world(), unit, class) }
-    #[no_mangle]
-    pub extern "C" fn units_muzzle_attach(unit: u32, class: u32) { units_muzzle_attach_in(crate::abi::facade::world(), unit, class) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{units_droideka_class, units_droideka_attach, units_muzzle_attach};

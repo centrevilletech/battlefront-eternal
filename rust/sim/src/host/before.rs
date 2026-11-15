@@ -7,13 +7,12 @@
 //! (`ai.prepare`, after `simTime = tick / 60`). The native tick reads the
 //! banks; nothing in it writes them.
 use super::journal::{Event, Life};
-use super::{block_row, put, unit_generation, unit_rows, write_bank, Authority};
+use super::{block_row, put, write_bank, Authority};
 use crate::abi::context::Context;
 use crate::gen::{
     self, AiPhaseFacts, AiPhaseHeader, AiPhaseReticle, F2Input, F2PadTeam,
     F3Separation, F4LiveInput, F4TailInput, FfInputs, Vehicles,
 };
-use crate::world::admit::{Call, Returned};
 
 impl Authority {
     /// The pre-step writes for the tick being stepped.
@@ -69,29 +68,37 @@ impl Authority {
         // page saw those as its bodies' `enabled` too. Adopt what changed
         // since the last write, then the buildings' shown states the page
         // toggled (F3Props.show), and hand both kernels the same flags.
-        if let Ok(Returned::Bytes(movement)) =
-            context.invoke_export("bank:MOVEMENT_FLAGS", &Call::default())
-        {
-            for (i, (now, was)) in movement.iter().zip(&self.written).enumerate() {
-                if now != was && i < self.enabled.len() {
-                    self.enabled[i] = *now;
+        // Both kernels' flag arrays are read and written in place.
+        let (enabled, written, toggles) = (&mut self.enabled, &self.written, &mut self.toggles);
+        context
+            .world(|w| {
+                // Most of the 64 KB is unchanged: compare chunks first.
+                let movement = w.movement.flags_mut();
+                let n = movement.len().min(written.len()).min(enabled.len());
+                for (c, (now, was)) in movement[..n].chunks(64).zip(written[..n].chunks(64)).enumerate() {
+                    if now == was {
+                        continue;
+                    }
+                    for (k, (a, b)) in now.iter().zip(was).enumerate() {
+                        if a != b {
+                            enabled[c * 64 + k] = *a;
+                        }
+                    }
                 }
-            }
-        }
-        for (kernel, enabled) in self.toggles.drain(..) {
-            if kernel < self.enabled.len() {
-                self.enabled[kernel] = enabled;
-            }
-        }
-        let flags = Call {
-            scratch: self.enabled.clone(),
-            ..Default::default()
-        };
-        for bank_name in ["bank:COLLISION_ENABLED", "bank:MOVEMENT_FLAGS"] {
-            if let Err(e) = context.invoke_export(bank_name, &flags) {
-                return Err(format!("{bank_name}: {}", e.message()));
-            }
-        }
+                for (kernel, on) in toggles.drain(..) {
+                    if kernel < enabled.len() {
+                        enabled[kernel] = on;
+                    }
+                }
+                let n = enabled.len();
+                if n > crate::collision::MAX_BODIES {
+                    return Err("bank:COLLISION_ENABLED: body flags exceed the kernels".to_string());
+                }
+                w.collision.enabled_mut()[..n].copy_from_slice(enabled);
+                w.movement.flags_mut()[..n].copy_from_slice(enabled);
+                Ok(())
+            })
+            .map_err(|e| e.message().to_string())??;
         self.written.clone_from(&self.enabled);
         // preparePhase: a server world separates every pair everywhere.
         let separation = F3Separation {
@@ -128,12 +135,13 @@ impl Authority {
         // each shot or damage record as an AiJournalEvent row, a unit
         // reference being its store reference and the life the record named.
         let heard = {
-            let units = unit_rows(context)?;
+            self.units.refresh(context, false)?;
+            let units = &self.units;
             let reference = |heard: Option<Life>| match heard {
                 Some(h) => gen::AiJournalRef {
                     member: Some(gen::Member::Unit(crate::store::Ref::new(
                         h.id,
-                        unit_generation(&units, h.id),
+                        units.generation(h.id),
                     ))),
                     generation: Some(h.generation),
                     direct: false,

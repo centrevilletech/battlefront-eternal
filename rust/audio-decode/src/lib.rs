@@ -1,7 +1,6 @@
 //! Bounded asset decoding, run on a loading worker. The decoder owns its
 //! compressed parser, PCM windows and explicit sample-rate conversion.
 //! Audio render threads receive only prepared PCM and never call a codec.
-mod abi;
 mod flac;
 mod input;
 mod layout;

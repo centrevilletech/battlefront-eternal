@@ -49,7 +49,7 @@ In single-player, the battle runs on a local server thread inside `bfe-client`
 client sends the player's input as commands, draws the world from the server
 thread's published snapshots, and predicts the player's own soldier, hull,
 mounted guns, recon droid and shots ahead of them, just as an online client
-does. Phase replay fixtures run through `rust/sim-replay` and the simulation tests.
+does.
 
 The timing and threading architecture is documented in
 [docs/runtime-architecture.md](runtime-architecture.md).
@@ -200,17 +200,18 @@ The original game, its code, and its assets remain the property of their rights 
 
 The engine, desktop client, dedicated server, and build tools live in the Cargo workspace under `rust/`:
 
-- `rust/sim`: the simulation crate (`bfe_sim`, [docs/sim-store.md](sim-store.md)), linked directly into `bfe-client`, `bfeserver`, `sim-replay` and `xtask`. It holds the collision ray kernel ([docs/performance.md](performance.md)), soldier movement, the rig sampler, and the canonical world, AI, unit, vehicle, combat, battle and publication owners. One world operation runs the ordered 60 Hz tick.
+- `rust/sim`: the simulation crate (`bfe_sim`, [docs/sim-store.md](sim-store.md)), linked directly into `bfe-client`, `bfeserver` and `xtask`. It holds the collision ray kernel ([docs/performance.md](performance.md)), soldier movement, the rig sampler, and the canonical world, AI, unit, vehicle, combat, battle and publication owners. One world operation runs the ordered 60 Hz tick.
 - `rust/audio`: the audio output engine and loudness meter (`bfe_audio`, [docs/audio.md](audio.md)). Playback, mixing, filtering, resampling, convolution and both master chains run in Rust. `rust/audio-decode` decodes FLAC, Ogg Opus and PCM/float WAV and owns explicit asset-rate conversion. `rust/audio-control` owns the battle's sound state and event decisions.
 - `rust/bfe-presentation`: the effect and displayed-unit state owner ([docs/presentation.md](presentation.md)), sharing generated frame records and `bfe-pose` with simulation.
 - `rust/bfe-environment`: the destruction and weather presentation phase (`rust/bfe-environment/layout.json`).
-- `rust/bfe-render`: the battle and UI renderer (`bfe_render`, [docs/rendering.md](rendering.md)). It owns clears, bindings, shader program preparation, diagnostic counters, frame execution, PNG and lossless WebP decoding (`rust/image-codec`), and KTX2/Basis transcoding (`rust/basis-transcode` and `rust/texture-codec`).
+- `rust/bfe-render`: the battle and UI renderer (`bfe_render`, [docs/rendering.md](rendering.md)). It owns clears, bindings, shader program preparation, diagnostic counters, frame execution, PNG and lossless WebP decoding, and KTX2/Basis transcoding (`rust/basis-transcode`).
 - `rust/bfe-client`: the native desktop window, input, menu, network and audio host (`winit`, `glutin`, `cpal`; [docs/native-client.md](native-client.md) and [docs/desktop.md](desktop.md)).
 - `rust/bfe-server`: the native dedicated server executable (`bfeserver`; [docs/host-qualification.md](host-qualification.md) and [docs/server-updates.md](server-updates.md)).
 - `rust/bfe-desktop`: desktop installation detection, game data preparation, self-update staging and local server hosting ([docs/desktop.md](desktop.md) and [docs/desktop-updates.md](desktop-updates.md)).
 - `rust/bfe-transport` and `rust/bfe-online`: the encrypted UDP transport ([docs/native-udp-transport.md](native-udp-transport.md)), STUN/TURN client, LAN discovery, master directory client and signaling.
-- `rust/bfe-content-native`, `rust/content`, `rust/bfe-pose`, `rust/three`, `rust/jsrt`, `rust/v8math`, and `rust/sim-replay` ([docs/sim-replay.md](sim-replay.md)): shared content loaders, pose sampling, math, number/sort/RNG semantics and deterministic battle replay.
-- `rust/xtask`: the workspace code generator, verifier and world-hash matrix runner (`cargo xtask`).
+- `rust/bfe-content-native`, `rust/content`, `rust/bfe-pose`, `rust/three`, `rust/jsrt` and `rust/v8math`: shared content loaders, pose sampling, math and number/sort/RNG semantics.
+- `rust/sim-gen`: the store code generator; `rust/sim/build.rs` runs it to write the `gen` module into the build's OUT_DIR.
+- `rust/xtask`: writes and checks the generated layouts and shader tables (`cargo xtask`).
 
 ### Code generation and schema checks (`cargo xtask`)
 
@@ -218,7 +219,7 @@ From `rust/`, `cargo xtask` runs the workspace schema generators and verifies th
 
 ```bash
 cd rust
-cargo xtask schema [--check] [--export-json <dir>] # entity store, client input, and HUD layouts
+cargo xtask schema [--check]                       # generator test store, client input, and HUD layouts
 cargo xtask shaders [--check]                      # shader catalog, selectors, and renderer layouts
 cargo xtask presentation-schema [--check]          # presentation frame layouts
 cargo xtask environment-schema [--check]           # destruction and weather layouts
@@ -229,7 +230,7 @@ cargo xtask audio-codec-schema [--check]           # audio codec header layouts
 cargo xtask check                                  # run all generators in --check mode
 ```
 
-The simulation schema sources under `rust/sim/schema/*.json` and `rust/sim/schema-test/*.json` are declarative JSON files read by `rust/xtask (sim_schema.rs)`. Commit rebuilt generated files alongside any schema or shader change; `cargo xtask check` fails in CI if any generated file is out of date.
+The simulation schema sources under `rust/sim/schema/*.json` and `rust/sim/schema-test/*.json` are declarative JSON files read by `rust/sim-gen`. The store's code is generated at build time and never committed; commit the other generated files alongside any schema or shader change (`cargo xtask check` fails in CI if one is out of date).
 
 ## Building native packages locally
 
@@ -317,17 +318,17 @@ by `build/native/fetch-toolchain.py`, and the legal notices in `LICENSE`,
 
 `.github/workflows/ci.yml` validates the workspace on GitHub-hosted Linux and Windows runners using scripts under `build/ci/` and Cargo registry/target caching keyed on `rust/rust-toolchain.toml` and `rust/Cargo.lock`:
 
-- **`linux` (`ubuntu-24.04`):** Runs `build/ci/check-generated.sh` (checking `tools/native-render-bridge.py --check`, `tools/native-presentation-bridge.py --check`, and `cargo xtask check`) and `build/ci/linux.sh` (running `cargo fmt --check`, strict `cargo clippy --locked --all-targets --no-deps -- -D warnings`, `cargo test --locked` across all workspace crates, the ALSA null-device audio test `cpal_null_device_runs_master_pcm`, and CLI/service startup checks for `online-tool` and `bfeserver`).
-- **`linux-arm64` (`ubuntu-24.04-arm`, required blocking gate):** Runs `build/ci/linux-arm64.sh`, first executing the self-contained cross-architecture published-bytes determinism gate (`cargo test -p sim --test arm64_determinism`) and the presentation golden oracle (`cargo test -p bfe-presentation --test unit_oracle`), then executing the full workspace crate test suite on `aarch64` with `--no-fail-fast` and `RUST_BACKTRACE=1 --nocapture`. The same native test suite is a blocking gate in `.github/workflows/release.yml`'s `linux-arm64` job.
-- **`windows` (`windows-latest`, MSVC):** Runs `build/ci/windows.sh`, building the native Windows executables (`bfe-client`, `bfeserver`, `bfe-online`) for `x86_64-pc-windows-msvc`, running all device-independent unit and integration tests, and running CLI startup checks (`online-tool.exe --help`, `online-tool.exe identity show`, and `bfeserver.exe --version`). Live OpenGL context creation on `windows-latest` stays device-independent because `glutin-winit` defaults to WGL (which resolves to Windows GDI Generic OpenGL 1.1 on headless runners) and `static-frame` uses `EGL_EXT_device_enumeration` (see [docs/renderer-smoke.md](renderer-smoke.md)).
-- **`renderer-smoke-native` (`ubuntu-24.04`):** Builds `bfe-client`, `static-frame`, `static-fixture`, and `fingerprint`, then runs `python3 tools/renderer-smoke-native.py` over Mesa `llvmpipe` (`LIBGL_ALWAYS_SOFTWARE=1`) and `xvfb-run`. It verifies synthetic static geometry against `tests/fixtures/static-geometry-hashes.json`, renders `sky`, `props`, `foliage`, and `water` offscreen over EGL, writes and validates a 640x360 PNG contact sheet (`renderer-smoke-native.png`), runs windowed `bfe-client --map room` under Xvfb, and uploads both `renderer-smoke-native.png` and `renderer-smoke-native.jsonl` as workflow artifacts.
+- **`linux` (`ubuntu-24.04`):** Runs `build/ci/check-generated.sh` (`cargo xtask check`) and `build/ci/linux.sh` (running `cargo fmt --check`, strict `cargo clippy --locked --all-targets --no-deps -- -D warnings`, `cargo test --locked` across all workspace crates, the ALSA null-device audio test `cpal_null_device_runs_master_pcm`, and the `bfeserver` startup check).
+- **`linux-arm64` (`ubuntu-24.04-arm`, required blocking gate):** Runs `build/ci/linux-arm64.sh`, first executing the self-contained cross-architecture published-bytes determinism gate (`cargo test -p sim --test arm64_determinism`), then executing the full workspace crate test suite on `aarch64` with `--no-fail-fast` and `RUST_BACKTRACE=1 --nocapture`. The same native test suite is a blocking gate in `.github/workflows/release.yml`'s `linux-arm64` job.
+- **`windows` (`windows-latest`, MSVC):** Runs `build/ci/windows.sh`, building the native Windows executables (`bfe-client`, `bfeserver`, `bfe-online`) for `x86_64-pc-windows-msvc`, running all device-independent unit and integration tests, and checking `bfeserver.exe --version`.
+- **`renderer-smoke-native` (`ubuntu-24.04`):** Builds `render-smoke` and runs `python3 tools/renderer-smoke-native.py` over Mesa `llvmpipe`, compiling and linking all 1,046 shader variants and drawing one scene per family (see [docs/renderer-smoke.md](renderer-smoke.md)).
 
 ### Cross-architecture determinism and local `aarch64` testing (`qemu-user`)
 
 Linux ARM64 (`aarch64-unknown-linux-gnu`) is a shipping target for both `bfe-client` and `bfeserver`, and multiplayer requires every client and the server to compute identical simulation, presentation and wire-publication bits across `x86_64` and `aarch64`. The engine follows strict floating-point determinism rules across all architectures:
 
 - **Transcendentals (`rust/v8math`, `rust/jsrt`):** Simulation (`rust/sim`), pose sampling (`rust/bfe-pose`), presentation (`rust/bfe-presentation`), environment (`rust/bfe-environment`), content (`rust/content`) and math (`rust/three`) never call platform `libm` (`f64::sin`, `cos`, `tan`, `atan`, `atan2`, `acos`, `asin`, `exp`, `ln`, `log2`, `log10`, `cbrt`, `hypot`, `powf`). Instead they call `v8math`, which ports `fdlibm` (`ieee754.cc`) in pure Rust without hardware FMA contraction, and `v8math::pow`, which emulates x86-64 FMA in software (`fma_sw` using `i128` 106-bit intermediate mantissas) so `aarch64` produces the exact same last bits as `x86_64`. `rust/v8math-check` benchmarks and verifies `v8math` bit patterns across chunks (`cargo run --release -p v8math-check -- --bench`).
-- **No hardware FMA contraction in IEEE-754 operations:** Rust never contracts `a * b + c` into hardware FMA unless `mul_add` is called explicitly, and no simulation, pose, presentation or `three` crate calls `mul_add`. The presentation golden test (`rust/bfe-presentation/tests/unit_oracle.rs`) synthesizes its scenario angles with `v8math::sin` and `v8math::cos` and formats numbers with `jsrt::numfmt::json_number_into`, asserting the committed SHA-256 digests in `tests/fixtures/presentation/unit-goldens.json` identically on `x86_64` and `aarch64`.
+- **No hardware FMA contraction in IEEE-754 operations:** Rust never contracts `a * b + c` into hardware FMA unless `mul_add` is called explicitly, and no simulation, pose, presentation or `three` crate calls `mul_add`.
 - **Rounding, integer conversions, NaN canonicalization and sorting (`rust/jsrt`, `rust/v8math`):** Rounding (`v8math::round`, `jsrt::conv::round`), `ToInt32` / `ToUint32` (`v8math::to_int32`, `v8math::to_uint32`), signed-zero and NaN propagation (`jsrt::js_min`, `jsrt::js_max`), `SameValueZero` map keys (`jsrt::same_value_zero`), and stable TimSort (`jsrt::sort`) are implemented in portable bit-exact Rust with no architecture-conditional branches (`cfg(target_arch = "x86_64")` vs `cfg(target_arch = "aarch64")`).
 - **CI published-bytes determinism gate (`rust/sim/tests/arm64_determinism.rs`):** Steps a self-contained multi-tick scenario without external game files, exercising `v8math` transcendentals, soldier/vehicle/item/recon-droid/turret state, `wire::store_capture::Capture`, `wire::retained::Ring` and `wire::publisher::Publisher::run`, and asserts that the SHA-256 digest of all published wire bytes and output descriptor words equals the committed `x86_64` value (`7337c8fd3896f59d7369ed60f31ab62dcb77c259a26ca8788599750eff7cbef8`).
 
@@ -349,6 +350,5 @@ export PKG_CONFIG_ALLOW_CROSS=1
 
 cargo test --manifest-path rust/Cargo.toml --locked --target aarch64-unknown-linux-gnu \
   -p sim --test arm64_determinism \
-  -p bfe-presentation --test unit_oracle \
   -- --nocapture
 ```

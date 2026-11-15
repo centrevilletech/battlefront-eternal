@@ -1,7 +1,7 @@
 //! A publication names sibling banks by qualified instance-local identities.
 //! Each call resolves them once and passes disjoint field borrows to the
 //! single publisher. No session retains a Rust address or borrows JavaScript.
-use super::{publisher::{Publisher,Personal},host::Host,Runtime,shots::Counters,store_source::{Source,PublicationWorld},stagger::Stagger,combat::Capture};
+use super::{publisher::{Publisher,Personal},store_source::PublicationWorld};
 pub struct Session {publisher:Publisher,runtime:usize,source:usize,stagger:usize,shots:usize,host:usize,combat:usize}
 pub(crate) fn wire_publish_create_in(w: &mut crate::world::owner::World, runtime:usize,source:usize,stagger:usize,shots:usize,host:usize,combat:usize) ->usize {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
@@ -49,6 +49,9 @@ pub(crate) fn wire_publish_native_in<'a>(w: &'a mut crate::world::owner::World, 
     let s = w.wire.as_deref()?.publications.get(session)?;
     Some((&s.publisher.block.words[..], &s.publisher.bytes[..]))
 }
+pub(crate) fn published_own_in(w: &crate::world::owner::World, session: usize, client: u32) -> Option<super::publisher::OwnFacts> {
+    w.wire.as_deref()?.publications.get(session)?.publisher.own_facts.iter().find(|f| f.client == client).copied()
+}
 pub(crate) fn wire_publish_drop_in(w: &mut crate::world::owner::World, session:usize) {super::owner::with_in(w, |owner|{owner.publications.remove(session as usize);});}
 /// Occupancy observes retained banks without changing capture or ACK state.
 pub(crate) fn wire_publish_load_in(w: &mut crate::world::owner::World, session:usize) -> Option<&[f64]> {
@@ -60,18 +63,3 @@ pub(crate) fn wire_publish_load_in(w: &mut crate::world::owner::World, session:u
 
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn wire_publish_create(runtime:*mut Runtime,source:*mut Source,stagger:*mut Stagger,shots:*const Counters,host:*mut Host,combat:*mut Capture) ->*mut Session { wire_publish_create_in(crate::abi::facade::world(), runtime as usize, source as usize, stagger as usize, shots as usize, host as usize, combat as usize) as *mut Session }
-    #[no_mangle]
-    pub extern "C" fn wire_publish_bind(session:*mut Session,client:u32,peer:u32,edges:*const super::super::edges::Host) ->u32 { wire_publish_bind_in(crate::abi::facade::world(), session as usize, client, peer, edges as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_publish(session:*mut Session) ->*const f64 { let w = crate::abi::facade::world(); if wire_publish_in(w, session as usize).is_none() { return std::ptr::null() } w.wire.as_deref_mut().unwrap().publications.get_mut(session as usize).unwrap().publisher.descriptor() }
-    #[no_mangle]
-    pub extern "C" fn wire_publish_drop(session:*mut Session) { wire_publish_drop_in(crate::abi::facade::world(), session as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_publish_load(session:*const Session) ->*const f64 { wire_publish_load_in(crate::abi::facade::world(), session as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
-}

@@ -1,17 +1,4 @@
 //! Network contract metadata and validation (`src/network-contract.js`).
-//!
-//! The authoritative multiplayer simulation and the `BFE-UDP/1` transport share a versioned
-//! contract (`NETWORK_CONTRACT` in `src/runtime/network-contract.js`, generated from
-//! `tools/transport-schema.mjs` into `bfe_transport::layout::network_contract`):
-//! - `manifestVersion: 1`
-//! - `serverAdapterABI: 4` (implemented by this server adapter, not negotiated with clients)
-//! - `protocol: 3` (`BFE-UDP/1` native UDP transport)
-//! - `profile: "snapshot-delta-v1"` (binary `BNS1`/`BNO1` snapshot delta and `BNI1`/`BNA1` input wire profile)
-//! - `simulation: "bfe-sim-<N>"` (matches `/^bfe-sim-[1-9][0-9]{0,5}$/`)
-//! - `ownCorrectionSchema: 1..=65535` (checked against `OWN_PLAYER_SCHEMA` in `world-worker.js`)
-//!
-//! All contract values are sourced directly from `bfe_transport::layout::network_contract`
-//! rather than retyped literals.
 
 use bfe_transport::layout::network_contract as contract;
 use serde::{Deserialize, Serialize};
@@ -72,13 +59,6 @@ impl NetworkContract {
 }
 
 /// Validates a network contract JSON object (`export function validateNetworkContract(value)` in `src/network-contract.js`).
-///
-/// Enforces:
-/// - `manifestVersion === 1` (`"Unsupported engine network manifest version"`)
-/// - `serverAdapterABI === 4` (`"Unsupported engine server adapter ABI"`)
-/// - `protocol === 3 && profile === "snapshot-delta-v1"` (`"Unsupported engine transport contract"`)
-/// - `simulation` matches `/^bfe-sim-[1-9][0-9]{0,5}$/` (`"Invalid engine simulation revision"`)
-/// - `ownCorrectionSchema` is an integer in `1..=65535` (`"Invalid engine own correction schema"`)
 pub fn validate_network_contract(value: &Value) -> Result<NetworkContract, String> {
     let Some(obj) = value.as_object() else {
         return Err("Missing engine network contract".to_string());

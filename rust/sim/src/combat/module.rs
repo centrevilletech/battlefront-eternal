@@ -529,7 +529,6 @@ impl CombatWorld for JsWorld<'_, '_> {
     }
 
     fn fire_round(&mut self, from: &Vector3, dir: &Vector3, shot: &Shot, _bind: bool, _selected: Option<(f64, f64)>, unit: &mut Unit, combat: &mut Combat) {
-        let _allocations = crate::allocations::at(F3AllocationStage::Fire);
         let weapon = &combat.weapons[shot.weapon as usize];
         let service = crate::units::f3::weapon_service_in(&self.w.units, weapon.def, weapon.level);
         let ShotKind::Round { target_id, target_generation, .. } = shot.kind else { return };
@@ -656,7 +655,6 @@ impl CombatWorld for JsWorld<'_, '_> {
     }
 
     fn damaged(&mut self, amount: f64, attacker: Attacker, info: &DamageInfo, _source: Option<Vector3>, unit: &mut Unit, _combat: &mut Combat) {
-        let _allocations = crate::allocations::at(F3AllocationStage::Hit);
         // instrument.onDamaged keeps the authored amount/scale fields as
         // well as actual health damage. Preserve absent and null points.
         let (attacker_ref, attacker_team) = super::live::attribution_in(self.w, attacker, self.r, unit);
@@ -692,7 +690,6 @@ impl CombatWorld for JsWorld<'_, '_> {
     }
 
     fn died(&mut self, unit: &mut Unit, combat: &mut Combat) {
-        let _allocations = crate::allocations::at(F3AllocationStage::Death);
         // DroidekaAnimator.die marks the body on the damage tick, before
         // UnitFactory.onDeath. A blown-apart body skips that animator call.
         if !combat.blow_apart {
@@ -759,7 +756,6 @@ impl CombatWorld for JsWorld<'_, '_> {
             let mut world = crate::ordnance::module::JsWorld::with_services(w, recon);
             let mut cx = crate::ordnance::Cx::new(&mut world);
             {
-                let _allocations = crate::allocations::at(F3AllocationStage::Drop);
                 cx.drop_for(&drops, position, velocity, yaw);
             }
             world.finish();
@@ -949,24 +945,5 @@ impl Content {
     }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn cmb_weapon(id: u32) { cmb_weapon_in(crate::abi::facade::world(), id) }
-    #[no_mangle]
-    pub extern "C" fn cmb_class(id: u32) { cmb_class_in(crate::abi::facade::world(), id) }
-    #[no_mangle]
-    pub extern "C" fn cmb_explosion(id: u32) { cmb_explosion_in(crate::abi::facade::world(), id) }
-    #[no_mangle]
-    pub extern "C" fn cmb_new(unit: u32, class: u32, player: u32, max_health: f64, chunks: f64, scale: u32) -> *const f64 { cmb_new_in(crate::abi::facade::world(), unit, class, player, max_health, chunks, scale).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn cmb_set(unit: u32, field: u32, value: f64) -> u32 { cmb_set_in(crate::abi::facade::world(), unit, field, value) }
-    #[no_mangle]
-    pub extern "C" fn cmb_weapon_set(unit: u32, weapon: u32, field: u32, value: f64) -> u32 { cmb_weapon_set_in(crate::abi::facade::world(), unit, weapon, field, value) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{cmb_weapon, cmb_class, cmb_explosion, cmb_new, cmb_set, cmb_weapon_set};
 
 pub(crate) fn defs_ref(owner:&CombatOwner)->&CombatDefs { &owner.content.as_ref().expect("prepared combat content").defs }

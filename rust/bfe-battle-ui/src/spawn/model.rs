@@ -583,13 +583,6 @@ impl SpawnModel {
     }
 
     /// Cycles to the next eligible post using the team's own counter (`SpawnModel.cyclePost`).
-    ///
-    /// Note the original quirk preserved from `src/spawn-screen/model.js`:
-    /// `open` initializes `post_cycle[team]` to the index of the currently picked
-    /// post, and `cycle_post` reads `eligible[post_cycle % len]` *before*
-    /// incrementing `post_cycle`, so the very first `cycle_post()` after `open`
-    /// lands on the already-picked post (emitting no `Post` event) and the second
-    /// call advances to the next post!
     pub fn cycle_post(&mut self, port: &dyn SpawnPort) -> bool {
         if self.state != SpawnState::Choosing {
             return false;

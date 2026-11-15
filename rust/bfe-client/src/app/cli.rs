@@ -3,9 +3,6 @@
 //! Running `bfe-client` with no arguments (or with an optional prepared content
 //! directory) launches the standalone native game (`Startup` -> `Loader` ->
 //! `Gate` -> `Shell` -> `InstantAction` / `Online` -> `Shell`).
-//!
-//! Existing diagnostic and CLI sub-modes (`--map`, `--join`, `--local`, and
-//! recorded `SESSION_DIR`) remain supported for backwards compatibility.
 //! `--help` / `-h` and `--version` / `-V` print to stdout and exit 0 before
 //! creating any window, audio device, or OpenGL context.
 
@@ -15,18 +12,11 @@ use std::path::PathBuf;
 pub const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Usage text printed for `--help` / `-h`.
-///
-/// Covers both the default standalone game mode and the legacy diagnostic sub-modes
-/// (`--map`, `--join`, `--local`, and `<SESSION_DIR>`).
 pub const HELP_TEXT: &str = "\
 Battlefront Eternal Native Client (bfe-client)
 
 USAGE:
     bfe-client [CONTENT_DIR] [OPTIONS]
-    bfe-client [CONTENT_DIR] --map <MAP> [INSPECT_OPTIONS]
-    bfe-client [CONTENT_DIR] --join <TARGET> [ONLINE_OPTIONS]
-    bfe-client [CONTENT_DIR] --local [<MISSION>] [LOCAL_OPTIONS]
-    bfe-client <SESSION_DIR> [REPLAY_OPTIONS]
 
 STANDALONE OPTIONS:
     -h, --help                Print this help text and exit 0
@@ -38,20 +28,15 @@ STANDALONE OPTIONS:
     --height <PX>             Initial window height in pixels (default: 720)
     --fullscreen              Start in borderless fullscreen mode
     --skip-update-check       Skip startup update check against master server
-    --script <MODE>           Run automated verification script (gate, ia:<MAP>, platform-smoke, slint-proof)
+    --script <MODE>           Scripted run: ia:<MAP> (one map, BFE_GATE_BATTLE_SECONDS) or platform-smoke
     --shots-dir <DIR>         Output directory for scripted screenshots
     --server <HOST:PORT>      Remote bfeserver address for scripted online join
-
-SUB-MODES:
-    --map <MAP>               Launch static map inspector (see --seconds, --screenshot)
-    --join <TARGET>           Direct online battle join (HOST:PORT or master:URL#ID)
-    --local [<MISSION>]       Direct local battle host (e.g. nab2 or map=nab2&era=cw)
 ";
 
 /// Options for the default standalone native game mode (`CliDispatch::Standalone`).
 ///
 /// Controls window geometry, OpenGL context profile selection, audio device
-/// opening, startup content overrides, and automated `--script gate` choreography.
+/// opening, startup content overrides, and scripted runs (`--script`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct StandaloneOptions {
     /// Optional explicit prepared content directory (`--content-dir` or positional `CONTENT_DIR`).
@@ -66,11 +51,11 @@ pub struct StandaloneOptions {
     pub fullscreen: bool,
     /// Whether to skip the bounded startup update check (`--skip-update-check`).
     pub skip_update_check: bool,
-    /// Optional automated verification script name (`--script gate` or `--script gate-fast`).
+    /// Optional scripted run (`--script ia:<MAP>` or `--script platform-smoke`).
     pub script: Option<String>,
-    /// Optional directory where `--script gate` writes PNG screenshots and `gate-summary.json`.
+    /// Optional directory where a scripted run writes screenshots and `gate-summary.json`.
     pub shots_dir: Option<PathBuf>,
-    /// Optional `HOST:PORT` target for the online leg of `--script gate` (`--server`).
+    /// Optional `HOST:PORT` server the browser pins (`--server`).
     pub server_target: Option<String>,
 }
 
@@ -100,12 +85,6 @@ pub enum CliDispatch {
     Version(String),
     /// Run the standalone full native game (`Startup` -> `Loader` -> `Shell` -> `Battle`).
     Standalone(StandaloneOptions),
-    /// Run the legacy `--local` single-battle CLI host (`crate::local::launch`).
-    LegacyLocal(Vec<String>),
-    /// Run the legacy `--join` direct online battle window (`crate::session_window`).
-    LegacyJoin(Vec<String>),
-    /// Run the legacy `--map` static viewer or `SESSION_DIR` replay viewer (`crate::session_window`).
-    LegacyWindow(Vec<String>),
 }
 
 /// Parses command-line arguments from an iterator (excluding `argv[0]`) and
@@ -130,29 +109,6 @@ where
             }
             _ => {}
         }
-    }
-
-    // Dispatch legacy sub-modes when their selector flags are present anywhere on the command line.
-    if raw.iter().any(|a| a == "--local") {
-        return Ok(CliDispatch::LegacyLocal(raw));
-    }
-    if raw.iter().any(|a| a == "--join") {
-        return Ok(CliDispatch::LegacyJoin(raw));
-    }
-    if raw.iter().any(|a| a == "--map") {
-        return Ok(CliDispatch::LegacyWindow(raw));
-    }
-
-    // Check if a positional argument is a recorded session or legacy capture directory
-    // containing `session.json` or `calls.json`.
-    if raw.iter().any(|a| {
-        if a.starts_with('-') {
-            return false;
-        }
-        let p = std::path::Path::new(a);
-        p.join("session.json").is_file() || p.join("calls.json").is_file()
-    }) {
-        return Ok(CliDispatch::LegacyWindow(raw));
     }
 
     // Seed standalone options with `BFE_CONTENT_DIR` from the environment if present.
@@ -228,7 +184,7 @@ where
                 opts.size[1] = h;
             }
             "--script" => {
-                // Enable automated gate choreography (`gate` or `gate-fast`).
+                // A scripted run (`ia:<MAP>` or `platform-smoke`).
                 let s = it.next().ok_or("missing value for --script")?;
                 opts.script = Some(s);
             }
@@ -298,7 +254,6 @@ mod tests {
         assert!(matches!(res, CliDispatch::Standalone(_)));
     }
 
-    /// Verifies `--map`, `--join`, and `--local` route to their respective legacy handlers.
     #[test]
     fn bootstrap_and_launcher_flags_are_ignored() {
         let res = parse_args(vec![
@@ -321,22 +276,5 @@ mod tests {
             }
             other => panic!("expected Standalone, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn legacy_modes_dispatch_correctly() {
-        let m = parse_args(vec!["/opt/example/content".into(), "--map".into(), "nab2".into()]).unwrap();
-        assert!(matches!(m, CliDispatch::LegacyWindow(_)));
-
-        let j = parse_args(vec![
-            "/opt/example/content".into(),
-            "--join".into(),
-            "127.0.0.1:18451".into(),
-        ])
-        .unwrap();
-        assert!(matches!(j, CliDispatch::LegacyJoin(_)));
-
-        let l = parse_args(vec!["/opt/example/content".into(), "--local".into(), "nab2".into()]).unwrap();
-        assert!(matches!(l, CliDispatch::LegacyLocal(_)));
     }
 }

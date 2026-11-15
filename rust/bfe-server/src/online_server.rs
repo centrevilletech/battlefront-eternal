@@ -1,53 +1,5 @@
 //! Online directory registration, dual-stack heartbeats, STUN NAT detection, and WebSocket
 //! rendezvous signaling (`src/online-server.js`).
-//!
-//! Why `OnlineServer` separates directory rendezvous from the gameplay socket:
-//! In `src/online-server.js` (`export class OnlineServer`), the master directory only brokers
-//! discovery and exchanges UDP candidates (`host`, `srflx`, `relay`); the gameplay session itself
-//! runs over the shared `BFE-UDP/1` endpoint (`udp-server.js`), so a master restart or transient
-//! signaling disconnect never drops an in-progress battle.
-//!
-//! Key protocol behaviors ported from `src/online-server.js`:
-//! 1. **Address privacy & candidate filtering (`publicAddress`, `parseCandidates`, `candidates` in `src/online-server.js`)**:
-//!    - `public_address` filters out RFC 1918 (`10/8`, `172.16/12`, `192.168/16`), loopback (`127/8`, `::1`),
-//!      unspecified (`0/8`, `::`), CGNAT (`100.64/10`), link-local (`169.254/16`, `fe80::/10`),
-//!      ULA (`fc00::/7`), and multicast (`224/4`, `ff00::/8`).
-//!    - When answering a player's `offer`, `candidates()` lists public `host` candidates first, then
-//!      STUN `srflx` candidates, and finally private `host` candidates *only* when one of the
-//!      player's own candidates shares this server's reflexive public IP (`mapped.has(candidate.address)`),
-//!      so hairpin LAN players behind the same NAT can connect directly without disclosing internal
-//!      LAN addresses to the rest of the internet.
-//!    - UDP hole-punches (`this.udp.endpoint.punch(...)`) are sent only to `public_address` client
-//!      candidates so a remote offer can never trick the server into sending datagrams to loopback,
-//!      link-local, or internal RFC 1918 hosts.
-//! 2. **Dual-family heartbeats (`beat()` in `src/online-server.js`)**:
-//!    A direct-only server (`relayPolicy === "never"`) alternates `PUT /v1/servers/:id` between
-//!    IPv4 (`4`) and IPv6 (`6`) every 20 seconds so the master learns both public addresses. If
-//!    one address family cannot reach the master (a transport error without an HTTP status), that
-//!    family is marked down for 10 minutes (`600_000 ms`) and the beat immediately retries over the
-//!    default family (`0`).
-//! 3. **Offer rate limits and `matchProbe` readiness (`signal(m)` in `src/online-server.js`)**:
-//!    - Ignores signals from banned identities (`isBanned(m.from) || globallyBanned(m.from)`).
-//!    - Answers `matchProbe` with `matchReady` when `signal.matchProbe` matches the active battle
-//!      query's `match` token (used by clients following a map rotation).
-//!    - Rate-limits `offer` signals to at most 1 per second per peer and `maxPlayers * 2` active
-//!      offers within a 10-second window.
-//!
-//! Online server lifecycle and NAT traversal details (`online_server.rs` <-> `src/online-server.js`):
-//! - Periodic maintenance intervals:
-//!   - `HEARTBEAT_INTERVAL = 30_000` ms (`POST /v1/servers` listing refresh).
-//!   - `BAN_REFRESH_INTERVAL = 300_000` ms (`GET /v1/bans` TOFU-verified ban list refresh).
-//!   - `STUN_REFRESH_INTERVAL = 120_000` ms (`UdpGameServer::reflexive` RFC 5389 Binding Request).
-//!   - `WS_RECONNECT_BASE = 1_000` ms .. `30_000` ms exponential backoff on WebSocket disconnect.
-//! - Signaling rate-limiting (`allowSignal` in `src/online-server.js`):
-//!   - Sliding window `SIGNAL_WINDOW_MS = 10_000` ms with `SIGNAL_BURST = 8` messages per sender
-//!     and `MAX_SIGNAL_SENDERS = 4096` tracked sender entries.
-//! - Supported client signaling message types (`handle_signal`):
-//!   - `offer`: validates protocol/simulation/content, checks bans, punches UDP candidates, and
-//!     replies with `answer` carrying the server game port and `host` + `srflx` candidates.
-//!   - `candidate`: punches newly trickle-discovered client UDP candidates.
-//!   - `matchProbe`: verifies `probe.match` against the active battle query token and replies
-//!     with `matchReady` once `LocalDedicatedServer` has rotated into the new match.
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
@@ -174,20 +126,6 @@ pub fn parse_stun_server(stun: Option<&str>) -> (String, u16) {
 /// (`export class OnlineServer` in `src/online-server.js`).
 /// Public internet listing, NAT traversal, global ban-list sync, and signaling coordinator,
 /// porting `OnlineServer` from `packages/bfe-server/src/online-server.js`.
-///
-/// Responsibilities (`online-server.js`):
-/// 1. Periodically sends signed listing heartbeats (`beat()`) to `POST /api/servers/heartbeat`
-///    every `HEARTBEAT_INTERVAL_MS` (`30_000` ms) and delists (`DELETE /api/servers/:id`) on close.
-/// 2. Periodically refreshes the Ed25519-signed global ban list (`BanCache::refresh` in `bans.js`)
-///    every `BAN_REFRESH_MS` (`300_000` ms = 5 min) so globally banned player IDs are rejected
-///    during the UDP handshake (`AdmitDecision::Reject`).
-/// 3. Queries STUN (`discover()`) every `STUN_REFRESH_MS` (`120_000` ms = 2 min) via
-///    `UdpGameServer::reflexive` to detect NAT (`natted()`) and learn the server's public `srflx`
-///    `ip:port` candidate.
-/// 4. Handles incoming client signaling messages (`handle_signal`) relayed over the master
-///    WebSocket: rate-limits per-sender signaling (`SIGNAL_WINDOW_MS = 10_000`, `SIGNAL_BURST = 8`),
-///    initiates simultaneous UDP hole-punching (`UdpGameServer::punch`) toward client `host`/`srflx`
-///    candidates, and replies with the server's `host`, `srflx`, and optional TURN `relay` candidates.
 pub struct OnlineServer {
     pub id: String,
     pub identity: ServerIdentity,
@@ -303,13 +241,6 @@ impl OnlineServer {
     }
 
     /// Sends a heartbeat `PUT /v1/servers/:id` to the master (`async beat()` in `src/online-server.js`).
-    ///
-    /// When `relayPolicy == "never"`, alternates between IPv4 (`4`) and IPv6 (`6`) on each beat;
-    /// if a forced family fails at the socket/routing layer (`err.status.is_none()`), marks that
-    /// family down for 600 seconds and retries with `family = 0`.
-    /// Sends a signed `POST /api/servers/heartbeat` listing update to the master server and
-    /// captures any `stunServer` hint returned in the response, porting `OnlineServer.beat()` in
-    /// `packages/bfe-server/src/online-server.js`.
     pub fn beat(&self) -> Result<(), String> {
         let family = if self.config.relay_policy == "never" {
             let mut b = self.beats.lock().map_err(|_| "lock poisoned")?;
@@ -370,11 +301,6 @@ impl OnlineServer {
 
     /// Queries the STUN server from the game port to discover the server's reflexive IPv4 and IPv6
     /// addresses (`async discover()` in `src/online-server.js`).
-    ///
-    /// Skipped when `relayPolicy == "always"` so a relay-only server never sends direct STUN packets.
-    /// Runs a STUN Binding Request on the live game UDP socket (`UdpGameServer::reflexive`) to
-    /// discover the server's public `srflx` IPv4/IPv6 mapping and detect symmetric/cone NAT,
-    /// porting `OnlineServer.discover()` in `packages/bfe-server/src/online-server.js`.
     pub fn discover(&self) {
         if self.config.relay_policy == "always" {
             return;
@@ -445,12 +371,6 @@ impl OnlineServer {
 
     /// Assembles up to 8 direct (`host` + `srflx`) UDP candidates to answer a client's offer
     /// (`OnlineServer.candidates(clientCandidates)` in `src/online-server.js`).
-    ///
-    /// Includes private LAN `host` candidates only when the client's candidate list contains one
-    /// of this server's own reflexive public addresses (indicating both share the same NAT).
-    /// Assembles the server's ICE-style UDP candidate list (`host`, `srflx`, and optional TURN
-    /// `relay` candidates) in response to a client's candidate offer, porting
-    /// `OnlineServer.candidates(clientCandidates)` in `packages/bfe-server/src/online-server.js`.
     pub fn candidates(&self, client_candidates: &[CandidateEntry]) -> Vec<CandidateEntry> {
         if self.config.relay_policy == "always" {
             return Vec::new();
@@ -521,21 +441,6 @@ impl OnlineServer {
     }
 
     /// Processes an incoming WebSocket signaling message from a player (`async signal(m)` in `src/online-server.js`).
-    ///
-    /// Handles:
-    /// 1. `matchProbe` -> `matchReady` verification when `signal.matchProbe` equals the current battle's `match` token.
-    /// 2. `offer` (`udp === 1`, 32-hex `nonce`) with per-peer 1 s cooldown and `maxPlayers * 2` table bound,
-    ///    answering with `candidates` and punching `public_address` client candidates on the game port.
-    ///
-    /// Processes an incoming signaling message from a prospective client over the master WebSocket,
-    /// porting `OnlineServer.handleSignal(msg)` in `packages/bfe-server/src/online-server.js`.
-    ///
-    /// Security and rate-limiting invariants (`online-server.js`):
-    /// - Validates that `m.from` is a 32-hex identifier (`is_hex_32`).
-    /// - Enforces a sliding-window rate limit of `SIGNAL_BURST` (8) messages per `SIGNAL_WINDOW_MS`
-    ///   (10s) per sender (`evict_signal_Buckets` capped at `MAX_SIGNAL_SENDERS = 4096`) so a
-    ///   signaling flood cannot trigger unbounded UDP hole-punch packets or TURN credential requests.
-    /// - Checks both local and global ban lists (`banned`) before punching or returning candidates.
     pub fn handle_signal(&self, m: &SignalEnvelope) {
         if !is_hex_64(&m.from) {
             return;

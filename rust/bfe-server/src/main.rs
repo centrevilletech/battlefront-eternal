@@ -1,35 +1,5 @@
 //! Dedicated server CLI entrypoint, interactive configuration/admin menus, and `--serve` supervisor
 //! (`src/main.js`).
-//!
-//! Ports the four execution modes of `src/main.js`:
-//! 1. `bfeserver --version`: prints `"bfeserver 0.1.0 (pre-release)"`.
-//! 2. `bfeserver --admin [json]`: sends an authenticated `POST /admin` command to `127.0.0.1:${PORT ?? 18450}`
-//!    using the bearer token in `${BFE_STATE_DIR}/operator-token` (`operatorRequest` in `src/operator.js`).
-//! 3. `bfeserver --serve`: starts `OperatorStore` (`operator.sqlite`), binds the loopback operator
-//!    HTTP server (`/admin` and `/healthz`), launches `LocalDedicatedServer` when `config.data` is
-//!    configured (staying in `"setup"` mode when `config.data` is empty), optionally starts
-//!    `OnlineServer` when `onlineNoticeAccepted` is `true`, and waits for `SIGINT`/`SIGTERM` or
-//!    an operator `stop` command (`serve()` in `src/main.js`).
-//! 4. `bfeserver` (no flags): runs the interactive terminal configuration and live administration
-//!    menu (`menu()` and `adminMenu(io)` in `src/main.js`).
-//!
-//! Honesty of `/healthz` (`multiplayerReady` in `ServiceControl`):
-//! `multiplayer_ready()` returns `true` **only** when `status == "running"` AND `LocalDedicatedServer.ready`
-//! is `true` (which requires `NativeWorldHost::world_admitted == true`, i.e. `Context::world_admit`
-//! has admitted a real world). If the server is in `"setup"` mode or `Context::world_admit` returned
-//! `Unavailable`, `/healthz` reports `multiplayerReady: false`.
-//!
-//! CLI subcommands, flags, and signal handling (`main.rs` <-> `src/main.js` & `src/health-check.js`):
-//! - `bfeserver` (or `bfeserver serve --data <dir> --port <port> ...`):
-//!   Loads `config.json` and `identity.json`, opens `operator.sqlite` (`rusqlite` bundled), starts
-//!   `LocalDedicatedServer` (and `OnlineServer` when `--online` / `config.online` is enabled with
-//!   `--accept-online-notice`), starts `OperatorHttpServer` on `localhost:18453`, and installs
-//!   `SIGINT` / `SIGTERM` handlers (`libc::signal`) for clean shutdown and master unregistration.
-//! - `bfeserver healthz` / `bfeserver --health-check`:
-//!   Probes `http://localhost:<operator_port>/healthz` (`check_healthz` in `health_check.rs`) and
-//!   exits `0` only when `status == "running"` and `multiplayerReady == true`.
-//! - `bfeserver status | stop | restart | stats | metrics | reset-metrics | ban | unban | kick | message`:
-//!   Sends an authenticated `POST /admin` request via `operator_request` using `operator-token`.
 
 use std::fs;
 use std::io::{self, BufRead, Write};
@@ -62,11 +32,6 @@ extern "C" fn handle_signal(_sig: libc::c_int) {
 
 /// Shared service state connecting `OperatorHttpServer` (`/admin` and `/healthz`) to the active
 /// `LocalDedicatedServer` and `OnlineServer` (`serve()` in `src/main.js`).
-///
-/// Why `ServiceControl` owns `status`, `error`, `local`, and `online` behind locks:
-/// In `src/main.js`, the loopback operator HTTP server starts *before* `launch()` loads the game
-/// data or registers with the online master so `/healthz` and `bfeserver --admin` are reachable
-/// during `"setup"`, `"loading"`, `"running"`, and `"fault"` states.
 struct ServiceControl {
     started_at: u64,
     status: RwLock<String>,
@@ -205,9 +170,6 @@ fn prompt(stdin: &mut io::StdinLock<'_>, label: &str) -> io::Result<String> {
 /// (`choice === "3"` in `menu()` in `src/main.js`).
 /// Validates an interactive playlist rotation string (`map=<id>&mode=<id>...`), porting
 /// `validPlaylistEntry(entry)` from `packages/bfe-server/src/main.js`.
-///
-/// Rejects empty entries, whitespace/control characters, or entries missing a `map=` parameter
-/// before saving to `config.json`.
 fn valid_playlist_entry(entry: &str) -> bool {
     let Some(rest) = entry
         .strip_prefix("swbf1/")
@@ -228,15 +190,6 @@ fn valid_playlist_entry(entry: &str) -> bool {
 }
 
 /// Interactive live server administration submenu (`async function adminMenu(io)` in `src/main.js`).
-///
-/// Translates numbered menu choices (`1`..`7`) into authenticated `operator_request` JSON calls
-/// to the local `POST /admin` endpoint.
-/// Interactive operator administration submenu porting `adminMenu(rl, dir, port)` from
-/// `packages/bfe-server/src/main.js`.
-///
-/// Communicates with the running `bfeserver` process over loopback HTTP (`127.0.0.1:<operator_port>`)
-/// using `operator_request` authenticated with `<dir>/operator.token` (`operator.js`), supporting:
-/// - Live status, player list, kick, ban, unban, system announcement, map rotation, and stop.
 fn admin_menu(stdin: &mut io::StdinLock<'_>, directory: &Path, port: u16) -> io::Result<()> {
     println!(
         "1  Status and players\n2  Kick player\n3  Ban identity\n4  Unban identity\n5  Player statistics\n6  Server message\n7  Restart match"
@@ -545,22 +498,6 @@ fn launch_match(
 /// Runs the dedicated server service (`async function serve()` in `src/main.js`).
 /// Runs the headless dedicated server (`bfeserver --serve` or menu option `1`), porting
 /// `serve(dir)` from `packages/bfe-server/src/main.js`.
-///
-/// Startup sequence (`main.js` `serve()`):
-/// 1. Load and validate `ServerConfig` (`config.js`) and content directory (`check_content`).
-/// 2. Load or generate the persistent Ed25519 `ServerIdentity` (`identity.js`) in `<dir>/server-key.json`.
-/// 3. Open `<dir>/operator.sqlite` via `OperatorStore::open` (`operator.js`) and ensure
-///    `<dir>/operator.token` exists with `0600` permissions.
-/// 4. Bind the loopback operator HTTP listener before any world admission,
-///    so status requests answer even while content loading is blocked.
-/// 5. Start `LocalDedicatedServer` (`local-server.js`). Note that `LocalDedicatedServer.ready`
-///    (exposed as `multiplayerReady` on `/healthz`) is `true` ONLY when `NativeWorldHost` admitted
-///    the world via `Context::world_admit`.
-/// 6. If `visibility == "public"` and `master` is configured, start `OnlineServer` (`online-server.js`)
-///    to register with the master directory, refresh the Ed25519-signed global ban list (`bans.js`),
-///    discover STUN reflexive addresses, and relay WebRTC/UDP hole-punch signaling over WebSocket.
-/// 7. Wait until `SIGINT`, `SIGTERM`, or an operator `stop` command sets
-///    `SHUTDOWN_REQUESTED`. World readiness never gates the operator listener.
 fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
     // SAFETY: `handle_signal` is an `extern "C"` function that only performs an atomic store to
     // `SHUTDOWN_REQUESTED`, which is async-signal-safe under POSIX for `SIGINT` and `SIGTERM`.
@@ -693,13 +630,6 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
 /// CLI entrypoint (`src/main.js`), dispatching `--admin`, `--serve`, `--version`, or the interactive `menu`.
 /// CLI entry point for `bfeserver`, porting the top-level CLI dispatcher in
 /// `packages/bfe-server/src/main.js`.
-///
-/// Supported flags (matching `main.js`):
-/// - `--health-check` / `--healthz`: probes `http://localhost:<operator_port>/healthz` (`health-check.js`)
-/// - `--serve` / `--headless`: skips the interactive TUI and launches `serve()` directly
-/// - `--dir <path>` / `--state-dir <path>`: overrides `BFE_SERVER_DIR` state directory
-/// - `--operator-port <port>`: overrides `BFE_OPERATOR_PORT` (default `19421`)
-/// - `--admin <json>`: executes a one-shot authenticated operator RPC (`operator_request`)
 fn main() {
     let directory = state_dir();
     let _ = fs::create_dir_all(&directory);

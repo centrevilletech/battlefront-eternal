@@ -1,17 +1,5 @@
 //! Battlefront Eternal 2D/3D-tilted interface kit, menu framework, classic theme,
 //! options schema, and persistent settings (`src/interface/`, `src/menus/`, `src/settings.js`).
-//!
-//! Draws every menu screen and modal popup through [`bfe_render::interface::Batch`] and
-//! [`bfe_render::hud::HudPass`] in the `1024 x H` classic Battlefront coordinate space
-//! (`H = 768 + (h / w - 0.75) * 768`, `768` at 4:3, `576` at 16:9).
-//!
-//! Module groups:
-//! - **2D/3D interface primitives** (`flashy`, `fonts`, `shapes`, `space`, `surface`):
-//!   virtual `1024 x H` camera projection, 9-slice geometry, bitmap font quads, and flashy text intros.
-//! - **Menu stack & widgets** (`input`, `popup`, `screen`, `sounds`, `stack`, `widgets`, `theme`):
-//!   retained screen navigation stack, keyboard/pointer hit-testing, and zero-allocation classic rendering.
-//! - **Options & settings** (`hotkeys`, `option_pages`, `options`, `settings`):
-//!   declarative `GAME`/`VIDEO`/`AUDIO`/`CONTROLS` schemas, GPU preset classification, and keybindings.
 
 // 2D/3D interface primitives (`src/interface/`), menu framework (`src/menus/`), and settings (`src/settings.js`).
 pub mod flashy;
@@ -80,7 +68,7 @@ pub use surface::{common_texture_url, Batch, Draw, InterfaceSurface, Surface, QU
 pub use theme::{
     cursor_pulse, draw_bar, draw_frame, draw_scroll_bar, draw_slider_bar, draw_str, fallback_color,
     menu_pulse, piece_quad, rotation_euler, row_bar_at, rows_shift, scaled_color, selected_color,
-    str_width, tint_color, ClassicTheme, HitRegion, HitTarget, BAR_X, BLACK, BUTTON_INSET, DIM,
+    str_width, tint_color, HitRegion, HitTarget, BAR_X, BLACK, BUTTON_INSET, DIM,
     DIMMED, GREY, NOTE_YELLOW, SLIDER_DIM, TEXT_X, THUMB_ALPHA, TRACK_ALPHA, WHITE,
 };
 pub use widgets::{

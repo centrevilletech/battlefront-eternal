@@ -13,7 +13,7 @@ use crate::gen::{
     F3EffectNotice, F3HullEvent, F3HullNotice, F3OptionalState, F3OrdnanceEvent, F3OrdnanceNotice,
     F3PowerupEffect, F3PresentKind, F3Presentation, F3ProjectileKind, F3PropDamage, F3PropEffect,
     F3PropEffectKind, F3SeatNotice, F3ShieldNotice, F3ShotNotice, F3WeaponAction, F4Effect,
-    F4Serve, F4SpawnNotice, FfShot, PbStateName, PickupArgs, PlayerSquad, Posture, Unit, UnitSplash,
+    F4Serve, F4SpawnNotice, FfShot, PbStateName, PickupArgs, PlayerSquad, Posture, UnitSplash,
     WbEncode,
     WireDynamicFact,
 };
@@ -37,7 +37,7 @@ pub struct Drain<'a> {
     /// Each network human's presses (`u.networkShots`) by his unit's
     /// slot, by button, as the host last mirrored them.
     pub presses: &'a [(u32, [Option<f64>; 2])],
-    pub units: &'a [(u32, u32, Unit)],
+    pub units: &'a super::UnitTable,
     /// The seat leases (`KIND_SEAT_LEASE`), by slot.
     pub leases: &'a [(u32, gen::SeatLease)],
     /// The body flags the page toggled this tick (kernel slot, enabled),
@@ -45,8 +45,8 @@ pub struct Drain<'a> {
     pub toggles: &'a mut Vec<(usize, u8)>,
     pub prop_bodies: &'a [(usize, [Option<u32>; 3])],
     /// `CombatCapture.projectiles`: each launched round's captured state
-    /// (the JSON `capture_bolt` answered), by kind, slot and generation.
-    pub projectiles: &'a mut Vec<((u8, u32, u32), String)>,
+    /// (what `capture_bolt` answered), by kind, slot and generation.
+    pub projectiles: &'a mut Vec<((u8, u32, u32), super::capture::Bolt)>,
     /// `ProjectileCapture.active`: each dynamic round's entry, by kind,
     /// slot and generation, until its impact.
     pub dynamics: &'a mut Vec<((u8, u32, u32), WireDynamicFact)>,
@@ -426,14 +426,15 @@ impl Drain<'_> {
                 );
                 let slot = e.key.slot;
                 let life = e.key.life;
-                let Some((_, _, unit)) = self.units.iter().find(|(s, _, _)| *s == slot) else {
+                let Some(unit) = self.units.find(slot) else {
                     return Ok(());
                 };
                 // c.arsenal.weapons[row.weapon].name: the class of the weapon.
-                let mut names = Vec::with_capacity(unit.combat.weapons.len());
-                for weapon in &unit.combat.weapons {
+                let weapons = self.units.weapons(unit);
+                let mut names = Vec::with_capacity(weapons.len());
+                for def in weapons {
                     let levels = context
-                        .weapon_levels(weapon.def.0)
+                        .weapon_levels(def.0)
                         .map_err(|e| e.message().to_string())?;
                     let base = levels.first().cloned().unwrap_or_default();
                     names.push((
@@ -735,34 +736,27 @@ impl Drain<'_> {
                             .wire_ordnance_id(capture.store_source, e.def.0)
                             .map_err(|e| e.message().to_string())?;
                         let sample_tick = match e.tick {
-                            Nullable::Value(t) => serde_json::json!(t),
-                            _ => serde_json::Value::Null,
+                            Nullable::Value(t) => Some(t),
+                            _ => None,
                         };
-                        let facts = serde_json::json!({
-                            "sample": true, "sampleTick": sample_tick, "tick": self.tick, "id": id, "generation": super::capture::GENERATION,
-                            "life": e.life, "definitionId": definition_id,
-                            "sampleOwner": [e.owner_id, e.owner_generation, e.fire_id, e.channel],
-                            "boltOwner": [serde_json::Value::Null, serde_json::Value::Null, serde_json::Value::Null, serde_json::Value::Null],
-                        });
-                        let state =
-                            bfe_presentation::ordnance::network::capture_bolt(&facts.to_string())?;
-                        let v: serde_json::Value =
-                            serde_json::from_str(&state).map_err(|e| e.to_string())?;
-                        let n = |k: &str| v[k].as_f64().unwrap_or(0.0);
+                        let state = super::capture::Bolt::sampled(
+                            sample_tick, self.tick, id, super::capture::GENERATION, e.life, definition_id,
+                            [e.owner_id, e.owner_generation, e.fire_id, e.channel],
+                        );
                         let encode = WbEncode {
                             op: 0.0,
-                            id: n("id"),
-                            generation: n("generation"),
+                            id: state.id,
+                            generation: state.generation,
                             tick: self.tick,
                             schema: 1.0,
-                            expiry_tick: n("expiryTick"),
-                            definition_id: n("definitionId"),
-                            owner_id: n("ownerId"),
-                            owner_generation: n("ownerGeneration"),
-                            fire_id: n("fireId"),
-                            channel: n("channel"),
-                            launch_tick: n("launchTick"),
-                            execution_tick: n("executionTick"),
+                            expiry_tick: super::capture::json_number(state.expiry),
+                            definition_id: state.definition_id,
+                            owner_id: state.owner_id,
+                            owner_generation: state.owner_generation,
+                            fire_id: state.fire_id,
+                            channel: state.channel,
+                            launch_tick: state.launch_tick,
+                            execution_tick: state.execution_tick,
                             position: e.position.to_vec(),
                             direction: e.direction.to_vec(),
                             offset: if e.has_offset {
@@ -812,26 +806,22 @@ impl Drain<'_> {
                             return Ok(());
                         };
                         let (_, state) = self.projectiles.remove(at);
-                        let terminal = bfe_presentation::ordnance::network::capture_terminal(
-                            &state, self.tick,
-                        )?;
-                        let v: serde_json::Value =
-                            serde_json::from_str(&terminal).map_err(|e| e.to_string())?;
-                        let n = |k: &str| v[k].as_f64().unwrap_or(0.0);
+                        // captureTerminal: a missing expiry is the terminal's tick + 18.
+                        let expiry = if state.expiry.is_finite() { state.expiry } else { self.tick + 18.0 };
                         let encode = WbEncode {
                             op: 0.0,
-                            id: n("id"),
-                            generation: n("generation"),
+                            id: state.id,
+                            generation: state.generation,
                             tick: self.tick,
                             schema: 2.0,
-                            expiry_tick: n("expiryTick"),
-                            definition_id: n("definitionId"),
-                            owner_id: n("ownerId"),
-                            owner_generation: n("ownerGeneration"),
-                            fire_id: n("fireId"),
-                            channel: n("channel"),
-                            launch_tick: n("launchTick"),
-                            execution_tick: n("executionTick"),
+                            expiry_tick: super::capture::json_number(expiry),
+                            definition_id: state.definition_id,
+                            owner_id: state.owner_id,
+                            owner_generation: state.owner_generation,
+                            fire_id: state.fire_id,
+                            channel: state.channel,
+                            launch_tick: state.launch_tick,
+                            execution_tick: state.execution_tick,
                             position: e.point.to_vec(),
                             direction: e.normal.to_vec(),
                             offset: vec![0.0, 0.0, 0.0],
@@ -859,7 +849,7 @@ impl Drain<'_> {
                         };
                         let payload = capture.encode(context, &encode)?;
                         let view = super::capture::decode_view(self.tick, 2.0, &payload)?;
-                        capture.emit_record(context, self.tick, n("id"), 2.0, payload, &view)?;
+                        capture.emit_record(context, self.tick, state.id, 2.0, payload, &view)?;
                     }
                 }
             }
@@ -958,8 +948,8 @@ impl Drain<'_> {
                     &record[F3DamageNotice::WORDS..],
                 );
                 let info = &e.info;
-                if std::env::var_os("BFE_HUD_TRACE").is_some() {
-                    eprintln!("[combat-damage] {}",serde_json::json!({"target":e.key.slot,"attacker":e.has_attacker_ref.then_some(e.attacker_ref.id),
+                if crate::ordnance::trace::enabled() {
+                    eprintln!("[combat-damage] {}",serde_json::json!({"tick":self.tick,"target":e.key.slot,"attacker":e.has_attacker_ref.then_some(e.attacker_ref.id),
                         "amount":info.amount.unwrap_or(e.amount),"healthDamage":e.amount,"point":info.point,"position":e.position}));
                 }
                 let target = Life {
@@ -1310,13 +1300,13 @@ impl Drain<'_> {
                 });
                 let (attacker, attacker_team) = match e.attacker {
                     Attacker::Unit(r) => {
-                        let unit = self.units.iter().find(|(slot, _, _)| *slot == r.slot);
+                        let unit = self.units.find(r.slot);
                         (
-                            unit.map(|(slot, _, u)| Life {
-                                id: *slot,
-                                generation: u.generation,
+                            unit.map(|u| Life {
+                                id: u.slot,
+                                generation: u.life,
                             }),
-                            unit.map_or(0.0, |(_, _, u)| u.team),
+                            unit.map_or(0.0, |u| u.team),
                         )
                     }
                     Attacker::OwnerSnapshot(r) => {
@@ -1400,8 +1390,8 @@ impl Drain<'_> {
                 };
                 let owner = e
                     .unit
-                    .and_then(|r| self.units.iter().find(|(slot, _, _)| *slot == r.slot))
-                    .map(|(slot, _, u)| (f64::from(*slot), u.generation));
+                    .and_then(|r| self.units.find(r.slot))
+                    .map(|u| (f64::from(u.slot), u.life));
                 capture.emit(
                     context,
                     self.tick,

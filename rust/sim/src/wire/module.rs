@@ -205,26 +205,3 @@ if owner.runtimes.get(runtime as usize).is_none() {return None;}
 
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn wire_words(op: u32) -> u32 { super::wire_words(op) }
-    #[no_mangle]
-    pub extern "C" fn wire_encode(op: u32) -> *const f64 { wire_encode_in(crate::abi::facade::world(), op).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn wire_create() -> *mut Runtime { wire_create_in(crate::abi::facade::world()) as *mut Runtime }
-    #[no_mangle]
-    pub extern "C" fn wire_bind_store(runtime: *mut Runtime, source: *const super::super::store_source::Source) -> u32 { let w = crate::abi::facade::world(); let capacity = w.wire.as_deref().and_then(|owner| owner.sources.get(source as usize)).map(|source| source.capture.seat_capacity()); wire_bind_store_in(w, runtime as usize, capacity) }
-    #[no_mangle]
-    pub extern "C" fn wire_drop(runtime: *mut Runtime) { wire_drop_in(crate::abi::facade::world(), runtime as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_capture(runtime: *mut Runtime) -> *const f64 { wire_capture_in(crate::abi::facade::world(), runtime as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn wire_held(runtime: *mut Runtime,
-        tick: f64,
-        epoch: f64,
-        baseline: f64,
-        interval: f64,) -> *const f64 { wire_held_in(crate::abi::facade::world(), runtime as usize, tick, epoch, baseline, interval).map_or(std::ptr::null(), |b| b.as_ptr()) }
-}

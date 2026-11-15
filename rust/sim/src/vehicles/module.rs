@@ -18,7 +18,7 @@ use super::posing;
 use crate::flight::model::FlightInput;
 use crate::flight::state::GearClip;
 use crate::flight::config::Tunings;
-use crate::flight::{Config, Environment, Flight, FlightClass, FlightWorld, Member, Team, Tuning, Zone};
+use crate::flight::{Config, Environment, Flight, FlightClass, FlightWorld, Member, Team, Tuning};
 use bfe_content::content::VehicleTemplate;
 use bfe_content::value::Value;
 use super::{BodyId, Ground, Hit, Polygon, VehicleWorld};
@@ -209,8 +209,7 @@ pub(crate) fn veh_map_in(world_ctx: &mut crate::world::owner::World, json: u32, 
 /// (collision.js rayWorld) and the vehicle-only barriers' fixed set (-1
 /// none). The world is required; body mappings stay with its lifetime.
 
-pub(crate) fn veh_collision_in(world_ctx: &mut crate::world::owner::World, world: i32, blockers: i32) { Fleet::veh_collision(&mut world_ctx.fleet.collision, world, blockers); #[cfg(target_arch = "wasm32")]
-    if let Some(c) = world_ctx.fleet.collision.as_mut() { c.use_world_flags(); } }
+pub(crate) fn veh_collision_in(world_ctx: &mut crate::world::owner::World, world: i32, blockers: i32) { Fleet::veh_collision(&mut world_ctx.fleet.collision, world, blockers); }
 
 /// Where JavaScript writes each body's enabled flag, by its place in the
 /// collision world's order (MAX_BODIES bytes; 0 without a world here).
@@ -444,27 +443,6 @@ pub(crate) fn veh_locks_in(world_ctx: &mut crate::world::owner::World) -> Option
 /// A class's flight keys (flightConfig's own, from its definition) and its
 /// takeoff clip (the gear's), from the pack.
 
-/// predictionVehicle resolved immutable content once per source. The client
-/// gets an independent hull, row, strings and query view; it never takes a
-/// working row out of the authoritative phase's reentrant pool.
-pub(crate) fn prediction_hull_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>) -> Option<crate::client::hulls::Session> {
-    let s = &mut world_ctx.sim;
-    // F2 normally interns these enum messages at fleet construction. A page
-    // has only resource rows, so resolve the same IDs before cloning strings.
-    // Published message handles must remain valid in the shared bridge table.
-    let _ = crate::flight::store::FlightTextIds::new(&mut s.strings);
-    let v = s.store.vehicle.get(r)?;
-    let name = String::from_utf16_lossy(s.strings.units(v.name));
-    let class = world_ctx.fleet.classes.get_or_insert_with(HashMap::new).get(&name)?;
-    let mut hull = Hull::from_store(r, v, class, 0);
-    let (config, gear) = if f2::active_in(&world_ctx.fleet) { f2::flight_keys_for_in(&world_ctx.fleet, r) } else { Fleet::flight_keys(&mut world_ctx.fleet.flight_keys, &mut world_ctx.fleet.defs, &mut world_ctx.fleet.templates, &name) };
-    hull.flight = Flight::from_store(v, &s.strings, config, gear).ok()?;
-    hull.pose = Some(world_ctx.fleet.poses.get(r.slot as usize)?.as_ref()?.pose.clone());
-    Some(crate::client::hulls::Session::new(hull, v.clone(), s.strings.clone(),
-        world_ctx.fleet.collision.as_mut()?.prediction_view(), world_ctx.fleet.map.as_mut()?.clone(),
-        world_ctx.fleet.flight_env.as_ref()?.clone(),
-        *world_ctx.fleet.tunings.as_ref()?))
-}
 
 /// A craft as the phase works on it: the hull with its flight.
 fn load_flyer_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>, index: usize) -> Hull {
@@ -773,7 +751,6 @@ impl VehicleWorld for JsWorld<'_, '_> {
     }
 
     fn spring_polygons<'a>(&'a mut self, hull: usize, index: usize, center: &Vector3, radius: f64, _out: &'a mut Vec<Polygon>) -> super::SpringPolygons<'a> { let world_ctx = &mut *self.world_ctx;
-        let _allocation = f2::allocation::nested(f2::allocation::Stage::Polygons);
         let Some(&reference) = world_ctx.sim.store.vehicles.vehicles.get(hull) else { return super::SpringPolygons::Native(&[]) };
         let Some(vehicle) = world_ctx.sim.store.vehicle.get(reference) else { return super::SpringPolygons::Native(&[]) };
         let Some(collision) = world_ctx.fleet.collision.as_mut() else { return super::SpringPolygons::Native(&[]) };
@@ -1168,59 +1145,7 @@ impl Fleet {
     }
 }
 
-// facade shims: callers outside the fleet bindings still enter through WASM.
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn collision_world() -> Option<&'static mut Collision> { collision_world_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn map() -> Option<&'static mut MapRules> { map_in(crate::abi::world()) }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn veh_class(name: u32, json: u32, turn_rate: f64) { veh_class_in(crate::abi::facade::world(), name, json, turn_rate) }
-    #[no_mangle]
-    pub extern "C" fn veh_map(json: u32, kill_y: f64) { veh_map_in(crate::abi::facade::world(), json, kill_y) }
-    #[no_mangle]
-    pub extern "C" fn veh_collision(world: i32, blockers: i32) { veh_collision_in(crate::abi::facade::world(), world, blockers) }
-    #[no_mangle]
-    pub extern "C" fn veh_flags() -> *mut u8 { veh_flags_in(crate::abi::facade::cold()).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn veh_input(count: u32) -> *mut f64 { veh_input_in(crate::abi::facade::world(), count).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn veh_bodies(count: u32) { veh_bodies_in(crate::abi::facade::world(), count) }
-    #[no_mangle]
-    pub extern "C" fn veh_collider(walls: u32, springs: u32) { veh_collider_in(crate::abi::facade::world(), walls, springs) }
-    #[no_mangle]
-    pub extern "C" fn veh_changes() -> *const f64 { veh_changes_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn veh_bytes(count: u32) -> *mut u8 { veh_bytes_in(crate::abi::facade::world(), count).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn veh_pack(def_len: u32, floats: u32, indices: u32, animations: u32) -> u32 { veh_pack_in(crate::abi::facade::world(), def_len, floats, indices, animations) }
-    #[no_mangle]
-    pub extern "C" fn veh_pull(slot: u32, generation: f64, count: u32, seed: u32) -> u32 { veh_pull_in(crate::abi::facade::world(), slot, generation, count, seed) }
-    #[no_mangle]
-    pub extern "C" fn veh_flight_env(json: u32, max_fly_height: f64) { veh_flight_env_in(crate::abi::facade::world(), json, max_fly_height) }
-    #[no_mangle]
-    pub extern "C" fn veh_flight_tune(class: u32, key: u32, value: f64) -> u32 { veh_flight_tune_in(crate::abi::facade::world(), class, key, value) }
-    #[no_mangle]
-    pub extern "C" fn veh_members(count: u32) { veh_members_in(crate::abi::facade::world(), count) }
-    #[no_mangle]
-    pub extern "C" fn veh_relations(count: u32) { veh_relations_in(crate::abi::facade::world(), count) }
-    #[no_mangle]
-    pub extern "C" fn veh_flight_inputs(count: u32) { veh_flight_inputs_in(crate::abi::facade::world(), count) }
-    #[no_mangle]
-    pub extern "C" fn veh_flight_keys() -> u32 { veh_flight_keys_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn veh_flight_acc() -> f64 { veh_flight_acc_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn veh_locks() -> *const f64 { veh_locks_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clock: f64, flags: u32) -> f64 { veh_ground_in(crate::abi::facade::world(), dt, acc, flight_acc, level, clock, flags) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{veh_class, veh_map, veh_collision, veh_flags, veh_input, veh_bodies, veh_collider, veh_changes, veh_bytes, veh_pack, veh_pull, veh_flight_env, veh_flight_tune, veh_members, veh_relations, veh_flight_inputs, veh_flight_keys, veh_flight_acc, veh_locks, veh_ground};
 
 #[cfg(test)]
 mod robustness_tests {

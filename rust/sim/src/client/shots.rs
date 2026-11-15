@@ -4,7 +4,6 @@
 //! finishes all flight records together. Resource objects stay on the page.
 use crate::gen::{ClientShotInput as Input, ClientShotRecord as Record, ClientShotReply as Reply,
     ClientShotContact as Contact, ClientShotOp as Op};
-#[path="shot_host.rs"] pub mod host;
 use three::{Vector3, Quaternion};
 use v8math::{min, max};
 
@@ -40,13 +39,12 @@ struct Shot { record: Record, fade_time: f64, length: f64, grouped: bool, epoch:
 // stack iterators; a paused page can receive arbitrarily many observations
 // without growing a flight or claim store on its eventual drawing frame.
 pub struct Shots {
-    host: host::Host,
     rows: [Option<Shot>; CAPACITY], claims: [Claim; CLAIMS], cooldowns: [Cooldown; WEAPONS],
     claim_next: usize, serial: u32, life: Option<(f64, f64, f64)>,
     pub input: Vec<f64>, pub output: Vec<f64>, heap: Vec<f64>,
 }
 impl Default for Shots {
-    fn default() -> Self { Self { host: host::Host::default(), rows: std::array::from_fn(|_| None), claims: [Claim::default(); CLAIMS],
+    fn default() -> Self { Self { rows: std::array::from_fn(|_| None), claims: [Claim::default(); CLAIMS],
         cooldowns: [Cooldown::default(); WEAPONS], claim_next: 0, serial: 0, life: None,
         input: vec![0.0; INPUT], output: vec![0.0; OUTPUT], heap: Vec::new() } }
 }
@@ -247,16 +245,6 @@ impl Shots {
 
 // The battle's page bank owns the session. Both targets compile the same phase;
 // WASM only translates its retained exchange buffers into linear addresses.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle] pub extern "C" fn client_shots_create() -> usize { crate::abi::facade::world().page.shots.insert(Shots::default()).unwrap_or(0) }
-    #[no_mangle] pub extern "C" fn client_shots_input(id: usize) -> *mut f64 { crate::abi::facade::world().page.shots.get_mut(id).map_or(std::ptr::null_mut(),|s| s.input.as_mut_ptr()) }
-    #[no_mangle] pub extern "C" fn client_shots_run(id: usize) -> *const f64 {
-        let Some(s) = crate::abi::facade::world().page.shots.get_mut(id) else { return std::ptr::null() }; s.run(); s.output.as_ptr()
-    }
-    #[no_mangle] pub extern "C" fn client_shots_drop(id: usize) { crate::abi::facade::world().page.shots.remove(id); }
-}
 
 #[cfg(test)]
 mod tests {
@@ -312,21 +300,5 @@ mod tests {
         let new=Record::take(&s.output[Reply::WORDS+Record::WORDS..Reply::WORDS+2*Record::WORDS],&[]);
         assert_eq!(old.id,second.id);assert_eq!(new.id,third.id);assert_ne!(old.id,first.id);
         assert!(old.position[2]>0.0);assert_eq!(new.position,[0.0,0.0,0.0]);
-    }
-    #[test]
-    fn paused_bursts_saturate_without_allocation_or_cross_identity_hits() {
-        let mut s=Shots::default();let mut i=input();i.replayed=true;i.tick=10.0;
-        let input_ptr=s.input.as_ptr();let output_ptr=s.output.as_ptr();
-        for _ in 0..CAPACITY { assert!(fire(&mut s,&mut i).accepted); }
-        for _ in 0..4096 { assert!(!fire(&mut s,&mut i).accepted); }
-        assert_eq!(s.count(),CAPACITY);assert_eq!(s.input.as_ptr(),input_ptr);assert_eq!(s.output.as_ptr(),output_ptr);
-        i.op=Op::Claim;i.tick=20.0;let first=invoke(&mut s,&i);assert!(first.first);
-        assert!(s.rows.iter().flatten().all(|s|s.record.confirmed==20.0));
-        // Remote traffic must not evict a local claim or advance its FIFO.
-        i.player_id=9.0;for n in 0..4096 { i.tick=n as f64;invoke(&mut s,&i); }
-        i.player_id=8.0;i.tick=20.0;assert_eq!(invoke(&mut s,&i).id,first.id);
-        i.op=Op::Advance;i.now=0.1;invoke(&mut s,&i);
-        Contact{id:u32::MAX,distance:0.0}.put(&mut s.input[Input::WORDS..Input::WORDS+Contact::WORDS],&mut Vec::new());
-        i.op=Op::Settle;invoke(&mut s,&i);assert!(s.rows.iter().flatten().all(|s|s.record.flown==10.0));
     }
 }

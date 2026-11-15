@@ -48,39 +48,12 @@ impl Delta {
         }
         changed
     }
-    // F2Delta is already a retained typed record. Its WASM source address is
-    // bound only by the boundary wrapper, without another encoding or buffer.
-    #[cfg(target_arch = "wasm32")]
-    fn descriptor(&mut self, source: &Block, borrowed: bool) {
-        self.value.source = if borrowed { source.ptr() as u32 } else { 0 };
-    }
 }
 
 // Cache comparison is numeric storage work, not gameplay arithmetic. Integer
 // lanes compare f64 bits so signed zero and NaN payloads remain distinct.
 // Audio already requires SIMD in the browser; native replay uses the same
 // bit decisions without introducing a second simulation path.
-#[cfg(target_arch = "wasm32")]
-fn changed_bits(next: &[f64], last: &[f64]) -> u32 {
-    // Both slices have the same bounded length, at most one mask word.
-    unsafe { changed_bits_simd(next, last) }
-}
-#[cfg(target_arch = "wasm32")]
-#[target_feature(enable = "simd128")]
-unsafe fn changed_bits_simd(next: &[f64], last: &[f64]) -> u32 {
-    use core::arch::wasm32::*;
-    let mut mask = 0;
-    let mut i = 0;
-    while i + 2 <= next.len() {
-        let a = v128_load(next.as_ptr().add(i).cast());
-        let b = v128_load(last.as_ptr().add(i).cast());
-        mask |= (3 ^ i64x2_bitmask(i64x2_eq(a, b)) as u32) << i;
-        i += 2;
-    }
-    if i < next.len() { mask |= ((next[i].to_bits() != last[i].to_bits()) as u32) << i; }
-    mask
-}
-#[cfg(not(target_arch = "wasm32"))]
 fn changed_bits(next: &[f64], last: &[f64]) -> u32 {
     let mut mask = 0;
     for (i, (a, b)) in next.iter().zip(last).enumerate() {
@@ -96,10 +69,10 @@ impl Cache {
     /// F3 consumes shared-memory rows synchronously before acknowledging them.
     /// F2 can retain its packed values for the same generated delta reader.
     pub fn borrowed(words: usize) -> Self { Self::with_storage(words, true) }
-    fn with_storage(words: usize, borrowed: bool) -> Self {
+    fn with_storage(words: usize, _borrowed: bool) -> Self {
         // A native descriptor has no address. Retain its changed values so
         // F3 and F4 readers can apply the same generated sparse rows.
-        let borrowed = borrowed && cfg!(target_arch = "wasm32");
+        let borrowed = false;
         let mut delta = Delta::default();
         delta.value.mask.reserve(words.div_ceil(MASK_BITS));
         if !borrowed { delta.value.values.reserve(words); }
@@ -120,8 +93,6 @@ impl Cache {
     /// acknowledge several publications together after a native callback.
     pub fn prepare(&mut self, slot: u32, generation: u32, width: usize, write: impl FnOnce(&mut [f64], &mut Vec<f64>)) -> bool {
         let changed = self.prepare_rows(slot, generation, width, write);
-        #[cfg(target_arch = "wasm32")]
-        self.delta.descriptor(&self.next, self.borrowed);
         changed
     }
     pub fn prepare_rows(&mut self, slot: u32, generation: u32, width: usize, write: impl FnOnce(&mut [f64], &mut Vec<f64>)) -> bool {
@@ -135,8 +106,6 @@ impl Cache {
     pub fn prepare_retained(&mut self, slot:u32, generation:u32, width:usize,
         ranges:&[std::ops::Range<usize>],write:impl FnOnce(&mut [f64],&mut Vec<f64>)) -> Option<bool> {
         let changed = self.prepare_retained_rows(slot, generation, width, ranges, write);
-        #[cfg(target_arch = "wasm32")]
-        if changed.is_some() { self.delta.descriptor(&self.next, self.borrowed); }
         changed
     }
     pub fn prepare_retained_rows(&mut self, slot:u32, generation:u32, width:usize,

@@ -139,11 +139,7 @@ impl Native {
         let mut counters = self.counters;
         match self.context.value.world_host_journal(|journal| {
             let head = journal.seq;
-            let start = seen.max(head.saturating_sub(bfe_sim::host::journal::CAPACITY));
-            for record in journal
-                .records()
-                .filter(|record| record.seq >= start && record.seq < head)
-            {
+            for record in journal.since(seen) {
                 let kind = record.event.kind();
                 // The typed journal uses these same kinds for AI hearing.
                 if kind == "shot" {
@@ -179,6 +175,13 @@ impl Native {
 }
 
 impl Engine for Native {
+    // The admission's own impact rule export, run again on the live world.
+    fn friendly_fire(&mut self, on: bool) -> Result<(), String> {
+        let rules = bfe_sim::gen::F3ImpactRules { friendly_fire: on };
+        let mut call = bfe_sim::world::admit::Call { row: vec![0.; bfe_sim::gen::F3ImpactRules::WORDS], ..Default::default() };
+        rules.put(&mut call.row, &mut call.heap);
+        self.context.value.invoke_export("f3_impact_rules", &call).map(|_| ()).map_err(|e| e.to_string())
+    }
     fn initialize(&mut self, setup: WorldTickSetup) -> Result<(), String> {
         self.context
             .value
@@ -274,7 +277,7 @@ impl Engine for Native {
                 if self.graphics_trace&&tick as u64%60==0{eprintln!("graphics living: tick={} teams={:?}",tick,self.context.value.world_living_units().unwrap_or_default());}
                 if let Some(census) = &mut self.census {
                     if let Ok(Some(line)) = census.sample(&self.context.value, tick as u64, 600) {
-                        eprintln!("ai census local {line}");
+                        for line in line.lines() { eprintln!("ai census local {line}"); }
                     }
                 }
                 Ok(output)
@@ -313,6 +316,13 @@ impl Engine for Native {
         self.counters.combat_records_published =
             self.counters.combat_records_published.saturating_add(total);
         Ok(pub_view)
+    }
+
+    fn published_own(&self) -> Result<Option<bfe_sim::wire::publisher::OwnFacts>, String> {
+        self.context
+            .value
+            .world_published_own(self.handles.publication, self.handles.client)
+            .map_err(|e| e.to_string())
     }
 
     fn acknowledge(

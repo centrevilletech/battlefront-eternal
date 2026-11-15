@@ -1,19 +1,5 @@
 //! Loading timeline, tracking crosshairs, zoom view, rotating disk, 28 LEDs,
 //! and sound plan (`src/shell/loading.js` and `src/shell/loading-audio.js`).
-//!
-//! This module ports `src/shell/loading.js` and `src/shell/loading-audio.js`:
-//! - `STEPS = { data: 0.3, world: 0.5, shaders: 0.85, ready: 1.0 }`,
-//!   `STEP = 0.05`, `STILL = 0.001`, `LEAD = 0.1`, `SEQUENCE_CAP = 30000`,
-//!   `LOAD_CAP = 60000`.
-//! - `approach(t, h, step)`: continuous integral of the original 2004 game's
-//!   stepwise crosshair tracking `(1 - j * step / h)`.
-//! - `pulse(travel, h, step, still)`: `[from, to]` interval within a half-track
-//!   while the leading line moves more than `STILL` of the screen per step.
-//! - `LoadingTimeline`: pure clock timeline (`at(t)`, `sounds()`, `cue(t)`).
-//! - `zoomView(u, iw, ih, target)` and `onScreen(rect, view, w, h)`: geometric
-//!   scale interpolation into the next stage's rectangle.
-//! - `diskPlace(w, h)`, `lightLevel(behind, ...)`, `mixColor(stops, level)`,
-//!   `loadingLook(classic_menus, theme)`, `planetName(map, strings, load)`.
 
 use crate::data::MapLoad;
 use serde::{Deserialize, Serialize};
@@ -287,12 +273,6 @@ pub fn planet_name(
 
 /// Fraction of a tracking line's travel remaining `t` seconds into a half-track
 /// of `h` seconds.
-///
-/// Every `step` (`0.05s`) the 2004 game moves each line `t / h` of what is left,
-/// so the remaining distance after `k` steps is the product of `(1 - j * step / h)`.
-/// This function evaluates the smooth log-integral of that product.
-///
-/// Mirrors `approach(t, h, step)` in `src/shell/loading.js`.
 pub fn approach(t: f64, h: f64, step: f64) -> f64 {
     if t <= 0.0 {
         return 1.0;

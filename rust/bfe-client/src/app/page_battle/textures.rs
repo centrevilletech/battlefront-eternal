@@ -47,13 +47,16 @@ pub(super) fn ring(size: usize, map: bool) -> Vec<u8> {
                 if long { 0.9 } else { 0.45 },
             )
         };
-        lines.push((
-            [a.cos() * r0 * s, a.sin() * r0 * s],
-            [a.cos() * r1 * s, a.sin() * r1 * s],
-            width,
-            alpha,
-        ));
+        let p = [a.cos() * r0 * s, a.sin() * r0 * s];
+        let q = [a.cos() * r1 * s, a.sin() * r1 * s];
+        // The tick's middle radius, once per tick rather than per pixel.
+        let middle = (p[0].hypot(p[1]) + q[0].hypot(q[1])) * 0.5;
+        lines.push((p, q, width, alpha, middle));
     }
+    // Pixels farther than this from every tick's middle skip the ticks.
+    let band = lines.iter().fold([f64::INFINITY, f64::NEG_INFINITY], |[lo, hi], line| {
+        [lo.min(line.4 - s * 0.04), hi.max(line.4 + s * 0.04)]
+    });
     let mut out = vec![255; size * size * 4];
     for y in 0..size {
         for x in 0..size {
@@ -61,6 +64,7 @@ pub(super) fn ring(size: usize, map: bool) -> Vec<u8> {
             let py = y as f64 + 0.5 - s * 0.5;
             let r = px.hypot(py);
             let a = py.atan2(px).rem_euclid(TAU);
+            let near_ticks = r >= band[0] && r <= band[1];
             let mut alpha = 0.;
             for &(radius, width, opacity, dash, gap) in rings {
                 if dash > 0. && (a * radius * s) % (dash + gap) > dash {
@@ -71,8 +75,8 @@ pub(super) fn ring(size: usize, map: bool) -> Vec<u8> {
                     (width * 0.5 + 0.5 - (r - radius * s).abs()).clamp(0., 1.) * opacity,
                 );
             }
-            for &(p, q, width, opacity) in &lines {
-                if (r - (p[0].hypot(p[1]) + q[0].hypot(q[1])) * 0.5).abs() > s * 0.04 {
+            for &(p, q, width, opacity, middle) in lines.iter().filter(|_| near_ticks) {
+                if (r - middle).abs() > s * 0.04 {
                     continue;
                 }
                 blend(
@@ -127,4 +131,33 @@ pub(super) fn pin(size: usize) -> Vec<u8> {
         }
     }
     out
+}
+
+/// The stage's four textures, built once per run.
+pub(super) struct Stage {
+    pub ring: Vec<u8>,
+    pub rim: Vec<u8>,
+    pub dot: Vec<u8>,
+    pub pin: Vec<u8>,
+}
+
+static STAGE: std::sync::OnceLock<Stage> = std::sync::OnceLock::new();
+
+fn build() -> Stage {
+    Stage { ring: ring(512, false), rim: ring(1024, true), dot: dot(256), pin: pin(64) }
+}
+
+/// Starts building the stage's textures on a thread of their own (seconds on
+/// a slow CPU), so the window's thread only uploads them.
+pub(super) fn prefetch() {
+    if STAGE.get().is_none() {
+        let _ = std::thread::Builder::new().name("bfe-spawn-textures".into()).spawn(|| {
+            STAGE.get_or_init(build);
+        });
+    }
+}
+
+/// The stage's textures; waits for a build already under way.
+pub(super) fn stage() -> &'static Stage {
+    STAGE.get_or_init(build)
 }

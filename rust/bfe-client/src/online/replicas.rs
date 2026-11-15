@@ -43,8 +43,10 @@ struct Model {
     death_clip: f64,
     // The clip of each weapon action, by bank, posture and action.
     weapon_clips: Vec<presented::BankClips>,
-    // Bone names in lower case, as a class's chunks name them.
+    // Bone names in lower case, as a class's chunks name them, and each
+    // bone's parent (-1 none).
     bones: Vec<String>,
+    parents: Vec<i32>,
 }
 struct Slot {
     actor: usize,
@@ -75,6 +77,8 @@ struct Slot {
     // up and whether the droideka is rolled into a ball.
     bubble: Option<usize>,
     shield: (f64, bool, bool),
+    // A droideka's mode and velocity as replicated (its rolling dust).
+    roll: (f64, [f64; 3]),
     // The record's charge step of the weapon in his hands (0 to 63).
     charge: f64,
     // Unit.goUp: seconds since this life's body went up, None while drawn.
@@ -97,6 +101,9 @@ pub struct Looks {
     pub sniper: bool,
     /// jetpackEffects: Enhanced only when it says "enhanced".
     pub jetpack: bool,
+    pub rain: bool,
+    pub environment: bool,
+    pub destruction: bool,
 }
 pub struct Replicas {
     pub shot_aim: super::shot_aim::Shared,
@@ -111,6 +118,14 @@ pub struct Replicas {
     pub presented: presented::Presented,
     pub arcs: Box<super::lightning::Arcs>,
     jets: Box<super::jetpacks::Jetpacks>,
+    pub rain: Option<Box<super::weather::Rain>>,
+    pub snow: Option<Box<super::weather::Snow>>,
+    pub steam: Option<Box<super::steam::Steam>>,
+    pub fountains: Option<Box<super::fountains::Fountains>>,
+    pub trails: Box<super::trails::Trails>,
+    rollers: Vec<super::trails::Roller>,
+    // The player's own body, whose droideka alone trails dust (game.js).
+    own: (u32, u32),
     guns: super::lightning::Guns,
     soft: bool,
     // The tick of the frame being drawn.
@@ -130,10 +145,11 @@ pub struct Replicas {
     pub hulls: Box<super::hulls::Hulls>,
     pub turrets: Box<super::turrets::Turrets>,
     pub buildings: super::buildings::Buildings,
-    animated: super::animated_props::Animated,
+    pub animated: super::animated_props::Animated,
     pub items: Box<super::items::Views>,
     models: Vec<Model>,
     classes: Vec<Option<usize>>,
+    can_repair: Vec<bool>,
     class_names: Vec<String>,
     // By class: a class's own skin on its shared body (OverrideTexture), as
     // the body's draw textures and spawn screen preview parts.
@@ -147,6 +163,8 @@ pub struct Replicas {
     own_feet: Option<[f64; 3]>,
     sun_seen: f64,
     dive_times: Vec<f64>,
+    // By class: a droideka's AnimationSpeed, the rate its mode clips play at.
+    walker_rates: Vec<f64>,
     preview_weapons: Vec<Option<usize>>,
     preview_banks: Vec<usize>,
     preview_class: usize,
@@ -182,7 +200,7 @@ impl Replicas {
         let shadow_cascades = bridge.shadow_cascades();
         // entityRegistryDescriptor derives ordered names from the same native
         // definitions as the server. Numeric handles resolve before frames.
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
+        let defs = content.defs()?;
         let registry = &defs.registry;
         let mut aim_classes = vec![super::shot_aim::Class {track:[3.5;3],scale:1.}; registry.classes.len()+1];
         for class in &defs.classes {
@@ -305,6 +323,7 @@ impl Replicas {
                 death_clip: -1.,
                 weapon_clips: Vec::new(),
                 bones: actor.bones.iter().map(|bone| bone.name.to_lowercase()).collect(),
+                parents: actor.bones.iter().map(|bone| bone.parent as i32).collect(),
                 preview,
                 preview_parts,
                 preview_geometry: (preview_geometry, grouped.indices.len(), grouped.groups.iter().map(|g| (g.first, g.count, g.material)).collect()),
@@ -346,6 +365,8 @@ impl Replicas {
             class_names[i + 1] = name.to_string();
         }
         let mut dive_times = vec![0.; classes.len()];
+        let mut walker_rates = vec![1.; classes.len()];
+        let mut can_repair = vec![false; classes.len()];
         for class in &defs.classes {
             let Some(id) = class.registry_id else {
                 continue;
@@ -353,6 +374,8 @@ impl Replicas {
             let body_constants = bfe_sim::units::class::soldier_body(&class.record, 1e6, class.getup_time, class.dive_time);
             turns[id as usize] = (body_constants.max_turn, body_constants.pitch_limits);
             dive_times[id as usize] = class.dive_time;
+            walker_rates[id as usize] = bfe_sim::units::class::droideka_body(&class.record, -1., 0.).speed;
+            can_repair[id as usize] = class.weapons.iter().any(|w|defs.weapons[*w].record.get("base").and_then(bfe_content::Value::as_str)==Some("repair"));
             let Some(body) = class.body else {
                 continue;
             };
@@ -411,7 +434,7 @@ impl Replicas {
         // Units owns the generated actor/node limits. Stop cold registration
         // before either budget fills; a live refusal never creates a rig.
         let mut nodes = views.nodes;
-        let first_person = views.admit(content, bridge, textures, &mut units)?;
+        let first_person = views.admit(content, bridge, textures, &mut units).await?;
         let mut slots = Vec::with_capacity(POOL);
         let per_model = POOL.checked_div(models.len()).unwrap_or(0);
         // Resource creation is cold. A bounded pool lends existing skeletons
@@ -446,6 +469,7 @@ impl Replicas {
                     blown: false,
                     bubble: None,
                     shield: (0., false, false),
+                    roll: (0., [0.; 3]),
                     charge: 0.,
                     gone: None,
                     flash: (0, -1., 0., [0.; 4]),
@@ -476,7 +500,11 @@ impl Replicas {
         bridge.r.core.state.reset();
         let replay = Some(super::replay::Replay::new(content)?);
         let mut preview_held=Vec::new();
+        let mut budget = crate::loading_work::Budget::new();
         for weapon in &defs.weapons {
+            if budget.tick().await {
+                bridge.r.core.state.reset();
+            }
             let mut parts=Vec::new();
             if let Some(name)=weapon.geometry.map(|n|defs.names.text(n)) {
                 let prefix=format!("{name}/");
@@ -518,7 +546,7 @@ impl Replicas {
             renderer,
             resources.collision.clone(),
             resources.world,
-        )?);
+        ).await?);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         let mut sound = Box::new(super::sound::Sound::new(
@@ -528,12 +556,19 @@ impl Replicas {
         ));
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
-        let items = Box::new(super::items::Views::new(content, bridge, textures, resources.collision.clone(), resources.world)?);
+        let items = Box::new(super::items::Views::new(content, bridge, textures, resources.collision.clone(), resources.world).await?);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
-        let turrets = Box::new(super::turrets::Turrets::new(content, bridge, textures)?);
-        let buildings = super::buildings::Buildings::new(content, bridge, textures)?;
-        let animated = super::animated_props::Animated::new(content, bridge, textures)?;
+        let turrets = Box::new(super::turrets::Turrets::new(content, bridge, textures, &combat.effect_names, registry.classes.len() + 1)?);
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
+        let buildings = super::buildings::Buildings::new(content, bridge, textures, &combat.effect_names, registry.classes.len() + 1).await?;
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
+        let mut animated = super::animated_props::Animated::new(content, bridge, textures)?;
+        for slot in &slots {
+            animated.bind_actor(&units,slot.actor,slot.model,&models[slot.model].clips);
+        }
         units.rider_sources.bind(&hulls.owner.sources, &turrets.owner.sources);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
@@ -583,6 +618,18 @@ impl Replicas {
             bfe_render::effects::MAX_DRAWS - 2 * super::shields::BUBBLES - super::holograms::MATRICES - super::blades::MATRICES,
         )?);
         bridge.r.core.state.reset();
+        // The map's rain, its floats after the holograms'.
+        let rain = super::weather::Rain::new(content, bridge, renderer, resources.collision.clone(), resources.world, holograms.end())?.map(Box::new);
+        let snow_at = rain.as_ref().map_or(holograms.end(), |r| r.end());
+        let snow = super::weather::Snow::new(content, bridge, textures, renderer, resources.collision.clone(), resources.world, snow_at)?.map(Box::new);
+        let steam_at = snow.as_ref().map_or(snow_at, |s| s.end());
+        let steam = super::steam::Steam::new(content, bridge, textures, renderer, steam_at)?.map(Box::new);
+        let fountains_at = steam.as_ref().map_or(steam_at, |s| s.end());
+        let fountains = super::fountains::Fountains::new(content, bridge, textures, renderer, fountains_at)?.map(Box::new);
+        let trails_at = fountains.as_ref().map_or(fountains_at, |f| f.end());
+        let trails = Box::new(super::trails::Trails::new(content, bridge, resources.collision.clone(), resources.world, trails_at)?);
+        combat.map_effects.jets = fountains.is_some();
+        bridge.r.core.state.reset();
         // Weapon actions resolve their clips once, per body and bank.
         let sets = content.content.battle.anim_meta.get("sets");
         fn text<'a>(weapon: &'a bfe_content::defs::WeaponDef, key: &str) -> Option<&'a str> {
@@ -610,6 +657,13 @@ impl Replicas {
             presented,
             arcs,
             jets,
+            rain,
+            snow,
+            steam,
+            fountains,
+            trails,
+            rollers: Vec::with_capacity(16),
+            own: (0, 0),
             guns,
             // The browser's defaults, until the player's settings arrive.
             soft: true,
@@ -630,6 +684,7 @@ impl Replicas {
             items,
             models,
             classes,
+            can_repair,
             class_names,
             skins,
             light,
@@ -638,6 +693,7 @@ impl Replicas {
             own_feet: None,
             sun_seen: 1.,
             dive_times,
+            walker_rates,
             preview_weapons,
             preview_banks,
             preview_class:usize::MAX,
@@ -668,6 +724,7 @@ impl Replicas {
             census.observe(tick, receiver, &self.slots, &self.units.output, &self.units.input, &self.class_names, &self.light);
         }
         self.tick = tick;
+        self.own = (receiver.own.id as u32, receiver.own.generation as u32);
         self.dt = dt;
         self.own_feet = None;
         self.hud.frame(bridge, receiver, prediction, dt);
@@ -684,11 +741,13 @@ impl Replicas {
             );
             let (collision, world) = (&self.collision, self.world);
             let [yaw, pitch] = shot.fire;
+            let origin = if shot.walker { [shot.position[0], shot.position[1] + 1., shot.position[2]] } else { [basis.origin.x, basis.origin.y, basis.origin.z] };
             self.combat.predict(
                 shot.weapon,
+                shot.level,
                 shot.tick,
                 shot.button,
-                [basis.origin.x, basis.origin.y, basis.origin.z],
+                origin,
                 [yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos()],
                 shot.spread,
                 &mut |from, direction, far| {
@@ -701,9 +760,8 @@ impl Replicas {
         // The unit links then borrow its output by identity and generation.
         receiver.network.borrow_mut().present(tick, -1., prediction.fleet.identity.map_or(-1., |p| p.0));
         self.hulls.frame(receiver, tick, dt, &prediction.fleet, history, &mut self.combat.hull_fx);
-        self.turrets.frame(receiver, history, dt);
-        self.buildings.frame(receiver, dt);
-        self.animated.frame(receiver, tick, dt);
+        self.turrets.frame(receiver, history, dt, &mut self.combat.hull_fx);
+        self.buildings.frame(receiver, dt, &mut self.combat.hull_fx);
         self.items.frame(receiver, tick);
         self.frame = self.frame.wrapping_add(1);
         self.visible = 0;
@@ -793,6 +851,7 @@ impl Replicas {
             if kind == k::DROIDEKA {
                 // Droideka.rolled: folding, rolling or unfolding (mode 11 on).
                 self.slots[slot].shield = (row[r::SHIELD], row[r::SHIELD_ON] != 0., row[r::MODE] >= 11.);
+                self.slots[slot].roll = (row[r::MODE], std::array::from_fn(|i| row[r::VELOCITY + i]));
             }
             let lease = (row[r::SEAT_PRESENT] != 0.).then_some((
                 row[r::SEAT_VEHICLE_ID] as u32,
@@ -873,11 +932,22 @@ impl Replicas {
                     self.units.input[f::COMMANDS] += 1.;
                 }
             }
+            // game.js onDeath: a droid that comes apart, killed on its feet,
+            // shorts out the Enhanced way.
+            if dead && !self.slots[slot].dead && self.slots[slot].gone.is_none() && self.combat.destruction.chunked(self.slots[slot].class) {
+                self.slots[slot].dead = true;
+                self.units.refresh_actor(self.slots[slot].actor);
+                if let Some(body) = body_of(&self.slots, &self.models, &self.units, slot) {
+                    let body = super::destruction::Body { visible: true, ..body };
+                    self.combat.destruction.died(&body);
+                }
+            }
             self.slots[slot].dead = dead;
             let actor = self.slots[slot].actor;
             let input = &mut self.units.input[f::STRIDE + actor * i::STRIDE..][..i::STRIDE];
             input[i::ID] = row[r::ID];
             input[i::GENERATION] = row[r::GENERATION];
+            input[i::AUTHORITATIVE_POSITION..i::AUTHORITATIVE_POSITION + 3].copy_from_slice(&row[r::POSITION..r::POSITION + 3]);
             input[i::PRESENT] = 1.;
             input[i::OWN] = (row[r::ID] == receiver.own.id) as u8 as f64;
             // RiderSources fills only rows that still name a mounted source.
@@ -907,6 +977,9 @@ impl Replicas {
             // duration. Prediction can override this for the owned body;
             // placement below must not replace either with a fixed duration.
             input[i::DIVE_TIME] = self.dive_times[row[r::CLASS_ID] as usize];
+            // Droideka.present plays each mode clip at the class's
+            // AnimationSpeed, the player's own droideka included.
+            input[i::WALKER_SPEED] = self.walker_rates[row[r::CLASS_ID] as usize];
             if let Some((id, generation, seat)) = lease {
                 let pick = self.slots[slot].rider;
                 input[i::MOUNT_ID] = id as f64;
@@ -965,7 +1038,6 @@ impl Replicas {
                     input[i::WALKER_LEGS] = receiver.own.walker_legs;
                     input[i::WALKER_ROLL] = receiver.own.walker_roll;
                     input[i::WALKER_LEAN] = receiver.own.walker_lean;
-                    input[i::WALKER_SPEED] = receiver.own.walker_speed;
                 }
                 if let Some(body) = &prediction.displayed {
                     input[i::POSITION..i::POSITION + 3].copy_from_slice(&body.position);
@@ -1002,6 +1074,10 @@ impl Replicas {
         // Network-linked rows receive motion from Rust. The retained parent
         // matrices describe placement only and do not reapply network motion.
         let identity = Matrix4::default().elements;
+        self.animated.frame(receiver,tick,dt,&self.units,|id,generation| {
+            let slot = &self.slots[*self.bound.get(&(id,generation))?];
+            (slot.active && !slot.walker).then_some((slot.actor,slot.model))
+        });
         for slot in &self.slots {
             let input = &mut self.units.input[f::STRIDE + slot.actor * i::STRIDE..][..i::STRIDE];
             if !slot.active {
@@ -1015,6 +1091,13 @@ impl Replicas {
             input[i::ACTOR] = slot.actor as f64;
             input[i::ALPHA] = 1.;
             input[i::HELD_CLIP] = -1.;
+            input[i::HELD] = 0.;
+            if let Some((matrix,time,clip)) = slot.identity.and_then(|(id,generation)|self.animated.held(id,generation)) {
+                input[i::HELD] = 1.;
+                input[i::HELD_MATRIX..i::HELD_MATRIX+16].copy_from_slice(&matrix);
+                input[i::HELD_TIME] = time;
+                input[i::HELD_CLIP] = clip as f64;
+            }
             input[i::ROOT_QUATERNION + 3] = 1.;
             input[i::POSE_PARENT..i::POSE_PARENT + 16].copy_from_slice(&identity);
             input[i::ATTACHMENT_PARENT..i::ATTACHMENT_PARENT + 16].copy_from_slice(&identity);
@@ -1027,6 +1110,22 @@ impl Replicas {
         self.units.input[f::CAMERA_POSITION..f::CAMERA_POSITION + 3].copy_from_slice(&eye);
         // Pose and placement publish skin once into the existing owner banks.
         // Renderer submission below borrows that storage synchronously.
+    }
+    // Unit.present uses the displayed frustum for animation LOD and the
+    // camera distance for its near-only shadow. Network sampling still runs
+    // every frame; skipped poses accumulate their visual time in Units.
+    pub fn animation_view(&mut self, camera: &crate::scene::MapCamera) {
+        let view = camera.snapshot();
+        let projection = view.values[..16].try_into().unwrap();
+        let inverse = view.values[16..32].try_into().unwrap();
+        let frustum = bfe_render::math::Frustum::from_matrix(&bfe_render::math::mul(projection, inverse));
+        self.units.input[f::HAS_VIEW] = 1.;
+        self.units.input[f::CAMERA_POSITION..f::CAMERA_POSITION + 3].copy_from_slice(&camera.position);
+        for (index, plane) in frustum.planes.iter().enumerate() {
+            let at = f::FRUSTUM + index * 4;
+            self.units.input[at..at + 3].copy_from_slice(&plane.n);
+            self.units.input[at + 3] = plane.c;
+        }
     }
     // VehicleDriver.updateCamera uses an exposed rider's posed head. Advance the
     // mounted body phase before selecting its camera, once per frame; the
@@ -1058,20 +1157,8 @@ impl Replicas {
     }
     // Finalize after the camera selector: FirstPersonView hangs below the
     // selected view and consumes this frame's camera-motion cue.
-    /// Unit.present's view: `values` is the drawn camera's projection, then view matrix. Off-screen bodies pose
-    /// every sixth frame and those past 120 m every second one; past 70 m a body casts no shadow.
-    pub fn set_view(&mut self, values: &[f64]) {
-        let projection: [f64; 16] = values[..16].try_into().unwrap();
-        let view: [f64; 16] = values[16..32].try_into().unwrap();
-        let frustum = bfe_render::math::Frustum::from_matrix(&bfe_render::math::mul(&projection, &view));
-        for (k, plane) in frustum.planes.iter().enumerate() {
-            let at = f::FRUSTUM + k * 4;
-            self.units.input[at..at + 3].copy_from_slice(&plane.n);
-            self.units.input[at + 3] = plane.c;
-        }
-        self.units.input[f::HAS_VIEW] = 1.;
-    }
-    pub fn finish_frame(&mut self, receiver: &Receiver, prediction: &super::replay::Replay, camera: &[f64; 16], cue: f64) {
+    pub fn finish_frame(&mut self, receiver: &Receiver, prediction: &super::replay::Replay, camera: &[f64; 16], cue: f64, profile: &mut bfe_render::profile::Profile<glow::Context>) {
+        let pose_timer = profile.clock();
         // FirstPersonView.light: the player's light, with its sun scaled by
         // whether a 500 m ray from the view toward the sun is clear, eased
         // half the way per 1/30 s.
@@ -1087,6 +1174,8 @@ impl Replicas {
             self.first_person.frame(&mut self.units, receiver, prediction, &self.guns, camera, cue);
             self.units.pose_frame();
         }
+        profile.cpu("unit animation", pose_timer);
+        let skin_timer = profile.clock();
         self.units.attachment_frame();
         // Unit.present consumes deathPending only at the historical death.
         // Retain it through earlier samples, then retire it without replaying.
@@ -1106,13 +1195,25 @@ impl Replicas {
         // draw boundary; both instance culling and rider attachments need
         // the composed root and skin, not the preceding frame's bind pose.
         let mut places = 0;
+        let killer = self.cameras.killer();
         for slot in &self.slots {
-            if slot.active {
+            if !slot.active { continue; }
+            let input = &self.units.input[f::STRIDE + slot.actor * i::STRIDE..];
+            let out = &self.units.output[slot.actor * o::STRIDE..];
+            let visible = (0..6).all(|plane| {
+                let at = f::FRUSTUM + plane * 4;
+                self.units.input[at] * out[o::POSITION]
+                    + self.units.input[at + 1] * (out[o::POSITION + 1] + 0.9)
+                    + self.units.input[at + 2] * out[o::POSITION + 2]
+                    + self.units.input[at + 3] >= -2.2
+            });
+            if visible || input[i::OWN] != 0. || slot.mount.is_some() || slot.identity == killer {
                 self.units.places[places] = slot.actor as u32;
                 places += 1;
             }
         }
         self.units.place_actors(places);
+        profile.cpu("unit placement and skin", skin_timer);
 
     }
     // PlayerCombat.presentCharge's glow for every body drawn: the weapon's
@@ -1134,6 +1235,7 @@ impl Replicas {
                 } else {
                     self.units.actor_node_start(slot.actor) + self.models[slot.model].hand?
                 };
+                self.units.refresh_actor(slot.actor);
                 let node = hand * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
                 let mut matrix = Matrix4::default();
                 matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
@@ -1163,14 +1265,15 @@ impl Replicas {
     pub fn present_ordnance(&mut self, receiver: &Receiver, prediction: &super::replay::Replay, dt: f64, bridge: &mut Bridge) {
         let own = (receiver.own.id as u32, receiver.own.generation as u32);
         self.present_charges(own, prediction);
-        let (bound, slots, units, models, guns, first_person) = (&self.bound, &self.slots, &self.units, &self.models, &self.guns, &self.first_person);
-        let muzzle = |shooter: (u32, u32), round: usize| {
+        let (bound, slots, units, models, guns, first_person) = (&self.bound, &self.slots, &mut self.units, &self.models, &self.guns, &self.first_person);
+        let mut muzzle = |shooter: (u32, u32), round: usize| {
             let slot = &slots[*bound.get(&shooter)?];
             if !slot.active || slot.mount.is_some() {
                 return None;
             }
             let weapon = guns.shooters.get(round)?.iter().find(|(class, _)| *class == slot.class)?.1;
             let local = guns.muzzles.get(weapon).copied().flatten()?;
+            units.refresh_actor(slot.actor);
             let hand = if shooter == own && first_person.enabled && !slot.dead {
                 first_person.hand_node(units)?
             } else {
@@ -1183,7 +1286,19 @@ impl Replicas {
             point.apply_matrix4(&matrix);
             Some([point.x, point.y, point.z])
         };
-        self.combat.draw(dt, own, &muzzle, &mut self.lights, bridge);
+        // The drawn bodies' hit shapes, as the frame's shot scene took them
+        // (online/shot_aim.rs), but for the player's own.
+        let scene = self.shot_aim.borrow();
+        let strike = |from: [f64; 3], direction: [f64; 3], length: f64| {
+            let (from, direction) = (three::Vector3::new(from[0], from[1], from[2]), three::Vector3::new(direction[0], direction[1], direction[2]));
+            scene
+                .targets
+                .iter()
+                .filter(|(id, _)| *id != own.0)
+                .filter_map(|(_, shape)| bfe_sim::units::shapes::segment_shape(&from, &direction, length, shape))
+                .fold(None, |nearest: Option<f64>, distance| Some(nearest.map_or(distance, |n| n.min(distance))))
+        };
+        self.combat.draw(dt, own, &mut muzzle, &strike, &mut self.lights, bridge);
     }
     /// Lightning.update, once the frame's bodies are posed. A bolt held to
     /// its shooter starts at his gun origin as he is drawn now
@@ -1205,7 +1320,16 @@ impl Replicas {
         let mut turn = three::Quaternion::default();
         turn.set_from_rotation_matrix(camera);
         let eye = [camera.elements[12], camera.elements[13], camera.elements[14]];
-        self.arcs.begin(dt, eye, [turn.x, turn.y, turn.z, turn.w]);
+        // ArcLightning's view layer: with the first person arms shown, the
+        // crackle on the player's own gun and a strike on his arms are
+        // drawn with the arms, after them.
+        let arms = self.first_person.enabled && self.units.header[bfe_presentation::layout::unit_header::FIRST_PERSON_VISIBLE] != 0.;
+        self.arcs.begin(dt, eye, [turn.x, turn.y, turn.z, turn.w], arms);
+        let mut aims = 0;
+        for slot in &self.slots {
+            if slot.active { self.units.places[aims] = slot.actor as u32; aims += 1; }
+        }
+        self.units.aim_frame(aims);
         if self.arcs.reads_units() {
             let own = (receiver.own.id as u32, receiver.own.generation as u32);
             // The local player's charge is his predicted weapon's; everyone
@@ -1217,11 +1341,19 @@ impl Replicas {
                 if !slot.active {
                     continue;
                 }
-                let out = &self.units.output[slot.actor * o::STRIDE..];
                 let mine = slot.identity == Some(own);
+                let caster = self.guns.casters.get(slot.class).copied().flatten();
+                let color = self.guns.colors.get(slot.primary).copied().flatten();
+                let most = self.guns.holds.get(slot.primary).copied().unwrap_or(0.);
+                let pressed = if mine { own_hold.unwrap_or(0.) } else { slot.charge / 63. * most };
+                // Arc bolts read a caster's muzzle; crackle reads a charged
+                // gun. Other bodies supply their bones only if prepare asks.
+                let needs_muzzle = caster.is_some() || color.is_some() && pressed > 0. || mine && self.first_person.enabled;
+                if needs_muzzle { self.units.refresh_actor(slot.actor); }
+                let out = &self.units.output[slot.actor * o::STRIDE..];
                 // In first person the player's own gun is the arms' gun.
                 let eyes = mine && self.first_person.enabled && !slot.dead;
-                let hand = if eyes { self.first_person.hand_node(&self.units) } else { self.models[slot.model].hand.map(|hand| self.units.actor_node_start(slot.actor) + hand) };
+                let hand = if !needs_muzzle { None } else if eyes { self.first_person.hand_node(&self.units) } else { self.models[slot.model].hand.map(|hand| self.units.actor_node_start(slot.actor) + hand) };
                 let hand = hand.map(|hand| {
                     let node = hand * bfe_presentation::layout::unit_node::STRIDE
                         + bfe_presentation::layout::unit_node::WORLD;
@@ -1236,10 +1368,6 @@ impl Replicas {
                     point.apply_matrix4(hand.as_ref()?);
                     Some([point.x, point.y, point.z])
                 };
-                let caster = self.guns.casters.get(slot.class).copied().flatten();
-                let color = self.guns.colors.get(slot.primary).copied().flatten();
-                let most = self.guns.holds.get(slot.primary).copied().unwrap_or(0.);
-                let pressed = if mine { own_hold.unwrap_or(0.) } else { slot.charge / 63. * most };
                 let seated = slot.mount.is_some();
                 let hidden = out[o::GONE] == -1. || (mine && self.first_person.enabled && !slot.dead);
                 let bubble = slot.bubble.and_then(|bubble| self.shields.shell(bubble));
@@ -1249,6 +1377,7 @@ impl Replicas {
                     mounted: seated,
                     walker: slot.walker,
                     first_person: mine && self.first_person.enabled,
+                    own: mine,
                     shown: !hidden,
                     root: std::array::from_fn(|axis| out[o::POSITION + axis]),
                     origin: (!slot.dead && !seated).then(|| std::array::from_fn(|axis| out[o::COMBAT_BASIS + axis])),
@@ -1276,6 +1405,7 @@ impl Replicas {
             }
             // Bone i is node i + 2 of the actor's posed tree.
             let slot = &self.slots[at];
+            self.units.refresh_actor(slot.actor);
             let start = self.units.actor_node_start(slot.actor) + 2;
             let nodes = &self.units.nodes;
             self.arcs.pose(at, &self.models[slot.model].bones, |bone| {
@@ -1304,6 +1434,8 @@ impl Replicas {
             let out = &self.units.output[slot.actor * o::STRIDE..];
             // Air::Jet on the wire and in the own body's prediction.
             let active = out[o::AIR] == 4. && !slot.dead && out[o::GONE] != -1.;
+            let velocity = std::array::from_fn(|axis| out[o::VELOCITY + axis]);
+            if active { self.units.refresh_actor(slot.actor); }
             // Bone i is node i + 2 of the actor's posed tree.
             let node = (self.units.actor_node_start(slot.actor) + 2 + chest) * bfe_presentation::layout::unit_node::STRIDE
                 + bfe_presentation::layout::unit_node::WORLD;
@@ -1313,7 +1445,6 @@ impl Replicas {
             matrix.decompose(&mut position, &mut turn, &mut scale);
             let position = [position.x, position.y, position.z];
             let turn = [turn.x, turn.y, turn.z, turn.w];
-            let velocity = std::array::from_fn(|axis| out[o::VELOCITY + axis]);
             let class = slot.class;
             self.jets.update(unit, class, active, position, turn, velocity, dt);
             if active && !self.jets.enhanced {
@@ -1369,6 +1500,7 @@ impl Replicas {
             let (Some(hand), Some(point)) = (hand, self.guns.muzzles.get(weapon).copied().flatten()) else {
                 continue;
             };
+            self.units.refresh_actor(slot.actor);
             let node = hand * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
             let mut matrix = Matrix4::default();
             matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
@@ -1380,7 +1512,12 @@ impl Replicas {
             );
             matrix.multiply(&local);
             let opacity = color[3] * (2. * left / length.max(1e-3)).min(1.);
-            if self.combat.particles.flash(bridge, &matrix.elements, &color[..3], opacity) {
+            let shown = if eyes {
+                self.combat.particles.flash_view(bridge, &matrix.elements, &color[..3], opacity)
+            } else {
+                self.combat.particles.flash(bridge, &matrix.elements, &color[..3], opacity)
+            };
+            if shown {
                 self.presented.shown[10] += 1;
             }
         }
@@ -1393,10 +1530,19 @@ impl Replicas {
     pub fn set_looks(&mut self, looks: Looks) {
         self.arcs.enhanced = looks.arcs;
         self.shields.enhanced = looks.shields;
+        self.trails.enhanced = looks.shields;
         self.soft = looks.soft_particles;
         self.combat.enhanced_bolts = looks.bolts;
         self.combat.enhanced_sniper = looks.sniper;
         self.jets.enhanced = looks.jetpack;
+        if let Some(rain) = &mut self.rain {
+            rain.enhanced = looks.rain;
+        }
+        self.combat.map_effects.enhanced = looks.environment;
+        if self.combat.destruction.enhanced && !looks.destruction {
+            self.combat.destruction.clear();
+        }
+        self.combat.destruction.enhanced = looks.destruction;
     }
     /// The softParticles setting: particles and arcs fade where they meet
     /// the scene, which needs the frame's depth copy.
@@ -1417,13 +1563,89 @@ impl Replicas {
             rolled: slot.shield.2,
         }
     }
+    /// Weather.update once the camera is posed: the rain's draws, and its
+    /// cover cache's texture when cells changed.
+    /// Destruction.update: the droids it tracks as drawn now, then what it
+    /// asks for (bodies to hide, lights) and its draws.
+    fn present_destruction(&mut self, dt: f64, eye: [f64; 3], bridge: &mut Bridge) {
+        // Off-screen skins are placed only when a visual reader needs them.
+        // Active destruction effects still need their current bone positions.
+        for unit in self.combat.destruction.tracked_bodies() {
+            if let Some(&slot) = self.bound.get(&unit) {
+                if self.slots[slot].active { self.units.refresh_actor(self.slots[slot].actor); }
+            }
+        }
+        let (slots, models, units) = (&self.slots, &self.models, &self.units);
+        let mut lookup = |unit: (u32, u32)| slots.iter().position(|s| s.active && s.identity == Some(unit)).and_then(|i| body_of(slots, models, units, i));
+        self.combat.destruction.frame(dt, eye, &mut lookup);
+        let hidden = std::mem::take(&mut self.combat.destruction.hidden);
+        for unit in &hidden {
+            if let Some(slot) = self.slots.iter_mut().find(|s| s.identity == Some(*unit)) {
+                slot.gone.get_or_insert(0.);
+            }
+        }
+        self.combat.destruction.hidden = hidden;
+        for (flash, position, color, radius, amount) in std::mem::take(&mut self.combat.destruction.lights) {
+            if flash {
+                self.lights.flash(position, color, radius, amount);
+            } else {
+                self.lights.add(position, color, radius, amount);
+            }
+        }
+        self.combat.destruction.draw(bridge);
+    }
+    pub fn present_weather(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], screen: [i32; 2], gpu: &mut crate::resources::Resources, bridge: &mut Bridge) {
+        self.present_destruction(dt, eye, bridge);
+        if let Some(steam) = &mut self.steam {
+            steam.frame(dt, &self.combat.map_effects.volumes, screen, true, gpu, bridge);
+        }
+        if let Some(fountains) = &mut self.fountains {
+            fountains.frame(dt, &self.combat.map_effects.fountains, screen, gpu, bridge);
+        }
+        // DroidekaTrail.update for the player's droideka (game.js keeps one
+        // trail, his own; Droideka mode 12: rolling), where it is drawn.
+        self.rollers.clear();
+        for slot in self.slots.iter().filter(|s| s.active && s.walker && s.identity == Some(self.own)) {
+            let (Some(unit), out) = (slot.identity, &self.units.output[slot.actor * o::STRIDE..]) else {
+                continue;
+            };
+            self.rollers.push(super::trails::Roller {
+                unit,
+                position: std::array::from_fn(|i| out[o::POSITION + i]),
+                velocity: slot.roll.1,
+                rolling: slot.roll.0 == 12.,
+                dead: slot.dead,
+            });
+        }
+        self.trails.frame(dt, &self.rollers, bridge);
+        if let Some(rain) = &mut self.rain {
+            rain.frame(dt, eye, gpu, bridge);
+        }
+        if let Some(snow) = &mut self.snow {
+            snow.frame(dt, eye, camera, gpu, bridge);
+        }
+        // With the bench's fx key, how often each was drawn, every 600 frames.
+        if self.frame % 600 == 0 && crate::app::bench::fx().is_some() {
+            eprintln!(
+                "fx-weather rain={} rain-enhanced={} snow={} steam={} vents={} fountains={} dust={} jets-in-view={}",
+                self.rain.as_ref().map_or(0, |r| r.frames),
+                self.rain.as_ref().is_some_and(|r| r.enhanced),
+                self.snow.as_ref().map_or(0, |s| s.frames),
+                self.steam.as_ref().map_or(0, |s| s.frames),
+                self.combat.map_effects.volumes.len(),
+                self.fountains.as_ref().map_or(0, |f| f.frames),
+                self.trails.drawn,
+                self.combat.map_effects.fountains.len()
+            );
+        }
+    }
     /// Unit.present's bubble for every droideka drawn, once the frame's
     /// bodies are posed: updated where the body is, hidden with a body that
     /// has gone up. `camera` is the frame's projection, then view matrix.
     /// `size` is the frame's size in pixels and `depth` the renderer's
     /// texture of the opaque scene's depth, which soft particles read.
     pub fn present_shields(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], size: [i32; 2], depth: u32, bridge: &mut Bridge) {
-        self.combat.particles.project(bridge, camera, self.soft.then_some((size, depth)));
+        self.combat.particles.project(bridge, camera, Some((self.soft, size, depth)));
         self.combat.map_effects.view(camera, eye);
         self.combat.project(bridge, camera, size[1] as f64);
         self.presented.shown[11] = self.combat.total_blasters;
@@ -1460,12 +1682,16 @@ impl Replicas {
     ) {
         let hud = &self.hud;
         let viewer = receiver.own.team;
+        let can_repair = receiver.own.alive && self.bound.get(&(receiver.own.id as u32,receiver.own.generation as u32))
+            .and_then(|slot|self.can_repair.get(self.slots[*slot].class)).copied().unwrap_or(false);
         self.holograms.present(
             dt,
             eye,
             camera,
             world,
             &|name| hud.post_meta.iter().find(|post| post.name == name).map(|post| (post.team, post.active)),
+            &|id| self.buildings.states().any(|(i,state,_,_,_)|i==id && state=="unbuilt") || self.animated.unbuilt(id),
+            can_repair,
             &|team| hud.team_look(viewer, team),
             &mut self.lights,
             bridge,
@@ -1618,6 +1844,10 @@ impl Replicas {
             .max()
             .unwrap_or(1)
     }
+    /// The effect data following the last live presentation owner.
+    pub(crate) fn effects_end(&self) -> usize { self.trails.end() }
+    /// Shoreline queries share the battle's collision world.
+    pub(crate) fn water_collision(&self) -> (&super::replay::Collision, u32) { (&self.collision, self.world) }
     pub fn record_budget(&self) -> usize {
         let actors: usize = self
             .slots
@@ -1640,7 +1870,7 @@ impl Replicas {
         let d=std::array::from_fn::<_,3,_>(|i|to[i]-from[i]);let length=d.iter().map(|v|v*v).sum::<f64>().sqrt();if length<0.4{return true;}
         let ray=bfe_sim::collision::Ray{ox:from[0],oy:from[1],oz:from[2],dx:d[0]/length,dy:d[1]/length,dz:d[2]/length};self.collision.borrow_mut().ray_hit(self.world,ray,(length-0.35).max(0.),-1).is_none()
     }
-    pub fn append(&self, bridge: &mut Bridge, mut records: usize, mut bones: usize) -> (usize, usize) {
+    pub fn append(&mut self, bridge: &mut Bridge, mut records: usize, mut bones: usize) -> (usize, usize) {
         // Drawing clips at the renderer's existing record and bone budgets.
         // Filling either leaves gameplay, transport and the next frame alive.
         let camera = bridge.r.core.camera();
@@ -1658,13 +1888,13 @@ impl Replicas {
             if output[o::SEAT_VISIBLE] == 0. || output[o::GONE] == -1. {
                 continue;
             }
+            // An off-camera actor retains stale bone matrices. Cull from
+            // its current displayed feet, then place only an actual draw.
+            let center = [output[o::POSITION], output[o::POSITION + 1] + 0.9, output[o::POSITION + 2]];
+            if !camera.frustum.sphere(&center, 2.2) { continue; }
+            self.units.refresh_actor(slot.actor);
+            let output = &self.units.output[slot.actor * o::STRIDE..];
             let count = output[o::SKIN_COUNT] as usize;
-            let mut matrix = [0.; 16];
-            matrix.copy_from_slice(&output[o::ROOT_WORLD..o::ROOT_WORLD + 16]);
-            let (center, radius) = bfe_render::math::sphere_to_world(&matrix, &[0., 0.9, 0.], 2.2);
-            if !camera.frustum.sphere(&center, radius) {
-                continue;
-            }
             if records == draw::MAX_RECORDS || bones + count > draw::MAX_BONES {
                 continue;
             }
@@ -1673,10 +1903,12 @@ impl Replicas {
             let mut row = self.models[slot.model].row;
             let (id,generation)=slot.identity.unwrap_or((0,0));
             row[draw::REC_MOTION_ID]=8589934592.+id as f64;row[draw::REC_MOTION_GENERATION]=generation as f64;
+            let shadow_flags = if output[o::SHADOW_NEAR] == 0. { draw::NO_SHADOW } else { 0 };
+            row[draw::REC_FLAGS] = (row[draw::REC_FLAGS] as u32 | shadow_flags) as f64;
             if let Some((maps, _)) = self.skins.get(slot.class).and_then(Option::as_ref) {
                 row[draw::REC_TEXTURES..draw::REC_TEXTURES + 4].copy_from_slice(maps);
             }
-            row[draw::REC_LOOK..draw::REC_LOOK + 4].copy_from_slice(&self.light.at([matrix[12], matrix[13], matrix[14]]));
+            row[draw::REC_LOOK..draw::REC_LOOK + 4].copy_from_slice(&self.light.at([output[o::ROOT_WORLD + 12], output[o::ROOT_WORLD + 13], output[o::ROOT_WORLD + 14]]));
             row[draw::REC_WORLD..draw::REC_WORLD + 16].copy_from_slice(&output[o::ROOT_WORLD..o::ROOT_WORLD + 16]);
             row[draw::REC_BIND_INVERSE..draw::REC_BIND_INVERSE + 16].copy_from_slice(&output[o::BIND_INVERSE..o::BIND_INVERSE + 16]);
             row[draw::REC_BONES] = count as f64;
@@ -1684,11 +1916,6 @@ impl Replicas {
             let start = output[o::SKIN_START] as usize * 16;
             bridge.r.core.bones[bones * 16..(bones + count) * 16].copy_from_slice(&self.units.skin[start..start + count * 16]);
             let at = draw::IN_RECORDS + records * draw::REC_STRIDE;
-            // Unit.present: beyond 70 m a body and its gun cast no shadow.
-            let far = output[o::SHADOW_NEAR] == 0.;
-            if far {
-                row[draw::REC_FLAGS] = (row[draw::REC_FLAGS] as u32 | draw::FLAG_NO_SHADOW) as f64;
-            }
             bridge.r.core.input[at..at + draw::REC_STRIDE].copy_from_slice(&row);
             records += 1;
             bones += count;
@@ -1705,7 +1932,7 @@ impl Replicas {
                 matrix.copy_from_slice(&self.units.nodes[node..node + 16]);
                 let first=records;
                 (records, bones) = model.append(bridge, &matrix, records, bones);
-                for part in first..records{let row=&mut bridge.r.core.input[draw::IN_RECORDS+part*draw::REC_STRIDE..][..draw::REC_STRIDE];row[draw::REC_MOTION_ID]=8589934592.+id as f64;row[draw::REC_MOTION_GENERATION]=generation as f64;row[draw::REC_MOTION_PART]=(part-first+1)as f64;if far{row[draw::REC_FLAGS]=(row[draw::REC_FLAGS] as u32|draw::FLAG_NO_SHADOW) as f64;}}
+                for part in first..records{let row=&mut bridge.r.core.input[draw::IN_RECORDS+part*draw::REC_STRIDE..][..draw::REC_STRIDE];row[draw::REC_MOTION_ID]=8589934592.+id as f64;row[draw::REC_MOTION_GENERATION]=generation as f64;row[draw::REC_MOTION_PART]=(part-first+1)as f64;row[draw::REC_FLAGS]=(row[draw::REC_FLAGS]as u32|shadow_flags)as f64;}
             }
         }
         let (records, bones) = self.hulls.append(bridge, records, bones);
@@ -1841,4 +2068,26 @@ impl DisplayCensus {
             eprintln!("units census t={}s world/drawn/astray {line} astray=[{}] light: shaded={shaded} dimmed={dimmed} unshadowed={far}", (tick / 60.) as u64, astray.join(" "));
         }
     }
+}
+
+// A droid's body as the destruction effects read it, None without one.
+fn body_of<'a>(slots: &'a [Slot], models: &'a [Model], units: &'a Units, slot: usize) -> Option<super::destruction::Body<'a>> {
+    let s = &slots[slot];
+    let unit = s.identity?;
+    let m = &models[s.model];
+    let out = &units.output[s.actor * o::STRIDE..];
+    Some(super::destruction::Body {
+        unit,
+        class: s.class,
+        walker: s.walker,
+        dead: s.dead,
+        visible: s.active && s.gone.is_none() && out[o::GONE] != -1.,
+        position: std::array::from_fn(|i| out[o::POSITION + i]),
+        velocity: std::array::from_fn(|i| out[o::VELOCITY + i]),
+        names: &m.bones,
+        parents: &m.parents,
+        nodes: &units.nodes,
+        stride: bfe_presentation::layout::unit_node::STRIDE,
+        at: (units.actor_node_start(s.actor) + 2) * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD,
+    })
 }

@@ -1,17 +1,4 @@
 //! Unified desktop rich-presence controller, server-name sanitizer, and map catalog reader.
-//!
-//! Mirrors the desktop host (`SCREENS`, `cleanReport`, `serverName`,
-//! `cleanServer`, `readMapNames`, `createPresence`).
-//!
-//! ## Overview
-//! This module coordinates rich-presence updates across Discord and Steam Friends:
-//! - [`server_name`] strips Unicode control characters, directional overrides, and
-//!   line/paragraph separators from untrusted multiplayer server names before they
-//!   are sent to Discord or Steam.
-//! - [`read_map_names`] loads `common/shell/shell.json` from the prepared content
-//!   directory so stock and add-on mission IDs resolve to their localized catalog titles.
-//! - [`PresenceController`] normalizes raw scene reports and publishes them to the
-//!   local Discord IPC socket when enabled.
 
 pub mod activity;
 pub mod discord;

@@ -1,15 +1,5 @@
 //! Release version parsing and ordering (`0.1.0-preview.262`, Debian `0.1.0~preview.262`,
 //! and SemVer 2.0 release strings).
-//!
-//! Mirrors the desktop host (`parseVersion`, `compareVersions`, `isNewer`).
-//!
-//! ## Ordering Rules
-//! - `major`, `minor`, and `patch` are compared numerically first.
-//! - A stable release (`0.1.0`) sorts after any prerelease of the same base version
-//!   (`0.1.0-preview.262` or `0.1.0~preview.262`).
-//! - Dot-separated prerelease identifiers are compared left-to-right: numeric identifiers
-//!   compare as integers (`preview.9 < preview.10`), numeric identifiers sort before
-//!   alphanumeric identifiers, and alphanumeric identifiers compare ASCII-lexicographically.
 
 use std::cmp::Ordering;
 
@@ -132,11 +122,6 @@ pub fn parse_version(value: &str) -> Option<ParsedVersion> {
 
 /// Compares two version strings, returning `-1`, `0`, or `1` (or `None` if either
 /// version string is invalid).
-///
-/// A release without a prerelease suffix (`prerelease.is_empty()`) sorts after
-/// every prerelease/preview of the same `major.minor.patch`.
-///
-/// Mirrors `compareVersions` in the desktop host.
 pub fn compare_versions(a: &str, b: &str) -> Option<i32> {
     let va = parse_version(a)?;
     let vb = parse_version(b)?;
