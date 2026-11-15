@@ -951,6 +951,16 @@ impl Hud {
         let post = self.posts.iter().find(|post| post.id == id)?;
         Some((post.row[P::TEAM], post.row[P::TOWARD], post.row[P::PROGRESS], post.row[P::NEUTRALIZE], &post.counts[..post.count]))
     }
+    /// Every post as its last summary gave it, for the bench's telemetry:
+    /// name, owner, active, the team it turns toward, capture and neutralize
+    /// progress, and [team, head count] for each team standing in it.
+    pub fn bench_posts(&self) -> serde_json::Value {
+        serde_json::Value::Array(self.posts.iter().map(|post| {
+            let name = self.post_meta.iter().find(|meta| meta.id == post.id).map_or("", |meta| meta.name.as_str());
+            let counts: Vec<[f64; 2]> = post.counts[..post.count].iter().map(|c| [c[PC::TEAM], c[PC::COUNT]]).collect();
+            serde_json::json!([name, post.row[P::TEAM], post.row[P::ACTIVE], post.row[P::TOWARD], post.row[P::PROGRESS], post.row[P::NEUTRALIZE], counts])
+        }).collect())
+    }
     pub fn team_count_words() -> (usize, usize) {
         (PC::TEAM, PC::COUNT)
     }
