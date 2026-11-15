@@ -404,10 +404,14 @@ pub fn new_spawning(calls: &[Call], unit_scale: f64, heroes: bool, demo: bool, n
     if unit_scale != 1.0 {
         for team in teams.iter_mut() {
             if team.unit_count > 0.0 {
-                team.unit_count = v8math::max(1.0, v8math::round(team.unit_count * unit_scale));
+                // A zero scale is aiMode off: no bots at all, where a battle
+                // size keeps at least one a team.
+                team.unit_count = if unit_scale > 0.0 { v8math::max(1.0, v8math::round(team.unit_count * unit_scale)) } else { 0.0 };
             }
         }
     }
+    // Heroes are bots too: aiMode off fields none.
+    let heroes = heroes && unit_scale > 0.0;
     append_heroes(&mut teams, heroes, has_class, strings);
     let (a, b) = (fround(a), fround(b));
     let spawning = Spawning { teams, a, b, q: v8math::trunc(fround(a / b)), wave_countdown: a, demo, heroes, ..Default::default() };
