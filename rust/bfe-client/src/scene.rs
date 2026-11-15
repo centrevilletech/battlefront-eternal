@@ -310,20 +310,7 @@ impl Prepared{
 }
 
 // Immediate native GL calls can wait for the GPU. That wait is not CPU pressure.
-pub(crate) struct CpuSample{wall:std::time::Instant,thread:Option<f64>}
-impl CpuSample{
-    pub fn now()->Self{Self{wall:std::time::Instant::now(),thread:thread_cpu_ms()}}
-    pub fn elapsed_ms(&self)->f64{self.thread.zip(thread_cpu_ms()).map_or_else(||self.wall.elapsed().as_secs_f64()*1000.,|(start,end)|(end-start).max(0.))}
-}
-#[cfg(all(target_os="linux",target_pointer_width="64"))]
-fn thread_cpu_ms()->Option<f64>{
-    #[repr(C)]struct Time{seconds:std::ffi::c_long,nanoseconds:std::ffi::c_long}
-    unsafe extern "C"{fn clock_gettime(clock:i32,value:*mut Time)->i32;}
-    let mut t=Time{seconds:0,nanoseconds:0};
-    if unsafe{clock_gettime(3,&mut t)}==0{Some(t.seconds as f64*1000.+t.nanoseconds as f64/1e6)}else{None}
-}
-#[cfg(not(all(target_os="linux",target_pointer_width="64")))]
-fn thread_cpu_ms()->Option<f64>{None}
+pub(crate) use bfe_render::profile::CpuSample;
 
 pub struct Scene {
     pub spawn_objectives: [Vec<String>;2],
@@ -1617,6 +1604,7 @@ impl Scene {
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
             resources.items.hide_piloted_remote = receiver.own.remote.is_some()
                 && (camera.first_person || receiver.own.remote_zoom_step != 0);
+            resources.animation_view(camera);
             resources.frame(receiver,receiver.clock.shown,dt.min(8./60.),camera.position,
                 replay,history,&mut self.bridge);
             let rider_eye = resources.prepare_camera(receiver, replay, &world.elements);
@@ -1650,6 +1638,7 @@ impl Scene {
                 } else {
                     0.
                 };
+            resources.animation_view(camera);
             resources.finish_frame(receiver, replay, &world.elements, cue, &mut self.bridge.r.core.profile);
             resources.capture_shot_scene(receiver, camera);
             resources.present_ordnance(receiver, dt.min(8./60.), &mut self.bridge);

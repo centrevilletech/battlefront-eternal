@@ -79,7 +79,7 @@ impl Casters {
         self.serial = self.serial.wrapping_add(1);
         for record in 0..records.min(I::MAX_RECORDS) {
             let row = &core.input[I::IN_RECORDS + record * I::REC_STRIDE..][..I::REC_STRIDE];
-            if row[I::REC_KIND] != 1. && row[I::REC_KIND] != I::KIND_BLENDED {
+            if row[I::REC_FLAGS] as u32 & I::NO_SHADOW != 0 || (row[I::REC_KIND] != 1. && row[I::REC_KIND] != I::KIND_BLENDED) {
                 continue;
             }
             let count = row[I::REC_BONES] as usize;
@@ -108,16 +108,19 @@ impl Casters {
         view: &[f64],
         projection: &[f64],
     ) -> Result<(), String> {
+        let frustum = crate::math::Frustum::from_matrix(&crate::math::mul(projection.try_into().unwrap(), view.try_into().unwrap()));
         let mut count = 0;
         for record in 0..records.min(I::MAX_RECORDS) {
             let row = &core.input[I::IN_RECORDS + record * I::REC_STRIDE..][..I::REC_STRIDE];
-            if !(1. ..=4.).contains(&row[I::REC_KIND]) {
+            if row[I::REC_FLAGS] as u32 & I::NO_SHADOW != 0 || !(1. ..=4.).contains(&row[I::REC_KIND]) {
                 continue;
             }
             let Some(geometry) = core.geometries.get(row[I::REC_GEOMETRY] as usize) else {
                 continue;
             };
             let world = row[I::REC_WORLD..I::REC_WORLD + 16].try_into().unwrap();
+            let (center, radius) = crate::math::sphere_to_world(world, row[I::REC_SPHERE..I::REC_SPHERE + 3].try_into().unwrap(), row[I::REC_SPHERE + 3]);
+            if !frustum.sphere(&center, radius) { continue; }
             let model_view = crate::math::mul(view.try_into().unwrap(), world);
             let skinned = row[I::REC_KIND] == 1. || row[I::REC_KIND] == I::KIND_BLENDED;
             for group in 0..(row[I::REC_GROUPS] as usize).clamp(1, 4) {

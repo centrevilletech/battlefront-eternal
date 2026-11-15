@@ -1,8 +1,23 @@
 //! Optional native battle measurements. Query results are read only after availability.
 use glow::HasContext;
-use std::{collections::{BTreeMap, VecDeque}, time::Instant};
+use std::{collections::{BTreeMap, VecDeque}};
 
-pub struct Token<Q> { start: Instant, query: Option<Q>, draws: u64, triangles: u64 }
+pub struct CpuSample{wall:std::time::Instant,thread:Option<f64>}
+impl CpuSample{
+    pub fn now()->Self{Self{wall:std::time::Instant::now(),thread:thread_cpu_ms()}}
+    pub fn elapsed_ms(&self)->f64{self.thread.zip(thread_cpu_ms()).map_or_else(||self.wall.elapsed().as_secs_f64()*1000.,|(start,end)|(end-start).max(0.))}
+}
+#[cfg(all(target_os="linux",target_pointer_width="64"))]
+fn thread_cpu_ms()->Option<f64>{
+    #[repr(C)]struct Time{seconds:std::ffi::c_long,nanoseconds:std::ffi::c_long}
+    unsafe extern "C"{fn clock_gettime(clock:i32,value:*mut Time)->i32;}
+    let mut t=Time{seconds:0,nanoseconds:0};
+    if unsafe{clock_gettime(3,&mut t)}==0{Some(t.seconds as f64*1000.+t.nanoseconds as f64/1e6)}else{None}
+}
+#[cfg(not(all(target_os="linux",target_pointer_width="64")))]
+fn thread_cpu_ms()->Option<f64>{None}
+
+pub struct Token<Q> { start: CpuSample, query: Option<Q>, draws: u64, triangles: u64 }
 #[derive(Default)]
 struct Samples { cpu: Vec<f64>, gpu: Vec<f64>, draws: u64, triangles: u64, calls: u64, cpu_frame:u64, cpu_sum:f64, cpu_pending:bool, gpu_frame:u64, gpu_sum:f64, gpu_pending:bool }
 impl Samples {
@@ -32,11 +47,11 @@ impl<C: HasContext> Profile<C> {
     pub fn enable(&mut self, gl: &C) {
         self.enabled = true;
         self.gpu_supported = !gl.version().is_embedded || gl.supported_extensions().iter().any(|e| e.contains("disjoint_timer_query"));
-        eprintln!("graphics trace GPU={} renderer={}", self.gpu_supported, unsafe { gl.get_parameter_string(glow::RENDERER) });
+        eprintln!("graphics trace GPU={} CPU={} renderer={}", self.gpu_supported, if thread_cpu_ms().is_some(){"thread"}else{"wall"}, unsafe { gl.get_parameter_string(glow::RENDERER) });
     }
-    pub fn clock(&self) -> Option<Instant> { (self.enabled && self.frame % 8 == 0).then(Instant::now) }
-    pub fn cpu(&mut self, label: &'static str, start: Option<Instant>) {
-        if let Some(start) = start { self.samples.entry(label).or_default().cpu(self.frame,start.elapsed().as_secs_f64()*1000.); }
+    pub fn clock(&self) -> Option<CpuSample> { (self.enabled && self.frame % 8 == 0).then(CpuSample::now) }
+    pub fn cpu(&mut self, label: &'static str, start: Option<CpuSample>) {
+        if let Some(start) = start { self.samples.entry(label).or_default().cpu(self.frame,start.elapsed_ms()); }
     }
     pub fn begin(&mut self, gl: &C) -> Option<Token<C::Query>> {
         let start = self.clock()?;
@@ -50,7 +65,7 @@ impl<C: HasContext> Profile<C> {
         if let Some(t)=token {
             if let Some(q)=t.query {unsafe {gl.end_query(glow::TIME_ELAPSED);} self.pending.push_back((label,q,self.frame));}
             let s=self.samples.entry(label).or_default();
-            s.cpu(self.frame,t.start.elapsed().as_secs_f64()*1000.);
+            s.cpu(self.frame,t.start.elapsed_ms());
             s.draws+=self.draws-t.draws;s.triangles+=self.triangles-t.triangles;s.calls+=1;
         }
     }

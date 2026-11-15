@@ -829,6 +829,7 @@ impl Replicas {
             let input = &mut self.units.input[f::STRIDE + actor * i::STRIDE..][..i::STRIDE];
             input[i::ID] = row[r::ID];
             input[i::GENERATION] = row[r::GENERATION];
+            input[i::AUTHORITATIVE_POSITION..i::AUTHORITATIVE_POSITION + 3].copy_from_slice(&row[r::POSITION..r::POSITION + 3]);
             input[i::PRESENT] = 1.;
             input[i::OWN] = (row[r::ID] == receiver.own.id) as u8 as f64;
             // RiderSources fills only rows that still name a mounted source.
@@ -975,6 +976,22 @@ impl Replicas {
         self.units.input[f::CAMERA_POSITION..f::CAMERA_POSITION + 3].copy_from_slice(&eye);
         // Pose and placement publish skin once into the existing owner banks.
         // Renderer submission below borrows that storage synchronously.
+    }
+    // Unit.present uses the displayed frustum for animation LOD and the
+    // camera distance for its near-only shadow. Network sampling still runs
+    // every frame; skipped poses accumulate their visual time in Units.
+    pub fn animation_view(&mut self, camera: &crate::scene::MapCamera) {
+        let view = camera.snapshot();
+        let projection = view.values[..16].try_into().unwrap();
+        let inverse = view.values[16..32].try_into().unwrap();
+        let frustum = bfe_render::math::Frustum::from_matrix(&bfe_render::math::mul(projection, inverse));
+        self.units.input[f::HAS_VIEW] = 1.;
+        self.units.input[f::CAMERA_POSITION..f::CAMERA_POSITION + 3].copy_from_slice(&camera.position);
+        for (index, plane) in frustum.planes.iter().enumerate() {
+            let at = f::FRUSTUM + index * 4;
+            self.units.input[at..at + 3].copy_from_slice(&plane.n);
+            self.units.input[at + 3] = plane.c;
+        }
     }
     // VehicleDriver.updateCamera uses an exposed rider's posed head. Advance the
     // mounted body phase before selecting its camera, once per frame; the
@@ -1533,6 +1550,8 @@ impl Replicas {
             let mut row = self.models[slot.model].row;
             let (id,generation)=slot.identity.unwrap_or((0,0));
             row[draw::REC_MOTION_ID]=8589934592.+id as f64;row[draw::REC_MOTION_GENERATION]=generation as f64;
+            let shadow_flags = if output[o::SHADOW_NEAR] == 0. { draw::NO_SHADOW } else { 0 };
+            row[draw::REC_FLAGS] = (row[draw::REC_FLAGS] as u32 | shadow_flags) as f64;
             if let Some((maps, _)) = self.skins.get(slot.class).and_then(Option::as_ref) {
                 row[draw::REC_TEXTURES..draw::REC_TEXTURES + 4].copy_from_slice(maps);
             }
@@ -1559,7 +1578,7 @@ impl Replicas {
                 matrix.copy_from_slice(&self.units.nodes[node..node + 16]);
                 let first=records;
                 (records, bones) = model.append(bridge, &matrix, records, bones);
-                for part in first..records{let row=&mut bridge.r.core.input[draw::IN_RECORDS+part*draw::REC_STRIDE..][..draw::REC_STRIDE];row[draw::REC_MOTION_ID]=8589934592.+id as f64;row[draw::REC_MOTION_GENERATION]=generation as f64;row[draw::REC_MOTION_PART]=(part-first+1)as f64;}
+                for part in first..records{let row=&mut bridge.r.core.input[draw::IN_RECORDS+part*draw::REC_STRIDE..][..draw::REC_STRIDE];row[draw::REC_MOTION_ID]=8589934592.+id as f64;row[draw::REC_MOTION_GENERATION]=generation as f64;row[draw::REC_MOTION_PART]=(part-first+1)as f64;row[draw::REC_FLAGS]=(row[draw::REC_FLAGS]as u32|shadow_flags)as f64;}
             }
         }
         let (records, bones) = self.hulls.append(bridge, records, bones);
