@@ -509,7 +509,10 @@ impl WaterHost {
             Some((collision, world)) => phase.update::<V8, _>(&mut Shore { collision, world: world as usize, state, gathered, terrain }),
             None => phase.update::<V8, _>(&mut NoShore),
         }
-        self.state.step(dt);
+        // The displayed Water in the shared client/server pipeline does not
+        // run a physics tick. Its surface bob is phase.result[WAVE]; advancing
+        // another physics clock here also invalidates the far mirror's hold
+        // on every frame. The world's WaterState keeps its own tick clock.
     }
 
     // The main camera as the camera owner takes it (PageCameras): pose,
