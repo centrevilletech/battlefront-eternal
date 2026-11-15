@@ -647,6 +647,7 @@ impl Replicas {
             let [yaw, pitch] = shot.fire;
             self.combat.predict(
                 shot.weapon,
+                shot.level,
                 shot.tick,
                 shot.button,
                 [basis.origin.x, basis.origin.y, basis.origin.z],

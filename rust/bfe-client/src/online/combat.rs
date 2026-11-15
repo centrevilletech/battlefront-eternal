@@ -157,8 +157,9 @@ pub struct Combat {
     // after its end still stops there.
     orphans: Vec<(u32, u32, [f64; 3], f64)>,
     cosmetics: Vec<Cosmetic>,
-    // By weapon (its place in the battle's weapon list).
-    barrels: Vec<Option<Barrel>>,
+    // By weapon (its place in the battle's weapon list), then by charge
+    // level: a charge can fire another class of round (the bowcaster's).
+    barrels: Vec<Vec<Option<Barrel>>>,
     // BFE_HUD_TRACE: every round's records and the player's own bolts as
     // drawn, on stderr.
     trace: bool,
@@ -378,20 +379,29 @@ impl Combat {
             .weapons
             .iter()
             .map(|weapon| {
-                let round = weapon.record.get("ordnance")?;
-                if round.get("base").and_then(bfe_content::Value::as_str) != Some("bolt") {
-                    return None;
-                }
-                let definition = defs.combat_id(round)? as usize;
-                let or = |n: f64, default: f64| if n != 0. && !n.is_nan() { n } else { default };
-                Some(Barrel {
-                    definition,
-                    style: definitions.get(definition).copied().flatten()?,
-                    speed: or(number(round, "Velocity"), 100.).clamp(1., 2000.),
-                    span: or(number(round, "LifeSpan"), 1.).min(1.),
-                    fade: number(round, "FadeOutTime"),
-                    elevate: number(&weapon.record, "ShotElevate"),
-                })
+                // weapons.js levels: the class itself, then each of its
+                // charges laid over it.
+                let charges = weapon.record.get("charges").and_then(bfe_content::Value::as_array).map_or(&[][..], |list| &list[..]);
+                std::iter::once(None)
+                    .chain(charges.iter().map(Some))
+                    .map(|charge| {
+                        let field = |key: &str| charge.and_then(|charge| charge.get(key)).or_else(|| weapon.record.get(key));
+                        let round = field("ordnance")?;
+                        if round.get("base").and_then(bfe_content::Value::as_str) != Some("bolt") {
+                            return None;
+                        }
+                        let definition = defs.combat_id(round)? as usize;
+                        let or = |n: f64, default: f64| if n != 0. && !n.is_nan() { n } else { default };
+                        Some(Barrel {
+                            definition,
+                            style: definitions.get(definition).copied().flatten()?,
+                            speed: or(number(round, "Velocity"), 100.).clamp(1., 2000.),
+                            span: or(number(round, "LifeSpan"), 1.).min(1.),
+                            fade: number(round, "FadeOutTime"),
+                            elevate: field("ShotElevate").and_then(bfe_content::Value::as_f64).unwrap_or(0.),
+                        })
+                    })
+                    .collect()
             })
             .collect();
         let effects = bfe_presentation::Presentation::new(
@@ -514,13 +524,14 @@ impl Combat {
         }
     }
     /// PredictedShots.fire for a round the client's replay just fired:
-    /// `weapon` (its place in the battle's weapon list) on trigger `channel`
+    /// `weapon` (its place in the battle's weapon list) at charge `level` on trigger `channel`
     /// at `tick`, from the gun origin along the aim, turned by the press's
     /// spread. `cast` gives the distance to the first surface on a ray. A
     /// weapon that fires no bolt draws nothing ahead of the world.
     pub fn predict(
         &mut self,
         weapon: usize,
+        level: usize,
         tick: f64,
         channel: u32,
         origin: [f64; 3],
@@ -528,7 +539,7 @@ impl Combat {
         spread: [f64; 2],
         cast: &mut dyn FnMut([f64; 3], [f64; 3], f64) -> Option<f64>,
     ) {
-        let Some(barrel) = self.barrels.get(weapon).copied().flatten() else {
+        let Some(barrel) = self.barrels.get(weapon).and_then(|levels| levels.get(level)).copied().flatten() else {
             return;
         };
         if self.cosmetics.len() == COSMETICS {
@@ -637,6 +648,10 @@ impl Combat {
     pub fn frame(&mut self, receiver: &Receiver, tick: f64, dt: f64) {
         use bfe_presentation::layout::frame as ef;
         let own = (receiver.own.id as u32, receiver.own.generation as u32);
+        // How far behind the newest tick this frame is drawn, once a second.
+        if self.trace && self.frame % 60 == 0 {
+            eprintln!("ord: clock behind={:.2} latest={} shown={tick:.2} dt={dt:.4}", receiver.latest - tick, receiver.latest);
+        }
         self.frame += 1;
         self.tick = tick;
         self.visible = 0;
