@@ -1369,7 +1369,7 @@ impl Replicas {
     pub fn capture_shot_scene(&self, receiver: &Receiver, camera: &crate::scene::MapCamera) {
         use bfe_sim::units::shapes::{soldier_shapes,HitPosture,HitShape,Half};
         let mut scene=self.shot_aim.borrow_mut();
-        scene.camera=camera.position; scene.eye_view=self.cameras.eye_view && !camera.first_person;
+        scene.camera=camera.position; scene.eye_view=self.cameras.scoped_eye;
         scene.view_projection.copy_from_slice(&camera.snapshot().values[..32]);
         scene.position=receiver.own.position; scene.targets.clear();
         for slot in &self.slots {
@@ -1379,7 +1379,7 @@ impl Replicas {
             let pos=[row[o::POSITION],row[o::POSITION+1],row[o::POSITION+2]];
             if id==receiver.own.id as u32 {scene.position=pos;}
             let scale=scene.classes.get(slot.class).map_or(1.,|c|c.scale);
-            let posture=if row[o::AIR]!=0. {0}else if row[o::DIVE]!=0. {1}else{row[o::POSTURE] as usize};
+            let posture=if row[o::DIVE]!=0. {1}else if row[o::AIR]!=0. {0}else{row[o::POSTURE] as usize};
             let posture=[HitPosture::Stand,HitPosture::Crouch,HitPosture::Prone][posture.min(2)];
             let (sin,cos)=row[o::YAW].sin_cos();
             if slot.walker {
