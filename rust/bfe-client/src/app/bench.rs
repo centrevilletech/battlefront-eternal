@@ -241,8 +241,11 @@ impl Bench {
                     clips.get(clip).map_or("", |clip| clip.0.as_str()),
                 )?;
             }
-            out.write_all(b"]}")?;
+            // The seat or hold pose that replaces the clips while it lasts.
+            write!(out, r#"],"gunner":{}}}"#, animation.gunning.and_then(|g| clips.get(g.clip)).map_or("null".into(), |c| format!("\"{}\"", c.0)))?;
         }
+        let seated = receiver.active().find(|row| row[r::ID] == receiver.own.id).is_some_and(|row| row[r::SEAT_PRESENT] != 0.);
+        write!(out, r#","seated":{seated}"#)?;
         let [cx, cy, cz] = camera.position;
         write!(
             out,
