@@ -169,6 +169,8 @@ pub struct HullEffects {
     pub started: u64,
     pub seen: u64,
     pub lowest: f64,
+    /// Walker footfalls so far.
+    pub stomps: u64,
 }
 
 fn place(nodes: &[f64], stride: usize, at: usize, node: usize, offset: &[f64; 3]) -> Option<([f64; 3], [f64; 4])> {
@@ -301,7 +303,12 @@ impl HullEffects {
         }
     }
 
-    fn wreck(&mut self, fx: &ClassFx, body: &Body) {
+    /// An effect that goes off once where it is placed (a walker's stomp).
+    pub fn shot(&mut self, group: usize, position: [f64; 3], turn: [f64; 4]) {
+        self.stomps += 1;
+        self.shots.push((group, position, turn));
+    }
+        fn wreck(&mut self, fx: &ClassFx, body: &Body) {
         if fx.chunks && !body.nodes.is_empty() {
             self.wrecks.push(Wreck {
                 class: fx.class,
