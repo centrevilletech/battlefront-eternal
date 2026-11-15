@@ -510,6 +510,8 @@ pub struct ShellHost {
     /// The front-end options context set aside while the same controller serves an option page opened
     /// over a paused battle (`open_battle_options` / `close_battle_options`).
     front_end_options: Option<OptionsContext>,
+    /// The speaker test the battle's AUDIO DETAILS asked for (`left`, `right`, `all`, `around`), for the window to play.
+    pub(super) speaker_request: Option<String>,
     /// The GL renderer string, for the `GPU:` note under QUALITY PRESET.
     gpu_renderer: String,
     /// Front-end shell state machine (`Gate`, `Main`, `Singleplayer`, `InstantAction`, `Profile`, `Multiplayer`, `HostDialog`).
@@ -647,6 +649,7 @@ impl ShellHost {
             interface_surface,
             options_ctrl,
             front_end_options: None,
+            speaker_request: None,
             gpu_renderer,
             app,
             browser,
@@ -1031,6 +1034,7 @@ impl ShellHost {
         ctx.has_online = false;
         ctx.has_integrations = false;
         ctx.has_credits = false;
+        ctx.has_audio_panel = true;
         ctx.surface_height = self.interface_surface.height;
         ctx.viewport = Some([self.layout_size[0].max(1) as u32, self.layout_size[1].max(1) as u32]);
         self.front_end_options.get_or_insert(front_end);
@@ -1085,6 +1089,8 @@ impl ShellHost {
                 self.step_discord_detail(settings, false);
             } else if action == "steam-offer" {
                 self.open_steam_offer(None, false, false);
+            } else if let Some(kind) = action.strip_prefix("speaker:") {
+                self.speaker_request = Some(kind.to_string());
             } else if action == "online" {
                 self.app
                     .refresh_multiplayer_list(MultiplayerKind::Online, &mut self.browser);

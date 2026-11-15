@@ -1660,6 +1660,11 @@ impl StandaloneWindowApp {
     fn sync_battle_options(&mut self) {
         if let AppState::Battle(battle) = &mut self.state {
             Self::sync_battle_options_of(battle, &mut self.shell, &mut self.slint_ui, &self.settings);
+            if let Some(kind) = self.shell.as_mut().and_then(|shell| shell.speaker_request.take()) {
+                self.audio_router.speaker_test(Some(&kind));
+            } else if !battle.options_open && self.audio_router.testing() {
+                self.audio_router.speaker_test(None);
+            }
         }
     }
 
