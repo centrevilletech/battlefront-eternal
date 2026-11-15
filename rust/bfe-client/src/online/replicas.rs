@@ -1667,7 +1667,7 @@ impl Replicas {
             if let Some((maps, _)) = self.skins.get(slot.class).and_then(Option::as_ref) {
                 row[draw::REC_TEXTURES..draw::REC_TEXTURES + 4].copy_from_slice(maps);
             }
-            row[draw::REC_LOOK..draw::REC_LOOK + 4].copy_from_slice(&self.light.at([matrix[12], matrix[13], matrix[14]]));
+            row[draw::REC_LOOK..draw::REC_LOOK + 4].copy_from_slice(&self.light.at([output[o::ROOT_WORLD + 12], output[o::ROOT_WORLD + 13], output[o::ROOT_WORLD + 14]]));
             row[draw::REC_WORLD..draw::REC_WORLD + 16].copy_from_slice(&output[o::ROOT_WORLD..o::ROOT_WORLD + 16]);
             row[draw::REC_BIND_INVERSE..draw::REC_BIND_INVERSE + 16].copy_from_slice(&output[o::BIND_INVERSE..o::BIND_INVERSE + 16]);
             row[draw::REC_BONES] = count as f64;
