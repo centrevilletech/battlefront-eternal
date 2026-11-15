@@ -320,13 +320,14 @@ impl Engine for Native {
     ) -> Result<(), String> {
         // SnapshotHost.acceptAck is independent of reliable outcome receipts.
         // Neither path serializes bytes or calls an application transport.
+        // The receipt is [epoch, tick]; the host takes tick before epoch.
         self.args.words.clear();
         self.args.words.extend_from_slice(&[
             self.handles.host as f64,
             SNAPSHOT_ACK,
             self.handles.client as f64,
-            snapshot[0],
             snapshot[1],
+            snapshot[0],
         ]);
         self.args.run(&self.context.value, self.host_op)?;
         if outcomes.is_empty() {
