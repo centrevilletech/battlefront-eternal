@@ -247,16 +247,6 @@ impl Shots {
 
 // The battle's page bank owns the session. Both targets compile the same phase;
 // WASM only translates its retained exchange buffers into linear addresses.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle] pub extern "C" fn client_shots_create() -> usize { crate::abi::facade::world().page.shots.insert(Shots::default()).unwrap_or(0) }
-    #[no_mangle] pub extern "C" fn client_shots_input(id: usize) -> *mut f64 { crate::abi::facade::world().page.shots.get_mut(id).map_or(std::ptr::null_mut(),|s| s.input.as_mut_ptr()) }
-    #[no_mangle] pub extern "C" fn client_shots_run(id: usize) -> *const f64 {
-        let Some(s) = crate::abi::facade::world().page.shots.get_mut(id) else { return std::ptr::null() }; s.run(); s.output.as_ptr()
-    }
-    #[no_mangle] pub extern "C" fn client_shots_drop(id: usize) { crate::abi::facade::world().page.shots.remove(id); }
-}
 
 #[cfg(test)]
 mod tests {

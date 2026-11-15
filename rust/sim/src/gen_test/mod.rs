@@ -160,23 +160,6 @@ impl Spot {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-#[link(wasm_import_module = "bfe")]
-extern "C" {
-    fn bfe_import_look_up();
-}
-
-/// Asks JavaScript (the import lookUp): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_look_up(args: &Ask) -> Spot {
-    crate::store::calls::import_out(Ask::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_look_up() };
-    crate::store::calls::import_in(|row, heap| Spot::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_look_up(_args: &Ask) -> Spot { crate::abi::no_native_host("lookUp") }
 

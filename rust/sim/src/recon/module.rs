@@ -703,19 +703,3 @@ pub(crate) fn reserve_unit_slots_in(world_ctx: &mut crate::world::owner::World, 
 pub(crate) fn piloted_in(units:&crate::units::owner::Units,s: &crate::gen::Store, owner: Ref<Unit>) -> Option<Ref<ReconDroid>>{ piloted_in_in(f3::recon_services_ref(units), s, owner) }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn f3_recon_owners(owners: u32) { f3_recon_owners_in(crate::abi::facade::world(), owners) }
-    #[no_mangle]
-    pub extern "C" fn f3_recon_class() { f3_recon_class_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_recon_level() { f3_recon_level_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_recon_strike() { f3_recon_strike_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_recon_weapon() { f3_recon_weapon_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_recon_command() -> u32 { f3_recon_command_in(crate::abi::facade::world()) }
-}

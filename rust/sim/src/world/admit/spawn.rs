@@ -22,7 +22,6 @@ impl World {
     }
 }
 
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 impl crate::abi::context::Context {
     /// preparePhase's current foreign-row count, under the owning borrow.
     /// A host computes this immediately before stamping the world tick.

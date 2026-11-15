@@ -2370,7 +2370,7 @@ pub fn rust_index(model: &Model) -> String {
 // Command, event, and import wire glue (`rustCalls(model)`):
 //   - For commands: emits `Store::dispatch_command` (decoding args from `row`/`heap`
 //     and encoding any result record into `out`/`out_heap`) plus per-command C-ABI
-//     or trait veneers when `c.rust` names a handler path.
+//     when `c.rust` names a handler path.
 //   - For operations (`operations_of`): emits unified `OP_*` dispatch tables used
 //     by the Wasm boundary (`bfe_sim_op`).
 //   - For events: emits `Store::emit_<event>(&mut self, e: &<Record>)` which pushes
@@ -2411,7 +2411,6 @@ fn rust_calls(model: &Model) -> Vec<String> {
     }
     lines.extend(["        _ => return false,".to_string(), "    }".to_string(), "    true".to_string(), "}".to_string(), String::new(),]);
 
-    let mut veneers = Vec::new();
     if !model.target.test {
         for c in &model.commands_list {
             if !flat(model, &c.args) { continue; }
@@ -2448,44 +2447,11 @@ fn rust_calls(model: &Model) -> Vec<String> {
             lines.push("}".to_string());
             lines.push(String::new());
 
-            let owned_arg = if c.detached { format!("crate::{}, ", c.owned.as_ref().unwrap()) } else { String::new() };
-            veneers.push(format!("    /// The command {}, its arguments' words as parameters.", c.name));
-            veneers.push("    #[no_mangle]".to_string());
-            veneers.push(format!(
-                "    pub extern \"C\" fn {name}({params}) -> *const f64 {{ {name}_in(crate::abi::facade::world(), {owned_arg}{}).map_or(std::ptr::null(), crate::store::block::Block::ptr) }}",
-                values.join(", ")
-            ));
             if c.name == "relay" {
                 let unused_params = values.iter().map(|v| format!("_{v}: f64")).collect::<Vec<_>>().join(", ");
-                lines.push("#[cfg(not(target_arch = \"wasm32\"))]".to_string());
                 lines.push(format!("pub fn {name}({unused_params}) -> *const f64 {{ std::ptr::null() }}"));
                 lines.push(String::new());
             }
-        }
-
-        for c in &model.commands_list {
-            if !c.detached { continue; }
-            let symbol = format!("cmd_{}_block", snake_bare(&c.name));
-            lines.extend([
-                format!("/// Runs {} from the generated call block without retaining its store loan.", c.name),
-                "#[cfg(target_arch = \"wasm32\")]".to_string(),
-                "#[no_mangle]".to_string(),
-                format!("pub extern \"C\" fn {symbol}() -> *const f64 {{"),
-                format!("    if !crate::abi::command_available(COMMAND_{}) {{ return std::ptr::null(); }}", upper(&c.name)),
-                "    let w = crate::abi::facade::world();".to_string(),
-                format!("    let args = {{ let (row, heap) = w.sim.calls.args(); {}::take(row, heap) }};", c.args),
-            ]);
-            let owned = c.owned.as_ref().unwrap();
-            if let Some(res) = &c.result {
-                lines.push(format!("    let result = crate::{owned}(w, args);"));
-                lines.push(format!("    w.sim.calls.result({res}::WORDS, |row, heap| result.put(row, heap));"));
-                lines.push("    w.sim.calls.block.ptr()".to_string());
-            } else {
-                lines.push(format!("    crate::{owned}(w, args);"));
-                lines.push("    std::ptr::null()".to_string());
-            }
-            lines.push("}".to_string());
-            lines.push(String::new());
         }
 
         let operations = operations_of(model);
@@ -2580,31 +2546,10 @@ fn rust_calls(model: &Model) -> Vec<String> {
     }
 
     if !model.imports_list.is_empty() {
-        lines.extend([
-            "#[cfg(target_arch = \"wasm32\")]".to_string(),
-            "#[link(wasm_import_module = \"bfe\")]".to_string(),
-            "extern \"C\" {".to_string(),
-        ]);
-        for c in &model.imports_list { lines.push(format!("    fn bfe_import_{}();", snake_bare(&c.name))); }
-        lines.push("}".to_string());
-        lines.push(String::new());
         for c in &model.imports_list {
             let fn_name = snake_bare(&c.name);
             let ret = c.result.as_deref().unwrap_or("()");
             lines.extend([
-                format!("/// Asks JavaScript (the import {}): its arguments go out in the import block,", c.name),
-                "/// its result comes back there (store::calls). The module only (a native build serves".to_string(),
-                "/// its boundary from elsewhere: the replay harness, or Rust).".to_string(),
-                "#[cfg(target_arch = \"wasm32\")]".to_string(),
-                format!("pub fn import_{fn_name}(args: &{}) -> {ret} {{", c.args),
-                format!("    crate::store::calls::import_out({}::WORDS, |row, heap| args.put(row, heap));", c.args),
-                format!("    unsafe {{ bfe_import_{fn_name}() }};"),
-            ]);
-            if let Some(res) = &c.result { lines.push(format!("    crate::store::calls::import_in(|row, heap| {res}::take(row, heap))")); }
-            lines.push("}".to_string());
-            lines.push(String::new());
-            lines.extend([
-                "#[cfg(not(target_arch = \"wasm32\"))]".to_string(),
                 "#[cold]".to_string(),
                 format!("pub fn import_{fn_name}(_args: &{}) -> {ret} {{ crate::abi::no_native_host({}) }}", c.args, quote_str(&c.name)),
                 String::new(),
@@ -2612,14 +2557,6 @@ fn rust_calls(model: &Model) -> Vec<String> {
             if c.borrow && c.result.is_some() {
                 lines.extend([
                     "/// Read a variable result into retained caller storage.".to_string(),
-                    "#[cfg(target_arch = \"wasm32\")]".to_string(),
-                    format!("pub fn import_{fn_name}_read<T>(args: &{}, read: impl FnOnce(&[f64], &[f64]) -> T) -> T {{", c.args),
-                    format!("    crate::store::calls::import_out({}::WORDS, |row, heap| args.put(row, heap));", c.args),
-                    format!("    unsafe {{ bfe_import_{fn_name}() }};"),
-                    "    crate::store::calls::import_in(read)".to_string(),
-                    "}".to_string(),
-                    String::new(),
-                    "#[cfg(not(target_arch = \"wasm32\"))]".to_string(),
                     "#[cold]".to_string(),
                     format!(
                         "pub fn import_{fn_name}_read<T>(_args: &{}, _read: impl FnOnce(&[f64], &[f64]) -> T) -> T {{ crate::abi::no_native_host({}) }}",
@@ -2632,7 +2569,6 @@ fn rust_calls(model: &Model) -> Vec<String> {
             if !model.target.test {
                 lines.extend([
                     "/// Calls the explicitly owned native host; no context borrow spans dispatch.".to_string(),
-                    "#[cfg(all(not(target_arch = \"wasm32\"), panic = \"unwind\"))]".to_string(),
                     format!(
                         "pub fn import_{fn_name}_in(context: &crate::abi::context::Context, args: &{}) -> Result<{ret}, crate::abi::context::Failure> {{",
                         c.args
@@ -2649,14 +2585,6 @@ fn rust_calls(model: &Model) -> Vec<String> {
                 lines.push(String::new());
             }
         }
-    }
-    if !veneers.is_empty() {
-        lines.push("#[cfg(target_arch = \"wasm32\")]".to_string());
-        lines.push("mod exports {".to_string());
-        lines.push("    use super::*;".to_string());
-        lines.extend(veneers);
-        lines.push("}".to_string());
-        lines.push(String::new());
     }
     lines
 }

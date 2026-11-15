@@ -86,21 +86,3 @@ pub(crate) fn world_local_run_in(w: &mut crate::world::owner::World) -> Option<&
 }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn world_clock_words(which: u32) -> u32 { super::world_clock_words(which) }
-    #[no_mangle]
-    pub extern "C" fn world_clock_time(tick: f64, hz: f64) -> f64 { super::world_clock_time(tick, hz) }
-    #[no_mangle]
-    pub extern "C" fn world_events_words(which: u32) -> u32 { super::world_events_words(which) }
-    #[no_mangle]
-    pub extern "C" fn world_local_words(which: u32) -> u32 { super::world_local_words(which) }
-    #[no_mangle]
-    pub extern "C" fn world_clock_run() -> *const f64 { world_clock_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn world_events_run() -> *const f64 { world_events_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn world_local_run() -> *const f64 { world_local_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-}

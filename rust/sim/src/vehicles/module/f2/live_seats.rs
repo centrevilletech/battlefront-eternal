@@ -562,8 +562,6 @@ pub(super) fn publish_sampled_in(world_ctx: &mut crate::world::owner::World, sam
         header_words: F2SeatHeader::WORDS as u32, unit_words: F2SeatUnitIn::WORDS as u32, control_words: SeatAiControl::WORDS as u32,
         look_words: F2SeatSample::WORDS as u32, ticks: state.owner.hulls.ticks, turret_ticks: st.turret_seats.ticks, turret_time: st.turret_seats.time,
         ..Default::default() };
-    #[cfg(target_arch = "wasm32")]
-    bind_descriptor(state, &world_ctx.fleet.riders, &mut descriptor);
     descriptor.put(&mut state.io, &mut state.effects.heap);
     &state.io
 }
@@ -1709,41 +1707,7 @@ pub(crate) fn refresh_weapon_masks_in(world_ctx: &mut crate::world::owner::World
 }
 
 
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn f2_seats_adopt_words() -> u32 { super::f2_seats_adopt_words() }
-    #[no_mangle]
-    pub extern "C" fn f2_turret_words(which: u32) -> u32 { super::f2_turret_words(which) }
-    /// Collision body identities arrive with topology changes, never per crew.
-    #[no_mangle]
-    pub extern "C" fn f2_body_words() -> u32 { super::f2_body_words() }
-    #[no_mangle]
-    pub extern "C" fn f2_seats_init() -> *const f64 { f2_seats_init_in(crate::abi::facade::world()).as_ptr() }
-    #[no_mangle]
-    pub extern "C" fn f2_seats_adopt(prepared: u32) { f2_seats_adopt_in(crate::abi::facade::world(), prepared) }
-    #[no_mangle]
-    pub extern "C" fn f2_turret_adopt() { f2_turret_adopt_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f2_turret_life() { f2_turret_life_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f2_turrets_idle(dt: f64) { f2_turrets_idle_in(crate::abi::facade::world(), dt) }
-    #[no_mangle]
-    pub extern "C" fn f2_bodies() { f2_bodies_in(crate::abi::facade::world()) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{f2_seats_init, f2_seats_adopt, f2_turret_adopt, f2_turret_life, f2_turrets_idle, f2_bodies};
 
-#[cfg(target_arch = "wasm32")]
-fn bind_descriptor(state:&mut State,riders:&super::riders::Riders,descriptor:&mut F2SeatIo) {
-    descriptor.ordnance=state.ordnance_output.ptr() as usize as u32;
-    descriptor.input=state.input.as_mut_ptr() as usize as u32;
-    descriptor.leases=state.leases.ptr() as usize as u32;descriptor.units=state.units.ptr() as usize as u32;
-    descriptor.controls=state.controls.ptr() as usize as u32;descriptor.effects=state.effects.ptr() as usize as u32;
-    descriptor.turrets=state.turret_output.ptr() as usize as u32;descriptor.events=state.event_output.ptr() as usize as u32;
-    descriptor.riders=riders.words().as_ptr() as usize as u32;
-}
 pub(super) fn descriptor_words(fleet:&super::super::Fleet)->&[f64] { &fleet.seats.as_ref().expect("prepared native seats").io }
 /// The same bank for a native host reading by name; None before the seats are prepared.
 pub(super) fn descriptor_bank(fleet:&super::super::Fleet)->Option<&[f64]> { fleet.seats.as_ref().map(|seats|&seats.io[..]) }
@@ -1763,7 +1727,7 @@ pub(super) fn input_bank_mut(fleet:&mut super::super::Fleet)->Option<&mut [f64]>
 #[cfg(test)]
 pub(crate) fn admit_test_seats(fleet:&mut super::super::Fleet,owner:crate::vehicles::f2_seats::Seats) { seats_state(&mut fleet.seats).owner=owner; }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod native_banks {
     use super::*;
     #[test]

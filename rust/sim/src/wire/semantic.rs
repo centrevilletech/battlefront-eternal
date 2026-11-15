@@ -1149,21 +1149,3 @@ mod tests {
 }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn wire_semantic_create() -> *mut Semantic { wire_semantic_create_in(crate::abi::facade::world()) as *mut Semantic }
-    #[no_mangle]
-    pub extern "C" fn wire_semantic_drop(p: *mut Semantic) { wire_semantic_drop_in(crate::abi::facade::world(), p as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_semantic_room(p: *mut Semantic, n: u32) -> *mut f64 { wire_semantic_room_in(crate::abi::facade::world(), p as usize, n).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn wire_semantic_run(p: *mut Semantic, op: u32) -> u32 { wire_semantic_run_in(crate::abi::facade::world(), p as usize, op) }
-    #[no_mangle]
-    pub extern "C" fn wire_semantic_ptr(p: *mut Semantic) -> *const u8 { wire_semantic_ptr_in(crate::abi::facade::world(), p as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn wire_semantic_len(p: *mut Semantic) -> u32 { wire_semantic_len_in(crate::abi::facade::world(), p as usize) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{wire_semantic_create, wire_semantic_drop, wire_semantic_room, wire_semantic_run, wire_semantic_ptr, wire_semantic_len};

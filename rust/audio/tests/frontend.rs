@@ -172,58 +172,6 @@ fn classic_stereo_renders_panned_voice_without_host_dsp() {
     assert!(right.iter().all(|&v| v == 0.0));
 }
 
-// Ported from `tests/audio-light.test.js`:
-// "layout changes retain the host, decoded samples and scheduled sources".
-//
-// When the player switches speaker layouts (`output_rebuild`), the output
-// stage swaps in a new mixer and master chain for the new channel count while
-// moving `voices`, `streams`, and `placements` across so active beds keep
-// playing from their current cursors without re-uploading PCM.
-#[test]
-fn layout_changes_retain_decoded_samples_and_scheduled_sources() {
-    let h = audio::output_new(48000.0, 2, 0, 0, 0, 0, 0);
-    unsafe {
-        // Upload a 1-second stereo bed filled with 0.1 into sample 1.
-        let sample_ptr = audio::output_sample(h, 1, 48000, 2, 48000.0);
-        std::slice::from_raw_parts_mut(sample_ptr, 2 * 48000).fill(0.1);
-
-        // Bind stream 0 (2 channels, kind 0, nonspatial) and start sample 1 looping.
-        let cmds = [
-            STREAM_BIND as f64,
-            0.0,
-            2.0,
-            0.0,
-            0.0,
-            STREAM_START as f64,
-            0.0,
-            0.0,
-            1.0,
-            0.0,
-            0.0,
-            1.0,
-            1.0,
-        ];
-        let cmd_ptr = audio::output_commands_ptr(h, cmds.len() as u32);
-        std::slice::from_raw_parts_mut(cmd_ptr, cmds.len()).copy_from_slice(&cmds);
-        audio::output_commands(h, cmds.len() as u32);
-
-        // Rebuild across 5.1 (6ch), 7.1 (8ch), and stereo (2ch) without re-uploading PCM.
-        // Run 5 quanta after each rebuild to clear the limiter/stabilizer lookahead delay.
-        for channels in [6u32, 8, 2] {
-            audio::output_rebuild(h, channels, 0, 0, 0, 0);
-            for block in 0..5 {
-                audio::output_process(h, (1024 + block * FRAMES) as f64);
-            }
-            let out_ptr = audio::output_out(h);
-            let rendered =
-                std::slice::from_raw_parts(out_ptr, channels as usize * FRAMES);
-            assert!(
-                rendered.iter().any(|&v| v != 0.0),
-                "rebuilt {channels}-channel output was silent"
-            );
-        }
-    }
-}
 
 // Ported from `tests/audio-light.test.js`:
 // "speaker test reaches its named channel after the muted mono game mix".

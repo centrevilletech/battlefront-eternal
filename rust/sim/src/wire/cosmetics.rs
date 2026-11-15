@@ -1181,33 +1181,3 @@ mod tests {
 }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn wire_cosmetics_create() -> *mut Session { wire_cosmetics_create_in(crate::abi::facade::world()) as *mut Session }
-    #[no_mangle]
-    pub extern "C" fn wire_cosmetics_drop(ptr: *mut Session) { wire_cosmetics_drop_in(crate::abi::facade::world(), ptr as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_cosmetics_room(ptr: *mut Session, n: u32) -> *mut f64 { wire_cosmetics_room_in(crate::abi::facade::world(), ptr as usize, n).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn wire_cosmetics_payload(ptr: *mut Session, n: u32) -> *mut u8 { wire_cosmetics_payload_in(crate::abi::facade::world(), ptr as usize, n).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn wire_cosmetics_run(ptr: *mut Session, op: u32) -> u32 { wire_cosmetics_run_in(crate::abi::facade::world(), ptr as usize, op) }
-    #[no_mangle]
-    pub extern "C" fn wire_cosmetics_words(ptr: *mut Session) -> *const f64 { wire_cosmetics_words_in(crate::abi::facade::world(), ptr as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn wire_cosmetics_word_count(ptr: *mut Session) -> u32 { wire_cosmetics_word_count_in(crate::abi::facade::world(), ptr as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_cosmetics_bytes(ptr: *mut Session) -> *const u8 { wire_cosmetics_bytes_in(crate::abi::facade::world(), ptr as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn wire_cosmetics_byte_count(ptr: *mut Session) -> u32 { wire_cosmetics_byte_count_in(crate::abi::facade::world(), ptr as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_cosmetics_error(ptr: *mut Session) -> *const u8 { wire_cosmetics_error_in(crate::abi::facade::world(), ptr as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn wire_cosmetics_error_len(ptr: *mut Session) -> u32 { wire_cosmetics_error_len_in(crate::abi::facade::world(), ptr as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_cosmetics_metric(ptr: *mut Session, index: u32) -> f64 { wire_cosmetics_metric_in(crate::abi::facade::world(), ptr as usize, index) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{wire_cosmetics_create, wire_cosmetics_drop, wire_cosmetics_room, wire_cosmetics_payload, wire_cosmetics_run, wire_cosmetics_words, wire_cosmetics_word_count, wire_cosmetics_bytes, wire_cosmetics_byte_count, wire_cosmetics_error, wire_cosmetics_error_len, wire_cosmetics_metric};

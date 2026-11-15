@@ -559,15 +559,3 @@ pub(super) fn with_registry_in<T>(w: &mut crate::world::owner::World, run: impl 
 }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn units_droideka_class() -> u32 { units_droideka_class_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn units_droideka_attach(unit: u32, class: u32) { units_droideka_attach_in(crate::abi::facade::world(), unit, class) }
-    #[no_mangle]
-    pub extern "C" fn units_muzzle_attach(unit: u32, class: u32) { units_muzzle_attach_in(crate::abi::facade::world(), unit, class) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{units_droideka_class, units_droideka_attach, units_muzzle_attach};

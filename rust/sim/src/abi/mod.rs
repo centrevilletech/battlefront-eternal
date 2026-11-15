@@ -8,9 +8,7 @@
 //! Any call here can grow the memory, so JavaScript makes its views after
 //! the call.
 
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub mod context;
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub mod context_step;
 
 use crate::gen::{Echo, Fill, Store, KINDS, KIND_HASHES};
@@ -87,16 +85,12 @@ impl Sim {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-pub(crate) use facade::{cold, world};
 
 // Native callers use Context and explicit owners. These raw WASM entries
 // cannot acquire a process-global simulation in a native host.
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn cold() -> &'static mut crate::world::owner::World {
     panic!("WASM facade called by native host")
 }
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn world() -> &'static mut crate::world::owner::World { cold() }
 
 pub fn sim_abi() -> u32 { ABI }
@@ -167,10 +161,7 @@ pub(crate) fn sim_events_clear_in(w: &mut crate::world::owner::World) -> () { w.
 /// Legacy raw exports have no native callback owner. Context commands use
 /// their explicit dispatcher instead; unsupported raw commands return null.
 pub fn command_available(code: u32) -> bool {
-    #[cfg(target_arch = "wasm32")]
-    { let _ = code; true }
     // Relay asks the host back; only Context::command may dispatch a callback.
-    #[cfg(not(target_arch = "wasm32"))]
     { code != crate::gen::COMMAND_RELAY }
 }
 
@@ -188,9 +179,6 @@ pub fn echo(sim: &mut Sim, args: Echo) -> Echo {
 /// back its answer, so the module's path for imports is held to what the
 /// generator makes.
 pub fn relay(_sim: &mut Sim, _args: Echo) -> Echo {
-    #[cfg(target_arch = "wasm32")]
-    return crate::gen::import_ask(&_args);
-    #[cfg(not(target_arch = "wasm32"))]
     panic!("native relay requires abi::context::Context");
 }
 
@@ -220,10 +208,7 @@ pub fn sim_reserve(bytes: u32) -> u32 {
 /// The memory's size in 64 KB pages.
 pub fn sim_memory_pages() -> u32 { memory_pages() }
 
-#[cfg(target_arch = "wasm32")]
-fn memory_pages() -> u32 { core::arch::wasm32::memory_size(0) as u32 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn memory_pages() -> u32 { 0 }
 
 /// Store-only reset for tool fixtures: finish AI and replace generated rows.
@@ -231,57 +216,3 @@ fn memory_pages() -> u32 { 0 }
 /// their state. A new battle needs a new World or WASM instance.
 pub(crate) fn sim_reset_in(w: &mut crate::world::owner::World) -> () { w.ai.finish(); w.sim.store = Store::default(); }
 
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn sim_abi() -> u32 { super::sim_abi() }
-    #[no_mangle]
-    pub extern "C" fn sim_kinds() -> u32 { super::sim_kinds() }
-    #[no_mangle]
-    pub extern "C" fn sim_kind_hash(kind: u32) -> u32 { super::sim_kind_hash(kind) }
-    #[no_mangle]
-    pub extern "C" fn sim_scratch(bytes: u32) -> *mut u8 { sim_scratch_in(crate::abi::facade::world(), bytes).as_mut_ptr() }
-    #[no_mangle]
-    pub extern "C" fn sim_str_intern(units: u32) -> u32 { sim_str_intern_in(crate::abi::facade::world(), units) }
-    #[no_mangle]
-    pub extern "C" fn sim_str_count() -> u32 { sim_str_count_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn sim_str_len(id: u32) -> u32 { sim_str_len_in(crate::abi::facade::world(), id) }
-    #[no_mangle]
-    pub extern "C" fn sim_str_ptr(id: u32) -> *const u16 { sim_str_ptr_in(crate::abi::facade::world(), id).as_ptr() }
-    #[no_mangle]
-    pub extern "C" fn sim_export(kind: u32, mode: u32) -> *const f64 { sim_export_in(crate::abi::facade::world(), kind, mode).map_or(std::ptr::null(), Block::ptr) }
-    #[no_mangle]
-    pub extern "C" fn sim_retire(kind: u32, slot: u32, gen: u32) -> i32 { sim_retire_in(crate::abi::facade::world(), kind, slot, gen) }
-    #[no_mangle]
-    pub extern "C" fn sim_import_room(kind: u32, rows: u32, stride: u32, heap: u32) -> *mut f64 { sim_import_room_in(crate::abi::facade::world(), kind, rows, stride, heap).words.as_mut_ptr() }
-    #[no_mangle]
-    pub extern "C" fn sim_import(kind: u32, flags: u32) -> i32 { sim_import_in(crate::abi::facade::world(), kind, flags) }
-    #[no_mangle]
-    pub extern "C" fn sim_call_room(words: u32, heap: u32) -> *mut f64 { sim_call_room_in(crate::abi::facade::world(), words, heap).words.as_mut_ptr() }
-    #[no_mangle]
-    pub extern "C" fn sim_calls() -> *const f64 { sim_calls_in(crate::abi::facade::world()).ptr() }
-    #[no_mangle]
-    pub extern "C" fn sim_command(code: u32) -> *const f64 { sim_command_in(crate::abi::facade::world(), code).map_or(std::ptr::null(), Block::ptr) }
-    /// An import's arguments, as Rust wrote them (the import block).
-    #[no_mangle]
-    pub extern "C" fn sim_import_args() -> *const f64 { crate::abi::facade::exchange().words().as_ptr() }
-    /// Room in the import block for an import's result.
-    #[no_mangle]
-    pub extern "C" fn sim_import_result_room(words: u32, heap: u32) -> *mut f64 { let exchange = crate::abi::facade::exchange(); exchange.room(words as usize, heap as usize); exchange.words_mut().as_mut_ptr() }
-    #[no_mangle]
-    pub extern "C" fn sim_import_capacity() -> u32 { super::sim_import_capacity() }
-    #[no_mangle]
-    pub extern "C" fn sim_events() -> *const f64 { sim_events_in(crate::abi::facade::world()).as_ptr() }
-    #[no_mangle]
-    pub extern "C" fn sim_events_clear() { sim_events_clear_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn sim_reserve(bytes: u32) -> u32 { super::sim_reserve(bytes) }
-    #[no_mangle]
-    pub extern "C" fn sim_memory_pages() -> u32 { super::sim_memory_pages() }
-    #[no_mangle]
-    pub extern "C" fn sim_reset() { sim_reset_in(crate::abi::facade::world()) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{sim_scratch, sim_str_intern, sim_str_count, sim_str_len, sim_str_ptr, sim_export, sim_retire, sim_import_room, sim_import, sim_call_room, sim_calls, sim_command, sim_import_args, sim_import_result_room, sim_events, sim_events_clear, sim_reset};

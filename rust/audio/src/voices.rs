@@ -268,9 +268,7 @@ impl Engine {
     /// Native stream assets arrive as owned PCM from the decoder thread.
     /// Slots are reserved at admission; moving a decoded buffer here never
     /// allocates on the device callback or changes an existing source cursor.
-    #[cfg(not(target_arch="wasm32"))]
     pub fn reserve_samples(&mut self,count:usize){self.samples.resize_with(self.samples.len().max(count),||None);}
-    #[cfg(not(target_arch="wasm32"))]
     pub fn decoded_sample(&mut self,id:usize,rate:f64,channels:usize,frames:usize,data:Vec<f32>){if id>=self.samples.len()||channels==0||channels>12||data.len()!=frames.saturating_mul(channels){return;}self.samples[id]=Some(Sample{rate,channels,frames,data,ring:None});}
     /// Room for sample `id`'s `frames` at `rate`, to fill before a voice
     /// plays it (allocates: called as a sample arrives, never mid-block).

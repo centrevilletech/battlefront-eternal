@@ -437,13 +437,3 @@ pub(crate) fn give_in(world_ctx: &mut crate::world::owner::World, index: usize, 
 }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn f3_item_class() { f3_item_class_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_unit_items() { f3_unit_items_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_dispenser_binding() -> u32 { f3_dispenser_binding_in(crate::abi::facade::world()) }
-}

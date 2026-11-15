@@ -512,29 +512,3 @@ mod tests {
 }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn wire_combat_words(encode: u32) -> u32 { super::wire_combat_words(encode) }
-    #[no_mangle]
-    pub extern "C" fn wire_combat_encode() -> *const f64 { wire_combat_encode_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn wire_combat_create() -> *mut Capture { wire_combat_create_in(crate::abi::facade::world()) as *mut Capture }
-    #[no_mangle]
-    pub extern "C" fn wire_combat_next_id(handle: *const Capture) -> f64 { wire_combat_next_id_in(crate::abi::facade::world(), handle as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_combat_set_next_id(handle: *mut Capture, id: f64) { wire_combat_set_next_id_in(crate::abi::facade::world(), handle as usize, id) }
-    #[no_mangle]
-    pub extern "C" fn wire_combat_drop(handle: *mut Capture) { wire_combat_drop_in(crate::abi::facade::world(), handle as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_combat_run(handle: *mut Capture) -> *const f64 { wire_combat_run_in(crate::abi::facade::world(), handle as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn wire_combat_commit(handle:usize) ->u32 { wire_combat_commit_in(crate::abi::facade::world(), handle) }
-    #[no_mangle]
-    pub extern "C" fn wire_combat_dynamic(handle:usize) ->u32 { wire_combat_dynamic_in(crate::abi::facade::world(), handle) }
-    #[no_mangle]
-    pub extern "C" fn wire_combat_saved(handle:usize,drain:u32) ->*const f64 { wire_combat_saved_in(crate::abi::facade::world(), handle, drain).map_or(std::ptr::null(), |b| b.as_ptr()) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{wire_combat_encode, wire_combat_create, wire_combat_next_id, wire_combat_set_next_id, wire_combat_drop, wire_combat_run, wire_combat_commit, wire_combat_dynamic, wire_combat_saved};

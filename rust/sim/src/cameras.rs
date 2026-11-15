@@ -29,68 +29,9 @@ fn phase(owner: &mut Owner, id: u32) -> Option<&mut cameras::Phase> {
 
 // The same host builtins that produced the old page camera's lens and
 // quaternion. They exchange only doubles, with no scene or camera callback.
-#[cfg(target_arch = "wasm32")]
-#[link(wasm_import_module = "camera_math")]
-extern "C" {
-    fn camera_sin(x: f64) -> f64;
-    fn camera_cos(x: f64) -> f64;
-    fn camera_tan(x: f64) -> f64;
-    fn camera_atan(x: f64) -> f64;
-    fn camera_atan2(y: f64, x: f64) -> f64;
-    fn camera_asin(x: f64) -> f64;
-    fn camera_acos(x: f64) -> f64;
-    fn camera_exp(x: f64) -> f64;
-    fn camera_log(x: f64) -> f64;
-    fn camera_pow(x: f64, y: f64) -> f64;
-    fn camera_hypot2(x: f64, y: f64) -> f64;
-    fn camera_hypot(x: f64, y: f64, z: f64) -> f64;
-    fn camera_random() -> f64;
-}
-#[cfg(target_arch = "wasm32")]
-pub(crate) struct HostMath;
 // A native world has no page Math to call: the authority camera runs on the
 // server's V8 arithmetic, as its recorded frames do.
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) type HostMath = bfe_presentation::cameras::math::V8;
-#[cfg(target_arch = "wasm32")]
-impl Math for HostMath {
-    fn sin(x: f64) -> f64 {
-        unsafe { camera_sin(x) }
-    }
-    fn cos(x: f64) -> f64 {
-        unsafe { camera_cos(x) }
-    }
-    fn tan(x: f64) -> f64 {
-        unsafe { camera_tan(x) }
-    }
-    fn atan(x: f64) -> f64 {
-        unsafe { camera_atan(x) }
-    }
-    fn atan2(y: f64, x: f64) -> f64 {
-        unsafe { camera_atan2(y, x) }
-    }
-    fn asin(x: f64) -> f64 {
-        unsafe { camera_asin(x) }
-    }
-    fn acos(x: f64) -> f64 {
-        unsafe { camera_acos(x) }
-    }
-    fn exp(x: f64) -> f64 {
-        unsafe { camera_exp(x) }
-    }
-    fn log(x: f64) -> f64 {
-        unsafe { camera_log(x) }
-    }
-    fn hypot2(x: f64, y: f64) -> f64 {
-        unsafe { camera_hypot2(x, y) }
-    }
-    fn hypot(x: f64, y: f64, z: f64) -> f64 {
-        unsafe { camera_hypot(x, y, z) }
-    }
-    fn pow(x: f64, y: f64) -> f64 {
-        unsafe { camera_pow(x, y) }
-    }
-}
 // Ports the collision portion of SoldierCamera.clearance, VehicleCamera's
 // corner rays and DeathShot's booms. Broad-phase candidates stay in Rust.
 // Ignored bodies are stable native slots rather than page array positions.
@@ -147,11 +88,6 @@ impl<M:Math> cameras::Cast for CastWorld<'_, M> {
         (code != c::MISS).then_some(hit.distance)
     }
     fn random(&mut self) -> f64 {
-        #[cfg(target_arch = "wasm32")]
-        unsafe {
-            return camera_random();
-        }
-        #[cfg(not(target_arch = "wasm32"))]
         {
             0.5
         }
@@ -288,32 +224,6 @@ pub(crate) fn camera_director_best_in(w: &mut crate::world::owner::World, id: u3
 }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn camera_init(ptr: *const u8, len: usize) -> u32 { camera_init_in(crate::abi::facade::cold(), ptr, len) }
-    #[no_mangle]
-    pub extern "C" fn camera_add_definition(id: u32, ptr: *const u8, len: usize) -> i32 { camera_add_definition_in(crate::abi::facade::cold(), id, ptr, len) }
-    #[no_mangle]
-    pub extern "C" fn camera_input_ptr(id: u32) -> *mut f64 { camera_input_ptr_in(crate::abi::facade::cold(), id).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn camera_commands_ptr(id: u32) -> *mut f64 { camera_commands_ptr_in(crate::abi::facade::cold(), id).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn camera_output_ptr(id: u32) -> *const f64 { camera_output_ptr_in(crate::abi::facade::cold(), id).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn camera_flags_ptr() -> *mut u8 { camera_flags_ptr_in(crate::abi::facade::cold()).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn camera_frame(id: u32) { camera_frame_in::<HostMath>(crate::abi::facade::cold(), id) }
-    #[no_mangle]
-    pub extern "C" fn camera_reset(id: u32) { camera_reset_in(crate::abi::facade::cold(), id) }
-    #[no_mangle]
-    pub extern "C" fn camera_director_show(id: u32, index: f64) -> i32 { camera_director_show_in(crate::abi::facade::cold(), id, index) }
-    #[no_mangle]
-    pub extern "C" fn camera_director_follow(id: u32, x: f64, y: f64, z: f64) -> i32 { camera_director_follow_in::<HostMath>(crate::abi::facade::cold(), id, x, y, z) }
-    #[no_mangle]
-    pub extern "C" fn camera_director_best(id: u32, x: f64, y: f64, z: f64) -> i32 { camera_director_best_in(crate::abi::facade::cold(), id, x, y, z) }
-}
 
 #[cfg(test)]
 mod tests {

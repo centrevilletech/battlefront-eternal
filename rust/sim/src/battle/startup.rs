@@ -32,9 +32,3 @@ pub fn f4_startup_class_in(w: &mut crate::world::owner::World) -> u32 {
 }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn f4_startup_class() -> u32 { f4_startup_class_in(crate::abi::facade::world()) }
-}

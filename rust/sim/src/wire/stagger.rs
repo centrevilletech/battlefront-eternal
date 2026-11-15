@@ -362,32 +362,3 @@ if owner.staggers.get(p as usize).is_none() {return 0;}
 }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn wire_stagger_words(op: u32) -> u32 { super::wire_stagger_words(op) }
-    #[no_mangle]
-    pub extern "C" fn wire_stagger_create() -> *mut Stagger { wire_stagger_create_in(crate::abi::facade::world()) as *mut Stagger }
-    #[no_mangle]
-    pub extern "C" fn wire_stagger_drop(p: *mut Stagger) { wire_stagger_drop_in(crate::abi::facade::world(), p as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_stagger_take(p: *mut Stagger) -> *const f64 { wire_stagger_take_in(crate::abi::facade::world(), p as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn wire_stagger_cadence(p: *mut Stagger) { wire_stagger_cadence_in(crate::abi::facade::world(), p as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_stagger_held(p: *const Stagger,
-        tick: f64,
-        schema: f64,
-        id: f64,
-        state: i32,) -> f64 { wire_stagger_held_in(crate::abi::facade::world(), p as usize, tick, schema, id, state) }
-    #[no_mangle]
-    pub extern "C" fn wire_stagger_due(p: *const Stagger,
-        tick: f64,
-        schema: f64,
-        id: f64,) -> u32 { wire_stagger_due_in(crate::abi::facade::world(), p as usize, tick, schema, id) }
-    #[no_mangle]
-    pub extern "C" fn wire_stagger_schemas(p: *const Stagger, tick: f64, any: u32) -> u32 { wire_stagger_schemas_in(crate::abi::facade::world(), p as usize, tick, any) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{wire_stagger_create, wire_stagger_drop, wire_stagger_take, wire_stagger_cadence, wire_stagger_held, wire_stagger_due, wire_stagger_schemas};

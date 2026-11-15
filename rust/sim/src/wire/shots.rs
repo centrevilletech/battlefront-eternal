@@ -137,23 +137,3 @@ mod owner_tests {
 }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn wire_shots_attach(counter:*mut Counters) ->u32 { wire_shots_attach_in(crate::abi::facade::world(), counter as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_shots_create(capacity:f64) ->*mut Counters { wire_shots_create_in(crate::abi::facade::world(), capacity) as *mut Counters }
-    #[no_mangle]
-    pub extern "C" fn wire_shots_drop(p:*mut Counters) { wire_shots_drop_in(crate::abi::facade::world(), p as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_shots_observe(p:*mut Counters,id:f64,generation:f64,live:f64) { wire_shots_observe_in(crate::abi::facade::world(), p as usize, id, generation, live) }
-    #[no_mangle]
-    pub extern "C" fn wire_shots_counter(p:*const Counters,id:f64,generation:f64) ->f64 { wire_shots_counter_in(crate::abi::facade::world(), p as usize, id, generation) }
-    #[no_mangle]
-    pub extern "C" fn wire_shots_reset(p:*mut Counters) { wire_shots_reset_in(crate::abi::facade::world(), p as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_shots_overflow(p:*const Counters) ->f64 { wire_shots_overflow_in(crate::abi::facade::world(), p as usize) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{wire_shots_attach, wire_shots_create, wire_shots_drop, wire_shots_observe, wire_shots_counter, wire_shots_reset, wire_shots_overflow};

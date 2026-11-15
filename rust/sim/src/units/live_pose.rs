@@ -175,9 +175,3 @@ impl BodyPoses {
 }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn f3_body_skeleton() -> u32 { f3_body_skeleton_in(crate::abi::facade::world()) }
-}

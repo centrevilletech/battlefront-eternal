@@ -1,4 +1,3 @@
-#![cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 use bfe_sim::abi::context::{Context, Error, ErrorKind, Failure, Record};
 use bfe_sim::gen::*;
 use std::cell::Cell;

@@ -25,7 +25,6 @@ use std::rc::Rc;
 
 /// A native identity for a body, seat control, registry entry or repair
 /// wrapper. Capture readers map recorded objects into this same key space.
-/// The storage generation is retained on wasm32 as well.
 pub type UKey = u64;
 
 /// A weak entity reference (controller.js:343 `refOf`): the entity's

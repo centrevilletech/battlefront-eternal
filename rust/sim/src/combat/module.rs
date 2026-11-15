@@ -950,23 +950,5 @@ impl Content {
 }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn cmb_weapon(id: u32) { cmb_weapon_in(crate::abi::facade::world(), id) }
-    #[no_mangle]
-    pub extern "C" fn cmb_class(id: u32) { cmb_class_in(crate::abi::facade::world(), id) }
-    #[no_mangle]
-    pub extern "C" fn cmb_explosion(id: u32) { cmb_explosion_in(crate::abi::facade::world(), id) }
-    #[no_mangle]
-    pub extern "C" fn cmb_new(unit: u32, class: u32, player: u32, max_health: f64, chunks: f64, scale: u32) -> *const f64 { cmb_new_in(crate::abi::facade::world(), unit, class, player, max_health, chunks, scale).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn cmb_set(unit: u32, field: u32, value: f64) -> u32 { cmb_set_in(crate::abi::facade::world(), unit, field, value) }
-    #[no_mangle]
-    pub extern "C" fn cmb_weapon_set(unit: u32, weapon: u32, field: u32, value: f64) -> u32 { cmb_weapon_set_in(crate::abi::facade::world(), unit, weapon, field, value) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{cmb_weapon, cmb_class, cmb_explosion, cmb_new, cmb_set, cmb_weapon_set};
 
 pub(crate) fn defs_ref(owner:&CombatOwner)->&CombatDefs { &owner.content.as_ref().expect("prepared combat content").defs }

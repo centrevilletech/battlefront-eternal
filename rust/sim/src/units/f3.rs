@@ -145,7 +145,6 @@ pub(crate) fn native_intent_owned_in(units: &super::owner::Units, reference: Ref
 }
 /// preparePhase writes the retained foreign row bank before the native tick.
 /// Generated phase inputs contain only scalar and fixed-size intent fields.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub(crate) fn prepare_foreign_row_in(units: &mut super::owner::Units, index: usize, input: &F3PhaseInput) -> bool {
     let state = units.state.as_mut().expect("prepared unit service");
     let at = index * F3PhaseInput::WORDS;
@@ -510,8 +509,6 @@ pub fn f3_init_in(world_ctx: &mut crate::world::owner::World, world: u32, level:
             ordnance_refused: 0,
         });
     }
-    #[cfg(target_arch = "wasm32")]
-    world_ctx.units.state.as_mut().expect("prepared unit service").bind_inputs();
     // Standalone phases have no single camera. Production supplies the same
     // camera scope as Game.separateSoldiers before entering its owned span.
     { let state = world_ctx.units.state.as_mut().expect("prepared unit service"); F3Separation { global: true, ..Default::default() }
@@ -522,8 +519,6 @@ pub fn f3_init_in(world_ctx: &mut crate::world::owner::World, world: u32, level:
 // reads memory directly after a call; getter exports would add a crossing for
 // each output and make sparse publication needlessly expensive.
 fn descriptor_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> {
-    #[cfg(target_arch = "wasm32")]
-    let event_ptr = world_ctx.sim.events.ptr() as u32;
     let event_words = world_ctx.sim.events.len() as u32;
     let s = world_ctx.units.state.as_mut().expect("prepared unit service");
     // AI decisions and mounted fire consume the same generators directly.
@@ -543,8 +538,6 @@ fn descriptor_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> {
         row.put(&mut s.random_states[at..],&mut s.block.heap);
     }
     s.layout.controls_consumed=s.controls_consumed;
-    #[cfg(target_arch = "wasm32")]
-    s.bind_events(event_ptr);
     s.layout.event_words = event_words;
     s.layout.event_epoch = s.event_epoch;
     s.layout.put(&mut s.descriptor, &mut s.block.heap);
@@ -727,8 +720,6 @@ fn finish_publication_in(world_ctx: &mut crate::world::owner::World, count:usize
     let s=world_ctx.units.state.as_mut().expect("prepared unit service");
 s.block.finish();
     s.layout.version=s.layout.version.wrapping_add(1);
-    #[cfg(target_arch = "wasm32")]
-    s.bind_output();
     s.layout.output_rows=count as u32;
     // Direct cache reads count as traffic too, although they no longer take
     // space in the output heap. The shared masks bound exactly these words.
@@ -822,7 +813,6 @@ s.phase_input_slots.reserve(size.saturating_sub(s.phase_input_slots.len())); }
     let words=crate::store::block::HEADER+F3Publication::WORDS+
         weapons*F3WeaponView::WORDS+F3ControlView::WORDS;
     world_ctx.units.state.as_mut().expect("prepared unit service").publication[slot as usize]=crate::vehicles::f2_delta::Cache::borrowed(words);
-    #[cfg(not(target_arch = "wasm32"))]
     {
         // Native publications carry values as well as masks. Reserve the
         // complete admitted roster here, before its first changed-row flush.
@@ -2274,8 +2264,6 @@ fn prepare_bounds_in(world_ctx: &mut crate::world::owner::World, count:usize) {
 
     let words=count*F3BoundsView::WORDS;
     if s.bounds_cache.len()<words {s.bounds_cache.resize(words,f64::NAN);}
-    #[cfg(target_arch = "wasm32")]
-    s.bind_bounds();
     s.layout.bounds_capacity=(s.bounds_cache.len()/F3BoundsView::WORDS) as u32;
     descriptor_in(world_ctx);
 }
@@ -2582,75 +2570,10 @@ pub(crate) fn items_read(units: &super::owner::Units) -> &super::f3_items::Items
 
 // Native readers borrow these banks directly. Only the linear-memory host
 // binds addresses after the bank has reached its retained publication point.
-#[cfg(target_arch = "wasm32")]
-impl State {
-    fn bind_inputs(&mut self) {
-        self.layout.input = self.input.as_mut_ptr() as u32;
-        self.layout.random_states = self.random_states.as_mut_ptr() as u32;
-        self.layout.aim_input = self.aim_input.as_mut_ptr() as u32;
-        self.layout.command = self.command.as_mut_ptr() as u32;
-        self.layout.acknowledgement = self.acknowledgement.as_mut_ptr() as u32;
-        self.layout.random_epoch = self.random_epoch.as_mut_ptr() as u32;
-        self.layout.random_globals = self.random_globals.as_mut_ptr() as u32;
-        self.layout.aim_header = self.aim_header.as_mut_ptr() as u32;
-        self.layout.foreign_header = self.foreign_header.as_mut_ptr() as u32;
-        self.layout.separation = self.separation.as_mut_ptr() as u32;
-    }
-    fn bind_output(&mut self) {
-        self.layout.output = self.block.ptr() as u32 + (crate::store::block::HEADER * 8) as u32;
-        self.layout.output_heap = self.block.ptr() as u32 + self.block.words[BlockHeader::HEAP] as u32 * 8;
-    }
-    fn bind_bounds(&mut self) { self.layout.bounds_cache = self.bounds_cache.as_mut_ptr() as u32; }
-    fn bind_events(&mut self, events: u32) { self.layout.events = events; }
-}
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn f3_init(world: u32, level: f64, body_serial: u32) -> *const f64 { f3_init_in(crate::abi::facade::world(), world, level, body_serial).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn f3_adopt() -> u32 { f3_adopt_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_weapon_services(weapon: u32, count: u32) { f3_weapon_services_in(crate::abi::facade::world(), weapon, count) }
-    #[no_mangle]
-    pub extern "C" fn f3_step(count: u32, dt: f64, level: f64, tick: f64) -> u32 { f3_step_in(crate::abi::facade::world(), count, dt, level, tick) }
-    #[no_mangle]
-    pub extern "C" fn f3_command() -> u32 { f3_command_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_acquire(class: u32) -> i32 { f3_acquire_in(crate::abi::facade::world(), class) }
-    #[no_mangle]
-    pub extern "C" fn f3_sensor() -> *const f64 { f3_sensor_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn f3_pose() -> u32 { f3_pose_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_foreign(count: u32) { f3_foreign_in(crate::abi::facade::world(), count) }
-    #[no_mangle]
-    pub extern "C" fn f3_registry_prepare() { f3_registry_prepare_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_registry_add(kind: u32, generation: u32) -> u32 { f3_registry_add_in(crate::abi::facade::world(), kind, generation) }
-    #[no_mangle]
-    pub extern "C" fn f3_registry_remove(id: u32) { f3_registry_remove_in(&mut crate::abi::facade::world().sim, id) }
-    #[no_mangle]
-    pub extern "C" fn f3_body_names(count: u32) { f3_body_names_in(crate::abi::facade::world(), count) }
-    #[no_mangle]
-    pub extern "C" fn f3_missile_classes(count: u32) { f3_missile_classes_in(crate::abi::facade::world(), count) }
-    #[no_mangle]
-    pub extern "C" fn f3_relations(count:u32) -> u32 { f3_relations_in(crate::abi::facade::world(), count) }
-    #[no_mangle]
-    pub extern "C" fn f3_hit_policy() { f3_hit_policy_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_blast_binding() { f3_blast_binding_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_impact_rules() { f3_impact_rules_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_world_blast() { f3_world_blast_in(crate::abi::facade::world()) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{f3_init, f3_adopt, f3_weapon_services, f3_step, f3_command, f3_acquire, f3_sensor, f3_pose, f3_foreign, f3_registry_prepare, f3_registry_add, f3_registry_remove, f3_body_names, f3_missile_classes, f3_relations, f3_hit_policy, f3_blast_binding, f3_impact_rules, f3_world_blast};
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod native_banks {
     use super::*;
     #[test]
@@ -2734,7 +2657,7 @@ pub(crate) fn recon_services_ref(units:&super::owner::Units)->&crate::recon::mod
 
 pub(crate) fn with_owner_rows<T>(w:&mut crate::world::owner::World,run:impl FnOnce(&mut Store,&mut Ownership)->T)->T { with_rows_in(&mut w.sim.store,w.units.state.as_mut().expect("prepared unit service"),run) }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod native_sensor_masks {
     use super::*;
     #[test]

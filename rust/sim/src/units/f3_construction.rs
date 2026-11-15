@@ -279,23 +279,3 @@ impl Factory {
 }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn f3_factory_reserve(limit: u32) { f3_factory_reserve_in(crate::abi::facade::world(), limit) }
-    #[no_mangle]
-    pub extern "C" fn f3_factory_stage() { f3_factory_stage_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_factory_player_bind() { f3_factory_player_bind_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_factory_finish() { f3_factory_finish_in(&mut crate::abi::facade::world().units) }
-    #[no_mangle]
-    pub extern "C" fn f3_factory_acquire(class:u32)->i32 { f3_factory_acquire_in(crate::abi::facade::world(), class) }
-    #[no_mangle]
-    pub extern "C" fn f3_factory_realize()->i32 { f3_factory_realize_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_factory_player_spawn()->i32 { f3_factory_player_spawn_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f3_factory_resident() { f3_factory_resident_in(crate::abi::facade::world()) }
-}

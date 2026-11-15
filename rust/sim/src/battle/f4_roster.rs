@@ -371,15 +371,6 @@ pub fn f4_roster_command_in(w: &mut Root) -> Option<&[f64]> {
 
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-
-    #[no_mangle]
-    pub extern "C" fn f4_roster_init() { f4_roster_init_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn f4_roster_command() -> *const f64 { f4_roster_command_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-}
 
 impl super::stats::TextWorld for World<'_, '_> { fn text_nonempty(&self,id:StrId)->bool { !self.w.sim.strings.units(id).is_empty() } }
 

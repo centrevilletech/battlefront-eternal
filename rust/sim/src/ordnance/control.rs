@@ -966,19 +966,3 @@ pub(crate) fn run(w: &mut crate::world::owner::World) -> *const f64 {
     result.put().put(&mut h.output, &mut Vec::new());
     h.output.as_ptr()
 }
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    #[no_mangle]
-    pub extern "C" fn ordnance_host_input() -> *mut f64 {
-        crate::abi::facade::world()
-            .ordnance
-            .host
-            .get_or_insert_with(|| Box::new(super::Bridge::default()))
-            .input
-            .as_mut_ptr()
-    }
-    #[no_mangle]
-    pub extern "C" fn ordnance_host_run() -> *const f64 {
-        super::run(crate::abi::facade::world())
-    }
-}

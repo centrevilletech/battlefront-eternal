@@ -102,11 +102,3 @@ impl super::clock::Host for CompletedClock {
 }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn world_step_init() -> *mut f64 { world_step_init_in(crate::abi::facade::world()).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn world_step_run() -> *const f64 { world_step_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-}

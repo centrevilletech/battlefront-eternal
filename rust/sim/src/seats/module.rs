@@ -298,7 +298,4 @@ fn ground_cast(w:&mut crate::world::owner::World,origin:&Vector3,direction:&Vect
         .cast_in(&mut w.collision.state,w.movement.flags_mut(),origin,direction,far,None)?
         .map(|h|CastHit {point:h.point,normal:h.normal,distance:h.distance,terrain:h.terrain})
 }
-#[cfg(target_arch = "wasm32")]
-fn legacy_ground_cast(origin:&Vector3,direction:&Vector3,far:f64)->Option<CastHit> { ground_cast(crate::abi::facade::world(),origin,direction,far) }
-#[cfg(not(target_arch = "wasm32"))]
 fn legacy_ground_cast(_: &Vector3,_:&Vector3,_:f64)->Option<CastHit> { crate::abi::no_native_host("seatCast") }

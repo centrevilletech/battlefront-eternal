@@ -1112,20 +1112,7 @@ pub fn cmd_relay_in(w: &mut crate::world::owner::World, w0: f64, w1: f64, w2: f6
     Some(&sim.calls.block)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub fn cmd_relay(_w0: f64, _w1: f64, _w2: f64, _w3: f64, _w4: f64, _w5: f64, _w6: f64, _w7: f64) -> *const f64 { std::ptr::null() }
-
-/// Runs f2Seat from the generated call block without retaining its store loan.
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn cmd_f2_seat_block() -> *const f64 {
-    if !crate::abi::command_available(COMMAND_F2_SEAT) { return std::ptr::null(); }
-    let w = crate::abi::facade::world();
-    let args = { let (row, heap) = w.sim.calls.args(); F2SeatCommand::take(row, heap) };
-    let result = crate::vehicles::module::f2::live_seats::command_in(w, args);
-    w.sim.calls.result(F2SeatResult::WORDS, |row, heap| result.put(row, heap));
-    w.sim.calls.block.ptr()
-}
 
 pub const OPERATION_ECHO: u32 = 1;
 pub const OPERATION_F2_SEAT: u32 = 2;
@@ -1544,1646 +1531,717 @@ impl PlayerSquad {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-#[link(wasm_import_module = "bfe")]
-extern "C" {
-    fn bfe_import_ask();
-    fn bfe_import_beam_local_origin();
-    fn bfe_import_beam_pose();
-    fn bfe_import_blocked();
-    fn bfe_import_bounce();
-    fn bfe_import_cast();
-    fn bfe_import_cast_moving();
-    fn bfe_import_drop_roll();
-    fn bfe_import_explode();
-    fn bfe_import_explosion();
-    fn bfe_import_f2_fired();
-    fn bfe_import_f2_foreign();
-    fn bfe_import_f2_life();
-    fn bfe_import_f2_posed();
-    fn bfe_import_f2_seat_action();
-    fn bfe_import_f2_target_facts();
-    fn bfe_import_f2_turret_draw();
-    fn bfe_import_f2_turret_hint();
-    fn bfe_import_f2_turret_target();
-    fn bfe_import_f2_variant();
-    fn bfe_import_f2_weapon_draw();
-    fn bfe_import_f3_character_release();
-    fn bfe_import_f3_death_credit();
-    fn bfe_import_f3_head_credit();
-    fn bfe_import_f3_hull_credit();
-    fn bfe_import_f4_aihook();
-    fn bfe_import_fat_query();
-    fn bfe_import_give();
-    fn bfe_import_gone();
-    fn bfe_import_grenade_contact();
-    fn bfe_import_history_tick();
-    fn bfe_import_hit();
-    fn bfe_import_hit_unit();
-    fn bfe_import_impact();
-    fn bfe_import_is_droid();
-    fn bfe_import_item_cast();
-    fn bfe_import_item_model();
-    fn bfe_import_item_relations();
-    fn bfe_import_item_targets();
-    fn bfe_import_item_water_crossing();
-    fn bfe_import_launch();
-    fn bfe_import_missile_target();
-    fn bfe_import_navigate_missile();
-    fn bfe_import_network_seats_world();
-    fn bfe_import_owner_key();
-    fn bfe_import_pickup();
-    fn bfe_import_projectile();
-    fn bfe_import_raycast_units();
-    fn bfe_import_rider_mount();
-    fn bfe_import_seat_cast();
-    fn bfe_import_seat_controllable();
-    fn bfe_import_seat_controller_state();
-    fn bfe_import_seat_overlaps();
-    fn bfe_import_seat_policy();
-    fn bfe_import_shooter();
-    fn bfe_import_shot_tick();
-    fn bfe_import_spin();
-    fn bfe_import_unit_aim();
-    fn bfe_import_unit_sphere();
-    fn bfe_import_veh_aim_point();
-    fn bfe_import_veh_aim_points();
-    fn bfe_import_veh_damaged();
-    fn bfe_import_veh_destroyed();
-    fn bfe_import_veh_effect();
-    fn bfe_import_veh_explosion();
-    fn bfe_import_veh_raycast_units();
-    fn bfe_import_water_crossing();
-    fn bfe_import_waver();
-    fn bfe_import_world_clock();
-    fn bfe_import_world_events();
-    fn bfe_import_world_local();
-}
-
-/// Asks JavaScript (the import ask): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_ask(args: &Echo) -> Echo {
-    crate::store::calls::import_out(Echo::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_ask() };
-    crate::store::calls::import_in(|row, heap| Echo::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_ask(_args: &Echo) -> Echo { crate::abi::no_native_host("ask") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_ask_in(context: &crate::abi::context::Context, args: &Echo) -> Result<Echo, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(Echo::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_ASK, args)?;
     Ok(reply.read(Echo::take))
 }
 
-/// Asks JavaScript (the import beamLocalOrigin): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_beam_local_origin(args: &SourceArgs) -> PointAnswer {
-    crate::store::calls::import_out(SourceArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_beam_local_origin() };
-    crate::store::calls::import_in(|row, heap| PointAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_beam_local_origin(_args: &SourceArgs) -> PointAnswer { crate::abi::no_native_host("beamLocalOrigin") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_beam_local_origin_in(context: &crate::abi::context::Context, args: &SourceArgs) -> Result<PointAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(SourceArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_BEAM_LOCAL_ORIGIN, args)?;
     Ok(reply.read(PointAnswer::take))
 }
 
-/// Asks JavaScript (the import beamPose): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_beam_pose(args: &BeamPoseArgs) -> BeamPoseAnswer {
-    crate::store::calls::import_out(BeamPoseArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_beam_pose() };
-    crate::store::calls::import_in(|row, heap| BeamPoseAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_beam_pose(_args: &BeamPoseArgs) -> BeamPoseAnswer { crate::abi::no_native_host("beamPose") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_beam_pose_in(context: &crate::abi::context::Context, args: &BeamPoseArgs) -> Result<BeamPoseAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(BeamPoseArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_BEAM_POSE, args)?;
     Ok(reply.read(BeamPoseAnswer::take))
 }
 
-/// Asks JavaScript (the import blocked): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_blocked(args: &BlockedArgs) -> FlagAnswer {
-    crate::store::calls::import_out(BlockedArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_blocked() };
-    crate::store::calls::import_in(|row, heap| FlagAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_blocked(_args: &BlockedArgs) -> FlagAnswer { crate::abi::no_native_host("blocked") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_blocked_in(context: &crate::abi::context::Context, args: &BlockedArgs) -> Result<FlagAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(BlockedArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_BLOCKED, args)?;
     Ok(reply.read(FlagAnswer::take))
 }
 
-/// Asks JavaScript (the import bounce): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_bounce(args: &BounceArgs) -> () {
-    crate::store::calls::import_out(BounceArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_bounce() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_bounce(_args: &BounceArgs) -> () { crate::abi::no_native_host("bounce") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_bounce_in(context: &crate::abi::context::Context, args: &BounceArgs) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(BounceArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_BOUNCE, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import cast): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_cast(args: &CastArgs) -> CastAnswer {
-    crate::store::calls::import_out(CastArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_cast() };
-    crate::store::calls::import_in(|row, heap| CastAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_cast(_args: &CastArgs) -> CastAnswer { crate::abi::no_native_host("cast") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_cast_in(context: &crate::abi::context::Context, args: &CastArgs) -> Result<CastAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(CastArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_CAST, args)?;
     Ok(reply.read(CastAnswer::take))
 }
 
-/// Asks JavaScript (the import castMoving): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_cast_moving(args: &CastArgs) -> CastAnswer {
-    crate::store::calls::import_out(CastArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_cast_moving() };
-    crate::store::calls::import_in(|row, heap| CastAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_cast_moving(_args: &CastArgs) -> CastAnswer { crate::abi::no_native_host("castMoving") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_cast_moving_in(context: &crate::abi::context::Context, args: &CastArgs) -> Result<CastAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(CastArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_CAST_MOVING, args)?;
     Ok(reply.read(CastAnswer::take))
 }
 
-/// Asks JavaScript (the import dropRoll): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_drop_roll(args: &NoArgs) -> NumberAnswer {
-    crate::store::calls::import_out(NoArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_drop_roll() };
-    crate::store::calls::import_in(|row, heap| NumberAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_drop_roll(_args: &NoArgs) -> NumberAnswer { crate::abi::no_native_host("dropRoll") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_drop_roll_in(context: &crate::abi::context::Context, args: &NoArgs) -> Result<NumberAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(NoArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_DROP_ROLL, args)?;
     Ok(reply.read(NumberAnswer::take))
 }
 
-/// Asks JavaScript (the import explode): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_explode(args: &ItemBlastArgs) -> () {
-    crate::store::calls::import_out(ItemBlastArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_explode() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_explode(_args: &ItemBlastArgs) -> () { crate::abi::no_native_host("explode") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_explode_in(context: &crate::abi::context::Context, args: &ItemBlastArgs) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(ItemBlastArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_EXPLODE, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import explosion): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_explosion(args: &BlastArgs) -> () {
-    crate::store::calls::import_out(BlastArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_explosion() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_explosion(_args: &BlastArgs) -> () { crate::abi::no_native_host("explosion") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_explosion_in(context: &crate::abi::context::Context, args: &BlastArgs) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(BlastArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_EXPLOSION, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import f2Fired): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_f2_fired(args: &FfFired) -> () {
-    crate::store::calls::import_out(FfFired::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_f2_fired() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_f2_fired(_args: &FfFired) -> () { crate::abi::no_native_host("f2Fired") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f2_fired_in(context: &crate::abi::context::Context, args: &FfFired) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(FfFired::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F2_FIRED, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import f2Foreign): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_f2_foreign(args: &VehNumber) -> () {
-    crate::store::calls::import_out(VehNumber::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_f2_foreign() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_f2_foreign(_args: &VehNumber) -> () { crate::abi::no_native_host("f2Foreign") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f2_foreign_in(context: &crate::abi::context::Context, args: &VehNumber) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(VehNumber::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F2_FOREIGN, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import f2Life): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_f2_life(args: &VehHull) -> () {
-    crate::store::calls::import_out(VehHull::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_f2_life() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_f2_life(_args: &VehHull) -> () { crate::abi::no_native_host("f2Life") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f2_life_in(context: &crate::abi::context::Context, args: &VehHull) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(VehHull::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F2_LIFE, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import f2Posed): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_f2_posed(args: &VehNothing) -> () {
-    crate::store::calls::import_out(VehNothing::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_f2_posed() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_f2_posed(_args: &VehNothing) -> () { crate::abi::no_native_host("f2Posed") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f2_posed_in(context: &crate::abi::context::Context, args: &VehNothing) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(VehNothing::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F2_POSED, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import f2SeatAction): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_f2_seat_action(args: &F2SeatAction) -> F2SeatAnswer {
-    crate::store::calls::import_out(F2SeatAction::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_f2_seat_action() };
-    crate::store::calls::import_in(|row, heap| F2SeatAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_f2_seat_action(_args: &F2SeatAction) -> F2SeatAnswer { crate::abi::no_native_host("f2SeatAction") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f2_seat_action_in(context: &crate::abi::context::Context, args: &F2SeatAction) -> Result<F2SeatAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(F2SeatAction::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F2_SEAT_ACTION, args)?;
     Ok(reply.read(F2SeatAnswer::take))
 }
 
-/// Asks JavaScript (the import f2TargetFacts): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_f2_target_facts(args: &FfTargetQuery) -> FfTargetFacts {
-    crate::store::calls::import_out(FfTargetQuery::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_f2_target_facts() };
-    crate::store::calls::import_in(|row, heap| FfTargetFacts::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_f2_target_facts(_args: &FfTargetQuery) -> FfTargetFacts { crate::abi::no_native_host("f2TargetFacts") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f2_target_facts_in(context: &crate::abi::context::Context, args: &FfTargetQuery) -> Result<FfTargetFacts, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(FfTargetQuery::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F2_TARGET_FACTS, args)?;
     Ok(reply.read(FfTargetFacts::take))
 }
 
-/// Asks JavaScript (the import f2TurretDraw): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_f2_turret_draw(args: &F2TurretDraw) -> VehNumber {
-    crate::store::calls::import_out(F2TurretDraw::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_f2_turret_draw() };
-    crate::store::calls::import_in(|row, heap| VehNumber::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_f2_turret_draw(_args: &F2TurretDraw) -> VehNumber { crate::abi::no_native_host("f2TurretDraw") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f2_turret_draw_in(context: &crate::abi::context::Context, args: &F2TurretDraw) -> Result<VehNumber, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(F2TurretDraw::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F2_TURRET_DRAW, args)?;
     Ok(reply.read(VehNumber::take))
 }
 
-/// Asks JavaScript (the import f2TurretHint): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_f2_turret_hint(args: &F2TurretHintQuery) -> F2TurretHint {
-    crate::store::calls::import_out(F2TurretHintQuery::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_f2_turret_hint() };
-    crate::store::calls::import_in(|row, heap| F2TurretHint::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_f2_turret_hint(_args: &F2TurretHintQuery) -> F2TurretHint { crate::abi::no_native_host("f2TurretHint") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f2_turret_hint_in(context: &crate::abi::context::Context, args: &F2TurretHintQuery) -> Result<F2TurretHint, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(F2TurretHintQuery::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F2_TURRET_HINT, args)?;
     Ok(reply.read(F2TurretHint::take))
 }
 
-/// Asks JavaScript (the import f2TurretTarget): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_f2_turret_target(args: &F2TurretTargetQuery) -> F2TurretTarget {
-    crate::store::calls::import_out(F2TurretTargetQuery::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_f2_turret_target() };
-    crate::store::calls::import_in(|row, heap| F2TurretTarget::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_f2_turret_target(_args: &F2TurretTargetQuery) -> F2TurretTarget { crate::abi::no_native_host("f2TurretTarget") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f2_turret_target_in(context: &crate::abi::context::Context, args: &F2TurretTargetQuery) -> Result<F2TurretTarget, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(F2TurretTargetQuery::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F2_TURRET_TARGET, args)?;
     Ok(reply.read(F2TurretTarget::take))
 }
 
-/// Asks JavaScript (the import f2Variant): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_f2_variant(args: &F2Variant) -> () {
-    crate::store::calls::import_out(F2Variant::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_f2_variant() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_f2_variant(_args: &F2Variant) -> () { crate::abi::no_native_host("f2Variant") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f2_variant_in(context: &crate::abi::context::Context, args: &F2Variant) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(F2Variant::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F2_VARIANT, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import f2WeaponDraw): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_f2_weapon_draw(args: &FfDraw) -> VehNumber {
-    crate::store::calls::import_out(FfDraw::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_f2_weapon_draw() };
-    crate::store::calls::import_in(|row, heap| VehNumber::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_f2_weapon_draw(_args: &FfDraw) -> VehNumber { crate::abi::no_native_host("f2WeaponDraw") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f2_weapon_draw_in(context: &crate::abi::context::Context, args: &FfDraw) -> Result<VehNumber, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(FfDraw::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F2_WEAPON_DRAW, args)?;
     Ok(reply.read(VehNumber::take))
 }
 
-/// Asks JavaScript (the import f3CharacterRelease): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_f3_character_release(args: &F3CharacterRelease) -> () {
-    crate::store::calls::import_out(F3CharacterRelease::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_f3_character_release() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_f3_character_release(_args: &F3CharacterRelease) -> () { crate::abi::no_native_host("f3CharacterRelease") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f3_character_release_in(context: &crate::abi::context::Context, args: &F3CharacterRelease) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(F3CharacterRelease::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F3_CHARACTER_RELEASE, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import f3DeathCredit): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_f3_death_credit(args: &F3DeathCredit) -> F3DeathAnswer {
-    crate::store::calls::import_out(F3DeathCredit::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_f3_death_credit() };
-    crate::store::calls::import_in(|row, heap| F3DeathAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_f3_death_credit(_args: &F3DeathCredit) -> F3DeathAnswer { crate::abi::no_native_host("f3DeathCredit") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f3_death_credit_in(context: &crate::abi::context::Context, args: &F3DeathCredit) -> Result<F3DeathAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(F3DeathCredit::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F3_DEATH_CREDIT, args)?;
     Ok(reply.read(F3DeathAnswer::take))
 }
 
-/// Asks JavaScript (the import f3HeadCredit): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_f3_head_credit(args: &F3HeadCredit) -> () {
-    crate::store::calls::import_out(F3HeadCredit::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_f3_head_credit() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_f3_head_credit(_args: &F3HeadCredit) -> () { crate::abi::no_native_host("f3HeadCredit") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f3_head_credit_in(context: &crate::abi::context::Context, args: &F3HeadCredit) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(F3HeadCredit::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F3_HEAD_CREDIT, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import f3HullCredit): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_f3_hull_credit(args: &F3HullCredit) -> () {
-    crate::store::calls::import_out(F3HullCredit::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_f3_hull_credit() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_f3_hull_credit(_args: &F3HullCredit) -> () { crate::abi::no_native_host("f3HullCredit") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f3_hull_credit_in(context: &crate::abi::context::Context, args: &F3HullCredit) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(F3HullCredit::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F3_HULL_CREDIT, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import f4AIHook): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_f4_aihook(args: &F4AIHook) -> () {
-    crate::store::calls::import_out(F4AIHook::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_f4_aihook() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_f4_aihook(_args: &F4AIHook) -> () { crate::abi::no_native_host("f4AIHook") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_f4_aihook_in(context: &crate::abi::context::Context, args: &F4AIHook) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(F4AIHook::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F4_AIHOOK, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import fatQuery): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_fat_query(args: &NearArgs) -> NearAnswer {
-    crate::store::calls::import_out(NearArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_fat_query() };
-    crate::store::calls::import_in(|row, heap| NearAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_fat_query(_args: &NearArgs) -> NearAnswer { crate::abi::no_native_host("fatQuery") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_fat_query_in(context: &crate::abi::context::Context, args: &NearArgs) -> Result<NearAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(NearArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_FAT_QUERY, args)?;
     Ok(reply.read(NearAnswer::take))
 }
 
-/// Asks JavaScript (the import give): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_give(args: &GiveArgs) -> FlagAnswer {
-    crate::store::calls::import_out(GiveArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_give() };
-    crate::store::calls::import_in(|row, heap| FlagAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_give(_args: &GiveArgs) -> FlagAnswer { crate::abi::no_native_host("give") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_give_in(context: &crate::abi::context::Context, args: &GiveArgs) -> Result<FlagAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(GiveArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_GIVE, args)?;
     Ok(reply.read(FlagAnswer::take))
 }
 
-/// Asks JavaScript (the import gone): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_gone(args: &GoneArgs) -> FlagAnswer {
-    crate::store::calls::import_out(GoneArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_gone() };
-    crate::store::calls::import_in(|row, heap| FlagAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_gone(_args: &GoneArgs) -> FlagAnswer { crate::abi::no_native_host("gone") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_gone_in(context: &crate::abi::context::Context, args: &GoneArgs) -> Result<FlagAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(GoneArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_GONE, args)?;
     Ok(reply.read(FlagAnswer::take))
 }
 
-/// Asks JavaScript (the import grenadeContact): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_grenade_contact(args: &ContactArgs) -> () {
-    crate::store::calls::import_out(ContactArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_grenade_contact() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_grenade_contact(_args: &ContactArgs) -> () { crate::abi::no_native_host("grenadeContact") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_grenade_contact_in(context: &crate::abi::context::Context, args: &ContactArgs) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(ContactArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_GRENADE_CONTACT, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import historyTick): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_history_tick(args: &NoArgs) -> NumberAnswer {
-    crate::store::calls::import_out(NoArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_history_tick() };
-    crate::store::calls::import_in(|row, heap| NumberAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_history_tick(_args: &NoArgs) -> NumberAnswer { crate::abi::no_native_host("historyTick") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_history_tick_in(context: &crate::abi::context::Context, args: &NoArgs) -> Result<NumberAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(NoArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_HISTORY_TICK, args)?;
     Ok(reply.read(NumberAnswer::take))
 }
 
-/// Asks JavaScript (the import hit): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_hit(args: &StrikeArgs) -> () {
-    crate::store::calls::import_out(StrikeArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_hit() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_hit(_args: &StrikeArgs) -> () { crate::abi::no_native_host("hit") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_hit_in(context: &crate::abi::context::Context, args: &StrikeArgs) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(StrikeArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_HIT, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import hitUnit): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_hit_unit(args: &UnitStrikeArgs) -> () {
-    crate::store::calls::import_out(UnitStrikeArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_hit_unit() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_hit_unit(_args: &UnitStrikeArgs) -> () { crate::abi::no_native_host("hitUnit") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_hit_unit_in(context: &crate::abi::context::Context, args: &UnitStrikeArgs) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(UnitStrikeArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_HIT_UNIT, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import impact): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_impact(args: &ImpactArgs) -> () {
-    crate::store::calls::import_out(ImpactArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_impact() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_impact(_args: &ImpactArgs) -> () { crate::abi::no_native_host("impact") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_impact_in(context: &crate::abi::context::Context, args: &ImpactArgs) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(ImpactArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_IMPACT, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import isDroid): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_is_droid(args: &UnitArgs) -> FlagAnswer {
-    crate::store::calls::import_out(UnitArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_is_droid() };
-    crate::store::calls::import_in(|row, heap| FlagAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_is_droid(_args: &UnitArgs) -> FlagAnswer { crate::abi::no_native_host("isDroid") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_is_droid_in(context: &crate::abi::context::Context, args: &UnitArgs) -> Result<FlagAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(UnitArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_IS_DROID, args)?;
     Ok(reply.read(FlagAnswer::take))
 }
 
-/// Asks JavaScript (the import itemCast): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_item_cast(args: &ItemCastArgs) -> CastAnswer {
-    crate::store::calls::import_out(ItemCastArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_item_cast() };
-    crate::store::calls::import_in(|row, heap| CastAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_item_cast(_args: &ItemCastArgs) -> CastAnswer { crate::abi::no_native_host("itemCast") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_item_cast_in(context: &crate::abi::context::Context, args: &ItemCastArgs) -> Result<CastAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(ItemCastArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_ITEM_CAST, args)?;
     Ok(reply.read(CastAnswer::take))
 }
 
-/// Asks JavaScript (the import itemModel): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_item_model(args: &ItemDefArgs) -> ModelAnswer {
-    crate::store::calls::import_out(ItemDefArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_item_model() };
-    crate::store::calls::import_in(|row, heap| ModelAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_item_model(_args: &ItemDefArgs) -> ModelAnswer { crate::abi::no_native_host("itemModel") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_item_model_in(context: &crate::abi::context::Context, args: &ItemDefArgs) -> Result<ModelAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(ItemDefArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_ITEM_MODEL, args)?;
     Ok(reply.read(ModelAnswer::take))
 }
 
-/// Asks JavaScript (the import itemRelations): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_item_relations(args: &TeamArgs) -> RelationsAnswer {
-    crate::store::calls::import_out(TeamArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_item_relations() };
-    crate::store::calls::import_in(|row, heap| RelationsAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_item_relations(_args: &TeamArgs) -> RelationsAnswer { crate::abi::no_native_host("itemRelations") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_item_relations_in(context: &crate::abi::context::Context, args: &TeamArgs) -> Result<RelationsAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(TeamArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_ITEM_RELATIONS, args)?;
     Ok(reply.read(RelationsAnswer::take))
 }
 
-/// Asks JavaScript (the import itemTargets): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_item_targets(args: &NoArgs) -> TargetsAnswer {
-    crate::store::calls::import_out(NoArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_item_targets() };
-    crate::store::calls::import_in(|row, heap| TargetsAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_item_targets(_args: &NoArgs) -> TargetsAnswer { crate::abi::no_native_host("itemTargets") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_item_targets_in(context: &crate::abi::context::Context, args: &NoArgs) -> Result<TargetsAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(NoArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_ITEM_TARGETS, args)?;
     Ok(reply.read(TargetsAnswer::take))
 }
 
-/// Asks JavaScript (the import itemWaterCrossing): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_item_water_crossing(args: &SegmentArgs) -> PointAnswer {
-    crate::store::calls::import_out(SegmentArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_item_water_crossing() };
-    crate::store::calls::import_in(|row, heap| PointAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_item_water_crossing(_args: &SegmentArgs) -> PointAnswer { crate::abi::no_native_host("itemWaterCrossing") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_item_water_crossing_in(context: &crate::abi::context::Context, args: &SegmentArgs) -> Result<PointAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(SegmentArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_ITEM_WATER_CROSSING, args)?;
     Ok(reply.read(PointAnswer::take))
 }
 
-/// Asks JavaScript (the import launch): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_launch(args: &LaunchArgs) -> () {
-    crate::store::calls::import_out(LaunchArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_launch() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_launch(_args: &LaunchArgs) -> () { crate::abi::no_native_host("launch") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_launch_in(context: &crate::abi::context::Context, args: &LaunchArgs) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(LaunchArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_LAUNCH, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import missileTarget): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_missile_target(args: &TargetArgs) -> PointAnswer {
-    crate::store::calls::import_out(TargetArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_missile_target() };
-    crate::store::calls::import_in(|row, heap| PointAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_missile_target(_args: &TargetArgs) -> PointAnswer { crate::abi::no_native_host("missileTarget") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_missile_target_in(context: &crate::abi::context::Context, args: &TargetArgs) -> Result<PointAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(TargetArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_MISSILE_TARGET, args)?;
     Ok(reply.read(PointAnswer::take))
 }
 
-/// Asks JavaScript (the import navigateMissile): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_navigate_missile(args: &SeekArgs) -> SeekAnswer {
-    crate::store::calls::import_out(SeekArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_navigate_missile() };
-    crate::store::calls::import_in(|row, heap| SeekAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_navigate_missile(_args: &SeekArgs) -> SeekAnswer { crate::abi::no_native_host("navigateMissile") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_navigate_missile_in(context: &crate::abi::context::Context, args: &SeekArgs) -> Result<SeekAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(SeekArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_NAVIGATE_MISSILE, args)?;
     Ok(reply.read(SeekAnswer::take))
 }
 
-/// Asks JavaScript (the import networkSeatsWorld): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_network_seats_world(args: &NetworkSeatsQuery) -> NetworkSeatsReply {
-    crate::store::calls::import_out(NetworkSeatsQuery::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_network_seats_world() };
-    crate::store::calls::import_in(|row, heap| NetworkSeatsReply::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_network_seats_world(_args: &NetworkSeatsQuery) -> NetworkSeatsReply { crate::abi::no_native_host("networkSeatsWorld") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_network_seats_world_in(context: &crate::abi::context::Context, args: &NetworkSeatsQuery) -> Result<NetworkSeatsReply, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(NetworkSeatsQuery::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_NETWORK_SEATS_WORLD, args)?;
     Ok(reply.read(NetworkSeatsReply::take))
 }
 
-/// Asks JavaScript (the import ownerKey): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_owner_key(args: &OwnerArgs) -> KeyAnswer {
-    crate::store::calls::import_out(OwnerArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_owner_key() };
-    crate::store::calls::import_in(|row, heap| KeyAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_owner_key(_args: &OwnerArgs) -> KeyAnswer { crate::abi::no_native_host("ownerKey") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_owner_key_in(context: &crate::abi::context::Context, args: &OwnerArgs) -> Result<KeyAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(OwnerArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_OWNER_KEY, args)?;
     Ok(reply.read(KeyAnswer::take))
 }
 
-/// Asks JavaScript (the import pickup): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_pickup(args: &PickupArgs) -> () {
-    crate::store::calls::import_out(PickupArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_pickup() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_pickup(_args: &PickupArgs) -> () { crate::abi::no_native_host("pickup") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_pickup_in(context: &crate::abi::context::Context, args: &PickupArgs) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(PickupArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_PICKUP, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import projectile): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_projectile(args: &ProjectileArgs) -> () {
-    crate::store::calls::import_out(ProjectileArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_projectile() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_projectile(_args: &ProjectileArgs) -> () { crate::abi::no_native_host("projectile") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_projectile_in(context: &crate::abi::context::Context, args: &ProjectileArgs) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(ProjectileArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_PROJECTILE, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import raycastUnits): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_raycast_units(args: &UnitCastArgs) -> UnitCastAnswer {
-    crate::store::calls::import_out(UnitCastArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_raycast_units() };
-    crate::store::calls::import_in(|row, heap| UnitCastAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_raycast_units(_args: &UnitCastArgs) -> UnitCastAnswer { crate::abi::no_native_host("raycastUnits") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_raycast_units_in(context: &crate::abi::context::Context, args: &UnitCastArgs) -> Result<UnitCastAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(UnitCastArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_RAYCAST_UNITS, args)?;
     Ok(reply.read(UnitCastAnswer::take))
 }
 
-/// Asks JavaScript (the import riderMount): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_rider_mount(args: &BodyArgs) -> MountAnswer {
-    crate::store::calls::import_out(BodyArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_rider_mount() };
-    crate::store::calls::import_in(|row, heap| MountAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_rider_mount(_args: &BodyArgs) -> MountAnswer { crate::abi::no_native_host("riderMount") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_rider_mount_in(context: &crate::abi::context::Context, args: &BodyArgs) -> Result<MountAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(BodyArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_RIDER_MOUNT, args)?;
     Ok(reply.read(MountAnswer::take))
 }
 
-/// Asks JavaScript (the import seatCast): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_seat_cast(args: &SeatRay) -> SeatHit {
-    crate::store::calls::import_out(SeatRay::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_seat_cast() };
-    crate::store::calls::import_in(|row, heap| SeatHit::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_seat_cast(_args: &SeatRay) -> SeatHit { crate::abi::no_native_host("seatCast") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_seat_cast_in(context: &crate::abi::context::Context, args: &SeatRay) -> Result<SeatHit, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(SeatRay::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_SEAT_CAST, args)?;
     Ok(reply.read(SeatHit::take))
 }
 
-/// Asks JavaScript (the import seatControllable): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_seat_controllable(args: &SeatLeaseArgs) -> SeatMade {
-    crate::store::calls::import_out(SeatLeaseArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_seat_controllable() };
-    crate::store::calls::import_in(|row, heap| SeatMade::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_seat_controllable(_args: &SeatLeaseArgs) -> SeatMade { crate::abi::no_native_host("seatControllable") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_seat_controllable_in(context: &crate::abi::context::Context, args: &SeatLeaseArgs) -> Result<SeatMade, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(SeatLeaseArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_SEAT_CONTROLLABLE, args)?;
     Ok(reply.read(SeatMade::take))
 }
 
-/// Asks JavaScript (the import seatControllerState): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_seat_controller_state(args: &SeatWho) -> SeatNumber {
-    crate::store::calls::import_out(SeatWho::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_seat_controller_state() };
-    crate::store::calls::import_in(|row, heap| SeatNumber::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_seat_controller_state(_args: &SeatWho) -> SeatNumber { crate::abi::no_native_host("seatControllerState") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_seat_controller_state_in(context: &crate::abi::context::Context, args: &SeatWho) -> Result<SeatNumber, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(SeatWho::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_SEAT_CONTROLLER_STATE, args)?;
     Ok(reply.read(SeatNumber::take))
 }
 
-/// Asks JavaScript (the import seatOverlaps): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_seat_overlaps(args: &SeatSphere) -> SeatFlag {
-    crate::store::calls::import_out(SeatSphere::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_seat_overlaps() };
-    crate::store::calls::import_in(|row, heap| SeatFlag::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_seat_overlaps(_args: &SeatSphere) -> SeatFlag { crate::abi::no_native_host("seatOverlaps") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_seat_overlaps_in(context: &crate::abi::context::Context, args: &SeatSphere) -> Result<SeatFlag, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(SeatSphere::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_SEAT_OVERLAPS, args)?;
     Ok(reply.read(SeatFlag::take))
 }
 
-/// Asks JavaScript (the import seatPolicy): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_seat_policy(args: &SeatPolicyArgs) -> () {
-    crate::store::calls::import_out(SeatPolicyArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_seat_policy() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_seat_policy(_args: &SeatPolicyArgs) -> () { crate::abi::no_native_host("seatPolicy") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_seat_policy_in(context: &crate::abi::context::Context, args: &SeatPolicyArgs) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(SeatPolicyArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_SEAT_POLICY, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import shooter): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_shooter(args: &ShotArgs) -> ShooterAnswer {
-    crate::store::calls::import_out(ShotArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_shooter() };
-    crate::store::calls::import_in(|row, heap| ShooterAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_shooter(_args: &ShotArgs) -> ShooterAnswer { crate::abi::no_native_host("shooter") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_shooter_in(context: &crate::abi::context::Context, args: &ShotArgs) -> Result<ShooterAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(ShotArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_SHOOTER, args)?;
     Ok(reply.read(ShooterAnswer::take))
 }
 
-/// Asks JavaScript (the import shotTick): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_shot_tick(args: &ShotArgs) -> TickAnswer {
-    crate::store::calls::import_out(ShotArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_shot_tick() };
-    crate::store::calls::import_in(|row, heap| TickAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_shot_tick(_args: &ShotArgs) -> TickAnswer { crate::abi::no_native_host("shotTick") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_shot_tick_in(context: &crate::abi::context::Context, args: &ShotArgs) -> Result<TickAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(ShotArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_SHOT_TICK, args)?;
     Ok(reply.read(TickAnswer::take))
 }
 
-/// Asks JavaScript (the import spin): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_spin(args: &NoArgs) -> NumberAnswer {
-    crate::store::calls::import_out(NoArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_spin() };
-    crate::store::calls::import_in(|row, heap| NumberAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_spin(_args: &NoArgs) -> NumberAnswer { crate::abi::no_native_host("spin") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_spin_in(context: &crate::abi::context::Context, args: &NoArgs) -> Result<NumberAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(NoArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_SPIN, args)?;
     Ok(reply.read(NumberAnswer::take))
 }
 
-/// Asks JavaScript (the import unitAim): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_unit_aim(args: &UnitAimArgs) -> UnitAimAnswer {
-    crate::store::calls::import_out(UnitAimArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_unit_aim() };
-    crate::store::calls::import_in(|row, heap| UnitAimAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_unit_aim(_args: &UnitAimArgs) -> UnitAimAnswer { crate::abi::no_native_host("unitAim") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_unit_aim_in(context: &crate::abi::context::Context, args: &UnitAimArgs) -> Result<UnitAimAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(UnitAimArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_UNIT_AIM, args)?;
     Ok(reply.read(UnitAimAnswer::take))
 }
 
-/// Asks JavaScript (the import unitSphere): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_unit_sphere(args: &UnitArgs) -> SphereAnswer {
-    crate::store::calls::import_out(UnitArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_unit_sphere() };
-    crate::store::calls::import_in(|row, heap| SphereAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_unit_sphere(_args: &UnitArgs) -> SphereAnswer { crate::abi::no_native_host("unitSphere") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_unit_sphere_in(context: &crate::abi::context::Context, args: &UnitArgs) -> Result<SphereAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(UnitArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_UNIT_SPHERE, args)?;
     Ok(reply.read(SphereAnswer::take))
 }
 
-/// Asks JavaScript (the import vehAimPoint): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_veh_aim_point(args: &VehHull) -> VehPoint {
-    crate::store::calls::import_out(VehHull::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_veh_aim_point() };
-    crate::store::calls::import_in(|row, heap| VehPoint::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_veh_aim_point(_args: &VehHull) -> VehPoint { crate::abi::no_native_host("vehAimPoint") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_veh_aim_point_in(context: &crate::abi::context::Context, args: &VehHull) -> Result<VehPoint, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(VehHull::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_VEH_AIM_POINT, args)?;
     Ok(reply.read(VehPoint::take))
 }
 
-/// Asks JavaScript (the import vehAimPoints): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_veh_aim_points(args: &VehMembers) -> VehPoints {
-    crate::store::calls::import_out(VehMembers::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_veh_aim_points() };
-    crate::store::calls::import_in(|row, heap| VehPoints::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_veh_aim_points(_args: &VehMembers) -> VehPoints { crate::abi::no_native_host("vehAimPoints") }
 
 /// Read a variable result into retained caller storage.
-#[cfg(target_arch = "wasm32")]
-pub fn import_veh_aim_points_read<T>(args: &VehMembers, read: impl FnOnce(&[f64], &[f64]) -> T) -> T {
-    crate::store::calls::import_out(VehMembers::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_veh_aim_points() };
-    crate::store::calls::import_in(read)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_veh_aim_points_read<T>(_args: &VehMembers, _read: impl FnOnce(&[f64], &[f64]) -> T) -> T { crate::abi::no_native_host("vehAimPoints") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_veh_aim_points_in(context: &crate::abi::context::Context, args: &VehMembers) -> Result<VehPoints, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(VehMembers::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_VEH_AIM_POINTS, args)?;
     Ok(reply.read(VehPoints::take))
 }
 
-/// Asks JavaScript (the import vehDamaged): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_veh_damaged(args: &VehDamaged) -> () {
-    crate::store::calls::import_out(VehDamaged::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_veh_damaged() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_veh_damaged(_args: &VehDamaged) -> () { crate::abi::no_native_host("vehDamaged") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_veh_damaged_in(context: &crate::abi::context::Context, args: &VehDamaged) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(VehDamaged::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_VEH_DAMAGED, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import vehDestroyed): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_veh_destroyed(args: &VehHull) -> () {
-    crate::store::calls::import_out(VehHull::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_veh_destroyed() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_veh_destroyed(_args: &VehHull) -> () { crate::abi::no_native_host("vehDestroyed") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_veh_destroyed_in(context: &crate::abi::context::Context, args: &VehHull) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(VehHull::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_VEH_DESTROYED, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import vehEffect): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_veh_effect(args: &VehEffect) -> () {
-    crate::store::calls::import_out(VehEffect::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_veh_effect() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_veh_effect(_args: &VehEffect) -> () { crate::abi::no_native_host("vehEffect") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_veh_effect_in(context: &crate::abi::context::Context, args: &VehEffect) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(VehEffect::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_VEH_EFFECT, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import vehExplosion): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_veh_explosion(args: &VehBlast) -> () {
-    crate::store::calls::import_out(VehBlast::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_veh_explosion() };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_veh_explosion(_args: &VehBlast) -> () { crate::abi::no_native_host("vehExplosion") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_veh_explosion_in(context: &crate::abi::context::Context, args: &VehBlast) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(VehBlast::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_VEH_EXPLOSION, args)?;
     Ok(())
 }
 
-/// Asks JavaScript (the import vehRaycastUnits): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_veh_raycast_units(args: &VehRay) -> VehHit {
-    crate::store::calls::import_out(VehRay::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_veh_raycast_units() };
-    crate::store::calls::import_in(|row, heap| VehHit::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_veh_raycast_units(_args: &VehRay) -> VehHit { crate::abi::no_native_host("vehRaycastUnits") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_veh_raycast_units_in(context: &crate::abi::context::Context, args: &VehRay) -> Result<VehHit, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(VehRay::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_VEH_RAYCAST_UNITS, args)?;
     Ok(reply.read(VehHit::take))
 }
 
-/// Asks JavaScript (the import waterCrossing): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_water_crossing(args: &SegmentArgs) -> PointAnswer {
-    crate::store::calls::import_out(SegmentArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_water_crossing() };
-    crate::store::calls::import_in(|row, heap| PointAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_water_crossing(_args: &SegmentArgs) -> PointAnswer { crate::abi::no_native_host("waterCrossing") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_water_crossing_in(context: &crate::abi::context::Context, args: &SegmentArgs) -> Result<PointAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(SegmentArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_WATER_CROSSING, args)?;
     Ok(reply.read(PointAnswer::take))
 }
 
-/// Asks JavaScript (the import waver): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_waver(args: &NoArgs) -> NumberAnswer {
-    crate::store::calls::import_out(NoArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_waver() };
-    crate::store::calls::import_in(|row, heap| NumberAnswer::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_waver(_args: &NoArgs) -> NumberAnswer { crate::abi::no_native_host("waver") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_waver_in(context: &crate::abi::context::Context, args: &NoArgs) -> Result<NumberAnswer, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(NoArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_WAVER, args)?;
     Ok(reply.read(NumberAnswer::take))
 }
 
-/// Asks JavaScript (the import worldClock): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_world_clock(args: &WorldClockArgs) -> WorldClockReply {
-    crate::store::calls::import_out(WorldClockArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_world_clock() };
-    crate::store::calls::import_in(|row, heap| WorldClockReply::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_world_clock(_args: &WorldClockArgs) -> WorldClockReply { crate::abi::no_native_host("worldClock") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_world_clock_in(context: &crate::abi::context::Context, args: &WorldClockArgs) -> Result<WorldClockReply, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(WorldClockArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_WORLD_CLOCK, args)?;
     Ok(reply.read(WorldClockReply::take))
 }
 
-/// Asks JavaScript (the import worldEvents): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_world_events(args: &WorldEventArgs) -> WorldEventReply {
-    crate::store::calls::import_out(WorldEventArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_world_events() };
-    crate::store::calls::import_in(|row, heap| WorldEventReply::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_world_events(_args: &WorldEventArgs) -> WorldEventReply { crate::abi::no_native_host("worldEvents") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_world_events_in(context: &crate::abi::context::Context, args: &WorldEventArgs) -> Result<WorldEventReply, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(WorldEventArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_WORLD_EVENTS, args)?;
     Ok(reply.read(WorldEventReply::take))
 }
 
-/// Asks JavaScript (the import worldLocal): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_world_local(args: &WorldLocalArgs) -> WorldLocalReply {
-    crate::store::calls::import_out(WorldLocalArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_world_local() };
-    crate::store::calls::import_in(|row, heap| WorldLocalReply::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[cold]
 pub fn import_world_local(_args: &WorldLocalArgs) -> WorldLocalReply { crate::abi::no_native_host("worldLocal") }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_world_local_in(context: &crate::abi::context::Context, args: &WorldLocalArgs) -> Result<WorldLocalReply, crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(WorldLocalArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_WORLD_LOCAL, args)?;
     Ok(reply.read(WorldLocalReply::take))
-}
-
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    /// The command echo, its arguments' words as parameters.
-    #[no_mangle]
-    pub extern "C" fn cmd_echo(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, w6: f64, w7: f64) -> *const f64 { cmd_echo_in(crate::abi::facade::world(), w0, w1, w2, w3, w4, w5, w6, w7).map_or(std::ptr::null(), crate::store::block::Block::ptr) }
-    /// The command f2Seat, its arguments' words as parameters.
-    #[no_mangle]
-    pub extern "C" fn cmd_f2_seat(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, w6: f64, w7: f64, w8: f64, w9: f64, w10: f64, w11: f64, w12: f64, w13: f64, w14: f64, w15: f64, w16: f64, w17: f64, w18: f64, w19: f64, w20: f64, w21: f64, w22: f64) -> *const f64 { cmd_f2_seat_in(crate::abi::facade::world(), crate::vehicles::module::f2::live_seats::command_in, w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11, w12, w13, w14, w15, w16, w17, w18, w19, w20, w21, w22).map_or(std::ptr::null(), crate::store::block::Block::ptr) }
-    /// The command fill, its arguments' words as parameters.
-    #[no_mangle]
-    pub extern "C" fn cmd_fill(w0: f64, w1: f64) -> *const f64 { cmd_fill_in(crate::abi::facade::world(), w0, w1).map_or(std::ptr::null(), crate::store::block::Block::ptr) }
-    /// The command relay, its arguments' words as parameters.
-    #[no_mangle]
-    pub extern "C" fn cmd_relay(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, w6: f64, w7: f64) -> *const f64 { cmd_relay_in(crate::abi::facade::world(), w0, w1, w2, w3, w4, w5, w6, w7).map_or(std::ptr::null(), crate::store::block::Block::ptr) }
 }
 

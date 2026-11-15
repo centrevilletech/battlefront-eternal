@@ -220,16 +220,3 @@ impl Riders {
 }
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    pub fn publish() -> *const f64 { publish_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn f2_rider_birth_words() -> u32 { super::f2_rider_birth_words() }
-    #[no_mangle]
-    pub extern "C" fn f2_rider_birth() { f2_rider_birth_in(crate::abi::facade::world()) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{f2_rider_birth};
-#[cfg(target_arch = "wasm32")]
-pub use exports::{publish};

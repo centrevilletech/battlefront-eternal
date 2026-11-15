@@ -715,9 +715,3 @@ pub(crate) fn battle_member_in(world_ctx: &mut crate::world::owner::World, s: &S
 
 
 // The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn f3_building() { f3_building_in(crate::abi::facade::world()) }
-}

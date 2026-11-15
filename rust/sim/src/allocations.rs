@@ -104,18 +104,6 @@ impl Counts {
 // Project only the field being observed. In particular, neither preparing
 // the output nor publishing it may lend the entire cell to allocator hooks.
 use std::ptr::{addr_of, addr_of_mut};
-#[cfg(target_arch = "wasm32")]
-mod storage {
-    use super::*;
-    static mut DIAGNOSTICS: Diagnostics = Diagnostics::new();
-    pub(super) fn with<R>(run: impl FnOnce(*mut Diagnostics) -> R) -> R {
-        run(addr_of_mut!(DIAGNOSTICS))
-    }
-    pub(super) fn record(bytes: usize, reallocation: bool) {
-        with(|d| unsafe { record_in(d, bytes, reallocation) });
-    }
-}
-#[cfg(not(target_arch = "wasm32"))]
 mod storage {
     use super::*;
     use std::cell::UnsafeCell;
@@ -160,22 +148,8 @@ pub(crate) fn at(stage: F3AllocationStage) -> Stage {
 /// retains only the first records, without growing the publication bank.
 pub fn allocation_trace<R>(read: impl FnOnce(&Block) -> R) -> R { storage::with(|d| unsafe { let output = (&mut *addr_of_mut!((*d).output)).as_mut().expect("prepared allocation census"); encode(&*addr_of!((*d).trace), output); read(output) }) }
 
-#[cfg(target_arch = "wasm32")]
-mod allocator {
-    use super::record;
-    use std::alloc::{GlobalAlloc, Layout, System};
-    struct Counted;
-    unsafe impl GlobalAlloc for Counted {
-        unsafe fn alloc(&self, layout: Layout) -> *mut u8 { record(layout.size(), false); System.alloc(layout) }
-        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 { record(layout.size(), false); System.alloc_zeroed(layout) }
-        unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 { record(size, true); System.realloc(pointer, layout, size) }
-        unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) { System.dealloc(pointer, layout); }
-    }
-    #[global_allocator]
-    static ALLOCATOR: Counted = Counted;
-}
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::vehicles::allocation as fleet_census;
@@ -214,11 +188,3 @@ mod tests {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn f3_allocation_trace() -> *const f64 { allocation_trace(Block::ptr) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{f3_allocation_trace};
