@@ -297,6 +297,14 @@ impl Props {
             p:rig.bones.iter().map(|&id|rig.tree.node(id).position).collect()});
         self.riders.len()-1
     }
+    /// A pooled actor's next seizure starts from its current local pose.
+    pub fn refresh_unit_rider(&mut self, rider: usize, rig: &bfe_pose::display::DisplayRig) {
+        let Some(rider) = self.riders.get_mut(rider) else { return };
+        for (i, id) in rig.bones.iter().enumerate().take(rider.q.len()) {
+            rider.q[i] = rig.tree.node(*id).quaternion;
+            rider.p[i] = rig.tree.node(*id).position;
+        }
+    }
     /// A log trap with a pose (Trap's constructor). Its bones follow every
     /// prop's.
     pub fn add_trap(&mut self, d: TrapDesc) -> usize {

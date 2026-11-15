@@ -1075,8 +1075,8 @@ fn submitted_commands_keep_their_tick_stamps() {
     let (look, flight) = (ClientLook::default(), ClientFlightCommand::default());
     let ahead = ClientCommand { sequence: 1., tick: 3., ..Default::default() };
     let stale = ClientCommand { sequence: 2., tick: 0., ..Default::default() };
-    local.submit(&ahead, &look, &flight, 0., None).unwrap();
-    local.submit(&stale, &look, &flight, 0., None).unwrap();
+    local.submit(&ahead, &look, &flight, 0., None, false).unwrap();
+    local.submit(&stale, &look, &flight, 0., None, false).unwrap();
     assert_eq!(*seen.borrow(), [[3., 0.], [1., 0.]]);
 }
 
@@ -1156,6 +1156,7 @@ fn threaded_world_steps_at_60hz_without_blocking_or_allocating_on_render_thread(
             flight: ClientFlightCommand::default(),
             view_tick: 42.5,
             fire_aim: Some([0.2,-0.03]),
+            flight_mode: false,
         });
         let _ = world
             .poll_publications(&mut receiver, 200.0 + i as f64)
@@ -1184,7 +1185,7 @@ fn threaded_world_steps_at_60hz_without_blocking_or_allocating_on_render_thread(
 /// End-to-end integration test for cold admission (`Prepared::new`) and `Runtime::new`
 /// across `nab2`, `tat1`, and `hot1`:
 /// - Verifies `Admitted.publication` is non-empty and `Publication::from_welcome`
-///   completes the receiver baseline at tick 0 (`local.receiver.complete == true`).
+///   completes the receiver baseline at tick 0 (`local.receiver().complete == true`).
 /// - Steps 120 ticks via `Context::world_tick` without poisoning `Context` and confirms
 ///   `world_host_journal` records are emitted (`counters.journal_seq > 0`).
 fn cold_admission_delivers_welcome_publication_and_steps_three_maps() {
@@ -1220,7 +1221,7 @@ fn cold_admission_delivers_welcome_publication_and_steps_three_maps() {
         )
         .unwrap_or_else(|e| panic!("Runtime::new failed on {map}/{side}: {e}"));
         assert!(
-            local.receiver.complete,
+            local.receiver().complete,
             "welcome publication must complete tick-0 baseline on {map}"
         );
         for seq in 1..=120 {
@@ -1260,16 +1261,16 @@ fn menu_admission_waits_for_the_players_class_and_post_before_spawning() {
     };
     let prepared = local::launch::Prepared::with_spawn_screen(&options, true).unwrap();
     let mut world = runtime::Runtime::new(*prepared.engine, *prepared.admission, 0.0, 0.0).unwrap();
-    assert!(world.receiver.complete, "menu receives the admitted welcome baseline");
-    assert!(!world.receiver.own.alive, "explicit side must not bypass menu selection");
-    let life = world.receiver.own.generation;
-    world.spawn_human(world.receiver.own.team, "rep_inf_clone_trooper", "cp6").unwrap();
+    assert!(world.receiver().complete, "menu receives the admitted welcome baseline");
+    assert!(!world.receiver().own.alive, "explicit side must not bypass menu selection");
+    let life = world.receiver().own.generation;
+    world.spawn_human(world.receiver().own.team, "rep_inf_clone_trooper", "cp6").unwrap();
     for sequence in 1..=6 {
         world.step(&ClientCommand { sequence: sequence as f64, mouse_scale: 1.0,
             ..Default::default() }, &ClientLook::default(), &ClientFlightCommand::default()).unwrap();
     }
-    assert!(world.receiver.own.alive, "selected spawn reaches the authoritative body");
-    assert!(world.receiver.own.generation > life, "spawn creates a new living generation");
+    assert!(world.receiver().own.alive, "selected spawn reaches the authoritative body");
+    assert!(world.receiver().own.generation > life, "spawn creates a new living generation");
     world.close();
 }
 
@@ -1280,7 +1281,7 @@ fn native_local_controls_move_authority_and_keep_the_applied_heading() {
         let options = options::Options { root, battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into(), "--seed".into(), "1".into()], audio: false, duration: None, name: None, bots: Default::default() };
         let prepared = local::launch::Prepared::new(&options).unwrap();
         let mut runtime = runtime::Runtime::new(*prepared.engine, *prepared.admission, 1000., 1_700_000_000_000.).unwrap();
-        let before = runtime.receiver.own;
+        let before = runtime.receiver().own;
         assert!(before.alive);
         let mut device = bfe_client::input::Input::default();
         device.key(winit::keyboard::KeyCode::KeyW, true);
@@ -1289,8 +1290,8 @@ fn native_local_controls_move_authority_and_keep_the_applied_heading() {
             let (command, look, flight, _) = device.sample(sequence, before.generation as u32, true, 16./9., 1., false);
             runtime.step(&command, &look, &flight).unwrap();
         }
-        let moved = runtime.receiver.own;
-        eprintln!("authority controls: before={:?} after={:?} yaw={} -> {} ack={}", before.position, moved.position, before.yaw, moved.yaw, runtime.receiver.corrected_sequence);
+        let moved = runtime.receiver().own;
+        eprintln!("authority controls: before={:?} after={:?} yaw={} -> {} ack={}", before.position, moved.position, before.yaw, moved.yaw, runtime.receiver().corrected_sequence);
         assert_eq!(runtime.refusals(), 0, "valid device publication must be admitted");
         assert!((moved.position[0]-before.position[0]).abs() + (moved.position[2]-before.position[2]).abs() > 0.1, "held movement must reach authority");
         assert_ne!(moved.yaw, before.yaw, "relative look must reach authority");
@@ -1299,7 +1300,7 @@ fn native_local_controls_move_authority_and_keep_the_applied_heading() {
             let (command, look, flight, _) = device.sample(sequence, before.generation as u32, true, 16./9., 1., false);
             runtime.step(&command, &look, &flight).unwrap();
         }
-        assert_eq!(runtime.receiver.own.yaw, moved.yaw, "heading must persist after look stops");
+        assert_eq!(runtime.receiver().own.yaw, moved.yaw, "heading must persist after look stops");
     }).unwrap().join().unwrap();
 }
 
@@ -1311,13 +1312,13 @@ fn native_local_battle_reserves_the_player_under_the_profile_name() {
         let options = options::Options { root, battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into(), "--seed".into(), "1".into()], audio: false, duration: None, name: Some(" Scout\u{7} One ".into()), bots: Default::default() };
         let prepared = local::launch::Prepared::new(&options).unwrap();
         let mut runtime = runtime::Runtime::new(*prepared.engine, *prepared.admission, 1000., 1_700_000_000_000.).unwrap();
-        let generation = runtime.receiver.own.generation as u32;
+        let generation = runtime.receiver().own.generation as u32;
         let mut device = bfe_client::input::Input::default();
         for sequence in 1..=30 {
             let (command, look, flight, _) = device.sample(sequence, generation, true, 16./9., 1., false);
             runtime.step(&command, &look, &flight).unwrap();
         }
-        let roster = &runtime.receiver.roster;
+        let roster = &runtime.receiver().roster;
         let names: Vec<String> = roster.rows().map(|(_, c)| c.name().into_owned()).collect();
         assert_eq!(names.iter().filter(|name| *name == "Scout One").count(), 1, "the roster must carry the profile's name: {names:?}");
         assert!(!names.iter().any(|name| name == "Player"), "the default name must not remain: {names:?}");
@@ -1348,8 +1349,8 @@ fn native_menu_team_switch_keeps_publication_and_spawns_the_other_roster() {
                 1_700_000_000_000.,
             )
             .unwrap();
-            assert_eq!(runtime.receiver.own.team, 2);
-            assert!(!runtime.receiver.own.alive);
+            assert_eq!(runtime.receiver().own.team, 2);
+            assert!(!runtime.receiver().own.alive);
             runtime
                 .spawn_human(1, "cis_inf_battledroid", "cp3")
                 .unwrap();
@@ -1357,7 +1358,7 @@ fn native_menu_team_switch_keeps_publication_and_spawns_the_other_roster() {
             for tick in 1..=12 {
                 let (command, look, flight, _) = device.sample(
                     tick,
-                    runtime.receiver.own.generation as u32,
+                    runtime.receiver().own.generation as u32,
                     true,
                     16. / 9.,
                     1.,
@@ -1366,13 +1367,13 @@ fn native_menu_team_switch_keeps_publication_and_spawns_the_other_roster() {
                 runtime.step(&command, &look, &flight).unwrap();
             }
             assert_eq!(runtime.refusals(), 0);
-            assert_eq!(runtime.receiver.own.team, 1);
-            assert!(runtime.receiver.own.alive);
+            assert_eq!(runtime.receiver().own.team, 1);
+            assert!(runtime.receiver().own.alive);
             let class = registry["classes"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .find(|row| row[0].as_u64() == Some(runtime.receiver.own.class as u64))
+                .find(|row| row[0].as_u64() == Some(runtime.receiver().own.class as u64))
                 .unwrap();
             assert_eq!(class[1], "cis_inf_battledroid");
             runtime.close();

@@ -11,6 +11,7 @@ import { ScreenFrame, ScreenLayout } from "../components/screen-frame.slint";
 import { PagePattern, PageScrim, PageDim } from "../components/scrim.slint";
 import { PageTitle, PageText, TextRole } from "../components/typography.slint";
 import { PopupBox } from "../components/dialog.slint";
+import { Surface } from "../components/surface.slint";
 import { ThemePicker } from "main.slint";
 import { OptionsModel, OptionsScreenHost, OptionsModalOverlay } from "options.slint";
 import {
@@ -28,6 +29,7 @@ import {
     BattleClassBanner,
     BattleSpawnButton,
     BattleObjectivesCard,
+    BattleSwitchGlow,
     SpawnCss,
     ScoreTeamPanel,
     ScoreStatSheet,
@@ -42,7 +44,16 @@ export {
     BattlePauseActionModel,
 }
 
+export struct BattleChatLine { text: string, color: color }
+
 export global BattleModel {
+    in-out property <string> stats-line;
+    in-out property <[BattleChatLine]> chat-lines: [];
+    in-out property <bool> chat-open: false;
+    in-out property <string> chat-prompt;
+    in-out property <string> chat-draft;
+    in-out property <color> chat-color: #ffff40;
+    in-out property <bool> chat-caret-visible: true;
     in-out property <bool> page-spawn-look: false;
     in-out property <bool> page-score-look: false;
     in-out property <bool> spawn-visible: false;
@@ -196,6 +207,24 @@ export component BattleSpawnScreen inherits Rectangle {
     height: 100%;
     background: transparent;
 
+    // .bfe-spawn-go-slot.ready breathes its accent glow (2.2s); drawn under the cached chrome, the
+    // shadow's blur held and its strength breathing.
+    if BattleModel.can-spawn : Rectangle {
+        property <float> breath: 0.5 - 0.5 * cos(360deg * mod(animation-tick() / 1ms, 2200) / 2200);
+        x: BattleModel.spawn-x * 1px;
+        y: BattleModel.spawn-y * 1px;
+        width: BattleModel.spawn-w * 1px;
+        height: BattleModel.spawn-h * 1px;
+        border-radius: Theme.bf2 ? self.height * 0.5 : 0px;
+        background: Theme.bfe-accent.with-alpha(0.01);
+        drop-shadow-blur: 18px;
+        drop-shadow-color: Theme.bfe-accent.with-alpha(0.85);
+        opacity: (0.3 + 0.7 * self.breath) * SpawnCss.appear(BattleModel.entry, 0.6, 0.7);
+    }
+
+    BattleSwitchGlow { model: BattleModel.team-one; right-aligned: false; }
+    BattleSwitchGlow { model: BattleModel.team-two; right-aligned: true; }
+
     // The screen's chrome changes only on a pick, a hover or a clock tick: FemtoVG keeps it in one cached
     // layer and redraws it only then (it cost every frame before). The post hit targets move with the
     // stage's camera each frame, so they stay outside it.
@@ -214,6 +243,7 @@ export component BattleSpawnScreen inherits Rectangle {
 
             BattleTeamCard {
                 model: BattleModel.team-one;
+                joined: BattleModel.team-one.own && BattleModel.turn < 2 ? SpawnCss.appear(BattleModel.turn, 0, 0.6) : 1;
                 right-aligned: false;
                 pulse-alpha: BattleModel.pulse-alpha;
                 clicked => { BattleModel.select-team(BattleModel.team-one.id); }
@@ -221,6 +251,7 @@ export component BattleSpawnScreen inherits Rectangle {
 
             BattleTeamCard {
                 model: BattleModel.team-two;
+                joined: BattleModel.team-two.own && BattleModel.turn < 2 ? SpawnCss.appear(BattleModel.turn, 0, 0.6) : 1;
                 right-aligned: true;
                 pulse-alpha: BattleModel.pulse-alpha;
                 clicked => { BattleModel.select-team(BattleModel.team-two.id); }
@@ -273,17 +304,6 @@ export component BattleSpawnScreen inherits Rectangle {
             }
         }
 
-        BattleTurntableArea {
-            x: BattleModel.figure-x * 1px;
-            y: BattleModel.figure-y * 1px;
-            width: BattleModel.figure-w * 1px;
-            height: BattleModel.figure-h * 1px;
-            dragging: BattleModel.figure-dragging;
-            turned: BattleModel.figure-turned;
-            pointer-down(x, y) => { BattleModel.figure-pointer-down(x, y); }
-            pointer-move(x, y) => { BattleModel.figure-pointer-move(x, y); }
-            pointer-up => { BattleModel.figure-pointer-up(); }
-        }
 
         // The caption and SPAWN rise in (.7s after .6s); the caption again on another class (.5s).
         if BattleModel.selected-class-title != "" : BattleClassBanner {
@@ -319,6 +339,40 @@ export component BattleSpawnScreen inherits Rectangle {
             width: BattleModel.objectives-w * 1px;
             height: BattleModel.objectives-h * 1px;
             objectives: BattleModel.objectives;
+        }
+    }
+
+    // His place: drag to turn; its hint pulses, so it stays out of the cached layer.
+    BattleTurntableArea {
+        x: BattleModel.figure-x * 1px;
+        y: BattleModel.figure-y * 1px;
+        width: BattleModel.figure-w * 1px;
+        height: BattleModel.figure-h * 1px;
+        dragging: BattleModel.figure-dragging;
+        turned: BattleModel.figure-turned;
+        pointer-down(x, y) => { BattleModel.figure-pointer-down(x, y); }
+        pointer-move(x, y) => { BattleModel.figure-pointer-move(x, y); }
+        pointer-up => { BattleModel.figure-pointer-up(); }
+    }
+
+    // .bfe-spawn-class.picked::after: a sheen crosses the picked window every 3.2s (after 1s).
+    for cls in BattleModel.classes : Rectangle {
+        property <float> t: mod(animation-tick() / 1ms + 2200, 3200) / 3200;
+        property <float> run: self.t < 0.6 ? 0 : (self.t - 0.6) / 0.4;
+        property <float> eased: self.run < 0.5 ? 2 * self.run * self.run : 1 - 2 * (1 - self.run) * (1 - self.run);
+        visible: cls.picked && BattleModel.entry >= 1;
+        x: cls.rect-x * 1px;
+        y: cls.rect-y * 1px;
+        width: cls.rect-w * 1px;
+        height: cls.rect-h * 1px;
+        clip: true;
+        border-radius: Theme.bfe-battle-card-radius;
+
+        Rectangle {
+            x: parent.width * (-1.2 + 2.4 * parent.eased);
+            width: parent.width;
+            height: parent.height;
+            background: @linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.16) 50%, transparent 65%);
         }
     }
 
@@ -656,6 +710,69 @@ export component BattleModalScreen inherits Rectangle {
     }
 }
 
+component BattleChat inherits Rectangle {
+    property <length> size: clamp(1.5 * Theme.vw, 14px, 22px);
+    width: min(650px, 85 * Theme.vw);
+    height: content.preferred-height;
+    background: transparent;
+    content := VerticalLayout {
+        spacing: 0px;
+        padding: 0px;
+        for line in BattleModel.chat-lines: Text {
+            text: line.text;
+            color: line.color;
+            font-family: Theme.font-family;
+            font-weight: 400;
+            font-size: root.size;
+            letter-spacing: root.size * 0.02;
+            wrap: word-wrap;
+            min-height: root.size * 1.6;
+            vertical-alignment: center;
+        }
+        if BattleModel.chat-open: Surface {
+            chamfer: 0px;
+            height: root.size * 1.6 + 18px + 2 * Theme.bfe-panel-border.width;
+            prompt := Text {
+                x: 12px + Theme.bfe-panel-border.width;
+                height: parent.height;
+                text: BattleModel.chat-prompt;
+                color: BattleModel.chat-color;
+                font-family: Theme.font-family;
+                font-weight: 400;
+                font-size: root.size;
+                letter-spacing: root.size * 0.02;
+                vertical-alignment: center;
+            }
+            Rectangle {
+                x: prompt.x + prompt.preferred-width + 2px;
+                width: (parent.width - 24px - 2 * Theme.bfe-panel-border.width) * 0.75;
+                height: parent.height;
+                clip: true;
+                background: transparent;
+                draft := Text {
+                    x: min(0px, parent.width - self.preferred-width - 2px);
+                    height: parent.height;
+                    text: BattleModel.chat-draft;
+                    color: BattleModel.chat-color;
+                    font-family: Theme.font-family;
+                    font-weight: 400;
+                    font-size: root.size;
+                    letter-spacing: 0px;
+                    vertical-alignment: center;
+                }
+                Rectangle {
+                    x: draft.x + draft.preferred-width;
+                    y: (parent.height - root.size * 1.6) / 2;
+                    width: 1px;
+                    height: root.size * 1.6;
+                    background: BattleModel.chat-color;
+                    visible: BattleModel.chat-caret-visible;
+                }
+            }
+        }
+    }
+}
+
 export component BattleScreen inherits Rectangle {
     public pure function controls-at(px: length, py: length) -> bool {
         if (BattleModel.pause-open) {
@@ -671,6 +788,29 @@ export component BattleScreen inherits Rectangle {
     }
 
     background: transparent;
+
+    if BattleModel.stats-line != "": Rectangle {
+        x: 16px;
+        y: parent.height - 6px - self.height;
+        width: parent.width - 32px;
+        height: 16.8px;
+        for offset in [1px, 0px]: Text {
+            y: offset - 1px;
+            width: parent.width;
+            height: parent.height;
+            text: BattleModel.stats-line;
+            font-family: Theme.monospace-font-family;
+            font-size: 12px;
+            font-weight: 400;
+            color: offset > 0px ? #000000 : #f2efe6;
+            vertical-alignment: center;
+        }
+    }
+
+    if BattleModel.chat-open || BattleModel.chat-lines.length > 0: BattleChat {
+        x: parent.width * 0.03;
+        y: parent.height * 0.2;
+    }
 
     if BattleModel.spawn-visible
         && BattleModel.page-spawn-look
@@ -697,4 +837,5 @@ export component BattleScreen inherits Rectangle {
         width: parent.width;
         height: parent.height;
     }
+
 }

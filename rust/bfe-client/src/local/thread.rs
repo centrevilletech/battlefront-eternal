@@ -116,6 +116,8 @@ pub enum WorldMessage {
         view_tick: f64,
         // The converged aim sampled for this command's fire presses.
         fire_aim: Option<[f64; 2]>,
+        // Whether the command was packed with flight controls.
+        flight_mode: bool,
     },
     /// Pauses (`true`) or resumes (`false`) the 60 Hz world simulation loop.
     Pause(bool),
@@ -822,12 +824,12 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
             };
             let Some(msg) = msg else { break };
             let done = match msg {
-                WorldMessage::Step { command, look, flight, view_tick, fire_aim } => {
+                WorldMessage::Step { command, look, flight, view_tick, fire_aim, flight_mode } => {
                     shared.commands_taken.fetch_add(1, Ordering::Relaxed);
                     if command.tick <= runtime.tick() {
                         shared.commands_late.fetch_add(1, Ordering::Relaxed);
                     }
-                    let done = runtime.submit(&command, &look, &flight, view_tick, fire_aim);
+                    let done = runtime.submit(&command, &look, &flight, view_tick, fire_aim, flight_mode);
                     shared.commands_refused.store(runtime.refusals(), Ordering::Relaxed);
                     done
                 }
@@ -908,9 +910,8 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
         match step_res {
             Ok(tick) => {
                 if runtime.ticks == 1 || spawn_reply_pending {
-                    eprintln!("world publication: tick={} welcomed={} corrections={} alive={} generation={}",
-                        tick, runtime.receiver.welcomed, runtime.receiver.corrections,
-                        runtime.receiver.own.alive, runtime.receiver.own.generation);
+                    eprintln!("world publication: tick={} acknowledged={} generation={} team={}",
+                        tick, runtime.own.ack_tick, runtime.own.generation, runtime.own.team);
                     spawn_reply_pending = false;
                 }
                 shared

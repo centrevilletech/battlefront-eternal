@@ -477,6 +477,16 @@ pub(super) fn sync(root: &GameUi, shell: &mut ShellHost, models: &OptionsModels)
         }
     }
 
+    if std::env::var_os("BFE_MENU_INPUT_TRACE").is_some() {
+        static LAST: std::sync::Mutex<(i32, i32, bool, bool, bool)> = std::sync::Mutex::new((-9, -9, false, false, false));
+        let now = (selected_option, first_option, options_focused, middle_focused, left_focused);
+        if let Ok(mut last) = LAST.lock() {
+            if *last != now {
+                eprintln!("[options] selected={selected_option} first={first_option} rows_focus={options_focused} middle_focus={middle_focused} left_focus={left_focused}");
+                *last = now;
+            }
+        }
+    }
     model.set_title(title.into());
     model.set_left_label(left_label.into());
     model.set_middle_label(middle_label.into());
@@ -727,6 +737,9 @@ pub(super) fn drain_actions(
                 } else {
                     "back"
                 };
+                if std::env::var_os("BFE_MENU_INPUT_TRACE").is_some() {
+                    eprintln!("[options] {target_place} button selected");
+                }
                 if let Some(top) = shell.options_ctrl.stack.top_mut() {
                     if let Some(wi) = top.widgets.iter().position(|w| {
                         matches!(w, Widget::Button(b) if b.place == target_place || (target_place == "back" && b.id == "back"))

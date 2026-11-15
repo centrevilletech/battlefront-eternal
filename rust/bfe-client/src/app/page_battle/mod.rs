@@ -28,6 +28,8 @@ pub(super) struct PageBattle {
     class: String,
     team: u8,
     pub layout: SpawnLayout,
+    /// Device pixels per logical pixel (the battle sets it each frame).
+    pub scale: f64,
     drag: [f64; 2],
     pub dt: f64,
     building: f64,
@@ -52,6 +54,9 @@ pub(super) struct PageBattle {
     flare: f64,
     pins: Vec<gpu::Pin>,
     kept: backdrop::Kept,
+    behind: Backdrop,
+    // Seconds since the stage was last drawn (a kept frame skips its draw).
+    undrawn: f64,
     director: director::Director,
     post: Option<String>,
     pub shot: Option<bfe_battle_ui::spawn::CameraShot>,
@@ -89,6 +94,7 @@ impl PageBattle {
             class: String::new(),
             team: 0,
             layout: SpawnLayout::new(size[0] as f64, size[1] as f64, SpawnFacts::default()),
+            scale: 1.,
             drag: [0.; 2],
             dt: 0.,
             building: -0.35,
@@ -111,6 +117,8 @@ impl PageBattle {
             flare: 0.,
             pins: Vec::new(),
             kept: backdrop::Kept::default(),
+            behind: Backdrop::Draw,
+            undrawn: 0.,
             director: director::Director::new(scene.spawn_shots.clone()),
             post: None,
             shot: None,
@@ -204,6 +212,7 @@ impl PageBattle {
         countdown: bool,
     ) {
         self.dt = dt;
+        self.undrawn += dt;
         let goals = port.teams[usize::from(model.team == 2)]
             .objectives
             .iter()
@@ -217,10 +226,12 @@ impl PageBattle {
             countdown,
             switchable: model.can_switch_teams(port),
             classes: roster.len().min(MAX_CLASSES),
+            scale: self.scale,
+            picked: model.class_index,
             ..SpawnFacts::default()
         };
         for (row, class) in facts.rows.iter_mut().zip(roster) {
-            *row = class.weapons.len().clamp(1, 4).div_ceil(2) as u8;
+            *row = class.weapons.len().clamp(1, 6).div_ceil(2) as u8;
         }
         self.layout = SpawnLayout::new(size[0] as f64, size[1] as f64, facts);
         let opening = !self.was_open;
@@ -320,6 +331,7 @@ impl PageBattle {
         }
         self.flare = (self.flare - dt * 2.5).max(0.);
         self.rig.update(dt, size[0] as f64 / size[1] as f64);
+        self.behind = self.kept.choose(look, dt);
     }
     pub fn pointer(&mut self, p: [f64; 2]) {
         self.cursor = p;
@@ -359,6 +371,10 @@ impl PageBattle {
     /// The battlefield pass builds the same 360-unit map that the Page
     /// browser projects. Its temporary geometry never replaces the UI batch.
     pub fn map_texture(&self, scene: &mut Scene, _view: &ClassicSpawnView, ih: f64) {
+        // A kept frame already shows the hologram.
+        if self.behind == Backdrop::Reuse {
+            return;
+        }
         let bridge = &mut scene.bridge;
         let saved: [f64; M::WORDS] = bridge.hud_model.input[MAP_DRAW..MAP_DRAW + M::WORDS]
             .try_into()
@@ -456,27 +472,26 @@ impl PageBattle {
             self.strength,
             self.dip,
         );
-        super::bench::prof::mark(&scene.bridge.r.core.gl, "st_before");
         unsafe {
             scene.bridge.r.core.gl.depth_mask(true);
             scene.bridge.r.core.gl.clear(glow::DEPTH_BUFFER_BIT);
         }
+        let dt = std::mem::take(&mut self.undrawn);
         self.gpu.projector(
             &mut scene.bridge,
             &self.rig,
             look.index,
             self.strength,
             self.pulse,
-            self.dt,
+            dt,
         );
-        super::bench::prof::mark(&scene.bridge.r.core.gl, "st_ring");
         let scale = if self.walker { 0.9 } else { 1. };
         if let Some(online) = &mut scene.online {
             let records = online.preview(
                 &mut scene.bridge,
                 class,
                 &self.rig.parent(scale),
-                self.dt,
+                dt,
                 &self.rig.inverse,
                 &self.rig.projection,
                 look.index,
@@ -489,7 +504,6 @@ impl PageBattle {
                 .interface
                 .draw(&mut scene.bridge.r.core, records);
         }
-        super::bench::prof::mark(&scene.bridge.r.core.gl, "st_body");
         self.pins.clear();
         for (index, post) in port.posts.iter().enumerate() {
             let x = (post.position[0] - projection.map_x) / projection.map_half;
@@ -511,7 +525,7 @@ impl PageBattle {
                 0.07
             };
             let height = &mut self.pin_heights[index];
-            *height += (target - *height) * (self.dt * 9.).min(1.);
+            *height += (target - *height) * (dt * 9.).min(1.);
             self.pins.push(gpu::Pin {
                 x,
                 y,
@@ -537,7 +551,6 @@ impl PageBattle {
             self.flare,
             &self.pins,
         );
-        super::bench::prof::mark(&scene.bridge.r.core.gl, "st_map");
         let sides = &port.teams;
         // The other team's emblem wakes (larger, opaque, spinning the other way) while the pointer is over
         // its plate or emblem and the player may switch to it (view.js hoverTeam / woken).
@@ -584,15 +597,15 @@ impl PageBattle {
             }
         }
     }
-    /// What to put behind the screen this frame (backdrop.rs).
-    pub fn backdrop(&mut self, theme: &str) -> Backdrop {
-        self.kept.choose(BattleLook::new(theme).index, self.dt)
+    /// What goes under the screen's chrome this frame (backdrop.rs), chosen in update().
+    pub fn backdrop(&self) -> Backdrop {
+        self.behind
     }
-    /// After the battle was drawn behind the screen.
+    /// After the battle and the stage were drawn under the chrome.
     pub fn drawn_behind(&mut self, scene: &Scene) {
         self.kept.keep(&scene.bridge.r.core.gl, scene.canvas.framebuffer, scene.size);
     }
-    /// Instead of drawing the battle behind the screen.
+    /// Instead of drawing the battle (and, for a kept frame, the stage) under the chrome.
     pub fn show_behind(&self, scene: &mut Scene, choice: Backdrop) {
         self.kept.show(&scene.bridge.r.core.gl, scene.canvas.framebuffer, scene.size, choice);
         scene.bridge.r.core.state.reset();

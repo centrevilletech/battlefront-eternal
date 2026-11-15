@@ -109,96 +109,63 @@ impl Frame {
     }
 }
 
-// SnapshotRing retains compact bytes instead of 129 complete sets of nested
-// Vec banks. The working frames are independent: capture can inspect the last
-// sample while an encoder reads any held baseline. IEEE bits stay unchanged.
-struct Packed { tick: f64, epoch: f64, version: u64, bytes: Vec<u8> }
+// SnapshotRing retains each frame as flat words (and its fields' bytes)
+// instead of 129 complete sets of nested Vec banks. The working frames are
+// independent: capture can inspect the last sample while an encoder reads
+// any held baseline. Words are copied as they are, so IEEE bits are kept.
+struct Packed { tick: f64, epoch: f64, version: u64, words: Vec<f64>, bytes: Vec<u8> }
 impl Packed {
-    fn new() -> Self { Self { tick: 0., epoch: 0., version: 0, bytes: Vec::with_capacity(32 * 1024) } }
+    fn new() -> Self { Self { tick: 0., epoch: 0., version: 0, words: Vec::with_capacity(16 * 1024), bytes: Vec::with_capacity(8 * 1024) } }
+    // Layout: slot count, field count; per slot its heap length, its row and
+    // its heap; per field its id, schema, generation and payload length.
     fn write(&mut self, snapshot: &WireSnapshot, heap: &mut Vec<f64>) -> Result<()> {
         let mut row = [0.; WireSlot::WORDS];
-        // SnapshotRing writes each generated slot once. Fallible reservation
-        // at this publication boundary grows an exceptional packed frame
-        // amortized, without a second serialization or a protocol-sized bank.
-        self.bytes.clear(); self.tick = snapshot.tick; self.epoch = snapshot.epoch;
-        self.bytes.extend_from_slice(&(snapshot.slots.len() as u16).to_le_bytes());
-        self.bytes.extend_from_slice(&(snapshot.world.len() as u16).to_le_bytes());
+        self.words.clear(); self.bytes.clear(); self.tick = snapshot.tick; self.epoch = snapshot.epoch;
+        self.words.try_reserve(2 + snapshot.slots.len() * (1 + WireSlot::WORDS) + snapshot.world.len() * 4)
+            .map_err(|_| "retained snapshot capacity exceeded")?;
+        self.words.push(snapshot.slots.len() as f64); self.words.push(snapshot.world.len() as f64);
         for slot in &snapshot.slots {
             heap.clear(); slot.put(&mut row, heap);
-            self.bytes.try_reserve(2).map_err(|_| "retained snapshot capacity exceeded")?;
-            self.bytes.extend_from_slice(&(heap.len() as u16).to_le_bytes());
-            for word in row.iter().chain(heap.iter()) { put_word(&mut self.bytes, *word)?; }
+            self.words.try_reserve(1 + WireSlot::WORDS + heap.len()).map_err(|_| "retained snapshot capacity exceeded")?;
+            self.words.push(heap.len() as f64); self.words.extend_from_slice(&row); self.words.extend_from_slice(heap);
         }
         for field in &snapshot.world {
-            for word in [field.id, field.schema, field.generation] { put_word(&mut self.bytes, word)?; }
-            self.bytes.try_reserve(2 + field.payload.len()).map_err(|_| "retained snapshot capacity exceeded")?;
-            self.bytes.extend_from_slice(&(field.payload.len() as u16).to_le_bytes()); self.bytes.extend_from_slice(&field.payload);
+            self.words.extend_from_slice(&[field.id, field.schema, field.generation, field.payload.len() as f64]);
+            self.bytes.try_reserve(field.payload.len()).map_err(|_| "retained snapshot capacity exceeded")?;
+            self.bytes.extend_from_slice(&field.payload);
         }
         self.version = self.version.wrapping_add(1);
         Ok(())
     }
     fn read(&self, at: usize, frame: &mut Frame, heap: &mut Vec<f64>) -> Result<()> {
-        frame.begin(self.tick, self.epoch); let mut cursor = self.bytes.as_slice();
-        let slots = take_u16(&mut cursor)?; let fields = take_u16(&mut cursor)?;
-        let mut row = [0.; WireSlot::WORDS];
+        const BAD: &str = "invalid retained snapshot";
+        frame.begin(self.tick, self.epoch);
+        let w = &self.words; let mut i = 2; let mut b = 0;
+        let (slots, fields) = (*w.first().ok_or(BAD)? as usize, *w.get(1).ok_or(BAD)? as usize);
         for _ in 0..slots {
-            let count = take_u16(&mut cursor)?;
+            let count = *w.get(i).ok_or(BAD)? as usize; i += 1;
             if count > heap.capacity() { return Err("snapshot mount capacity exceeded"); }
-            for word in &mut row { *word = take_word(&mut cursor)?; }
-            heap.clear(); for _ in 0..count { heap.push(take_word(&mut cursor)?); }
+            let row = w.get(i..i + WireSlot::WORDS).ok_or(BAD)?; i += WireSlot::WORDS;
+            heap.clear(); heap.extend_from_slice(w.get(i..i + count).ok_or(BAD)?); i += count;
             // Refill the reserved record in place. Replacing its scalar shell
             // would move both Vec banks and run an empty entry's destructor
             // for every decoded slot, even when no allocation was released.
             let slot = frame.slots.last_mut().ok_or("snapshot slot table full")?;
-            if !slot.take_into(&row, heap) { return Err("invalid retained snapshot"); }
+            if !slot.take_into(row, heap) { return Err(BAD); }
             frame.snapshot.slots.push(frame.slots.pop().unwrap());
         }
         for _ in 0..fields {
             let mut field = frame.fields.pop().ok_or("snapshot world capacity exceeded")?;
-            field.id = take_word(&mut cursor)?; field.schema = take_word(&mut cursor)?; field.generation = take_word(&mut cursor)?;
-            let count = take_u16(&mut cursor)?;
-            if count > field.payload.capacity() || count > cursor.len() { return Err("invalid retained snapshot"); }
-            field.payload.clear(); field.payload.extend_from_slice(&cursor[..count]); cursor = &cursor[count..];
+            let head = w.get(i..i + 4).ok_or(BAD)?; i += 4;
+            field.id = head[0]; field.schema = head[1]; field.generation = head[2];
+            let count = head[3] as usize;
+            if count > field.payload.capacity() || b + count > self.bytes.len() { return Err(BAD); }
+            field.payload.clear(); field.payload.extend_from_slice(&self.bytes[b..b + count]); b += count;
             frame.snapshot.world.push(field);
         }
-        if !cursor.is_empty() { return Err("invalid retained snapshot"); }
+        if i != w.len() || b != self.bytes.len() { return Err(BAD); }
         frame.held = Some((at, self.version)); Ok(())
     }
-}
-fn take_u16(cursor: &mut &[u8]) -> Result<usize> {
-    if cursor.len() < 2 { return Err("invalid retained snapshot"); }
-    let value = u16::from_le_bytes(cursor[..2].try_into().unwrap()) as usize; *cursor = &cursor[2..]; Ok(value)
-}
-// Quantized values have contiguous nonzero high bytes. Count their empty
-// ends with integer intrinsics instead of testing sixteen bytes per word.
-// The run remains lossless for arbitrary IEEE values, including NaN and -0.
-#[inline]
-#[cfg(test)]
-fn word_len(word: f64) -> usize {
-    let bits = word.to_bits();
-    if bits == 0 { 1 } else { 9 - (bits.leading_zeros() / 8 + bits.trailing_zeros() / 8) as usize }
-}
-#[inline]
-fn put_word(bytes: &mut Vec<u8>, word: f64) -> Result<()> {
-    let bits = word.to_bits();
-    if bits == 0 {
-        bytes.try_reserve(1).map_err(|_| "retained snapshot capacity exceeded")?;
-        bytes.push(0); return Ok(());
-    }
-    let skip = (bits.trailing_zeros() / 8) as usize;
-    let count = 8 - (bits.leading_zeros() / 8) as usize - skip;
-    bytes.try_reserve(count + 1).map_err(|_| "retained snapshot capacity exceeded")?;
-    bytes.push(((skip << 4) | count) as u8);
-    bytes.extend_from_slice(&bits.to_le_bytes()[skip..skip + count]); Ok(())
-}
-#[inline]
-fn take_word(cursor: &mut &[u8]) -> Result<f64> {
-    let (&run, tail) = cursor.split_first().ok_or("invalid retained snapshot")?;
-    if run == 0 { *cursor = tail; return Ok(0.); }
-    let (skip, count) = ((run >> 4) as usize, (run & 15) as usize);
-    if count == 0 || skip + count > 8 || tail.len() < count { return Err("invalid retained snapshot"); }
-    let mut raw = [0u8; 8]; raw[skip..skip + count].copy_from_slice(&tail[..count]);
-    *cursor = &tail[count..]; Ok(f64::from_le_bytes(raw))
 }
 
 #[cfg(test)]
@@ -232,18 +199,6 @@ mod tests {
         frame.capture(2., 1., &rows, [].iter(), &mut actual_slots, &bounds, Some(&previous), &strings).unwrap();
         assert_eq!(super::super::codec::encode_entities(&frame.snapshot, None, 1.).unwrap(),
             super::super::codec::encode_entities(&expected, None, 1.).unwrap());
-    }
-    #[test]
-    fn retained_words_preserve_every_ieee_byte_without_truncation() {
-        let mut bytes = Vec::with_capacity(16);
-        for bits in [0, 1, 0x8000000000000000, 0x7ff8000000000001, 0x7ff0000000000000,
-            0xfff0000000000000, 0x0123000045006789, u64::MAX, 1f64.to_bits(), f64::MAX.to_bits()] {
-            bytes.clear(); let word = f64::from_bits(bits); put_word(&mut bytes, word).unwrap();
-            assert_eq!(bytes.len(), word_len(word));
-            let mut cursor = bytes.as_slice(); assert_eq!(take_word(&mut cursor).unwrap().to_bits(), bits); assert!(cursor.is_empty());
-            if bytes.len() > 1 { assert!(take_word(&mut &bytes[..bytes.len() - 1]).is_err()); }
-        }
-        assert!(take_word(&mut &[0x78][..]).is_err());
     }
 }
 

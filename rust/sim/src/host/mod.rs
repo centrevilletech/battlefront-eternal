@@ -29,6 +29,8 @@ mod after;
 mod before;
 mod capture;
 pub mod census;
+#[cfg(test)]
+mod capture_test;
 mod content;
 pub use content::{content_tables, content_tables_files, content_tables_from_registry};
 mod drain;
@@ -108,7 +110,7 @@ pub struct Authority {
     /// shown state), applied over the kernel flags before the next step.
     toggles: Vec<(usize, u8)>,
     /// The combat capture's launched rounds awaiting their impact.
-    projectiles: Vec<((u8, u32, u32), String)>,
+    projectiles: Vec<((u8, u32, u32), capture::Bolt)>,
     /// The dynamic capture's rounds awaiting their impact.
     dynamics: Vec<((u8, u32, u32), crate::gen::WireDynamicFact)>,
     /// The presentation capture over the wire's combat capture, when the

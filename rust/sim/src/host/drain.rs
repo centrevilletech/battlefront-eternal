@@ -45,8 +45,8 @@ pub struct Drain<'a> {
     pub toggles: &'a mut Vec<(usize, u8)>,
     pub prop_bodies: &'a [(usize, [Option<u32>; 3])],
     /// `CombatCapture.projectiles`: each launched round's captured state
-    /// (the JSON `capture_bolt` answered), by kind, slot and generation.
-    pub projectiles: &'a mut Vec<((u8, u32, u32), String)>,
+    /// (what `capture_bolt` answered), by kind, slot and generation.
+    pub projectiles: &'a mut Vec<((u8, u32, u32), super::capture::Bolt)>,
     /// `ProjectileCapture.active`: each dynamic round's entry, by kind,
     /// slot and generation, until its impact.
     pub dynamics: &'a mut Vec<((u8, u32, u32), WireDynamicFact)>,
@@ -736,34 +736,27 @@ impl Drain<'_> {
                             .wire_ordnance_id(capture.store_source, e.def.0)
                             .map_err(|e| e.message().to_string())?;
                         let sample_tick = match e.tick {
-                            Nullable::Value(t) => serde_json::json!(t),
-                            _ => serde_json::Value::Null,
+                            Nullable::Value(t) => Some(t),
+                            _ => None,
                         };
-                        let facts = serde_json::json!({
-                            "sample": true, "sampleTick": sample_tick, "tick": self.tick, "id": id, "generation": super::capture::GENERATION,
-                            "life": e.life, "definitionId": definition_id,
-                            "sampleOwner": [e.owner_id, e.owner_generation, e.fire_id, e.channel],
-                            "boltOwner": [serde_json::Value::Null, serde_json::Value::Null, serde_json::Value::Null, serde_json::Value::Null],
-                        });
-                        let state =
-                            bfe_presentation::ordnance::network::capture_bolt(&facts.to_string())?;
-                        let v: serde_json::Value =
-                            serde_json::from_str(&state).map_err(|e| e.to_string())?;
-                        let n = |k: &str| v[k].as_f64().unwrap_or(0.0);
+                        let state = super::capture::Bolt::sampled(
+                            sample_tick, self.tick, id, super::capture::GENERATION, e.life, definition_id,
+                            [e.owner_id, e.owner_generation, e.fire_id, e.channel],
+                        );
                         let encode = WbEncode {
                             op: 0.0,
-                            id: n("id"),
-                            generation: n("generation"),
+                            id: state.id,
+                            generation: state.generation,
                             tick: self.tick,
                             schema: 1.0,
-                            expiry_tick: n("expiryTick"),
-                            definition_id: n("definitionId"),
-                            owner_id: n("ownerId"),
-                            owner_generation: n("ownerGeneration"),
-                            fire_id: n("fireId"),
-                            channel: n("channel"),
-                            launch_tick: n("launchTick"),
-                            execution_tick: n("executionTick"),
+                            expiry_tick: super::capture::json_number(state.expiry),
+                            definition_id: state.definition_id,
+                            owner_id: state.owner_id,
+                            owner_generation: state.owner_generation,
+                            fire_id: state.fire_id,
+                            channel: state.channel,
+                            launch_tick: state.launch_tick,
+                            execution_tick: state.execution_tick,
                             position: e.position.to_vec(),
                             direction: e.direction.to_vec(),
                             offset: if e.has_offset {
@@ -813,26 +806,22 @@ impl Drain<'_> {
                             return Ok(());
                         };
                         let (_, state) = self.projectiles.remove(at);
-                        let terminal = bfe_presentation::ordnance::network::capture_terminal(
-                            &state, self.tick,
-                        )?;
-                        let v: serde_json::Value =
-                            serde_json::from_str(&terminal).map_err(|e| e.to_string())?;
-                        let n = |k: &str| v[k].as_f64().unwrap_or(0.0);
+                        // captureTerminal: a missing expiry is the terminal's tick + 18.
+                        let expiry = if state.expiry.is_finite() { state.expiry } else { self.tick + 18.0 };
                         let encode = WbEncode {
                             op: 0.0,
-                            id: n("id"),
-                            generation: n("generation"),
+                            id: state.id,
+                            generation: state.generation,
                             tick: self.tick,
                             schema: 2.0,
-                            expiry_tick: n("expiryTick"),
-                            definition_id: n("definitionId"),
-                            owner_id: n("ownerId"),
-                            owner_generation: n("ownerGeneration"),
-                            fire_id: n("fireId"),
-                            channel: n("channel"),
-                            launch_tick: n("launchTick"),
-                            execution_tick: n("executionTick"),
+                            expiry_tick: super::capture::json_number(expiry),
+                            definition_id: state.definition_id,
+                            owner_id: state.owner_id,
+                            owner_generation: state.owner_generation,
+                            fire_id: state.fire_id,
+                            channel: state.channel,
+                            launch_tick: state.launch_tick,
+                            execution_tick: state.execution_tick,
                             position: e.point.to_vec(),
                             direction: e.normal.to_vec(),
                             offset: vec![0.0, 0.0, 0.0],
@@ -860,7 +849,7 @@ impl Drain<'_> {
                         };
                         let payload = capture.encode(context, &encode)?;
                         let view = super::capture::decode_view(self.tick, 2.0, &payload)?;
-                        capture.emit_record(context, self.tick, n("id"), 2.0, payload, &view)?;
+                        capture.emit_record(context, self.tick, state.id, 2.0, payload, &view)?;
                     }
                 }
             }
@@ -959,7 +948,7 @@ impl Drain<'_> {
                     &record[F3DamageNotice::WORDS..],
                 );
                 let info = &e.info;
-                if std::env::var_os("BFE_HUD_TRACE").is_some() {
+                if crate::ordnance::trace::enabled() {
                     eprintln!("[combat-damage] {}",serde_json::json!({"tick":self.tick,"target":e.key.slot,"attacker":e.has_attacker_ref.then_some(e.attacker_ref.id),
                         "amount":info.amount.unwrap_or(e.amount),"healthDamage":e.amount,"point":info.point,"position":e.position}));
                 }

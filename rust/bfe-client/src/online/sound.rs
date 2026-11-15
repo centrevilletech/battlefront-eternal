@@ -486,7 +486,7 @@ impl Sound {
             self.held.clear();
         }
         // The player's own rounds fired in this frame's replay are heard now.
-        self.replaying = prediction.body.is_some();
+        self.replaying = prediction.ahead();
         for shot in &prediction.shots {
             let weapon = self.ahead.1.get(shot.weapon).copied().unwrap_or(0);
             if self.ahead.0.get(weapon) == Some(&true) && self.pending.len() < self.pending.capacity() {

@@ -265,6 +265,9 @@ pub struct Feed {
     trace: bool,
     // BFE_HUD_TRACE: the newest world tick received and the displayed tick, at this frame.
     trace_tick: [f64; 2],
+    /// Whether the player's squad orders show: with no bots (aiMode off) there is no squad to order and the
+    /// browser's game has no `ai.playerCommand`, so nothing shows.
+    pub squads: bool,
 }
 
 impl Feed {
@@ -283,6 +286,7 @@ impl Feed {
             slots: Vec::with_capacity(256),
             trace: std::env::var_os("BFE_HUD_TRACE").is_some(),
             trace_tick: [0.; 2],
+            squads: true,
         }
     }
 
@@ -417,7 +421,7 @@ impl Feed {
                     // presentEntityEvent: only the page's own unit's order
                     // shows, as the line BattleHud.squadCommand lights.
                     if let Ok(squad) = serde_json::from_slice::<Squad>(bytes) {
-                        if let Some(order) = squad_order(squad.label).filter(|_| own.is((squad.owner_id, squad.owner_generation))) {
+                        if let Some(order) = squad_order(squad.label).filter(|_| self.squads && own.is((squad.owner_id, squad.owner_generation))) {
                             self.raise(hud, "squad", C::SQUAD, [order, 0., 0., 0.]);
                         }
                     }

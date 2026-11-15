@@ -32,6 +32,7 @@ mod slint_mp;
 pub mod script;
 pub mod settings;
 pub mod shell;
+mod leaving;
 mod page_font;
 mod page_backdrop;
 mod page_blur;
@@ -913,9 +914,6 @@ impl StandaloneWindowApp {
         // The Slint notifier copies this frame after its transparent clear and
         // before its UI draw. Only this host swaps the shared window surface.
         ui.render(src_fb, src_size)?;
-        if let Some(gl) = &self.gl {
-            bench::prof::mark(gl, "slint");
-        }
         if let AppState::Battle(battle)=&mut self.state{battle.scene.resolution_presented(battle.pause_menu.is_open||!self.focused||self.hidden)?;}
         surface.swap_buffers(context).map_err(|e| format!("window presentation failed: {e}"))
     }
@@ -2186,7 +2184,6 @@ impl StandaloneWindowApp {
                     if let Some(bench) = &mut self.bench {
                         bench.step_battle(battle, self.pointer_locked);
                     }
-                    bench::prof::mark(&battle.scene.bridge.r.core.gl, "between");
                     let transition = battle.step_and_draw(
                         dt,
                         self.focused,
@@ -2203,11 +2200,9 @@ impl StandaloneWindowApp {
                         &mut self.slint_ui,
                         &self.settings,
                     );
-                    bench::prof::mark(&battle.scene.bridge.r.core.gl, "battle_end");
                     if let Some(ui) = &mut self.slint_ui {
                         ui.sync_battle(battle);
                     }
-                    bench::prof::mark(&battle.scene.bridge.r.core.gl, "slint_sync");
                     let fb = battle.scene.canvas.framebuffer;
                     let sz = battle.size;
                     let two_pass = self
@@ -2235,9 +2230,6 @@ impl StandaloneWindowApp {
                             .map_err(|e| format!("window presentation failed: {e}"))?;
                     } else {
                         self.blit_framebuffer_to_window(fb, sz)?;
-                    }
-                    if let AppState::Battle(battle) = &self.state {
-                        bench::prof::mark(&battle.scene.bridge.r.core.gl, "present");
                     }
 
                     if let Some(t) = transition {

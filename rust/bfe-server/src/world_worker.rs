@@ -1784,7 +1784,7 @@ impl NativeWorldHost {
                 .map_err(|e| e.to_string())?;
             if let Some(census) = &mut self.census {
                 if let Ok(Some(line)) = census.sample(&self.context, self.tick as u64, 600) {
-                    eprintln!("ai census server {line}");
+                    for line in line.lines() { eprintln!("ai census server {line}"); }
                 }
             }
             self.tick_input.clock.tick = output.clock.tick;
