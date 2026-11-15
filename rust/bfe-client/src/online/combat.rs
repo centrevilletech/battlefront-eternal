@@ -46,6 +46,9 @@ struct Bolt {
     started: bool,
     terminal: bool,
     impact: Option<(Option<usize>, [f64; 3])>,
+    // Its shooter, and whether its drawn muzzle was looked for yet.
+    owner: Option<(u32, u32)>,
+    resolved: bool,
 }
 struct Style {
     model: Option<Model>,
@@ -144,6 +147,8 @@ pub struct Combat {
     flames: Vec<Flame>,
     /// Classic jet exhaust effects started so far.
     pub total_flames: u64,
+    /// Each soldier's gun muzzle as drawn last frame, by identity.
+    pub muzzles: Vec<((u32, u32), [f64; 3])>,
     /// The map's placed effects (torches, smoke, steam).
     pub map_effects: super::map_effects::MapEffects,
     /// The hulls' thrust, damage and death effects.
@@ -384,6 +389,7 @@ impl Combat {
             flames: Vec::with_capacity(16),
             total_flames: 0,
             map_effects,
+            muzzles: Vec::with_capacity(64),
             hull_fx: super::hull_effects::HullEffects::new(),
         })
     }
@@ -566,6 +572,7 @@ impl Combat {
                         speed: source.view.speed,
                         life: source.view.life,
                         merge: source.merge,
+                        owner: (source.view.owner.tag == 2).then_some((source.view.owner.value as u32, source.owner_generation as u32)),
                         flight: source.launch_tick,
                         execution: source.execution_tick,
                         ..Default::default()
@@ -734,7 +741,19 @@ impl Combat {
             // at its speed for its life, on the displayed clock. Without
             // LINEAR the owner reads it as a stepped bolt that has flown
             // nothing, and draws it at the muzzle until its record expires.
-            x[r::FLAGS] = ((1 << flag::LINEAR) | (1 << flag::HAS_CLOCK) | (1 << flag::HAS_OFFSET) | (1 << flag::RESOLVE_SHOWN)) as f64;
+            // NetworkCombatViews.present: at its first draw the bolt leaves
+            // the shooter's gun as drawn now (its muzzle), once; a muzzle far
+            // from the launch is ignored by the owner. Otherwise it keeps the
+            // offset it came with (the server's body's gun).
+            let mut flags = (1 << flag::LINEAR) | (1 << flag::HAS_CLOCK) | (1 << flag::HAS_OFFSET);
+            if !bolt.resolved {
+                bolt.resolved = true;
+                if let Some(muzzle) = bolt.owner.and_then(|owner| self.muzzles.iter().find(|(unit, _)| *unit == owner)).map(|(_, m)| *m) {
+                    flags |= 1 << flag::RESOLVE_SHOWN;
+                    x[r::MUZZLE..r::MUZZLE + 3].copy_from_slice(&muzzle);
+                }
+            }
+            x[r::FLAGS] = flags as f64;
             x[r::ALPHA] = 1.;
             x[r::CLOCK_TICK] = tick;
             x[r::FADE] = 1.;

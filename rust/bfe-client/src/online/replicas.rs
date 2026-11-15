@@ -1068,6 +1068,22 @@ impl Replicas {
     // the scene from it; there are no such lights here.
     fn present_flashes(&mut self, receiver: &Receiver, bridge: &mut Bridge) {
         let own = (receiver.own.id as u32, receiver.own.generation as u32);
+        // Every soldier's gun muzzle as drawn, where his next bolt starts.
+        self.combat.muzzles.clear();
+        for slot in self.slots.iter().filter(|s| s.active && !s.dead) {
+            let (Some(unit), Some(hand), Some(_), weapon) = (slot.identity, self.models[slot.model].hand, slot.held, slot.primary) else {
+                continue;
+            };
+            let Some(point) = self.guns.muzzles.get(weapon).copied().flatten() else {
+                continue;
+            };
+            let node = (self.units.actor_node_start(slot.actor) + hand) * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
+            let mut matrix = Matrix4::default();
+            matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
+            let mut at = three::Vector3::new(point[0], point[1], point[2]);
+            at.apply_matrix4(&matrix);
+            self.combat.muzzles.push((unit, [at.x, at.y, at.z]));
+        }
         let tick = self.tick.floor();
         for at in 0..self.slots.len() {
             let slot = &mut self.slots[at];
