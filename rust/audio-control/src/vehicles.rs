@@ -16,7 +16,7 @@ impl Default for Axis { fn default() -> Self { Self { q: None, rest: 0.0, rate: 
 #[derive(Clone, Copy, Default)]
 pub struct Turret { initialized: bool, held: bool, axes: [Axis; 2], generation: f64 }
 impl Phase {
-    fn near_hull(&self, row: &[f64; e::STRIDE]) -> bool {
+    pub(crate) fn near_hull(&self, row: &[f64; e::STRIDE]) -> bool {
         let class = index(row[e::CLASS]); let reach = self.reaches.get(class).copied().filter(|n| n.is_finite()).unwrap_or(160.0) + 10.0;
         let p = self.engine.listener.position; let x = row[e::X] - p[0]; let y = row[e::Y] - p[1]; let z = row[e::Z] - p[2]; x * x + y * y + z * z < reach * reach
     }

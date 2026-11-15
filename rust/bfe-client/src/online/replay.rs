@@ -295,6 +295,7 @@ impl Replay {
         self.owner.output.get(at..at + 2).map_or([0.; 2], |v| [v[0], v[1]])
     }
     pub fn present(&mut self, alpha: f64, dt: f64) {
+        self.fleet.alpha = alpha;
         self.displayed = self.body.as_ref().map(|body| self.display.sample(body, self.before.as_ref(), self.look_yaw, self.life, alpha, dt));
         if self.smoother.decay(0.05, dt) || self.displayed.is_none() {
             self.smoother.reset();

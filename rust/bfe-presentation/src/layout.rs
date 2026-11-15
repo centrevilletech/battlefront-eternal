@@ -754,7 +754,9 @@ pub mod foot_event {
     pub const POSITION: usize = 1;
     pub const HAS_TURN: usize = 4;
     pub const TURN: usize = 5;
-    pub const STRIDE: usize = 9;
+    pub const LIFTS: usize = 9;
+    pub const HEIGHT: usize = 10;
+    pub const STRIDE: usize = 11;
 }
 pub mod unit_collision_input {
     pub const ENABLED: usize = 0;

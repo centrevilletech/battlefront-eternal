@@ -301,4 +301,14 @@ mod settings_tests {
         assert_eq!(twin.defines.len(),plain.defines.len()+1);
         assert_eq!(heated(&twin.key).as_deref(),Some(twin.key.as_str()));
     }
+    #[test]
+    fn every_heated_program_gives_its_pieces_their_own_frame(){
+        // A heated piece's hot patches need vHeatLocal on every vertex path, not only the world one.
+        for s in selectors().iter().filter(|s|s.defines.iter().any(|(n,_)|n=="HEATED")){
+            let (vertex,_)=crate::programs::sources(crate::programs::spec(&s.key).unwrap());
+            let main=&vertex[vertex.find("void main() {").unwrap()..];
+            let first_branch=main.find("#ifdef WORLD_SPACE").unwrap_or(main.len());
+            assert!(main[..first_branch].contains("vHeatLocal = vec3( position );"),"{}",s.key);
+        }
+    }
 }

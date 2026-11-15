@@ -25,6 +25,8 @@ struct Batch {
     placements: Vec<f64>,
     room: [f64; audio::reverb::PARAM_COUNT],
     mask: u32,
+    // The master volume (masterVolume), applied at the output's master.
+    volume: f32,
     samples: Vec<(usize, Option<super::stream_assets::Pcm>)>,
 }
 impl Batch {
@@ -34,6 +36,7 @@ impl Batch {
             placements: Vec::with_capacity(PLACEMENTS),
             room: [0.; audio::reverb::PARAM_COUNT],
             mask: 0,
+            volume: 1.,
             samples: Vec::with_capacity(512),
         }
     }
@@ -69,6 +72,7 @@ pub struct LiveOutput {
     output: Output,
     mail: Arc<Mailbox>,
     next: usize,
+    volume: f32,
 }
 impl LiveOutput {
     // Output.process renders one fixed DSP quantum. Consume every published
@@ -87,9 +91,13 @@ impl LiveOutput {
                     self.output.voices.decoded_sample(id, 48000., 1, 0, Vec::new());
                 }
             }
-            if batch.mask != 0 {
-                if let Some(master) = &mut self.output.master {
+            if let Some(master) = &mut self.output.master {
+                if batch.mask != 0 {
                     master.room(&batch.room, batch.mask, false);
+                }
+                if batch.volume != self.volume {
+                    master.volume(batch.volume, 0., 0., true, 0.);
+                    self.volume = batch.volume;
                 }
             }
             self.output.commands[..batch.commands.len()].copy_from_slice(&batch.commands);
@@ -201,6 +209,9 @@ pub struct Sound {
     /// press, by registry id, and each weapon's registry id by its place in
     /// the battle's weapon list (lightning.rs Guns).
     pub ahead: (Vec<bool>, Vec<usize>),
+    /// The player's volumes, 0 to 1: master, effects, ambience, music, voice,
+    /// interface (engine.js applyVolumes and categoryVolume).
+    pub volumes: [f64; 6],
     // The client's replay ran for the player's own body this frame.
     replaying: bool,
     assets: super::stream_assets::Assets,
@@ -217,7 +228,8 @@ pub struct Sound {
     stations: Vec<(usize, [f64; 3], bool)>,
     // Whether each live building stands ("built"), as the server last said.
     built: Vec<bool>,
-    pub event_counts: [u64; 27],
+    pub event_counts: [u64; 28],
+    pub foot_counts: [u64; 2],
     /// How many supply stations play their ambient loop now.
     pub station_loops: u64,
     pub bleed: [f64; 2],
@@ -246,9 +258,10 @@ pub struct Sound {
 impl Sound {
     pub fn new(prepared: Prepared, collision: Collision, world: u32) -> Self {
         let mail = Arc::new(Mailbox::new());
-        let output = Some(LiveOutput { output: prepared.output, mail: mail.clone(), next: FRAMES * 2 });
+        let output = Some(LiveOutput { output: prepared.output, mail: mail.clone(), next: FRAMES * 2, volume: 1. });
         Self {
             ahead: Default::default(),
+            volumes: [1.; 6],
             replaying: false,
             assets: prepared.streams,
             decoded: 0,
@@ -263,7 +276,8 @@ impl Sound {
             combat_classes: prepared.combat_classes,
             built: vec![true; prepared.stations.len()],
             stations: prepared.stations,
-            event_counts: [0;27],
+            event_counts: [0;28],
+            foot_counts: [0;2],
             station_loops: 0,
             bleed: [0.;2],
             epoch: f64::NAN,
@@ -493,6 +507,7 @@ impl Sound {
         dt: f64,
         prediction: &super::replay::Replay,
         battle: ([f64; 4], bool),
+        hulls: &super::hulls::Hulls,
     ) {
         if self.output.is_some() {
             return;
@@ -644,6 +659,21 @@ impl Sound {
             held.expiry >= receiver.latest
         });
         self.held = held;
+        // Keep every displayed crossing even when the device has not consumed
+        // another quantum yet. Do not run a second detector at audio cadence.
+        hulls.foot_sounds(|identity, foot, count, point| {
+            let Some((slot, _)) = receiver.active_slots().find(|(_, row)|
+                row[r::KIND] == k::VEHICLE as f64 &&
+                (row[r::ID] as u32, row[r::GENERATION] as u32) == identity) else { return; };
+            let mut event = super::sound_events::placed(event_kind::HULL_FOOT, usize::MAX, point);
+            event[event::OWNER] = (slot + 1) as f64;
+            event[event::VALUE] = foot as f64;
+            for _ in 0..count {
+                if self.pending_effects.len() < self.pending_effects.capacity() {
+                    self.pending_effects.push(event);
+                } else { self.refused += 1; }
+            }
+        });
         // Preserve control state while the device is stopped or its bounded
         // queue is full. Advancing it after dropping START would orphan a loop.
         let clock = self.mail.clock.load(Ordering::Acquire);
@@ -695,14 +725,17 @@ impl Sound {
         }
         frame[frame::TEAM] = receiver.own.team as f64;
         frame[frame::HUMAN] = 1.;
-        for at in [
+        for (at, volume) in [
             frame::EFFECTS_VOLUME,
             frame::AMBIENCE_VOLUME,
             frame::MUSIC_VOLUME,
             frame::VOICE_VOLUME,
             frame::INTERFACE_VOLUME,
-        ] {
-            frame[at] = 1.;
+        ]
+        .into_iter()
+        .zip(&self.volumes[1..])
+        {
+            frame[at] = volume.clamp(0., 1.);
         }
         frame[frame::CHANNELS] = 2.;
         frame[frame::TICKETS1] = battle.0[0];
@@ -1022,6 +1055,9 @@ impl Sound {
             if let Some(count) = self.event_counts.get_mut(event[event::KIND] as usize) {
                 *count += 1;
             }
+            if event[event::KIND] == event_kind::HULL_FOOT as f64 {
+                self.foot_counts[(event[event::VALUE] == 6.) as usize] += 1;
+            }
         }
         runtime.step(&mut self.queries);
         // For a battle's summary: the supply stations humming after this step.
@@ -1049,6 +1085,7 @@ impl Sound {
         batch.placements.clear();
         batch.placements.extend_from_slice(placements);
         batch.mask = runtime.info[info::ROOM_CHANGED] as u32;
+        batch.volume = self.volumes[0].clamp(0., 1.) as f32;
         for (i, v) in batch.room.iter_mut().enumerate() {
             *v = runtime.info[info::ROOM + i];
         }
