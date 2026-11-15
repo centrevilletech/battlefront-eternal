@@ -211,6 +211,21 @@ impl Shadows {
     }
 }
 
+// Apply the camera-distance limit to freshly published props and vehicles.
+// Colour visibility and static world casters keep their own rules.
+pub(crate) fn limit_distance(input: &mut [f64], first: usize, end: usize, far: f64) {
+    use bfe_render::instances as I;
+    let eye: [f64; 3] = input[SF::EYE..SF::EYE + 3].try_into().unwrap();
+    for row in input[I::IN_RECORDS + first * I::REC_STRIDE..I::IN_RECORDS + end * I::REC_STRIDE]
+        .chunks_exact_mut(I::REC_STRIDE)
+    {
+        let distance: f64 = (0..3).map(|i| (row[I::REC_WORLD + 12 + i] - eye[i]).powi(2)).sum();
+        if !(distance < far * far) {
+            row[I::REC_FLAGS] = (row[I::REC_FLAGS] as u32 | I::NO_SHADOW) as f64;
+        }
+    }
+}
+
 // Restore both the previous and current caster footprints from the static
 // cache, erasing departed casters as well as preparing new ones. Unchanged
 // static pixels elsewhere already contain exactly the same depth.
@@ -231,7 +246,30 @@ fn damage_rect(previous: Option<[f64; 4]>, current: Option<[f64; 4]>, size: usiz
 
 #[cfg(test)]
 mod tests {
-    use super::damage_rect;
+    use super::{damage_rect, limit_distance};
+    #[test]
+    fn distant_props_stop_casting_without_losing_their_colour_records() {
+        use bfe_render::instances as I;
+        use bfe_render::cameras::layout::shader_frame as SF;
+        let mut input = vec![0.; I::IN_RECORDS + 5 * I::REC_STRIDE];
+        input[SF::EYE..SF::EYE + 3].copy_from_slice(&[100., 20., 30.]);
+        for (i, position) in [[100., 20., 30.], [169.9, 20., 30.], [100., 90., 30.], [170.1, 20., 30.], [300., 20., 30.]].iter().enumerate() {
+            let at = I::IN_RECORDS + i * I::REC_STRIDE;
+            input[at + I::REC_WORLD + 12..at + I::REC_WORLD + 15].copy_from_slice(position);
+            input[at + I::REC_FLAGS] = 14.;
+            input[at + I::REC_KIND] = 1.;
+        }
+        let before = input.clone();
+        limit_distance(&mut input, 1, 4, 70.);
+        for i in 0..5 {
+            let at = I::IN_RECORDS + i * I::REC_STRIDE;
+            let expected = if i == 2 || i == 3 {14 | I::NO_SHADOW} else {14};
+            assert_eq!(input[at + I::REC_FLAGS], expected as f64);
+            input[at + I::REC_FLAGS] = 14.;
+        }
+        assert_eq!(input, before);
+    }
+
     #[test]
     fn shadow_copy_erases_departed_casters_and_invalid_windows() {
         let old = Some([-0.5, -0.5, 0., 0.]);
