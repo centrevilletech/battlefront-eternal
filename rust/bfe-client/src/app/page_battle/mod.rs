@@ -44,6 +44,10 @@ pub(super) struct PageBattle {
     logo_swap: f64,
     cursor: [f64; 2],
     pin_heights: Vec<f64>,
+    // Seconds since each post's pin last rippled (holomap.js ping), and the beam's flare after a pick.
+    pin_waves: Vec<f64>,
+    flare: f64,
+    pins: Vec<gpu::Pin>,
     director: director::Director,
     post: Option<String>,
     pub shot: Option<bfe_battle_ui::spawn::CameraShot>,
@@ -98,6 +102,9 @@ impl PageBattle {
             logo_swap: 0.,
             cursor: [size[0] as f64 * 0.5, size[1] as f64 * 0.5],
             pin_heights: Vec::new(),
+            pin_waves: Vec::new(),
+            flare: 0.,
+            pins: Vec::new(),
             director: director::Director::new(scene.spawn_shots.clone()),
             post: None,
             shot: None,
@@ -243,8 +250,17 @@ impl PageBattle {
                 self.rig.changed(false);
             }
         }
+        self.pin_waves.resize(port.posts.len(), f64::INFINITY);
         if self.post != model.post {
             self.post = model.post.clone();
+            if let Some(i) = port
+                .posts
+                .iter()
+                .position(|p| Some(p.name.as_str()) == self.post.as_deref())
+            {
+                self.pin_waves[i] = 0.;
+                self.flare = 1.;
+            }
             if let Some(post) = port
                 .posts
                 .iter()
@@ -277,6 +293,10 @@ impl PageBattle {
             (-14f64).to_radians() * dt
         };
         self.pin_heights.resize(port.posts.len(), 0.07);
+        for wave in &mut self.pin_waves {
+            *wave += dt;
+        }
+        self.flare = (self.flare - dt * 2.5).max(0.);
         self.rig.update(dt, size[0] as f64 / size[1] as f64);
     }
     pub fn pointer(&mut self, p: [f64; 2]) {
@@ -445,16 +465,13 @@ impl PageBattle {
                 .interface
                 .draw(&mut scene.bridge.r.core, records);
         }
-        self.gpu.map(
-            &mut scene.bridge,
-            &self.rig,
-            aspect,
-            look.index,
-            self.strength,
-        );
+        self.pins.clear();
         for (index, post) in port.posts.iter().enumerate() {
             let x = (post.position[0] - projection.map_x) / projection.map_half;
             let y = -(post.position[2] - projection.map_z) / projection.map_half;
+            if x.hypot(y) > 1. {
+                continue;
+            }
             let picked = model.post.as_deref() == Some(post.name.as_str());
             let own = post.owner == model.team;
             let point = self.rig.map_point(x, y, self.layout);
@@ -470,23 +487,31 @@ impl PageBattle {
             };
             let height = &mut self.pin_heights[index];
             *height += (target - *height) * (self.dt * 9.).min(1.);
-            self.gpu.pin(
-                &mut scene.bridge,
-                &self.rig,
+            self.pins.push(gpu::Pin {
                 x,
                 y,
-                *height,
+                height: *height,
+                picked,
+                wave: self.pin_waves[index],
                 // The HUD's relation colours (GREEN, RED, LIGHT_GRAY in src/hud.js), as the browser's pins take
                 // them from hud.postColor.
-                if own {
-                    [32. / 255., 223. / 255., 32. / 255., 1.]
+                color: if own {
+                    [32. / 255., 223. / 255., 32. / 255.]
                 } else if post.owner == 0 {
-                    [192. / 255., 192. / 255., 192. / 255., 1.]
+                    [192. / 255., 192. / 255., 192. / 255.]
                 } else {
-                    [223. / 255., 32. / 255., 32. / 255., 1.]
+                    [223. / 255., 32. / 255., 32. / 255.]
                 },
-            );
+            });
         }
+        self.gpu.map(
+            &mut scene.bridge,
+            &self.rig,
+            look.index,
+            self.strength,
+            self.flare,
+            &self.pins,
+        );
         let sides = &port.teams;
         // The other team's emblem wakes (larger, opaque, spinning the other way) while the pointer is over
         // its plate or emblem and the player may switch to it (view.js hoverTeam / woken).
