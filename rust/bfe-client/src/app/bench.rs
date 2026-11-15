@@ -232,6 +232,9 @@ impl Bench {
                 "pitch": hull.tilt, "roll": hull.roll, "health": hull.health,
                 "throttle": hull.throttle, "airspeed": hull.airspeed, "power": hull.power,
                 "stick": [hull.stick_x, hull.stick_y], "walk": replay.fleet.walk,
+                "predictionTick": replay.fleet.prediction_tick,
+                "authorityTick": own.tick, "continued": replay.fleet.continued,
+                "authorityPos": own.position, "authorityVelocity": own.velocity,
             }))?;
         }
         if let Some((animation, clips)) = battle.scene.online.as_ref().and_then(|scene| scene.own_animation(receiver)) {
@@ -254,11 +257,16 @@ impl Bench {
             out.write_all(b"]}")?;
         }
         let [cx, cy, cz] = camera.position;
-        write!(
-            out,
-            r#","cam":{{"pos":[{cx:.3},{cy:.3},{cz:.3}],"fov":{:.2}}}"#,
-            (2. * (1. / camera.snapshot().values[5]).atan()).to_degrees(),
-        )?;
+        let hud = &battle.scene.bridge.hud_model.input;
+        use bfe_render::hud_model::layout::HudFrame as h;
+        write!(out, r#","cam":{}"#, serde_json::json!({
+            "pos": [cx, cy, cz],
+            "fov": (2. * (1. / camera.snapshot().values[5]).atan()).to_degrees(),
+            "projection": &camera.snapshot().values[..16],
+            "inverse": &camera.snapshot().values[16..32],
+            "reticle": [hud[h::RETICLE], hud[h::RETICLE_X], hud[h::RETICLE_Y]],
+            "first": camera.first_person,
+        }))?;
         out.write_all(br#"},"units":["#)?;
         let mut first = true;
         for row in receiver.active() {
