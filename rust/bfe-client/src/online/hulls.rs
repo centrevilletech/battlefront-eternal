@@ -93,6 +93,7 @@ pub struct Hulls {
     bodies: Vec<((u32, u32), super::hull_effects::Body, bool)>,
     // Every walker slot's feet, where each comes down this frame.
     feet: bfe_presentation::feet::Feet,
+    water: Option<bfe_sim::units::water::WaterState>,
 }
 impl Hulls {
     pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], collision: Collision, world: u32) -> Result<Self, String> {
@@ -364,6 +365,7 @@ impl Hulls {
             world,
             bodies: Vec::with_capacity(POOL),
             feet,
+            water: super::water::new(content),
         })
         .inspect(|hulls: &Self| {
             if crate::app::bench::fx().is_some() {
@@ -787,6 +789,7 @@ impl Hulls {
                 health,
                 thrusting: self.models[model].flying && (1. ..=3.).contains(&state),
                 velocity,
+                water: self.water.as_ref().filter(|w| w.over(row[r::POSITION], row[r::POSITION + 2])).map(|w| w.level()),
                 nodes,
             };
             fx.hull(class, &mut entry.1, frame, dt);
