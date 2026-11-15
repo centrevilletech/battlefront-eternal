@@ -7,7 +7,6 @@
 //   - `cargo xtask audio-control-schema`
 //   - `cargo xtask audio-schema`
 //   - `cargo xtask audio-codec-schema`
-//   - `cargo xtask matrix`
 //   - `cargo xtask build` / `check`
 //
 // Passing `--check` to any generator subcommand (or invoking `cargo xtask check`)
@@ -18,7 +17,6 @@
 mod build;
 mod json;
 mod layouts;
-mod matrix;
 mod schema_eval;
 mod shaders;
 mod sim_schema;
@@ -55,7 +53,6 @@ fn main() {
         "audio-control-schema" => layouts::audio_control_schema(&root, check),
         "audio-schema" => layouts::audio_schema(&root, check),
         "audio-codec-schema" => layouts::audio_codec_schema(&root, check),
-        "matrix" => matrix::run_matrix(&root, rest),
         "build" => build::run_build(&root, rest),
         "check" => {
             let mut check_args = vec!["--check".to_string()];
@@ -67,7 +64,7 @@ fn main() {
             build::run_build(&root, &check_args)
         }
         _ => Err(
-            "usage: cargo xtask <schema|shaders|presentation-schema|environment-schema|transport-schema|audio-schema|audio-control-schema|audio-codec-schema|matrix|build|check> [--check]"
+            "usage: cargo xtask <schema|shaders|presentation-schema|environment-schema|transport-schema|audio-schema|audio-control-schema|audio-codec-schema|build|check> [--check]"
                 .to_string(),
         ),
     };

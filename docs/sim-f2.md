@@ -95,19 +95,9 @@ remaining bytes are measured separately from boundary word counts.
 The ownership and publication gates run without game files over synthetic
 hulls, crews, turret rebuilds, exits and exposed riders. Mounted-fire and rider
 samples are golden results recorded before removal of the JavaScript authority.
-The full battle gate compares all three world-hash columns with the frozen
-reference for the standing matrix, including player-mounted battles, hero rows
-and mounted Hoth crews through death and respawn. Native replays and prediction
-checks retain independent coverage of operation order.
-
-Headless battle hashes do not exercise a page applying leases or presenting riders.
-A desktop release also runs `cargo xtask matrix` against a loaded,
-resumed real desktop battle on each performance map. Pass its remote-debugging
-port as `CDP_PORT` and use `--seconds 40`; `--minimum-tps` sets a measured rate
-floor for the machine and map. The check samples both clocks against wall time,
-records player life and pause/load/running flags, and rejects stopped clocks,
-lockstep, suspension and page or worker errors. Run interleaved control timings
-alongside it: a stopped world must never qualify as a cheaper page frame.
+Native replays and prediction checks retain independent coverage of operation
+order. Headless fixtures do not exercise a client applying leases or presenting
+riders; also run a loaded desktop battle with the same content and settings.
 
 The page's private hull, walker and flight prediction runs in the Rust
 `ClientPrediction` owner using the shared simulation cores. Prediction restores
