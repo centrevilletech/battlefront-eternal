@@ -15,12 +15,11 @@
 // schema and shader sources.
 
 mod build;
-mod json;
 mod layouts;
-mod schema_eval;
 mod shaders;
-mod sim_schema;
 mod sim_schema_js;
+
+pub use sim_gen::{json, schema_eval, sim_schema};
 
 use std::env;
 use std::path::{Path, PathBuf};
