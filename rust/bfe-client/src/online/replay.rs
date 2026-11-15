@@ -137,6 +137,8 @@ impl History {
 pub struct Shot {
     pub tick: f64,
     pub weapon: usize,
+    // The charge level it fired at (0: none; n: the weapon's nth charge).
+    pub level: usize,
     pub button: u32,
     pub spread: [f64; 2],
     pub position: [f64; 3],
@@ -479,6 +481,7 @@ impl Replay {
                     shots.push(Shot {
                         tick: shot.tick,
                         weapon: weapon.def.0.saturating_sub(1) as usize,
+                        level: shot.level as usize,
                         button: shot.button,
                         spread: [shot.yaw, shot.pitch],
                         position: body.position,

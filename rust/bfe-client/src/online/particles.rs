@@ -41,6 +41,14 @@ impl Prepared {
         names.extend(super::shields::textures(content));
         // The command posts' holograms: their flare and the logos' texture.
         names.extend(super::holograms::textures(content));
+        // The Enhanced steam's wisps (steam.rs).
+        names.push("thicksmoke2".into());
+        // The Enhanced fountains' foam (fountains.rs).
+        names.push("waterfoam1".into());
+        // The map's snowflake, which the snow draws (weather.rs).
+        if let Some(name) = content.map["weather"]["precipitation"]["Texture"][0].as_str() {
+            names.push(name.into());
+        }
         for (_, effects) in &content.effects {
             for d in effects.descriptor["definitions"].as_array().into_iter().flatten() {
                 if let Some(name) = d["geometry"]["texture"].as_str() {
@@ -316,6 +324,8 @@ impl Particles {
             b.count = 0;
         }
         self.model_rows.clear();
+        // The draws that follow the first person arms start again too.
+        bridge.r.view.input[bfe_render::view::IN_DRAWS] = 0.;
         bridge.r.effects.input[render::IN_DRAWS] = 0.;
         bridge.r.effects.input[render::IN_OWNERS] = 0.;
         // Hard-edged until `project` hears of the frame's depth copy.
@@ -470,6 +480,33 @@ impl Particles {
         bridge.r.effects.input[render::IN_DRAWS] = draws as f64;
         drawn
     }
+    /// FirstPersonView.flash: the muzzle flash on the first person arms'
+    /// gun. It is drawn with the arms, after them (the view pass's own
+    /// draws), so the gun does not cover it as it covers the world's
+    /// effects. False when there is no such model or no room for it.
+    pub fn flash_view(&mut self, bridge: &mut Bridge, matrix: &[f64; 16], color: &[f64], opacity: f64) -> bool {
+        use bfe_render::view;
+        let Some(glow) = self.flash else {
+            return false;
+        };
+        let rows = self.model(bridge, glow, matrix, color, opacity);
+        let drawn = !rows.is_empty();
+        for at in rows {
+            let draws = bridge.r.view.input[view::IN_DRAWS] as usize;
+            if draws == view::MAX_DRAWS {
+                break;
+            }
+            let (model, _) = self.model_rows[at];
+            let row = &mut bridge.r.view.input[view::IN_FIRST_DRAW + draws * view::DRAW..][..view::DRAW];
+            row.fill(0.);
+            row[view::D_PROGRAM] = bfe_render::actor_layout::kind::VIEW_MODEL as f64;
+            row[view::D_GEOMETRY] = model as f64;
+            row[view::D_RANGE] = (at * 16) as f64;
+            row[view::D_RANGE + 1] = (self.model_at + at * self.fields.length) as f64;
+            bridge.r.view.input[view::IN_DRAWS] = (draws + 1) as f64;
+        }
+        drawn
+    }
     pub fn finish(&self, bridge: &mut Bridge) {
         let mut draws = 0;
         for b in &self.batches {
@@ -499,11 +536,12 @@ impl Particles {
     /// setting is on (particle-depth.js): the particle and arc shaders then
     /// fade against the scene's depth, which they turn into metres with the
     /// lens's near and far planes.
-    pub fn project(&self, bridge: &mut Bridge, camera: &[f64], soft: Option<([i32; 2], u32)>) {
-        if let Some((size, depth)) = soft {
+    /// The scene's depth goes over whatever the setting: the steam needs it.
+    pub fn project(&self, bridge: &mut Bridge, camera: &[f64], soft: Option<(bool, [i32; 2], u32)>) {
+        if let Some((on, size, depth)) = soft {
             let (near, far) = (camera[14] / (camera[10] - 1.), camera[14] / (camera[10] + 1.));
             bridge.r.effects.input[render::IN_SOFT..render::IN_SOFT + 6]
-                .copy_from_slice(&[1., size[0] as f64, size[1] as f64, near, far, depth as f64]);
+                .copy_from_slice(&[on as u8 as f64, size[0] as f64, size[1] as f64, near, far, depth as f64]);
         }
         for at in 0..self.model_rows.len() {
             let values = &mut bridge.r.effects.data[self.model_at + at * self.fields.length + self.fields.projection..][..16];

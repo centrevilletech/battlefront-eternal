@@ -34,6 +34,7 @@ pub mod combat;
 mod debris;
 mod effects;
 pub mod jetpacks;
+pub mod fountains;
 pub mod hull_effects;
 pub mod lightning;
 pub mod map_effects;
@@ -42,7 +43,10 @@ mod holograms;
 mod lights;
 pub mod particles;
 
+pub mod steam;
+pub mod trails;
 pub mod turrets;
+pub mod weather;
 
 pub mod cameras;
 

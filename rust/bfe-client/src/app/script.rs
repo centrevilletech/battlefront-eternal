@@ -102,7 +102,7 @@ pub struct GateDriver {
     /// stands where it spawned, so walls between them never trap it.
     hold: bool,
     duel_input_tick: u32,
-    /// `BFE_GATE_HUNT` (`droideka`, `soldier` or `still`): in a local battle the
+    /// `BFE_GATE_HUNT` (`droideka` or `soldier`): in a local battle the
     /// player walks up to the nearest living enemy of that kind and fires,
     /// so a recording of the run has what happens to it in view.
     hunt: Option<String>,
@@ -428,11 +428,6 @@ impl GateDriver {
             battle.input.key(KeyCode::KeyW, false);
             battle.input.mouse(MouseButton::Left, false);
             battle.trigger_spawn();
-            return;
-        }
-        // `still`: he stands where he spawned, for captures that need a
-        // steady camera.
-        if self.hunt.as_deref() == Some("still") {
             return;
         }
         let BattleAuthority::InstantAction { receiver, sender, replay, .. } = &battle.authority else {
