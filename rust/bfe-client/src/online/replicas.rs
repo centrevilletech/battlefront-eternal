@@ -120,6 +120,7 @@ pub struct Replicas {
     world: u32,
     shields: Box<super::shields::Shields>,
     holograms: Box<super::holograms::Holograms>,
+    blades: Box<super::blades::Blades>,
     /// The frame's point lights, packed for the camera once the owners
     /// have asked for theirs.
     pub lights: Box<super::lights::SceneLights>,
@@ -568,7 +569,18 @@ impl Replicas {
             textures,
             &arc_images,
             shields.end(),
-            bfe_render::effects::MAX_DRAWS - super::shields::BUBBLES - super::holograms::MATRICES,
+            // A bubble takes two matrices (shields.rs).
+            bfe_render::effects::MAX_DRAWS - 2 * super::shields::BUBBLES - super::holograms::MATRICES,
+        )?);
+        bridge.r.core.state.reset();
+        // The blades' values follow the holograms', their matrices just before them.
+        let blades = Box::new(super::blades::Blades::new(
+            content,
+            bridge,
+            textures,
+            &arc_images,
+            holograms.end(),
+            bfe_render::effects::MAX_DRAWS - 2 * super::shields::BUBBLES - super::holograms::MATRICES - super::blades::MATRICES,
         )?);
         bridge.r.core.state.reset();
         // Weapon actions resolve their clips once, per body and bank.
@@ -606,6 +618,7 @@ impl Replicas {
             world,
             shields,
             holograms,
+            blades,
             lights: Box::new(super::lights::SceneLights::new()),
             held,
             weapon_classes,
@@ -1445,6 +1458,25 @@ impl Replicas {
             bridge,
         );
         self.presented.shown[14] = self.holograms.draws;
+        // CombatPresentation's held hilts: a melee weapon in hand shows its blade.
+        self.blades.begin();
+        for slot in &self.slots {
+            let weapon = slot.primary;
+            if !slot.active || slot.held.is_none() || !self.blades.has(weapon) || slot.held != self.weapon_classes.get(weapon).copied().flatten() {
+                continue;
+            }
+            let input = &self.units.input[f::STRIDE + slot.actor * i::STRIDE..];
+            let output = &self.units.output[slot.actor * o::STRIDE..];
+            if output[o::DEAD] != 0. || output[o::GONE] == -1. || input[i::PRESENT] == 0. || (input[i::OWN] != 0. && self.first_person.enabled) {
+                continue;
+            }
+            let Some(hand) = self.models[slot.model].hand else { continue };
+            let node = (self.units.actor_node_start(slot.actor) + hand) * bfe_presentation::layout::unit_node::STRIDE
+                + bfe_presentation::layout::unit_node::WORLD;
+            let mut matrix = [0.; 16];
+            matrix.copy_from_slice(&self.units.nodes[node..node + 16]);
+            self.blades.draw(bridge, weapon, &matrix, camera);
+        }
     }
     /// Pausing is a cold observation point; the canonical clocks and blend
     /// layers stay in Units rather than a second client animation model.

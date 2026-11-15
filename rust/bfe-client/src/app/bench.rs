@@ -42,7 +42,7 @@ pub fn seed() -> Option<u32> {
 
 /// A fixed drawn view for map comparisons; simulation and player input stay live.
 /// `view=FILE` in BFE_BENCH reads the reference camera's numeric matrices.
-pub(super) fn apply_view(view: &mut crate::scene::View) {
+pub(crate) fn apply_view(view: &mut crate::scene::View) {
     static PATH: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
     let Some(path) = PATH.get_or_init(|| value("view")) else { return };
     #[derive(serde::Deserialize)]
@@ -297,7 +297,8 @@ impl Bench {
                 row[r::FIRE_COUNTER],
                 row[r::WALK_PHASE],
                 row[r::WALK_BLEND],
-                battle.scene.online.as_ref().map_or("", |scene| scene.class_name(row[r::CLASS_ID] as usize)),
+                // A turret's class id names a turret definition, not a class.
+                if kind == k::TURRET { "" } else { battle.scene.online.as_ref().map_or("", |scene| scene.class_name(row[r::CLASS_ID] as usize)) },
             )?;
         }
         out.write_all(b"]")?;

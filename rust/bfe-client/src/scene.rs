@@ -1642,7 +1642,10 @@ impl Scene {
                 drawn,
                 dt,
             );
+            // BFE_BENCH view=FILE: the camera the effects turn to is the one drawn.
+            crate::app::bench::apply_view(&mut camera.view);
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
+            if std::env::var_os("BFE_BENCH").is_some() { camera.position = [world.elements[12], world.elements[13], world.elements[14]]; }
             resources.first_person.enabled = resources.cameras.eye_view;
             let scope_view = if receiver.own.remote.is_some() {
                 camera.first_person

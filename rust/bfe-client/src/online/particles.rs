@@ -41,6 +41,8 @@ impl Prepared {
         names.extend(super::shields::textures(content));
         // The command posts' holograms: their flare and the logos' texture.
         names.extend(super::holograms::textures(content));
+        // Lightsabre blades: each melee weapon's texture and the glow.
+        names.extend(super::blades::textures(content));
         for (_, effects) in &content.effects {
             for d in effects.descriptor["definitions"].as_array().into_iter().flatten() {
                 if let Some(name) = d["geometry"]["texture"].as_str() {
