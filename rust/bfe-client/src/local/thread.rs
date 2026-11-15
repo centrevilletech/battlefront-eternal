@@ -114,6 +114,8 @@ pub enum WorldMessage {
         flight: ClientFlightCommand,
         // The target sample actually displayed when this command was captured.
         view_tick: f64,
+        // The converged aim sampled for this command's fire presses.
+        fire_aim: Option<[f64; 2]>,
     },
     /// Pauses (`true`) or resumes (`false`) the 60 Hz world simulation loop.
     Pause(bool),
@@ -317,6 +319,11 @@ struct SharedState {
     suspended: AtomicBool,
     shutdown: AtomicBool,
     latest_tick_bits: AtomicU64,
+    /// Player commands the world has taken, those it refused, and those
+    /// stamped for a tick it had already run (applied on the next one).
+    commands_taken: AtomicU64,
+    commands_refused: AtomicU64,
+    commands_late: AtomicU64,
     renderer_blocks: AtomicU64,
     tick_count: AtomicU64,
     tick_sum_ns: AtomicU64,
@@ -358,6 +365,9 @@ impl SharedState {
             suspended: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
             latest_tick_bits: AtomicU64::new(0.0_f64.to_bits()),
+            commands_taken: AtomicU64::new(0),
+            commands_refused: AtomicU64::new(0),
+            commands_late: AtomicU64::new(0),
             renderer_blocks: AtomicU64::new(0),
             tick_count: AtomicU64::new(0),
             tick_sum_ns: AtomicU64::new(0),
@@ -725,6 +735,15 @@ impl WorldThread {
         Ok(count)
     }
 
+    /// Player commands the world thread has taken, refused, and taken late.
+    pub fn command_counts(&self) -> [u64; 3] {
+        [&self.shared.commands_taken, &self.shared.commands_refused, &self.shared.commands_late].map(|n| n.load(Ordering::Relaxed))
+    }
+    /// Whether the world is suspended (its window cannot be seen).
+    pub fn is_suspended(&self) -> bool {
+        self.shared.suspended.load(Ordering::Acquire)
+    }
+
     /// Latest authoritative tick completed by the 60 Hz world thread.
     #[inline]
     pub fn latest_tick(&self) -> f64 {
@@ -790,7 +809,15 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
             };
             let Some(msg) = msg else { break };
             let done = match msg {
-                WorldMessage::Step { command, look, flight, view_tick } => runtime.submit(&command, &look, &flight, view_tick),
+                WorldMessage::Step { command, look, flight, view_tick, fire_aim } => {
+                    shared.commands_taken.fetch_add(1, Ordering::Relaxed);
+                    if command.tick <= runtime.tick() {
+                        shared.commands_late.fetch_add(1, Ordering::Relaxed);
+                    }
+                    let done = runtime.submit(&command, &look, &flight, view_tick, fire_aim);
+                    shared.commands_refused.store(runtime.refusals(), Ordering::Relaxed);
+                    done
+                }
                 WorldMessage::Pause(p) => {
                     paused = p;
                     Ok(())

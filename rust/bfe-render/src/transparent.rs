@@ -236,10 +236,11 @@ impl DrawState {
 }
 
 // A draw's GL state; side: 0 front (back faces culled), 1 back (three
-// culls back faces with clockwise front faces), 2 both (no culling).
+// culls back faces with clockwise front faces), 2 both (no culling),
+// 3 back faces with a double-sided program (retain counterclockwise winding).
 pub fn apply<C: HasContext, M: MultiDraw>(core: &mut Core<C, M>, state: &DrawState, side: u32) {
     let (gl, st, stats) = (&core.gl, &mut core.state, &mut core.stats);
-    st.cull(gl, stats, if side == 2 { 2 } else { 0 });
+    st.cull(gl, stats, if side == 2 { 2 } else if side == 3 { 1 } else { 0 });
     st.front_face(gl, stats, if side == 1 { glow::CW } else { glow::CCW });
     st.alpha_to_coverage(gl, stats, state.alpha_to_coverage);
     let b = &state.blend;
@@ -269,6 +270,7 @@ struct Bucket<C: HasContext> {
     textures: Vec<(u32, C::Texture)>,
     state: DrawState,
     point_lit: bool,
+    native: Option<([f64; 4], u32)>,
     // Its box (world space): the point lights that reach it.
     bbox: ([f64; 3], [f64; 3]),
 }
@@ -341,10 +343,23 @@ impl<C: HasContext> TransparentPass<C> {
     // A blended bucket. bounds: its box, min and max (world space).
     pub fn add_bucket(&mut self, geometry: u32, blend: &[u32], depth_func: u32, flags: u32, point_lit: bool, bounds: &[f64]) -> u32 {
         self.buckets.push(Bucket {
-            geometry: geometry as usize, passes: vec![], textures: vec![], state: DrawState::from(blend, depth_func, flags), point_lit,
+            geometry: geometry as usize, passes: vec![], textures: vec![], state: DrawState::from(blend, depth_func, flags), point_lit, native: None,
             bbox: ([bounds[0], bounds[1], bounds[2]], [bounds[3], bounds[4], bounds[5]]),
         });
         (self.buckets.len() - 1) as u32
+    }
+
+    /// Native map buckets retain their bounds; each view culls and sorts them.
+    pub fn native_bucket(&mut self, b: u32, sphere: [f64; 4], order: u32) {
+        self.buckets[b as usize].native = Some((sphere, order));
+    }
+    pub fn reset_bucket(&mut self, b: u32) {
+        let bucket = &mut self.buckets[b as usize];
+        bucket.passes.clear();
+        bucket.textures.clear();
+    }
+    pub fn bucket_program(&self, b: u32) -> Option<u32> {
+        self.buckets.get(b as usize)?.passes.last().map(|p| p.program as u32)
     }
 
     // A pass of the bucket, in drawing order: three's program for `side`.
@@ -478,7 +493,17 @@ pub fn view<C: HasContext, M: MultiDraw>(core: &Core<C, M>) -> View {
 }
 
 impl<C: HasContext, M: MultiDraw> Source<C, M> for TransparentPass<C> {
-    fn emit(&mut self, _core: &mut Core<C, M>, _view: &View, source: u32, items: &mut Vec<Item>) {
+    fn emit(&mut self, _core: &mut Core<C, M>, view: &View, source: u32, items: &mut Vec<Item>) {
+        for (i, bucket) in self.buckets.iter().enumerate() {
+            if let Some((sphere, order)) = bucket.native {
+                let center = [sphere[0], sphere[1], sphere[2]];
+                if view.camera.frustum.sphere(&center, sphere[3]) {
+                    items.push(Item { group_order: 0., render_order: 0.,
+                        z: three_z(&view.view_projection, None, &center), id: order as f64,
+                        source, batch: i as u32, record: i as u32 });
+                }
+            }
+        }
         // What the page took out of three's list, with three's keys: a
         // bucket's record names the bucket, an object's is its record.
         let n = (self.objects[0] as usize).min(MAX_OBJECTS);

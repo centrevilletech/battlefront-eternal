@@ -153,6 +153,7 @@ pub struct Replay {
     display: super::own_view::Display,
     life: [f64; 3],
     pub fleet: Box<super::hull_replay::Fleet>,
+    props: super::props::Props,
     pub ticks: u64,
     weapon_at: usize,
     weapon_count: usize,
@@ -192,6 +193,7 @@ impl Replay {
             s.put(&mut row, &mut Vec::new());
             classes[id as usize] = Some(row);
         }
+        let props = super::props::Props::new(&mut collision.borrow_mut(), installed.world, &content.content)?;
         let mut owner = Box::new(ClientPrediction::default());
         owner.configure_actor(&[0.], &mut collision.borrow_mut().state).map_err(str::to_string)?;
         let fleet = Box::new(super::hull_replay::Fleet::new(content, &mut collision.borrow_mut(), installed.world)?);
@@ -202,6 +204,7 @@ impl Replay {
         let mounted = Box::new(super::checkpoint::Mounted::new(&defs, &mut owner, None, &buildings)?);
         owner.reserve_native(4096, 32);
         Ok(Self {
+            props,
             fleet,
             arsenal,
             mounted,
@@ -265,6 +268,7 @@ impl Replay {
         }
         self.life = life;
         self.weapon_count = 0;
+        self.props.frame(r, &mut collision_mut(&self.collision));
         self.fleet.frame(r, sender, &mut self.words, &mut collision_mut(&self.collision))?;
         if r.own.remote.is_some() {
             return Ok(());
