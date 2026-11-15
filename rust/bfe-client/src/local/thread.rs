@@ -808,8 +808,9 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
                         view_tick,
                         fire_aim,
                     } => {
+                        let mut keep_shot_view = false;
                         if step_queued {
-                            merge_press_edges(&latest_cmd, &mut command);
+                            keep_shot_view = merge_press_edges(&latest_cmd, &mut command);
                             flight.actions |= latest_flight.actions;
                         }
                         latest_cmd = command;
@@ -817,8 +818,10 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
                         accum_look_y += look.y;
                         latest_flight = flight;
                         latest_ack = ack;
-                        latest_view_tick = view_tick;
-                        latest_fire_aim = fire_aim;
+                        if !keep_shot_view {
+                            latest_view_tick = view_tick;
+                            latest_fire_aim = fire_aim;
+                        }
                         step_queued = true;
                     }
                     WorldMessage::Pause(p) => {
@@ -986,10 +989,13 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
 // Multiple render commands may arrive before one authority step. Held state
 // and identity come from the last command; a later empty catch-up row must
 // not erase earlier presses in the same batch.
-fn merge_press_edges(previous: &ClientCommand, next: &mut ClientCommand) {
+fn merge_press_edges(previous: &ClientCommand, next: &mut ClientCommand) -> bool {
+    let keep_shot_view = (previous.primary_count != 0 || previous.secondary_count != 0)
+        && next.primary_count == 0 && next.secondary_count == 0;
     next.actions |= previous.actions;
     next.primary_count = next.primary_count.saturating_add(previous.primary_count).min(32);
     next.secondary_count = next.secondary_count.saturating_add(previous.secondary_count).min(32);
+    keep_shot_view
 }
 
 #[cfg(test)]
@@ -1008,11 +1014,13 @@ mod command_batch_tests {
         input.key(KeyCode::Space, false);
         input.key(KeyCode::KeyW, true);
         let (mut last, _) = input.take(2, 2);
-        merge_press_edges(&first, &mut last);
+        assert!(merge_press_edges(&first, &mut last), "a held-only row must retain the press camera sample");
         assert_eq!(last.sequence, 2.);
         assert_eq!(last.held, 1 << ClientHeld::Forward as u8);
         assert_ne!(last.actions & (1 << ClientAction::Jump as u8), 0);
         assert_ne!(last.actions & (1 << ClientAction::Reload as u8), 0);
         assert_eq!(last.primary_count, 1);
+        let mut newer_press = first.clone();
+        assert!(!merge_press_edges(&first, &mut newer_press), "a newer press supplies its own camera sample");
     }
 }
