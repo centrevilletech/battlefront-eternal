@@ -91,7 +91,6 @@ fn missing_and_unsupported_body_content_is_refused() {
     assert!(bodies::from_parts(&json(r#"{"base":"soldier","HealthType":true}"#), &actor(), &Clips::default(), None, ids(), 200., false, |_| StrId(0)).is_err());
 }
 
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 #[test]
 fn native_host_entries_preserve_context_refusals_and_unknown_players() {
     use bfe_sim::abi::context::{Context, ErrorKind};

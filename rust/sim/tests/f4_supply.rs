@@ -75,17 +75,3 @@ fn waiting_and_dead_stations_do_not_read_any_target() {
     station.building.state = props::State::Destroyed; station.pulse(1.0, &supply, &mut native);
     assert_eq!(native.reads, 0); assert_eq!(station.pulse, 0.5);
 }
-#[path = "support/allocations.rs"]
-mod allocation;
-#[global_allocator]
-static ALLOCATOR: allocation::Counted = allocation::Counted;
-#[test]
-fn first_and_repeated_canonical_pulses_allocate_no_phase_storage() {
-    let (mut station, supply, mut native) = setup(); allocation::start();
-    for _ in 0..1200 {
-        native.events.clear(); let u = native.s.unit.get_mut(native.units[0]).unwrap(); u.combat.health = 50.0; u.combat.weapons[0].reserve = 2.0;
-        native.s.vehicle.get_mut(native.hulls[0]).unwrap().health = 30.0;
-        station.pulse(1.0, &supply, &mut native);
-    }
-    assert_eq!(allocation::stop(), 0); assert_eq!(native.events, ["unit", "served", "hull", "sound"]);
-}

@@ -126,7 +126,7 @@ impl Work {
                                 crate::loading_work::idle().await;
                             }
                         };
-                        BattleController::open_instant_action(prepared, world, size, &settings, load).await
+                        BattleController::open_instant_action(&root, prepared, world, size, &settings, load).await
                     }));
                     eprintln!("battle loading: scene content read; preparing display resources");
                 }

@@ -183,6 +183,15 @@ impl Context {
         .ok_or_else(|| Error::new(ErrorKind::InvalidKind, "no such publication session"))
     }
 
+    /// What the last publication of `session` told `client` about itself
+    /// (its snapshot's epoch and tick, whether it is complete, the own
+    /// correction's life and team); None when it sent that client nothing.
+    pub fn world_published_own(&self, session: u32, client: u32) -> Result<Option<crate::wire::publisher::OwnFacts>, Error> {
+        self.owned(|w| {
+            crate::wire::publish_module::published_own_in(w, session as usize, client)
+        })
+    }
+
     /// `world_publish_into` into a new publication, for a host that keeps
     /// none.
     pub fn world_publish(&self, session: u32, facts: &[f64]) -> Result<Publication, Error> {

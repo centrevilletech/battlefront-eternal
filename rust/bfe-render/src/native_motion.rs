@@ -30,18 +30,24 @@ impl NativeMotion {
             let previous=if valid{key(row).and_then(|key|self.lookup.get(&key)).map(|i|&self.rows[*i]).filter(|p|p[I::REC_BONES]==row[I::REC_BONES])}else{None};
             let previous=previous.unwrap_or(row);
             let previous_at=previous[I::REC_BONE_AT]as usize*16;
+            let current=&core.bones[first..first+count*16];
+            let last=if std::ptr::eq(previous,row){current}else{self.bones.get(previous_at..previous_at+count*16).unwrap_or(current)};
+            let mut pending=*row;pending[I::REC_BONE_AT]=(self.pending_bones.len()/16)as f64;
+            self.pending.push(pending);self.pending_bones.extend_from_slice(current);
+            // The depth reconstruction already supplies camera motion. An
+            // unchanged object needs no overriding velocity proxy.
+            if row[I::REC_WORLD..I::REC_WORLD+16] == previous[I::REC_WORLD..I::REC_WORLD+16]
+                && row[I::REC_BIND..I::REC_BIND+16] == previous[I::REC_BIND..I::REC_BIND+16]
+                && row[I::REC_BIND_INVERSE..I::REC_BIND_INVERSE+16] == previous[I::REC_BIND_INVERSE..I::REC_BIND_INVERSE+16]
+                && current == last { continue; }
             let output=&mut motion.input[M::IN_RECORDS+self.count*M::REC_STRIDE..][..M::REC_STRIDE];output.fill(0.);
             output[M::REC_KIND]=M::KIND_PROXY;output[M::REC_PROGRAM]=self.programs[usize::from(row[I::REC_KIND]==1.||row[I::REC_KIND]==I::KIND_BLENDED)]as f64;
             output[M::REC_GEOMETRY]=row[I::REC_GEOMETRY];output[M::REC_COUNT]=geometry.index_count as f64;output[M::REC_SIDE]=(row[I::REC_FLAGS]as u32&3)as f64;
             output[M::REC_BONE_AT]=bone as f64;output[M::REC_PREVIOUS_AT]=bone as f64;
             for(to,from)in [(M::REC_WORLD,I::REC_WORLD),(M::REC_BIND,I::REC_BIND),(M::REC_BIND_INVERSE,I::REC_BIND_INVERSE)]{output[to..to+16].copy_from_slice(&row[from..from+16]);}
             output[M::REC_PREVIOUS_WORLD..M::REC_PREVIOUS_WORLD+16].copy_from_slice(&previous[I::REC_WORLD..I::REC_WORLD+16]);output[M::REC_PREVIOUS_BIND_INVERSE..M::REC_PREVIOUS_BIND_INVERSE+16].copy_from_slice(&previous[I::REC_BIND_INVERSE..I::REC_BIND_INVERSE+16]);
-            let current=&core.bones[first..first+count*16];
             motion.bones[bone*16..(bone+count)*16].copy_from_slice(current);
-            let last=if std::ptr::eq(previous,row){current}else{self.bones.get(previous_at..previous_at+count*16).unwrap_or(current)};
             motion.previous[bone*16..(bone+count)*16].copy_from_slice(last);
-            let mut pending=*row;pending[I::REC_BONE_AT]=(self.pending_bones.len()/16)as f64;
-            self.pending.push(pending);self.pending_bones.extend_from_slice(current);
             bone+=count;self.count+=1;
         }
         motion.input[M::IN_BONES]=bone as f64;motion.input[M::IN_PREVIOUS_BONES]=bone as f64;

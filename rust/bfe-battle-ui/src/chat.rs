@@ -1,14 +1,5 @@
 //! Bounded 8-message chat log, interactive chat input controller, and in-battle key routing
 //! (`src/chat.js`, `ChatLog`, `CHAT_COLORS`, `CHAT_LIMIT`).
-//!
-//! Mirrors the local and transport-facing chat architecture from `src/chat.js`:
-//! - `ChatLog` retains at most 8 sanitized messages, stripping ASCII control characters
-//!   (`0x00..=0x1F` and `0x7F`) so untrusted peer strings cannot inject newlines or control codes
-//!   into the HUD overlay.
-//! - `ChatController` owns the modal typing state (`KeyT` for global, `KeyY` for team) and
-//!   swallows all keys while open, including `Tab`, so typing never triggers the scoreboard underneath.
-//! - `route_battle_key` arbitrates in-battle hotkeys across chat, map overlay, scoreboard peek,
-//!   pause menu, camera viewpoint, developer console, and squad commands.
 
 /// Maximum chat message length in characters (`CHAT_LIMIT` in `src/chat.js`).
 pub const CHAT_LIMIT: usize = 240;

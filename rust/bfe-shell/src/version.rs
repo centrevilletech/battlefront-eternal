@@ -1,18 +1,4 @@
 //! Main menu version line formatting (`src/shell/version.js`).
-//!
-//! Ports `versionLine(about, simulation)` from `src/shell/version.js`:
-//! - Displays the build tag (`PREVIEW <N>` for `X.Y.Z-preview.N` or
-//!   `X.Y.Z~preview.N`, else `VERSION <version>` in uppercase, else
-//!   `WEB BUILD` when `about` has no `version`).
-//! - Displays the simulation contract (`SIMULATION <N>` from the trailing
-//!   digits of `simulation`, e.g. `"bfe-sim-28"` -> `"SIMULATION 28"`).
-//! - Displays the prepared game-data generations (`GAME DATA M<maps> S<sides> C<common>`),
-//!   appending `(NEEDS M<maps> S<sides> C<common>)` when
-//!   `prepared.current == Some(false)` and `wanted` is provided, or
-//!   `GAME DATA NOT PREPARED` when `about` is `Some` without `prepared`.
-//! - Joins the parts with three spaces (`"   "`).
-//! - Wanted content generations are parsed directly from the repository's
-//!   shared `tools/content-version.json` via `include_str!`.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;

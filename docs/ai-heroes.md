@@ -106,6 +106,3 @@ swings, effective defense, blade geometry, and all five extracted stock
 classes when local assets exist. `tests/test_ai_heroes_export.py` uses synthetic
 properties to cover ordered swings and the defense compatibility parser.
 
-`cargo test --locked --workspace` with `AI_TEST_HEROES=1` runs whole headless battles
-(`rust/sim-replay`) with heroes fielded, on locally extracted
-content (`public/` or `BFE_CONTENT_DIR`).

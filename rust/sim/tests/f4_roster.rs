@@ -35,6 +35,8 @@ fn character(s: &mut Store, team: usize, alive: Option<bool>) -> Ref<Character> 
 }
 fn setup() -> (Store, World) {
     let mut s = Store::default(); s.spawning.teams = spawning::make_teams(32.0);
+    // Both teams field bots (with a unit count of 0 the roster fields none: AI off).
+    for team in [1, 2] { s.spawning.teams[team].unit_count = 16.0; }
     s.battle.reinforcements.set(1.0, 10.0); s.battle.reinforcements.set(2.0, 10.0);
     (s, World { commands: Some(Commands::new(8)), ..World::default() })
 }

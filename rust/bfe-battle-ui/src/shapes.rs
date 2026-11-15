@@ -2,23 +2,6 @@
 //! word wrapping, flashy title bar intro, and `GameFamily` selector (`src/interface/shapes.js`,
 //! `src/interface/space.js`, `src/interface/surface.js`, `src/interface/flashy.js`,
 //! `src/menus/themes/classic/draw.js`, `MULTIPLAYER.md`).
-//!
-//! All battle UI screens (spawn screen, scoreboard, pause menu) share the
-//! 1024xH interface plane at `z = -PLANE` (`-886.81`) viewed from the origin
-//! through a 60-degree horizontal (`46.8` deg vertical) perspective camera.
-//! Tilted containers rotate around Y or X in local anchor space and project
-//! back onto the `1024xH` interface plane via [`plane_point`] and [`inside_quad`].
-//!
-//! ### Coordinate Systems and Safe Area
-//! - The interface canvas spans `0..1024` horizontally (`x` right) and `0..H` vertically
-//!   (`y` down), where `H = floor(768 + (h / w - 0.75) * 768)` adapts to the window
-//!   aspect ratio (`768` at 4:3, `576` at 16:9).
-//! - A 5% border on all four sides (`SAFE = 0.05`, `SAFE_SCALE = 0.9`) defines the
-//!   90% safe area inside which `ifs_spawndisplay`, `ifs_teamstats`, and `ifs_pausemenu`
-//!   position their 9-slice panels.
-//! - Every tilted panel is anchored on the `z = -PLANE` plane and rotated in 3D before
-//!   perspective projection, so both rendering and mouse hit-testing (`projected_corners`
-//!   + `inside_quad`) share the exact same camera-space foreshortening.
 
 use std::fmt;
 

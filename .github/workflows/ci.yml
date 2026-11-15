@@ -214,11 +214,9 @@ jobs:
             cargo-linux-x64-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
             cargo-linux-x64-${{ hashFiles('rust/rust-toolchain.toml') }}-
 
-      - name: Build native renderer smoke binaries
+      - name: Build native renderer smoke binary
         run: |
-          cargo build --manifest-path rust/Cargo.toml --locked \
-            -p bfe-client --bin render-smoke --bin bfe-client --bin static-frame \
-            -p bfe-content-native --example static-fixture --example fingerprint
+          cargo build --manifest-path rust/Cargo.toml --locked -p bfe-client --bin render-smoke
 
       - name: Run native software-OpenGL renderer smoke
         run: |

@@ -1,42 +1,4 @@
 //! Player settings persistence backed by [`bfe_interface::Settings`].
-//!
-//! This module owns [`AppSettingsStore`], which persists the canonical 59-key
-//! [`bfe_interface::Settings`] schema (sound, graphics, game, camera, chat,
-//! developer, and all 34 keybindings) alongside the active player profile,
-//! privacy notice flag, and Instant Action playlist in
-//! `DesktopPaths::player_settings_file` (`player-settings.json`).
-//!
-//! ## Schema Synchronization and Projections
-//! - **Canonical `bfe_interface::Settings` Store**: All 59 keys from `src/settings.js`
-//!   (volumes, video resolution, quality presets, FOV, mouse sensitivity, invert Y,
-//!   crosshair, friendly fire, AI difficulty, and 34 control bindings) live in
-//!   [`AppSettingsStore::interface`] and serialize to `PersistedPlayerSettings::values`
-//!   (`DesktopSettingsSnapshot` format).
-//! - **`bfe-shell` Projection (`ShellSettings`)**: The 9 overlapping fields consumed
-//!   directly by `ShellApp` and `ShellAudioMixer` (`master_volume`, `music_volume`,
-//!   `effects_volume`, `interface_volume`, `menu_theme`, `battle_size`, `difficulty`,
-//!   `mouse_sensitivity`, `invert_y`) are bidirectionally synchronized via
-//!   [`PersistedPlayerSettings::apply_shell_to_interface`] and
-//!   [`PersistedPlayerSettings::extract_shell_from_interface`].
-//! - **In-Battle `PauseMenu` Projection (`pause_kv`)**: [`bfe_battle_ui::PauseMenu`]
-//!   reads a `BTreeMap<String, String>` where volumes are formatted as integer
-//!   percentages (`"0"`..`"100"`) and vertical look inversion is stored under `"invertY"`.
-//!   [`PersistedPlayerSettings::interface_to_pause_kv`] keeps this map synchronized
-//!   whenever settings are loaded or modified.
-//! - **Atomic Persistence**: [`AppSettingsStore::save_player`] writes to a sibling
-//!   `.json.tmp` file, flushes via `File::sync_all`, and renames over `player-settings.json`
-//!   so power loss or crashes never leave a truncated configuration file.
-//!
-//! ## File Locations and Compatibility
-//! - `DesktopPaths::settings_file` (`desktop-settings.json`): Stores installation paths
-//!   (`content_dir`, `chosen_content_dir`, `found_content_dir`, `game_dir`), release
-//!   channel (`update_channel`), `auto_check_updates`, `discord_presence`, and
-//!   preparation history stamps.
-//! - `DesktopPaths::player_settings_file` (`player-settings.json`): Stores `profile_name`,
-//!   `privacy_notice_accepted`, the 59-key `bfe_interface::DesktopSettingsSnapshot`
-//!   (`complete` + `values`), the `ShellSettings` projection (`shell`), the in-battle
-//!   pause menu key-value map (`pause_kv`), and the Instant Action playlist (`ia_playlist`,
-//!   `ia_random`).
 
 use bfe_desktop::{
     paths::{resolve_desktop_paths, DesktopPaths, DesktopPathsOptions},
@@ -408,6 +370,7 @@ impl AppSettingsStore {
             let mut interface = InterfaceSettings::new();
             let player = PersistedPlayerSettings::default();
             PersistedPlayerSettings::apply_shell_to_interface(&player.shell, &mut interface);
+            interface.fresh = true;
             return (player, interface, false);
         };
         let record = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
@@ -417,11 +380,13 @@ impl AppSettingsStore {
             let mut interface = InterfaceSettings::new();
             let player = PersistedPlayerSettings::default();
             PersistedPlayerSettings::apply_shell_to_interface(&player.shell, &mut interface);
+            interface.fresh = true;
             return (player, interface, false);
         };
         // Electron shares the complete/values record. Only files carrying an
         // old native shell projection can contain the erroneous 0.5 default;
         // browser-selected 0.5 and other saved slider values remain intentional.
+        let fresh = !native_record && parsed.values.is_empty();
         let migrated = native_record && parsed.native_settings_version == 0;
         if migrated {
             let sensitivity = parsed
@@ -479,7 +444,21 @@ impl AppSettingsStore {
                 &interface,
                 &parsed.shell,
             ));
+        interface.fresh = fresh;
         (parsed, interface, migrated)
+    }
+
+    pub fn adopt_gpu_preset(&mut self, renderer: &str, vendor: &str) -> Result<(), String> {
+        if !self.interface.fresh { return Ok(()); }
+        let gpu = bfe_interface::settings::classify_gpu(renderer, vendor);
+        self.interface.adopt_hardware_defaults(Some(&gpu), None);
+        self.interface.fresh = false;
+        eprintln!("first-run graphics: GPU={renderer} preset={}", self.interface.get_string("performancePreset"));
+        if gpu.is_old_intel {
+            self.player.shell = PersistedPlayerSettings::extract_shell_from_interface(&self.interface, &self.player.shell);
+            self.save_player()?;
+        }
+        Ok(())
     }
 
     /// Synchronizes `self.player` into `self.interface` when `self.player.shell` was mutated directly.
@@ -628,6 +607,25 @@ mod tests {
             update_root: None,
             project_root: dir,
         }
+    }
+
+    #[test]
+    fn first_run_gpu_choice_matches_browser_and_keeps_saved_settings() {
+        let paths = test_paths();
+        let mut store = AppSettingsStore::load(paths.clone());
+        store.adopt_gpu_preset("Intel(R) HD Graphics 3000", "Intel").unwrap();
+        assert_eq!(store.interface.get_string("performancePreset"), "minimum");
+        store.interface.set("performancePreset", "quality");
+        store.player.shell = PersistedPlayerSettings::extract_shell_from_interface(&store.interface, &store.player.shell);
+        store.save_player().unwrap();
+        let mut saved = AppSettingsStore::load(paths.clone());
+        saved.adopt_gpu_preset("Intel(R) HD Graphics 3000", "Intel").unwrap();
+        assert_eq!(saved.interface.get_string("performancePreset"), "quality");
+        for name in ["AMD Radeon R5 Graphics (radeonsi, kabini)", "Intel(R) HD Graphics 4000", "llvmpipe (Intel(R) HD Graphics 3000)"] {
+            assert!(!bfe_interface::settings::classify_gpu(name, "").is_old_intel, "{name}");
+        }
+        assert!(bfe_interface::settings::classify_gpu("Mesa Intel(R) HD Graphics 2000 (SNB GT1)", "").is_old_intel);
+        fs::remove_dir_all(paths.user_data_dir).unwrap();
     }
 
     #[test]

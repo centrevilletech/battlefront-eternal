@@ -164,6 +164,9 @@ impl SharedAudioRouter {
     pub fn speaker_test(&self, kind: Option<&str>) {
         if let Ok(mut guard) = self.test.lock() {
             *guard = kind.and_then(SpeakerTest::new);
+            if std::env::var_os("BFE_MENU_INPUT_TRACE").is_some() {
+                eprintln!("[speaker test] {kind:?}");
+            }
         }
     }
 
@@ -178,6 +181,25 @@ impl SharedAudioRouter {
     }
 
     pub fn pump_headless(&self, status: &Status, scratch: &mut [f32; FRAMES * 2]) {
+        if let Ok(mut test_guard) = self.test.try_lock() {
+            if let Some(test) = test_guard.as_mut() {
+                let mut done = false;
+                for frame in scratch.chunks_mut(2) {
+                    let pair = if done { None } else { test.next() };
+                    done |= pair.is_none();
+                    let [left, right] = pair.unwrap_or([0.0, 0.0]);
+                    frame[0] = left;
+                    frame[1] = right;
+                }
+                if done {
+                    *test_guard = None;
+                    if std::env::var_os("BFE_MENU_INPUT_TRACE").is_some() {
+                        eprintln!("[speaker test] done");
+                    }
+                }
+                return;
+            }
+        }
         if let Ok(mut live_guard) = self.live.try_lock() {
             if let Some(live) = live_guard.as_mut() {
                 live.fill(scratch, status);

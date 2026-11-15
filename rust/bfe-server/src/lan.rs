@@ -1,25 +1,4 @@
 //! LAN discovery responder and scanner (`src/lan.js` and `startLanDiscovery` in `src/local-server.js`).
-//!
-//! Speaks the `BFE-LAN/1` JSON-over-UDP discovery protocol on port `18452`:
-//! - A client searching for LAN games (`discoverLan` in `src/lan.js`) generates a 16-byte random
-//!   hex `nonce` and sends `{"magic": "BFE-LAN/1", "type": "discover", "nonce": "<32 hex>"}` to
-//!   IPv4 broadcast (`255.255.255.255:18452`), IPv4 loopback (`127.0.0.1:18452`), IPv6 loopback
-//!   (`[::1]:18452`), and IPv6 link-local multicast (`[ff02::bf:1]:18452` across every local
-//!   interface scope).
-//! - A dedicated server (`startLanDiscovery` in `src/lan.js`, wired by `startLocalServer` in
-//!   `src/local-server.js`) listens on UDP `0.0.0.0:18452` and `[::]:18452` (`IPV6_V6ONLY = 1`,
-//!   joining `ff02::bf:1` on every local interface).
-//! - To prevent UDP reflection/amplification, the responder enforces:
-//!   1. `MAX_PACKET = 2048` bytes on both incoming probes and outgoing server responses.
-//!   2. Per-source-IP rate limiting of 1 response per `250 ms` (`recent` map in `startLanDiscovery`,
-//!      bounded at `1024` entries with a `10 s` retention sweep).
-//!   3. Strict validation that `magic === "BFE-LAN/1"`, `type === "discover"`, and `nonce` is a
-//!      32-character lowercase hex string (`validNonce` in `src/lan.js`).
-//! - The response echoes the caller's `nonce` and embeds `lanInfo(info())` (which strips
-//!   `description` and `sponsor` from `/info` so the reply fits in a single UDP datagram).
-//! - On the client side, `cleanServer` (`clean_lan_server`) validates every field of the reply,
-//!   derives `address` from the UDP packet's source IP (`rinfo.address`) and advertised `info.port`,
-//!   and prefers IPv4 over IPv6 when the same server `id` answers on both families.
 
 use bfe_transport::crypto::random;
 use bfe_transport::server::normalize_ip;
@@ -79,32 +58,6 @@ fn ipv6_multicast_interfaces() -> Vec<u32> {
 }
 
 /// Validates and sanitizes a `BFE-LAN/1` server response packet (`export function cleanServer(m, rinfo, nonce)` in `src/lan.js`).
-///
-/// Why this strict field-by-field sanitization exists:
-/// Any host on the local network can answer a broadcast discovery probe. `cleanServer` ensures
-/// that:
-/// - `m.magic === "BFE-LAN/1"`, `m.type === "server"`, and `m.nonce === nonce` (matching the
-///   client's 16-byte random challenge so off-path spoofed replies are ignored).
-/// - `info.id` is a 64-char lowercase hex SHA-256 server identity.
-/// - `info.port` is in `1..=65535`, `info.maxPlayers` is in `1..=256`, and `info.players` is
-///   clamped to `0..=maxPlayers`.
-/// - `info.rotation` is a non-empty array of at most 32 strings (each clipped to 64 chars).
-/// - String metadata (`name`, `profile`, `simulation`, `content`, `fingerprint`, `query`,
-///   `location`) is length-bounded and control characters (`\x00-\x1f`, `\x7f-\x9f`) in `location`
-///   are replaced with spaces.
-/// - `address` is constructed from the actual source IP of the UDP datagram (`rinfo.ip()`, with
-///   IPv4-mapped IPv6 addresses normalized to IPv4) and `info.port`, never trusting an IP string
-///   inside the JSON payload.
-///
-/// Validates and sanitizes an untrusted LAN discovery response datagram, porting
-/// `cleanLanServer(msg, rinfo, nonce)` from `packages/bfe-server/src/lan.js`.
-///
-/// Why strict field sanitization and nonce matching are required (`lan.js`):
-/// LAN discovery runs over unauthenticated UDP broadcast (`255.255.255.255:19420`) and IPv6
-/// link-local multicast (`[ff02::1]:19420`). Checking `msg.nonce == nonce` prevents off-path
-/// spoofed replies, and clamping string lengths (`name`, `map`, `mode`, `version`) and numeric
-/// ranges (`port`, `players`, `maxPlayers`) prevents a rogue LAN peer from injecting oversized
-/// payloads into the server browser UI.
 pub fn clean_lan_server(msg: &Value, rinfo: SocketAddr, nonce: &str) -> Option<Value> {
     let obj = msg.as_object()?;
     if obj.get("magic").and_then(Value::as_str) != Some(LAN_MAGIC) {

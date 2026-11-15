@@ -1,24 +1,6 @@
 //! Sync blocks: what crosses between JavaScript and Rust at a phase's
 //! boundary, a kind's entities as rows of f64 in the module's memory
 //! (docs/sim-store.md, "Sync blocks").
-//!
-//! ```text
-//! [0] rows  [1] stride (f64 a row)  [2] where the heap starts  [3] heap length
-//! [4] retired rows (the first rows: entities removed since the last export)
-//! rows: slot, generation, then the fields the schema lists, in its order
-//! heap: what a row's lists, sets and maps hold (a row has their start and
-//! length; a map's entries are its key's string and its value's words)
-//! ```
-//!
-//! After a phase in Rust, the generated export loop writes the rows of the
-//! kinds it changed and JavaScript's generated loop copies them into the
-//! mirror objects unported code reads. Before a phase in Rust, JavaScript's
-//! generated import loop writes the fields of objects it still owns that the
-//! phase reads, and Rust's copies them in. Every field is a number in a
-//! row: a boolean 0 or 1, an enum its index, a reference the slot and
-//! generation of what it names, a string or definition its index, a
-//! Vector3 three numbers; a field that can be null or undefined takes a
-//! word for its tag first (as in the capture format).
 
 pub const HEADER: usize = crate::gen::BlockHeader::WORDS;
 

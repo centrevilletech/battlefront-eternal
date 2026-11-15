@@ -270,7 +270,7 @@ impl Engine for Native {
                 if self.graphics_trace&&tick as u64%60==0{eprintln!("graphics living: tick={} teams={:?}",tick,self.context.value.world_living_units().unwrap_or_default());}
                 if let Some(census) = &mut self.census {
                     if let Ok(Some(line)) = census.sample(&self.context.value, tick as u64, 600) {
-                        eprintln!("ai census local {line}");
+                        for line in line.lines() { eprintln!("ai census local {line}"); }
                     }
                 }
                 Ok(output)
@@ -309,6 +309,13 @@ impl Engine for Native {
         self.counters.combat_records_published =
             self.counters.combat_records_published.saturating_add(total);
         Ok(pub_view)
+    }
+
+    fn published_own(&self) -> Result<Option<bfe_sim::wire::publisher::OwnFacts>, String> {
+        self.context
+            .value
+            .world_published_own(self.handles.publication, self.handles.client)
+            .map_err(|e| e.to_string())
     }
 
     fn acknowledge(

@@ -136,13 +136,3 @@ impl State {
     }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-
-    #[no_mangle]
-    pub extern "C" fn f4_connections_init(capacity:u32) { f4_connections_init_in(crate::abi::facade::world(), capacity) }
-    #[no_mangle]
-    pub extern "C" fn f4_connection_command() ->*const f64 { f4_connection_command_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-}

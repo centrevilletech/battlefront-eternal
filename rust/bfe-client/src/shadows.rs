@@ -12,7 +12,10 @@ pub struct Shadows {
     maps: Vec<u32>,
     samples: Vec<(u32,u32)>,
     size: usize,
+    frame_ms: f64,
+    slow: bool,
     caches: Vec<u32>,
+    caster_bounds: [Option<[f64; 4]>; 4],
     casters: bfe_render::native_casters::Casters,
 }
 impl Shadows {
@@ -75,8 +78,8 @@ impl Shadows {
         bridge.frame_shadow_reserve_frame();
         eprintln!("native shadows: cascades={count} size={size} comparison=LEQUAL");
         Ok(Self {
-            maps, samples, size,
-            caches,
+            maps, samples, size, frame_ms: 0., slow: false,
+            caches, caster_bounds: [None; 4],
             casters,
         })
     }
@@ -85,6 +88,13 @@ impl Shadows {
         for(texture,sample)in self.samples{bridge.r.core.forget_texture(texture);resources.dispose_sample(sample)?;}
         bridge.r.cameras.input[I::CASCADE_COUNT]=0.;Ok(())
     }
+    pub fn frame_time(&mut self, seconds: f64) {
+        if !seconds.is_finite() || seconds <= 0. || seconds > 0.25 { return; }
+        let ms = seconds * 1000.;
+        self.frame_ms += 0.05 * (ms - self.frame_ms);
+        if self.frame_ms > 1000. / 30. { self.slow = true; }
+        else if self.frame_ms < 1000. / 40. { self.slow = false; }
+    }
     pub fn publish(
         &mut self,
         bridge: &mut Bridge,
@@ -92,7 +102,9 @@ impl Shadows {
         records: usize,
     ) -> Result<(), String> {
         let count=self.maps.len();let size=self.size;
+        let skin_timer=bridge.r.core.profile.clock();
         self.casters.prepare(&mut bridge.r.core, records)?;
+        bridge.r.core.profile.cpu("shadow skin upload",skin_timer);
         let mut world = three::Matrix4::default();
         world
             .elements
@@ -122,7 +134,13 @@ impl Shadows {
             .copy_from_slice(&view.values[SF::SUN_DIRECTION..SF::SUN_DIRECTION + 3]);
         bridge.r.cameras.main();
         bridge.camera_cascades_frame();
+        bridge.r.frames.plan.shadow_periods = if self.slow { [1, 2, 4, 4] } else { [1; 4] };
+        bridge.r.frames.plan.facts[F::SHADOW_COUNT] = count as f64;
         for cascade in 0..count {
+            let at = cascade * bfe_render::cameras::layout::cascade::LEN;
+            bridge.r.frames.plan.facts[F::SHADOW_DIRTY + cascade] = bridge.r.cameras.cascades.output[at + bfe_render::cameras::layout::cascade::DIRTY];
+            bridge.r.frames.plan.facts[F::SHADOW_MOVED + cascade] = bridge.r.cameras.cascades.output[at + bfe_render::cameras::layout::cascade::MOVED];
+            if !bridge.r.frames.plan.shadow_due(cascade) { continue; }
             bridge.camera_shadow_frame(cascade as u32);
             bridge.camera_static_shadow_frame(cascade as u32);
             bridge.r.shadow.static_view[bfe_render::static_layout::SHADOW_TIME] =
@@ -153,23 +171,20 @@ impl Shadows {
             bridge.r.frames.meta[role * M::LEN + M::BOUND] = 1.;
             bridge.r.frames.meta[role * M::LEN + M::KIND] = K::SHADOW as f64;
             bridge.frame_publish_frame(role as u32);
-            let at = cascade * bfe_render::cameras::layout::cascade::LEN;
-            bridge.r.frames.plan.facts[F::SHADOW_DIRTY + cascade] =
-                bridge.r.cameras.cascades.output[at + bfe_render::cameras::layout::cascade::DIRTY];
-            bridge.r.frames.plan.facts[F::SHADOW_MOVED + cascade] =
-                bridge.r.cameras.cascades.output[at + bfe_render::cameras::layout::cascade::MOVED];
             // Copy cached static depth into the live comparison map before
             // moving casters. FramePlan retains its last-cascade cadence.
             bridge.r.shadow.input[S::S_TARGET] = self.maps[cascade] as f64;
             bridge.r.shadow.input[S::S_FROM] = self.caches[cascade] as f64;
+            let caster_timer=bridge.r.core.profile.clock();
             let shadow_view = &bridge.r.shadow.static_view;
-            self.casters.publish(
+            let bounds = self.casters.publish(
                 &bridge.r.core,
                 &mut bridge.r.shadow.input,
                 records,
                 &shadow_view[16..32],
                 &shadow_view[..16],
             )?;
+            bridge.r.core.profile.cpu("shadow caster lists",caster_timer);
             let live_role = R::SHADOW_DYNAMIC0 + cascade;
             let binding: [f64; B::LEN] = bridge.r.frames.bindings
                 [role * B::LEN..(role + 1) * B::LEN]
@@ -177,6 +192,13 @@ impl Shadows {
                 .unwrap();
             bridge.r.frames.bindings[live_role * B::LEN..(live_role + 1) * B::LEN]
                 .copy_from_slice(&binding);
+            let invalid = bridge.r.frames.plan.facts[F::SHADOW_DIRTY + cascade] != 0.
+                || bridge.r.frames.plan.facts[F::SHADOW_MOVED + cascade] != 0.;
+            let rect = damage_rect(self.caster_bounds[cascade], bounds, size, invalid);
+            self.caster_bounds[cascade] = bounds;
+            let live = &mut bridge.r.frames.bindings[live_role * B::LEN..(live_role + 1) * B::LEN];
+            live[B::CLIPPED] = 1.;
+            live[B::SCISSOR..B::SCISSOR+4].copy_from_slice(&rect);
             bridge.r.frames.meta[live_role * M::LEN + M::BOUND] = 1.;
             bridge.r.frames.meta[live_role * M::LEN + M::KIND] = K::SHADOW as f64;
             bridge.frame_publish_frame(live_role as u32);
@@ -186,5 +208,37 @@ impl Shadows {
         view.values[SF::CASCADE_NEAR] = bridge.r.cameras.cascades.range[0];
         view.values[SF::CASCADE_FAR] = bridge.r.cameras.cascades.range[1];
         Ok(())
+    }
+}
+
+// Restore both the previous and current caster footprints from the static
+// cache, erasing departed casters as well as preparing new ones. Unchanged
+// static pixels elsewhere already contain exactly the same depth.
+fn damage_rect(previous: Option<[f64; 4]>, current: Option<[f64; 4]>, size: usize, invalid: bool) -> [f64; 4] {
+    let size = size as f64;
+    if invalid { return [0., 0., size, size]; }
+    let bounds = match (previous, current) {
+        (None, None) => return [0.; 4],
+        (Some(a), None) | (None, Some(a)) => a,
+        (Some(a), Some(b)) => [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])],
+    };
+    let x0 = ((bounds[0] * 0.5 + 0.5) * size - 2.).floor().clamp(0., size);
+    let y0 = ((bounds[1] * 0.5 + 0.5) * size - 2.).floor().clamp(0., size);
+    let x1 = ((bounds[2] * 0.5 + 0.5) * size + 2.).ceil().clamp(x0, size);
+    let y1 = ((bounds[3] * 0.5 + 0.5) * size + 2.).ceil().clamp(y0, size);
+    [x0, y0, x1-x0, y1-y0]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::damage_rect;
+    #[test]
+    fn shadow_copy_erases_departed_casters_and_invalid_windows() {
+        let old = Some([-0.5, -0.5, 0., 0.]);
+        let new = Some([0., 0., 0.5, 0.5]);
+        assert_eq!(damage_rect(old, new, 100, false), [23., 23., 54., 54.]);
+        assert_eq!(damage_rect(old, None, 100, false), [23., 23., 29., 29.]);
+        assert_eq!(damage_rect(None, None, 100, false), [0.; 4]);
+        assert_eq!(damage_rect(old, new, 100, true), [0., 0., 100., 100.]);
     }
 }

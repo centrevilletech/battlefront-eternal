@@ -13,7 +13,6 @@ use crate::gen::{
     self, AiPhaseFacts, AiPhaseHeader, AiPhaseReticle, F2Input, F2PadTeam,
     F3Separation, F4LiveInput, F4TailInput, FfInputs, Vehicles,
 };
-use crate::world::admit::{Call, Returned};
 
 impl Authority {
     /// The pre-step writes for the tick being stepped.

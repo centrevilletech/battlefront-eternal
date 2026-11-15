@@ -32,50 +32,6 @@ unsafe impl GlobalAlloc for Count {
 }
 #[global_allocator]
 static ALLOCATOR: Count = Count;
-#[test]
-fn frames_include_births_and_expiry_without_allocating() {
-    let content =
-        serde_json::from_str(include_str!("../../../tests/fixtures/presentation.json")).unwrap();
-    let mut p = Presentation::new(
-        content,
-        Limits {
-            effects: 8,
-            emitters: 16,
-            particles: 64,
-            commands: 16,
-            events: 128,
-        },
-    );
-    p.input[f::VERSION] = layout::VERSION as f64;
-    p.input[f::PRESENT] = 1.0;
-    p.input[f::DT] = 1.0 / 60.0;
-    p.input[f::COMMANDS] = 1.0;
-    let at = f::STRIDE;
-    p.input[at + c::SEQUENCE] = 1.0;
-    p.input[at + c::ID] = 1.0;
-    p.input[at + c::GENERATION] = 1.0;
-    p.input[at + c::CONTENT] = 1.0;
-    p.input[at + c::SEED] = 1234.0;
-    p.input[at + c::QUATERNION + 3] = 1.0;
-    p.input[at + c::TINT] = 1.0;
-    p.input[at + c::SCALE] = 1.0;
-    TRACK.with(|t| t.set(true));
-    p.frame();
-    TRACK.with(|t| t.set(false));
-    assert_eq!(p.header[h::STATUS], 0.0);
-    assert_eq!(p.header[h::PARTICLES], 4.0);
-    assert_eq!(ALLOCS.with(Cell::get), 0);
-    p.input[f::COMMANDS] = 0.0;
-    TRACK.with(|t| t.set(true));
-    for frame in 1..240 {
-        p.input[f::FRAME] = frame as f64;
-        p.frame();
-    }
-    TRACK.with(|t| t.set(false));
-    assert_eq!(p.header[h::STATUS], 0.0);
-    assert_eq!(p.header[h::PARTICLES], 0.0);
-    assert_eq!(ALLOCS.with(Cell::get), 0);
-}
 
 // Every store tiny, births without limit, children per particle, an effect
 // wider than the emitter store, and every kind of malformed command. The

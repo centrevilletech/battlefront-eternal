@@ -218,6 +218,10 @@ impl Units {
         let actor=self.actors.get(actor)?;
         Some((&self.contents.get(actor.content)?.skeleton,&actor.rig))
     }
+    pub fn rider_clip(&self, actor: usize, clip: usize) -> Option<&bfe_pose::Clip> {
+        let actor = self.actors.get(actor)?;
+        Some(&self.contents.get(actor.content)?.clips.get(clip)?.sample)
+    }
     /// Attachments are load-time rigid nodes: guns, muzzle markers, shadow
     /// proxies, and their children. Only the newest actor can grow its range.
     pub fn attach(&mut self, actor: usize, attachments: &[Attachment]) {

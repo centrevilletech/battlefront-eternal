@@ -233,17 +233,6 @@ pub fn spawn_policy_from_query(query: &str, mission: Option<&MissionSpec>) -> Sp
 
 /// Resolves the startup spawn policy from structured [`SpawnParams`] and `mission`
 /// (`src/spawn-screen/policy.js` `spawnPolicy`).
-///
-/// Rules preserved from JavaScript:
-/// - In network games (`network=1`), stale `unit=` and `spawn=` query parameters
-///   are ignored so the client always opens the spawn screen unless `spawnscreen=0`
-///   is explicitly passed.
-/// - `side=` picks that faction's first non-hero class in the mission; if the
-///   mission lacks that faction, offline play keeps `DEFAULT_UNIT` and `side=`,
-///   whereas online play falls back to the mission's default class and its own side.
-/// - Without overrides, the screen opens on `DEFAULT_UNIT` if either team has it
-///   (e.g. Republic on Theed where CIS is team 1 and Republic is team 2), or else
-///   team 1's first playable class (e.g. Empire on Hoth).
 pub fn spawn_policy(params: &SpawnParams, mission: Option<&MissionSpec>) -> SpawnPolicy {
     let online = matches!(non_empty(&params.network), Some("1" | "true"));
     let unit = if online {

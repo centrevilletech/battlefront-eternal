@@ -316,20 +316,7 @@ impl Prepared{
 }
 
 // Immediate native GL calls can wait for the GPU. That wait is not CPU pressure.
-pub(crate) struct CpuSample{wall:std::time::Instant,thread:Option<f64>}
-impl CpuSample{
-    pub fn now()->Self{Self{wall:std::time::Instant::now(),thread:thread_cpu_ms()}}
-    pub fn elapsed_ms(&self)->f64{self.thread.zip(thread_cpu_ms()).map_or_else(||self.wall.elapsed().as_secs_f64()*1000.,|(start,end)|(end-start).max(0.))}
-}
-#[cfg(all(target_os="linux",target_pointer_width="64"))]
-fn thread_cpu_ms()->Option<f64>{
-    #[repr(C)]struct Time{seconds:std::ffi::c_long,nanoseconds:std::ffi::c_long}
-    unsafe extern "C"{fn clock_gettime(clock:i32,value:*mut Time)->i32;}
-    let mut t=Time{seconds:0,nanoseconds:0};
-    if unsafe{clock_gettime(3,&mut t)}==0{Some(t.seconds as f64*1000.+t.nanoseconds as f64/1e6)}else{None}
-}
-#[cfg(not(all(target_os="linux",target_pointer_width="64")))]
-fn thread_cpu_ms()->Option<f64>{None}
+pub(crate) use bfe_render::profile::CpuSample;
 
 pub struct Scene {
     pub spawn_objectives: [Vec<String>;2],
@@ -1625,16 +1612,19 @@ impl Scene {
         replay:&crate::online::replay::Replay, history:&crate::online::replay::History,
         camera:&mut MapCamera,dt:f64) {
         let timer=self.bridge.r.core.profile.clock();
+        if let Some(shadows) = &mut self.shadows { shadows.frame_time(dt); }
         if let Some(resources)=&mut self.online {
             crate::app::bench::apply_camera(camera);
             let mut world=Matrix4::default();
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
             resources.items.hide_piloted_remote = receiver.own.remote.is_some()
                 && (camera.first_person || receiver.own.remote_zoom_step != 0);
+            resources.animation_view(camera);
             resources.frame(receiver,receiver.clock.shown,dt.min(8./60.),camera.position,
                 replay,history,&mut self.bridge);
             let rider_eye = resources.prepare_camera(receiver, replay, &world.elements);
             let drawn = crate::online::cameras::DrawnDeath {
+                held_camera: resources.animated.held_camera(receiver.own.id as u32, receiver.own.generation as u32),
                 chest: resources.drawn_chest(receiver),
                 killer_feet: resources
                     .cameras
@@ -1667,11 +1657,13 @@ impl Scene {
                 } else {
                     0.
                 };
-            resources.finish_frame(receiver, replay, &world.elements, cue);
+            resources.animation_view(camera);
+            resources.finish_frame(receiver, replay, &world.elements, cue, &mut self.bridge.r.core.profile);
             resources.capture_shot_scene(receiver, camera);
             resources.present_ordnance(receiver, replay, dt.min(8./60.), &mut self.bridge);
             resources.present_arcs(receiver, replay, dt.min(8./60.), &world, &camera.snapshot().values[..16], self.size[1] as f64, &mut self.bridge);
             resources.present_shields(dt.min(8./60.), camera.position, &camera.snapshot().values, self.render_size, self.depth_texture, &mut self.bridge);
+            resources.present_weather(dt.min(8./60.), camera.position, &camera.snapshot().values, self.render_size, &mut self.resources, &mut self.bridge);
             resources.present_holograms(receiver, dt.min(8./60.), camera.position, &camera.snapshot().values, &world.elements, &mut self.bridge);
             resources.lights.frame(dt.min(8./60.), camera.position, camera.far());
             camera.set_lights(&resources.lights.packed, resources.lights.count);
@@ -1791,7 +1783,9 @@ impl Scene {
                 self.bridge.r.frames.plan.facts[f::TEMPORAL]=1.;
             }
         }
+        let canopy_timer = self.bridge.r.core.profile.clock();
         if let Some(canopies)=&self.canopies{canopies.frame(&mut self.bridge,&mut self.resources,view,self.shadows_enabled)?;}
+        self.bridge.r.core.profile.cpu("canopy preparation", canopy_timer);
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         crate::static_scene::update(&mut self.static_content, &mut self.bridge, &view.values);
         if matches!(component, Component::All | Component::Sky) {
@@ -1826,6 +1820,7 @@ impl Scene {
         self.bridge.r.far.input[bfe_render::far::FAR_DRAW] = 1.;
         self.publish(r::FAR, k::FAR, 0, 0, 0);
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
+        let cull_timer=self.bridge.r.core.profile.clock();
         let mut records = if matches!(component, Component::All | Component::Props) {
             let room=if component==Component::All{self.online.as_ref().map_or(0,|r|(r.record_budget()+r.hidden_shadow_budget()).min(bfe_render::instances::MAX_RECORDS))}else{0};
             self.static_content.select_limit(&mut self.bridge,bfe_render::instances::MAX_RECORDS-room)
@@ -1850,11 +1845,14 @@ impl Scene {
             })
             .max()
             .unwrap_or(0);
-        if component==Component::All{if let Some(online)=&self.online{(records,bones)=online.append(&mut self.bridge,records,bones);}}
+        if component==Component::All{if let Some(online)=&mut self.online{(records,bones)=online.append(&mut self.bridge,records,bones);}}
+        self.bridge.r.core.profile.cpu("instance list and culling",cull_timer);
+        let lamp_timer = self.bridge.r.core.profile.clock();
         self.lamps.begin();
         let online=&self.online;
         self.lamps.instances(&mut self.bridge.r.core,records,false,&mut |from,to|online.as_ref().is_none_or(|online|online.lamp_visible(from,to)));
         if !self.lamp_worlds.is_empty(){let values=self.lamps.select((1u64<<49,0,0,0),[0.;3],&mut |from,to|online.as_ref().is_none_or(|online|online.lamp_visible(from,to)));for &id in &self.lamp_worlds{self.bridge.world_lamps(id,&values);}}
+        self.bridge.r.core.profile.cpu("lamp selection", lamp_timer);
         if let Some(native)=&mut self.temporal_motion{
             use bfe_render::{motion as M,post_chain::layout::{facts as pf,resource as pr,state as ps}};
             let motion=&mut self.bridge.r.motion;let f=&self.bridge.r.post_chain.input;let state=&self.bridge.r.post_chain.state;
@@ -1864,12 +1862,14 @@ impl Scene {
             motion.input[M::IN_RANGE..M::IN_RANGE+2].copy_from_slice(&[0.,1.]);motion.input[M::IN_TARGET]=f[pf::RESOURCES+pr::VELOCITY*pr::STRIDE+pr::TEXTURE];motion.input[M::IN_SIZE..M::IN_SIZE+2].copy_from_slice(&self.render_size.map(|v|v as f64));motion.input[M::IN_DEPTH]=self.depth_texture as f64;motion.input[M::IN_CLEAR]=1.;
             native.prepare(&self.bridge.r.core,motion,records,state[ps::VALID]!=0.);
         }
+        let shadow_timer=self.bridge.r.core.profile.clock();
         if self.shadows_enabled { if let Some(shadows) = &mut self.shadows {
             let shadow_records = self.online.as_ref().map_or(records, |online| {
                 online.append_hidden_shadows(&mut self.bridge, records, bones)
             });
             shadows.publish(&mut self.bridge, view, shadow_records)?;
         }}
+        self.bridge.r.core.profile.cpu("shadow preparation",shadow_timer);
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         self.publish(r::NEAR, k::SCENE, records, bones, 0);
         self.bridge.r.post.input[..bfe_render::post::STEP].copy_from_slice(&self.image_step);
@@ -1888,12 +1888,16 @@ impl Scene {
                 projection.elements[8]=view.values[8];projection.elements[9]=view.values[9];
                 let source=&self.online;self.lamps.instances(&mut self.bridge.r.core,view_records,true,&mut |from,to|source.as_ref().is_none_or(|online|online.lamp_visible(from,to)));
                 if let Some(native)=&mut self.temporal_motion{use bfe_render::motion as M;self.bridge.r.motion.input[M::IN_VIEW_PROJECTION..M::IN_VIEW_PROJECTION+16].copy_from_slice(&projection.elements);native.view(&self.bridge.r.core,&mut self.bridge.r.motion,view_records);}
-                self.bridge.r.core.input[..16].copy_from_slice(&projection.elements);self.bridge.r.frames.plan.facts[f::VIEW_SHOWN]=1.;self.publish(r::VIEW,k::VIEW,view_records,view_bones,0);}}
+                self.bridge.r.core.input[..16].copy_from_slice(&projection.elements);self.bridge.r.frames.plan.facts[f::VIEW_SHOWN]=1.;
+                // The view scene packs its own lights (point-lights.js): only the copies syncViewLights makes.
+                if let Some(online)=&self.online{let l=&online.lights;let n=l.view_count;self.bridge.r.core.input[shader::FRAME_LIGHT_COUNT]=n as f64;self.bridge.r.core.input[shader::FRAME_LIGHTS..shader::FRAME_LIGHTS+n*8].copy_from_slice(&l.view_packed[..n*8]);}self.publish(r::VIEW,k::VIEW,view_records,view_bones,0);}}
         if let Some(native)=&self.temporal_motion{let count=native.count;self.publish(r::MOTION,k::MOTION,count,0,0);}
         if self.online.is_some(){self.publish(r::HUD0,k::HUD,0,0,0);}
         self.bridge.r.core.profile.cpu("draw list building",build_timer);
         let submit_timer=self.bridge.r.core.profile.clock();
+        let gpu_frame = self.bridge.r.core.profile.begin_frame(&self.bridge.r.core.gl);
         let success = self.bridge.battle_frame(&mut self.resources);
+        self.bridge.r.core.profile.end(&self.bridge.r.core.gl, "GPU frame", gpu_frame);
         if let Some(native)=&mut self.temporal_motion{native.complete(success);}
         self.bridge.r.core.profile.cpu("GL submit",submit_timer);
         self.bridge.r.core.profile.frame(&self.bridge.r.core.gl);

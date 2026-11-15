@@ -33,6 +33,8 @@ pub const REC_WORLD: usize = 20; // matrixWorld
 pub const REC_BIND_INVERSE: usize = 36;
 pub const REC_LOOK: usize = 52; // sunScale, ambientPull, brightness
 pub const REC_FLAGS: usize = 56; // cull side (0 front, 1 back, 2 both) | 4 alpha to coverage | 8 depth write
+// A native caster can be excluded without changing its colour draw state.
+pub const NO_SHADOW: u32 = 16;
 // Native temporal identity uses the three reserved scalar slots after flags.
 pub const REC_MOTION_ID:usize=57;
 pub const REC_MOTION_GENERATION:usize=58;
@@ -43,6 +45,10 @@ pub const REC_EXTRA: usize = 76; // a material's own values the instance gives (
 // group order, render order, id (z from its sphere's centre in the world).
 pub const REC_BLEND: usize = REC_EXTRA + shader::ROW_EXTRA_TEXELS * 4;
 pub const REC_STRIDE: usize = REC_BLEND + 4;
+// receiveShadow, for a program that receives shadows (shader.rs SHADOW_EXTRAS: the record's EXTRA + 14). Bodies,
+// held weapons and vehicle rigs set it, as their meshes do in the browser build (actor.js, combat.js,
+// vehicle-rig.js); props and the first-person view leave it off.
+pub const REC_RECEIVE_SHADOW: usize = REC_EXTRA + 14;
 pub const KIND_BLENDED: f64 = 3.0;
 pub const KIND_BLENDED_RIGID: f64 = 4.0;
 pub const MAX_RECORDS: usize = 256;
