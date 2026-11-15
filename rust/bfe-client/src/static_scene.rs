@@ -441,6 +441,7 @@ impl Admission {
         // when culling selects the same props as the preceding frame.
         pack_rows(&self.records, &self.bones, &self.selected,
             &mut bridge.r.core.input, &mut bridge.r.core.bones);
+        crate::shadows::limit_distance(&mut bridge.r.core.input, 0, self.selected.len(), 70.);
         self.selected.len()
     }
 }

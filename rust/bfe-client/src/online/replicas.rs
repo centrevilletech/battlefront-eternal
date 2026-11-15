@@ -1535,6 +1535,10 @@ impl Replicas {
     pub fn class_name(&self, id: usize) -> &str {
         self.class_names.get(id).map_or("", String::as_str)
     }
+    /// The player's volumes: master, effects, ambience, music, voice, interface.
+    pub fn set_volumes(&mut self, volumes: [f64; 6]) {
+        self.sound.volumes = volumes;
+    }
     pub fn set_looks(&mut self, looks: Looks) {
         self.arcs.enhanced = looks.arcs;
         self.shields.enhanced = looks.shields;
@@ -1901,8 +1905,11 @@ impl Replicas {
     // Enclosed eye views hide their hull's color while keeping its sun shadow.
     // These records follow the visible prefix and never enter the color pass.
     pub fn append_hidden_shadows(&self, bridge: &mut Bridge, records: usize, bones: usize) -> usize {
-        let (records, bones) = self.hulls.append_hidden_shadow(bridge, records, bones);
-        self.turrets.append_hidden_shadow(bridge, records, bones).0
+        let (hulls, bones) = self.hulls.append_hidden_shadow(bridge, records, bones);
+        crate::shadows::limit_distance(&mut bridge.r.core.input, records, hulls, 110.);
+        let (end, _) = self.turrets.append_hidden_shadow(bridge, hulls, bones);
+        crate::shadows::limit_distance(&mut bridge.r.core.input, hulls, end, 70.);
+        end
     }
     pub fn lamp_visible(&self,from:[f64;3],to:[f64;3])->bool{
         let d=std::array::from_fn::<_,3,_>(|i|to[i]-from[i]);let length=d.iter().map(|v|v*v).sum::<f64>().sqrt();if length<0.4{return true;}
@@ -1973,10 +1980,14 @@ impl Replicas {
                 for part in first..records{let row=&mut bridge.r.core.input[draw::IN_RECORDS+part*draw::REC_STRIDE..][..draw::REC_STRIDE];row[draw::REC_MOTION_ID]=8589934592.+id as f64;row[draw::REC_MOTION_GENERATION]=generation as f64;row[draw::REC_MOTION_PART]=(part-first+1)as f64;row[draw::REC_FLAGS]=(row[draw::REC_FLAGS]as u32|shadow_flags)as f64;}
             }
         }
+        let first = records;
         let (records, bones) = self.hulls.append(bridge, records, bones);
+        crate::shadows::limit_distance(&mut bridge.r.core.input, first, records, 110.);
+        let first = records;
         let (records, bones) = self.turrets.append(bridge, records, bones);
         let (records, bones) = self.buildings.append(bridge, records, bones);
         let (records, bones) = self.animated.append(bridge, records, bones);
+        crate::shadows::limit_distance(&mut bridge.r.core.input, first, records, 70.);
         let (records, bones) = self.items.append(bridge, records, bones);
         self.combat.append(bridge, records, bones)
     }

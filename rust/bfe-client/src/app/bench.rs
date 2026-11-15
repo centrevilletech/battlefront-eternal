@@ -465,6 +465,9 @@ impl Bench {
             }))?;
         }
         out.write_all(b"]")?;
+        if let Some(scene) = battle.scene.online.as_ref() {
+            write!(out, r#","soundFeet":{:?}"#, scene.sound.foot_counts)?;
+        }
         out.write_all(br#","debris":["#)?;
         if let Some(scene) = battle.scene.online.as_ref() {
             for (index, piece) in scene.combat.debris.pieces().iter().enumerate() {
