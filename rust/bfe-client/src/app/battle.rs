@@ -1595,6 +1595,7 @@ impl BattleController {
         &mut self,
         dt: f64,
         focused: bool,
+        hidden: bool,
         settings: &mut AppSettingsStore,
         _audio_router: &SharedAudioRouter,
     ) -> Result<Option<BattleTransition>, String> {
@@ -1811,7 +1812,10 @@ impl BattleController {
                 // run client-side prediction replay, and interpolate the 3D camera.
                 *now_ms += dt * 1000.0;
                 world.set_paused(self.pause_menu.is_open);
-                world.set_suspended(!focused);
+                // As the page's world worker: a battle without the window's
+                // focus plays on (a released mouse opens the pause menu, which
+                // freezes it); only a hidden window suspends it.
+                world.set_suspended(hidden);
                 world.poll_publications(receiver, *now_ms)?;
                 if self.frames == 60 {
                     eprintln!("local HUD publications: focused={} welcomed={} packets={} corrections={} alive={} active={} visible={}",
