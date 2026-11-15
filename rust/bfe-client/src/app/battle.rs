@@ -1158,23 +1158,58 @@ impl BattleController {
         settings: &AppSettingsStore,
         textures:crate::scene::TextureOptions,
     ) -> Result<OnlineAdmission, String> {
-        // Resolve the target `HOST:PORT` from explicit override, `launch.address`, or `BFE_SERVER_TARGET`.
-        let raw_target = launch.direct_target().or(server_address)
-            .or_else(|| {
+        // Targets in order: the listing's endpoints (or the LAN/direct address),
+        // then an explicit override, then a `HOST:PORT` server id or `BFE_SERVER_TARGET`.
+        let mut targets = launch.direct_targets();
+        if targets.is_empty() {
+            targets.extend(server_address.or_else(|| {
                 if launch.server_id.contains(':') && launch.server_id != "host:local" {
                     Some(launch.server_id.clone())
-                } else { std::env::var("BFE_SERVER_TARGET").ok() }
-            })
-            .ok_or_else(|| "No server address specified for online join".to_string())?;
+                } else {
+                    std::env::var("BFE_SERVER_TARGET").ok()
+                }
+            }));
+        }
+        if targets.is_empty() {
+            return Err(if launch.listed_identity().is_some() {
+                "This server is reached only through the relay, which this client cannot use yet. Use DIRECT CONNECT with its address.".to_string()
+            } else {
+                "No server address specified for online join".to_string()
+            });
+        }
 
-        // Probe `/info` and prepare the authenticated endpoint (`online::info::prepare`).
+        // Probe `/info` and prepare the authenticated endpoint (`online::info::prepare`),
+        // trying each target until one answers. The first error from a server
+        // that answered explains more than an unreachable address does.
         let id_path = crate::online::info::default_identity()?;
-        let (server_info, endpoint) = crate::online::info::prepare(
-            &raw_target,
-            content_dir,
-            &id_path,
-            &settings.player.profile_name,
-        )?;
+        let mut failure: Option<(bool, String)> = None;
+        let mut admitted = None;
+        for target in &targets {
+            match crate::online::info::prepare(
+                target,
+                content_dir,
+                &id_path,
+                &settings.player.profile_name,
+                launch.listed_identity(),
+            ) {
+                Ok(ready) => {
+                    eprintln!("online join: {target} answered");
+                    admitted = Some(ready);
+                    break;
+                }
+                Err(error) => {
+                    eprintln!("online join: {target}: {error}");
+                    let answered = !crate::online::info::unreachable(&error);
+                    if failure.as_ref().is_none_or(|(had, _)| answered && !had) {
+                        failure = Some((answered, error));
+                    }
+                }
+            }
+        }
+        let (server_info, endpoint) = match admitted {
+            Some(ready) => ready,
+            None => return Err(failure.map(|(_, e)| e).unwrap_or_default()),
+        };
 
         let graphics = Scene::prepare_online(content_dir, &server_info.query,textures)?;
         Ok(OnlineAdmission {
