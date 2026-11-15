@@ -90,7 +90,8 @@ pub fn decode_with(bytes: &[u8], gain_db: f64, rate: u32, compensate: bool) -> R
     if channels == 0 || frames == 0 || !(8000. ..=192000.).contains(&out_rate) {
         return Err("empty audio file".into());
     }
-    Ok(Pcm { rate: out_rate, channels, frames, data: planes.concat() })
+    let sample = audio::voices::Sample { rate: out_rate, channels, frames, data: planes.concat(), ring: None, feed: None };
+    Ok(Pcm { rate: out_rate, channels, frames, sample })
 }
 
 /// The headphone decoder's filters as tools/make_binaural.py writes them
@@ -106,7 +107,7 @@ pub fn headphone_filters(left: &[u8], right: &[u8]) -> Result<(Vec<f32>, usize),
     let mut filters = Vec::with_capacity(32 * frames);
     for c in 0..16 {
         for ear in &ears {
-            filters.extend_from_slice(&ear.data[c * frames..(c + 1) * frames]);
+            filters.extend_from_slice(&ear.sample.data[c * frames..(c + 1) * frames]);
         }
     }
     Ok((filters, frames))
