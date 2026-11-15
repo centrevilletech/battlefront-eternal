@@ -60,7 +60,10 @@
     {
       "key": "post-hud/motion",
       "vertex": "motion.vert",
-      "fragment": ["motion-sample.frag", "motion.frag"],
+      "fragment": [
+        "motion-sample.frag",
+        "motion.frag"
+      ],
       "attributes": {
         "position": 0,
         "uv": 1
@@ -76,7 +79,10 @@
     {
       "key": "post-hud/resolve",
       "vertex": "resolve.vert",
-      "fragment": ["motion-sample.frag", "resolve.frag"],
+      "fragment": [
+        "motion-sample.frag",
+        "resolve.frag"
+      ],
       "attributes": {
         "position": 0,
         "uv": 1
