@@ -1521,6 +1521,7 @@ impl BattleController {
                 bolts: enhanced("boltEffects"),
                 sniper: enhanced("sniperEffects"),
                 jetpack: settings.interface.get_string("jetpackEffects") == "enhanced",
+                rain: settings.interface.get_string("rainEffects") == "enhanced",
             });
         }
         let empty = std::collections::BTreeMap::new();

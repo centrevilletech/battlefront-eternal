@@ -41,6 +41,7 @@ mod lights;
 pub mod particles;
 
 pub mod turrets;
+pub mod weather;
 
 pub mod cameras;
 

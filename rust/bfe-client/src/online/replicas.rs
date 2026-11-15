@@ -92,6 +92,7 @@ pub struct Looks {
     pub sniper: bool,
     /// jetpackEffects: Enhanced only when it says "enhanced".
     pub jetpack: bool,
+    pub rain: bool,
 }
 pub struct Replicas {
     pub first_person: super::first_person::Views,
@@ -105,6 +106,8 @@ pub struct Replicas {
     pub presented: presented::Presented,
     pub arcs: Box<super::lightning::Arcs>,
     jets: Box<super::jetpacks::Jetpacks>,
+    pub rain: Option<Box<super::weather::Rain>>,
+    pub snow: Option<Box<super::weather::Snow>>,
     guns: super::lightning::Guns,
     soft: bool,
     // The tick of the frame being drawn.
@@ -470,6 +473,11 @@ impl Replicas {
             bfe_render::effects::MAX_DRAWS - super::shields::BUBBLES - super::holograms::MATRICES,
         )?);
         bridge.r.core.state.reset();
+        // The map's rain, its floats after the holograms'.
+        let rain = super::weather::Rain::new(content, bridge, renderer, resources.collision.clone(), resources.world, holograms.end())?.map(Box::new);
+        let snow_at = rain.as_ref().map_or(holograms.end(), |r| r.end());
+        let snow = super::weather::Snow::new(content, bridge, textures, renderer, resources.collision.clone(), resources.world, snow_at)?.map(Box::new);
+        bridge.r.core.state.reset();
         // Weapon actions resolve their clips once, per body and bank.
         let sets = content.content.battle.anim_meta.get("sets");
         fn text<'a>(weapon: &'a bfe_content::defs::WeaponDef, key: &str) -> Option<&'a str> {
@@ -496,6 +504,8 @@ impl Replicas {
             presented,
             arcs,
             jets,
+            rain,
+            snow,
             guns,
             // The browser's defaults, until the player's settings arrive.
             soft: true,
@@ -1079,6 +1089,9 @@ impl Replicas {
         self.combat.enhanced_bolts = looks.bolts;
         self.combat.enhanced_sniper = looks.sniper;
         self.jets.enhanced = looks.jetpack;
+        if let Some(rain) = &mut self.rain {
+            rain.enhanced = looks.rain;
+        }
     }
     /// The softParticles setting: particles and arcs fade where they meet
     /// the scene, which needs the frame's depth copy.
@@ -1097,6 +1110,25 @@ impl Replicas {
             on: slot.shield.1,
             dead: slot.dead,
             rolled: slot.shield.2,
+        }
+    }
+    /// Weather.update once the camera is posed: the rain's draws, and its
+    /// cover cache's texture when cells changed.
+    pub fn present_weather(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], gpu: &mut crate::resources::Resources, bridge: &mut Bridge) {
+        if let Some(rain) = &mut self.rain {
+            rain.frame(dt, eye, gpu, bridge);
+        }
+        if let Some(snow) = &mut self.snow {
+            snow.frame(dt, eye, camera, gpu, bridge);
+        }
+        // With the bench's fx key, how often each was drawn, every 600 frames.
+        if self.frame % 600 == 0 && crate::app::bench::fx().is_some() {
+            eprintln!(
+                "fx-weather rain={} rain-enhanced={} snow={}",
+                self.rain.as_ref().map_or(0, |r| r.frames),
+                self.rain.as_ref().is_some_and(|r| r.enhanced),
+                self.snow.as_ref().map_or(0, |s| s.frames)
+            );
         }
     }
     /// Unit.present's bubble for every droideka drawn, once the frame's

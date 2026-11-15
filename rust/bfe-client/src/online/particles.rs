@@ -41,6 +41,10 @@ impl Prepared {
         names.extend(super::shields::textures(content));
         // The command posts' holograms: their flare and the logos' texture.
         names.extend(super::holograms::textures(content));
+        // The map's snowflake, which the snow draws (weather.rs).
+        if let Some(name) = content.map["weather"]["precipitation"]["Texture"][0].as_str() {
+            names.push(name.into());
+        }
         for (_, effects) in &content.effects {
             for d in effects.descriptor["definitions"].as_array().into_iter().flatten() {
                 if let Some(name) = d["geometry"]["texture"].as_str() {
