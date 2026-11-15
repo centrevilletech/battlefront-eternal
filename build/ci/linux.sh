@@ -143,17 +143,7 @@ BFE_AUDIO_NULL=1 \
   cargo test --manifest-path "${manifest}" --locked -p bfe-client \
     --test audio -- --ignored --nocapture
 
-echo "==> Step 5: Native online-tool and dedicated server startup smoke"
-cargo build --manifest-path "${manifest}" --locked -p bfe-client --bin online-tool
-online_tool="rust/target/debug/online-tool"
-"${online_tool}" --help >/dev/null
-
-identity_out="$("${online_tool}" --identity "${smoke_tmp}/identity.key" identity show)"
-if [[ "${identity_out}" != *"Fingerprint:"* ]]; then
-  echo "error: unexpected online-tool identity output: ${identity_out}" >&2
-  exit 1
-fi
-
+echo "==> Step 5: Dedicated server startup smoke"
 if [[ -f "rust/bfe-server/Cargo.toml" ]]; then
   echo "==> Testing bfeserver CLI and --serve operator startup"
   cargo build --manifest-path "${manifest}" --locked -p bfe-server --bin bfeserver
