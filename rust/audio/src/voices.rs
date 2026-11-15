@@ -239,7 +239,9 @@ impl Engine {
     pub fn decoded_sample(&mut self,id:usize,rate:f64,channels:usize,frames:usize,data:Vec<f32>){if id>=self.samples.len()||channels==0||channels>12||data.len()!=frames.saturating_mul(channels){return;}self.samples[id]=Some(Sample{rate,channels,frames,data,ring:None,feed:None});}
     /// Installs a sample made off the device thread (a streamed segment), or
     /// clears the slot.
-    pub fn set_sample(&mut self, id: usize, sample: Option<Sample>) { if let Some(slot) = self.samples.get_mut(id) { *slot = sample; } }
+    /// Puts `sample` in slot `id` and hands back the one it replaces, for the
+    /// caller to free off the device thread.
+    pub fn set_sample(&mut self, id: usize, sample: Option<Sample>) -> Option<Sample> { match self.samples.get_mut(id) { Some(slot) => std::mem::replace(slot, sample), None => sample } }
     /// Decodes ahead for every streamed sample, before a quantum renders.
     pub fn feed_streams(&mut self) { for sample in self.samples.iter_mut().flatten() { if sample.feed.is_some() { sample.feed(); } } }
     /// Room for sample `id`'s `frames` at `rate`, to fill before a voice

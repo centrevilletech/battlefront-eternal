@@ -184,119 +184,142 @@ impl Default for ServerConfig {
 impl ServerConfig {
     /// Merges a parsed `config.json` value over `ServerConfig::default()`
     /// (`{ ...defaults, ...JSON.parse(readFileSync(file, "utf8")) }` in `src/main.js`).
-    pub fn from_json_value(value: &Value) -> Self {
+    /// A known key with a value of the wrong type or out of range is an error naming the key,
+    /// never a silent fall back to its default; a JSON `null` counts as absent.
+    pub fn from_json_value(value: &Value) -> Result<Self, String> {
         let mut cfg = Self::default();
         let Some(obj) = value.as_object() else {
-            return cfg;
+            return Err("the configuration is not a JSON object".to_string());
         };
-        if let Some(s) = obj.get("name").and_then(Value::as_str) {
-            cfg.name = s.to_string();
+        let mut bad = Vec::new();
+        let get = |key: &str| obj.get(key).filter(|v| !v.is_null());
+        let text = |key: &str, bad: &mut Vec<String>| match get(key) {
+            None => None,
+            Some(Value::String(s)) => Some(s.clone()),
+            Some(v) => {
+                bad.push(format!("\"{key}\" must be a string, not {v}"));
+                None
+            }
+        };
+        let flag = |key: &str, bad: &mut Vec<String>| match get(key) {
+            None => None,
+            Some(Value::Bool(b)) => Some(*b),
+            Some(v) => {
+                bad.push(format!("\"{key}\" must be true or false, not {v}"));
+                None
+            }
+        };
+        // A whole number in `range`; 64.0 is 64, 1.9 is an error.
+        let number = |key: &str, range: std::ops::RangeInclusive<u64>, bad: &mut Vec<String>| {
+            let v = get(key)?;
+            let n = v.as_u64().or_else(|| {
+                v.as_f64().filter(|f| f.fract() == 0.0 && *f >= 0.0 && *f <= u64::MAX as f64).map(|f| f as u64)
+            });
+            match n {
+                Some(n) if range.contains(&n) => Some(n),
+                _ => {
+                    bad.push(format!(
+                        "\"{key}\" must be a whole number from {} to {}, not {v}",
+                        range.start(),
+                        range.end()
+                    ));
+                    None
+                }
+            }
+        };
+        if let Some(s) = text("name", &mut bad) {
+            cfg.name = s;
         }
-        if let Some(s) = obj.get("engine").and_then(Value::as_str) {
-            cfg.engine = s.to_string();
+        if let Some(s) = text("engine", &mut bad) {
+            cfg.engine = s;
         }
-        if let Some(s) = obj.get("data").and_then(Value::as_str) {
-            cfg.data = s.to_string();
+        if let Some(s) = text("data", &mut bad) {
+            cfg.data = s;
         }
-        if let Some(arr) = obj.get("rotation").and_then(Value::as_array) {
-            cfg.rotation = arr
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect();
+        match get("rotation") {
+            None => {}
+            Some(Value::Array(arr)) if arr.iter().all(Value::is_string) => {
+                cfg.rotation = arr.iter().filter_map(Value::as_str).map(str::to_string).collect();
+            }
+            Some(v) => bad.push(format!("\"rotation\" must be a list of playlist entries (strings), not {v}")),
         }
-        if let Some(s) = obj.get("master").and_then(Value::as_str) {
-            cfg.master = s.to_string();
+        if let Some(s) = text("master", &mut bad) {
+            cfg.master = s;
         }
-        if let Some(b) = obj.get("onlineNoticeAccepted").and_then(Value::as_bool) {
+        if let Some(b) = flag("onlineNoticeAccepted", &mut bad) {
             cfg.online_notice_accepted = b;
         }
-        if let Some(s) = obj.get("relayPolicy").and_then(Value::as_str) {
-            cfg.relay_policy = s.to_string();
+        if let Some(s) = text("relayPolicy", &mut bad) {
+            if matches!(s.as_str(), "auto" | "never" | "always") {
+                cfg.relay_policy = s;
+            } else {
+                bad.push(format!("\"relayPolicy\" must be auto, never or always, not \"{s}\""));
+            }
         }
-        if let Some(b) = obj.get("honorGlobalBans").and_then(Value::as_bool) {
+        if let Some(b) = flag("honorGlobalBans", &mut bad) {
             cfg.honor_global_bans = b;
         }
-        if let Some(n) = obj.get("maxPlayers").and_then(Value::as_u64) {
+        if let Some(n) = number("maxPlayers", 1..=u32::MAX as u64, &mut bad) {
             cfg.max_players = Some(n as usize);
-        } else if let Some(f) = obj.get("maxPlayers").and_then(Value::as_f64) {
-            if f.is_finite() && f >= 1.0 {
-                cfg.max_players = Some(f as usize);
-            }
         }
-        if let Some(n) = obj.get("maxPlayersPerAddress").and_then(Value::as_u64) {
+        if let Some(n) = number("maxPlayersPerAddress", 1..=u32::MAX as u64, &mut bad) {
             cfg.max_players_per_address = Some(n as usize);
-        } else if let Some(f) = obj.get("maxPlayersPerAddress").and_then(Value::as_f64) {
-            if f.is_finite() && f >= 1.0 {
-                cfg.max_players_per_address = Some(f as usize);
-            }
         }
-        if let Some(n) = obj.get("stateBytesPerSecond").and_then(Value::as_u64) {
-            if n > 0 {
-                cfg.state_bytes_per_second = n as usize;
-            }
-        } else if let Some(f) = obj.get("stateBytesPerSecond").and_then(Value::as_f64) {
-            if f.is_finite() && f > 0.0 {
-                cfg.state_bytes_per_second = f as usize;
-            }
+        if let Some(n) = number(
+            "stateBytesPerSecond",
+            MIN_STATE_BYTES_PER_SECOND as u64..=MAX_STATE_BYTES_PER_SECOND as u64,
+            &mut bad,
+        ) {
+            cfg.state_bytes_per_second = n as usize;
         }
-        if let Some(b) = obj.get("autoSpawn").and_then(Value::as_bool) {
+        if let Some(b) = flag("autoSpawn", &mut bad) {
             cfg.auto_spawn = b;
         }
-        if let Some(b) = obj.get("autoAssignTeams").and_then(Value::as_bool) {
+        if let Some(b) = flag("autoAssignTeams", &mut bad) {
             cfg.auto_assign_teams = b;
         }
         // Older servers wrote no "ai" for their default, Classic.
-        cfg.ai = match obj.get("ai").and_then(Value::as_str) {
-            Some(mode) => ai_mode(mode).to_string(),
+        cfg.ai = match text("ai", &mut bad) {
+            Some(mode) if matches!(mode.as_str(), "enhanced" | "classic" | "off") => mode,
+            Some(mode) => {
+                bad.push(format!("\"ai\" must be enhanced, classic or off, not \"{mode}\""));
+                "classic".to_string()
+            }
             None => "classic".to_string(),
         };
-        if let Some(b) = obj.get("friendlyFire").and_then(Value::as_bool) {
+        if let Some(b) = flag("friendlyFire", &mut bad) {
             cfg.friendly_fire = b;
         }
-        if let Some(n) = obj.get("gamePort").and_then(Value::as_u64) {
-            if (1..=65535).contains(&n) {
-                cfg.game_port = Some(n as u16);
-            }
+        if let Some(n) = number("gamePort", 1..=65535, &mut bad) {
+            cfg.game_port = Some(n as u16);
         }
-        if let Some(s) = obj.get("bind").and_then(Value::as_str) {
-            cfg.bind = Some(s.to_string());
+        if let Some(s) = text("bind", &mut bad) {
+            cfg.bind = Some(s);
         }
-        if let Some(b) = obj.get("discovery").and_then(Value::as_bool) {
+        if let Some(b) = flag("discovery", &mut bad) {
             cfg.discovery = b;
         }
-        if let Some(n) = obj.get("discoveryPort").and_then(Value::as_u64) {
-            if (1..=65535).contains(&n) {
-                cfg.discovery_port = n as u16;
-            }
+        if let Some(n) = number("discoveryPort", 1..=65535, &mut bad) {
+            cfg.discovery_port = n as u16;
         }
-        if let Some(s) = obj.get("stun").and_then(Value::as_str) {
-            cfg.stun = Some(s.to_string());
-        } else if let Some(arr) = obj.get("stun").and_then(Value::as_array) {
-            if let Some(first) = arr.first().and_then(Value::as_str) {
-                cfg.stun = Some(first.to_string());
+        match get("stun") {
+            None => {}
+            Some(Value::String(s)) => cfg.stun = Some(s.clone()),
+            Some(Value::Array(arr)) if arr.iter().all(Value::is_string) => {
+                cfg.stun = arr.first().and_then(Value::as_str).map(str::to_string);
             }
+            Some(v) => bad.push(format!("\"stun\" must be a host:port string, not {v}")),
         }
-        if let Some(n) = obj.get("rotationDelayMs").and_then(Value::as_u64) {
+        if let Some(n) = number("rotationDelayMs", 0..=u32::MAX as u64, &mut bad) {
             cfg.rotation_delay_ms = Some(n);
         }
-        if let Some(b) = obj.get("networkThread").and_then(Value::as_bool) {
+        if let Some(b) = flag("networkThread", &mut bad) {
             cfg.network_thread = b;
         }
-        if let Some(s) = obj.get("content").and_then(Value::as_str) {
-            cfg.content = Some(s.to_string());
-        }
-        if let Some(s) = obj.get("description").and_then(Value::as_str) {
-            cfg.description = Some(s.to_string());
-        }
-        if let Some(v) = obj.get("sponsor") {
-            if !v.is_null() {
-                cfg.sponsor = Some(v.clone());
-            }
-        }
-        if let Some(s) = obj.get("location").and_then(Value::as_str) {
-            cfg.location = Some(s.to_string());
-        }
+        cfg.content = text("content", &mut bad);
+        cfg.description = text("description", &mut bad);
+        cfg.sponsor = get("sponsor").cloned();
+        cfg.location = text("location", &mut bad);
         // Preserve any custom/future JSON keys in `extra` so `save_to_dir` is lossless.
         let known: HashSet<&str> = [
             "name",
@@ -333,7 +356,11 @@ impl ServerConfig {
                 cfg.extra.insert(k.clone(), v.clone());
             }
         }
-        cfg
+        if bad.is_empty() {
+            Ok(cfg)
+        } else {
+            Err(bad.join("; "))
+        }
     }
 
     /// Serializes the configuration back to a JSON object for `config.json` (`save()` in `src/main.js`).
@@ -432,13 +459,8 @@ impl ServerConfig {
         Value::Object(map)
     }
 
-    /// Loads `config.json` from `dir` or returns `ServerConfig::default()` if absent or unreadable.
-    pub fn load_from_dir(dir: &Path) -> Self {
-        Self::load_checked(dir).unwrap_or_default()
-    }
-
     /// Loads `config.json` from `dir`: the defaults when the file does not exist, an error naming
-    /// the file when it exists but cannot be read or is not a JSON object.
+    /// the file when it exists but cannot be read, is not a JSON object, or holds an unusable value.
     pub fn load_checked(dir: &Path) -> Result<Self, String> {
         let path = config_path_in(dir);
         let raw = match fs::read_to_string(&path) {
@@ -447,7 +469,9 @@ impl ServerConfig {
             Err(e) => return Err(format!("cannot read {}: {e}", path.display())),
         };
         match serde_json::from_str::<Value>(&raw) {
-            Ok(val) if val.is_object() => Ok(Self::from_json_value(&val)),
+            Ok(val) if val.is_object() => {
+                Self::from_json_value(&val).map_err(|e| format!("{}: {e}", path.display()))
+            }
             Ok(_) => Err(format!("{} is not a JSON object", path.display())),
             Err(e) => Err(format!("{} is not valid JSON: {e}", path.display())),
         }
@@ -485,11 +509,16 @@ impl ServerConfig {
             self.master = v;
         }
         if let Some(v) = var("BFE_ACCEPT_ONLINE") {
-            self.online_notice_accepted = v.trim() == "1";
+            match v.trim() {
+                "1" => self.online_notice_accepted = true,
+                "0" => self.online_notice_accepted = false,
+                _ => bad.push(format!("BFE_ACCEPT_ONLINE={v}")),
+            }
         }
         if let Some(v) = var("BFE_RELAY_POLICY") {
-            if matches!(v.as_str(), "auto" | "never" | "always") {
-                self.relay_policy = v;
+            let policy = v.trim();
+            if matches!(policy, "auto" | "never" | "always") {
+                self.relay_policy = policy.to_string();
             } else {
                 bad.push(format!("BFE_RELAY_POLICY={v}"));
             }
@@ -508,14 +537,14 @@ impl ServerConfig {
     }
 }
 
-/// Normalizes the per-client `stateBytesPerSecond` budget (`launch()` in `src/main.js`:
-/// `Number.isFinite(config.stateBytesPerSecond) && config.stateBytesPerSecond > 0 ? config.stateBytesPerSecond : 100000`).
-/// Validates the per-tick unreliable state snapshot byte budget (`512..=1200` bytes), porting
-/// `checkStateBudget(value)` from `packages/bfe-server/src/config.js`.
+/// The per-client snapshot budget in bytes per second: the default when unset, an error outside
+/// `MIN_STATE_BYTES_PER_SECOND..=MAX_STATE_BYTES_PER_SECOND`.
 pub fn check_state_budget(value: Option<usize>) -> Result<usize, String> {
     let raw = value.unwrap_or(DEFAULT_STATE_BYTES_PER_SECOND);
-    if raw == 0 {
-        return Ok(DEFAULT_STATE_BYTES_PER_SECOND);
+    if !(MIN_STATE_BYTES_PER_SECOND..=MAX_STATE_BYTES_PER_SECOND).contains(&raw) {
+        return Err(format!(
+            "stateBytesPerSecond {raw} is outside {MIN_STATE_BYTES_PER_SECOND} to {MAX_STATE_BYTES_PER_SECOND}"
+        ));
     }
     Ok(raw)
 }
@@ -713,15 +742,79 @@ mod tests {
     }
 
     #[test]
+    fn unusable_values_are_errors_naming_the_key() {
+        for (bad, key) in [
+            (json!({"ai": "Enhanced"}), "\"ai\""),
+            (json!({"ai": "enahnced"}), "\"ai\""),
+            (json!({"ai": false}), "\"ai\""),
+            (json!({"gamePort": 0}), "gamePort"),
+            (json!({"gamePort": 70000}), "gamePort"),
+            (json!({"gamePort": "18451"}), "gamePort"),
+            (json!({"discoveryPort": 0}), "discoveryPort"),
+            (json!({"maxPlayers": 1.9}), "maxPlayers"),
+            (json!({"maxPlayers": 0}), "maxPlayers"),
+            (json!({"stateBytesPerSecond": 0}), "stateBytesPerSecond"),
+            (json!({"stateBytesPerSecond": 100}), "stateBytesPerSecond"),
+            (json!({"stateBytesPerSecond": 20_000_000}), "stateBytesPerSecond"),
+            (json!({"rotation": ["swbf1/nab2:rep:conquest", 3]}), "rotation"),
+            (json!({"friendlyFire": "no"}), "friendlyFire"),
+            (json!({"relayPolicy": "sometimes"}), "relayPolicy"),
+        ] {
+            let err = ServerConfig::from_json_value(&bad).unwrap_err();
+            assert!(err.contains(key), "{bad}: {err}");
+        }
+        // Whole numbers written as floats and nulls are fine.
+        let ok = ServerConfig::from_json_value(&json!({"maxPlayers": 64.0, "bind": null, "gamePort": 18451})).unwrap();
+        assert_eq!((ok.max_players, ok.bind, ok.game_port), (Some(64), None, Some(18451)));
+    }
+
+    #[test]
+    fn a_config_file_with_an_unusable_value_does_not_load() {
+        let dir = std::env::temp_dir().join(format!("bfe-config-bad-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(config_path_in(&dir), "{\"ai\": \"Enhanced\"}").unwrap();
+        let err = ServerConfig::load_checked(&dir).unwrap_err();
+        assert!(err.contains("config.json") && err.contains("\"ai\""), "{err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn state_budget_outside_its_bounds_is_an_error() {
+        assert_eq!(check_state_budget(None), Ok(DEFAULT_STATE_BYTES_PER_SECOND));
+        assert_eq!(check_state_budget(Some(MIN_STATE_BYTES_PER_SECOND)), Ok(MIN_STATE_BYTES_PER_SECOND));
+        for bad in [0, MIN_STATE_BYTES_PER_SECOND - 1, MAX_STATE_BYTES_PER_SECOND + 1] {
+            assert!(check_state_budget(Some(bad)).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn unusable_environment_values_are_reported() {
+        let mut cfg = ServerConfig { online_notice_accepted: true, ..Default::default() };
+        let env = |name: &str| {
+            match name {
+                "BFE_ACCEPT_ONLINE" => Some("yes"),
+                "BFE_RELAY_POLICY" => Some(" never "),
+                _ => None,
+            }
+            .map(str::to_string)
+        };
+        let bad = cfg.apply_env(env);
+        assert!(cfg.online_notice_accepted, "unchanged by an unusable value");
+        assert_eq!(cfg.relay_policy, "never");
+        assert_eq!(bad, vec!["BFE_ACCEPT_ONLINE=yes".to_string()]);
+    }
+
+    #[test]
     fn new_configs_field_enhanced_bots_and_old_ones_keep_theirs() {
         // A new server: Enhanced, written out, read back the same.
         let fresh = ServerConfig::default();
         assert_eq!(fresh.ai, "enhanced");
-        assert_eq!(ServerConfig::from_json_value(&fresh.to_json_value()).ai, "enhanced");
+        assert_eq!(ServerConfig::from_json_value(&fresh.to_json_value()).unwrap().ai, "enhanced");
         // A config.json from before: Classic was its unwritten default.
-        assert_eq!(ServerConfig::from_json_value(&json!({"name": "Old"})).ai, "classic");
+        assert_eq!(ServerConfig::from_json_value(&json!({"name": "Old"})).unwrap().ai, "classic");
         for mode in ["enhanced", "classic", "off"] {
-            assert_eq!(ServerConfig::from_json_value(&json!({"ai": mode})).ai, mode);
+            assert_eq!(ServerConfig::from_json_value(&json!({"ai": mode})).unwrap().ai, mode);
             let query = query_for_rotation("swbf1/nab2:rep:conquest", mode).unwrap();
             assert!(query.contains(&format!("&ai={mode}&")), "{query}");
         }

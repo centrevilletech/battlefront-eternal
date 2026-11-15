@@ -291,7 +291,7 @@ fn server_identity_persists_ed25519_spki_and_pkcs8_pem() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// Verifies `ServerConfig::load_from_dir`, `save_to_dir`, and `check_state_budget` defaults
+/// Verifies `ServerConfig::load_checked`, `save_to_dir`, and `check_state_budget` defaults
 /// (`defaults`, `config`, and `save()` in `src/main.js`).
 #[test]
 /// Verifies `ServerConfig` JSON serialization, default fallbacks, playlist rotation query parsing,
@@ -299,7 +299,7 @@ fn server_identity_persists_ed25519_spki_and_pkcs8_pem() {
 /// `packages/bfe-server/src/config.js`).
 fn config_round_trip_and_state_budget_validation() {
     let dir = temp_dir("config");
-    let cfg = ServerConfig::load_from_dir(&dir);
+    let cfg = ServerConfig::load_checked(&dir).unwrap();
     assert_eq!(cfg.name, "Battlefront Eternal server");
     assert_eq!(cfg.rotation, vec!["swbf1/nab2:rep:conquest".to_string()]);
     assert_eq!(cfg.master, "https://online.battlefronteternal.com");
@@ -316,7 +316,7 @@ fn config_round_trip_and_state_budget_validation() {
     modified.state_bytes_per_second = 250_000;
     modified.save_to_dir(&dir).expect("save config");
 
-    let reloaded = ServerConfig::load_from_dir(&dir);
+    let reloaded = ServerConfig::load_checked(&dir).unwrap();
     assert_eq!(reloaded.name, "Naboo 24/7");
     assert_eq!(reloaded.engine, "/ignored/engine/path");
     assert_eq!(reloaded.state_bytes_per_second, 250_000);

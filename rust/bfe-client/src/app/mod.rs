@@ -1785,8 +1785,17 @@ impl StandaloneWindowApp {
                 match AudioDevice::open_dynamic(self.audio_router.clone(), wanted) {
                     Ok(device) => self._audio_device = Some(device),
                     Err(err) => {
-                        eprintln!("audio device: {wanted} channels not opened ({err})");
-                        self.headless_audio = Some(HeadlessAudio::start(self.audio_router.clone(), self.audio_status.clone()));
+                        // Back to stereo, and that width is struck off: the battle
+                        // re-resolves its layout and AUDIO DETAILS says why.
+                        eprintln!("audio device: {wanted} channels not opened ({err}); back to stereo");
+                        crate::audio::strike_width(wanted);
+                        match AudioDevice::open_dynamic(self.audio_router.clone(), 2) {
+                            Ok(device) => self._audio_device = Some(device),
+                            Err(err) => {
+                                eprintln!("audio device: stereo not opened either ({err})");
+                                self.headless_audio = Some(HeadlessAudio::start(self.audio_router.clone(), self.audio_status.clone()));
+                            }
+                        }
                     }
                 }
             }

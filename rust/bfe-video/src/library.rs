@@ -10,11 +10,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// A movie's Bink file: a file and the offset where the movie starts in it.
+/// A movie's Bink file: a file, the offset where the movie starts in it and its length there.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Source {
     pub path: PathBuf,
     pub offset: u64,
+    pub length: u64,
 }
 
 #[derive(Default)]
@@ -137,6 +138,7 @@ impl MovieLibrary {
             self.by_hash.entry(e.hash).or_insert(Source {
                 path: path.to_path_buf(),
                 offset: e.offset,
+                length: e.length,
             });
         }
     }

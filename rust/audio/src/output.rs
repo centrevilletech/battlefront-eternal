@@ -169,6 +169,12 @@ pub struct Output {
     bed_gains: Vec<[[f32; 2]; CHANNELS]>,
     test: Vec<f32>,
 }
+/// Which chain Classic plays on stereo speakers: true, the light mix (no
+/// reverb, compressor or limiter; the cheapest, the documented low-end
+/// design); false, the full original chain the surround layouts use
+/// (OpenAL Soft's stereo decoder, the sub-level's reverb, the dynamics and
+/// the true-peak limiter), which is what the Steam build plays.
+pub const CLASSIC_STEREO_LIGHT: bool = true;
 impl Output {
     // Retains the ported JS/GL call-site signature without an extra wrapper struct.
     #[allow(clippy::too_many_arguments)]
@@ -176,7 +182,7 @@ impl Output {
         // Match Renderer.build's quality/output combinations, including mono as
         // an output fold rather than a different source layout. Binaural encodes
         // sixteen 3OA feeds internally but still produces two device channels.
-        let light_mode = !enhanced && !headphones && channels == 2;
+        let light_mode = CLASSIC_STEREO_LIGHT && !enhanced && !headphones && channels == 2;
         let feeds = if binaural { 16 } else { channels };
         let mut voices = Engine::new(rate, VOICES, -3.0103, x86);
         // Classic bypasses the enhanced source lowpass. Source samples, cursor
@@ -323,10 +329,10 @@ impl Output {
             if self.headphones && self.enhanced && channels == 4 {
                 angle = [30.0, -30.0, 110.0, -110.0][c];
             }
-            // Classic light exaggerates front separation threefold. Preserve its
-            // ninety-degree cap so a stereo bed reaches hard left/right rather than
-            // acquiring the gentler surround/headphone speaker placement.
-            if self.light_mode && angle.abs() < 90.0 {
+            // Classic on stereo speakers (OpenAL Soft) exaggerates front separation
+            // threefold. Preserve its ninety-degree cap so a stereo bed reaches hard
+            // left/right rather than acquiring the gentler surround/headphone placement.
+            if !self.enhanced && !self.headphones && self.channels == 2 && angle.abs() < 90.0 {
                 angle = angle.signum() * (angle.abs() * 3.0).min(90.0);
             }
             let a = angle * PI / 180.0;
@@ -878,7 +884,7 @@ impl Output {
         // A 5.1 recording spreads each surround across 7.1 back and side speakers.
         // The retained 0.5/0.87 pair is the authored routing, not a renormalized
         // trigonometric pan; changing it changes the bed's energy.
-        if count == 6 && n == 8 {
+        if count == 6 && n >= 8 {
             for c in 0..4 {
                 add(&mut self.direct, c, c, 1.0);
             }
@@ -886,6 +892,39 @@ impl Output {
             add(&mut self.direct, 4, 4, 0.5);
             add(&mut self.direct, 5, 7, 0.87);
             add(&mut self.direct, 5, 5, 0.5);
+            return;
+        }
+        // A 7.1 recording on 7.1.4 keeps its eight lanes; the heights stay out.
+        if count == 8 && n == 12 {
+            for c in 0..8 {
+                add(&mut self.direct, c, c, 1.0);
+            }
+            return;
+        }
+        // A 7.1 recording on 5.1 (the output narrowed while it plays): the back
+        // and side pairs share the surround pair at equal power.
+        if count == 8 && n == 6 {
+            for c in 0..4 {
+                add(&mut self.direct, c, c, 1.0);
+            }
+            for (from, to) in [(4, 4), (6, 4), (5, 5), (7, 5)] {
+                add(&mut self.direct, from, to, std::f32::consts::FRAC_1_SQRT_2);
+            }
+            return;
+        }
+        // A 5.1 or 7.1 recording on two channels (stereo or headphones, after the
+        // output narrowed while it plays): the standard fold, the centre and the
+        // surrounds at -3 dB (a 7.1's back and side pairs at -6 dB each), no LFE.
+        if (count == 6 || count == 8) && n == 2 {
+            let h = std::f32::consts::FRAC_1_SQRT_2;
+            let surround = if count == 8 { 0.5 } else { h };
+            add(&mut self.direct, 0, 0, 1.0);
+            add(&mut self.direct, 1, 1, 1.0);
+            add(&mut self.direct, 2, 0, h);
+            add(&mut self.direct, 2, 1, h);
+            for c in 4..count {
+                add(&mut self.direct, c, c % 2, surround);
+            }
             return;
         }
         // Enhanced dialogue uses a real centre speaker when available. Other

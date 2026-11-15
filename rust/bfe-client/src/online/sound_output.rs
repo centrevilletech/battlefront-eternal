@@ -56,15 +56,22 @@ pub fn auto_layout(channels: usize) -> &'static str {
         _ => "stereo",
     }
 }
-/// The layout an OUTPUT choice resolves to on a device: Automatic follows
-/// the device's own channel count; a layout wider than the device can take
-/// falls back to what it can.
-pub fn resolve(output: &str, device_default: usize, device_max: usize) -> &'static Layout {
-    let mut name = if output == "auto" || layout(output).is_none() { auto_layout(device_default) } else { output };
-    if layout(name).is_some_and(|l| l.speakers.len() > device_max.max(2)) {
-        name = auto_layout(device_max);
-    }
+/// The layout an OUTPUT choice asks for before the device has its say:
+/// Automatic follows the device's own channel count.
+pub fn asked(output: &str, device_default: usize) -> &'static Layout {
+    let name = if output == "auto" || layout(output).is_none() { auto_layout(device_default) } else { output };
     layout(name).unwrap_or(&LAYOUTS[1])
+}
+/// The layout an OUTPUT choice resolves to on a device that plays the widths
+/// in `widths` (bit n: n channels): the one asked for when the device plays
+/// it, else the widest narrower layout it does play, else stereo.
+pub fn resolve(output: &str, device_default: usize, widths: u32) -> &'static Layout {
+    let want = asked(output, device_default);
+    let plays = |l: &Layout| l.speakers.len() == 2 || widths & (1 << l.speakers.len()) != 0;
+    if plays(want) {
+        return want;
+    }
+    LAYOUTS[2..].iter().rev().find(|l| l.speakers.len() < want.speakers.len() && plays(l)).unwrap_or(&LAYOUTS[1])
 }
 
 // OpenAL Soft 1.20.1's built-in speaker decoders (alc/panning.cpp,
@@ -158,13 +165,19 @@ pub fn details() -> bfe_interface::option_pages::AudioOutputInfo {
 }
 /// AUDIO DETAILS' description of an output.
 pub fn describe(rendering: &Rendering) -> (String, String) {
-    let label = match rendering.layout {
+    let label = |layout: &str| match layout {
         "headphones" => "HEADPHONES",
         "5.1" => "5.1 SURROUND",
         "7.1" => "7.1 SURROUND",
         "7.1.4" => "7.1.4 WITH HEIGHT",
         _ => "STEREO SPEAKERS",
     };
+    let fallback = if rendering.asked != rendering.layout {
+        format!(" ({} NOT AVAILABLE ON THIS DEVICE)", label(rendering.asked))
+    } else {
+        String::new()
+    };
+    let label = label(rendering.layout);
     let how = if rendering.binaural {
         "DUMMY-HEAD DECODER (SADIE II KU 100)"
     } else if rendering.hrtf {
@@ -179,7 +192,7 @@ pub fn describe(rendering: &Rendering) -> (String, String) {
         "PAIRWISE PANNING, LFE BELOW 120 HZ"
     };
     (
-        format!("{label}, {} CHANNELS, 48000 HZ", rendering.channels),
+        format!("{label}, {} CHANNELS, 48000 HZ{fallback}", rendering.channels),
         format!("{}, {how}", if rendering.enhanced { "ENHANCED" } else { "CLASSIC" }),
     )
 }
@@ -189,6 +202,8 @@ pub fn describe(rendering: &Rendering) -> (String, String) {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rendering {
     pub layout: &'static str,
+    /// The layout the settings asked for (differs when the device cannot play it).
+    pub asked: &'static str,
     pub channels: usize,
     pub enhanced: bool,
     pub light: bool,
@@ -197,8 +212,8 @@ pub struct Rendering {
     pub lfe: bool,
 }
 
-/// Builds the configured output for `settings` on a device that can take
-/// `device_max` channels (its own count `device_default`). `room` is the
+/// Builds the configured output for `settings` on a device that plays the
+/// widths in `widths` (its own count `device_default`). `room` is the
 /// reverb in force, `volume` the master volume. `decoder` holds the prepared
 /// headphone filters (sixteen ambisonic channels, left then right ear per
 /// channel, at 48 kHz) when present. This allocates: call it off the device
@@ -207,12 +222,12 @@ pub struct Rendering {
 pub fn build(
     settings: &AudioSettings,
     device_default: usize,
-    device_max: usize,
+    widths: u32,
     room: Option<(&[f64; audio::reverb::PARAM_COUNT], u32)>,
     volume: f32,
     decoder: Option<(&[f32], usize)>,
 ) -> (Output, Rendering) {
-    let layout = resolve(&settings.output, device_default, device_max);
+    let layout = resolve(&settings.output, device_default, widths);
     let channels = layout.speakers.len();
     let headphones = layout.name == "headphones";
     let enhanced = settings.enhanced;
@@ -221,9 +236,10 @@ pub fn build(
     let classic_speakers = decoder_rows.is_some();
     let rendering = Rendering {
         layout: layout.name,
+        asked: asked(&settings.output, device_default).name,
         channels,
         enhanced,
-        light: !enhanced && layout.name == "stereo",
+        light: !enhanced && layout.name == "stereo" && audio::output::CLASSIC_STEREO_LIGHT,
         hrtf: headphones && !binaural,
         binaural,
         lfe: enhanced && layout.lfe >= 0,
@@ -276,27 +292,35 @@ mod tests {
 
     #[test]
     fn output_choices_resolve_on_the_device() {
-        assert_eq!(resolve("auto", 2, 2).name, "stereo");
-        assert_eq!(resolve("auto", 8, 8).name, "7.1");
-        assert_eq!(resolve("headphones", 2, 2).name, "headphones");
-        // A layout wider than the device falls back to what it can take.
-        assert_eq!(resolve("7.1.4", 2, 8).name, "7.1");
-        assert_eq!(resolve("5.1", 2, 2).name, "stereo");
-        assert_eq!(resolve("bogus", 6, 6).name, "5.1");
+        let w = |list: &[u32]| list.iter().fold(0u32, |m, c| m | 1 << c);
+        assert_eq!(resolve("auto", 2, w(&[2])).name, "stereo");
+        assert_eq!(resolve("auto", 8, w(&[2, 8])).name, "7.1");
+        assert_eq!(resolve("headphones", 2, w(&[2])).name, "headphones");
+        // A layout the device cannot play falls back to the widest it does.
+        assert_eq!(resolve("7.1.4", 2, w(&[2, 6, 8])).name, "7.1");
+        assert_eq!(resolve("5.1", 2, w(&[2])).name, "stereo");
+        assert_eq!(resolve("bogus", 6, w(&[2, 6])).name, "5.1");
+        // A device that plays 2 and 8 channels but not 6: 5.1 is stereo, not a 6-wide stream cut to two.
+        assert_eq!(resolve("5.1", 2, w(&[2, 8])).name, "stereo");
+        assert_eq!(resolve("7.1", 2, w(&[2, 8])).name, "7.1");
+        let fallback = Rendering { layout: "stereo", asked: "5.1", channels: 2, enhanced: true, light: false, hrtf: false, binaural: false, lfe: false };
+        assert!(describe(&fallback).0.contains("5.1 SURROUND NOT AVAILABLE"));
     }
 
+    const ALL: u32 = 1 << 2 | 1 << 6 | 1 << 8 | 1 << 12;
     #[test]
     fn each_setting_selects_its_rendering() {
         let s = |enhanced: bool, output: &str| AudioSettings { enhanced, output: output.into(), ..Default::default() };
-        let (o, r) = build(&s(false, "stereo"), 2, 12, None, 1., None);
-        assert!(r.light && o.light_mode && o.master.is_none());
-        let (o, r) = build(&s(true, "stereo"), 2, 12, None, 1., None);
+        let (o, r) = build(&s(false, "stereo"), 2, ALL, None, 1., None);
+        let light = audio::output::CLASSIC_STEREO_LIGHT;
+        assert!(r.light == light && o.light_mode == light && o.master.is_none() == light);
+        let (o, r) = build(&s(true, "stereo"), 2, ALL, None, 1., None);
         assert!(!r.light && o.enhanced && o.master.is_some() && o.channels == 2);
-        let (o, r) = build(&s(true, "headphones"), 2, 12, None, 1., None);
+        let (o, r) = build(&s(true, "headphones"), 2, ALL, None, 1., None);
         assert!(r.hrtf && !r.binaural && o.headphones);
-        let (o, r) = build(&s(true, "5.1"), 2, 12, None, 1., None);
+        let (o, r) = build(&s(true, "5.1"), 2, ALL, None, 1., None);
         assert!(r.lfe && o.channels == 6);
-        let (o, r) = build(&s(false, "7.1.4"), 2, 12, None, 1., None);
+        let (o, r) = build(&s(false, "7.1.4"), 2, ALL, None, 1., None);
         assert!(!r.lfe && !r.light && o.channels == 12);
     }
 }
