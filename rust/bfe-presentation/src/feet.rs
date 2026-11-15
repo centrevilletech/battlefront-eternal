@@ -54,6 +54,7 @@ fn v(p:[f64;3])->Vector3 {Vector3::new(p[0],p[1],p[2])}
 struct Body {start:usize,count:usize,phase:Option<f64>,walking:bool,generation:Option<f64>}
 struct Detector {definition:Foot,state:State,turn:Option<Quaternion>}
 pub struct Feet {bodies:Vec<Body>,detectors:Vec<Detector>,pub input:Vec<f64>,pub output:Vec<f64>}
+// FootEvent HEIGHT retains the primitive's height for sound; dust uses ROOT_Y.
 impl Default for Feet {fn default()->Self{Self{bodies:Vec::new(),detectors:Vec::new(),input:vec![0.0;f::STRIDE],output:Vec::new()}}}
 impl Feet {
     /// The returned first foot remains stable for the resource's lifetime.

@@ -212,6 +212,8 @@ pub struct Sound {
     /// The player's volumes, 0 to 1: master, effects, ambience, music, voice,
     /// interface (engine.js applyVolumes and categoryVolume).
     pub volumes: [f64; 6],
+    /// The own body's feet above its origin as drawn (Replicas::own_feet).
+    pub own_feet: [f64; 3],
     // The client's replay ran for the player's own body this frame.
     replaying: bool,
     assets: super::stream_assets::Assets,
@@ -250,6 +252,9 @@ pub struct Sound {
     trace_explosions: bool,
     pub refused: u64,
     last_clock: u64,
+    // Game time of the frames that ran no control step (the device had not
+    // moved), handed to the next step so delays and fades keep real time.
+    carried: f64,
     music: Vec<[f64; music_slot::STRIDE]>,
     starts: [f64; 2],
     ui_paused: bool,
@@ -262,6 +267,7 @@ impl Sound {
         Self {
             ahead: Default::default(),
             volumes: [1.; 6],
+            own_feet: [f64::NAN; 3],
             replaying: false,
             assets: prepared.streams,
             decoded: 0,
@@ -296,6 +302,7 @@ impl Sound {
             trace_explosions: crate::app::bench::fx().is_some(),
             refused: 0,
             last_clock: 0,
+            carried: 0.,
             music: prepared.music,
             starts: [f64::NAN; 2],
             ui_paused: false,
@@ -677,14 +684,19 @@ impl Sound {
         // Preserve control state while the device is stopped or its bounded
         // queue is full. Advancing it after dropping START would orphan a loop.
         let clock = self.mail.clock.load(Ordering::Acquire);
+        // At most a quarter second carried, so a stall does not jump a fade.
+        let dt = (self.carried + dt).min(0.25);
         if clock == self.last_clock {
+            self.carried = dt;
             return;
         }
         self.last_clock = clock;
         if !self.mail.available() {
+            self.carried = dt;
             self.refused += 1;
             return;
         }
+        self.carried = 0.;
         // Device time governs scheduled sample starts and stream parts.
         // Game dt still governs the control phase's frame transitions. Using
         // window wall time for both clocks makes pause/resume schedule audio
@@ -873,7 +885,8 @@ impl Sound {
         let mut own_row = [0.; emitter::STRIDE];
         let own = &mut own_row;
         own[emitter::ID] = OWN as f64;
-        own[emitter::KIND] = 1.;
+        // A droideka's own sounds (legs, roll, shield) are PlayerSounds.updateDroideka's.
+        own[emitter::KIND] = if receiver.own.walker { 2. } else { 1. };
         own[emitter::CLASS] = self
             .actors
             .get(receiver.own.class.wrapping_sub(1))
@@ -898,6 +911,37 @@ impl Sound {
             .get(receiver.own.class)
             .map_or(300., |v| v[0]);
         own[emitter::MOUNTED] = receiver.own.mount.is_some() as u8 as f64;
+        // PlayerSounds.updateMoves and updateFeet: the body's state, as
+        // predicted when it is. Air as the player sounds know it: 1 jumping,
+        // 2 thrown down, 3 on a jetpack, 4 falling.
+        let air = |code: u8| [0., 1., 4., 2., 3.].get(code as usize).copied().unwrap_or(0.);
+        if let Some(body) = prediction.body.as_ref() {
+            own[emitter::VX..emitter::VX + 3].copy_from_slice(&body.velocity);
+            own[emitter::AIR] = air(body.air.map_or(0, |a| a as u8 + 1));
+            own[emitter::POSTURE] = body.posture as u8 as f64;
+            own[emitter::DIVE] = (body.dive != 0.) as u8 as f64;
+            own[emitter::GROUNDED] = body.grounded as u8 as f64;
+        } else {
+            own[emitter::VX..emitter::VX + 3].copy_from_slice(&receiver.own.velocity);
+            own[emitter::AIR] = air(receiver.own.air);
+            own[emitter::POSTURE] = receiver.own.posture as f64;
+            own[emitter::DIVE] = (receiver.own.dive != 0.) as u8 as f64;
+            own[emitter::GROUNDED] = (receiver.own.air == 0) as u8 as f64;
+        }
+        // As world heights over the emitter's own origin (the drawn body's
+        // bones measured from the drawn body, so smoothing cannot shift them).
+        for (k, foot) in self.own_feet.iter().enumerate() {
+            own[emitter::FOOT0 + k] = own[emitter::Y] + foot;
+        }
+        own[emitter::MODE] = receiver.own.walker_mode as f64;
+        // The shield going up plays its weapon's FireSound: the class of the
+        // droideka's second-trigger weapon, while the shield is on.
+        own[emitter::SHIELD] = if receiver.own.walker && receiver.own.shield_on {
+            self.prediction_weapons.get(self.own_weapons[1].saturating_sub(1) as usize).map_or(0., |(row, _)| row[weapon::CLASS])
+        } else {
+            0.
+        };
+        own[emitter::ZOOM_STEP] = receiver.own.zoom_step as f64;
         own[emitter::ZOOM] = receiver.own.zoom.max(1.);
         own[emitter::FIRST_PERSON] = 1.;
         if let Some(event) =
@@ -976,8 +1020,10 @@ impl Sound {
             row[weapon::WAIT] = state.wait;
             row[weapon::EMPTY] = (!state.bottomless && state.clip <= 0.) as u8 as f64;
             runtime.phase.observe_weapon(&row);
+            // Which weapon the channel holds (the arsenal's selection, as
+            // PlayerSounds compares it), so a switch plays WeaponChangeSound.
             runtime.phase.emitters[OWN][[emitter::SELECTED0, emitter::SELECTED1][channel]] =
-                id as f64;
+                ordinal as f64;
         }
         for (channel, present) in selected_present.into_iter().enumerate() {
             if !present && self.own_weapons[channel] != 0 {

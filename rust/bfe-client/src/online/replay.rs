@@ -203,6 +203,21 @@ pub struct Replay {
     walker_ahead: bool,
 }
 impl Replay {
+    /// The mounted subject stays out of its camera and aiming rays.
+    pub fn mounted_body(&self, receiver: &Receiver) -> Option<u32> {
+        use bfe_presentation::network_layout::{net_kind as k, net_record as r};
+        let (id, generation, _) = receiver.own.mount?;
+        match receiver.own.mount_kind {
+            k::VEHICLE => self.fleet.bodies.hull((id, generation)).map(|(body, _)| body),
+            k::TURRET => {
+                let turret = receiver.active().find(|row| {
+                    row[r::KIND] == k::TURRET as f64 && row[r::ID] == id as f64 && row[r::GENERATION] == generation as f64
+                })?;
+                self.props.built_body(turret[r::BUILDING] as usize)
+            }
+            _ => None,
+        }
+    }
     pub fn new(content: &BattleContent) -> Result<Self, String> {
         let collision = alloc_collision();
         let installed = bfe_content::install::install(
@@ -295,6 +310,7 @@ impl Replay {
         self.owner.output.get(at..at + 2).map_or([0.; 2], |v| [v[0], v[1]])
     }
     pub fn present(&mut self, alpha: f64, dt: f64) {
+        self.fleet.alpha = alpha;
         self.displayed = self.body.as_ref().map(|body| self.display.sample(body, self.before.as_ref(), self.look_yaw, self.life, alpha, dt));
         if self.smoother.decay(0.05, dt) || self.displayed.is_none() {
             self.smoother.reset();

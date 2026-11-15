@@ -9,6 +9,7 @@ pub(crate) fn live_ref(battle: &BattleOwner) -> &Live {
     battle.live.as_ref().expect("prepared live battle")
 }
 
+pub(crate) fn live_if(battle: &BattleOwner) -> Option<&Live> { battle.live.as_ref() }
 pub(crate) fn live_in(battle: &mut BattleOwner) -> &mut Live {
     battle.live.get_or_insert_with(|| Live::new(0, 0, 0))
 }

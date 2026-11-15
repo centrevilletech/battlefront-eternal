@@ -23,6 +23,48 @@ pub struct Census {
     shots: u32,
     damage: u32,
     behaviour: Behaviour,
+    deka: Deka,
+    classes: Classes,
+    /// The battle's end has been reported.
+    ended: bool,
+}
+
+/// Droideka bots counted every tick: ticks alive, folding/rolled/unfolding,
+/// rolled ball, shield up, folds begun, faster than 6 m/s; lives seen.
+#[derive(Default)]
+struct Deka {
+    alive: u32,
+    rolled: u32,
+    ball: u32,
+    shield: u32,
+    folds: u32,
+    fast: u32,
+    mode: HashMap<u32, (f64, f64)>,
+}
+
+/// Bot soldiers by class, counted every tick: ticks alive on foot, ticks
+/// jetting, jet and jump starts; and each one's air state last tick.
+#[derive(Default)]
+struct Classes {
+    alive: BTreeMap<u32, u32>,
+    jet: BTreeMap<u32, u32>,
+    jets: BTreeMap<u32, u32>,
+    jumps: BTreeMap<u32, u32>,
+    air: HashMap<u32, (f64, u8)>,
+    /// Hits on soldiers and on hulls or props, by the attacker's class.
+    soldier_hits: BTreeMap<u32, u32>,
+    object_hits: BTreeMap<u32, u32>,
+    /// Vehicles by name: seconds alive, destroyed; hull damage by bots and
+    /// its hits; each hull's life a second ago.
+    vehicle_seconds: BTreeMap<u32, u32>,
+    vehicle_deaths: BTreeMap<u32, u32>,
+    hull_damage: f64,
+    hull_hits: u32,
+    /// Bot hits on soldiers by attacker team and target team.
+    team_matrix: BTreeMap<String, u32>,
+    /// Hull damage records whose amount is not a number.
+    hull_nan: u32,
+    hull_alive: HashMap<u32, bool>,
 }
 
 #[derive(Default)]
@@ -94,6 +136,13 @@ struct Behaviour {
     corpse_max: u32,
     corpses_over_5s: u32,
     was_alive: HashSet<u32>,
+    /// Deaths by the victim's team and cause (no attacker, himself, a
+    /// teammate, an enemy; mounted when the attacker was seated).
+    causes: BTreeMap<String, u32>,
+    /// Bot spawns by team and post name.
+    spawns: BTreeMap<(u32, u32), u32>,
+    /// Characters whose shown kills (kills - 2 x team kills) are below zero.
+    negative: Vec<String>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -103,6 +152,7 @@ struct Team {
     moving: u32,
     seated: u32,
     kills: f64,
+    team_kills: f64,
     deaths: f64,
     posts: u32,
 }
@@ -111,14 +161,46 @@ impl Census {
     /// Reads the world once a second; answers a line every `every` ticks
     /// (and the behaviour summary every minute), else None.
     pub fn sample(&mut self, context: &Context, tick: u64, every: u64) -> Result<Option<String>, Error> {
+        let deka = &mut self.deka;
+        let cl = &mut self.classes;
+        context.owned(|w| {
+            for (r, unit) in w.sim.store.unit.iter() {
+                if unit.human || !unit.alive || unit.dead { continue; }
+                if let crate::gen::UnitBody::Soldier(s) = &unit.soldier {
+                    if unit.seat.is_some() { continue; }
+                    let class = unit.class_name.0;
+                    *cl.alive.entry(class).or_default() += 1;
+                    let air = match s.air { Some(crate::gen::Air::Jet) => 2u8, Some(crate::gen::Air::Jump) => 1, _ => 0 };
+                    if air == 2 { *cl.jet.entry(class).or_default() += 1; }
+                    let was = cl.air.insert(r.slot, (unit.generation, air)).filter(|(g, _)| *g == unit.generation).map_or(0, |(_, a)| a);
+                    if air == 2 && was != 2 { *cl.jets.entry(class).or_default() += 1; }
+                    if air == 1 && was != 1 { *cl.jumps.entry(class).or_default() += 1; }
+                    continue;
+                }
+                let crate::gen::UnitBody::Droideka(d) = &unit.soldier else { continue };
+                deka.alive += 1;
+                deka.rolled += u32::from(d.mode >= 11.0);
+                deka.ball += u32::from(d.mode == 12.0);
+                deka.shield += u32::from(d.shield.as_ref().is_some_and(|s| s.on));
+                deka.fast += u32::from(d.velocity[0].hypot(d.velocity[2]) > 6.0);
+                let was = deka.mode.insert(r.slot, (unit.generation, d.mode));
+                deka.folds += u32::from(d.mode == 11.0 && was.is_some_and(|(g, m)| g == unit.generation && m != 11.0));
+            }
+        })?;
         if tick % 60 != 0 {
             return Ok(None);
         }
         let second = tick / 60;
-        let report = tick % every.max(60) == 0;
+        let mut report = tick % every.max(60) == 0;
         let last = std::mem::take(&mut self.last);
         let behaviour = &mut self.behaviour;
+        let mut over = false;
+        let mut out_posts = String::new();
+        let mut objectives = String::new();
+        let cl = &mut self.classes;
+        let mut seated_slots = HashSet::new();
         let (teams, reinforcements, humans, classes) = context.owned(|w| {
+            over = w.sim.store.battle.game_over;
             let store = &w.sim.store;
             let mut teams = [Team::default(); TEAMS];
             let mut humans = HashSet::new();
@@ -205,6 +287,7 @@ impl Census {
                     let t = &mut teams[c.team as usize];
                     t.kills += c.kills;
                     t.deaths += c.deaths;
+                    t.team_kills += c.team_kills;
                 }
             }
             // A post's counts against the living soldiers on foot inside its
@@ -235,6 +318,12 @@ impl Census {
             }
             behaviour.was_alive = store.unit.iter().filter(|(_, u)| u.alive && !u.dead).map(|(r, _)| r.slot).collect();
             let mut posts = Vec::new();
+            if let Some(live) = crate::battle::f4::live_if(&w.battle) {
+                objectives = (0..live.buildings.len()).filter_map(|i| live.buildings.get(&live.buildings.handle(i)))
+                    .filter(|b| b.settings.kind == crate::battle::props::Kind::Objective)
+                    .map(|b| format!("{:.0}", b.state.building.health)).collect::<Vec<_>>().join(",");
+            }
+            out_posts = store.post.iter().filter(|(_, p)| !p.active).map(|(_, p)| format!("{}", p.team)).collect::<Vec<_>>().join(",");
             for (_, post) in store.post.iter() {
                 posts.push(post.team);
                 if (0.0..TEAMS as f64).contains(&post.team) {
@@ -248,11 +337,23 @@ impl Census {
             }
             let reinforcements: Vec<(f64, f64)> = store.battle.reinforcements.iter().filter(|(t, _)| *t < 3.0).map(|(t, v)| (t, *v)).collect();
             self.last = next;
+            seated_slots = store.unit.iter().filter(|(_, u)| u.seat.is_some()).map(|(r, _)| r.slot).collect();
+            for (r, v) in store.vehicle.iter() {
+                let was = cl.hull_alive.insert(r.slot, v.alive);
+                if v.alive { *cl.vehicle_seconds.entry(v.name.0).or_default() += 1; }
+                if was == Some(true) && !v.alive { *cl.vehicle_deaths.entry(v.name.0).or_default() += 1; }
+            }
+            behaviour.negative = store.character.iter().filter(|(_, c)| c.kills - 2.0 * c.team_kills < 0.0)
+                .map(|(_, c)| format!("{}:{}/{}", c.team, c.kills, c.team_kills)).collect();
             (teams, reinforcements, humans, classes)
         })?;
         let seen = self.journal_seen;
         let positions = &self.last;
         let (shots, damage) = (&mut self.shots, &mut self.damage);
+        let (soldier_hits, object_hits) = (&mut self.classes.soldier_hits, &mut self.classes.object_hits);
+        let mut hull_sum = (0.0f64, 0u32, 0u32);
+        let matrix = &mut self.classes.team_matrix;
+        let hull = &mut hull_sum;
         let head = context.world_host_journal(|journal| {
             use super::journal::Event;
             let head = journal.seq;
@@ -287,11 +388,25 @@ impl Census {
                     Event::Grenade { source, def, .. } if !human(source) => {
                         *behaviour.grenades.entry(def.map_or(0, |d| d.0)).or_default() += 1;
                     }
+                    Event::Death { target, team, attacker, attacker_team, .. } => {
+                        let how = match attacker {
+                            None => "none",
+                            Some(a) if a.id == target.id => "self",
+                            Some(_) if attacker_team == team => "friend",
+                            Some(_) => "enemy",
+                        };
+                        let by = if attacker.is_some_and(|a| seated_slots.contains(&a.id)) { ":mounted" } else { "" };
+                        *behaviour.causes.entry(format!("t{team}:{how}{by}")).or_default() += 1;
+                    }
+                    Event::Spawn { target, team, post, .. } if !humans.contains(&target.id) => {
+                        *behaviour.spawns.entry((*team as u32, post.map_or(0, |p| p.0))).or_default() += 1;
+                    }
                     Event::Seat { boarded, source, .. } if !human(source) => {
                         if *boarded { behaviour.boards += 1 } else { behaviour.unboards += 1 }
                     }
-                    Event::Damage { target, position, attacker, attacker_team, amount, .. } => {
+                    Event::Damage { target, team, position, attacker, attacker_team, amount, .. } => {
                         *damage += 1;
+                        if attacker.is_some() && !human(attacker) && !humans.contains(&target.id) { *matrix.entry(format!("{attacker_team}>{team}")).or_default() += 1; }
                         if humans.contains(&target.id) {
                             behaviour.hits_on_players += 1;
                         } else if human(attacker) {
@@ -302,7 +417,7 @@ impl Census {
                             behaviour.amounts[[10.0, 30.0, 60.0, 120.0].iter().take_while(|&&edge| *amount >= edge).count()] += 1;
                             behaviour.zero_hits += u32::from(!(*amount > 0.0));
                             if (0.0..TEAMS as f64).contains(attacker_team) { behaviour.team_hits[*attacker_team as usize] += 1; }
-                            if let Some(&class) = attacker.and_then(|a| classes.get(&a.id)) { *behaviour.class_hits.entry(class).or_default() += 1; }
+                            if let Some(&class) = attacker.and_then(|a| classes.get(&a.id)) { *behaviour.class_hits.entry(class).or_default() += 1; *soldier_hits.entry(class).or_default() += 1; }
                             // The attacker where the census last saw him (within a second).
                             if let Some(&(x, z, _)) = attacker.and_then(|a| positions.get(&a.id)) {
                                 let d = ((position[0] - x).powi(2) + (position[2] - z).powi(2)).sqrt();
@@ -313,13 +428,20 @@ impl Census {
                     }
                     // Hits on hulls and props count as hits too, as the page's
                     // journal names every one of them a `damage` record.
+                    Event::HullDamage { attacker, amount, .. } if !human(attacker) => {
+                        if amount.is_finite() { hull.0 += *amount; hull.1 += 1; } else { hull.2 += 1; }
+                        *damage += 1;
+                        behaviour.hits += 1;
+                        behaviour.object_hits += 1;
+                        if let Some(&class) = attacker.and_then(|a| classes.get(&a.id)) { *behaviour.class_hits.entry(class).or_default() += 1; *object_hits.entry(class).or_default() += 1; }
+                    }
                     Event::HullDamage { attacker, attacker_team, .. } | Event::PropDamage { attacker, attacker_team, .. } => {
                         *damage += 1;
                         if !human(attacker) {
                             behaviour.hits += 1;
                             behaviour.object_hits += 1;
                             if (0.0..TEAMS as f64).contains(attacker_team) { behaviour.team_hits[*attacker_team as usize] += 1; }
-                            if let Some(&class) = attacker.and_then(|a| classes.get(&a.id)) { *behaviour.class_hits.entry(class).or_default() += 1; }
+                            if let Some(&class) = attacker.and_then(|a| classes.get(&a.id)) { *behaviour.class_hits.entry(class).or_default() += 1; *object_hits.entry(class).or_default() += 1; }
                         }
                     }
                     _ => {}
@@ -328,11 +450,17 @@ impl Census {
             head
         })?;
         self.journal_seen = head;
+        self.classes.hull_damage += hull_sum.0;
+        self.classes.hull_hits += hull_sum.1;
+        self.classes.hull_nan += hull_sum.2;
+        let end = over && !self.ended;
+        self.ended |= over;
+        report |= end;
         let mut out = String::new();
         if report {
             let _ = write!(out, "t={}s", second);
             for (index, t) in teams.iter().enumerate().filter(|(_, t)| t.present) {
-                let _ = write!(out, " t{index}:{}/{}/{} kd{}-{}", t.alive, t.moving, t.seated, t.kills, t.deaths);
+                let _ = write!(out, " t{index}:{}/{}/{} kd{}-{} tk{}", t.alive, t.moving, t.seated, t.kills, t.deaths, t.team_kills);
             }
             let _ = write!(out, " reinf=");
             for (team, count) in &reinforcements {
@@ -342,11 +470,15 @@ impl Census {
             for (index, t) in teams.iter().enumerate().filter(|(_, t)| t.posts > 0) {
                 let _ = write!(out, "{index}:{},", t.posts);
             }
-            let _ = write!(out, " shots={} dmg={}", self.shots, self.damage);
+            let _ = write!(out, " obj={} out={} shots={} dmg={}{}", objectives, out_posts, self.shots, self.damage, if over { " over" } else { "" });
+            let k = &self.deka;
+            let sec = |n: u32| f64::from(n) / 60.0;
+            let _ = write!(out, " deka alive={:.1} rolledAny={:.1} ball={:.1} shield={:.1} folds={} fast={:.1}",
+                sec(k.alive), sec(k.rolled), sec(k.ball), sec(k.shield), k.folds, sec(k.fast));
             self.shots = 0;
             self.damage = 0;
         }
-        if second % 60 == 0 && second > 0 {
+        if (second % 60 == 0 && second > 0) || end {
             let summary = self.summary(context, second)?;
             let _ = write!(out, "{}behaviour {summary}", if out.is_empty() { "" } else { "\n" });
         }
@@ -356,6 +488,7 @@ impl Census {
     /// The behaviour since the battle began, as one JSON object.
     fn summary(&self, context: &Context, second: u64) -> Result<String, Error> {
         let b = &self.behaviour;
+        let cl = &self.classes;
         context.owned(|w| {
             let name = |id: &u32| -> String {
                 w.sim.strings.list.get(*id as usize).map(|v| String::from_utf16_lossy(v)).unwrap_or_default()
@@ -363,7 +496,7 @@ impl Census {
             let map = |m: &BTreeMap<u32, u32>| -> serde_json::Value {
                 serde_json::Value::Object(m.iter().map(|(k, v)| (if *k == 0 { "?".into() } else { name(k) }, (*v).into())).collect())
             };
-            serde_json::json!({
+            let mut v = serde_json::json!({
                 "t": second, "shots": map(&b.shots), "mounted": map(&b.mounted), "grenades": map(&b.grenades),
                 "repair": b.repair, "melee": b.melee, "boards": b.boards, "unboards": b.unboards,
                 "hits": b.hits, "objectHits": b.object_hits, "turretSeconds": b.turret_seconds, "vehicleSeconds": b.vehicle_seconds, "hits50m": b.hits_50m, "hits100m": b.hits_100m,
@@ -380,8 +513,24 @@ impl Census {
                 "neverLeftSpawn": b.never_left.values().sum::<u32>(), "neverLeftByClass": map(&b.never_left),
                 "ghostCaptureSeconds": b.ghost_seconds, "deathsInRegions": b.deaths_in_regions, "bodySecondsInRegions": b.body_seconds_in_regions,
                 "removedSecondsInRegions": b.removed_seconds_in_regions, "corpseMaxSeconds": b.corpse_max, "corpseSecondsOver5": b.corpses_over_5s,
-            })
-            .to_string()
+            });
+            v["causes"] = serde_json::json!(b.causes);
+            v["classTicks"] = map(&cl.alive);
+            v["classJetTicks"] = map(&cl.jet);
+            v["classJets"] = map(&cl.jets);
+            v["classJumps"] = map(&cl.jumps);
+            v["classSoldierHits"] = map(&cl.soldier_hits);
+            v["vehicleAliveSeconds"] = map(&cl.vehicle_seconds);
+            v["vehicleDeaths"] = map(&cl.vehicle_deaths);
+            v["hullDamage"] = serde_json::json!(cl.hull_damage.round());
+            v["hullHits"] = serde_json::json!(cl.hull_hits);
+            v["hullNaN"] = serde_json::json!(cl.hull_nan);
+            v["teamMatrix"] = serde_json::json!(cl.team_matrix);
+            v["relations"] = serde_json::json!((1..5).map(|a| (1..5).map(|b| crate::units::f3::relation_in(&w.units, a as f64, b as f64)).collect::<Vec<_>>()).collect::<Vec<_>>());
+            v["classObjectHits"] = map(&cl.object_hits);
+            v["negative"] = serde_json::json!(b.negative);
+            v["spawns"] = serde_json::Value::Object(b.spawns.iter().map(|((t, p), n)| (format!("t{t}:{}", if *p == 0 { "?".into() } else { name(p) }), (*n).into())).collect());
+            v.to_string()
         })
     }
 }
