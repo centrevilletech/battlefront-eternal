@@ -46,6 +46,8 @@ impl Default for Settings {
 /// Images the water reads, by index in the map's texture library.
 #[derive(Default)]
 pub struct Images {
+    /// The wake rings' texture (water.js ringMesh: FXrippl1).
+    pub ripple: Option<usize>,
     pub main: Option<usize>,
     pub normals: Vec<usize>,
     pub bumps: Vec<usize>,
@@ -86,7 +88,8 @@ pub fn images(data: &Value, mut load: impl FnMut(&str) -> Result<Option<usize>, 
         Some(name) => load(name)?,
         None => None,
     };
-    Ok(Images { main, normals, bumps, masks, foam })
+    let ripple = load("FXrippl1")?;
+    Ok(Images { ripple, main, normals, bumps, masks, foam })
 }
 
 // Draw rows 0-2 are the near scene's passes, 3-5 the far scene's, each
@@ -102,6 +105,8 @@ const RESERVED_MATRICES: usize = crate::online::shields::BUBBLES + crate::online
 const FAR_NEAR: f64 = 2.;
 // The mirror's target before the first frame's size is known (REFLECTION_SIZE).
 const MIRROR_SIZE: [i32; 2] = [512, 256];
+// Water.ringMesh: RIPPLE_MAX rings of RIPPLE_SEGMENTS quads.
+const RING_VERTICES: usize = bfe_environment::layout::surface::RIPPLES * bfe_environment::layout::surface::SEGMENTS * 4;
 const IDENTITY: [f64; 16] = [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.];
 
 struct Near {
@@ -245,6 +250,10 @@ pub struct WaterHost {
     // 1 High, 2 Ultra), how many of their patches the renderer holds, and
     // the query scratch.
     shore: Option<[u32; 2]>,
+    // Water.rings: the wake rings' mesh and where its vertices go in the
+    // host's span of the effect data.
+    rings: Option<u32>,
+    rings_at: usize,
     shore_at: usize,
     shore_quality: f64,
     shore_held: [usize; 2],
@@ -342,6 +351,8 @@ impl WaterHost {
             ocean_at: 0,
             shore: None,
             shore_at: 0,
+            rings: None,
+            rings_at: 0,
             shore_quality: 0.,
             shore_held: [0; 2],
             gathered: Default::default(),
@@ -386,6 +397,12 @@ impl WaterHost {
         host.shore = Some(shore);
         host.shore_at = host.floats;
         host.floats += 2 * SHORE_BATCH;
+        // The wake rings' mesh: positions, uvs and alpha a vertex, then its two
+        // matrices; the quads' index is the renderer's own.
+        let texture = images.ripple.map_or(-1, |i| textures[i] as i32);
+        host.rings = Some(bridge.effect_mesh(kinds::WATER_RINGS as u32, shadows, texture, RING_VERTICES as u32, (RING_VERTICES / 4 * 6) as u32, &[])?);
+        host.rings_at = host.floats;
+        host.floats += RING_VERTICES * 6 + 32;
         Ok(host)
     }
 
@@ -786,7 +803,8 @@ impl WaterHost {
             let owned = if row[0] == fx::KIND_MODEL as f64 {
                 self.near.iter().flatten().any(|n| f64::from(n.model) == row[1])
             } else {
-                row[0] == fx::KIND_BATCH as f64 && self.shore.is_some_and(|meshes| meshes.iter().any(|mesh| f64::from(*mesh) == row[1]))
+                (row[0] == fx::KIND_BATCH as f64 && self.shore.is_some_and(|meshes| meshes.iter().any(|mesh| f64::from(*mesh) == row[1])))
+                    || (row[0] == fx::KIND_MESH as f64 && self.rings.is_some_and(|mesh| f64::from(mesh) == row[1]))
             };
             if first == after && owned {
                 first = before;
@@ -861,6 +879,31 @@ impl WaterHost {
         }
         // WaterShore.publishFrame: the lapping foam and splash along the
         // waterline, while the water is in view at High or Ultra.
+        // Water.updateRings: the wake rings spreading where soldiers wade,
+        // at High or Ultra (the ring mesh at render order -18, never culled).
+        let quads = self.phase.result[out::QUADS] as usize;
+        if let Some(mesh) = self.rings.filter(|_| self.shore_quality > 0. && quads > 0) {
+            let effects = &mut bridge.r.effects;
+            let draws = effects.input[fx::IN_DRAWS] as usize;
+            if draws < fx::MAX_DRAWS {
+                let vertices = (quads * 4).min(RING_VERTICES);
+                let start = data_at + self.rings_at;
+                let mut at = start;
+                for (source, size) in [(&self.phase.positions, 3), (&self.phase.uvs, 2), (&self.phase.alpha, 1)] {
+                    effects.data[at..at + vertices * size].copy_from_slice(&source[..vertices * size]);
+                    at += vertices * size;
+                }
+                for (to, from) in effects.data[at..at + 32].iter_mut().zip(view[0..32].iter()) {
+                    *to = *from as f32;
+                }
+                let entry = &mut effects.input[fx::DRAW_AT + draws * fx::DRAW_STRIDE..][..fx::DRAW_STRIDE];
+                entry.fill(0.);
+                entry[..6].copy_from_slice(&[fx::KIND_MESH as f64, f64::from(mesh), vertices as f64, (vertices / 4 * 6) as f64, start as f64, 0.]);
+                entry[DRAW_KEY + 1] = -18.;
+                entry[DRAW_KEY + 5] = f64::from(mesh);
+                effects.input[fx::IN_DRAWS] = (draws + 1) as f64;
+            }
+        }
         if let Some(batches) = self.shore.filter(|_| self.shore_quality > 0. && seen[0]) {
             let result = &self.phase.result;
             let count = (result[out::SHORE_COUNT] as usize).min(SHORE_PATCHES);
