@@ -189,6 +189,7 @@ struct Mesh<C: HasContext> {
 // geometry (core.rs) at that program's locations, where the program keeps
 // its model-view matrix and each of the model's material values.
 struct ModelPass<C: HasContext> {
+    profile: &'static str,
     program: usize,
     side: u32,
     geometry: usize,
@@ -811,7 +812,9 @@ impl<C: HasContext> EffectsPass<C> {
             }
         }
         let cache=reserve_values(&mut self.held,&mut self.value_ids,program as usize,&m.values);
-        m.passes.push(ModelPass { program: program as usize, side, geometry: geometry as usize, model_view, normal, slots, model, cache });
+        let profile = core.owned_programs.iter().find(|(_, id)| *id == program)
+            .and_then(|(key, _)| crate::programs::spec(key).ok()).map_or("effect model", |s| s.key);
+        m.passes.push(ModelPass { profile, program: program as usize, side, geometry: geometry as usize, model_view, normal, slots, model, cache });
         (m.passes.len() - 1) as u32
     }
 
@@ -1199,6 +1202,7 @@ impl<C: HasContext> EffectsPass<C> {
         let gl = &core.gl;
         let (state, stats) = (&mut core.state, &mut core.stats);
         for pass in &m.passes {
+            let timer = core.profile.begin(gl);
             let program = &mut core.programs[pass.program];
 
             state.use_program(gl, stats, program.program);
@@ -1237,12 +1241,15 @@ impl<C: HasContext> EffectsPass<C> {
             if m.input_blend.is_some_and(|at|self.data.get(values_at+at).copied().unwrap_or(0.)>0.){state.blend(gl,stats,false);}else{blending(gl, state, stats, &m.blend);}
             let geo = &core.geometries[pass.geometry];
             unsafe {
+                if program.depth_clamp { gl.enable(glow::DEPTH_CLAMP); stats.gl_calls += 1; }
                 gl.bind_vertex_array(Some(geo.vao));
                 gl.draw_elements(glow::TRIANGLES, geo.index_count, geo.index_type, 0);
                 core.profile.draw(geo.index_count.max(0) as u64,1,1);
+                if program.depth_clamp { gl.disable(glow::DEPTH_CLAMP); stats.gl_calls += 1; }
             }
             stats.gl_calls += 2;
             stats.pass_draws[PASS_EFFECTS] += 1;
+            core.profile.end(gl, pass.profile, timer);
         }
     }
 

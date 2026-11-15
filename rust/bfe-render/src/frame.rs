@@ -453,7 +453,8 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
                         let Some(to)=self.frames.bindings.get(op.argument*B::LEN+B::TARGET) else {self.frames.clipped=true;continue};
                         let timer=self.core.profile.begin(&self.core.gl);
                         targets.copy(source,*to as i32,if op.kind==O::COPY_DEPTH{glow::DEPTH_BUFFER_BIT}else{glow::COLOR_BUFFER_BIT|glow::DEPTH_BUFFER_BIT})?;
-                        self.core.profile.end(&self.core.gl,"depth/color copy",timer);
+                        let label = match op.argument { R::DEPTH => "particle depth snapshot", R::SURFACE => "water scene snapshot", R::BASIN => "basin scene snapshot", _ => "depth/color copy" };
+                        self.core.profile.end(&self.core.gl,label,timer);
                     },
                     O::MIPMAP=>targets.mipmap(row[B::SAMPLE] as i32)?,
                     O::CLEAR_DEPTH=>{

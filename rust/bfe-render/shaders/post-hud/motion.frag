@@ -22,6 +22,22 @@
     ivec2 size = textureSize(velocityMap, 0);
     // The first-person weapon stays where it is on screen.
     if (texelFetch(velocityMap, p, 0).a > 0.75) { gl_FragColor = vec4(0.0); return; }
+#ifdef BFE_GATHER_DEPTH
+    // Four gathers cover the same clamped neighbourhood. Compare in the
+    // original order so equal depths keep the same velocity sample.
+    vec2 uv = vec2(p) / vec2(size);
+    vec4 tl = textureGather(depthMap, uv, 0);
+    vec4 tr = textureGatherOffset(depthMap, uv, ivec2(1,0), 0);
+    vec4 bl = textureGatherOffset(depthMap, uv, ivec2(0,1), 0);
+    vec4 br = textureGatherOffset(depthMap, uv, ivec2(1,1), 0);
+    float own = tl.y, closest = own;
+    ivec2 at = p;
+#define CANDIDATE(D, X, Y) if (D < closest) { closest=D; at=clamp(p+ivec2(X,Y),ivec2(0),size-1); }
+    CANDIDATE(tl.w,-1,-1) CANDIDATE(tl.z,0,-1) CANDIDATE(tr.z,1,-1)
+    CANDIDATE(tl.x,-1,0) CANDIDATE(tr.y,1,0)
+    CANDIDATE(bl.x,-1,1) CANDIDATE(bl.y,0,1) CANDIDATE(br.y,1,1)
+#undef CANDIDATE
+#else
     float own = texelFetch(depthMap, p, 0).r;
     float closest = own;
     ivec2 at = p;
@@ -30,6 +46,7 @@
       float depth = texelFetch(depthMap, t, 0).r;
       if (depth < closest) { closest = depth; at = t; }
     }
+#endif
     vec2 fsize = vec2(size);
     vec2 motion = motionAt(at, closest, fsize);
     float spread = at == p ? 0.0 : length((motion - motionAt(p, own, fsize)) * fsize);
