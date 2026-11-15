@@ -2270,6 +2270,7 @@ impl BattleController {
             self.scene.bridge.hud_model_update();
             if self.page_battle.spawn {
                 let status = super::slint_battle::spawn_battle_status(self);
+                self.page_battle.scale=self.size[0] as f64/self.page_size[0].max(1) as f64;
                 self.page_battle.update(dt,&self.spawn_ctrl.model,&self.spawn_port,self.page_size,&self.pause_page.theme,status.countdown.is_some());
                 self.page_battle.map_texture(&mut self.scene,&self.spawn_ctrl.view,self.height);
                 self.scene.bridge.hud_model.batch.begin();

@@ -29,6 +29,7 @@ import {
     BattleClassBanner,
     BattleSpawnButton,
     BattleObjectivesCard,
+    BattleSwitchGlow,
     SpawnCss,
     ScoreTeamPanel,
     ScoreStatSheet,
@@ -221,6 +222,9 @@ export component BattleSpawnScreen inherits Rectangle {
         opacity: (0.3 + 0.7 * self.breath) * SpawnCss.appear(BattleModel.entry, 0.6, 0.7);
     }
 
+    BattleSwitchGlow { model: BattleModel.team-one; right-aligned: false; }
+    BattleSwitchGlow { model: BattleModel.team-two; right-aligned: true; }
+
     // The screen's chrome changes only on a pick, a hover or a clock tick: FemtoVG keeps it in one cached
     // layer and redraws it only then (it cost every frame before). The post hit targets move with the
     // stage's camera each frame, so they stay outside it.
@@ -239,6 +243,7 @@ export component BattleSpawnScreen inherits Rectangle {
 
             BattleTeamCard {
                 model: BattleModel.team-one;
+                joined: BattleModel.team-one.own && BattleModel.turn < 2 ? SpawnCss.appear(BattleModel.turn, 0, 0.6) : 1;
                 right-aligned: false;
                 pulse-alpha: BattleModel.pulse-alpha;
                 clicked => { BattleModel.select-team(BattleModel.team-one.id); }
@@ -246,6 +251,7 @@ export component BattleSpawnScreen inherits Rectangle {
 
             BattleTeamCard {
                 model: BattleModel.team-two;
+                joined: BattleModel.team-two.own && BattleModel.turn < 2 ? SpawnCss.appear(BattleModel.turn, 0, 0.6) : 1;
                 right-aligned: true;
                 pulse-alpha: BattleModel.pulse-alpha;
                 clicked => { BattleModel.select-team(BattleModel.team-two.id); }

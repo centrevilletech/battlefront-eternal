@@ -22,6 +22,8 @@ export global Theme {
     in-out property <bool> keyboard-nav: false;
     in-out property <length> viewport-width: 1280px;
     in-out property <length> viewport-height: 720px;
+    // Device pixels per logical pixel (the page's line boxes round in device pixels).
+    in-out property <float> scale-factor: 1.0;
     out property <bool> bf1: self.menu-theme == "bf1";
     out property <bool> bf2: self.menu-theme == "bf2";
     out property <bool> eternal: !self.bf1 && !self.bf2;

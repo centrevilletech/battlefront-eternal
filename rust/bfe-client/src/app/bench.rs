@@ -84,6 +84,10 @@ pub struct Bench {
     spawned: bool,
     // `hold=1`: leave the spawn screen open for the bench to look at and click.
     hold: bool,
+    // `respawn=SECONDS`: the pause menu's RESPAWN that long after the spawn, once (the death and the screen
+    // reopening behind the death camera).
+    respawn: Option<f64>,
+    alive_since: Option<std::time::Instant>,
     // `frames=PATH`: one line per drawn frame: wall ms, spawn screen open, picked class, picked post.
     frames: Option<BufWriter<File>>,
     waiting: &'static str,
@@ -110,6 +114,8 @@ impl Bench {
             launched: false,
             spawned: false,
             hold: value("hold").is_some(),
+            respawn: value("respawn").and_then(|s| s.parse().ok()),
+            alive_since: None,
             frames: value("frames").and_then(|path| File::create(path).ok().map(BufWriter::new)),
             waiting: "",
             out,
@@ -145,6 +151,16 @@ impl Bench {
                 }
             }
         }
+        if self.spawned && !battle.spawn_ctrl.is_open() {
+            if let Some(after) = self.respawn {
+                let since = *self.alive_since.get_or_insert_with(std::time::Instant::now);
+                if since.elapsed().as_secs_f64() >= after {
+                    self.respawn = None;
+                    battle.pause_menu.respawn_triggered += 1;
+                    eprintln!("bench: respawn requested");
+                }
+            }
+        }
         if let Some(frames) = &mut self.frames {
             let wall = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0., |d| d.as_secs_f64() * 1000.);
             let model = &battle.spawn_ctrl.model;
@@ -175,6 +191,11 @@ impl Bench {
             };
             if model.team != team {
                 model.switch_team(port, TeamSwitchSource::Key, 0.);
+                // A switch picks a random post (in both builds); the reference's bench request names no post,
+                // so its world takes the front-line pick. Take the same one here.
+                if self.post.is_none() {
+                    model.post = port.choose_post(team, None);
+                }
                 battle.spawn_ctrl.sync_model_events();
                 return "the team switch";
             }
