@@ -325,10 +325,12 @@ impl Network {
         cx.ids = std::mem::take(&mut self.ids);
         cx.definitions = std::mem::take(&mut self.definitions);
         cx.holders = std::mem::take(&mut self.holders);
-        // UnitFactory's numeric registry bound includes each connection's
-        // class stock. Grow it during admission before staging reaches it;
-        // no later class switch or respawn may allocate a new body bank.
-        let needed = (w.sim.store.units.next_id as u32).saturating_add(classes.len() as u32 + 1);
+        // The join spawns one body of its first class: a pooled one, or a
+        // new unit id. Class stock staged below takes no id until it is
+        // built, and a later class switch returns the old body to its pool.
+        let first = w.sim.strings.intern_str(&class_name);
+        let new_body = !crate::units::f3::pooled_in(w, first);
+        let needed = (w.sim.store.units.next_id as u32).saturating_add(new_body as u32);
         if cx
             .ids
             .battle
@@ -642,8 +644,7 @@ mod tests {
                     .unwrap();
             }
         }
-        // Once the factory is out of bodies a join is refused, not admitted
-        // past the AI's reservation.
+        // A late join is admitted only within the AI's reservation.
         let mailbox = context
             .owned(|w| {
                 let codes = session::input_codes().iter().map(|code| w.sim.strings.intern_str(code)).collect();
@@ -652,12 +653,199 @@ mod tests {
                 crate::input::module::input_mailbox_create_in(w)
             })
             .unwrap();
-        let late = context.world_network_join(&files, 200, "Late", "Late", false, true, false, mailbox, 1000.);
-        assert!(late.is_err());
+        let _ = context.world_network_join(&files, 200, "Late", "Late", false, true, false, mailbox, 1000.);
         context
             .owned(|w| {
                 let battle = w.ai.battle().unwrap();
                 assert!(w.sim.store.units.list.len() <= battle.state.queries.objects().capacity());
+            })
+            .unwrap();
+        context.dispose().unwrap();
+    }
+
+    fn mailbox(context: &Context) -> u32 {
+        context
+            .owned(|w| {
+                let codes = session::input_codes().iter().map(|code| w.sim.strings.intern_str(code)).collect();
+                let setup = InputMailboxSetup { epoch: 1., capacity: 256., codes };
+                record(w, InputMailboxSetup::WORDS, &setup, InputMailboxSetup::put);
+                crate::input::module::input_mailbox_create_in(w)
+            })
+            .unwrap()
+    }
+
+    /// Unspawns a connection and spawns it as the `pick`th class of its team.
+    fn switch_class(w: &mut World, p: &session::LocalPlayer, pick: usize) -> bool {
+        const CLASSES: [[&str; 2]; 5] = [
+            ["rep_inf_clone_trooper", "cis_inf_battledroid"],
+            ["rep_inf_arc_trooper", "cis_inf_assault"],
+            ["rep_inf_clone_pilot", "cis_inf_pilotdroid"],
+            ["rep_inf_clone_sharpshooter", "cis_inf_assassindroid"],
+            ["rep_inf_jet_trooper", "cis_inf_droideka"],
+        ];
+        let h = p.character.clone().unwrap();
+        let mut accepted = false;
+        for (op, class) in [(F4ConnectionOp::Unspawn, None), (F4ConnectionOp::Spawn, Some(pick % 5))] {
+            for side in 0..2 {
+                let cmd = F4ConnectionCommand {
+                    op,
+                    target: h.clone(),
+                    class_name: class.map(|c| w.sim.strings.intern_str(CLASSES[c][side])),
+                    ordinal: 1.,
+                    ..Default::default()
+                };
+                record(w, F4ConnectionCommand::WORDS, &cmd, F4ConnectionCommand::put);
+                let words = crate::battle::f4_connections::f4_connection_command_in(w).unwrap();
+                accepted = result(words, F4ConnectionView::take).accepted;
+                if accepted || op == F4ConnectionOp::Unspawn {
+                    break;
+                }
+            }
+        }
+        accepted
+    }
+
+    /// A class switch returns the old body to its class pool and a leaving
+    /// player's body goes back too, so a full server whose players switch
+    /// class all battle long and come and go keeps admitting players.
+    fn switching_and_rejoining_keeps_the_server_open(fielded: bool) {
+        let Ok(root) = std::env::var("BFE_CONTENT_DIR") else {
+            return;
+        };
+        let files = DirFiles::new(root);
+        let context = Context::new();
+        let options = Options {
+            map: "nab2".into(),
+            side: "rep".into(),
+            enhanced: false,
+            seed: 1,
+            heroes: false,
+            unit: None,
+            name: None,
+            bots: crate::world::admit::Bots { fielded, ..Default::default() },
+        };
+        context.world_network_admit(&files, &options).unwrap();
+        let join = |peer: u32| {
+            let name = format!("P{peer}");
+            context
+                .world_network_join(&files, peer, &name, &name, false, true, false, mailbox(&context), 1000.)
+                .unwrap_or_else(|e| panic!("join of peer {peer}: {e}"))
+        };
+        let mut players: Vec<_> = (1..=32).map(|peer| (peer, join(peer))).collect();
+        let mut next_peer = 33;
+        let mut settled = None;
+        for round in 0..20usize {
+            context
+                .owned(|w| {
+                    for (i, (_, p)) in players.iter().enumerate() {
+                        assert!(switch_class(w, p, round + i), "round {round}: player {i} refused a class");
+                    }
+                })
+                .unwrap();
+            // Four players leave and four new ones take their places.
+            if round % 4 == 3 {
+                for slot in 0..4 {
+                    let (peer, p) = players.remove(slot * 7);
+                    context.world_network_leave(peer, p.player).unwrap();
+                    players.insert(slot * 7, (next_peer, join(next_peer)));
+                    next_peer += 1;
+                }
+            }
+            let ids = context.owned(|w| w.sim.store.units.next_id).unwrap();
+            // Every class has been taken by every player once after five
+            // rounds; from there the pools hold enough bodies.
+            if round == 5 {
+                settled = Some(ids);
+            }
+            if let Some(settled) = settled {
+                assert!(ids <= settled + 8., "round {round}: {ids} unit ids, {settled} after every class was used");
+            }
+        }
+        // With every unit id taken, a join still spawns a pooled body.
+        let (peer, p) = players.remove(0);
+        context.world_network_leave(peer, p.player).unwrap();
+        context
+            .owned(|w| {
+                let limit = w.network.as_ref().unwrap().ids.battle.as_ref().unwrap().construction_limit.unwrap();
+                w.sim.store.units.next_id = limit as f64;
+            })
+            .unwrap();
+        join(next_peer);
+        context.dispose().unwrap();
+    }
+
+    #[test]
+    fn class_switches_and_rejoins_with_bots_keep_the_server_open() {
+        switching_and_rejoining_keeps_the_server_open(true);
+    }
+
+    #[test]
+    fn class_switches_and_rejoins_without_bots_keep_the_server_open() {
+        switching_and_rejoining_keeps_the_server_open(false);
+    }
+
+    /// The Instant Action player keeps one body through every class change.
+    #[test]
+    fn local_player_changes_class_two_hundred_times_in_one_body() {
+        let Ok(root) = std::env::var("BFE_CONTENT_DIR") else {
+            return;
+        };
+        let files = DirFiles::new(root);
+        let context = Context::new();
+        let options = Options {
+            map: "nab2".into(),
+            side: "rep".into(),
+            enhanced: false,
+            seed: 1,
+            heroes: false,
+            unit: None,
+            name: None,
+            bots: Default::default(),
+        };
+        context.world_admit(&files, &options).unwrap();
+        context
+            .owned(|w| {
+                let store = &w.sim.store;
+                let character = store
+                    .battle
+                    .characters
+                    .iter()
+                    .copied()
+                    .find(|r| store.character.get(*r).unwrap().human)
+                    .unwrap();
+                let body = store
+                    .units
+                    .list
+                    .iter()
+                    .find_map(|m| match m {
+                        Member::Unit(r) if store.unit.get(*r).is_some_and(|u| u.human) => Some(*r),
+                        _ => None,
+                    })
+                    .expect("the local player's body");
+                let ids = store.units.next_id;
+                let members = store.units.list.len();
+                let classes = [
+                    "rep_inf_arc_trooper",
+                    "rep_inf_clone_pilot",
+                    "rep_inf_clone_sharpshooter",
+                    "rep_inf_jet_trooper",
+                    "rep_inf_clone_trooper",
+                ];
+                for n in 0..200 {
+                    let class_name = w.sim.strings.intern_str(classes[n % 5]);
+                    let spawned = w.spawn_player_body(&F3PlayerSpawn {
+                        character,
+                        previous: Some(body),
+                        class_name,
+                        position: [0., 0., 0.],
+                        yaw: 0.,
+                        local: true,
+                    });
+                    assert_eq!(spawned, Some(body), "class change {n}");
+                    assert_eq!(w.sim.store.unit.get(body).unwrap().class_name, class_name);
+                }
+                assert_eq!(w.sim.store.units.next_id, ids);
+                assert_eq!(w.sim.store.units.list.len(), members);
             })
             .unwrap();
         context.dispose().unwrap();

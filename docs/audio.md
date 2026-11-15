@@ -75,7 +75,8 @@ Settings → Audio (`rust/audio-control`; the defaults are in
 - **Output**: Automatic, Headphones (binaural), Stereo speakers, 5.1, 7.1,
   or 7.1.4. Automatic follows the device's channel count: 12 or more is
   7.1.4, 8 to 11 is 7.1, 6 or 7 is 5.1, anything else stereo. Headphones
-  are never detected (browsers don't say); choose them.
+  are never detected; choose them. A layout the device will not open plays
+  as the widest one it does (else stereo), and the audio details say so.
 - **Dynamics**: Home theater (full range), Normal, or Night (narrow range).
 - **Mono**, **Clarity (enhanced)** (the clarity stage below; on by
   default, off to hear the enhanced rendering without it), and volumes for
@@ -158,7 +159,9 @@ What is the game's, exactly (see `docs/formats.md`, "Sound"):
   scored (1 − `Bias`) × level + `Bias` × `Priority`; bus gains and the
   voice-over's duck of `main` to 0.5 over 0.5 s; Doppler as 1 + Δ/344, none
   at 172 m/s; the listener at the camera, 2 m ahead for distance; the
-  sub-level's space for reverb (Theed's is dry); pitch glides of 1/256 twice
+  listener's space for reverb (the space of the earliest `soundspace` region
+  holding him, kept while he stays inside it, dry outside every region;
+  Theed has none); pitch glides of 1/256 twice
   a frame; 2D sounds always centred (their `Pan` never arrives).
 - The output, OpenAL Soft 1.20.1 as the Steam build ships it: its 2D
   ambisonic decoders on stereo (first order, front azimuths widened 1.5
@@ -229,14 +232,14 @@ distance curve, Doppler, pitch glides and voice ranking.
 - Rust places stream channels at OpenAL Soft's angles: stereo hard left
   and right, mono ahead, and a quad bed's rear pair spread across both ears.
 - The master applies the original stereo level (+1.5 dB), optional mono,
-  the dynamics profile's level (Home theater −10.2 dB, Normal −6.1,
-  Night −5.7), the 4097-entry soft-clip curve and master volume.
+  the dynamics profile's level (Home theater −8.8 dB, Normal −5.3,
+  Night −3.8), the 4097-entry soft-clip curve and master volume.
 - This mode has no reverb or compressor. It uses the same single Rust
   output worklet as every other mode.
 
-Against the full original output on stereo it drops the sub-level's reverb
-(Theed, the Dune Sea and Endor's are dry; on the other maps it is the
-reverb a PC without EAX hardware never had), the dynamics' compression
+Against the full original output on stereo it drops the reverb of the
+listener's space (Theed and the Dune Sea have none; Jabba's Palace, Kamino,
+Bespin and Endor's bunker do), the dynamics' compression
 (Night no longer narrows the range there), the true-peak limiter, and its
 1.5 ms of lookahead. The rest renders the same: the same 16 moving voices
 through both, aligned for that lookahead, differ by 0.01 dB a channel, the
@@ -244,7 +247,10 @@ residual 47 dB under the signal (the old mixer moved a voice's panning
 within one block, the light mix over 15 ms).
 
 On surround and headphones the original keeps OpenAL Soft's output as
-above. Settings → Audio → Classic, Output Stereo picks the light mix on any
+above. Which chain stereo Classic plays is one constant,
+`CLASSIC_STEREO_LIGHT` in `rust/audio (output.rs)`: false gives it the full
+original chain. On the A8 laptop the full chain costs about 0.1 ms more per
+2.67 ms audio block than the light mix. Settings → Audio → Classic, Output Stereo picks the light mix on any
 device.
 
 A first session (no settings stored) on a low-end CPU starts on Classic:

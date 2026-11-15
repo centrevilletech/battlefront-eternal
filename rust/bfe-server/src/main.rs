@@ -250,8 +250,11 @@ fn admin_menu(stdin: &mut io::StdinLock<'_>, directory: &Path, port: u16) -> io:
 /// Displays current `ServerConfig` values (server name, ports, visibility, master directory URL,
 /// content directory, rotation) and lets the operator edit settings, start `serve()`, or enter
 /// `admin_menu()`.
-fn menu(directory: &Path, operator_port: u16) {
-    let mut config = ServerConfig::load_from_dir(directory);
+fn menu(directory: &Path, operator_port: u16) -> Result<(), String> {
+    // The menu saves after every choice: a config.json it cannot read is reported, never
+    // replaced with the defaults.
+    let mut config = ServerConfig::load_checked(directory)
+        .map_err(|e| format!("{e}\nFix or move the file; the menu does not overwrite it."))?;
     if !bfe_server::config::config_exists_in(directory) {
         let _ = config.save_to_dir(directory);
     }
@@ -259,7 +262,7 @@ fn menu(directory: &Path, operator_port: u16) {
     let mut handle = stdin.lock();
     loop {
         println!(
-            "\nBattlefront Eternal Dedicated Server\n1  Server name: {}\n2  Data directory: {}\n3  Playlist: {}\n4  Online listing: {}\n5  Relay policy: {}\n6  Global bans: {}\n7  Show config file\n8  Import gameplay bundle\n9  Live server admin\na  Bots: {}\n0  Start server\nq  Quit",
+            "\nBattlefront Eternal Dedicated Server\n1  Server name: {}\n2  Data directory: {}\n3  Playlist: {}\n4  Online listing: {}\n5  Relay policy: {}\n6  Global bans: {}\n7  Show config file\n9  Live server admin\na  Bots: {}\n0  Start server\nq  Quit",
             config.name,
             if config.data.is_empty() {
                 "(not configured)"
@@ -346,6 +349,8 @@ fn menu(directory: &Path, operator_port: u16) {
                 if let Ok(p) = prompt(&mut handle, "auto, never, or always: ") {
                     if matches!(p.as_str(), "auto" | "never" | "always") {
                         config.relay_policy = p;
+                    } else {
+                        println!("Unknown relay policy {p:?}: unchanged.");
                     }
                 }
             }
@@ -359,23 +364,6 @@ fn menu(directory: &Path, operator_port: u16) {
                     println!("{pretty}");
                 }
             }
-            "8" => {
-                let Ok(bundle) = prompt(&mut handle, "Owned gameplay bundle directory: ") else {
-                    break;
-                };
-                let Ok(dest) = prompt(&mut handle, "New imported data directory: ") else {
-                    break;
-                };
-                if bundle.trim().is_empty() || dest.trim().is_empty() {
-                    println!("Both paths are required.");
-                    continue;
-                }
-                config.data = fs::canonicalize(&dest)
-                    .unwrap_or_else(|_| PathBuf::from(&dest))
-                    .to_string_lossy()
-                    .into_owned();
-                println!("Gameplay bundle verified and imported.");
-            }
             "9" => {
                 let _ = admin_menu(&mut handle, directory, operator_port);
             }
@@ -383,6 +371,8 @@ fn menu(directory: &Path, operator_port: u16) {
                 if let Ok(mode) = prompt(&mut handle, "Bots: enhanced, classic, or off: ") {
                     if matches!(mode.as_str(), "enhanced" | "classic" | "off") {
                         config.ai = mode;
+                    } else {
+                        println!("Unknown bot mode {mode:?}: unchanged.");
                     }
                 }
             }
@@ -390,6 +380,7 @@ fn menu(directory: &Path, operator_port: u16) {
         }
         let _ = config.save_to_dir(directory);
     }
+    Ok(())
 }
 
 /// Launch each round through the same admission, LAN and online setup.
@@ -688,10 +679,13 @@ fn main() {
         let _ = fs::set_permissions(&directory, fs::Permissions::from_mode(0o700));
     }
 
-    let operator_port: u16 = std::env::var("PORT")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(18450);
+    let operator_port = match cli::operator_port(std::env::var("PORT").ok()) {
+        Ok(port) => port,
+        Err(err) => {
+            eprintln!("bfeserver: {err}");
+            std::process::exit(2);
+        }
+    };
 
     match cli.command {
         Command::Admin(raw_json) => {
@@ -721,6 +715,11 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        _ => menu(&directory, operator_port),
+        _ => {
+            if let Err(err) = menu(&directory, operator_port) {
+                eprintln!("bfeserver: {err}");
+                std::process::exit(1);
+            }
+        }
     }
 }

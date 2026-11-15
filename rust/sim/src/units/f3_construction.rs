@@ -173,7 +173,17 @@ pub(crate) fn player_in(world_ctx: &mut crate::world::owner::World, character: R
                 if local {c.local_available(class,key.reference())} else {c.can_acquire(store,owner,class)}
             });
             if !available {return None;}
-            if !local {f3::remove_native_in(world_ctx, key.reference(),services.reborrow());}
+            if !local {
+                // The old body goes back to its class pool (multiplayer-world.js
+                // spawn: `previous.human = previous.networkHuman = false`);
+                // still marked as a connection's, it was never reused and
+                // every class switch took a unit id for good.
+                let unit=world_ctx.sim.store.unit.get_mut(key.reference()).expect("validated previous body");
+                unit.human=false;
+                unit.network_human=Some(false);
+                unit.combat.player=false;
+                f3::remove_native_in(world_ctx, key.reference(),services.reborrow());
+            }
         }
     }
     let c=world_ctx.sim.store.character.get(character)?;

@@ -1953,6 +1953,10 @@ fn begin_events_in(world_ctx: &mut crate::world::owner::World) {
 pub(super) fn with_rows_in<T>(store: &mut Store, state: &mut State, run: impl FnOnce(&mut Store,&mut Ownership)->T) -> T {
     run(store, &mut state.owner)
 }
+/// Whether a body of `class` waits in its pool, so taking one needs no new id.
+pub(crate) fn pooled_in(world_ctx: &crate::world::owner::World, class: crate::store::StrId) -> bool {
+    world_ctx.units.state.as_ref().is_some_and(|state|state.owner.available(class))
+}
 /// F4 acquires warm bodies without copying any Unit, body or combat row.
 pub(crate) fn acquire_native_in(world_ctx: &mut crate::world::owner::World, class: crate::store::StrId) -> Option<Ref<Unit>> {
     world_ctx.units.state.as_mut().expect("prepared unit service").owner.acquire(&world_ctx.sim.store,class).map(|key|key.reference())

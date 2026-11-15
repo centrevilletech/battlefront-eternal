@@ -170,7 +170,14 @@ impl PlayersWorld for World<'_, '_> {
         r
     }
     fn remove_body(&mut self, _: &mut Players, s: &mut Store, _: Ref<Character>, r: Ref<Unit>) {
-        super::f4_live::with_store_in(self.w, s, |w| f3::remove_native_in(w, r, self.services.reborrow()));
+        super::f4_live::with_store_in(self.w, s, |w| {
+            // Back to its class pool, as retire_unit does.
+            let u = w.sim.store.unit.get_mut(r).expect("released player body");
+            u.human = false;
+            u.network_human = Some(false);
+            u.combat.player = false;
+            f3::remove_native_in(w, r, self.services.reborrow())
+        });
     }
 }
 pub fn f4_roster_init_in(w: &mut Root) {

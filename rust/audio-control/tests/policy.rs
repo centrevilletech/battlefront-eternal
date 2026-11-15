@@ -308,3 +308,21 @@ fn finished_stream_slots_recycle_after_wall_time_without_advancing_pcm() {
     let mut p=phase();stream_bank(&mut p);let h=p.streams.play(&mut p.engine,Options::new(8,6));p.streams.stop(&mut p.engine,h,0.05);p.engine.wall_now=3.1;
     p.streams.requests.clear();p.streams.update(&mut p.engine,&p.acoustics,0.0);assert_eq!(p.engine.now,0.0);assert!(p.streams.requests.iter().any(|r|r.operation==request_kind::RELEASE));
 }
+
+#[test]
+fn doppler_follows_the_sources_velocity_not_the_frames_position_steps() {
+    // A source closing at 34.4 m/s whose published place advances in uneven
+    // steps (two ticks one frame, none the next): the 2004 rule reads the
+    // velocities, so the shift stays 1 + 34.4/344 every frame.
+    let mut p = phase();
+    actor(&mut p, 0, emitter_kind::SOLDIER as usize);
+    p.emitters[0][emitter::Z] = -100.0; p.emitters[0][emitter::VZ] = 34.4;
+    let mut ask = Ask::new(0, EFFECTS); ask.emitter = 0; ask.looping = Some(true);
+    assert_ne!(p.play(ask), SILENT);
+    for frame in 0..12 {
+        p.emitters[0][emitter::Z] += if frame % 2 == 0 { 2.0 * 34.4 / 60.0 } else { 0.0 };
+        tick(&mut p, 1.0 / 60.0, &[]);
+        let v = p.engine.voices.iter().find(|v| !v.done && v.sound == 0).unwrap();
+        if frame > 0 { assert!((v.radial - 34.4).abs() < 0.1, "frame {frame}: radial {}", v.radial); }
+    }
+}
