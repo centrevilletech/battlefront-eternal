@@ -769,6 +769,8 @@ impl Replicas {
         self.buildings.frame(receiver, dt, &mut self.combat.hull_fx);
         self.items.frame(receiver, tick);
         self.items.light(&mut self.lights);
+        let own = (receiver.own.alive && receiver.own.mount.is_none()).then_some(receiver.own.position);
+        self.combat.map_effects.wake(dt, own);
         self.frame = self.frame.wrapping_add(1);
         self.visible = 0;
         self.units.input[f::COMMANDS] = 0.;
@@ -1607,7 +1609,7 @@ impl Replicas {
     pub fn present_weather(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], screen: [i32; 2], gpu: &mut crate::resources::Resources, bridge: &mut Bridge) {
         self.present_destruction(dt, eye, bridge);
         if let Some(steam) = &mut self.steam {
-            steam.frame(dt, &self.combat.map_effects.volumes, screen, true, gpu, bridge);
+            steam.frame(dt, &self.combat.map_effects.volumes, &self.combat.map_effects.wakes, screen, true, gpu, bridge);
         }
         if let Some(fountains) = &mut self.fountains {
             fountains.frame(dt, &self.combat.map_effects.fountains, screen, gpu, bridge);
@@ -1874,6 +1876,16 @@ impl Replicas {
     pub(crate) fn effects_end(&self) -> usize { self.trails.end() }
     /// Shoreline queries share the battle's collision world.
     pub(crate) fn water_collision(&self) -> (&super::replay::Collision, u32) { (&self.collision, self.world) }
+    /// The soldiers on foot this frame: unit id, feet and velocity (for the
+    /// water's waders and wakes).
+    pub(crate) fn soldiers_on_foot(&self, out: &mut Vec<(u32, [f64; 3], [f64; 3])>) {
+        out.clear();
+        for s in &self.slots {
+            let Some((id, _)) = s.identity.filter(|_| s.active && !s.dead && s.mount.is_none()) else { continue };
+            let row = &self.units.output[s.actor * o::STRIDE..];
+            out.push((id, std::array::from_fn(|k| row[o::POSITION + k]), std::array::from_fn(|k| row[o::VELOCITY + k])));
+        }
+    }
     pub fn record_budget(&self) -> usize {
         let actors: usize = self
             .slots
