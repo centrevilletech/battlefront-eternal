@@ -299,6 +299,13 @@ impl Prepared {
                 import(&mut runtime, import::SAMPLE, &[id as f64, frames as f64 / rate, rate.max(8000.), rate / rate.max(8000.), 1.])?;
             }
         }
+        // The enhanced mode's upscaled sound, when prepared (tools/enhance_audio.py).
+        let enhanced_manifest: Option<serde_json::Value> = content
+            .textures
+            .read(&format!("audio/enhanced/{level}/manifest.json"))
+            .ok()
+            .and_then(|raw| serde_json::from_slice(&raw).ok());
+        let mut variants = Vec::new();
         let mut stream_ids = BTreeMap::new();
         let mut segment_ids = BTreeMap::new();
         let mut segments = Vec::new();
@@ -344,6 +351,29 @@ impl Prepared {
                 row[segment::SAMPLE] = segment as f64;
                 row[segment::DURATION] = entry[2].as_f64().unwrap_or(0.) / substreams as f64 / rate;
                 row[segment::CHANNELS] = (channels * substreams) as f64;
+                // Its upscaled files, by layout: Enhanced plays the stereo, 5.1 or
+                // 7.1 one for the output (a mono or quad bed has just one).
+                let entry = enhanced_manifest.as_ref().map(|m| &m["streams"][name][key]);
+                if let Some(entry) = entry.filter(|e| !e["fallback"].as_bool().unwrap_or(true)) {
+                    let gain_db = entry["playback_db"].as_f64().unwrap_or(0.);
+                    let mut first = -1.;
+                    for (layout, file) in entry["files"].as_object().into_iter().flatten() {
+                        let Some(file) = file.as_str() else { continue };
+                        let Ok(path) = content.textures.path(&format!("audio/enhanced/{level}/{file}")) else { continue };
+                        let at = variants.len() as f64;
+                        variants.push(super::stream_assets::Variant { file: path, gain_db });
+                        if first < 0. {
+                            first = at;
+                        }
+                        match layout.as_str() {
+                            "stereo" => row[segment::STEREO] = at,
+                            "5.1" => row[segment::SURROUND6] = at,
+                            "7.1" => row[segment::SURROUND8] = at,
+                            _ => {}
+                        }
+                    }
+                    row[segment::FIRST] = first;
+                }
                 import(&mut runtime, import::SEGMENT, &row)?;
                 voice_segments.push(name.ends_with("_vo"));
                 segments.push(super::stream_assets::Segment { file, offset, length, rate, channels, substreams, interleave });
@@ -353,8 +383,7 @@ impl Prepared {
         // samples (manifest order, non-fallback only) follow them.
         let enhanced_base = samples.len() + 96;
         let mut enhanced = Vec::new();
-        if let Ok(raw) = content.textures.read(&format!("audio/enhanced/{level}/manifest.json")) {
-            let manifest: serde_json::Value = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
+        if let Some(manifest) = &enhanced_manifest {
             for (name, entry) in manifest["samples"].as_object().into_iter().flatten() {
                 let (Some(&index), Some(file)) = (samples.get(name.as_str()), entry["file"].as_str()) else { continue };
                 if entry["fallback"].as_bool().unwrap_or(false) {
@@ -1015,7 +1044,7 @@ impl Prepared {
             prediction_weapons,
             actor_limits,
             music,
-            streams: super::stream_assets::Assets::new(segments),
+            streams: super::stream_assets::Assets::new(segments, variants),
             enhanced,
             enhanced_base,
             headphones,

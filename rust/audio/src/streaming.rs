@@ -9,6 +9,20 @@ use std::cell::Cell;
 /// 48 kHz): many quanta, even at a high pitch.
 const RING_FRAMES: usize = 8192;
 const MAX_CHANNELS: usize = 12;
+/// A client codec that decodes a streamed segment a window at a time (the
+/// enhanced mode's Opus streams): the next window of at most `frames`
+/// frames, channel-major with the window's own length as stride, or None at
+/// the end. It runs on the device thread between quanta.
+pub trait Producer: Send {
+    fn produce(&mut self, frames: usize) -> Option<(&[f32], usize)>;
+}
+/// What feeds a streamed segment's ring as it plays.
+pub enum Feed {
+    Adpcm(Adpcm),
+    Codec(Box<dyn Producer>),
+}
+/// Frames of decoded audio a codec-fed segment keeps ahead (about 0.34 s).
+const CODEC_RING_FRAMES: usize = 16384;
 /// What remains to decode of a streamed ADPCM segment.
 pub struct Adpcm {
     parts: Vec<Vec<u8>>,
@@ -48,7 +62,18 @@ impl Sample {
             return Some(Self { frames, channels: total, rate, data: Vec::new(), ring: None, feed: None });
         }
         let mut sample = Self::streaming(frames, total, rate, frames.min(RING_FRAMES));
-        sample.feed = Some(Box::new(Adpcm { parts, channels, blocks, next: 0 }));
+        sample.feed = Some(Box::new(Feed::Adpcm(Adpcm { parts, channels, blocks, next: 0 })));
+        sample.feed();
+        Some(sample)
+    }
+    /// A streamed segment `frames` long that `producer` decodes as it plays
+    /// into a bounded ring. Starts with the ring full.
+    pub fn codec(rate: f64, channels: usize, frames: usize, producer: Box<dyn Producer>) -> Option<Self> {
+        if channels == 0 || channels > MAX_CHANNELS || frames == 0 {
+            return None;
+        }
+        let mut sample = Self::streaming(frames, channels, rate, frames.min(CODEC_RING_FRAMES));
+        sample.feed = Some(Box::new(Feed::Codec(producer)));
         sample.feed();
         Some(sample)
     }
@@ -56,6 +81,34 @@ impl Sample {
     /// allocates, so it runs on the device thread between quanta.
     pub fn feed(&mut self) {
         let Some(mut feed) = self.feed.take() else { return };
+        let more = match &mut *feed {
+            Feed::Adpcm(adpcm) => self.feed_adpcm(adpcm),
+            Feed::Codec(producer) => self.feed_codec(producer.as_mut()),
+        };
+        if more {
+            self.feed = Some(feed);
+        }
+    }
+    // Windows of at most 2048 frames while the ring has room; false once the
+    // producer has ended (the ring then knows its true length).
+    fn feed_codec(&mut self, producer: &mut dyn Producer) -> bool {
+        while self.writable() >= 2048 {
+            match producer.produce(2048) {
+                Some((pcm, frames)) => {
+                    if frames == 0 || !self.append(&pcm[..frames * self.channels], frames, false) {
+                        self.append(&[], 0, true);
+                        return false;
+                    }
+                }
+                None => {
+                    self.append(&[], 0, true);
+                    return false;
+                }
+            }
+        }
+        true
+    }
+    fn feed_adpcm(&mut self, feed: &mut Adpcm) -> bool {
         let mut block = [0f32; 64 * MAX_CHANNELS];
         let mut next = feed.next;
         while next < feed.blocks && self.writable() >= 64 {
@@ -72,10 +125,8 @@ impl Sample {
             next += 1;
             self.append(&block[..64 * self.channels], 64, next == feed.blocks);
         }
-        if next < feed.blocks {
-            feed.next = next;
-            self.feed = Some(feed);
-        }
+        feed.next = next;
+        next < feed.blocks
     }
     // Credits count frames that can be appended without overwriting samples
     // still needed by interpolation. They are capacity-based, never track-length
@@ -154,5 +205,33 @@ mod tests {
             }
             assert!(sample.ring.as_ref().unwrap().eof && sample.feed.is_none());
         }
+    }
+    // A ramp in windows of 300 frames, two channels (the second negated).
+    struct Ramp { next: usize, total: usize, out: Vec<f32> }
+    impl super::Producer for Ramp {
+        fn produce(&mut self, frames: usize) -> Option<(&[f32], usize)> {
+            let n = frames.min(300).min(self.total - self.next);
+            if n == 0 { return None; }
+            self.out.clear();
+            for c in 0..2 { for i in 0..n { let v = (self.next + i) as f32; self.out.push(if c == 0 { v } else { -v }); } }
+            self.next += n;
+            Some((&self.out, n))
+        }
+    }
+    #[test]
+    fn a_codec_fed_segment_plays_every_frame_in_order_then_ends() {
+        let total = 40_000;
+        let mut sample = Sample::codec(48000., 2, total, Box::new(Ramp { next: 0, total, out: Vec::new() })).unwrap();
+        assert!(sample.data.len() < total * 2, "decoded window is bounded");
+        for index in 0..total {
+            if !sample.available(index) {
+                sample.consumed(index);
+                sample.feed();
+            }
+            assert_eq!((sample.value(0, index), sample.value(1, index)), (index as f32, -(index as f32)), "frame {index}");
+        }
+        sample.consumed(total);
+        sample.feed();
+        assert!(sample.ring.as_ref().unwrap().eof && sample.feed.is_none() && sample.frames == total);
     }
 }
