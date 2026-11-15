@@ -121,21 +121,21 @@ component OptionsRowsPanel inherits Rectangle {
 
     changed first-index => {
         if (root.first-index <= 0 && root.selected-index <= 0) {
-            scroll.content-y = 0px;
-        } else if (root.selected-index * Theme.option-height < -scroll.content-y) {
-            scroll.content-y = -root.selected-index * Theme.option-height;
-        } else if ((root.selected-index + 1) * Theme.option-height > -scroll.content-y + scroll.height) {
-            scroll.content-y = -((root.selected-index + 1) * Theme.option-height - scroll.height);
+            scroll.viewport-y = 0px;
+        } else if (root.selected-index * Theme.option-height < -scroll.viewport-y) {
+            scroll.viewport-y = -root.selected-index * Theme.option-height;
+        } else if ((root.selected-index + 1) * Theme.option-height > -scroll.viewport-y + scroll.height) {
+            scroll.viewport-y = -((root.selected-index + 1) * Theme.option-height - scroll.height);
         }
     }
     changed selected-index => {
         if (root.selected-index <= 0 && root.first-index <= 0) {
-            scroll.content-y = 0px;
+            scroll.viewport-y = 0px;
         } else if (root.selected-index >= 0) {
-            if (root.selected-index * Theme.option-height < -scroll.content-y) {
-                scroll.content-y = -root.selected-index * Theme.option-height;
-            } else if ((root.selected-index + 1) * Theme.option-height > -scroll.content-y + scroll.height) {
-                scroll.content-y = -((root.selected-index + 1) * Theme.option-height - scroll.height);
+            if (root.selected-index * Theme.option-height < -scroll.viewport-y) {
+                scroll.viewport-y = -root.selected-index * Theme.option-height;
+            } else if ((root.selected-index + 1) * Theme.option-height > -scroll.viewport-y + scroll.height) {
+                scroll.viewport-y = -((root.selected-index + 1) * Theme.option-height - scroll.height);
             }
         }
     }
@@ -151,13 +151,13 @@ component OptionsRowsPanel inherits Rectangle {
             width: parent.width - 2 * root.pad-x;
             height: parent.height - 2 * root.pad-y;
             interactive: false;
-            content-width: self.width;
-            content-height: OptionsModel.option-rows.length * Theme.option-height;
+            viewport-width: self.width;
+            viewport-height: OptionsModel.option-rows.length * Theme.option-height;
             VerticalLayout {
                 x: 0px;
                 y: 0px;
                 width: scroll.width;
-                height: scroll.content-height;
+                height: scroll.viewport-height;
                 spacing: 0px;
                 for item[index] in OptionsModel.option-rows: OptionRow {
                     width: scroll.width;
@@ -178,11 +178,11 @@ component OptionsRowsPanel inherits Rectangle {
                 }
             }
         }
-        if scroll.content-height > scroll.height: Rectangle {
+        if scroll.viewport-height > scroll.height: Rectangle {
             x: parent.width - 7px;
-            y: root.pad-y + clamp(-scroll.content-y / max(1px, scroll.content-height - scroll.height), 0, 1) * (scroll.height - self.height);
+            y: root.pad-y + clamp(-scroll.viewport-y / max(1px, scroll.viewport-height - scroll.height), 0, 1) * (scroll.height - self.height);
             width: 4px;
-            height: max(16px, scroll.height * (scroll.height / max(1px, scroll.content-height)));
+            height: max(16px, scroll.height * (scroll.height / max(1px, scroll.viewport-height)));
             background: Theme.bfe-scroll;
         }
     }

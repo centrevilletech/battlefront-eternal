@@ -171,6 +171,9 @@ impl MenuScreen {
     /// Handles vertical navigation (`ArrowUp` / `ArrowDown`) on the focused widget,
     /// returning `(changed, sound_cue)` (`MenuScreen.move` and `List.key` in `screen.js`/`widgets.js`).
     pub fn move_vertical(&mut self, dy: i32) -> (bool, Option<SoundCue>) {
+        if let Some(changed) = self.move_through_reset_button(dy) {
+            return (changed, changed.then_some(SoundCue::SelectChange));
+        }
         let Some(w) = self.focused_widget_mut() else {
             return (false, None);
         };
@@ -181,6 +184,48 @@ impl MenuScreen {
             _ => false,
         };
         (changed, changed.then_some(SoundCue::SelectChange))
+    }
+
+    /// An option page with a RESET TO DEFAULTS button keeps it in the Up/Down ring after the
+    /// last row: Down from the last row lands on it, Down again wraps to the first row, and
+    /// Up goes the other way (`ring` in `src/menus/screen.js`; BACK is not in the ring).
+    /// `None` when this screen has no such pair, so the focused widget moves itself.
+    fn move_through_reset_button(&mut self, dy: i32) -> Option<bool> {
+        let only_rows_and_buttons = self
+            .widgets
+            .iter()
+            .all(|w| matches!(w, Widget::Options(_) | Widget::Button(_) | Widget::Text(_) | Widget::Panel(_)));
+        let reset = self
+            .widgets
+            .iter()
+            .position(|w| matches!(w, Widget::Button(b) if b.place == "middle") && w.can_focus())?;
+        let rows = self.widgets.iter().position(|w| matches!(w, Widget::Options(_)) && w.can_focus())?;
+        if !only_rows_and_buttons {
+            return None;
+        }
+        let step = if dy < 0 { -1 } else { 1 };
+        if self.focused == Some(reset) {
+            let Widget::Options(opts) = &mut self.widgets[rows] else { return None };
+            let enabled: Vec<usize> = (0..opts.items.len()).filter(|&i| opts.is_item_enabled(i)).collect();
+            opts.selected = if step > 0 { *enabled.first()? } else { *enabled.last()? };
+            opts.reveal();
+            self.focused = Some(rows);
+            return Some(true);
+        }
+        if self.focused != Some(rows) {
+            return None;
+        }
+        let Widget::Options(opts) = &mut self.widgets[rows] else { return None };
+        if opts.move_selection(dy, false) {
+            return Some(true);
+        }
+        let enabled: Vec<usize> = (0..opts.items.len()).filter(|&i| opts.is_item_enabled(i)).collect();
+        let at_edge = if step > 0 { enabled.last() } else { enabled.first() } == Some(&opts.selected);
+        if !at_edge {
+            return Some(false);
+        }
+        self.focused = Some(reset);
+        Some(true)
     }
 
     /// Handles horizontal navigation (`ArrowLeft` / `ArrowRight`) on the focused widget
