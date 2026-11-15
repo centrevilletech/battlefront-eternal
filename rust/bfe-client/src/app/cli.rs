@@ -28,7 +28,7 @@ STANDALONE OPTIONS:
     --height <PX>             Initial window height in pixels (default: 720)
     --fullscreen              Start in borderless fullscreen mode
     --skip-update-check       Skip startup update check against master server
-    --script <MODE>           Run automated verification script (gate, ia:<MAP>, platform-smoke, slint-proof)
+    --script <MODE>           Scripted run: ia:<MAP> (one map, BFE_GATE_BATTLE_SECONDS) or platform-smoke
     --shots-dir <DIR>         Output directory for scripted screenshots
     --server <HOST:PORT>      Remote bfeserver address for scripted online join
 ";
@@ -51,7 +51,7 @@ pub struct StandaloneOptions {
     pub fullscreen: bool,
     /// Whether to skip the bounded startup update check (`--skip-update-check`).
     pub skip_update_check: bool,
-    /// Optional automated verification script name (`--script gate` or `--script gate-fast`).
+    /// Optional scripted run (`--script ia:<MAP>` or `--script platform-smoke`).
     pub script: Option<String>,
     /// Optional directory where `--script gate` writes PNG screenshots and `gate-summary.json`.
     pub shots_dir: Option<PathBuf>,
@@ -184,7 +184,7 @@ where
                 opts.size[1] = h;
             }
             "--script" => {
-                // Enable automated gate choreography (`gate` or `gate-fast`).
+                // A scripted run (`ia:<MAP>` or `platform-smoke`).
                 let s = it.next().ok_or("missing value for --script")?;
                 opts.script = Some(s);
             }
