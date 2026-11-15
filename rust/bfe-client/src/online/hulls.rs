@@ -129,8 +129,9 @@ pub struct Hulls {
     collision: Collision,
     world: u32,
     // Each hull's life as its effects see it, by identity, kept while its
-    // record lasts (a wreck's dust rises after it is gone from view).
-    bodies: Vec<((u32, u32), super::hull_effects::Body, bool)>,
+    // record lasts, then until its delayed wreck dust has risen. The model
+    // remains known after a tombstone releases the hull's network rig.
+    bodies: Vec<((u32, u32), super::hull_effects::Body, bool, usize)>,
     // Every walker slot's feet, where each comes down this frame.
     feet: bfe_presentation::feet::Feet,
     water: Option<bfe_sim::units::water::WaterState>,
@@ -487,6 +488,7 @@ impl Hulls {
         use bfe_presentation::network_layout::{net_mount_frame as mf, net_mount_input as mi, net_mount_output as mo};
         if self.epoch != receiver.epoch {
             self.mounts.reset();
+            self.bodies.clear();
             self.epoch = receiver.epoch;
         }
         // Mount records have their own short history. Position snapshots can
@@ -814,14 +816,14 @@ impl Hulls {
             let state = row[r::STATE];
             let slot = self.bound.get(&key).copied().filter(|&i| self.slots[i].active && state != 4.);
             let nodes = slot.and_then(|i| self.owner.slot_nodes(self.slots[i].rig, 0)).map(|nodes| (nodes, n::STRIDE, n::WORLD));
-            let at = match self.bodies.iter().position(|(k, _, _)| *k == key) {
+            let at = match self.bodies.iter().position(|(k, _, _, _)| *k == key) {
                 Some(at) => at,
                 None => {
                     if state == 4. {
                         // A wreck first seen already destroyed shows nothing.
                         continue;
                     }
-                    self.bodies.push((key, Default::default(), false));
+                    self.bodies.push((key, Default::default(), false, model));
                     self.bodies.len() - 1
                 }
             };
@@ -847,7 +849,25 @@ impl Hulls {
             };
             fx.hull(class, &mut entry.1, frame, dt);
         }
-        self.bodies.retain(|b| b.2);
+        // NetworkEntityGame.remove destroys a qualified hull on its tombstone.
+        // Instant deaths have no final vehicle row: retain the last posed
+        // nodes for the same destruction transition and its delayed dust.
+        for (key, body, seen, model) in &mut self.bodies {
+            if *seen { continue; }
+            let retired = receiver.publications.iter().any(|field| {
+                let row = &field.row;
+                row[r::KIND] == k::TOMBSTONE as f64
+                    && row[r::ID] == key.0 as f64 && row[r::GENERATION] == key.1 as f64
+            });
+            if !retired && !body.pending() { continue; }
+            let Some(class) = self.models[*model].fx.as_ref() else { continue; };
+            fx.hull(class, body, Frame {
+                key: (key.0 as u64) << 20 | (key.1 as u64 & 0xfffff),
+                generation: key.1, state: 2, dying: 0., health: 0.,
+                thrusting: false, velocity: [0.; 3], nodes: None, water: None,
+            }, dt);
+        }
+        self.bodies.retain(|b| b.2 || b.1.pending());
     }
     // Shadow storage covers the largest admitted rig, including models that
     // have not appeared in a snapshot yet.

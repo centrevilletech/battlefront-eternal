@@ -121,6 +121,11 @@ pub struct Body {
     nodes: Vec<f64>,
     velocity: [f64; 3],
 }
+impl Body {
+    pub fn pending(&self) -> bool {
+        self.dying.is_some() || self.dust_left.is_some()
+    }
+}
 
 /// What a hull is doing this frame.
 pub struct Frame<'a> {
@@ -320,7 +325,7 @@ impl HullEffects {
         self.stomps += 1;
         self.shots.push((group, position, turn));
     }
-        fn wreck(&mut self, fx: &ClassFx, body: &Body) {
+    fn wreck(&mut self, fx: &ClassFx, body: &Body) {
         if fx.chunks && !body.nodes.is_empty() {
             self.wrecks.push(Wreck {
                 class: fx.class,
@@ -414,5 +419,33 @@ mod tests {
         assert!(damage_burns(&e, 50., 100.));
         assert!(damage_burns(&e, 21., 100.));
         assert!(!damage_burns(&e, 20., 100.));
+    }
+    #[test]
+    fn retired_hull_keeps_its_pose_until_wreck_and_delayed_dust() {
+        let class = ClassFx {
+            thrust: vec![], damage: vec![], water: None, speed: [0.; 2], max_health: 100.,
+            dust: Some((3, [0.; 3], 0.5)), dying: None,
+            class: 7, names: vec!["root".into()], chunks: true,
+        };
+        let mut fx = HullEffects::new();
+        let mut body = Body::default();
+        let mut matrix = three::Matrix4::default();
+        matrix.make_translation(12., 4., -8.);
+        let frame = |state, nodes| Frame {
+            key: 9, generation: 2, state, dying: 0., health: 100.,
+            thrusting: false, velocity: [2., 0., 1.], nodes, water: None,
+        };
+        fx.hull(&class, &mut body, frame(0, Some((&matrix.elements, 16, 0))), 0.);
+        fx.hull(&class, &mut body, frame(2, None), 0.1);
+        assert_eq!(fx.wrecks.len(), 1);
+        assert_eq!(fx.wrecks[0].nodes, matrix.elements);
+        assert_eq!(fx.wrecks[0].origin, [12., 4., -8.]);
+        assert_eq!(fx.wrecks[0].velocity, [2., 0., 1.]);
+        assert!(body.pending());
+        fx.hull(&class, &mut body, frame(2, None), 0.5);
+        assert_eq!(fx.wrecks.len(), 1, "retirement must not repeat the chunks");
+        assert_eq!(fx.shots.len(), 1);
+        assert_eq!(fx.shots[0].1, [12., 4., -8.]);
+        assert!(!body.pending());
     }
 }

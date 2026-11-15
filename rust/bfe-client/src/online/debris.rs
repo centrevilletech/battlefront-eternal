@@ -11,7 +11,7 @@ use bfe_sim::{
     battle::debris::{self as flight, Chunk, Hit, Launch, Piece},
     store::StrId,
 };
-use three::{Matrix4, Quaternion, Vector3};
+use three::{Box3, Matrix4, Quaternion, Vector3};
 // Pieces in flight or at rest at once; a droid has about ten.
 const PIECES: usize = 256;
 /// One CHUNKSECTION of a class: its model, the bone it starts at (lower
@@ -29,7 +29,7 @@ pub struct Debris {
     // The shared flight: every piece's position, turn, velocity and rest.
     flight: flight::Debris,
     // Each piece's id and model, in the pieces' own order.
-    shown: Vec<(u32, usize)>,
+    shown: Vec<(u32, usize, Vector3)>,
     // Launches asked for since the last frame, with their models. They wait
     // for the frame's effect batch, which their trails start in.
     queued: Vec<(usize, Launch)>,
@@ -40,7 +40,8 @@ pub struct Debris {
 }
 // The shared flight's page: Debris's scene, collision and effects.
 struct Page<'a> {
-    shown: &'a mut Vec<(u32, usize)>,
+    shown: &'a mut Vec<(u32, usize, Vector3)>,
+    models: &'a [Model],
     model: usize,
     collision: &'a Collision,
     world: u32,
@@ -52,12 +53,12 @@ fn array(v: &Vector3) -> [f64; 3] {
     [v.x, v.y, v.z]
 }
 impl flight::World for Page<'_> {
-    fn add(&mut self, id: u32, _: &Vector3, _: &Quaternion, _: Option<&Vector3>) {
-        self.shown.push((id, self.model));
+    fn add(&mut self, id: u32, _: &Vector3, _: &Quaternion, center: Option<&Vector3>) {
+        self.shown.push((id, self.model, center.copied().unwrap_or_default()));
     }
     // Pieces rest and leave in any order; both lists keep theirs.
     fn remove(&mut self, piece: &Piece) {
-        self.shown.retain(|(id, _)| *id != piece.id);
+        self.shown.retain(|(id, _, _)| *id != piece.id);
     }
     // Debris.bounce casts against the world's collision. A droid's pieces
     // pass through nothing (only a wrecked turret's are told what to ignore).
@@ -70,8 +71,16 @@ impl flight::World for Page<'_> {
     }
     // Only a hull's piece, carried by its middle, settles onto a side; a
     // droid's has no lift and never asks.
-    fn low(&mut self, _: &Piece, _: &Quaternion) -> f64 {
-        0.
+    fn low(&mut self, piece: &Piece, turned: &Quaternion) -> f64 {
+        let Some((_, model, center)) = self.shown.iter().find(|(id, _, _)| *id == piece.id) else { return piece.position.y; };
+        let matrix = piece_matrix(&piece.position, turned, center);
+        let mut bounds = Box3::default();
+        for part in &self.models[*model].bounds {
+            let mut part = part.clone();
+            part.apply_matrix4(&matrix);
+            bounds.union(&part);
+        }
+        bounds.min.y
     }
     // Effects.play for a trail (it has a velocity and is moved later), a
     // smoke or a bounce's impact. The effect group travels in the name's
@@ -214,14 +223,18 @@ impl Debris {
         if !self.blow_apart(class, part, matrix, origin, velocity, -50.) {
             return false;
         }
-        if let Some((_, launch)) = self.queued.last_mut() {
+        if let Some((model, launch)) = self.queued.last_mut() {
+            let mut bounds = Box3::default();
+            for part in &self.models[*model].bounds { bounds.union(part); }
+            launch.bounds = flight::Bounds { min: bounds.min, max: bounds.max };
+            launch.center = true;
             launch.floor = floor;
         }
         true
     }
     /// Debris.update, after the launches asked for since the last frame.
     pub fn step(&mut self, dt: f64, effects: &mut Spawner, played: &mut u64, refused: &mut u64) {
-        let mut page = Page { shown: &mut self.shown, model: 0, collision: &self.collision, world: self.world, effects, played, refused };
+        let mut page = Page { shown: &mut self.shown, models: &self.models, model: 0, collision: &self.collision, world: self.world, effects, played, refused };
         for (model, launch) in self.queued.drain(..) {
             page.model = model;
             self.flight.launch(launch, &mut page);
@@ -235,16 +248,22 @@ impl Debris {
         self.queued.clear();
     }
     pub fn record_budget(&self) -> usize {
-        self.shown.iter().map(|(_, model)| self.models[*model].rows.len()).sum()
+        self.shown.iter().map(|(_, model, _)| self.models[*model].rows.len()).sum()
     }
     pub fn append(&self, bridge: &mut Bridge, mut records: usize, mut bones: usize) -> (usize, usize) {
         // Debris.blowApart sets every piece's scale to one, whatever its bone's.
-        let unit = Vector3::new(1., 1., 1.);
-        for (piece, (_, model)) in self.flight.pieces.iter().zip(&self.shown) {
-            let mut matrix = Matrix4::default();
-            matrix.compose(&piece.position, &piece.quaternion, &unit);
+        for (piece, (_, model, center)) in self.flight.pieces.iter().zip(&self.shown) {
+            let matrix = piece_matrix(&piece.position, &piece.quaternion, center);
             (records, bones) = self.models[*model].append(bridge, &matrix.elements, records, bones);
         }
         (records, bones)
     }
+}
+fn piece_matrix(position: &Vector3, turn: &Quaternion, center: &Vector3) -> Matrix4 {
+    let mut matrix = Matrix4::default();
+    matrix.compose(position, turn, &Vector3::new(1., 1., 1.));
+    let mut shift = Matrix4::default();
+    shift.make_translation(-center.x, -center.y, -center.z);
+    matrix.multiply(&shift);
+    matrix
 }
