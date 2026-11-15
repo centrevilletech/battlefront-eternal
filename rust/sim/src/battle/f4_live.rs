@@ -142,7 +142,7 @@ pub(crate) fn publish_in(w: &mut Root) {
     f4::live_in(&mut w.battle).discard();
     let rows = 0;
     let words = { let live = f4::live_in(&mut w.battle); live.buildings.publication.words.len() + live.animated.publication.words.len() + live.traps.publication.words.len() };
-    record_publication(&mut w.battle, rows, words - 3 * crate::store::block::HEADER);
+    record_publication(&mut w.battle, rows, words.saturating_sub(3 * crate::store::block::HEADER));
     let io = io(&mut w.battle);
     // Counters can advance without any changed reader row. Only actual live
     // or battle payloads invalidate the facade epoch at a foreign barrier.
