@@ -13,14 +13,10 @@ pub mod local;
 mod loading_work;
 mod menu_models;
 pub mod online;
-pub mod presentation_bridge;
 pub mod render_bridge;
 pub mod resources;
 pub mod scene;
 pub mod session;
-pub mod session_assets;
-pub mod session_format;
-pub mod session_window;
 pub mod sound;
 mod static_scene;
 

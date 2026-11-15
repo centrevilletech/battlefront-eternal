@@ -12,4 +12,3 @@ pub mod publication;
 pub mod runtime;
 pub mod setup;
 pub mod thread;
-pub mod window;

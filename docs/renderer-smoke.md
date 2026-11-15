@@ -88,5 +88,5 @@ and checks CLI startup, while leaving live OpenGL context creation to the Linux
 - **What would be needed to enable live GL on Windows CI:** Bundling ANGLE's
   `libEGL.dll` + `libGLESv2.dll` (backed by D3D11 WARP, `D3D_DRIVER_TYPE_WARP`)
   alongside the test runner and setting the window creation preference in
-  `rust/bfe-client` (`session_window.rs`) to `PreferEgl` with ANGLE's
+  the client's window setup to `PreferEgl` with ANGLE's
   surfaceless/offscreen pbuffer extension on Windows.
