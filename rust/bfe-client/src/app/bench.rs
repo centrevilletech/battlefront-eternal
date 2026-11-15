@@ -534,6 +534,9 @@ impl Bench {
                 "countdown": hud.countdown.is_finite().then_some(hud.countdown),
                 "soundPosts": scene.sound.event_counts[audio_control::layout::event_kind::POST],
                 "posts": hud.bench_posts(), "spawnPosts": offered,
+                // The player's own record as received: per team slot the tallies and favourites.
+                "ownRecord": receiver.roster.local.and_then(|slot| receiver.roster.record(slot, hud.game_over))
+                    .map(|pair| pair.iter().map(|r| r.as_ref().map(|r| (r.tallies, r.favourites))).collect::<Vec<_>>()),
             }))?;
             // The end-of-match screens as the scoreboard reads them, once the scores stop.
             if hud.game_over {
