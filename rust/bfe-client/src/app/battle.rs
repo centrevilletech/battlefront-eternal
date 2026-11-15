@@ -252,6 +252,7 @@ pub struct LiveSpawnPort {
     /// Suicide / respawn flag queued when the player triggers respawn.
     pub pending_suicide: bool,
     post_vehicles:std::collections::HashMap<String,[Vec<String>;2]>,
+    spawn_eligibility: HudOwnSummary,
 }
 
 /// The spawn screen's Math.random (spawn-screen/index.js gives its model no
@@ -375,20 +376,14 @@ impl LiveSpawnPort {
         // Populate command posts and their world-space `[x, y, z]` coordinates.
         let mut posts = Vec::new();
         let mut post_ids = Vec::new();
-        for (idx, pm) in post_meta.iter().enumerate() {
-            let owner = if pm.team == 1 || pm.team == 2 {
-                pm.team
-            } else if idx % 2 == 0 {
-                1
-            } else {
-                2
-            };
+        for pm in post_meta {
+            let owner = pm.team;
             posts.push(SpawnPostEntry {
                 name: pm.name.clone(),
                 display_name: pm.display_name.to_ascii_uppercase(),
                 position: pm.position,
                 owner,
-                eligible: owner == 1,
+                eligible: pm.active,
                 vehicles: Vec::new(),
             });
             post_ids.push(pm.id);
@@ -450,6 +445,7 @@ impl LiveSpawnPort {
             pending_spawn: None,
             pending_suicide: false,
             post_vehicles:std::collections::HashMap::new(),
+            spawn_eligibility: HudOwnSummary::default(),
         }
     }
 
@@ -469,6 +465,7 @@ impl LiveSpawnPort {
         own_alive: bool,
         own_team: u8,
     ) {
+        self.spawn_eligibility = *own_summary;
         // The spawn port follows the server-selected side across death; the
         // default team must not turn an opposing human into a teammate.
         if (1..=2).contains(&own_team) {
@@ -497,6 +494,11 @@ impl LiveSpawnPort {
         for (i, pm) in post_meta.iter().enumerate() {
             if let Some(p) = self.posts.get_mut(i) {
                 p.owner = pm.team;
+                p.position = pm.position;
+                p.eligible = pm.active;
+                if !p.display_name.eq_ignore_ascii_case(&pm.display_name) {
+                    p.display_name = pm.display_name.to_ascii_uppercase();
+                }
             }
         }
     }
@@ -529,13 +531,20 @@ impl SpawnPort for LiveSpawnPort {
         }
     }
 
-    /// Returns all command posts, marking posts owned by `team` (or neutral) as eligible.
+    /// The authority's eligible post list includes moving command vehicles.
+    /// A different team uses ownership until its own eligibility arrives.
     fn posts(&self, team: u8) -> Vec<SpawnPostEntry> {
         self.posts
             .iter()
-            .map(|p| {
+            .enumerate()
+            .map(|(i, p)| {
                 let mut e = p.clone();
-                e.eligible = p.owner == team;
+                e.eligible = p.eligible && if self.spawn_eligibility.valid && self.spawn_eligibility.team == team {
+                    self.spawn_eligibility.posts[..self.spawn_eligibility.post_count]
+                        .contains(&(self.post_ids[i] as u16))
+                } else {
+                    p.owner == team
+                };
                 if let Some(vehicles)=self.post_vehicles.get(&p.name) {e.vehicles.clone_from(&vehicles[usize::from(team==2)]);}
                 e
             })
@@ -3186,6 +3195,31 @@ mod tests {
             port.sync_from_hud(&[[0.; 4]; 8], &[], &summary, false, 1);
             assert_eq!(port.human_state().phase, expected);
         }
+    }
+
+    #[test]
+    fn mobile_spawn_choice_follows_live_position_and_authority_eligibility() {
+        let mut meta = HudPostMeta {
+            id: 22, name: "transport-14".into(), display_name: "AT-AT".into(),
+            position: [158., -6., 119.], team: 1, active: false,
+        };
+        let mut port = LiveSpawnPort::from_hud_meta(&[], &[meta.clone()], &std::collections::HashMap::new(), "gcw");
+        assert!(!port.posts(1)[0].eligible);
+        let mut summary = HudOwnSummary { valid: true, team: 1, post_count: 1, ..Default::default() };
+        summary.posts[0] = 22;
+        meta.active = true;
+        port.sync_from_hud(&[[0.; 4]; 8], &[meta.clone()], &summary, false, 1);
+        assert!(port.posts(1)[0].eligible);
+        meta.position[0] += 20.;
+        port.sync_from_hud(&[[0.; 4]; 8], &[meta.clone()], &summary, false, 1);
+        assert_eq!(port.posts(1)[0].position, meta.position);
+        summary.post_count = 0;
+        port.sync_from_hud(&[[0.; 4]; 8], &[meta.clone()], &summary, false, 1);
+        assert!(!port.posts(1)[0].eligible);
+        summary.post_count = 1;
+        meta.active = false;
+        port.sync_from_hud(&[[0.; 4]; 8], &[meta], &summary, false, 1);
+        assert!(!port.posts(1)[0].eligible);
     }
 
     #[test]

@@ -149,6 +149,8 @@ struct Post{id:usize,row:[f64;P::WORDS],label:String,region:Option<bfe_content::
     // attachBuildings), and the team and standing its last summary gave.
     building: bool,
     seen: Option<(u8, bool)>,
+    // A command vehicle's post follows its published pad and current life.
+    mobile: Option<(usize, Vec<(usize, String)>)>,
 }
 // PlayerCombat.updateHud uses the mounted object's authored health/icon;
 // vehicle seats also name their position independently of their weapons.
@@ -560,7 +562,36 @@ impl Prepared {
             .filter_map(|instance| instance.get("post").and_then(bfe_content::Value::as_str))
             .filter(|post| !post.is_empty())
             .collect();
-        for (index,desc) in content.content.battle.world.get("commandPosts").and_then(bfe_content::Value::as_array).unwrap_or(&[]).iter().enumerate().take(hud_model::MAX_POSTS){let name=desc.get("name").and_then(bfe_content::Value::as_str).map(str::to_string).unwrap_or_else(||format!("#{index}"));let Some(id)=defs.registry.posts.iter().position(|n|*n==name).map(|i|i+1)else{continue;};let d=authored_json(desc);let mut row=[0.;P::WORDS];row[P::X]=d["matrix"][12].as_f64().unwrap_or(0.);row[P::Z]=d["matrix"][14].as_f64().unwrap_or(0.);row[P::MAPPED]=(d.get("mapTexture").is_none()||(d["mapTexture"].as_str().is_some_and(|s|!s.is_empty())&&d["mapScale"].as_f64().unwrap_or(1.)>0.))as u8 as f64;row[P::ACTIVE]=1.;row[P::TEAM]=d["team"].as_f64().unwrap_or(0.);row[P::TEXTURE]=asset(d["mapTexture"].as_str().unwrap_or(""),&mut result)?as f64;row[P::SCALE]=d["mapScale"].as_f64().unwrap_or(2.5);let region=desc.get("capture").filter(|v|v.truthy()).map(bfe_content::regions::build_region);let label:String=d["displayName"].as_str().or_else(||d["label"].as_str()).unwrap_or("").into();let y=d["matrix"][13].as_f64().unwrap_or(0.);result.post_meta.push(HudPostMeta{id,name:name.clone(),display_name:if label.is_empty(){format!("COMMAND POST {}",index+1)}else{label.clone()},position:[row[P::X],y,row[P::Z]],team:row[P::TEAM]as u8,active:true});let building=!name.starts_with('#')&&objectives.contains(&name.as_str());result.posts.push(Post{id,row,label,region,counts:[[0.;PC::WORDS];8],count:0,building,seen:None});}
+        for (index,desc) in content.content.battle.world.get("commandPosts").and_then(bfe_content::Value::as_array).unwrap_or(&[]).iter().enumerate().take(hud_model::MAX_POSTS){let name=desc.get("name").and_then(bfe_content::Value::as_str).map(str::to_string).unwrap_or_else(||format!("#{index}"));let Some(id)=defs.registry.posts.iter().position(|n|*n==name).map(|i|i+1)else{continue;};let d=authored_json(desc);let mut row=[0.;P::WORDS];row[P::X]=d["matrix"][12].as_f64().unwrap_or(0.);row[P::Z]=d["matrix"][14].as_f64().unwrap_or(0.);row[P::MAPPED]=(d.get("mapTexture").is_none()||(d["mapTexture"].as_str().is_some_and(|s|!s.is_empty())&&d["mapScale"].as_f64().unwrap_or(1.)>0.))as u8 as f64;row[P::ACTIVE]=1.;row[P::TEAM]=d["team"].as_f64().unwrap_or(0.);row[P::TEXTURE]=asset(d["mapTexture"].as_str().unwrap_or(""),&mut result)?as f64;row[P::SCALE]=d["mapScale"].as_f64().unwrap_or(2.5);let region=desc.get("capture").filter(|v|v.truthy()).map(bfe_content::regions::build_region);let label:String=d["displayName"].as_str().or_else(||d["label"].as_str()).unwrap_or("").into();let y=d["matrix"][13].as_f64().unwrap_or(0.);result.post_meta.push(HudPostMeta{id,name:name.clone(),display_name:if label.is_empty(){format!("COMMAND POST {}",index+1)}else{label.clone()},position:[row[P::X],y,row[P::Z]],team:row[P::TEAM]as u8,active:true});let building=!name.starts_with('#')&&objectives.contains(&name.as_str());result.posts.push(Post{id,row,label,region,counts:[[0.;PC::WORDS];8],count:0,building,seen:None,mobile:None});}
+        // Vehicle pads reserve transport-N identities in the same registry as
+        // placed posts. Their live position and owner come from hull records;
+        // capture summaries only describe placed posts.
+        for (slot, pad) in content.content.battle.vehicle_def.as_ref()
+            .and_then(|v| v.get("spawns")).and_then(bfe_content::Value::as_array)
+            .unwrap_or(&[]).iter().enumerate()
+        {
+            if result.posts.len() >= hud_model::MAX_POSTS { break; }
+            let Some(variants) = pad.get("classes").and_then(bfe_content::Value::as_object) else { continue };
+            let mut classes = Vec::new();
+            for (_, name) in variants.entries() {
+                let Some(name) = name.as_str() else { continue };
+                let Some(class) = defs.vehicles.iter().find(|v| defs.names.text(v.name) == name) else { continue };
+                if !matches!(class.record.get("base").and_then(bfe_content::Value::as_str), Some("commandwalker" | "commandhover")) { continue; }
+                let Some(id) = class.registry_id else { continue };
+                let label = class.record.get("label").and_then(bfe_content::Value::as_str).unwrap_or(name).to_string();
+                classes.push((id as usize, label));
+            }
+            if classes.is_empty() { continue; }
+            let name = format!("transport-{slot}");
+            let Some(id) = defs.registry.posts.iter().position(|n| *n == name).map(|i| i + 1) else { continue };
+            let label = classes[0].1.clone();
+            let mut row = [0.; P::WORDS];
+            row[P::MAPPED] = 1.;
+            row[P::SCALE] = 2.5;
+            result.post_meta.push(HudPostMeta { id, name, display_name: label.clone(), position: [0.; 3], team: 0, active: false });
+            result.posts.push(Post { id, row, label, region: None, counts: [[0.; PC::WORDS]; 8], count: 0,
+                building: false, seen: None, mobile: Some((slot, classes)) });
+        }
         let definitions = defs
             .weapons
             .iter()
@@ -1017,7 +1048,27 @@ impl Hud {
                 }
             }
         }
-        for (i, post) in self.posts.iter().enumerate() {
+        for (i, post) in self.posts.iter_mut().enumerate() {
+            if let Some((slot, classes)) = &post.mobile {
+                let hull = receiver.active().find(|row| row[r::KIND] == k::VEHICLE as f64
+                    && row[r::SLOT] == *slot as f64 && row[r::HEALTH] > 0. && row[r::STATE] != 6.
+                    && classes.iter().any(|(id, _)| *id == row[r::CLASS_ID] as usize));
+                post.row[P::ACTIVE] = hull.is_some() as u8 as f64;
+                if let Some(hull) = hull {
+                    post.row[P::TEAM] = hull[r::TEAM];
+                    post.row[P::X] = hull[r::POSITION];
+                    post.row[P::Z] = hull[r::POSITION + 2];
+                    let label = &classes.iter().find(|(id, _)| *id == hull[r::CLASS_ID] as usize).unwrap().1;
+                    if post.label != *label {
+                        post.label.clone_from(label);
+                        post.row[P::LABEL] = bridge.hud_model_text(label, true) as f64;
+                    }
+                    if let Some(meta) = self.post_meta.get_mut(i) {
+                        meta.position.copy_from_slice(&hull[r::POSITION..r::POSITION + 3]);
+                        if meta.display_name != *label { meta.display_name.clone_from(label); }
+                    }
+                }
+            }
             if let Some(meta) = self.post_meta.get_mut(i) {
                 meta.team = post.row[P::TEAM] as u8;
                 meta.active = post.row[P::ACTIVE] != 0.;
