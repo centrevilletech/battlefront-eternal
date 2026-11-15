@@ -68,3 +68,5 @@ mod own_view;
 mod radar;
 
 pub mod shot_aim;
+
+pub mod buildings;
