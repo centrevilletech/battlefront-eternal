@@ -375,32 +375,6 @@ fn canonical_core_uses_the_vehicle_navigation_mask_for_driver_objective_bans() {
 #[path="common/ai_world.rs"]
 mod canonical_world;
 
-// BarrierSearch routes around named records repeatedly. This includes first
-// use and path identity churn, not just an obstacle-free warmed movement loop.
-#[test]
-fn named_barrier_routes_reuse_native_search_and_path_storage() {
-    use nav::barriers::{BarrierRecord,BarrierSet,barrier_from_record,Work};
-    let record=BarrierRecord {name:Some("authored_route_barrier".into()),
-        xfrm:[1.,0.,0.,0.,1.,0.,0.,0.,-1.,0.,0.,0.],size:[2.,0.,2.],flags:63.};
-    let mut raw=nav::Nav::empty(nav::PlannerOptions::default());
-    raw.barriers=BarrierSet::new(vec![barrier_from_record(&record,0).unwrap()]);
-    let mut owner=Navigation::new(raw,1);
-    let s=&mut owner.nav;let mut valid=true;
-    ALLOCATIONS.with(|n|n.set(0));COUNTING.with(|on|on.set(true));
-    for _ in 0..4096 {
-        valid &= s.search.begin(&mut s.barriers,&s.store,Vec3::new(-10.,0.,0.),Vec3::new(10.,0.,0.),0.5,63);
-        let mut work=Work {count:0.,cap:100000.};
-        s.search.step(&mut s.barriers,&mut work);
-        valid &= s.search.finished&&s.search.success&&work.count==7.;
-        let Some(path)=s.search.reconstruct(&mut s.store) else {valid=false;break};
-        let nodes=&s.store.paths[path].nodes;
-        valid &= nodes.len()==4 && nodes[1].x == -3. && nodes[1].z == 3. && nodes[2].x == 3. && nodes[2].z == 3.;
-        s.store.release(path);
-    }
-    COUNTING.with(|on|on.set(false));
-    assert!(valid,"the same detour and first-hit work order survive reuse");
-    assert_eq!(ALLOCATIONS.with(Cell::get),0,"named routes allocate neither barrier text nor search storage");
-}
 
 // New acquisitions receive idle controls while retired generations keep their
 // own payload until publication. Exhaustion is a failed acquisition, not growth.

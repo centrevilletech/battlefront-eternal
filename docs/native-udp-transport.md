@@ -71,5 +71,5 @@ To prevent IP spoofing and amplification attacks before allocating session state
 
 ```bash
 # Run Rust transport unit, loopback, interop, and adversarial tests
-~/bfe-work/tools/rbuild.sh cargo test --locked -p bfe-transport
+cargo test --locked -p bfe-transport
 ```

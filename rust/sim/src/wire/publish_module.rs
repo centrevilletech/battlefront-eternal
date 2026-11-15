@@ -63,18 +63,3 @@ pub(crate) fn wire_publish_load_in(w: &mut crate::world::owner::World, session:u
 
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn wire_publish_create(runtime:*mut Runtime,source:*mut Source,stagger:*mut Stagger,shots:*const Counters,host:*mut Host,combat:*mut Capture) ->*mut Session { wire_publish_create_in(crate::abi::facade::world(), runtime as usize, source as usize, stagger as usize, shots as usize, host as usize, combat as usize) as *mut Session }
-    #[no_mangle]
-    pub extern "C" fn wire_publish_bind(session:*mut Session,client:u32,peer:u32,edges:*const super::super::edges::Host) ->u32 { wire_publish_bind_in(crate::abi::facade::world(), session as usize, client, peer, edges as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_publish(session:*mut Session) ->*const f64 { let w = crate::abi::facade::world(); if wire_publish_in(w, session as usize).is_none() { return std::ptr::null() } w.wire.as_deref_mut().unwrap().publications.get_mut(session as usize).unwrap().publisher.descriptor() }
-    #[no_mangle]
-    pub extern "C" fn wire_publish_drop(session:*mut Session) { wire_publish_drop_in(crate::abi::facade::world(), session as usize) }
-    #[no_mangle]
-    pub extern "C" fn wire_publish_load(session:*const Session) ->*const f64 { wire_publish_load_in(crate::abi::facade::world(), session as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
-}

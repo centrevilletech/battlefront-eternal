@@ -1,42 +1,4 @@
 //! Player settings persistence backed by [`bfe_interface::Settings`].
-//!
-//! This module owns [`AppSettingsStore`], which persists the canonical 59-key
-//! [`bfe_interface::Settings`] schema (sound, graphics, game, camera, chat,
-//! developer, and all 34 keybindings) alongside the active player profile,
-//! privacy notice flag, and Instant Action playlist in
-//! `DesktopPaths::player_settings_file` (`player-settings.json`).
-//!
-//! ## Schema Synchronization and Projections
-//! - **Canonical `bfe_interface::Settings` Store**: All 59 keys from `src/settings.js`
-//!   (volumes, video resolution, quality presets, FOV, mouse sensitivity, invert Y,
-//!   crosshair, friendly fire, AI difficulty, and 34 control bindings) live in
-//!   [`AppSettingsStore::interface`] and serialize to `PersistedPlayerSettings::values`
-//!   (`DesktopSettingsSnapshot` format).
-//! - **`bfe-shell` Projection (`ShellSettings`)**: The 9 overlapping fields consumed
-//!   directly by `ShellApp` and `ShellAudioMixer` (`master_volume`, `music_volume`,
-//!   `effects_volume`, `interface_volume`, `menu_theme`, `battle_size`, `difficulty`,
-//!   `mouse_sensitivity`, `invert_y`) are bidirectionally synchronized via
-//!   [`PersistedPlayerSettings::apply_shell_to_interface`] and
-//!   [`PersistedPlayerSettings::extract_shell_from_interface`].
-//! - **In-Battle `PauseMenu` Projection (`pause_kv`)**: [`bfe_battle_ui::PauseMenu`]
-//!   reads a `BTreeMap<String, String>` where volumes are formatted as integer
-//!   percentages (`"0"`..`"100"`) and vertical look inversion is stored under `"invertY"`.
-//!   [`PersistedPlayerSettings::interface_to_pause_kv`] keeps this map synchronized
-//!   whenever settings are loaded or modified.
-//! - **Atomic Persistence**: [`AppSettingsStore::save_player`] writes to a sibling
-//!   `.json.tmp` file, flushes via `File::sync_all`, and renames over `player-settings.json`
-//!   so power loss or crashes never leave a truncated configuration file.
-//!
-//! ## File Locations and Compatibility
-//! - `DesktopPaths::settings_file` (`desktop-settings.json`): Stores installation paths
-//!   (`content_dir`, `chosen_content_dir`, `found_content_dir`, `game_dir`), release
-//!   channel (`update_channel`), `auto_check_updates`, `discord_presence`, and
-//!   preparation history stamps.
-//! - `DesktopPaths::player_settings_file` (`player-settings.json`): Stores `profile_name`,
-//!   `privacy_notice_accepted`, the 59-key `bfe_interface::DesktopSettingsSnapshot`
-//!   (`complete` + `values`), the `ShellSettings` projection (`shell`), the in-battle
-//!   pause menu key-value map (`pause_kv`), and the Instant Action playlist (`ia_playlist`,
-//!   `ia_random`).
 
 use bfe_desktop::{
     paths::{resolve_desktop_paths, DesktopPaths, DesktopPathsOptions},

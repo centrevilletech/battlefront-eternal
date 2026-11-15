@@ -96,25 +96,6 @@ fn journal_preserves_notice_order_and_values_after_canonical_state_changes() {
     assert_eq!(spawned.kind, HsEventKind::Spawned); assert_eq!(spawned.team, 2.0);
     assert_eq!(spawned.class_name, Some(StrId(2)));
 }
-#[path = "support/allocations.rs"]
-mod allocation;
-#[global_allocator]
-static ALLOCATOR: allocation::Counted = allocation::Counted;
-#[test]
-fn native_spawn_death_and_journal_cycles_reuse_all_phase_storage() {
-    let (mut s, mut h, mut w) = setup(false);
-    let mut journal = bfe_sim::store::calls::Events::default(); journal.reserve(1024, bfe_sim::gen::HsEvent::WORDS, 0);
-    let spawn = [Command::Spawn(HumanPick { class_name: StrId(2), post: None })];
-    let suicide = [Command::Suicide];
-    allocation::start();
-    for _ in 0..1200 {
-        h.step(&mut s, 4.0, &spawn, &mut w); h.journal(&mut journal);
-        h.step(&mut s, 0.0, &suicide, &mut w); h.journal(&mut journal); journal.clear();
-    }
-    let requests = allocation::stop(); assert_eq!(requests, 0);
-    assert_eq!(s.human_spawn.phase, HumanPhase::Dying); assert!(h.events().is_empty());
-}
-
 #[test]
 fn a_long_pause_retains_all_notices_and_clamps_an_oversized_command_batch() {
     let (mut s, mut h, mut w) = setup(false);

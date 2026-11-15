@@ -34,8 +34,6 @@ use bfe_render::interface::{
 ///    `DISK.turn = 0.866`, with two counter-rotating `load_rotating_disk`
 ///    layers, 28 chasing LEDs at `DISK.ring = 52`, and `-14 deg` tilted
 ///    `LOADING` text (`gamefont_medium` in BF1 retail look).
-///
-/// Performs zero heap allocations per frame.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_loading(
     batch: &mut Batch,

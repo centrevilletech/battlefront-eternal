@@ -1,35 +1,4 @@
 //! Audio asset decoder tests ported from `tests/audio-codec.test.js`.
-//!
-//! These tests verify that `audio_decode::Decoder` decodes FLAC, Ogg Opus,
-//! and WAV assets into the frozen reference PCM across native and converted
-//! sample rates, preserves output across arbitrary input chunk boundaries,
-//! applies explicit HRIR and playback gain after rate conversion, rejects
-//! truncated or corrupted containers, and reassembles Ogg packets continued
-//! across page boundaries without altering end-trim durations.
-//!
-//! In the browser build, `decodeAudioData` implicitly resampled assets to the
-//! AudioContext rate using Chromium's sinc converter and discovered Opus
-//! duration from the full file buffer. The native Rust decoder (`audio-decode`)
-//! replaces that host pipeline on a loading worker so render threads receive
-//! only prepared planar `f32` windows and never touch a compressed container.
-//!
-//! Container and rate-conversion invariants verified here:
-//! - FLAC 16-bit and 24-bit streams preserve exact signed integer samples
-//!   divided by `2^(bits - 1)` when the requested target rate matches the
-//!   stream header rate (or when `target == 0` requests native rate).
-//! - Ogg Opus streams strip codec pre-skip (`OpusHead` pre-skip count at
-//!   48 kHz) and trim the final packet to the last Ogg page granule position
-//!   before rate conversion, matching Chromium Web Audio duration truncation.
-//! - Multi-channel Ogg Opus mapping family 0 (mono/stereo), family 1 (Vorbis
-//!   6ch/8ch coupled/uncoupled stream order), and family 255 (discrete
-//!   application-defined channel order) all decode into channel-major planes.
-//! - WAV float32 16-channel HRIR assets support optional impulse-area gain
-//!   compensation (`source_rate / target_rate`) so convolved ear signals keep
-//!   identical loudness across 44.1 kHz and 48 kHz output devices.
-//! - Playback gain in dB (`10^(gain_db / 20)` via `v8math::pow_legacy`) is
-//!   folded into the resampler window rather than a second pass over the track.
-//! - Truncated containers and corrupted Ogg page CRCs fail deterministically
-//!   instead of silently producing short buffers.
 
 use audio_decode::{Decoder, Metadata, Step};
 use std::fs;

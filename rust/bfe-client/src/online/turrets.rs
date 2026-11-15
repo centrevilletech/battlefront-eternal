@@ -2,6 +2,7 @@
 //! Packet callbacks name buildings; a frame publishes all drums, guns and
 //! rider sources together, preserving the authored bind and parent turns.
 use super::receiver::Receiver;
+use super::hull_effects::{Body, ClassFx, Frame, HullEffects};
 use crate::render_bridge::Bridge;
 use bfe_content_native::{placed::Placements, BattleContent};
 use bfe_presentation::{
@@ -28,6 +29,10 @@ struct Turret {
     id: f64,
     generation: f64,
     shown: bool,
+    health: f64,
+    node_count: usize,
+    effects: Option<ClassFx>,
+    body: Body,
     pub clip: Option<String>,
     pub nine: bool,
     camera: Vec<f64>,
@@ -40,7 +45,7 @@ pub struct Turrets {
     pub hidden: Option<usize>,
     preview: Box<bfe_presentation::network::preview::Phase>,
 }
-fn copy_nodes(tree: &three::TransformTree, node: three::NodeId, parent: i32, out: &mut Vec<Node>, ids: &mut [usize]) {
+pub(super) fn copy_nodes(tree: &three::TransformTree, node: three::NodeId, parent: i32, out: &mut Vec<Node>, ids: &mut [usize]) {
     let id = out.len();
     ids[node as usize] = id;
     let n = tree.node(node);
@@ -67,7 +72,7 @@ fn copy_nodes(tree: &three::TransformTree, node: three::NodeId, parent: i32, out
     }
 }
 impl Turrets {
-    pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32]) -> Result<Self, String> {
+    pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], effects: &[(String,usize)], class_base: usize) -> Result<Self, String> {
         let shadow_cascades = bridge.shadow_cascades();
         let placed = bfe_content_native::placed::admit_turrets(content)?;
         let props = content.content.battle.props.as_ref();
@@ -142,6 +147,13 @@ impl Turrets {
             let mut ids = vec![usize::MAX; hull.tree.nodes.len()];
             let mut nodes = Vec::new();
             copy_nodes(&hull.tree, root, -1, &mut nodes, &mut ids);
+            let node_count = nodes.len();
+            let mut names = vec![String::new(); node_count];
+            for (index, bone) in def.bones.iter().enumerate() {
+                names[ids[hull.bones[index] as usize]] = bone.name.clone();
+            }
+            let effects = ClassFx::parse(class_base + instance, desc, names,
+                |name| effects.iter().find(|(n,_)| n == name).map(|(_,id)| *id));
             let bones = hull.bones.iter().chain(std::iter::once(&hull.static_bone)).map(|id| ids[*id as usize]).collect::<Vec<_>>();
             let anim = settings
                 .and_then(|s| s.get("Pilot9Pose"))
@@ -245,6 +257,10 @@ impl Turrets {
                 id: -1.,
                 generation: 0.,
                 shown: true,
+                health: number("MaxHealth",1000.),
+                node_count,
+                effects,
+                body: Body::default(),
                 clip,
                 nine,
                 camera,
@@ -260,12 +276,13 @@ impl Turrets {
         let t = self.rows.get(index)?;
         Some((t.clip.as_deref().unwrap_or("human_minigun_9pose"), t.nine))
     }
-    pub fn frame(&mut self, receiver: &Receiver, history: &super::replay::History, dt: f64) {
+    pub fn frame(&mut self, receiver: &Receiver, history: &super::replay::History, dt: f64, effects: &mut HullEffects) {
         for row in receiver.active().filter(|r| r[r::KIND] == k::TURRET as f64) {
             if let Some((index, turret)) = self.rows.iter_mut().enumerate().find(|(_, t)| t.building == Some(row[r::BUILDING] as usize)) {
                 turret.id = row[r::ID];
                 turret.generation = row[r::GENERATION];
                 turret.shown = row[r::STATE] == 1.;
+                turret.health = row[r::HEALTH];
                 let input = &mut self.owner.turret_input[index * t::STRIDE..][..t::STRIDE];
                 input[t::YAW] = row[r::YAW];
                 input[t::PITCH] = row[r::PITCH];
@@ -313,6 +330,17 @@ impl Turrets {
         self.owner.frame();
         self.visible = 0;
         for turret in &mut self.rows {
+            if let Some(fx) = &turret.effects {
+                if turret.id >= 0. {
+                    effects.hull(fx, &mut turret.body, Frame {
+                        key: (1u64 << 49) | turret.building.unwrap_or(0) as u64,
+                        generation: turret.generation as u32,
+                        state: if turret.shown { 0 } else { 2 }, dying: 0., health: turret.health,
+                        thrusting: false, velocity: [0.;3], water: None,
+                        nodes: Some((&self.owner.nodes[turret.start..turret.start+turret.node_count*n::STRIDE], n::STRIDE, n::WORLD)),
+                    },dt);
+                }
+            }
             if !turret.shown {
                 continue;
             }

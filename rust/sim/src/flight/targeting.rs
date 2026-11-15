@@ -2,15 +2,6 @@
 //! tick, `updateFlightTarget`), a flyer missile's proportional navigation
 //! (`navigateMissile`, which the rounds ask through their world) and the
 //! assisted shot (`assistShot`, in a pilot's fire).
-//!
-//! A target is an entry of the registry within a cone about the nose, in
-//! range and an enemy; the best is the one nearest the nose that the craft
-//! can see, the earlier entry of equal ones. The sight ray goes only to the
-//! candidates in score order until one passes. As in the JavaScript, the
-//! sight test is passed by whatever the ray strikes beyond 2 m short of the
-//! target, by the target hull's own body, and, for a target that is no
-//! hull's (a soldier, a turret, a building), by the terrain and the map's
-//! own collision, whose hits name no body (quirks.md).
 
 use super::config::Tuning;
 use super::model::truthy;

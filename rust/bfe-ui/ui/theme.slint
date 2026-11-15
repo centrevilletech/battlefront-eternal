@@ -18,6 +18,8 @@ export enum ControlState { idle, hover, pressed, focused, disabled }
 
 export global Theme {
     in-out property <string> menu-theme: "eternal";
+    // A key moved the selection and the pointer has not moved since: only the selected row is lit (the browser keeps one focus).
+    in-out property <bool> keyboard-nav: false;
     in-out property <length> viewport-width: 1280px;
     in-out property <length> viewport-height: 720px;
     out property <bool> bf1: self.menu-theme == "bf1";

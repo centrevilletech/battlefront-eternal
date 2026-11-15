@@ -1,15 +1,4 @@
 //! Shell music cycle (`ShellMusic` in `src/shell/audio.js`).
-//!
-//! This module ports `ShellMusic` from `src/shell/audio.js` on top of
-//! `audio_control::shell_music::Music` (`rust/audio-control/src/shell_music.rs`):
-//! - `SOUNDTRACK = "shell_soundtrack"` plays its tracks in turn, one at a time,
-//!   with `INTERVAL = 10.0` seconds of silence between them
-//!   (`SetShellMusicInterval`).
-//! - A screen names the music it wants (`set(Some(name))`); `set(None)` keeps
-//!   what plays, and `set(Some(STOP))` stops it.
-//! - As in the original player, the silence is measured against `interval` as
-//!   it stands on each `update(dt)`, so shortening `interval` (the AUDIO
-//!   OPTIONS page sets `0.0`) cuts a silence short immediately.
 
 use crate::data::MusicTrack;
 use audio_control::{

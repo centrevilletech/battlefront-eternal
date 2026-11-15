@@ -5,53 +5,6 @@
 //! the page simulates, a worker's and a server's sound alike: all this needs
 //! is whether it is alive, its health, flight state, velocity, where it is
 //! drawn, who holds which seat and where each seat aims.
-//!
-//! - On: someone takes the pilot's seat of a hull that is off or turning
-//!   off. TurnOnSound plays and the engine (EngineSound, a parameterized
-//!   loop) starts.
-//! - Turning off: the pilot's seat is empty, and a flyer is landed (one
-//!   still in the air keeps its engine). TurningOffSound plays (R2's
-//!   whistle) and, TurnOffTime (3 s unless set) later, TurnOffSound, and the
-//!   engine stops. Meanwhile the engine's TurnOffTime input counts up, which
-//!   fades its layers out and drops their pitch.
-//! - A flyer that is on plays TakeoffSound (WindUpSound) as it starts to
-//!   take off and LandSound (WindDownSound) as it starts to land.
-//! - Each sound restarts the clock the engine's TurnOnTime, TurnOffTime,
-//!   WindUpTime and WindDownTime inputs read; an input the hull's state
-//!   doesn't drive is passed as a raw 1, which leaves its layers alone.
-//! - Speed is the speed over MaxSpeed, Health the share of MaxHealth left.
-//! - HurtSound when a hit takes more than 2% of the health left (the
-//!   soldier's rule, provisional for hulls); DeathSound when it is destroyed,
-//!   and its engine stops at once.
-//! - A walker's FootstepSound<i> where its i-th foot (TerrainCollision
-//!   primitive) comes down, and HydraulicSound as a foot lifts
-//!   (src/vehicle-feet.js supplies the shared foot-placement rules).
-//! - VehicleCollisionSound when the hull's speed drops by more than its
-//!   CollisionThreshold in one simulation tick (1/60 s): a crash, read off the
-//!   velocity every host replicates. The threshold applies to one tick; a
-//!   page drawing slowly sees several ticks' braking at once,
-//!   so the drop is measured against the time it took.
-//! - Turret seats (every seat after the pilot's): TurretActivateSound as
-//!   someone takes one and TurretDeactivateSound as the seat empties (the
-//!   original game compares each turret's controller with last frame's). While
-//!   manned, its aim's turning whirs: TurretYawSound and TurretPitchSound at
-//!   the sound's gain times the turn rate over the seat's top rate
-//!   (TurnRate, PitchRate), pitched from TurretYawSoundPitch
-//!   (TurretPitchSoundPitch) up to the sound's own, fading by WHIR_FADE a
-//!   frame once it stops.
-//! - Placed turrets (src/props.js, the attached game's live objects) are the
-//!   same turret, by their class (updateBuildings): whoever mans one, the
-//!   player, a bot or another player online, its activation, whirs (the
-//!   drum's yaw and pitch, at its MaxTurnSpeed) and deactivation. A
-//!   destroyed one falls silent without a sound.
-//!
-//! An engine, the whirs and the footfalls sound only within the engine
-//! layers' MaxDistance of the camera (AUDIBLE until one has played; a placed
-//! turret's whirs, AUDIBLE); out there a hull's state still runs, and its
-//! engine comes back without a TurnOnSound.
-//!
-//! Hull and turret sound policy from vehicles.js. Published poses are facts;
-//! activation edges, turn-rate history and engine parameter state live here.
 use crate::engine::{Ask, NONE, SILENT, FOLEY, EXPLOSIONS};
 use crate::phase::{Phase, index};
 use crate::layers::Layers;

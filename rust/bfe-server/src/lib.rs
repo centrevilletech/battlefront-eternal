@@ -20,7 +20,6 @@ pub mod bans;
 pub mod browser_info;
 pub mod config;
 pub mod game_session;
-pub mod health_check;
 pub mod identity;
 pub mod lan;
 pub mod local_server;

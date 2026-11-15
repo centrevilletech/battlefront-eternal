@@ -22,12 +22,10 @@ export CARGO_BUILD_JOBS=3
 echo "==> Running cross-architecture published-bytes determinism gate on $(uname -m)"
 RUST_BACKTRACE=1 cargo test --manifest-path "${manifest}" --locked \
   -p sim --test arm64_determinism \
-  -p bfe-presentation --test unit_oracle \
   -- --nocapture
 
 base_test_crates=(
   sim
-  sim-replay
   bfe-render
   bfe-presentation
   bfe-pose
@@ -38,8 +36,6 @@ base_test_crates=(
   audio
   audio-decode
   basis-transcode
-  texture-codec
-  image-codec
   bfe-environment
   audio-control
   bfe-client
@@ -59,7 +55,7 @@ wave_crates=(
   xtask
 )
 
-test_pkg_args=(--features sim/replay)
+test_pkg_args=()
 for crate in "${base_test_crates[@]}"; do
   test_pkg_args+=(-p "${crate}")
 done

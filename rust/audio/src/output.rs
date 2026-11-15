@@ -304,25 +304,6 @@ impl Output {
     }
     // StreamOut.start can learn the channel width from its first segment.
     // Rebinding its routing must preserve already-scheduled segment cursors and
-    #[cfg(target_arch = "wasm32")]
-    pub fn stream(&mut self, slot: usize, channels: usize, kind: u32, spatial: bool) {
-        let on = self.streams[slot].on;
-        let gain = self.streams[slot].gain;
-        let sources = self.streams[slot].sources;
-        self.streams[slot] = Stream::new(self.rate);
-        self.streams[slot].configure(channels, kind, spatial);
-        if on {
-            self.streams[slot].gain = gain;
-            self.streams[slot].sources = sources;
-        }
-        self.streams[slot].filter = (0..channels)
-            .map(|_| Biquad::new(Kind::Lowpass, (self.rate / 2.0) as f32, -3.0103, 0.0, self.rate))
-            .collect();
-        self.placements[VOICES + slot] = Placement::default();
-        self.placements[VOICES + slot].active = true;
-        self.placements[VOICES + slot].spatial = spatial;
-        self.route_stream(slot);
-    }
     // StreamOut's recorded mono/stereo/quad lanes are virtual speakers.
     // Resolve their fixed directions and Classic light gains on configuration,
     // so the render loop need only copy or multiply each lane.
@@ -1026,7 +1007,6 @@ fn stereo_pan(meta: &mut Placement, input: &[f32], mix: &mut [f32], block: u64, 
 
 // Device callbacks bind between quanta. Keep their storage policy separate
 // from the worklet's cold message handler, with the same routing and cursors.
-#[cfg(not(target_arch = "wasm32"))]
 impl Output {
     /// StreamOut.start's native bind reuses every admitted bed buffer.
     pub fn stream(&mut self, slot: usize, channels: usize, kind: u32, spatial: bool) {

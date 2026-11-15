@@ -23,7 +23,6 @@ pub mod commands;
 pub mod core;
 pub mod animated;
 pub mod debris;
-pub mod debris_commands;
 pub mod fleet_posts;
 pub mod held_bodies;
 pub mod human;

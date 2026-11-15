@@ -77,6 +77,10 @@ struct Cosmetic {
     until: f64,
     aimed: bool,
     claimed: bool,
+    // How far it had flown when last drawn: the next frame sweeps on from
+    // there for a soldier in its way.
+    flown: f64,
+    fade: f64,
 }
 // What a weapon's bolt needs to be drawn ahead of the world: its round's
 // wire class and style, speed, life and FadeOutTime, and its ShotElevate.
@@ -88,6 +92,12 @@ struct Barrel {
     span: f64,
     fade: f64,
     elevate: f64,
+}
+impl Cosmetic {
+    // Its flight is over: nothing more to sweep.
+    fn claimed_end(&self) -> bool {
+        self.flown >= self.speed * self.life
+    }
 }
 const COSMETICS: usize = 32;
 struct Style {
@@ -142,9 +152,14 @@ pub struct Combat {
     tick: f64,
     // Network commands written for the owner since its last presentation.
     net_count: usize,
+    // End records whose bolt this client has not been sent yet (id,
+    // generation, the point, the tick), newest last: a launch that arrives
+    // after its end still stops there.
+    orphans: Vec<(u32, u32, [f64; 3], f64)>,
     cosmetics: Vec<Cosmetic>,
-    // By weapon (its place in the battle's weapon list).
-    barrels: Vec<Option<Barrel>>,
+    // By weapon (its place in the battle's weapon list), then by charge
+    // level: a charge can fire another class of round (the bowcaster's).
+    barrels: Vec<Vec<Option<Barrel>>>,
     // BFE_HUD_TRACE: every round's records and the player's own bolts as
     // drawn, on stderr.
     trace: bool,
@@ -196,6 +211,9 @@ pub struct Combat {
     flames: Vec<Flame>,
     /// Classic jet exhaust effects started so far.
     pub total_flames: u64,
+    /// The droids' Enhanced deaths (destruction.js).
+    pub destruction: super::destruction::Destructions,
+    droid_explosions: Vec<usize>,
     /// The map's placed effects (torches, smoke, steam).
     pub map_effects: super::map_effects::MapEffects,
     /// The hulls' thrust, damage and death effects.
@@ -360,20 +378,29 @@ impl Combat {
             .weapons
             .iter()
             .map(|weapon| {
-                let round = weapon.record.get("ordnance")?;
-                if round.get("base").and_then(bfe_content::Value::as_str) != Some("bolt") {
-                    return None;
-                }
-                let definition = defs.combat_id(round)? as usize;
-                let or = |n: f64, default: f64| if n != 0. && !n.is_nan() { n } else { default };
-                Some(Barrel {
-                    definition,
-                    style: definitions.get(definition).copied().flatten()?,
-                    speed: or(number(round, "Velocity"), 100.).clamp(1., 2000.),
-                    span: or(number(round, "LifeSpan"), 1.).min(1.),
-                    fade: number(round, "FadeOutTime"),
-                    elevate: number(&weapon.record, "ShotElevate"),
-                })
+                // weapons.js levels: the class itself, then each of its
+                // charges laid over it.
+                let charges = weapon.record.get("charges").and_then(bfe_content::Value::as_array).map_or(&[][..], |list| &list[..]);
+                std::iter::once(None)
+                    .chain(charges.iter().map(Some))
+                    .map(|charge| {
+                        let field = |key: &str| charge.and_then(|charge| charge.get(key)).or_else(|| weapon.record.get(key));
+                        let round = field("ordnance")?;
+                        if round.get("base").and_then(bfe_content::Value::as_str) != Some("bolt") {
+                            return None;
+                        }
+                        let definition = defs.combat_id(round)? as usize;
+                        let or = |n: f64, default: f64| if n != 0. && !n.is_nan() { n } else { default };
+                        Some(Barrel {
+                            definition,
+                            style: definitions.get(definition).copied().flatten()?,
+                            speed: or(number(round, "Velocity"), 100.).clamp(1., 2000.),
+                            span: or(number(round, "LifeSpan"), 1.).min(1.),
+                            fade: number(round, "FadeOutTime"),
+                            elevate: field("ShotElevate").and_then(bfe_content::Value::as_f64).unwrap_or(0.),
+                        })
+                    })
+                    .collect()
             })
             .collect();
         let effects = bfe_presentation::Presentation::new(
@@ -393,7 +420,18 @@ impl Combat {
         let streaks_at = particles.words;
         particles.words += STREAK_FLOATS + FLARE_FLOATS;
         bridge.fx_reserve(particles.words as u32);
+        let destruction = super::destruction::Destructions::new(content, bridge, textures, collision.clone(), world, particles.words)?;
+        particles.words = destruction.end();
         let debris = super::debris::Debris::new(content, bridge, textures, &effect_names, collision, world)?;
+        // The explosions droids that come apart die in: Enhanced draws its own
+        // blast for them and leaves the stock effect out (Destruction.explosion).
+        let droid_explosions: Vec<usize> = defs
+            .classes
+            .iter()
+            .filter(|c| c.record.get("chunks").and_then(bfe_content::Value::as_array).is_some_and(|l| !l.is_empty()))
+            .filter_map(|c| c.record.get("ExplosionName").and_then(bfe_content::Value::as_str))
+            .filter_map(|name| defs.registry.combat.iter().position(|(n, _)| n == name).map(|i| i + 1))
+            .collect();
         // environment-effects.js warmup: each group's longest particle life,
         // at most 4 s.
         let lifetime = |d: &serde_json::Value| d["transformer"]["lifetime"].as_f64().unwrap_or(0.);
@@ -430,6 +468,7 @@ impl Combat {
             epoch: 0.,
             tick: 0.,
             net_count: 0,
+            orphans: Vec::with_capacity(64),
             cosmetics: Vec::with_capacity(COSMETICS),
             barrels,
             trace: std::env::var_os("BFE_HUD_TRACE").is_some(),
@@ -465,6 +504,8 @@ impl Combat {
             flames: Vec::with_capacity(16),
             total_flames: 0,
             map_effects,
+            destruction,
+            droid_explosions,
             hull_fx: super::hull_effects::HullEffects::new(),
         })
     }
@@ -495,13 +536,14 @@ impl Combat {
         }
     }
     /// PredictedShots.fire for a round the client's replay just fired:
-    /// `weapon` (its place in the battle's weapon list) on trigger `channel`
+    /// `weapon` (its place in the battle's weapon list) at charge `level` on trigger `channel`
     /// at `tick`, from the gun origin along the aim, turned by the press's
     /// spread. `cast` gives the distance to the first surface on a ray. A
     /// weapon that fires no bolt draws nothing ahead of the world.
     pub fn predict(
         &mut self,
         weapon: usize,
+        level: usize,
         tick: f64,
         channel: u32,
         origin: [f64; 3],
@@ -509,7 +551,7 @@ impl Combat {
         spread: [f64; 2],
         cast: &mut dyn FnMut([f64; 3], [f64; 3], f64) -> Option<f64>,
     ) {
-        let Some(barrel) = self.barrels.get(weapon).copied().flatten() else {
+        let Some(barrel) = self.barrels.get(weapon).and_then(|levels| levels.get(level)).copied().flatten() else {
             return;
         };
         if self.cosmetics.len() == COSMETICS {
@@ -553,6 +595,8 @@ impl Combat {
             until: born + (life + barrel.fade).max(1.),
             aimed: false,
             claimed: false,
+            flown: 0.,
+            fade: barrel.fade,
         });
         if self.trace {
             eprintln!(
@@ -616,6 +660,10 @@ impl Combat {
     pub fn frame(&mut self, receiver: &Receiver, tick: f64, dt: f64) {
         use bfe_presentation::layout::frame as ef;
         let own = (receiver.own.id as u32, receiver.own.generation as u32);
+        // How far behind the newest tick this frame is drawn, once a second.
+        if self.trace && self.frame % 60 == 0 {
+            eprintln!("ord: clock behind={:.2} latest={} shown={tick:.2} dt={dt:.4}", receiver.latest - tick, receiver.latest);
+        }
         self.frame += 1;
         self.tick = tick;
         self.visible = 0;
@@ -658,6 +706,7 @@ impl Combat {
         if self.epoch != receiver.epoch {
             self.epoch = receiver.epoch;
             self.pending.clear();
+            self.orphans.clear();
             self.cosmetics.clear();
             self.flames.clear();
             self.map_effects.reset(&mut self.effects);
@@ -736,6 +785,12 @@ impl Combat {
                             x[n::POSITION..n::POSITION + 3].copy_from_slice(&position);
                             net_count += 1;
                         }
+                        if flying.is_none() {
+                            if self.orphans.len() == self.orphans.capacity() {
+                                self.orphans.remove(0);
+                            }
+                            self.orphans.push((id, generation, position, stamp));
+                        }
                         if self.trace {
                             eprintln!(
                                 "ord: end id={id} tick={stamp} shown={tick:.3} surface={} at={position:.3?} {}",
@@ -798,6 +853,17 @@ impl Combat {
                         predicted,
                         ..Default::default()
                     };
+                    // A launch that comes after its own end record (its first
+                    // copy lost, or sent late) still flies only to that point.
+                    if let Some(at) = self.orphans.iter().position(|orphan| orphan.0 == id && orphan.1 == generation) {
+                        let (_, _, point, _) = self.orphans.remove(at);
+                        let bolt = &mut self.bolts[slot];
+                        if bolt.speed > 0. {
+                            let distance = (0..3).map(|i| (point[i] - bolt.position[i]) * bolt.direction[i]).sum::<f64>().max(0.);
+                            bolt.life = bolt.life.min(distance / bolt.speed);
+                        }
+                        bolt.terminal = true;
+                    }
                     if self.trace {
                         let b = &self.bolts[slot];
                         eprintln!(
@@ -832,9 +898,23 @@ impl Combat {
                         // now. A class drawn on where it stops (the sniper
                         // rifles) has its streak cut there (PredictedShots.stop).
                         let rail = self.styles[style].rail.is_some();
-                        if let Some(cosmetic) = self.cosmetics.iter_mut().find(|c| c.key == key && rail) {
+                        let now = self.clock;
+                        if let Some(cosmetic) = self.cosmetics.iter_mut().find(|c| c.key == key) {
+                            // The world's answer: where its round stopped.
+                            // A cosmetic still flying takes that as its own
+                            // end, nearer or further than the client's own
+                            // ray found (a round that struck nothing keeps
+                            // the life it was launched with). One whose
+                            // flight is over is only ever cut (the sniper
+                            // rifles' streak, PredictedShots.stop).
                             let along = (0..3).map(|i| (point[i] - cosmetic.origin[i]) * cosmetic.direction[i]).sum::<f64>().max(0.);
-                            cosmetic.life = cosmetic.life.min(along / cosmetic.speed);
+                            let answer = along / cosmetic.speed;
+                            if now - cosmetic.born < cosmetic.life {
+                                cosmetic.life = answer.max(now - cosmetic.born);
+                                cosmetic.until = cosmetic.born + (cosmetic.life + cosmetic.fade).max(1.);
+                            } else {
+                                cosmetic.life = cosmetic.life.min(answer);
+                            }
                         }
                         self.defer(group, point, id, stamp.min(tick), rail);
                     } else {
@@ -857,7 +937,8 @@ impl Combat {
                         bytes[32]
                     );
                 }
-                self.defer(group, position, id, stamp, false);
+                let quiet = self.destruction.enhanced && self.droid_explosions.contains(&definition);
+                self.defer(if quiet { None } else { group }, position, id, stamp, false);
             } else if schema == 6 || schema == 7 {
                 let valid = if schema == 6 { bytes.len() == 82 } else { bytes.len() == 4 };
                 if !valid {
@@ -1049,12 +1130,18 @@ impl Combat {
     /// round (the wire's id) is drawn now, if it holds one: a bolt leaves
     /// that gun and joins its true path over MERGE metres
     /// (CombatPresentation.present, `bolt.visualMuzzle`). `own` is the
-    /// player's unit, whose bolts the trace follows.
+    /// player's unit, whose bolts the trace follows. `strike` gives the
+    /// distance to the first drawn body other than the player's on a
+    /// segment (from, direction, length): the player's own bolt, drawn
+    /// ahead of the world, stops at the first soldier it crosses as this
+    /// client shows him (PredictedShots.update), until the world's end
+    /// record says where its round really stopped.
     pub fn draw(
         &mut self,
         dt: f64,
         own: (u32, u32),
         muzzle: &dyn Fn((u32, u32), usize) -> Option<[f64; 3]>,
+        strike: &dyn Fn([f64; 3], [f64; 3], f64) -> Option<f64>,
         lights: &mut super::lights::SceneLights,
         bridge: &mut Bridge,
     ) {
@@ -1112,6 +1199,17 @@ impl Combat {
         let now = self.clock;
         self.cosmetics.retain(|cosmetic| now < cosmetic.until);
         for (at, cosmetic) in self.cosmetics.iter_mut().enumerate() {
+            let reach = cosmetic.speed * (now - cosmetic.born).min(cosmetic.life);
+            if reach > cosmetic.flown && !cosmetic.claimed_end() {
+                let from: [f64; 3] = std::array::from_fn(|i| cosmetic.origin[i] + cosmetic.direction[i] * cosmetic.flown);
+                if let Some(distance) = strike(from, cosmetic.direction, reach - cosmetic.flown) {
+                    cosmetic.life = cosmetic.life.min((cosmetic.flown + distance) / cosmetic.speed);
+                    if self.trace {
+                        eprintln!("ord: stop key={} flown={:.3} wall={:.1}", cosmetic.key, cosmetic.flown + distance, wall());
+                    }
+                }
+            }
+            cosmetic.flown = cosmetic.speed * (now - cosmetic.born).min(cosmetic.life);
             if !cosmetic.aimed {
                 cosmetic.aimed = true;
                 if let Some(muzzle) = muzzle(own, cosmetic.definition) {
@@ -1270,9 +1368,11 @@ impl Combat {
                 let (seen, lowest) = (self.hull_fx.seen, self.hull_fx.lowest);
                 let live = self.hull_fx.live_count();
                 eprintln!(
-                    "fx-count map={} in-view={} hull={} hull-frames={seen} lowest={lowest:.2} live={live} particles={particles} effects={}",
-                    self.map_effects.started, self.map_effects.visible, self.hull_fx.started, self.total_effects
+                    "fx-count map={} in-view={} hull={} stomps={} hull-frames={seen} lowest={lowest:.2} live={live} particles={particles} effects={}",
+                    self.map_effects.started, self.map_effects.visible, self.hull_fx.started, self.hull_fx.stomps, self.total_effects
                 );
+                let (pieces, hot, smoke, arcs) = self.destruction.counts();
+                eprintln!("fx-destruction enhanced={} deaths={} pieces={pieces} hot={hot} smoke={smoke} arcs={arcs}", self.destruction.enhanced, self.destruction.deaths);
             }
         }
         self.effects.frame();
@@ -1482,6 +1582,7 @@ impl Combat {
     pub fn record_budget(&self) -> usize {
         self.net.iter().filter(|n| n.active && n.shown).filter_map(|n| self.styles[n.style].model.as_ref()).map(|m| m.rows.len()).sum::<usize>()
             + self.debris.record_budget()
+            + self.destruction.record_budget()
     }
     pub fn append(&self, bridge: &mut Bridge, mut records: usize, mut bones: usize) -> (usize, usize) {
         for net in &self.net {
@@ -1491,6 +1592,7 @@ impl Combat {
                 }
             }
         }
-        self.debris.append(bridge, records, bones)
+        let (records, bones) = self.debris.append(bridge, records, bones);
+        self.destruction.append(bridge, records, bones)
     }
 }

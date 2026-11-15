@@ -6,12 +6,44 @@ use bfe_pose::rig::hull::HullRig;
 use bfe_presentation::network_layout::{net_kind as k, net_record as r};
 use bfe_render::instances as draw;
 use three::{Matrix4, Quaternion, Vector3};
+use super::hull_effects::{Body, ClassFx, Frame, HullEffects};
 struct Look {
     bind: Vec<(Vector3, Quaternion)>,
     rig: HullRig,
     inverses: Vec<Matrix4>,
     skin: Vec<f32>,
     rows: Vec<[f64; draw::REC_STRIDE]>,
+    names: Vec<String>,
+    nodes: Vec<f64>,
+}
+impl Look {
+    fn update(&mut self) {
+        self.rig.tree.update_matrix_world(self.rig.root, true);
+        self.nodes[..16].copy_from_slice(&self.rig.tree.node(self.rig.root).matrix_world.elements);
+        for (i, id) in self.rig.bones.iter().chain(std::iter::once(&self.rig.static_bone)).enumerate() {
+            let mut m = self.rig.tree.node(*id).matrix_world;
+            if i < self.rig.bones.len() {
+                self.nodes[(i + 1) * 16..(i + 2) * 16].copy_from_slice(&m.elements);
+            }
+            m.multiply(&self.inverses[i]);
+            for j in 0..16 { self.skin[i * 16 + j] = m.elements[j] as f32; }
+        }
+    }
+}
+struct Objective {
+    pose: bfe_pose::Pose,
+    idle: Option<bfe_pose::Clip>,
+    death: Option<bfe_pose::Clip>,
+    span: f64,
+    left: f64,
+    time: f64,
+    seen: bool,
+    effects: Option<ClassFx>,
+    body: Body,
+}
+fn clip(source: &bfe_content::clips::Clip) -> bfe_pose::Clip {
+    bfe_pose::Clip { frames: source.frames_f64() as usize, fps: source.fps,
+        root_motion: source.root_motion, tracks: source.tracks.iter().map(|n| *n as i32).collect(), data: source.data().to_vec() }
 }
 struct Building {
     turret: bool,
@@ -31,6 +63,22 @@ struct Building {
     span: f64,
     seed: u32,
     station_bounds: [[f64; 3]; 2],
+    objective: Option<Objective>,
+}
+impl Building {
+    fn draw_look(&self) -> usize {
+        if self.objective.as_ref().is_some_and(|o| o.left > 0.) { 0 } else { self.state }
+    }
+    fn state(&mut self, state: usize) {
+        if let Some(o) = self.objective.as_mut() {
+            if state != self.state {
+                o.left = if o.seen && self.state == 0 && state == 1 { o.span } else { 0. };
+                o.time = 0.;
+            }
+            o.seen = true;
+        }
+        self.state = state;
+    }
 }
 /// The wreck's world bounds and current repair progress for destruction effects.
 pub struct StationFrame {
@@ -52,6 +100,8 @@ impl Buildings {
         content: &BattleContent,
         bridge: &mut Bridge,
         textures: &[u32],
+        effects: &[(String, usize)],
+        class_base: usize,
     ) -> Result<Self, String> {
         let cascades = bridge.shadow_cascades();
         let mut rows = Vec::new();
@@ -145,6 +195,8 @@ impl Buildings {
                     rig,
                     inverses,
                     rows: admitted.records,
+                    names: std::iter::once(String::new()).chain(def.bones.iter().map(|b| b.name.clone())).collect(),
+                    nodes: vec![0.; (def.bones.len() + 1) * 16],
                 });
             }
             let settings = desc
@@ -152,6 +204,23 @@ impl Buildings {
                 .cloned()
                 .unwrap_or(bfe_content::Value::Null);
             let wait = number(&settings, "IdleWaitTime", 2.);
+            let objective = if desc.get("base").and_then(bfe_content::Value::as_str) == Some("commandpost") {
+                looks[0].as_ref().map(|look| {
+                    let model = desc.get("model").and_then(bfe_content::Value::as_str).unwrap_or("");
+                    let bank = content.content.prop_clips.iter().find(|(name, _)| name == model).and_then(|(_, bank)| bank.as_ref());
+                    let animation = desc.get("animation");
+                    let get = |key| animation.and_then(|a| a.get(key)).and_then(bfe_content::Value::as_str).and_then(|n| bank.and_then(|b| b.get(n)));
+                    let idle = get("idle").map(clip);
+                    let death = get("death").map(clip);
+                    let span = desc.get("fx").and_then(|fx| fx.get("dying")).and_then(|d| d.get("span"))
+                        .and_then(bfe_content::Value::as_f64).unwrap_or_else(|| death.as_ref().map_or(0., |c| c.frames as f64 / c.fps));
+                    let root = look.names.iter().skip(1).position(|n| matches!(n.to_lowercase().as_str(), "dummyroot" | "dummy_root")).unwrap_or(0);
+                    Objective { pose: bfe_pose::Pose::new(look.rig.bones.len(), root as i32), idle, death,
+                        span, left: 0., time: 0., seen: false,
+                        effects: ClassFx::parse(class_base + source, desc, look.names.clone(), |name| effects.iter().find(|(n, _)| n == name).map(|(_, id)| *id)),
+                        body: Body::default() }
+                })
+            } else { None };
             let bounds_model = desc.get("destroyed").and_then(|d| d.get("model"))
                 .or_else(|| desc.get("model")).and_then(bfe_content::Value::as_str)
                 .and_then(|name| data.get("models").and_then(|m| m.get(name)));
@@ -188,11 +257,12 @@ impl Buildings {
                 span: 1.,
                 seed: (id as u32 + 1) * 7919,
                 station_bounds,
+                objective,
             });
         }
         Ok(Self { rows })
     }
-    pub fn frame(&mut self, receiver: &Receiver, dt: f64) {
+    pub fn frame(&mut self, receiver: &Receiver, dt: f64, effects: &mut HullEffects) {
         for field in receiver.publications.iter() {
             if field.row[r::KIND] != k::SUMMARY as f64 || field.row[r::SCHEMA] != 7. {
                 continue;
@@ -214,11 +284,11 @@ impl Buildings {
                 continue;
             };
             if let Some(b) = self.rows.iter_mut().find(|b| b.id == s.0) {
-                b.state = match s.1 {
+                b.state(match s.1 {
                     "built" => 0,
                     "destroyed" => 1,
                     _ => 2,
-                };
+                });
                 b.health = s.2.unwrap_or(f64::INFINITY);
                 b.mode = s.4 == Some("active");
                 b.active = s.5;
@@ -248,6 +318,38 @@ impl Buildings {
             }
         }
         for b in &mut self.rows {
+            if let (Some(objective), Some(look)) = (b.objective.as_mut(), b.looks[0].as_mut()) {
+                let dying = objective.left > 0.;
+                if dying || b.state == 0 {
+                    objective.time += dt;
+                    objective.left = (objective.left - dt).max(0.);
+                    let clip = if dying { objective.death.as_ref() } else { objective.idle.as_ref() };
+                    if let Some(clip) = clip {
+                        objective.pose.clear();
+                        objective.pose.add(clip, objective.time, 1., !dying);
+                        for (i, id) in look.rig.bones.iter().enumerate() {
+                            let w = objective.pose.w[i] as f64;
+                            if w <= 1e-6 { continue; }
+                            let q = &objective.pose.q[i * 4..];
+                            let p = &objective.pose.t[i * 3..];
+                            let node = look.rig.tree.node_mut(*id);
+                            node.quaternion.set(q[0] as f64, q[1] as f64, q[2] as f64, q[3] as f64).normalize();
+                            node.position.set(p[0] as f64 / w, p[1] as f64 / w, p[2] as f64 / w);
+                        }
+                    }
+                }
+                look.update();
+                if let Some(fx) = objective.effects.as_ref() {
+                    effects.hull(fx, &mut objective.body, Frame {
+                        key: (1 << 48) | b.id as u64,
+                        generation: 0,
+                        state: if b.state == 0 { 0 } else if objective.left > 0. { 1 } else { 2 },
+                        dying: objective.span - objective.left,
+                        health: b.health, thrusting: false, velocity: [0.; 3], water: None,
+                        nodes: Some((&look.nodes, 16, 0)),
+                    }, dt);
+                }
+            }
             if b.station && b.state == 0 {
                 let speed = number(&b.settings, "IdleRotateSpeed", 1.);
                 if b.mode {
@@ -275,7 +377,8 @@ impl Buildings {
                     }
                 }
             }
-            let Some(look) = b.looks[b.state].as_mut() else {
+            let shown = b.draw_look();
+            let Some(look) = b.looks[shown].as_mut() else {
                 continue;
             };
             if b.station && b.state == 0 {
@@ -358,20 +461,7 @@ impl Buildings {
                     }
                 }
             }
-            look.rig.tree.update_matrix_world(look.rig.root, true);
-            for (i, id) in look
-                .rig
-                .bones
-                .iter()
-                .chain(std::iter::once(&look.rig.static_bone))
-                .enumerate()
-            {
-                let mut m = look.rig.tree.node(*id).matrix_world;
-                m.multiply(&look.inverses[i]);
-                for j in 0..16 {
-                    look.skin[i * 16 + j] = m.elements[j] as f32;
-                }
-            }
+            look.update();
         }
     }
     pub fn states(&self) -> impl Iterator<Item=(usize, &'static str, f64, bool, f64)> + '_ {
@@ -398,7 +488,7 @@ impl Buildings {
     pub fn record_budget(&self) -> usize {
         self.rows
             .iter()
-            .filter_map(|b| b.looks[b.state].as_ref())
+            .filter_map(|b| b.looks[b.draw_look()].as_ref())
             .map(|l| l.rows.len())
             .sum()
     }
@@ -409,7 +499,7 @@ impl Buildings {
         mut bones: usize,
     ) -> (usize, usize) {
         for b in &self.rows {
-            let Some(l) = b.looks[b.state].as_ref() else {
+            let Some(l) = b.looks[b.draw_look()].as_ref() else {
                 continue;
             };
             for recipe in &l.rows {

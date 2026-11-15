@@ -1,32 +1,4 @@
 //! Detached local server host controller (`HostController`) for `bfe-desktop`.
-//!
-//! Ports `createHostController`, `startOutside`, and `unitActive` from the desktop host,
-//! together with the close-decision prompt and keep-running flow from the desktop host
-//! (`before-quit` handler).
-//!
-//! ## Architecture and Responsibilities
-//! - **Detached Process Lifecycle**: `HostController::start` spawns the bundled `bfeserver`
-//!   binary (`--serve`) in its own process group (`process_group(0)` on Unix;
-//!   `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW` on Windows) so the
-//!   hosted match continues running after the native client exits. When launched under
-//!   native Linux Steam (`outside == true`), [`start_outside`] delegates process creation to
-//!   `systemd-run --user` so Steam's reaper does not hold the game in `"playing"` state or
-//!   kill the server on exit.
-//! - **State and Log Files**: Writes `<state_root>/config.json` (mode `0600`) using only
-//!   valid `bfe-server` configuration keys (`name`, `engine`, `data`, `rotation`,
-//!   `maxPlayers`, `onlineNoticeAccepted`, `master`, `relayPolicy`, `honorGlobalBans`,
-//!   `gamePort`, plus optional `autoAssignTeams`, `ai`, and `autoSpawn`). Redirects child
-//!   `stdout` and `stderr` to `<state_root>/hosting.log` (mode `0600`), rotating/truncating
-//!   the log when it exceeds [`LOG_ROTATE_BYTES`] (`8_388_608` bytes).
-//! - **Readiness and Attach**: Waits up to 60 seconds (120 polls at 500 ms) for `/admin`
-//!   (`{"action": "status"}` returning `status == "running"`) and `GET /info` on the game
-//!   port (`18461` by default) to succeed. On subsequent client launches or `start()` calls,
-//!   [`HostController::attach`] detects an already-running server via `<state_root>/operator-token`,
-//!   `/admin`, and `/info`, re-attaching instead of spawning a duplicate `bfeserver`.
-//! - **Close Decision Data**: Exposes [`CloseChoice`] and [`ClosePrompt`] with the exact
-//!   dialog strings from the desktop host (`"Hosted server is running"`,
-//!   `"Other players can keep playing after you close the app."`, and button labels) so the
-//!   native client shell can render the quit prompt with its own UI kit.
 
 use std::collections::BTreeMap;
 use std::env;
@@ -725,15 +697,6 @@ pub struct StartOutsideOptions {
 
 /// Starts `bfeserver` outside the current process tree using the user's `systemd` instance
 /// (`export function startOutside` in the desktop host).
-///
-/// When the game is started by native Linux Steam, Steam's reaper waits for every process in the
-/// game's cgroup/tree. Starting `bfeserver` via `systemd-run --user --collect --quiet` places it
-/// in its own transient user unit (`battlefront-eternal-server-<timestamp>`) so closing the client
-/// does not leave Steam showing the game as `"playing"` and Steam's STOP button does not kill
-/// the hosted server.
-///
-/// Returns `Some(unit_name)` when `systemd-run` exits with status `0`, or `None` when `systemd-run`
-/// is unavailable or fails (in which case the caller falls back to direct detached spawning).
 pub fn start_outside(options: &StartOutsideOptions) -> Option<String> {
     // Generate a unique transient unit name stamped with current Unix epoch milliseconds.
     let now_ms = SystemTime::now()

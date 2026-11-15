@@ -122,7 +122,8 @@ impl Own {
 pub struct Runtime<E: Engine> {
     engine: E,
     clock: Clock,
-    /// The display receiver of the single-thread window (`new`). The world
+    /// The display receiver of a single-thread runtime (`new`, which tests
+    /// drive directly). The world
     /// thread's runtime (`new_into_slot`) has none: it reads `own` from the
     /// world instead of decoding its own publications.
     receiver: Option<Receiver>,
@@ -276,7 +277,7 @@ impl<E: Engine> Runtime<E> {
         )
     }
 
-    /// The single-thread window's display receiver (`new` only).
+    /// The display receiver of a single-thread runtime (`new` only).
     pub fn receiver(&self) -> &Receiver {
         self.receiver.as_ref().expect("display receiver of a single-thread runtime")
     }

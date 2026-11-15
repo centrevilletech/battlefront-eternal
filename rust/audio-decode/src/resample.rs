@@ -208,30 +208,8 @@ impl Resampler {
 // The browser module requires the same SIMD128 support as the output DSP.
 // Four independent accumulators preserve the recorded SSE operation order;
 // there is no fused multiply-add or reassociation of the horizontal sum.
-#[cfg(target_arch = "wasm32")]
-fn convolve(samples: &[f32; 32], ka: &[f32; 32], kb: &[f32; 32], x: f32) -> f32 {
-    unsafe { convolve_simd(samples, ka, kb, x) }
-}
-#[cfg(target_arch = "wasm32")]
-#[target_feature(enable = "simd128")]
-unsafe fn convolve_simd(samples: &[f32; 32], ka: &[f32; 32], kb: &[f32; 32], x: f32) -> f32 {
-    use std::arch::wasm32::*;
-    let (mut a, mut b) = (f32x4_splat(0.0), f32x4_splat(0.0));
-    for i in (0..32).step_by(4) {
-        let sample = v128_load(samples.as_ptr().add(i).cast());
-        a = f32x4_add(a, f32x4_mul(sample, v128_load(ka.as_ptr().add(i).cast())));
-        b = f32x4_add(b, f32x4_mul(sample, v128_load(kb.as_ptr().add(i).cast())));
-    }
-    let lanes = f32x4_add(
-        f32x4_mul(a, f32x4_splat(1.0 - x)),
-        f32x4_mul(b, f32x4_splat(x)),
-    );
-    (f32x4_extract_lane::<0>(lanes) + f32x4_extract_lane::<2>(lanes))
-        + (f32x4_extract_lane::<1>(lanes) + f32x4_extract_lane::<3>(lanes))
-}
 // Native correctness tools use the same four-lane arithmetic. The worker
 // build above always executes SIMD; codec decoding stays off the audio thread.
-#[cfg(not(target_arch = "wasm32"))]
 fn convolve(samples: &[f32; 32], ka: &[f32; 32], kb: &[f32; 32], x: f32) -> f32 {
     let (mut a, mut b) = ([0.0f32; 4], [0.0f32; 4]);
     for i in 0..32 {

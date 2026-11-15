@@ -130,7 +130,6 @@ impl Capture {
     }
     // EntityEdges.advance resolves protocol class/post ids before delivering
     // native spawn commands. Reuse the source's authoritative registry maps.
-    #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
     pub(crate) fn edge_name(&self, id: f64, class: bool) -> Option<crate::store::StrId> {
         if !id.is_finite() || id <= 0. || id.fract() != 0. {
             return None;
