@@ -411,6 +411,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         cursor_physical: [0.0; 2],
         cursor_seen: false,
         hover_screen: None,
+        hover_frames: 0,
         text_input: text_input::TextInput::default(),
         modifiers: ModifiersState::empty(),
         ime_preedit: false,
@@ -472,6 +473,7 @@ struct StandaloneWindowApp {
     // Whether the pointer has been seen over the window, and the front-end screen it last lit a row on.
     cursor_seen: bool,
     hover_screen: Option<bfe_shell::screens::ScreenId>,
+    hover_frames: u8,
     text_input: text_input::TextInput,
     modifiers: ModifiersState,
     ime_preedit: bool,
@@ -568,10 +570,15 @@ impl StandaloneWindowApp {
             (AppState::Shell, Some(shell)) => Some(shell.app.current_screen()),
             _ => None,
         };
-        if screen == self.hover_screen {
+        if screen != self.hover_screen {
+            self.hover_screen = screen;
+            // The screen settles over a few frames (its rows are rebuilt as it comes up).
+            self.hover_frames = 4;
+        }
+        if self.hover_frames == 0 {
             return;
         }
-        self.hover_screen = screen;
+        self.hover_frames -= 1;
         if screen.is_some() && self.cursor_seen {
             let [x, y] = self.interface_cursor();
             if let Some(shell) = &mut self.shell {
@@ -1525,8 +1532,9 @@ impl ApplicationHandler for StandaloneWindowApp {
                 }
             }
             WindowEvent::RedrawRequested => {
-                self.hover_where_the_pointer_is();
                 self.redraw(event_loop);
+                // After the frame: the page's hit regions are those of the screen just drawn.
+                self.hover_where_the_pointer_is();
             }
             _ => {}
         }

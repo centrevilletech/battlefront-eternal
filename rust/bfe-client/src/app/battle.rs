@@ -2310,6 +2310,7 @@ impl BattleController {
         let height = self.height;
         let width = self.height * self.aspect;
         let limit = (650.0 * height / self.size[1] as f64).min(width * 0.85);
+        let solid = self.scene.online.as_ref().and_then(|scene| scene.hud.names.get("opaque_rect").copied()).unwrap_or(A::SOLID);
         let hud = &mut self.scene.bridge.hud_model;
         let font = &hud.fonts[0];
         // Match the browser feed's word wrapping without allocating line lists
@@ -2323,9 +2324,10 @@ impl BattleController {
                 hud.batch.quad(
                     root_anchor(height),
                     [left, y - pad, left + limit, y + font.height * 1.3 + pad],
-                    A::SOLID,
-                    UV,
-                    [0.0, 16.0 / 255.0, 32.0 / 255.0, 0.8],
+                    solid,
+                    // The middle of the opaque panel art, a dark fill (a plain white texture is not in the HUD's table).
+                    [0.45, 0.45, 0.55, 0.55],
+                    [1.0, 1.0, 1.0, 0.8],
                     0.0,
                     0,
                 );
