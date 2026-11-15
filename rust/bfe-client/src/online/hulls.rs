@@ -20,6 +20,13 @@ use bfe_render::instances as draw;
 use serde_json::{json, Value};
 use three::Matrix4;
 const POOL: usize = 64;
+fn camera_angles(quaternion: &three::Quaternion, flying: bool) -> three::Euler {
+    let mut angles = three::Euler::default();
+    // Camera seat pivots follow the displayed root's Euler order.
+    let order = if flying { three::EulerOrder::XYZ } else { three::EulerOrder::YXZ };
+    angles.set_from_quaternion(quaternion, Some(order));
+    angles
+}
 fn hull_heading(row: &[f64]) -> f64 {
     // Vehicle records carry a quaternion, not the soldier yaw field.
     let q = &row[r::QUATERNION..r::QUATERNION + 4];
@@ -43,6 +50,14 @@ mod heading_tests {
         row[r::QUATERNION + 3] = (yaw * 0.5).cos();
         assert!((hull_heading(&row) - yaw).abs() < 1e-12);
         assert_eq!(row[r::YAW], 0.);
+    }
+
+    #[test]
+    fn passenger_camera_retains_the_aircraft_root_order() {
+        let yaw = 3.02_f64;
+        let q = three::Quaternion::new(0., (yaw * 0.5).sin(), 0., (yaw * 0.5).cos());
+        assert!((camera_angles(&q, false).y - yaw).abs() < 1e-12);
+        assert!((camera_angles(&q, true).y - (std::f64::consts::PI - yaw)).abs() < 1e-12);
     }
 }
 // Authored JSON uses floating numbers, whereas rig indices are integral. The
@@ -391,8 +406,7 @@ impl Hulls {
         let matrix = &nodes[n::WORLD..n::WORLD + 16];
         let q = &output[o::QUATERNION..o::QUATERNION + 4];
         let quaternion = three::Quaternion::new(q[0], q[1], q[2], q[3]);
-        let mut angles = three::Euler::default();
-        angles.set_from_quaternion(&quaternion, Some(three::EulerOrder::YXZ));
+        let angles = camera_angles(&quaternion, m.flying);
         x[f::VEHICLE_ACTIVE] = 1.;
         x[f::VEHICLE_ID] = id;
         x[f::VEHICLE_FLYING] = m.flying as u8 as f64;
