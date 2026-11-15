@@ -58,6 +58,7 @@ pub struct BattleContent {
     pub map: Value,
     pub world: Vec<Mesh>,
     pub models: Vec<Mesh>,
+    pub sky_flyers: Option<Value>,
     pub actors: Vec<ActorMesh>,
     /// A class's own skin, by "<side>/<class>", for classes whose
     /// OverrideTexture or OverrideTexture2 re-skins a shared body: its body's
@@ -333,6 +334,7 @@ impl Loader {
                 )?);
             }
         }
+        let mut sky_flyers = None;
         let sky_file = textures.path(&format!("{map_path}/sky/flyers.json"))?;
         if sky_file.exists() {
             let sky = bfe_content::json::parse(
@@ -340,6 +342,7 @@ impl Loader {
             )
             .map_err(|e| e.to_string())?;
             let sky_textures = table(&format!("{map_path}/sky"), sky.get("textures"));
+            sky_flyers = Some(authored_json(&sky));
             // Only a declared pack is required. Older prepared maps omit sky
             // flyers entirely, which is an authored absence on both clients.
             let path = textures.path(&format!("{map_path}/sky/flyers.bin"))?;
@@ -583,6 +586,7 @@ impl Loader {
             map: metadata,
             world,
             models,
+            sky_flyers,
             actors,
             skins,
             textures,

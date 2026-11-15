@@ -1808,6 +1808,10 @@ impl Replicas {
             .max()
             .unwrap_or(1)
     }
+    /// The effect data following the last live presentation owner.
+    pub(crate) fn effects_end(&self) -> usize { self.trails.end() }
+    /// Shoreline queries share the battle's collision world.
+    pub(crate) fn water_collision(&self) -> (&super::replay::Collision, u32) { (&self.collision, self.world) }
     pub fn record_budget(&self) -> usize {
         let actors: usize = self
             .slots
