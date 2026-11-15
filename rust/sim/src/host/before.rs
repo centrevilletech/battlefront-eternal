@@ -135,7 +135,7 @@ impl Authority {
         // each shot or damage record as an AiJournalEvent row, a unit
         // reference being its store reference and the life the record named.
         let heard = {
-            self.units.refresh(context)?;
+            self.units.refresh(context, false)?;
             let units = &self.units;
             let reference = |heard: Option<Life>| match heard {
                 Some(h) => gen::AiJournalRef {

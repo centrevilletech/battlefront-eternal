@@ -191,7 +191,7 @@ fn missing_b_service_shares_a_at_each_draw_point() {
 
 #[test]
 fn canonical_reads_reject_respawns_and_slot_reuse_without_mirrors() {
-    use bfe_sim::gen::{Store, Unit, Vehicle, KIND_UNIT, KIND_VEHICLE};
+    use bfe_sim::gen::{Unit, Vehicle, KIND_UNIT, KIND_VEHICLE};
     let mut store = crate::ai::owned::tests::empty_world();
     let unit = store.unit.insert(Unit { generation: 7., ..Unit::default() });
     let hull = store.vehicle.insert(Vehicle { target_generation: 9., ..Vehicle::default() });
@@ -235,7 +235,7 @@ fn owned_navigation(graph: bool) -> bfe_sim::ai::owned::navigation::Navigation {
 #[test]
 fn navigation_follow_handles_reject_recycled_actors_and_previous_lives() {
     use bfe_sim::ai::nav::units::ClassDef;
-    use bfe_sim::gen::{Store,Unit,KIND_UNIT};
+    use bfe_sim::gen::{Unit,KIND_UNIT};
     let mut store=crate::ai::owned::tests::empty_world(); let reference=store.unit.insert(Unit { alive:true,generation:1.,..Unit::default() });
     let key=|| AiLifeHandle { kind:KIND_UNIT.into(),slot:reference.slot,generation:reference.gen,life:1. };
     let mut navigation=owned_navigation(false); let class=navigation.class(ClassDef::default());
@@ -253,7 +253,7 @@ fn navigation_follow_handles_reject_recycled_actors_and_previous_lives() {
 
 #[test]
 fn owned_lod_batches_camera_facts_and_observes_current_canonical_motion() {
-    use bfe_sim::{gen::{Store,Unit,UnitBody,Soldier,KIND_UNIT},ai::owned::lod::Lod};
+    use bfe_sim::{gen::{Unit,UnitBody,Soldier,KIND_UNIT},ai::owned::lod::Lod};
     let mut store=crate::ai::owned::tests::empty_world();
     let reference=store.unit.insert(Unit { generation:3.,soldier:UnitBody::Soldier(Soldier { position:[100.,0.,1.],..Soldier::default() }),..Unit::default() });
     let key=AiLifeHandle { kind:KIND_UNIT.into(),slot:reference.slot,generation:reference.gen,life:3. };
@@ -953,7 +953,7 @@ fn native_combat_controllers_renew_lives_without_reallocating_perception_or_aler
 
 #[test]
 fn native_goal_masks_keep_the_source_distinction_from_navigation_integer_masks() {
-    use bfe_sim::{gen::{Store,Unit},store::DefId,ai::{owned::{units::Units,entities::{Entities,Entity}},control::{world::ClassSnap,goals::{travel_mask_of,class_travel_mask},classes::health_type},nav::units::SizeType}};
+    use bfe_sim::{gen::Unit,store::DefId,ai::{owned::{units::Units,entities::{Entities,Entity}},control::{world::ClassSnap,goals::{travel_mask_of,class_travel_mask},classes::health_type},nav::units::SizeType}};
     let mut store=crate::ai::owned::tests::empty_world();let mut entities=Entities::new(8);let mut classes=Units::new();
     for (i,size,expected) in [(0,SizeType::Text("FLYER".into()),32.),(1,SizeType::Number(32.),1.),(2,SizeType::Text(" HOVER ".into()),1.),(3,SizeType::Text("hover".into()),2.)] {
         assert_eq!(travel_mask_of(&size),expected);
@@ -1075,8 +1075,8 @@ fn native_two_battles_keep_weapon_registration_and_aircraft_run_but_reset_local_
 
 #[test]
 fn native_agent_helpers_renew_without_recreating_the_controller_navigation_state() {
-    let mut seats=bfe_sim::vehicles::f2_seats::Seats::default();
-    use bfe_sim::{gen::{Store,Unit,UnitBody,Soldier,KIND_UNIT},ai::{owned::navigation::{Command,Actor},nav::{units::ClassDef,goto::GotoMode},phase::RandomState}};
+    let _seats=bfe_sim::vehicles::f2_seats::Seats::default();
+    use bfe_sim::{gen::{Unit,UnitBody,Soldier,KIND_UNIT},ai::{owned::navigation::{Command,Actor},nav::{units::ClassDef,goto::GotoMode},phase::RandomState}};
     let mut store=crate::ai::owned::tests::empty_world();
     let r=store.unit.insert(Unit {alive:true,generation:1.,soldier:UnitBody::Soldier(Soldier {max_speed:7.,..Default::default()}),..Default::default()});
     let mut nav=owned_navigation(true);let class=nav.class(ClassDef::default());
@@ -1096,8 +1096,8 @@ fn native_agent_helpers_renew_without_recreating_the_controller_navigation_state
 
 #[test]
 fn running_navigation_helpers_keep_their_identity_and_do_not_reuse_a_retired_control() {
-    use bfe_sim::{ai::{owned::navigation::Command,nav::{units::ClassDef,goto::GotoMode},phase::RandomState},gen::{Store,Unit,UnitBody,Soldier,KIND_UNIT}};
-    let mut store=crate::ai::owned::tests::empty_world();let mut seats=bfe_sim::vehicles::f2_seats::Seats::default();
+    use bfe_sim::{ai::{owned::navigation::Command,nav::{units::ClassDef,goto::GotoMode},phase::RandomState},gen::{Unit,UnitBody,Soldier,KIND_UNIT}};
+    let mut store=crate::ai::owned::tests::empty_world();let _seats=bfe_sim::vehicles::f2_seats::Seats::default();
     let unit=store.unit.insert(Unit {alive:true,generation:1.,soldier:UnitBody::Soldier(Soldier {max_speed:7.,..Default::default()}),..Default::default()});
     let target=AiLifeHandle {kind:KIND_UNIT.into(),slot:unit.slot,generation:unit.gen,life:1.};
     let mut nav=owned_navigation(true);let class=nav.class(ClassDef::default());
@@ -1193,7 +1193,7 @@ fn native_controller_navigation_follows_body_changes_without_retargeting_passive
     use bfe_sim::{gen::*,store::{DefId,Strings},ai::{owned::{state::{State,Capacity},entities::Entity,navigation::Command},nav::{Nav,PlannerOptions,goto::GotoMode,math::Vec3},phase::RandomState}};
     let mut state=State::new(Nav::empty(PlannerOptions::default()),false,Capacity {registry:4,characters:1,posts:0,hulls:0,buildings:0,controls:0,scopes:2,cameras:1});
     let mut strings=Strings::default();state.unit_class(&AiUnitClass {def:DefId(0),name:strings.intern_str("trooper"),max_speed:AiClassScalar::F64(7.),..Default::default()},&strings);
-    let mut store=crate::ai::owned::tests::empty_world();let mut seats=bfe_sim::vehicles::f2_seats::Seats::default();
+    let mut store=crate::ai::owned::tests::empty_world();let _seats=bfe_sim::vehicles::f2_seats::Seats::default();
     let bodies=[0.,10.].map(|x|store.unit.insert(Unit {alive:true,generation:1.,soldier:UnitBody::Soldier(Soldier {position:[x,0.,0.],max_speed:7.,..Default::default()}),..Default::default()}));
     let objects=bodies.map(|r|state.entities.register(Entity::Unit(r)));
     state.controllers.adopt(0,&mut state.entities);
@@ -1505,7 +1505,7 @@ fn native_sight_keeps_collision_body_exclusions_and_registry_observation_order()
     let target_ref=Ref::new(8,2);let target=entities.register(Entity::BuildingService(target_ref));
     let authored=entities.register(Entity::Building(target_ref));
     let mut sight=Sight::new(16);sight.prepare(authored,Ref::new(22,4));
-    let from=Vector3::default();let to=Vector3::new(0.,0.,10.);let mut seats=bfe_sim::vehicles::f2_seats::Seats::default();
+    let from=Vector3::default();let to=Vector3::new(0.,0.,10.);let _seats=bfe_sim::vehicles::f2_seats::Seats::default();
     let mut world=Occlusion {hit:None,unit:false,casts:0,rays:0,ignored:None,excluded:Vec::with_capacity(2),axis:Vector3::new(0.,0.,1.),span:10.};
     assert!(sight.los(&mut store,&entities,&controls,&queries,&mut world,&from,&from,Some(rider_obj),Some(target)));
     assert_eq!(world.casts,0);assert_eq!(world.rays,0);
@@ -1542,7 +1542,7 @@ fn native_sight_keeps_collision_body_exclusions_and_registry_observation_order()
 
 #[test]
 fn native_navigation_reuses_physical_controls_without_reusing_actor_identity() {
-    let mut seats=bfe_sim::vehicles::f2_seats::Seats::default();
+    let _seats=bfe_sim::vehicles::f2_seats::Seats::default();
     use bfe_sim::{ai::{owned::navigation::Command,nav::{goto::GotoMode,units::ClassDef},phase::RandomState},gen::*};
     let mut store=crate::ai::owned::tests::empty_world();let r=store.unit.insert(Unit {alive:true,generation:1.,..Unit::default()});
     let mut navigation=owned_navigation(false);let class=navigation.class(ClassDef::default());
@@ -1566,7 +1566,7 @@ fn native_navigation_reuses_physical_controls_without_reusing_actor_identity() {
 #[test]
 fn shared_native_state_uses_canonical_controller_links_and_prepares_empty_hint_services() {
     use bfe_sim::{ai::{owned::{state::{State,Capacity},entities::Entity},nav::{Nav,PlannerOptions},control::world::ClassSnap},
-        gen::{Store,Unit},store::DefId,units::ownership::Ownership,battle::{commands::Commands,live_phase::Live},vehicles::f2_seats::Seats};
+        gen::Unit,store::DefId,units::ownership::Ownership,battle::{commands::Commands,live_phase::Live},vehicles::f2_seats::Seats};
     let mut state=State::new(Nav::empty(PlannerOptions::default()),false,Capacity {registry:8,characters:2,posts:2,hulls:2,buildings:2,controls:4,scopes:2,cameras:1});
     state.prepare_hints(|_|None);
     let mut store=crate::ai::owned::tests::empty_world();let mut owner=Ownership::default();let r=store.unit.insert(Unit {alive:true,generation:1.,..Unit::default()});
@@ -1609,8 +1609,8 @@ fn shared_native_state_uses_canonical_controller_links_and_prepares_empty_hint_s
 
 #[test]
 fn native_jet_jobs_keep_random_ties_authored_vectors_and_current_launch_position() {
-    let mut seats=bfe_sim::vehicles::f2_seats::Seats::default();
-    use bfe_sim::{ai::{owned::{hints::Hints,jets::Jets,navigation::{Navigation,Command}},nav::{hints::{build_hints,HintRecord,HintSet},units::ClassDef,jet_hints::find_hint},phase::RandomState,random::ClassicRandom},gen::{Store,Unit,Soldier,UnitBody,KIND_UNIT}};
+    let _seats=bfe_sim::vehicles::f2_seats::Seats::default();
+    use bfe_sim::{ai::{owned::{hints::Hints,jets::Jets,navigation::{Navigation,Command}},nav::{hints::{build_hints,HintRecord,HintSet},units::ClassDef,jet_hints::find_hint},phase::RandomState,random::ClassicRandom},gen::{Unit,Soldier,UnitBody,KIND_UNIT}};
     let record=HintRecord {kind:Some("jetjump".into()),name:None,xfrm:[1.,0.,0.,0.,1.,0.,0.,0.,1.,0.,0.,0.],properties:vec![]};
     let mut raw=owned_navigation(false).nav;raw.hints=HintSet::new(build_hints(&[record.clone(),record.clone(),record],None,350.));
     let hints=Hints::new(&raw,2,|_|None,|i|i as u64+40);
@@ -1654,7 +1654,7 @@ fn native_jet_jobs_keep_random_ties_authored_vectors_and_current_launch_position
 #[test]
 fn native_combat_row_scope_reads_and_writes_one_canonical_body() {
     use bfe_sim::{ai::{owned::{state::{State,Capacity},entities::Entity,arsenals::Mounted,rows::Rows},nav::{Nav,PlannerOptions},combat::world::WeaponSettings},
-        gen::{Store,Unit,Weapon},store::DefId,units::ownership::Ownership,battle::{commands::Commands,live_phase::Live},vehicles::f2_seats::Seats,combat::defs::{WeaponDefs,WeaponClass,JsObj,Js}};
+        gen::{Unit,Weapon},store::DefId,units::ownership::Ownership,battle::{commands::Commands,live_phase::Live},vehicles::f2_seats::Seats,combat::defs::{WeaponDefs,WeaponClass,JsObj,Js}};
     struct NoMount;
     impl Mounted for NoMount {
         fn count(&self,_:&crate::world::owner::World,_:bfe_sim::ai::owned::seats::Source,_:usize)->Option<usize> {Some(0)}
@@ -1999,7 +1999,7 @@ fn edit<R>(&mut self,_:&mut crate::world::owner::World,_:bfe_sim::ai::owned::sea
 #[test]
 fn native_combat_frame_ingests_alerts_and_aims_before_weapon_fire_without_body_mirrors() {
     use bfe_sim::{ai::{owned::{frame::{Frame,Settings},rows::Rows,state::{State,Capacity},entities::Entity,events::{Record,Journal}},nav::{Nav,PlannerOptions},phase::RandomState,control::{world::ClassSnap,difficulty::{Difficulty,DifficultyOptions}},combat::{binding::{CombatAi,Event,EventRef},world::{World,Draws,Ref as Weak}}},
-        gen::{Store,Unit,Character,Weapon},store::DefId,units::ownership::Ownership,battle::{commands::Commands,live_phase::Live},vehicles::f2_seats::Seats,combat::defs::{WeaponDefs,WeaponClass,JsObj,Js}};
+        gen::{Unit,Character,Weapon},store::DefId,units::ownership::Ownership,battle::{commands::Commands,live_phase::Live},vehicles::f2_seats::Seats,combat::defs::{WeaponDefs,WeaponClass,JsObj,Js}};
     let mut nav=Nav::empty(PlannerOptions::default());
     use bfe_sim::ai::nav::hints::{HintRecord,HintSet,build_hints};
     let jet=HintRecord {kind:Some("jetjump".into()),name:None,xfrm:[1.,0.,0.,0.,1.,0.,0.,0.,1.,0.,0.,0.],properties:vec![]};
@@ -2194,8 +2194,8 @@ fn native_combat_frame_ingests_alerts_and_aims_before_weapon_fire_without_body_m
 
 #[test]
 fn navigation_follows_humans_without_creating_controls_and_qualifies_their_lives() {
-    let mut seats=bfe_sim::vehicles::f2_seats::Seats::default();
-    use bfe_sim::{ai::{owned::{state::{State,Capacity},entities::Entity,navigation::Command},nav::{Nav,PlannerOptions},phase::RandomState},gen::{Store,Unit,UnitBody,Soldier,AiUnitClass},store::Strings};
+    let _seats=bfe_sim::vehicles::f2_seats::Seats::default();
+    use bfe_sim::{ai::{owned::{state::{State,Capacity},entities::Entity,navigation::Command},nav::{Nav,PlannerOptions},phase::RandomState},gen::{Unit,UnitBody,Soldier,AiUnitClass},store::Strings};
     let mut state=State::new(Nav::empty(PlannerOptions::default()),false,Capacity {registry:8,characters:2,posts:2,hulls:0,buildings:0,controls:0,scopes:2,cameras:1});
     let mut strings=Strings::default();let row=AiUnitClass {name:strings.intern_str("soldier"),..Default::default()};state.unit_class(&row,&strings);
     let mut store=crate::ai::owned::tests::empty_world();let human=store.unit.insert(Unit {alive:true,human:true,generation:1.,soldier:UnitBody::Soldier(Soldier {position:[0.,0.,10.],max_speed:7.,..Default::default()}),..Default::default()});
@@ -2228,7 +2228,7 @@ fn navigation_follows_humans_without_creating_controls_and_qualifies_their_lives
 
 #[test]
 fn native_stationary_seat_helpers_keep_requests_and_observe_current_position_without_queries() {
-    let mut seats=bfe_sim::vehicles::f2_seats::Seats::default();
+    let _seats=bfe_sim::vehicles::f2_seats::Seats::default();
     use bfe_sim::{gen::*,store::Ref,ai::{owned::navigation::{Actor,Command,Environment},
         nav::{goto::GotoMode,units::{ClassDef,UnitRef},math::Vec3},phase::RandomState,vehicles::world::ClassView}};
     struct NoQueries;
@@ -2373,7 +2373,7 @@ fn native_weapon_record_loading_retains_side_order_truthiness_and_authored_charg
 
 #[test]
 fn native_pilot_checks_the_ordered_live_rounds_and_exact_evasion_radius() {
- use bfe_sim::{ai::owned::pilot,gen::{Store,Round}};
+ use bfe_sim::{ai::owned::pilot,gen::Round};
  let mut store=crate::ai::owned::tests::empty_world();let center=three::Vector3::new(1.,2.,3.);
  let boundary=store.round.insert(Round {target_id:Some(0.),position:[301.,2.,3.],..Default::default()});
  let dead=store.round.insert(Round {target_id:Some(0.),position:[2.,2.,3.],dead:true,..Default::default()});

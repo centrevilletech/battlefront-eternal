@@ -411,7 +411,7 @@ impl StartupContentState {
 
 /// Generates a 128x64 RGBA texture containing a crisp 5x7 ASCII bitmap font
 /// (`0x20..=0x5F`, 16 columns x 4 rows of 8x16 cells) and a matching [`ShellFonts`]
-/// table so `draw_loading` and `draw_shell` can render readable text before
+/// table so `draw_loading` can render readable text before
 /// `common/common.json` exists on disk.
 pub fn build_fallback_ascii_font(page_handle: u32) -> (Vec<u8>, u32, u32, ShellFonts) {
     const TEX_W: u32 = 128;

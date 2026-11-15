@@ -27,7 +27,7 @@ pub enum ScreenFocus {
 pub struct MenuScreen {
     /// Screen identifier (`"options"`, `"game"`, `"video"`, `"audio"`, `"controls"`, `"confirm"`, etc.).
     pub id: String,
-    /// Ordered list of widgets painted back-to-front by [`crate::theme::ClassicTheme`].
+    /// Ordered list of the screen's widgets.
     pub widgets: Vec<Widget>,
     /// Index into `widgets` of the currently focused widget, if any (`MenuScreen.focused` in `screen.js`).
     pub focused: Option<usize>,

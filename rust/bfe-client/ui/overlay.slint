@@ -366,7 +366,7 @@ export component GameUi inherits Window {
         }
     }
 
-    // Proof-only composition marker; stays above shell views during --script slint-proof / platform-smoke.
+    // Proof-only composition marker; stays above shell views during --script platform-smoke.
     Rectangle {
         visible: root.proof-controls;
         x: parent.width - self.width - 16px;

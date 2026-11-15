@@ -62,6 +62,9 @@ impl Targets for Sensors<'_> {
     // uses its oriented collision box; its large sphere only scopes queries.
     fn volume(&mut self, key: Member) -> Volume {
         if let Member::Unit(r) = key {
+            if let Some(u) = self.w.sim.store.unit.get(r).filter(|u| u.spheres_tick == u.tick_count) {
+                return Volume { center: v3(u.bounds.center), radius: u.bounds.radius, hull: None };
+            }
             let sphere = super::module::with_unit_in(self.w,r,|world,u| u.sphere(r.slot,world)).expect("registry Unit");
             return Volume {
                 center: v3(sphere.center),
@@ -140,6 +143,10 @@ impl history::World for Sensors<'_> {
         // An enclosed rider still contributes position and bounding sphere.
         out.shapes.clear();
         if let Member::Unit(r) = key {
+            // A dead or removed unit is not sampled: answer without lending it.
+            if self.w.sim.store.unit.get(r).is_some_and(|u| !u.alive || u.removed) {
+                return false;
+            }
             return super::module::with_unit_in(self.w,r,|world,u| {
             if !u.alive || u.removed {
                 return false;

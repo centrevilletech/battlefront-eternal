@@ -1,14 +1,7 @@
-//! Classic 2004 menu theme renderer (`src/menus/themes/classic/index.js`,
-//! `src/menus/themes/classic/draw.js`, and `rust/bfe-shell/src/render.rs`).
-//!
-//! Draws rows, frames, popups, lists, scrollbars, sliders, tabs, and buttons
-//! with the exact geometry, textures, font metrics, and colours of
-//! `rust/bfe-shell/src/render.rs` and `src/menus/themes/classic/{index,draw}.js`,
-//! performing zero heap allocations per frame.
+//! Classic menu colours, row geometry and drawing primitives (from the 2004
+//! game's menus), shared with bfe-battle-ui's Classic battle screens, and
+//! the pointer hit regions.
 
-// Font metrics, 3D matrix transforms, and surface textures used by classic theme primitives.
-// Widget-level painters (`paint_rows_slice`, `paint_list`, `paint_options`, etc.) live in `classic.rs`.
-// All public constants (`WHITE`, `BLACK`, `BAR_X`, `BUTTON_INSET`, etc.) remain exported from `theme`.
 use crate::fonts::Font;
 use crate::space::{rotate_x, rotate_y, rotate_z, Batch, Color, Matrix, IDENTITY, UV};
 use crate::surface::Surface;
@@ -540,8 +533,4 @@ pub struct HitRegion {
     /// Widget and sub-item identified when a pointer ray hits `rect`.
     pub target: HitTarget,
 }
-
-/// Classic 2004 menu theme renderer (`ClassicTheme` in `src/menus/themes/classic/index.js`).
-#[derive(Clone, Copy, Debug, Default)]
-pub struct ClassicTheme;
 

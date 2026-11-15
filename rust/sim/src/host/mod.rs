@@ -402,7 +402,9 @@ pub(crate) struct UnitFacts {
 }
 
 impl UnitTable {
-    pub(crate) fn refresh(&mut self, context: &Context) -> Result<(), String> {
+    /// Refills the table; `weapons`: also the weapons' definitions (only the
+    /// drain and new lives' dispenser bindings read them).
+    pub(crate) fn refresh(&mut self, context: &Context, with_weapons: bool) -> Result<(), String> {
         let (rows, weapons) = (&mut self.rows, &mut self.weapons);
         rows.clear();
         weapons.clear();
@@ -410,14 +412,16 @@ impl UnitTable {
             .with_store(|s| {
                 for (r, unit) in s.unit.iter() {
                     let first = weapons.len() as u32;
-                    weapons.extend(unit.combat.weapons.iter().map(|w| w.def));
+                    if with_weapons {
+                        weapons.extend(unit.combat.weapons.iter().map(|w| w.def));
+                    }
                     rows.push(UnitFacts {
                         slot: r.slot,
                         gen: r.gen,
                         life: unit.generation,
                         team: unit.team,
                         first,
-                        count: unit.combat.weapons.len() as u32,
+                        count: if with_weapons { unit.combat.weapons.len() as u32 } else { 0 },
                     });
                 }
             })

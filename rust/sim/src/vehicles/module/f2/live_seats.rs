@@ -195,7 +195,6 @@ pub(crate) fn f2_seats_adopt_in(world_ctx: &mut crate::world::owner::World, prep
     st.leases.words.reserve(n * 512); st.leases.heap.reserve(n * 64);
     st.units.words.reserve(n * 1024); st.units.heap.reserve(n * 32);
     st.controls.words.reserve(n * 32); st.effects.words.reserve(n * 256);
-    super::geometry::register_in(world_ctx, a.vehicle);
 }
 
 // Vehicles.variant appends the hull and its crew side together. Prepared
@@ -492,7 +491,7 @@ pub(super) fn publish_sampled_in(world_ctx: &mut crate::world::owner::World, sam
     state.ordnance_output.finish(); state.ordnance_dirty = false;
     let st = &mut world_ctx.sim.store;
     for &r in &state.owner.changed.hulls {
-        world_ctx.fleet.scheduler.mark(&mut world_ctx.fleet.geometry, r);
+        world_ctx.fleet.scheduler.mark(r);
         if let Some(v) = st.vehicle.get(r) { for s in &v.seats { if let Some(r) = s.lease {
             if !state.owner.changed.leases.contains(&r) { state.owner.changed.leases.push(r); }
         } } }
@@ -558,7 +557,7 @@ pub(super) fn publish_sampled_in(world_ctx: &mut crate::world::owner::World, sam
     publish_turrets_in(&mut world_ctx.units, st, &world_ctx.pose.clips, &mut world_ctx.fleet.riders, state,!sampled);
     state.owner.changed.clear();
     world_ctx.fleet.riders.publish_words();
-    let mut descriptor = F2SeatIo { emitter_mask: EMITTER_MASK, descriptor_words: F2SeatIo::WORDS as u32, capacity: INPUT_CAPACITY as u32,
+    let descriptor = F2SeatIo { emitter_mask: EMITTER_MASK, descriptor_words: F2SeatIo::WORDS as u32, capacity: INPUT_CAPACITY as u32,
         header_words: F2SeatHeader::WORDS as u32, unit_words: F2SeatUnitIn::WORDS as u32, control_words: SeatAiControl::WORDS as u32,
         look_words: F2SeatSample::WORDS as u32, ticks: state.owner.hulls.ticks, turret_ticks: st.turret_seats.ticks, turret_time: st.turret_seats.time,
         ..Default::default() };

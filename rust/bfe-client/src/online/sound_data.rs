@@ -780,7 +780,7 @@ impl Prepared {
         import(&mut runtime, import::ROOM, &room)?;
 
         import(&mut runtime, import::CONFIG, &config)?;
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
+        let defs = content.defs()?;
         // Prediction ids follow the same infantry, vehicle-seat and turret
         // definition order as ClientPrediction admission. Mutable weapon
         // timers are later borrowed from that owner's generated publication.

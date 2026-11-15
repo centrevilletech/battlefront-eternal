@@ -210,7 +210,8 @@ The engine, desktop client, dedicated server, and build tools live in the Cargo 
 - `rust/bfe-desktop`: desktop installation detection, game data preparation, self-update staging and local server hosting ([docs/desktop.md](desktop.md) and [docs/desktop-updates.md](desktop-updates.md)).
 - `rust/bfe-transport` and `rust/bfe-online`: the encrypted UDP transport ([docs/native-udp-transport.md](native-udp-transport.md)), STUN/TURN client, LAN discovery, master directory client and signaling.
 - `rust/bfe-content-native`, `rust/content`, `rust/bfe-pose`, `rust/three`, `rust/jsrt` and `rust/v8math`: shared content loaders, pose sampling, math and number/sort/RNG semantics.
-- `rust/xtask`: the workspace code generator, verifier and world-hash matrix runner (`cargo xtask`).
+- `rust/sim-gen`: the store code generator; `rust/sim/build.rs` runs it to write the `gen` module into the build's OUT_DIR.
+- `rust/xtask`: writes and checks the generated layouts and shader tables (`cargo xtask`).
 
 ### Code generation and schema checks (`cargo xtask`)
 
@@ -218,7 +219,7 @@ From `rust/`, `cargo xtask` runs the workspace schema generators and verifies th
 
 ```bash
 cd rust
-cargo xtask schema [--check] [--export-json <dir>] # entity store, client input, and HUD layouts
+cargo xtask schema [--check]                       # generator test store, client input, and HUD layouts
 cargo xtask shaders [--check]                      # shader catalog, selectors, and renderer layouts
 cargo xtask presentation-schema [--check]          # presentation frame layouts
 cargo xtask environment-schema [--check]           # destruction and weather layouts
@@ -229,7 +230,7 @@ cargo xtask audio-codec-schema [--check]           # audio codec header layouts
 cargo xtask check                                  # run all generators in --check mode
 ```
 
-The simulation schema sources under `rust/sim/schema/*.json` and `rust/sim/schema-test/*.json` are declarative JSON files read by `rust/xtask (sim_schema.rs)`. Commit rebuilt generated files alongside any schema or shader change; `cargo xtask check` fails in CI if any generated file is out of date.
+The simulation schema sources under `rust/sim/schema/*.json` and `rust/sim/schema-test/*.json` are declarative JSON files read by `rust/sim-gen`. The store's code is generated at build time and never committed; commit the other generated files alongside any schema or shader change (`cargo xtask check` fails in CI if one is out of date).
 
 ## Building native packages locally
 

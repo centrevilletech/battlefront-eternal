@@ -35,21 +35,7 @@ pub enum TextAlign {
 }
 
 impl TextAlign {
-    /// Converts numeric alignment (`0`, `1`, `2`) into [`TextAlign`].
-    #[inline]
-    pub const fn from_u32(align: u32) -> Self {
-        match align {
-            1 => Self::Right,
-            2 => Self::Center,
-            _ => Self::Left,
-        }
-    }
 
-    /// Returns the numeric alignment code (`0` = left, `1` = right, `2` = center).
-    #[inline]
-    pub const fn code(self) -> u32 {
-        self as u32
-    }
 }
 
 /// Options passed to [`Fonts::draw_text`] (`Fonts.draw` parameters in `src/interface/fonts.js`).
@@ -192,32 +178,9 @@ impl Fonts {
         }
     }
 
-    /// Returns the line height of `font_name` (`Fonts.lineHeight(name)` in `src/interface/fonts.js`).
-    #[inline]
-    pub fn height(&self, font_name: &str) -> f64 {
-        self.by_name(font_name).height
-    }
 
-    /// Returns the bottom bound of capital `'A'` in `font_name` (`glyphs.get(65)?.bounds?.[3] || height`),
-    /// used when sizing header bars around capital titles.
-    #[inline]
-    pub fn glyph_height(&self, font_name: &str) -> f64 {
-        let f = self.by_name(font_name);
-        f.glyphs.get(&65).map_or(f.height, |g| g.bounds[3])
-    }
 
-    /// Returns the vertical center of capital `'A'` in `font_name` (`Fonts.capsMiddle(name)` in `fonts.js`),
-    /// used to vertically center all-caps menu labels on row bars and buttons.
-    #[inline]
-    pub fn caps_middle(&self, font_name: &str) -> f64 {
-        self.by_name(font_name).caps_middle()
-    }
 
-    /// Measures `text` in `font_name` at `scale` and `spacing` (`Fonts.width` in `src/interface/fonts.js`).
-    #[inline]
-    pub fn width(&self, font_name: &str, text: &str, scale: f64, spacing: f64) -> f64 {
-        font_text_width(self.by_name(font_name), text, scale, spacing)
-    }
 
     /// Draws `text` in `font_name` into `batch` (`Fonts.draw` in `src/interface/fonts.js`).
     #[inline]
@@ -268,29 +231,7 @@ fn builtin_font(height: f64, advance: f64) -> Font {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::space::IDENTITY;
+    
+    
 
-    // Verifies `Fonts.width` and `Fonts.draw` against `src/interface/fonts.js`.
-    #[test]
-    fn font_width_and_draw_emit_expected_quads() {
-        let fonts = Fonts::with_builtin_metrics();
-        let w = fonts.width(FONT_MEDIUM, "AB C", 1.0, 0.0);
-        // 'A' (10) + 'B' (10) + ' ' (5) + 'C' (10) = 35
-        assert!((w - 35.0).abs() < 1e-9);
-
-        let mut batch = Batch::new();
-        batch.begin();
-        fonts.draw_text(
-            &mut batch,
-            &IDENTITY,
-            FONT_MEDIUM,
-            "AB C",
-            0.0,
-            0.0,
-            TextDraw::default(),
-        );
-        // Space (' ') has empty bounds, so 3 visible glyph quads are emitted.
-        assert_eq!(batch.count, 3);
-    }
 }

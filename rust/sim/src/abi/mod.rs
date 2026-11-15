@@ -154,7 +154,7 @@ pub(crate) fn sim_events_clear_in(w: &mut crate::world::owner::World) -> () { w.
 /// their explicit dispatcher instead; unsupported raw commands return null.
 pub fn command_available(code: u32) -> bool {
     // Relay asks the host back; only Context::command may dispatch a callback.
-    { code != crate::gen::COMMAND_RELAY }
+    code != crate::gen::COMMAND_RELAY
 }
 
 /// The store's own command (rust/sim/schema/store.mjs), for its tests and

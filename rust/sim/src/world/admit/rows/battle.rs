@@ -185,11 +185,13 @@ pub fn connections(character_count: usize) -> Result<u32, AdmitError> { Ok(setup
 /// case F4Roster supplies the complete names table with a null state. A
 /// caller retaining a callback can supply its generated F4RosterNames state
 /// directly on BoundRows instead of reconstructing a generator.
-pub fn roster(battle: &ContentBattle, factions: &[f64], local: Option<Ref<Character>>, army_size: Option<f64>, intern: &mut impl FnMut(&str) -> StrId) -> Result<F4RosterSetup, AdmitError> {
+pub fn roster(options: &Options, factions: &[f64], local: Option<Ref<Character>>, army_size: Option<f64>, intern: &mut impl FnMut(&str) -> StrId) -> Result<F4RosterSetup, AdmitError> {
     // createNativeAI publishes a SpawningMirror without JS callback or
     // names properties. F4Roster therefore transports empty fallback lists.
-    let _ = battle;
-    roster_from_names(None, factions, local, army_size, intern)
+    let mut row = roster_from_names(None, factions, local, army_size, intern)?;
+    row.classic = options.bots.fielded;
+    row.has_ai = options.bots.fielded;
+    Ok(row)
 }
 pub fn roster_from_names(names: Option<&Value>, factions: &[f64], local: Option<Ref<Character>>, army_size: Option<f64>, intern: &mut impl FnMut(&str) -> StrId) -> Result<F4RosterSetup, AdmitError> {
     if army_size.is_some_and(|v| !v.is_finite() || v.fract() != 0.0 || v < 1.0 || v > MAX_TEAM_SIZE as f64) {
@@ -266,7 +268,7 @@ pub fn bound(battle: &ContentBattle, options: &Options, facts: &Facts, factions:
     intern: &mut impl FnMut(&str) -> StrId) -> Result<BoundRows, AdmitError> {
     Ok(BoundRows {
         live: live(facts)?, battle: setup(facts.characters.len())?, tail: tail(battle, options, facts, intern)?,
-        connections: connections(facts.characters.len())?, roster: roster(battle, factions, facts.character, None, intern)?,
+        connections: connections(facts.characters.len())?, roster: roster(options, factions, facts.character, None, intern)?,
         battle_capacities: battle_capacities(facts.characters.len()), tail_capacities: tail_capacities(posts, mobile_posts),
     })
 }
@@ -336,8 +338,8 @@ pub fn build_with_facts(cx: &mut super::Cx, facts: &Facts, factions: &[f64], mob
 /// because parking the viewpoint happens immediately before these calls.
 pub fn session_with_facts(cx: &mut super::Cx, facts: &Facts, factions: &[f64]) -> Result<super::Calls, AdmitError> {
     let mut call = super::Call { row: vec![0.0; F4RosterSetup::WORDS], ..Default::default() };
-    let battle = cx.battle;
-    let input = roster(battle, factions, facts.character, cx.army_size, &mut |text| cx.intern(&mut call, text))?;
+    let options = cx.options;
+    let input = roster(options, factions, facts.character, cx.army_size, &mut |text| cx.intern(&mut call, text))?;
     input.put(&mut call.row, &mut call.heap);
     Ok(vec![(Stage::Session, "f4_connections_init", super::Call { args: vec![connections(facts.characters.len())? as f64], ..Default::default() }),
         (Stage::Session, "f4_roster_init", call)])

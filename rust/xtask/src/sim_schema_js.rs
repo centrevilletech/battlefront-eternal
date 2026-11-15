@@ -54,9 +54,12 @@ pub fn generate_all(root: &Path) -> Result<Vec<(PathBuf, String)>, String> {
         let model = build_model(&non_layout, target.clone())?;
         let rust_dir = root.join(target.rust);
 
-        set_out(rust_dir.join("mod.rs"), rust_index(&model));
-        for f in &model.files {
-            set_out(rust_dir.join(format!("{}.rs", snake(f))), rust_file(&model, f));
+        // The production store is generated at build time (rust/sim/build.rs).
+        if target.test {
+            set_out(rust_dir.join("mod.rs"), rust_index(&model));
+            for f in &model.files {
+                set_out(rust_dir.join(format!("{}.rs", snake(f))), rust_file(&model, f));
+            }
         }
 
         if !target.test {
@@ -176,7 +179,7 @@ pub fn run_sim_schema(root: &Path, check: bool) -> Result<(), String> {
         }
     }
 
-    for target in TARGETS {
+    for target in TARGETS.iter().filter(|t| t.test) {
         let dir = root.join(target.rust);
         for path in listed(&dir) {
             if out_paths.contains(&path) {

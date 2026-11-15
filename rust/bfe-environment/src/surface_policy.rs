@@ -70,6 +70,11 @@ impl Policy {
         r[out::UNDERWATER] = f64::from(eye_y < c[input::LEVEL]);
         r
     }
+    // The scalar policy a draw reads, from the most recent view facts. Native
+    // hosts own their Policy; the wasm exports below read the shared one.
+    pub fn draw_values(&self, eye_y: f64, far: f64) -> [f64; out::STRIDE] {
+        Self::uniforms(&self.input, eye_y, far)
+    }
     // farSpan preserves the near fade end as its start, even when no far
     // range survives. The caller's far camera sets the distance scale.
     pub fn update<M: Math>(&mut self) {

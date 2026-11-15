@@ -218,7 +218,7 @@ fn native_ai_geometry_observes_body_spheres_and_current_seat_rigs_at_distinct_po
     store.vehicle.get_mut(hull).unwrap().seats[1].lease=Some(lease);
     assert!(state.controls.register(&store,&mut state.entities,control,lease,AiLifeHandle {kind:KIND_VEHICLE.into(),slot:hull.slot,generation:hull.gen,life:4.},7.,Default::default(),"gunner".into(),None,owned::seats::Occupant::read(&store,lease).unwrap()));
     let gunner=state.entities.find(Entity::Control(control)).unwrap();
-    let mut seats=Default::default();let live=bfe_sim::battle::live_phase::Live::new(0,0,0);
+    let seats=Default::default();let live=bfe_sim::battle::live_phase::Live::new(0,0,0);
     let mut characters=bfe_sim::battle::commands::Commands::new(0);let mut changes=Ownership::default();let mut mounted=NoMount;let defs=Default::default();
     let mut native_world=store;
     crate::vehicles::module::f2::live_seats::admit_test_seats(&mut native_world.fleet,seats);

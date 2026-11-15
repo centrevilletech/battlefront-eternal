@@ -6,7 +6,7 @@
 use std::fmt;
 
 use bfe_render::interface::{
-    alpha, anchor, mul, rotate_y, rotate_z, translate, Batch, Color, Font, Matrix, IDENTITY, UV,
+    anchor, mul, rotate_y, rotate_z, Batch, Color, Font, Matrix, IDENTITY, UV,
 };
 
 pub use crate::surface::*;
@@ -35,17 +35,6 @@ impl GameFamily {
         }
     }
 
-    /// Parses a family identifier (`"swbf1"`, `"swbf2"`, or `"swbf2/hot1"` prefix).
-    pub fn parse(id: &str) -> Option<Self> {
-        let prefix = id.split('/').next().unwrap_or(id).trim();
-        if prefix.eq_ignore_ascii_case("swbf1") || prefix.is_empty() {
-            Some(GameFamily::Swbf1)
-        } else if prefix.eq_ignore_ascii_case("swbf2") {
-            Some(GameFamily::Swbf2)
-        } else {
-            None
-        }
-    }
 
     /// Verifies that this game family's in-battle UI is implemented, returning
     /// [`GameFamilyError`] for [`GameFamily::Swbf2`].
@@ -647,11 +636,6 @@ impl TitleIntro {
         }
     }
 
-    /// Whether the intro has completed all 5 stages (`TitleIntro.done`).
-    #[inline]
-    pub fn done(&self) -> bool {
-        self.time >= INTRO_LENGTH
-    }
 
     /// Computes the current bar, block, vertical text scale, and text alpha (`TitleIntro.frame`).
     ///
@@ -727,77 +711,6 @@ impl TitleIntro {
     }
 }
 
-/// Draws text with its line top at `y`, playing an optional [`TitleIntro`] and
-/// narrowing horizontally by `scale` while stretching vertically back to full
-/// line height (`src/scoreboard/classic/view.js` `drawText` and
-/// `src/menus/themes/classic/draw.js` `flashyText`).
-#[allow(clippy::too_many_arguments)]
-pub fn draw_flashy_text(
-    batch: &mut Batch,
-    font: &Font,
-    m: Matrix,
-    x: f64,
-    y: f64,
-    text: &[u16],
-    color: Color,
-    align: u32,
-    intro: Option<&TitleIntro>,
-    scale: f64,
-    extra_alpha: f64,
-    cursor_or_solid_tex: u32,
-) {
-    if text.is_empty() || scale <= 0.0 {
-        return;
-    }
-    let fh = font.height;
-    let width = font.width(text, scale, 1.0);
-    let st = intro.map_or(FlashyFrame::default(), TitleIntro::frame);
-    // Resolve the left X edge of the rendered text span from the alignment mode
-    // (`0` = left, `1` = right, `2` = horizontal center) so the stage 2/3 cursor
-    // block sweeps across the exact glyph bounds regardless of alignment.
-    let left = match align {
-        1 => x - width,
-        2 => x - width * 0.5,
-        _ => x,
-    };
-    // Stages 2 & 3: draw the sweeping white cursor quad across the label's span.
-    if let Some(block) = st.block {
-        let bx = left + block.x * (width - fh * scale).max(0.0);
-        batch.quad(
-            m,
-            [bx, y, bx + fh * scale, y + fh],
-            cursor_or_solid_tex,
-            UV,
-            [1.0, 1.0, 1.0, block.alpha * extra_alpha],
-            0.0,
-            0,
-        );
-    }
-    if st.text <= 0.01 || st.alpha <= 0.0 {
-        return;
-    }
-    // Stages 4 & 5: scale vertically around the line's midpoint `mid` by `st.text / scale`
-    // so `font.draw(..., scale)` narrows glyphs horizontally while preserving full height.
-    let mid = y + fh * 0.5;
-    let at = translate(
-        scale_xyz(translate(m, x, mid, 0.0), 1.0, st.text / scale, 1.0),
-        0.0,
-        (-fh * 0.5) * scale,
-        0.0,
-    );
-    font.draw(
-        batch,
-        at,
-        0.0,
-        0.0,
-        text,
-        alpha(color, st.alpha * extra_alpha),
-        align,
-        scale,
-        1.0,
-        0.0,
-    );
-}
 
 /// Encodes a Rust `&str` as UTF-16 code units into `out`, optionally uppercasing
 /// ASCII letters (`a..=z` -> `A..=Z`), clearing `out` first so pre-allocated

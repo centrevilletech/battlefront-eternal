@@ -2,8 +2,7 @@
 //!
 //! Ports `Widget`, `Rows`, `List`, `Button`, `Text`, `Panel`, `HorizontalButtons`,
 //! `Tabs`, `Options`, and `OptionRow` from `src/menus/widgets.js`.
-//! Each widget stores its logical state and layout parameters while [`crate::theme::ClassicTheme`]
-//! paints it into a [`crate::surface::Batch`] and records its 3D hotspots.
+//! Each widget stores its logical state and layout parameters; Slint draws them.
 
 use crate::flashy::TitleIntro;
 use crate::options::OptionKind;

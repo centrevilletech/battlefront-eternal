@@ -10,6 +10,9 @@ publish = false
 [lib]
 name = "bfe_sim"
 
+[build-dependencies]
+sim-gen = { path = "../sim-gen" }
+
 [dependencies]
 bfe-presentation = { path = "../bfe-presentation" }
 serde_json = { version = "1", features = ["float_roundtrip"] }

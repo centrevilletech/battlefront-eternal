@@ -37,11 +37,11 @@ mod page_font;
 mod page_backdrop;
 mod page_blur;
 mod page_integrations;
-mod page_proof;
 pub(crate) mod page_battle;
 mod page_pause;
 mod page_browser;
 mod page_surfaces;
+mod frame_log;
 mod frame_pacer;
 mod resize_guard;
 pub mod startup;
@@ -82,7 +82,6 @@ use glutin::{
 use glutin_winit::{DisplayBuilder, GlWindow};
 use raw_window_handle::HasWindowHandle;
 use std::{
-    cell::Cell,
     collections::BTreeMap,
     num::NonZeroU32,
     path::{Path, PathBuf},
@@ -102,24 +101,6 @@ use winit::{
 #[cfg(target_os = "linux")]
 mod x11_pointer;
 
-thread_local! {
-    /// Per-thread cumulative heap allocation counter updated by the global `CountingAlloc`
-    /// in `main.rs` without locks or re-entrant allocations.
-    static RENDER_THREAD_ALLOCS: Cell<u64> = const { Cell::new(0) };
-}
-
-/// Increments the calling thread's allocation counter. Called by the global allocator
-/// in `main.rs` without locks or heap allocations.
-#[inline]
-pub fn record_thread_alloc() {
-    let _ = RENDER_THREAD_ALLOCS.try_with(|c| c.set(c.get().wrapping_add(1)));
-}
-
-/// Returns the current thread's cumulative heap allocation count.
-#[inline]
-pub fn render_thread_alloc_count() -> u64 {
-    RENDER_THREAD_ALLOCS.try_with(|c| c.get()).unwrap_or(0)
-}
 
 /// Target battle to load during [`AppState::BattleLoading`].
 #[derive(Clone, Debug)]
@@ -277,12 +258,13 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         None
     };
 
-    // 6. Construct the automated `--script gate` driver if requested on the command line.
+    // 6. The `--script ia:<MAP>` driver, when asked for.
     let gate = opts
         .script
         .as_deref()
-        .filter(|name| !matches!(*name, "platform-smoke" | "slint-proof"))
-        .map(|name| GateDriver::new(name, opts.shots_dir.clone()));
+        .and_then(|name| name.strip_prefix("ia:"))
+        .filter(|map| !map.trim().is_empty())
+        .map(|map| GateDriver::new(map, opts.shots_dir.clone()));
 
     // 7. Create the `winit` event loop in continuous `Poll` mode for 60 Hz rendering.
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
@@ -331,6 +313,8 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         resize_guard: Default::default(),
         started: Instant::now(),
         last_frame: Instant::now(),
+        frame_log: frame_log::FrameLog::default(),
+        frame_phase: frame_log::Phase::Other,
         pacer: frame_pacer::FramePacer::new(0.),
         display: Default::default(),
         unpaced,
@@ -436,6 +420,8 @@ struct StandaloneWindowApp {
     started: Instant,
     /// Timestamp of the previous rendered frame for computing `dt`.
     last_frame: Instant,
+    frame_log: frame_log::FrameLog,
+    frame_phase: frame_log::Phase,
     /// The frameLimit setting's deadlines, and the settings revision they
     /// were read at.
     pacer: frame_pacer::FramePacer,
@@ -461,7 +447,7 @@ struct StandaloneWindowApp {
     presence: PresenceController,
     /// Cached key of the last Rich Presence payload to avoid redundant IPC updates.
     last_presence_key: String,
-    /// Optional automated `--script gate` driver.
+    /// Optional automated `--script ia:<MAP>` driver.
     gate: Option<GateDriver>,
     /// `BFE_BENCH`: one battle started directly and logged (`bench.rs`).
     bench: Option<bench::Bench>,
@@ -921,7 +907,7 @@ impl StandaloneWindowApp {
     /// Polls `glGetError()` after each frame and increments `gate.gl_errors` if non-zero.
     ///
     /// Invoked at the end of every rendered frame in [`Self::step_frame`]. Any non-zero
-    /// `glGetError()` code increments `gate.gl_errors` so `--script gate` can assert
+    /// `glGetError()` code increments `gate.gl_errors` so `--script ia:<MAP>` can assert
     /// `glErrors == 0` across all 24 shell and battle phases.
     fn check_gl_errors(&mut self) {
         if let Some(gl) = &self.gl {
@@ -1034,7 +1020,6 @@ impl ApplicationHandler for StandaloneWindowApp {
                 window.clone(),
                 context.clone(),
                 surface.clone(),
-                self.opts.script.as_deref() == Some("slint-proof"),
             )?);
             self.window = Some(window);
             self.surface = Some(surface);
@@ -1065,9 +1050,6 @@ impl ApplicationHandler for StandaloneWindowApp {
             if self.pointer_locked && self.focused {
                 if let AppState::Battle(battle) = &mut self.state {
                     battle.input.motion(dx, dy);
-                    if self.opts.script.as_deref() == Some("slint-proof") {
-                        eprintln!("[input] locked raw motion {dx},{dy}");
-                    }
                 }
             }
         }
@@ -1080,19 +1062,6 @@ impl ApplicationHandler for StandaloneWindowApp {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        if self.opts.script.as_deref() == Some("slint-proof") {
-            match &event {
-                WindowEvent::KeyboardInput { event, .. } => eprintln!(
-                    "[input] physical={:?} logical={:?} state={:?}",
-                    event.physical_key, event.logical_key, event.state
-                ),
-                WindowEvent::MouseInput { button, state, .. } => {
-                    eprintln!("[input] button={button:?} state={state:?}");
-                }
-                WindowEvent::MouseWheel { delta, .. } => eprintln!("[input] wheel={delta:?}"),
-                _ => {}
-            }
-        }
         self.sync_slint_setup();
         let consumed = self.slint_ui.as_mut()
             .is_some_and(|ui| ui.event(&event, self.pointer_locked));
@@ -1135,7 +1104,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                 self.hidden = hidden && self.gate.is_none() && self.platform_smoke.is_none();
             }
             WindowEvent::Focused(focused) => {
-                // Keep focus active during headless Xorg `--script gate` runs; otherwise
+                // Keep focus active during headless Xorg `--script ia:<MAP>` runs; otherwise
                 // clear held combat inputs and open the pause menu on focus loss.
                 let focused = if self.gate.is_some() || self.platform_smoke.is_some() {
                     true
@@ -1460,10 +1429,13 @@ impl ApplicationHandler for StandaloneWindowApp {
 const HIDDEN_FRAME: Duration = Duration::from_millis(100);
 
 impl StandaloneWindowApp {
-    /// Whether the loading screens are up. Their frames are slices of the
-    /// load's own work, so they are never held back for the display.
+    /// Whether a startup or hosting screen is up. Their frames are slices of
+    /// the load's own work, so they are never held back for the display. The
+    /// battle loading screen is paced like any screen: its load runs for a
+    /// time budget each frame (loading.rs), and a slow PC's other cores keep
+    /// the time the extra frames took.
     fn loading(&self) -> bool {
-        matches!(self.state, AppState::StartupLoader(_) | AppState::HostStarting { .. } | AppState::BattleLoading { .. })
+        matches!(self.state, AppState::StartupLoader(_) | AppState::HostStarting { .. })
     }
 
     /// A chance to present a frame: the window's redraw, or the loop's own
@@ -1773,8 +1745,16 @@ impl StandaloneWindowApp {
     /// blits to the window surface, and checks for OpenGL errors.
     fn step_frame(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
-        let dt = (now - self.last_frame).as_secs_f64().clamp(0.001, 0.1);
+        let elapsed_dt = (now - self.last_frame).as_secs_f64();
+        let dt = elapsed_dt.clamp(0.001, 0.1);
         self.last_frame = now;
+        self.frame_log.frame(now, self.frame_phase);
+        self.frame_phase = match &self.state {
+            AppState::BattleLoading { .. } => frame_log::Phase::Loading,
+            AppState::Battle(battle) if battle.spawn_ctrl.is_open() => frame_log::Phase::Spawn,
+            AppState::Battle(_) => frame_log::Phase::Play,
+            _ => frame_log::Phase::Other,
+        };
 
         // If no hardware `cpal` audio device is open, pump headless audio quantums so
         // `ShellAudioMixer` and battle `Stream` queues drain identically to hardware playback.
@@ -1950,7 +1930,7 @@ impl StandaloneWindowApp {
                     }
                 }
                 AppState::Shell => {
-                    // Render the active shell or `bfe-interface` options screen and step `--script gate`.
+                    // Render the active shell or `bfe-interface` options screen and step `--script ia:<MAP>`.
                     let mut transition = if let Some(shell) = &mut self.shell {
                         let mut t = shell.step_and_draw(dt, &mut self.settings, &self.audio_router);
                         if let Some(ui) = &mut self.slint_ui {
@@ -2177,7 +2157,7 @@ impl StandaloneWindowApp {
                     }
                 }
                 AppState::Battle(battle) => {
-                    // Step `--script gate` combat inputs, render the 3D battle + HUD overlays,
+                    // Step `--script ia:<MAP>` combat inputs, render the 3D battle + HUD overlays,
                     // and handle post-battle playlist progression or pause menu exits.
                     if let Some(gate) = &mut self.gate {
                         gate.step_battle(battle, &mut self.settings)?;
@@ -2186,7 +2166,7 @@ impl StandaloneWindowApp {
                         bench.step_battle(battle, self.pointer_locked);
                     }
                     let transition = battle.step_and_draw(
-                        dt,
+                        elapsed_dt,
                         self.focused,
                         self.hidden,
                         &mut self.settings,
