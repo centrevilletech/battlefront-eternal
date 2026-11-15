@@ -345,9 +345,12 @@ fn content_key(battle: &bfe_content::battle::Battle, target: &Value) -> Result<S
 // silently renumbers content after another owner has already referenced it.
 fn load_ids(entries:&[(String,f64)],values:&[(String,Value)],kind:&str,stage:Stage)->Result<Definitions,AdmitError> {
     let mut table=Definitions::default();
+    // The first value under each key, as a linear search finds it.
+    let mut by_key:HashMap<&str,&Value>=HashMap::with_capacity(values.len());
+    for (name,value) in values {by_key.entry(name.as_str()).or_insert(value);}
     for (key,id) in entries {
         if !key.starts_with(kind) {continue;}
-        let def=values.iter().find(|(name,_)|name==key).map(|(_,value)|value)
+        let def=by_key.get(key.as_str()).copied()
             .ok_or_else(||AdmitError::Content {stage,message:"registered definition object is absent".into()})?;
         let actual=table.id(&def,stage)?;
         if *id!=actual.0 as f64 {return Err(AdmitError::Content {stage,message:"definition ids are out of registration order".into()});}
@@ -380,12 +383,17 @@ fn save_ids(battle:&bfe_content::battle::Battle,entries:&mut Vec<(String,f64)>,v
 fn load_sent(entries:&[(String,f64)],kind:&str,table:&Definitions)->Result<HashSet<u32>,AdmitError> {
     let error=||AdmitError::Content {stage:Stage::Content,message:"invalid sent-definition marker".into()};
     let mut sent=HashSet::new();
+    let registered_kind=kind.replace("-sent:",":");
+    // Registered (id, path) receipts. Ids are whole numbers, so comparing
+    // them as integers matches comparing the stored numbers.
+    let registered:HashSet<(u64,&str)>=entries.iter()
+        .filter(|(_,number)|number.is_finite()&&*number>=0.0&&number.fract()==0.0)
+        .filter_map(|(key,number)|key.strip_prefix(registered_kind.as_str()).map(|path|(*number as u64,path))).collect();
     for (key,id) in entries {
         let Some(path)=key.strip_prefix(kind) else {continue;};
         if !id.is_finite() || *id<0.0 || id.fract()!=0.0 || *id>=table.values.len() as f64 {return Err(error());}
         let id=*id as u32;
-        let registered_kind=kind.replace("-sent:",":");
-        if !entries.iter().any(|(key,number)|*number==id as f64&&key.strip_prefix(&registered_kind)==Some(path)) || !sent.insert(id) {return Err(error());}
+        if !registered.contains(&(id as u64,path)) || !sent.insert(id) {return Err(error());}
     }
     Ok(sent)
 }
@@ -400,13 +408,20 @@ fn contiguous_sent(sent:HashSet<u32>)->Result<usize,AdmitError> {
 // Callers enumerate ids in order, so hash bucket order never reaches Cx.
 // An existing marker stays in place, just as the host's sent set does.
 fn save_sent(entries:&mut Vec<(String,f64)>,kind:&str,table:&Definitions,sent:impl Iterator<Item=u32>)->Result<(),AdmitError> {
+    let registered_kind=kind.replace("-sent:",":");
+    // The first registered receipt of each id, and the keys already present.
+    let mut paths:HashMap<u32,String>=HashMap::new();
+    for (key,number) in entries.iter() {
+        if !(number.is_finite()&&*number>=0.0&&number.fract()==0.0&&*number<=u32::MAX as f64) {continue;}
+        if let Some(path)=key.strip_prefix(registered_kind.as_str()) {paths.entry(*number as u32).or_insert_with(||path.to_string());}
+    }
+    let mut present:HashSet<String>=entries.iter().map(|(key,_)|key.clone()).collect();
     for id in sent {
         if id as usize>=table.values.len() {return Err(AdmitError::Content {stage:Stage::Content,message:"sent definition is absent".into()});}
-        let registered_kind=kind.replace("-sent:",":");
-        let path=entries.iter().find_map(|(key,number)|if *number==id as f64 {key.strip_prefix(&registered_kind)} else {None})
+        let path=paths.get(&id)
             .ok_or_else(||AdmitError::Content {stage:Stage::Content,message:"sent definition receipt is absent".into()})?;
         let key=format!("{kind}{path}");
-        if !entries.iter().any(|(existing,_)|*existing==key) {entries.push((key,id as f64));}
+        if present.insert(key.clone()) {entries.push((key,id as f64));}
     }
     Ok(())
 }
@@ -424,18 +439,20 @@ pub fn with_bindings<T>(cx:&mut super::Cx,stage:Stage,prepare:impl FnOnce(&mut B
     let ordnance_sent=contiguous_sent(load_sent(&cx.ids.ordnance,"ordnance-sent:",&ordnance)?)?;
     let items=load_ids(&cx.ids.items,&cx.definitions.items,"item:",Stage::Store)?;
     let items_sent=contiguous_sent(load_sent(&cx.ids.items,"item-sent:",&items)?)?;
+    let ordnance_explosions=load_ids(&cx.ids.ordnance,&cx.definitions.explosions,"explosion:",Stage::Store)?;
     let mut sources=HashMap::new();
     // Derived provenance can cross more than one construction seam. Restore
     // its ultimate authored source before another shallow derivation runs.
-    for kind in [DefinitionKind::Class,DefinitionKind::Weapon,DefinitionKind::CombatExplosion,DefinitionKind::Ordnance,DefinitionKind::Explosion,DefinitionKind::Item] {
-        for ((_,value),(_,source)) in registered_definitions(cx,kind)?.into_iter().zip(source_definitions(cx,kind)?) {
-            if !value.same(&source) {if let Some(id)=identity(&value) {sources.insert(id,(value,source));}}
+    for (kind,table) in [(DefinitionKind::Class,&classes),(DefinitionKind::Weapon,&weapons),(DefinitionKind::CombatExplosion,&explosions),
+        (DefinitionKind::Ordnance,&ordnance),(DefinitionKind::Explosion,&ordnance_explosions),(DefinitionKind::Item,&items)] {
+        for (value,(_,source)) in table.values.iter().zip(sources_of(cx,kind,table.values.clone())?) {
+            if !value.same(&source) {if let Some(id)=identity(value) {sources.insert(id,(value.clone(),source));}}
         }
     }
     let mut bindings=Bindings {
         combat:CombatRows {weapons,classes,explosions,calls:Vec::new(),sent_weapons,sent_classes},
         ordnance:super::ordnance::OrdnanceRows::from_definitions(
-            ordnance,load_ids(&cx.ids.ordnance,&cx.definitions.explosions,"explosion:",Stage::Store)?,ordnance_sent)?,
+            ordnance,ordnance_explosions,ordnance_sent)?,
         items:super::items::ItemRows::from_definitions(items,items_sent)?,
         sources,
     };
@@ -537,11 +554,18 @@ pub fn definition_id(cx:&super::Cx,kind:DefinitionKind,value:&Value)->Result<Opt
 /// Network source identities follow combat-sources.js, while the native
 /// definition tables retain the distinct per-construction derived objects.
 pub fn source_definitions(cx:&super::Cx,kind:DefinitionKind)->Result<Vec<(DefId,Value)>,AdmitError> {
+    sources_of(cx,kind,registered_table(cx,kind)?.values)
+}
+/// source_definitions over the namespace's registered values, already loaded.
+fn sources_of(cx:&super::Cx,kind:DefinitionKind,registered:Vec<Value>)->Result<Vec<(DefId,Value)>,AdmitError> {
     let prefix=match kind {DefinitionKind::Class=>"class:",DefinitionKind::Weapon=>"weapon:",DefinitionKind::CombatExplosion=>"blast:",DefinitionKind::Ordnance=>"ordnance:",DefinitionKind::Explosion=>"explosion:",DefinitionKind::Item=>"item:"};
     let entries=match kind {DefinitionKind::Ordnance|DefinitionKind::Explosion=>&cx.ids.ordnance,DefinitionKind::Item=>&cx.ids.items,_=>&cx.ids.defs};
-    let mut values=registered_definitions(cx,kind)?;
+    let mut values:Vec<(DefId,Value)>=registered.into_iter().enumerate().map(|(id,value)|(DefId(id as u32),value)).collect();
     for (key,id) in entries {
         let Some(path)=key.strip_prefix(prefix) else {continue;};
+        // Receipts are written by save_ids as JSON arrays; only derived ones
+        // name a source.
+        if !path.starts_with("[\"$derived\"") {continue;}
         let path:Vec<String>=serde_json::from_str(path).map_err(|e|AdmitError::Content {stage:Stage::Content,message:e.to_string()})?;
         if path.first().map(String::as_str)!=Some("$derived") {continue;}
         let source:Vec<String>=path.get(1).and_then(|s|serde_json::from_str(s).ok()).ok_or_else(||AdmitError::Content {stage:Stage::Content,message:"derived source path is absent".into()})?;
