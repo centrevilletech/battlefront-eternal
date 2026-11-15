@@ -1898,6 +1898,11 @@ impl Scene {
         self.publish(r::IMAGE, k::SCREEN, 0, 0, 1);
         if let Some(online)=&self.online{self.bridge.r.frames.meta[r::TRANSPARENT*m::LEN+m::FX_WORDS]=online.combat.particles.words as f64;}
         self.publish(r::TRANSPARENT, k::TRANSPARENT, records, bones, 0);
+        if component == Component::All {
+            if let Some(online) = &mut self.online {
+                online.hulls.draw_tethers(&view.values, &mut self.bridge)?;
+            }
+        }
         if let Some(online)=&self.online{let (view_records,view_bones)=online.first_person.append(&online.units,&mut self.bridge);if view_records!=0{
                 // Graphics.render gives the view camera the drawn camera's own
                 // field of view and aspect each frame (near 0.3, far 10), so the

@@ -304,6 +304,7 @@ impl Bench {
         out.write_all(b"]")?;
         write!(out, r#","mount":{},"vehicle":{},"flight":{}"#,
             serde_json::to_string(&own.mount)?, own.vehicle, serde_json::to_string(&own.flight)?)?;
+        write!(out, ",\"towLines\":{}", battle.scene.bridge.r.frames.line_counts[2])?;
         if let Some((id, generation, _)) = own.mount {
             if let Some(angles) = battle.scene.online.as_ref().and_then(|scene| scene.hulls.seat_angles((id, generation))) {
                 write!(out, r#","mountPose":{}"#, angles)?;

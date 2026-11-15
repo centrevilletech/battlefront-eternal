@@ -19,6 +19,7 @@ use bfe_presentation::{
 use bfe_render::instances as draw;
 use serde_json::{json, Value};
 use three::Matrix4;
+mod tethers;
 const POOL: usize = 64;
 fn camera_angles(quaternion: &three::Quaternion, flying: bool) -> three::Euler {
     let mut angles = three::Euler::default();
@@ -87,6 +88,8 @@ struct Model {
     max_speed: f64,
     camera_blend: f64,
     seats: usize,
+    tow_node: Option<usize>,
+    has_tow: bool,
     rider: Vec<(Option<String>, Option<String>, bool)>,
     hover: f64,
     death_span: f64,
@@ -111,6 +114,7 @@ struct Slot {
     // phase and blend as drawn.
     feet: Option<usize>,
     walk: [f64; 2],
+    cable: Option<tethers::Cable>,
 }
 pub struct Hulls {
     pub owner: Box<Vehicles>,
@@ -353,6 +357,12 @@ impl Hulls {
             descriptors.push(descriptor);
             models.push(Model {
                 views: records["seats"].as_array().unwrap().iter().map(|s| super::seat_view::View::new(&s["view"])).collect(),
+                tow_node: records["seats"][1]["view"]["turret"].as_u64()
+                    .or_else(|| records["seats"].as_array().unwrap().iter().find_map(|s| s["view"]["turret"].as_u64()))
+                    .map(|n| n as usize),
+                has_tow: class.seats.iter().any(|s| s.weapons.iter().any(|w|
+                    w.get("def").and_then(|d| d.get("ordnance")).and_then(|o| o.get("base"))
+                        .and_then(bfe_content::Value::as_str) == Some("towcable"))),
                 bounds: [lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]],
                 flying,
                 walking,
@@ -378,6 +388,9 @@ impl Hulls {
         // are counted, rather than growing trees in a displayed frame.
         let mut slots = Vec::new();
         let mut feet = bfe_presentation::feet::Feet::default();
+        let tow_program = if models.iter().any(|m| m.has_tow) {
+            Some(bridge.add_owned_program("utility/line-plain-solid")?)
+        } else { None };
         for (model, m) in models.iter().enumerate() {
             for _ in 0..(POOL / models.len().max(1)).max(1) {
                 let rig = owner.add_rig(array(&descriptors[model])?);
@@ -398,6 +411,9 @@ impl Hulls {
                     boosting: false,
                     feet: foot,
                     walk: [0.; 2],
+                    cable: if m.has_tow {
+                        Some(tethers::Cable::new(bridge, tow_program.unwrap())?)
+                    } else { None },
                 });
             }
         }
@@ -422,6 +438,9 @@ impl Hulls {
             water: super::water::new(content),
         })
         .inspect(|hulls: &Self| {
+            if std::env::var_os("BFE_BENCH").is_some() {
+                eprintln!("bench: cable resources={}", hulls.slots.iter().filter(|s| s.cable.is_some()).count());
+            }
             if crate::app::bench::fx().is_some() {
                 eprintln!("fx-hulls classes={} with-effects={}", hulls.models.len(), hulls.models.iter().filter(|m| m.fx.is_some()).count());
             }
@@ -505,7 +524,8 @@ impl Hulls {
             [x[seat::AIM_YAW], x[seat::PITCH], x[seat::HELD]]
         }).collect();
         let aimers: Vec<_> = self.owner.aimer_angles(slot.rig).collect();
-        Some(json!({"seats": seats, "aimers": aimers}))
+        let nodes = self.owner.slot_nodes(slot.rig, 0)?;
+        Some(json!({"seats": seats, "aimers": aimers, "world": &nodes[n::WORLD..n::WORLD + 16]}))
     }
     pub fn frame(
         &mut self,
@@ -520,6 +540,9 @@ impl Hulls {
         if self.epoch != receiver.epoch {
             self.mounts.reset();
             self.bodies.clear();
+            for slot in &mut self.slots {
+                if let Some(cable) = &mut slot.cable { cable.state = None; }
+            }
             self.epoch = receiver.epoch;
         }
         // Mount records have their own short history. Position snapshots can
@@ -896,6 +919,7 @@ impl Hulls {
             }, dt);
         }
         self.bodies.retain(|b| b.2 || b.1.pending());
+        self.receive_tethers(receiver);
     }
     // Shadow storage covers the largest admitted rig, including models that
     // have not appeared in a snapshot yet.
