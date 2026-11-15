@@ -92,7 +92,7 @@ pub mod aa {
     pub const FXAA: usize = 1;
     pub const FAST: usize = 2;
 }
-pub const TYPES: [&[u32]; 11] = [&[32], &[32, 2], &[32, 2], &[32, 32, 32, 1, 1, 1, 1], &[16, 16, 32, 2], &[16, 16, 32, 2], &[32], &[32, 2, 2], &[32, 32, 16, 16, 16], &[32, 32, 32, 2, 2, 2, 1, 1, 1], &[32, 1]];
+pub const TYPES: [&[u32]; 11] = [&[32], &[32, 2], &[32, 2], &[32, 32, 32, 1, 1, 1, 1], &[16, 16, 32, 2], &[16, 16, 32, 2], &[32], &[32, 2, 2], &[32, 32, 16, 16, 16], &[32, 32, 32, 2, 2, 2, 1, 1, 1, 9, 9], &[32, 1]];
 pub mod uniform {
 pub mod copy {
     pub const MAP: usize = 0;
@@ -151,6 +151,8 @@ pub mod resolve {
     pub const RESET: usize = 6;
     pub const MAX_WEIGHT: usize = 7;
     pub const KERNEL: usize = 8;
+    pub const NARROW_WEIGHTS: usize = 9;
+    pub const WIDE_WEIGHTS: usize = 10;
 }
 pub mod sharpen {
     pub const MAP: usize = 0;

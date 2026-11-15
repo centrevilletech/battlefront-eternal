@@ -228,6 +228,7 @@ pub(super) fn sync_battle(root: &GameUi, lists: &BattleLists, battle: &mut Battl
         _ => (2, "eternal"),
     };
     root.global::<Theme>().set_menu_theme(look_str.into());
+    root.global::<Theme>().set_scale_factor(battle.page_battle.scale as f32);
 
     let bm = root.global::<BattleModel>();
     bm.set_theme_index(look_idx);
@@ -407,13 +408,8 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
         .map(|(i, entry)| {
             let picked = i == model.class_index;
             let r = layout.class_rect(i, picked);
-            let mut w_slots = [
-                SharedString::default(),
-                SharedString::default(),
-                SharedString::default(),
-                SharedString::default(),
-            ];
-            for (wi, w_name) in entry.weapons.iter().take(4).enumerate() {
+            let mut w_slots: [SharedString; 6] = Default::default();
+            for (wi, w_name) in entry.weapons.iter().take(6).enumerate() {
                 w_slots[wi] = w_name.to_uppercase().into();
             }
             BattleClassModel {
@@ -424,6 +420,9 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
                 w1: w_slots[1].clone(),
                 w2: w_slots[2].clone(),
                 w3: w_slots[3].clone(),
+                w4: w_slots[4].clone(),
+                w5: w_slots[5].clone(),
+                compact: layout.compact && !picked,
                 rect_x: r[0] as f32,
                 rect_y: r[1] as f32,
                 rect_w: (r[2] - r[0]) as f32,

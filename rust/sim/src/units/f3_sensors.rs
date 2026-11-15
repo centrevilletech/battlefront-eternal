@@ -265,6 +265,11 @@ pub(crate) fn fat_query_in(world_ctx: &mut crate::world::owner::World, center: [
 /// OrdnanceWorld.unitSphere retains the same lazy cache that registry queries
 /// just observed; asking again must not force a newly damaged pose this tick.
 pub(crate) fn unit_sphere_in(world_ctx: &mut crate::world::owner::World, unit: Ref<Unit>) -> ([f64;3],f64) {
+    // Unit::sphere answers its cached bounds when they are this tick's; read
+    // them in place instead of lending the whole unit out of the slab.
+    if let Some(u) = world_ctx.sim.store.unit.get(unit).filter(|u| u.spheres_tick == u.tick_count) {
+        return (u.bounds.center, u.bounds.radius);
+    }
     let sphere = super::module::with_unit_in(world_ctx,unit,|world,u| u.sphere(unit.slot,world)).unwrap();
     (sphere.center,sphere.radius)
 }

@@ -416,6 +416,10 @@ impl Destructions {
 
     /// The frame (Destruction.update). `body(unit)` gives a tracked droid's
     /// body as drawn now, None once it is gone.
+    pub fn tracked_bodies(&self) -> impl Iterator<Item = (u32, u32)> + '_ {
+        self.slots.iter().flatten().filter(|slot| slot.active).map(|slot| slot.unit)
+    }
+
     pub fn frame<'a>(&mut self, dt: f64, eye: [f64; 3], body: &mut dyn FnMut((u32, u32)) -> Option<Body<'a>>) {
         let dt = dt.clamp(0., 0.1);
         self.hidden.clear();

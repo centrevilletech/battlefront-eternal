@@ -6,10 +6,11 @@ import { Theme } from "../theme.slint";
 import { Surface } from "surface.slint";
 import { PageButton } from "button.slint";
 
-// The page font's "line-height: normal" as the browser rounds it: its ascent and descent, each to a pixel.
+// The page font's "line-height: normal" as the browser computes it.
 export global SpawnCss {
+    // The font's ascent (1.135 em) and descent (.439 em), each rounded to a device pixel.
     public pure function line(f: length) -> length {
-        return (round(f / 1px * 1.05) + round(f / 1px * 0.525)) * 1px;
+        return (round(f / 1px * 1.135 * Theme.scale-factor) + round(f / 1px * 0.439 * Theme.scale-factor)) / Theme.scale-factor * 1px;
     }
     // A CSS animation's progress at `time` s: `delay` s late, `duration` s long, eased out
     // (the page's cubic-bezier(.2, .8, .2, 1)).
@@ -45,6 +46,10 @@ export struct BattleClassModel {
     w1: string,
     w2: string,
     w3: string,
+    w4: string,
+    w5: string,
+    // The roster is folded and this is not the picked class: its weapons on one line.
+    compact: bool,
     rect-x: float,
     rect-y: float,
     rect-w: float,
@@ -217,6 +222,8 @@ export component BattleTeamCard inherits Rectangle {
     in property <BattleTeamModel> model;
     in property <bool> right-aligned: false;
     in property <float> pulse-alpha: 1.0;
+    // bfe-spawn-joined: the team just joined flashes in (.6s, from .94 scale and 1.8 brightness), 0..1.
+    in property <float> joined: 1.0;
     callback clicked();
 
     x: root.model.plate-x * 1px;
@@ -257,6 +264,8 @@ export component BattleTeamCard inherits Rectangle {
         shadows: root.model.own
             ? [{ x: 0px, y: 0px, blur: 14px, color: Theme.bfe-team-own-glow, inset: false }]
             : [];
+        transform-scale-x: 0.94 + 0.06 * root.joined;
+        transform-scale-y: 0.94 + 0.06 * root.joined;
 
         Rectangle {
             x: 0px;
@@ -375,6 +384,12 @@ export component BattleTeamCard inherits Rectangle {
             horizontal-alignment: root.right-aligned ? right : left;
             vertical-alignment: center;
         }
+
+        Rectangle {
+            border-radius: Theme.bfe-panel-radius;
+            background: white;
+            opacity: 0.3 * (1 - root.joined);
+        }
     }
 
     // The glow behind the renderer-drawn emblem (the browser's .bfe-spawn-emblem: its side colour at 18%
@@ -406,6 +421,42 @@ export component BattleTeamCard inherits Rectangle {
         enabled: root.model.interactive;
         mouse-cursor: root.model.interactive ? pointer : default;
         clicked => { root.clicked(); }
+    }
+}
+
+// .bfe-spawn-side.switchable .bfe-spawn-side-state: the SWITCH TEAM badge's glow, 0 to 12px of the accent at 60%
+// every 2.4s. Drawn under the cached chrome (it moves each frame), from the plate's own metrics.
+export component BattleSwitchGlow inherits Rectangle {
+    in property <BattleTeamModel> model;
+    in property <bool> right-aligned: false;
+    property <length> border: Theme.bfe-panel-border.width;
+    property <length> name-size: clamp(2.6 * Theme.vh, 16px, 28px);
+    property <length> badge-size: clamp(1.2 * Theme.vh, 9px, 12px);
+    property <length> state-h: SpawnCss.line(root.badge-size) + 0.5 * root.badge-size;
+    property <length> plate-h: root.model.plate-h * 1px;
+    property <length> content-h: root.plate-h - 2 * root.border - 1.8 * Theme.vh;
+    property <length> text-y: root.border + 0.8 * Theme.vh + (root.content-h - root.name-size - 0.4 * Theme.vh - root.state-h) * 0.5;
+    property <length> inner-x: root.border + 1.2 * Theme.vw;
+    property <length> badge-w: measure.preferred-width + 1.6 * root.badge-size;
+    property <float> wave: 0.5 - 0.5 * cos(360deg * mod(animation-tick() / 1ms, 2400) / 2400);
+    measure := Text {
+        visible: false;
+        text: root.model.badge-text;
+        font-family: Theme.font-family;
+        font-size: root.badge-size;
+        font-weight: 800;
+        letter-spacing: 0.22 * root.badge-size;
+    }
+    if root.model.badge-mode == "switch" : Rectangle {
+        x: root.model.plate-x * 1px + (root.right-aligned ? root.model.plate-w * 1px - root.inner-x - root.badge-w : root.inner-x);
+        y: root.model.plate-y * 1px + root.text-y + root.name-size + 0.4 * Theme.vh;
+        width: root.badge-w;
+        height: root.state-h;
+        border-radius: Theme.bfe-dialog-button-radius;
+        background: Theme.bfe-accent.with-alpha(0.01);
+        drop-shadow-blur: 12px;
+        drop-shadow-color: Theme.bfe-accent.with-alpha(0.6);
+        opacity: root.wave;
     }
 }
 
@@ -531,7 +582,10 @@ export component BattleClassCard inherits Rectangle {
     callback clicked();
 
     // :hover slides a window 4px right (the picked one sits 10px over already).
-    x: root.model.rect-x * 1px + (touch.has-hover && !root.model.picked ? 4px : 0px) - 3 * Theme.vw * (1 - root.enter);
+    // :hover slides it 4px over .18s.
+    property <length> hover-shift: touch.has-hover && !root.model.picked ? 4px : 0px;
+    animate hover-shift { duration: 180ms; easing: ease; }
+    x: root.model.rect-x * 1px + root.hover-shift - 3 * Theme.vw * (1 - root.enter);
     y: root.model.rect-y * 1px;
     width: root.model.rect-w * 1px;
     height: root.model.rect-h * 1px;
@@ -587,18 +641,43 @@ export component BattleClassCard inherits Rectangle {
             overflow: elide;
         }
 
+        // Folded (.bfe-spawn-roster.compact): the weapons in one line, .9em apart, cut at the window's edge.
+        if root.model.compact : Rectangle {
+            x: root.border + Theme.vw;
+            y: root.border + root.bar-margin + root.bar-h + 0.45 * Theme.vh;
+            width: root.width - 2 * (root.border + Theme.vw);
+            height: root.row-h;
+            clip: true;
+            HorizontalLayout {
+                spacing: 0.9 * root.wep-size;
+                alignment: start;
+                for w in [root.model.w0, root.model.w1, root.model.w2, root.model.w3, root.model.w4, root.model.w5] : Text {
+                    visible: w != "";
+                    text: w;
+                    font-family: Theme.font-family;
+                    font-size: root.wep-size;
+                    font-weight: 700;
+                    letter-spacing: 0.08 * root.wep-size;
+                    color: Theme.bfe-text-faint;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
         for slot in [
             { text: root.model.w0, col: 0, row: 0 },
             { text: root.model.w1, col: 1, row: 0 },
             { text: root.model.w2, col: 0, row: 1 },
             { text: root.model.w3, col: 1, row: 1 },
+            { text: root.model.w4, col: 0, row: 2 },
+            { text: root.model.w5, col: 1, row: 2 },
         ] : Rectangle {
             x: root.border + Theme.vw + slot.col * (root.col-w + root.wep-size);
             y: root.body-y + slot.row * root.row-pitch;
             width: root.col-w;
             height: root.row-h;
             background: transparent;
-            visible: slot.text != "";
+            visible: slot.text != "" && !root.model.compact;
 
             // li::before: a .45em square turned 45 degrees, .5em before the name.
             if root.model.picked : BattleDiamond {

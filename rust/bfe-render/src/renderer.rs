@@ -134,12 +134,12 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let camera = core.camera();
         core.opaque();
         core.bind_far_map();
-        // TreeCanopies creates its material before buildWorld creates the
-        // map's materials. Keep three's opaque order at multisampled edges.
+        self.world.draw(core, &camera);
+        // Solid scenery rejects the hidden crown fragments before their
+        // leaf texture and coverage work. Both passes still write depth.
         let timer=core.profile.begin(&core.gl);
         self.canopies.draw(core);
         core.profile.end(&core.gl,"canopies",timer);
-        self.world.draw(core, &camera);
         let timer=core.profile.begin(&core.gl);
         self.instances.draw(core, &camera, records);
         core.profile.end(&core.gl,"skinned units",timer);

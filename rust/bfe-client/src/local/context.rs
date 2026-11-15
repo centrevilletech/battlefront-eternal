@@ -311,6 +311,13 @@ impl Engine for Native {
         Ok(pub_view)
     }
 
+    fn published_own(&self) -> Result<Option<bfe_sim::wire::publisher::OwnFacts>, String> {
+        self.context
+            .value
+            .world_published_own(self.handles.publication, self.handles.client)
+            .map_err(|e| e.to_string())
+    }
+
     fn acknowledge(
         &mut self,
         snapshot: [f64; 2],
