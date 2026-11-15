@@ -40,6 +40,9 @@ fn bytes_mut<T:scalar::Scalar>(values: &mut [T]) -> &mut [u8] {
     // The exclusive slice borrow prevents aliasing until this view is dropped.
     unsafe { std::slice::from_raw_parts_mut(values.as_mut_ptr().cast(),std::mem::size_of_val(values)) }
 }
+fn copy_ranges(source: &[u8], target: &mut [u8], ranges: &[std::ops::Range<usize>]) {
+    for range in ranges { target[range.clone()].copy_from_slice(&source[range.clone()]); }
+}
 // A span is a retained native packet range, with capacity fixed at admission.
 // Used bytes are independent so a shorter view cannot resurrect old records.
 #[derive(Clone, Copy)]
@@ -51,11 +54,12 @@ struct Upload {geometry:u32,buffer:u32,offset:usize,first:usize,length:usize}
 struct Uploads {bytes:Vec<u8>,rows:[Upload;1024],count:usize,used:usize,clipped:bool}
 struct Packet<C: HasContext> {
     spans: Vec<Span>, data: Vec<u8>, far_map: Option<C::Texture>, kind: usize, uploads:Option<Box<Uploads>>,
+    fx_ranges: Vec<std::ops::Range<usize>>,
 }
 // mem::replace needs a genuinely empty placeholder. Reserving in Default
 // would allocate on every publication and every subsequent restoration.
 impl<C: HasContext> Packet<C> {
-    fn empty() -> Self { Self {spans:Vec::new(),data:Vec::new(),far_map:None,kind:K::NONE,uploads:None} }
+    fn empty() -> Self { Self {spans:Vec::new(),data:Vec::new(),far_map:None,kind:K::NONE,uploads:None,fx_ranges:Vec::new()} }
 }
 // Graphics.render used one mutable input workspace for successive cameras.
 // Named packets separate preparation time from execution without duplicating
@@ -189,6 +193,7 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
                 let current=self.frame_source(channel).len();
                 let capacity=if matches!(channel,Channel::FxData) && kind==K::TRANSPARENT { current.max(4<<20) } else if matches!(channel,Channel::Interface) {0}else {current};
                 packet.spans.push(Span{channel,offset:size,capacity,used:0});size+=capacity;
+                if matches!(channel,Channel::FxData) { packet.fx_ranges.reserve(crate::effects::MAX_DRAWS + crate::effects::MAX_OWNERS); }
             }
             packet.data.resize(size,0);self.frames.packets.push(packet);
         }
@@ -226,7 +231,6 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
         self.frames.meta[at+M::RECORDS]=(self.frames.meta[at+M::RECORDS] as usize).min(crate::instances::MAX_RECORDS) as f64;
         self.frames.meta[at+M::BONES]=(self.frames.meta[at+M::BONES] as usize).min(crate::instances::MAX_BONES) as f64;
         let records=self.frames.meta[at+M::RECORDS] as usize;let bones=self.frames.meta[at+M::BONES] as usize;
-        let fx_words=self.frames.meta[at+M::FX_WORDS] as usize;
         // Only UI views have two permitted producers. All other shapes follow
         // their semantic role, regardless of a malformed imported kind value.
         let requested=self.frames.meta[at+M::KIND] as usize;
@@ -253,14 +257,22 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
         // The mirror must retain its own far sampler, then the main view
         // reconnects the ordinary far target before its packet is sealed.
         packet.far_map=self.core.far_map;
+        if packet.kind==K::TRANSPARENT { self.effects.data_ranges(&mut packet.fx_ranges); }
         let mut valid=!packet.uploads.as_ref().is_some_and(|u|u.clipped);
         for span in &mut packet.spans {
             let source=self.frame_source(span.channel);
+            if matches!(span.channel,Channel::FxData) && packet.kind==K::TRANSPARENT {
+                span.used=packet.fx_ranges.last().map_or(0,|r|r.end);
+                if span.used > span.capacity || span.used > source.len() { valid=false; span.used=0; continue; }
+                copy_ranges(source, &mut packet.data[span.offset..span.offset+span.capacity], &packet.fx_ranges);
+                continue;
+            }
             // Record/bone/FX counts describe live prefixes. Other fixed-size
             // shader inputs keep their original scalar layout, byte for byte.
             let wanted=match span.channel {
                 Channel::Input=>(crate::shader::FRAME_FLOATS+if packet.kind==K::SCENE || packet.kind==K::VIEW {records*crate::instances::REC_STRIDE}else{0})*8,
-                Channel::Bones=>bones*16*4, Channel::FxData=>fx_words.saturating_mul(4),
+                Channel::Bones=>bones*16*4,
+                Channel::FxData=>(self.frames.meta[at+M::FX_WORDS] as usize).saturating_mul(4),
                 Channel::Caster=>(crate::shadow::S_FIRST+(self.shadow.input[crate::shadow::S_DRAWS] as usize).min((self.shadow.input.len()-crate::shadow::S_FIRST)/crate::shadow::DRAW)*crate::shadow::DRAW)*8,
                 Channel::View=>(1+(self.view.input[0] as usize).min(crate::view::MAX_DRAWS)*crate::view::DRAW)*8,
                 Channel::Transparent=>(1+(self.transparent.objects[0] as usize).min(crate::transparent::MAX_OBJECTS)*crate::transparent::OBJ_STRIDE)*8,
@@ -296,6 +308,10 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
         let packet=std::mem::replace(&mut self.frames.packets[role],Packet::empty());
         for span in &packet.spans {
             let target=self.frame_destination(span.channel);let used=span.used.min(target.len());
+            if matches!(span.channel,Channel::FxData) && packet.kind==K::TRANSPARENT {
+                copy_ranges(&packet.data[span.offset..span.offset+used], target, &packet.fx_ranges);
+                continue;
+            }
             target[..used].copy_from_slice(&packet.data[span.offset..span.offset+used]);
         }
         if let Some(uploads)=&packet.uploads {for row in &uploads.rows[..uploads.count] {
@@ -541,7 +557,20 @@ impl<C: HasContext> FrameBank<C> {
 
 #[cfg(test)]
 mod scalar_tests {
-    use super::{bytes,bytes_mut};
+    use super::{bytes,bytes_mut,copy_ranges};
+    #[test]
+    fn sparse_effect_snapshot_survives_later_views_without_copying_reservations() {
+        let mut source=[0u32;1024];
+        source[3]=0x80000000;source[900]=0x7fc00001;
+        let ranges=[12..16,3600..3604];
+        let mut packet=[0u32;1024];
+        copy_ranges(bytes(&source),bytes_mut(&mut packet),&ranges);
+        source.fill(42);
+        copy_ranges(bytes(&packet),bytes_mut(&mut source),&ranges);
+        assert_eq!(source[3],0x80000000);
+        assert_eq!(source[900],0x7fc00001);
+        assert!(source.iter().enumerate().all(|(i,&v)|i==3||i==900||v==42));
+    }
     // Compile the actual helpers in isolation: the old unconstrained generic
     // admitted these padded and pointer-bearing values from entirely safe code.
     #[test]

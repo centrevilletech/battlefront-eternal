@@ -879,6 +879,62 @@ impl<C: HasContext> EffectsPass<C> {
         (self.input[at] as usize, e)
     }
 
+    // A view retains only data its draws and emitter uploads consume. Cold
+    // batch reservations can leave large unused gaps between these ranges.
+    pub(crate) fn data_ranges(&self, ranges: &mut Vec<std::ops::Range<usize>>) {
+        ranges.clear();
+        for owner in 0..(self.input[IN_OWNERS] as usize).min(MAX_OWNERS) {
+            let e = &self.input[OWNER_AT + owner * OWNER_STRIDE..];
+            if let Some(owner) = self.owners.get(e[0] as usize) {
+                let at = e[3] as usize;
+                if let Some(written) = crate::effect_resources::emitter_span(e[2] as usize, at, owner.rows, self.data.len()) {
+                    if written > 0 { ranges.push(at..at + written * EMITTER_FLOATS); }
+                }
+            }
+        }
+        for draw in 0..(self.input[IN_DRAWS] as usize).min(MAX_DRAWS) {
+            let (kind, e) = self.entry(draw);
+            let range = match kind {
+                KIND_BATCH | KIND_INTO => {
+                    let [bi, count, from, at, capacity] = if kind == KIND_INTO { [e[0], e[1], 0, e[2], e[1].max(1 << 20)] } else { e };
+                    self.batches.get(bi).and_then(|b| {
+                        let capacity = if b.bounded { b.capacity } else { capacity.max(count).min(crate::effect_resources::MAX_PARTICLES) };
+                        let values = b.values.iter().map(|v| v.1).sum();
+                        crate::effect_resources::BatchSpan::new(count, from, at, b.stride, values, capacity, self.data.len(), b.fixed_instances, b.multiplier)
+                            .filter(|s| s.count > 0).map(|s| at..s.values + values)
+                    })
+                }
+                KIND_MESH => self.meshes.get(e[0]).and_then(|m| {
+                    let [_, vertices, indices, at, _] = e;
+                    if vertices == 0 || indices == 0 || (m.bounded && (vertices > m.vertex_capacity || indices > m.index_capacity)) { return None; }
+                    vertices.checked_mul(m.stride).and_then(|n| at.checked_add(n))
+                        .and_then(|n| n.checked_add(if m.fixed_index { 0 } else { indices }))
+                        .and_then(|n| n.checked_add(if m.fixed_values.is_some() { 0 } else { m.values.iter().map(|v| v.1).sum() }))
+                        .map(|end| at..end)
+                }),
+                KIND_MODEL => self.models.get(e[0]).and_then(|m| {
+                    let values = m.values.iter().map(|v| v.1).sum::<usize>()
+                        .max(m.input_samplers.iter().map(|(at, _)| at.saturating_add(1)).max().unwrap_or(0))
+                        .max(m.input_blend.map_or(0,|at|at.saturating_add(1)));
+                    e[2].checked_add(values).map(|end| e[2]..end)
+                }),
+                _ => None,
+            };
+            if let Some(range) = range.filter(|r| r.start < r.end && r.end <= self.data.len()) { ranges.push(range); }
+        }
+        ranges.sort_unstable_by_key(|r| r.start);
+        let mut used = 0;
+        for read in 0..ranges.len() {
+            if used > 0 && ranges[read].start <= ranges[used - 1].end {
+                ranges[used - 1].end = ranges[used - 1].end.max(ranges[read].end);
+            } else {
+                ranges[used] = ranges[read].clone(); used += 1;
+            }
+        }
+        ranges.truncate(used);
+        for range in ranges { range.start *= 4; range.end *= 4; }
+    }
+
     // FountainJets.capture: resolve the current color into the jets' scene
     // texture at the copier's exact transparent sort position, then refresh
     // its smaller mip levels before the refracting jets sample them.
