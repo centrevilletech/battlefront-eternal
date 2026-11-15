@@ -8,7 +8,7 @@ pub use library::{MovieLibrary, Source};
 use bink_decoder::Decoder;
 use std::{
     fs::File,
-    io::{Seek, SeekFrom},
+    io::{self, Read, Seek, SeekFrom},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, SyncSender},
@@ -37,12 +37,63 @@ pub struct Movie {
     cancel: Arc<AtomicBool>,
 }
 
-fn open_decoder(source: &Source) -> Result<Decoder<File>, String> {
-    let mut file =
-        File::open(&source.path).map_err(|e| format!("{}: {e}", source.path.display()))?;
-    file.seek(SeekFrom::Start(source.offset))
-        .map_err(|e| format!("{}: {e}", source.path.display()))?;
-    let mut movie = Decoder::new(file).map_err(|e| e.to_string())?;
+/// A movie's bytes in its archive: reading stops at the end of its entry, and offsets are the movie's own.
+struct Entry {
+    file: File,
+    start: u64,
+    length: u64,
+    at: u64,
+}
+
+impl Read for Entry {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let left = self.length.saturating_sub(self.at);
+        let n = (buf.len() as u64).min(left) as usize;
+        if n == 0 {
+            return Ok(0);
+        }
+        let n = self.file.read(&mut buf[..n])?;
+        self.at += n as u64;
+        Ok(n)
+    }
+}
+
+impl Seek for Entry {
+    fn seek(&mut self, to: SeekFrom) -> io::Result<u64> {
+        let target = match to {
+            SeekFrom::Start(n) => Some(n),
+            SeekFrom::Current(d) => self.at.checked_add_signed(d),
+            SeekFrom::End(d) => self.length.checked_add_signed(d),
+        };
+        let at = target
+            .and_then(|t| self.start.checked_add(t).map(|abs| (t, abs)))
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "seek outside the movie"))?;
+        self.file.seek(SeekFrom::Start(at.1))?;
+        self.at = at.0;
+        Ok(self.at)
+    }
+}
+
+fn open_decoder(source: &Source) -> Result<Decoder<Entry>, String> {
+    let fail = |e: io::Error| format!("{}: {e}", source.path.display());
+    let mut file = File::open(&source.path).map_err(fail)?;
+    file.seek(SeekFrom::Start(source.offset)).map_err(fail)?;
+    let mut entry = Entry { file, start: source.offset, length: source.length, at: 0 };
+    // The decoder reads (and allocates for) as many bytes as the movie's header names. A header
+    // naming more than its archive entry holds is a damaged archive, not a movie to read on into
+    // whatever follows it.
+    let mut head = [0u8; 8];
+    entry.read_exact(&mut head).map_err(fail)?;
+    let size = u64::from(u32::from_le_bytes(head[4..8].try_into().unwrap())) + 8;
+    if size > source.length {
+        return Err(format!(
+            "{}: the movie at {:#x} is larger than its archive entry",
+            source.path.display(),
+            source.offset
+        ));
+    }
+    entry.seek(SeekFrom::Start(0)).map_err(fail)?;
+    let mut movie = Decoder::new(entry).map_err(|e| e.to_string())?;
     // The front end plays its movies without sound, as the Electron build does.
     movie.disable_all_audio();
     Ok(movie)
@@ -147,7 +198,7 @@ mod tests {
         let mut bytes = vec![0xee; 300];
         bytes.extend(PATTERN);
         std::fs::write(&path, bytes).unwrap();
-        (dir, Source { path, offset: 300 })
+        (dir, Source { path, offset: 300, length: PATTERN.len() as u64 })
     }
 
     fn next(movie: &Movie) -> Frame {
@@ -186,6 +237,42 @@ mod tests {
         // Three buffers circulate; none is reallocated after the first round.
         let seen = pointers.unwrap();
         assert!(seen[3..].iter().all(|p| seen[..3].contains(p)));
+        drop(movie);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Polls until the movie gives its first result.
+    fn first(movie: &Movie) -> Result<Frame, String> {
+        for _ in 0..2000 {
+            if let Some(result) = movie.poll() {
+                return result;
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+        panic!("no result");
+    }
+
+    /// An archive entry cut short with the next movie right behind it: the header names more bytes
+    /// than the entry holds, and nothing past the entry is read.
+    #[test]
+    fn a_movie_cut_short_by_its_entry_reads_nothing_past_it() {
+        let dir = std::env::temp_dir().join(format!("bfe-video-cut-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("archive.bin");
+        let half = PATTERN.len() / 2;
+        let mut bytes = PATTERN[..half].to_vec();
+        bytes.extend(PATTERN);
+        std::fs::write(&path, bytes).unwrap();
+        let movie = Movie::open(Some(Source { path, offset: 0, length: half as u64 }), false);
+        assert!(first(&movie).is_err(), "a frame decoded from past the entry");
+        drop(movie);
+        // A header naming four gigabytes is refused before anything is read or allocated for it.
+        let mut huge = PATTERN.to_vec();
+        huge[4..8].copy_from_slice(&0xffff_fff0u32.to_le_bytes());
+        let path = dir.join("huge.bin");
+        std::fs::write(&path, &huge).unwrap();
+        let movie = Movie::open(Some(Source { path, offset: 0, length: huge.len() as u64 }), false);
+        assert!(first(&movie).is_err());
         drop(movie);
         std::fs::remove_dir_all(dir).unwrap();
     }

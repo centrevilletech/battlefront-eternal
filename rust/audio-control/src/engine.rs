@@ -300,14 +300,21 @@ impl Engine {
     }
     /// ports Voice.measure. Its silent clock deliberately ignores Doppler
     /// and the Classic glide, just as the page's virtual clock did.
-    pub fn measure(&mut self, id: usize, dt: f64, followed: Option<Point>, now: f64) {
+    /// `motion`: the source's and the listener's velocities. Doppler takes
+    /// them as the 2004 game does: Δ is how much nearer the source is now
+    /// than one velocity-second ago (docs/formats.md, "Sound"); without them
+    /// the change of distance since the last frame stands in.
+    pub fn measure(&mut self, id: usize, dt: f64, followed: Option<Point>, now: f64, motion: Option<(Point, Point)>) {
         let bus_gain = self.bus_gain(self.voices[id].bus); let v = &mut self.voices[id]; if v.done { return; }
         if let Some(p) = followed { v.position = Some(p); }
         let mut gain = (v.gain * bus_gain).min(1.0) * v.gain_scale;
         if v.mode3d {
             if let Some(p) = v.position {
                 let (d, span, local) = self.listener.place(p); v.distance = d; v.span = span; v.local = local;
-                if let Some(last) = v.last { if dt > 0.0 { v.radial = (last - d) / dt; } }
+                if let Some((source, listener)) = motion {
+                    let ear = self.listener.ear;
+                    v.radial = length([p[0] - source[0] - ear[0] + listener[0], p[1] - source[1] - ear[1] + listener[1], p[2] - source[2] - ear[2] + listener[2]]) - d;
+                } else if let Some(last) = v.last { if dt > 0.0 { v.radial = (last - d) / dt; } }
                 v.last = Some(d); gain *= v.curve.gain(d); if !self.enhanced { gain *= v.curve.openal(d); }
             }
         } else { v.distance = 0.0; v.span = 0.0; }

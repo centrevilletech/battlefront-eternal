@@ -13,6 +13,7 @@ impl Track {
     pub fn new(sound: usize, min_play: f64, min_idle: f64, priority: f64, fade_in: f64, fade_out: f64) -> Self { Self { sound, min_play, min_idle, priority, fade_in, fade_out, state: false, played: 0.0, idle: min_idle, voice: SILENT, wanted: false } }
     fn rank(&self) -> f64 { if self.idle >= self.min_idle { self.priority + 0.0001 } else { 0.0 } }
     fn ended(&mut self) { self.state = false; self.voice = SILENT; self.idle = 0.0; }
+    pub fn playing(&self) -> bool { self.state }
 }
 #[derive(Clone, Copy)]
 pub struct Slot { pub track: usize, pub threshold: f64 }

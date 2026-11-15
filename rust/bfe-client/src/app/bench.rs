@@ -538,6 +538,7 @@ impl Bench {
                 "ownRecord": receiver.roster.local.and_then(|slot| receiver.roster.record(slot, hud.game_over))
                     .map(|pair| pair.iter().map(|r| r.as_ref().map(|r| (r.tallies, r.favourites))).collect::<Vec<_>>()),
             }))?;
+            write!(out, r#","snd":{}"#, scene.sound.bench())?;
             // The end-of-match screens as the scoreboard reads them, once the scores stop.
             if hud.game_over {
                 use bfe_battle_ui::scoreboard::ScoreboardPort;

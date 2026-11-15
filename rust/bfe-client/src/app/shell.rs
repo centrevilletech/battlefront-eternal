@@ -461,7 +461,9 @@ fn trace_movie_rate(trace: &mut (std::time::Instant, u64), decoded: u64, now: st
 }
 
 /// Where the player's game folder may be, for its movie archives: `BFE_GAME_DIR`, the folder the player
-/// picked, the folder this content was prepared from (the desktop record, then the content's own record).
+/// picked, the folder this content was prepared from (the desktop record, then the content's own record),
+/// then every copy of the game this computer has (Steam, GOG, a games folder), as first-run setup finds
+/// them: content imported or named with `--content-dir` has no record of a game folder.
 fn movie_game_candidates(content_dir: &Path, settings: &AppSettingsStore) -> Vec<PathBuf> {
     let mut candidates: Vec<PathBuf> = std::env::var_os("BFE_GAME_DIR").map(PathBuf::from).into_iter().collect();
     candidates.extend(settings.desktop.game_dir.as_ref().map(PathBuf::from));
@@ -473,6 +475,15 @@ fn movie_game_candidates(content_dir: &Path, settings: &AppSettingsStore) -> Vec
     candidates.extend(
         bfe_desktop::prepare::read_prepare_state(Some(content_dir)).and_then(|state| state.game).map(PathBuf::from),
     );
+    let env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+    let home = env.get("HOME").or_else(|| env.get("USERPROFILE")).map(PathBuf::from);
+    let installs = bfe_desktop::discover::find_game_installs(&bfe_desktop::discover::FindGameOptions {
+        platform: super::settings::current_platform_str().to_string(),
+        home,
+        env,
+        extra: Vec::new(),
+    });
+    candidates.extend(installs.into_iter().map(|install| install.dir));
     candidates
 }
 
@@ -485,6 +496,10 @@ pub struct ShellHost {
     right_texture: bfe_shell::movie_gpu::MovieTexture,
     right_handle: u32,
     pub preview_movies: bfe_shell::movies::MoviePlayer,
+    /// The menu movies are stopped while a battle loads and plays (`suspend_movies`).
+    movies_suspended: bool,
+    /// The screen the side movies last saw: a new one tries a side whose movies failed again.
+    backdrop_screen: Option<ScreenId>,
     movie_clock: std::time::Instant,
     movie_trace: (std::time::Instant, u64),
     movie_texture: bfe_shell::movie_gpu::MovieTexture,
@@ -626,6 +641,8 @@ impl ShellHost {
             right_texture,
             right_handle,
             preview_movies: Default::default(),
+            movies_suspended: false,
+            backdrop_screen: None,
             movie_clock: std::time::Instant::now(),
             movie_trace: (std::time::Instant::now(), 0),
             movie_texture,
@@ -1291,7 +1308,17 @@ impl ShellHost {
     /// Resolves the localized planet title (`planet_name`) and loading prompt string
     /// (`data.load.text`), resets `self.loading_time = 0.0`, and schedules the loading
     /// screen sound effects (`loading_timeline.sounds()`) on `ShellAudioMixer`.
+    /// A battle shows no menu movie: its decoder threads end and their frames are freed until
+    /// the menus are back (`step_and_draw` resumes them).
+    fn suspend_movies(&mut self) {
+        self.movies.suspend();
+        self.right_movies.suspend();
+        self.preview_movies.suspend();
+        self.movies_suspended = true;
+    }
+
     pub fn prepare_map_loading(&mut self, map_id: &str, audio_router: &SharedAudioRouter) {
+        self.suspend_movies();
         if let Some(map) = self.app.data.maps.iter().find(|m| m.id == map_id) {
             self.loading_planet = planet_name(&map.id, &self.app.data.strings, map.load.as_ref());
             if !self.loading_stage_maps.contains_key(map_id) {
@@ -1506,6 +1533,16 @@ impl ShellHost {
         // Movie timestamps use wall time, independent of the simulation/UI dt clamp. Time the menu was not
         // stepped (a battle, a file dialog, a stalled frame) is not playback time: taken whole it made the
         // backdrop race through that many seconds of film on the way back, at several times its speed.
+        if std::mem::take(&mut self.movies_suspended) {
+            self.movies.resume(&self.movie_library);
+            self.right_movies.resume(&self.movie_library);
+            self.preview_movies.resume(&self.movie_library);
+        }
+        let screen = self.app.current_screen();
+        if self.backdrop_screen != Some(screen) {
+            self.backdrop_screen = Some(screen);
+            self.backdrop.retry();
+        }
         let now = std::time::Instant::now();
         let movie_dt = now.duration_since(self.movie_clock).as_secs_f64().min(MOVIE_STEP_MAX);
         self.movie_clock = now;

@@ -48,6 +48,9 @@ pub struct Phase {
     pub tow_attach: usize, pub tow_release: usize, pub started: bool, pub paused: bool, pub resume_level: f64,
     pub original_room_mask: u32, pub bus_names: Vec<(u32, usize)>, pub player_weapon_state: Vec<WeaponState>, pub room_pending: u32,
     pub primaries: Vec<usize>,
+    /// The listener's (camera's) own motion for Doppler: its last place and
+    /// its velocity, eased over a tenth of a second.
+    pub listener_motion: (Option<Point>, Point),
 }
 impl Phase {
     pub fn new(seed: u32) -> Self {
@@ -61,11 +64,16 @@ impl Phase {
             turrets: vec![[0.0; crate::layout::turret::STRIDE]; RECORDS], turret_state: vec![Default::default(); RECORDS], turret_count: 0, turret_emitter_base: RECORDS, reaches: Vec::new(),
             feet: vec![[0.0; crate::layout::foot::STRIDE]; RECORDS], foot_state: vec![Default::default(); RECORDS], foot_count: 0, foot_definitions: Vec::new(),
             director: Default::default(), master_bus: NONE, pause_bus: NONE, class_properties: Vec::new(), sound_names: Vec::new(), effects: Vec::new(), tow_attach: NONE, tow_release: NONE,
-            started: false, paused: false, resume_level: 1.0, original_room_mask: 1, bus_names: Vec::new(), player_weapon_state: vec![Default::default(); RECORDS], room_pending: 0, primaries: vec![NONE; RECORDS] }
+            started: false, paused: false, resume_level: 1.0, original_room_mask: 1, bus_names: Vec::new(), player_weapon_state: vec![Default::default(); RECORDS], room_pending: 0, primaries: vec![NONE; RECORDS], listener_motion: (None, [0.0; 3]) }
     }
     pub fn position(&self, id: usize) -> Option<Point> {
         if id >= self.turret_emitter_base && id != NONE { return self.turrets.get(id - self.turret_emitter_base).map(|r| [r[crate::layout::turret::X], r[crate::layout::turret::Y], r[crate::layout::turret::Z]]); }
         self.emitters.get(id).map(|r| [r[e::X], r[e::Y], r[e::Z]])
+    }
+    /// An emitter's velocity (none for a turret or a fixed place).
+    pub fn velocity(&self, id: usize) -> Point {
+        if id >= self.turret_emitter_base || id == NONE { return [0.0; 3]; }
+        self.emitters.get(id).map_or([0.0; 3], |r| { let v = [r[e::VX], r[e::VY], r[e::VZ]]; if v.iter().all(|x| x.is_finite()) { v } else { [0.0; 3] } })
     }
     pub fn sound(&self, class: usize, key: usize) -> usize { self.classes.get(class).map_or(NONE, |row| index(row[key])) }
     pub fn number(&self, class: usize, key: usize, default: f64) -> f64 { self.classes.get(class).map_or(default, |row| if row[key].is_nan() { default } else { row[key] }) }
@@ -148,7 +156,9 @@ impl Phase {
                 self.layers.advance(id, dt);
                 if self.layers.all_launched(handle) && (0..self.layers.count(handle)).all(|i| !self.playing(self.layers.child(handle, i))) { self.layers.retire(handle); }
             } else if let Some((id, serial)) = voice {
-                cursor = serial; let followed = self.position(self.engine.voices[id].emitter); self.engine.measure(id, dt, followed, self.engine.now);
+                cursor = serial; let emitter = self.engine.voices[id].emitter; let followed = self.position(emitter);
+                let motion = Some((self.velocity(emitter), self.listener_motion.1));
+                self.engine.measure(id, dt, followed, self.engine.now, motion);
             } else { break; }
         }
         let mut ranked = [0; CAPACITY]; let count = self.engine.rank(&mut ranked); let mut real = 0;
@@ -288,6 +298,18 @@ impl Phase {
         if !self.started { return; }
         self.engine.listener.set([self.frame[f::PX], self.frame[f::PY], self.frame[f::PZ]], [self.frame[f::FX], self.frame[f::FY], self.frame[f::FZ]], [self.frame[f::UX], self.frame[f::UY], self.frame[f::UZ]]);
         let dt = self.frame[f::DT]; let game_dt = if self.paused { 0.0 } else { dt }; let own = index(self.frame[f::OWN]);
+        // The camera's own velocity (a jump of more than 20 m, a respawn or a seat change, starts it again).
+        let at = [self.frame[f::PX], self.frame[f::PY], self.frame[f::PZ]];
+        let (last, velocity) = &mut self.listener_motion;
+        match *last {
+            Some(p) if game_dt > 0.0 && crate::length(crate::sub(at, p)) < 20.0 => {
+                let k = (game_dt / 0.1).min(1.0);
+                for axis in 0..3 { velocity[axis] += ((at[axis] - p[axis]) / game_dt - velocity[axis]) * k; }
+            }
+            Some(_) if game_dt == 0.0 => {}
+            _ => *velocity = [0.0; 3],
+        }
+        *last = Some(at);
         self.player(own, game_dt, collision); self.soldiers(own); self.scene(own, game_dt); self.vehicles(game_dt);
         if self.engine.enhanced { if self.frame[f::COLLISION] != 0.0 { self.acoustics.update(game_dt, &mut self.engine, collision); if self.acoustics.room_changed { self.room_pending = 2047; } } self.acoustics.loudness(game_dt, &self.engine); }
         self.ambience(); self.music(game_dt); self.voice_over(game_dt);

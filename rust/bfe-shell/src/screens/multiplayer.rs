@@ -157,6 +157,10 @@ pub struct MultiplayerLaunch {
     pub port: Option<u16>,
     /// True when `kind != MultiplayerKind::Lan` and `server.relay_policy == Some("always")`.
     pub relay_always: bool,
+    /// Further `HOST:PORT` targets tried in order when `address` does not answer:
+    /// the other endpoints an internet listing advertises (IPv4 before IPv6).
+    #[serde(default)]
+    pub fallbacks: Vec<String>,
     /// Cleaned player callsign (`clean_player_name(player_name)`).
     pub player_name: String,
 }
@@ -169,14 +173,57 @@ impl MultiplayerLaunch {
         if address.is_empty() {
             return None;
         }
-        let host = address.trim_start_matches('[').trim_end_matches(']');
-        let port = self.port.unwrap_or(DEFAULT_DIRECT_PORT);
-        Some(if host.contains(':') {
-            format!("[{host}]:{port}")
-        } else {
-            format!("{host}:{port}")
-        })
+        Some(host_port(address, self.port.unwrap_or(DEFAULT_DIRECT_PORT)))
     }
+
+    /// Every `HOST:PORT` to try for this join, in order: `address` first, then
+    /// the listing's other endpoints.
+    pub fn direct_targets(&self) -> Vec<String> {
+        let mut targets: Vec<String> = self.direct_target().into_iter().collect();
+        for target in &self.fallbacks {
+            if !targets.contains(target) {
+                targets.push(target.clone());
+            }
+        }
+        targets
+    }
+
+    /// The server identity an internet listing names (64 hex digits), which
+    /// the server at the chosen endpoint must announce before the client joins.
+    pub fn listed_identity(&self) -> Option<&str> {
+        let id = self.server_id.as_str();
+        (id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit())).then_some(id)
+    }
+}
+
+fn host_port(address: &str, port: u16) -> String {
+    let host = address.trim().trim_start_matches('[').trim_end_matches(']');
+    if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
+/// An internet listing's direct endpoints as `HOST:PORT`, IPv4 before IPv6 and
+/// otherwise in the master's order, at most four (as the latency probe uses).
+fn listed_targets(server: &ServerEntry) -> Vec<String> {
+    let mut endpoints: Vec<_> = server
+        .endpoints
+        .iter()
+        .filter(|e| !e.address.trim().is_empty() && e.port != 0)
+        .filter(|e| e.transport.as_deref().is_none_or(|t| t == "udp"))
+        .take(4)
+        .collect();
+    endpoints.sort_by_key(|e| e.address.contains(':'));
+    let mut targets: Vec<String> = Vec::new();
+    for e in endpoints {
+        let target = host_port(&e.address, e.port);
+        if !targets.contains(&target) {
+            targets.push(target);
+        }
+    }
+    targets
 }
 
 /// Resolves a server's battle target (`family`, `map`, `side`, `era`, `mode`,
@@ -227,21 +274,32 @@ pub fn resolve_server_join(
         .unwrap_or(rot_mode)
         .to_string();
 
-    // `LAN` joins include the server's `address` and `port` (defaulting to
-    // `18451`); `ONLINE` joins resolve via the signaling/master server id and
-    // honor `relayPolicy === "always"` (`joinServer` in `src/shell/screens.js`).
-    let (address, port) = if kind == MultiplayerKind::Lan {
-        (
-            server.address.clone(),
-            Some(server.port.unwrap_or(DEFAULT_DIRECT_PORT)),
-        )
-    } else {
-        (None, None)
-    };
     // Only `ONLINE` sessions apply `relayPolicy === "always"` (`joinServer` in
     // `src/shell/screens.js`).
     let relay_always =
         kind != MultiplayerKind::Lan && server.relay_policy.as_deref() == Some("always");
+    // `LAN` joins use the server's `address` and `port` (defaulting to
+    // `18451`). The native client has no relay or signaling session, so an
+    // `ONLINE` join goes straight to the endpoints the master lists for the
+    // server, unless its operator asked for the relay only. The listed server
+    // id still pins the identity the server must announce.
+    let (address, port, fallbacks) = if kind == MultiplayerKind::Lan {
+        (
+            server.address.clone(),
+            Some(server.port.unwrap_or(DEFAULT_DIRECT_PORT)),
+            Vec::new(),
+        )
+    } else if relay_always {
+        (None, None, Vec::new())
+    } else {
+        let mut targets = listed_targets(server).into_iter();
+        let first = targets.next();
+        let (address, port) = match first.as_deref().and_then(|t| t.rsplit_once(':')) {
+            Some((host, port)) => (Some(host.to_string()), port.parse().ok()),
+            None => (None, None),
+        };
+        (address, port, targets.collect())
+    };
 
     MultiplayerLaunch {
         kind,
@@ -254,6 +312,7 @@ pub fn resolve_server_join(
         address,
         port,
         relay_always,
+        fallbacks,
         player_name: clean_player_name(player_name),
     }
 }
@@ -1328,5 +1387,31 @@ mod endpoint_tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn internet_join_uses_listed_endpoints_ipv4_first() {
+        let endpoint = |address: &str| bfe_online::browser::EndpointAddr {
+            address: address.into(),
+            port: 18452,
+            ..Default::default()
+        };
+        let id = "ab".repeat(32);
+        let mut server = ServerEntry {
+            id: id.clone(),
+            endpoints: vec![endpoint("2001:db8::44"), endpoint("203.0.113.44")],
+            relay_policy: Some("never".into()),
+            ..ServerEntry::default()
+        };
+        let launch = resolve_server_join(&server, MultiplayerKind::Online, "PLAYER TWO");
+        assert_eq!(
+            launch.direct_targets(),
+            ["203.0.113.44:18452", "[2001:db8::44]:18452"]
+        );
+        assert_eq!(launch.listed_identity(), Some(id.as_str()));
+        // A relay-only server lists nothing this client can join directly.
+        server.relay_policy = Some("always".into());
+        let launch = resolve_server_join(&server, MultiplayerKind::Online, "PLAYER TWO");
+        assert!(launch.direct_targets().is_empty());
     }
 }

@@ -32,6 +32,10 @@ struct Batch {
     // commands, and the one it replaced, handed back to be dropped here.
     config: Option<Box<Output>>,
     retired: Option<Box<Output>>,
+    // The samples this batch's arrivals replaced (released or swapped for
+    // their upscaled versions), handed back to be freed here, not on the
+    // device thread.
+    freed: Vec<audio::voices::Sample>,
 }
 // A stream completion writes at most a bind and a start command.
 const READY_WORDS: usize = 5 + 8;
@@ -49,6 +53,7 @@ impl Batch {
             samples: Vec::with_capacity(512),
             config: None,
             retired: None,
+            freed: Vec::with_capacity(512),
         }
     }
 }
@@ -58,6 +63,9 @@ struct Mailbox {
     write: AtomicUsize,
     clock: AtomicU64,
     peak: AtomicU32,
+    // The longest device quantum (control batches and the render) since the
+    // window last read it, in nanoseconds (bench telemetry).
+    worst: AtomicU64,
 }
 // There is exactly one window producer and one device consumer. A release
 // store publishes the complete slot; the matching acquire grants exclusive
@@ -73,6 +81,7 @@ impl Mailbox {
             write: AtomicUsize::new(0),
             clock: AtomicU64::new(0),
             peak: AtomicU32::new(0),
+            worst: AtomicU64::new(0),
         }
     }
     fn available(&self) -> bool {
@@ -91,6 +100,7 @@ impl LiveOutput {
     // across callbacks of arbitrary device buffer length. A callback does not
     // advance the gameplay control runtime or ask a window thread for work.
     fn quantum(&mut self) {
+        let began = std::time::Instant::now();
         let mut read = self.mail.read.load(Ordering::Relaxed);
         let write = self.mail.write.load(Ordering::Acquire);
         while read != write {
@@ -104,7 +114,10 @@ impl LiveOutput {
                 batch.retired = Some(next);
             }
             for (id, pcm) in batch.samples.drain(..) {
-                self.output.voices.set_sample(id, pcm.map(|pcm| pcm.sample));
+                if let Some(old) = self.output.voices.set_sample(id, pcm.map(|pcm| pcm.sample)) {
+                    // The window reserved room for every arrival of the batch.
+                    batch.freed.push(old);
+                }
             }
             if let Some(master) = &mut self.output.master {
                 if batch.mask != 0 {
@@ -130,6 +143,7 @@ impl LiveOutput {
         }
         self.output.process();
         self.mail.clock.store(self.output.frame, Ordering::Release);
+        self.mail.worst.fetch_max(began.elapsed().as_nanos() as u64, Ordering::Relaxed);
         self.next = 0;
     }
     /// Fills interleaved device frames of `channels` channels. The output's
@@ -307,6 +321,18 @@ pub struct Sound {
     /// How many upscaled samples have arrived.
     pub enhanced_loaded: u64,
     headphones: Option<(std::sync::Arc<Vec<f32>>, usize)>,
+    sound_names: Vec<String>,
+    // The device generation the output was last resolved against.
+    device_seen: u64,
+    // The sub-level's spaces, the boxes that pick them, the dry default, and
+    // the listener's space now (Classic's reverb).
+    spaces: Vec<(f64, [f64; room::STRIDE])>,
+    space_boxes: Vec<super::sound_data::SpaceBox>,
+    dry: (f64, [f64; room::STRIDE]),
+    space: Option<usize>,
+    space_set: bool,
+    // Chatter records received, by property (bench telemetry).
+    vo_asked: Vec<(String, u64)>,
 }
 impl Sound {
     pub fn new(prepared: Prepared, collision: Collision, world: u32) -> Self {
@@ -325,6 +351,8 @@ impl Sound {
             posts: prepared.posts,
             post_building: prepared.post_building,
             runtime: prepared.runtime,
+            sound_names: prepared.sound_names,
+            vo_asked: Vec::new(),
             pending: Vec::with_capacity(2048),
             pending_effects: Vec::with_capacity(2048),
             held: Vec::with_capacity(HELD),
@@ -357,10 +385,17 @@ impl Sound {
             starts: [f64::NAN; 2],
             ui_paused: false,
             ui_board: false,
-            audio: super::sound_output::AudioSettings { enhanced: false, output: "stereo".into(), ..Default::default() },
+            // No settings yet: the first set_audio always builds and publishes the output in force.
+            audio: super::sound_output::AudioSettings { output: String::new(), ..Default::default() },
             rendering: super::sound_output::Rendering {
-                layout: "stereo", channels: 2, enhanced: false, light: true, hrtf: false, binaural: false, lfe: false,
+                layout: "stereo", asked: "stereo", channels: 2, enhanced: false, light: true, hrtf: false, binaural: false, lfe: false,
             },
+            device_seen: crate::audio::device_generation(),
+            spaces: prepared.spaces,
+            space_boxes: prepared.space_boxes,
+            dry: (0., { let mut r = [0.; room::STRIDE]; r[room::ROOM_HF] = 1.; r[room::DECAY] = 1.; r[room::HF_RATIO] = 0.5; r[room::REFL_DELAY] = 0.02; r[room::REVERB_DELAY] = 0.04; r[room::DIFFUSION] = 1.; r[room::DENSITY] = 1.; r[room::HF_REFERENCE] = 5000.; r[room::MASK] = 1.; r }),
+            space: None,
+            space_set: false,
             configuration: 0.,
             pending_config: None,
             room: [0.; audio::reverb::PARAM_COUNT],
@@ -376,14 +411,15 @@ impl Sound {
     /// mix configuration here, off the device thread; the device installs it
     /// before the next batch, keeping every sound that plays.
     pub fn set_audio(&mut self, settings: &super::sound_output::AudioSettings) {
-        let (default, max) = crate::audio::device_channels();
-        let wanted = super::sound_output::resolve(&settings.output, default, max).name;
+        let (default, widths) = crate::audio::device_channels();
+        self.device_seen = crate::audio::device_generation();
+        let wanted = super::sound_output::resolve(&settings.output, default, widths).name;
         if *settings == self.audio && wanted == self.rendering.layout {
             return;
         }
         let room = (self.room_mask != 0).then_some((&self.room, self.room_mask));
         let (mut next, rendering) =
-            super::sound_output::build(settings, default, max, room, self.volumes[0].clamp(0., 1.) as f32,
+            super::sound_output::build(settings, default, widths, room, self.volumes[0].clamp(0., 1.) as f32,
                 self.headphones.as_ref().map(|(filters, frames)| (filters.as_slice(), *frames)));
         crate::audio::want_channels(rendering.channels);
         if rendering.enhanced && self.enhanced_loading.is_none() && !self.enhanced_items.is_empty() {
@@ -402,6 +438,46 @@ impl Sound {
         }
     }
     /// The output's layout and rendering in force.
+    /// The bench telemetry's sound state: voices per category (playing, and heard of those),
+    /// the engine's counters (heard, silent, started, stolen, dropped, culled), stream voices
+    /// by sound name and category, the music stage and the track playing.
+    pub fn bench(&self) -> serde_json::Value {
+        let p = &self.runtime.phase;
+        let e = &p.engine;
+        let (mut live, mut heard) = ([0u32; 8], [0u32; 8]);
+        for v in e.voices.iter().filter(|v| !v.done) {
+            live[v.category.min(7)] += 1;
+            heard[v.category.min(7)] += v.real as u32;
+        }
+        let name = |id: usize| self.sound_names.get(id).map_or("", String::as_str);
+        let streams: Vec<_> = p.streams.census().map(|(sound, category)| serde_json::json!([name(sound), category])).collect();
+        let track = p.director.tracks.iter().find(|t| t.playing()).map(|t| name(t.sound));
+        // Heard placed voices past 4 m: how many, their mean occlusion, how many
+        // more than half occluded, their mean distance; and the fastest radial
+        // speed among heard ones (Doppler), with how many move over 5 m/s.
+        let (mut n, mut occluded, mut over, mut far, mut fastest, mut moving, mut fastest_kind) = (0u32, 0., 0u32, 0., 0f64, 0u32, -1.);
+        for v in e.voices.iter().filter(|v| !v.done && v.real && v.mode3d) {
+            if v.distance > 4. {
+                let o = v.occluded.unwrap_or(0.);
+                n += 1;
+                occluded += o;
+                over += (o > 0.5) as u32;
+                far += v.distance;
+            }
+            if v.radial.abs() < 172. {
+                if v.radial.abs() > fastest {
+                    fastest = v.radial.abs();
+                    fastest_kind = v.category as f64;
+                }
+                moving += (v.radial.abs() > 5.) as u32;
+            }
+        }
+        let occlusion = [n as f64, if n > 0 { occluded / n as f64 } else { 0. }, over as f64, if n > 0 { far / n as f64 } else { 0. }];
+        let worst = self.mail.worst.swap(0, Ordering::Relaxed) as f64 / 1000.;
+        serde_json::json!({ "live": live, "heard": heard, "stats": e.stats, "streams": streams,
+            "stage": p.director.stage, "track": track, "worstUs": worst, "voAsked": self.vo_asked,
+            "occlusion": occlusion, "doppler": [fastest, moving as f64, fastest_kind] })
+    }
     pub fn rendering(&self) -> super::sound_output::Rendering {
         self.rendering
     }
@@ -588,7 +664,13 @@ impl Sound {
                 self.events += 1;
                 return;
             }
-            "vo" => self.chatter(receiver, source),
+            "vo" => {
+                match self.vo_asked.iter_mut().find(|(p, _)| *p == source.property) {
+                    Some((_, n)) => *n += 1,
+                    None => self.vo_asked.push((source.property.to_string(), 1)),
+                }
+                self.chatter(receiver, source)
+            }
             "bounce" | "pickup" => self.ordnance(source),
             "serve" => self.serve(source),
             "towAttach" | "towRelease" => self.tow(receiver, source),
@@ -614,6 +696,12 @@ impl Sound {
     ) {
         if self.output.is_some() {
             return;
+        }
+        // The device was opened again (another width, or a fallback after a
+        // width it would not play): resolve the layout against it again.
+        if crate::audio::device_generation() != self.device_seen && !self.audio.output.is_empty() {
+            let settings = self.audio.clone();
+            self.set_audio(&settings);
         }
         // Device time can stand still between two window frames. Retain
         // authoritative fire facts before that early return; the scene may
@@ -1233,6 +1321,27 @@ impl Sound {
                 self.foot_counts[(event[event::VALUE] == 6.) as usize] += 1;
             }
         }
+        // Classic's reverb: the listener's space (Sound::listener_space).
+        let p = &runtime.phase.frame;
+        let ear = [p[frame::PX] + 2. * p[frame::FX], p[frame::PY] + 2. * p[frame::FY], p[frame::PZ] + 2. * p[frame::FZ]];
+        let space = listener_space(&self.space_boxes, self.space, ear);
+        if space != self.space || !self.space_set {
+            self.space = space;
+            self.space_set = true;
+            let (send, row) = space.map_or(self.dry, |id| self.spaces[id]);
+            let phase = &mut runtime.phase;
+            phase.space_send = send;
+            phase.original_room = audio_control::acoustics::Room {
+                room: row[room::ROOM], room_hf: row[room::ROOM_HF], decay: row[room::DECAY], hf_ratio: row[room::HF_RATIO],
+                reflections: row[room::REFLECTIONS], refl_delay: row[room::REFL_DELAY], reverb: row[room::REVERB],
+                reverb_delay: row[room::REVERB_DELAY], diffusion: row[room::DIFFUSION], density: row[room::DENSITY],
+                hf_reference: row[room::HF_REFERENCE],
+            };
+            phase.original_room_mask = row[room::MASK] as u32;
+            if !phase.engine.enhanced {
+                phase.room_pending |= phase.original_room_mask;
+            }
+        }
         runtime.step(&mut self.queries);
         // For a battle's summary: the supply stations humming after this step.
         self.station_loops = self
@@ -1254,6 +1363,7 @@ impl Sound {
         let write = self.mail.write.load(Ordering::Relaxed);
         let batch = unsafe { &mut *self.mail.slots[write % QUEUE].get() };
         drop(batch.retired.take());
+        batch.freed.clear();
         batch.config = self.pending_config.take();
         batch.samples.clear();
         batch.samples.append(&mut arrived);
@@ -1325,11 +1435,24 @@ impl Sound {
             }
             submit_requests(runtime, &self.assets, batch, &mut self.refused);
         }
+        batch.freed.reserve(batch.samples.len());
         self.mail
             .write
             .store(write.wrapping_add(1), Ordering::Release);
         self.batches += 1;
     }
+}
+
+/// The space a listener at `ear` takes (docs/formats.md, "Sound"): the one
+/// he has while still inside one of its boxes, else the earliest box (in load
+/// order) holding him, else none (the dry default).
+fn listener_space(boxes: &[super::sound_data::SpaceBox], current: Option<usize>, ear: [f64; 3]) -> Option<usize> {
+    if let Some(space) = current {
+        if boxes.iter().any(|b| b.space == space && b.holds(ear)) {
+            return current;
+        }
+    }
+    boxes.iter().find(|b| b.holds(ear)).map(|b| b.space)
 }
 
 // Disappearance freezes followed one-shots at their last published point,
@@ -1455,6 +1578,19 @@ mod batch_tests {
 
     // A frame may publish up to COMMANDS words of its own; stream completions
     // received after that must not take the batch past the device's reserve.
+    #[test]
+    fn the_listener_keeps_his_space_while_inside_it_else_takes_the_earliest_box() {
+        use super::super::sound_data::SpaceBox;
+        let at = |x: f64, space: usize| SpaceBox { matrix: [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., x, 0., 0., 1.], size: [5., 5., 5.], space };
+        let boxes = [at(0., 1), at(4., 2)];
+        assert_eq!(listener_space(&boxes, None, [100., 0., 0.]), None);
+        assert_eq!(listener_space(&boxes, None, [3., 0., 0.]), Some(1));
+        // Inside both: the space he has stays; entering fresh, the earliest box wins.
+        assert_eq!(listener_space(&boxes, Some(2), [3., 0., 0.]), Some(2));
+        assert_eq!(listener_space(&boxes, None, [8., 0., 0.]), Some(2));
+        assert_eq!(listener_space(&boxes, Some(1), [8., 0., 0.]), Some(2));
+        assert_eq!(listener_space(&boxes, Some(1), [20., 0., 0.]), None);
+    }
     #[test]
     fn a_full_frame_batch_reaches_the_device_without_overrunning_it() {
         let mut output = Output::new(48000., 2, false, false, false, false, Default::default());
