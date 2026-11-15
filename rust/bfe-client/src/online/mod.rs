@@ -42,6 +42,7 @@ mod lights;
 pub mod particles;
 
 pub mod steam;
+pub mod trails;
 pub mod turrets;
 pub mod weather;
 

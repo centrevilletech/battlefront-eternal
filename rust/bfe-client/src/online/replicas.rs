@@ -72,6 +72,8 @@ struct Slot {
     // up and whether the droideka is rolled into a ball.
     bubble: Option<usize>,
     shield: (f64, bool, bool),
+    // A droideka's mode and velocity as replicated (its rolling dust).
+    roll: (f64, [f64; 3]),
     // The record's charge step of the weapon in his hands (0 to 63).
     charge: f64,
     // Unit.goUp: seconds since this life's body went up, None while drawn.
@@ -111,6 +113,10 @@ pub struct Replicas {
     pub snow: Option<Box<super::weather::Snow>>,
     pub steam: Option<Box<super::steam::Steam>>,
     pub fountains: Option<Box<super::fountains::Fountains>>,
+    pub trails: Box<super::trails::Trails>,
+    rollers: Vec<super::trails::Roller>,
+    // The player's own body, whose droideka alone trails dust (game.js).
+    own: (u32, u32),
     guns: super::lightning::Guns,
     soft: bool,
     // The tick of the frame being drawn.
@@ -362,6 +368,7 @@ impl Replicas {
                     blown: false,
                     bubble: None,
                     shield: (0., false, false),
+                    roll: (0., [0.; 3]),
                     charge: 0.,
                     gone: None,
                     flash: (0, -1., 0., [0.; 4]),
@@ -484,6 +491,8 @@ impl Replicas {
         let steam = super::steam::Steam::new(content, bridge, textures, renderer, steam_at)?.map(Box::new);
         let fountains_at = steam.as_ref().map_or(steam_at, |s| s.end());
         let fountains = super::fountains::Fountains::new(content, bridge, textures, renderer, fountains_at)?.map(Box::new);
+        let trails_at = fountains.as_ref().map_or(fountains_at, |f| f.end());
+        let trails = Box::new(super::trails::Trails::new(content, bridge, resources.collision.clone(), resources.world, trails_at)?);
         combat.map_effects.jets = fountains.is_some();
         bridge.r.core.state.reset();
         // Weapon actions resolve their clips once, per body and bank.
@@ -516,6 +525,9 @@ impl Replicas {
             snow,
             steam,
             fountains,
+            trails,
+            rollers: Vec::with_capacity(16),
+            own: (0, 0),
             guns,
             // The browser's defaults, until the player's settings arrive.
             soft: true,
@@ -558,6 +570,7 @@ impl Replicas {
         bridge: &mut Bridge,
     ) {
         self.tick = tick;
+        self.own = (receiver.own.id as u32, receiver.own.generation as u32);
         self.hud.frame(bridge, receiver, prediction, dt);
         self.combat.frame(receiver, tick, dt, &mut self.lights, bridge);
         // SnapshotPresentation samples once for the whole display batch.
@@ -653,6 +666,7 @@ impl Replicas {
             if kind == k::DROIDEKA {
                 // Droideka.rolled: folding, rolling or unfolding (mode 11 on).
                 self.slots[slot].shield = (row[r::SHIELD], row[r::SHIELD_ON] != 0., row[r::MODE] >= 11.);
+                self.slots[slot].roll = (row[r::MODE], std::array::from_fn(|i| row[r::VELOCITY + i]));
             }
             let lease = (row[r::SEAT_PRESENT] != 0.).then_some((
                 row[r::SEAT_VEHICLE_ID] as u32,
@@ -1095,6 +1109,7 @@ impl Replicas {
     pub fn set_looks(&mut self, looks: Looks) {
         self.arcs.enhanced = looks.arcs;
         self.shields.enhanced = looks.shields;
+        self.trails.enhanced = looks.shields;
         self.soft = looks.soft_particles;
         self.combat.enhanced_bolts = looks.bolts;
         self.combat.enhanced_sniper = looks.sniper;
@@ -1132,6 +1147,22 @@ impl Replicas {
         if let Some(fountains) = &mut self.fountains {
             fountains.frame(dt, &self.combat.map_effects.fountains, screen, gpu, bridge);
         }
+        // DroidekaTrail.update for the player's droideka (game.js keeps one
+        // trail, his own; Droideka mode 12: rolling), where it is drawn.
+        self.rollers.clear();
+        for slot in self.slots.iter().filter(|s| s.active && s.walker && s.identity == Some(self.own)) {
+            let (Some(unit), out) = (slot.identity, &self.units.output[slot.actor * o::STRIDE..]) else {
+                continue;
+            };
+            self.rollers.push(super::trails::Roller {
+                unit,
+                position: std::array::from_fn(|i| out[o::POSITION + i]),
+                velocity: slot.roll.1,
+                rolling: slot.roll.0 == 12.,
+                dead: slot.dead,
+            });
+        }
+        self.trails.frame(dt, &self.rollers, bridge);
         if let Some(rain) = &mut self.rain {
             rain.frame(dt, eye, gpu, bridge);
         }
@@ -1141,13 +1172,14 @@ impl Replicas {
         // With the bench's fx key, how often each was drawn, every 600 frames.
         if self.frame % 600 == 0 && crate::app::bench::fx().is_some() {
             eprintln!(
-                "fx-weather rain={} rain-enhanced={} snow={} steam={} vents={} fountains={} jets-in-view={}",
+                "fx-weather rain={} rain-enhanced={} snow={} steam={} vents={} fountains={} dust={} jets-in-view={}",
                 self.rain.as_ref().map_or(0, |r| r.frames),
                 self.rain.as_ref().is_some_and(|r| r.enhanced),
                 self.snow.as_ref().map_or(0, |s| s.frames),
                 self.steam.as_ref().map_or(0, |s| s.frames),
                 self.combat.map_effects.volumes.len(),
                 self.fountains.as_ref().map_or(0, |f| f.frames),
+                self.trails.drawn,
                 self.combat.map_effects.fountains.len()
             );
         }
