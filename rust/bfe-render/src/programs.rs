@@ -57,7 +57,7 @@ pub fn sources(s: &Spec) -> (String, String) {
     (format!("{PREFIX}{VERTEX}{}{}", s.vertex_prefix, vertex), format!("{PREFIX}{FRAGMENT}{}{}", s.fragment_prefix, fragment))
 }
 
-// Water extends through the near plane. Desktop depth clamping preserves
+// Water extends through the near plane. Hardware depth clamping preserves
 // that coverage without writing fragment depth, allowing early rejection of
 // water hidden by opaque surfaces. Other contexts retain the shader path.
 fn water_raster_depth(key: &str, vertex: &mut String, fragment: &mut String) -> bool {
@@ -94,8 +94,9 @@ impl<G: HasContext, M: MultiDraw> Core<G, M> {
             vs = vs.replacen("#version 300 es", "#version 310 es", 1);
             fs = fs.replacen("#version 300 es", "#version 310 es\n#define BFE_GATHER_DEPTH", 1);
         }
-        let clamp = !version.is_embedded && (version.major, version.minor) >= (3, 2)
-            && water_raster_depth(key, &mut vs, &mut fs);
+        let clamp_supported = (!version.is_embedded && (version.major, version.minor) >= (3, 2))
+            || self.gl.supported_extensions().contains("GL_EXT_depth_clamp");
+        let clamp = clamp_supported && water_raster_depth(key, &mut vs, &mut fs);
         let attributes = s.attributes.iter().map(|(n, l)| (n.to_string(), *l)).collect::<Vec<_>>();
         let uniforms = s.uniforms.iter().map(|(n, _)| n.to_string()).collect::<Vec<_>>();
         let id = self.add_program_lamps(s.kind, &vs, &fs, &attributes, &uniforms, s.lamps)?;
@@ -228,6 +229,24 @@ mod tests {
             let (v, f) = sources(&s);
             assert_eq!(v, s.vertex.concat()); assert_eq!(f, s.fragment.concat());
         }
+    }
+    #[test]
+    fn water_depth_clamp_replaces_both_shader_depth_overrides() {
+        for stem in ["reflection", "refraction", "textured"] {
+            for suffix in ["", "-shadow"] {
+                let key = format!("effects/water-{stem}-s2{suffix}");
+                let (mut v, mut f) = sources(spec(&key).unwrap());
+                assert!(water_raster_depth(&key, &mut v, &mut f), "{key}");
+                assert!(v.contains("gl_Position = projectionMatrix * view;"));
+                assert!(!v.contains("gl_Position.z = 0.0;"));
+                assert!(!f.contains("gl_FragDepth ="));
+            }
+        }
+        let key = "effects/water-reflection-far-s2";
+        let (mut v, mut f) = sources(spec(key).unwrap());
+        let original = (v.clone(), f.clone());
+        assert!(!water_raster_depth(key, &mut v, &mut f));
+        assert_eq!((v, f), original);
     }
     #[test]
     fn registry_is_closed_and_sources_need_no_three_expansion() {

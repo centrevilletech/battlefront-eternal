@@ -1720,7 +1720,7 @@ impl Scene {
     }
     fn draw_selected(&mut self, view: &View, component: Component) -> Result<(), String> {
         if self.profile_start.is_none() && self.frame.is_some() && std::env::var_os("BFE_GRAPHICS_TRACE").is_some() {
-            self.bridge.r.core.profile.enable(&self.bridge.r.core.gl);
+            self.bridge.r.core.start_profile();
             self.profile_start=Some(std::time::Instant::now());
             self.profile_memory("battle start");
         }
