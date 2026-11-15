@@ -89,8 +89,6 @@ Updating the executable alone cannot update a dedicated server's game data.
 Refresh its prepared data from the same generation as the clients, including
 map JSON, prop animation and collision binaries, common and side definitions.
 Keep the previous server directory until health and a player join are verified.
-Use `cargo run --manifest-path rust/Cargo.toml -p bfe-content-native --example fingerprint -- <data-folder>`
-to inspect and compare runtime content fingerprints across prepared folders.
 Texture quality and operating system do not require different gameplay hashes.
 
 Preparation must give the same bits on every platform, because the server's

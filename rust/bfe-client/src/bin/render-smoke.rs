@@ -7,20 +7,6 @@
 //! `interface`, `post-hud`, `utility`) into an offscreen RGBA8 + depth/stencil
 //! target under either software GL (`llvmpipe`) or hardware GL.
 //!
-//! Why this binary exists alongside `static-frame`:
-//! - `static-frame` validates static map component admission (`sky`, `props`,
-//!   `foliage`, `water`), which touches only the handful of shader variants
-//!   referenced by the synthetic `room` fixture.
-//! - `render-smoke` closes the remaining gap between the shader catalog smoke and the native CI gate by compiling and
-//!   linking every declared shader variant on a cold `Bridge` before executing
-//!   all 6 shader families' draw passes (`WorldPass` + `FoliagePass`,
-//!   `InstancePass`, `WaterPass` + `EffectsPass`, `InterfacePass`,
-//!   `PostPass` + `HudPass`, and `Lines`) against the same offscreen target.
-//! - Structured JSONL progress events (`variant-start`, `variant-result`,
-//!   `family-result`, `family-draw`, and the final `runs` summary) mirror the
-//!   schema of `tools/renderer-smoke.mjs` so CI and `tools/renderer-smoke-native.py`
-//!   can cross-check the native and manifest catalogs without launching Chromium.
-//!
 //! Contract with adjacent crates:
 //! - `bfe_render::programs::specs()` owns the compiled-in shader table. Every
 //!   key in `rust/bfe-render/shaders/*/manifest.json` must resolve in `specs()`

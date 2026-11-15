@@ -248,8 +248,7 @@ pub enum AppState {
 /// Main entry point for `bfe-client`.
 ///
 /// Parses command-line arguments first so `--help` / `--version` exit 0 immediately
-/// before touching any display server or audio device, and routes either to legacy
-/// diagnostic sub-modes (`--local`, `--join`, `--map`) or to [`run_standalone_game`].
+/// before touching any display server or audio device, then runs [`run_standalone_game`].
 pub fn run(with_audio: bool) {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match parse_args(args) {
@@ -262,25 +261,6 @@ pub fn run(with_audio: bool) {
             // Print package version to stdout and exit 0 cleanly.
             println!("{ver}");
             std::process::exit(0);
-        }
-        Ok(CliDispatch::LegacyLocal(raw)) => {
-            // Dispatch legacy `--local` single-battle CLI mode.
-            if !crate::local::launch::dispatch() {
-                let result = crate::local::options::Options::parse(
-                    &raw,
-                    std::env::var_os("BFE_CONTENT_DIR"),
-                )
-                .and_then(|options| options.ok_or_else(|| "missing local battle mode".into()))
-                .and_then(crate::local::launch::run);
-                if let Err(error) = result {
-                    eprintln!("bfe-client: {error}");
-                    std::process::exit(1);
-                }
-            }
-        }
-        Ok(CliDispatch::LegacyJoin(_)) | Ok(CliDispatch::LegacyWindow(_)) => {
-            // Dispatch legacy `--join`, `--map`, or recorded `SESSION_DIR` window.
-            crate::session_window::run_with_audio(with_audio);
         }
         Ok(CliDispatch::Standalone(opts)) => {
             // Launch the default standalone native game lifecycle.
