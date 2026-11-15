@@ -341,39 +341,3 @@ impl Bench {
         Ok(())
     }
 }
-
-/// TEMPORARY (spawn lane): BFE_SPAWN_PROFILE=1 finishes the GL queue at each mark and prints the mean time
-/// between marks every 3 s.
-pub mod prof {
-    use glow::HasContext;
-    use std::cell::RefCell;
-    use std::time::Instant;
-    thread_local! {
-        static P: RefCell<Option<(Instant, Instant, Vec<(&'static str, f64, u32)>)>> = RefCell::new(
-            std::env::var_os("BFE_SPAWN_PROFILE").map(|_| (Instant::now(), Instant::now(), Vec::new())));
-    }
-    pub fn mark(gl: &glow::Context, name: &'static str) {
-        P.with(|p| {
-            let mut p = p.borrow_mut();
-            let Some((last, report, rows)) = p.as_mut() else { return };
-            unsafe { gl.finish() };
-            let now = Instant::now();
-            let ms = (now - *last).as_secs_f64() * 1000.;
-            *last = now;
-            match rows.iter_mut().find(|r| r.0 == name) {
-                Some(r) => {
-                    r.1 += ms;
-                    r.2 += 1;
-                }
-                None => rows.push((name, ms, 1)),
-            }
-            if name == "present" && (now - *report).as_secs_f64() > 3. {
-                *report = now;
-                let frames = rows.iter().find(|r| r.0 == "present").map_or(1, |r| r.2).max(1);
-                let line: Vec<String> = rows.iter().map(|r| format!("{}={:.2}", r.0, r.1 / frames as f64)).collect();
-                eprintln!("spawn profile ({frames} frames): {}", line.join(" "));
-                rows.clear();
-            }
-        });
-    }
-}
