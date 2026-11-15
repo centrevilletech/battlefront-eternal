@@ -126,6 +126,12 @@ impl Battle {
             }
         }).unwrap();
     }
+    /// A post's owner by name.
+    fn owner(&self, name: &str) -> f64 {
+        self.context.owned(|w| {
+            w.sim.store.post.iter().find(|(_, p)| String::from_utf16_lossy(w.sim.strings.units(p.name)) == name).map_or(f64::NAN, |(_, p)| p.team)
+        }).unwrap()
+    }
     /// The teams' reinforcements and the loser once the battle is over.
     fn tickets(&self) -> ([f64; 2], Option<f64>) {
         self.context.owned(|w| {
@@ -210,6 +216,25 @@ fn bleed_and_the_no_post_countdown_follow_the_posts_held() {
         battle.context.dispose().unwrap();
         ([start[0] - end[0], start[1] - end[1]], over)
     };
+    // The player alone in cp2, handed to the other team: neutralized after
+    // neutralizeTime (12 s) and his after captureTime (10 s) more.
+    {
+        let off = crate::world::admit::Bots::read("off", "medium", "full");
+        let mut battle = Battle::with_bots(std::path::Path::new(&content), "nab2", "rep", 1, false, off);
+        battle.tick();
+        battle.stage(&[("cp2", 1.0)]);
+        let (mut neutral_at, mut captured_at) = (None, None);
+        for tick in 1..=30 * 60 {
+            battle.tick();
+            let owner = battle.owner("cp2");
+            if owner == 0.0 && neutral_at.is_none() { neutral_at = Some(tick as f64 / 60.0); }
+            if owner == 2.0 && captured_at.is_none() { captured_at = Some(tick as f64 / 60.0); }
+        }
+        battle.context.dispose().unwrap();
+        eprintln!("one soldier at cp2: neutral at {neutral_at:?} s, captured at {captured_at:?} s");
+        let (n, c) = (neutral_at.expect("neutralized"), captured_at.expect("captured"));
+        assert!((11.9..12.1).contains(&n) && (21.9..22.1).contains(&c), "neutral {n} s, captured {c} s");
+    }
     let one = case([1.0, 2.0, 2.0, 2.0, 2.0, 2.0], 60);
     // The harness's player stands at cp2: team 1 gets posts away from him.
     let two = case([1.0, 2.0, 1.0, 2.0, 2.0, 2.0], 60);
