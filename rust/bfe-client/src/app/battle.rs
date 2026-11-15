@@ -1611,10 +1611,11 @@ impl BattleController {
         settings: &mut AppSettingsStore,
         _audio_router: &SharedAudioRouter,
     ) -> Result<Option<BattleTransition>, String> {
-        if dt.is_finite() && dt >= 0. { self.frame_seconds += dt; }
+        let elapsed_dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
+        self.frame_seconds += elapsed_dt;
         let dt = dt.clamp(0.0, 0.1);
         self.pause_page.save(settings);
-        self.elapsed_s += dt;
+        self.elapsed_s += elapsed_dt;
 
         if let BattleAuthority::Online { client, launch, .. } = &mut self.authority {
             client.poll_rotation(launch.address.as_deref().unwrap_or(""), launch.port.unwrap_or(18451));
@@ -2060,6 +2061,9 @@ impl BattleController {
         }
         let overlay_active = self.is_overlay_open() || (game_over && !self.scoreboard_ctrl.ended);
         reset_hud_layer(&mut self.scene.bridge.hud_model.input);
+        // Fades and message lifetimes keep elapsed time when a slow frame
+        // exceeds the movement step limit.
+        self.scene.bridge.hud_model.input[H::DT] = elapsed_dt;
         if overlay_active {
             self.sync_ports_cold(&settings.player.profile_name);
             self.update_and_build_overlays(dt);
@@ -2174,7 +2178,6 @@ impl BattleController {
     ///    `draw_over` (`Table`, `Details`, or `Awards` page) onto `hud_model.batch`.
     fn update_and_build_overlays(&mut self, dt: f64) {
         let fh = self.scene.bridge.hud_model.fonts[0].height;
-        self.scene.bridge.hud_model.input[H::DT] = dt;
         self.scene.bridge.hud_model.input[H::HEIGHT] = self.height;
         self.scene.bridge.hud_model.input[H::ASPECT] = self.aspect;
         self.scene.bridge.hud_model.input[H::FOV] = 60.0;
