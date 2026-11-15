@@ -1049,27 +1049,38 @@ mod tests {
         assert_eq!(ctrl.stack.top().unwrap().elapsed, 2.);
     }
 
-    // Down from the last row of an options page wraps to its first row: the browser's ring has no stop on RESET.
+    // Down from the last row of an options page lands on RESET TO DEFAULTS (it is in the browser's ring), Down again
+    // wraps to the first row, and Up from the first row goes back to RESET.
     #[test]
-    fn down_from_the_last_row_wraps_to_the_first() {
+    fn down_from_the_last_row_stops_on_reset_then_wraps() {
         let mut ctrl = OptionsController::new(Settings::new(), OptionsContext::default());
         ctrl.open_page("video");
-        let rows = |ctrl: &OptionsController| match ctrl.stack.top().unwrap().widget("rows") {
+        let count = match ctrl.stack.top().unwrap().widget("rows") {
             Some(Widget::Options(o)) => o.items.iter().filter(|i| !i.hidden).count(),
             _ => 0,
         };
-        let count = rows(&ctrl);
         assert!(count > 10);
         if let Some(Widget::Options(o)) = ctrl.stack.top_mut().unwrap().widget_mut("rows") {
             o.shown = 13;
         }
-        for _ in 0..count {
+        let state = |ctrl: &OptionsController| {
+            let top = ctrl.stack.top().unwrap();
+            let selected = match top.widget("rows") { Some(Widget::Options(o)) => o.selected, _ => 99 };
+            let on_reset = matches!(top.focused_widget(), Some(Widget::Button(b)) if b.place == "middle");
+            (selected, on_reset)
+        };
+        for _ in 0..count - 1 {
             ctrl.on_key_down("ArrowDown", false);
         }
-        let top = ctrl.stack.top().unwrap();
-        let selected = match top.widget("rows") { Some(Widget::Options(o)) => o.selected, _ => 99 };
-        assert_eq!(selected, 0, "back on the first row");
-        assert_eq!(top.focused, top.widgets.iter().position(|w| matches!(w, Widget::Options(_))), "focus stays on the rows");
+        assert_eq!(state(&ctrl), (count - 1, false), "on the last row");
+        ctrl.on_key_down("ArrowDown", false);
+        assert!(state(&ctrl).1, "next Down stops on RESET TO DEFAULTS");
+        ctrl.on_key_down("ArrowDown", false);
+        assert_eq!(state(&ctrl), (0, false), "then wraps to the first row");
+        ctrl.on_key_down("ArrowUp", false);
+        assert!(state(&ctrl).1, "Up from the first row goes to RESET");
+        ctrl.on_key_down("ArrowUp", false);
+        assert_eq!(state(&ctrl), (count - 1, false), "and Up again to the last row");
     }
 
     // Verifies that all four option sub-pages build with expected row counts and navigate back with Escape.
