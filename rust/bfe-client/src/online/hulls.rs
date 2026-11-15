@@ -20,8 +20,30 @@ use bfe_render::instances as draw;
 use serde_json::{json, Value};
 use three::Matrix4;
 const POOL: usize = 64;
+fn hull_heading(row: &[f64]) -> f64 {
+    // Vehicle records carry a quaternion, not the soldier yaw field.
+    let q = &row[r::QUATERNION..r::QUATERNION + 4];
+    let mut angles = three::Euler::default();
+    angles.set_from_quaternion(&three::Quaternion::new(q[0], q[1], q[2], q[3]), Some(three::EulerOrder::YXZ));
+    angles.y
+}
 fn array<T: serde::de::DeserializeOwned>(v: &Value) -> Result<T, String> {
     serde_json::from_value(v.clone()).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod heading_tests {
+    use super::*;
+
+    #[test]
+    fn passenger_arc_uses_the_published_hull_orientation() {
+        let mut row = [0.; r::STRIDE];
+        let yaw = 3.02_f64;
+        row[r::QUATERNION + 1] = (yaw * 0.5).sin();
+        row[r::QUATERNION + 3] = (yaw * 0.5).cos();
+        assert!((hull_heading(&row) - yaw).abs() < 1e-12);
+        assert_eq!(row[r::YAW], 0.);
+    }
 }
 // Authored JSON uses floating numbers, whereas rig indices are integral. The
 // numerical builder's resource boundary accepts their exact integer spelling.
@@ -399,7 +421,7 @@ impl Hulls {
             x[f::VEHICLE_CENTER + k] = (m.bounds[k] + m.bounds[k + 3]) * 0.5;
             x[f::VEHICLE_SIZE + k] = m.bounds[k + 3] - m.bounds[k];
         }
-        let at = self.owner.slot_input(slot.rig, 0) + seat * bfe_presentation::layout::vehicle_seat_input::STRIDE;
+        let at = self.owner.slot_seats(slot.rig, 0) + seat * bfe_presentation::layout::vehicle_seat_input::STRIDE;
         x[f::SEAT_YAW] = self.owner.stream_in[at + bfe_presentation::layout::vehicle_seat_input::AIM_YAW];
         x[f::SEAT_PITCH] = self.owner.stream_in[at + bfe_presentation::layout::vehicle_seat_input::PITCH];
         view.seat(x);
@@ -589,7 +611,7 @@ impl Hulls {
             // The camera must not infer velocity from its own eased pose.
             s.velocity.copy_from_slice(&x[e::VELOCITY..e::VELOCITY + 3]);
             s.flight_frame.copy_from_slice(&x[e::QUATERNION..e::QUATERNION + 4]);
-            let start = self.owner.slot_input(s.rig, 0);
+            let start = self.owner.slot_seats(s.rig, 0);
             for seat_no in 0..m.seats {
                 let x = &mut self.owner.stream_in[start + seat_no * seat::STRIDE..][..seat::STRIDE];
                 x.fill(0.);
@@ -625,7 +647,7 @@ impl Hulls {
                     a[p::ZOOM] = 1.;
                     a[p::VEHICLE_ACTIVE] = 1.;
                     a[p::SEAT_INDEX] = seat_no as f64;
-                    a[p::HULL_YAW] = row[r::YAW];
+                    a[p::HULL_YAW] = hull_heading(row);
                     a[p::SEAT_YAW] = mount.values[0];
                     a[p::SEAT_PITCH] = mount.values[1];
                     a[p::HAS_LOOK_YAW] = (mount.flags & 1 != 0) as u8 as f64;
