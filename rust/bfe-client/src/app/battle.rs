@@ -866,10 +866,7 @@ pub struct BattleController {
     pub(super) page_battle: super::page_battle::PageBattle,
     /// `bfe-battle-ui` in-battle text chat controller (`All` / `Team`).
     pub chat: ChatController,
-    // Retained UTF-16 storage for the native chat text field.
-    chat_text: Vec<u16>,
-    stats_text: String,
-    stats_utf16: Vec<u16>,
+    pub(super) stats_text: String,
     frame_seconds: f64,
     /// Scratch quad batch used when compositing overlays onto `scene.bridge.hud_model.batch`.
     pub overlay_batch: Batch,
@@ -1305,9 +1302,7 @@ impl BattleController {
             pause_page,
             page_battle,
             chat,
-            chat_text: Vec::with_capacity(1024),
             stats_text: String::with_capacity(256),
-            stats_utf16: Vec::with_capacity(256),
             frame_seconds: 0.,
             overlay_batch: Batch::new(),
             size,
@@ -1634,12 +1629,13 @@ impl BattleController {
         settings: &mut AppSettingsStore,
         _audio_router: &SharedAudioRouter,
     ) -> Result<Option<BattleTransition>, String> {
-        if dt.is_finite() && dt >= 0. { self.frame_seconds += dt; }
+        let elapsed_dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
+        self.frame_seconds += elapsed_dt;
         let frame_timer=self.scene.bridge.r.core.profile.clock();
         self.scene.resolution_frame_begin();
         let dt = dt.clamp(0.0, 0.1);
         self.pause_page.save(settings);
-        self.elapsed_s += dt;
+        self.elapsed_s += elapsed_dt;
 
         if let BattleAuthority::Online { client, launch, .. } = &mut self.authority {
             client.poll_rotation(launch.address.as_deref().unwrap_or(""), launch.port.unwrap_or(18451));
@@ -2105,6 +2101,9 @@ impl BattleController {
         }
         let overlay_active = self.is_overlay_open() || (game_over && !self.scoreboard_ctrl.ended);
         reset_hud_layer(&mut self.scene.bridge.hud_model.input);
+        // Fades and message lifetimes keep elapsed time when a slow frame
+        // exceeds the movement step limit.
+        self.scene.bridge.hud_model.input[H::DT] = elapsed_dt;
         if overlay_active {
             self.sync_ports_cold(&settings.player.profile_name);
             self.update_and_build_overlays(dt);
@@ -2117,13 +2116,13 @@ impl BattleController {
         }
 
         let full_sync = self.frames == 0 || self.overlay_was_active || overlay_active;
-        let chat_visible = self.draw_chat();
-        self.overlay_was_active = overlay_active || chat_visible;
+        self.overlay_was_active = overlay_active;
         let show_stats = settings.interface.get_bool("showStats");
-        // Page overlays cover the browser's statistics element. Keep the
-        // native diagnostic line below that same screen boundary.
-        if show_stats && !overlay_active { self.draw_stats_line(); }
-        self.scene.bridge.hud_sync_batch(full_sync || show_stats || chat_visible);
+        self.stats_text.clear();
+        if show_stats {
+            self.update_stats_line();
+        }
+        self.scene.bridge.hud_sync_batch(full_sync);
 
         // PageTheme is a compositor over the finished battle, just as its
         // CSS overlay is over the canvas. Defer only the pause UI until its
@@ -2229,7 +2228,6 @@ impl BattleController {
     ///    `draw_over` (`Table`, `Details`, or `Awards` page) onto `hud_model.batch`.
     fn update_and_build_overlays(&mut self, dt: f64) {
         let fh = self.scene.bridge.hud_model.fonts[0].height;
-        self.scene.bridge.hud_model.input[H::DT] = dt;
         self.scene.bridge.hud_model.input[H::HEIGHT] = self.height;
         self.scene.bridge.hud_model.input[H::ASPECT] = self.aspect;
         self.scene.bridge.hud_model.input[H::FOV] = 60.0;
@@ -2355,110 +2353,6 @@ impl BattleController {
         }
     }
 
-    /// createChat renders accepted lines for twelve seconds, or its whole
-    /// eight-message history while typing. Reuse UTF-16 storage on every frame.
-    fn draw_chat(&mut self) -> bool {
-        let open = self.chat.is_open();
-        let mut y = self.height * 0.2;
-        let mut visible = false;
-        let height = self.height;
-        let width = self.height * self.aspect;
-        let limit = (650.0 * height / self.size[1] as f64).min(width * 0.85);
-        let solid = self.scene.online.as_ref().and_then(|scene| scene.hud.names.get("opaque_rect").copied()).unwrap_or(A::SOLID);
-        let hud = &mut self.scene.bridge.hud_model;
-        let font = &hud.fonts[0];
-        // Match the browser feed's word wrapping without allocating line lists
-        // each frame. A long word can break anywhere, like overflow-wrap.
-        let mut draw = |text: &[u16], color, backed: bool| {
-            let mut start = 0;
-            if backed {
-                // The entry's own backing, `#001020cc` with 6 px around it (`bfe-chat-entry` in src/chat.js).
-                let pad = 6.0 * height / self.size[1] as f64;
-                let left = width * 0.03;
-                hud.batch.quad(
-                    root_anchor(height),
-                    [left, y - pad, left + limit, y + font.height * 1.3 + pad],
-                    solid,
-                    // The middle of the opaque panel art, a dark fill (a plain white texture is not in the HUD's table).
-                    [0.45, 0.45, 0.55, 0.55],
-                    [1.0, 1.0, 1.0, 0.8],
-                    0.0,
-                    0,
-                );
-            }
-            while start < text.len() {
-                let mut end = start;
-                let mut advance = 0.0;
-                let mut space = None;
-                while end < text.len() {
-                    let next = font.width(&text[end..end + 1], 1.0, 1.0);
-                    if end > start && advance + next > limit {
-                        break;
-                    }
-                    advance += next;
-                    if text[end] == 32 {
-                        space = Some(end);
-                    }
-                    end += 1;
-                }
-                if end < text.len() {
-                    if let Some(word) = space.filter(|word| *word > start) {
-                        end = word;
-                    }
-                }
-                font.draw(
-                    &mut hud.batch,
-                    root_anchor(height),
-                    width * 0.03,
-                    y,
-                    &text[start..end],
-                    color,
-                    0,
-                    1.0,
-                    1.0,
-                    0.0,
-                );
-                y += font.height * 1.3;
-                start = end;
-                while start < text.len() && text[start] == 32 {
-                    start += 1;
-                }
-            }
-        };
-        for message in &self.chat.log.messages {
-            if !open && self.elapsed_s * 1000.0 - message.time > 12_000.0 {
-                continue;
-            }
-            self.chat_text.clear();
-            let prefix = match message.channel {
-                bfe_battle_ui::ChatChannel::Team => "[TEAM] ",
-                bfe_battle_ui::ChatChannel::Server => "[SERVER] ",
-                _ => "",
-            };
-            self.chat_text.extend(prefix.encode_utf16());
-            if message.channel != bfe_battle_ui::ChatChannel::Server && !message.name.is_empty() {
-                self.chat_text.extend(message.name.encode_utf16());
-                self.chat_text.extend(": ".encode_utf16());
-            }
-            self.chat_text.extend(message.text.encode_utf16());
-            // CHAT_COLORS from src/chat.js, in the native batch's RGBA form.
-            let color = match message.channel {
-                bfe_battle_ui::ChatChannel::Global => [1.0, 1.0, 64.0 / 255.0, 1.0],
-                bfe_battle_ui::ChatChannel::Team => [80.0 / 255.0, 1.0, 112.0 / 255.0, 1.0],
-                bfe_battle_ui::ChatChannel::Server => [96.0 / 255.0, 184.0 / 255.0, 1.0, 1.0],
-            };
-            draw(&self.chat_text, color, false);
-            visible = true;
-        }
-        if let Some(channel) = self.chat.active_channel {
-            self.chat_text.clear();
-            self.chat_text.extend(channel.prompt().encode_utf16());
-            self.chat_text.extend(self.chat.draft.encode_utf16());
-            draw(&self.chat_text, [1.0; 4], true);
-        }
-        visible || open
-    }
-
     /// Renders the faction emblems and team labels in the top-left corner of the spawn screen.
     ///
     /// Draws the primary (`own_team`, green tint) and secondary (`other_team`, red tint)
@@ -2552,21 +2446,13 @@ impl BattleController {
         dst.end = v1;
     }
 
-    // The stats hotkey is a visual preference. Reuse admitted text storage;
-    // enabling the line must not allocate in the steady render loop.
-    fn draw_stats_line(&mut self) {
+    // Format into retained storage; the page overlay supplies CSS-pixel sizing.
+    fn update_stats_line(&mut self) {
         use std::fmt::Write;
         self.stats_text.clear();
         let mean = self.frame_seconds / self.frames.max(1) as f64;
         let fps = if mean > 0. { 1. / mean } else { 0. };
         let _ = write!(&mut self.stats_text, "{fps:.0} fps | mean frame {:.2} ms | {}x{} Native", mean * 1000., self.size[0], self.size[1]);
-        self.stats_utf16.clear();
-        self.stats_utf16.extend(self.stats_text.encode_utf16());
-        let hud = &mut self.scene.bridge.hud_model;
-        // The glyphs hang down from y: leave the line's own height above the bottom edge.
-        let y = self.height - 8. - hud.fonts[0].height * 0.65;
-        hud.fonts[0].draw(&mut hud.batch, root_anchor(self.height), 8., y,
-            &self.stats_utf16, [1.; 4], 0, 0.65, 1., 0.);
     }
 
     // Pausing is a cold diagnostic boundary: record the actual displayed view
