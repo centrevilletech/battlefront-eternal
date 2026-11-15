@@ -120,6 +120,9 @@ impl Bindings {
             &&table.states[key*link::STRIDE+link::ACTIVE]!=0.};
         if !live{self.bind(key,id,generation,kind,owner);}
     }
+    /// Whether the link of this key samples the timeline (bound, same lease, not retired).
+    pub fn live(&self,key:usize)->bool{let Some(owner)=&self.owner else{return false;};let table=self.table.borrow();
+        table.rows.get(key).and_then(Option::as_ref).is_some_and(|b|b.lease==owner.borrow().lease)&&table.states.get(key*link::STRIDE+link::ACTIVE).is_some_and(|a|*a!=0.)}
     // Resource removal clears only this key. The native frame never walks a
     // JavaScript binding map or constructs a per-entity sampled-pose facade.
     pub fn unbind(&mut self,key:usize){let mut table=self.table.borrow_mut();if let Some(row)=table.rows.get_mut(key){*row=None;table.states[key*link::STRIDE+link::ACTIVE]=0.;}}

@@ -1534,7 +1534,7 @@ impl DisplayCensus {
                         let off = ((drawn[0] - at[0]).powi(2) + (drawn[1] - at[1]).powi(2) + (drawn[2] - at[2]).powi(2)).sqrt();
                         if off > 3. {
                             entry.2 += 1;
-                            astray.push(format!("{}@{:.0},{:.0},{:.0}->{:.0},{:.0},{:.0}", slot.identity.map_or(0, |k| k.0), at[0], at[1], at[2], drawn[0], drawn[1], drawn[2]));
+                            astray.push(format!("{}{}@{:.0},{:.0},{:.0}->{:.0},{:.0},{:.0}", slot.identity.map_or(0, |k| k.0), if slot.mount.is_some() { "(seated)" } else { "" }, at[0], at[1], at[2], drawn[0], drawn[1], drawn[2]));
                         }
                     }
                 }
