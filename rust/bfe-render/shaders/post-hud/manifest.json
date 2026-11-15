@@ -90,7 +90,9 @@
         "jitter": 2,
         "reset": 1,
         "maxWeight": 1,
-        "kernel": 1
+        "kernel": 1,
+        "narrowWeights": 9,
+        "wideWeights": 9
       }
     },
     {

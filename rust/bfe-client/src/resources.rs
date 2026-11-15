@@ -26,6 +26,9 @@ impl Ranges {
     }
 }
 impl bfe_render::core::MultiDraw for Ranges {
+    fn multi_draw_calls(&self, ranges: usize) -> u64 {
+        if self.multi.is_some() && ranges <= self.offsets.borrow().len() { u64::from(ranges > 0) } else { ranges as u64 }
+    }
     fn multi_draw(&self, mode: u32, counts: &mut [i32], ty: u32, offsets: &mut [i32]) {
         if let Some(draw)=self.multi{
             let mut pointers=self.offsets.borrow_mut();
