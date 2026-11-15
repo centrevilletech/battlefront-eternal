@@ -92,7 +92,7 @@ pub mod aa {
     pub const FXAA: usize = 1;
     pub const FAST: usize = 2;
 }
-pub const TYPES: [&[u32]; 11] = [&[32], &[32, 2], &[32, 2], &[32, 32, 32, 1, 1, 1, 1], &[16, 16, 32, 2], &[16, 16, 32, 2], &[32], &[32, 2, 2], &[32, 32, 16, 16, 1], &[32, 32, 32, 2, 2, 2, 1, 1, 1, 9, 9], &[32, 1]];
+pub const TYPES: [&[u32]; 11] = [&[32], &[32, 2], &[32, 2], &[32, 32, 32, 1, 1, 1, 1], &[16, 16, 32, 2], &[16, 16, 32, 2], &[32], &[32, 2, 2], &[32, 32, 16, 16, 1], &[32, 32, 32, 2, 1, 9, 9, 32, 32, 16, 16, 1], &[32, 1]];
 pub mod uniform {
 pub mod copy {
     pub const MAP: usize = 0;
@@ -145,14 +145,15 @@ pub mod resolve {
     pub const COLOR_MAP: usize = 0;
     pub const MOTION_MAP: usize = 1;
     pub const HISTORY_MAP: usize = 2;
-    pub const INPUT_SIZE: usize = 3;
-    pub const OUTPUT_SIZE: usize = 4;
-    pub const JITTER: usize = 5;
-    pub const RESET: usize = 6;
-    pub const MAX_WEIGHT: usize = 7;
-    pub const KERNEL: usize = 8;
-    pub const NARROW_WEIGHTS: usize = 9;
-    pub const WIDE_WEIGHTS: usize = 10;
+    pub const JITTER: usize = 3;
+    pub const RESET: usize = 4;
+    pub const NARROW_WEIGHTS: usize = 5;
+    pub const WIDE_WEIGHTS: usize = 6;
+    pub const DEPTH_MAP: usize = 7;
+    pub const VELOCITY_MAP: usize = 8;
+    pub const CURRENT_FROM_JITTERED: usize = 9;
+    pub const PREVIOUS_FROM_JITTERED: usize = 10;
+    pub const CAMERA_STILL: usize = 11;
 }
 pub mod sharpen {
     pub const MAP: usize = 0;

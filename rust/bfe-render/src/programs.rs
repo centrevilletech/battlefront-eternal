@@ -90,7 +90,7 @@ impl<G: HasContext, M: MultiDraw> Core<G, M> {
         let version = self.gl.version();
         let gather = if version.is_embedded { (version.major, version.minor) >= (3, 1) }
             else { self.gl.supported_extensions().contains("GL_ARB_ES3_1_compatibility") };
-        if key == "post-hud/motion" && gather {
+        if matches!(key, "post-hud/motion" | "post-hud/resolve") && gather {
             vs = vs.replacen("#version 300 es", "#version 310 es", 1);
             fs = fs.replacen("#version 300 es", "#version 310 es\n#define BFE_GATHER_DEPTH", 1);
         }
@@ -260,7 +260,7 @@ mod tests {
                     crate::shader::rewrite_lamps(source, stage, s.kind, s.lamps).unwrap_or_else(|e| panic!("{}: {e}", s.key));
                 }
             }
-            if s.key.starts_with("post-hud/") { assert!(s.uniforms.len() <= 12); }
+            if s.key.starts_with("post-hud/") { assert!(s.uniforms.len() <= crate::post::MAX_UNIFORMS); }
         }
         assert_eq!(catalog::PROGRAMS.iter().filter(|s| s.key.starts_with("post-hud/")).count(), 12);
     }
