@@ -1784,10 +1784,10 @@ impl BattleController {
 
         let (generation, flight_mode) = match &self.authority {
             BattleAuthority::InstantAction { receiver, .. } => {
-                (receiver.own.generation as u32, receiver.own.body_schema == 7)
+                (receiver.own.generation as u32, receiver.in_aircraft())
             }
             BattleAuthority::Online { client, .. } => {
-                (client.generation(), client.receiver.own.body_schema == 7)
+                (client.generation(), client.receiver.in_aircraft())
             }
         };
         self.input.flight_mode = flight_mode;
@@ -1849,11 +1849,11 @@ impl BattleController {
                 sender.feedback(receiver);
                 receiver.clock.advance(dt).map_err(str::to_string)?;
 
-                camera.set_flight_mode(receiver.own.flight.is_some());
+                camera.set_flight_mode(receiver.in_aircraft());
                 for (mut cmd, look, flight, actions) in step_cmds.into_iter().flatten() {
                     if actions.perspective {
                         camera.first_person = !camera.first_person;
-                        if receiver.own.flight.is_some() {
+                        if receiver.in_aircraft() {
                             settings.interface.set("flightFirstPerson", camera.first_person);
                         }
                     }
@@ -1935,7 +1935,7 @@ impl BattleController {
                     if let Err(err) = client.step(&cmd, &look, &flight, &actions, STEP) {
                         return Ok(Some(BattleTransition::LeaveOnline { reason: Some(err) }));
                     }
-                    if actions.perspective && client.receiver.own.flight.is_some() {
+                    if actions.perspective && client.receiver.in_aircraft() {
                         settings.interface.set("flightFirstPerson", client.camera.first_person);
                     }
                 }

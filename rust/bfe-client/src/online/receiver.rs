@@ -715,11 +715,57 @@ impl Receiver {
     pub fn active_slots(&self) -> impl Iterator<Item = (usize, &[f64; r::STRIDE])> {
         self.indices.values().map(|&index| (index, &self.facts[index]))
     }
+    /// Aircraft bindings and saved perspective also apply in gunner seats.
+    /// Only the pilot receives a flight body; passengers name their hull by lease.
+    pub fn in_aircraft(&self) -> bool {
+        if self.own.flight.is_some() {
+            return true;
+        }
+        let Some((id, generation, _)) = self.own.mount.filter(|_| self.own.mount_kind == k::VEHICLE) else {
+            return false;
+        };
+        let Some(&index) = self.indices.get(&(k::VEHICLE, id)) else { return false };
+        let row = &self.facts[index];
+        // Live aircraft publish Landed through Landing (0..3); ground hulls
+        // publish 5. Destroyed and dying hulls no longer carry their crew.
+        row[r::GENERATION] == generation as f64 && (0. ..4.).contains(&row[r::STATE])
+    }
     pub fn active(&self) -> impl Iterator<Item = &[f64; r::STRIDE]> {
         self.indices.values().map(|&index| &self.facts[index]).chain(std::iter::once(&self.own_fact).filter(|_| {
             self.corrections != 0
                 && self.indices.get(&(k::SOLDIER, self.own.id as u32)).is_none()
                 && self.indices.get(&(k::DROIDEKA, self.own.id as u32)).is_none()
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn aircraft_controls_follow_passenger_leases() {
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        receiver.own.mount_kind = k::VEHICLE;
+        receiver.own.mount = Some((12, 3, 1));
+        receiver.indices.insert((k::VEHICLE, 12), 0);
+        receiver.facts[0][r::GENERATION] = 3.;
+        for state in 0..4 {
+            receiver.facts[0][r::STATE] = state as f64;
+            assert!(receiver.in_aircraft());
+        }
+        receiver.facts[0][r::STATE] = 5.;
+        assert!(!receiver.in_aircraft());
+        receiver.facts[0][r::STATE] = 0.;
+        receiver.facts[0][r::GENERATION] = 4.;
+        assert!(!receiver.in_aircraft());
+        receiver.facts[0][r::GENERATION] = 3.;
+        receiver.own.mount_kind = k::TURRET;
+        assert!(!receiver.in_aircraft());
+        receiver.own.mount_kind = k::VEHICLE;
+        receiver.own.mount = None;
+        assert!(!receiver.in_aircraft());
+        receiver.own.flight = Some(0);
+        assert!(receiver.in_aircraft());
     }
 }
