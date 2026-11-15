@@ -4524,14 +4524,11 @@ name = "sim"
 version = "0.1.0"
 dependencies = [
  "audio-control",
- "base64 0.22.1",
  "bfe-pose",
  "bfe-presentation",
  "content",
- "flate2",
  "jsrt",
  "serde_json",
- "sha1",
  "sim-replay",
  "three",
  "v8math",
@@ -6380,8 +6377,6 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 name = "xtask"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
- "serde",
  "serde_json",
  "sha2",
 ]

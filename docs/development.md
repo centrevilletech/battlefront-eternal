@@ -49,8 +49,7 @@ In single-player, the battle runs on a local server thread inside `bfe-client`
 client sends the player's input as commands, draws the world from the server
 thread's published snapshots, and predicts the player's own soldier, hull,
 mounted guns, recon droid and shots ahead of them, just as an online client
-does. Headless world replays and deterministic fingerprint checks run through
-`cargo xtask matrix` (`rust/xtask (matrix.rs)`) and `rust/sim-replay`.
+does. Phase replay fixtures run through `rust/sim-replay` and the simulation tests.
 
 The timing and threading architecture is documented in
 [docs/runtime-architecture.md](runtime-architecture.md).
@@ -228,7 +227,6 @@ cargo xtask audio-control-schema [--check]         # audio control layouts
 cargo xtask audio-schema [--check]                 # audio mixer layouts
 cargo xtask audio-codec-schema [--check]           # audio codec header layouts
 cargo xtask check                                  # run all generators in --check mode
-cargo xtask matrix --against <dir>                 # compare the 61-cell world-hash matrix against a reference directory
 ```
 
 The simulation schema sources under `rust/sim/schema/*.json` and `rust/sim/schema-test/*.json` are declarative JSON files read by `rust/xtask (sim_schema.rs)`. Commit rebuilt generated files alongside any schema or shader change; `cargo xtask check` fails in CI if any generated file is out of date.

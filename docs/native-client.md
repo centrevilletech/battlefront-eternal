@@ -157,7 +157,7 @@ water or Classic ocean surfaces.
 
 `bfe_desktop::host::HostController` (`rust/bfe-desktop/src/host/mod.rs`) manages
 a detached `bfeserver` instance from the native client (`MULTIPLAYER -> CREATE ->
-SET GAME OPTIONS -> LAUNCH`) and via `desktop-tool host`:
+SET GAME OPTIONS -> LAUNCH`):
 
 - **What runs**: `HostController::start` writes `<state>/config.json` (mode
   `0600`, where `<state>` defaults to `<userData>/server` and can be overridden
@@ -193,10 +193,3 @@ SET GAME OPTIONS -> LAUNCH`) and via `desktop-tool host`:
   subsequent `HostController::start` / `HostController::attach` call), the
   controller probes `<state>/operator-token`, `/admin`, and `/info` and attaches
   to the running server instead of spawning a second `bfeserver` process.
-- **CLI subcommands (`desktop-tool host`)**:
-  ```bash
-  desktop-tool host start [--mode lan|public] [--map nab2] [--side rep] [--max-players 8]
-  desktop-tool host status
-  desktop-tool host attach
-  desktop-tool host stop
-  ```
