@@ -90,8 +90,7 @@ Refresh its prepared data from the same generation as the clients, including
 map JSON, prop animation and collision binaries, common and side definitions.
 Keep the previous server directory until health and a player join are verified.
 Use `cargo run --manifest-path rust/Cargo.toml -p bfe-content-native --example fingerprint -- <data-folder>`
-or `desktop-tool content` (`rust/bfe-desktop`) to inspect and compare runtime
-content fingerprints across prepared folders.
+to inspect and compare runtime content fingerprints across prepared folders.
 Texture quality and operating system do not require different gameplay hashes.
 
 Preparation must give the same bits on every platform, because the server's
@@ -159,10 +158,6 @@ matching Steam installation through Choose Game Folder, those hashes verify
 the source and relocate its preparation checkpoint. Current pipeline versions
 still decide which stages must rerun. A changed source falls back to normal
 preparation. Re-exporting on a computer without Steam retains the provenance.
-
-For scripted transfers, `desktop-tool content export <content> <file.bfepack>`
-and `desktop-tool content import <file.bfepack> <parent>` (`rust/bfe-desktop`)
-use the same archive format and verification as the desktop menus.
 
 Online browsing and public hosting share an accessible, scrollable privacy
 dialog. Buttons occupy their own row; keyboard input stays in the modal.

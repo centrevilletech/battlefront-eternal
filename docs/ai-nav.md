@@ -405,10 +405,7 @@ drive a kinematic soldier with the port's axes to its goal.
 
 - `cargo test` in `rust/sim`: `rust/sim/rust/ai/nav/tests.rs` checks the AI
   generator's draws, open-heap ties, a barrier search and graph attach and
-  selection against the JavaScript's answers on the same inputs; the
-  `nav-twin` binary (`rust/sim/rust/bin/nav-twin.rs`) replays recorded
-  planner, executor, graph, barrier, cursor, analog, helper and hint
-  operations and compares the trace byte for byte.
+  selection against the reference answers on the same inputs.
 - `python3 -m unittest tests.test_ai_nav_export`: synthetic chunk archives for
   every fatal and warning case, plus nab2/bes2 retail counts when the install
   is present.

@@ -119,7 +119,7 @@ which, the models' parts and textures), `flyers.bin` and
 small opaque texture a model). It is presentation only: no world, worker or
 server reads it, it is not in the content fingerprint
 (`rust/sim` (`wire`)), and `map.json` and every fingerprinted
-file come out byte for byte as before (`cargo xtask matrix` of the maps prepared before and after: all 30 battles match).
+file come out byte for byte as before (the recorded comparison of maps prepared before and after matched all 30 battles).
 A map prepared before generation 15 has no `sky/` and draws no ships.
 Generation 16 adds the Enhanced lists and models (below); a map prepared at
 15 draws only the original's ships in either mode.
