@@ -585,6 +585,7 @@ impl StandaloneWindowApp {
                 shell.handle_cursor_move(x, y);
             }
             if let Some(ui) = &mut self.slint_ui {
+                ui.set_keyboard_nav(false);
                 ui.repeat_pointer();
             }
         }
@@ -1348,6 +1349,9 @@ impl ApplicationHandler for StandaloneWindowApp {
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor_physical = [position.x, position.y];
                 self.cursor_seen = true;
+                if let Some(ui) = &mut self.slint_ui {
+                    ui.set_keyboard_nav(false);
+                }
                 let [x, y] = self.interface_cursor();
                 // Forward cursor coordinates to `ShellHost` (including `bfe-interface` hit regions)
                 // or to the active `BattleController` overlays.
@@ -1429,6 +1433,11 @@ impl ApplicationHandler for StandaloneWindowApp {
             }
             WindowEvent::KeyboardInput { event, is_synthetic, .. } => {
                 let down = event.state == ElementState::Pressed;
+                if down && matches!(self.state, AppState::Shell) {
+                    if let Some(ui) = &mut self.slint_ui {
+                        ui.set_keyboard_nav(true);
+                    }
+                }
                 let key_capture_active = matches!(self.state, AppState::Shell)
                     && self
                         .shell
