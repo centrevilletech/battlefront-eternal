@@ -143,7 +143,7 @@ export component ProfileScreen inherits Rectangle {
     if !root.use-underlay: PagePattern { x: 0px; y: 0px; width: parent.width; height: parent.height; }
     if !root.use-underlay: PageScrim { x: 0px; y: 0px; width: parent.width; height: parent.height; }
     if !root.use-underlay: PageDim { x: 0px; y: 0px; width: parent.width; height: parent.height; dimmed: true; }
-    ScreenFrame {
+    frame := ScreenFrame {
         x: 0px; y: 0px; width: parent.width; height: parent.height;
         title: root.title;
         layout: ScreenLayout.rows;
@@ -153,7 +153,7 @@ export component ProfileScreen inherits Rectangle {
         left-activated => { root.back-activated(); }
         m-profile := VerticalLayout { visible: false; x: 0px; y: 0px; for item in root.rows: PageButton { label: item.label; } }
         VerticalLayout {
-            x: (parent.width - self.width) / 2;
+            x: (frame.body-width - self.width) / 2;
             y: 4px;
             width: min(max(root.button-width, m-profile.preferred-width), 86 * Theme.vw - 16px);
             spacing: Theme.bfe-gap;
