@@ -5,7 +5,7 @@ use bfe_content::{odf::num, Value};
 use bfe_content_native::BattleContent;
 use bfe_pose::rig::hull::HullRig;
 use bfe_presentation::{
-    layout::{prop_frame as f, prop_input as p, prop_limits as lim, trap_input as t},
+    layout::{prop_frame as f, prop_input as p, prop_limits as lim, prop_output as o, trap_input as t},
     network_layout::{net_kind as k, net_record as r},
     props::{PropInput, Props, TrapDesc, TriggerInput},
 };
@@ -25,10 +25,18 @@ struct TrapView {
     phase: u8,
     started: f64,
 }
+#[derive(Clone, Copy)]
+struct Holding { id: u32, generation: u32, grab: usize, since: f64 }
+struct Rider { handle: usize, birth: Option<(u32, u32, u64)> }
 pub struct Animated {
     owner: Box<Props>,
     views: Vec<View>,
     traps: Vec<TrapView>,
+    holds: Vec<Option<Holding>>,
+    grab_clips: Vec<Vec<String>>,
+    held_clips: Vec<Option<usize>>,
+    riders: Vec<Option<Rider>>,
+    rider_clips: std::collections::BTreeMap<usize, Vec<(String, usize, u32)>>,
 }
 impl Animated {
     pub fn new(
@@ -39,8 +47,9 @@ impl Animated {
         let mut owner = Box::new(Props::new());
         let mut views = Vec::new();
         let mut traps = Vec::new();
+        let mut grab_clips = Vec::new();
         let Some(data) = content.content.battle.props.as_ref() else {
-            return Ok(Self { owner, views, traps });
+            return Ok(Self { owner, views, traps, holds: vec![], grab_clips, held_clips: vec![], riders: vec![], rider_clips: Default::default() });
         };
         for (source, desc) in data
             .get("instances")
@@ -192,8 +201,13 @@ impl Animated {
                         .and_then(|b| names.first().and_then(|n| b.get(n)))
                         .map_or(0., |c| c.frames_f64() / c.fps)
             };
+            let mut ids = vec![usize::MAX; rig.tree.nodes.len()];
+            let mut nodes = Vec::new();
+            super::turrets::copy_nodes(&rig.tree, rig.root, -1, &mut nodes, &mut ids);
+            let grabs = anim.get("attach").and_then(Value::as_array).unwrap_or(&[]);
+            grab_clips.push(grabs.iter().map(|g|g.get("clip").and_then(Value::as_str).unwrap_or("").to_string()).collect());
             owner.add_prop(PropInput {
-                scene: Default::default(),
+                scene: bfe_presentation::scene::Input { nodes, bones: rig.bones.iter().map(|id|ids[*id as usize]).collect(), parent: None },
                 root: root as i32,
                 initial: initial.clone(),
                 bind: initial,
@@ -210,7 +224,7 @@ impl Animated {
                     .get("attach")
                     .and_then(Value::as_array)
                     .is_some_and(|a| !a.is_empty()),
-                grab_nodes: vec![],
+                grab_nodes: grabs.iter().map(|g| rig.named(g.get("node").and_then(Value::as_str)).map_or(-1,|id|ids[id as usize] as i32)).collect(),
                 time,
             });
             let admission = crate::static_scene::props(
@@ -262,9 +276,31 @@ impl Animated {
                 rows: admission.records, bone: owner.bone_start(true,index) }, pad_rows: pad.records, pad_bones: pad.bones,
                 phase: 0, started: 0. });
         }
-        Ok(Self { owner, views, traps })
+        let holds = vec![None; views.len()];
+        let held_clips = vec![None; views.len()];
+        Ok(Self { owner, views, traps, holds, grab_clips, held_clips, riders: vec![], rider_clips: Default::default() })
     }
-    pub fn frame(&mut self, receiver: &Receiver, tick: f64, dt: f64) {
+    pub fn bind_actor(&mut self, units: &bfe_presentation::units::Units, actor: usize, model: usize, names: &[(String, f64)]) {
+        if self.grab_clips.iter().all(Vec::is_empty) { return; }
+        if !self.rider_clips.contains_key(&model) {
+            let mut clips = Vec::new();
+            for (index, (name, _)) in names.iter().enumerate() {
+                if !self.grab_clips.iter().flatten().any(|n| n == name) { continue; }
+                if let Some(c) = units.rider_clip(actor, index) {
+                    let handle = self.owner.load_clip(c.frames,c.fps,c.root_motion,c.tracks.clone(),c.data.clone());
+                    clips.push((name.clone(),index,handle));
+                }
+            }
+            self.rider_clips.insert(model,clips);
+        }
+        if let Some((skeleton, rig)) = units.rider_source(actor) {
+            let handle = self.owner.add_unit_rider(skeleton,rig);
+            self.riders.resize_with(self.riders.len().max(actor+1),||None);
+            self.riders[actor] = Some(Rider { handle, birth: None });
+        }
+    }
+    pub fn frame(&mut self, receiver: &Receiver, tick: f64, dt: f64, units: &bfe_presentation::units::Units,
+        resolve: impl Fn(u32,u32)->Option<(usize,usize)>) {
         self.owner.input[f::VERSION] = bfe_presentation::layout::VERSION as f64;
         self.owner.input[f::DT] = dt;
         self.owner.input[f::TICK] = tick;
@@ -310,6 +346,25 @@ impl Animated {
                 a[p::SLOT] = s[1];
                 a[p::STARTED] = s[2];
                 a[p::START_TIME] = s[3];
+                self.holds[i] = (s[4] > 0. && s[6] >= 0.).then_some(Holding { id: s[4] as u32, generation: s[5] as u32, grab: s[6] as usize, since: s[7] });
+            }
+        }
+        for (index, hold) in self.holds.iter().enumerate() {
+            let row = &mut self.owner.prop_input[index*p::STRIDE..];
+            row[p::VICTIM] = 0.;
+            self.held_clips[index] = None;
+            let Some(hold) = hold else { continue };
+            let Some((actor,model)) = resolve(hold.id,hold.generation) else { continue };
+            let Some(name) = self.grab_clips[index].get(hold.grab) else { continue };
+            let Some((_,clip,handle)) = self.rider_clips.get(&model).and_then(|c|c.iter().find(|(n,_,_)|n==name)) else { continue };
+            let Some(rider) = self.riders.get_mut(actor).and_then(Option::as_mut) else { continue };
+            row[p::VICTIM] = 1.; row[p::GRAB] = hold.grab as f64; row[p::SINCE] = hold.since;
+            row[p::RIDER] = rider.handle as f64; row[p::CLIP] = *handle as f64;
+            self.held_clips[index] = Some(*clip);
+            let birth = (hold.id,hold.generation,hold.since.to_bits());
+            if rider.birth != Some(birth) {
+                if let Some((_,rig)) = units.rider_source(actor) { self.owner.refresh_unit_rider(rider.handle,rig); }
+                rider.birth = Some(birth);
             }
         }
         self.owner.frame();
@@ -335,6 +390,13 @@ impl Animated {
                 }
             }
         }
+    }
+    pub fn held(&self, id: u32, generation: u32) -> Option<([f64;16],f64,usize)> {
+        let index = self.holds.iter().position(|h|h.is_some_and(|h| h.id == id && h.generation == generation))?;
+        let clip = self.held_clips[index]?;
+        let row = &self.owner.prop_output[index*o::STRIDE..];
+        if row[o::HELD_PLACED] == 0. { return None; }
+        Some((std::array::from_fn(|i|row[o::HELD_FRAME+i]),row[o::HELD_TIME],clip))
     }
     pub fn max_bones(&self) -> usize {
         self.views

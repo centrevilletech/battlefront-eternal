@@ -40,7 +40,7 @@ pub struct Turrets {
     pub hidden: Option<usize>,
     preview: Box<bfe_presentation::network::preview::Phase>,
 }
-fn copy_nodes(tree: &three::TransformTree, node: three::NodeId, parent: i32, out: &mut Vec<Node>, ids: &mut [usize]) {
+pub(super) fn copy_nodes(tree: &three::TransformTree, node: three::NodeId, parent: i32, out: &mut Vec<Node>, ids: &mut [usize]) {
     let id = out.len();
     ids[node as usize] = id;
     let n = tree.node(node);
