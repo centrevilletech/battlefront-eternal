@@ -135,6 +135,9 @@ pub struct Replicas {
     preview_skin: glow::Texture,
     preview_held: Vec<Vec<Appearance>>,
     slots: Vec<Slot>,
+    // The first person arms' muzzle flash: the tick of the shot it is for
+    // and the seconds it has left.
+    eye_flash: (f64, f64),
     bound: Index,
     pub visible: usize,
     /// BFE_AI_TRACE: the drawn soldiers' census, beside the world's.
@@ -441,7 +444,7 @@ impl Replicas {
         )?);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
-        let sound = Box::new(super::sound::Sound::new(
+        let mut sound = Box::new(super::sound::Sound::new(
             sound,
             resources.collision.clone(),
             resources.world,
@@ -463,6 +466,7 @@ impl Replicas {
         let jets = Box::new(super::jetpacks::Jetpacks::new(content, bridge, renderer, &combat.effect_names, jets_at)?);
         let arcs = Box::new(super::lightning::Arcs::new(content, bridge, textures, &arc_images, combat.particles.words)?);
         let guns = super::lightning::Guns::new(content)?;
+        sound.ahead = (guns.ahead.clone(), guns.ids.clone());
         let (collision, world) = (resources.collision.clone(), resources.world);
         bridge.r.core.state.reset();
         let shields = Box::new(super::shields::Shields::new(
@@ -538,6 +542,7 @@ impl Replicas {
             preview_skin,
             preview_held,
             slots,
+            eye_flash: (-1., 0.),
             bound: Index::new(POOL),
             visible: 0,
             census: std::env::var_os("BFE_AI_TRACE").map(|_| Box::default()),
@@ -560,7 +565,32 @@ impl Replicas {
         }
         self.tick = tick;
         self.hud.frame(bridge, receiver, prediction, dt);
-        self.combat.frame(receiver, tick, dt, &mut self.lights, bridge);
+        self.combat.frame(receiver, tick, dt);
+        // The player's own rounds fired in this frame's replay are drawn
+        // from now on, from the gun origin beside his head as he fired.
+        for shot in &prediction.shots {
+            let basis = bfe_presentation::aim::Basis::new::<bfe_presentation::cameras::math::V8>(
+                three::Vector3::new(shot.position[0], shot.position[1], shot.position[2]),
+                shot.aim[0],
+                shot.aim[1],
+                shot.posture,
+                shot.air,
+            );
+            let (collision, world) = (&self.collision, self.world);
+            let [yaw, pitch] = shot.fire;
+            self.combat.predict(
+                shot.weapon,
+                shot.tick,
+                shot.button,
+                [basis.origin.x, basis.origin.y, basis.origin.z],
+                [yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos()],
+                shot.spread,
+                &mut |from, direction, far| {
+                    let ray = bfe_sim::collision::Ray { ox: from[0], oy: from[1], oz: from[2], dx: direction[0], dy: direction[1], dz: direction[2] };
+                    collision.borrow_mut().ray_hit(world, ray, far, -1).map(|(_, hit)| hit.distance)
+                },
+            );
+        }
         // SnapshotPresentation samples once for the whole display batch.
         // The unit links then borrow its output by identity and generation.
         receiver.network.borrow_mut().present(tick, -1., prediction.fleet.identity.map_or(-1., |p| p.0));
@@ -816,7 +846,7 @@ impl Replicas {
         }
         // Every body of this frame is bound: show what the server said of them.
         self.present_states(receiver, prediction, tick);
-        self.present_events(receiver, tick);
+        self.present_events(receiver, prediction, tick);
         // A bolt's shooter, if he is drawn: his gun origin as last posed.
         let (bound, slots, units) = (&self.bound, &self.slots, &self.units);
         let mut casts = super::lightning::Casts { collision: &self.collision, world: self.world };
@@ -871,7 +901,7 @@ impl Replicas {
         if receiver.own.mount_kind != k::VEHICLE {
             return None;
         }
-        self.first_person.frame(&mut self.units, receiver, prediction, camera, 0.);
+        self.first_person.frame(&mut self.units, receiver, prediction, &self.guns, camera, 0.);
         self.units.pose_frame();
         let identity = (receiver.own.id as u32, receiver.own.generation as u32);
         let slot = self
@@ -891,7 +921,7 @@ impl Replicas {
     // selected view and consumes this frame's camera-motion cue.
     pub fn finish_frame(&mut self, receiver: &Receiver, prediction: &super::replay::Replay, camera: &[f64; 16], cue: f64) {
         if receiver.own.mount_kind != k::VEHICLE {
-            self.first_person.frame(&mut self.units, receiver, prediction, camera, cue);
+            self.first_person.frame(&mut self.units, receiver, prediction, &self.guns, camera, cue);
             self.units.pose_frame();
         }
         self.units.attachment_frame();
@@ -921,6 +951,35 @@ impl Replicas {
         }
         self.units.place_actors(places);
 
+    }
+    /// The frame's rounds, once its bodies are posed: a bolt leaves the gun
+    /// of its shooter as he is drawn now (EntityGameState's `muzzle`: the
+    /// fire point of the weapon of his that fires that class of round, on
+    /// the first person arms for the player's own in that view; nothing for
+    /// a seated or unknown shooter, whose bolt keeps its launch point).
+    pub fn present_ordnance(&mut self, receiver: &Receiver, dt: f64, bridge: &mut Bridge) {
+        let own = (receiver.own.id as u32, receiver.own.generation as u32);
+        let (bound, slots, units, models, guns, first_person) = (&self.bound, &self.slots, &self.units, &self.models, &self.guns, &self.first_person);
+        let muzzle = |shooter: (u32, u32), round: usize| {
+            let slot = &slots[*bound.get(&shooter)?];
+            if !slot.active || slot.mount.is_some() {
+                return None;
+            }
+            let weapon = guns.shooters.get(round)?.iter().find(|(class, _)| *class == slot.class)?.1;
+            let local = guns.muzzles.get(weapon).copied().flatten()?;
+            let hand = if shooter == own && first_person.enabled && !slot.dead {
+                first_person.hand_node(units)?
+            } else {
+                units.actor_node_start(slot.actor) + models[slot.model].hand?
+            };
+            let node = hand * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
+            let mut matrix = Matrix4::default();
+            matrix.elements.copy_from_slice(&units.nodes[node..node + 16]);
+            let mut point = three::Vector3::new(local[0], local[1], local[2]);
+            point.apply_matrix4(&matrix);
+            Some([point.x, point.y, point.z])
+        };
+        self.combat.draw(dt, own, &muzzle, &mut self.lights, bridge);
     }
     /// Lightning.update, once the frame's bodies are posed. A bolt held to
     /// its shooter starts at his gun origin as he is drawn now
@@ -1021,7 +1080,7 @@ impl Replicas {
         self.arcs.finish(&mut casts, projection, height, bridge);
         self.combat.present_sniper(camera, projection, height, bridge);
         self.presented.shown[12] = self.combat.total_streaks;
-        self.present_flashes(receiver, bridge);
+        self.present_flashes(receiver, dt, bridge);
         self.present_jets(dt, bridge);
     }
     // game.js updateJetFlame for every body drawn: a soldier jetting and
@@ -1068,7 +1127,7 @@ impl Replicas {
     // for one tick however fast frames are drawn; the time left here is
     // counted from the ticks gone by the same way. The browser also lights
     // the scene from it; there are no such lights here.
-    fn present_flashes(&mut self, receiver: &Receiver, bridge: &mut Bridge) {
+    fn present_flashes(&mut self, receiver: &Receiver, dt: f64, bridge: &mut Bridge) {
         let own = (receiver.own.id as u32, receiver.own.generation as u32);
         let tick = self.tick.floor();
         for at in 0..self.slots.len() {
@@ -1077,21 +1136,33 @@ impl Replicas {
                 continue;
             }
             let (weapon, fired, length, color) = slot.flash;
-            let left = length - ((tick - fired).max(0.) + 1.) / 60.;
+            let eyes = slot.identity == Some(own) && self.first_person.enabled && !slot.dead;
+            // FirstPersonView.update counts the arms' flash down by frames:
+            // whole on the frame of the shot, then less each frame's time.
+            let left = if eyes {
+                self.eye_flash = if self.eye_flash.0 == fired { (fired, self.eye_flash.1 - dt) } else { (fired, length) };
+                self.eye_flash.1
+            } else {
+                length - ((tick - fired).max(0.) + 1.) / 60.
+            };
             if left <= 0. {
                 slot.flash.1 = -1.;
                 continue;
             }
             let out = &self.units.output[slot.actor * o::STRIDE..];
-            let hidden = out[o::GONE] == -1. || (slot.identity == Some(own) && self.first_person.enabled && !slot.dead);
-            if hidden || slot.held.is_none() || slot.held != self.weapon_classes.get(weapon).copied().flatten() {
-                continue;
-            }
-            let (Some(hand), Some(point)) = (self.models[slot.model].hand, self.guns.muzzles.get(weapon).copied().flatten()) else {
+            // FirstPersonView.flash: in that view the player's own flash
+            // sits on the arms' gun, while the arms are shown.
+            let hand = if eyes {
+                self.first_person.hand_node(&self.units).filter(|_| self.units.header[bfe_presentation::layout::unit_header::FIRST_PERSON_VISIBLE] != 0.)
+            } else if out[o::GONE] == -1. || slot.held.is_none() || slot.held != self.weapon_classes.get(weapon).copied().flatten() {
+                None
+            } else {
+                self.models[slot.model].hand.map(|hand| self.units.actor_node_start(slot.actor) + hand)
+            };
+            let (Some(hand), Some(point)) = (hand, self.guns.muzzles.get(weapon).copied().flatten()) else {
                 continue;
             };
-            let node = (self.units.actor_node_start(slot.actor) + hand) * bfe_presentation::layout::unit_node::STRIDE
-                + bfe_presentation::layout::unit_node::WORLD;
+            let node = hand * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
             let mut matrix = Matrix4::default();
             matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
             let mut local = Matrix4::default();

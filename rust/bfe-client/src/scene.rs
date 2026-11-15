@@ -1440,6 +1440,7 @@ impl Scene {
                 };
             resources.finish_frame(receiver, replay, &world.elements, cue);
             resources.capture_shot_scene(receiver, camera);
+            resources.present_ordnance(receiver, dt.min(8./60.), &mut self.bridge);
             resources.present_arcs(receiver, replay, dt.min(8./60.), &world, &camera.snapshot().values[..16], self.size[1] as f64, &mut self.bridge);
             resources.present_shields(dt.min(8./60.), camera.position, &camera.snapshot().values, self.render_size, self.depth_texture, &mut self.bridge);
             resources.present_holograms(receiver, dt.min(8./60.), camera.position, &camera.snapshot().values, &world.elements, &mut self.bridge);
