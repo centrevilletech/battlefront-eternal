@@ -1169,6 +1169,12 @@ impl Replicas {
     }
     /// Pausing is a cold observation point; the canonical clocks and blend
     /// layers stay in Units rather than a second client animation model.
+    /// The player's own body animation and its model's clip names, for telemetry.
+    pub fn own_animation(&self, receiver: &Receiver) -> Option<(&bfe_pose::display::Animator, &[(String, f64)])> {
+        let key = (receiver.own.id as u32, receiver.own.generation as u32);
+        let slot = self.slots.iter().find(|slot| slot.active && slot.identity == Some(key))?;
+        Some((self.units.actor_animation(slot.actor)?, &self.models[slot.model].clips))
+    }
     pub fn log_motion(&self, receiver: &Receiver) {
         let key = (receiver.own.id as u32, receiver.own.generation as u32);
         let Some(slot) = self

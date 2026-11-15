@@ -24,6 +24,7 @@ const UNIT_COLUMNS: &str =
     r#"["id","kind","team","alive","health","x","y","z","vx","vy","vz","yaw","posture","state","weapon","fired"]"#;
 const POSTURES: [&str; 3] = ["stand", "crouch", "prone"];
 const KINDS: [&str; 4] = ["soldier", "droideka", "vehicle", "turret"];
+const GAITS: [&str; 9] = ["idle", "walk", "run", "walkBack", "runBack", "turnLeft", "turnRight", "walkLeft", "walkRight"];
 
 fn value(key: &str) -> Option<String> {
     let query = std::env::var("BFE_BENCH").ok()?;
@@ -149,7 +150,7 @@ impl Bench {
     }
 
     fn log(&mut self, battle: &BattleController) -> std::io::Result<()> {
-        let BattleAuthority::InstantAction { receiver, sender, map_id, .. } = &battle.authority else {
+        let BattleAuthority::InstantAction { receiver, sender, map_id, replay, camera, .. } = &battle.authority else {
             return Ok(());
         };
         let Some(out) = &mut self.out else { return Ok(()) };
@@ -163,11 +164,19 @@ impl Bench {
         self.tick = tick;
         let wall = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0., |d| d.as_secs_f64() * 1000.);
         let own = &receiver.own;
-        let [x, y, z] = own.position;
-        let [vx, vy, vz] = own.velocity;
+        // The player is the body the screen shows (the predicted one, as the
+        // reference's page reports); `auth` is the world's last word on it.
+        let [ax, ay, az] = own.position;
+        let [avx, avy, avz] = own.velocity;
+        let (position, velocity, posture, air) = replay.displayed.as_ref().map_or(
+            (own.position, own.velocity, own.posture, own.air),
+            |body| (body.position, body.velocity, body.posture as usize, body.air.map_or(0, |air| air as u8 + 1)),
+        );
+        let [x, y, z] = position;
+        let [vx, vy, vz] = velocity;
         write!(
             out,
-            r#"{{"t":{:.4},"wall":{wall:.1},"tick":{tick},"player":{{"id":{},"team":{},"alive":{},"health":{:.1},"pos":[{x:.3},{y:.3},{z:.3}],"vel":[{vx:.3},{vy:.3},{vz:.3}],"yaw":{:.4},"pitch":{:.4},"posture":"{}","air":{},"spawnScreen":{}}},"units":["#,
+            r#"{{"t":{:.4},"wall":{wall:.1},"tick":{tick},"player":{{"id":{},"team":{},"alive":{},"health":{:.1},"pos":[{x:.3},{y:.3},{z:.3}],"vel":[{vx:.3},{vy:.3},{vz:.3}],"yaw":{:.4},"pitch":{:.4},"posture":"{}","air":{},"spawnScreen":{},"auth":{{"tick":{},"pos":[{ax:.3},{ay:.3},{az:.3}],"vel":[{avx:.3},{avy:.3},{avz:.3}]}}"#,
             tick / 60.,
             own.id,
             own.team,
@@ -175,10 +184,37 @@ impl Bench {
             own.health,
             sender.yaw,
             sender.pitch,
-            POSTURES.get(own.posture).copied().unwrap_or("?"),
-            own.air,
+            POSTURES.get(posture).copied().unwrap_or("?"),
+            air,
             battle.spawn_ctrl.is_open(),
+            own.tick,
         )?;
+        if let Some((animation, clips)) = battle.scene.online.as_ref().and_then(|scene| scene.own_animation(receiver)) {
+            write!(
+                out,
+                r#","anim":{{"action":"{}","gait":"{}","time":{:.3},"legs":{:.3},"clips":["#,
+                format!("{:?}", animation.action).to_lowercase(),
+                GAITS.get(animation.gait).copied().unwrap_or("?"),
+                animation.action_time,
+                animation.legs,
+            )?;
+            for (n, (clip, time, weight, rate)) in animation.base_layers().enumerate() {
+                write!(
+                    out,
+                    r#"{}["{}",{time:.3},{weight:.3},{rate:.3}]"#,
+                    if n == 0 { "" } else { "," },
+                    clips.get(clip).map_or("", |clip| clip.0.as_str()),
+                )?;
+            }
+            out.write_all(b"]}")?;
+        }
+        let [cx, cy, cz] = camera.position;
+        write!(
+            out,
+            r#","cam":{{"pos":[{cx:.3},{cy:.3},{cz:.3}],"fov":{:.2}}}"#,
+            (2. * (1. / camera.snapshot().values[5]).atan()).to_degrees(),
+        )?;
+        out.write_all(br#"},"units":["#)?;
         let mut first = true;
         for row in receiver.active() {
             let kind = row[r::KIND] as u32;
