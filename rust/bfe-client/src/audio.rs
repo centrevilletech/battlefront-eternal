@@ -114,73 +114,108 @@ pub struct SharedAudioRouter {
 
 const TEST_RATE: f64 = 48_000.0;
 const BURST: f64 = 1.2;
-const AROUND: f64 = 4.0;
+const GAP: f64 = 0.25;
+const AROUND: f64 = 6.0;
 
-/// Pink noise on one speaker at a time (`AudioPanel.test` in `src/audio/panel.js`), stereo here.
+/// The speaker test of the battle's AUDIO DETAILS (`AudioPanel.test` and `around` in `src/audio/panel.js`): pink
+/// noise on one speaker at a time, the LFE a 50 Hz tone, or a burst carried once round the room from ahead to the
+/// left through the layout's panning. It plays in the output layout's channels; while it plays it is all the device
+/// hears.
 pub struct SpeakerTest {
-    // Per burst: the speaker (0 left, 1 right, 2 swept round the room) and where in the test it is.
-    bursts: Vec<u8>,
+    // The layout's channels and the speakers to sound in turn (or the sweep).
+    channels: usize,
+    lfe: i32,
+    turn: Vec<usize>,
+    around: Option<audio::mixer::Mixer>,
     frame: u64,
     rng: u32,
-    b: [f32; 3],
+    b: [f32; 7],
+    gains: Vec<f32>,
+    scratch: Vec<f32>,
 }
 
 impl SpeakerTest {
+    /// `kind`: a channel index of the battle's layout, `all`, or `around`.
     pub fn new(kind: &str) -> Option<Self> {
-        let bursts = match kind {
-            "left" => vec![0],
-            "right" => vec![1],
-            "all" => vec![0, 1],
-            "around" => vec![2],
-            _ => return None,
+        let layout = crate::online::sound_output::current_layout();
+        let channels = layout.speakers.len();
+        let (turn, around) = match kind {
+            "all" => ((0..channels).collect(), None),
+            "around" => {
+                let law = if channels == 2 { audio::mixer::PANPOT } else { audio::mixer::VBAP };
+                (Vec::new(), Some(audio::mixer::Mixer::new(1, channels, law, None, layout.speakers)))
+            }
+            // The stereo panel's names, kept for old saved actions.
+            "left" => (vec![0], None),
+            "right" => (vec![1], None),
+            n => (vec![n.parse::<usize>().ok().filter(|c| *c < channels)?], None),
         };
-        Some(Self { bursts, frame: 0, rng: 0x1234_5678, b: [0.0; 3] })
+        Some(Self { channels, lfe: layout.lfe, turn, around, frame: 0, rng: 0x1234_5678, b: [0.0; 7], gains: vec![0.0; channels],
+            scratch: vec![0.0; channels * audio::FRAMES] })
     }
 
-    fn length(&self) -> u64 {
-        (self.bursts.iter().map(|b| if *b == 2 { AROUND } else { BURST }).sum::<f64>() * TEST_RATE) as u64
+    fn length(&self) -> f64 {
+        if self.around.is_some() { AROUND } else { self.turn.len() as f64 * (BURST + GAP) }
     }
 
-    // One stereo frame, or None once the test is over.
-    fn next(&mut self) -> Option<[f32; 2]> {
+    fn pink(&mut self) -> f32 {
+        // Paul Kellet's pink filter over white noise, as the panel's.
+        self.rng = self.rng.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        let w = (self.rng >> 8) as f32 / 8_388_608.0 - 1.0;
+        let b = &mut self.b;
+        b[0] = 0.99886 * b[0] + w * 0.055_517_9;
+        b[1] = 0.99332 * b[1] + w * 0.075_075_9;
+        b[2] = 0.969 * b[2] + w * 0.153_852;
+        b[3] = 0.8665 * b[3] + w * 0.310_485_6;
+        b[4] = 0.55 * b[4] + w * 0.532_952_2;
+        b[5] = -0.7616 * b[5] - w * 0.016_898;
+        let v = (b[0] + b[1] + b[2] + b[3] + b[4] + b[5] + b[6] + w * 0.5362) * 0.11;
+        b[6] = w * 0.115_926;
+        v
+    }
+
+    /// The next frame in the layout's channels, or false once the test is over.
+    fn next(&mut self, out: &mut [f32]) -> bool {
+        out.fill(0.0);
         let t = self.frame as f64 / TEST_RATE;
         self.frame += 1;
-        if self.frame > self.length() {
-            return None;
+        if t >= self.length() {
+            return false;
         }
-        let mut at = t;
-        let mut speaker = 0;
-        let mut local = 0.0;
-        for b in &self.bursts {
-            let length = if *b == 2 { AROUND } else { BURST };
-            if at < length {
-                speaker = *b;
-                local = at / length;
-                break;
+        let pink = self.pink();
+        if let Some(mixer) = &mut self.around {
+            // Ahead, then round to the left, once (x right, z back).
+            if self.frame % audio::FRAMES as u64 == 1 {
+                let a = t / AROUND * std::f64::consts::TAU;
+                mixer.take(&[0.0, -a.sin() as f32, 0.0, -a.cos() as f32, 0.0, 0.0], self.frame == 1);
+                let input = [1.0f32; audio::FRAMES];
+                let mut block = audio::BlockMut { data: &mut self.scratch, channels: self.channels, frames: audio::FRAMES };
+                mixer.process(&input, &[1], &mut block, None);
+                for c in 0..self.channels {
+                    self.gains[c] = self.scratch[c * audio::FRAMES + audio::FRAMES - 1];
+                }
             }
-            at -= length;
+            let fade = (t.min(AROUND - t) / 0.02).clamp(0.0, 1.0) as f32;
+            for (o, g) in out.iter_mut().zip(&self.gains) {
+                *o = pink * 0.3 * fade * g;
+            }
+            return true;
         }
-        // Paul Kellet's pink filter over white noise.
-        self.rng = self.rng.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        let white = (self.rng >> 8) as f32 / 8_388_608.0 - 1.0;
-        self.b[0] = 0.99765 * self.b[0] + white * 0.099_046;
-        self.b[1] = 0.963 * self.b[1] + white * 0.296_516_4;
-        self.b[2] = 0.57 * self.b[2] + white * 1.052_691_3;
-        let pink = (self.b[0] + self.b[1] + self.b[2] + white * 0.184_8) * 0.11;
-        // A short fade at each end of a burst keeps it from clicking.
-        let within = if speaker == 2 { local * AROUND } else { at };
-        let burst = if speaker == 2 { AROUND } else { BURST };
-        let fade = (within.min(burst - within) / 0.02).clamp(0.0, 1.0) as f32;
-        let level = pink * fade;
-        Some(match speaker {
-            0 => [level, 0.0],
-            1 => [0.0, level],
-            _ => {
-                // Round the room and back: equal-power pan from the left speaker to the right and home.
-                let angle = (1.0 - (local * 2.0 - 1.0).abs()) as f32 * std::f32::consts::FRAC_PI_2;
-                [level * angle.cos(), level * angle.sin()]
-            }
-        })
+        let slot = (t / (BURST + GAP)) as usize;
+        let at = t - slot as f64 * (BURST + GAP);
+        let Some(&channel) = self.turn.get(slot) else { return false };
+        if at >= BURST || channel >= out.len() {
+            return true;
+        }
+        out[channel] = if channel as i32 == self.lfe {
+            // A 50 Hz tone for the subwoofer, 50 ms ramps.
+            let ramp = (at.min(BURST - at) / 0.05).clamp(0.0, 1.0);
+            (0.25 * ramp * (std::f64::consts::TAU * 50.0 * at).sin()) as f32
+        } else {
+            let fade = (at.min(BURST - at) / 0.02).clamp(0.0, 1.0) as f32;
+            pink * 0.35 * fade
+        };
+        true
     }
 }
 
@@ -219,12 +254,12 @@ impl SharedAudioRouter {
         if let Ok(mut test_guard) = self.test.try_lock() {
             if let Some(test) = test_guard.as_mut() {
                 let mut done = false;
+                let mut layout = [0.0f32; 12];
                 for frame in scratch.chunks_mut(2) {
-                    let pair = if done { None } else { test.next() };
-                    done |= pair.is_none();
-                    let [left, right] = pair.unwrap_or([0.0, 0.0]);
-                    frame[0] = left;
-                    frame[1] = right;
+                    done = done || !test.next(&mut layout[..test.channels]);
+                    if done { layout.fill(0.0); }
+                    frame[0] = layout[0];
+                    frame[1] = layout[1];
                 }
                 if done {
                     *test_guard = None;
@@ -274,12 +309,14 @@ impl DynamicOutput {
         if let Ok(mut test_guard) = self.router.test.try_lock() {
             if let Some(test) = test_guard.as_mut() {
                 let mut done = false;
+                let mut layout = [0.0f32; 12];
+                let have = test.channels;
                 for frame in data.chunks_mut(channels) {
-                    let pair = if done { None } else { test.next() };
-                    done |= pair.is_none();
-                    let [left, right] = pair.unwrap_or([0.0, 0.0]);
-                    for (i, sample) in frame.iter_mut().enumerate() {
-                        *sample = T::from_sample(match i { 0 => left, 1 => right, _ => 0.0 });
+                    done = done || !test.next(&mut layout[..have]);
+                    if done { layout.fill(0.0); }
+                    for (device, sample) in frame.iter_mut().enumerate() {
+                        let source = order(have, device);
+                        *sample = T::from_sample(if source < have { layout[source] } else { 0.0 });
                     }
                 }
                 if done {

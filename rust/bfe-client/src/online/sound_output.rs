@@ -126,6 +126,64 @@ fn light_level(name: &str) -> f64 {
 const CLARITY_EQ: [(u32, f32, f32, f32); 3] = [(2, 220., -2., 0.9), (2, 3200., 1.5, 0.8), (3, 8500., 3., 0.7)];
 const CLARITY_LEVEL_DB: f64 = -0.5;
 
+// The layout last configured, for the speaker test and AUDIO DETAILS.
+static CURRENT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+/// The battle's output layout in force (stereo before a battle configures one).
+pub fn current_layout() -> &'static Layout {
+    &LAYOUTS[CURRENT.load(std::sync::atomic::Ordering::Relaxed).min(LAYOUTS.len() - 1)]
+}
+/// The channel names of a layout, in device order, for AUDIO DETAILS.
+pub fn channel_names(layout: &Layout) -> &'static [&'static str] {
+    match layout.name {
+        "5.1" => &["LEFT", "RIGHT", "CENTRE", "LFE (SUBWOOFER)", "SURROUND LEFT", "SURROUND RIGHT"],
+        "7.1" => &["FRONT LEFT", "FRONT RIGHT", "CENTRE", "LFE (SUBWOOFER)", "BACK LEFT", "BACK RIGHT", "SIDE LEFT", "SIDE RIGHT"],
+        "7.1.4" => &[
+            "FRONT LEFT", "FRONT RIGHT", "CENTRE", "LFE (SUBWOOFER)", "BACK LEFT", "BACK RIGHT", "SIDE LEFT", "SIDE RIGHT",
+            "TOP FRONT LEFT", "TOP FRONT RIGHT", "TOP BACK LEFT", "TOP BACK RIGHT",
+        ],
+        _ => &["LEFT", "RIGHT"],
+    }
+}
+static RENDERING: std::sync::Mutex<Option<Rendering>> = std::sync::Mutex::new(None);
+/// AUDIO DETAILS for the output in force: what it is, what renders it, its channels' names.
+pub fn details() -> bfe_interface::option_pages::AudioOutputInfo {
+    let rendering = RENDERING.lock().ok().and_then(|r| *r);
+    let Some(rendering) = rendering else { return Default::default() };
+    let (output, how) = describe(&rendering);
+    bfe_interface::option_pages::AudioOutputInfo {
+        output,
+        rendering: how,
+        channels: channel_names(current_layout()).iter().map(|n| n.to_string()).collect(),
+    }
+}
+/// AUDIO DETAILS' description of an output.
+pub fn describe(rendering: &Rendering) -> (String, String) {
+    let label = match rendering.layout {
+        "headphones" => "HEADPHONES",
+        "5.1" => "5.1 SURROUND",
+        "7.1" => "7.1 SURROUND",
+        "7.1.4" => "7.1.4 WITH HEIGHT",
+        _ => "STEREO SPEAKERS",
+    };
+    let how = if rendering.binaural {
+        "DUMMY-HEAD DECODER (SADIE II KU 100)"
+    } else if rendering.hrtf {
+        "HRTF (IRCAM)"
+    } else if rendering.light {
+        "LIGHT MIX (OPENAL SOFT STEREO PANNING)"
+    } else if !rendering.enhanced {
+        "OPENAL SOFT DECODER AND FRONT STABILIZER"
+    } else if rendering.channels == 2 {
+        "EQUAL-POWER PANNING"
+    } else {
+        "PAIRWISE PANNING, LFE BELOW 120 HZ"
+    };
+    (
+        format!("{label}, {} CHANNELS, 48000 HZ", rendering.channels),
+        format!("{}, {how}", if rendering.enhanced { "ENHANCED" } else { "CLASSIC" }),
+    )
+}
+
 /// What the configured output is, for the control runtime's frame flags and
 /// the device: the layout's channels and the rendering it selected.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -170,6 +228,10 @@ pub fn build(
         binaural,
         lfe: enhanced && layout.lfe >= 0,
     };
+    CURRENT.store(LAYOUTS.iter().position(|l| l.name == layout.name).unwrap_or(1), std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut r) = RENDERING.lock() {
+        *r = Some(rendering);
+    }
     let rate = 48000.;
     let mut output = Output::new(rate, channels, enhanced, headphones, binaural, settings.mono, cfg!(target_arch = "x86_64"));
     output.reserve_controls(65536);
