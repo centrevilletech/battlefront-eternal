@@ -456,7 +456,6 @@ impl PageBattle {
             self.strength,
             self.dip,
         );
-        super::bench::prof::mark(&scene.bridge.r.core.gl, "st_before");
         unsafe {
             scene.bridge.r.core.gl.depth_mask(true);
             scene.bridge.r.core.gl.clear(glow::DEPTH_BUFFER_BIT);
@@ -469,7 +468,6 @@ impl PageBattle {
             self.pulse,
             self.dt,
         );
-        super::bench::prof::mark(&scene.bridge.r.core.gl, "st_ring");
         let scale = if self.walker { 0.9 } else { 1. };
         if let Some(online) = &mut scene.online {
             let records = online.preview(
@@ -489,7 +487,6 @@ impl PageBattle {
                 .interface
                 .draw(&mut scene.bridge.r.core, records);
         }
-        super::bench::prof::mark(&scene.bridge.r.core.gl, "st_body");
         self.pins.clear();
         for (index, post) in port.posts.iter().enumerate() {
             let x = (post.position[0] - projection.map_x) / projection.map_half;
@@ -537,7 +534,6 @@ impl PageBattle {
             self.flare,
             &self.pins,
         );
-        super::bench::prof::mark(&scene.bridge.r.core.gl, "st_map");
         let sides = &port.teams;
         // The other team's emblem wakes (larger, opaque, spinning the other way) while the pointer is over
         // its plate or emblem and the player may switch to it (view.js hoverTeam / woken).
