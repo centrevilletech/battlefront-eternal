@@ -309,6 +309,22 @@ impl Prepared{
     pub fn shadows(&mut self,choice:&str){let(count,size)=crate::shadows::quality(choice);self.features[L::FEATURES_SHADOWS]=count as u32;self.features[L::FEATURES_CSM]=(count>0) as u32;self.shadow_size=size;}
 }
 
+// Immediate native GL calls can wait for the GPU. That wait is not CPU pressure.
+pub(crate) struct CpuSample{wall:std::time::Instant,thread:Option<f64>}
+impl CpuSample{
+    pub fn now()->Self{Self{wall:std::time::Instant::now(),thread:thread_cpu_ms()}}
+    pub fn elapsed_ms(&self)->f64{self.thread.zip(thread_cpu_ms()).map_or_else(||self.wall.elapsed().as_secs_f64()*1000.,|(start,end)|(end-start).max(0.))}
+}
+#[cfg(all(target_os="linux",target_pointer_width="64"))]
+fn thread_cpu_ms()->Option<f64>{
+    #[repr(C)]struct Time{seconds:std::ffi::c_long,nanoseconds:std::ffi::c_long}
+    unsafe extern "C"{fn clock_gettime(clock:i32,value:*mut Time)->i32;}
+    let mut t=Time{seconds:0,nanoseconds:0};
+    if unsafe{clock_gettime(3,&mut t)}==0{Some(t.seconds as f64*1000.+t.nanoseconds as f64/1e6)}else{None}
+}
+#[cfg(not(all(target_os="linux",target_pointer_width="64")))]
+fn thread_cpu_ms()->Option<f64>{None}
+
 pub struct Scene {
     pub spawn_objectives: [Vec<String>;2],
     pub spawn_vehicles: std::collections::HashMap<String,[Vec<String>;2]>,
@@ -331,11 +347,16 @@ pub struct Scene {
     render_scale: f64,
     adaptive_scale: f64,
     resolution_target: f64,
+    resolution_limit:f64,
+    resolution_configured:bool,
+    resolution_last_frame:Option<std::time::Instant>,
     resolution: bfe_sim::client::timing::Timing,
     resolution_fence: Option<(glow::Fence,std::time::Instant)>,
     resolution_queries:Option<(glow::Query,glow::Query,bool)>,
     resolution_query_active:bool,
     resolution_gpu_ms:f64,
+    resolution_cpu_ms:f64,
+    resolution_cpu_sample:Option<CpuSample>,
     render_size: [i32; 2],
     reduced_far_terrain: bool,
     shadows_enabled: bool,
@@ -399,11 +420,16 @@ struct SceneFrame {
     // Where aaSamples and farAaSamples sit in the frame's values.
     slots: [usize; 2],
 }
-// A frame-sized colour image a target draws into.
+// The canvas dimensions are already device pixels, as in getDrawingBufferSize.
+fn render_extent(canvas:[i32;2],base:f64,adaptive:f64)->[i32;2]{
+    let scale=(base*adaptive).max(base.min(0.25));
+    canvas.map(|v|(v as f64*scale).round().max(1.)as i32)
+}
 fn post_image(size:[i32;2],slot:usize)->String{
     use bfe_render::post_chain::layout::resource as R;
     if matches!(slot,R::HISTORY0|R::HISTORY1|R::MOTION|R::VELOCITY){serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1016,"srgb":false,"renderTarget":true}).to_string()}else{frame_image(size)}
 }
+// A frame-sized colour image a target draws into.
 fn frame_image(size: [i32; 2]) -> String {
     serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1009,"srgb":false,"renderTarget":true}).to_string()
 }
@@ -1172,7 +1198,7 @@ impl Scene {
                 far_target,
                 depth_target,
                 depth_source, depth_color_source, depth_sample, depth_color,
-                render_scale: 1., render_size: size, adaptive_scale:1., resolution_target:0., resolution:bfe_sim::client::timing::Timing::new(), resolution_fence:None,resolution_queries:None,resolution_query_active:false,resolution_gpu_ms:f64::NAN,
+                render_scale: 1., render_size: size, adaptive_scale:1., resolution_target:0.,resolution_limit:0.,resolution_configured:false,resolution_last_frame:None, resolution:bfe_sim::client::timing::Timing::new(), resolution_fence:None,resolution_queries:None,resolution_query_active:false,resolution_gpu_ms:f64::NAN,resolution_cpu_ms:f64::NAN,resolution_cpu_sample:None,
                 profile_start: None, profile_rss_after: false,
                 post_images, post_mode: 0, temporal_motion:None, blur_downsize:content.map["post"]["blur"]["downsize"].as_f64().filter(|v|v.is_finite()&&*v>0.).unwrap_or(0.25), bloom: false, soft_focus: false, vehicle_blur:false,vehicle_speed:0.,
                 reduced_far_terrain: false, shadows_enabled: shadow_count>0, shadow_bones:bones, shadow_size, features, bump_mapping: true, terrain_detail: true,
@@ -1215,6 +1241,7 @@ impl Scene {
 
     }
     pub fn finish_profile(&mut self) {
+        self.resolution_gpu_end();
         if let Some((fence,_))=self.resolution_fence.take(){unsafe{self.bridge.r.core.gl.delete_sync(fence);}}
         if let Some((a,b,_))=self.resolution_queries.take(){unsafe{self.bridge.r.core.gl.delete_query(a);self.bridge.r.core.gl.delete_query(b);}}
         self.profile_memory("battle end");
@@ -1230,6 +1257,7 @@ impl Scene {
     }
 
     pub fn log_graphics(&self) {
+        self.log_resolution();
         use bfe_render::post_chain::layout::state;
         eprintln!("battle graphics: scene={:?} canvas={:?} shadows={} farReduced={} bump={} terrainEnhanced={} bloom={} softFocus={} postSteps={}",
             self.render_size, self.size, self.shadows_enabled, self.reduced_far_terrain,
@@ -1327,16 +1355,27 @@ impl Scene {
         self.terrain_detail = terrain;
     }
 
-    pub fn set_dynamic_resolution(&mut self,target:f64)->Result<(),String>{
+    pub fn set_resolution(&mut self,base:f64,target:f64,limit:f64)->Result<(),String>{
+        let base=if base.is_finite(){base.clamp(0.25,2.)}else{1.};
         let target=if target.is_finite(){target.max(0.)}else{0.};
-        if self.resolution_target==target{return Ok(());}
+        let limit=if limit.is_finite(){limit.max(0.)}else{0.};
+        let target=if limit>0.{target.min(limit)}else{target};
+        let changed=!self.resolution_configured||self.render_scale!=base||self.resolution_target!=target||self.resolution_limit!=limit;
+        if !changed{return Ok(());}
         if let Some((a,b,_))=self.resolution_queries.take(){unsafe{self.bridge.r.core.gl.delete_query(a);self.bridge.r.core.gl.delete_query(b);}}
-        self.resolution_gpu_ms=f64::NAN;self.resolution_query_active=false;
-        self.resolution_target=target;
-        self.resolution.run(15,target,0.,0.,0.,0.);
-        self.adaptive_scale=1.;
         if let Some((fence,_))=self.resolution_fence.take(){unsafe{self.bridge.r.core.gl.delete_sync(fence);}}
-        self.resize_scene_targets()
+        self.resolution_last_frame=None;self.resolution_cpu_ms=f64::NAN;self.resolution_gpu_ms=f64::NAN;self.resolution_query_active=false;
+        self.resolution_configured=true;self.resolution_target=target;self.resolution_limit=limit;self.render_scale=base;self.adaptive_scale=1.;
+        self.resolution.run(15,target,0.,0.,0.,0.);
+        let previous=self.render_size;self.resize_scene_targets()?;
+        if previous==self.render_size{self.log_resolution();}
+        Ok(())
+    }
+    pub(crate) fn resolution_frame_begin(&mut self){self.resolution_cpu_sample=self.resolution_enabled().then(CpuSample::now);}
+    pub(crate) fn resolution_presented(&mut self,paused:bool)->Result<(),String>{
+        self.resolution_gpu_end();
+        if let Some(sample)=self.resolution_cpu_sample.take(){self.adapt_resolution(sample.elapsed_ms(),paused)?;}
+        Ok(())
     }
     fn resolution_gpu_begin(&mut self){
         if !self.resolution_enabled(){return;}
@@ -1353,8 +1392,11 @@ impl Scene {
         if self.resolution_query_active{if let Some((_,b,pending))=&mut self.resolution_queries{unsafe{let gl=&self.bridge.r.core.gl;if gl.version().is_embedded{gl.end_query(glow::TIME_ELAPSED);}else{gl.query_counter(*b,glow::TIMESTAMP);}}*pending=true;}self.resolution_query_active=false;}
     }
     pub fn resolution_enabled(&self)->bool{self.resolution_target>0.}
-    pub fn adapt_resolution(&mut self,interval_ms:f64,cpu_ms:f64,paused:bool)->Result<(),String>{
+    pub fn adapt_resolution(&mut self,cpu_ms:f64,paused:bool)->Result<(),String>{
         if !self.resolution_enabled(){return Ok(());}
+        self.resolution_cpu_ms=cpu_ms;
+        let now=std::time::Instant::now();
+        let interval_ms=self.resolution_last_frame.replace(now).map_or(f64::NAN,|last|now.duration_since(last).as_secs_f64()*1000.);
         let gl=&self.bridge.r.core.gl;
         if let Some((a,b,pending))=&mut self.resolution_queries{if *pending&&unsafe{gl.get_query_parameter_u32(*b,glow::QUERY_RESULT_AVAILABLE)}!=0{
             let start=if gl.version().is_embedded{0}else{unsafe{gl.get_query_parameter_u64(*a,glow::QUERY_RESULT)}};let end=unsafe{gl.get_query_parameter_u64(*b,glow::QUERY_RESULT)};
@@ -1368,17 +1410,16 @@ impl Scene {
         self.resolution_fence=unsafe{gl.fence_sync(glow::SYNC_GPU_COMMANDS_COMPLETE,0)}.ok().map(|f|(f,std::time::Instant::now()));
         if paused{self.resolution.run(16,0.,0.,0.,0.,0.);return Ok(());}
         let scale=self.resolution.run(17,interval_ms,cpu_ms,self.resolution_gpu_ms,behind,latency);
-        if scale!=self.adaptive_scale{self.adaptive_scale=scale;eprintln!("battle adaptive scale: factor={scale} target={} GPU-ms={} CPU-ms={cpu_ms}",self.resolution_target,self.resolution_gpu_ms);self.resize_scene_targets()?;}
+        if scale!=self.adaptive_scale{self.adaptive_scale=scale;self.resize_scene_targets()?;}
         Ok(())
     }
-    pub fn set_render_scale(&mut self, scale: f64) -> Result<(), String> {
-        self.render_scale = if scale.is_finite() { scale.clamp(0.25, 2.) } else { 1. };
-        self.resize_scene_targets()
+    fn log_resolution(&self){
+        let scale=(self.render_scale*self.adaptive_scale).max(self.render_scale.min(0.25));
+        eprintln!("battle resolution: canvas-device={}x{} renderScale={} adaptive={} effective={} scene-device={}x{} target-fps={} GPU-ms={} CPU-thread-ms={}",self.size[0],self.size[1],self.render_scale,self.adaptive_scale,scale,self.render_size[0],self.render_size[1],self.resolution_target,self.resolution_gpu_ms,self.resolution_cpu_ms);
     }
 
     fn resize_scene_targets(&mut self) -> Result<(), String> {
-        let scale=(self.render_scale*self.adaptive_scale).max(self.render_scale.min(0.25));
-        let size = self.size.map(|v| ((v as f64 * scale).round() as i32).max(1));
+        let size=render_extent(self.size,self.render_scale,self.adaptive_scale);
         if size == self.render_size { return Ok(()); }
         self.bridge.r.core.state.reset();
         self.resources.source_desc(self.far_source, &frame_image(size))?;
@@ -1406,7 +1447,7 @@ impl Scene {
         }
         self.render_size = size;
         self.bridge.r.core.state.reset();
-        eprintln!("battle render size: {}x{} (scale {})", size[0], size[1], self.render_scale);
+        self.log_resolution();
         Ok(())
     }
     /// Graphics.applyAntialiasing for the antialiasing setting: the near
@@ -1604,6 +1645,7 @@ impl Scene {
         if !self.profile_rss_after && self.profile_start.is_some_and(|s|s.elapsed().as_secs()>=60) {
             self.profile_rss_after=true;self.profile_memory("after 60 seconds");
         }
+        self.resolution_gpu_begin();
         let build_timer=self.bridge.r.core.profile.clock();
         use bfe_render::frame_plan::layout::{
             binding as b, facts as f, kind as k, meta as m, role as r, stats as t,
@@ -1784,9 +1826,7 @@ impl Scene {
         if self.online.is_some(){self.publish(r::HUD0,k::HUD,0,0,0);}
         self.bridge.r.core.profile.cpu("draw list building",build_timer);
         let submit_timer=self.bridge.r.core.profile.clock();
-        self.resolution_gpu_begin();
         let success = self.bridge.battle_frame(&mut self.resources);
-        self.resolution_gpu_end();
         if let Some(native)=&mut self.temporal_motion{native.complete(success);}
         self.bridge.r.core.profile.cpu("GL submit",submit_timer);
         self.bridge.r.core.profile.frame(&self.bridge.r.core.gl);
@@ -2002,4 +2042,11 @@ mod camera_tests {
         assert_eq!(camera.aim()[1], -0.2);
         assert_eq!(camera.snapshot().values[camera.slots[2]], 0.1);
     }
+    #[test]
+    fn render_scale_applies_once_to_device_pixels_and_keeps_the_adaptive_floor(){
+        assert_eq!(render_extent([2512,1500],1.5,1.),[3768,2250]);
+        assert_eq!(render_extent([2512,1500],1.5,0.5),[1884,1125]);
+        assert_eq!(render_extent([2512,1500],0.25,0.5),[628,375]);
+    }
+
 }
