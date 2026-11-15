@@ -715,12 +715,13 @@ impl Replicas {
             );
             let (collision, world) = (&self.collision, self.world);
             let [yaw, pitch] = shot.fire;
+            let origin = if shot.walker { [shot.position[0], shot.position[1] + 1., shot.position[2]] } else { [basis.origin.x, basis.origin.y, basis.origin.z] };
             self.combat.predict(
                 shot.weapon,
                 shot.level,
                 shot.tick,
                 shot.button,
-                [basis.origin.x, basis.origin.y, basis.origin.z],
+                origin,
                 [yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos()],
                 shot.spread,
                 &mut |from, direction, far| {
