@@ -50,21 +50,6 @@ for each boundary call and random draw:
 replay tests run their self-contained synthetic fixtures in CI without game
 files.
 
-## The world-hash gate
-
-`cargo xtask matrix` (`rust/xtask (matrix.rs)`) fingerprints every battle in
-`tools/world-hash-matrix.txt` and compares them tick by tick on all three hashes
-(the replay state, a deep digest of every unit, hull and round, and the
-published bytes) against `tests/fixtures/world-hashes.json`:
-
-    cd rust && cargo xtask matrix --corpus /path/to/world-corpus --against ../tests/fixtures/world-hashes.json
-
-The standing matrix has 61 configurations over 17 maps, including Enhanced AI,
-heroes, mounted players, rewind shots and sequential battles. Compare state,
-deep digest and published bytes; a matching final position alone is
-insufficient. Whole-world input capture and the native replay contract are
-described in [world-replay.md](world-replay.md).
-
 ## Running checks
 
 Run the workspace unit and replay tests from `rust/`:

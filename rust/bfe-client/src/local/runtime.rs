@@ -39,7 +39,10 @@ pub struct Input<'a> {
     pub command: &'a ClientCommand,
     pub look: &'a ClientLook,
     pub flight: &'a ClientFlightCommand,
+    /// The tick this command is the input of.
     pub tick: f64,
+    /// The last tick the world has completed.
+    pub now: f64,
     pub at_ms: f64,
     pub epoch: f64,
     pub generation: f64,
@@ -324,6 +327,7 @@ impl<E: Engine> Runtime<E> {
             look,
             flight,
             tick: input.tick,
+            now: input.tick - 1.,
             at_ms: self.now_ms,
             epoch: self.receiver.epoch,
             generation: self.receiver.own.generation,
@@ -340,19 +344,41 @@ impl<E: Engine> Runtime<E> {
         self.publish()
     }
 
-    /// Steps one 60 Hz tick on the dedicated world thread and copies the
-    /// resulting publication into `slot` for non-blocking render-thread delivery.
-    pub fn step_into_slot(
+    /// Queues one command of the player's for the tick it is stamped for, as a
+    /// server queues a remote player's. A stamp the world has already passed
+    /// goes into the next tick.
+    pub fn submit(
         &mut self,
         command: &ClientCommand,
         look: &ClientLook,
         flight: &ClientFlightCommand,
-        _render_ack: [f64; 2],
-        // The world receiver never advances a display clock.
+        // The target sample the screen showed when this command was made.
+        // The world's own receiver never advances a display clock.
         view_tick: f64,
-        fire_aim: Option<[f64;2]>,
-        slot: &mut PublicationSlot,
-    ) -> Result<f64, String> {
+        fire_aim: Option<[f64; 2]>,
+    ) -> Result<(), String> {
+        if self.closed {
+            return Err("local battle is closed".into());
+        }
+        let next = self.clock.input().tick;
+        self.engine.input(Input {
+            command,
+            look,
+            flight,
+            tick: command.tick.max(next),
+            now: next - 1.,
+            at_ms: self.now_ms,
+            epoch: self.receiver.epoch,
+            generation: self.receiver.own.generation,
+            view_tick: Some(view_tick),
+            fire_aim,
+            flight_mode: self.receiver.own.body_schema == 7,
+        })
+    }
+
+    /// Steps one 60 Hz tick on the dedicated world thread, with the commands
+    /// `submit` queued for it, and copies the resulting publication into `slot`.
+    pub fn step_into_slot(&mut self, slot: &mut PublicationSlot) -> Result<f64, String> {
         if self.closed {
             return Err("local battle is closed".into());
         }
@@ -360,18 +386,6 @@ impl<E: Engine> Runtime<E> {
         self.now_ms += 1000. / 60.;
         input.at = self.now_ms;
         input.mouse_scale = 1.;
-        self.engine.input(Input {
-            command,
-            look,
-            flight,
-            tick: input.tick,
-            at_ms: self.now_ms,
-            epoch: self.receiver.epoch,
-            generation: self.receiver.own.generation,
-            view_tick: Some(view_tick),
-            fire_aim,
-            flight_mode: self.receiver.own.body_schema == 7,
-        })?;
         let output = self.engine.step(input)?;
         if let Err(error) = self.clock.complete(&output) {
             self.refused = self.refused.saturating_add(1);

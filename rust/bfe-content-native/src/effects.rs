@@ -157,6 +157,14 @@ impl Compiler {
         Ok(id)
     }
 }
+/// The prefix of the map's environment effect groups in the merged library.
+pub const ENVIRONMENT: &str = "environment/";
+/// A library with every group renamed `prefix` + name.
+pub fn prefixed(library: Option<&Value>, prefix: &str) -> Option<Value> {
+    let object = library?.as_object()?;
+    let written = object.entries().map(|(name, value)| (Rc::from(format!("{prefix}{name}").as_str()), value.clone())).collect();
+    Some(Value::Object(Rc::new(Object::from_written(written))))
+}
 /// Object spread keeps the first property's order while replacing its value.
 /// Keep Rc-backed authored objects shared so identical references keep one
 /// definition handle; equal JSON values in different objects remain distinct.

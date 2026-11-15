@@ -52,6 +52,8 @@ struct Model {
     seats: usize,
     rider: Vec<(Option<String>, Option<String>, bool)>,
     hover: f64,
+    // Its thrust, damage and death effects (VehicleEffects).
+    fx: Option<super::hull_effects::ClassFx>,
 }
 struct Slot {
     rig: usize,
@@ -79,6 +81,9 @@ pub struct Hulls {
     pub refused: u64,
     collision: Collision,
     world: u32,
+    // Each hull's life as its effects see it, by identity, kept while its
+    // record lasts (a wreck's dust rises after it is gone from view).
+    bodies: Vec<((u32, u32), super::hull_effects::Body, bool)>,
 }
 impl Hulls {
     pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], collision: Collision, world: u32) -> Result<Self, String> {
@@ -87,6 +92,8 @@ impl Hulls {
         let mut models = Vec::new();
         let mut descriptors = Vec::new();
         let mut classes = vec![None; defs.registry.classes.len() + 1];
+        let effect_names = content.effects.iter().find(|(n, _)| n == "battle").map(|(_, e)| e.handles.clone()).unwrap_or_default();
+        let effect = |name: &str| effect_names.iter().find(|(n, _)| n == name).map(|(_, id)| *id);
         // new Vehicle and RigBatches use the same cold numerical builders
         // as the page. Their records preserve authored bone and muzzle order.
         // Native admission creates GPU resources from those completed records;
@@ -295,6 +302,12 @@ impl Hulls {
                 seats: seats.len(),
                 rider,
                 hover,
+                fx: super::hull_effects::ClassFx::parse(
+                    id as usize,
+                    &class.record,
+                    nodes.iter().map(|n| n["name"].as_str().unwrap_or("").to_string()).collect(),
+                    effect,
+                ),
             });
         }
         // The fixed hull pool is shared by class, with a minimum reservation
@@ -332,6 +345,12 @@ impl Hulls {
             refused: 0,
             collision,
             world,
+            bodies: Vec::with_capacity(POOL),
+        })
+        .inspect(|hulls: &Self| {
+            if std::env::var_os("BFE_FX_SHOW").is_some() {
+                eprintln!("fx-hulls classes={} with-effects={}", hulls.models.len(), hulls.models.iter().filter(|m| m.fx.is_some()).count());
+            }
         })
     }
     // CameraPhase accepts raw seat configuration and the pose just published
@@ -401,6 +420,7 @@ impl Hulls {
         dt: f64,
         prediction: &super::hull_replay::Fleet,
         history: &super::replay::History,
+        fx: &mut super::hull_effects::HullEffects,
     ) {
         use bfe_presentation::network_layout::{net_mount_frame as mf, net_mount_input as mi, net_mount_output as mo};
         if self.epoch != receiver.epoch {
@@ -656,6 +676,59 @@ impl Hulls {
                 }
             }
         }
+        self.effects(receiver, tick, dt, fx);
+    }
+    // VehicleEffects.update: every hull with effects, drawn or a wreck
+    // whose record remains, from the pose just published.
+    fn effects(&mut self, receiver: &Receiver, tick: f64, dt: f64, fx: &mut super::hull_effects::HullEffects) {
+        use super::hull_effects::Frame;
+        for body in &mut self.bodies {
+            body.2 = false;
+        }
+        for row in receiver.active().filter(|r| r[r::KIND] == k::VEHICLE as f64) {
+            let Some(model) = self.classes.get(row[r::CLASS_ID] as usize).copied().flatten() else {
+                continue;
+            };
+            let Some(class) = self.models[model].fx.as_ref() else {
+                continue;
+            };
+            let key = (row[r::ID] as u32, row[r::GENERATION] as u32);
+            let state = row[r::STATE];
+            let slot = self.bound.get(&key).copied().filter(|&i| self.slots[i].active && state != 4.);
+            let nodes = slot.and_then(|i| self.owner.slot_nodes(self.slots[i].rig, 0)).map(|nodes| (nodes, n::STRIDE, n::WORLD));
+            let at = match self.bodies.iter().position(|(k, _, _)| *k == key) {
+                Some(at) => at,
+                None => {
+                    if state == 4. {
+                        // A wreck first seen already destroyed shows nothing.
+                        continue;
+                    }
+                    self.bodies.push((key, Default::default(), false));
+                    self.bodies.len() - 1
+                }
+            };
+            let entry = &mut self.bodies[at];
+            entry.2 = true;
+            let (health, velocity, dying) = match slot {
+                Some(i) => {
+                    let s = &self.slots[i];
+                    (s.health, s.velocity, s.dying_since.map_or(0., |since| (tick - since).max(0.) / 60.))
+                }
+                None => (row[r::HEALTH], std::array::from_fn(|i| row[r::VELOCITY + i]), 0.),
+            };
+            let frame = Frame {
+                key: (key.0 as u64) << 20 | (key.1 as u64 & 0xfffff),
+                generation: key.1,
+                state: if state == 4. { 2 } else if state == 6. { 1 } else { 0 },
+                dying,
+                health,
+                thrusting: self.models[model].flying && (1. ..=3.).contains(&state),
+                velocity,
+                nodes,
+            };
+            fx.hull(class, &mut entry.1, frame, dt);
+        }
+        self.bodies.retain(|b| b.2);
     }
     // Shadow storage covers the largest admitted rig, including models that
     // have not appeared in a snapshot yet.

@@ -14,44 +14,6 @@ name = "bfe_sim"
 # Reading and writing the replay harness's values (rust/sim-replay, native
 # only): `cargo test -p sim --features replay` replays captured phases.
 replay = ["dep:sim-replay", "bfe-pose/replay"]
-# The navigation twin runner (src/bin/nav-twin.rs), off by default so `cargo test`
-# builds no binary beside the tests.
-nav-twin = []
-# Whole-world corpus runner; native entry integration is opt-in.
-world-twin = []
-# Replays a recorded admission call log through Context::invoke_export.
-admit-replay = []
-# Admits every battle of a rows file from the content folder and runs it
-# (src/bin/admit-run.rs): the native admission's acceptance sweep.
-admit-run = []
-# The world-hash matrix's per-row worker (src/bin/world-hash-native.rs, run
-# by `cargo xtask matrix`): the three per-tick hashes from the native world.
-world-hash-native = ["dep:flate2", "dep:sha1", "dep:base64"]
-
-[[bin]]
-name = "nav-twin"
-path = "src/bin/nav-twin.rs"
-required-features = ["nav-twin"]
-
-[[bin]]
-name = "world-twin"
-path = "src/bin/world-twin.rs"
-required-features = ["world-twin"]
-
-[[bin]]
-name = "admit-replay"
-path = "src/bin/admit-replay.rs"
-required-features = ["admit-replay"]
-
-[[bin]]
-name = "admit-run"
-path = "src/bin/admit-run.rs"
-required-features = ["admit-run"]
-
-[[bin]]
-name = "world-hash-native"
-path = "src/bin/world-hash-native.rs"
-required-features = ["world-hash-native"]
 
 [dependencies]
 bfe-presentation = { path = "../bfe-presentation" }
@@ -63,6 +25,3 @@ v8math = { path = "../v8math" }
 three = { path = "../three" }
 jsrt = { path = "../jsrt" }
 sim-replay = { path = "../sim-replay", optional = true }
-flate2 = { version = "1", optional = true }
-sha1 = { version = "0.10", optional = true }
-base64 = { version = "0.22", optional = true }

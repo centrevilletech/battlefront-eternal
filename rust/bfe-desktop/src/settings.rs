@@ -532,7 +532,7 @@ pub fn read_steam_settings(user_data_dir: &Path) -> Option<SteamSettingsRecord> 
 }
 
 /// Looks up a single setting key across `player-settings.json` (`values`) and
-/// `desktop-settings.json`. Used by `desktop-tool settings get KEY`.
+/// `desktop-settings.json`.
 pub fn get_setting(user_data_dir: &Path, key: &str) -> Option<String> {
     if let Some(player) = read_player_settings(user_data_dir) {
         if let Some(val) = player.values.get(key) {
