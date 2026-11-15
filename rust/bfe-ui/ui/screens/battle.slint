@@ -28,6 +28,7 @@ import {
     BattleClassBanner,
     BattleSpawnButton,
     BattleObjectivesCard,
+    SpawnCss,
     ScoreTeamPanel,
     ScoreStatSheet,
 } from "../components/battle-widgets.slint";
@@ -54,6 +55,11 @@ export global BattleModel {
     in-out property <bool> theme-picker-open: false;
 
     // Spawn screen properties
+    // Seconds since the screen opened, the team, class and post changed (2: over).
+    in-out property <float> entry: 2.0;
+    in-out property <float> turn: 2.0;
+    in-out property <float> class-change: 2.0;
+    in-out property <float> post-change: 2.0;
     in-out property <BattleTeamModel> team-one;
     in-out property <BattleTeamModel> team-two;
     in-out property <bool> can-switch-teams: false;
@@ -198,27 +204,36 @@ export component BattleSpawnScreen inherits Rectangle {
         height: 100%;
         cache-rendering-hint: true;
 
-        BattleTeamCard {
-            model: BattleModel.team-one;
-            right-aligned: false;
-            pulse-alpha: BattleModel.pulse-alpha;
-            clicked => { BattleModel.select-team(BattleModel.team-one.id); }
-        }
+        // .bfe-spawn-head: drops in from 3vh above (.6s after .15s).
+        Rectangle {
+            property <float> k: SpawnCss.appear(BattleModel.entry, 0.15, 0.6);
+            y: -3 * Theme.vh * (1 - self.k);
+            width: 100%;
+            height: 100%;
+            opacity: self.k;
 
-        BattleTeamCard {
-            model: BattleModel.team-two;
-            right-aligned: true;
-            pulse-alpha: BattleModel.pulse-alpha;
-            clicked => { BattleModel.select-team(BattleModel.team-two.id); }
-        }
+            BattleTeamCard {
+                model: BattleModel.team-one;
+                right-aligned: false;
+                pulse-alpha: BattleModel.pulse-alpha;
+                clicked => { BattleModel.select-team(BattleModel.team-one.id); }
+            }
 
-        BattleSwapControl {
-            active: BattleModel.can-switch-teams;
-            swap-x: BattleModel.swap-x;
-            swap-y: BattleModel.swap-y;
-            swap-size: BattleModel.swap-size;
-            switch-hint-y: BattleModel.switch-hint-y;
-            toggled => { BattleModel.toggle-team(); }
+            BattleTeamCard {
+                model: BattleModel.team-two;
+                right-aligned: true;
+                pulse-alpha: BattleModel.pulse-alpha;
+                clicked => { BattleModel.select-team(BattleModel.team-two.id); }
+            }
+
+            BattleSwapControl {
+                active: BattleModel.can-switch-teams;
+                swap-x: BattleModel.swap-x;
+                swap-y: BattleModel.swap-y;
+                swap-size: BattleModel.swap-size;
+                switch-hint-y: BattleModel.switch-hint-y;
+                toggled => { BattleModel.toggle-team(); }
+            }
         }
 
         if BattleModel.countdown-visible : PageText {
@@ -233,7 +248,9 @@ export component BattleSpawnScreen inherits Rectangle {
         }
 
         BattleRosterHeader {
-            x: BattleModel.roster-x * 1px;
+            property <float> k: SpawnCss.appear(BattleModel.entry, 0.3, 0.6);
+            opacity: self.k;
+            x: BattleModel.roster-x * 1px - 4 * Theme.vw * (1 - self.k);
             y: BattleModel.roster-y * 1px;
             width: BattleModel.roster-w * 1px;
             label: "SELECT SOLDIER";
@@ -249,6 +266,9 @@ export component BattleSpawnScreen inherits Rectangle {
 
             for cls in BattleModel.classes : BattleClassCard {
                 model: cls;
+                // Entering: .5s each after .35s, 60ms apart; a team's classes (turning) without the .35s.
+                enter: BattleModel.turn < 2 ? SpawnCss.appear(BattleModel.turn, cls.index * 0.06, 0.5)
+                    : SpawnCss.appear(BattleModel.entry, 0.35 + cls.index * 0.06, 0.5);
                 clicked => { BattleModel.select-class(cls.index); }
             }
         }
@@ -265,9 +285,14 @@ export component BattleSpawnScreen inherits Rectangle {
             pointer-up => { BattleModel.figure-pointer-up(); }
         }
 
+        // The caption and SPAWN rise in (.7s after .6s); the caption again on another class (.5s).
         if BattleModel.selected-class-title != "" : BattleClassBanner {
+            property <float> k: min(SpawnCss.appear(BattleModel.entry, 0.6, 0.7),
+                BattleModel.class-change < 2 ? SpawnCss.appear(BattleModel.class-change, 0, 0.5) : 1);
+            opacity: self.k;
+            post-enter: BattleModel.post-change < 2 ? SpawnCss.appear(BattleModel.post-change, 0, 0.45) : 1;
             x: BattleModel.title-x * 1px;
-            y: BattleModel.title-y * 1px;
+            y: BattleModel.title-y * 1px + 1.2 * Theme.vh * (1 - self.k);
             width: BattleModel.title-w * 1px;
             class-title: BattleModel.selected-class-title;
             post-name: BattleModel.selected-post-name;
@@ -275,16 +300,21 @@ export component BattleSpawnScreen inherits Rectangle {
         }
 
         BattleSpawnButton {
+            property <float> k: SpawnCss.appear(BattleModel.entry, 0.6, 0.7);
+            opacity: self.k * (BattleModel.can-spawn ? 1.0 : 0.45);
             x: BattleModel.spawn-x * 1px;
-            y: BattleModel.spawn-y * 1px;
+            y: BattleModel.spawn-y * 1px + 1.2 * Theme.vh * (1 - self.k);
             width: BattleModel.spawn-w * 1px;
             height: BattleModel.spawn-h * 1px;
             can-spawn: BattleModel.can-spawn;
             clicked => { BattleModel.spawn-clicked(); }
         }
 
+        // .bfe-spawn-tactical's windows slide in from 4vw right (.6s after .3s).
         BattleObjectivesCard {
-            x: BattleModel.objectives-x * 1px;
+            property <float> k: SpawnCss.appear(BattleModel.entry, 0.3, 0.6);
+            opacity: self.k;
+            x: BattleModel.objectives-x * 1px + 4 * Theme.vw * (1 - self.k);
             y: BattleModel.objectives-y * 1px;
             width: BattleModel.objectives-w * 1px;
             height: BattleModel.objectives-h * 1px;

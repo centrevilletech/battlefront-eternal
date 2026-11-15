@@ -39,6 +39,7 @@ pub(super) struct PageBattle {
     pub age: f64,
     pub class_age: f64,
     pub team_age: f64,
+    pub post_age: f64,
     pub class_id: usize,
     framed: bool,
     framing_look: usize,
@@ -98,6 +99,7 @@ impl PageBattle {
             age: 0.,
             class_age: 0.,
             team_age: 0.,
+            post_age: 0.,
             class_id: 0,
             framed: false,
             framing_look: 2,
@@ -268,6 +270,9 @@ impl PageBattle {
         }
         self.pin_waves.resize(port.posts.len(), f64::INFINITY);
         if self.post != model.post {
+            if !opening {
+                self.post_age = 0.;
+            }
             self.post = model.post.clone();
             if let Some(i) = port
                 .posts
@@ -288,6 +293,7 @@ impl PageBattle {
         self.age += dt;
         self.class_age += dt;
         self.team_age += dt;
+        self.post_age += dt;
         self.strength += (1. - self.strength) * (dt * 3.5).min(1.);
         self.building += dt;
         self.pulse = (self.pulse - dt * 1.6).max(0.);
