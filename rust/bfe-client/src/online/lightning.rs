@@ -73,6 +73,12 @@ pub struct Guns {
     /// By a round's wire class: the classes that fire it, each with the
     /// weapon it fires it from.
     pub shooters: Vec<Vec<(usize, usize)>>,
+    /// The weapons whose shot the player's own client shows at the trigger
+    /// press (PredictedShots.fire: any that fires a round, but for thrown
+    /// ones and lightning), and each weapon's registry id by its place in
+    /// the battle's weapon list.
+    pub ahead: Vec<bool>,
+    pub ids: Vec<usize>,
 }
 impl Guns {
     pub fn new(content: &BattleContent) -> Result<Self, String> {
@@ -87,6 +93,8 @@ impl Guns {
             holds: vec![0.; weapons],
             casters: vec![None; defs.registry.classes.len() + 1],
             shooters: vec![Vec::new(); defs.registry.combat.len() + 1],
+            ahead: vec![false; weapons],
+            ids: defs.weapons.iter().map(|weapon| weapon.registry_id.map_or(0, usize::from)).collect(),
         };
         for weapon in &defs.weapons {
             let Some(id) = weapon.registry_id.map(usize::from) else {
@@ -115,6 +123,8 @@ impl Guns {
             }
             guns.flashes[id] = (length, color);
             let ordnance = weapon.record.get("ordnance");
+            let base = ordnance.and_then(|o| o.get("base")).and_then(Value::as_str);
+            guns.ahead[id] |= base.is_some_and(|base| !["sticky", "grenade", "emitterordnance"].contains(&base));
             if let (Some(round), Some(class)) = (ordnance.and_then(|o| defs.combat_id(o)), defs.classes.get(weapon.owner).and_then(|c| c.registry_id)) {
                 guns.shooters[round as usize].push((class as usize, id));
             }

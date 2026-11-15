@@ -696,8 +696,33 @@ impl Combat {
                         let group = style.and_then(|s| self.styles[s].impact.get(source.surface as usize).copied().flatten());
                         let position = source.view.position.unwrap_or_default();
                         let rail = style.is_some_and(|s| self.styles[s].rail.is_some());
+                        // ProjectilePresentation.end: a rocket, shell or
+                        // grenade that struck something is gone when the
+                        // clock reaches this record's tick, its last stretch
+                        // flown into the point it names. Without this it
+                        // flew on past what it hit for the life it had left.
+                        let flying = self.net_bound.get(&key).copied();
+                        if let Some(net) = flying {
+                            if net_count == limits::NET_COMMANDS {
+                                self.ordnance.net_flush(net_count);
+                                net_count = 0;
+                            }
+                            let x = &mut self.ordnance.net_input[net_count * n::STRIDE..][..n::STRIDE];
+                            x.fill(0.);
+                            x[n::KIND] = nk::END as f64;
+                            x[n::SLOT] = net as f64;
+                            x[n::GENERATION] = generation as f64;
+                            x[n::SCHEMA] = 2.;
+                            x[n::TICK] = stamp;
+                            x[n::POSITION..n::POSITION + 3].copy_from_slice(&position);
+                            net_count += 1;
+                        }
                         if self.trace {
-                            eprintln!("ord: end id={id} tick={stamp} shown={tick:.3} surface={} at={position:.3?} unbound", source.surface);
+                            eprintln!(
+                                "ord: end id={id} tick={stamp} shown={tick:.3} surface={} at={position:.3?} {}",
+                                source.surface,
+                                if flying.is_some() { "projectile" } else { "unbound" }
+                            );
                         }
                         self.defer(group, position, id, stamp, rail);
                         continue;
