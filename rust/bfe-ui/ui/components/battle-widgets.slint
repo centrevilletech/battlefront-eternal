@@ -523,7 +523,8 @@ export component BattleClassCard inherits Rectangle {
     in property <BattleClassModel> model;
     callback clicked();
 
-    x: root.model.rect-x * 1px;
+    // :hover slides a window 4px right (the picked one sits 10px over already).
+    x: root.model.rect-x * 1px + (touch.has-hover && !root.model.picked ? 4px : 0px);
     y: root.model.rect-y * 1px;
     width: root.model.rect-w * 1px;
     height: root.model.rect-h * 1px;
@@ -825,6 +826,15 @@ export component BattleSpawnButton inherits Rectangle {
 
     background: transparent;
     opacity: root.can-spawn ? 1.0 : 0.45;
+
+    // .bfe-spawn-go-slot.ready breathes a drop shadow of the accent between 4px/40% and 18px/85%; held at its
+    // middle here (an animated blur re-renders the shadow every frame).
+    if root.can-spawn : Rectangle {
+        border-radius: Theme.bf2 ? self.height * 0.5 : 0px;
+        background: Theme.bfe-accent.with-alpha(0.01);
+        drop-shadow-blur: 11px;
+        drop-shadow-color: Theme.bfe-accent.with-alpha(0.62);
+    }
 
     PageButton {
         width: 100%;
