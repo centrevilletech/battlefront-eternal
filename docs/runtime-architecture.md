@@ -82,9 +82,8 @@ device directly.
 
 The game uses server authority and reconciliation. It does not require every
 client to simulate an entire battle in deterministic lockstep. See
-[network-contract.md](network-contract.md),
-[network-replay-contract.md](network-replay-contract.md) and
-[world-replay.md](world-replay.md).
+[network-contract.md](network-contract.md)
+and [network-replay-contract.md](network-replay-contract.md).
 
 ## Presentation and rendering
 
@@ -103,8 +102,7 @@ and application state machine.
 
 ## Validation and performance
 
-Native phase fixtures and recorded input replays (`rust/sim-replay`) check
-shared core behavior. Complete battles use the shipped client/server pipeline.
+Complete battles use the shipped client/server pipeline.
 [renderer-smoke.md](renderer-smoke.md) describes content-free GPU checks;
 [host-qualification.md](host-qualification.md) covers server lifecycle, load
 and network acceptance.

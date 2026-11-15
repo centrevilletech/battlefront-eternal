@@ -21,8 +21,6 @@
 pub mod block;
 pub mod handles;
 pub mod calls;
-#[cfg(feature = "replay")]
-pub mod replay;
 mod slab;
 mod strings;
 

@@ -48,8 +48,6 @@ pub mod store;
 pub mod tethers;
 pub mod walker;
 pub mod module;
-#[cfg(feature = "replay")]
-pub mod replay;
 
 pub use hull::{Hull, Input, Lease, Seat, Wheel};
 

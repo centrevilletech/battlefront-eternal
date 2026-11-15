@@ -28,7 +28,6 @@ fi
 # Crates that already pass clippy --all-targets --no-deps -- -D warnings cleanly
 # on the baseline branch.
 strict_clippy_crates=(
-  sim-replay
   basis-transcode
   texture-codec
   bfe-online
@@ -84,7 +83,7 @@ cargo clippy --manifest-path "${manifest}" --locked --all-targets --no-deps \
 
 if [[ "${BFE_CI_STRICT_CLIPPY}" == "1" ]]; then
   echo "==> Step 2b: cargo clippy (-D warnings) on remaining workspace crates"
-  extra_clippy_args=(--features sim/replay)
+  extra_clippy_args=()
   for crate in "${pre_hygiene_crates[@]}"; do
     extra_clippy_args+=(-p "${crate}")
   done
@@ -97,7 +96,6 @@ fi
 echo "==> Step 3: cargo test across native workspace crates"
 base_test_crates=(
   sim
-  sim-replay
   bfe-render
   bfe-presentation
   bfe-pose
@@ -118,7 +116,7 @@ base_test_crates=(
   bfe-online
 )
 
-test_pkg_args=(--features sim/replay)
+test_pkg_args=()
 for crate in "${base_test_crates[@]}" "${present_wave_crates[@]}"; do
   test_pkg_args+=(-p "${crate}")
 done

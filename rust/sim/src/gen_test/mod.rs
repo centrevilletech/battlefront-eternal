@@ -8,10 +8,6 @@ pub use crate::store::{IntObj, NumMap, RefMap, TypedArray};
 
 mod shelf;
 pub use self::shelf::*;
-#[cfg(feature = "replay")]
-mod replay;
-#[cfg(feature = "replay")]
-pub use self::replay::Replay;
 
 pub const KIND_PERSON: KindCode = 1;
 pub const KIND_SHELF: KindCode = 2;

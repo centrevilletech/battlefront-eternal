@@ -364,8 +364,6 @@ extraction (`tools/extract.py`) writes them too.
   `rust/sim/rust/ai/owned/tests/native_phase.rs`, `ai_combat_control.rs`, `ai_control_twin.rs`,
   `ai_combat_twin.rs`, `vehicle_ai_twin.rs`, the replay suites, and
   `rust/sim/rust/ai/nav/tests.rs`).
-- Whole battles between bots (`cargo test --locked --workspace`) run headless in the native simulation runner (`rust/sim-replay`), the world the world worker runs, and
-  read `game.ai` there.
 - The historical headless measurements quoted below predate the native AI.
   Current checks use the native world tick and its canonical publications.
 

@@ -2164,10 +2164,6 @@ pub fn rust_index(model: &Model) -> String {
     lines.push(String::new());
     for f in &model.files { let sn = snake(f); lines.push(format!("mod {sn};")); lines.push(format!("pub use self::{sn}::*;")); }
     lines.extend([
-        "#[cfg(feature = \"replay\")]".to_string(),
-        "mod replay;".to_string(),
-        "#[cfg(feature = \"replay\")]".to_string(),
-        "pub use self::replay::Replay;".to_string(),
         String::new(),
     ]);
     for k in kinds { lines.push(format!("pub const {}: KindCode = {};", kind_const(&k.name), k.code)); }

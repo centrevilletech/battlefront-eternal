@@ -38,8 +38,6 @@ pub mod notify;
 pub mod orbit;
 pub mod patterns;
 pub mod random;
-#[cfg(feature = "replay")]
-pub mod replay;
 pub mod reservations;
 pub mod service;
 pub mod steering;

@@ -90,10 +90,6 @@ mod wire;
 pub use self::wire::*;
 mod world;
 pub use self::world::*;
-#[cfg(feature = "replay")]
-mod replay;
-#[cfg(feature = "replay")]
-pub use self::replay::Replay;
 
 pub const KIND_BATTLE: KindCode = 1;
 pub const KIND_BEAM: KindCode = 2;

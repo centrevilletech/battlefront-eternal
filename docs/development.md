@@ -49,7 +49,7 @@ In single-player, the battle runs on a local server thread inside `bfe-client`
 client sends the player's input as commands, draws the world from the server
 thread's published snapshots, and predicts the player's own soldier, hull,
 mounted guns, recon droid and shots ahead of them, just as an online client
-does. Phase replay fixtures run through `rust/sim-replay` and the simulation tests.
+does.
 
 The timing and threading architecture is documented in
 [docs/runtime-architecture.md](runtime-architecture.md).
@@ -200,7 +200,7 @@ The original game, its code, and its assets remain the property of their rights 
 
 The engine, desktop client, dedicated server, and build tools live in the Cargo workspace under `rust/`:
 
-- `rust/sim`: the simulation crate (`bfe_sim`, [docs/sim-store.md](sim-store.md)), linked directly into `bfe-client`, `bfeserver`, `sim-replay` and `xtask`. It holds the collision ray kernel ([docs/performance.md](performance.md)), soldier movement, the rig sampler, and the canonical world, AI, unit, vehicle, combat, battle and publication owners. One world operation runs the ordered 60 Hz tick.
+- `rust/sim`: the simulation crate (`bfe_sim`, [docs/sim-store.md](sim-store.md)), linked directly into `bfe-client`, `bfeserver` and `xtask`. It holds the collision ray kernel ([docs/performance.md](performance.md)), soldier movement, the rig sampler, and the canonical world, AI, unit, vehicle, combat, battle and publication owners. One world operation runs the ordered 60 Hz tick.
 - `rust/audio`: the audio output engine and loudness meter (`bfe_audio`, [docs/audio.md](audio.md)). Playback, mixing, filtering, resampling, convolution and both master chains run in Rust. `rust/audio-decode` decodes FLAC, Ogg Opus and PCM/float WAV and owns explicit asset-rate conversion. `rust/audio-control` owns the battle's sound state and event decisions.
 - `rust/bfe-presentation`: the effect and displayed-unit state owner ([docs/presentation.md](presentation.md)), sharing generated frame records and `bfe-pose` with simulation.
 - `rust/bfe-environment`: the destruction and weather presentation phase (`rust/bfe-environment/layout.json`).
@@ -209,7 +209,7 @@ The engine, desktop client, dedicated server, and build tools live in the Cargo 
 - `rust/bfe-server`: the native dedicated server executable (`bfeserver`; [docs/host-qualification.md](host-qualification.md) and [docs/server-updates.md](server-updates.md)).
 - `rust/bfe-desktop`: desktop installation detection, game data preparation, self-update staging and local server hosting ([docs/desktop.md](desktop.md) and [docs/desktop-updates.md](desktop-updates.md)).
 - `rust/bfe-transport` and `rust/bfe-online`: the encrypted UDP transport ([docs/native-udp-transport.md](native-udp-transport.md)), STUN/TURN client, LAN discovery, master directory client and signaling.
-- `rust/bfe-content-native`, `rust/content`, `rust/bfe-pose`, `rust/three`, `rust/jsrt`, `rust/v8math`, and `rust/sim-replay` ([docs/sim-replay.md](sim-replay.md)): shared content loaders, pose sampling, math, number/sort/RNG semantics and deterministic battle replay.
+- `rust/bfe-content-native`, `rust/content`, `rust/bfe-pose`, `rust/three`, `rust/jsrt` and `rust/v8math`: shared content loaders, pose sampling, math and number/sort/RNG semantics.
 - `rust/xtask`: the workspace code generator, verifier and world-hash matrix runner (`cargo xtask`).
 
 ### Code generation and schema checks (`cargo xtask`)

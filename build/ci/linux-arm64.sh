@@ -27,7 +27,6 @@ RUST_BACKTRACE=1 cargo test --manifest-path "${manifest}" --locked \
 
 base_test_crates=(
   sim
-  sim-replay
   bfe-render
   bfe-presentation
   bfe-pose
@@ -59,7 +58,7 @@ wave_crates=(
   xtask
 )
 
-test_pkg_args=(--features sim/replay)
+test_pkg_args=()
 for crate in "${base_test_crates[@]}"; do
   test_pkg_args+=(-p "${crate}")
 done
