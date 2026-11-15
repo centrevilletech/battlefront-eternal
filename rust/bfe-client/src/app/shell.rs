@@ -1021,6 +1021,7 @@ impl ShellHost {
         ctx.has_integrations = false;
         ctx.has_credits = false;
         ctx.has_audio_panel = true;
+        ctx.audio_output = crate::online::sound_output::details();
         ctx.surface_height = self.interface_surface.height;
         ctx.viewport = Some([self.layout_size[0].max(1) as u32, self.layout_size[1].max(1) as u32]);
         self.front_end_options.get_or_insert(front_end);
@@ -1353,6 +1354,13 @@ impl ShellHost {
             let mixer = guard.get_or_insert_with(|| {
                 ShellAudioMixer::new(&self.app.data, self.content_dir.as_deref())
             });
+            // A battle straight after a battle (restart, playlist, next online
+            // battle) makes a fresh mixer here: it plays at the player's volumes too.
+            mixer.set_volumes(
+                self.app.settings.master_volume,
+                self.app.settings.music_volume,
+                self.app.settings.interface_volume,
+            );
             mixer.fade_bus("shellmusic", 0., 0.1);
             let start = mixer.current_time() + bfe_shell::loading::LEAD;
             mixer.schedule_loading_plan(&sounds, start);
