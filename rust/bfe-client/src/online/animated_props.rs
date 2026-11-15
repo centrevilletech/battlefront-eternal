@@ -19,6 +19,7 @@ struct View {
     bone: usize,
 }
 struct TrapView {
+    building: usize,
     view: View,
     pad_rows: Vec<[f64; draw::REC_STRIDE]>,
     pad_bones: Vec<f32>,
@@ -269,10 +270,11 @@ impl Animated {
             let index = owner.add_trap(TrapDesc { scene: Default::default(), root: root as i32, initial,
                 trigger_clip: trigger.map(|c|c.0), build_clip: build.map(|c|c.0), trigger_length: trigger.map_or(0.,|c|c.1) });
             let admission = crate::static_scene::props(bridge,content,textures,
-                bfe_content_native::placed::admit_look(content,source,0)?,crate::shadows::COUNT)?;
+                bfe_content_native::placed::admit_look(content,source,0)?,bridge.shadow_cascades())?;
             let pad = crate::static_scene::props(bridge,content,textures,
-                bfe_content_native::placed::admit_trap_pad(content,source)?,crate::shadows::COUNT)?;
-            traps.push(TrapView { view: View { skin: vec![0.; inverses.len()*16], rig, inverses,
+                bfe_content_native::placed::admit_trap_pad(content,source)?,bridge.shadow_cascades())?;
+            let building = bfe_sim::world::admit::rows::props::live_sources(&content.content.battle).iter().position(|id|*id==source).ok_or("trap has no building id")?;
+            traps.push(TrapView { building, view: View { skin: vec![0.; inverses.len()*16], rig, inverses,
                 rows: admission.records, bone: owner.bone_start(true,index) }, pad_rows: pad.records, pad_bones: pad.bones,
                 phase: 0, started: 0. });
         }
@@ -411,6 +413,9 @@ impl Animated {
     }
     pub fn trap_states(&self) -> impl Iterator<Item=(usize,u8,f64)> + '_ {
         self.traps.iter().enumerate().map(|(i,t)|(i,t.phase,t.started))
+    }
+    pub fn unbuilt(&self, building: usize) -> bool {
+        self.traps.iter().any(|t|t.building==building && t.phase==0)
     }
     pub fn append(
         &self,

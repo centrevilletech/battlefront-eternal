@@ -133,6 +133,7 @@ pub struct Replicas {
     pub items: Box<super::items::Views>,
     models: Vec<Model>,
     classes: Vec<Option<usize>>,
+    can_repair: Vec<bool>,
     class_names: Vec<String>,
     // By class: a class's own skin on its shared body (OverrideTexture), as
     // the body's draw textures and spawn screen preview parts.
@@ -344,6 +345,7 @@ impl Replicas {
             class_names[i + 1] = name.to_string();
         }
         let mut dive_times = vec![0.; classes.len()];
+        let mut can_repair = vec![false; classes.len()];
         for class in &defs.classes {
             let Some(id) = class.registry_id else {
                 continue;
@@ -351,6 +353,7 @@ impl Replicas {
             let body_constants = bfe_sim::units::class::soldier_body(&class.record, 1e6, class.getup_time, class.dive_time);
             turns[id as usize] = (body_constants.max_turn, body_constants.pitch_limits);
             dive_times[id as usize] = class.dive_time;
+            can_repair[id as usize] = class.weapons.iter().any(|w|defs.weapons[*w].record.get("base").and_then(bfe_content::Value::as_str)==Some("repair"));
             let Some(body) = class.body else {
                 continue;
             };
@@ -526,7 +529,7 @@ impl Replicas {
         let items = Box::new(super::items::Views::new(content, bridge, textures, resources.collision.clone(), resources.world)?);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
-        let turrets = Box::new(super::turrets::Turrets::new(content, bridge, textures)?);
+        let turrets = Box::new(super::turrets::Turrets::new(content, bridge, textures, &combat.effect_names, registry.classes.len() + 1)?);
         let buildings = super::buildings::Buildings::new(content, bridge, textures, &combat.effect_names, registry.classes.len() + 1)?;
         let mut animated = super::animated_props::Animated::new(content, bridge, textures)?;
         for slot in &slots {
@@ -616,6 +619,7 @@ impl Replicas {
             items,
             models,
             classes,
+            can_repair,
             class_names,
             skins,
             light,
@@ -687,7 +691,7 @@ impl Replicas {
         // The unit links then borrow its output by identity and generation.
         receiver.network.borrow_mut().present(tick, -1., prediction.fleet.identity.map_or(-1., |p| p.0));
         self.hulls.frame(receiver, tick, dt, &prediction.fleet, history, &mut self.combat.hull_fx);
-        self.turrets.frame(receiver, history, dt);
+        self.turrets.frame(receiver, history, dt, &mut self.combat.hull_fx);
         self.buildings.frame(receiver, dt, &mut self.combat.hull_fx);
         self.items.frame(receiver, tick);
         self.frame = self.frame.wrapping_add(1);
@@ -1439,12 +1443,16 @@ impl Replicas {
     ) {
         let hud = &self.hud;
         let viewer = receiver.own.team;
+        let can_repair = receiver.own.alive && self.bound.get(&(receiver.own.id as u32,receiver.own.generation as u32))
+            .and_then(|slot|self.can_repair.get(self.slots[*slot].class)).copied().unwrap_or(false);
         self.holograms.present(
             dt,
             eye,
             camera,
             world,
             &|name| hud.post_meta.iter().find(|post| post.name == name).map(|post| (post.team, post.active)),
+            &|id| self.buildings.states().any(|(i,state,_,_,_)|i==id && state=="unbuilt") || self.animated.unbuilt(id),
+            can_repair,
             &|team| hud.team_look(viewer, team),
             &mut self.lights,
             bridge,
