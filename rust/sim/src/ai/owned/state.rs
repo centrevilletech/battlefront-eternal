@@ -53,6 +53,7 @@ pub struct State {
     hull_controls:Vec<Option<(crate::store::Ref<crate::gen::Vehicle>,Vec<usize>)>>,
     scopes:usize,
     stationary_navigation:usize,
+    unit_limit:usize,
 }
 // A body's lease view needs only these two retained control owners, rather
 // than building a complete scene with unrelated navigation/prop references.
@@ -79,11 +80,15 @@ impl State {
             queries:Queries::new(c.registry,c.scopes),candidates:Candidates::new(c.registry+c.buildings,c.buildings,c.scopes),
             weapons:Definitions::new(),classes:Classes::new(),items:Items::new(),sight:Sight::new(identities),journal,reader,dangers:Default::default(),
             object_actors:vec![None;identities],nav_classes:Vec::new(),hull_controls:Vec::new(),scopes:c.scopes,stationary_navigation,
+            unit_limit:c.registry.saturating_sub(c.hulls),
         }
     }
     /// First-use publication tables reserve one entry per native identity,
     /// including future controller, agent, control and hint births.
     pub fn identity_capacity(&self)->usize {self.object_actors.len()}
+    /// The unit factory's construction limit these queries and identities
+    /// were reserved for; the factory must not build past it.
+    pub fn unit_limit(&self)->usize {self.unit_limit}
     /// Capture camera/reticle facts once at the AI phase boundary. Current
     /// canonical scalar and geometry reads remain with their entity owners.
     pub fn phase_facts(&mut self,facts:&crate::gen::AiPhaseFacts,cameras:&[crate::gen::AiPhaseCamera]) {

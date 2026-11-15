@@ -534,6 +534,9 @@ pub struct ShellHost {
     pub(super) loading_overlay: Option<(String, String)>,
     battle_loading_started: Instant,
     loading_stage_maps: HashMap<String, Vec<StageTexture>>,
+    // GL textures the loaded content made, deleted when other content replaces it.
+    content_textures: Vec<glow::Texture>,
+    content_fonts: Vec<glow::Texture>,
     /// Path to the prepared content directory once loaded.
     pub content_dir: Option<PathBuf>,
     /// Current viewport dimensions `[width, height]` in physical pixels.
@@ -653,6 +656,8 @@ impl ShellHost {
             loading_overlay: None,
             battle_loading_started: Instant::now(),
             loading_stage_maps: HashMap::new(),
+            content_textures: Vec::new(),
+            content_fonts: Vec::new(),
             content_dir: None,
             size,
             layout_size: size,
@@ -748,6 +753,8 @@ impl ShellHost {
         audio_router: &SharedAudioRouter,
     ) -> Result<(), String> {
         self.loading_stage_maps.clear();
+        let mut retired = std::mem::take(&mut self.content_textures);
+        let made = std::cell::RefCell::new(Vec::new());
         let data = load_shell_data_from_dir(content_dir);
         let mut lib = Library::new(content_dir, false, 4096, 0)?;
 
@@ -763,6 +770,7 @@ impl ShellHost {
             let img = &lib.images[img_idx];
             let tex =
                 Self::upload_rgba(&core.gl, img.width as i32, img.height as i32, &img.data).ok()?;
+            made.borrow_mut().push(tex);
             let handle = core.add_texture(tex);
             let entry = (handle, img.width, img.height);
             uploaded_paths.insert(clean.to_string(), entry);
@@ -773,6 +781,8 @@ impl ShellHost {
         let loaded_fonts = Self::load_fonts(&data, &mut upload_path);
         if !loaded_fonts.medium.glyphs.is_empty() {
             self.fonts = loaded_fonts;
+            let pages = made.borrow_mut().drain(..).collect();
+            retired.extend(std::mem::replace(&mut self.content_fonts, pages));
         }
 
         let mut textures = ShellTextures {
@@ -878,6 +888,7 @@ impl ShellHost {
                         image.height as i32,
                         &rgba,
                     )?;
+                    made.borrow_mut().push(texture);
                     textures
                         .by_name
                         .insert(name.into(), self.core.add_texture(texture));
@@ -944,6 +955,10 @@ impl ShellHost {
         self.app = app;
         self.content_dir = Some(content_dir.to_path_buf());
         self.frames = 0;
+        self.content_textures = made.into_inner();
+        for texture in retired {
+            unsafe { self.core.gl.delete_texture(texture) };
+        }
         Ok(())
     }
 
@@ -1292,6 +1307,7 @@ impl ShellHost {
                                     image.height as i32,
                                     &image.data,
                                 ) {
+                                    self.content_textures.push(texture);
                                     stages.push(StageTexture {
                                         texture: self.core.add_texture(texture),
                                         width: image.width as f64,

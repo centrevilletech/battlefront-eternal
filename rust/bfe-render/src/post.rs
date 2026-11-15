@@ -77,7 +77,7 @@ pub struct PostPass<C: HasContext> {
     vao: C::VertexArray,
     _buffer: C::Buffer,
     // Framebuffers over three's targets' textures.
-    targets: Vec<C::Framebuffer>,
+    targets: Vec<Option<(u32, C::Framebuffer)>>,
     pub input: Vec<f64>,
     // Matrices each program holds, by (program, slot).
     matrices: HashMap<(usize, usize), [f32; 16]>,
@@ -241,9 +241,23 @@ impl<C: HasContext> PostPass<C> {
             gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fb));
             gl.framebuffer_texture_2d(glow::FRAMEBUFFER, glow::COLOR_ATTACHMENT0, glow::TEXTURE_2D, Some(core.textures[texture as usize]), 0);
             #[cfg(target_arch = "wasm32")] gl.bind_framebuffer(glow::FRAMEBUFFER, None); #[cfg(not(target_arch = "wasm32"))] gl.bind_framebuffer(glow::FRAMEBUFFER, core.canvas_framebuffer);
-            self.targets.push(fb);
+            let slot = self.targets.iter().position(Option::is_none).unwrap_or(self.targets.len());
+            if slot == self.targets.len() { self.targets.push(None); }
+            self.targets[slot] = Some((texture, fb));
+            slot as u32
         }
-        (self.targets.len() - 1) as u32
+    }
+
+    // The scene dropped this texture: its framebuffer goes with it, freeing the slot.
+    pub fn forget_texture<M: MultiDraw>(&mut self, core: &Core<C, M>, texture: u32) {
+        for slot in &mut self.targets {
+            if let Some((t, fb)) = *slot {
+                if t == texture {
+                    core.release_framebuffer(fb);
+                    *slot = None;
+                }
+            }
+        }
     }
 
     // The steps the page wrote, in order.
@@ -280,7 +294,7 @@ impl<C: HasContext> PostPass<C> {
             if target != TARGET_BOUND {
                 let gl = &core.gl;
                 unsafe {
-                    let fb = if target < 0.0 { None } else { self.targets.get(target as usize).copied() }; #[cfg(not(target_arch = "wasm32"))] let fb = fb.or(core.canvas_framebuffer); gl.bind_framebuffer(glow::FRAMEBUFFER, fb);
+                    let fb = if target < 0.0 { None } else { self.targets.get(target as usize).copied().flatten().map(|(_, fb)| fb) }; #[cfg(not(target_arch = "wasm32"))] let fb = fb.or(core.canvas_framebuffer); gl.bind_framebuffer(glow::FRAMEBUFFER, fb);
                     gl.viewport(0, 0, step[STEP_WIDTH] as i32, step[STEP_HEIGHT] as i32);
                 }
                 core.stats.gl_calls += 2;
@@ -339,5 +353,84 @@ fn set_state<C: HasContext, M: MultiDraw>(core: &mut Core<C, M>, own: &[f64]) {
         let (e, f) = (&own[STATE_EQUATIONS..STATE_EQUATIONS + 2], &own[STATE_FACTORS..STATE_FACTORS + 4]);
         state.blend_equation(gl, stats, e[0] as u32, e[1] as u32);
         state.blend_func(gl, stats, f[0] as u32, f[1] as u32, f[2] as u32, f[3] as u32);
+    }
+}
+
+#[cfg(test)]
+mod target_tests {
+    use super::*;
+    use std::{cell::RefCell, collections::HashSet, ffi::c_void};
+    #[derive(Default)]
+    struct Device { next: u32, live: HashSet<u32>, framebuffers: HashSet<u32> }
+    thread_local! { static DEVICE: RefCell<Device> = RefCell::default(); }
+    struct NoMulti;
+    impl MultiDraw for NoMulti { fn multi_draw(&self, _: u32, _: &mut [i32], _: u32, _: &mut [i32]) {} }
+    unsafe extern "system" fn gen(n: i32, out: *mut u32) {
+        DEVICE.with_borrow_mut(|d| for i in 0..n as usize {
+            d.next += 1;
+            d.live.insert(d.next);
+            // SAFETY: glGen* hands over exactly n writable names.
+            unsafe { *out.add(i) = d.next };
+        });
+    }
+    unsafe extern "system" fn gen_framebuffers(n: i32, out: *mut u32) {
+        unsafe { gen(n, out) };
+        // SAFETY: gen just wrote these n names.
+        DEVICE.with_borrow_mut(|d| for i in 0..n as usize { d.framebuffers.insert(unsafe { *out.add(i) }); });
+    }
+    unsafe extern "system" fn del(n: i32, names: *const u32) {
+        DEVICE.with_borrow_mut(|d| for i in 0..n as usize {
+            // SAFETY: glDelete* lends exactly n names for the call.
+            let name = unsafe { *names.add(i) };
+            d.live.remove(&name);
+            d.framebuffers.remove(&name);
+        });
+    }
+    unsafe extern "system" fn string(_: u32) -> *const u8 { c"3.3 synthetic".as_ptr().cast() }
+    unsafe extern "system" fn integer(_: u32, out: *mut i32) { unsafe { *out = 0 } }
+    unsafe extern "system" fn bind2(_: u32, _: u32) {}
+    unsafe extern "system" fn bind1(_: u32) {}
+    unsafe extern "system" fn data(_: u32, _: isize, _: *const c_void, _: u32) {}
+    unsafe extern "system" fn size(_: u32, _: u32, out: *mut i32) { unsafe { *out = 16 } }
+    unsafe extern "system" fn image(_: u32, _: i32, _: i32, _: i32, _: i32, _: i32, _: u32, _: u32, _: *const c_void) {}
+    unsafe extern "system" fn parameter(_: u32, _: u32, _: i32) {}
+    unsafe extern "system" fn attach(_: u32, _: u32, _: u32, _: u32, _: i32) {}
+    unsafe extern "system" fn pointer(_: u32, _: i32, _: u32, _: u8, _: i32, _: *const c_void) {}
+    fn live_framebuffers() -> usize { DEVICE.with_borrow(|d| d.framebuffers.len()) }
+
+    // The scene turns its intermediate images off and on again with the
+    // vehicle blur (crossing its speed threshold) and with settings.
+    #[test]
+    fn a_post_target_goes_with_its_texture() {
+        // SAFETY: each address has the signature glow expects; only this thread calls them.
+        let gl = unsafe {
+            glow::Context::from_loader_function(|name| match name {
+                "glGetString" => string as *const c_void,
+                "glGetIntegerv" => integer as *const c_void,
+                "glGenBuffers" | "glGenTextures" | "glGenVertexArrays" => gen as *const c_void,
+                "glGenFramebuffers" => gen_framebuffers as *const c_void,
+                "glDeleteBuffers" | "glDeleteTextures" | "glDeleteVertexArrays" | "glDeleteFramebuffers" => del as *const c_void,
+                "glBindBuffer" | "glBindTexture" | "glBindFramebuffer" => bind2 as *const c_void,
+                "glBindVertexArray" | "glEnableVertexAttribArray" => bind1 as *const c_void,
+                "glBufferData" => data as *const c_void,
+                "glGetBufferParameteriv" => size as *const c_void,
+                "glTexImage2D" => image as *const c_void,
+                "glTexParameteri" => parameter as *const c_void,
+                "glFramebufferTexture2D" => attach as *const c_void,
+                "glVertexAttribPointer" => pointer as *const c_void,
+                _ => std::ptr::null(),
+            })
+        };
+        let mut core = Core::new(gl, NoMulti, 4, 4);
+        let mut post = PostPass::new(&mut core);
+        for _ in 0..3 {
+            let texture = core.add_texture(unsafe { core.gl.create_texture().unwrap() });
+            let target = post.add_target(&mut core, texture);
+            assert_eq!(target, 0);
+            core.forget_texture(texture);
+            post.forget_texture(&core, texture);
+        }
+        assert_eq!(live_framebuffers(), 0);
+        drop(core);
     }
 }

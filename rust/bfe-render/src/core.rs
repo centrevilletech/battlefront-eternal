@@ -502,7 +502,11 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         self.held.borrow_mut().retain(|h| !matches!(h, Held::Buffer(x) if *x == b));
         unsafe { self.gl.delete_buffer(b) };
     }
-    pub(crate) fn hold_framebuffer(&self, f: C::Framebuffer) -> C::Framebuffer { self.held.borrow_mut().push(Held::Framebuffer(f)); f }
+    pub fn hold_framebuffer(&self, f: C::Framebuffer) -> C::Framebuffer { self.held.borrow_mut().push(Held::Framebuffer(f)); f }
+    pub(crate) fn release_framebuffer(&self, f: C::Framebuffer) {
+        self.held.borrow_mut().retain(|h| !matches!(h, Held::Framebuffer(x) if *x == f));
+        unsafe { self.gl.delete_framebuffer(f) };
+    }
 
     pub fn add_texture(&mut self, t: C::Texture) -> u32 {
         self.textures.push(t);
@@ -580,6 +584,8 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         let world_lamps = lamps && kind == Kind::World && shader::reads_lamps(fs);
         let vs = shader::rewrite_lamps(vs, Stage::Vertex, kind, lamps)?;
         let fs = shader::rewrite_lamps(fs, Stage::Fragment, kind, lamps)?;
+        let desktop = shader::desktop_glsl(gl.version().is_embedded, gl.supported_extensions().contains("GL_ARB_ES3_compatibility"));
+        let (vs, fs) = if desktop { (shader::to_desktop_glsl(&vs), shader::to_desktop_glsl(&fs)) } else { (vs, fs) };
         unsafe {
             let program = gl.create_program()?;
             let mut shaders = vec![];

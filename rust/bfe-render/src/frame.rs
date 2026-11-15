@@ -366,7 +366,7 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
         else {
             let (gl,state,stats)=(&self.core.gl,&mut self.core.state,&mut self.core.stats);
             state.color_mask(gl,stats,[true;4]);state.depth_write(gl,stats,true);
-            unsafe {gl.clear_color(color[0] as f32,color[1] as f32,color[2] as f32,color[3] as f32);gl.clear_depth_f32(1.);gl.clear_stencil(0);gl.clear(mask);}
+            unsafe {gl.clear_color(color[0] as f32,color[1] as f32,color[2] as f32,color[3] as f32);gl.clear_depth(1.);gl.clear_stencil(0);gl.clear(mask);}
         }
         self.core.end_phase().map(|_|())
     }
@@ -467,7 +467,7 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
                     O::MIPMAP=>targets.mipmap(row[B::SAMPLE] as i32)?,
                     O::CLEAR_DEPTH=>{
                         self.core.state.depth_write(&self.core.gl,&mut self.core.stats,true);
-                        unsafe {self.core.gl.clear_depth_f32(1.);self.core.gl.clear(glow::DEPTH_BUFFER_BIT);}
+                        unsafe {self.core.gl.clear_depth(1.);self.core.gl.clear(glow::DEPTH_BUFFER_BIT);}
                     },
                     O::POST=>{
                         use crate::post_chain::layout::{facts as pf,mode,aa,state as ps};

@@ -255,7 +255,8 @@ impl Gpu {
         };
         let target = unsafe {
             let gl = &bridge.r.core.gl;
-            let f = gl.create_framebuffer()?;
+            // Deleted with the battle's renderer, also when a later step fails.
+            let f = bridge.r.core.hold_framebuffer(gl.create_framebuffer()?);
             gl.bind_framebuffer(glow::FRAMEBUFFER, Some(f));
             gl.framebuffer_texture_2d(
                 glow::FRAMEBUFFER,
@@ -819,10 +820,5 @@ impl Gpu {
             }
         }
         Self::submit(bridge, count);
-    }
-    pub fn dispose(&self, gl: &glow::Context) {
-        unsafe {
-            gl.delete_framebuffer(self.target);
-        }
     }
 }

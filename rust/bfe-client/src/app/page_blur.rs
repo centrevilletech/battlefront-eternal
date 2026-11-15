@@ -42,8 +42,15 @@ impl PageBlur {
                 gl.delete_program(program);
                 return Err(error);
             }
-            let textures = [gl.create_texture()?, gl.create_texture()?];
-            let targets = [gl.create_framebuffer()?, gl.create_framebuffer()?];
+            let blur = Self {
+                program,
+                vao: gl.create_vertex_array()?,
+                textures: [gl.create_texture()?, gl.create_texture()?],
+                targets: [gl.create_framebuffer()?, gl.create_framebuffer()?],
+                direction: gl.get_uniform_location(program, "direction"),
+                size,
+            };
+            let (textures, targets) = (blur.textures, blur.targets);
             for i in 0..2 {
                 gl.bind_texture(glow::TEXTURE_2D, Some(textures[i]));
                 gl.tex_parameter_i32(
@@ -86,21 +93,13 @@ impl PageBlur {
                     0,
                 );
                 if gl.check_framebuffer_status(glow::FRAMEBUFFER) != glow::FRAMEBUFFER_COMPLETE {
+                    blur.dispose(gl);
                     return Err("page blur framebuffer is incomplete".into());
                 }
             }
-            let direction = gl.get_uniform_location(program, "direction");
-            let vao = gl.create_vertex_array()?;
             gl.use_program(Some(program));
             gl.uniform_1_i32(gl.get_uniform_location(program, "image").as_ref(), 0);
-            Ok(Self {
-                program,
-                vao,
-                textures,
-                targets,
-                direction,
-                size,
-            })
+            Ok(blur)
         }
     }
     pub fn apply(&self, gl: &glow::Context, target: glow::Framebuffer, sigma: f64) {

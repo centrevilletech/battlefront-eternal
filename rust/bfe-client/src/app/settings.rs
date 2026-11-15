@@ -448,12 +448,25 @@ impl AppSettingsStore {
         (parsed, interface, migrated)
     }
 
-    pub fn adopt_gpu_preset(&mut self, renderer: &str, vendor: &str) -> Result<(), String> {
+    /// The first run's quality preset: Minimum for a pre-Ivy Bridge Intel GPU (as the
+    /// browser build), else by the measured fill rate (`gpu_probe`), else Default.
+    pub fn adopt_gpu_preset(&mut self, renderer: &str, vendor: &str, fill_ms_per_mpix: Option<f64>) -> Result<(), String> {
         if !self.interface.fresh { return Ok(()); }
         let gpu = bfe_interface::settings::classify_gpu(renderer, vendor);
         self.interface.adopt_hardware_defaults(Some(&gpu), None);
+        // A software renderer draws on the CPU the game also needs: always the floor.
+        let software = ["llvmpipe", "softpipe", "swiftshader", "software rasterizer", "microsoft basic", "gdi generic"]
+            .iter().any(|name| renderer.to_ascii_lowercase().contains(name));
+        if software {
+            self.interface.set("performancePreset", "minimum");
+        } else if !gpu.is_old_intel {
+            if let Some(preset) = fill_ms_per_mpix.and_then(measured_preset) {
+                self.interface.set("performancePreset", preset);
+            }
+        }
         self.interface.fresh = false;
-        eprintln!("first-run graphics: GPU={renderer} preset={}", self.interface.get_string("performancePreset"));
+        eprintln!("first-run graphics: GPU={renderer} fill={} ms/Mpix preset={}",
+            fill_ms_per_mpix.map_or("unmeasured".into(), |v| format!("{v:.3}")), self.interface.get_string("performancePreset"));
         self.player.shell = PersistedPlayerSettings::extract_shell_from_interface(&self.interface, &self.player.shell);
         self.save_player()?;
         Ok(())
@@ -580,6 +593,15 @@ impl AppSettingsStore {
     }
 }
 
+/// The preset a measured fill rate (milliseconds per million blended, textured
+/// pixels, `gpu_probe`) starts at. Measured: Radeon 890M 0.063, Radeon R5 (A8-6410
+/// laptop, Default 19-25 fps at 1600x900) 1.66; GPUs two to three times slower than
+/// that one (Sandy Bridge's HD 2000/3000) land above 2.5 and start at Minimum.
+pub fn measured_preset(fill_ms_per_mpix: f64) -> Option<&'static str> {
+    if !fill_ms_per_mpix.is_finite() { return None; }
+    if fill_ms_per_mpix > 2.5 { Some("minimum") } else if fill_ms_per_mpix > 0.4 { Some("performance") } else { None }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -612,27 +634,40 @@ mod tests {
     fn first_run_gpu_choice_matches_browser_and_keeps_saved_settings() {
         let paths = test_paths();
         let mut store = AppSettingsStore::load(paths.clone());
-        store.adopt_gpu_preset("Intel(R) HD Graphics 3000", "Intel").unwrap();
+        store.adopt_gpu_preset("Intel(R) HD Graphics 3000", "Intel", None).unwrap();
         assert_eq!(store.interface.get_string("performancePreset"), "minimum");
         store.interface.set("performancePreset", "quality");
         store.player.shell = PersistedPlayerSettings::extract_shell_from_interface(&store.interface, &store.player.shell);
         store.save_player().unwrap();
         let mut saved = AppSettingsStore::load(paths.clone());
-        saved.adopt_gpu_preset("Intel(R) HD Graphics 3000", "Intel").unwrap();
+        saved.adopt_gpu_preset("Intel(R) HD Graphics 3000", "Intel", None).unwrap();
         assert_eq!(saved.interface.get_string("performancePreset"), "quality");
         fs::remove_dir_all(&paths.user_data_dir).unwrap();
         let mut fresh = AppSettingsStore::load(paths.clone());
-        fresh.adopt_gpu_preset("AMD Radeon R5 Graphics (radeonsi, kabini)", "AMD").unwrap();
+        fresh.adopt_gpu_preset("AMD Radeon R5 Graphics (radeonsi, kabini)", "AMD", None).unwrap();
         let record: Value = serde_json::from_slice(&fs::read(&paths.player_settings_file).unwrap()).unwrap();
         assert_eq!(record["values"]["performancePreset"], "custom");
         assert_eq!(record["values"]["renderScale"], 1.);
         let mut reloaded = AppSettingsStore::load(paths.clone());
-        reloaded.adopt_gpu_preset("Intel(R) HD Graphics 3000", "Intel").unwrap();
+        reloaded.adopt_gpu_preset("Intel(R) HD Graphics 3000", "Intel", Some(9.)).unwrap();
         assert_eq!(reloaded.interface.get_string("performancePreset"), "custom");
         for name in ["AMD Radeon R5 Graphics (radeonsi, kabini)", "Intel(R) HD Graphics 4000", "llvmpipe (Intel(R) HD Graphics 3000)"] {
             assert!(!bfe_interface::settings::classify_gpu(name, "").is_old_intel, "{name}");
         }
         assert!(bfe_interface::settings::classify_gpu("Mesa Intel(R) HD Graphics 2000 (SNB GT1)", "").is_old_intel);
+        fs::remove_dir_all(paths.user_data_dir).unwrap();
+    }
+
+    #[test]
+    fn first_run_preset_follows_the_measured_fill_rate() {
+        assert_eq!(super::measured_preset(0.063), None);
+        assert_eq!(super::measured_preset(1.66), Some("performance"));
+        assert_eq!(super::measured_preset(4.0), Some("minimum"));
+        assert_eq!(super::measured_preset(f64::NAN), None);
+        let paths = test_paths();
+        let mut store = AppSettingsStore::load(paths.clone());
+        store.adopt_gpu_preset("llvmpipe (LLVM 20.1.2, 256 bits)", "Mesa", Some(0.1)).unwrap();
+        assert_eq!(store.interface.get_string("performancePreset"), "minimum");
         fs::remove_dir_all(paths.user_data_dir).unwrap();
     }
 

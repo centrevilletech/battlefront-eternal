@@ -526,8 +526,11 @@ impl WaterHost {
             resources.source_desc(surface.depth_source, &image(size, 1027, 1020))?;
             resources.resize_target(surface.colour.target, &target_desc(size, surface.colour.sample, Some(surface.depth_sample)))?;
             surface.colour.size = size;
+            // The depth and stencil image is reallocated under a new GL name.
+            for (sample, texture) in [(surface.colour.sample, surface.colour.texture), (surface.depth_sample, surface.depth_texture)] {
+                bridge.r.replace_sample_texture(texture as usize, resources.texture(sample)?)?;
+            }
         }
-        let _ = bridge;
         Ok(())
     }
 

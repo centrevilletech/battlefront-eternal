@@ -616,7 +616,6 @@ impl PageBattle {
         scene.bridge.r.core.state.reset();
     }
     pub fn dispose(&mut self, scene: &Scene) {
-        self.gpu.dispose(&scene.bridge.r.core.gl);
         self.kept.release(&scene.bridge.r.core.gl);
     }
 }

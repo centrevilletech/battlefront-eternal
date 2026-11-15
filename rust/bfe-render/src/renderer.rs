@@ -94,6 +94,12 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         Ok(old)
     }
 
+    // The resource owner is about to delete this texture: drop what holds it.
+    pub fn forget_texture(&mut self, id: u32) {
+        self.core.forget_texture(id);
+        self.post.forget_texture(&self.core, id);
+    }
+
     // The far scene's phase, drawn into the far target before the near scene.
     pub(crate) fn far_frame(&mut self) -> Result<Stats, String> {
         self.core.begin_phase();

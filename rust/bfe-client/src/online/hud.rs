@@ -220,6 +220,13 @@ struct Post{id:usize,row:[f64;P::WORDS],label:String,region:Option<bfe_content::
     // A command vehicle's post follows its published pad and current life.
     mobile: Option<(usize, Vec<(usize, String)>)>,
 }
+impl Post {
+    // The capture region holds this point, while the post is in the battle
+    // (commandposts.js at(): a destroyed post has no capture gauge).
+    fn holds(&self,at:[f64;3])->bool {
+        self.row[P::ACTIVE]!=0.&&self.region.as_ref().is_some_and(|region|bfe_sim::vehicles::native::in_region(region,&three::Vector3::new(at[0],at[1],at[2])))
+    }
+}
 // PlayerCombat.updateHud uses the mounted object's authored health/icon;
 // vehicle seats also name their position independently of their weapons.
 struct MountHud {
@@ -1343,7 +1350,7 @@ impl Hud {
         x[H::CONTROL_SCAN] = controlled.and_then(|row| self.unit_defs.get(row[r::CLASS_ID] as usize)).map_or(0., |row| row[U::SCAN]);
         if let Some(map)=self.map{x[H::MAP]=1.;x[H::MAP_X..H::MAP_X+5].copy_from_slice(&map);}
         let relation=|team:f64| self.radar.color_relation(receiver.own.team, team as usize);
-        x[H::POSTS]=self.posts.len()as f64;for(index,post)in self.posts.iter_mut().enumerate(){post.row[P::RELATION]=relation(post.row[P::TEAM]);post.row[P::TOWARD_RELATION]=relation(post.row[P::TOWARD]);post.row[P::COUNTS]=(hud_model::POST_COUNTS+index*hud_model::MAX_TEAMS*PC::WORDS)as f64;post.row[P::COUNTS_LENGTH]=post.count as f64;let at=hud_model::POSTS+index*P::WORDS;x[at..at+P::WORDS].copy_from_slice(&post.row);for i in 0..post.count{post.counts[i][PC::RELATION]=relation(post.counts[i][PC::TEAM]);let at=post.row[P::COUNTS]as usize+i*PC::WORDS;x[at..at+PC::WORDS].copy_from_slice(&post.counts[i]);}if receiver.own.mount.is_none()&&post.region.as_ref().is_some_and(|region|bfe_sim::vehicles::native::in_region(region,&three::Vector3::new(receiver.own.position[0],receiver.own.position[1],receiver.own.position[2]))){x[H::CAPTURE_POST]=index as f64;}}
+        x[H::POSTS]=self.posts.len()as f64;for(index,post)in self.posts.iter_mut().enumerate(){post.row[P::RELATION]=relation(post.row[P::TEAM]);post.row[P::TOWARD_RELATION]=relation(post.row[P::TOWARD]);post.row[P::COUNTS]=(hud_model::POST_COUNTS+index*hud_model::MAX_TEAMS*PC::WORDS)as f64;post.row[P::COUNTS_LENGTH]=post.count as f64;let at=hud_model::POSTS+index*P::WORDS;x[at..at+P::WORDS].copy_from_slice(&post.row);for i in 0..post.count{post.counts[i][PC::RELATION]=relation(post.counts[i][PC::TEAM]);let at=post.row[P::COUNTS]as usize+i*PC::WORDS;x[at..at+PC::WORDS].copy_from_slice(&post.counts[i]);}if receiver.own.mount.is_none()&&post.holds(receiver.own.position){x[H::CAPTURE_POST]=index as f64;}}
         // Radar consumes qualified raw unit facts in a bounded generated bank.
         // Relation and map metadata are prerequisites, not already drawn icons.
         // HudModel decides visibility, scanning, blink clocks and final quads;
@@ -1643,6 +1650,18 @@ fn flight_status(own: &super::receiver::Own) -> [f64; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_destroyed_post_shows_no_capture_gauge() {
+        let capture = bfe_content::json::parse(r#"{"type":"box","center":[0,0,0],"size":[4,4,4]}"#).unwrap();
+        let mut row = [0.; P::WORDS];
+        row[P::ACTIVE] = 1.;
+        let mut post = Post { id: 1, row, label: String::new(), region: Some(bfe_content::regions::build_region(&capture)),
+            counts: [[0.; PC::WORDS]; 8], count: 0, building: true, seen: None, mobile: None };
+        assert!(post.holds([0.5, 0.5, 0.5]));
+        assert!(!post.holds([9., 0., 0.]));
+        post.row[P::ACTIVE] = 0.;
+        assert!(!post.holds([0.5, 0.5, 0.5]));
+    }
     #[test]
     fn launcher_marker_uses_simulation_progress_and_hides_while_busy() {
         let mut row = [0.; W::WORDS];

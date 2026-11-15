@@ -17,7 +17,7 @@ pub mod clarity;
 pub mod convolution;
 pub mod hrtf;
 pub mod pcm;
-mod streaming;
+pub mod streaming;
 pub mod stereo;
 pub mod output;
 pub mod frontend;

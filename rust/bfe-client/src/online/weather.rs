@@ -226,7 +226,9 @@ impl Rain {
             let resized = gpu.source_desc(self.cover.0, &cover_desc(self.cover_size)).is_ok();
             if resized && gpu.source_pixels(self.cover.0, &bytes).is_ok() && gpu.upload(self.cover.1).is_ok() {
                 if let Ok(texture) = gpu.texture(self.cover.1) {
-                    let _ = bridge.r.core.replace_sample_texture(self.cover.2 as usize, texture);
+                    // A new size reallocates the cover under a new GL name,
+                    // which the rain batches hold too.
+                    let _ = bridge.r.replace_sample_texture(self.cover.2 as usize, texture);
                 }
             }
         }
