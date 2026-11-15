@@ -315,6 +315,8 @@ impl Particles {
             b.count = 0;
         }
         self.model_rows.clear();
+        // The draws that follow the first person arms start again too.
+        bridge.r.view.input[bfe_render::view::IN_DRAWS] = 0.;
         bridge.r.effects.input[render::IN_DRAWS] = 0.;
         bridge.r.effects.input[render::IN_OWNERS] = 0.;
         // Hard-edged until `project` hears of the frame's depth copy.
@@ -467,6 +469,33 @@ impl Particles {
             draws += 1;
         }
         bridge.r.effects.input[render::IN_DRAWS] = draws as f64;
+        drawn
+    }
+    /// FirstPersonView.flash: the muzzle flash on the first person arms'
+    /// gun. It is drawn with the arms, after them (the view pass's own
+    /// draws), so the gun does not cover it as it covers the world's
+    /// effects. False when there is no such model or no room for it.
+    pub fn flash_view(&mut self, bridge: &mut Bridge, matrix: &[f64; 16], color: &[f64], opacity: f64) -> bool {
+        use bfe_render::view;
+        let Some(glow) = self.flash else {
+            return false;
+        };
+        let rows = self.model(bridge, glow, matrix, color, opacity);
+        let drawn = !rows.is_empty();
+        for at in rows {
+            let draws = bridge.r.view.input[view::IN_DRAWS] as usize;
+            if draws == view::MAX_DRAWS {
+                break;
+            }
+            let (model, _) = self.model_rows[at];
+            let row = &mut bridge.r.view.input[view::IN_FIRST_DRAW + draws * view::DRAW..][..view::DRAW];
+            row.fill(0.);
+            row[view::D_PROGRAM] = bfe_render::actor_layout::kind::VIEW_MODEL as f64;
+            row[view::D_GEOMETRY] = model as f64;
+            row[view::D_RANGE] = (at * 16) as f64;
+            row[view::D_RANGE + 1] = (self.model_at + at * self.fields.length) as f64;
+            bridge.r.view.input[view::IN_DRAWS] = (draws + 1) as f64;
+        }
         drawn
     }
     pub fn finish(&self, bridge: &mut Bridge) {
