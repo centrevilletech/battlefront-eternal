@@ -309,7 +309,7 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
     let status = spawn_battle_status(battle);
     let layout = battle.page_battle.layout;
     let w = layout.width;
-    let h = layout.height;
+    let _h = layout.height;
     let model = &battle.spawn_ctrl.model;
     let port = &battle.spawn_port;
     let can_switch = model.can_switch_teams(port);

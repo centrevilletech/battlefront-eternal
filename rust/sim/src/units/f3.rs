@@ -329,7 +329,6 @@ pub fn f3_init_in(world_ctx: &mut crate::world::owner::World, world: u32, level:
     module::setup_in(&mut world_ctx.units, world);
     crate::battle::f4::reset_in(&mut world_ctx.battle);
     if let Some(map) = crate::vehicles::module::map_in(world_ctx) { map.level = level; }
-    crate::allocations::prepare();
     world_ctx.sim.events.reserve(65536, 128, 1024);
     // Ordnance.fire may insert and retire an instant bolt inside this phase.
     // Prepare the ordinary F1 slabs and live lists before the first weapon tick.
@@ -762,15 +761,13 @@ pub fn f3_step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f6
 fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, level: f64, mut recon: Option<crate::units::f3::WorldServices<'_>>) -> u32 {
     let control_guard = control_span_in(world_ctx, true);
     let result = (|| {
-    let allocations = crate::allocations::snapshot();
     begin_events_in(world_ctx);
     // WaterState has already advanced in Game.step. Later F1 crossings use
     // this same bobbed surface until the next authoritative world tick.
     if let Some(map) = crate::vehicles::module::map_in(world_ctx) { map.level = level; }
     world_ctx.units.state.as_mut().expect("prepared unit service").running = true;
-    crate::allocations::begin();
     if count as usize>INPUT_WORDS/F3PhaseInput::WORDS {
-        world_ctx.units.state.as_mut().expect("prepared unit service").running=false;finish_allocations_in(&mut world_ctx.units, allocations);return 0;
+        world_ctx.units.state.as_mut().expect("prepared unit service").running=false;return 0;
     }
     // Foreign props share the one phase input reservation after the intents.
     // Apply changed facts before a launcher or melee can read this registry.
@@ -778,12 +775,12 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
     if foreign.network as usize>INPUT_WORDS/F3PhaseNetwork::WORDS ||
         foreign.count as usize>INPUT_WORDS/F3PropFact::WORDS ||
         foreign.buildings as usize>INPUT_WORDS/F3BuildingState::WORDS {
-        world_ctx.units.state.as_mut().expect("prepared unit service").running=false;finish_allocations_in(&mut world_ctx.units, allocations);return 0;
+        world_ctx.units.state.as_mut().expect("prepared unit service").running=false;return 0;
     }
     let network_at = count as usize * F3PhaseInput::WORDS;
     let offset = network_at + foreign.network as usize * F3PhaseNetwork::WORDS;
     if offset+foreign.count as usize*F3PropFact::WORDS+foreign.buildings as usize*F3BuildingState::WORDS>INPUT_WORDS {
-        world_ctx.units.state.as_mut().expect("prepared unit service").running=false;finish_allocations_in(&mut world_ctx.units, allocations);return 0;
+        world_ctx.units.state.as_mut().expect("prepared unit service").running=false;return 0;
     }
     foreign_rows_in(&mut world_ctx.units, offset,foreign.count);
     building_rows_in(world_ctx, offset + foreign.count as usize * F3PropFact::WORDS, foreign.buildings);
@@ -807,12 +804,12 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
             F3UnitKey::take(&source[at+F3PhaseInput::KEY..at+F3PhaseInput::KEY+F3UnitKey::WORDS],&[])};
         if key.validate(&world_ctx.sim.store).is_err() {
             if crate::world::deferred_in(&world_ctx.tick) {continue;}
-            world_ctx.units.state.as_mut().expect("prepared unit service").running=false;finish_allocations_in(&mut world_ctx.units, allocations);return 0;
+            world_ctx.units.state.as_mut().expect("prepared unit service").running=false;return 0;
         }
         let slot=key.slot as usize;
         if world_ctx.units.state.as_mut().expect("prepared unit service").phase_inputs.get(slot).is_none() || world_ctx.units.state.as_mut().expect("prepared unit service").phase_inputs[slot].is_some() ||
             world_ctx.units.state.as_mut().expect("prepared unit service").phase_input_slots.len()==world_ctx.units.state.as_mut().expect("prepared unit service").phase_input_slots.capacity() {
-            world_ctx.units.state.as_mut().expect("prepared unit service").running=false;finish_allocations_in(&mut world_ctx.units, allocations);return 0;
+            world_ctx.units.state.as_mut().expect("prepared unit service").running=false;return 0;
         }
         world_ctx.units.state.as_mut().expect("prepared unit service").phase_inputs[slot]=Some(at);world_ctx.units.state.as_mut().expect("prepared unit service").phase_input_slots.push(slot);
     }
@@ -848,15 +845,15 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
         if !ai_owned && !retained_body {
             let Some(input)=input.as_mut() else {
                 if recon.as_ref().is_some_and(|services|services.ai.is_some()) {
-                    world_ctx.units.state.as_mut().expect("prepared unit service").running=false;finish_allocations_in(&mut world_ctx.units, allocations);return 0;
+                    world_ctx.units.state.as_mut().expect("prepared unit service").running=false;return 0;
                 }
                 continue;
             };
             // Missing intent is accepted only for an independently verified
             // canonical AI owner; a foreign row cannot acquire that authority.
-            let Some(intent)=input.intent.take() else {world_ctx.units.state.as_mut().expect("prepared unit service").running=false;finish_allocations_in(&mut world_ctx.units, allocations);return 0;};
+            let Some(intent)=input.intent.take() else {world_ctx.units.state.as_mut().expect("prepared unit service").running=false;return 0;};
             if world_ctx.units.state.as_mut().expect("prepared unit service").owner.intent(&mut world_ctx.sim.store,F3IntentCommand {key:F3UnitKey {slot:input.key.slot,generation:input.key.generation,life:input.key.life},intent}).is_err() {
-                world_ctx.units.state.as_mut().expect("prepared unit service").running=false;finish_allocations_in(&mut world_ctx.units, allocations);return 0;
+                world_ctx.units.state.as_mut().expect("prepared unit service").running=false;return 0;
             }
         }
         world_ctx.units.state.as_mut().expect("prepared unit service").bot_targets[reference.slot as usize] = if let Some(ai)=recon.as_ref().and_then(|services|services.ai.as_ref()) {
@@ -866,7 +863,7 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
         // tail follows its own.
         let connection=i>=count as usize && i<explicit;
         let network=if let Some(input)=input.as_ref().filter(|input|input.has_network) {
-            if input.network_index>=if connection {rows_network} else {foreign.network} {world_ctx.units.state.as_mut().expect("prepared unit service").running=false;finish_allocations_in(&mut world_ctx.units, allocations);return 0;}
+            if input.network_index>=if connection {rows_network} else {foreign.network} {world_ctx.units.state.as_mut().expect("prepared unit service").running=false;return 0;}
             let at=(if connection {rows_count*F3PhaseInput::WORDS} else {network_at})+input.network_index as usize*F3PhaseNetwork::WORDS;
             let state=world_ctx.units.state.as_ref().expect("prepared unit service");
             Some(F3PhaseNetwork::take(&(if connection {&state.rows} else {&state.input})[at..at+F3PhaseNetwork::WORDS],&[]))
@@ -886,7 +883,6 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
             fixed:input.edge_list.then(||[input.edge0.as_ref().map(crate::combat::module::edge),input.edge1.as_ref().map(crate::combat::module::edge)]),
         }).unwrap_or_default();
     }
-    let _tick_allocations = crate::allocations::at(F3AllocationStage::Other);
     // Unit.tick itself keeps the seated, held and removed gates. Keep water
     // and death-region tests immediately after that individual tick: a kill
     // can affect what the next unit observes and who its shot is credited to.
@@ -961,7 +957,7 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
     publish_changed_in(world_ctx);
     // Include input parsing, solver work, callbacks and sparse serialization.
     // Descriptor writes below use fixed storage and cannot allocate themselves.
-    finish_allocations_in(&mut world_ctx.units, allocations);
+    
     world_ctx.units.state.as_mut().expect("prepared unit service").running = false;
     descriptor_in(world_ctx);
     u32::from(!world_ctx.units.state.as_mut().expect("prepared unit service").failed)
@@ -971,15 +967,6 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
     result
 }
 
-// Owned spans report real allocator traffic, including serialization. Reuse
-// this recorder for end-of-tick capture rather than estimating its Vec growth.
-fn finish_allocations_in(units: &mut super::owner::Units, before: crate::allocations::Counts) {
-    crate::allocations::end();
-    let used = crate::allocations::snapshot().since(before);
-    units.state.as_mut().expect("prepared unit service").layout.allocations = used.calls as u32;
-    units.state.as_mut().expect("prepared unit service").layout.reallocations = used.reallocs as u32;
-    units.state.as_mut().expect("prepared unit service").layout.allocation_bytes = used.bytes as u32;
-}
 
 // Unit spawn metadata contains no solver state. Network lifecycle commands
 // can qualify a manually advanced gameplay generation through this old key.
@@ -1835,8 +1822,6 @@ pub(crate) fn relation_in(units: &super::owner::Units, a:f64,b:f64) -> f64 {
 /// (multiplayer-world.js hitHistory.capture): the host's `units` intent
 /// rows and its network tail precede the foreign facts it wrote.
 pub(crate) fn f3_history_capture_at_in(world_ctx: &mut crate::world::owner::World, tick: u32, units: u32) {
-    let allocations = crate::allocations::snapshot();
-    crate::allocations::begin();
     // F4 may have advanced foreign building life after the unit span. Those
     // changed rows follow the intent rows the host prepared for this tick.
     let foreign = F3ForeignHeader::take(&world_ctx.units.state.as_mut().expect("prepared unit service").foreign_header, &[]);
@@ -1849,7 +1834,7 @@ pub(crate) fn f3_history_capture_at_in(world_ctx: &mut crate::world::owner::Worl
     let mut history = world_ctx.units.state.as_mut().expect("prepared unit service").history.take().expect("available hit history");
     history.capture(tick, &mut super::f3_sensors::Sensors { w: world_ctx });
     world_ctx.units.state.as_mut().expect("prepared unit service").history = Some(history);
-    finish_allocations_in(&mut world_ctx.units, allocations);
+    
     descriptor_in(world_ctx);
 }
 pub(crate) fn history_in(units: &mut super::owner::Units) -> &mut crate::combat::history::History<Member> {

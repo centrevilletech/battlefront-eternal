@@ -483,7 +483,6 @@ pub struct ShellHost {
     pub preview_movies: bfe_shell::movies::MoviePlayer,
     movie_clock: std::time::Instant,
     movie_trace: (std::time::Instant, u64),
-    pub movie_allocs_max: u64,
     movie_texture: bfe_shell::movie_gpu::MovieTexture,
     pub preview_texture: bfe_shell::movie_gpu::MovieTexture,
     /// Offscreen RGBA8 + Depth/Stencil framebuffer target.
@@ -629,7 +628,6 @@ impl ShellHost {
             preview_movies: Default::default(),
             movie_clock: std::time::Instant::now(),
             movie_trace: (std::time::Instant::now(), 0),
-            movie_allocs_max: 0,
             movie_texture,
             preview_texture,
             blur,
@@ -1491,7 +1489,6 @@ impl ShellHost {
             .content_dir
             .as_deref()
             .unwrap_or_else(|| Path::new("."));
-        let movie_alloc_start = super::render_thread_alloc_count();
         // Movie timestamps use wall time, independent of the simulation/UI dt clamp. Time the menu was not
         // stepped (a battle, a file dialog, a stalled frame) is not playback time: taken whole it made the
         // backdrop race through that many seconds of film on the way back, at several times its speed.
@@ -1513,11 +1510,6 @@ impl ShellHost {
             [rect[2].max(1.) as i32, rect[3].max(1.) as i32],
         );
         self.core.state.reset();
-        if self.frames > 120 {
-            self.movie_allocs_max = self
-                .movie_allocs_max
-                .max(super::render_thread_alloc_count().saturating_sub(movie_alloc_start));
-        }
         // Page consumes current textures/crops and never assumes a still image.
         self.page.media = self.page_media_textures();
         if !self.page.input_matches(&self.app) && std::env::var_os("BFE_MENU_INPUT_TRACE").is_some()
@@ -1993,7 +1985,7 @@ impl ShellHost {
         }
         self.page.dropdown = false;
         let hit = self.page.hit(x_px, y_px);
-        let double = self.last_page_click.is_some_and(|(previous, time)| {
+        let _double = self.last_page_click.is_some_and(|(previous, time)| {
             Some(previous) == hit && time.elapsed().as_secs_f64() < 0.35
         });
         self.last_page_click = hit.map(|hit| (hit, Instant::now()));

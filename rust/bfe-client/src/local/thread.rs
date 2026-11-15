@@ -43,9 +43,6 @@ pub const PUBLICATION_SLOTS: usize = 64;
 /// Capacity of the lock-free ring buffer recording recent 60 Hz tick durations in nanoseconds.
 const RECENT_TICK_SAMPLES: usize = 4096;
 
-/// Number of initial 60 Hz world ticks excluded as warm-up before measuring steady-state
-/// world-thread heap allocations (`60` ticks = 1.0 second of simulation warm-up).
-const WORLD_THREAD_WARMUP_TICKS: u64 = 60;
 
 /// Cold admission metadata returned to the main thread after `Context::world_admit`
 /// succeeds on the dedicated 60 Hz world thread.
@@ -93,12 +90,6 @@ pub struct WorldTickStats {
     pub combat_records_published: u64,
     /// Whether `Context` ever reported `ErrorKind::Poisoned` during the battle.
     pub context_poisoned: bool,
-    /// Total heap allocations on the 60 Hz world thread after the initial warm-up window.
-    pub world_thread_steady_allocs_after_warmup: u64,
-    /// Number of steady-state 60 Hz world ticks measured after warm-up.
-    pub world_thread_steady_ticks: u64,
-    /// Average heap allocations per steady-state 60 Hz world tick after warm-up.
-    pub world_thread_steady_allocs_per_tick: f64,
 }
 
 /// Explicit message sent from the render/window thread to the 60 Hz world thread.
@@ -310,8 +301,8 @@ impl PublicationQueue {
 
 /// Shared synchronization state between the render thread and the 60 Hz world thread.
 ///
-/// All diagnostic counters (`journal_seq`, `hearing_*`, `kind_*`, `presentation_records_published`,
-/// `world_thread_steady_allocs`) use lock-free atomics so the render thread can snapshot
+/// All diagnostic counters (`journal_seq`, `hearing_*`, `kind_*`, `presentation_records_published`)
+/// use lock-free atomics so the render thread can snapshot
 /// [`WorldTickStats`] at battle end without contending with the world thread.
 struct SharedState {
     commands: Mutex<CommandRing>,
@@ -346,8 +337,6 @@ struct SharedState {
     presentation_records_published: AtomicU64,
     combat_records_published: AtomicU64,
     context_poisoned: AtomicBool,
-    world_thread_steady_allocs: AtomicU64,
-    world_thread_steady_ticks: AtomicU64,
     fault: Mutex<Option<String>>,
 }
 
@@ -390,8 +379,6 @@ impl SharedState {
             presentation_records_published: AtomicU64::new(0),
             combat_records_published: AtomicU64::new(0),
             context_poisoned: AtomicBool::new(false),
-            world_thread_steady_allocs: AtomicU64::new(0),
-            world_thread_steady_ticks: AtomicU64::new(0),
             fault: Mutex::new(None),
         }
     }
@@ -401,8 +388,6 @@ impl SharedState {
         &self,
         elapsed_ns: u64,
         counters: HostCounters,
-        measure_steady_allocs: bool,
-        steady_alloc_delta: u64,
     ) {
         let idx = self.tick_count.fetch_add(1, Ordering::Relaxed) as usize;
         self.tick_sum_ns.fetch_add(elapsed_ns, Ordering::Relaxed);
@@ -436,12 +421,6 @@ impl SharedState {
             .store(counters.combat_records_published, Ordering::Relaxed);
         if counters.context_poisoned {
             self.context_poisoned.store(true, Ordering::Relaxed);
-        }
-        if measure_steady_allocs {
-            self.world_thread_steady_ticks
-                .fetch_add(1, Ordering::Relaxed);
-            self.world_thread_steady_allocs
-                .fetch_add(steady_alloc_delta, Ordering::Relaxed);
         }
     }
 
@@ -497,14 +476,6 @@ impl SharedState {
             journal_records_by_kind.insert("other".to_string(), other);
         }
 
-        let steady_allocs = self.world_thread_steady_allocs.load(Ordering::Relaxed);
-        let steady_ticks = self.world_thread_steady_ticks.load(Ordering::Relaxed);
-        let steady_per_tick = if steady_ticks > 0 {
-            (steady_allocs as f64) / (steady_ticks as f64)
-        } else {
-            0.0
-        };
-
         WorldTickStats {
             count,
             min_ms: (if min_ns == u64::MAX { 0 } else { min_ns }) as f64 / 1_000_000.0,
@@ -523,9 +494,6 @@ impl SharedState {
                 .load(Ordering::Relaxed),
             combat_records_published: self.combat_records_published.load(Ordering::Relaxed),
             context_poisoned: self.context_poisoned.load(Ordering::Relaxed),
-            world_thread_steady_allocs_after_warmup: steady_allocs,
-            world_thread_steady_ticks: steady_ticks,
-            world_thread_steady_allocs_per_tick: steady_per_tick,
         }
     }
 }
@@ -870,28 +838,12 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
         } else {
             break;
         };
-        // After the initial 60-tick warm-up window, sample this thread's TLS allocation
-        // counter around `step_into_slot` so steady-state world-thread allocations are
-        // reported per battle without interfering with render-thread allocation checks.
-        let measure_steady_allocs = runtime.ticks >= WORLD_THREAD_WARMUP_TICKS;
-        let allocs_before = if measure_steady_allocs {
-            crate::app::render_thread_alloc_count()
-        } else {
-            0
-        };
         let tick_start = Instant::now();
         let step_res = runtime.step_into_slot(&mut slot);
         let tick_elapsed_ns = tick_start.elapsed().as_nanos() as u64;
-        let steady_alloc_delta = if measure_steady_allocs {
-            crate::app::render_thread_alloc_count().saturating_sub(allocs_before)
-        } else {
-            0
-        };
         shared.record_tick_ns(
             tick_elapsed_ns,
             runtime.host_counters(),
-            measure_steady_allocs,
-            steady_alloc_delta,
         );
         match step_res {
             Ok(tick) => {

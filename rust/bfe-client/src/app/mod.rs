@@ -81,7 +81,6 @@ use glutin::{
 use glutin_winit::{DisplayBuilder, GlWindow};
 use raw_window_handle::HasWindowHandle;
 use std::{
-    cell::Cell,
     collections::BTreeMap,
     num::NonZeroU32,
     path::{Path, PathBuf},
@@ -101,24 +100,6 @@ use winit::{
 #[cfg(target_os = "linux")]
 mod x11_pointer;
 
-thread_local! {
-    /// Per-thread cumulative heap allocation counter updated by the global `CountingAlloc`
-    /// in `main.rs` without locks or re-entrant allocations.
-    static RENDER_THREAD_ALLOCS: Cell<u64> = const { Cell::new(0) };
-}
-
-/// Increments the calling thread's allocation counter. Called by the global allocator
-/// in `main.rs` without locks or heap allocations.
-#[inline]
-pub fn record_thread_alloc() {
-    let _ = RENDER_THREAD_ALLOCS.try_with(|c| c.set(c.get().wrapping_add(1)));
-}
-
-/// Returns the current thread's cumulative heap allocation count.
-#[inline]
-pub fn render_thread_alloc_count() -> u64 {
-    RENDER_THREAD_ALLOCS.try_with(|c| c.get()).unwrap_or(0)
-}
 
 /// Target battle to load during [`AppState::BattleLoading`].
 #[derive(Clone, Debug)]
