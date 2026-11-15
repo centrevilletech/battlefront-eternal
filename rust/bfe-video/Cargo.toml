@@ -6,6 +6,5 @@ license = "GPL-3.0-only"
 publish = false
 
 [dependencies]
-# Local copy until the decoder's repository is published; then a pinned git dependency.
-bink-decoder = { path = "../../../bink-decoder" }
+bink-decoder = { git = "https://github.com/centrevilletech/bink-decoder", rev = "6bcf57407cd0a6b0322c06cce286ce15f4a059e9" }
 serde_json = "1"
