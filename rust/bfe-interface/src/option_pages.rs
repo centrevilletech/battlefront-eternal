@@ -1049,6 +1049,26 @@ mod tests {
         assert_eq!(ctrl.stack.top().unwrap().elapsed, 2.);
     }
 
+    // Down from the last row of an options page wraps to its first row: the browser's ring has no stop on RESET.
+    #[test]
+    fn down_from_the_last_row_wraps_to_the_first() {
+        let mut ctrl = OptionsController::new(Settings::new(), OptionsContext::default());
+        ctrl.open_page("video");
+        let rows = |ctrl: &OptionsController| match ctrl.stack.top().unwrap().widget("rows") {
+            Some(Widget::Options(o)) => o.items.iter().filter(|i| !i.hidden).count(),
+            _ => 0,
+        };
+        let count = rows(&ctrl);
+        assert!(count > 10);
+        for _ in 0..count {
+            ctrl.on_key_down("ArrowDown", false);
+        }
+        let top = ctrl.stack.top().unwrap();
+        let selected = match top.widget("rows") { Some(Widget::Options(o)) => o.selected, _ => 99 };
+        assert_eq!(selected, 0, "back on the first row");
+        assert_eq!(top.focused, top.widgets.iter().position(|w| matches!(w, Widget::Options(_))), "focus stays on the rows");
+    }
+
     // Verifies that all four option sub-pages build with expected row counts and navigate back with Escape.
     #[test]
     fn option_pages_build_and_navigate_all_four_pages() -> Result<(), Box<dyn std::error::Error>> {
