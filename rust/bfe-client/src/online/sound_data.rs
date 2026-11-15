@@ -663,6 +663,70 @@ impl Prepared {
                 }
             }
         }
+        // PlayerSounds.surface and entry: the material groups underfoot
+        // (terrain, wading water, then each material box's group as first
+        // seen) and, for every class with a FoleyFXClass, each group's
+        // FoleyFXSoldier entry of that class: footsteps, jump, landing, roll,
+        // crouch, prone and getting up on that surface.
+        let mut materials: Vec<String> = vec!["terrain_foley".into(), "water_foley".into()];
+        for b in data.manifest.get("world").and_then(|w| w.get("materials")).and_then(Value::as_array).unwrap_or(&[]) {
+            let group = text(b.get("group"));
+            let id = match materials.iter().position(|m| m == group) {
+                Some(id) => id,
+                None => {
+                    materials.push(group.into());
+                    materials.len() - 1
+                }
+            };
+            let mut row = [0.; material::STRIDE];
+            for k in 0..3 {
+                row[material::MIN_X + k] = number(b.get("min").and_then(|v| v.at(k)));
+                row[material::MAX_X + k] = number(b.get("max").and_then(|v| v.at(k)));
+            }
+            row[material::GROUP] = id as f64;
+            import(&mut runtime, import::MATERIAL, &row)?;
+        }
+        if let Some(table) = data.manifest.get("classes").and_then(Value::as_object) {
+            for (material_id, group_name) in materials.iter().enumerate() {
+                let Some(group) = data.object("FoleyFXGroup", group_name).or_else(|| data.object("a1c9cbc5", group_name)) else {
+                    continue;
+                };
+                for (class_id, (_, o)) in table.entries().enumerate() {
+                    let fx_class = text(o.get("FoleyFXClass"));
+                    if fx_class.is_empty() {
+                        continue;
+                    }
+                    let fx_class = key(fx_class);
+                    let Some(entry) = group
+                        .get("FoleyFX")
+                        .and_then(Value::as_array)
+                        .unwrap_or(&[])
+                        .iter()
+                        .filter_map(|n| data.object("FoleyFXSoldier", text(n.at(0))))
+                        .find(|e| text(e.get("Class")) == fx_class)
+                    else {
+                        continue;
+                    };
+                    let mut row = [-1.; foley::STRIDE];
+                    row[foley::CLASS] = class_id as f64;
+                    row[foley::MATERIAL] = material_id as f64;
+                    for (at, k) in [
+                        (foley::LEFT, "FootstepLeftRun"),
+                        (foley::RIGHT, "FootstepRightRun"),
+                        (foley::JUMP, "jump"),
+                        (foley::BODYFALL, "bodyfall"),
+                        (foley::LAND, "Land"),
+                        (foley::ROLL, "roll"),
+                        (foley::SQUAT, "squat"),
+                        (foley::PRONE, "prone"),
+                        (foley::STAND, "stand"),
+                    ] {
+                        row[at] = resolve(entry.get(k));
+                    }
+                    import(&mut runtime, import::FOLEY, &row)?;
+                }
+            }
+        }
         // Mission rows describe alternatives. The shared director alone
         // selects their priority, ticket stage, repeat interval and fades.
         let mission = data.manifest.get("mission");
