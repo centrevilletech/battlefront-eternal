@@ -1241,7 +1241,7 @@ fn cold_admission_delivers_welcome_publication_and_steps_three_maps() {
             if seq > 2 {
                 use bfe_presentation::network_layout::net_header as h;
                 assert_eq!(
-                    local.receiver.network.borrow().header[h::BASELINE_TICK],
+                    local.receiver().network.borrow().header[h::BASELINE_TICK],
                     (seq - 1) as f64,
                     "the local host must accept the previous snapshot ACK on {map}"
                 );
