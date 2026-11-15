@@ -1,17 +1,17 @@
 
   uniform highp sampler2D depthMap;
   uniform highp sampler2D velocityMap;
-  uniform mat4 inverseJittered;
-  uniform mat4 currentViewProjection;
-  uniform mat4 previousViewProjection;
+  uniform mat4 currentFromJittered;
+  uniform mat4 previousFromJittered;
+  uniform float cameraStill;
   vec2 motionAt(ivec2 t, float depth, vec2 size) {
     vec4 moved = texelFetch(velocityMap, t, 0);
     if (moved.a > 0.25 && moved.a < 0.75) return moved.rg;
+    if (cameraStill > 0.5) return vec2(0.0);
     vec2 uv = (vec2(t) + 0.5) / size;
-    vec4 world = inverseJittered * vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
-    world /= world.w;
-    vec4 now = currentViewProjection * world;
-    vec4 then = previousViewProjection * world;
+    vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 now = currentFromJittered * clip;
+    vec4 then = previousFromJittered * clip;
     return (now.xy / now.w - then.xy / then.w) * 0.5;
   }
   // rg: the motion (UV) of the nearest surface in the 3x3; b: how far, in

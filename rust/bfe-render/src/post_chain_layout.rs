@@ -92,7 +92,7 @@ pub mod aa {
     pub const FXAA: usize = 1;
     pub const FAST: usize = 2;
 }
-pub const TYPES: [&[u32]; 11] = [&[32], &[32, 2], &[32, 2], &[32, 32, 32, 1, 1, 1, 1], &[16, 16, 32, 2], &[16, 16, 32, 2], &[32], &[32, 2, 2], &[32, 32, 16, 16, 16], &[32, 32, 32, 2, 2, 2, 1, 1, 1, 9, 9], &[32, 1]];
+pub const TYPES: [&[u32]; 11] = [&[32], &[32, 2], &[32, 2], &[32, 32, 32, 1, 1, 1, 1], &[16, 16, 32, 2], &[16, 16, 32, 2], &[32], &[32, 2, 2], &[32, 32, 16, 16, 1], &[32, 32, 32, 2, 2, 2, 1, 1, 1, 9, 9], &[32, 1]];
 pub mod uniform {
 pub mod copy {
     pub const MAP: usize = 0;
@@ -137,9 +137,9 @@ pub mod spatial {
 pub mod motion {
     pub const DEPTH_MAP: usize = 0;
     pub const VELOCITY_MAP: usize = 1;
-    pub const INVERSE_JITTERED: usize = 2;
-    pub const CURRENT_VIEW_PROJECTION: usize = 3;
-    pub const PREVIOUS_VIEW_PROJECTION: usize = 4;
+    pub const CURRENT_FROM_JITTERED: usize = 2;
+    pub const PREVIOUS_FROM_JITTERED: usize = 3;
+    pub const CAMERA_STILL: usize = 4;
 }
 pub mod resolve {
     pub const COLOR_MAP: usize = 0;
