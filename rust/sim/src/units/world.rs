@@ -3,13 +3,6 @@
 //! registry's other members (hulls', turrets' and buildings' targets), and
 //! across a unit's tick its combat, its AI aimer, a network player's recon
 //! droid and the Character that plays it.
-//!
-//! Each method is a call the JavaScript makes, at the point it makes it:
-//! the replays serve them from captures (rust/sim/tests/replay_units.rs),
-//! and the module will answer them from the subsystems that own what they
-//! ask about (in Rust as each is ported, through imports from JavaScript
-//! until then). A call that changes the unit (a combat update that kills
-//! him, an aimer that turns him) takes it mutably. `id` is the unit's.
 
 use super::shapes::{Bounds, HitShape};
 use crate::gen::Unit;

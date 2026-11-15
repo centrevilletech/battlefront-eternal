@@ -4,14 +4,7 @@
 //! copies a soldier's state in, runs the tick here against the module's own
 //! copies of the collision world, and copies the state back out, the same to
 //! the last bit as the JavaScript tick (soldier.rs says how).
-//!
-//! A tick is one call. The sines and cosines it needs (of the aim's yaw
-//! before the tick's turn and after it, and a hovering jet's pitch) are
-//! computed here with `v8math`, as the production server's V8 computes
-//! Math.sin and Math.cos: the same as the JavaScript tick's under Node, and
-//! the server's where a client's own V8 parts from it in the last bit.
 
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub(crate) mod native;
 pub mod scene;
 pub mod soldier;
@@ -73,7 +66,6 @@ struct Movers {
 /// and lastGround between the same sequential movement operations.
 pub struct MovementOwner {
     movers: Option<Movers>,
-    #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
     native_copies: native::Copies,
     io: [f64; IO_LEN],
     /// Body eligibility follows collision-world order, as in movement-kernel.js.
@@ -81,7 +73,6 @@ pub struct MovementOwner {
 }
 impl MovementOwner {
     pub const fn new() -> Self { Self { movers: None,
-        #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
         native_copies: native::Copies::new(), io: [0.; IO_LEN], flags: [0; MAX_BODIES] } }
     // Pointer discovery cannot allocate: the host may already have read the WASM
     // memory buffer before calling either pointer export. Pools initialize only
@@ -246,21 +237,3 @@ impl MovementOwner {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    // The module's exports, for src/movement-kernel.js.
-    #[no_mangle]
-    pub extern "C" fn movement_io_ptr() -> *mut f64 { crate::abi::facade::cold().movement.io_mut().as_mut_ptr() }
-    #[no_mangle]
-    pub extern "C" fn movement_flags_ptr() -> *mut u8 { crate::abi::facade::cold().movement.flags_mut().as_mut_ptr() }
-    /// A soldier of world `world` with the class numbers in CLASS; returns its id.
-    #[no_mangle]
-    pub extern "C" fn mover_new(world: u32) -> u32 { crate::abi::facade::cold().movement.mover_new(world) }
-    /// Soldier.tick for mover `id`: its state, input and dt in the slots. 0:
-    /// done, the state back in the slots; 2: an unknown state code, rejected
-    /// before changing the mover or advancing its collision scene.
-    #[no_mangle]
-    pub extern "C" fn mover_tick(id: u32) -> u32 { let w = crate::abi::facade::cold(); w.movement.tick(&mut w.collision.state, id) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{movement_io_ptr, movement_flags_ptr, mover_new, mover_tick};

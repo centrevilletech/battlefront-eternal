@@ -3,13 +3,6 @@
 //! anything to do with vehicles and turrets, and the state it keeps (seat
 //! reservations, the notifier's counter, the pads bots keep off, the fire
 //! support hubs found for each post, the attack run's distances).
-//!
-//! What index.js's adaptClassicAI patches into a ClassicAI at run time is
-//! here as plain entry points the AI's controller calls (plan P14, made
-//! explicit): `current_controllable` (the control a Character's controller
-//! drives), `adapt_controller` (the policy it takes on a bind),
-//! `mounted_state` (the state its request becomes), `agent_for` (the
-//! mounted agent), `seat_input` / `analogs` (a seat's input step).
 
 use three::Vector3;
 use std::rc::Rc;

@@ -6,7 +6,6 @@
 pub mod controls;
 pub mod owner;
 pub mod views;
-pub mod seat_view;
 pub mod commands;
 pub mod step;
 pub mod rows;

@@ -5,11 +5,6 @@
 //! ([`Js`]) and read with JavaScript's own rules (`x || d`, `x ?? d`,
 //! comparisons through ToNumber), so a field the content leaves out reads
 //! here as it reads in src/weapons.js and src/combat.js.
-//!
-//! A weapon class is known by its definition's index in the battle's
-//! `weapon` table ([`DefId`], docs/sim-store.md "Definitions"); the battle
-//! registers each as it meets it, and a replay builds them from a capture's
-//! definition records.
 
 use crate::store::DefId;
 use std::rc::Rc;

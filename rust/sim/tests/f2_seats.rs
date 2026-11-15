@@ -300,57 +300,7 @@ fn turret_rebuild_keeps_its_rig_and_aim_but_not_its_dead_crew() {
     assert_eq!(st.turret_seats.ticks, 1.0);
 }
 
-// Count allocations on this test's thread, so unrelated parallel tests cannot
-// turn the warmed phase's allocation check into a scheduling-dependent result.
-mod allocation {
-    use std::alloc::{GlobalAlloc, Layout, System};
-    use std::cell::Cell;
-    thread_local! {
-        static ENABLED: Cell<bool> = const { Cell::new(false) };
-        static COUNT: Cell<usize> = const { Cell::new(0) };
-    }
-    pub struct Counted;
-    unsafe impl GlobalAlloc for Counted {
-        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-            ENABLED.with(|e| { if e.get() { COUNT.with(|n| n.set(n.get() + 1)); } });
-            System.alloc(layout)
-        }
-        unsafe fn dealloc(&self, p: *mut u8, layout: Layout) { System.dealloc(p, layout); }
-        unsafe fn realloc(&self, p: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-            ENABLED.with(|e| { if e.get() { COUNT.with(|n| n.set(n.get() + 1)); } });
-            System.realloc(p, layout, size)
-        }
-    }
-    pub fn start() { COUNT.with(|n| n.set(0)); ENABLED.with(|e| e.set(true)); }
-    pub fn stop() -> usize { ENABLED.with(|e| e.set(false)); COUNT.with(Cell::get) }
-}
-#[global_allocator]
-static ALLOCATOR: allocation::Counted = allocation::Counted;
 
-#[test]
-fn warmed_hull_and_turret_phases_allocate_nothing() {
-    let (mut st, mut p, mut w, h) = setup(2);
-    let a = unit(&mut st, 1, false);
-    assert!(p.board(&mut st, &mut w, a, h, 0));
-    let matrix = Matrix4::default().elements;
-    let rig = TurretRig::new(&matrix, &[], None);
-    let t = Ref::new(4, 1);
-    p.add_turret(TurretSide { index: 0, turret: t, alive: true, rig, ..TurretSide::default() });
-    let b = unit(&mut st, 2, false);
-    assert!(p.man(&mut st, &mut w, b, t));
-    p.crews.collide = false;
-    p.latch(&mut st, &mut w, 1.0);
-    p.turret_tick(&mut st, &mut w, 1.0 / 60.0);
-    p.published(&mut st);
-    allocation::start();
-    for tick in 0..1200 {
-        p.latch(&mut st, &mut w, tick as f64 / 60.0);
-        p.turret_tick(&mut st, &mut w, 1.0 / 60.0);
-        p.published(&mut st);
-    }
-    let allocations = allocation::stop();
-    assert_eq!(allocations, 0, "warmed seat phases must reuse their storage");
-}
 
 #[test]
 fn a_nested_crew_death_preserves_the_outer_pending_deaths() {

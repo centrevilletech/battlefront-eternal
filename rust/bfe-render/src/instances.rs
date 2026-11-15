@@ -45,6 +45,10 @@ pub const REC_EXTRA: usize = 76; // a material's own values the instance gives (
 // group order, render order, id (z from its sphere's centre in the world).
 pub const REC_BLEND: usize = REC_EXTRA + shader::ROW_EXTRA_TEXELS * 4;
 pub const REC_STRIDE: usize = REC_BLEND + 4;
+// receiveShadow, for a program that receives shadows (shader.rs SHADOW_EXTRAS: the record's EXTRA + 14). Bodies,
+// held weapons and vehicle rigs set it, as their meshes do in the browser build (actor.js, combat.js,
+// vehicle-rig.js); props and the first-person view leave it off.
+pub const REC_RECEIVE_SHADOW: usize = REC_EXTRA + 14;
 pub const KIND_BLENDED: f64 = 3.0;
 pub const KIND_BLENDED_RIGID: f64 = 4.0;
 pub const MAX_RECORDS: usize = 256;

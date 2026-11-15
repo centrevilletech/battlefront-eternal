@@ -1,21 +1,5 @@
 //! Game installation and prepared content discovery across Steam, GOG, Heroic,
 //! Wine, CrossOver, and local filesystem directories.
-//!
-//! Mirrors the desktop host.
-//!
-//! ## Discovery Hierarchy
-//! - **Prepared content (`find_content`)**:
-//!   1. Explicit directories (`--content`, `BFE_CONTENT_DIR`, or user-saved `settings.contentDir`)
-//!      are checked first; the first valid folder wins with `source: "chosen"`.
-//!   2. Known likely locations (`default_prepared_dir`, `./prepared`, `<app>/prepared`, etc.)
-//!      are compared by map count (`richer_content`) and returned with `source: "found"`.
-//!   3. When `search` is enabled, a bounded breadth-first search of the user's home directory
-//!      (`depth: 4`, `budget_ms: 2500`, `max_dirs: 20_000`) returns the richest folder with
-//!      `source: "searched"`.
-//! - **Retail game installation (`find_game_installs`)**:
-//!   Validates `GameData/Data/_LVL_PC/SIDE` and `GameData/Data/_LVL_PC/Common/<LANG>/common.lvl`
-//!   case-insensitively so Linux/macOS filesystems handle any retail casing, and distinguishes
-//!   Star Wars Battlefront (2004) from Star Wars Battlefront II (2005).
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
@@ -985,19 +969,6 @@ pub fn find_gog_install(opts: &FindGameOptions) -> Option<GameInstall> {
 }
 
 /// Discovers all valid Star Wars Battlefront (2004) installations on the system.
-///
-/// Preserves the exact discovery order and upgrade semantics of `findGameInstalls`
-/// in the desktop host:
-/// 1. User-chosen `extra` directories (`source: "chosen"`).
-/// 2. Steam manifest installs in listed libraries (`source: "steam"`).
-/// 3. Steam manifest installs in drive libraries (`source: "steam"`).
-/// 4. GOG registry / Heroic records (`source: "gog"`).
-/// 5. Unindexed `steamapps/common` folders (`source: "folder"`).
-/// 6. GOG parent folder subdirectories (`source: "folder"`).
-///
-/// If a folder initially added as `"chosen"` is later discovered as `"steam"` or
-/// `"gog"`, it is upgraded in place (`source: "steam" | "gog"`, `chosen: true`)
-/// while keeping its leading position in the returned list.
 pub fn find_game_installs(opts: &FindGameOptions) -> Vec<GameInstall> {
     let mut installs: Vec<GameInstall> = Vec::new();
     let mut by_key: BTreeMap<String, usize> = BTreeMap::new();

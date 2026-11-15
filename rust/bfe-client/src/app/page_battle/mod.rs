@@ -1,6 +1,8 @@
 //! Page battle compositor. The existing controllers own actions and the HUD
 //! owns map contents; this host supplies the independent preview camera/target.
 pub(crate) mod appearance;
+mod backdrop;
+pub(crate) use backdrop::Backdrop;
 mod director;
 mod gpu;
 mod rig;
@@ -37,6 +39,7 @@ pub(super) struct PageBattle {
     pub age: f64,
     pub class_age: f64,
     pub team_age: f64,
+    pub post_age: f64,
     pub class_id: usize,
     framed: bool,
     framing_look: usize,
@@ -48,6 +51,7 @@ pub(super) struct PageBattle {
     pin_waves: Vec<f64>,
     flare: f64,
     pins: Vec<gpu::Pin>,
+    kept: backdrop::Kept,
     director: director::Director,
     post: Option<String>,
     pub shot: Option<bfe_battle_ui::spawn::CameraShot>,
@@ -95,6 +99,7 @@ impl PageBattle {
             age: 0.,
             class_age: 0.,
             team_age: 0.,
+            post_age: 0.,
             class_id: 0,
             framed: false,
             framing_look: 2,
@@ -105,6 +110,7 @@ impl PageBattle {
             pin_waves: Vec::new(),
             flare: 0.,
             pins: Vec::new(),
+            kept: backdrop::Kept::default(),
             director: director::Director::new(scene.spawn_shots.clone()),
             post: None,
             shot: None,
@@ -184,6 +190,7 @@ impl PageBattle {
             eprintln!("page spawn view closed");
         }
         self.was_open = false;
+        self.kept.forget();
         self.strength = 0.;
         self.rig.dragging = false;
     }
@@ -263,6 +270,9 @@ impl PageBattle {
         }
         self.pin_waves.resize(port.posts.len(), f64::INFINITY);
         if self.post != model.post {
+            if !opening {
+                self.post_age = 0.;
+            }
             self.post = model.post.clone();
             if let Some(i) = port
                 .posts
@@ -283,6 +293,7 @@ impl PageBattle {
         self.age += dt;
         self.class_age += dt;
         self.team_age += dt;
+        self.post_age += dt;
         self.strength += (1. - self.strength) * (dt * 3.5).min(1.);
         self.building += dt;
         self.pulse = (self.pulse - dt * 1.6).max(0.);
@@ -569,8 +580,22 @@ impl PageBattle {
             }
         }
     }
-    pub fn dispose(&self, scene: &Scene) {
+    /// What to put behind the screen this frame (backdrop.rs).
+    pub fn backdrop(&mut self, theme: &str) -> Backdrop {
+        self.kept.choose(BattleLook::new(theme).index, self.dt)
+    }
+    /// After the battle was drawn behind the screen.
+    pub fn drawn_behind(&mut self, scene: &Scene) {
+        self.kept.keep(&scene.bridge.r.core.gl, scene.canvas.framebuffer, scene.size);
+    }
+    /// Instead of drawing the battle behind the screen.
+    pub fn show_behind(&self, scene: &mut Scene, choice: Backdrop) {
+        self.kept.show(&scene.bridge.r.core.gl, scene.canvas.framebuffer, scene.size, choice);
+        scene.bridge.r.core.state.reset();
+    }
+    pub fn dispose(&mut self, scene: &Scene) {
         self.gpu.dispose(&scene.bridge.r.core.gl);
+        self.kept.release(&scene.bridge.r.core.gl);
     }
 }
 #[cfg(test)]

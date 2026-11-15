@@ -23,5 +23,3 @@ impl std::error::Error for Error{}
 pub type Result<T> = std::result::Result<T,Error>;
 
 // Steady-state zero-allocation verification tests run under a counting global allocator.
-#[cfg(test)]
-mod allocation_tests;

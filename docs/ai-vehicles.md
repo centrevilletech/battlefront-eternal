@@ -860,12 +860,7 @@ historical headless measurements, docs/ai.md "Stuck bots"; paths under
 `rust/sim` (`ai::vehicles`) (a bot rear gunner while the player circles
 or passes an AT-AT) measures the tow-cable run.
 
-`cargo test` in `rust/sim`: `rust/sim/tests/vehicle_ai_twin.rs` compares the
-tow-cable orbit's steering, the mounted policies' goal tables and mounted
-states with the JavaScript's answers on generated cases
-(`rust/sim/tests/fixtures/vehicle-ai-golden.json`); `rust/sim/tests/replay_vehicle_ai.rs`
-replays captured vehicle AI frames when a capture corpus is supplied;
-`rust/sim/rust/ai/owned/tests/phase.rs` covers support keys and selection.
+`cargo test` in `rust/sim`: `rust/sim/rust/ai/owned/tests/phase.rs` covers support keys and selection.
 `cargo test --locked --workspace`, `cargo test --locked --workspace`,
 `cargo test --locked --workspace` and `cargo test --locked --workspace` (with
 `PLAYWRIGHT_MODULE` set) cover the player's paths.

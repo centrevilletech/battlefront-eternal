@@ -71,36 +71,4 @@ impl Context {
     }
 }
 
-/// The replay driver's admission line (tools/world-native.mjs):
-/// `{kind:'admit', setup:{options:{map,side,ai,seed,heroes,unit,..}, ..}, assets:[{url,hex|null}]}`.
-/// The recorded bytes become the battle's files; a null asset is a 404.
-pub(crate) fn recorded(admission: &Value) -> Result<(MemFiles, Options), Error> {
-    let invalid = |what: &str| Error::host(format!("invalid recorded admission: {what}"));
-    if admission["kind"] != "admit" { return Err(invalid("kind")); }
-    let options = &admission["setup"]["options"];
-    let text = |key: &str| options[key].as_str().map(str::to_string).ok_or_else(|| invalid(key));
-    let options = Options {
-        map: text("map")?,
-        side: text("side")?,
-        enhanced: match options["ai"].as_str() { Some("classic") => false, Some("enhanced") => true, _ => return Err(invalid("ai")) },
-        seed: options["seed"].as_u64().and_then(|n| u32::try_from(n).ok()).ok_or_else(|| invalid("seed"))?,
-        heroes: options["heroes"].as_bool().ok_or_else(|| invalid("heroes"))?,
-        unit: match &options["unit"] { Value::Null => None, Value::String(unit) => Some(unit.clone()), _ => return Err(invalid("unit")) },
-        name: None, bots: Default::default(),
-    };
-    let mut files = MemFiles::default();
-    for asset in admission["assets"].as_array().ok_or_else(|| invalid("assets"))? {
-        let url = asset["url"].as_str().ok_or_else(|| invalid("asset url"))?;
-        match &asset["hex"] {
-            Value::Null => {}
-            Value::String(hex) => files.insert(url, bytes(hex).ok_or_else(|| invalid("asset hex"))?),
-            _ => return Err(invalid("asset hex")),
-        }
-    }
-    Ok((files, options))
-}
 
-fn bytes(hex: &str) -> Option<Vec<u8>> {
-    if hex.len() % 2 != 0 { return None; }
-    (0..hex.len()).step_by(2).map(|at| u8::from_str_radix(hex.get(at..at + 2)?, 16).ok()).collect()
-}

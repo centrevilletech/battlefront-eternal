@@ -200,6 +200,19 @@ impl FramePlan {
 mod shadow_cadence_test {
     use super::*;
     #[test]
+    fn scene_color_resolves_once_after_the_view_weapon() {
+        let mut plan = FramePlan::default();
+        plan.facts[F::MAIN] = 1.;
+        plan.facts[F::VIEW_SHOWN] = 1.;
+        plan.select();plan.plan();
+        let ops = &plan.operations[..plan.count];
+        let mut resolves = ops.iter().enumerate().filter(|(_,o)| o.kind == O::RESOLVE && o.role == R::NEAR);
+        let (resolve, _) = resolves.next().unwrap();
+        assert!(resolves.next().is_none());
+        let view = ops.iter().position(|o| o.kind == O::DRAW && o.role == R::VIEW).unwrap();
+        assert!(resolve > view);
+    }
+    #[test]
     fn moved_or_invalid_cascades_refresh_even_on_a_held_frame() {
         let mut plan = FramePlan::default();
         plan.facts[F::SHADOW_COUNT] = 4.;

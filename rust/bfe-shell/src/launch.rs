@@ -1,35 +1,5 @@
 //! Instant Action playlist and battle request rules (`src/launch.js` and
 //! `MULTIPLAYER.md` lines 106-183).
-//!
-//! In the native client there are no browser URLs or query strings; a session
-//! request is a typed [`BattleRequest`] that converts directly into
-//! [`bfe_content_native::setup::BattleOptions`], and an Instant Action playlist
-//! is a typed [`Playlist`] (`entries`, `round`, `random`) holding up to
-//! [`MAX_PLAYLIST`] (64) entries.
-//!
-//! Every map, playlist entry, and battle request names its [`GameFamily`]
-//! (`swbf1` today, `swbf2` later) and `mode` (defaulting to `"conquest"` for
-//! 2004 content), parsed from and formatted to the family-prefixed form used by
-//! the server configuration and `MULTIPLAYER.md` (`swbf1/nab2:rep:conquest`),
-//! while continuing to accept and format compact rotation text (`geo1:cw`) where
-//! `src/launch.js` uses bare `swbf1` conquest defaults.
-//!
-//! Ported from `src/launch.js`:
-//! - `MAX_PLAYLIST = 64` (`ScriptCB_GetMaxMissionQueue` limit) and
-//!   `ERAS = ["cw", "gcw"]`.
-//! - `parseRotation` / `formatRotation`: `"geo1:cw,hot1:gcw"` and
-//!   family/mode-prefixed `"swbf1/geo1:cw:conquest"` rotation text, lowercased,
-//!   validated against `^[a-z0-9_]+$`, capped at 64 entries.
-//! - `shuffle`: the 2004 game's `7 * n` random pair swaps where both indices
-//!   are `min(floor(random() * n), n - 1)`.
-//! - `launch` (ports `launchUrl`'s playlist launch rule): caps `entries` at
-//!   `MAX_PLAYLIST`, shuffles first when `random == true`, starts at
-//!   `round = 0`, and selects the first entry's `family`, `map`, `era`, and
-//!   `mode`.
-//! - `next` (ports `nextUrl`'s playlist progression rule): advances `round + 1`,
-//!   wrapping to `0` after the last entry and reshuffling `entries` on the wrap
-//!   when `random == true`, while dropping per-map picks (`side`, `mission`).
-//!   Without a playlist, `next` restarts the same battle.
 
 use bfe_content_native::setup::BattleOptions;
 use serde::{Deserialize, Serialize};

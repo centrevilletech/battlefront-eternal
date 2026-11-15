@@ -22,7 +22,7 @@ ownership. Further rules found while implementing are listed under
 | `rust/sim/rust/ai/control/goals.rs`, `control/mod.rs` | objective selection and publication (`Objectives`, `Core::objectives_*`), reassignment events, recapture, objective destinations, mission controls |
 | `rust/sim/rust/ai/owned/population.rs` | objective requests over the canonical Characters, hull crews and command posts |
 | `rust/sim` (`post-data`), `rust/sim` | `attachPostAI` (post AI properties by name), the page's mission team table |
-| `rust/sim/rust/ai/owned/tests/phase.rs`, `ai_control_twin.rs`, `replay_battle.rs` | Rust tests |
+| `rust/sim/rust/ai/owned/tests/phase.rs` | Rust tests |
 | `tests/test_ai_mission_export.py` | `python3 -m unittest tests/test_ai_mission_export.py` |
 | `cargo test --locked --workspace` | the native roster through the page boundary |
 

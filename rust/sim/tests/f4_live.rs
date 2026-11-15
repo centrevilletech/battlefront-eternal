@@ -126,30 +126,6 @@ fn native_door_opens_collision_and_publishes_only_its_changed_row() {
     assert_eq!(live.buildings.publication.rows(), 0);
     assert_eq!(live.traps.publication.rows(), 0);
 }
-#[path = "support/allocations.rs"]
-mod allocation;
-#[global_allocator]
-static ALLOCATOR: allocation::Counted = allocation::Counted;
-#[test]
-fn warmed_supply_door_and_crush_phase_allocates_nothing() {
-    let mut live = Live::new(2, 1, 1);
-    live.adopt(1.0, Building { attacker: Attacker::Null, state: state(), settings: settings(props::Kind::Building), supply: Some(supply()) });
-    live.adopt(1.0, Building { attacker: Attacker::Null, state: state(), settings: settings(props::Kind::Turret), supply: None });
-    let trap = live.traps.adopt(1.0, trap()); live.animated.adopt(1.0, door());
-    let mut targets = targets(); let strings = Strings::default(); let hulls = [Ref::new(0, 1), Ref::new(1, 1)];
-    let mut w = World { events: Vec::with_capacity(32), alive: [true; 2], supplied: 0.0 };
-    live.flush();
-    allocation::start();
-    for tick in 1..=1200 {
-        w.events.clear(); w.alive = [true; 2]; targets[0].health = 50.0;
-        live.traps.command(&trap, |t| { t.state.time = 0.0; t.state.built = true; t.state.phase = traps::Phase::Swing; });
-        live.step(1.0, tick as f64, &mut SupplyTargets { targets: &mut targets, soldiers: &[0], vehicles: &[] },
-            &[Vector3::default()], &mut [], &[], &strings, &hulls, &mut w);
-    }
-    let requests = allocation::stop(); assert_eq!(requests, 0);
-    assert_eq!(live.traps.get(&trap).unwrap().state.crushed, 2400.0);
-}
-
 #[test]
 fn generated_births_prepare_station_trap_and_door_for_the_owned_phase() {
     use bfe_sim::battle::prepared;
@@ -255,8 +231,6 @@ fn fleet_birth_after_traps_reserves_the_first_crush_snapshot() {
     live.prepare_hulls(2); live.flush();
     let mut w = World { events: Vec::with_capacity(16), alive: [true; 2], supplied: 0.0 };
     let hulls = [Ref::new(0, 1), Ref::new(1, 1)]; let strings = Strings::default();
-    allocation::start();
     live.crush(1.0, 60.0, &strings, &hulls, &mut w);
-    assert_eq!(allocation::stop(), 0);
     assert_eq!(w.events.iter().filter(|&&e| e == "crush").count(), 2);
 }

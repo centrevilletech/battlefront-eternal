@@ -1,16 +1,6 @@
 //! The ground and flyer movement helpers agents drive (nav/goto.js),
 //! and the NavControl operations that need the world (the follow
 //! trail and the per-tick update, control.js:202-267).
-//!
-//! What a helper asks of the rest of the battle is `GotoWorld`: the
-//! time, the two generators, following's target resolution and
-//! remembered point, the jet attempt's 40 m clear-above test, and the
-//! formation far radius of the trail. The helper's unit is the snapshot
-//! of units.rs handed to each call; the JavaScript's `get unit()`
-//! (goto.js:66) also attaches the control, which the entry points here
-//! do first. A helper's aim commands keep the controller's aim state
-//! the way controller.js:613-625 writes it (lookAt/aimAt/lookAlongPath
-//! only set those fields).
 
 use super::analogs::{analogs, apply_jet_and_posture, Intent};
 use super::cursor::GraphCursor;

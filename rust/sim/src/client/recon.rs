@@ -134,14 +134,6 @@ impl Session {
         // water cells to this simulation module, even on maps with no hulls.
         // Only its oscillating level changes during play; import that scalar
         // with the checkpoint rather than rebuilding a water object per tick.
-        #[cfg(target_arch = "wasm32")]
-        let map = crate::vehicles::module::map().cloned().unwrap_or_else(|| MapRules {
-            water: None,
-            level: f64::NAN,
-            kill_y: -500.,
-            regions: Vec::new(),
-        });
-        #[cfg(not(target_arch = "wasm32"))]
         let map = MapRules { water: None, level: f64::NAN, kill_y: -500., regions: Vec::new() };
         Ok(Self {
             authority,

@@ -197,6 +197,19 @@ fn temporal_weights(jitter: [f64; 2], kernel: f64) -> [f64; 9] {
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::temporal_weights;
+    #[test]
+    fn temporal_kernel_uses_the_shader_column_order_and_jitter() {
+        let weights = temporal_weights([0.25, -0.125], 2.29);
+        // Right and top neighbours have different weights for this jitter.
+        assert!((weights[7] - (-2.29_f64 * 0.578125).exp()).abs() < 1e-12);
+        assert!((weights[5] - (-2.29_f64 * 1.328125).exp()).abs() < 1e-12);
+        assert_eq!(temporal_weights([0., 0.], 2.29)[4], 1.);
+    }
+}
+
 struct Planner<'a> { f: &'a [f64], out: &'a mut [f64], count: usize, at: usize, program: usize, complete: bool }
 impl Planner<'_> {
     fn resource(&self,r: usize,field: usize) -> f64 { self.f[F::RESOURCES+r*R::STRIDE+field] }

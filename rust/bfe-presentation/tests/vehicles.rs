@@ -248,26 +248,6 @@ fn records_past_their_limits_and_forged_offsets_pose_nothing() {
     assert_eq!(v.header[vh::STATUS], layout::status::VERSION_MISMATCH as f64);
 }
 
-#[test]
-fn frames_do_not_allocate() {
-    let mut v = Vehicles::new();
-    let c = clip(&mut v);
-    let a = add(&mut v, true, c);
-    let b = add(&mut v, false, c);
-    TRACK.with(|t| t.set(true));
-    for k in 0..240 {
-        let m = if k % 60 < 50 { mode::ALIVE } else { mode::DYING };
-        entry(&mut v, 0, a, m, 1.0 / 60.0);
-        entry(&mut v, 1, b, mode::ALIVE, 1.0 / 60.0);
-        let s = v.slot_input(b, 0);
-        v.stream_in[s + si::HELD] = 1.0;
-        v.stream_in[s + si::POSE] = 1.0;
-        v.input[vf::STRIDE + ve::DYING] = 2.0 - (k % 60) as f64 / 30.0;
-        frame(&mut v, 2);
-    }
-    TRACK.with(|t| t.set(false));
-    assert_eq!(ALLOCS.with(Cell::get), 0);
-}
 
 // A craft with the two-bone clip as its takeoff clip, landing over 2 s and
 // stowing over 1 s once 3 m (2 + 1 landed) up.

@@ -5,7 +5,7 @@ use super::{
     battle::BattleController,
     settings::AppSettingsStore,
     slint_ui::{
-        BattleClassModel, BattleModel, BattlePauseActionModel, BattlePinModel,
+        BattleChatLine, BattleClassModel, BattleModel, BattlePauseActionModel, BattlePinModel,
         BattleScorePlayerModel, BattleStatLineModel, BattleTeamModel, GameUi, ListEntry,
         Theme,
     },
@@ -18,13 +18,15 @@ use bfe_battle_ui::{
 };
 use bfe_shell::page::SpawnBattleStatus;
 use super::slint_models::sync_rows;
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::{cell::RefCell, rc::Rc};
 
 /// The lists the battle screens repeat over. They live as long as the window does and are handed to the
 /// `BattleModel` global once; each sync brings them up to date row by row (slint_models.rs), so the rows
 /// keep their hover, held press and double-click state.
 pub(super) struct BattleLists {
+    chat_lines: Rc<VecModel<BattleChatLine>>,
+    chat_caret: slint::Timer,
     classes: Rc<VecModel<BattleClassModel>>,
     objectives: Rc<VecModel<SharedString>>,
     pins: Rc<VecModel<BattlePinModel>>,
@@ -42,6 +44,8 @@ impl BattleLists {
     pub(super) fn new(root: &GameUi) -> Self {
         let bm = root.global::<BattleModel>();
         let lists = Self {
+            chat_lines: Rc::default(),
+            chat_caret: slint::Timer::default(),
             classes: Rc::default(),
             objectives: Rc::default(),
             pins: Rc::default(),
@@ -54,6 +58,7 @@ impl BattleLists {
             player_names: RefCell::default(),
         };
         bm.set_classes(ModelRc::from(lists.classes.clone()));
+        bm.set_chat_lines(ModelRc::from(lists.chat_lines.clone()));
         bm.set_objectives(ModelRc::from(lists.objectives.clone()));
         bm.set_pins(ModelRc::from(lists.pins.clone()));
         bm.set_score_team1_rows(ModelRc::from(lists.team1_rows.clone()));
@@ -185,6 +190,9 @@ pub(super) fn register_battle_callbacks(
 pub(super) fn battle_overlay_visible(root: &GameUi) -> bool {
     let bm = root.global::<BattleModel>();
     bm.get_pause_open()
+        || !bm.get_stats_line().is_empty()
+        || bm.get_chat_open()
+        || bm.get_chat_lines().row_count() > 0
         || bm.get_waiting_prompt_visible()
         || (bm.get_spawn_visible() && bm.get_page_spawn_look())
         || (bm.get_scoreboard_visible() && bm.get_page_score_look())
@@ -223,6 +231,10 @@ pub(super) fn sync_battle(root: &GameUi, lists: &BattleLists, battle: &mut Battl
 
     let bm = root.global::<BattleModel>();
     bm.set_theme_index(look_idx);
+    if bm.get_stats_line().as_str() != battle.stats_text {
+        bm.set_stats_line(battle.stats_text.as_str().into());
+    }
+    sync_chat_model(root, lists, battle);
 
     let page_spawn = battle.page_battle.spawn;
     let page_score = battle.page_battle.scoreboard;
@@ -256,6 +268,40 @@ pub(super) fn sync_battle(root: &GameUi, lists: &BattleLists, battle: &mut Battl
     if pause_open {
         sync_pause_model(&bm, lists, battle);
     }
+}
+
+fn sync_chat_model(root: &GameUi, lists: &BattleLists, battle: &BattleController) {
+    use bfe_battle_ui::ChatChannel;
+    let bm = root.global::<BattleModel>();
+    let color = |channel| match channel {
+        ChatChannel::Global => slint::Color::from_rgb_u8(255, 255, 64),
+        ChatChannel::Team => slint::Color::from_rgb_u8(80, 255, 112),
+        ChatChannel::Server => slint::Color::from_rgb_u8(96, 184, 255),
+    };
+    let open = battle.chat.is_open();
+    if open && (!bm.get_chat_open() || bm.get_chat_draft().as_str() != battle.chat.draft) {
+        bm.set_chat_caret_visible(true);
+        let weak = root.as_weak();
+        lists.chat_caret.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(500), move || {
+            if let Some(root) = weak.upgrade() {
+                let bm = root.global::<BattleModel>();
+                bm.set_chat_caret_visible(!bm.get_chat_caret_visible());
+            }
+        });
+    } else if !open {
+        lists.chat_caret.stop();
+    }
+    bm.set_chat_open(open);
+    bm.set_chat_draft(battle.chat.draft.as_str().into());
+    let channel = battle.chat.active_channel.unwrap_or(ChatChannel::Global);
+    bm.set_chat_prompt(channel.prompt().into());
+    bm.set_chat_color(color(channel));
+    sync_rows(&lists.chat_lines, &battle.chat.log.messages.iter()
+        .filter(|message| open || battle.elapsed_s * 1000.0 - message.time <= 12_000.0)
+        .map(|message| BattleChatLine {
+            text: message.formatted_line().into(),
+            color: color(message.channel),
+        }).collect::<Vec<_>>());
 }
 
 fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleController) {
@@ -311,6 +357,14 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
         }
     };
 
+    // The page's entrance and change animations (view.js entering/turning/changed), in seconds since each;
+    // held at 2 once over, so the cached layer is not redrawn for them.
+    let pb = &battle.page_battle;
+    let since = |age: f64| if age < pb.age { age.min(2.) } else { 2. } as f32;
+    bm.set_entry(pb.age.min(2.) as f32);
+    bm.set_turn(since(pb.team_age));
+    bm.set_class_change(since(pb.class_age));
+    bm.set_post_change(since(pb.post_age));
     bm.set_team_one(build_team(0));
     bm.set_team_two(build_team(1));
     bm.set_can_switch_teams(can_switch);

@@ -545,4 +545,3 @@ pub struct HitRegion {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ClassicTheme;
 
-mod classic;
