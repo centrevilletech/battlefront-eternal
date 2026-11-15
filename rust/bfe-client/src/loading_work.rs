@@ -58,6 +58,45 @@ thread_local! {
     static RESUMED: std::cell::Cell<Option<&'static std::panic::Location<'static>>> = const { std::cell::Cell::new(None) };
 }
 
+/// A loop's share of the window: `tick().await` yields once `SLICE` has
+/// passed since the loop last resumed, so a loop of small items gives the
+/// loading screen its frames.
+pub(crate) struct Budget(std::time::Instant);
+
+const SLICE: std::time::Duration = std::time::Duration::from_millis(8);
+
+impl Budget {
+    pub(crate) fn new() -> Self {
+        Self(std::time::Instant::now())
+    }
+    #[track_caller]
+    pub(crate) fn tick(&mut self) -> Tick<'_> {
+        let frame = if self.0.elapsed() >= SLICE { Some(frame()) } else { None };
+        Tick { budget: self, frame }
+    }
+}
+
+pub(crate) struct Tick<'a> {
+    budget: &'a mut Budget,
+    frame: Option<Frame>,
+}
+
+/// Ready with whether it yielded (the window drew in between, so GL state
+/// caches must be reset).
+impl Future for Tick<'_> {
+    type Output = bool;
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<bool> {
+        let Some(frame) = self.frame.as_mut() else { return Poll::Ready(false) };
+        match Pin::new(frame).poll(cx) {
+            Poll::Ready(()) => {
+                self.budget.0 = std::time::Instant::now();
+                Poll::Ready(true)
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
 thread_local! {
     static IDLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -93,6 +132,18 @@ mod tests {
         assert!(poll(future.as_mut()).is_pending());
         assert!(poll(future.as_mut()).is_pending());
         assert_eq!(poll(future.as_mut()), Poll::Ready(7));
+    }
+    #[test]
+    fn a_budget_yields_only_when_spent() {
+        let mut future = Box::pin(async {
+            let mut budget = Budget::new();
+            assert!(!budget.tick().await);
+            std::thread::sleep(SLICE);
+            assert!(budget.tick().await);
+            assert!(!budget.tick().await);
+        });
+        assert!(poll(future.as_mut()).is_pending());
+        assert_eq!(poll(future.as_mut()), Poll::Ready(()));
     }
     #[test]
     fn a_waiting_step_is_marked_idle() {

@@ -35,13 +35,17 @@ pub struct Views {
     pub visible: usize,
 }
 impl Views {
-    pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], collision: Collision, world: u32) -> Result<Self, String> {
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
+    pub async fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], collision: Collision, world: u32) -> Result<Self, String> {
+        let mut budget = crate::loading_work::Budget::new();
+        let defs = content.defs()?;
         let mut owner = Items::new();
         let mut definitions = vec![None; defs.registry.combat.len() + 1];
         let mut models = Vec::new();
         let mut remote_models: Vec<Option<Model>> = (0..=defs.registry.combat.len()).map(|_| None).collect();
         for (i, (_, def)) in defs.registry.combat.iter().enumerate() {
+            if budget.tick().await {
+                bridge.r.core.state.reset();
+            }
             let base = def.get("base").and_then(bfe_content::Value::as_str).unwrap_or("");
             if base == "droid" {
                 let name = def.get("GeometryName").and_then(bfe_content::Value::as_str).unwrap_or("");

@@ -39,7 +39,7 @@ pub struct Fleet {
 }
 impl Fleet {
     pub fn new(content: &BattleContent, collision: &mut CollisionOwner, world: u32) -> Result<Self, String> {
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
+        let defs = content.defs()?;
         let mut classes = vec![None; defs.registry.classes.len() + 1];let mut geometries=Vec::new();
         let mut hulls = Vec::new();let water=super::water::new(content);
         let height=content.content.battle.world.get("mission").and_then(|m|m.get("maxFlyHeight")).and_then(bfe_content::Value::as_f64).unwrap_or(200.);

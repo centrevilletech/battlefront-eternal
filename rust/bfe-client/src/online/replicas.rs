@@ -155,7 +155,7 @@ impl Replicas {
     ) -> Result<Self, String> {
         // entityRegistryDescriptor derives ordered names from the same native
         // definitions as the server. Numeric handles resolve before frames.
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
+        let defs = content.defs()?;
         let registry = &defs.registry;
         let table = |names: &[String]| names.iter().enumerate().map(|(i, n)| serde_json::json!([i + 1, n])).collect::<Vec<_>>();
         let descriptor = serde_json::json!({"contentEpoch":1,"combatDefinitions":registry.combat.iter().map(|(p,_)|p).collect::<Vec<_>>(),"classes":table(&registry.classes),"weapons":table(&registry.weapons),"posts":table(&registry.posts),"inputCodes":&INPUT_CODES[..],"bindingProfiles":[[0,{}]]});
@@ -323,7 +323,7 @@ impl Replicas {
         // Units owns the generated actor/node limits. Stop cold registration
         // before either budget fills; a live refusal never creates a rig.
         let mut nodes = views.nodes;
-        let first_person = views.admit(content, bridge, textures, &mut units)?;
+        let first_person = views.admit(content, bridge, textures, &mut units).await?;
         let mut slots = Vec::with_capacity(POOL);
         let per_model = POOL.checked_div(models.len()).unwrap_or(0);
         // Resource creation is cold. A bounded pool lends existing skeletons
@@ -384,7 +384,11 @@ impl Replicas {
         bridge.r.core.state.reset();
         let replay = Some(super::replay::Replay::new(content)?);
         let mut preview_held=Vec::new();
+        let mut budget = crate::loading_work::Budget::new();
         for weapon in &defs.weapons {
+            if budget.tick().await {
+                bridge.r.core.state.reset();
+            }
             let mut parts=Vec::new();
             if let Some(name)=weapon.geometry.map(|n|defs.names.text(n)) {
                 let prefix=format!("{name}/");
@@ -426,7 +430,7 @@ impl Replicas {
             renderer,
             resources.collision.clone(),
             resources.world,
-        )?);
+        ).await?);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         let sound = Box::new(super::sound::Sound::new(
@@ -436,7 +440,7 @@ impl Replicas {
         ));
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
-        let items = Box::new(super::items::Views::new(content, bridge, textures, resources.collision.clone(), resources.world)?);
+        let items = Box::new(super::items::Views::new(content, bridge, textures, resources.collision.clone(), resources.world).await?);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         let turrets = Box::new(super::turrets::Turrets::new(content, bridge, textures)?);

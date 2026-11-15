@@ -93,7 +93,7 @@ impl Debris {
     // Each class's chunks, by its registry id. A chunk whose model the
     // content lacks is left out, as Debris.blowApart skips it; an effect
     // the library lacks plays nothing.
-    pub fn new(
+    pub async fn new(
         content: &BattleContent,
         bridge: &mut Bridge,
         textures: &[u32],
@@ -101,13 +101,14 @@ impl Debris {
         collision: Collision,
         world: u32,
     ) -> Result<Self, String> {
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
+        let defs = content.defs()?;
         let effect = |chunk: &Value, key: &str| {
             let name = chunk.get(key).and_then(Value::as_str).filter(|name| !name.is_empty())?;
             effects.iter().find(|(n, _)| n == name).map(|(_, id)| StrId(*id as u32))
         };
         let number = |chunk: &Value, key: &str| chunk.get(key).and_then(Value::as_f64).unwrap_or(0.);
         let mut names: Vec<String> = Vec::new();
+        let mut budget = crate::loading_work::Budget::new();
         let mut models = Vec::new();
         let mut classes = Vec::new();
         classes.resize_with(defs.registry.classes.len() + 1, Vec::new);
@@ -120,6 +121,9 @@ impl Debris {
                 continue;
             };
             for chunk in chunks.and_then(Value::as_array).unwrap_or(&[]) {
+                if budget.tick().await {
+                    bridge.r.core.state.reset();
+                }
                 // The piece's model, made once however many classes use it.
                 let name = chunk.get("ChunkGeometryName").and_then(Value::as_str).unwrap_or("");
                 let model = match names.iter().position(|known| known == name) {

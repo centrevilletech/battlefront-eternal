@@ -74,7 +74,7 @@ pub struct Guns {
 impl Guns {
     pub fn new(content: &BattleContent) -> Result<Self, String> {
         use bfe_content::derived::Muzzle;
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
+        let defs = content.defs()?;
         let bolts = definitions(content);
         let weapons = defs.registry.weapons.len() + 1;
         let mut guns = Self {

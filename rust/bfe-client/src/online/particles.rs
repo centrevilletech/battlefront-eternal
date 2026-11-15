@@ -28,7 +28,7 @@ pub struct Prepared {
 }
 impl Prepared {
     pub fn new(content: &mut BattleContent) -> Result<Self, String> {
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
+        let defs = content.defs()?;
         let mut names = vec!["lightglow".to_string()];
         for (_, d) in &defs.registry.combat {
             if let Some(name) = d.get("LaserTexture").and_then(bfe_content::Value::as_str) {

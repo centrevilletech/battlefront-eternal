@@ -137,7 +137,7 @@ impl Shields {
         images: &BTreeMap<String, usize>,
         data: usize,
     ) -> Result<Self, String> {
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
+        let defs = content.defs()?;
         let authored = looks(content);
         let number = |v: &Value, key: &str| v.get(key).and_then(Value::as_f64);
         let mut classes = vec![None; defs.registry.classes.len() + 1];
