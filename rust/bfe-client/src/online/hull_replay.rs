@@ -266,6 +266,7 @@ impl Fleet {
             mounts_count,
             commands_at,
             commands_count,
+            held: sender.history.held(receiver.own.generation),
             mouse_scale: 1.,
             ..Default::default()
         };
