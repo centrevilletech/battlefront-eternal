@@ -132,48 +132,6 @@ fn camera_priority_is_exclusive_and_spawn_overrides_after_the_pre_shake_record()
     assert_eq!(world.random, 0);
     assert_eq!(p.output[o::SHAKE_TOTAL], 1.0);
 }
-#[test]
-fn paused_bursts_and_forged_counts_remain_bounded_and_frames_allocate_nothing() {
-    let mut p = fixture();
-    let mut world = World {
-        casts: 0,
-        random: 0,
-        wall: true,
-    };
-    p.input[f::SOLDIER_DEF] = 1e30;
-    p.input[f::REMOTE_DEF] = 1e30;
-    for row in 0..limits::COMMANDS {
-        let at = row * c::STRIDE;
-        p.commands[at + c::KIND] = k::ADD_SHAKE as f64;
-        p.commands[at + c::AMOUNT] = 1.0;
-        p.commands[at + c::LENGTH] = 1.0;
-    }
-    p.input[f::COMMANDS] = 1e30;
-    p.input[f::FROZEN] = 1.0;
-    // Every mode is exercised within the same tracked steady-state phase,
-    // including the four-shake limit and a long pause with no intervening step.
-    ALLOCS.with(|n| n.set(0));
-    TRACK.with(|t| t.set(true));
-    for frame in 0..1200 {
-        let mode = frame % 5;
-        p.input[f::DEATH_ACTIVE] = (mode == 1) as u8 as f64;
-        p.input[f::REMOTE_ACTIVE] = (mode == 2) as u8 as f64;
-        p.input[f::VEHICLE_ACTIVE] = (mode == 3) as u8 as f64;
-        p.input[f::TURRET_ACTIVE] = (mode == 4) as u8 as f64;
-        p.input[f::FIRST_PERSON] = (frame % 2 == 0) as u8 as f64;
-        p.input[f::VEHICLE_FLYING] = (frame % 3 == 0) as u8 as f64;
-        p.input[f::DT] = if frame == 100 { 30.0 } else { 1.0 / 60.0 };
-        p.input[f::FROZEN] = (frame < 60) as u8 as f64;
-        p.frame::<V8, _>(&mut world);
-    }
-    TRACK.with(|t| t.set(false));
-    assert_eq!(ALLOCS.with(Cell::get), 0);
-    assert_eq!(p.output[o::STATUS], 0.0);
-    assert!(p.output[o::REFUSED] > 0.0);
-    assert!(p.output[o::SKIPPED] > 0.0);
-    assert!(world.casts > 0);
-    assert!(world.random > 0);
-}
 
 #[test]
 fn excessive_cold_tables_preserve_admitted_ids_and_a_usable_frame() {

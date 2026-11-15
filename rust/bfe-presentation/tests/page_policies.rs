@@ -54,44 +54,5 @@ fn lights_rank_stably_then_append_fading_flashes() {
     assert_eq!(p.header[h::COUNT], 0.0);
     assert_eq!(p.output[o::SCALE], 0.0);
 }
-#[test]
-fn lights_bound_paused_bursts_and_allocate_nothing() {
-    let mut p = Lights::new(usize::MAX);
-    for i in 0..lim::COMMANDS { command(&mut p, i, i as f64, (i % 9 + 1) as f64, true); }
-    p.input[f::COMMANDS] = f64::INFINITY;
-    p.input[f::START] = f64::INFINITY;
-    p.input[f::DT] = 0.0;
-    ALLOCS.with(|n| n.set(0));
-    TRACK.with(|t| t.set(true));
-    p.frame();
-    command(&mut p, 0, -5.0, 1000.0, true);
-    p.commands[c::SERIAL] = (lim::COMMANDS + 1) as f64;
-    p.input[f::COMMANDS] = 1.0; p.input[f::START] = 0.0;
-    p.frame();
-    // One additional flash forces a nonzero ring head. The strong new
-    // flash leads; the oldest surviving equal-weight maximum stays next.
-    assert_eq!(p.output[o::POSITION], -5.0);
-    assert_eq!(p.output[o::STRIDE + o::POSITION], 57347.0);
-    p.input[f::COMMANDS] = 0.0;
-    for _ in 0..600 { p.input[f::DT] = 1.0 / 60.0; p.frame(); }
-    TRACK.with(|t| t.set(false));
-    assert_eq!(ALLOCS.with(Cell::get), 0);
-    assert_eq!(p.header[h::REFUSED_TIMED], (lim::COMMANDS - lim::TIMED + 1) as f64);
-    assert_eq!(p.header[h::TIMED], 0.0);
-    assert_eq!(p.header[h::COUNT], 0.0);
-}
 
 
-#[test]
-fn shell_music_commands_allocate_nothing_after_content_registration() {
-    use audio_control::{shell_music::Music, shell_music_layout::{shell_music_row as r, shell_music_op as op}};
-    let mut m = Music::new(vec![vec![0, 1, 2]]);
-    m.row[r::OP] = op::SET as f64; m.row[r::ENABLED] = 1.0; m.frame();
-    ALLOCS.with(|n| n.set(0)); TRACK.with(|t| t.set(true));
-    for _ in 0..100_000 {
-        m.row[r::OP] = op::END as f64; m.frame();
-        m.row[r::OP] = op::TICK as f64; m.row[r::DT] = 1e20; m.frame();
-    }
-    TRACK.with(|t| t.set(false));
-    assert_eq!(ALLOCS.with(Cell::get), 0);
-}

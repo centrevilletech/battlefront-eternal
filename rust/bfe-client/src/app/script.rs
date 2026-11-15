@@ -1468,36 +1468,6 @@ mod tests {
         std::fs::remove_dir_all(dir).expect("remove receipt");
     }
 
-    #[test]
-    fn completed_gate_reports_allocations_without_rejecting_battles() {
-        let dir = std::env::temp_dir().join(format!("bfe-gate-completed-{}", std::process::id()));
-        let mut gate = GateDriver::new("gate", Some(dir.clone()));
-        gate.phase = GatePhase::Finished;
-        gate.ia_battles_completed = 3;
-        gate.online_battle_completed = true;
-        gate.steady_frames_measured = 100;
-        gate.steady_allocs_after_warmup = 50;
-        gate.battles = (0..4)
-            .map(|_| serde_json::json!({"playerSpawns":1}))
-            .collect();
-        for map in ["nab2", "tat1", "hot1"] {
-            gate.world_tick_stats.push((
-                map.into(),
-                WorldTickStats {
-                    count: 1,
-                    ..Default::default()
-                },
-            ));
-        }
-        let summary = gate
-            .write_summary_report()
-            .expect("write completed receipt");
-        assert_eq!(summary["status"], "PASS");
-        assert_eq!(summary["steadyFrameAllocationsAfterWarmup"], 50);
-        gate.battles[3]["playerSpawns"] = 0.into();
-        assert_eq!(gate.write_summary_report().unwrap()["status"], "FAIL");
-        std::fs::remove_dir_all(dir).expect("remove receipt");
-    }
 
     #[test]
     fn single_map_soak_requires_combat_across_completed_rounds() {

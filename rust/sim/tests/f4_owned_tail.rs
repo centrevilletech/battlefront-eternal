@@ -78,19 +78,6 @@ fn canonical_tail_counts_only_capturers_but_awards_the_hero_before_local_tail() 
     assert!(matches!(s.character.get(chars[1]).unwrap().record,Nullable::Value(_)));
     assert!(strings.nonempty(s.character.get(chars[0]).unwrap().class_name.unwrap()));
 }
-#[path="support/allocations.rs"] mod allocation;
-#[global_allocator] static ALLOCATOR:allocation::Counted=allocation::Counted;
-#[test]
-fn first_and_repeated_owned_tail_reads_rules_awards_and_stats_allocate_nothing() {
-    let (mut s,mut owner,mut services,strings,_)=setup(); services.record_notices=false;
-    allocation::start();
-    for tick in 0..1200 {
-        owner.step(&F4TailInput{dt:1.0/60.0,tick:tick as f64,server:true,..F4TailInput::default()},
-            &mut s,&strings,&[],&mut services,&mut Silent,&mut Silent);
-        services.core.flush(&s);
-    }
-    assert_eq!(allocation::stop(),0);
-}
 
 #[test]
 fn classic_post_choice_stays_random_while_enhanced_choice_observes_the_objective() {

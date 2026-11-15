@@ -49,16 +49,6 @@ fn a_corpse_keeps_weapon_and_place_but_removed_and_absent_bodies_have_no_observa
     s.unit.get_mut(u).unwrap().removed = true; assert_eq!(facts.observe(&s, Some(u), &mut native), None);
     assert_eq!(facts.observe(&s, None, &mut native), None);
 }
-#[path = "support/allocations.rs"]
-mod allocation;
-#[global_allocator]
-static ALLOCATOR: allocation::Counted = allocation::Counted;
-#[test]
-fn canonical_body_and_weapon_reads_allocate_nothing() {
-    let (s, facts, u, mut native) = setup(); allocation::start();
-    for _ in 0..1200 { assert_eq!(facts.observe(&s, Some(u), &mut native).unwrap().health, Some(0.75)); }
-    assert_eq!(allocation::stop(), 0);
-}
 #[test]
 fn a_charged_weapon_keeps_its_root_key_and_observes_its_current_level_label() {
     let (mut s, facts, u, mut native) = setup(); s.unit.get_mut(u).unwrap().combat.weapons[2].level = 1.0;

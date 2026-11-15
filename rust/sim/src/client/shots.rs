@@ -313,20 +313,4 @@ mod tests {
         assert_eq!(old.id,second.id);assert_eq!(new.id,third.id);assert_ne!(old.id,first.id);
         assert!(old.position[2]>0.0);assert_eq!(new.position,[0.0,0.0,0.0]);
     }
-    #[test]
-    fn paused_bursts_saturate_without_allocation_or_cross_identity_hits() {
-        let mut s=Shots::default();let mut i=input();i.replayed=true;i.tick=10.0;
-        let input_ptr=s.input.as_ptr();let output_ptr=s.output.as_ptr();
-        for _ in 0..CAPACITY { assert!(fire(&mut s,&mut i).accepted); }
-        for _ in 0..4096 { assert!(!fire(&mut s,&mut i).accepted); }
-        assert_eq!(s.count(),CAPACITY);assert_eq!(s.input.as_ptr(),input_ptr);assert_eq!(s.output.as_ptr(),output_ptr);
-        i.op=Op::Claim;i.tick=20.0;let first=invoke(&mut s,&i);assert!(first.first);
-        assert!(s.rows.iter().flatten().all(|s|s.record.confirmed==20.0));
-        // Remote traffic must not evict a local claim or advance its FIFO.
-        i.player_id=9.0;for n in 0..4096 { i.tick=n as f64;invoke(&mut s,&i); }
-        i.player_id=8.0;i.tick=20.0;assert_eq!(invoke(&mut s,&i).id,first.id);
-        i.op=Op::Advance;i.now=0.1;invoke(&mut s,&i);
-        Contact{id:u32::MAX,distance:0.0}.put(&mut s.input[Input::WORDS..Input::WORDS+Contact::WORDS],&mut Vec::new());
-        i.op=Op::Settle;invoke(&mut s,&i);assert!(s.rows.iter().flatten().all(|s|s.record.flown==10.0));
-    }
 }

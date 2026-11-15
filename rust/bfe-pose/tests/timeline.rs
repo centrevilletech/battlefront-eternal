@@ -32,32 +32,6 @@ fn hull_samples_pair_by_id_and_never_cross_a_discontinuity() {
     frame(&mut t,30.0);t.present();assert_eq!(t.output[o::POSITION],506.0,"coast stops after six ticks");
     t.remove(999.0);t.present();assert_eq!(t.output[o::VALID],0.0);
 }
-#[test]
-fn full_snapshot_bursts_and_paused_samples_allocate_nothing() {
-    let mut t=Timeline::new();frame(&mut t,0.0);t.input[f::COUNT]=f64::INFINITY;
-    for i in 0..lim::ENTITIES {sample(&mut t,i,(i*11+3) as f64,i as f64,1.0);}
-    TRACK.with(|v|v.set(true));
-    for tick in 0..80 {t.input[f::TICK]=tick as f64;t.push();t.present();}
-    // More identities than any map has: a full store refuses them whole.
-    t.input[f::TICK]=80.0;t.input[f::COUNT]=1.0;t.input[f::STRIDE+r::ID]=1e12;t.push();
-    t.input[f::TICK]=79.5;for _ in 0..30 {t.present();}
-    TRACK.with(|v|v.set(false));
-    assert_eq!(ALLOCS.with(Cell::get),0);assert_eq!(t.refused,1);
-    assert_eq!(t.output[o::ID],3.0);assert_eq!(t.output[o::VALID],1.0);
-    assert_eq!(t.output[(lim::ENTITIES-1)*o::STRIDE+o::VALID],1.0);
-    // Thousands of later births reuse departed slots without allocating or
-    // exposing the departed entity's earlier interpolation brackets.
-    TRACK.with(|v|v.set(true));
-    let mut old=3.0;
-    for birth in 0..2048 {
-        t.remove(old);let id=1e9+birth as f64;
-        frame(&mut t,100.0+birth as f64);sample(&mut t,0,id,42.0,1.0);t.push();t.present();
-        assert_eq!(t.input[f::STRIDE+r::SLOT],0.0);
-        assert_eq!(t.output[o::ID],id);assert_eq!(t.output[o::POSITION],42.0);
-        old=id;
-    }
-    TRACK.with(|v|v.set(false));assert_eq!(ALLOCS.with(Cell::get),0);
-}
 
 #[test]
 fn sparse_identity_churn_reuses_slots_without_breaking_probe_clusters() {

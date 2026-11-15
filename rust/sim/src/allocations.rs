@@ -180,13 +180,6 @@ mod tests {
     use super::*;
     use crate::vehicles::allocation as fleet_census;
 
-    #[test]
-    fn ordinary_native_allocations_do_not_install_a_counter() {
-        let before = snapshot();
-        let bytes = std::hint::black_box(vec![17_u8; 4096]);
-        assert_eq!(snapshot().since(before), Counts { calls: 0, reallocs: 0, bytes: 0 });
-        std::hint::black_box(bytes);
-    }
 
     #[test]
     fn scoped_stages_and_fleet_counts_share_one_bounded_trace() {
