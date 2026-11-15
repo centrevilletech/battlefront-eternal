@@ -1620,7 +1620,7 @@ impl BattleController {
         if let Err(err)=self.scene.set_tree_detail(settings.interface.get_string("treeDetail")!="original"){eprintln!("battle settings: tree detail not applied: {err}");}
         if let Err(err)=self.scene.set_vehicle_blur(settings.interface.get_bool("vehicleMotionBlur")){eprintln!("battle settings: vehicle blur not applied: {err}");}
         if let Err(err)=self.scene.set_lamp_lighting(settings.interface.get_bool("lampLighting")){eprintln!("battle settings: lamp lighting not applied: {err}");}
-        self.scene.set_far_terrain(settings.interface.get_string("farTerrain") == "reduced");
+        if let Err(err)=self.scene.set_far_terrain(settings.interface.get_string("farTerrain") == "reduced"){eprintln!("battle settings: far terrain not applied: {err}");}
         if let Err(err)=self.scene.set_shadows(&settings.interface.get_string("shadows")){eprintln!("battle settings: shadows not applied: {err}");}
         self.scene.set_material_detail(settings.interface.get_bool("bumpMapping"), settings.interface.get_string("terrainDetail") == "enhanced");
         if let Err(err) = self
