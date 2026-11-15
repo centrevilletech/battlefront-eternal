@@ -195,4 +195,3 @@ mod tests {
     }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.

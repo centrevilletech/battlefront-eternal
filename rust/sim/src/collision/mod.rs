@@ -1,24 +1,7 @@
-//! The collision world's ray casts (src/collision.js) as WebAssembly: the
+//! The collision world's ray casts (src/collision.js): the
 //! first hit along a ray through a three-mesh-bvh tree, through the terrain's
 //! grid of triangles, and through the world's bodies, for `cast`,
 //! `castMoving` and `ground`.
-//!
-//! Every answer must be the JavaScript's own to the last bit, so the world's
-//! ticks come out as they do without this module. Each function here repeats
-//! the JavaScript it stands for operation by operation, in the same order, in
-//! f64: three.js's Ray, Vector3 and Triangle methods, three-mesh-bvh's
-//! traversal, and collision.js's grid walk and body loop. Nothing here uses a
-//! function whose last bit could differ from V8's (no sin, cos, exp or pow;
-//! sqrt and floor are exact in both); the one such value a cast needs,
-//! Math.hypot of the ray's direction, comes in from JavaScript. Math.min and
-//! Math.max are `js_min` and `js_max` below, which keep JavaScript's rules
-//! for NaN and signed zeros. WebAssembly has no fused multiply-add unless
-//! asked for, and Rust never contracts f64 operations by itself.
-//!
-//! Data comes in once, as the trees are built (packed nodes, corners, index
-//! and indirect buffers); the bodies' places come as they move, and which of
-//! a cast's candidate bodies are enabled before it. Each call reads its ray
-//! from `IO` and writes its hit there.
 
 // three.js tests for NaN as it writes them (`x !== x`), kept so.
 #![allow(clippy::eq_op)]

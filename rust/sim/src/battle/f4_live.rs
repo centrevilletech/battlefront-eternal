@@ -412,6 +412,5 @@ impl State {
     }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
 
 impl super::stats::TextWorld for Logs<'_, '_, '_> { fn text_nonempty(&self,id:StrId)->bool { !self.w.sim.strings.units(id).is_empty() } }

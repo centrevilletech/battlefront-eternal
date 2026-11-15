@@ -5,22 +5,10 @@
 //! branch by branch (rust/sim/src/ordnance/math.rs has the arithmetic), and
 //! reaches the rest of the battle through [`World`] only, at the points and
 //! in the order the JavaScript calls src/ordnance-world.js.
-//!
-//! The state is the store's (`gen::Store`: the ordnance's lists and the
-//! rounds by slot). A [`Cx`] reborrows it through its world and releases each
-//! row loan before a callback, so a world whose calls come
-//! back into the module (an explosion's damage reaching the items, a death
-//! dropping one) finds the store as the phase left it, as the JavaScript
-//! does. A round taken off its list is retired, not dropped: whatever
-//! JavaScript still holds of it (a sim event keeps a grenade's position)
-//! gets its last state.
-//!
-//! What only draws (trails, models, lights, impact effects, sounds no
-//! capture hears) is not here: a world draws nothing.
 
 pub mod defs;
 pub mod math;
-// The module's exports and the world its imports make (WebAssembly only).
+// The ordnance owner's world entry points.
 pub mod module;
 pub mod world;
 pub mod resources;

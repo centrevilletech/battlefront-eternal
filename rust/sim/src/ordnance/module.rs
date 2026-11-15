@@ -3,17 +3,6 @@
 //! their Rust reaches the battle through there: the imports of
 //! rust/sim/schema/ordnance.mjs, which src/ordnance-sim.js serves with the
 //! same OrdnanceWorld (src/ordnance-world.js) the JavaScript rounds call.
-//!
-//! A physical adapter borrows the battle root. Cx reborrows its canonical
-//! rows, strings and definitions through that adapter; a row loan ends before
-//! a callback can retire it or start another physical operation. Commands and
-//! standalone host imports retain their existing generated boundary blocks.
-//!
-//! A round handed to JavaScript (a projectile made, a bolt launched, a
-//! round's end, a grenade's first touch) crosses with its row as the store
-//! exports it, after the import's own words, so its mirror is the round as
-//! it is at that moment: the capture's observers read it then, and a sim
-//! event keeps a grenade's position.
 
 use super::defs::{Defs, ExplosionDef, Field, OrdnanceDef, SCALE_FIELDS};
 use super::world::*;
@@ -872,4 +861,3 @@ impl OrdnanceOwnerState {
     }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.

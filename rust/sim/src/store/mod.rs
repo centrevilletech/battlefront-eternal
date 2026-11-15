@@ -1,22 +1,6 @@
 //! The entity store: the simulation's state, held in Rust for the kinds of
 //! entity Rust owns and copied in for the kinds JavaScript still owns that a
 //! Rust phase reads (docs/sim-store.md).
-//!
-//! Each kind of entity (a bolt, a unit, a vehicle) is declared once in a
-//! schema under rust/sim/schema/, and tools/sim-schema.mjs generates from
-//! the schemas both sides of everything that crosses between JavaScript and
-//! Rust: the Rust structs (`crate::gen`), the JavaScript mirror classes,
-//! the loops that copy fields across (src/sim/gen/), and the exporters that
-//! turn a kind's state into the values the replay harness records. This
-//! module holds what the generated code is written against: handles,
-//! slabs, strings and the sync blocks.
-//!
-//! Identity is JavaScript's object identity, kept by slot: an entity is a
-//! slot in its kind's slab, and a reference to it is the slot and the
-//! slot's generation, so a reference to a removed entity is seen to be
-//! stale instead of naming the slot's next occupant. A kind whose
-//! JavaScript objects carry their own number (a unit's `id`) uses that
-//! number as its slot, with generation 0.
 
 pub mod block;
 pub mod handles;

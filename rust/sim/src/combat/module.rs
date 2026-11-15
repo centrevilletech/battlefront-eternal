@@ -949,6 +949,5 @@ impl Content {
     }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
 
 pub(crate) fn defs_ref(owner:&CombatOwner)->&CombatDefs { &owner.content.as_ref().expect("prepared combat content").defs }

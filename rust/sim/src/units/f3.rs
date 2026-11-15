@@ -2564,7 +2564,6 @@ pub(crate) fn items_read(units: &super::owner::Units) -> &super::f3_items::Items
 // Native readers borrow these banks directly. Only the linear-memory host
 // binds addresses after the bank has reached its retained publication point.
 
-// The WASM boundary owns addresses; shared services borrow their owners.
 
 #[cfg(test)]
 mod native_banks {

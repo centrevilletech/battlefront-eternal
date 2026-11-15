@@ -588,7 +588,6 @@ impl super::publisher::World for PublicationWorld<'_> {
     fn status(&self, id: StrId) -> &[u16] { self.w.sim.strings.units(id) }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
 
 // SnapshotHost.addClient updates only connection bindings; immutable protocol
 // maps stay shared across every peer and every publication.

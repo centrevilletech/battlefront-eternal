@@ -54,4 +54,3 @@ pub fn f2_stage_allocations(stage: usize) -> u32 {
     fleet(|c| c.stages.get(stage).copied().unwrap_or(0))
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.

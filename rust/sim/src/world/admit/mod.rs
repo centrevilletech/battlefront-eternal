@@ -5,13 +5,6 @@
 //! marshals from content (`rows`) and every owner construction call it makes
 //! (`sequence`) are made here, in its order, so a natively admitted world
 //! equals the module-admitted one bank for bank.
-//!
-//! Three callers share this path: the whole-world replay driver
-//! (`Context::world_replay_admit`, recorded assets and options), the native
-//! client's local battle (`Context::world_admit`, the content folder) and the
-//! tests. None of them calls back into a host; an owner the path cannot yet
-//! build answers `AdmitError::Unavailable` naming its stage, never a partial
-//! world presented as whole.
 pub mod network;
 pub mod banks;
 pub mod bodies;

@@ -8,13 +8,6 @@
 //! the other Rust packages implement it (perception/combat/aim: the AI
 //! combat package; vehicle services and the mounted policies: the
 //! vehicle AI package; navigation: nav/, already in this crate).
-//!
-//! Views contain only the scalar facts an algorithm observes. Native hosts
-//! resolve them from canonical stores at each call, retaining class metadata
-//! once at load; captures supply the same views from their recorded tables.
-//! Unit identities carry a storage generation. Weak references also carry
-//! the source object's gameplay life; post and Character indices retain their
-//! authored/roster order.
 
 use crate::ai::owned::scratch::{List,Inline};
 use super::super::nav::math::Vec3;

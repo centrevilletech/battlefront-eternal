@@ -1,14 +1,6 @@
 //! The vehicle agents (src/ai/classic/vehicles/agents.js): boarding
 //! (controller state 5), leaving (state 6) and the flyer pilot's objective
 //! agent (state 7), as the 2004 game has them.
-//!
-//! They run on the AI control core's agent machine (src/ai/classic
-//! agents.js Agent, its Fsm): that package owns an agent's state, pending
-//! state, interrupts, helper and aim, and calls these for an agent of one
-//! of these kinds: its construction (`*Agent::new`, after the base's), its
-//! state entry and exit (`on_enter`, `on_exit`) and its phase-0 behaviour
-//! (`behave`), and its policies (`accepts_*`). What they ask of the base is
-//! [`AgentHost`]; [`Fsm`] is the machine's state and pending state.
 
 use three::Vector3;
 use crate::ai::owned::scratch::{List,Inline};

@@ -1,14 +1,4 @@
 //! Option pages, schema, notes, and row builders (`src/menus/options.js`).
-//!
-//! Ports `PAGES`, `OPTIONS` (all 57 entries in exact order), `OPTION_KEYS`,
-//! `PROFILE_KEYS`, `THEME_KEYS`, `optionsFor`, `optionEntry`, `applies`, `NOTES`,
-//! `renderResolution`, `soundNote`, `enhancedSoundNote`, `optionRow`, and `resetPage`
-//! from `src/menus/options.js`.
-//!
-//! Every setting in [`crate::settings::DEFAULTS`] is accounted for either in [`OPTIONS`]
-//! (57 entries across `game`, `video`, `audio`, and `controls`), [`PROFILE_KEYS`]
-//! (`playerName`), or [`THEME_KEYS`] (`menuTheme`), verified at test time against
-//! `src/settings.js` and `src/menus/options.js`.
 
 use crate::settings::{SettingValue, Settings, PERFORMANCE_PRESETS};
 use std::collections::HashMap;

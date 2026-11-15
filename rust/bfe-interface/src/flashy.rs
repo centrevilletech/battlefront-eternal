@@ -1,14 +1,4 @@
 //! Five-stage flashy text reveal animation (`src/interface/flashy.js`).
-//!
-//! Ports `INTRO`, `INTRO_LENGTH`, and `TitleIntro` from `src/interface/flashy.js`
-//! (`interface_util.lua` `ScriptCB_IFObj_CreateHotSpot` / flashy text intro in `common.lvl`).
-//!
-//! Stage breakdown (`INTRO = [0.1, 0.05, 0.05, 0.15, 0.15]`, total `0.5s`):
-//! 1. `0.10s`: A narrow leading bar (`width = 4`) grows vertically from the text midline.
-//! 2. `0.05s`: The bar holds full height while a solid block begins fading in.
-//! 3. `0.05s`: The bar sweeps across the text width, pulling the solid block behind it.
-//! 4. `0.15s`: The block fades out while the text scales vertically from `2.0` down to `1.0`.
-//! 5. `0.15s`: The bar fades out while the text holds at full `1.0` alpha.
 
 /// Stage durations in seconds (`INTRO` in `src/interface/flashy.js`).
 pub const INTRO: [f64; 5] = [0.1, 0.05, 0.05, 0.15, 0.15];

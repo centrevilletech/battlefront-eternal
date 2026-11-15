@@ -1148,7 +1148,6 @@ impl Fleet {
 
 // facade shims: callers outside the fleet bindings still enter through WASM.
 
-// The WASM boundary owns addresses; shared services borrow their owners.
 
 #[cfg(test)]
 mod robustness_tests {

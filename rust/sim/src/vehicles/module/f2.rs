@@ -709,7 +709,6 @@ impl Scheduler {
     }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
 
 #[cfg(test)]
 mod native_firing_inputs {

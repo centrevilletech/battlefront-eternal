@@ -205,4 +205,3 @@ if owner.runtimes.get(runtime as usize).is_none() {return None;}
 
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.

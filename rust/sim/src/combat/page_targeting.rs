@@ -1,26 +1,5 @@
 //! Page targeting facts. Browser identities and collision I/O stay outside;
 //! cone geometry, ranking and HUD projection share the native combat rules.
-//!
-//! Exact parse-order range can be supplied by extraction as ReticleRange.
-//! Older extracts omit order; projectile lifetime is their fallback.
-//! How far off a view (origin, unit dir) a unit lies: the smallest angle
-//! (radians) between the view and any point of it, and the distance to its
-//! nearest point. A vehicle is its collision box in its own frame, anything
-//! else its bounding sphere. 0 when the view runs into it.
-//! The slabs: does the view itself pass through the box?
-//! Else the nearest direction lies on one of the twelve edges (a face's
-//! interior has no nearer point unless the view meets that face).
-//! The largest cosine between d and a point of the segment a..a+e (relative
-//! to the view's origin): at an end, or where its derivative vanishes.
-//! The reticle's target (its colour and the enemy health bar), in the
-//! original's cone (widened by the target's bounding radius,
-//! scored 16 d^2 + t). A hull counts only once part of it is inside the
-//! cone (lockSpan), as for a launcher's lock (src/weapon-targeting.js):
-//! a vehicle's bounding radius took it well off the reticle up close.
-//!
-//! A reticle without art (a seat's weapon with no ReticuleTexture): its four
-//! ticks sit as far out as the weapon's spread reaches now, yaw across and
-//! pitch up and down, by the same measure.
 
 //!
 //! Registry order and identity
@@ -32,46 +11,6 @@
 //! of the simulation store's entity slab or a renderer's draw order.
 //!
 //! Eligibility and lazy geometry
-//!
-//! findReticleTarget first rejects the viewer, dead actors, seated bodies
-//! and the special non-target registry kind. Only then may the host observe
-//! a body's aim point, sphere or hull bounds. The first native pass publishes
-//! those eligibility bits for the whole block, before any shape is copied.
-//! This preserves lazy pose queries without leaving target policy in JS.
-//!
-//! Forward depth is measured along a normalized view direction. The 300-row
-//! cap counts forward candidates in range, including ones outside the cone.
-//! Off-ray candidates therefore still spend the acquisition budget. Neither
-//! the packet count nor the number of successful LOS rays replaces that cap.
-//! Oversized foreign counts clamp to the reserved row bank before indexing.
-//!
-//! A hull uses its oriented local collision box for angular admission. Its
-//! nearest visible edge can enter the cone while the hull centre remains
-//! outside. Sphere candidates instead widen the cone by their body radius.
-//! The shared targeting::span owns the slab and edge calculations, so page
-//! reticles and native launcher acquisition cannot drift geometrically.
-//!
-//! Candidate precedence and sight
-//!
-//! A lockable candidate outranks every visible non-lockable fallback. Among
-//! equal lockability, the smaller 16*d2+depth score wins; a tie keeps the first
-//! registry row. LOS is asked only after these comparisons. An occluded
-//! candidate never replaces the current winner, even when its score is best.
-//! A continuation retains that winner while the separate collision owner
-//! answers the ray. It does not sort candidates or issue speculative rays.
-//!
-//! Camera projection and content
-//!
-//! Projection reads the camera's existing inverse world matrix. It never
-//! advances a camera or changes a scene transform. Points behind the view
-//! publish a hidden flag instead of a projected reticle. Vertical FOV still
-//! converts through the same degree constant used by the displayed camera.
-//! Lock ticks use the horizontal FOV convention and the original 1024-wide
-//! HUD scale; spread ticks independently supply their yaw and pitch angles.
-//!
-//! Utility rows have their own fixed frame and volume. A LOS callback may
-//! inspect lockSpan or radii without overwriting its suspended target query.
-//! None of these paths grows scratch storage while a frame is being drawn.
 
 //!
 //! Displayed muzzle samples
@@ -83,15 +22,6 @@
 //! tick-space gun samples. Cosmetic flashes and charge glows use this view.
 //!
 //! Decomposition publishes position, quaternion and scale together. Treating
-//! the matrix as a rigid pose would lose authored scaling and mirrored axes.
-//! The shared three kernel keeps the same determinant and quaternion branch
-//! order as the browser resource it replaces. A separate output record lets
-//! the host copy these values to an effect without constructing a new pose.
-//!
-//! A utility request does not retain the muzzle's scene identity. The caller
-//! resolves that resource at its existing presentation boundary and supplies
-//! the current world matrix. A later hand or camera change therefore cannot
-//! leave a cached mathematical pose attached to the wrong weapon model.
 
 use super::targeting::{span, BoxVolume, Volume};
 use crate::gen::{PageTargetFrame as F, PageTargetRow as R, VehicleMissilePolicy as P};

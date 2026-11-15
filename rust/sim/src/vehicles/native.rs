@@ -7,16 +7,6 @@
 //! hulls called (src/vehicles-world.js) gives, to the last bit, because it
 //! runs the same code: the kernel functions collision.js's ray paths call,
 //! in the order they call them, over the same inputs.
-//!
-//! - `Collision`: the hulls' casts, wall pushes, ground columns and spring
-//!   gathers, their bodies' places and enabled flags. JavaScript gives each
-//!   body's enabled flag (a plain field there) by its place in the world's
-//!   order before the phase and after any hook, and takes back the flags and
-//!   places the hulls changed (`take_changes`) before a hook and after the
-//!   phase, so either side always sees what the other did.
-//! - `MapRules`: the water (src/runtime/water-state.js over; its level, which
-//!   bobs with the battle's clock, comes in with each phase) and the death
-//!   regions (game.js inDeathRegion over src/regions.js inRegion).
 
 use crate::gen::{Body, F2BodyHeader, F2BodyToggle, F2BodyPlaced};
 use crate::store::Ref;

@@ -65,4 +65,3 @@ pub(crate) fn world_local_run_in(w: &mut crate::world::owner::World) -> Option<&
     Some(&sim.calls.block.words[..])
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.

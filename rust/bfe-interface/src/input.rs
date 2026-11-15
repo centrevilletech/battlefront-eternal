@@ -1,16 +1,4 @@
 //! Keyboard and pointer menu input router (`src/menus/input.js`).
-//!
-//! Ports `bindMenuInput` from `src/menus/input.js` and the pointer/key dispatch in
-//! `src/menus/stack.js`: 3D perspective hit-testing (`local_point`), hover selection,
-//! click activation, wheel scrolling, slider dragging, and keyboard navigation
-//! (`ArrowUp`/`Down`/`Left`/`Right`, `PageUp`/`PageDown`, `Tab`, `Enter`/`Space`, `Escape`).
-//!
-//! Key and pointer routing rules:
-//! - A key-capture modal (`KeyCaptureModal` on `CONTROL OPTIONS`) intercepts every key, mouse
-//!   button (`Mouse0`..`Mouse4`), and scroll wheel notch (`WheelUp`/`WheelDown`) before normal navigation.
-//! - Pointer hit-testing projects the 2D viewport cursor into WebGL NDC and intersects a 3D
-//!   camera ray with each hotspot's local `z = 0` plane (`space::local_point`) in reverse draw
-//!   order so frontmost widgets win.
 
 use crate::options::OptionKind;
 use crate::popup::KeyCaptureOutcome;

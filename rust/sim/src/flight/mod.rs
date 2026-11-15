@@ -1,37 +1,5 @@
 //! Flight (src/flight/*.js and `Vehicle.fly`): a craft's tick at 1/60 s,
 //! inside the hulls' phase, to the last bit as the JavaScript steps it.
-//!
-//! - `config`: the class tunings (`FLIGHT_CLASSES`, retuned live by a
-//!   command), a craft's class from its name, its class definition's speeds
-//!   and handling (src/vehicle-motion.js flightSpeeds, flightHandling) and
-//!   the stick's speed target;
-//! - `state`: what flight keeps of a hull (rust/sim/schema/flight.mjs);
-//! - `model`: the flight model (src/flight/model.js): the stick and the
-//!   keys, the takeoff and the landing, the flight with its tricks and
-//!   boundary recovery, the 27-cast sweep, the ground under the craft;
-//! - `pilotless`: a craft in flight that nobody flies, coming down;
-//! - `targeting`: the assist and lock targets (src/flight/targeting.js),
-//!   a missile's proportional navigation and the assisted shot;
-//! - `fly`: `Vehicle.fly` and a flyer's tick (`Vehicle.tick`'s flyer path);
-//! - `gear`: the gear, doors and foils posed from the takeoff clip
-//!   (src/flight/gear.js poseGearAt);
-//! - `pose`: a flyer's pose at the tick (drawFlyer, its flyer branches of
-//!   aimTick and render);
-//! - `ai`: the bots' pilot (src/flight/ai.js pilotInput, raiseOverTerrain);
-//! - `spawn`: the transports' spawn points (src/flight/spawn.js);
-//! - `controls`: a pilot's flight keys from his keys, actions and pad
-//!   (src/flight/controls.js flightInput, as the world reads a network
-//!   pilot's);
-//! - `store`: a hull's flight between the store and the tick.
-//!
-//! A craft reaches the rest of the battle through [`FlightWorld`], the hulls'
-//! [`VehicleWorld`] and what targeting and a crash read besides: the
-//! registry's entries, the relation between two teams, a unit's aim point,
-//! whether a collision body is a hull's, and the battle's flight settings.
-//!
-//! Transcendental functions come from `crate::rig::math` (V8 13.6's, from
-//! rust/v8math), `Math.pow` from rust/v8math, three.js from rust/three,
-//! operation by operation.
 
 pub mod ai;
 pub mod config;

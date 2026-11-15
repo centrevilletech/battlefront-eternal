@@ -4,22 +4,6 @@
 //! terrain's height under a point (ground). For the world's JavaScript,
 //! through the exports at the end, and for this crate's other modules,
 //! through the pub fns, which run whole inside one call into the module.
-//!
-//! The rules are lib.rs's: each function repeats the JavaScript it stands
-//! for, operation by operation and in the same order, in f64, so every
-//! answer is the JavaScript's to the last bit: the same polygons in the same
-//! order, each with the same triangles in the same order and the same
-//! corners. three-mesh-bvh's shapecast visits a tree's leaves left to right,
-//! testing each child's bounds before going down to it (never the root's),
-//! and a leaf's triangles in its indirect order. Every comparison is written
-//! as collision.js and three.js write it: `a < b` and `!(a >= b)` part ways
-//! when a number is NaN.
-//!
-//! Bodies are switched on and off by JavaScript (`enabled`, a plain field),
-//! so a query that meets bodies takes their flags from its caller: a slice
-//! by position in the world's order for this crate's callers, and for
-//! JavaScript's, the flags of the candidates the query's first call names
-//! (as the casts do).
 
 use crate::collision::{apply_matrix4, dot, f32_at, grid_raycast, js_max, js_min, sub, triangle_normal, Corner, Corners, Ray, State, Tree, MAX_BODIES};
 use super::CollisionOwner;

@@ -436,4 +436,3 @@ pub(crate) fn give_in(world_ctx: &mut crate::world::owner::World, index: usize, 
     }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.

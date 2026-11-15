@@ -370,7 +370,6 @@ pub fn f4_roster_command_in(w: &mut Root) -> Option<&[f64]> {
 
 
 
-// The WASM boundary owns addresses; shared services borrow their owners.
 
 impl super::stats::TextWorld for World<'_, '_> { fn text_nonempty(&self,id:StrId)->bool { !self.w.sim.strings.units(id).is_empty() } }
 

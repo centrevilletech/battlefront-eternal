@@ -714,4 +714,3 @@ pub(crate) fn battle_member_in(world_ctx: &mut crate::world::owner::World, s: &S
 
 
 
-// The WASM boundary owns addresses; shared services borrow their owners.

@@ -101,4 +101,3 @@ impl super::clock::Host for CompletedClock {
     fn step(&mut self,_:&mut crate::gen::WorldClockState,_:f64,_:f64) {}
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.

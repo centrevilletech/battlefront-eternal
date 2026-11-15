@@ -1,30 +1,6 @@
 //! The hulls (src/vehicles.js but flight, src/vehicle-hover.js): each hull's
 //! tick on the ground, two 1/120 s substeps a world tick, as the JavaScript
 //! steps it, to the last bit.
-//!
-//! - `hull`: a hull's state and its tick (`Vehicle.tick`): its crew's aim,
-//!   its steering, its wheels, its collision body's frame, the death regions
-//!   and deep water, and whether it sleeps;
-//! - `hover`: a hover on its springs (`hoverPhysics`, `hoverContacts`,
-//!   `hoverSprings`), the springs' contact search included;
-//! - `class` and `store`: what a hull's tick reads of its class (the
-//!   content's) and of the store (rust/sim/schema/vehicles.mjs), and what
-//!   it gives back;
-//! - `walker`: a walker or riding animal on the ground (`walkGround`,
-//!   `standOnLegs`, `alignGround`);
-//! - `pose`: a hull's pose at the tick (`aimTick`, `render`): its root,
-//!   its seats' aim targets, turrets and aimers, its barrels' kick.
-//!
-//! A hull reaches the rest of the battle through [`VehicleWorld`] alone, the
-//! calls src/vehicles-world.js makes for the JavaScript hull, in the order
-//! the JavaScript makes them: the collision world's queries, the water, the
-//! death regions, the battle's hooks, explosions and effects. The module
-//! answers them from its own collision world; the replays
-//! (tests/replay_vehicles.rs) from a capture, checking every argument.
-//!
-//! Transcendental functions come from `crate::rig::math` (V8's, from
-//! rust/v8math); Math.min, max, hypot and sign from rust/v8math; three.js's
-//! vectors and quaternions from rust/three, operation by operation.
 
 #[path = "module/f2/allocation.rs"]
 pub(crate) mod allocation;

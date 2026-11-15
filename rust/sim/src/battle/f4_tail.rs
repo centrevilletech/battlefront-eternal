@@ -416,7 +416,6 @@ impl State {
     }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
 
 pub(crate) trait SpawnContext: super::world::SpawningWorld + super::stats::TextWorld + super::spawning::RandomWorld {}
 impl<T:super::world::SpawningWorld + super::stats::TextWorld + super::spawning::RandomWorld> SpawnContext for T {}

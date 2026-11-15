@@ -1,17 +1,5 @@
 //! Front-end shell audio and output render-phase tests ported from
 //! `tests/audio-frontend.test.js` and `tests/audio-light.test.js`.
-//!
-//! These tests verify that `audio::frontend::Frontend` retires completed
-//! sources once with their generation so slots can be reused cleanly, and
-//! that `audio::output::Output` renders Classic stereo voices, preserves
-//! scheduled streams across layout rebuilds, routes speaker-test tones after
-//! a muted mono mix, and keeps surround bed lanes when a narrower segment is
-//! queued.
-//!
-//! Both `Frontend` (menu, loading, and shell music/effects) and `Output`
-//! (in-battle spatial/surround/headphone/light rendering) own their complete
-//! 128-frame Web Audio / native device quanta in Rust without calling back
-//! into host nodes or allocating during `process`.
 
 use audio::commands::*;
 use audio::frontend::Frontend;

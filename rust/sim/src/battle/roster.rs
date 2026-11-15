@@ -7,10 +7,6 @@
 //! player joining takes a bot's place (one whose body is dead first), one
 //! leaving hands his place back to a new bot, and one switching teams trades
 //! places with a bot of the other team.
-//!
-//! The state is the store's (rust/sim/schema/battle.mjs). What the roster
-//! asks of the rest of the world (the AI's attach and detach, a body taken
-//! out of the battle) goes through [`BattleWorld`].
 
 use super::spawning::{self, Draws, Naming};
 use super::world::BattleWorld;

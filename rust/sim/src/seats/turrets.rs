@@ -3,15 +3,6 @@
 //! turrets they drive (src/props.js Turret: steer, holdYaw, present,
 //! gunWant, aimGun, muzzle, fireDirection, viewDirection, aimFrame,
 //! eyePoint, cameraTurn, cameraRest, aimOrigin, seatPoint, seatYaw).
-//!
-//! A turret is the props package's; what its crew reads and writes of it
-//! (its aim, its gun's angles, its barrel, its lease and gunner, its rig's
-//! nodes) is a `TurretSide` here until that package declares turrets in
-//! the store. Its rig is a `TransformTree` as src/props.js builds it (the
-//! scene, the root placed by the turret's matrix, the model's bones); what
-//! a turret is for the battle (its limits, rates, camera, pivot and the
-//! turns its constructor works out) is its `TurretDesc`. The weapon is the
-//! combat package's: its tick, lock and rounds go through the trait.
 
 use super::bodies::{drop_body, place_on_foot, seat_body, unseat_body};
 use super::exits::{classic_seat_exit, ExitFrame, ExitSpot};

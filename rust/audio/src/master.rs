@@ -1,24 +1,6 @@
 //! The master chain in the mixer's own module: what follows the spatial mixer in src/audio/spatial.js
 //! (Renderer.build), worked out here instead of in the browser's nodes and
 //! three more worklets. Per block, as the graph computes it:
-//!
-//! - the reverb's send (the voice engine's, plus the browser's voices'
-//!   sends that reach it as an input) through its high-pass (a
-//!   BiquadFilterNode) into the room reverb (src/reverb.rs);
-//! - the LFE send (surround) through two low-passes into the LFE channel;
-//! - the mix: the speaker feeds, the reverb on each channel with a speaker,
-//!   the LFE, and what else reached the mix (streams, as an input); a node
-//!   input adds its connections in an order of its own, which matters only
-//!   from three of them on (docs/audio.md, "The voice engine");
-//! - the clarity EQ (three BiquadFilterNodes on every channel), the clarity
-//!   stage (src/clarity.rs) and its level (a GainNode), when clarity is on;
-//! - the limiter (src/limiter.rs) and the master volume (a GainNode moved
-//!   by setTargetAtTime).
-//!
-//! The filters are src/biquad.rs (Chromium's), the volume's automation
-//! src/timeline.rs; the reverb, clarity and limiter are the worklets' own
-//! processors. Nothing allocates while rendering, past each processor's
-//! own first block.
 
 use crate::biquad::{Biquad, Kind};
 use crate::clarity::Clarity;

@@ -50,4 +50,3 @@ pub(crate) fn sound_step_in(w: &mut crate::world::owner::World, h: u32, length: 
     r.phase.step(&mut map, &r.events); r.publish();
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.

@@ -31,4 +31,3 @@ pub fn f4_startup_class_in(w: &mut crate::world::owner::World) -> u32 {
     class_allowed_record(row, heap) as u32
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.

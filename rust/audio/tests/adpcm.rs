@@ -1,16 +1,5 @@
 //! Xbox IMA ADPCM and signed 16-bit PCM bank normalization tests ported from
 //! `tests/audio-units.test.js` and `tests/audio-light.test.js`.
-//!
-//! These tests verify that `audio::adpcm::Decoder` reconstructs multi-block
-//! stereo tones above 25 dB SNR while preserving exact block header samples,
-//! deinterleaves multi-substream chunks in order, and normalizes signed 16-bit
-//! bank samples to `f32` without bias.
-//!
-//! Original Battlefront sound banks store compressed samples in Xbox IMA ADPCM:
-//! each channel contributes a 4-byte predictor header (16-bit signed sample +
-//! 8-bit step index + reserved byte) followed by eight 4-byte code groups,
-//! yielding 64 frames per 36-byte channel block. Multi-substream ambient and
-//! music streams interleave fixed byte chunks of those blocks across substreams.
 
 use audio::adpcm::Decoder;
 use std::f64::consts::PI;

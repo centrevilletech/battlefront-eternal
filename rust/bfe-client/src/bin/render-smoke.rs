@@ -1,22 +1,4 @@
 //! Native renderer smoke binary (`render-smoke`).
-//!
-//! Exercises the complete native shader catalog (all 1,046 variants across the
-//! 6 shader families in `rust/bfe-render/shaders/*/manifest.json`) through
-//! `bfe-render`'s own program builder (`Bridge::add_owned_program`) and draws
-//! one representative scene per family (`world`, `actors`, `effects`,
-//! `interface`, `post-hud`, `utility`) into an offscreen RGBA8 + depth/stencil
-//! target under either software GL (`llvmpipe`) or hardware GL.
-//!
-//! Contract with adjacent crates:
-//! - `bfe_render::programs::specs()` owns the compiled-in shader table. Every
-//!   key in `rust/bfe-render/shaders/*/manifest.json` must resolve in `specs()`
-//!   and pass `shader::rewrite` + GLSL compilation + program linking via
-//!   `Bridge::add_owned_program`.
-//! - `bfe_client::scene::Scene` owns offscreen `Canvas` creation (`RGBA8` color
-//!   texture + `DEPTH24_STENCIL8` renderbuffer) and static map admission from
-//!   `content/maps/<map>/`.
-//! - `bfe_client::render_bridge::Bridge` exposes the native transport banks and
-//!   `frame_aux_frame` entry points used by `FramePlan` to drive each pass.
 
 #![deny(warnings, clippy::all)]
 
@@ -1032,17 +1014,6 @@ fn draw_actors_family(scene: &mut Scene, view: &View) -> Result<(Vec<String>, [u
 
 /// Draws the `effects` family scene (`effects/water-textured-s2` via `WaterPass`
 /// plus `effects/particle-cpu` via `EffectsPass`) on a cleared canvas.
-///
-/// How the two `effects` passes are combined in role `R::TRANSPARENT`:
-/// - `WaterPass` (`PASS_WATER`) draws the subdivided water surface admitted from
-///   `map.json` using `effects/water-textured-s2`.
-/// - `EffectsPass` (`PASS_EFFECTS`) draws two billboarded particle quads from a
-///   CPU particle batch (`effect_layout::CPU`, 21 `f32` words per quad: center,
-///   RGBA tint, size, rotation, UV rect, velocity, and axis vectors) using
-///   `effects/particle-cpu`.
-/// - Setting `M::FX_WORDS = 42.0` on `R::TRANSPARENT` before `frame_publish_frame`
-///   instructs `FramePlan` to upload the 42 `f32` words of particle vertex data
-///   and execute both `WaterPass` and `EffectsPass` into `scene.canvas.framebuffer`.
 fn draw_effects_family(
     scene: &mut Scene,
     view: &View,
@@ -1330,15 +1301,6 @@ fn draw_post_hud_family(
 
 /// Draws the `utility` family scene (`utility/line-plain-solid` and
 /// `utility/line-3-solid` via `Lines` and `R::LINES2`) into `scene.canvas.framebuffer`.
-///
-/// Exercises two distinct `utility/line-*` variants in role `R::LINES2` (`PASS_VIEW`):
-/// 1. `Bridge::line_source` + `Bridge::line_frame(2)` admits a `FLIGHT` line
-///    strip and a `TOW` cable strip using `utility/line-plain-solid` and writes
-///    their draw packets into `frames.lines` slots 0 and 1 of view 2.
-/// 2. A 3-axis vertex-colored line geometry (`Descriptor::axes()`, with `position`
-///    at attribute 0 and `color` at attribute 3) is admitted for
-///    `utility/line-3-solid` and written into slot 2 of view 2 so both uniform-
-///    colored and vertex-colored utility line shaders draw in the same pass.
 fn draw_utility_family(scene: &mut Scene) -> Result<(Vec<String>, [u64; 15]), String> {
     use bfe_render::{
         frame_plan::layout::{binding as B, role as R},

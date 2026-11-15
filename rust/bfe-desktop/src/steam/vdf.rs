@@ -1,16 +1,6 @@
 //! Binary KeyValues (`shortcuts.vdf`) and text KeyValues (`loginusers.vdf`,
 //! `libraryfolders.vdf`, `registry.vdf`) parser, serializer, and non-Steam
 //! shortcut AppID CRC-32 helpers.
-//!
-//! Mirrors the desktop host (`TYPE`, `writeMap`, `parseShortcuts`,
-//! `serializeShortcuts`, `field`, `parseTextVdf`) and the AppID/quoting helpers
-//! in the desktop host (`shortcutAppId`, `rungameId`, `quoted`).
-//!
-//! Valve's binary VDF format represents hierarchical maps of typed key/value pairs:
-//! - `0x00`: nested map (`key\0` followed by child entries terminated by `0x08`)
-//! - `0x01`: null-terminated UTF-8 string (`key\0value\0`)
-//! - `0x02`: 32-bit little-endian integer (`key\0` + 4-byte LE int)
-//! - `0x08`: end-of-map marker
 
 use std::collections::BTreeMap;
 

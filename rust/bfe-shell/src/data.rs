@@ -1,25 +1,5 @@
 //! Shell data readers (`common/shell/shell.json`, `common/common.json`,
 //! `common/raster-hud/manifest.json`).
-//!
-//! This module ports `src/shell/data.js` (`SHELL_ROOT`, `FADES`,
-//! `MOVIE_SCREENS`, `resolveUrl`, `readClip`, `readMovies`, `readMapLoad`,
-//! `readMaps`, `readLoad`, `textureFiles`, `readFonts`, `readShellData`, and
-//! native filesystem loading). Any manifest or section may be missing (nothing
-//! extracted yet, or an older extraction); the reader runs on what is present
-//! and fills in the movie config fades (`shell.lvl` `mcfg`) where `shell.json`
-//! leaves them out.
-//!
-//! Key rules ported from `src/shell/data.js`:
-//! - `FADES`: base `[fadeIn, fadeOut]` pairs for `intro` (`[0.0, 0.2]`),
-//!   `loop` (`[0.1, 0.5]`), and `fly` (`[1.0, 1.0]`), plus `OWN_FADES`
-//!   overrides for `main` (`intro: [0, 0]`, `loop: [0, 0.5]`), `briefing`
-//!   (`intro: [1, 1]`), and `meta` (`intro: [1, 1]`).
-//! - `MOVIE_SCREENS`: indexes each movie under both its own lowercased key in
-//!   `shell.json` and the port's canonical screen id (`start`, `main`, `sp`,
-//!   `options`, `briefing`, `meta`, `galaxy`).
-//! - `textureFiles` / `readFonts`: resolves `common.json` texture names to
-//!   their 4x upscales in `/common/raster-hud/` when `manifest.json` has an
-//!   entry, falling back to `/common/<path>`.
 
 use crate::launch::GameFamily;
 use serde::{Deserialize, Serialize};

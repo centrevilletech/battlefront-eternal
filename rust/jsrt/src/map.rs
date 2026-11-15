@@ -1,31 +1,5 @@
 //! `JsMap` and `JsSet`: JavaScript's `Map` and `Set` with V8's
 //! ordered-hash-table semantics, which the sim observes everywhere:
-//!
-//! - iteration is insertion order;
-//! - `set` on a live key keeps its place; only its value changes;
-//! - `delete` leaves a hole: the entry is skipped from then on;
-//! - a key set again after deletion goes to the end;
-//! - an entry added while an iteration is under way is visited, as
-//!   long as the iteration has not already run off the end; an entry
-//!   deleted before its turn is skipped; a deleted-and-re-added
-//!   entry is visited (again) at its new place at the end.
-//!
-//! Keys compare by SameValueZero (NaN equals NaN, +0 equals -0), and
-//! a -0 key is stored as +0, as the spec demands of `Map`/`Set`.
-//!
-//! Storage is an insertion-ordered slot list with tombstones plus an
-//! open-addressing index from key to slot. The index's probe order
-//! is never observed; the slot list is the iteration order. No
-//! `HashMap`: its iteration order is unspecified and must never
-//! reach a tick. Iteration under mutation goes through the cursor
-//! methods ([`JsMap::next_after`]), which keep an index into the
-//! slot list exactly as V8's ordered hash table iterator keeps its
-//! entry index: slots never move, so a cursor survives any mutation
-//! the loop body makes, with the visiting rules above. (`clear`
-//! empties the slot list; a JavaScript iterator created before a
-//! `clear` likewise sees nothing after it, except entries added
-//! after the clear at their fresh indices — a cursor, being an
-//! index, reproduces even that.)
 
 /// A key a `JsMap`/`JsSet` can hold, with SameValueZero spelled out.
 pub trait JsKey: Clone {

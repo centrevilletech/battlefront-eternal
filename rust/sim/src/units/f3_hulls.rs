@@ -344,4 +344,3 @@ fn array(v: Vector3) -> [f64; 3] { [v.x, v.y, v.z] }
 
 
 
-// The WASM boundary owns addresses; shared services borrow their owners.

@@ -1,18 +1,4 @@
 //! Thread-affine native store/callback ownership, not a complete native world.
-//!
-//! Available only with panic=unwind. Clock's existing host trait is infallible:
-//! a private unwind stops it on a host error, entirely inside Rust. Unrelated
-//! panics retain their payload and propagate to the Rust caller. No method here
-//! calls an extern C export. An eventual foreign boundary must catch panics.
-//! Raw blocks and records are trusted, schema-encoded inputs, just as in the
-//! existing Store API; malformed records may panic. This is not a wire decoder.
-//!
-//! Clones are aliases, not new worlds. Dispose rejects active invocations and
-//! invalidates all aliases; creating a replacement never revives an old handle.
-//! Rc makes handles !Send and !Sync. Returned buffers are owned copies, except
-//! explicit reader loans that expire before returning. Owned copies stay valid
-//! after growth, nested calls and disposal. Entity and string IDs are local
-//! to this context. Store-only reset is deliberately not a context operation.
 #[path = "context_world.rs"]
 mod world;
 pub use world::WorldFailure;

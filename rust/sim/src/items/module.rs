@@ -149,4 +149,3 @@ fn answer(s: &mut Sim, made: Option<Ref<Item>>) -> Option<&[f64]> {
     Some(&calls.block.words[..])
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.

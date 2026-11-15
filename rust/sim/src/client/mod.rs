@@ -654,4 +654,3 @@ fn capture(body: &UnitBody, out: &mut Vec<u8>) -> Result<(), &'static str> {
 // operations load immutable facts; client_predict_session is the sole hot
 // crossing and returns all poses, weapon state and notices in one allocation.
 
-// The WASM boundary owns addresses; shared services borrow their owners.

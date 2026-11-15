@@ -223,7 +223,6 @@ pub(crate) fn camera_director_best_in(w: &mut crate::world::owner::World, id: u3
     phase(&mut w.cameras, id).map_or(-1, |p| p.best_shot(Vector3::new(x, y, z)))
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
 
 #[cfg(test)]
 mod tests {

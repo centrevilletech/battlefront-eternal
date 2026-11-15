@@ -1064,4 +1064,3 @@ pub(crate) fn refresh_weapon_masks_in(world_ctx: &mut crate::world::owner::World
     }
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.

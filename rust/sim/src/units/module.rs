@@ -558,4 +558,3 @@ pub(super) fn with_registry_in<T>(w: &mut crate::world::owner::World, run: impl 
     result
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.

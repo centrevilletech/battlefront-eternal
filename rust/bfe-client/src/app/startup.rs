@@ -1,24 +1,4 @@
 //! Startup update check, content resolution, and background `PrepareSession` host.
-//!
-//! ## Lifecycle and Responsibilities
-//! 1. **Bounded Self-Update Handoff and Release Feed Check**:
-//!    Hands off to any newer installed version (`bfe_desktop::update::handoff::boot_handoff_or_continue`),
-//!    schedules background checks (`bfe_desktop::update::handoff::schedule_background_check`),
-//!    and checks the Ed25519-signed release feed (`bfe_desktop::update::feed`) with a hard
-//!    `<= 1.5s` timeout so an offline or unreachable update server never delays startup
-//!    beyond the 5-second budget.
-//! 2. **Prepared Content Resolution**:
-//!    Resolves prepared content via [`bfe_desktop::prepare::resolve_startup_content`],
-//!    checking CLI overrides (`--content-dir`), persisted `DesktopSettings`, and
-//!    standard workspace/application directories (`likely_content_dirs`).
-//! 3. **First-run Confirmation and Preparation**:
-//!    Before writing content, checks discovered installations with the pinned
-//!    toolchain and asks which copy and sound option to use. The native setup
-//!    page has its own public fonts and surfaces, so it needs no game data.
-//! 4. **Background Tool Events**:
-//!    Preparation streams framed events without blocking window input. A
-//!    completed run enters the menu only with a current preparation receipt;
-//!    failures retain the tool's repair message and diagnostics.
 
 use crate::app::settings::{current_arch_str, current_platform_str, AppSettingsStore};
 use bfe_desktop::{
@@ -433,15 +413,6 @@ impl StartupContentState {
 /// (`0x20..=0x5F`, 16 columns x 4 rows of 8x16 cells) and a matching [`ShellFonts`]
 /// table so `draw_loading` and `draw_shell` can render readable text before
 /// `common/common.json` exists on disk.
-///
-/// ## Atlas Layout and Metrics
-/// - Texture dimensions: `128 x 64` RGBA8 (`4` rows of `16` cells, each cell `8 x 16` px).
-/// - Character coverage: ASCII `0x20..=0x5F` (`' '` through `'_'`), with lowercase
-///   letters `0x61..=0x7A` (`'a'..'z'`) aliased to their uppercase glyph cells.
-/// - Produces four scaled [`Font`] instances (`large` at `2.0x`, `medium` at `1.5x`,
-///   `small` at `1.2x`, `tiny` at `1.0x`) bound to `page_handle`.
-/// - Used by `ShellHost::new` so frame 1 of the startup loader can render progress
-///   text and error notices before `common/common.json` is loaded.
 pub fn build_fallback_ascii_font(page_handle: u32) -> (Vec<u8>, u32, u32, ShellFonts) {
     const TEX_W: u32 = 128;
     const TEX_H: u32 = 64;

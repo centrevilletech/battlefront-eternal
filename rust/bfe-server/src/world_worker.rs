@@ -1,148 +1,5 @@
 //! Native authoritative world host (`src/world-worker.js`, `SnapshotHost` in
 //! `src/runtime/snapshot-host.js`, and `createMultiplayerWorld` in `src/runtime/multiplayer-world.js`).
-//!
-//! Why `NativeWorldHost` owns the simulation context and wire codecs on the server's tick thread:
-//! In the Node dedicated server (`src/world-worker.js`), the worker thread loads the mission
-//! (`createGame` + `createMultiplayerWorld` + `createSnapshotHost`), steps the simulation at 60 Hz,
-//! and publishes accumulated entity state at 20 Hz (`publish()` in `src/world-worker.js`).
-//!
-//! ## Why `WORLD_SLICE_MS = 4` ms does not apply in `bfeserver`, and what bounds a late tick
-//!
-//! In the Node dedicated server (`export const WORLD_SLICE_MS = 4` and `WorldRouter.drainSlice()` in
-//! `src/game-session.js`), the session router runs on the single-threaded JavaScript event loop that
-//! also services UDP socket receive callbacks, `bfe1` handshakes, `/info`, and operator HTTP requests.
-//! Because structured-clone `postMessage` deserialization and 64-client fanout on that single JS
-//! thread can stall incoming datagrams, `WorldRouter.drainSlice()` budgets `WORLD_SLICE_MS = 4` ms per
-//! `setImmediate` turn (`WORLD_SLICE_MS / 2 = 2` ms for draining worker inbox messages and the
-//! remaining budget for flushing `input-ack`, `entity-edge-results`, and `BNS1`/`BNO1` snapshots).
-//!
-//! In `bfeserver`, that cooperative event-loop slice budget does not apply by design:
-//! 1. **Dedicated 60 Hz OS thread**: `NativeWorldHost` and its 60 Hz simulation + 20 Hz
-//!    `world_publish_into` + UDP poll/flush loop run on their own dedicated OS thread
-//!    (`tick_thread` in `src/local_server.rs`), isolated from operator HTTP, `/info` TCP, and LAN
-//!    discovery threads, with zero cross-thread `postMessage` serialization (`world_publish_into`
-//!    writes directly into pre-allocated `Publication` buffers in-place).
-//! 2. **What bounds a late tick**:
-//!    - **Outer 60 Hz wall-clock catch-up bound (`4 * TICK_DURATION` = `4 / 60` s ≈ `66.7` ms)**:
-//!      In `src/local_server.rs` (matching `count < 4` and `debt > 8 / 60` in `src/world-worker.js`),
-//!      when `now > next_tick + TICK_DURATION * 4`, accumulated wall-clock debt beyond 4 ticks is
-//!      dropped (`dropped_ticks` incremented and reported in `WireWorldFacts::DROPPED_TICKS` and
-//!      per-client `input-ack.dropped`) and `next_tick` resets to `now + TICK_DURATION`. A transient
-//!      OS scheduling stall or cgroup CPU throttle can therefore never trigger an unbounded catch-up
-//!      spiral.
-//!    - **Inner `WorldClock` step bound (`battle_clock()`)**: `WorldTickInput.clock` caps `max_steps`
-//!      per invocation and records `clock.overloads`, `clock.dropped`, and `clock.step_cost`.
-//!    - **Per-client state bandwidth and staleness bounds**: `Publisher::run` in `bfe_sim` enforces
-//!      each client's sliding-window `state_bytes_per_second` budget (`c.budget_used(at) < host.budget`,
-//!      falling back to 10 Hz own-only datagrams when exceeded) and `stale_after` window (`5_000` ms),
-//!      while `UdpGameServer::send_state` drops outbound state datagrams older than
-//!      `STATE_STALE_MS = 250` ms.
-//!
-//! ## Pipeline over `bfe_sim::abi::context::Context`
-//!
-//! 1. **Cold world admission (`Context::world_admit` in `rust/sim/src/abi/context_admit.rs`)**:
-//!    `load_from_content` parses the battle query (`?map=...&side=...&ai=...&seed=...`) into
-//!    `bfe_sim::world::admit::Options` and calls `context.world_admit(&files, &admit_options)`.
-//!    - When `admit::provided()` is `true` and admission succeeds, `NativeWorldHost` calls
-//!      `context.world_step_init(admitted.setup)`, stores `admitted.handles` and `admitted.player_id`,
-//!      configures the 20 Hz snapshot cadence (`interval = 3`), uses `admitted.registry`, and sets
-//!      `world_admitted = true`.
-//!    - While the `admit` lane has `admit::provided() == false` (returning `ErrorKind::Unavailable`),
-//!      `NativeWorldHost` falls back to `players_init()` + `build_entity_registry_descriptor` and
-//!      sets `world_admitted = false` so `/healthz` honestly reports `multiplayerReady: false`
-//!      (a server that has not admitted a real world through `Context::world_admit` must never
-//!      claim `multiplayerReady: true`).
-//! 2. **Client binary input wire framing (`decode_snapshot_ack_keepalive` and `decode_entity_input`,
-//!    porting `decodeSnapshotAckKeepalive` and `decodeEntityInput` in `src/runtime/network-entity-input.js`)**:
-//!    - `BNA1` (`0x31414e42`, 10 bytes): `[magic: u32 LE, epoch: u16 LE, tick: u32 LE]`.
-//!    - `BNI1` (`0x31494e42`, `16..=1100` bytes): header `[magic: u32, epoch: u32, generation: u32,
-//!      nv: u8 (<= 8), nc: u8 (<= 8), ne: u8 (<= 32), na: u8 (<= 1)]`, followed by `nv` view
-//!      descriptors (`flags <= 1023`, `profile == 0`, optional `mouse_scale`, `aspect`, `view_tick`,
-//!      flight `sensitivity`/`curve`, and 4 gamepad `axes` + `buttons`), `nc` held-key/look commands
-//!      (`16-byte` bitmask over `INPUT_CODES` + `[look_x, look_y]`), `ne` discrete edges (`kind 0..=5`:
-//!      action, fire with aim, team select `1..=7`, spawn `[class_id, post_id]`, suicide, cancel),
-//!      and optional trailing `[epoch: u16, tick: u32]` snapshot ack with zero trailing bytes.
-//! 3. **Zero-allocation publication decoding (`decode_publication_block`, porting `publish()` in
-//!    `src/world-worker.js` and `WorldRouter.route` in `src/game-session.js`)**:
-//!    Reads `WirePublicationOutput` from the reused `Publication` block (`world_publish_into`) and
-//!    fans out shared `BNS1` baseline groups (`WirePublishedGroup`), per-client `BNO1` own-player
-//!    datagrams (`WirePublishedOwn`), `input-ack` (`WirePublishedAck`), `entity-edge-results`
-//!    (`WirePublishedEdges`), and base64-encoded `gameplay-events` (`WirePublishedRecord` /
-//!    `WirePublishedReliable`).
-//!
-//! Detailed method-by-method correspondence between `NativeWorldHost` (`world_worker.rs`),
-//! `src/world-worker.js`, `src/runtime/snapshot-host.js`, and `src/game-session.js`:
-//! - `NativeWorldHost::load_from_content(root, query, epoch)`:
-//!   Ports `boot()` in `src/world-worker.js` and `createGame` + `createLocalServer` +
-//!   `createSnapshotHost` in `src/game.js` / `src/runtime/snapshot-host.js`. Verifies the content
-//!   fingerprint (`bfe_content_native::fingerprint::hash`), builds the canonical `entity-registry`
-//!   descriptor (`build_entity_registry_descriptor`), creates `bfe_sim::abi::context::Context`,
-//!   and calls `Context::world_admit(&files, &admit_options)`:
-//!   - When `world_admit` returns `Ok(admitted)`: initializes `world_step_init(admitted.setup)`,
-//!     retains `admitted.handles` (`mailbox`, `player`, `publication`, `host`, `edges`, `client`),
-//!     enables reliable outcome retention (`players_outcomes_enable`), sets `wire_host` snapshot
-//!     cadence to `PUBLISH_EVERY_TICKS = 3` (`20` Hz), resets `wire_edges` to `(epoch, 1)`, and
-//!     sets `world_admitted = true`.
-//!   - When `world_admit` returns `Err(err)` with `SimErrorKind::Unavailable`: falls back to
-//!     `context.players_init()` for transport/protocol harness tests while keeping
-//!     `world_admitted = false` so `/healthz` reports `multiplayerReady: false`.
-//! - `NativeWorldHost::add_player(peer_id, name, spectator, auto_spawn, team_select)`:
-//!   Ports `handle("join")` in `src/world-worker.js`, `world.addPlayer`, and
-//!   `entityHost.addClient(id)` in `src/runtime/snapshot-host.js`. Assigns the lowest free native
-//!   client slot in `1..=256`, registers or resets the client in `wire_host` (`wire_host_op` +
-//!   `wire_host_set`) and `wire_publish` (`wire_publish_bind`), and returns `PlayerWelcome`.
-//! - `NativeWorldHost::remove_player(peer_id)`:
-//!   Ports `leave(client)` in `src/world-worker.js` and `entityHost.removeClient(id)` in
-//!   `src/runtime/snapshot-host.js`, releasing the client slot and dropping its `wire_edges` bank.
-//! - `NativeWorldHost::handle_start(peer_id, now_ms)` & `handle_resync(peer_id, now_ms)`:
-//!   Ports `handle("start")` and `handle("resync")` in `src/world-worker.js` (`setStarted`,
-//!   `setReady`, and `resync` on `wire_host` via `wire_host_op(9, ...)`).
-//! - `NativeWorldHost::handle_edge_ack(peer_id, message, now_ms)`:
-//!   Ports `edgeAck(id, message)` in `src/runtime/snapshot-host.js` (`WeCall { op: 7.0 }` on
-//!   `wire_edges_run`).
-//! - `NativeWorldHost::handle_input(peer_id, bytes, now_ms)`:
-//!   Ports `input(id, bytes)` in `src/runtime/snapshot-host.js`:
-//!   - 10-byte `BNA1` (`0x31414e42`) snapshot-ack keepalives call `wire_host_op(4, native_id, tick, epoch)`.
-//!   - `BNI1` (`0x31494e42`) entity-input frames update `snapshot_ack`, push discrete gameplay
-//!     edges (`WeCall { op: 1.0 }`), and submit per-tick movement/look commands into
-//!     `input_mailbox_owned_run` (`ImOperation::Push`) and `players_input`.
-//! - `Context::world_host_start`, `Context::world_host_client`, `Context::world_host_client_leave`,
-//!   and `Context::world_tick` (`rust/sim/src/host/mod.rs`):
-//!   `load_from_content` calls `Context::world_host_start(Some(Capture { combat, presentation, store_source }))`
-//!   after `Context::world_admit`. `add_player` registers each client with
-//!   `Context::world_host_client(player, edges)`, and `remove_player` unregisters its edge runtime
-//!   with `Context::world_host_client_leave(edges)`.
-//! - `NativeWorldHost::step(now_ms, unix_ms)`:
-//!   Ports `step()` and `publish()` in `src/world-worker.js`, executing `context.world_tick`
-//!   (which runs `advanceEdges`, the pre-step owner input banks and AI hearing journal,
-//!   `world_step`, the post-step notice drain into the `SimEvents` journal and presentation
-//!   capture, `mirrorShots`, `mirror`, and `consumedEdges` in the exact JavaScript order),
-//!   `SimBattle` victory inspection, and `context.world_publish_into` + `decode_publication_block`.
-//!
-//! Wire format and rate/budget constants enforced by `world_worker.rs` (`src/world-worker.js`,
-//! `src/runtime/network-entity-input.js`, `src/runtime/network-entity-snapshot.js`, and
-//! `src/runtime/snapshot-host.js`):
-//! - `INPUT_MAGIC = 0x31494e42` (`"BNI1"` little-endian): client entity-input packet header magic.
-//! - `ACK_MAGIC = 0x31414e42` (`"BNA1"` little-endian): 10-byte client snapshot-ack keepalive magic.
-//! - `SNAPSHOT_MAGIC = 0x31534e42` (`"BNS1"` little-endian): shared entity snapshot baseline/delta magic.
-//! - `OWN_MAGIC = 0x314f4e42` (`"BNO1"` little-endian): per-client own-player state datagram magic.
-//! - `PUBLISH_EVERY_TICKS = 3`: 20 Hz snapshot publication cadence (`60 Hz / 3 = 20 Hz`), configured
-//!   via `wire_host_set(host_handle, 0, 0, 3.0)` on `Context::world_admit`.
-//! - `MAX_LEAD_TICKS = 120.0`: maximum future tick lead (`cmd.tick - self.tick <= 120.0`) accepted by
-//!   `handle_input` before a client command is discarded (`input()` in `src/runtime/snapshot-host.js`).
-//! - `MAX_VIEWS = 8`, `MAX_COMMANDS = 32`, `MAX_EDGES = 32`: per-packet array bounds enforced by
-//!   `decode_entity_input` (`src/runtime/network-entity-input.js`).
-//! - `MAX_ACK_IDS = 32`, `EDGE_CAPACITY = 256.0`: per-message acknowledgement and edge ring capacity
-//!   enforced by `handle_edge_ack` and `WeCall` (`src/runtime/network-entity-edge-host.js`).
-//! - `INPUT_CODES` (104 entries, `"KeyA"` .. `"WheelDown"`) and `INPUT_ACTIONS` (26 entries,
-//!   `"jump"` .. `"squadWait"`): pre-interned in `Context` during `load_from_content` so 60 Hz
-//!   `handle_input` never allocates or re-intern UTF-16 strings per tick.
-//! - `VIEW_FIELD_NAMES` (7 entries: `"fov"`, `"third"`, `"first"`, `"eye"`, `"center"`, `"offset"`,
-//!   `"tilt"`) and `EDGE_KIND_NAMES` (6 entries: `"action"`, `"fire"`, `"team"`, `"spawn"`,
-//!   `"enter"`, `"exit"`): pre-interned in `Context` at battle load.
-//! - Native client slot reuse (`1..=256`): `add_player` selects the lowest unused `native_id` in
-//!   `1..=256` and `remove_player` frees it and drops any per-client `wire_edges` bank (`native_id > 1`)
-//!   so join/leave churn across 64-client lobbies and multi-hour soaks never leaks handles or slots.
 
 use crate::udp_peer::{ACK_MAGIC, INPUT_MAGIC};
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -243,17 +100,6 @@ pub struct DecodedInputCommand {
 
 /// Single discrete gameplay edge decoded from a `BNI1` input packet
 /// (`edges` entry in `decodeEntityInput` in `src/runtime/network-entity-input.js`).
-///
-/// Edge `kind` values:
-/// - `0`: discrete action (`INPUT_ACTIONS[action_index]`)
-/// - `1`: weapon fire (`button`, `pressed`, `view_tick`, `aim_yaw`, `aim_pitch`)
-/// - `2`: team selection (`team` in `1..=7`)
-/// - `3`: spawn request (`class_id`, `post_id`)
-/// - `4`: suicide / respawn request
-/// - `5`: spawn cancel
-///
-/// Clients re-send unacknowledged edges (`ne <= 32`) in every `BNI1` packet until the server
-/// confirms receipt via `entity-edge-results` (`received` / `results`) on the reliable `events` lane.
 #[derive(Clone, Debug)]
 pub struct DecodedEdge {
     /// Client-assigned monotonic edge ID (`> 0`), acknowledged in `entity-edge-results`.
@@ -303,16 +149,6 @@ pub struct DecodedInputPacket {
 
 /// Decodes a 10-byte `BNA1` (`0x31414e42`) snapshot acknowledgement keepalive
 /// (`export function decodeSnapshotAckKeepalive` in `src/runtime/network-entity-input.js`).
-///
-/// Wire layout (10 bytes little-endian):
-/// - `0..4`: `0x31414e42` (`'BNA1'`)
-/// - `4..6`: `epoch` (`u16`)
-/// - `6..10`: acknowledged `tick` (`u32`)
-///
-/// Why `BNA1` exists alongside `BNI1`:
-/// Spectators and players on the spawn/team-select screen have no active unit `generation` to send
-/// `BNI1` commands for, but still need to advance their `BNS1` delta snapshot baseline tick and keep
-/// `GameSessionState.last_seen` fresh (`SESSION_TIMEOUT_MS = 15_000`).
 pub fn decode_snapshot_ack_keepalive(bytes: &[u8]) -> Result<(u16, u32), &'static str> {
     if bytes.len() != 10 {
         return Err("invalid snapshot ack keepalive");
@@ -1924,19 +1760,6 @@ impl NativeWorldHost {
 
     /// Steps the authoritative simulation by one 60 Hz tick and returns the decoded publication
     /// (`step()` and `publish()` in `src/world-worker.js`).
-    ///
-    /// Execution order per tick (`world-worker.js` and `Context::world_tick` in `rust/sim/src/host/mod.rs`):
-    /// 1. Call `self.context.world_tick(...)`, which runs:
-    ///    - `advanceEdges` across every joined client registered via `world_host_client`,
-    ///    - the pre-step owner input banks (`F2_INPUT`, `COLLISION_ENABLED`, `MOVEMENT_FLAGS`,
-    ///      `F3_SEPARATION`, `F4_LIVE_INPUT`, `F4_TAIL_INPUT`) and AI hearing journal (`AI_JOURNAL`),
-    ///    - `world_step` to advance physics, combat, capture posts, and bots,
-    ///    - the post-step unit notice drain into the `SimEvents` journal and presentation
-    ///      `Capture` (schema 8 cosmetic records), dispenser bindings, and `F3_ACKNOWLEDGEMENT`,
-    ///    - `mirrorShots` and `mirror` (`players_shots`, `players_views`), and
-    ///    - `consumedEdges` across every joined client.
-    /// 2. Inspect `SimBattle` victory state and publish into `self.published`
-    ///    (`world_publish_into`), then decode with `decode_publication_block`.
     pub fn step(
         &mut self,
         now_ms: f64,

@@ -361,4 +361,3 @@ if owner.staggers.get(p as usize).is_none() {return 0;}
 
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.

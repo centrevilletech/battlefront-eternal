@@ -213,4 +213,3 @@ pub fn players_outcomes_enable_in(w: &mut World, handle: u32) {
 pub fn players_views_in(w: &mut World) -> Option<&[f64]> { super::step::views_in(w) }
 pub fn players_shots_in(w: &mut World) -> Option<&[f64]> { super::step::shots_in(w) }
 
-// The WASM boundary owns addresses; shared services borrow their owners.

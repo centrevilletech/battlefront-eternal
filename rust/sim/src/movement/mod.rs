@@ -4,12 +4,6 @@
 //! copies a soldier's state in, runs the tick here against the module's own
 //! copies of the collision world, and copies the state back out, the same to
 //! the last bit as the JavaScript tick (soldier.rs says how).
-//!
-//! A tick is one call. The sines and cosines it needs (of the aim's yaw
-//! before the tick's turn and after it, and a hovering jet's pitch) are
-//! computed here with `v8math`, as the production server's V8 computes
-//! Math.sin and Math.cos: the same as the JavaScript tick's under Node, and
-//! the server's where a client's own V8 parts from it in the last bit.
 
 pub(crate) mod native;
 pub mod scene;

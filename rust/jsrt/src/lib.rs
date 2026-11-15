@@ -1,27 +1,5 @@
 #![forbid(unsafe_code)]
 //! JavaScript semantics for the Rust port of the world simulation.
-//!
-//! Every function here reproduces what the JavaScript computes, to the
-//! last bit, against the production server's engine: V8 13.6 as shipped
-//! in Node 24.22. The sim's ticks, snapshots and hashes must come out
-//! identical wherever they run, so Rust code porting JavaScript takes
-//! its conversions, rounding, comparisons, sorts, iteration orders,
-//! number formatting and random draws from this crate and never from
-//! Rust's own equivalents, whose rules differ (saturating `as` casts,
-//! ties-away `round`, NaN-ignoring `min`/`max`, unstable or differently
-//! stable sorts, `HashMap` iteration order).
-//!
-//! Transcendental `Math` functions (sin, cos, ...) are not here: they
-//! belong to `rust/v8math`, which ports V8's own implementations, and
-//! [`v8math`] re-exports them for the sim. The algebraic functions in
-//! this crate (conversions, `js_round`, `js_min`/`js_max`, `fround`,
-//! `hypot` of two and three numbers, integer ops) are exact and proven
-//! against Node by the differential harness in `tools/`.
-//!
-//! Rules for everything in this crate, as everywhere in the port:
-//! f64 arithmetic in JavaScript's operation order, no fused
-//! multiply-add, no reassociation, f32 rounding exactly where the
-//! JavaScript rounds.
 
 pub mod conv;
 pub mod hash;

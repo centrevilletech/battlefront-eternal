@@ -60,4 +60,3 @@ pub(crate) fn wire_publish_load_in(w: &mut crate::world::owner::World, session:u
 
 }
 
-// The WASM boundary owns addresses; shared services borrow their owners.

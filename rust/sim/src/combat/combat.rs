@@ -4,13 +4,6 @@
 //! his triggers and weapons, the rounds, items, droids and lightning they
 //! fire, a repair tool's lock and a launcher's, the aim's kick, what
 //! explosions and hurts do to him, his death and a droid's blowing apart.
-//!
-//! The world's combats only: a bot's or a network player's (no camera, no
-//! HUD, no first-person view: a world draws nothing, and its combats aim
-//! along their aimer's direction or their own aim). What only draws (the
-//! weapon in the hand, flashes, lights, the animator's clips, sounds) is
-//! the page's and is not here. Line numbers are src/combat.js's on
-//! rust/sim-p11-combat.
 
 use super::impacts::{BlastPacket, HealthScale, ImpactWorld};
 use super::defs::{WeaponBase, Js, JsObj, WeaponClass, WeaponDefs, K};
