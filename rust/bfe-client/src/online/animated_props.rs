@@ -17,6 +17,7 @@ struct View {
     skin: Vec<f32>,
     rows: Vec<[f64; draw::REC_STRIDE]>,
     bone: usize,
+    death_camera: bool,
 }
 struct TrapView {
     building: usize,
@@ -236,6 +237,7 @@ impl Animated {
                 bridge.shadow_cascades(),
             )?;
             views.push(View {
+                death_camera: anim.get("deathCamera").is_some_and(Value::truthy),
                 skin: vec![0.; inverses.len() * 16],
                 rig,
                 inverses,
@@ -274,7 +276,7 @@ impl Animated {
             let pad = crate::static_scene::props(bridge,content,textures,
                 bfe_content_native::placed::admit_trap_pad(content,source)?,bridge.shadow_cascades())?;
             let building = bfe_sim::world::admit::rows::props::live_sources(&content.content.battle).iter().position(|id|*id==source).ok_or("trap has no building id")?;
-            traps.push(TrapView { building, view: View { skin: vec![0.; inverses.len()*16], rig, inverses,
+            traps.push(TrapView { building, view: View { death_camera: false, skin: vec![0.; inverses.len()*16], rig, inverses,
                 rows: admission.records, bone: owner.bone_start(true,index) }, pad_rows: pad.records, pad_bones: pad.bones,
                 phase: 0, started: 0. });
         }
@@ -405,6 +407,10 @@ impl Animated {
             let h = hold.as_ref()?;
             Some((index, h.id, h.generation, h.grab, h.since, self.held(h.id, h.generation)))
         })
+    }
+    pub fn held_camera(&self, id: u32, generation: u32) -> Option<bool> {
+        let index = self.holds.iter().position(|h| h.is_some_and(|h| h.id == id && h.generation == generation))?;
+        Some(self.views[index].death_camera)
     }
     pub fn max_bones(&self) -> usize {
         self.views
