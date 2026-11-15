@@ -4,7 +4,6 @@
 
 pub mod resources;
 pub mod shots;
-pub mod timing;
 use crate::collision::State;
 use crate::combat::defs::K;
 use crate::combat::weapons::{Arsenal, ShotKind};

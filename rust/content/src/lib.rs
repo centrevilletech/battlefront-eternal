@@ -17,7 +17,6 @@
 
 pub mod actor;
 pub mod battle;
-pub mod battle_dump;
 pub mod bin_arrays;
 pub mod catalog;
 pub mod clips;

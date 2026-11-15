@@ -26,7 +26,6 @@
 //! Publication stays the caller's (`world_publish_into`), as does input
 //! admission (mailbox, `players_input`, fire, acknowledgements).
 mod after;
-pub mod battles; // matrix-b
 mod before;
 mod capture;
 mod content;
@@ -36,8 +35,6 @@ mod edges;
 pub mod journal;
 pub mod mount; // matrix-b
 mod pads; // matrix-b
-#[cfg(test)]
-mod presentation_fault; // matrix-b
 pub mod random; // matrix-b
 pub mod recon;
 mod vehicle_input; // matrix-b // matrix-b

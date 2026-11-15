@@ -41,7 +41,6 @@ pub mod gear;
 pub mod model;
 pub mod pilotless;
 pub mod pose;
-pub mod spawn;
 pub mod state;
 pub mod store;
 pub mod targeting;

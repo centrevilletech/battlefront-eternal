@@ -712,7 +712,6 @@ fn context_admission_handoff_preserves_actual_pool_keys_and_zero_player_id() {
         alias.string_count().unwrap_err().kind(),
         bfe_sim::abi::context::ErrorKind::Disposed
     );
-    assert_eq!(alias.world_replay_live_handles(), 0);
     for bad in [f64::NAN, -1., 0.5, u32::MAX as f64 + 1.] {
         let mut source = fake_admission();
         source.player_id = bad;

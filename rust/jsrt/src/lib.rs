@@ -27,7 +27,6 @@ pub mod conv;
 pub mod hash;
 pub mod map;
 pub mod numfmt;
-pub mod object;
 pub mod rng;
 pub mod sort;
 pub mod text;

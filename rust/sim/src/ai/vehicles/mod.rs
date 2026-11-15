@@ -33,7 +33,6 @@
 
 pub mod agents;
 pub mod controllers;
-pub mod fly;
 pub mod notify;
 pub mod orbit;
 pub mod patterns;

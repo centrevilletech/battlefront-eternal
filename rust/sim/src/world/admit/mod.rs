@@ -22,7 +22,6 @@ pub mod kernels;
 pub mod rows;
 pub mod sequence;
 pub mod session;
-pub mod partial;
 pub mod spawn;
 pub mod stock;
 pub use dispatch::Returned;

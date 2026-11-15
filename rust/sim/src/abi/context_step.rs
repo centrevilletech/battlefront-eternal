@@ -35,8 +35,6 @@
 #[path = "context_publish.rs"]
 mod publish;
 pub use publish::{bank, Fault, Publication};
-#[path = "context_replay.rs"]
-mod replay;
 #[path = "context_admit.rs"]
 mod admit;
 #[path = "context_observe.rs"]

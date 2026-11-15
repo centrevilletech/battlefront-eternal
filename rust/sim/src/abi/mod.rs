@@ -88,8 +88,6 @@ impl Sim {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(crate) mod facade;
-#[cfg(target_arch = "wasm32")]
 pub(crate) use facade::{cold, world};
 
 // Native callers use Context and explicit owners. These raw WASM entries

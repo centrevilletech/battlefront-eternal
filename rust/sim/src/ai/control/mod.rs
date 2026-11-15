@@ -19,7 +19,6 @@ pub mod policy;
 pub mod scheduler;
 pub mod squads;
 pub mod vec;
-pub mod views;
 pub mod world;
 
 use crate::ai::owned::intent::Command as IntentCommand;
