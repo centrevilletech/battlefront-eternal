@@ -283,8 +283,8 @@ impl Output {
                 if lfe >= 0 {
                     master.set_lfe(lfe as usize, 120.0, -3.0103);
                 }
-            } else if center >= 0 {
-                master.set_original(center as usize, original);
+            } else {
+                master.set_original((center >= 0).then_some(center as usize), original);
             }
         }
     }

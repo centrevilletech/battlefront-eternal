@@ -26,7 +26,7 @@ pub struct Master {
     eq: Vec<Vec<Biquad>>,
     clarity: Option<Clarity>,
     level: f32,
-    original: Option<(Stabilizer, f32)>,
+    original: Option<(Option<Stabilizer>, f32)>,
     limiter: Limiter,
     volume: Timeline,
     // Scratch: the send, the reverb's output, the LFE, the mix, a stage's
@@ -94,9 +94,11 @@ impl Master {
         master
     }
 
-    /// Classic surround's front stabilizer followed by its output level.
-    pub fn set_original(&mut self, centre: usize, level: f32) {
-        self.original = Some((Stabilizer::new(self.rate, self.channels, 0, 1, centre), level));
+    /// Classic's output level, after the front stabilizer on a layout with a
+    /// centre speaker (surround); stereo and headphones take the level alone.
+    pub fn set_original(&mut self, centre: Option<usize>, level: f32) {
+        let stabilizer = centre.map(|c| Stabilizer::new(self.rate, self.channels, 0, 1, c));
+        self.original = Some((stabilizer, level));
     }
 
     pub fn set_mono(&mut self, mono: bool) { self.mono = mono; }
@@ -210,11 +212,17 @@ impl Master {
             }
         }
         if let Some((stabilizer, level)) = &mut self.original {
-            let input = Block { data: &self.mix[..len], channels: n, frames: FRAMES };
-            let mut output = BlockMut { data: &mut self.stage[..len], channels: n, frames: FRAMES };
-            stabilizer.process(&input, &mut output);
-            for i in 0..len {
-                self.mix[i] = gain_product(self.stage[i], *level);
+            if let Some(stabilizer) = stabilizer {
+                let input = Block { data: &self.mix[..len], channels: n, frames: FRAMES };
+                let mut output = BlockMut { data: &mut self.stage[..len], channels: n, frames: FRAMES };
+                stabilizer.process(&input, &mut output);
+                for i in 0..len {
+                    self.mix[i] = gain_product(self.stage[i], *level);
+                }
+            } else {
+                for v in &mut self.mix[..len] {
+                    *v = gain_product(*v, *level);
+                }
             }
         }
         // The clarity EQ, then the clarity stage at its level.
@@ -358,6 +366,27 @@ mod tests {
             last = at(&mut m, b);
         }
         assert!((last - 0.125 * 0.3679).abs() < 0.002, "{last}");
+    }
+
+    #[test]
+    fn the_original_level_reaches_a_layout_without_a_centre() {
+        // Classic stereo: no front stabilizer, but its level still applies.
+        let feeds = vec![0.125f32; 2 * FRAMES];
+        let none = vec![0.0f32; FRAMES];
+        let last = |level: Option<f32>| {
+            let mut m = Master::new(RATE, 2, 0.0, 0.08, 0.0015, true);
+            if let Some(level) = level {
+                m.set_original(None, level);
+            }
+            let mut out = vec![0.0; 2 * FRAMES];
+            for b in 0..8 {
+                m.process(&feeds, None, &none, None, None, (b * FRAMES) as u64, &mut out);
+            }
+            out[2 * FRAMES - 1]
+        };
+        assert_eq!(last(None), 0.125);
+        assert_eq!(last(Some(1.0)), 0.125);
+        assert_eq!(last(Some(2.0)), 0.25);
     }
 }
 

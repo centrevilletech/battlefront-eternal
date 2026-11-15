@@ -103,9 +103,11 @@ fn alsoft(name: &str) -> Option<mixer::Decoder> {
 
 /// Classic's level against Enhanced (dB): what OpenAL Soft's decoders take
 /// from a source ahead, so switching modes compares the sound, not the level.
+/// Stereo's is measured: three recorded battles on Home theater (no
+/// compression) as loud as Enhanced, which holds Normal and Night too.
 fn original_level(name: &str) -> f64 {
     match name {
-        "stereo" => 1.5,
+        "stereo" => 3.2,
         "5.1" => 3.3,
         "7.1" | "7.1.4" => 0.9,
         _ => 0.,

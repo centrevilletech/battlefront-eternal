@@ -188,8 +188,11 @@ What stands in for something:
   (below, kept as the cheap path and not used now) has a soft clip instead,
   and the profile is a level there.
 - **Level.** The original mode is raised by the power OpenAL Soft's
-  decoders give a source ahead (1.5 dB on stereo, 3.3 on 5.1, 0.9 on 7.1),
-  so the two modes match in loudness. Nothing else in the mix changes.
+  decoders give a source ahead (3.3 dB on 5.1, 0.9 on 7.1), so the two
+  modes match in loudness. Stereo's 3.2 dB is measured instead: recorded
+  battles on Home theater, where nothing compresses, as loud as Enhanced,
+  which keeps Normal and Night within half a LU as well. Nothing else in
+  the mix changes.
 - **7.1.4** is beyond OpenAL Soft 1.20.1: the original plays 7.1, the
   heights silent.
 - **Playback resampling** follows Chromium's linear interpolation in Rust for
