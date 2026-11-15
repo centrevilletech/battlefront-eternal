@@ -167,6 +167,9 @@ impl Debris {
     pub fn parts(&self, class: usize) -> &[Part] {
         self.classes.get(class).map_or(&[], Vec::as_slice)
     }
+    pub fn pieces(&self) -> &[Piece] {
+        &self.flight.pieces
+    }
     /// Debris.blowApart for one chunk of a class: it starts where its bone
     /// is (`matrix`, the bone's world matrix) and flies out from the body's
     /// origin. It joins the flight with the next frame's effect batch, which

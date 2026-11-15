@@ -327,6 +327,22 @@ impl Bench {
             }))?;
         }
         out.write_all(b"]")?;
+        out.write_all(br#","debris":["#)?;
+        if let Some(scene) = battle.scene.online.as_ref() {
+            for (index, piece) in scene.combat.debris.pieces().iter().enumerate() {
+                if index != 0 { out.write_all(b",")?; }
+                serde_json::to_writer(&mut *out, &serde_json::json!({
+                    "id": piece.id,
+                    "position": [piece.position.x, piece.position.y, piece.position.z],
+                    "quaternion": [piece.quaternion.x, piece.quaternion.y, piece.quaternion.z, piece.quaternion.w],
+                    "velocity": [piece.velocity.x, piece.velocity.y, piece.velocity.z],
+                    "lift": piece.lift, "thin": piece.thin, "resting": piece.resting,
+                    "left": piece.left, "flight": piece.flight,
+                    "smoke": piece.smoke.is_some(), "settling": piece.settle.is_some(),
+                }))?;
+            }
+        }
+        out.write_all(b"]")?;
         out.write_all(br#","buildings":["#)?;
         if let Some(scene) = battle.scene.online.as_ref() {
             for (index, state) in scene.buildings.states().enumerate() {
