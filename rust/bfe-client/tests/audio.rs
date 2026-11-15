@@ -38,12 +38,15 @@ fn cpal_null_device_runs_master_pcm() {
     assert_eq!(std::env::var("BFE_AUDIO_NULL").as_deref(), Ok("1"));
     let device = AudioDevice::open(vec![0.2, -0.1, -0.2, 0.1], 48000).unwrap();
     let start = std::time::Instant::now();
-    while device.status.blocks.load(Ordering::Relaxed) < 8 && start.elapsed().as_secs() < 3 {
+    // The callback counts a block when it mixes it and stores the peak once it
+    // returns, so wait for both.
+    let peak = || f32::from_bits(device.status.peak.load(Ordering::Relaxed));
+    while (device.status.blocks.load(Ordering::Relaxed) < 8 || peak() <= 0.01) && start.elapsed().as_secs() < 3 {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     device.check().unwrap();
     assert!(device.status.blocks.load(Ordering::Relaxed) >= 8);
-    assert!(f32::from_bits(device.status.peak.load(Ordering::Relaxed)) > 0.01);
+    assert!(peak() > 0.01);
     device.pause().unwrap();
     device.play().unwrap();
 }

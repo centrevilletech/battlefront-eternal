@@ -768,6 +768,9 @@ impl Replicas {
         self.turrets.frame(receiver, history, dt, &mut self.combat.hull_fx);
         self.buildings.frame(receiver, dt, &mut self.combat.hull_fx);
         self.items.frame(receiver, tick);
+        self.items.light(&mut self.lights);
+        let own = (receiver.own.alive && receiver.own.mount.is_none()).then_some(receiver.own.position);
+        self.combat.map_effects.wake(dt, own);
         self.frame = self.frame.wrapping_add(1);
         self.visible = 0;
         self.units.input[f::COMMANDS] = 0.;
@@ -1582,6 +1585,7 @@ impl Replicas {
         }
         let (slots, models, units, names) = (&self.slots, &self.models, &self.units, &self.held_names);
         let mut lookup = |unit: (u32, u32)| slots.iter().position(|s| s.active && s.identity == Some(unit)).and_then(|i| body_of(slots, models, units, names, i));
+        self.combat.destruction.stations(self.buildings.station_frames());
         self.combat.destruction.frame(dt, eye, &mut lookup);
         let hidden = std::mem::take(&mut self.combat.destruction.hidden);
         for unit in &hidden {
@@ -1605,7 +1609,7 @@ impl Replicas {
     pub fn present_weather(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], screen: [i32; 2], gpu: &mut crate::resources::Resources, bridge: &mut Bridge) {
         self.present_destruction(dt, eye, bridge);
         if let Some(steam) = &mut self.steam {
-            steam.frame(dt, &self.combat.map_effects.volumes, screen, true, gpu, bridge);
+            steam.frame(dt, &self.combat.map_effects.volumes, &self.combat.map_effects.wakes, screen, true, gpu, bridge);
         }
         if let Some(fountains) = &mut self.fountains {
             fountains.frame(dt, &self.combat.map_effects.fountains, screen, gpu, bridge);
@@ -1635,7 +1639,7 @@ impl Replicas {
         // With the bench's fx key, how often each was drawn, every 600 frames.
         if self.frame % 600 == 0 && crate::app::bench::fx().is_some() {
             eprintln!(
-                "fx-weather rain={} rain-enhanced={} snow={} steam={} vents={} fountains={} dust={} jets-in-view={}",
+                "fx-weather rain={} rain-enhanced={} snow={} steam={} vents={} fountains={} dust={} jets-in-view={} item-lights={}",
                 self.rain.as_ref().map_or(0, |r| r.frames),
                 self.rain.as_ref().is_some_and(|r| r.enhanced),
                 self.snow.as_ref().map_or(0, |s| s.frames),
@@ -1643,7 +1647,8 @@ impl Replicas {
                 self.combat.map_effects.volumes.len(),
                 self.fountains.as_ref().map_or(0, |f| f.frames),
                 self.trails.drawn,
-                self.combat.map_effects.fountains.len()
+                self.combat.map_effects.fountains.len(),
+                self.items.lit
             );
         }
     }
@@ -1698,6 +1703,21 @@ impl Replicas {
             camera,
             world,
             &|name| hud.post_meta.iter().find(|post| post.name == name).map(|post| (post.team, post.active)),
+            &|name, out| {
+                use bfe_presentation::visual_effects_layout::{post_state as s, post_team as t};
+                let Some((_, toward, progress, neutralize, teams)) = hud.post_capture(name) else { return false };
+                let (team, count) = super::hud::Hud::team_count_words();
+                out[s::TOWARD] = toward;
+                out[s::PROGRESS] = progress;
+                out[s::NEUTRALIZE] = neutralize;
+                let n = teams.len().min((out.len() - s::TEAMS) / t::STRIDE);
+                out[s::COUNT] = n as f64;
+                for (k, row) in teams.iter().take(n).enumerate() {
+                    out[s::TEAMS + k * t::STRIDE + t::TEAM] = row[team];
+                    out[s::TEAMS + k * t::STRIDE + t::POPULATION] = row[count];
+                }
+                true
+            },
             &|id| self.buildings.states().any(|(i,state,_,_,_)|i==id && state=="unbuilt") || self.animated.unbuilt(id),
             can_repair,
             &|team| hud.team_look(viewer, team),
@@ -1856,6 +1876,16 @@ impl Replicas {
     pub(crate) fn effects_end(&self) -> usize { self.trails.end() }
     /// Shoreline queries share the battle's collision world.
     pub(crate) fn water_collision(&self) -> (&super::replay::Collision, u32) { (&self.collision, self.world) }
+    /// The soldiers on foot this frame: unit id, feet and velocity (for the
+    /// water's waders and wakes).
+    pub(crate) fn soldiers_on_foot(&self, out: &mut Vec<(u32, [f64; 3], [f64; 3])>) {
+        out.clear();
+        for s in &self.slots {
+            let Some((id, _)) = s.identity.filter(|_| s.active && !s.dead && s.mount.is_none()) else { continue };
+            let row = &self.units.output[s.actor * o::STRIDE..];
+            out.push((id, std::array::from_fn(|k| row[o::POSITION + k]), std::array::from_fn(|k| row[o::VELOCITY + k])));
+        }
+    }
     pub fn record_budget(&self) -> usize {
         let actors: usize = self
             .slots
@@ -1890,6 +1920,7 @@ impl Replicas {
             if input[i::PRESENT] == 0. || (input[i::OWN] != 0. && self.first_person.enabled && input[i::DEAD] == 0.) {
                 continue;
             }
+            let mounted = input[i::MOUNT_PRESENT] != 0.;
             let output = &self.units.output[slot.actor * o::STRIDE..];
             // Enclosed seats hide their occupants, including their held gear.
             // A body gone up is undrawn for the rest of its life.
@@ -1927,10 +1958,9 @@ impl Replicas {
             bridge.r.core.input[at..at + draw::REC_STRIDE].copy_from_slice(&row);
             records += 1;
             bones += count;
-            // PlayerCombat.updateHeld: a dead unit's weapon is not shown
-            // (`held.group.visible = !this.dead && ...`), so the death clip's
-            // hand does not fling a rifle across the floor.
-            let weapon = if output[o::DEAD] != 0. { None } else { slot.held };
+            // PlayerCombat.updateHeld hides personal weapons while dead or
+            // mounted, including riders visible in open gunner seats.
+            let weapon = if output[o::DEAD] != 0. || mounted { None } else { slot.held };
             if let (Some(hand), Some(model)) =
                 (self.models[slot.model].hand, weapon.and_then(|i| self.held.get(i)).and_then(Option::as_ref))
             {

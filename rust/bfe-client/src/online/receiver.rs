@@ -528,6 +528,7 @@ impl Receiver {
                 continue;
             }
             if kind == k::TOMBSTONE {
+                self.publications.push(row, &[]);
                 // Identity is shared across entity kinds, but a late tombstone
                 // cannot remove the newer generation that reused that identity.
                 for removed in k::SOLDIER..=k::REMOTE {

@@ -662,6 +662,19 @@ impl Vehicles {
         self.rigs.get(rig).map_or(0, |r| r.slots[slot.min(lim::SLOTS - 1)].1)
     }
 
+    /// Current barrel angles, keyed by seat, weapon and aimer.
+    pub fn aimer_angles(&self, rig: usize) -> impl Iterator<Item = [f64; 5]> + '_ {
+        self.rigs.get(rig).into_iter().flat_map(|r| {
+            r.seats.iter().enumerate().flat_map(move |(seat, s)| {
+                s.weapons.iter().enumerate().flat_map(move |(weapon, aimers)| {
+                    aimers.clone().enumerate().map(move |(index, a)| {
+                        [seat as f64, weapon as f64, index as f64, r.aimers[a].yaw, r.aimers[a].pitch]
+                    })
+                })
+            })
+        })
+    }
+
     /// Published node matrices, after the rig's variable leg-side and aimer
     /// output. Native camera and skinning hosts must not reconstruct this
     /// prefix: walkers can have leg pairs even when another hull has none.
