@@ -335,3 +335,42 @@ fn warning_native(path: &std::path::Path) -> Result<(), String> {
 fn warning_native(_: &std::path::Path) -> Result<(), String> {
     Err(INVALID.into())
 }
+
+/// A modal error box for a failure that ends the game before or while its window
+/// opens (no usable graphics context, a shader the driver rejects), so a player who
+/// started it from a desktop icon sees why instead of nothing.
+#[cfg(target_os = "linux")]
+pub fn fatal_message(detail: &str) {
+    use std::ffi::{c_char, c_void, CString};
+    // SAFETY: GTK's C signatures; the dialog lives only inside this call.
+    let _ = (|| -> Result<(), String> { unsafe {
+        let gtk = gtk_library()?;
+        let init: libloading::Symbol<unsafe extern "C" fn(*mut i32, *mut c_void) -> i32> =
+            gtk.get(b"gtk_init_check\0").map_err(|e| e.to_string())?;
+        if init(std::ptr::null_mut(), std::ptr::null_mut()) == 0 { return Err("no display".into()); }
+        let new: libloading::Symbol<unsafe extern "C" fn(*mut c_void, i32, i32, i32, *const c_char, ...) -> *mut c_void> =
+            gtk.get(b"gtk_message_dialog_new\0").map_err(|e| e.to_string())?;
+        let secondary: libloading::Symbol<unsafe extern "C" fn(*mut c_void, *const c_char, ...)> =
+            gtk.get(b"gtk_message_dialog_format_secondary_text\0").map_err(|e| e.to_string())?;
+        let run: libloading::Symbol<unsafe extern "C" fn(*mut c_void) -> i32> = gtk.get(b"gtk_dialog_run\0").map_err(|e| e.to_string())?;
+        let destroy: libloading::Symbol<unsafe extern "C" fn(*mut c_void)> = gtk.get(b"gtk_widget_destroy\0").map_err(|e| e.to_string())?;
+        let title = CString::new(FATAL_TITLE).unwrap();
+        let detail = CString::new(detail.replace('\0', " ")).unwrap();
+        // GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK
+        let dialog = new(std::ptr::null_mut(), 1, 3, 1, c"%s".as_ptr(), title.as_ptr());
+        if dialog.is_null() { return Err("no dialog".into()); }
+        secondary(dialog, c"%s".as_ptr(), detail.as_ptr());
+        run(dialog);
+        destroy(dialog);
+        flush_dialog_changes(gtk)
+    } })();
+}
+#[cfg(target_os = "windows")]
+pub fn fatal_message(detail: &str) {
+    let detail = detail.replace('\'', "''");
+    let script = format!("Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('{}','{}','OK','Error')|Out-Null", detail, FATAL_TITLE);
+    let _ = std::process::Command::new("powershell.exe").args(["-NoProfile", "-STA", "-Command", &script]).status();
+}
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+pub fn fatal_message(_: &str) {}
+pub const FATAL_TITLE: &str = "Battlefront Eternal could not start";

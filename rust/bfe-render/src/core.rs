@@ -584,6 +584,8 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         let world_lamps = lamps && kind == Kind::World && shader::reads_lamps(fs);
         let vs = shader::rewrite_lamps(vs, Stage::Vertex, kind, lamps)?;
         let fs = shader::rewrite_lamps(fs, Stage::Fragment, kind, lamps)?;
+        let desktop = shader::desktop_glsl(gl.version().is_embedded, gl.supported_extensions().contains("GL_ARB_ES3_compatibility"));
+        let (vs, fs) = if desktop { (shader::to_desktop_glsl(&vs), shader::to_desktop_glsl(&fs)) } else { (vs, fs) };
         unsafe {
             let program = gl.create_program()?;
             let mut shaders = vec![];

@@ -34,10 +34,8 @@ use super::runtime::{Engine, HostCounters, Runtime};
 /// 64 entries cover more than a full second of 60 Hz input steps without allocation.
 pub const COMMAND_CAPACITY: usize = 64;
 
-/// Number of pre-allocated publication slots recycled between the world and render threads.
-///
-/// 64 slots cover over a second of 60 Hz world ticks so no delta publication is ever
-/// dropped between render frames.
+/// Number of pre-allocated publication slots recycled between the world and render threads
+/// (over a second of 60 Hz ticks; a longer render stall grows the queue, see [`PublicationQueue`]).
 pub const PUBLICATION_SLOTS: usize = 64;
 
 /// Capacity of the lock-free ring buffer recording recent 60 Hz tick durations in nanoseconds.
@@ -226,77 +224,42 @@ impl PublicationSlot {
     }
 }
 
-/// Bounded ring of pre-allocated [`PublicationSlot`]s shared between the world and render threads.
+/// Publications waiting for the render thread, and the slots it has handed back.
+///
+/// The world acknowledges each publication to itself when it publishes it (there is
+/// no transport to lose one), so every publication must reach the receiver: a later
+/// delta is built on it and its reliable records are sent once. A render thread that
+/// stalls (a first frame compiling shaders on a slow GPU, a machine swapping) lets
+/// the queue grow past its preallocated slots instead of dropping the oldest; the
+/// extra slots are freed again once the queue drains.
 struct PublicationQueue {
-    ready: Box<[Option<PublicationSlot>; PUBLICATION_SLOTS]>,
-    head: usize,
-    len: usize,
-    free: Box<[Option<PublicationSlot>; PUBLICATION_SLOTS]>,
-    free_len: usize,
-    refused: u64,
+    ready: std::collections::VecDeque<PublicationSlot>,
+    free: Vec<PublicationSlot>,
 }
 
 impl PublicationQueue {
     fn new() -> Self {
-        let ready: Box<[Option<PublicationSlot>; PUBLICATION_SLOTS]> =
-            Box::new(std::array::from_fn(|_| None));
-        let free: Box<[Option<PublicationSlot>; PUBLICATION_SLOTS]> =
-            Box::new(std::array::from_fn(|_| Some(PublicationSlot::new_preallocated())));
         Self {
-            ready,
-            head: 0,
-            len: 0,
-            free,
-            free_len: PUBLICATION_SLOTS,
-            refused: 0,
+            ready: std::collections::VecDeque::with_capacity(PUBLICATION_SLOTS),
+            free: (0..PUBLICATION_SLOTS).map(|_| PublicationSlot::new_preallocated()).collect(),
         }
     }
 
     fn acquire_slot(&mut self) -> PublicationSlot {
-        if self.free_len > 0 {
-            self.free_len -= 1;
-            if let Some(slot) = self.free[self.free_len].take() {
-                return slot;
-            }
-        }
-        if self.len > 0 {
-            let slot = self.ready[self.head].take().unwrap();
-            self.head = (self.head + 1) % PUBLICATION_SLOTS;
-            self.len -= 1;
-            self.refused = self.refused.saturating_add(1);
-            return slot;
-        }
-        PublicationSlot::new_preallocated()
+        self.free.pop().unwrap_or_else(PublicationSlot::new_preallocated)
     }
 
     fn publish_slot(&mut self, slot: PublicationSlot) {
-        if self.len == PUBLICATION_SLOTS {
-            if let Some(old) = self.ready[self.head].take() {
-                self.release_slot(old);
-            }
-            self.head = (self.head + 1) % PUBLICATION_SLOTS;
-            self.len -= 1;
-            self.refused = self.refused.saturating_add(1);
-        }
-        let tail = (self.head + self.len) % PUBLICATION_SLOTS;
-        self.ready[tail] = Some(slot);
-        self.len += 1;
+        self.ready.push_back(slot);
     }
 
     fn pop_ready(&mut self) -> Option<PublicationSlot> {
-        if self.len == 0 {
-            return None;
-        }
-        let slot = self.ready[self.head].take();
-        self.head = (self.head + 1) % PUBLICATION_SLOTS;
-        self.len -= 1;
-        slot
+        self.ready.pop_front()
     }
 
     fn release_slot(&mut self, slot: PublicationSlot) {
-        if self.free_len < PUBLICATION_SLOTS {
-            self.free[self.free_len] = Some(slot);
-            self.free_len += 1;
+        if self.free.len() < PUBLICATION_SLOTS {
+            self.free.push(slot);
         }
     }
 }
@@ -896,4 +859,28 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
         next_deadline += tick_duration;
     }
     runtime.close();
+}
+
+#[cfg(test)]
+mod queue_tests {
+    use super::*;
+
+    // A render thread that misses four seconds of ticks still receives every one, in order.
+    #[test]
+    fn a_long_render_stall_drops_no_publication() {
+        let mut queue = PublicationQueue::new();
+        for tick in 1..=240 {
+            let mut slot = queue.acquire_slot();
+            slot.tick = tick as f64;
+            queue.publish_slot(slot);
+        }
+        let mut seen = 0.;
+        while let Some(slot) = queue.pop_ready() {
+            seen += 1.;
+            assert_eq!(slot.tick, seen);
+            queue.release_slot(slot);
+        }
+        assert_eq!(seen, 240.);
+        assert_eq!(queue.free.len(), PUBLICATION_SLOTS);
+    }
 }

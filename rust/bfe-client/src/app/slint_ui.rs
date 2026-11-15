@@ -818,6 +818,10 @@ impl SlintHost {
             super::slint_options::sync(&self.root, shell, &self.options_models);
         }
     }
+    /// Whether the interface draws anything over the battle this frame.
+    pub fn battle_overlay_visible(&self) -> bool {
+        !self.root.get_gameplay() || self.root.get_proof_controls() || super::slint_battle::battle_overlay_visible(&self.root)
+    }
     pub fn battle_modal_open(&self) -> bool {
         self.root.get_gameplay()
             && !self.root.get_proof_controls()
