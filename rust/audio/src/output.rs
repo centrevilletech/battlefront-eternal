@@ -1024,6 +1024,19 @@ impl Output {
         self.placements[VOICES+slot].spatial=spatial;
         self.route_stream(slot);
     }
+    /// Takes over `live`'s sample storage, voice cursors, beds and placements
+    /// into this output, a new mix configuration (quality, output layout,
+    /// mono, master chain) built off the device thread, so a settings change
+    /// neither cuts nor restarts what is playing. `live` keeps this output's
+    /// empty sources; the caller then swaps the two.
+    pub fn take_sources(&mut self, live: &mut Output) {
+        std::mem::swap(&mut self.voices, &mut live.voices);
+        std::mem::swap(&mut self.streams, &mut live.streams);
+        std::mem::swap(&mut self.placements, &mut live.placements);
+        self.voices.filtered = self.enhanced;
+        self.frame = live.frame;
+        self.reattach();
+    }
     /// AudioOutput::controls reserves both forwarding banks before playback.
     /// Source binds have the same allocation bound from the first callback.
     pub fn reserve_controls(&mut self, words: usize) {

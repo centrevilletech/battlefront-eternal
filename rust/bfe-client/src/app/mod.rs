@@ -252,7 +252,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
     let audio_status = Arc::new(AudioStatus::default());
     let audio_router = SharedAudioRouter::new();
     let audio_device = if with_audio && opts.audio {
-        match AudioDevice::open_dynamic(audio_router.clone()) {
+        match AudioDevice::open_dynamic(audio_router.clone(), 2) {
             Ok(dev) => Some(dev),
             Err(err) => {
                 eprintln!("audio device unavailable ({err}); pumping headless audio");
@@ -289,6 +289,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         audio_status,
         audio_router,
         _audio_device: audio_device,
+        audio_channels_asked: 2,
         headless_scratch: vec![0.0; ::audio::FRAMES * 2]
             .into_boxed_slice()
             .try_into()
@@ -390,6 +391,8 @@ struct StandaloneWindowApp {
     audio_router: Arc<SharedAudioRouter>,
     /// Active hardware `cpal` stream handle when audio output is enabled and available.
     _audio_device: Option<AudioDevice>,
+    // The channel count last asked of the device (crate::audio::wanted_channels).
+    audio_channels_asked: usize,
     /// Pre-allocated stereo scratch buffer used to pump audio quantums when running headless.
     headless_scratch: Box<[f32; ::audio::FRAMES * 2]>,
     /// Active top-level state (`StartupLoader`, `Shell`, `HostStarting`, `BattleLoading`, `Battle`).
@@ -855,6 +858,8 @@ impl StandaloneWindowApp {
             );
             self.audio_router.set_live(None);
             self.audio_router.set_shell(Some(mixer));
+            // The menus play stereo.
+            crate::audio::want_channels(2);
         }
     }
 
@@ -1770,6 +1775,21 @@ impl StandaloneWindowApp {
             AppState::Battle(_) => frame_log::Phase::Play,
             _ => frame_log::Phase::Other,
         };
+
+        // A battle whose output layout wants another channel count (5.1,
+        // 7.1, 7.1.4, or back to stereo) reopens the device that wide, once
+        // per change; the battle's sounds keep playing through the router.
+        let wanted = crate::audio::wanted_channels().max(2);
+        if wanted != self.audio_channels_asked {
+            self.audio_channels_asked = wanted;
+            if self._audio_device.as_ref().is_some_and(|d| d.channels != wanted) {
+                self._audio_device = None;
+                match AudioDevice::open_dynamic(self.audio_router.clone(), wanted) {
+                    Ok(device) => self._audio_device = Some(device),
+                    Err(err) => eprintln!("audio device: {wanted} channels not opened ({err})"),
+                }
+            }
+        }
 
         // If no hardware `cpal` audio device is open, pump headless audio quantums so
         // `ShellAudioMixer` and battle `Stream` queues drain identically to hardware playback.

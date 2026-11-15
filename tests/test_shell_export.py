@@ -21,6 +21,7 @@ from zero_shell import (
     ENCODES, EXE_STRINGS, LOAD_PATTERNS, LOAD_TEXTURES, MAIN_SCREENS, MENU_TEXTURES, SCREEN_MOVIES,
     SHELL_COMMON_TEXTURES, SHELL_PICTURES, SHELL_RASTER, SHELL_TEXTURES, WHOOSHES, bink_info, loading_screen,
     map_catalog, movie_catalog, movie_config, movie_index, movie_kind, movie_names, music_tracks, screen_movies,
+    write_movie_index,
     write_picture,
 )
 from zero_sound import hexname
@@ -94,6 +95,29 @@ class MovieArchiveTests(unittest.TestCase):
         info = bink_info(data, index[1]['offset'])
         self.assertEqual((info['width'], info['height'], info['frames'], info['audio']), (720, 480, 90, 1))
         self.assertEqual(info['duration'], round(90 * 100 / 2997, 3))
+
+    def test_the_movie_index_lists_without_encoding_and_keeps_encoded_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            game = Path(tmp) / "Game" / "GameData" / "Data" / "_LVL_PC"
+            (game / "Movies").mkdir(parents=True)
+            data = mvs([(fnv1a('main'), bink(size=200), 48), (fnv1a('atat_in'), bink(frames=42, tracks=1, size=97), 0)])
+            (game / "Movies" / "shell.mvs").write_bytes(data)
+            index = movie_index(data)
+            catalog = {"main": {**index[0], "file": "main.webm"}, "atat_in": {**index[1], "file": "atat_in.webm"}}
+            public = Path(tmp) / "public"
+            out = public / "common" / "shell" / "movies"
+            out.mkdir(parents=True)
+            encoded = {"file": "main.webm", "hash": "0x%08x" % fnv1a('main'), "settings": "x", "source": {"offset": 2048}}
+            (out / "manifest.json").write_text(json.dumps({"version": 1, "movies": {"main": encoded}}))
+            manifest = write_movie_index(catalog, game=game, public=public)
+            self.assertEqual(manifest["movies"]["main"], encoded, "an encoded movie's entry stays as it was")
+            atat = manifest["movies"]["atat_in"]
+            self.assertEqual(atat["hash"], "0x%08x" % fnv1a('atat_in'))
+            self.assertEqual(atat["source"]["archive"], "GameData/Data/_LVL_PC/Movies/shell.mvs")
+            self.assertEqual((atat["source"]["offset"], atat["source"]["length"]), (index[1]["offset"], 97))
+            self.assertEqual((atat["frames"], atat["audio"]), (42, True))
+            self.assertNotIn("file", atat)
+            self.assertEqual(sorted(p.name for p in out.iterdir()), ["manifest.json"], "nothing is encoded")
 
     def test_a_bad_offset_is_an_error(self):
         data = bytearray(mvs([(1, bink(size=64), 0)]))

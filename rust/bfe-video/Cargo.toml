@@ -5,5 +5,6 @@ edition = "2021"
 license = "GPL-3.0-only"
 publish = false
 
-[build-dependencies]
-cc = "1"
+[dependencies]
+bink-decoder = { git = "https://github.com/centrevilletech/bink-decoder", rev = "6bcf57407cd0a6b0322c06cce286ce15f4a059e9" }
+serde_json = "1"

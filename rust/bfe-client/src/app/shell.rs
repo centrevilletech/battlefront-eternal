@@ -460,7 +460,25 @@ fn trace_movie_rate(trace: &mut (std::time::Instant, u64), decoded: u64, now: st
     }
 }
 
+/// Where the player's game folder may be, for its movie archives: `BFE_GAME_DIR`, the folder the player
+/// picked, the folder this content was prepared from (the desktop record, then the content's own record).
+fn movie_game_candidates(content_dir: &Path, settings: &AppSettingsStore) -> Vec<PathBuf> {
+    let mut candidates: Vec<PathBuf> = std::env::var_os("BFE_GAME_DIR").map(PathBuf::from).into_iter().collect();
+    candidates.extend(settings.desktop.game_dir.as_ref().map(PathBuf::from));
+    candidates.extend(
+        settings.desktop.preparations.iter()
+            .filter(|(dir, _)| Path::new(dir.as_str()) == content_dir)
+            .map(|(_, record)| PathBuf::from(&record.game_dir)),
+    );
+    candidates.extend(
+        bfe_desktop::prepare::read_prepare_state(Some(content_dir)).and_then(|state| state.game).map(PathBuf::from),
+    );
+    candidates
+}
+
 pub struct ShellHost {
+    /// The front end's movies, in the player's own game archives.
+    pub(super) movie_library: bfe_shell::movies::MovieLibrary,
     pub movies: bfe_shell::movies::MoviePlayer,
     right_movies: bfe_shell::movies::MoviePlayer,
     backdrop: super::page_backdrop::PageBackdrop,
@@ -598,6 +616,7 @@ impl ShellHost {
         let blur = super::page_blur::PageBlur::new(&core.gl, size)?;
         core.state.reset();
         let mut host = Self {
+            movie_library: Default::default(),
             movies: Default::default(),
             right_movies: Default::default(),
             backdrop: Default::default(),
@@ -915,7 +934,12 @@ impl ShellHost {
 
         // PageTheme's MovieBackdrop is independent of SCREEN_MEDIA. Its two
         // side sequences keep playing when Multiplayer has no screen movie.
-        self.backdrop.start(content_dir,&mut self.movies,&mut self.right_movies);
+        self.movie_library = bfe_shell::movies::MovieLibrary::open(Some(content_dir), &movie_game_candidates(content_dir, settings));
+        match self.movie_library.game_dir() {
+            Some(game) => eprintln!("Movies: {} archives in {}", self.movie_library.archive_count(), game.display()),
+            None => eprintln!("Movies: no game folder with Movies/shell.mvs found; the menus play without movies"),
+        }
+        self.backdrop.start(&self.movie_library,&mut self.movies,&mut self.right_movies);
         self.movie_clock = std::time::Instant::now();
         self.app = app;
         self.content_dir = Some(content_dir.to_path_buf());
@@ -997,6 +1021,7 @@ impl ShellHost {
         ctx.has_integrations = false;
         ctx.has_credits = false;
         ctx.has_audio_panel = true;
+        ctx.audio_output = crate::online::sound_output::details();
         ctx.surface_height = self.interface_surface.height;
         ctx.viewport = Some([self.layout_size[0].max(1) as u32, self.layout_size[1].max(1) as u32]);
         self.front_end_options.get_or_insert(front_end);
@@ -1329,6 +1354,13 @@ impl ShellHost {
             let mixer = guard.get_or_insert_with(|| {
                 ShellAudioMixer::new(&self.app.data, self.content_dir.as_deref())
             });
+            // A battle straight after a battle (restart, playlist, next online
+            // battle) makes a fresh mixer here: it plays at the player's volumes too.
+            mixer.set_volumes(
+                self.app.settings.master_volume,
+                self.app.settings.music_volume,
+                self.app.settings.interface_volume,
+            );
             mixer.fade_bus("shellmusic", 0., 0.1);
             let start = mixer.current_time() + bfe_shell::loading::LEAD;
             mixer.schedule_loading_plan(&sounds, start);
@@ -1455,10 +1487,6 @@ impl ShellHost {
             self.app.gate_elapsed += dt;
             self.app.pulse_elapsed += dt;
         }
-        let root = self
-            .content_dir
-            .as_deref()
-            .unwrap_or_else(|| Path::new("."));
         // Movie timestamps use wall time, independent of the simulation/UI dt clamp. Time the menu was not
         // stepped (a battle, a file dialog, a stalled frame) is not playback time: taken whole it made the
         // backdrop race through that many seconds of film on the way back, at several times its speed.
@@ -1466,8 +1494,8 @@ impl ShellHost {
         let movie_dt = now.duration_since(self.movie_clock).as_secs_f64().min(MOVIE_STEP_MAX);
         self.movie_clock = now;
         trace_movie_rate(&mut self.movie_trace, self.movies.stats.decoded + self.right_movies.stats.decoded, now);
-        self.backdrop.update(root,movie_dt,&mut self.movies,&mut self.right_movies);
-        self.preview_movies.update(root, movie_dt);
+        self.backdrop.update(&self.movie_library,movie_dt,&mut self.movies,&mut self.right_movies);
+        self.preview_movies.update(&self.movie_library, movie_dt);
         if std::mem::take(&mut self.movies.intro_ended) {
             let (_, events) = self.app.media.finish_intro(None);
             self.app.media_events.extend(events);
@@ -1583,10 +1611,7 @@ impl ShellHost {
             let (_, events) = self.app.media.finish_intro(None);
             media.extend(events);
         }
-        let root = self
-            .content_dir
-            .as_deref()
-            .unwrap_or_else(|| Path::new("."));
+        let root = &self.movie_library;
         for event in &media {
             use bfe_shell::{data::ScreenMovie, media::MediaEvent};
             match event {

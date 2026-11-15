@@ -349,6 +349,14 @@ Each map's `load`:
 
 ### `public/common/shell/movies/`
 
+The native client does not use the WebMs: it plays the Bink movies straight
+from the game's archives (`rust/bfe-video`, decoding with the `bink-decoder`
+crate, a port of FFmpeg's Bink decoders whose every frame of all 56 movies
+was checked equal to FFmpeg's). For it the preparation writes only
+`manifest.json` (`zero_shell.py --movie-index`: each movie's name, hash,
+archive and Bink header, in about a second). The rest of this section is the
+Electron build's.
+
 The 55 movies of `shell.mvs` as WebM: VP9 profile 0, 4:2:0, tagged BT.601
 limited range (what the Bink decoder outputs; checked against a
 capture of the main menu, and Chromium decodes them so), one pass at
@@ -436,6 +444,7 @@ Or a part at a time:
 python3 tools/zero_shell.py --audio               # music, whooshes, sound.json; then shell.json (~7 min)
 python3 tools/zero_shell.py --catalog             # shell.json and the loading pictures (~2 min)
 python3 tools/zero_shell.py --movies --jobs 2     # the transcodes; --only main kam1fly; --force
+python3 tools/zero_shell.py --movie-index         # the native client's: the manifest alone, no encodes
 ```
 
 - `--common` adds the textures, strings and `rasterHud` entries and writes

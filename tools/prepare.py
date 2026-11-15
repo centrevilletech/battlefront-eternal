@@ -25,7 +25,10 @@ Steps (keys in brackets), each after the ones it needs:
 10. [textures]      after everything that writes textures: KTX2 copies (tools/ktx2.py;
                     needs KTX-Software's `ktx`)
 11. [movies]        the shell's movies, converted to WebM (needs ffmpeg with Bink,
-                    VP9, Opus); runs alongside the rest from the start
+                    VP9, Opus); runs alongside the rest from the start. With
+                    --movie-index (the native client) [movie-index] instead
+                    lists them in movies/manifest.json in seconds: the native
+                    client plays the Bink files from the game's own archives
 
 Steps 1-8 make the game playable ("core"); the rest refine it. Steps run as
 soon as what they need is done and the cores allow (--jobs): the sides and
@@ -103,7 +106,9 @@ STATE_VERSION = CONTENT_VERSION["state"]  # 2: sides and common are steps of the
 # armies' clips and their maps' effects, the movies their flyovers, and
 # catalog-update marks their maps ready. Their maps, armies and sound are
 # steps of their own.
-ADD_ON_STEPS = ("catalog", "common", "catalog-update", "movies")
+ADD_ON_STEPS = ("catalog", "common", "catalog-update", "movies", "movie-index")
+# --movie-index (the native client): list the movies instead of converting them.
+MOVIE_INDEX = False
 ERA_TEAMS = {"cw": ["rep", "cis"], "gcw": ["all", "imp"]}
 SIDE_NAMES = {
     "rep": "Republic", "cis": "CIS", "all": "Rebel Alliance", "imp": "Galactic Empire",
@@ -460,9 +465,15 @@ def plan(jobs, maps=None, locals_of=None, sublevels=None, add_on_maps=None):
     # per two cores (each has four threads and keeps about two and a half
     # cores busy, libvpx, and ~650 MB), as memory allows, counted as half
     # the cores so the rest of the plan overlaps them rather than waits.
-    encodes = map_workers(max(1, jobs // 2), per_gb=0.75, most=8)
-    steps.append(step("movies", "extra", "Converting the movies", 30, ffmpeg_ok(),
-                      lambda: run_tool("zero_shell.py", "--movies", "--jobs", encodes), after=("catalog",), cores=max(1, jobs // 2)))
+    # The native client plays the Bink movies from the game's own archives: it needs only their list
+    # (seconds, no ffmpeg), under a step of its own so a later Electron preparation still encodes.
+    if MOVIE_INDEX:
+        steps.append(step("movie-index", "extra", "Listing the movies", 1, True,
+                          lambda: run_tool("zero_shell.py", "--movie-index"), after=("catalog",)))
+    else:
+        encodes = map_workers(max(1, jobs // 2), per_gb=0.75, most=8)
+        steps.append(step("movies", "extra", "Converting the movies", 30, ffmpeg_ok(),
+                          lambda: run_tool("zero_shell.py", "--movies", "--jobs", encodes), after=("catalog",), cores=max(1, jobs // 2)))
     sides = []
     battles = []
     for entry in maps:
@@ -712,7 +723,11 @@ def main():
     parser.add_argument("--core-only", action="store_true", help="stop once the game is playable")
     parser.add_argument("--no-enhanced-sound", action="store_true", help="leave the Enhanced sound (the audio steps) out")
     parser.add_argument("--check", action="store_true", help="check the installation and stop, writing nothing")
+    parser.add_argument("--movie-index", action="store_true",
+                        help="list the movies instead of converting them (the native client plays the Bink files)")
     args = parser.parse_args()
+    global MOVIE_INDEX
+    MOVIE_INDEX = args.movie_index
 
     if args.check:
         report = check_install(args.jobs)
