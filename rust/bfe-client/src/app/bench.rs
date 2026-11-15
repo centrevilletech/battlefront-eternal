@@ -224,6 +224,16 @@ impl Bench {
             write!(out, "[{},{rounds},{reserve},{:.3},{:.3}]", weapon.def.0, weapon.heat, weapon.reload_left)?;
         }
         out.write_all(b"]")?;
+        out.write_all(br#","weaponLocks":["#)?;
+        for (index, weapon) in replay.weapons().enumerate() {
+            if index != 0 { out.write_all(b",")?; }
+            serde_json::to_writer(&mut *out, &serde_json::json!({
+                "target": weapon.lock_target_id, "generation": weapon.lock_generation,
+                "elapsed": weapon.lock_elapsed, "complete": weapon.lock_complete,
+                "wait": weapon.wait, "charge": weapon.charge,
+            }))?;
+        }
+        out.write_all(b"]")?;
         write!(out, r#","mount":{},"vehicle":{},"flight":{}"#,
             serde_json::to_string(&own.mount)?, own.vehicle, serde_json::to_string(&own.flight)?)?;
         if let Some(hull) = &replay.fleet.state {
@@ -304,6 +314,17 @@ impl Bench {
                 row[r::WALK_PHASE],
                 row[r::WALK_BLEND],
             )?;
+        }
+        out.write_all(b"]")?;
+        out.write_all(br#","turrets":["#)?;
+        for (index, row) in receiver.active().filter(|row| row[r::KIND] == k::TURRET as f64).enumerate() {
+            if index != 0 { out.write_all(b",")?; }
+            serde_json::to_writer(&mut *out, &serde_json::json!({
+                "id": row[r::ID], "generation": row[r::GENERATION],
+                "building": row[r::BUILDING], "health": row[r::HEALTH], "state": row[r::STATE],
+                "yaw": row[r::YAW], "pitch": row[r::PITCH],
+                "gunYaw": row[r::GUN_YAW], "gunPitch": row[r::GUN_PITCH],
+            }))?;
         }
         out.write_all(b"]")?;
         out.write_all(br#","buildings":["#)?;
