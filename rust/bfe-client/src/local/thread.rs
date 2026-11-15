@@ -263,10 +263,6 @@ impl PublicationQueue {
         self.ready.push_back(slot);
     }
 
-    fn pop_ready(&mut self) -> Option<PublicationSlot> {
-        self.ready.pop_front()
-    }
-
     fn release_slot(&mut self, slot: PublicationSlot) {
         if self.free.len() < PUBLICATION_SLOTS {
             self.free.push(slot);
@@ -910,7 +906,7 @@ mod queue_tests {
             queue.publish_slot(slot);
         }
         let mut seen = 0.;
-        while let Some(slot) = queue.pop_ready() {
+        while let Some(slot) = queue.ready.pop_front() {
             seen += 1.;
             assert_eq!(slot.tick, seen);
             queue.release_slot(slot);
@@ -932,7 +928,7 @@ mod queue_tests {
         }
         assert_eq!(published, MAX_QUEUED_PUBLICATIONS);
         assert_eq!(queue.ready.len(), MAX_QUEUED_PUBLICATIONS);
-        let slot = queue.pop_ready().unwrap();
+        let slot = queue.ready.pop_front().unwrap();
         queue.release_slot(slot);
         assert!(!queue.full());
     }

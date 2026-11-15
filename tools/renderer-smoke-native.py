@@ -517,7 +517,9 @@ def write_synthetic_content(root: Path) -> None:
         "grid": 2,
         "scale": 1.0,
         "height": -1.5,
-        "offset": [-32.0, -32.0],
+        # Cell (i, j) spans x i*cell - offset[0] and z j*cell - offset[1]: the two cells cover the patch in front
+        # of the camera, where the water's visibility test looks for them.
+        "offset": [32.0, 32.0],
         "cells": STATIC_FIXTURE_WATER_DATA["cells"],
         "patches": [
             {

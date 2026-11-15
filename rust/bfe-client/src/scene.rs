@@ -1,6 +1,8 @@
 //! Native scene admission for inspecting prepared maps before a live World
 //! exists. Asset work ends before the first frame; the free camera publishes
 //! generated commands through Host and the renderer borrows one fixed frame.
+/// The water settings a scene takes (waterQuality, oceanEffects).
+pub use crate::water_host::Settings as WaterSettings;
 use crate::{
     canvas::Canvas,
     generated_input::*,
@@ -1528,7 +1530,7 @@ impl Scene {
 
     /// The player's water choices (WATER QUALITY, OCEAN AND SKY, WATER AND
     /// STEAM), applied as the page applied them: live.
-    pub fn set_water_settings(&mut self, settings: &crate::water_host::Settings) -> Result<(), String> {
+    pub fn set_water_settings(&mut self, settings: &WaterSettings) -> Result<(), String> {
         if let Some(storm) = &mut self.storm { storm.enabled = settings.ocean == "enhanced"; }
         if let Some(flyers) = &mut self.flyers { flyers.set_enhanced(settings.ocean == "enhanced"); }
         match &mut self.water {

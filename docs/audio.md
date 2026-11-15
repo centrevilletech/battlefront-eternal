@@ -232,8 +232,8 @@ distance curve, Doppler, pitch glides and voice ranking.
 - Rust places stream channels at OpenAL Soft's angles: stereo hard left
   and right, mono ahead, and a quad bed's rear pair spread across both ears.
 - The master applies the original stereo level (+1.5 dB), optional mono,
-  the dynamics profile's level (Home theater −10.2 dB, Normal −6.1,
-  Night −5.7), the 4097-entry soft-clip curve and master volume.
+  the dynamics profile's level (Home theater −8.8 dB, Normal −5.3,
+  Night −3.8), the 4097-entry soft-clip curve and master volume.
 - This mode has no reverb or compressor. It uses the same single Rust
   output worklet as every other mode.
 

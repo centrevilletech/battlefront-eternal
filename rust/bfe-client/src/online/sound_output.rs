@@ -120,12 +120,14 @@ fn dynamics(name: &str) -> [f64; 6] {
         _ => [-18., 2., 8., 0.025, 0.2, -2.3],
     }
 }
-/// Classic stereo's light mix: the profile is a level ahead of its soft clip.
+/// Classic stereo's light mix: the profile is a level ahead of its soft clip,
+/// set so a whole battle plays as loud as Enhanced on the same profile (three
+/// recorded battles each, within half a LU).
 fn light_level(name: &str) -> f64 {
     match name {
-        "home" => -10.2,
-        "night" => -5.7,
-        _ => -6.1,
+        "home" => -8.8,
+        "night" => -3.8,
+        _ => -5.3,
     }
 }
 // The clarity stage's EQ (filter kind as master::kind numbers, Hz, dB, Q) and
