@@ -20,33 +20,37 @@ fn decode(bytes: &[u8], channels: usize, output: &mut [Vec<f32>]) {
     }
     for block in 0..blocks {
         let base = block * 36 * channels;
-        for channel in 0..channels {
-            let header = base + 4 * channel;
-            let mut sample = i16::from_le_bytes([bytes[header], bytes[header + 1]]) as i32;
-            let mut index = bytes[header + 2].min(88) as i32;
-            let dest = &mut output[channel];
-            dest[block * 64] = sample as f32 / 32768.0;
-            for frame in 1..64 {
-                let code_index = frame - 1;
-                let group = code_index / 8;
-                let byte = bytes[base + 4 * channels + (group * channels + channel) * 4 + code_index % 8 / 2];
-                let code = if code_index % 2 == 0 { byte & 15 } else { byte >> 4 };
-                let step = STEPS[index as usize];
-                let mut diff = step >> 3;
-                if code & 1 != 0 {
-                    diff += step >> 2;
-                }
-                if code & 2 != 0 {
-                    diff += step >> 1;
-                }
-                if code & 4 != 0 {
-                    diff += step;
-                }
-                sample = (sample + if code & 8 != 0 { -diff } else { diff }).clamp(-32768, 32767);
-                index = (index + INDEX[(code & 7) as usize]).clamp(0, 88);
-                dest[block * 64 + frame] = sample as f32 / 32768.0;
-            }
+        for (channel, dest) in output.iter_mut().enumerate().take(channels) {
+            decode_block(&bytes[base..base + 36 * channels], channels, channel, &mut dest[block * 64..block * 64 + 64]);
         }
+    }
+}
+/// One channel of one block (`36 * channels` bytes) into 64 frames. Every
+/// block starts from its own header, so blocks decode in any order.
+pub fn decode_block(block: &[u8], channels: usize, channel: usize, dest: &mut [f32]) {
+    let header = 4 * channel;
+    let mut sample = i16::from_le_bytes([block[header], block[header + 1]]) as i32;
+    let mut index = block[header + 2].min(88) as i32;
+    dest[0] = sample as f32 / 32768.0;
+    for frame in 1..64 {
+        let code_index = frame - 1;
+        let group = code_index / 8;
+        let byte = block[4 * channels + (group * channels + channel) * 4 + code_index % 8 / 2];
+        let code = if code_index % 2 == 0 { byte & 15 } else { byte >> 4 };
+        let step = STEPS[index as usize];
+        let mut diff = step >> 3;
+        if code & 1 != 0 {
+            diff += step >> 2;
+        }
+        if code & 2 != 0 {
+            diff += step >> 1;
+        }
+        if code & 4 != 0 {
+            diff += step;
+        }
+        sample = (sample + if code & 8 != 0 { -diff } else { diff }).clamp(-32768, 32767);
+        index = (index + INDEX[(code & 7) as usize]).clamp(0, 88);
+        dest[frame] = sample as f32 / 32768.0;
     }
 }
 impl Decoder {

@@ -152,3 +152,30 @@ fn inconsistent_reference_counts_are_reported_instead_of_saturating() {
     drop(r);
     DEVICE.with_borrow(|d| assert_eq!(d.double_delete, 0));
 }
+#[test]
+fn a_released_image_keeps_its_texture_and_changes_sampling_in_place() {
+    let mut r = owner();
+    let s = image(&mut r);
+    r.source_pixels(s, &[1, 2, 3, 4]).unwrap();
+    let a = r.sample(s, &settings(1001)).unwrap();
+    let b = r.sample(s, &settings(1001)).unwrap();
+    assert!(r.release_pixels(s).is_err(), "not uploaded yet");
+    let version = r.source_ref(s).unwrap().version;
+    r.physical[r.samples[a as usize].physical].seen = version;
+    r.release_pixels(s).unwrap();
+    assert!(matches!(r.source_ref(s).unwrap().pixels, Pixels::Released(_)));
+    let texture = r.texture(a).unwrap();
+    // Shared or not, a sampling change goes to the one uploaded texture.
+    r.sampling(a, &settings(1000)).unwrap();
+    assert_eq!(r.texture(a).unwrap(), texture);
+    assert_eq!(r.texture(b).unwrap(), texture);
+    assert!(r.upload(a).is_ok(), "nothing to upload again");
+    assert!(r.sample(s, &settings(1002)).is_err());
+    let mipmapped = settings(1000).replace("\"mipmaps\":false", "\"mipmaps\":true");
+    assert!(r.sampling(a, &mipmapped).is_err());
+    // New pixels make it an ordinary image again.
+    r.source_pixels(s, &[5, 6, 7, 8]).unwrap();
+    assert!(matches!(r.source_ref(s).unwrap().pixels, Pixels::Raw(_)));
+    drop(r);
+    DEVICE.with_borrow(|d| assert_eq!(d.double_delete, 0));
+}
