@@ -175,6 +175,13 @@ impl Native {
 }
 
 impl Engine for Native {
+    // The admission's own impact rule export, run again on the live world.
+    fn friendly_fire(&mut self, on: bool) -> Result<(), String> {
+        let rules = bfe_sim::gen::F3ImpactRules { friendly_fire: on };
+        let mut call = bfe_sim::world::admit::Call { row: vec![0.; bfe_sim::gen::F3ImpactRules::WORDS], ..Default::default() };
+        rules.put(&mut call.row, &mut call.heap);
+        self.context.value.invoke_export("f3_impact_rules", &call).map(|_| ()).map_err(|e| e.to_string())
+    }
     fn initialize(&mut self, setup: WorldTickSetup) -> Result<(), String> {
         self.context
             .value

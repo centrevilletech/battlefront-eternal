@@ -1888,6 +1888,7 @@ impl BattleController {
                 // focus plays on (a released mouse opens the pause menu, which
                 // freezes it); only a hidden window suspends it.
                 world.set_suspended(hidden);
+                world.set_friendly_fire(settings.interface.get_bool("friendlyFire"));
                 world.poll_publications(receiver, *now_ms)?;
                 if self.frames == 60 {
                     eprintln!("local HUD publications: focused={} welcomed={} packets={} corrections={} alive={} active={} visible={}",
