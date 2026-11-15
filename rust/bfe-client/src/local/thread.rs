@@ -129,6 +129,8 @@ pub enum WorldMessage {
     },
     /// Kills the current player life so the spawn screen reopens (`game.pause.suicide`).
     Respawn,
+    /// The Friendly Fire option changed during the battle (a world setting, applied at once).
+    FriendlyFire(bool),
     /// Terminates the 60 Hz world thread cleanly.
     Shutdown,
 }
@@ -318,6 +320,7 @@ struct SharedState {
     paused: AtomicBool,
     suspended: AtomicBool,
     shutdown: AtomicBool,
+    friendly_fire: AtomicBool,
     latest_tick_bits: AtomicU64,
     /// Player commands the world has taken, those it refused, and those
     /// stamped for a tick it had already run (applied on the next one).
@@ -364,6 +367,7 @@ impl SharedState {
             paused: AtomicBool::new(false),
             suspended: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
+            friendly_fire: AtomicBool::new(true),
             latest_tick_bits: AtomicU64::new(0.0_f64.to_bits()),
             commands_taken: AtomicU64::new(0),
             commands_refused: AtomicU64::new(0),
@@ -592,6 +596,7 @@ impl WorldThread {
         };
         let shared = Arc::new(SharedState::new());
         shared.paused.store(true, Ordering::Release);
+        shared.friendly_fire.store(options.bots.friendly_fire, Ordering::Release);
         let thread_shared = Arc::clone(&shared);
         let (admit_tx, admit_rx) =
             std::sync::mpsc::sync_channel::<Result<AdmittedWorldInfo, String>>(1);
@@ -693,6 +698,14 @@ impl WorldThread {
     pub fn set_paused(&self, paused: bool) {
         if self.shared.paused.swap(paused, Ordering::AcqRel) != paused {
             self.send(WorldMessage::Pause(paused));
+        }
+    }
+
+    /// The Friendly Fire option, live as in the browser build: says so once, when it changes.
+    #[inline]
+    pub fn set_friendly_fire(&self, on: bool) {
+        if self.shared.friendly_fire.swap(on, Ordering::AcqRel) != on {
+            self.send(WorldMessage::FriendlyFire(on));
         }
     }
 
@@ -836,6 +849,7 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
                     runtime.spawn_human(team, &class_name, &post_name)
                 }
                 WorldMessage::Respawn => runtime.respawn_human(),
+                WorldMessage::FriendlyFire(on) => runtime.set_friendly_fire(on),
                 WorldMessage::Shutdown => {
                     shared.shutdown.store(true, Ordering::Release);
                     runtime.close();

@@ -67,6 +67,11 @@ pub trait Engine {
         Ok(())
     }
     fn step(&mut self, input: WorldTickInput) -> Result<WorldTickOutput, String>;
+    /// A world setting changed during the battle: whether a hit from the
+    /// victim's own team hurts.
+    fn friendly_fire(&mut self, _on: bool) -> Result<(), String> {
+        Ok(())
+    }
     fn publish(&mut self, facts: &[f64]) -> Result<Publication<'_>, String>;
     fn acknowledge(
         &mut self,
@@ -253,6 +258,10 @@ impl<E: Engine> Runtime<E> {
     }
 
     /// Queues a suicide (`Respawn`) command on the reliable player actions lane.
+    pub fn set_friendly_fire(&mut self, on: bool) -> Result<(), String> {
+        self.engine.friendly_fire(on)
+    }
+
     pub fn respawn_human(&mut self) -> Result<(), String> {
         self.engine.human_command(HsCommandKind::Suicide, 0, "", "")
     }

@@ -49,6 +49,8 @@ pub struct BrowserInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_assign_teams: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub friendly_fire: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub uptime: Option<u64>,
 }
 
@@ -201,6 +203,7 @@ pub fn browser_info(
         }),
         bots: Some(ai.as_deref() != Some("off")),
         auto_assign_teams: Some(config.auto_assign_teams),
+        friendly_fire: Some(config.friendly_fire),
         uptime: Some(uptime),
     }
 }
