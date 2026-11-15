@@ -212,8 +212,8 @@ fn retail_sequences_match_geonosis_end_screen_names_when_extracted() {
         ["THRAK FARELLE", "RAYCE FARELLE", "LAN OLESA"]
     );
 
-    // Verify all 12 Republic and 12 CIS names shown on the retail Geonosis end-of-battle screen.
-    // Every name from the retail screenshot appears in the first 30 Republic / 24 CIS draws.
+    // The names on the retail Geonosis end-of-battle screen (16 Republic, 9 CIS) are all among
+    // the first 30 Republic / 24 CIS draws.
     let republic: HashSet<String> = sequence(3.0, 30).into_iter().collect();
     let cis: HashSet<String> = sequence(4.0, 24).into_iter().collect();
     for name in [
@@ -229,12 +229,16 @@ fn retail_sequences_match_geonosis_end_screen_names_when_extracted() {
         "BETA 030",
         "OMIKRON 621",
         "EPSILON 905",
+        "EPSILON 497",
+        "TAU 378",
+        "THETA 269",
+        "PSI 487",
     ] {
         assert!(republic.contains(name), "missing Republic name {name}");
     }
     for name in [
-        "UNIT 538", "UNIT 961", "UNIT 073", "UNIT 111", "UNIT 466", "UNIT 182", "UNIT 850",
-        "UNIT 972", "UNIT 754", "UNIT 007", "UNIT 322", "UNIT 311",
+        "UNIT 466", "UNIT 538", "UNIT 843", "UNIT 182", "UNIT 754", "UNIT 397", "UNIT 065", "UNIT 729",
+        "UNIT 032",
     ] {
         assert!(cis.contains(name), "missing CIS name {name}");
     }
