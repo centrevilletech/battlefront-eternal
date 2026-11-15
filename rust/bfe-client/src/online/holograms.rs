@@ -5,11 +5,10 @@
 //! opacities are the shared owner's (bfe_presentation::post_effects); this is
 //! its page: the map's look, the logo models and the draws.
 //!
-//! The owner dims a hologram while a capture is about to land. That needs
-//! each post's capture progress and the teams standing in it, which this
-//! client is not sent; here a hologram fades in again when its owner changes
-//! and is otherwise lit. Each hologram's point light joins the frame's
-//! lights (super::lights).
+//! The owner dims a hologram while a capture is about to land, from each
+//! post's capture progress and the teams standing in it (the world summary,
+//! through the HUD), and fades it in again when its owner changes. Each
+//! hologram's point light joins the frame's lights (super::lights).
 use crate::render_bridge::Bridge;
 use bfe_content::Value;
 use bfe_content_native::BattleContent;
@@ -37,6 +36,8 @@ struct Post {
     index: usize,
     name: String,
     anchor: [f64; 3],
+    // Dark for a capture about to land, last frame (the bench's line).
+    landing: bool,
 }
 struct Pad {
     building: usize,
@@ -72,6 +73,11 @@ pub struct Holograms {
     height: f64,
     size: f64,
     turn_on: f64,
+    // With the bench's fx key, a line when a hologram starts or stops dimming.
+    trace: bool,
+    // CommandPosts' rules: seconds to neutralize and to capture a post.
+    neutralize_time: f64,
+    capture_time: f64,
     // How far a hologram's light reaches (the look's lightRadius).
     light_radius: f64,
     beam: Option<Model>,
@@ -160,7 +166,7 @@ impl Holograms {
                 if let (true, Ok(anchor), true) = (has, anchor, posts.len() < HOLOGRAMS) {
                     // Hoth's nameless post is listed by its place.
                     let name = post["name"].as_str().filter(|n| !n.is_empty()).map_or_else(|| format!("#{index}"), str::to_string);
-                    posts.push(Post { index, name, anchor });
+                    posts.push(Post { index, name, anchor, landing: false });
                 }
             }
         }
@@ -170,6 +176,9 @@ impl Holograms {
             height: look.height,
             size: map["hologram"]["size"].as_f64().unwrap_or(1.),
             turn_on: map["commandPost"]["holoTurnOnTime"].as_f64().unwrap_or(2.2),
+            neutralize_time: map["commandPost"]["neutralizeTime"].as_f64().unwrap_or(12.),
+            trace: crate::app::bench::fx().is_some(),
+            capture_time: map["commandPost"]["captureTime"].as_f64().unwrap_or(10.),
             light_radius: map["hologram"]["lightRadius"].as_f64().unwrap_or(0.),
             owner: Posts::new(Descriptor { look, posts: listed }),
             posts,
@@ -335,6 +344,7 @@ impl Holograms {
         camera: &[f64],
         world: &[f64; 16],
         owners: &dyn Fn(&str) -> Option<(u8, bool)>,
+        capture: &dyn Fn(&str, &mut [f64]) -> bool,
         unbuilt: &dyn Fn(usize) -> bool,
         can_repair: bool,
         relation: &dyn Fn(usize) -> usize,
@@ -360,11 +370,15 @@ impl Holograms {
             x[f::CAMERA..f::CAMERA + 3].copy_from_slice(&eye);
             x[f::POSITION..f::POSITION + 3].copy_from_slice(&post.anchor);
             x[f::COLOR..f::COLOR + 3].copy_from_slice(&self.colors[relation(team as usize).min(3)]);
-            // No capture facts reach this client: an owned post is never
-            // about to fall, a neutral one never about to be taken.
+            // Post.remaining's facts: who stands in it, how far along.
             let counts = &mut self.owner.counts[post.index * s::STRIDE..][..s::STRIDE];
             counts.fill(0.);
             counts[s::OWNER] = team as f64;
+            if capture(&post.name, counts) {
+                counts[s::OWNER] = team as f64;
+            }
+            counts[s::NEUTRALIZE_TIME] = self.neutralize_time;
+            counts[s::CAPTURE_TIME] = self.capture_time;
         }
         let mut seed = self.seed;
         self.owner.frame(count, &mut || {
@@ -372,6 +386,16 @@ impl Holograms {
             (seed >> 11) as f64 / (1u64 << 53) as f64
         });
         self.seed = seed;
+        if self.trace {
+            for post in &mut self.posts {
+                let remaining = self.owner.input[post.index * f::STRIDE + f::REMAINING];
+                let landing = remaining <= self.turn_on;
+                if landing != post.landing {
+                    post.landing = landing;
+                    eprintln!("fx-post {} landing={landing} remaining={remaining:.2} t={:.2}", post.name, self.time);
+                }
+            }
+        }
         // A sprite faces the camera: its square lies in the camera's own
         // right and up, scaled, at its centre.
         let right = Vector3::new(world[0], world[1], world[2]);

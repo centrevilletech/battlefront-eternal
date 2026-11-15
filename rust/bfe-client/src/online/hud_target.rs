@@ -148,6 +148,10 @@ impl Targets {
     pub fn new(classes: Vec<Class>, turrets: Vec<(usize, [f64; 3], f64)>) -> Self {
         Self { query: Box::new(Query::new()), classes, turrets, sights: Vec::with_capacity(TARGETS), shapes: Default::default() }
     }
+    pub fn point(&self, key: (u32, u32)) -> Option<[f64; 3]> {
+        let index = self.sights.iter().position(|s| s.key == key && s.alive && s.health > 0.)?;
+        Some(R::take(&self.query.rows[index * R::WORDS..][..R::WORDS], &[]).point)
+    }
 
     /// updateTargetHud for a living player. `ray`: where the search starts
     /// and which way it looks; `viewer`: the unit he controls (his own, or

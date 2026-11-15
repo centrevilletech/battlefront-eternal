@@ -218,6 +218,8 @@ pub struct WaterHost {
     far_water: f64,
     has_ocean: bool,
     phase: Box<Phase>,
+    // Each wading soldier's wake clock, by unit id (WaterState.soldierStep).
+    wakes: std::collections::HashMap<u32, f64>,
     policy: Box<Policy>,
     draws: Box<Draws>,
     mode: Value,
@@ -322,6 +324,7 @@ impl WaterHost {
             far_water: look["FarSceneRange"][0].as_f64().unwrap_or(0.),
             has_ocean: ocean,
             phase,
+            wakes: std::collections::HashMap::new(),
             policy,
             draws,
             mode: Value::Null,
@@ -488,6 +491,57 @@ impl WaterHost {
         Ok(())
     }
 
+    /// WaterState.soldierStep for the soldiers on foot (unit id, feet,
+    /// velocity): a wet one is a wader for the surface's contact foam and
+    /// rings, and leaves a wake ring every 1 / (0.3 v^2 + 4) s while it moves.
+    pub fn soldiers(&mut self, dt: f64, soldiers: &[(u32, [f64; 3], [f64; 3])]) {
+        use bfe_environment::layout::{surface as lim, surface_command as cmd, surface_command_kind as kind};
+        const WAKE_LIFE: f64 = 2.;
+        const WAKE_RADIUS: f64 = 0.25;
+        let level = self.state.level();
+        let mut n = 0;
+        let mut push = |phase: &mut Phase, row: [f64; cmd::STRIDE]| {
+            if n < lim::COMMANDS {
+                phase.commands[n * cmd::STRIDE..(n + 1) * cmd::STRIDE].copy_from_slice(&row);
+                n += 1;
+            }
+        };
+        let mut seen = Vec::with_capacity(soldiers.len());
+        for &(id, feet, velocity) in soldiers {
+            if !(level > feet[1] && self.state.over(feet[0], feet[2])) {
+                continue;
+            }
+            seen.push(id);
+            let mut row = [0.; cmd::STRIDE];
+            row[cmd::KIND] = kind::WADER;
+            row[cmd::ID] = id as f64 + 1.;
+            row[cmd::POSITION..cmd::POSITION + 3].copy_from_slice(&feet);
+            row[cmd::VELOCITY..cmd::VELOCITY + 3].copy_from_slice(&velocity);
+            row[cmd::DEPTH] = level - feet[1];
+            push(&mut self.phase, row);
+            let speed2 = velocity.iter().map(|v| v * v).sum::<f64>();
+            let clock = self.wakes.entry(id).or_insert(0.);
+            *clock += dt;
+            let interval = 1. / (0.3 * speed2 + 4.);
+            if *clock > interval && speed2 > 0. {
+                *clock = (*clock - interval).min(interval);
+                let mut row = [0.; cmd::STRIDE];
+                row[cmd::KIND] = kind::RIPPLE;
+                for k in 0..3 {
+                    row[cmd::POSITION + k] = feet[k] + velocity[k] * 0.03;
+                }
+                row[cmd::VELOCITY..cmd::VELOCITY + 3].copy_from_slice(&velocity);
+                row[cmd::HAS_VELOCITY] = 1.;
+                row[cmd::LIFE] = WAKE_LIFE;
+                row[cmd::RADIUS] = WAKE_RADIUS;
+                push(&mut self.phase, row);
+            }
+        }
+        self.wakes.retain(|id, _| seen.contains(id));
+        self.phase.frame[frame::COMMAND_START] = 0.;
+        self.phase.frame[frame::COMMANDS] = n as f64;
+    }
+
     // Water.update, updateWaders and updateRings for this frame.
     fn step(&mut self, view: &[f64], dt: f64, collision: Option<(&crate::online::replay::Collision, u32)>) {
         let sea = !self.flat();
@@ -509,7 +563,10 @@ impl WaterHost {
             Some((collision, world)) => phase.update::<V8, _>(&mut Shore { collision, world: world as usize, state, gathered, terrain }),
             None => phase.update::<V8, _>(&mut NoShore),
         }
-        self.state.step(dt);
+        // The displayed Water in the shared client/server pipeline does not
+        // run a physics tick. Its surface bob is phase.result[WAVE]; advancing
+        // another physics clock here also invalidates the far mirror's hold
+        // on every frame. The world's WaterState keeps its own tick clock.
     }
 
     // The main camera as the camera owner takes it (PageCameras): pose,

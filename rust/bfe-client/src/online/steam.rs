@@ -2,8 +2,9 @@
 //! EnvironmentVolume and SteamWisps): each vent in view, out to 90 m, is a
 //! ray-marched box of rolling vapour drawn at half the screen's size into a
 //! texture of its own, then laid over the scene by a depth-aware composite;
-//! sparse wisps curl over it on maps without fountains. Classic plays the
-//! vents' stock effect instead (map_effects.rs).
+//! sparse wisps curl over it on maps without fountains. The player's wakes
+//! (map_effects.rs Wakes) part both. Classic plays the vents' stock effect
+//! instead (map_effects.rs).
 use crate::render_bridge::Bridge;
 use bfe_content_native::BattleContent;
 use bfe_render::{effect_layout as layout, effects as render};
@@ -107,7 +108,7 @@ impl Steam {
     /// EnvironmentVolume.update/renderVolumes and SteamWisps.update.
     /// `screen` is the frame's size; `depth` whether the scene's depth is
     /// there to read (the composite and the volume fade against it).
-    pub fn frame(&mut self, dt: f64, volumes: &[Volume], screen: [i32; 2], depth: bool, gpu: &mut crate::resources::Resources, bridge: &mut Bridge) {
+    pub fn frame(&mut self, dt: f64, volumes: &[Volume], wakes: &super::map_effects::Wakes, screen: [i32; 2], depth: bool, gpu: &mut crate::resources::Resources, bridge: &mut Bridge) {
         self.time += dt.clamp(0., 0.1);
         if volumes.is_empty() || !depth {
             return;
@@ -138,10 +139,17 @@ impl Steam {
         v[1] = size[0] as f32;
         v[2] = size[1] as f32;
         v[3] = 1.;
-        // No wakes yet: each sits at time -100, never felt.
-        for w in 0..8 {
-            v[4 + w * 4 + 3] = -100.;
-        }
+        // The player's wakes, their times moved onto this clock.
+        let wake = |v: &mut [f32], at: usize, self_time: f64| {
+            for k in 0..8 {
+                let p = wakes.points[k];
+                let time = if p[3] < -99. { -100. } else { self_time - (wakes.time - p[3]) };
+                v[at + k * 4..at + k * 4 + 4].copy_from_slice(&[p[0] as f32, p[1] as f32, p[2] as f32, time as f32]);
+                let m = wakes.motion[k];
+                v[at + 32 + k * 4..at + 32 + k * 4 + 4].copy_from_slice(&[m[0] as f32, m[1] as f32, m[2] as f32, m[3] as f32]);
+            }
+        };
+        wake(&mut v, 4, self.time);
         data[values..values + VOLUME_VALUES].copy_from_slice(&v);
         let composite_at = values + VOLUME_VALUES;
         data[composite_at..composite_at + 3].copy_from_slice(&[size[0] as f32, size[1] as f32, 1.]);
@@ -180,9 +188,7 @@ impl Steam {
                     v[37 + i * 4 + 3] = vent.kind as f32;
                 }
             }
-            for k in 0..8 {
-                v[73 + k * 4 + 3] = -100.;
-            }
+            wake(&mut v, 73, self.time);
             v[WISP_VALUES - 1] = 1.;
             data[w..w + WISP_VALUES].copy_from_slice(&v);
             draw(bridge, [render::KIND_BATCH as f64, wisps as f64, WISPS as f64, 0., wisps_at as f64, WISPS as f64], 11., wisps as f64);

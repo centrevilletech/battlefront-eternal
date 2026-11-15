@@ -28,14 +28,20 @@ impl Navigation {
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 pub enum Stale {Character,Body}
 impl State {
+    pub fn bind_character(&mut self,reference:crate::store::Ref<crate::gen::Character>,handle:&crate::gen::F4Handle)->usize {
+        let index=if let Some(index)=self.roster.storage_index(reference) {
+            self.roster.replace(index,handle.clone());index
+        }else{self.roster.add(handle.clone())};
+        self.entities.register(super::entities::Entity::Character(reference));
+        self.units.character(reference,index);index
+    }
     /// F4's handles are validated before any roster entries are installed.
     /// Character order is authoritative and independent of body slab slots.
     pub fn prepare_roster(&mut self,context:super::rows::ReadContext<'_>,owner:&dyn super::roster::CharacterOwner,handles:&[crate::gen::F4Handle])->Result<(),Stale> {
         for handle in handles {owner.resolve(context,handle).ok_or(Stale::Character)?;}
         for handle in handles {
             let reference=owner.resolve(context,handle).unwrap();
-            let index=self.roster.add(handle.clone());
-            self.entities.register(super::entities::Entity::Character(reference));self.units.character(reference,index);
+            self.bind_character(reference,handle);
         }
         Ok(())
     }

@@ -68,9 +68,9 @@
       "uniforms": {
         "depthMap": 32,
         "velocityMap": 32,
-        "inverseJittered": 16,
-        "currentViewProjection": 16,
-        "previousViewProjection": 16
+        "currentFromJittered": 16,
+        "previousFromJittered": 16,
+        "cameraStill": 1
       }
     },
     {

@@ -43,7 +43,7 @@ pub struct MapCamera {
     phase_camera: bool,
     subject_eye: [f64; 3],
     flight_mode: bool,
-    perspectives: [bool; 2],
+    flight_first_person: bool,
     far_plane: f64,
 }
 impl MapCamera {
@@ -103,7 +103,7 @@ impl MapCamera {
             phase_camera: false,
             subject_eye: position,
             flight_mode: false,
-            perspectives: [false; 2],
+            flight_first_person: false,
             far_plane: 20000.0,
         })
     }
@@ -135,18 +135,21 @@ impl MapCamera {
     pub fn subject_eye(&self) -> [f64; 3] {
         self.subject_eye
     }
-    // VehicleDriver and flight perspective keep independent choices. A bail
-    // returns to the ground view without copying the cockpit preference.
+    // Boarding loads flightFirstPerson. Leaving keeps the active view, as
+    // VehicleDriver.exit does; later ground toggles do not change that setting.
     pub fn set_flight_perspective(&mut self, first: bool) {
-        self.perspectives[1] = first;
+        self.flight_first_person = first;
         if self.flight_mode {
             self.first_person = first;
         }
     }
     pub fn set_flight_mode(&mut self, flight: bool) {
         if self.flight_mode != flight {
-            self.perspectives[self.flight_mode as usize] = self.first_person;
-            self.first_person = self.perspectives[flight as usize];
+            if flight {
+                self.first_person = self.flight_first_person;
+            } else {
+                self.flight_first_person = self.first_person;
+            }
             self.flight_mode = flight;
         }
     }
@@ -394,6 +397,8 @@ pub struct Scene {
     water: Option<crate::water_host::WaterHost>,
     water_data: usize,
     water_time: f64,
+    // The soldiers on foot, gathered each frame for the water's waders.
+    water_soldiers: Vec<(u32, [f64; 3], [f64; 3])>,
     storm: Option<crate::storm_host::StormHost>,
     flyers: Option<crate::sky_host::SkyHost>,
     pub online: Option<Box<crate::online::replicas::Replicas>>,
@@ -1227,6 +1232,7 @@ impl Scene {
         } else {
             None
         };
+        bridge.r.world.depth_prepass(&mut bridge.r.core, live && shadow_count > 0)?;
         while !bridge.r.frame_reserve_role() {
             crate::loading_work::frame().await;
         }
@@ -1236,6 +1242,7 @@ impl Scene {
                 water: water_host.take(),
                 water_data: water_fx,
                 water_time: f64::NAN,
+                water_soldiers: Vec::new(),
                 storm,
                 flyers,
                 online,
@@ -1385,6 +1392,7 @@ impl Scene {
 
     pub fn set_shadows(&mut self,choice:&str)->Result<(),String>{
         let(count,size)=crate::shadows::quality(choice);
+        self.bridge.r.world.depth_prepass(&mut self.bridge.r.core, count > 0)?;
         if self.features[L::FEATURES_SHADOWS] as usize==count&&self.shadow_size==size{return Ok(());}
         if let Some(shadows)=self.shadows.take(){shadows.dispose(&mut self.bridge,&mut self.resources)?;}
         self.features[L::FEATURES_SHADOWS]=count as u32;self.features[L::FEATURES_CSM]=(count>0) as u32;self.shadow_size=size;self.shadows_enabled=count>0;
@@ -1631,8 +1639,11 @@ impl Scene {
             resources.items.hide_piloted_remote = receiver.own.remote.is_some()
                 && (camera.first_person || receiver.own.remote_zoom_step != 0);
             resources.animation_view(camera);
+            let replica_timer = self.bridge.r.core.profile.clock();
             resources.frame(receiver,receiver.clock.shown,dt.min(8./60.),camera.position,
                 replay,history,&mut self.bridge);
+            self.bridge.r.core.profile.cpu("replica presentation", replica_timer);
+            let camera_timer = self.bridge.r.core.profile.clock();
             let rider_eye = resources.prepare_camera(receiver, replay, &world.elements);
             let drawn = crate::online::cameras::DrawnDeath {
                 held_camera: resources.animated.held_camera(receiver.own.id as u32, receiver.own.generation as u32),
@@ -1669,13 +1680,19 @@ impl Scene {
                     0.
                 };
             resources.animation_view(camera);
+            self.bridge.r.core.profile.cpu("camera preparation", camera_timer);
             resources.finish_frame(receiver, replay, &world.elements, cue, &mut self.bridge.r.core.profile);
             resources.capture_shot_scene(receiver, camera);
+            let ordnance_timer = self.bridge.r.core.profile.clock();
             resources.present_ordnance(receiver, replay, dt.min(8./60.), &mut self.bridge);
+            self.bridge.r.core.profile.cpu("ordnance presentation", ordnance_timer);
+            let effects_timer = self.bridge.r.core.profile.clock();
             resources.present_arcs(receiver, replay, dt.min(8./60.), &world, &camera.snapshot().values[..16], self.size[1] as f64, &mut self.bridge);
             resources.present_shields(dt.min(8./60.), camera.position, &camera.snapshot().values, self.render_size, self.depth_texture, &mut self.bridge);
             resources.present_weather(dt.min(8./60.), camera.position, &camera.snapshot().values, self.render_size, &mut self.resources, &mut self.bridge);
             resources.present_holograms(receiver, dt.min(8./60.), camera.position, &camera.snapshot().values, &world.elements, &mut self.bridge);
+            self.bridge.r.core.profile.cpu("environment effects", effects_timer);
+            let hud_timer = self.bridge.r.core.profile.clock();
             resources.lights.frame(dt.min(8./60.), camera.position, camera.far());
             camera.set_lights(&resources.lights.packed, resources.lights.count);
             let mounted = resources.cameras.mounted_aim(camera);
@@ -1688,9 +1705,10 @@ impl Scene {
             resources.hud.target(&mut self.bridge, receiver, replay, ray);
             let reticle = mounted.or_else(||
                 resources.reticle_point(receiver).map(|point| crate::online::hud::Aim { point, project_x: false }));
-            resources.hud.aim(&mut self.bridge, camera.snapshot(), reticle);
+            resources.hud.aim(&mut self.bridge, camera.snapshot(), reticle, &resources.hulls);
             resources.sound.bleed = [resources.hud.teams[1][3], resources.hud.teams[2][3]];
             resources.sound.frame(receiver,&world.elements,dt,replay,resources.hud.audio_facts());
+            self.bridge.r.core.profile.cpu("HUD and sound presentation", hud_timer);
         }
         self.bridge.r.core.profile.cpu("presentation",timer);
     }
@@ -1708,7 +1726,7 @@ impl Scene {
     }
     fn draw_selected(&mut self, view: &View, component: Component) -> Result<(), String> {
         if self.profile_start.is_none() && self.frame.is_some() && std::env::var_os("BFE_GRAPHICS_TRACE").is_some() {
-            self.bridge.r.core.profile.enable(&self.bridge.r.core.gl);
+            self.bridge.r.core.start_profile();
             self.profile_start=Some(std::time::Instant::now());
             self.profile_memory("battle start");
         }
@@ -1798,6 +1816,7 @@ impl Scene {
         if let Some(canopies)=&self.canopies{canopies.frame(&mut self.bridge,&mut self.resources,view,self.shadows_enabled)?;}
         self.bridge.r.core.profile.cpu("canopy preparation", canopy_timer);
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
+        let static_timer = self.bridge.r.core.profile.clock();
         crate::static_scene::place_skies(&self.static_content, &mut self.bridge, &view.values, true);
         if matches!(component, Component::All | Component::Sky) {
             let far = self.far_reach * self.distance_scale;
@@ -1811,6 +1830,7 @@ impl Scene {
         } else if let Some(flyers) = &self.flyers { flyers.hide(&mut self.bridge.r.far.input); }
         self.lamps.begin();
         if matches!(component, Component::All | Component::Water) { self.water_frame(view)?; }
+        self.bridge.r.core.profile.cpu("sky and water preparation", static_timer);
         if matches!(component, Component::All | Component::Sky) {
             // Far terrain shares the displayed lens. Its separate clipping
             // planes cannot replace a mounted or scoped camera's field of view.
@@ -1871,6 +1891,7 @@ impl Scene {
         self.lamps.instances(&mut self.bridge.r.core,records,false,&mut |from,to|online.as_ref().is_none_or(|online|online.lamp_visible(from,to)));
         if !self.lamp_worlds.is_empty(){let values=self.lamps.select((1u64<<49,0,0,0),[0.;3],&mut |from,to|online.as_ref().is_none_or(|online|online.lamp_visible(from,to)));for &id in &self.lamp_worlds{self.bridge.world_lamps(id,&values);}}
         self.bridge.r.core.profile.cpu("lamp selection", lamp_timer);
+        let motion_timer = self.bridge.r.core.profile.clock();
         if let Some(native)=&mut self.temporal_motion{
             use bfe_render::{motion as M,post_chain::layout::{facts as pf,resource as pr,state as ps}};
             let motion=&mut self.bridge.r.motion;let f=&self.bridge.r.post_chain.input;let state=&self.bridge.r.post_chain.state;
@@ -1880,6 +1901,7 @@ impl Scene {
             motion.input[M::IN_RANGE..M::IN_RANGE+2].copy_from_slice(&[0.,1.]);motion.input[M::IN_TARGET]=f[pf::RESOURCES+pr::VELOCITY*pr::STRIDE+pr::TEXTURE];motion.input[M::IN_SIZE..M::IN_SIZE+2].copy_from_slice(&self.render_size.map(|v|v as f64));motion.input[M::IN_DEPTH]=self.depth_texture as f64;motion.input[M::IN_CLEAR]=1.;
             native.prepare(&self.bridge.r.core,motion,records,state[ps::VALID]!=0.);
         }
+        self.bridge.r.core.profile.cpu("motion preparation", motion_timer);
         let shadow_timer=self.bridge.r.core.profile.clock();
         if self.shadows_enabled { if let Some(shadows) = &mut self.shadows {
             let shadow_records = self.online.as_ref().map_or(records, |online| {
@@ -1888,6 +1910,7 @@ impl Scene {
             shadows.publish(&mut self.bridge, view, shadow_records)?;
         }}
         self.bridge.r.core.profile.cpu("shadow preparation",shadow_timer);
+        let packet_timer = self.bridge.r.core.profile.clock();
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         self.publish_near(records, bones);
         self.bridge.r.post.input[..bfe_render::post::STEP].copy_from_slice(&self.image_step);
@@ -1895,6 +1918,11 @@ impl Scene {
         self.publish(r::IMAGE, k::SCREEN, 0, 0, 1);
         if let Some(online)=&self.online{self.bridge.r.frames.meta[r::TRANSPARENT*m::LEN+m::FX_WORDS]=online.combat.particles.words as f64;}
         self.publish(r::TRANSPARENT, k::TRANSPARENT, records, bones, 0);
+        if component == Component::All {
+            if let Some(online) = &mut self.online {
+                online.hulls.draw_tethers(&view.values, &mut self.bridge)?;
+            }
+        }
         if let Some(online)=&self.online{let (view_records,view_bones)=online.first_person.append(&online.units,&mut self.bridge);if view_records!=0{
                 // Graphics.render gives the view camera the drawn camera's own
                 // field of view and aspect each frame (near 0.3, far 10), so the
@@ -1912,6 +1940,7 @@ impl Scene {
         if let Some(native)=&self.temporal_motion{let count=native.count;self.publish(r::MOTION,k::MOTION,count,0,0);}
         if self.online.is_some(){self.publish(r::HUD0,k::HUD,0,0,0);}
         self.water_screens(component);
+        self.bridge.r.core.profile.cpu("frame packet publication", packet_timer);
         self.bridge.r.core.profile.cpu("draw list building",build_timer);
         let submit_timer=self.bridge.r.core.profile.clock();
         let gpu_frame = self.bridge.r.core.profile.begin_frame(&self.bridge.r.core.gl);
@@ -1954,6 +1983,12 @@ impl Scene {
         }
         let light = self.storm.as_mut().and_then(|storm| storm.frame(&mut self.bridge, view, host.time() + dt));
         host.storm_light(light);
+        if let Some(online) = &self.online {
+            let mut soldiers = std::mem::take(&mut self.water_soldiers);
+            online.soldiers_on_foot(&mut soldiers);
+            host.soldiers(dt, &soldiers);
+            self.water_soldiers = soldiers;
+        }
         host.frame(&mut self.bridge, &mut self.resources, &view.values, dt, self.water_data, self.online.as_ref().map(|online| online.water_collision()))?;
         if host.plan.probe {
             if let Some(probe) = host.ocean().and_then(|o| o.probe) { self.sky_probe(view, probe); }
@@ -2324,23 +2359,24 @@ mod camera_tests {
     use super::*;
 
     #[test]
-    fn saved_cockpit_perspective_does_not_replace_the_ground_choice() {
+    fn saved_cockpit_perspective_applies_only_when_boarding() {
         let mut camera = MapCamera::new([0.; 3], [1280, 720]).unwrap();
         camera.set_flight_perspective(true);
         assert!(!camera.first_person);
         camera.set_flight_mode(true);
         assert!(camera.first_person);
         camera.set_flight_mode(false);
-        assert!(!camera.first_person);
+        assert!(camera.first_person);
     }
 
     #[test]
-    fn exiting_a_cockpit_restores_the_independent_ground_perspective() {
+    fn exiting_keeps_the_view_and_ground_toggles_preserve_the_flight_setting() {
         let mut camera = MapCamera::new([0.; 3], [1280, 720]).unwrap();
         camera.set_flight_mode(true);
         camera.first_person = true;
         camera.set_flight_mode(false);
-        assert!(!camera.first_person);
+        assert!(camera.first_person);
+        camera.first_person = false;
         camera.set_flight_mode(true);
         assert!(camera.first_person);
         camera.set_flight_mode(false);
@@ -2348,7 +2384,7 @@ mod camera_tests {
         camera.set_flight_mode(true);
         camera.first_person = false;
         camera.set_flight_mode(false);
-        assert!(camera.first_person);
+        assert!(!camera.first_person);
     }
 
     #[test]

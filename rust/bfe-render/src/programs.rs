@@ -57,6 +57,20 @@ pub fn sources(s: &Spec) -> (String, String) {
     (format!("{PREFIX}{VERTEX}{}{}", s.vertex_prefix, vertex), format!("{PREFIX}{FRAGMENT}{}{}", s.fragment_prefix, fragment))
 }
 
+// Water extends through the near plane. Hardware depth clamping preserves
+// that coverage without writing fragment depth, allowing early rejection of
+// water hidden by opaque surfaces. Other contexts retain the shader path.
+fn water_raster_depth(key: &str, vertex: &mut String, fragment: &mut String) -> bool {
+    let key = key.strip_suffix("-shadow").unwrap_or(key);
+    if !matches!(key, "effects/water-refraction-s2" | "effects/water-reflection-s2" | "effects/water-textured-s2") { return false; }
+    const VERTEX_DEPTH: &str = "gl_Position.z = 0.0;";
+    const FRAGMENT_DEPTH: &str = "gl_FragDepth = clamp((cameraRange.y - cameraRange.x * cameraRange.y / max(vSurfaceDepth, 0.0001))\n      / (cameraRange.y - cameraRange.x), 0.0, 1.0);";
+    if !vertex.contains(VERTEX_DEPTH) || !fragment.contains(FRAGMENT_DEPTH) { return false; }
+    *vertex = vertex.replace(VERTEX_DEPTH, "");
+    *fragment = fragment.replace(FRAGMENT_DEPTH, "");
+    true
+}
+
 fn uniform_type(ty: u32) -> u32 {
     match ty {
         glow::FLOAT => 1, glow::FLOAT_VEC2 => 2, glow::FLOAT_VEC3 => 3, glow::FLOAT_VEC4 => 4,
@@ -71,10 +85,22 @@ impl<G: HasContext, M: MultiDraw> Core<G, M> {
     pub fn add_owned_program(&mut self, key: &str) -> Result<u32, String> {
         if let Some((_, id)) = self.owned_programs.iter().find(|(k, _)| k == key) { return Ok(*id); }
         let s = spec(key)?;
-        let (vs, fs) = sources(s);
+        let (mut vs, mut fs) = sources(s);
+        // Keep the ES 3.0 path on contexts without gather support.
+        let version = self.gl.version();
+        let gather = if version.is_embedded { (version.major, version.minor) >= (3, 1) }
+            else { self.gl.supported_extensions().contains("GL_ARB_ES3_1_compatibility") };
+        if matches!(key, "post-hud/motion" | "post-hud/resolve") && gather {
+            vs = vs.replacen("#version 300 es", "#version 310 es", 1);
+            fs = fs.replacen("#version 300 es", "#version 310 es\n#define BFE_GATHER_DEPTH", 1);
+        }
+        let clamp_supported = (!version.is_embedded && (version.major, version.minor) >= (3, 2))
+            || self.gl.supported_extensions().contains("GL_EXT_depth_clamp");
+        let clamp = clamp_supported && water_raster_depth(key, &mut vs, &mut fs);
         let attributes = s.attributes.iter().map(|(n, l)| (n.to_string(), *l)).collect::<Vec<_>>();
         let uniforms = s.uniforms.iter().map(|(n, _)| n.to_string()).collect::<Vec<_>>();
         let id = self.add_program_lamps(s.kind, &vs, &fs, &attributes, &uniforms, s.lamps)?;
+        self.programs[id as usize].depth_clamp = clamp;
         let gl = &self.gl;
         let program = self.programs[id as usize].program;
         let validation = (|| unsafe {
@@ -205,6 +231,24 @@ mod tests {
         }
     }
     #[test]
+    fn water_depth_clamp_replaces_both_shader_depth_overrides() {
+        for stem in ["reflection", "refraction", "textured"] {
+            for suffix in ["", "-shadow"] {
+                let key = format!("effects/water-{stem}-s2{suffix}");
+                let (mut v, mut f) = sources(spec(&key).unwrap());
+                assert!(water_raster_depth(&key, &mut v, &mut f), "{key}");
+                assert!(v.contains("gl_Position = projectionMatrix * view;"));
+                assert!(!v.contains("gl_Position.z = 0.0;"));
+                assert!(!f.contains("gl_FragDepth ="));
+            }
+        }
+        let key = "effects/water-reflection-far-s2";
+        let (mut v, mut f) = sources(spec(key).unwrap());
+        let original = (v.clone(), f.clone());
+        assert!(!water_raster_depth(key, &mut v, &mut f));
+        assert_eq!((v, f), original);
+    }
+    #[test]
     fn registry_is_closed_and_sources_need_no_three_expansion() {
         assert!(spec("post-hud/unknown").is_err());
         for s in catalog::PROGRAMS {
@@ -216,7 +260,7 @@ mod tests {
                     crate::shader::rewrite_lamps(source, stage, s.kind, s.lamps).unwrap_or_else(|e| panic!("{}: {e}", s.key));
                 }
             }
-            if s.key.starts_with("post-hud/") { assert!(s.uniforms.len() <= 12); }
+            if s.key.starts_with("post-hud/") { assert!(s.uniforms.len() <= crate::post::MAX_UNIFORMS); }
         }
         assert_eq!(catalog::PROGRAMS.iter().filter(|s| s.key.starts_with("post-hud/")).count(), 12);
     }

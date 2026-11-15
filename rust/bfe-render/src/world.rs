@@ -44,6 +44,9 @@ pub struct WorldPass<C: HasContext> {
     order: Vec<usize>,
     by_program: bool,
     light_list: Vec<f32>,
+    visible: Vec<(usize, usize, i32, i32, u32)>,
+    depth_program: Option<usize>,
+    depth_prepass: bool,
     pub input: Vec<f32>,
     pub input_active: bool,
 }
@@ -81,7 +84,17 @@ impl<C: HasContext> WorldPass<C> {
     }
 
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> WorldPass<C> {
-        WorldPass { world: vec![], order: vec![], by_program: true, light_list: Vec::with_capacity(8 * MAX_LIGHTS), input: vec![-1.,-1.,-1.,-1.,0.], input_active: false }
+        WorldPass { world: vec![], order: vec![], by_program: true, light_list: Vec::with_capacity(8 * MAX_LIGHTS), visible: vec![], depth_program: None, depth_prepass: false, input: vec![-1.,-1.,-1.,-1.,0.], input_active: false }
+    }
+
+    pub fn depth_prepass<M: MultiDraw>(&mut self, core: &mut Core<C, M>, enabled: bool) -> Result<(), String> {
+        if enabled && self.depth_program.is_none() {
+            let vertex = "#version 300 es\nprecision highp float;\nuniform mat4 projectionMatrix;\nuniform mat4 viewMatrix;\nlayout(location=0) in vec3 position;\nvoid main(){vec4 mvPosition=viewMatrix*vec4(position,1.0);gl_Position=projectionMatrix*mvPosition;}";
+            let fragment = "#version 300 es\nprecision highp float;\nvoid main(){}";
+            self.depth_program = Some(core.add_program(crate::shader::Kind::Plain, vertex, fragment, &[("position".into(), 0)], &["projectionMatrix".into(), "viewMatrix".into()])? as usize);
+        }
+        self.depth_prepass = enabled;
+        Ok(())
     }
 
     // flags: cull side | 4 alpha to coverage | 8 depth write | 16 point lit
@@ -196,6 +209,7 @@ impl<C: HasContext> WorldPass<C> {
             order.sort_by_key(|&i| self.world[i].order);
         }
         self.order = order;
+        self.visible.reserve(self.world.len().saturating_sub(self.visible.len()));
     }
 
     pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>, camera: &Camera) {
@@ -214,6 +228,7 @@ impl<C: HasContext> WorldPass<C> {
         let lights = &core.input[FRAME_LIGHTS..FRAME_LIGHTS + 8 * MAX_LIGHTS];
         let lights32 = &core.frame[FRAME_LIGHTS..FRAME_LIGHTS + 8 * MAX_LIGHTS];
         let light_list = &mut self.light_list;
+        self.visible.clear();
         for &wi in &self.order {
             let w = &mut self.world[wi];
             // three tests a mesh's bounding sphere before it draws any of it.
@@ -261,6 +276,44 @@ impl<C: HasContext> WorldPass<C> {
             } else if w.point_lit && light_count > 0 {
                 mask = light_mask(lights, light_count, std::slice::from_ref(&w.bbox), None);
             }
+            self.visible.push((wi, ranges, first, count, mask));
+        }
+        // Solid geometry establishes coverage before the expensive lighting
+        // shaders. Cutouts retain their material's alpha-to-coverage pass.
+        if let Some(id) = self.depth_program.filter(|_| self.depth_prepass) {
+            let timer = core.profile.begin(gl);
+            state.use_program(gl, stats, programs[id].program);
+            unsafe {
+                gl.uniform_matrix_4_f32_slice(programs[id].uniforms[0].1.as_ref(), false, &core.frame[..16]);
+                gl.uniform_matrix_4_f32_slice(programs[id].uniforms[1].1.as_ref(), false, &core.frame[16..32]);
+            }
+            stats.gl_calls += 2;
+            state.color_mask(gl, stats, [false; 4]);
+            state.depth_func(gl, stats, glow::LEQUAL);
+            for &(wi, ranges, first, count, _) in &self.visible {
+                let w = &mut self.world[wi];
+                if !w.depth_write || w.alpha_to_coverage { continue; }
+                let geo = &geometries[w.geometry];
+                state.set_state(gl, stats, w.cull, false, true);
+                unsafe {
+                    gl.bind_vertex_array(Some(geo.vao));
+                    if ranges > 1 {
+                        let cells = w.cells.as_mut().unwrap();
+                        core.multi.multi_draw(glow::TRIANGLES, &mut cells.counts[..ranges], geo.index_type, &mut cells.offsets[..ranges]);
+                    } else {
+                        gl.draw_elements(glow::TRIANGLES, count, geo.index_type, first * geo.index_bytes);
+                    }
+                }
+                let indices = if ranges > 1 { w.cells.as_ref().unwrap().counts[..ranges].iter().map(|n| *n as u64).sum() } else { count.max(0) as u64 };
+                core.profile.draw(indices, 1, if ranges > 1 {core.multi.multi_draw_calls(ranges)} else {1});
+                stats.gl_calls += 2;
+            }
+            state.color_mask(gl, stats, [true; 4]);
+            core.profile.end(gl, "opaque depth", timer);
+        }
+        for &(wi, ranges, first, count, mask) in &self.visible {
+            let w = &mut self.world[wi];
+            let geo = &geometries[w.geometry];
             let timer = core.profile.begin(gl);
             unsafe {
                 state.use_program(gl, stats, programs[w.program].program);

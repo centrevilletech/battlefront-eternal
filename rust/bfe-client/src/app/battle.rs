@@ -244,10 +244,7 @@ pub struct LiveSpawnPort {
     /// Suicide / respawn flag queued when the player triggers respawn.
     pub pending_suicide: bool,
     post_vehicles:std::collections::HashMap<String,[Vec<String>;2]>,
-    /// The world's spawn eligibility for the player's team (its own summary):
-    /// the team and the registry ids of the posts it may spawn at. A post
-    /// held without a spawn path is not one; an ally's post with an ally path is.
-    world_eligible: Option<(u8, Vec<usize>)>,
+    spawn_eligibility: HudOwnSummary,
 }
 
 /// The spawn screen's Math.random (spawn-screen/index.js gives its model no
@@ -378,7 +375,7 @@ impl LiveSpawnPort {
                 display_name: pm.display_name.to_ascii_uppercase(),
                 position: pm.position,
                 owner,
-                eligible: owner == 1,
+                eligible: pm.active,
                 vehicles: Vec::new(),
             });
             post_ids.push(pm.id);
@@ -440,7 +437,7 @@ impl LiveSpawnPort {
             pending_spawn: None,
             pending_suicide: false,
             post_vehicles:std::collections::HashMap::new(),
-            world_eligible: None,
+            spawn_eligibility: HudOwnSummary::default(),
         }
     }
 
@@ -460,6 +457,7 @@ impl LiveSpawnPort {
         own_alive: bool,
         own_team: u8,
     ) {
+        self.spawn_eligibility = *own_summary;
         // The spawn port follows the server-selected side across death; the
         // default team must not turn an opposing human into a teammate.
         if (1..=2).contains(&own_team) {
@@ -488,11 +486,13 @@ impl LiveSpawnPort {
         for (i, pm) in post_meta.iter().enumerate() {
             if let Some(p) = self.posts.get_mut(i) {
                 p.owner = pm.team;
+                p.position = pm.position;
+                p.eligible = pm.active;
+                if !p.display_name.eq_ignore_ascii_case(&pm.display_name) {
+                    p.display_name = pm.display_name.to_ascii_uppercase();
+                }
             }
         }
-        self.world_eligible = (own_summary.valid && (1..=2).contains(&own_summary.team)).then(|| {
-            (own_summary.team, own_summary.posts[..own_summary.post_count.min(32)].iter().map(|&id| usize::from(id)).collect())
-        });
     }
 }
 
@@ -523,17 +523,20 @@ impl SpawnPort for LiveSpawnPort {
         }
     }
 
-    /// Returns all command posts, marking those `team` may spawn at as
-    /// eligible: the world's word for the player's own team, else the posts
-    /// the team holds (as the page does without its entity eligibility).
+    /// The authority's eligible post list includes moving command vehicles.
+    /// A different team uses ownership until its own eligibility arrives.
     fn posts(&self, team: u8) -> Vec<SpawnPostEntry> {
-        let world = self.world_eligible.as_ref().filter(|(t, _)| *t == team).map(|(_, ids)| ids);
         self.posts
             .iter()
-            .zip(&self.post_ids)
-            .map(|(p, id)| {
+            .enumerate()
+            .map(|(i, p)| {
                 let mut e = p.clone();
-                e.eligible = world.map_or(p.owner == team, |ids| ids.contains(id));
+                e.eligible = p.eligible && if self.spawn_eligibility.valid && self.spawn_eligibility.team == team {
+                    self.spawn_eligibility.posts[..self.spawn_eligibility.post_count]
+                        .contains(&(self.post_ids[i] as u16))
+                } else {
+                    p.owner == team
+                };
                 if let Some(vehicles)=self.post_vehicles.get(&p.name) {e.vehicles.clone_from(&vehicles[usize::from(team==2)]);}
                 e
             })
@@ -1995,6 +1998,7 @@ impl BattleController {
                 self.scene.bridge.r.core.profile.cpu("receive/predict",receive_timer);
                 self.scene
                     .present_network(receiver, replay, &sender.history, camera, dt);
+                super::bench::observe_tows(receiver);
                 receiver.publications.clear();
                 *camera.snapshot()
             }
@@ -3119,22 +3123,6 @@ fn reset_hud_layer(input: &mut [f64]) {
 mod tests {
     use super::*;
     #[test]
-    fn spawn_posts_follow_the_worlds_eligibility_for_the_own_team() {
-        let post = |id, name: &str, team| HudPostMeta { id, name: name.into(), display_name: name.into(), position: [0.; 3], team, active: true };
-        // cp2 is the team's own post without a spawn path; cp3 an ally's
-        // post with an ally path (a local army friendly to team 2).
-        let posts = [post(1, "cp1", 2), post(2, "cp2", 2), post(3, "cp3", 3)];
-        let mut port = LiveSpawnPort::from_hud_meta(&[], &posts, &std::collections::HashMap::new(), "cw");
-        let eligible = |port: &LiveSpawnPort, team| port.posts(team).iter().filter(|p| p.eligible).map(|p| p.name.clone()).collect::<Vec<_>>();
-        assert_eq!(eligible(&port, 2), ["cp1", "cp2"]);
-        let mut own = HudOwnSummary { valid: true, team: 2, post_count: 2, ..HudOwnSummary::default() };
-        own.posts[..2].copy_from_slice(&[1, 3]);
-        port.sync_from_hud(&[[0.; 4]; 8], &posts, &own, false, 2);
-        assert_eq!(eligible(&port, 2), ["cp1", "cp3"]);
-        // The other team (a switch on the screen) keeps the ownership rule.
-        assert_eq!(eligible(&port, 1), Vec::<String>::new());
-    }
-    #[test]
     fn mission_team_order_drives_spawn_classes() {
         let class = |team, side: &str, name: &str, id, order| HudClassMeta {
             team,
@@ -3184,6 +3172,31 @@ mod tests {
             port.sync_from_hud(&[[0.; 4]; 8], &[], &summary, false, 1);
             assert_eq!(port.human_state().phase, expected);
         }
+    }
+
+    #[test]
+    fn mobile_spawn_choice_follows_live_position_and_authority_eligibility() {
+        let mut meta = HudPostMeta {
+            id: 22, name: "transport-14".into(), display_name: "AT-AT".into(),
+            position: [158., -6., 119.], team: 1, active: false,
+        };
+        let mut port = LiveSpawnPort::from_hud_meta(&[], &[meta.clone()], &std::collections::HashMap::new(), "gcw");
+        assert!(!port.posts(1)[0].eligible);
+        let mut summary = HudOwnSummary { valid: true, team: 1, post_count: 1, ..Default::default() };
+        summary.posts[0] = 22;
+        meta.active = true;
+        port.sync_from_hud(&[[0.; 4]; 8], &[meta.clone()], &summary, false, 1);
+        assert!(port.posts(1)[0].eligible);
+        meta.position[0] += 20.;
+        port.sync_from_hud(&[[0.; 4]; 8], &[meta.clone()], &summary, false, 1);
+        assert_eq!(port.posts(1)[0].position, meta.position);
+        summary.post_count = 0;
+        port.sync_from_hud(&[[0.; 4]; 8], &[meta.clone()], &summary, false, 1);
+        assert!(!port.posts(1)[0].eligible);
+        summary.post_count = 1;
+        meta.active = false;
+        port.sync_from_hud(&[[0.; 4]; 8], &[meta], &summary, false, 1);
+        assert!(!port.posts(1)[0].eligible);
     }
 
     #[test]

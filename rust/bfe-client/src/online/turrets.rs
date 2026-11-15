@@ -17,6 +17,7 @@ use three::{Matrix4, Quaternion, Vector3};
 struct Part {
     row: [f64; draw::REC_STRIDE],
     node: usize,
+    enclosed: bool,
 }
 struct Turret {
     // Its place among the live buildings, which records name it by.
@@ -181,12 +182,19 @@ impl Turrets {
                 .iter()
                 .filter(|p| p.instance == instance)
                 .map(|p| {
-                    let node = p.attachment.as_ref().and_then(|name| bone(name)).map_or(ids[root as usize], |id| ids[id as usize]);
-                    (p, node)
+                    let attachment = p.attachment.as_ref().and_then(|name| bone(name));
+                    let node = ids[attachment.unwrap_or(root) as usize];
+                    let mut parent = attachment;
+                    let mut enclosed = drum.is_none() && gun.is_none();
+                    while let Some(id) = parent {
+                        if Some(id) == drum || Some(id) == gun { enclosed = true; break; }
+                        parent = hull.tree.node(id).parent;
+                    }
+                    (p, node, enclosed)
                 })
                 .collect::<Vec<_>>();
             let mut recipes = Vec::new();
-            for (part, node) in parts {
+            for (part, node, enclosed) in parts {
                 let part = bfe_content_native::placed::Part {
                     instance: part.instance,
                     attachment: part.attachment.clone(),
@@ -207,7 +215,7 @@ impl Turrets {
                 };
                 let admission = crate::static_scene::props(bridge, content, textures, Placements { parts: vec![part], deferred: 0 }, shadow_cascades)?;
                 for row in admission.records {
-                    recipes.push(Part { row, node });
+                    recipes.push(Part { row, node, enclosed });
                 }
             }
             // Camera owns obstruction and easing. Resource admission supplies
@@ -215,6 +223,14 @@ impl Turrets {
             use bfe_presentation::layout::camera_frame as cf;
             let mut camera = vec![0.; cf::STRIDE];
             camera[cf::TURRET_ROOT..cf::TURRET_ROOT + 16].copy_from_slice(&matrix);
+            if let Some(bounds) = rig.get("box") {
+                for corner in 0..2 {
+                    for axis in 0..3 {
+                        camera[cf::TURRET_BOUNDS + corner * 3 + axis] = bounds.at(corner).and_then(|v| v.at(axis)).and_then(bfe_content::Value::as_f64).ok_or("invalid turret camera bounds")?;
+                    }
+                }
+                camera[cf::TURRET_HAS_BOUNDS] = 1.;
+            }
             let mut pivot = Vector3::default();
             if let Some(drum) = drum {
                 hull.tree.get_world_position(drum, &mut pivot);
@@ -371,10 +387,11 @@ impl Turrets {
             (f::TURRET_CENTER, 3),
             (f::TURRET_OFFSET, 3),
             (f::TURRET_RATES, 6),
+            (f::TURRET_BOUNDS, 6),
         ] {
             x[at..at + count].copy_from_slice(&turret.camera[at..at + count]);
         }
-        for at in [f::TURRET_FACING, f::TURRET_FIRST, f::TURRET_THIRD, f::TURRET_TILT, f::TURRET_AIM] {
+        for at in [f::TURRET_FACING, f::TURRET_FIRST, f::TURRET_THIRD, f::TURRET_TILT, f::TURRET_AIM, f::TURRET_HAS_BOUNDS] {
             x[at] = turret.camera[at];
         }
         let input = &self.owner.turret_input[index * t::STRIDE..];
@@ -394,7 +411,7 @@ impl Turrets {
         self.hidden
             .and_then(|index| self.rows.get(index))
             .filter(|t| t.shown)
-            .map_or(0, |t| t.parts.len())
+            .map_or(0, |t| t.parts.iter().filter(|p| p.enclosed).count())
     }
     pub fn append(&self, bridge: &mut Bridge, records: usize, bones: usize) -> (usize, usize) {
         self.append_visibility(bridge, records, bones, false)
@@ -415,10 +432,11 @@ impl Turrets {
         hidden: bool,
     ) -> (usize, usize) {
         for (index, t) in self.rows.iter().enumerate() {
-            if !t.shown || (self.hidden == Some(index)) != hidden {
+            if !t.shown {
                 continue;
             }
             for (part_index,part) in t.parts.iter().enumerate() {
+                if (self.hidden == Some(index) && part.enclosed) != hidden { continue; }
                 let count = t.inverses.len();
                 if records == draw::MAX_RECORDS || bones + count > draw::MAX_BONES {
                     continue;

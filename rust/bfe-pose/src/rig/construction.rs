@@ -99,7 +99,7 @@ pub fn turret_view(settings: Option<&Value>) -> Record {
     if let Some(settings) = settings.and_then(Value::as_object) {
         for (key, value) in settings.entries() {
             if !matches!(key, "EyePointOffset" | "TrackCenter" | "TrackOffset") { continue; }
-            let Some(v) = vector(Some(value)) else { continue; };
+            let Some(v) = bfe_content::odf::scan_vector(Some(value)) else { continue; };
             match key {
                 "EyePointOffset" => { result["eye"] = record!(v); result["center"] = record!(v); }
                 "TrackCenter" => result["center"] = record!(v),
@@ -108,6 +108,18 @@ pub fn turret_view(settings: Option<&Value>) -> Record {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn turret_camera_scans_authored_components_in_order() {
+        let settings = bfe_content::json::parse(r#"{"TrackCenter":"1 2 3","EyePointOffset":"0.0 1.5.0 -2.0","TrackOffset":"0 2.7 3"}"#).unwrap();
+        let view = super::turret_view(Some(&settings));
+        assert_eq!(view["eye"], serde_json::json!([0., 1.5, 0.]));
+        assert_eq!(view["center"], view["eye"]);
+        assert_eq!(view["offset"], serde_json::json!([0., 2.7, 3.]));
+    }
 }
 /// Vehicle constructor, its marker/muzzle ordering, and seatView. The HullRig
 /// builder is shared with authority; these records include the host-facing
