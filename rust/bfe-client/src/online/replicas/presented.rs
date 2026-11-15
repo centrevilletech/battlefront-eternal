@@ -363,7 +363,20 @@ impl Replicas {
     // CombatPresentation.receive shows a record as it arrives and
     // CombatPresentation.present asks again, each frame, for the ones whose
     // unit this client did not know yet, until they expire.
-    pub(super) fn present_events(&mut self, receiver: &Receiver, tick: f64) {
+    pub(super) fn present_events(&mut self, receiver: &Receiver, prediction: &super::super::replay::Replay, tick: f64) {
+        // PredictedShots.fire: the player's own round shows its shoot clip,
+        // raised stance and muzzle flash on the tick his weapon fires in the
+        // client's replay; the world's record of that shot, about a tenth of
+        // a second later, is then not shown again (presentEntityEvent's
+        // `predictedShots.claim`).
+        let own = (receiver.own.id as u32, receiver.own.generation as u32);
+        let ahead = prediction.body.is_some();
+        for shot in &prediction.shots {
+            let weapon = self.guns.ids.get(shot.weapon).copied().unwrap_or(0);
+            if self.guns.ahead.get(weapon) == Some(&true) {
+                self.present_event(&Event { owner: own, expiry: tick + EXPIRY, seed: 0, act: Act::Shot { weapon, repair: false, melee: false } });
+            }
+        }
         for field in receiver.publications.iter() {
             if field.row[r::KIND] != k::COMBAT as f64 || field.row[r::SCHEMA] != 8. {
                 continue;
@@ -374,6 +387,11 @@ impl Replicas {
             let Some(act) = self.presented.decode(&source) else {
                 continue;
             };
+            if let Act::Shot { weapon, repair: false, melee: false } = act {
+                if ahead && (source.owner_id, source.owner_generation) == own && self.guns.ahead.get(weapon) == Some(&true) {
+                    continue;
+                }
+            }
             // presentEvent: a blast or a blow-apart naming nobody shows
             // nothing, and is not asked for again.
             if source.owner_id == 0 && matches!(act, Act::DeathBlast | Act::BlowApart { .. } | Act::ShieldHit { .. }) {

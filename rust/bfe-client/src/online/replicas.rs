@@ -30,6 +30,9 @@ struct Model {
     // outside every authoritative or predicted body in the live battle.
     preview: Box<Units>,
     preview_parts: Vec<Appearance>,
+    // The preview's geometry and its groups (first, count, material), for a
+    // class that draws this body in its own skin.
+    preview_geometry: (u32, usize, Vec<(usize, usize, usize)>),
     preview_animation: preview::Animation,
     inverses: Vec<[f64; 16]>,
     content: usize,
@@ -124,9 +127,14 @@ pub struct Replicas {
     pub hulls: Box<super::hulls::Hulls>,
     pub turrets: Box<super::turrets::Turrets>,
     pub buildings: super::buildings::Buildings,
+    animated: super::animated_props::Animated,
     pub items: Box<super::items::Views>,
     models: Vec<Model>,
     classes: Vec<Option<usize>>,
+    class_names: Vec<String>,
+    // By class: a class's own skin on its shared body (OverrideTexture), as
+    // the body's draw textures and spawn screen preview parts.
+    skins: Vec<Option<([f64; 4], Vec<Appearance>)>>,
     dive_times: Vec<f64>,
     preview_weapons: Vec<Option<usize>>,
     preview_banks: Vec<usize>,
@@ -135,6 +143,9 @@ pub struct Replicas {
     preview_skin: glow::Texture,
     preview_held: Vec<Vec<Appearance>>,
     slots: Vec<Slot>,
+    // The first person arms' muzzle flash: the tick of the shot it is for
+    // and the seconds it has left.
+    eye_flash: (f64, f64),
     bound: Index,
     pub visible: usize,
     /// BFE_AI_TRACE: the drawn soldiers' census, beside the world's.
@@ -282,6 +293,7 @@ impl Replicas {
                 bones: actor.bones.iter().map(|bone| bone.name.to_lowercase()).collect(),
                 preview,
                 preview_parts,
+                preview_geometry: (preview_geometry, grouped.indices.len(), grouped.groups.iter().map(|g| (g.first, g.count, g.material)).collect()),
                 preview_animation,
                 inverses,
                 content: id,
@@ -315,6 +327,10 @@ impl Replicas {
                 .map_or(-1., |clip| clip as f64);
         }
         let mut classes = vec![None; registry.classes.len() + 1];
+        let mut class_names = vec![String::new(); registry.classes.len() + 1];
+        for (i, name) in registry.classes.iter().enumerate() {
+            class_names[i + 1] = name.to_string();
+        }
         let mut dive_times = vec![0.; classes.len()];
         for class in &defs.classes {
             let Some(id) = class.registry_id else {
@@ -332,6 +348,45 @@ impl Replicas {
                 content.content.actors[body].0.clone()
             };
             classes[id as usize] = names.iter().position(|n| n == &key);
+        }
+        // units.js buildBody: a class's OverrideTexture re-skins its body.
+        // A class the world can field but no body draws would fight unseen.
+        for class in &defs.classes {
+            if let Some(id) = class.registry_id {
+                if classes[id as usize].is_none() {
+                    eprintln!("native unit admission: class {}/{} has no body model; its units would not be drawn", defs.names.text(class.side), defs.names.text(class.name));
+                }
+            }
+        }
+        let mut skins: Vec<Option<([f64; 4], Vec<Appearance>)>> = (0..classes.len()).map(|_| None).collect();
+        for class in &defs.classes {
+            let (Some(id), Some(model)) = (class.registry_id, class.registry_id.and_then(|id| classes[id as usize])) else {
+                continue;
+            };
+            let key = format!("{}/{}", defs.names.text(class.side), defs.names.text(class.name));
+            let Some((_, skin)) = content.skins.iter().find(|(name, _)| *name == key) else {
+                continue;
+            };
+            let mut maps = [-1.; 4];
+            for (slot, texture) in skin.iter().enumerate().take(4) {
+                if let Some(texture) = texture {
+                    maps[slot] = textures[*texture] as f64;
+                }
+            }
+            let (geometry, total, groups) = &models[model].preview_geometry;
+            let mut parts = Vec::new();
+            for &(first, count, material) in groups {
+                let map = maps.get(material).copied().unwrap_or(-1.) as i32;
+                let mut style = appearance::style("model");
+                style.depth_test = Some(true);
+                style.depth_write = Some(true);
+                style.cutoff = Some(-1.);
+                let mut part = Appearance::new(bridge, *geometry, *total, style, true, &[map, -1, preview_skin_sample as i32])?;
+                part.first = first;
+                part.count = count;
+                parts.push(part);
+            }
+            skins[id as usize] = Some((maps, parts));
         }
         // Units owns the generated actor/node limits. Stop cold registration
         // before either budget fills; a live refusal never creates a rig.
@@ -442,7 +497,7 @@ impl Replicas {
         )?);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
-        let sound = Box::new(super::sound::Sound::new(
+        let mut sound = Box::new(super::sound::Sound::new(
             sound,
             resources.collision.clone(),
             resources.world,
@@ -454,6 +509,7 @@ impl Replicas {
         bridge.r.core.state.reset();
         let turrets = Box::new(super::turrets::Turrets::new(content, bridge, textures)?);
         let buildings = super::buildings::Buildings::new(content, bridge, textures)?;
+        let animated = super::animated_props::Animated::new(content, bridge, textures)?;
         units.rider_sources.bind(&hulls.owner.sources, &turrets.owner.sources);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
@@ -464,6 +520,7 @@ impl Replicas {
         let jets = Box::new(super::jetpacks::Jetpacks::new(content, bridge, renderer, &combat.effect_names, jets_at)?);
         let arcs = Box::new(super::lightning::Arcs::new(content, bridge, textures, &arc_images, combat.particles.words)?);
         let guns = super::lightning::Guns::new(content)?;
+        sound.ahead = (guns.ahead.clone(), guns.ids.clone());
         let (collision, world) = (resources.collision.clone(), resources.world);
         bridge.r.core.state.reset();
         let shields = Box::new(super::shields::Shields::new(
@@ -528,9 +585,12 @@ impl Replicas {
             hulls,
             turrets,
             buildings,
+            animated,
             items,
             models,
             classes,
+            class_names,
+            skins,
             dive_times,
             preview_weapons,
             preview_banks,
@@ -539,6 +599,7 @@ impl Replicas {
             preview_skin,
             preview_held,
             slots,
+            eye_flash: (-1., 0.),
             bound: Index::new(POOL),
             visible: 0,
             census: std::env::var_os("BFE_AI_TRACE").map(|_| Box::default()),
@@ -557,17 +618,43 @@ impl Replicas {
         bridge: &mut Bridge,
     ) {
         if let Some(census) = &mut self.census {
-            census.observe(tick, receiver.own.id, &self.slots, &self.units.output);
+            census.observe(tick, receiver, &self.slots, &self.units.output, &self.units.input, &self.class_names);
         }
         self.tick = tick;
         self.hud.frame(bridge, receiver, prediction, dt);
-        self.combat.frame(receiver, tick, dt, &mut self.lights, bridge);
+        self.combat.frame(receiver, tick, dt);
+        // The player's own rounds fired in this frame's replay are drawn
+        // from now on, from the gun origin beside his head as he fired.
+        for shot in &prediction.shots {
+            let basis = bfe_presentation::aim::Basis::new::<bfe_presentation::cameras::math::V8>(
+                three::Vector3::new(shot.position[0], shot.position[1], shot.position[2]),
+                shot.aim[0],
+                shot.aim[1],
+                shot.posture,
+                shot.air,
+            );
+            let (collision, world) = (&self.collision, self.world);
+            let [yaw, pitch] = shot.fire;
+            self.combat.predict(
+                shot.weapon,
+                shot.tick,
+                shot.button,
+                [basis.origin.x, basis.origin.y, basis.origin.z],
+                [yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos()],
+                shot.spread,
+                &mut |from, direction, far| {
+                    let ray = bfe_sim::collision::Ray { ox: from[0], oy: from[1], oz: from[2], dx: direction[0], dy: direction[1], dz: direction[2] };
+                    collision.borrow_mut().ray_hit(world, ray, far, -1).map(|(_, hit)| hit.distance)
+                },
+            );
+        }
         // SnapshotPresentation samples once for the whole display batch.
         // The unit links then borrow its output by identity and generation.
         receiver.network.borrow_mut().present(tick, -1., prediction.fleet.identity.map_or(-1., |p| p.0));
         self.hulls.frame(receiver, tick, dt, &prediction.fleet, history, &mut self.combat.hull_fx);
         self.turrets.frame(receiver, history, dt);
         self.buildings.frame(receiver, dt);
+        self.animated.frame(receiver, tick, dt);
         self.items.frame(receiver, tick);
         self.frame = self.frame.wrapping_add(1);
         self.visible = 0;
@@ -643,11 +730,12 @@ impl Replicas {
                     c[command::YAW] = row[r::YAW];
                     self.units.input[f::COMMANDS] += 1.;
                 }
-                if key.0 as f64 != receiver.own.id {
-                    self.units.network.bind(actor, key.0 as f64, key.1 as f64, if kind == k::SOLDIER { 0. } else { 2. }, &receiver.network);
-                }
                 slot
             };
+            if key.0 as f64 != receiver.own.id {
+                let actor = self.slots[slot].actor;
+                self.units.network.keep(actor, key.0 as f64, key.1 as f64, if kind == k::SOLDIER { 0. } else { 2. }, &receiver.network);
+            }
             self.slots[slot].weapon = self.weapon_classes.get(row[r::WEAPON] as usize).copied().flatten();
             self.slots[slot].walker = kind == k::DROIDEKA;
             self.slots[slot].class = row[r::CLASS_ID] as usize;
@@ -783,6 +871,34 @@ impl Replicas {
                 input[i::RIDER_NINE] = pick.3 as u8 as f64;
                 input[i::SOURCE_VERSION] = self.slots[slot].source;
             }
+            if row[r::ID] != receiver.own.id {
+                // The record itself, as network-entity-game.js applies it:
+                // what the body shows until (and whenever) the timeline has
+                // no sample of this life, never a previous life's last pose.
+                input[i::NETWORK] = 0.;
+                input[i::POSITION..i::POSITION + 3].copy_from_slice(&row[r::POSITION..r::POSITION + 3]);
+                input[i::PREVIOUS_POSITION..i::PREVIOUS_POSITION + 3].copy_from_slice(&row[r::POSITION..r::POSITION + 3]);
+                input[i::VELOCITY..i::VELOCITY + 3].copy_from_slice(&row[r::VELOCITY..r::VELOCITY + 3]);
+                input[i::PREVIOUS_VELOCITY..i::PREVIOUS_VELOCITY + 3].copy_from_slice(&row[r::VELOCITY..r::VELOCITY + 3]);
+                input[i::YAW] = row[r::YAW];
+                input[i::TICK_YAW] = 0.;
+                input[i::PITCH] = row[r::PITCH];
+                if kind == k::SOLDIER {
+                    let state = row[r::STATE] as u32;
+                    input[i::POSTURE] = row[r::POSTURE];
+                    input[i::AIR] = match state { 1 => 1., 2 => 2., 3 | 8 => 3., 4 => 4., _ => 0. };
+                    input[i::DIVE] = match state { 5 => 1., 6 => -1., _ => 0. };
+                    input[i::DEAD] = dead as u8 as f64;
+                } else {
+                    input[i::WALKER_MODE] = row[r::MODE];
+                    input[i::WALKER_TIME] = row[r::TIME];
+                    input[i::WALKER_LEGS] = row[r::LEGS];
+                    input[i::WALKER_ROLL] = row[r::ROLL];
+                    input[i::WALKER_LEAN] = row[r::LEAN];
+                    input[i::WALKER_REVERSE] = row[r::REVERSE];
+                    input[i::DEAD] = row[r::DEAD];
+                }
+            }
             if row[r::ID] == receiver.own.id {
                 input[i::NETWORK] = 0.;
                 input[i::POSITION..i::POSITION + 3].copy_from_slice(&row[r::POSITION..r::POSITION + 3]);
@@ -817,7 +933,7 @@ impl Replicas {
         }
         // Every body of this frame is bound: show what the server said of them.
         self.present_states(receiver, prediction, tick);
-        self.present_events(receiver, tick);
+        self.present_events(receiver, prediction, tick);
         // A bolt's shooter, if he is drawn: his gun origin as last posed.
         let (bound, slots, units) = (&self.bound, &self.slots, &self.units);
         let mut casts = super::lightning::Casts { collision: &self.collision, world: self.world };
@@ -872,7 +988,7 @@ impl Replicas {
         if receiver.own.mount_kind != k::VEHICLE {
             return None;
         }
-        self.first_person.frame(&mut self.units, receiver, prediction, camera, 0.);
+        self.first_person.frame(&mut self.units, receiver, prediction, &self.guns, camera, 0.);
         self.units.pose_frame();
         let identity = (receiver.own.id as u32, receiver.own.generation as u32);
         let slot = self
@@ -892,7 +1008,7 @@ impl Replicas {
     // selected view and consumes this frame's camera-motion cue.
     pub fn finish_frame(&mut self, receiver: &Receiver, prediction: &super::replay::Replay, camera: &[f64; 16], cue: f64) {
         if receiver.own.mount_kind != k::VEHICLE {
-            self.first_person.frame(&mut self.units, receiver, prediction, camera, cue);
+            self.first_person.frame(&mut self.units, receiver, prediction, &self.guns, camera, cue);
             self.units.pose_frame();
         }
         self.units.attachment_frame();
@@ -922,6 +1038,35 @@ impl Replicas {
         }
         self.units.place_actors(places);
 
+    }
+    /// The frame's rounds, once its bodies are posed: a bolt leaves the gun
+    /// of its shooter as he is drawn now (EntityGameState's `muzzle`: the
+    /// fire point of the weapon of his that fires that class of round, on
+    /// the first person arms for the player's own in that view; nothing for
+    /// a seated or unknown shooter, whose bolt keeps its launch point).
+    pub fn present_ordnance(&mut self, receiver: &Receiver, dt: f64, bridge: &mut Bridge) {
+        let own = (receiver.own.id as u32, receiver.own.generation as u32);
+        let (bound, slots, units, models, guns, first_person) = (&self.bound, &self.slots, &self.units, &self.models, &self.guns, &self.first_person);
+        let muzzle = |shooter: (u32, u32), round: usize| {
+            let slot = &slots[*bound.get(&shooter)?];
+            if !slot.active || slot.mount.is_some() {
+                return None;
+            }
+            let weapon = guns.shooters.get(round)?.iter().find(|(class, _)| *class == slot.class)?.1;
+            let local = guns.muzzles.get(weapon).copied().flatten()?;
+            let hand = if shooter == own && first_person.enabled && !slot.dead {
+                first_person.hand_node(units)?
+            } else {
+                units.actor_node_start(slot.actor) + models[slot.model].hand?
+            };
+            let node = hand * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
+            let mut matrix = Matrix4::default();
+            matrix.elements.copy_from_slice(&units.nodes[node..node + 16]);
+            let mut point = three::Vector3::new(local[0], local[1], local[2]);
+            point.apply_matrix4(&matrix);
+            Some([point.x, point.y, point.z])
+        };
+        self.combat.draw(dt, own, &muzzle, &mut self.lights, bridge);
     }
     /// Lightning.update, once the frame's bodies are posed. A bolt held to
     /// its shooter starts at his gun origin as he is drawn now
@@ -1022,7 +1167,7 @@ impl Replicas {
         self.arcs.finish(&mut casts, projection, height, bridge);
         self.combat.present_sniper(camera, projection, height, bridge);
         self.presented.shown[12] = self.combat.total_streaks;
-        self.present_flashes(receiver, bridge);
+        self.present_flashes(receiver, dt, bridge);
         self.present_jets(dt, bridge);
     }
     // game.js updateJetFlame for every body drawn: a soldier jetting and
@@ -1069,7 +1214,7 @@ impl Replicas {
     // for one tick however fast frames are drawn; the time left here is
     // counted from the ticks gone by the same way. The browser also lights
     // the scene from it; there are no such lights here.
-    fn present_flashes(&mut self, receiver: &Receiver, bridge: &mut Bridge) {
+    fn present_flashes(&mut self, receiver: &Receiver, dt: f64, bridge: &mut Bridge) {
         let own = (receiver.own.id as u32, receiver.own.generation as u32);
         let tick = self.tick.floor();
         for at in 0..self.slots.len() {
@@ -1078,21 +1223,33 @@ impl Replicas {
                 continue;
             }
             let (weapon, fired, length, color) = slot.flash;
-            let left = length - ((tick - fired).max(0.) + 1.) / 60.;
+            let eyes = slot.identity == Some(own) && self.first_person.enabled && !slot.dead;
+            // FirstPersonView.update counts the arms' flash down by frames:
+            // whole on the frame of the shot, then less each frame's time.
+            let left = if eyes {
+                self.eye_flash = if self.eye_flash.0 == fired { (fired, self.eye_flash.1 - dt) } else { (fired, length) };
+                self.eye_flash.1
+            } else {
+                length - ((tick - fired).max(0.) + 1.) / 60.
+            };
             if left <= 0. {
                 slot.flash.1 = -1.;
                 continue;
             }
             let out = &self.units.output[slot.actor * o::STRIDE..];
-            let hidden = out[o::GONE] == -1. || (slot.identity == Some(own) && self.first_person.enabled && !slot.dead);
-            if hidden || slot.held.is_none() || slot.held != self.weapon_classes.get(weapon).copied().flatten() {
-                continue;
-            }
-            let (Some(hand), Some(point)) = (self.models[slot.model].hand, self.guns.muzzles.get(weapon).copied().flatten()) else {
+            // FirstPersonView.flash: in that view the player's own flash
+            // sits on the arms' gun, while the arms are shown.
+            let hand = if eyes {
+                self.first_person.hand_node(&self.units).filter(|_| self.units.header[bfe_presentation::layout::unit_header::FIRST_PERSON_VISIBLE] != 0.)
+            } else if out[o::GONE] == -1. || slot.held.is_none() || slot.held != self.weapon_classes.get(weapon).copied().flatten() {
+                None
+            } else {
+                self.models[slot.model].hand.map(|hand| self.units.actor_node_start(slot.actor) + hand)
+            };
+            let (Some(hand), Some(point)) = (hand, self.guns.muzzles.get(weapon).copied().flatten()) else {
                 continue;
             };
-            let node = (self.units.actor_node_start(slot.actor) + hand) * bfe_presentation::layout::unit_node::STRIDE
-                + bfe_presentation::layout::unit_node::WORLD;
+            let node = hand * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
             let mut matrix = Matrix4::default();
             matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
             let mut local = Matrix4::default();
@@ -1314,7 +1471,7 @@ impl Replicas {
             .chain(self.held.iter().flatten().flat_map(|model| {
                 model.rows.iter().map(|row| row[draw::REC_BONES] as usize)
             }))
-            .chain([self.hulls.max_bones(), self.turrets.max_bones(), self.buildings.max_bones()])
+            .chain([self.hulls.max_bones(), self.turrets.max_bones(), self.buildings.max_bones(), self.animated.max_bones()])
             .max()
             .unwrap_or(1)
     }
@@ -1325,7 +1482,7 @@ impl Replicas {
             .filter(|s| s.active)
             .map(|s| 1 + s.held.and_then(|id| self.held.get(id)).and_then(Option::as_ref).map_or(0, |m| m.rows.len()))
             .sum();
-        actors + self.buildings.record_budget() + self.hulls.record_budget() + self.turrets.record_budget() + self.items.record_budget() + self.combat.record_budget()
+        actors + self.animated.record_budget() + self.buildings.record_budget() + self.hulls.record_budget() + self.turrets.record_budget() + self.items.record_budget() + self.combat.record_budget()
     }
     pub fn hidden_shadow_budget(&self) -> usize {
         self.hulls.hidden_shadow_budget() + self.turrets.hidden_shadow_budget()
@@ -1372,6 +1529,9 @@ impl Replicas {
             let mut row = self.models[slot.model].row;
             let (id,generation)=slot.identity.unwrap_or((0,0));
             row[draw::REC_MOTION_ID]=8589934592.+id as f64;row[draw::REC_MOTION_GENERATION]=generation as f64;
+            if let Some((maps, _)) = self.skins.get(slot.class).and_then(Option::as_ref) {
+                row[draw::REC_TEXTURES..draw::REC_TEXTURES + 4].copy_from_slice(maps);
+            }
             row[draw::REC_WORLD..draw::REC_WORLD + 16].copy_from_slice(&output[o::ROOT_WORLD..o::ROOT_WORLD + 16]);
             row[draw::REC_BIND_INVERSE..draw::REC_BIND_INVERSE + 16].copy_from_slice(&output[o::BIND_INVERSE..o::BIND_INVERSE + 16]);
             row[draw::REC_BONES] = count as f64;
@@ -1401,6 +1561,7 @@ impl Replicas {
         let (records, bones) = self.hulls.append(bridge, records, bones);
         let (records, bones) = self.turrets.append(bridge, records, bones);
         let (records, bones) = self.buildings.append(bridge, records, bones);
+        let (records, bones) = self.animated.append(bridge, records, bones);
         let (records, bones) = self.items.append(bridge, records, bones);
         self.combat.append(bridge, records, bones)
     }
@@ -1459,7 +1620,8 @@ struct DisplayCensus {
     seconds: u32,
 }
 impl DisplayCensus {
-    fn observe(&mut self, tick: f64, own: f64, slots: &[Slot], output: &[f64]) {
+    fn observe(&mut self, tick: f64, receiver: &Receiver, slots: &[Slot], output: &[f64], inputs: &[f64], names: &[String]) {
+        let own = receiver.own.id;
         if tick < self.next {
             return;
         }
@@ -1486,6 +1648,42 @@ impl DisplayCensus {
         self.last = next;
         if self.seconds % 10 == 0 {
             eprintln!("ai census display t={}s drawn={drawn} moving={moving} walking={walking}", (tick / 60.) as u64);
+            // By class: living soldiers and droidekas the world publishes
+            // against the bodies drawn for them (the player included).
+            // A drawn body more than 3 m from where the world has it counts
+            // as astray (world/drawn/astray).
+            let mut by_class = std::collections::BTreeMap::<usize, (usize, usize, usize)>::new();
+            let mut world = std::collections::HashMap::new();
+            for row in receiver.active() {
+                let kind = row[r::KIND] as u32;
+                if (kind == k::SOLDIER || kind == k::DROIDEKA) && row[r::DEAD] == 0. && row[r::HEALTH] > 0. {
+                    by_class.entry(row[r::CLASS_ID] as usize).or_default().0 += 1;
+                    world.insert((row[r::ID] as u32, row[r::GENERATION] as u32), [row[r::POSITION], row[r::POSITION + 1], row[r::POSITION + 2], row[r::STATE]]);
+                }
+            }
+            let mut astray = Vec::new();
+            for slot in slots.iter().filter(|s| s.active && s.identity.is_some()) {
+                let out = &output[slot.actor * o::STRIDE..][..o::STRIDE];
+                if slot.identity.is_some_and(|key| world.contains_key(&key)) && (out[o::DEAD] != 0. || out[o::GONE] == -1.) {
+                    let input = &inputs[f::STRIDE + slot.actor * i::STRIDE..][..i::STRIDE];
+                    let state = slot.identity.and_then(|key| world.get(&key)).map_or(-1., |w| w[3]);
+                    astray.push(format!("hidden:{:?} class={} dead={} outdead={} gone={:?} outgone={} pending={} in:dead={} net={} present={} gen={} state={state}", slot.identity, slot.class, slot.dead, out[o::DEAD], slot.gone, out[o::GONE], slot.death_pending, input[i::DEAD], input[i::NETWORK], input[i::PRESENT], input[i::GENERATION]));
+                }
+                if out[o::DEAD] == 0. && out[o::GONE] != -1. {
+                    let entry = by_class.entry(slot.class).or_default();
+                    entry.1 += 1;
+                    if let Some(at) = slot.identity.and_then(|key| world.get(&key)) {
+                        let drawn = [out[o::ROOT_WORLD + 12], out[o::ROOT_WORLD + 13], out[o::ROOT_WORLD + 14]];
+                        let off = ((drawn[0] - at[0]).powi(2) + (drawn[1] - at[1]).powi(2) + (drawn[2] - at[2]).powi(2)).sqrt();
+                        if off > 3. {
+                            entry.2 += 1;
+                            astray.push(format!("{}@{:.0},{:.0},{:.0}->{:.0},{:.0},{:.0}", slot.identity.map_or(0, |k| k.0), at[0], at[1], at[2], drawn[0], drawn[1], drawn[2]));
+                        }
+                    }
+                }
+            }
+            let line = by_class.iter().map(|(c, (w, d, a))| format!("{}={w}/{d}/{a}", names.get(*c).map_or("?", String::as_str))).collect::<Vec<_>>().join(" ");
+            eprintln!("units census t={}s world/drawn/astray {line} astray=[{}]", (tick / 60.) as u64, astray.join(" "));
         }
     }
 }
