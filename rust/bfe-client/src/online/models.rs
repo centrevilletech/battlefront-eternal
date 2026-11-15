@@ -9,11 +9,19 @@ use bfe_content_native::{
 };
 use bfe_render::instances as draw;
 use serde_json::{json, Value};
-use three::Matrix4;
+use three::{Box3, Matrix4, Vector3};
 #[derive(Clone)]
 pub struct Model {
     pub rows: Vec<[f64; draw::REC_STRIDE]>,
     pub radius: f64,
+    pub bounds: Vec<Box3>,
+}
+fn bounds(positions: &[f32]) -> Box3 {
+    let mut bounds = Box3::default();
+    for p in positions.chunks_exact(3) {
+        bounds.expand_by_point(&Vector3::new(p[0] as f64, p[1] as f64, p[2] as f64));
+    }
+    bounds
 }
 fn array<T: serde::de::DeserializeOwned>(v: &Value) -> Result<T, String> {
     serde_json::from_value(v.clone()).map_err(|e| e.to_string())
@@ -79,8 +87,9 @@ impl Model {
                 radius: r,
             });
         }
+        let bounds = placed.parts.iter().map(|p| bounds(&p.positions)).collect();
         let admitted = crate::static_scene::props(bridge, content, textures, placed, cascades)?;
-        Ok(Some(Self { rows: admitted.records, radius }))
+        Ok(Some(Self { rows: admitted.records, radius, bounds }))
     }
     // A one-bone rigid model uses the same attached skin convention as all
     // other instance rows. No geometry or material is constructed at draw.
@@ -176,7 +185,8 @@ impl Model {
             center: [0.; 3],
             radius: 2.,
         };
+        let bounds = vec![bounds(&part.positions)];
         let admitted = crate::static_scene::props(bridge, content, textures, Placements { parts: vec![part], deferred: 0 }, 0)?;
-        Ok(Self { rows: admitted.records, radius: 2. })
+        Ok(Self { rows: admitted.records, radius: 2., bounds })
     }
 }

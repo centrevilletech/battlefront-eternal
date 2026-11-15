@@ -74,3 +74,20 @@ fn animal_hulls_keep_soldier_rates_in_the_vehicle_pass() {
     targets.pulse(&mut station(),1.,&rates,&mut s,&prepared,&mut Notices::default());
     assert_eq!(s.vehicle.get(v).unwrap().health,60.);
 }
+
+#[test]
+fn constructed_hulls_receive_supply_at_the_edge_of_their_footprint() {
+    let mut s=Store::default();
+    let hull=bfe_sim::vehicles::Hull { alive:true, target_generation:1.,
+        position:Vector3::new(12.,0.,0.), size:Vector3::new(16.,30.,4.),
+        health:50.,max_health:100.,..Default::default() };
+    let row=hull.initial_record(&mut bfe_sim::store::Strings::default());
+    let v=s.vehicle.insert(row);
+    let mut targets=Targets::new(0,1);targets.begin(&s,None,false,&[],&[v]);
+    let mut prepared=prepared();prepared.hull(v,true);
+    targets.pulse(&mut station(),1.,&supply(),&mut s,&prepared,&mut Notices::default());
+    assert_eq!(s.vehicle.get(v).unwrap().health,70.);
+    s.vehicle.get_mut(v).unwrap().position[0]=15.;
+    targets.pulse(&mut station(),1.,&supply(),&mut s,&prepared,&mut Notices::default());
+    assert_eq!(s.vehicle.get(v).unwrap().health,70.);
+}

@@ -177,14 +177,66 @@ impl Bindings {
         for at in 0..count { let row = &mut input[f::STRIDE + at * e::STRIDE..][..e::STRIDE];
             if row[e::MODE] != m::ALIVE as f64 { continue; }
             let key = row[e::RIG] as usize;
-            let bound = table.rows.get(key) .and_then(Option::as_ref)
-                .is_some_and(|b| b.lease == owner.lease && !owner.excluded.contains(&b.id));
-            let Some(p) = Self::sample(&table, key, &owner) else { if bound && row[e::LOCAL_PRESENT] == 0. {
-                    row[e::DEFERRED] = 1.; }
-                continue; };
+            // A parked hull's unchanged position can age out of the ring.
+            // Keep posing its current record, including passenger aim and
+            // idle motion, as Vehicle.present does without a networkPose.
+            let Some(p) = Self::sample(&table, key, &owner) else { continue; };
             if p[o::KIND] != 1. { continue; }
             row[e::NETWORK] = 1.;
             row[e::ALPHA] = 1.;
             row[e::DT] = owner.timeline.input[bfe_pose::timeline_layout::timeline_frame::DT];
             row[e::POSITION..e::POSITION + 3].copy_from_slice(&p[o::POSITION..o::POSITION + 3]);
             row[e::QUATERNION..e::QUATERNION + 4].copy_from_slice(&p[o::QUATERNION..o::QUATERNION + 4]); } } }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layout::{vehicle_entry as e, vehicle_frame as f, vehicle_mode as m};
+    use bfe_pose::timeline_layout::{timeline_frame as tf, timeline_record as tr};
+
+    #[test]
+    fn a_parked_hull_keeps_posing_after_its_sample_expires() {
+        let owner = Rc::new(RefCell::new(Session::new()));
+        {
+            let mut session = owner.borrow_mut();
+            let timeline = &mut session.timeline;
+            timeline.input[tf::VERSION] = bfe_pose::timeline_layout::VERSION as f64;
+            timeline.input[tf::SNAPSHOTS] = 2.;
+            timeline.input[tf::TICK] = 10.;
+            timeline.input[tf::COUNT] = 1.;
+            let row = &mut timeline.input[tf::STRIDE..][..tr::STRIDE];
+            row[tr::ID] = 7.;
+            row[tr::GENERATION] = 1.;
+            row[tr::KIND] = 1.;
+            row[tr::HEALTH] = 100.;
+            row[tr::POSITION] = 4.;
+            row[tr::QUATERNION + 3] = 1.;
+            timeline.push();
+            session.present(10., -1., -1.);
+        }
+        let mut bindings = Bindings::default();
+        bindings.bind(0, 7., 1., 1., &owner);
+        let mut input = vec![0.; f::STRIDE + e::STRIDE];
+        input[f::ENTRIES] = 1.;
+        input[f::STRIDE + e::MODE] = m::ALIVE as f64;
+        bindings.vehicles(&mut input);
+        assert_eq!(input[f::STRIDE + e::NETWORK], 1.);
+        assert_eq!(input[f::STRIDE + e::POSITION], 4.);
+        {
+            let mut session = owner.borrow_mut();
+            for tick in [11., 12.] {
+                session.timeline.input[tf::TICK] = tick;
+                session.timeline.input[tf::COUNT] = 0.;
+                session.timeline.push();
+            }
+            session.present(12., -1., -1.);
+        }
+        input[f::STRIDE + e::NETWORK] = 0.;
+        input[f::STRIDE + e::POSITION] = 9.;
+        input[f::STRIDE + e::DT] = 1. / 60.;
+        bindings.vehicles(&mut input);
+        assert_eq!(input[f::STRIDE + e::DEFERRED], 0., "passenger aim must still be posed");
+        assert_eq!(input[f::STRIDE + e::POSITION], 9., "use the current hull record");
+        assert_eq!(input[f::STRIDE + e::DT], 1. / 60.);
+    }
+}

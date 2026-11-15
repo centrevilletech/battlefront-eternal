@@ -35,6 +35,8 @@ pub struct Fleet {
     pub walk: [f64; 4],
     pub aim: [f64; 2],
     pub ticks: u64,
+    pub continued: bool,
+    pub prediction_tick: f64,
     active: Option<usize>,
     frozen_weapons: bool,
     water:Option<bfe_sim::units::water::WaterState>,last_water:f64,
@@ -154,6 +156,8 @@ impl Fleet {
             walk: [0.; 4],
             aim: [0.; 2],
             ticks: 0,
+            continued: false,
+            prediction_tick: 0.,
             active: None,
             frozen_weapons: false,
             water, last_water: 0.,
@@ -199,6 +203,8 @@ impl Fleet {
         if let Some(water)=&mut self.water{water.step((receiver.clock.shown-self.last_water).max(0.)/60.);}self.last_water=receiver.clock.shown;
         self.state = None;
         self.identity = None;
+        self.continued = false;
+        self.prediction_tick = 0.;
         self.active = None;
         self.frozen_weapons = false;
         if receiver.own.vehicle == 0. || ![7, 10].contains(&receiver.own.body_schema) {
@@ -260,12 +266,15 @@ impl Fleet {
             mounts_count,
             commands_at,
             commands_count,
+            held: sender.history.held(receiver.own.generation),
             mouse_scale: 1.,
             ..Default::default()
         };
         frame.put(words, &mut Vec::new());
         owner.predict_session(words, &mut collision.state)?;
         let result = ClientResult::take(&owner.output, &[]);
+        self.continued = result.continued;
+        self.prediction_tick = result.tick;
         let hull = ClientHull::take(&owner.output[result.hull_at as usize..], &[]);
         self.state = Some(ClientHullState::take(&owner.output[hull.state_at as usize..], &[]));
         self.walk = [
