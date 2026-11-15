@@ -126,6 +126,12 @@ impl MapCamera {
         set(&mut self.view, "projectionMatrix", &projection.elements);
         set(&mut self.view, "resolution", &[size[0] as f64, size[1] as f64]);
     }
+    pub fn set_view_distance(&mut self, range: [f64; 2]) {
+        self.far_plane = range[1];
+        set(&mut self.view, "fade", &range);
+        self.view.values[10] = -(range[1] + 0.3) / (range[1] - 0.3);
+        self.view.values[14] = -0.6 * range[1] / (range[1] - 0.3);
+    }
     pub fn subject_eye(&self) -> [f64; 3] {
         self.subject_eye
     }
@@ -300,8 +306,24 @@ pub struct Scene {
     // the opaque scene's depth, copied once a frame before anything blends,
     // for soft particles and arcs to fade against.
     depth_target: u32,
+    depth_source: u32,
+    depth_color_source: u32,
+    depth_sample: u32,
+    depth_color: u32,
+    render_scale: f64,
+    render_size: [i32; 2],
+    reduced_far_terrain: bool,
+    shadows_enabled: bool,
+    bump_mapping: bool,
+    terrain_detail: bool,
+    post_images: Vec<(u32, u32, u32, usize, f64)>,
+    post_mode: usize,
+    bloom: bool,
+    soft_focus: bool,
     depth_texture: u32,
     far_reach: f64,
+    distance_scale: f64,
+    near_range: [f64; 2],
     shadows: Option<crate::shadows::Shadows>,
     image_step: [f64; bfe_render::post::STEP],
     image_state: [f64; bfe_render::post::STATE],
@@ -969,6 +991,7 @@ impl Scene {
         let depth_source=resources.source(&serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1027,"dataType":1020,"srgb":false,"renderTarget":true}).to_string())?;
         let depth_sample=resources.sample(depth_source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1003,"mag":1003,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
         let depth_color=resources.source(&serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1028,"dataType":1009,"srgb":false,"renderTarget":true}).to_string())?;
+        let depth_color_source = depth_color;
         let depth_color=resources.sample(depth_color,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1003,"mag":1003,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
         let depth_target=resources.target(&serde_json::json!({"width":size[0],"height":size[1],"color":depth_color,"depth":depth_sample,"depthBuffer":true,"stencil":true,"samples":0,"resolveDepth":false,"resolveStencil":false,"cube":false}).to_string())?;
         let depth_texture = bridge.r.core.add_texture(resources.texture(depth_sample)?);
@@ -991,6 +1014,7 @@ impl Scene {
         // must stay outside the live program bank, never alias world shader 0.
         use bfe_render::post_chain::layout::{facts as pf, program as pp};
         bridge.r.post_chain.input[pf::PROGRAMS..pf::PROGRAMS + pp::COUNT].fill(u32::MAX as f64);
+        let mut post_images = Vec::new();
         let frame = if live {
             let source = resources.source(&frame_image(size))?;
             let sample = resources.sample(source, r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
@@ -998,8 +1022,24 @@ impl Scene {
             let texture = bridge.r.core.add_texture(resources.texture(sample)?);
             // The chain's programs that need no target of their own: the
             // composite, and FXAA over a frame with nothing to composite.
-            for (program, key) in [(pp::COMPOSITE, "post-hud/composite"), (pp::FXAA, "post-hud/fxaa"), (pp::FXAA_FAST, "post-hud/fxaa-fast")] {
+            for (program, key) in [(pp::COPY, "post-hud/copy"), (pp::EXTRACT, "post-hud/bloom-extract"), (pp::BLUR, "post-hud/bloom-blur"), (pp::BILINEAR, "post-hud/bilinear"), (pp::SPATIAL, "post-hud/spatial"), (pp::COMPOSITE, "post-hud/composite"), (pp::FXAA, "post-hud/fxaa"), (pp::FXAA_FAST, "post-hud/fxaa-fast")] {
                 bridge.r.post_chain.input[pf::PROGRAMS + program] = bridge.add_owned_program(key)? as f64;
+            }
+            use bfe_render::post_chain::layout::resource as pr;
+            let blur = &content.map["post"]["blur"];
+            bridge.r.post_chain.input[pf::BLUR_ENABLED] = blur["enabled"].as_bool().unwrap_or(false) as u8 as f64;
+            bridge.r.post_chain.input[pf::BLUR_BLEND] = blur["blend"].as_f64().unwrap_or(0.3);
+            let factor = blur["downsize"].as_f64().filter(|v| v.is_finite() && *v > 0.).unwrap_or(0.25);
+            for (slot, factor) in [(pr::QUARTER, factor), (pr::BLOOM, 0.25), (pr::SCRATCH, 0.25), (pr::POST, 1.), (pr::AA, 1.)] {
+                let extent = size.map(|v| (v as f64 * factor).ceil().max(1.) as i32);
+                let source = resources.source(&frame_image(extent))?;
+                let sample = resources.sample(source, r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
+                resources.upload(sample)?;
+                let texture = bridge.r.core.add_texture(resources.texture(sample)?);
+                let target = bridge.post_target(texture);
+                let row = &mut bridge.r.post_chain.input[pf::RESOURCES + slot * pr::STRIDE..][..pr::STRIDE];
+                row.copy_from_slice(&[texture as f64, target as f64, extent[0] as f64, extent[1] as f64]);
+                post_images.push((source, sample, texture, slot, factor));
             }
             let slots = ["aaSamples", "farAaSamples"].map(|name| {
                 shader::FRAME_OFFSETS[shader::FRAME_MEMBERS.iter().position(|(n, _)| *n == name).expect("frame catalog member")]
@@ -1095,8 +1135,14 @@ impl Scene {
                 far_sample,
                 far_target,
                 depth_target,
+                depth_source, depth_color_source, depth_sample, depth_color,
+                render_scale: 1., render_size: size,
+                post_images, post_mode: 0, bloom: false, soft_focus: false,
+                reduced_far_terrain: false, shadows_enabled: true, bump_mapping: true, terrain_detail: true,
                 depth_texture,
                 far_reach,
+                distance_scale: 1.,
+                near_range: [camera.view.values[bfe_render::cameras::layout::shader_frame::FADE], camera.view.values[bfe_render::cameras::layout::shader_frame::FADE + 1]],
                 shadows,
                 image_step,
                 image_state,
@@ -1120,6 +1166,79 @@ impl Scene {
             },
             camera,
         ))
+    }
+    pub fn set_view_distance(&mut self, choice: &str) -> [f64; 2] {
+        self.distance_scale = match choice { "far" => 2., "max" => 4., _ => 1. };
+        let far = self.far_reach * self.distance_scale;
+        self.far_projection[10] = -(far + 2.) / (far - 2.);
+        self.far_projection[14] = -4. * far / (far - 2.);
+        self.near_range.map(|v| v * self.distance_scale)
+    }
+
+    pub fn log_graphics(&self) {
+        use bfe_render::post_chain::layout::state;
+        eprintln!("battle graphics: scene={:?} canvas={:?} shadows={} farReduced={} bump={} terrainEnhanced={} bloom={} softFocus={} postSteps={}",
+            self.render_size, self.size, self.shadows_enabled, self.reduced_far_terrain,
+            self.bump_mapping, self.terrain_detail, self.bloom, self.soft_focus,
+            self.bridge.r.post_chain.state[state::STEPS]);
+    }
+
+    pub fn set_post_effects(&mut self, bloom: bool, soft_focus: bool, upscaler: &str) {
+        use bfe_render::post_chain::layout::mode;
+        self.bloom = bloom;
+        self.soft_focus = soft_focus;
+        self.post_mode = match upscaler { "bilinear" => mode::BILINEAR, "spatial" => mode::SPATIAL, _ => mode::OFF };
+    }
+
+    pub fn set_far_terrain(&mut self, reduced: bool) {
+        self.reduced_far_terrain = reduced;
+    }
+
+    pub fn set_shadows_enabled(&mut self, enabled: bool) {
+        self.shadows_enabled = enabled;
+    }
+
+    pub fn set_material_detail(&mut self, bump: bool, terrain: bool) {
+        self.bump_mapping = bump;
+        self.terrain_detail = terrain;
+    }
+
+    pub fn set_render_scale(&mut self, scale: f64) -> Result<(), String> {
+        self.render_scale = if scale.is_finite() { scale.clamp(0.25, 2.) } else { 1. };
+        self.resize_scene_targets()
+    }
+
+    fn resize_scene_targets(&mut self) -> Result<(), String> {
+        let size = self.size.map(|v| ((v as f64 * self.render_scale).round() as i32).max(1));
+        if size == self.render_size { return Ok(()); }
+        self.bridge.r.core.state.reset();
+        self.resources.source_desc(self.far_source, &frame_image(size))?;
+        self.resources.resize_target(self.far_target, &frame_target(size, self.far_sample, false, self.frame.as_ref().map_or(0, |f| f.far_samples)))?;
+        if let Some(frame) = &self.frame {
+            self.resources.source_desc(frame.source, &frame_image(size))?;
+            self.resources.resize_target(frame.target, &frame_target(size, frame.sample, true, frame.samples))?;
+        }
+        for (source, format, data_type) in [(self.depth_source, 1027, 1020), (self.depth_color_source, 1028, 1009)] {
+            self.resources.source_desc(source, &serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":format,"dataType":data_type,"srgb":false,"renderTarget":true}).to_string())?;
+        }
+        self.resources.resize_target(self.depth_target, &serde_json::json!({"width":size[0],"height":size[1],"color":self.depth_color,"depth":self.depth_sample,"depthBuffer":true,"stencil":true,"samples":0,"resolveDepth":false,"resolveStencil":false,"cube":false}).to_string())?;
+        self.image_step[bfe_render::post::STEP_WIDTH] = size[0] as f64;
+        self.image_step[bfe_render::post::STEP_HEIGHT] = size[1] as f64;
+        self.bridge.r.core.replace_sample_texture(self.depth_texture as usize, self.resources.texture(self.depth_sample)?)?;
+        for &(source, sample, texture, slot, factor) in &self.post_images {
+            use bfe_render::post_chain::layout::{facts as pf, resource as pr};
+            let extent = size.map(|v| (v as f64 * factor).ceil().max(1.) as i32);
+            self.resources.source_desc(source, &frame_image(extent))?;
+            self.resources.upload(sample)?;
+            self.bridge.r.core.replace_sample_texture(texture as usize, self.resources.texture(sample)?)?;
+            let at = pf::RESOURCES + slot * pr::STRIDE;
+            self.bridge.r.post_chain.input[at + pr::WIDTH] = extent[0] as f64;
+            self.bridge.r.post_chain.input[at + pr::HEIGHT] = extent[1] as f64;
+        }
+        self.render_size = size;
+        self.bridge.r.core.state.reset();
+        eprintln!("battle render size: {}x{} (scale {})", size[0], size[1], self.render_scale);
+        Ok(())
     }
     /// Graphics.applyAntialiasing for the antialiasing setting: the near
     /// scene's target takes the setting's samples (as many as the driver
@@ -1151,11 +1270,11 @@ impl Scene {
         };
         if samples != frame.samples {
             frame.samples = samples;
-            self.resources.resize_target(frame.target, &frame_target(self.size, frame.sample, true, samples))?;
+            self.resources.resize_target(frame.target, &frame_target(self.render_size, frame.sample, true, samples))?;
         }
         if far_samples != frame.far_samples {
             frame.far_samples = far_samples;
-            self.resources.resize_target(self.far_target, &frame_target(self.size, self.far_sample, false, far_samples))?;
+            self.resources.resize_target(self.far_target, &frame_target(self.render_size, self.far_sample, false, far_samples))?;
         }
         self.bridge.r.core.state.reset();
         Ok(())
@@ -1185,6 +1304,7 @@ impl Scene {
             return Ok(());
         }
         self.size = new_size;
+        self.render_size = [0, 0];
         self.bridge.r.core.state.reset();
         self.canvas = Canvas::new(load(), new_size)?;
         self.resources.canvas = Some(self.canvas.framebuffer);
@@ -1212,7 +1332,7 @@ impl Scene {
             top,
             -top,
             2.,
-            self.far_reach,
+            self.far_reach * self.distance_scale,
             CoordinateSystem::WebGL,
         );
         self.far_projection = projection.elements;
@@ -1221,6 +1341,7 @@ impl Scene {
         if let Some(online) = &mut self.online {
             online.hud.set_size(new_size);
         }
+        self.resize_scene_targets()?;
         Ok(())
     }
     /// A direct join publishes all live owners together before the renderer
@@ -1271,7 +1392,7 @@ impl Scene {
                 };
             resources.finish_frame(receiver, replay, &world.elements, cue);
             resources.present_arcs(receiver, replay, dt.min(8./60.), &world, &camera.snapshot().values[..16], self.size[1] as f64, &mut self.bridge);
-            resources.present_shields(dt.min(8./60.), camera.position, &camera.snapshot().values, self.size, self.depth_texture, &mut self.bridge);
+            resources.present_shields(dt.min(8./60.), camera.position, &camera.snapshot().values, self.render_size, self.depth_texture, &mut self.bridge);
             resources.present_holograms(receiver, dt.min(8./60.), camera.position, &camera.snapshot().values, &world.elements, &mut self.bridge);
             resources.lights.frame(dt.min(8./60.), camera.position, camera.far());
             camera.set_lights(&resources.lights.packed, resources.lights.count);
@@ -1308,6 +1429,10 @@ impl Scene {
         };
         let mut frame_view = *view;
         let view = &mut frame_view;
+        if !self.shadows_enabled { set(view, "shadowStrength", &[0.]); }
+        set(view, "bump", &[self.bump_mapping as u8 as f64]);
+        set(view, "terrainShade", &[self.terrain_detail as u8 as f64]);
+        set(view, "resolution", &[self.render_size[0] as f64, self.render_size[1] as f64]);
         self.bridge.frame_begin_frame();
         self.bridge.r.frames.plan.facts.fill(0.);
         self.bridge.r.frames.plan.facts[f::MAIN] = 1.;
@@ -1325,10 +1450,11 @@ impl Scene {
                 (_, Some(frame)) => frame.target as f64,
             };
             row[b::SAMPLE] = -1.;
-            row[b::WIDTH] = self.size[0] as f64;
-            row[b::HEIGHT] = self.size[1] as f64;
-            row[b::SCISSOR + 2] = self.size[0] as f64;
-            row[b::SCISSOR + 3] = self.size[1] as f64;
+            let size = if role == r::HUD0 { self.size } else { self.render_size };
+            row[b::WIDTH] = size[0] as f64;
+            row[b::HEIGHT] = size[1] as f64;
+            row[b::SCISSOR + 2] = size[0] as f64;
+            row[b::SCISSOR + 3] = size[1] as f64;
             row[b::CLEAR..b::CLEAR + 4].copy_from_slice(&[0.04, 0.06, 0.09, 1.]);
             self.bridge.r.frames.meta[role * m::LEN + m::BOUND] = 1.;
         }
@@ -1339,30 +1465,33 @@ impl Scene {
             row.fill(0.);
             row[b::TARGET] = self.depth_target as f64;
             row[b::SAMPLE] = -1.;
-            row[b::WIDTH] = self.size[0] as f64;
-            row[b::HEIGHT] = self.size[1] as f64;
+            row[b::WIDTH] = self.render_size[0] as f64;
+            row[b::HEIGHT] = self.render_size[1] as f64;
             self.bridge.r.frames.meta[r::DEPTH * m::LEN + m::BOUND] = 1.;
             self.bridge.r.frames.plan.facts[f::DEPTH_LATE] = 1.;
         }
         if let Some(frame) = &self.frame {
-            use bfe_render::post_chain::layout::{facts as pf, mode, resource as pr};
+            use bfe_render::post_chain::layout::{facts as pf, resource as pr};
             view.values[frame.slots[0]] = frame.samples as f64;
             view.values[frame.slots[1]] = frame.far_samples as f64;
-            // Graphics.postSteps' facts. The 3D frame is the window's size
-            // and no upscaler runs: with nothing to composite the chain is
-            // one copy of the scene to the canvas, or FXAA reading it.
+            // The scene can be smaller than the canvas; the final copy or
+            // FXAA stretches it while HUD/page geometry stays full size.
             let (width, height) = (self.size[0] as f64, self.size[1] as f64);
             let facts = &mut self.bridge.r.post_chain.input;
-            facts[pf::MODE] = mode::OFF as f64;
+            facts[pf::MODE] = self.post_mode as f64;
+            facts[pf::BLOOM] = self.bloom as u8 as f64;
+            facts[pf::SOFT_FOCUS] = self.soft_focus as u8 as f64;
             facts[pf::AA] = frame.aa as f64;
-            for at in [pf::INPUT_WIDTH, pf::OUTPUT_WIDTH, pf::CANVAS_WIDTH] {
+            facts[pf::INPUT_WIDTH] = self.render_size[0] as f64;
+            facts[pf::INPUT_HEIGHT] = self.render_size[1] as f64;
+            for at in [pf::OUTPUT_WIDTH, pf::CANVAS_WIDTH] {
                 facts[at] = width;
                 facts[at + 1] = height;
             }
             let scene = &mut facts[pf::RESOURCES + pr::SCENE * pr::STRIDE..][..pr::STRIDE];
             scene[pr::TEXTURE] = frame.texture as f64;
-            scene[pr::WIDTH] = width;
-            scene[pr::HEIGHT] = height;
+            scene[pr::WIDTH] = self.render_size[0] as f64;
+            scene[pr::HEIGHT] = self.render_size[1] as f64;
             self.bridge.post_chain_begin_frame();
         }
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
@@ -1391,6 +1520,7 @@ impl Scene {
                 };
         }
         for slot in &self.far_world_slots {
+            self.bridge.r.far.input[*slot + 1] = self.reduced_far_terrain as u8 as f64;
             self.bridge.r.far.input[*slot] = if component == Component::All { 1. } else { 0. };
         }
         self.bridge.r.far.input[bfe_render::far::FAR_CLEAR..bfe_render::far::FAR_CLEAR + 4]
@@ -1423,12 +1553,12 @@ impl Scene {
             .max()
             .unwrap_or(0);
         if component==Component::All{if let Some(online)=&self.online{(records,bones)=online.append(&mut self.bridge,records,bones);}}
-        if let Some(shadows) = &mut self.shadows {
+        if self.shadows_enabled { if let Some(shadows) = &mut self.shadows {
             let shadow_records = self.online.as_ref().map_or(records, |online| {
                 online.append_hidden_shadows(&mut self.bridge, records, bones)
             });
             shadows.publish(&mut self.bridge, view, shadow_records)?;
-        }
+        }}
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         self.publish(r::NEAR, k::SCENE, records, bones, 0);
         self.bridge.r.post.input[..bfe_render::post::STEP].copy_from_slice(&self.image_step);
