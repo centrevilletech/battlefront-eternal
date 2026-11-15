@@ -15,7 +15,6 @@ use bfe_render::interface::{Asset, Batch, Color, Font, Glyph, Matrix};
 use crate::shapes::{glyph_height, interface_height, place_interface_model};
 
 /// Font index constants matching `HudModel::fonts` (`core.lvl` bitmap fonts).
-///Smallest bitmap font slot (`gamefont_tiny`, index `0`, used for spawn window titles and weapons).
 pub const FONT_TINY: usize = 0;
 /// Small bitmap font slot (`gamefont_small`, index `1`, used for scoreboard rows and buttons).
 pub const FONT_SMALL: usize = 1;

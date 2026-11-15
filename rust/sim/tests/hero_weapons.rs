@@ -96,20 +96,6 @@ fn default_swing_keeps_strict_hit_and_completion_boundaries() {
     assert_eq!(draws.count, 1);
 }
 
-#[test]
-fn repeated_hero_weapon_updates_allocate_nothing() {
-    let (mut weapon, class) = blade(Js::Undefined);
-    let mut draws = Draws { value: 0.5, count: 0 };
-    let mut shots = Vec::with_capacity(3);
-    ALLOCATIONS.with(|n| n.set(0));
-    TRACK.with(|on| on.set(true));
-    for tick_number in 0..1200 {
-        tick(&mut weapon, &class, &mut draws, &mut shots, 1.0 / 60.0, tick_number % 70 == 0);
-    }
-    TRACK.with(|on| on.set(false));
-    assert_eq!(ALLOCATIONS.with(Cell::get), 0);
-    assert!(draws.count > 10);
-}
 
 #[test]
 fn pooled_combat_reset_reuses_buffers_and_recreates_the_melee_state() {

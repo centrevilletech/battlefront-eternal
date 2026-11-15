@@ -1,32 +1,5 @@
 //! Portable prepared content archive export, verification, atomic import and
 //! game-install relocation.
-//!
-//! Ports `electron/content-archive.js` of the browser build: the archives players
-//! already hold (`.bfepack`, or `.zip`) are the standard, so this module reads and
-//! writes that one dialect and nothing else.
-//!
-//! An archive is a ZIP64-capable file holding:
-//! - `bfe-content-manifest.json` (`format: "battlefront-eternal-content"`,
-//!   `version: 1`, `created`, `source`, `files`), the first entry the exporter writes;
-//! - prepared content files under `common/`, `sides/`, `maps/`, `audio/`, and `.prepare.json`;
-//! - `linkTo` manifest records (no payload) for hardlinks and case-variant duplicates;
-//! - `source`, SHA-256 fingerprints of the original `.lvl` files, so
-//!   [`relocate_preparation`] can check that a local install matches what the
-//!   content was prepared from.
-//!
-//! Each `files` record is `{path, size, mtime, [linkTo, hardlink,] sha256}` exactly as
-//! the browser exporter writes it. The importer accepts deflated entries (the browser
-//! compresses at level 3) as well as stored ones, and streams both; the exporter stores
-//! its entries, which every ZIP reader accepts, because prepared content is already
-//! compressed audio, textures and packed blobs.
-//!
-//! ## Safety Invariants
-//! Every archive entry path and manifest path is validated through [`safe_path`]
-//! before touching the host filesystem:
-//! - No empty segments, `.` or `..` traversal components, backslashes, or drive colons.
-//! - No ASCII control characters (`<= 0x1f`) or trailing dots/spaces that Windows strips.
-//! - No Windows reserved device stems (`CON`, `PRN`, `AUX`, `NUL`, `COM1..9`, `LPT1..9`).
-//! - Content entries must live under `common/`, `sides/`, `maps/`, `audio/`, or `.prepare.json`.
 
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -510,18 +483,6 @@ impl ZipStoreWriter {
 
     /// Emits a 30-byte ZIP local file header (plus a 20-byte ZIP64 extra block
     /// when `size` or `offset` reaches `0xffffffff`) and returns the header offset.
-    ///
-    /// Local file header binary layout (little-endian):
-    /// - `0..4`: signature `0x04034b50` (`PK\x03\x04`)
-    /// - `4..6`: version needed to extract (`45` for ZIP64, `20` for standard)
-    /// - `6..8`: general purpose bit flag (`0x0800` for UTF-8 names)
-    /// - `8..10`: compression method (`0` = store)
-    /// - `10..14`: MS-DOS modification time (`0`) and date (`0x0021` = 1980-01-01)
-    /// - `14..18`: CRC-32 checksum
-    /// - `18..22`: compressed size (`0xffffffff` when ZIP64)
-    /// - `22..26`: uncompressed size (`0xffffffff` when ZIP64)
-    /// - `26..28`: filename length in bytes
-    /// - `28..30`: extra field length (`20` when ZIP64, `0` otherwise)
     fn write_local_header(&mut self, name: &[u8], crc: u32, size: u64) -> Result<u64, String> {
         let offset = self.offset;
         let zip64 = size >= 0xffff_ffff || offset >= 0xffff_ffff;
@@ -620,20 +581,6 @@ impl ZipStoreWriter {
     }
 
     /// Writes the central directory, optional ZIP64 EOCD + Locator, and standard EOCD.
-    ///
-    /// Central directory header binary layout (46 bytes + filename + optional 28-byte ZIP64 extra):
-    /// - `0..4`: signature `0x02014b50` (`PK\x01\x02`)
-    /// - `4..6`: version made by (`45`)
-    /// - `6..8`: version needed to extract (`45` for ZIP64, `20` for standard)
-    /// - `8..10`: general purpose bit flag (`0x0800` UTF-8)
-    /// - `10..12`: compression method (`0` = store)
-    /// - `12..16`: MS-DOS modification time and date
-    /// - `16..20`: CRC-32 checksum
-    /// - `20..24`: compressed size (`0xffffffff` when ZIP64)
-    /// - `24..28`: uncompressed size (`0xffffffff` when ZIP64)
-    /// - `28..34`: filename, extra, and comment lengths
-    /// - `34..42`: disk number, internal attributes, external attributes
-    /// - `42..46`: local header relative offset (`0xffffffff` when ZIP64)
     fn finish(mut self) -> Result<u64, String> {
         let central_offset = self.offset;
         let entries = std::mem::take(&mut self.entries);

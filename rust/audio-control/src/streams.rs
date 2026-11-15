@@ -5,31 +5,6 @@
 //! weight, or in turn with CyclePlayback, each segment gated by its own
 //! interval (Segment(id, weight, interval, intervalDev)). A looping one picks
 //! again when a segment ends and carries straight on.
-//!
-//! Voice-over and the soldiers' chatter are queued, as the 2004 game queues
-//! them: each stream's slot keeps up to four lines, best score first (the
-//! voice score, (1 - Bias) x level + Bias x Priority, the level with its bus
-//! and, for a line said somewhere, its distance; ties behind earlier ones),
-//! worked out again for every line queued whenever one is added, and a slot
-//! that falls idle plays the first.
-//! So lines on one stream never overlap or cut each other off. A fifth line
-//! drops the last; one said somewhere that would itself be last isn't
-//! queued, while a 2D one drops the line ahead of it instead. A line is
-//! checked as it is asked for: its segment is picked (with each segment's
-//! own interval), then its PlayInterval and PlayProbability. A line said out
-//! of earshot still scores Bias x Priority: it is queued, and holds the
-//! slot unheard.
-//!
-//! A soldier's line (a mono Mode3D stream, at the place he said it, which it
-//! keeps) plays from there through one of the output's 3D voices, as his
-//! other sounds do; every other stream is a bed (music, ambience, the
-//! commander's voice-over).
-//!
-//! Segments are fetched on demand (by byte range when the file is large) and
-//! decoded off the main thread; only recently used ones stay decoded.
-//!
-//! Stream selection and scheduling, porting streams.js. Byte-range reads and
-//! decoder transport remain host I/O; only readiness facts return here.
 use crate::engine::{Ask, Engine, Target, Voice, NONE, SILENT, VOICE, MUSIC};
 use crate::{Point, length, sub, render};
 use crate::acoustics::Acoustics;

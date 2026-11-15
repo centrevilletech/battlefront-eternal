@@ -78,14 +78,6 @@ impl Fft {
             // first stage has only one butterfly and stays scalar. The
             // browser target requires SIMD; native hosts use this same
             // arithmetic below, with no alternate audio implementation.
-            #[cfg(target_arch = "wasm32")]
-            if half >= 2 {
-                unsafe {
-                    self.vector_stage(data, size, inverse);
-                }
-                size *= 2;
-                continue;
-            }
             for start in (0..self.len).step_by(size) {
                 for j in 0..half {
                     let mut w = self.roots[j * self.len / size];
@@ -123,35 +115,6 @@ impl Fft {
     // Work on pairs, retaining each complex product's f32 multiply/add
     // boundaries. A stage is one internal call, rather than a call per
     // butterfly. All loads/stores are inside the validated FFT span.
-    #[cfg(target_arch = "wasm32")]
-    #[target_feature(enable = "simd128")]
-    unsafe fn vector_stage(&self, data: &mut [Complex], size: usize, inverse: bool) {
-        use core::arch::wasm32::*;
-        let half = size / 2;
-        let stride = self.len / size;
-        let ptr = data.as_mut_ptr();
-        for start in (0..self.len).step_by(size) {
-            for j in (0..half).step_by(2) {
-                let mut first = self.roots[j * stride];
-                let mut second = self.roots[(j + 1) * stride];
-                if inverse {
-                    first.im = -first.im;
-                    second.im = -second.im;
-                }
-                let real = f32x4(first.re, first.re, second.re, second.re);
-                let imaginary = f32x4(-first.im, first.im, -second.im, second.im);
-                let low = v128_load(ptr.add(start + j).cast());
-                let high = v128_load(ptr.add(start + j + half).cast());
-                // Each register holds re0,im0,re1,im1. Swapping neighboring lanes supplies
-                // the cross terms; signed imaginary roots implement complex multiplication
-                // without a horizontal reduction or a different summation tree.
-                let swapped = i32x4_shuffle::<1, 0, 3, 2>(high, high);
-                let product = f32x4_add(f32x4_mul(high, real), f32x4_mul(swapped, imaginary));
-                v128_store(ptr.add(start + j).cast(), f32x4_add(low, product));
-                v128_store(ptr.add(start + j + half).cast(), f32x4_sub(low, product));
-            }
-        }
-    }
 }
 
 // Pack two real output spectra into one complex inverse transform. The

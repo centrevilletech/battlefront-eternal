@@ -14,5 +14,3 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 three = { path = "../three" }
 v8math = { path = "../v8math" }
 
-[features]
-web = []

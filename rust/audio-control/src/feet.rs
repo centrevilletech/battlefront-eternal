@@ -2,35 +2,6 @@
 //! TerrainCollision primitive of its class (tools/zero_vehicle.py vehicle_fx
 //! `feet`, `stomp`), and when each comes down and lifts, by the rules of the
 //! 2004 game's walker foot update:
-//!
-//! - A foot is where its primitive meets the ground (`bottom`: its centre
-//!   less its up axis times half its height), and its height is that
-//!   point's over the walker's root.
-//! - It comes down (the stomp: the StompEffect, the foot's FootstepSound) by
-//!   the class's StompDetectionType. 0, the default: as it falls through
-//!   StompThreshold (0.15 m unless set) over the lowest it goes. 1 (the
-//!   AT-AT, AT-TE and spider walker): once it falls less than 0.1 m in an
-//!   update after falling more. The update runs only while the walker walks
-//!   or turns, and standing clears type 1's state, so as it sets off every
-//!   foot of a type 1 walker stomps at once.
-//! - It lifts (HydraulicSound) as it rises past HydraulicSoundHeight (1 m
-//!   unless set), once a rise.
-//!
-//! The rules read a foot's travel per update, so they hang on the update
-//! rate, and the walk cycle plays at one pace in the 2004 game (its
-//! AnimationSpeed). The port reads them once per class at 60 updates a
-//! second over the walk clips (gait()), as the phases of the cycle at which
-//! each foot comes down and lifts, the fall measured over any 1/60 s. A
-//! frame's walk phase as drawn (Vehicle.poseCrew: his own hull's predicted
-//! cycle, any other's replicated one) passing one of those phases is the
-//! step, whatever the frame rate or the records' rate; the place is the
-//! foot as drawn. The stomp effect (src/vehicle-effects.js) and the
-//! footsteps and hydraulics (rust/audio-control/src/vehicles.rs) each keep their own
-//! Footfalls. A walker without a walk cycle falls back on the drawn foot's
-//! fall (fall()).
-//!
-//! Walker sound events from vehicle-feet.js. The cold height samples describe
-//! animation assets; rule sampling, arming and frame crossings are native.
 use crate::phase::{Phase, index};
 use crate::foot_limits as lim;
 use crate::engine::{NONE, FOLEY};

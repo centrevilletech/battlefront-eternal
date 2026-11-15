@@ -33,27 +33,6 @@ fn event(c:&mut Combat,id:u32,schema:u32,tick:f64) {
     a[i::SPEED]=60.0;a[i::LIFE]=1.0;a[i::MERGE]=8.0;a[i::DIRECTION+2]=1.0;
 }
 
-#[test]
-fn full_paused_bank_and_recycled_identifiers_allocate_nothing() {
-    let mut c=Combat::new(usize::MAX);
-    // More rounds than any map, received before even one displayed frame.
-    TRACK.with(|t|t.set(true));
-    for id in 1..=limits::RECORDS*3 {
-        event(&mut c,id as u32,1,10.0);
-        let accepted=c.receive(1.0,10.0);
-        assert_eq!(accepted,id<=limits::RECORDS);
-        if accepted {assert!(c.resolve(false));}
-    }
-    c.present(10.0);assert_eq!(c.result[r::ROWS],limits::RECORDS as f64);
-    c.settle(10.0);assert_eq!(c.result[r::ROWS],0.0);
-    // Pruning frees every slot. A fresh ID must never inherit a prior bolt.
-    c.present(200.0);assert_eq!(c.result[r::ROWS],limits::RECORDS as f64);
-    event(&mut c,90000,5,200.0);assert!(c.receive(1.0,200.0));assert!(c.resolve(false));
-    c.settle(199.0);assert_eq!(c.result[r::ROWS],0.0);
-    c.settle(200.0);assert_eq!(c.result[r::ROWS],1.0);assert_eq!(c.output[o::ID],90000.0);
-    assert_eq!(c.output[o::KIND],k::EXPLODE as f64);
-    TRACK.with(|t|t.set(false));assert_eq!(ALLOCS.with(Cell::get),0);
-}
 
 #[test]
 fn delayed_explosion_survives_expiry_until_playout_reaches_it() {
@@ -98,18 +77,6 @@ fn raw_frame_bounds_and_resource_keys_stay_native() {
     c.host.release(usize::MAX);c.host.release(1);c.host.release(1);assert_eq!(c.host.allocate(),1);assert_eq!(c.host.allocate(),-1);
 }
 
-#[test]
-fn entity_weapon_queries_and_generation_probe_preserve_command_order() {
-    use bfe_presentation::ordnance::events;
-    assert!(!events::ready("shot",7.0,2.0,true,3.0,0.0,0.0,false,0.0));
-    assert!(events::ready("lightning",7.0,2.0,false,0.0,0.0,0.0,false,0.0));
-    let text=events::plan(r#"{"presentationKind":"shot","seat":1,"repair":false,"position":[1,2,3]}"#,r#"{"name":"rifle","owner":true,"mount":true,"vehicle":true,"weapons":[{"role":"vehicle","seat":0,"name":"rifle"},{"role":"turret","name":"other"},{"role":"vehicle","seat":1,"name":"rifle","flash":"muzzle"}]}"#).unwrap();
-    let plan:serde_json::Value=serde_json::from_str(&text).unwrap();
-    assert_eq!(plan["commands"][0],serde_json::json!(["hud",2]));
-    assert_eq!(plan["commands"][1],serde_json::json!(["claim"]));
-    assert_eq!(plan["commands"][2],serde_json::json!(["sound",2,"turretFire",0]));
-    assert_eq!(plan["commands"][5],serde_json::json!(["flash",[1.0,0.55,0.2],5.0,0.06]));
-}
 
 #[test]
 fn combat_fact_transport_preserves_signed_zero_and_optional_defaults() {

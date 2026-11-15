@@ -55,14 +55,3 @@ fn publish<'a>(w:&'a mut World,table:&WeaponAiTable,ids:impl Iterator<Item=DefId
     Some(&w.sim.calls.block)
 }
 
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    // Facade shims for the cold policy boundary.
-    #[no_mangle]
-    pub extern "C" fn ai_weapon_policies()->*const f64 {ai_weapon_policies_in(crate::abi::facade::world()).map_or(std::ptr::null(),|b|b.ptr())}
-    #[no_mangle]
-    pub extern "C" fn ai_world_weapon_policies()->*const f64 {ai_world_weapon_policies_in(crate::abi::facade::world()).map_or(std::ptr::null(),|b|b.ptr())}
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{ai_weapon_policies, ai_world_weapon_policies};

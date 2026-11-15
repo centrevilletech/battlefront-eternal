@@ -1,24 +1,6 @@
 //! LocalServer's cold connection and SnapshotHost admission, inside the World.
 //! Content and factory owners supply their existing identities; this module
 //! never assigns a second definition namespace or creates a simulation facade.
-//!
-//! createMultiplayerWorld first parks its dormant viewpoint, then gives the
-//! roster to the network connection. addPlayer reserves the Character before
-//! staging its possible class bodies. F4 owns the actual spawn and generation;
-//! the players owner receives that existing Character and its own mailbox.
-//!
-//! createSnapshotHost comes afterwards in createLocalServer. Its wire source
-//! binds protocol names to native definitions once, and its publication binds
-//! a transport client to a qualified Character. Those two identities must not
-//! be inferred from a shared vector index, even for a one-player match.
-//!
-//! The registry descriptor is content-only. It contains no native pool keys,
-//! addresses or executable definitions. Its paths refer to the first visit of
-//! each shared combat object, rather than every place that object appears.
-//!
-//! Admission may allocate. Once the host is returned, the existing retained
-//! players, wire and factory owners handle input, ticks and publication; no
-//! loader or preparation callback from this module runs on their live path.
 use super::{rows::{Call, Calls, Cx}, AdmitError, Handles, Stage};
 use crate::{gen::*, world::owner::World, store::StrId};
 use bfe_content::{battle::Battle, value::{Object, Value as ContentValue}};

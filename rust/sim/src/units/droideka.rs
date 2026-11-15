@@ -4,11 +4,6 @@
 //! it rolls up into, its shield, and its collision against the buildings
 //! and the terrain. Its hidden gun rig, posed every tick for its muzzles, is
 //! `crate::rig::droideka`.
-//!
-//! Functions take the unit, not the body alone: entering a mode can call
-//! out to the battle in the middle of a tick (a droideka at the end of its
-//! death clip goes up there and then, and its blast hurts what is near it
-//! where it stands at that moment).
 
 use super::damage::contact_damage;
 use super::shapes::{arr, v3};

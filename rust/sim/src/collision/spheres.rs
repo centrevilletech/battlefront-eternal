@@ -4,22 +4,6 @@
 //! terrain's height under a point (ground). For the world's JavaScript,
 //! through the exports at the end, and for this crate's other modules,
 //! through the pub fns, which run whole inside one call into the module.
-//!
-//! The rules are lib.rs's: each function repeats the JavaScript it stands
-//! for, operation by operation and in the same order, in f64, so every
-//! answer is the JavaScript's to the last bit: the same polygons in the same
-//! order, each with the same triangles in the same order and the same
-//! corners. three-mesh-bvh's shapecast visits a tree's leaves left to right,
-//! testing each child's bounds before going down to it (never the root's),
-//! and a leaf's triangles in its indirect order. Every comparison is written
-//! as collision.js and three.js write it: `a < b` and `!(a >= b)` part ways
-//! when a number is NaN.
-//!
-//! Bodies are switched on and off by JavaScript (`enabled`, a plain field),
-//! so a query that meets bodies takes their flags from its caller: a slice
-//! by position in the world's order for this crate's callers, and for
-//! JavaScript's, the flags of the candidates the query's first call names
-//! (as the casts do).
 
 use crate::collision::{apply_matrix4, dot, f32_at, grid_raycast, js_max, js_min, sub, triangle_normal, Corner, Corners, Ray, State, Tree, MAX_BODIES};
 use super::CollisionOwner;
@@ -939,41 +923,13 @@ pub(crate) fn caches() -> &'static mut Vec<GatherCache> {
     unsafe { &mut *std::ptr::addr_of_mut!(crate::abi::cold().collision.gathers.caches) }
 }
 
-/// A fixed set over tree `tree` of `triangles` triangles, its polygon
-/// numbers offset by `offset`; fill its bounds and polygon numbers at
-/// `set_bounds` and `set_polygons`.
-#[no_mangle]
-pub extern "C" fn set_new(tree: u32, triangles: u32, offset: f64) -> u32 { super::owner().set_new(tree, triangles, offset) }
 
-#[no_mangle]
-pub extern "C" fn set_bounds(id: u32) -> *mut f32 { super::owner().set_bounds(id) }
 
-#[no_mangle]
-pub extern "C" fn set_polygons(id: u32) -> *mut u32 { super::owner().set_polygons(id) }
 
-/// The world's buildings as fixed set `set`.
-#[no_mangle]
-pub extern "C" fn world_statics(world: u32, set: u32) { super::owner().world_statics(world, set) }
 
-/// Room for a tree's `count` polygon numbers (a body's), to fill at the pointer.
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn tree_polygons(id: u32, count: u32) -> *mut u32 { super::owner().tree_polygons(id, count) }
 
-/// A body's polygon number offset.
-#[no_mangle]
-pub extern "C" fn body_offset(slot: u32, offset: f64) { super::owner().body_offset(slot, offset) }
 
-/// A gather cache for JavaScript; returns its id.
-#[no_mangle]
-pub extern "C" fn cache_new(margin: f64) -> u32 { super::owner().cache_new(margin) }
 
-/// gather's first call, the center in IO 0-2 and the radius in 3: the fixed
-/// parts (through cache `cache`, -1 none; with the barriers of set
-/// `blockers`, -1 none), and the bodies to try (`ignore` a slot or -1) in
-/// CANDIDATES; returns how many.
-#[no_mangle]
-pub extern "C" fn gather_begin(world: u32, cache: i32, blockers: i32, ignore: i32) -> u32 { super::owner().gather_begin(world, cache, blockers, ignore) }
 
 /// Fixed gather and candidate selection, with all scratch owned by the caller.
 pub(crate) fn gather_candidates_into(s: &State, world: usize, center: [f64; 3], radius: f64, blockers: Option<usize>, cache: Option<&mut GatherCache>, ignore: i64, out: &mut Gathered, candidates: &mut [u32]) -> (Bounds, usize) {
@@ -989,15 +945,6 @@ pub(crate) fn gather_candidates_into(s: &State, world: usize, center: [f64; 3], 
     }
 }
 
-/// gather's second call, over the first `count` candidates whose ENABLED is
-/// written: their polygons, and the gather written out (OUT, its address in
-/// IO 58 and length in 59); returns the polygon count.
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn gather_end(world: u32, count: u32) -> u32 {
-    let owner = super::owner(); let count = owner.gather_end(world, count);
-    owner.gather_descriptor(); count
-}
 
 /// Complete and encode the gather without borrowing any module storage.
 pub(crate) fn gather_complete(s: &State, world: usize, bounds: &Bounds, candidates: &[u32], enabled: &[u8], out: &mut Gathered, w: &mut Vec<f64>) -> usize {
@@ -1026,35 +973,10 @@ pub(crate) fn gather_complete(s: &State, world: usize, bounds: &Bounds, candidat
     list.len()
 }
 
-/// Room for `count` f64s of input; its address.
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn input_reserve(count: u32) -> *mut f64 { super::owner().input_reserve(count) }
 
-/// Where each body's enabled flag goes, by its place in the world's order.
-#[no_mangle]
-pub extern "C" fn places_ptr() -> *mut u8 { super::owner().places_ptr() }
 
-/// pushWalls for a hull, its input written at input_reserve's address: 0-3
-/// its turn q, 4-7 its turn a step ago and 8 1 if it has one, 9-11 its
-/// place a step ago, 12-14 its place, 15-17 its velocity, 18 the probes'
-/// radius, 19 1 if the terrain counts, 20 the barriers' set (-1 none), 21
-/// the probe count, then from 22 each probe's place in the hull's frame and
-/// its cache (-1 none), four each; bodies' flags at places_ptr. Its place
-/// and velocity come back in IO 0-5, and in IO 6 1 if its turn is undone.
-#[no_mangle]
-pub extern "C" fn push_walls_ray(world: u32) { super::owner().push_walls_ray(world) }
 
-/// overlapsSphere's first call, the center in IO 0-2 and the radius in 3:
-/// -1 if the buildings or the terrain overlap it, else the bodies to try
-/// (`ignore` a slot or -1) in CANDIDATES and how many.
-#[no_mangle]
-pub extern "C" fn overlap_begin(world: u32, ignore: i32) -> i32 { super::owner().overlap_begin(world, ignore) }
 
-/// overlapsSphere's second call over the first `count` candidates whose
-/// ENABLED is written: 1 if one overlaps, else 0.
-#[no_mangle]
-pub extern "C" fn overlap_end(world: u32, count: u32) -> u32 { super::owner().overlap_end(world, count) }
 
 pub(crate) fn overlaps_candidates(s: &State, world: usize, center: [f64; 3], radius: f64, candidates: &[u32], enabled: &[u8]) -> bool {
     let order = &s.worlds[world].order;
@@ -1064,14 +986,6 @@ pub(crate) fn overlaps_candidates(s: &State, world: usize, center: [f64; 3], rad
     false
 }
 
-/// terrainNear's triangles (the center in IO 0-2, the radius in 3): their
-/// numbers at the address in IO 58; returns how many.
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn terrain_near_ray(grid: u32) -> u32 {
-    let owner = super::owner(); let count = owner.terrain_near_ray(grid);
-    owner.terrain_descriptor(); count
-}
 
 #[cfg(test)]
 mod tests {
@@ -1151,8 +1065,6 @@ impl CollisionOwner {
     pub fn set_bounds(&mut self, id: u32) -> *mut f32 { self.state.sets[id as usize].bounds.as_mut_ptr() }
     pub fn set_polygons(&mut self, id: u32) -> *mut u32 { self.state.sets[id as usize].polygons.as_mut_ptr() }
     pub fn world_statics(&mut self, world: u32, set: u32) { self.state.worlds[world as usize].statics = Some(set as usize); }
-    #[cfg(target_arch = "wasm32")]
-    pub fn tree_polygons(&mut self, id: u32, count: u32) -> *mut u32 { self.tree_polygon_ids(id, count).as_mut_ptr() }
     pub fn tree_polygon_ids(&mut self, id: u32, count: u32) -> &mut [u32] {
         let t = &mut self.state.trees[id as usize];
         t.polygons.clear();
@@ -1189,8 +1101,6 @@ impl CollisionOwner {
         v[59] = w.len() as f64;
         count as u32
     }
-    #[cfg(target_arch = "wasm32")]
-    pub fn input_reserve(&mut self, count: u32) -> *mut f64 { self.reserve_input(count).as_mut_ptr() }
     pub fn reserve_input(&mut self, count: u32) -> &mut [f64] {
         let v = &mut self.gathers.input;
         if v.len() < count as usize { v.resize(count as usize, 0.0); }

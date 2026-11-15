@@ -1,14 +1,6 @@
 //! The canonical content dump: the text tools/content-dump.mjs writes from
 //! the JavaScript loaders and the content-dump binary writes from these, so
 //! that comparing the two files compares every value bit for bit.
-//!
-//! A dump is lines of `section<TAB>key<TAB>payload`. A payload is a value's
-//! canonical text, or for large ones `sha256:<hex>:<length>` of that text.
-//! Canonical text: `u` (undefined), `null`, `true`, `false`, a number as `#`
-//! and its f64 bits in 16 hex digits (`NaN` for any NaN), a string as
-//! `JSON.stringify` writes it, arrays as `[a,b]`, objects as `{"k":v}` in
-//! JavaScript's key order. A typed array is `f32[n]:sha256:<hex>` over its
-//! elements' little-endian bytes.
 
 use crate::value::Value;
 use std::fmt::Write as _;

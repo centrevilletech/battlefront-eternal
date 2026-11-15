@@ -5,12 +5,6 @@
 //! 512 m), its turret node and its aimers turned toward that target at
 //! their rates, its barrels' kick, and one pass over the rig for the
 //! muzzles, eyes and riders the rest of the tick reads.
-//!
-//! A walker also advances its walk cycle and is posed from its clips (walk,
-//! applyPose, liftLegs), and as drawn feels the ground under its feet
-//! (feelLegs). The rig is rust/sim/src/rig/hull.rs's, posed here; a flyer's
-//! frame, lean and gear are the flight package's (crate::flight::pose,
-//! crate::flight::gear), called from here.
 
 use super::hull::{angle, approach, Hull, DOWN, UP};
 use super::VehicleWorld;

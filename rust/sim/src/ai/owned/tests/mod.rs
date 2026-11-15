@@ -18,5 +18,4 @@ pub(crate) fn empty_world()->Box<crate::world::owner::World> {
     w
 }
 
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 mod mount_lifetime;

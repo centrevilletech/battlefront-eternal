@@ -288,6 +288,7 @@ impl Replicas {
             row[draw::REC_SPHERE + 1] = 0.9;
             row[draw::REC_SPHERE + 3] = 2.2;
             row[draw::REC_FLAGS] = 8.;
+            row[draw::REC_RECEIVE_SHADOW] = 1.;
             row[draw::REC_LOOK] = 1.;
             row[draw::REC_LOOK + 3] = 1.;
             let inverses: Vec<[f64;16]> = actor.bones.iter().map(|b| b.inverse.elements).collect();
@@ -466,7 +467,10 @@ impl Replicas {
                 continue;
             }
             let name = weapon.geometry.map(|name| defs.names.text(name)).unwrap_or("");
-            let model = super::models::Model::new(content, bridge, textures, name, shadow_cascades)?;
+            let mut model = super::models::Model::new(content, bridge, textures, name, shadow_cascades)?;
+            for row in model.iter_mut().flat_map(|m| m.rows.iter_mut()) {
+                row[draw::REC_RECEIVE_SHADOW] = 1.;
+            }
             weapon_classes[id as usize] = Some(held.len());
             held.push(model);
         }

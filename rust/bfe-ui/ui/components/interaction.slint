@@ -11,7 +11,7 @@ export component Interaction inherits FocusScope {
     in property <MenuSound> accept-sound: MenuSound.accept;
     in property <ControlState> visual-state: root.disabled ? ControlState.disabled : !root.interactive ? ControlState.idle
         : root.pressed ? ControlState.pressed : root.has-focus ? (root.keyboard-focus ? ControlState.focused : ControlState.hover)
-        : hit-area.has-hover ? ControlState.hover : ControlState.idle;
+        : hit-area.has-hover && !Theme.keyboard-nav ? ControlState.hover : ControlState.idle;
     out property <bool> hovered: hit-area.has-hover && !root.disabled;
     out property <bool> pressed: (hit-area.pressed || root.key-held) && !root.disabled;
     out property <bool> focus-visible: root.has-focus && root.keyboard-focus;

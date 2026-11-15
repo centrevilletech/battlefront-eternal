@@ -5,11 +5,6 @@
 //! same code serves a soldier's weapons, a seat's and a turret's: a weapon
 //! is the store's record (`gen::Weapon`, rust/sim/schema/combat.mjs) held by
 //! value by its owner, named by its place among its owner's weapons.
-//!
-//! Each function is its JavaScript's operation by operation (src/weapons.js
-//! line numbers on rust/sim-p11-combat): `x || d` and `x ?? d` on the
-//! class's fields read as [`Js::or`] and [`Js::nn`], Math.min/max as
-//! jsrt's, a press's seeded draws as mulberry32 (jsrt::rng::Mulberry32).
 
 use super::defs::{WeaponBase, Js, Level, WeaponClass, WeaponDefs, K};
 use crate::gen::{Melee, Posture, Weapon};

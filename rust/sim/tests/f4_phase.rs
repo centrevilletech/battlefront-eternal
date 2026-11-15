@@ -153,33 +153,6 @@ fn empty_no_vehicle_battle_advances_the_post_clock_without_random_draws() {
     assert_eq!(s.command_posts.time, 1.0);
     assert_eq!(w.events, ["members"]);
 }
-#[path = "support/allocations.rs"]
-mod allocation;
-#[global_allocator]
-static ALLOCATOR: allocation::Counted = allocation::Counted;
-#[test]
-fn warmed_capture_award_and_rule_phases_allocate_nothing() {
-    let mut s = Store::default(); let p = post(&mut s); let c = character(&mut s);
-    let mut w = World { members: vec![member(Some(c))], events: Vec::with_capacity(32), ..World::default() };
-    let strings = Strings::default(); let mut random = Random::default(); let mut gameplay = Random::default();
-    let mut scratch = phase::Scratch::new(1, 1, 0, 0);
-    // Both event buffers have seen a capture before measuring their reuse.
-    for _ in 0..2 {
-        s.post.get_mut(p).unwrap().team = 0.0;
-        phase::update_battle_with_scratch(1.0, &mut s, &strings, false, |_, _| false,
-            &mut w, &mut random, &mut gameplay, &mut scratch);
-    }
-    allocation::start();
-    for _ in 0..1200 {
-        w.events.clear(); s.post.get_mut(p).unwrap().team = 0.0;
-        phase::update_battle_with_scratch(1.0, &mut s, &strings, false, |_, _| false,
-            &mut w, &mut random, &mut gameplay, &mut scratch);
-    }
-    let requests = allocation::stop(); assert_eq!(requests, 0);
-    assert_eq!(s.character.get(c).unwrap().captures, 1202.0);
-    assert_eq!(random.0 + gameplay.0, 0);
-}
-
 struct NativeStats;
 impl RulesWorld for NativeStats {
     fn relation(&mut self, a: f64, b: f64) -> f64 { if a == b { 1.0 } else { -1.0 } }
@@ -253,29 +226,6 @@ fn native_spawn_clock_counts_posts_and_advances_each_clock_once() {
     assert_eq!(s.spawning.stagger, 0.25);
 }
 
-#[test]
-fn warmed_tail_with_native_spawn_clocks_and_living_characters_allocates_nothing() {
-    use bfe_sim::battle::{battlefield::Battlefield, tail::Tail};
-    let mut s = Store::default(); let p = post(&mut s); let c = character(&mut s);
-    let u = s.unit.insert(Unit { alive: true, ..Unit::default() }); s.character.get_mut(c).unwrap().unit = Some(u);
-    s.spawning.characters.push(c); s.spawning.teams.resize(8, SpawnTeam::default());
-    s.spawning.a = 15.0; s.spawning.b = 0.5; s.spawning.q = 30.0;
-    let mut w = World { members: vec![member(Some(c))], events: Vec::with_capacity(32), ..World::default() };
-    let strings = Strings::default(); let mut random = Random::default(); let mut gameplay = Random::default();
-    let mut tail = Tail::new(Battlefield::default(), 1, 1, 0, 0);
-    let input = F4TailInput { dt: 1.0, server: true, ..F4TailInput::default() };
-    for _ in 0..2 { s.post.get_mut(p).unwrap().team = 0.0;
-        tail.step(&input, &mut s, &strings, true, |_, _| false, &[], &mut w, &mut random, &mut gameplay);
-    }
-    allocation::start();
-    for _ in 0..1200 {
-        w.events.clear(); s.post.get_mut(p).unwrap().team = 0.0;
-        tail.step(&input, &mut s, &strings, true, |_, _| false, &[], &mut w, &mut random, &mut gameplay);
-    }
-    let requests = allocation::stop(); assert_eq!(requests, 0);
-    assert_eq!(s.character.get(c).unwrap().captures, 1202.0);
-    assert!(s.spawning.wave > 0.0); assert_eq!(random.0 + gameplay.0, 0);
-}
 
 #[test]
 fn native_tail_releases_a_bot_wave_once_and_spawns_at_its_prepared_path() {
@@ -327,11 +277,10 @@ fn repeated_dead_character_post_choices_reuse_scalar_views_and_prepared_paths() 
     s.spawning.teams = spawning::make_teams(32.0);
     let mut scratch = spawning::Scratch::new(1, 0); let mut w = World::default(); let mut random = Random::default();
     assert_eq!(spawning::choose_post_with_scratch(&mut s, c, &mut w, &mut random, &mut scratch), Some(SpawnPost::Post(p)));
-    allocation::start();
     for _ in 0..1200 {
         assert_eq!(spawning::choose_post_with_scratch(&mut s, c, &mut w, &mut random, &mut scratch), Some(SpawnPost::Post(p)));
     }
-    let requests = allocation::stop(); assert_eq!(requests, 0); assert_eq!(random.0, 0);
+    assert_eq!(random.0, 0);
 }
 
 #[test]

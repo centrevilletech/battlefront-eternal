@@ -1,19 +1,5 @@
 //! runtime/fixed-clock.js. Host pacing supplies time and executes each
 //! requested tick; compensated elapsed time, debt and tick order are native.
-//!
-//! One gameplay clock. Rendering only supplies elapsed time; integer ticks
-//! determine gameplay time. A task has bounded work and retains catch-up debt.
-//!
-//! Two optional limits keep a machine that cannot keep up from spiralling
-//! (each catch-up batch making the next frame later still):
-//! - budget: wall-clock seconds of ticks per advance. The batch shrinks to
-//!   what the measured cost of a tick fits in, never below one tick.
-//! - maxDebt: ticks of debt kept. Beyond it the excess is dropped: offline,
-//!   the world runs slower than real time instead of falling further behind.
-//!   `dropped` counts every tick given up this way.
-//! Neither changes the tick sequence or a tick's length, only how many run per
-//! advance, so gameplay results are the same at any speed. An advance with
-//! `limited` false ignores both (tools and replays that must run every tick).
 
 //!
 //! FixedClock callback ordering
@@ -25,23 +11,6 @@
 //!
 //! Each advance captures its target and budget before invoking host code.
 //! A callback may reset the public clock, change its rate or enter another
-//! clock. Those edits affect the shared state while the current batch keeps
-//! the target and work limit it already captured. A local Pump preserves
-//! those values across imports without holding any host resource reference.
-//!
-//! The host observes the state before its tick. Only a completed callback
-//! increments the tick number; a failed tick leaves the advanced elapsed
-//! time and any callback edits visible for the next advance. Budget timing
-//! samples after that increment, so time callbacks see the completed tick.
-//! The measured cost is in milliseconds while the configured budget is in
-//! seconds. Smoothing keeps the original tenth-share arithmetic order.
-//!
-//! Dropped debt reduces elapsed wall time and clears its compensation. It
-//! never skips a simulation tick number or changes the tick duration. A
-//! machine that cannot keep up therefore runs slower rather than accumulating
-//! unbounded catch-up work. Offline tools can ignore that limit explicitly
-//! while retaining the same bounded batch size and consecutive tick sequence.
-//! A nonzero debt publishes full interpolation alpha until it is repaid.
 
 use crate::gen::WorldClockState;
 

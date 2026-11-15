@@ -4,11 +4,6 @@
 //! points in the same order. In a battle the module's imports implement it
 //! (JavaScript answers); in a replay the capture does (rust/sim-replay's
 //! `Log`), checking every argument.
-//!
-//! References name what the store only refers to (a unit by its id, a hull,
-//! a collision body); vectors cross as values, and where JavaScript keeps
-//! the very vector it was handed (a unit's damage event keeps where the hit
-//! came from) the argument says which vector it is ([`Point`]).
 
 use super::defs::Field;
 use crate::gen::{Beam, BeamSource, Body, Bolt, Grenade, HitPart, Impact, Item, ItemOwner, OrdnanceOwner, Round, Unit, Vehicle};

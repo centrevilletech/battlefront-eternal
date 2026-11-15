@@ -254,8 +254,6 @@ pub fn publish_controls_in(w:&mut World) {
     // Inline acknowledgement/header addresses are valid only in their final
     // instance location, after returning the complete owner from its loan.
     let battle=w.ai.battle_mut().unwrap();
-    #[cfg(target_arch = "wasm32")]
-    { battle.exchange.control_output[3]=battle.state.control_views.ack_pointer(); }
     battle.exchange.descriptor(&battle.counters);
 }
 
@@ -322,32 +320,3 @@ pub fn ai_world_prop_owner_in(w:&mut World,index:u32)->Option<&[f64]> {
     Some(&battle.initial_prop)
 }
 
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    // Facade shims for callers awaiting explicit owner context.
-    #[no_mangle]
-    pub extern "C" fn ai_mission_teams(roster:u32)->*const f64 { ai_mission_teams_in(crate::abi::facade::world(),roster).ptr() }
-    #[no_mangle]
-    pub extern "C" fn ai_world_begin()->u32 { ai_world_begin_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn ai_world_boundary()->*const f64 { ai_world_boundary_in(crate::abi::facade::world()).map_or(std::ptr::null(),|b|b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn ai_world_phase()->u32 { ai_world_phase_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn ai_world_content()->u32 { ai_world_content_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn ai_world_activate()->u32 { ai_world_activate_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn ai_world_dangers()->u32 { ai_world_dangers_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn ai_world_command()->u32 { ai_world_command_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn ai_world_roster()->u32 { ai_world_roster_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn ai_world_roster_character(index:u32)->*const f64 { ai_world_roster_character_in(crate::abi::facade::world(),index).map_or(std::ptr::null(),|b|b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn ai_world_prop_owner(index:u32)->*const f64 { ai_world_prop_owner_in(crate::abi::facade::world(),index).map_or(std::ptr::null(),|b|b.as_ptr()) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{ai_mission_teams, ai_world_begin, ai_world_boundary, ai_world_phase, ai_world_content, ai_world_activate, ai_world_dangers, ai_world_command, ai_world_roster, ai_world_roster_character, ai_world_prop_owner};
