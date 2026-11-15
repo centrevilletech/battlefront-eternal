@@ -586,7 +586,9 @@ impl Prepared {
             let Some(id) = defs.registry.posts.iter().position(|n| *n == name).map(|i| i + 1) else { continue };
             let label = classes[0].1.clone();
             let mut row = [0.; P::WORDS];
-            row[P::MAPPED] = 1.;
+            // The minimap draws placed posts and the vehicle's own marker.
+            // Mobile posts are additional spawn choices, not a second icon.
+            row[P::MAPPED] = 0.;
             row[P::SCALE] = 2.5;
             result.post_meta.push(HudPostMeta { id, name, display_name: label.clone(), position: [0.; 3], team: 0, active: false });
             result.posts.push(Post { id, row, label, region: None, counts: [[0.; PC::WORDS]; 8], count: 0,
