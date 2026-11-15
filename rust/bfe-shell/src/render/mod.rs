@@ -1,29 +1,5 @@
 //! Zero-allocation per-frame rendering of the click gate, shell menus, and
 //! loading screen onto [`bfe_render::interface::Batch`].
-//!
-//! In the Classic theme (`src/menus/themes/classic/index.js` and
-//! `src/menus/themes/classic/draw.js`), all interface geometry is laid out in a
-//! virtual `1024 x height` coordinate space (`height = 768 + (h / w - 0.75) * 768`)
-//! with a 90% safe area (`anchor(ax, ay, safe, height)`).
-//! - Menu row stacks (`draw_rows`) sit under an orange 3-piece header bar
-//!   (`headerbuttonleft`, `headerbuttonmid`, `headerbuttonright`) and draw one
-//!   3-piece blue button bar (`buttonleft`, `buttonmid`, `buttonright`) per row,
-//!   shifted left by `rows_shift` and rotated in 3D (`rotation_euler`).
-//! - Windows and listboxes (`draw_frame`) use 9-slice `border_3_pieces` frames
-//!   with 16-unit corners (`nineSlice`).
-//! - When optional UI textures have not yet been extracted, `fallback_color`
-//!   and `piece_quad` render flat stand-in quads (and 6-sliver right-end
-//!   triangles) matching `FALLBACK` and `triangle` in `draw.js`.
-//!
-//! Mirrors the geometry and colours of:
-//! - `src/shell/gate.js` (`showGate`: `IW = 1024`, `AT = 0.82`, `pulse(t)`),
-//! - `src/menus/themes/classic/index.js` and `src/menus/themes/classic/draw.js`
-//!   (`paintRows`, `paintList`, `paintButton`, `paintText`, `paintPanel`,
-//!   `paintHorizontal`, `rowsShift`, `rowBars`, `selectedColor`, `nineSlice`),
-//! - `src/shell/screens.js` (`createScreens`: `main`, `sp`, `ia`, `options`,
-//!   `profile`, `mp`),
-//! - `src/shell/loading.js` (`LoadingView.prototype.draw`, `drawPictures`,
-//!   `drawDisk`, `zoomView`, `onScreen`, `diskPlace`, `lightLevel`, `mixColor`).
 
 use crate::{
     gate::{self, GATE_TEXT},
@@ -161,19 +137,6 @@ impl ShellTextures {
 }
 
 /// Computes the horizontal shift that centers an angled stack of `count` rows.
-///
-/// Mirrors `rowsShift(width, pitch, count)` in `src/menus/themes/classic/index.js`:
-/// ```js
-/// let w = width + (count % 2 === 1 ? pitch : 0);
-/// let widest = 0;
-/// const half = Math.floor(count / 2);
-/// for (let i = 1; i <= count; i++) {
-///   if (i < half) w += pitch;
-///   else if (i > half) w -= pitch;
-///   widest = Math.max(widest, w);
-/// }
-/// return -widest / 2;
-/// ```
 pub fn rows_shift(width: f64, pitch: f64, count: usize) -> f64 {
     let mut w = width + if count % 2 == 1 { pitch } else { 0.0 };
     let mut widest = 0.0_f64;
@@ -863,8 +826,6 @@ fn draw_popup_box(
 ///    (`Singleplayer`, `InstantAction`, and `InstantActionEra` are rendered in Slint.)
 /// 4. Modal overlay (`profile.editing` callsign editor or `PopupState` notice /
 ///    `EXIT TO WINDOWS?` confirmation / `HostClosePrompt`) over a dimmed backdrop.
-///
-/// Performs zero heap allocations per frame.
 pub fn draw_shell(
     batch: &mut Batch,
     fonts: &ShellFonts,

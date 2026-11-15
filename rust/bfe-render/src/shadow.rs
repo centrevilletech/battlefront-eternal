@@ -48,13 +48,14 @@ pub struct ShadowPass<C: HasContext> {
     pub input: Vec<f64>,
     pub static_view: Vec<f64>,
     pub statics: crate::static_depth::Bank,
+    pub copy_rect: Option<[i32; 4]>,
     // Matrices each program holds, by (program, slot) (post.rs set_uniform).
     matrices: HashMap<(usize, usize), [f32; 16]>,
 }
 
 impl<C: HasContext> ShadowPass<C> {
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> ShadowPass<C> {
-        ShadowPass { gl: PhantomData, input: vec![0.0; INPUT_LEN], static_view: vec![0.;crate::static_layout::SHADOW_LENGTH], statics: crate::static_depth::Bank::default(), matrices: HashMap::new() }
+        ShadowPass { gl: PhantomData, input: vec![0.0; INPUT_LEN], static_view: vec![0.;crate::static_layout::SHADOW_LENGTH], statics: crate::static_depth::Bank::default(), copy_rect: None, matrices: HashMap::new() }
     }
 
     // Content-sized native descriptor commands share the existing draw stream;
@@ -74,10 +75,21 @@ impl<C: HasContext> ShadowPass<C> {
         }
         let size = v[S_SIZE] as i32;
         let fb = core.framebuffer(None, Some(target as u32))?;
+        unsafe { core.gl.disable(glow::SCISSOR_TEST); }
+        core.stats.gl_calls += 1;
         if v[S_FROM] >= 0.0 {
             // graphics.js copyDepth: the cache's depth in place of a clear.
             let from = core.framebuffer(None, Some(v[S_FROM] as u32))?;
-            core.blit_depth(from, fb, size, size);
+            let timer = core.profile.begin(&core.gl);
+            if let Some([x, y, w, h]) = self.copy_rect {
+                if w > 0 && h > 0 {
+                    core.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(from));
+                    core.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(fb));
+                    unsafe { core.gl.blit_framebuffer(x,y,x+w,y+h,x,y,x+w,y+h,glow::DEPTH_BUFFER_BIT,glow::NEAREST); }
+                    core.stats.gl_calls += 1;
+                }
+            } else { core.blit_depth(from, fb, size, size); }
+            core.profile.end(&core.gl, "shadow depth copy", timer);
             core.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
         }
         core.bind_framebuffer(glow::FRAMEBUFFER, Some(fb));
@@ -146,6 +158,7 @@ impl<C: HasContext> ShadowPass<C> {
             }
             stats.gl_calls += 2;
             stats.pass_draws[PASS_SHADOW] += 1;
+            core.profile.draw(count.max(0) as u64,1,1);
         }
         // Colour writes back on for whoever draws next (three resets its own).
         core.state.color_mask(&core.gl, &mut core.stats, [true; 4]);

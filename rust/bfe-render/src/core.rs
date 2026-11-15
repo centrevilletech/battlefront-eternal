@@ -82,6 +82,7 @@ pub const PASSES: usize = 15;
 // The multi-draw call, which glow does not wrap (WEBGL_multi_draw on the web).
 pub trait MultiDraw {
     fn multi_draw(&self, mode: u32, counts: &mut [i32], element_type: u32, offsets: &mut [i32]);
+    fn multi_draw_calls(&self, ranges: usize) -> u64 { ranges as u64 }
     // WebGL may be drawing into a host-created framebuffer that glow cannot
     // adopt. Keep those handles on the platform side during sorted blits.
     fn save_framebuffers(&mut self) -> bool { false }
@@ -362,6 +363,7 @@ pub struct Core<C: HasContext, M: MultiDraw> {
     pub(crate) multi: M,
     pub(crate) programs: Vec<Program<C>>,
     pub(crate) owned_programs: Vec<(String, u32)>,
+    pub(crate) instance_programs: Vec<usize>,
     pub(crate) geometries: Vec<Geometry<C>>,
     pub(crate) textures: Vec<C::Texture>,
     pub(crate) far_map: Option<C::Texture>,
@@ -387,6 +389,7 @@ pub struct Core<C: HasContext, M: MultiDraw> {
     pub bones: Vec<f32>,
     pub state: GlState<C>,
     pub stats: Stats,
+    pub profile: crate::profile::Profile<C>,
     pub log: Vec<String>,
     // The first failure a pass met where it cannot return one (a draw run inside
     // the transparent sort); the phase's end hands it back to the page as its error.
@@ -470,10 +473,10 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         let lamp_texture = upload_texture(&gl, 1, 1);
         unsafe { gl.bind_texture(glow::TEXTURE_2D, None) };
         Core {
-            gl, multi, scene_stamp: 0, programs: vec![], owned_programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![],
+            gl, multi, scene_stamp: 0, programs: vec![], owned_programs: vec![], instance_programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![],
             shadow_input: vec![0.0; SHADOW_FLOATS], shadow: vec![0.0; SHADOW_FLOATS], shadow_ubo, shadow_maps: vec![],
             lamp_texture, lamps: vec![], lamps_dirty: false, frame: vec![0.0; FRAME_FLOATS],
-            input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), log: vec![], fault: None, #[cfg(not(target_arch = "wasm32"))] canvas_framebuffer: None,
+            input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), profile: crate::profile::Profile::default(), log: vec![], fault: None, #[cfg(not(target_arch = "wasm32"))] canvas_framebuffer: None,
         }
     }
 
@@ -504,6 +507,30 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         Ok(old)
     }
 
+    pub fn configure_instance_programs(&mut self,cascades:u32,lamps:bool)->Result<(),String>{
+        let programs=self.owned_programs.clone();
+        for(key,id)in programs{
+            let variant=crate::actor_resources::variant(&key,cascades,lamps).or_else(||crate::effect_settings::key(&key,cascades>0));
+            if let Some(key)=variant{
+                let next=self.add_owned_program(&key)? as usize;
+                while self.instance_programs.len()<=id as usize{self.instance_programs.push(self.instance_programs.len());}
+                self.instance_programs[id as usize]=next;
+            }
+        }
+        self.state.reset();Ok(())
+    }
+    // Retire attachments before the resource owner deletes their images.
+    // Keep cache indices stable for unrelated retained framebuffers.
+    pub fn forget_texture(&mut self,id:u32){
+        for(color,depth,fb)in &mut self.framebuffers{
+            if *color==Some(id)||*depth==Some(id){unsafe{
+                self.gl.bind_framebuffer(glow::FRAMEBUFFER,Some(*fb));
+                if *color==Some(id){self.gl.framebuffer_texture_2d(glow::FRAMEBUFFER,glow::COLOR_ATTACHMENT0,glow::TEXTURE_2D,None,0);*color=None;}
+                if *depth==Some(id){self.gl.framebuffer_texture_2d(glow::FRAMEBUFFER,glow::DEPTH_ATTACHMENT,glow::TEXTURE_2D,None,0);*depth=None;}
+            }}
+        }
+        self.textures[id as usize]=self.lamp_texture;self.state.reset();
+    }
     pub fn set_far_map(&mut self, t: u32) {
         self.far_map = Some(self.textures[t as usize]);
     }
@@ -746,6 +773,10 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
 
     // A phase's start: its stats from zero, nothing known of the GL state.
     // Only explicit diagnostics reads these retained allocation counts.
+    pub fn texture_bytes(&self) -> u64 {
+        let rows=(self.lamps.len()/4).div_ceil(LAMP_TABLE_WIDTH).max(1);
+        (if self.lamps.is_empty(){1}else{LAMP_TABLE_WIDTH*rows}) as u64*16
+    }
     pub fn program_count(&self)->usize {self.programs.len()}
     pub fn geometry_total(&self)->usize {self.geometries.len()}
     pub fn begin_phase(&mut self) {

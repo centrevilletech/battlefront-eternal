@@ -5,8 +5,9 @@
 use super::{clock::Clock, publication::Publication, setup::Admitted, thread::PublicationSlot};
 use bfe_client::{
     generated_input::{ClientCommand, ClientFlightCommand, ClientLook},
-    online::receiver::Receiver,
+    online::{feedback::Ids, receiver::Receiver},
 };
+use bfe_sim::wire::publisher::OwnFacts;
 use bfe_sim::gen::{
     HsCommandKind, WireWorldFacts, WorldTickInput, WorldTickOutput, WorldTickSetup,
 };
@@ -75,6 +76,10 @@ pub trait Engine {
         outcomes: &[u32],
     ) -> Result<(), String>;
     fn close(&mut self);
+    /// What the last publication told the local client about itself.
+    fn published_own(&self) -> Result<Option<OwnFacts>, String> {
+        Ok(None)
+    }
     fn refused(&self) -> u64 {
         0
     }
@@ -83,10 +88,48 @@ pub trait Engine {
     }
 }
 
+/// What the world told its local client about itself, kept as that client's
+/// receiver would: the snapshot epoch, the newest complete snapshot (the
+/// acknowledgement), and the own correction's life and team.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Own {
+    pub epoch: f64,
+    pub ack_tick: f64,
+    pub generation: f64,
+    pub team: u8,
+}
+
+impl Own {
+    fn apply(&mut self, facts: OwnFacts) {
+        // A newer epoch starts the acknowledgements over; an older one is not read.
+        if facts.epoch < self.epoch {
+            return;
+        }
+        if facts.epoch > self.epoch {
+            self.epoch = facts.epoch;
+            self.ack_tick = 0.;
+        }
+        if let Some((generation, team)) = facts.correction {
+            self.generation = generation;
+            self.team = team;
+        }
+        if facts.complete {
+            self.ack_tick = self.ack_tick.max(facts.tick);
+        }
+    }
+}
+
 pub struct Runtime<E: Engine> {
     engine: E,
     clock: Clock,
-    pub receiver: Receiver,
+    /// The display receiver of a single-thread runtime (`new`, which tests
+    /// drive directly). The world
+    /// thread's runtime (`new_into_slot`) has none: it reads `own` from the
+    /// world instead of decoding its own publications.
+    receiver: Option<Receiver>,
+    /// The world thread's view of its client (`new_into_slot`).
+    pub own: Own,
+    outcomes: Ids,
     facts: [f64; WireWorldFacts::WORDS],
     pub ticks: u64,
     pub refused: u64,
@@ -119,7 +162,9 @@ impl<E: Engine> Runtime<E> {
         let mut runtime = Self {
             engine,
             clock: Clock::new(admission.tick),
-            receiver,
+            receiver: Some(receiver),
+            own: Own::default(),
+            outcomes: Ids::default(),
             facts: [0.; WireWorldFacts::WORDS],
             ticks: 0,
             refused: 0,
@@ -153,16 +198,14 @@ impl<E: Engine> Runtime<E> {
             engine.close();
             return Err(error);
         }
-        let mut receiver = Receiver::new(admission.registry);
-        receiver.registry = true;
-        receiver.welcomed = true;
-        receiver.own.id = admission.player_id;
         let welcome_bytes = admission.publication;
         let welcome_output = admission.publication_output;
         let mut runtime = Self {
             engine,
             clock: Clock::new(admission.tick),
-            receiver,
+            receiver: None,
+            own: Own::default(),
+            outcomes: Ids::default(),
             facts: [0.; WireWorldFacts::WORDS],
             ticks: 0,
             refused: 0,
@@ -187,15 +230,16 @@ impl<E: Engine> Runtime<E> {
         let mut block = Block::new();
         let published =
             Publication::from_welcome(output, welcome_bytes, &mut block).map_err(String::from)?;
-        published.deliver(self.client, &mut self.receiver, self.now_ms)?;
-        let ack = Publication::acknowledgement(&self.receiver);
+        let receiver = self.receiver.as_mut().ok_or("no display receiver")?;
+        published.deliver(self.client, receiver, self.now_ms)?;
+        let ack = Publication::acknowledgement(receiver);
         self.engine.acknowledge(
             ack,
-            self.receiver.own.generation,
-            &self.receiver.outcomes.values[..self.receiver.outcomes.count],
+            receiver.own.generation,
+            &receiver.outcomes.values[..receiver.outcomes.count],
         )?;
-        self.receiver.outcomes.count = 0;
-        self.receiver.received.count = 0;
+        receiver.outcomes.count = 0;
+        receiver.received.count = 0;
         Ok(())
     }
 
@@ -205,25 +249,40 @@ impl<E: Engine> Runtime<E> {
         welcome_bytes: &[u8],
         slot: &mut PublicationSlot,
     ) -> Result<(), String> {
-        let client_id = self.client;
-        let now_ms = self.now_ms;
         let mut block = Block::new();
         let published =
             Publication::from_welcome(output, welcome_bytes, &mut block).map_err(String::from)?;
         published.copy_into(&mut slot.block, &mut slot.bytes);
         slot.tick = 0.0;
-        slot.client = client_id;
-        published.deliver(client_id, &mut self.receiver, now_ms)?;
-        let ack = Publication::acknowledgement(&self.receiver);
+        slot.client = self.client;
+        published.fault(self.client)?;
+        self.outcomes.count = 0;
+        published.outcomes(self.client, self.own.epoch, self.own.generation, &mut self.outcomes)?;
+        self.acknowledge_own()
+    }
+
+    // The world thread's client after one of its publications, as its
+    // receiver would have read it: faults and the outcome ids its edges
+    // return (matched against the life and epoch known before this
+    // publication) come from the publication, then the publisher's own facts;
+    // then the acknowledgement goes back.
+    fn acknowledge_own(&mut self) -> Result<(), String> {
+        if let Some(facts) = self.engine.published_own()? {
+            self.own.apply(facts);
+        }
         self.engine.acknowledge(
-            ack,
-            self.receiver.own.generation,
-            &self.receiver.outcomes.values[..self.receiver.outcomes.count],
-        )?;
-        self.receiver.outcomes.count = 0;
-        self.receiver.received.count = 0;
-        self.receiver.publications.clear();
-        Ok(())
+            [self.own.epoch, self.own.ack_tick],
+            self.own.generation,
+            &self.outcomes.values[..self.outcomes.count],
+        )
+    }
+
+    /// The display receiver of a single-thread runtime (`new` only).
+    pub fn receiver(&self) -> &Receiver {
+        self.receiver.as_ref().expect("display receiver of a single-thread runtime")
+    }
+    pub fn receiver_mut(&mut self) -> &mut Receiver {
+        self.receiver.as_mut().expect("display receiver of a single-thread runtime")
     }
 
     pub fn tick(&self) -> f64 {
@@ -244,7 +303,8 @@ impl<E: Engine> Runtime<E> {
         post_name: &str,
     ) -> Result<(), String> {
         let team = team.clamp(1, 2);
-        if self.receiver.own.team != 0 && self.receiver.own.team != team {
+        let own_team = self.receiver.as_ref().map_or(self.own.team, |r| r.own.team);
+        if own_team != 0 && own_team != team {
             self.engine
                 .human_command(HsCommandKind::Team, team, "", "")?;
         }
@@ -265,18 +325,19 @@ impl<E: Engine> Runtime<E> {
         self.facts[WireWorldFacts::AT] = self.now_ms;
         self.facts[WireWorldFacts::UNIX_MS] = self.unix_ms + self.now_ms.floor();
         let published = self.engine.publish(&self.facts)?;
-        published.deliver(self.client, &mut self.receiver, self.now_ms)?;
-        let ack = Publication::acknowledgement(&self.receiver);
+        let receiver = self.receiver.as_mut().ok_or("no display receiver")?;
+        published.deliver(self.client, receiver, self.now_ms)?;
+        let ack = Publication::acknowledgement(receiver);
         // Snapshot ACKs retire baselines; edge ACKs independently retire the
         // world's reliable outcomes. Omitting the latter fills a long local
         // battle's fire queue even though no network packet was ever lost.
         self.engine.acknowledge(
             ack,
-            self.receiver.own.generation,
-            &self.receiver.outcomes.values[..self.receiver.outcomes.count],
+            receiver.own.generation,
+            &receiver.outcomes.values[..receiver.outcomes.count],
         )?;
-        self.receiver.outcomes.count = 0;
-        self.receiver.received.count = 0;
+        receiver.outcomes.count = 0;
+        receiver.received.count = 0;
         Ok(())
     }
 
@@ -291,17 +352,10 @@ impl<E: Engine> Runtime<E> {
         published.copy_into(&mut slot.block, &mut slot.bytes);
         slot.tick = current_tick;
         slot.client = client_id;
-        published.deliver(client_id, &mut self.receiver, now_ms)?;
-        let ack = Publication::acknowledgement(&self.receiver);
-        self.engine.acknowledge(
-            ack,
-            self.receiver.own.generation,
-            &self.receiver.outcomes.values[..self.receiver.outcomes.count],
-        )?;
-        self.receiver.outcomes.count = 0;
-        self.receiver.received.count = 0;
-        self.receiver.publications.clear();
-        Ok(())
+        published.fault(client_id)?;
+        self.outcomes.count = 0;
+        published.outcomes(client_id, self.own.epoch, self.own.generation, &mut self.outcomes)?;
+        self.acknowledge_own()
     }
 
     // Game.step accepts one already stamped command, then WorldTick owns all
@@ -322,6 +376,7 @@ impl<E: Engine> Runtime<E> {
         self.now_ms += 1000. / 60.;
         input.at = self.now_ms;
         input.mouse_scale = 1.;
+        let receiver = self.receiver.as_ref().ok_or("no display receiver")?;
         self.engine.input(Input {
             command,
             look,
@@ -329,11 +384,11 @@ impl<E: Engine> Runtime<E> {
             tick: input.tick,
             now: input.tick - 1.,
             at_ms: self.now_ms,
-            epoch: self.receiver.epoch,
-            generation: self.receiver.own.generation,
-            view_tick: Some(bfe_client::online::clock::rendered_tick(self.receiver.clock.shown, self.receiver.latest)),
+            epoch: receiver.epoch,
+            generation: receiver.own.generation,
+            view_tick: Some(bfe_client::online::clock::rendered_tick(receiver.clock.shown, receiver.latest)),
             fire_aim: None,
-            flight_mode: self.receiver.own.body_schema == 7,
+            flight_mode: receiver.in_aircraft(),
         })?;
         let output = self.engine.step(input)?;
         if let Err(error) = self.clock.complete(&output) {
@@ -353,14 +408,20 @@ impl<E: Engine> Runtime<E> {
         look: &ClientLook,
         flight: &ClientFlightCommand,
         // The target sample the screen showed when this command was made.
-        // The world's own receiver never advances a display clock.
         view_tick: f64,
         fire_aim: Option<[f64; 2]>,
+        // Whether the screen's receiver had the player flying when the
+        // command was packed (it packs flight controls then).
+        flight_mode: bool,
     ) -> Result<(), String> {
         if self.closed {
             return Err("local battle is closed".into());
         }
         let next = self.clock.input().tick;
+        let (epoch, generation) = self
+            .receiver
+            .as_ref()
+            .map_or((self.own.epoch, self.own.generation), |r| (r.epoch, r.own.generation));
         self.engine.input(Input {
             command,
             look,
@@ -368,11 +429,11 @@ impl<E: Engine> Runtime<E> {
             tick: command.tick.max(next),
             now: next - 1.,
             at_ms: self.now_ms,
-            epoch: self.receiver.epoch,
-            generation: self.receiver.own.generation,
+            epoch,
+            generation,
             view_tick: Some(view_tick),
             fire_aim,
-            flight_mode: self.receiver.own.body_schema == 7,
+            flight_mode,
         })
     }
 

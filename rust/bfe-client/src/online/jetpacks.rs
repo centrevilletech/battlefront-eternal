@@ -55,6 +55,7 @@ impl Jetpacks {
     /// `effects`: the battle effect library's groups by name. `data`: where
     /// this owner's floats start in the effect data.
     pub fn new(content: &BattleContent, bridge: &mut Bridge, resources: &mut crate::resources::Resources, effects: &[(String, usize)], data: usize) -> Result<Self, String> {
+        let shadow_cascades = bridge.shadow_cascades();
         let defs = bfe_content::defs::Defs::build(&content.content)?;
         let battle = &content.content.battle;
         let mut classes = Vec::new();
@@ -70,7 +71,7 @@ impl Jetpacks {
             let definitions = own.or_else(|| battle.effects.get("effects").and_then(|e| e.get(name))).map_or_else(|| "[]".to_string(), |d| authored_json(d).to_string());
             classes[id as usize] = Some(Class { definitions, classic: effects.iter().find(|(known, _)| known == name).map(|(_, group)| *group) });
         }
-        let shadows = crate::shadows::COUNT > 0;
+        let shadows = shadow_cascades > 0;
         // JetpackVolume's density field: 32 cubed bytes, repeating, linear.
         let source = resources.source(
             &serde_json::json!({"width":32,"height":32,"depth":32,"target":glow::TEXTURE_3D,"format":1028,"dataType":1009,"srgb":false}).to_string(),

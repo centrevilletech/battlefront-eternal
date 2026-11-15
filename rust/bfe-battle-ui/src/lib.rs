@@ -1,26 +1,4 @@
 //! Battlefront Eternal in-battle UI crate (`bfe-battle-ui`).
-//!
-//! Ports the Classic spawn screen (`src/spawn-screen/`), Classic scoreboard and
-//! battle statistics (`src/scoreboard/`, `src/battle-stats.js`), in-battle pause menu
-//! (`src/pause/`), and HUD input/chat publication (`src/hud-input.js`, `src/chat.js`).
-//!
-//! ### Architecture
-//! - [`shapes`] and [`surface`]: The 2004 `1024xH` perspective interface plane
-//!   (`z = -886.81`, 60-degree horizontal FOV, 90% safe area), 9-slice containers,
-//!   5-stage `TitleIntro` flashy text/bar animations, and the [`BattleUiSurface`]
-//!   drawing trait that decouples all views from WebGL/OpenGL.
-//! - [`spawn`]: The 2004 `ifs_spawndisplay` screen — startup URL/mission policy
-//!   (`spawn_policy`), pure selection state machine (`SpawnModel`), keyboard/mouse
-//!   input with 1-frame nav cooldown and `Tab` post cycling (`SpawnInput`), tilted
-//!   35/-20/45-degree window geometry (`ClassicSpawnLayout`), HUD/3D view
-//!   (`ClassicSpawnView`), and controller (`SpawnScreenController`).
-//! - [`scoreboard`]: The 2004 `ifs_teamstats`, `ifs_personalstats`, and `ifs_awardstats`
-//!   screens, per-slot battle statistics (`CharacterRecord`), `TabHold` tap-vs-hold
-//!   state machine, and spiral award-medallion flight paths.
-//! - [`pause`]: The in-battle `ifs_pausemenu` screen stack, confirmation popups
-//!   (`RESPAWN`, `RESTART MISSION`, `ABORT MISSION`), and pointer-unlock grace period.
-//! - [`hud_input`] and [`chat`]: Shared-memory HUD Float64Array publication
-//!   (`HudInputPublisher`) with unit-row hysteresis and in-battle chat routing.
 
 /// In-battle text chat log, channel state (`ALL` / `TEAM`), and key routing (`src/chat.js`).
 pub mod chat;

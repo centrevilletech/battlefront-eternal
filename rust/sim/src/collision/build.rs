@@ -23,17 +23,3 @@ pub(crate) fn tree_root_at_in(state: &super::State, id: u32, root: u32) -> &[u32
 
 pub(crate) fn tree_root_len_in(state: &super::State, id: u32, root: u32) -> u32 { state.trees[id as usize].roots[root as usize].len() as u32 }
 
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn tree_build(id: u32) { crate::abi::facade::cold().collision.state.build_tree(id) }
-    #[no_mangle]
-    pub extern "C" fn tree_roots(id: u32) -> u32 { tree_roots_in(&crate::abi::facade::cold().collision.state, id) }
-    #[no_mangle]
-    pub extern "C" fn tree_root_at(id: u32, root: u32) -> *const u32 { tree_root_at_in(&crate::abi::facade::cold().collision.state, id, root).as_ptr() }
-    #[no_mangle]
-    pub extern "C" fn tree_root_len(id: u32, root: u32) -> u32 { tree_root_len_in(&crate::abi::facade::cold().collision.state, id, root) }
-}
-#[cfg(target_arch = "wasm32")]
-pub use exports::{tree_build, tree_roots, tree_root_at, tree_root_len};

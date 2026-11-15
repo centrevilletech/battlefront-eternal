@@ -4,7 +4,7 @@
 // (`address.value.trim().replace(/^\[|\]$/g, '')`, port `1..=65535` defaulting
 // to `18451`) and the `directInfo` IPC guard in the desktop host
 // (`isIP(value.address) && Number.isInteger(value.port)`), plus `HOST:PORT`
-// CLI target resolution for `online-tool ping`.
+// Server address resolution.
 
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 
@@ -180,8 +180,7 @@ fn valid_ipv6(host: &str) -> bool {
     host.parse::<std::net::Ipv6Addr>().is_ok()
 }
 
-// Parses a `HOST:PORT` or `[IPv6]:PORT` string for CLI tools (`online-tool ping`
-// and `--join`).
+// Parses a `HOST:PORT` or `[IPv6]:PORT` string.
 // Fast-paths socket address literals (`SocketAddr::from_str`) and strict IP
 // literals before falling back to OS `ToSocketAddrs` DNS resolution for named
 // hosts, returning both the normalized host string (for HTTP `Host` headers)

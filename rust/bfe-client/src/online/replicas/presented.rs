@@ -401,7 +401,7 @@ impl Replicas {
         // a second later, is then not shown again (presentEntityEvent's
         // `predictedShots.claim`).
         let own = (receiver.own.id as u32, receiver.own.generation as u32);
-        let ahead = prediction.body.is_some();
+        let ahead = prediction.ahead();
         for shot in &prediction.shots {
             let weapon = self.guns.ids.get(shot.weapon).copied().unwrap_or(0);
             if self.guns.ahead.get(weapon) == Some(&true) {
@@ -517,6 +517,14 @@ impl Replicas {
             // the last frame posed it, and the effect starts with the next
             // frame's batch, one frame after the browser's.
             Act::DeathBlast => {
+                self.units.refresh_actor(actor);
+                // Destruction.deathBlast: Enhanced draws a blast of its own.
+                if let Some(body) = super::body_of(&self.slots, &self.models, &self.units, slot) {
+                    if self.combat.destruction.death_blast(&body) {
+                        self.presented.shown[2] += 1;
+                        return true;
+                    }
+                }
                 let bones = self.models[model].inverses.len();
                 let bone = (self.presented.rng.uniform() * bones as f64) as usize;
                 let blast = self.presented.blasts[(self.presented.rng.uniform() * BLASTS.len() as f64) as usize];
@@ -540,7 +548,18 @@ impl Replicas {
             // drawn. Origin and velocity are the drawn body's, the same pose
             // the bones are read from.
             Act::BlowApart { health } => {
+                self.units.refresh_actor(actor);
                 let class = self.slots[slot].class;
+                // Destruction.blowApart: Enhanced draws it and its pieces.
+                if self.combat.destruction.chunked(class) {
+                    if let Some(body) = super::body_of(&self.slots, &self.models, &self.units, slot) {
+                        if self.combat.destruction.blow_apart(&body) {
+                            self.slots[slot].gone.get_or_insert(0.);
+                            self.presented.shown[3] += 1;
+                            return true;
+                        }
+                    }
+                }
                 let out = &self.units.output[actor * o::STRIDE..];
                 let origin: [f64; 3] = std::array::from_fn(|axis| out[o::POSITION + axis]);
                 let velocity: [f64; 3] = std::array::from_fn(|axis| out[o::VELOCITY + axis]);

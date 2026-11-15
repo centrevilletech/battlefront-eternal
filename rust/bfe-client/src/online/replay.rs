@@ -31,6 +31,9 @@ pub struct History {
     // Replay holds them through ticks that have no pending command of their own.
     held: u32,
     held_generation: f64,
+    // The newest command sent had the primary trigger down, and its life.
+    firing: bool,
+    firing_generation: f64,
 }
 impl Default for History {
     fn default() -> Self {
@@ -43,6 +46,8 @@ impl Default for History {
             refused: 0,
             held: 0,
             held_generation: -1.,
+            firing: false,
+            firing_generation: -1.,
         }
     }
 }
@@ -66,7 +71,13 @@ impl History {
     pub fn held(&self, generation: f64) -> u32 {
         if self.held_generation == generation { self.held } else { 0 }
     }
+    /// The primary trigger is down in the newest command of this life.
+    pub fn firing(&self, generation: f64) -> bool {
+        self.firing && self.firing_generation == generation
+    }
     pub fn push(&mut self, c: &ClientCommand, look: &ClientLook, flight: &ClientFlightCommand, tick: f64, generation: f64, sequence: f64) {
+        self.firing = c.held & (1 << bfe_sim::gen::ClientHeld::Primary as u8) != 0;
+        self.firing_generation = generation;
         if self.count == COMMANDS {
             self.at = (self.at + 1) % COMMANDS;
             self.count -= 1;
@@ -137,6 +148,8 @@ impl History {
 pub struct Shot {
     pub tick: f64,
     pub weapon: usize,
+    // The charge level it fired at (0: none; n: the weapon's nth charge).
+    pub level: usize,
     pub button: u32,
     pub spread: [f64; 2],
     pub position: [f64; 3],
@@ -147,6 +160,8 @@ pub struct Shot {
     pub fire: [f64; 2],
     pub posture: usize,
     pub air: bool,
+    // A droideka's: from its eye, a metre up, not a soldier's gun origin.
+    pub walker: bool,
 }
 // ClientPrediction is the sole private gameplay continuation. This adapter
 // retains only prerequisites, acknowledged commands and generated results.
@@ -179,6 +194,13 @@ pub struct Replay {
     mounted: Box<super::checkpoint::Mounted>,
     /// The rounds this frame's replay fired for the first time.
     pub shots: Vec<Shot>,
+    // Each weapon's ShotDelay in ticks, by its place in the weapon list, and
+    // the tick a droideka's repeater may next be shown firing: a droideka's
+    // weapons are not replayed here, so its bolts are drawn from the held
+    // trigger at the weapon's own rate until the world's copies arrive.
+    shot_delays: Vec<f64>,
+    walker_next: f64,
+    walker_ahead: bool,
 }
 impl Replay {
     pub fn new(content: &BattleContent) -> Result<Self, String> {
@@ -240,6 +262,9 @@ impl Replay {
             weapon_at: 0,
             weapon_count: 0,
             shots: Vec::with_capacity(32),
+            shot_delays: defs.weapons.iter().map(|weapon| weapon.record.get("ShotDelay").and_then(bfe_content::Value::as_f64).unwrap_or(0.) * 60.).collect(),
+            walker_next: 0.,
+            walker_ahead: false,
         })
     }
     // HUD, arms and audio borrow the same completed arsenal. Iteration
@@ -255,6 +280,12 @@ impl Replay {
             .take(self.weapon_count)
             .map(|row| bfe_sim::gen::Weapon::take(row, &[]))
             .chain(self.fleet.weapons())
+    }
+    /// The player's own shots are shown from this client's own firing (the
+    /// replayed arsenal, or a droideka's held trigger), so the world's
+    /// record of each is not shown again.
+    pub fn ahead(&self) -> bool {
+        self.body.is_some() || self.walker_ahead
     }
     pub fn selected(&self) -> [f64; 2] {
         if self.fleet.identity.is_some() {
@@ -282,6 +313,7 @@ impl Replay {
         self.body = None;
         self.displayed = None;
         self.shots.clear();
+        self.walker_ahead = false;
         let interval = self.before.take();
         let life = [r.epoch, r.own.id, r.own.generation];
         if self.life != life {
@@ -337,6 +369,33 @@ impl Replay {
             let (at, _) = self.arsenal.write(&mut self.owner.output);
             self.weapon_at = at as usize;
             self.weapon_count = self.arsenal.rows.len();
+            // The repeater in hand (the first weapon), deployed and not
+            // overheated, with the trigger down: one bolt every ShotDelay.
+            let repeater = self.weapons().next();
+            if let Some(weapon) = repeater {
+                let index = weapon.def.0.saturating_sub(1) as usize;
+                let delay = self.shot_delays.get(index).copied().unwrap_or(0.);
+                self.walker_ahead = delay > 0.;
+                if !sender.history.firing(r.own.generation) {
+                    self.walker_next = r.latest + weapon.wait.max(0.) * 60.;
+                } else if delay > 0. && r.own.walker_mode < 11 && !weapon.overheated && r.latest >= self.walker_next {
+                    let aim = sender.fire_aim.unwrap_or([sender.yaw, sender.pitch]);
+                    self.shots.push(Shot {
+                        tick: r.latest + 1.,
+                        weapon: index,
+                        level: 0,
+                        button: 0,
+                        spread: [0.; 2],
+                        position: r.own.position,
+                        aim,
+                        fire: aim,
+                        posture: 0,
+                        air: false,
+                        walker: true,
+                    });
+                    self.walker_next = r.latest.max(self.walker_next) + delay;
+                }
+            }
             return Ok(());
         }
         if !r.own.alive || r.own.body_schema != 6 || r.own.vehicle != 0. {
@@ -479,6 +538,7 @@ impl Replay {
                     shots.push(Shot {
                         tick: shot.tick,
                         weapon: weapon.def.0.saturating_sub(1) as usize,
+                        level: shot.level as usize,
                         button: shot.button,
                         spread: [shot.yaw, shot.pitch],
                         position: body.position,
@@ -486,6 +546,7 @@ impl Replay {
                         fire: sender.fire_aim.unwrap_or([body.aim_yaw, body.aim_pitch]),
                         posture: body.posture as usize,
                         air: body.air.is_some(),
+                        walker: false,
                     });
                 }
                 self.shots = shots;

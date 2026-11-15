@@ -84,6 +84,11 @@ impl Publication {
         if !self.pad_dirty.contains(&index) { self.pad_dirty.push(index); }
     }
 
+    /// What a flush would have published, dropped unencoded: nothing native
+    /// reads these rows (the JavaScript host did).
+    pub fn discard(&mut self, st: &mut Store) {
+        st.vehicle.retired.clear(); self.dirty.clear(); self.pad_dirty.clear();
+    }
     /// Publish dirty hulls before a foreign hook or at the phase boundary.
     /// A callback may publish recursively; the next flush starts a new block.
     pub fn flush(&mut self, st: &mut Store) {

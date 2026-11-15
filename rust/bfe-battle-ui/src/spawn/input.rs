@@ -1,21 +1,4 @@
 //! Keyboard and mouse input for the Classic spawn screen (`src/spawn-screen/input.js`).
-//!
-//! Preserves all input quirks of the original `ifs_spawndisplay`:
-//! - `ArrowUp`/`ArrowDown` and the mouse wheel step the soldier class, wrapping
-//!   around the roster.
-//! - `ArrowLeft`/`ArrowRight` or clicking the spinning team logo switches teams.
-//! - The frame immediately after any class or team navigation key (or wheel step)
-//!   ignores those keys (`skip_nav`), and a repeat arriving during that cooldown
-//!   frame keeps the cooldown active for the following frame.
-//! - `Tab` cycles eligible command posts immediately and repeats every `0.2s`
-//!   (`TAB_REPEAT`) while held.
-//! - `Space` spawns on the first frame it is held — even if `Space` was already
-//!   held down while dying before the screen opened.
-//! - Right-clicking anywhere spawns immediately; left-clicking a `SPAWN` hotspot
-//!   spawns inside the event handler so pointer-lock requests happen inside a
-//!   user gesture.
-//! - `Enter` clicks at the current cursor position, except when the cursor is
-//!   still sitting at its initial center `(512, H / 2)` before any mouse movement.
 
 use crate::spawn::model::{SpawnModel, SpawnPort, SpawnState, TeamSwitchSource};
 

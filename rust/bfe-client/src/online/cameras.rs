@@ -40,6 +40,8 @@ pub struct DrawnDeath {
     pub chest: Option<[f64; 3]>,
     /// The killer's actor root, while he is drawn.
     pub killer_feet: Option<[f64; 3]>,
+    /// A creature holds the player; its flag selects the death view immediately.
+    pub held_camera: Option<bool>,
 }
 struct Queries {
     collision: Collision,
@@ -143,7 +145,10 @@ impl Cameras {
         dt: f64,
     ) -> f64 {
         let lease = receiver.own.mount;
-        camera.set_flight_mode(receiver.own.flight.is_some());
+        if drawn.held_camera.is_some() {
+            camera.first_person = false;
+        }
+        camera.set_flight_mode(receiver.in_aircraft());
         // PlayerCombat.usesEyeView also selects eyes for an authored scoped
         // weapon; zooming must not change the player's saved perspective.
         let scoped_eye = receiver.own.zoom > 1.
@@ -253,7 +258,8 @@ impl Cameras {
         }
         // game.js startDeathCamera: while the dead soldier's corpse remains in
         // the world (4 s linger, non-walker), DeathShot frames the body and killer.
-        let dead_active = receiver.own.dead && !receiver.own.removed && !receiver.own.walker;
+        let dead_active = (receiver.own.dead || drawn.held_camera == Some(true))
+            && !receiver.own.removed && !receiver.own.walker;
         if dead_active && !self.was_dead {
             self.death_serial = self.death_serial.wrapping_add(1);
             // startDeathCamera measures the world's camera (simulationCamera),

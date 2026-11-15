@@ -29,8 +29,6 @@ impl Publication {
     pub fn version(&self)->u32 {self.version}
     pub fn word_count(&self)->u32 {self.count*(AiControlView::WORDS as u32)}
     pub fn acknowledge(&mut self,version:u32) {self.ack[0]=version as f64;}
-    #[cfg(target_arch = "wasm32")]
-    pub fn ack_pointer(&mut self)->u32 {self.ack.as_mut_ptr() as usize as u32}
     /// Call only after every recursive Core loan has returned. Released
     /// controls whose controller has unbound can leave the native pool; weak targets resolve
     /// dead rather than accidentally following the next storage generation.
@@ -98,8 +96,5 @@ impl Publication {
 }
 
 impl Publication {
-    fn word_address(&self)->u32 {
-        #[cfg(target_arch = "wasm32")] { self.words.as_ptr() as usize as u32 }
-        #[cfg(not(target_arch = "wasm32"))] { 0 }
-    }
+    fn word_address(&self)->u32 { 0 }
 }

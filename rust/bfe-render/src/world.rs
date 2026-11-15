@@ -261,6 +261,7 @@ impl<C: HasContext> WorldPass<C> {
             } else if w.point_lit && light_count > 0 {
                 mask = light_mask(lights, light_count, std::slice::from_ref(&w.bbox), None);
             }
+            let timer = core.profile.begin(gl);
             unsafe {
                 state.use_program(gl, stats, programs[w.program].program);
                 let program = &mut programs[w.program];
@@ -280,6 +281,9 @@ impl<C: HasContext> WorldPass<C> {
                 } else {
                     gl.draw_elements(glow::TRIANGLES, count, geo.index_type, first * geo.index_bytes);
                 }
+                let indices = if ranges > 1 { w.cells.as_ref().unwrap().counts[..ranges].iter().map(|v| *v as u64).sum() } else { count.max(0) as u64 };
+                core.profile.draw(indices, 1, if ranges > 1 { core.multi.multi_draw_calls(ranges) } else { 1 });
+                core.profile.end(gl, if w.pass == PASS_TERRAIN {"terrain"} else {"opaque"}, timer);
                 stats.gl_calls += 1;
                 stats.world_draws += 1;
                 stats.pass_draws[w.pass] += 1;

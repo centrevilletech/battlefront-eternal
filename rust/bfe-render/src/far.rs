@@ -840,6 +840,7 @@ impl<C: HasContext> FarPass<C> {
         }
         let double = f & F_DOUBLE_PASS != 0;
         let sides = [if double { 3 } else { f & 3 }, 0];
+        let submitted=if ranges>1 {match &item.draw {Draw::Cells(c)=>c.counts[..ranges].iter().map(|v|*v as u64).sum(),Draw::Terrain(t)=>t.counts[..ranges].iter().map(|v|*v as u64).sum(),_=>count.max(0) as u64}} else {count.max(0) as u64};
         for &side in &sides[..if double { 2 } else { 1 }] {
             state.cull(gl, stats, side);
             unsafe {
@@ -857,6 +858,7 @@ impl<C: HasContext> FarPass<C> {
                     gl.draw_elements(glow::TRIANGLES, count, geo.index_type, first * geo.index_bytes);
                 }
             }
+            core.profile.draw(submitted,instances.max(1) as u64,if ranges>1 {core.multi.multi_draw_calls(ranges)} else {1});
             stats.gl_calls += 1;
             stats.pass_draws[counted] += 1;
         }

@@ -79,7 +79,7 @@ impl Casters {
         self.serial = self.serial.wrapping_add(1);
         for record in 0..records.min(I::MAX_RECORDS) {
             let row = &core.input[I::IN_RECORDS + record * I::REC_STRIDE..][..I::REC_STRIDE];
-            if row[I::REC_KIND] != 1. && row[I::REC_KIND] != I::KIND_BLENDED {
+            if row[I::REC_FLAGS] as u32 & I::NO_SHADOW != 0 || (row[I::REC_KIND] != 1. && row[I::REC_KIND] != I::KIND_BLENDED) {
                 continue;
             }
             let count = row[I::REC_BONES] as usize;
@@ -92,8 +92,9 @@ impl Casters {
             }
             let id = self.ids[record];
             let base = self.skins.get(id).unwrap().base;
-            self.skins.bones[base..base + count * 16]
-                .copy_from_slice(&core.bones[start..start + count * 16]);
+            let source = &core.bones[start..start + count * 16];
+            if self.skins.bones[base..base + count * 16] == *source { continue; }
+            self.skins.bones[base..base + count * 16].copy_from_slice(source);
             let slot = self.skins.slot(id).unwrap();
             self.skins.input[slot] = self.serial as f64;
         }
@@ -107,17 +108,27 @@ impl Casters {
         records: usize,
         view: &[f64],
         projection: &[f64],
-    ) -> Result<(), String> {
+    ) -> Result<Option<[f64; 4]>, String> {
+        let clip = crate::math::mul(projection.try_into().unwrap(), view.try_into().unwrap());
+        let frustum = crate::math::Frustum::from_matrix(&clip);
+        let mut bounds: Option<[f64; 4]> = None;
         let mut count = 0;
         for record in 0..records.min(I::MAX_RECORDS) {
             let row = &core.input[I::IN_RECORDS + record * I::REC_STRIDE..][..I::REC_STRIDE];
-            if !(1. ..=4.).contains(&row[I::REC_KIND]) {
+            if row[I::REC_FLAGS] as u32 & I::NO_SHADOW != 0 || !(1. ..=4.).contains(&row[I::REC_KIND]) {
                 continue;
             }
             let Some(geometry) = core.geometries.get(row[I::REC_GEOMETRY] as usize) else {
                 continue;
             };
             let world = row[I::REC_WORLD..I::REC_WORLD + 16].try_into().unwrap();
+            let (center, radius) = crate::math::sphere_to_world(world, row[I::REC_SPHERE..I::REC_SPHERE + 3].try_into().unwrap(), row[I::REC_SPHERE + 3]);
+            if !frustum.sphere(&center, radius) { continue; }
+            let rect = projected_sphere(&clip, center, radius);
+            bounds = Some(match bounds {
+                None => rect,
+                Some([x0, y0, x1, y1]) => [rect[0].min(x0), rect[1].min(y0), rect[2].max(x1), rect[3].max(y1)],
+            });
             let model_view = crate::math::mul(view.try_into().unwrap(), world);
             let skinned = row[I::REC_KIND] == 1. || row[I::REC_KIND] == I::KIND_BLENDED;
             for group in 0..(row[I::REC_GROUPS] as usize).clamp(1, 4) {
@@ -162,6 +173,37 @@ impl Casters {
             }
         }
         input[S::S_DRAWS] = count as f64;
-        Ok(())
+        Ok(bounds)
+    }
+}
+
+// Cascades are orthographic: each projected sphere extent is the length of
+// one matrix row times its world radius. Unknown bounds conservatively cover
+// the whole map, just as a newly positioned cascade does.
+fn projected_sphere(clip: &crate::math::Mat4, center: [f64; 3], radius: f64) -> [f64; 4] {
+    if clip[3] != 0. || clip[7] != 0. || clip[11] != 0. || !clip[15].is_finite() || clip[15].abs() < 1e-12
+        || !radius.is_finite() || radius < 0. || center.iter().any(|x| !x.is_finite()) {
+        return [-1., -1., 1., 1.];
+    }
+    let p = crate::math::transform4(clip, [center[0], center[1], center[2], 1.]);
+    // Affine inversion can leave w just above/below one. Divide by its
+    // constant value instead of needlessly treating that as perspective.
+    let w = clip[15];
+    let rx = radius * (clip[0]*clip[0] + clip[4]*clip[4] + clip[8]*clip[8]).sqrt() / w.abs();
+    let ry = radius * (clip[1]*clip[1] + clip[5]*clip[5] + clip[9]*clip[9]).sqrt() / w.abs();
+    let rect = [p[0]/w-rx, p[1]/w-ry, p[0]/w+rx, p[1]/w+ry];
+    if rect.iter().any(|x| !x.is_finite()) { [-1., -1., 1., 1.] } else { rect }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::projected_sphere;
+    #[test]
+    fn affine_shadow_bounds_ignore_homogeneous_scale() {
+        let mut clip = [0.; 16];
+        for i in [0, 5, 10, 15] { clip[i] = 2.; }
+        assert_eq!(projected_sphere(&clip, [0.25, -0.5, 0.], 0.125), [0.125, -0.625, 0.375, -0.375]);
+        clip[3] = 0.1;
+        assert_eq!(projected_sphere(&clip, [0.25, -0.5, 0.], 0.125), [-1., -1., 1., 1.]);
     }
 }

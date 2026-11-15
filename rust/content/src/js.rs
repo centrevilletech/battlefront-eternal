@@ -4,11 +4,6 @@
 //! computes it. ODF values reach the simulation as strings that the
 //! JavaScript reads with `parseFloat` or `Number`, so a number derived from
 //! one in Rust must come from the same rules, prefix and all.
-//!
-//! The Math functions come from rust/v8math. The rest are private copies of
-//! what `rust/jsrt` (the port's JavaScript semantics crate) provides or will
-//! provide; once it is part of the build, callers move to it and the content
-//! dump re-proves the result.
 
 use crate::value::Value;
 

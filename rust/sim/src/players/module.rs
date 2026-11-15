@@ -213,36 +213,3 @@ pub fn players_outcomes_enable_in(w: &mut World, handle: u32) {
 pub fn players_views_in(w: &mut World) -> Option<&[f64]> { super::step::views_in(w) }
 pub fn players_shots_in(w: &mut World) -> Option<&[f64]> { super::step::shots_in(w) }
 
-// The WASM boundary owns addresses; shared services borrow their owners.
-#[cfg(target_arch = "wasm32")]
-mod exports {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn players_init() { players_init_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn players_create() -> u32 { players_create_in(crate::abi::facade::world()) }
-    #[no_mangle]
-    pub extern "C" fn players_link(handle: u32) -> u32 { players_link_in(crate::abi::facade::world(), handle) }
-    #[no_mangle]
-    pub extern "C" fn players_drop(handle: u32) { players_drop_in(crate::abi::facade::world(), handle) }
-    #[no_mangle]
-    pub extern "C" fn players_stop(handle: u32) { players_stop_in(crate::abi::facade::world(), handle) }
-    #[no_mangle]
-    pub extern "C" fn players_disconnect(handle: u32, at: f64) { players_disconnect_in(crate::abi::facade::world(), handle, at) }
-    #[no_mangle]
-    pub extern "C" fn players_auto(handle: u32, flag: u32) { players_auto_in(crate::abi::facade::world(), handle, flag) }
-    #[no_mangle]
-    pub extern "C" fn players_input(handle: u32, at: f64, lead: f64, accepted: u32) { players_input_in(crate::abi::facade::world(), handle, at, lead, accepted) }
-    #[no_mangle]
-    pub extern "C" fn players_fire(handle: u32) -> u32 { players_fire_in(crate::abi::facade::world(), handle) }
-    #[no_mangle]
-    pub extern "C" fn players_actions(handle: u32) -> *const f64 { players_actions_in(crate::abi::facade::world(), handle).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn players_lanes(handle: u32, lane: u32, drain: u32) -> *const f64 { players_lanes_in(crate::abi::facade::world(), handle, lane, drain).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn players_outcomes_enable(handle: u32) { players_outcomes_enable_in(crate::abi::facade::world(), handle) }
-    #[no_mangle]
-    pub extern "C" fn players_views() -> *const f64 { players_views_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn players_shots() -> *const f64 { players_shots_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-}

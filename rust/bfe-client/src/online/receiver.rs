@@ -48,7 +48,6 @@ pub struct Own {
     pub walker_legs: f64,
     pub walker_roll: f64,
     pub walker_lean: f64,
-    pub walker_speed: f64,
     pub shield: Option<f64>,
     pub shield_on: bool,
     pub mount: Option<(u32, u32, usize)>,
@@ -450,7 +449,6 @@ impl Receiver {
                         self.own.walker_legs = body.numbers[4];
                         self.own.walker_roll = body.numbers[6];
                         self.own.walker_lean = body.numbers[7];
-                        self.own.walker_speed = body.vectors[1][0].hypot(body.vectors[1][2]);
                         self.own.shield = body.shield;
                         self.own.shield_on = body.flags & 16 != 0;
                         // Droideka.posture: "crouch" (its rolled camera section) from FOLD on.
@@ -715,11 +713,99 @@ impl Receiver {
     pub fn active_slots(&self) -> impl Iterator<Item = (usize, &[f64; r::STRIDE])> {
         self.indices.values().map(|&index| (index, &self.facts[index]))
     }
+    /// Aircraft bindings and saved perspective also apply in gunner seats.
+    /// Only the pilot receives a flight body; passengers name their hull by lease.
+    pub fn in_aircraft(&self) -> bool {
+        if self.own.flight.is_some() {
+            return true;
+        }
+        let Some((id, generation, _)) = self.own.mount.filter(|_| self.own.mount_kind == k::VEHICLE) else {
+            return false;
+        };
+        let Some(&index) = self.indices.get(&(k::VEHICLE, id)) else { return false };
+        let row = &self.facts[index];
+        // Live aircraft publish Landed through Landing (0..3); ground hulls
+        // publish 5. Destroyed and dying hulls no longer carry their crew.
+        row[r::GENERATION] == generation as f64 && (0. ..4.).contains(&row[r::STATE])
+    }
+    pub fn vehicle_seats(&self, id: u32, generation: u32) -> u16 {
+        let mut seats = 0;
+        for row in self.active().filter(|row| row[r::ID] != self.own.id && matches!(row[r::KIND] as u32, k::SOLDIER | k::DROIDEKA)) {
+            if row[r::SEAT_PRESENT] != 0.
+                && row[r::SEAT_VEHICLE_ID] == id as f64
+                && row[r::SEAT_VEHICLE_GENERATION] == generation as f64
+            {
+                seats |= 1u16.checked_shl(row[r::SEAT_INDEX] as u32).unwrap_or(0);
+            }
+        }
+        // The own correction supersedes its delayed public seat lease.
+        if let Some((_, _, index)) = self.own.mount.filter(|lease| {
+            self.own.mount_kind == k::VEHICLE && lease.0 == id && lease.1 == generation
+        }) {
+            seats |= 1u16.checked_shl(index as u32).unwrap_or(0);
+        }
+        seats
+    }
     pub fn active(&self) -> impl Iterator<Item = &[f64; r::STRIDE]> {
         self.indices.values().map(|&index| &self.facts[index]).chain(std::iter::once(&self.own_fact).filter(|_| {
             self.corrections != 0
                 && self.indices.get(&(k::SOLDIER, self.own.id as u32)).is_none()
                 && self.indices.get(&(k::DROIDEKA, self.own.id as u32)).is_none()
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vehicle_seat_occupancy_follows_qualified_leases() {
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        receiver.own.id = 1.;
+        receiver.own.mount_kind = k::VEHICLE;
+        receiver.own.mount = Some((9, 3, 0));
+        receiver.indices.insert((k::SOLDIER, 2), 0);
+        let row = &mut receiver.facts[0];
+        row[r::KIND] = k::SOLDIER as f64;
+        row[r::ID] = 2.;
+        row[r::SEAT_PRESENT] = 1.;
+        row[r::SEAT_VEHICLE_ID] = 9.;
+        row[r::SEAT_VEHICLE_GENERATION] = 3.;
+        row[r::SEAT_INDEX] = 2.;
+        assert_eq!(receiver.vehicle_seats(9, 3), 0b101);
+        assert_eq!(receiver.vehicle_seats(9, 4), 0);
+        receiver.own.mount = Some((9, 3, 1));
+        assert_eq!(receiver.vehicle_seats(9, 3), 0b110);
+        receiver.own.mount_kind = k::TURRET;
+        assert_eq!(receiver.vehicle_seats(9, 3), 0b100);
+        receiver.facts[0][r::SEAT_PRESENT] = 0.;
+        assert_eq!(receiver.vehicle_seats(9, 3), 0);
+    }
+
+    #[test]
+    fn aircraft_controls_follow_passenger_leases() {
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        receiver.own.mount_kind = k::VEHICLE;
+        receiver.own.mount = Some((12, 3, 1));
+        receiver.indices.insert((k::VEHICLE, 12), 0);
+        receiver.facts[0][r::GENERATION] = 3.;
+        for state in 0..4 {
+            receiver.facts[0][r::STATE] = state as f64;
+            assert!(receiver.in_aircraft());
+        }
+        receiver.facts[0][r::STATE] = 5.;
+        assert!(!receiver.in_aircraft());
+        receiver.facts[0][r::STATE] = 0.;
+        receiver.facts[0][r::GENERATION] = 4.;
+        assert!(!receiver.in_aircraft());
+        receiver.facts[0][r::GENERATION] = 3.;
+        receiver.own.mount_kind = k::TURRET;
+        assert!(!receiver.in_aircraft());
+        receiver.own.mount_kind = k::VEHICLE;
+        receiver.own.mount = None;
+        assert!(!receiver.in_aircraft());
+        receiver.own.flight = Some(0);
+        assert!(receiver.in_aircraft());
     }
 }

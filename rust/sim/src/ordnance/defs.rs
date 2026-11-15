@@ -4,11 +4,6 @@
 //! ([`Field`]), and read with JavaScript's own rules (`??`, `||`, `typeof`,
 //! ToNumber), so a field the content leaves out or gives an odd type reads
 //! here as it reads in src/ordnance.js and src/items.js.
-//!
-//! A definition is known by its index in the battle's table of its sort
-//! ([`DefId`], docs/sim-store.md "Definitions"); the battle registers its
-//! definitions' fields as it meets them (or a replay reads them from a
-//! capture's definition records).
 
 use crate::store::DefId;
 

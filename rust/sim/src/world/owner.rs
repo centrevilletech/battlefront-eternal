@@ -8,7 +8,6 @@ use crate::abi::Sim;
 macro_rules! cold_fields {
     ($build:ident) => {
         $build! {
-            #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
             network: None,
             sim: Sim::cold(), tick: super::Tick::cold(),
             input: crate::input::owner::Owner::new(),
@@ -46,7 +45,6 @@ macro_rules! cold_box {
 }
 
 pub struct World {
-    #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
     pub(crate) network: Option<Box<super::admit::network::Network>>,
     pub(crate) sim: Sim,
     pub(crate) tick: super::Tick,

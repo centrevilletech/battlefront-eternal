@@ -26,23 +26,6 @@ fn stale_and_point_commands_preserve_lazy_records() {
     c.op = F4CommandOp::Headshot; assert_eq!(core.apply(&mut s,&c),Result::Applied);
     assert!(matches!(s.character.get(Ref::new(a.slot,a.generation)).unwrap().record,Nullable::Undefined));
 }
-#[path = "support/allocations.rs"] mod allocation;
-#[global_allocator] static ALLOCATOR: allocation::Counted = allocation::Counted;
-#[test]
-fn first_native_credits_achievements_and_sparse_publications_reuse_prepared_storage() {
-    let (mut s,mut core,a,b) = setup();
-    let a = Ref::new(a.slot,a.generation); let b = Ref::new(b.slot,b.generation);
-    allocation::start();
-    for _ in 0..1200 {
-        core.credit(&mut s,Some(b),Some(a),-1.0);
-        core.achievement(&mut s,Some(a),F4CommandOp::Headshot);
-        core.achievement(&mut s,Some(a),F4CommandOp::VehicleDestroyed);
-        assert!(core.flush(&s) <= 3);
-    }
-    assert_eq!(allocation::stop(),0);
-    assert_eq!(s.character.get(a).unwrap().kills,1200.0);
-    assert_eq!(s.character.get(b).unwrap().deaths,1200.0);
-}
 
 #[test]
 fn objective_and_controller_commands_reject_stale_posts_bodies_and_character_lives() {

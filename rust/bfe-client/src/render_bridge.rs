@@ -224,10 +224,9 @@ pub fn camera_cascades_frame(&mut self)  { self.r.cameras.cascades(); }
 pub fn camera_shadow_frame(&mut self, index: u32)  { self.r.cameras.cascades.publish(index as usize); }
 pub fn camera_invalidate_frame(&mut self, index: u32)  { self.r.cameras.cascades.invalidate_window(index as usize); }
 pub fn canopies_mesh(&mut self, max: u32) -> Result<(), String> { if max as usize > bfe_render::static_layout::CANOPIES_MAX_GROUPS * bfe_render::static_layout::CANOPIES_LEAVES { return Err(String::from("invalid canopy capacity or program")); }
-        // The two settings variants share locations and geometry. Compile them
-        // cold so switching shadows needs no frame allocation or host program.
-        let mut programs=[0;2];
-        for (i,key) in ["world/canopies-no-shadows","world/canopies"].iter().enumerate() {programs[i]=self.r.core.add_owned_program(key).map_err(|e|e.to_string())?;}
+        // Both variants share locations; an off scene admits only its variant.
+        let plain=self.r.core.add_owned_program("world/canopies-no-shadows")?;
+        let programs=[plain,if self.shadow_cascades()>0{self.r.core.add_owned_program("world/canopies")?}else{plain}];
         let spec=bfe_render::programs::spec("world/canopies").map_err(|e|e.to_string())?;
         let core = &mut self.r.core;
         let geometry = core.add_geometry();
@@ -408,7 +407,7 @@ pub fn foliage_class(&mut self, texture: u32, grass: bool, shadows: bool, defini
             || map_matrix.len() != 9 { return Err(String::from("invalid foliage descriptor")); }
         // FoliageGpuBatch material policy selects only closed native variants.
         // The host supplies the shadow feature, never a program or locations.
-        let key=match (grass,shadows) {(true,true)=>"world/foliage-grass-shadows",(true,false)=>"world/foliage-grass",(false,true)=>"world/foliage-leaves-shadows",(false,false)=>"world/foliage-leaves"};
+        let key=match (grass,shadows && self.shadow_cascades()>0) {(true,true)=>"world/foliage-grass-shadows",(true,false)=>"world/foliage-grass",(false,true)=>"world/foliage-leaves-shadows",(false,false)=>"world/foliage-leaves"};
         let program=self.r.core.add_owned_program(key).map_err(|e|e.to_string())?;
         let spec=bfe_render::programs::spec(key).map_err(|e|e.to_string())?;
         let mut locations = [-1; 12];
@@ -538,6 +537,7 @@ pub fn renderer_diagnostics_frame(&mut self) -> String { let calls:u64=self.r.fr
         serde_json::json!({"frame":self.r.core.scene_stamp,"calls":calls,"programs":self.r.core.program_count(),"geometries":self.r.core.geometry_total(),"samples":self.r.core.native_texture_count()}).to_string() }
 pub fn scene_stamp_frame(&mut self, advance: bool) -> u32 { if advance { self.r.core.scene_stamp=self.r.core.scene_stamp.wrapping_add(1); }
         self.r.core.scene_stamp }
+pub fn shadow_cascades(&self) -> usize { self.r.cameras.input[bfe_render::cameras::layout::input::CASCADE_COUNT] as usize }
 pub fn set_shadow_maps(&mut self, ids: &[u32])  { self.r.core.set_shadow_maps(ids) }
 pub fn add_texture(&mut self, resources: &Resources, id: u32) -> Result<u32, String> { let texture = resources.descriptor_texture(id)?;
         

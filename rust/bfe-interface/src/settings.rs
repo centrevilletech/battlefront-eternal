@@ -812,74 +812,27 @@ pub struct GpuInfo {
     pub reason: Option<String>,
 }
 
-/// Classifies a GPU `renderer` and `vendor` string against `src/gpu-policy.json`
-/// (`getGpuInfo` in `src/gpu-info.js`).
-///
-/// Old pre-Ivy Bridge Intel GPUs (`Intel GMA`, `Intel 945/965`, `G33/G41/G45`,
-/// `Mobile Intel 4 Series`, `Intel HD Graphics 2000/3000`, `Intel Ironlake`)
-/// set `is_old_intel = true` and `is_blocklisted = true`.
+/// The first-run policy from `src/gpu-info.js`: pre-Ivy Bridge Intel only.
 pub fn classify_gpu(renderer: &str, vendor: &str) -> GpuInfo {
-    let r = renderer.trim();
-    let v = vendor.trim();
-    if r.is_empty() && v.is_empty() {
-        return GpuInfo::default();
-    }
-    let rl = r.to_ascii_lowercase();
-    let vl = v.to_ascii_lowercase();
-    let mut is_old_intel = false;
-    let mut reason = None;
-
-    // 1. Intel GMA / 945 / 965 / 3100 / X3100 / G31 / G33 / G35 / G41 / G43 / G45 / Q35 / Q45
-    if rl.contains("intel")
-        && (rl.contains("gma")
-            || rl.contains("945")
-            || rl.contains("965")
-            || rl.contains("3100")
-            || rl.contains("x3100")
-            || rl.contains("g31")
-            || rl.contains("g33")
-            || rl.contains("g35")
-            || rl.contains("g41")
-            || rl.contains("g43")
-            || rl.contains("g45")
-            || rl.contains("q35")
-            || rl.contains("q45")
-            || rl.contains("4 series")
-            || rl.contains("ironlake"))
-    {
-        is_old_intel = true;
-        reason = Some("Legacy Intel GMA / 4-Series / Ironlake GPU".to_string());
-    }
-
-    // 2. Sandy Bridge (`Intel(R) HD Graphics 2000` / `3000` or bare `Intel(R) HD Graphics`)
-    if !is_old_intel && (rl.contains("intel") || vl.contains("intel")) && rl.contains("hd graphics")
-    {
-        let after_hd = rl
-            .split("hd graphics")
-            .nth(1)
-            .unwrap_or("")
-            .trim_start_matches(|c: char| !c.is_ascii_alphanumeric());
-        if after_hd.starts_with("2000") || after_hd.starts_with("3000") {
-            is_old_intel = true;
-            reason = Some("Sandy Bridge (2011) GPU".to_string());
-        } else if after_hd.is_empty()
-            || (!after_hd.starts_with(char::is_numeric)
-                && !after_hd.starts_with('p')
-                && !rl.contains("iris")
-                && !rl.contains("uhd"))
-        {
-            is_old_intel = true;
-            reason = Some("Unnumbered Intel HD Graphics (2010-2011)".to_string());
-        }
-    }
-
-    GpuInfo {
-        renderer: r.to_string(),
-        vendor: v.to_string(),
-        is_old_intel,
-        is_blocklisted: is_old_intel,
-        reason,
-    }
+    let renderer = renderer.trim();
+    let vendor = vendor.trim();
+    let name = renderer.to_ascii_lowercase();
+    let software = ["swiftshader", "llvmpipe", "softpipe", "lavapipe", "software rasterizer",
+        "basic render driver", "microsoft basic", "gdi generic"].iter().any(|s| name.contains(s));
+    let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let windows_old = name.match_indices("intel(r) ").any(|(at, _)| {
+        if at > 0 && word(name.as_bytes()[at - 1]) { return false; }
+        let tail = &name[at + "intel(r) ".len()..];
+        ["hd graphics 2000", "hd graphics 3000", "hd graphics family", "hd graphics",
+            "g41", "g45", "q45", "q43", "b43", "4 series"].iter().any(|prefix| {
+            let Some(rest) = tail.strip_prefix(prefix) else { return false; };
+            !rest.as_bytes().first().is_some_and(|b| word(*b))
+                && !(rest.starts_with(' ') && rest.as_bytes().get(1).is_some_and(u8::is_ascii_digit))
+        })
+    });
+    let old = !software && (bfe_render::texture_format::unpacks_bc7(renderer) || windows_old);
+    GpuInfo { renderer: renderer.into(), vendor: vendor.into(), is_old_intel: old,
+        is_blocklisted: old, reason: old.then(|| "Pre-Ivy Bridge Intel GPU".into()) }
 }
 
 /// CPU hardware probe result (`getCpuInfo` in `src/cpu-info.js`).

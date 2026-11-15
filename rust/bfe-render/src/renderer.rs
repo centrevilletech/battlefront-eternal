@@ -97,7 +97,9 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     // The far scene's phase, drawn into the far target before the near scene.
     pub(crate) fn far_frame(&mut self) -> Result<Stats, String> {
         self.core.begin_phase();
+        let timer=self.core.profile.begin(&self.core.gl);
         self.far.draw(&mut self.core, VIEW_FAR);
+        self.core.profile.end(&self.core.gl,"far terrain/sky",timer);
         self.core.end_phase()
     }
 
@@ -132,12 +134,18 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let camera = core.camera();
         core.opaque();
         core.bind_far_map();
-        // TreeCanopies creates its material before buildWorld creates the
-        // map's materials. Keep three's opaque order at multisampled edges.
-        self.canopies.draw(core);
         self.world.draw(core, &camera);
+        // Solid scenery rejects the hidden crown fragments before their
+        // leaf texture and coverage work. Both passes still write depth.
+        let timer=core.profile.begin(&core.gl);
+        self.canopies.draw(core);
+        core.profile.end(&core.gl,"canopies",timer);
+        let timer=core.profile.begin(&core.gl);
         self.instances.draw(core, &camera, records);
+        core.profile.end(&core.gl,"skinned units",timer);
+        let timer=core.profile.begin(&core.gl);
         self.foliage.draw(core);
+        core.profile.end(&core.gl,"foliage",timer);
         self.far.draw_near(core);
         core.end_phase()
     }
@@ -284,7 +292,9 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     // velocity target (motion.rs; records: how many the page wrote).
     pub(crate) fn motion_frame(&mut self, records: usize) -> Result<Stats, String> {
         self.core.begin_phase();
+        let timer=self.core.profile.begin(&self.core.gl);
         self.motion.draw(&mut self.core, records);
+        self.core.profile.end(&self.core.gl,"motion vectors",timer);
         self.core.end_phase()
     }
 
