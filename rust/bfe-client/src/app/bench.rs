@@ -65,6 +65,8 @@ pub struct Bench {
     post: Option<String>,
     launched: bool,
     spawned: bool,
+    // `hold=1`: leave the spawn screen open for the bench to look at and click.
+    hold: bool,
     waiting: &'static str,
     out: Option<BufWriter<File>>,
     tick: f64,
@@ -88,6 +90,7 @@ impl Bench {
             post: value("spawn"),
             launched: false,
             spawned: false,
+            hold: value("hold").is_some(),
             waiting: "",
             out,
             tick: f64::NAN,
@@ -113,7 +116,7 @@ impl Bench {
 
     /// `captured`: the window holds the mouse, so its motion turns the player.
     pub fn step_battle(&mut self, battle: &mut BattleController, captured: bool) {
-        if !self.spawned && battle.spawn_ctrl.is_open() {
+        if !self.spawned && !self.hold && battle.spawn_ctrl.is_open() {
             let waiting = self.spawn(battle);
             if waiting != self.waiting {
                 self.waiting = waiting;
