@@ -1331,6 +1331,70 @@ fn local_dedicated_server_full_join_entity_registry_welcome_and_publication_repl
 /// - Exchanges `BNI1` + `BNA1` input datagrams (`decode_entity_input` + `decode_snapshot_ack_keepalive`)
 ///   and verifies `entity-registry`, `welcome`, `reply`, `input-ack`, `entity-edge-results`,
 ///   `gameplay-events`, `BNS1`, and `BNO1`.
+/// A client that vanishes without a close (killed, crashed, network gone) is retired once the
+/// transport's idle time passes: the player count, the roster and the listing must not keep it.
+#[test]
+fn silent_client_is_retired_after_the_idle_timeout() {
+    let dir = temp_dir("silent-client");
+    let content_root = minimal_content_dir(&dir);
+    let cfg = ServerConfig {
+        data: content_root.to_string_lossy().into_owned(),
+        rotation: vec!["swbf1/nab2:rep:conquest".to_string()],
+        game_port: Some(0),
+        discovery: false,
+        ..Default::default()
+    };
+    let srv_id = ServerIdentity::load(&dir).expect("server identity");
+    let mut server = LocalDedicatedServer::start(&cfg, &srv_id, |_peer| false, |_m, _id, _n, _k, _d, _p| {})
+        .expect("start local server");
+    let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), server.port).to_string();
+    let hello = serde_json::to_vec(&json!({
+        "name": "Vanishing",
+        "protocol": layout_contract::PROTOCOL,
+        "profile": layout_contract::PROFILE,
+        "simulation": layout_contract::SIMULATION,
+        "content": server.fingerprint,
+    }))
+    .unwrap();
+    let mut client = Endpoint::connect(&address, Identity::generate().unwrap(), srv_id.inner.id, &hello)
+        .expect("connect");
+    client.establish(Duration::from_secs(3), &mut |_, _, _, _| {}).expect("establish");
+    let joined = Instant::now();
+    while server.udp.lock().unwrap().players().is_empty() {
+        assert!(joined.elapsed() < Duration::from_secs(3), "player admitted");
+        let _ = client.pump(&mut |_, _, _, _| {});
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // The client goes silent: no close frame, no more packets.
+    drop(client);
+    let silent = Instant::now();
+    let idle = Duration::from_millis(bfe_transport::layout::limits::IDLE_MS as u64);
+    loop {
+        // A running battle flushes state to its players between the service's polls; the idle
+        // close is most often noticed inside such a flush.
+        for _ in 0..100 {
+            server.udp.lock().unwrap().flush();
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let (players, active) = {
+            let mut udp = server.udp.lock().unwrap();
+            let active = udp.transport_metrics(false)["sessionsActive"].as_u64().unwrap();
+            (udp.players().len(), active)
+        };
+        if players == 0 && active == 0 {
+            break;
+        }
+        assert!(
+            silent.elapsed() < idle + Duration::from_secs(5),
+            "silent player still counted after {:?}: players={players} sessionsActive={active}",
+            silent.elapsed()
+        );
+    }
+    assert!(silent.elapsed() >= idle - Duration::from_secs(1), "not retired before the idle time");
+    server.close();
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn udp_endpoint_client_joins_bfeserver_and_exchanges_events_and_snapshots() {
     let dir = temp_dir("endpoint-interop");
