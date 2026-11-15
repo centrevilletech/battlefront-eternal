@@ -409,6 +409,8 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         pointer_locked: false,
         pointer_icon: winit::window::CursorIcon::Default,
         cursor_physical: [0.0; 2],
+        cursor_seen: false,
+        hover_screen: None,
         text_input: text_input::TextInput::default(),
         modifiers: ModifiersState::empty(),
         ime_preedit: false,
@@ -467,6 +469,9 @@ fn content_is_current(dir: &Path) -> bool {
 struct StandaloneWindowApp {
     // Physical window coordinates are mapped once into the active interface plane.
     cursor_physical: [f64; 2],
+    // Whether the pointer has been seen over the window, and the front-end screen it last lit a row on.
+    cursor_seen: bool,
+    hover_screen: Option<bfe_shell::screens::ScreenId>,
     text_input: text_input::TextInput,
     modifiers: ModifiersState,
     ime_preedit: bool,
@@ -556,6 +561,25 @@ struct StandaloneWindowApp {
 }
 
 impl StandaloneWindowApp {
+    /// A screen that comes up under a parked pointer lights the row there at once, as the browser does
+    /// (it sends a pointer move after the page changes); winit only reports real motion.
+    fn hover_where_the_pointer_is(&mut self) {
+        let screen = match (&self.state, &self.shell) {
+            (AppState::Shell, Some(shell)) => Some(shell.app.current_screen()),
+            _ => None,
+        };
+        if screen == self.hover_screen {
+            return;
+        }
+        self.hover_screen = screen;
+        if screen.is_some() && self.cursor_seen {
+            let [x, y] = self.interface_cursor();
+            if let Some(shell) = &mut self.shell {
+                shell.handle_cursor_move(x, y);
+            }
+        }
+    }
+
     fn interface_cursor(&self) -> [f64; 2] {
         let size = match &self.state {
             AppState::Battle(battle) => battle.size,
@@ -1313,6 +1337,7 @@ impl ApplicationHandler for StandaloneWindowApp {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor_physical = [position.x, position.y];
+                self.cursor_seen = true;
                 let [x, y] = self.interface_cursor();
                 // Forward cursor coordinates to `ShellHost` (including `bfe-interface` hit regions)
                 // or to the active `BattleController` overlays.
@@ -1500,6 +1525,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                 }
             }
             WindowEvent::RedrawRequested => {
+                self.hover_where_the_pointer_is();
                 self.redraw(event_loop);
             }
             _ => {}
