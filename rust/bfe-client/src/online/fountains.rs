@@ -6,8 +6,11 @@
 //! the ropes of water, the sharp drops and splashes, the core column, then
 //! the near halves of the same. The jets refract the frame drawn so far,
 //! copied once just before the first of them. Classic plays the fountains'
-//! stock effect instead (map_effects.rs). The basin water's own Enhanced
-//! surface (fountain-water.js) and the wading splashes are not drawn here.
+//! stock effect instead (map_effects.rs). The basins' Enhanced water
+//! (fountain-water.js FountainWater) is drawn here too: the tier filled to its
+//! lip and the outer pool, reading a copy of the opaque scene for what shows
+//! through, with foam, caustics, the plume's shadow and reflection, and rings
+//! where someone wades (the environment's wakes).
 use crate::render_bridge::Bridge;
 use bfe_content_native::BattleContent;
 use bfe_render::{effect_layout as layout, effects as render};
@@ -30,6 +33,9 @@ const VALUES: usize = 1 + 20 + 5 + 5 + 5 + 1 + 1 + 2 + 2;
 // pool sits a little under the basin's authored level.
 const RISE: f64 = 0.797;
 const OUTER: f64 = -0.05;
+// The outer pool's disc: sides, and its lift over the stock basin water.
+const POOL_SIDES: usize = 32;
+const POOL_LIFT: f64 = 0.01;
 
 // One of FountainJets' meshes: its batch, and whether it is the soft spray
 // (drawn into the half-size target, then composited).
@@ -38,7 +44,31 @@ struct Mesh {
     spray: bool,
 }
 
+// FountainWater: the scene copy it reads, its two models (the outer pool's
+// disc, then the tier) with their centres, and where its values go.
+struct Basins {
+    copy: crate::water_host::SceneCopy,
+    size: [i32; 2],
+    models: [(u32, [f64; 3]); 2],
+    centres: [[f64; 4]; FOUNTAINS],
+    foam: bool,
+    at: usize,
+    matrices: usize,
+    // Drawn this frame: the frame copies the opaque scene for it.
+    copying: bool,
+    // FountainSpray: its batch and seeds (eight wakes of 24 splashes).
+    spray: u32,
+    seeds: Vec<f32>,
+}
+// FountainWater's values (effect_layout FOUNTAIN_WATER).
+const BASIN_VALUES: usize = 100;
+// FountainSpray: 8 wakes x 24 splashes, then sprayTime, sources, wakes,
+// motion and hasDepth.
+const SPLASHES: usize = 8 * 24;
+const SPRAY_VALUES: usize = 1 + 20 + 32 + 32 + 1;
+
 pub struct Fountains {
+    basins: Option<Basins>,
     meshes: Vec<Mesh>,
     composite: u32,
     // The frame copied for the jets to refract, and the soft spray's
@@ -120,13 +150,61 @@ impl Fountains {
             meshes.push(Mesh { batch: make(kind, variant)?, spray });
         }
         let composite = bridge.effect_batch(layout::JET_COMPOSITE as u32, 0, shadows, -1, 1, -1, &[spray.2 as i32])?;
-        let fountains = Self { meshes, composite, behind, spray, sizes: [[0, 0]; 2], at, time: 0., frames: 0 };
+        // FountainWater: the basins (the map's first five), the tier's pools
+        // filled to their lips, and the outer pools as discs at the basins'
+        // level over the stock water, both reading the copied scene.
+        let copy = crate::water_host::scene_copy(gpu, bridge, [1, 1])?;
+        let mut centres = [[1e6, 1e6, 1e6, 0.]; FOUNTAINS];
+        for (slot, b) in centres.iter_mut().zip(&content.environment_basins) {
+            *slot = *b;
+        }
+        let flat: Vec<f64> = content.environment_basins.iter().take(FOUNTAINS).flatten().copied().collect();
+        let samplers = [-1, copy.1[2] as i32, copy.2[2] as i32, foam];
+        let (mut vertices, mut indices) = (Vec::new(), Vec::new());
+        for b in content.environment_basins.iter().take(FOUNTAINS) {
+            let base = vertices.len() as u32 / 3;
+            vertices.extend([b[0] as f32, (b[1] + POOL_LIFT) as f32, b[2] as f32]);
+            for k in 0..=POOL_SIDES {
+                let a = k as f64 / POOL_SIDES as f64 * std::f64::consts::TAU;
+                vertices.extend([(b[0] + a.cos() * b[3]) as f32, (b[1] + POOL_LIFT) as f32, (b[2] + a.sin() * b[3]) as f32]);
+            }
+            for k in 1..=POOL_SIDES as u32 {
+                indices.extend([base, base + k + 1, base + k]);
+            }
+        }
+        let model = |r: Vec<f64>| (r[0] as u32, [r[1], r[2], r[3]]);
+        let outer = model(bridge.effect_basin(false, &flat, &vertices, &indices, true, shadows, &samplers)?);
+        let tier = model(bridge.effect_basin(true, &flat, &[], &[], false, shadows, &samplers)?);
+        let spray_batch = bridge.effect_batch(layout::SPRAY as u32, 0, shadows, -1, SPLASHES as u32, -1, &[])?;
+        // FountainSpray's seeds: the wake, then three draws of its stream.
+        let mut state: u32 = 137;
+        let mut random = || {
+            state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+            state as f64 / 4294967296.
+        };
+        let mut seeds = Vec::with_capacity(SPLASHES * 4);
+        for i in 0..SPLASHES {
+            seeds.push((i / 24) as f32);
+            for _ in 0..3 {
+                seeds.push(random() as f32);
+            }
+        }
+        let matrices = bfe_render::effects::MAX_DRAWS
+            - 2 * super::shields::BUBBLES - super::holograms::MATRICES - super::blades::MATRICES - 2;
+        let basins = Basins { copy, size: [1, 1], models: [outer, tier], centres, foam: foam >= 0, at: at + VALUES + 3, matrices, copying: false, spray: spray_batch, seeds };
+        let fountains = Self { basins: Some(basins), meshes, composite, behind, spray, sizes: [[0, 0]; 2], at, time: 0., frames: 0 };
         bridge.fx_reserve(fountains.end() as u32);
         Ok(Some(fountains))
     }
 
+    /// The basins' scene copy this frame (its target and size), when they
+    /// are drawn: the frame copies the opaque scene's colour and depth into
+    /// it before the transparent draws.
+    pub fn scene_copy(&self) -> Option<(u32, [i32; 2])> {
+        self.basins.as_ref().filter(|b| b.copying).map(|b| (b.copy.0, b.size))
+    }
     pub fn end(&self) -> usize {
-        self.at + VALUES + 3
+        self.at + VALUES + 3 + BASIN_VALUES + SPLASHES * 4 + SPRAY_VALUES
     }
 
     fn resize(target: (u32, u32, u32), size: [i32; 2], gpu: &mut crate::resources::Resources, bridge: &mut Bridge) {
@@ -138,11 +216,18 @@ impl Fountains {
     }
 
     /// FountainJets.update and its draws for the fountains in view.
-    pub fn frame(&mut self, dt: f64, fountains: &[Fountain], screen: [i32; 2], gpu: &mut crate::resources::Resources, bridge: &mut Bridge) {
+    pub fn frame(&mut self, dt: f64, fountains: &[Fountain], wakes: &super::map_effects::Wakes, camera: &[f64], screen: [i32; 2], gpu: &mut crate::resources::Resources, bridge: &mut Bridge) {
         self.time += dt.clamp(0., 0.1);
         let shown = fountains.iter().filter(|f| f.slot < FOUNTAINS).count();
+        if let Some(basins) = &mut self.basins {
+            basins.copying = false;
+        }
         if shown == 0 {
             return;
+        }
+        if let Some(basins) = &mut self.basins {
+            Self::basins_frame(basins, wakes, camera, screen, gpu, bridge);
+            Self::spray_frame(basins, fountains, wakes, bridge);
         }
         let half = [((screen[0] + 1) / 2).max(1), ((screen[1] + 1) / 2).max(1)];
         if self.sizes[0] != screen {
@@ -202,6 +287,92 @@ impl Fountains {
         }
         bridge.r.effects.input[render::IN_DRAWS] = draws as f64;
         self.frames += 1;
+    }
+}
+
+impl Fountains {
+    /// FountainSpray.update: short splashes where a character wades into a
+    /// visible fountain's pools, at render order 11.
+    fn spray_frame(basins: &Basins, fountains: &[Fountain], wakes: &super::map_effects::Wakes, bridge: &mut Bridge) {
+        let at = basins.at + BASIN_VALUES;
+        let data = &mut bridge.r.effects.data;
+        data[at..at + SPLASHES * 4].copy_from_slice(&basins.seeds);
+        let v = &mut data[at + SPLASHES * 4..at + SPLASHES * 4 + SPRAY_VALUES];
+        v.fill(0.);
+        v[0] = wakes.time as f32;
+        for f in fountains.iter().filter(|f| f.slot < FOUNTAINS) {
+            for k in 0..3 {
+                v[1 + f.slot * 4 + k] = f.position[k] as f32;
+            }
+            v[1 + f.slot * 4 + 3] = 1.;
+        }
+        for k in 0..8 {
+            for i in 0..4 {
+                v[21 + k * 4 + i] = wakes.points[k][i] as f32;
+                v[53 + k * 4 + i] = wakes.motion[k][i] as f32;
+            }
+        }
+        v[SPRAY_VALUES - 1] = 1.;
+        let draws = bridge.r.effects.input[render::IN_DRAWS] as usize;
+        if draws < render::MAX_DRAWS {
+            let row = &mut bridge.r.effects.input[render::DRAW_AT + draws * render::DRAW_STRIDE..][..render::DRAW_STRIDE];
+            row.fill(0.);
+            row[..6].copy_from_slice(&[render::KIND_BATCH as f64, f64::from(basins.spray), SPLASHES as f64, 0., at as f64, SPLASHES as f64]);
+            row[render::DRAW_KEY + 1] = 11.;
+            row[render::DRAW_KEY + 5] = f64::from(basins.spray);
+            bridge.r.effects.input[render::IN_DRAWS] = (draws + 1) as f64;
+        }
+    }
+    /// FountainWater.update and capture, and the basins' draws.
+    fn basins_frame(basins: &mut Basins, wakes: &super::map_effects::Wakes, camera: &[f64], screen: [i32; 2], gpu: &mut crate::resources::Resources, bridge: &mut Bridge) {
+        use bfe_render::{cameras::layout as cl, shader};
+        if basins.size != screen && crate::water_host::scene_copy_resize(gpu, bridge, &basins.copy, screen).is_ok() {
+            basins.size = screen;
+        }
+        basins.copying = true;
+        let member = |name: &str| shader::FRAME_MEMBERS.iter().position(|(n, _)| *n == name).map(|i| shader::FRAME_OFFSETS[i]);
+        let frame = |name: &str, k: usize| member(name).and_then(|at| camera.get(at + k).copied()).unwrap_or(0.);
+        let lens = &bridge.r.cameras.input[cl::input::LENS..cl::input::LENS + cl::lens::LEN];
+        let range = [lens[cl::lens::NEAR], lens[cl::lens::FAR]];
+        let fields = layout::PRODUCERS[layout::FOUNTAIN_WATER].1;
+        let data = &mut bridge.r.effects.data;
+        let mut put = |name: &str, value: &[f64]| {
+            if let Some((offset, size)) = bfe_render::water_resources::field(fields, name) {
+                for (to, from) in data[basins.at + offset..basins.at + offset + size].iter_mut().zip(value) {
+                    *to = *from as f32;
+                }
+            }
+        };
+        put("waterTime", &[wakes.time]);
+        // A bright overcast stand-in for the sky, from the ambient top.
+        put("sky", &[(frame("ambientTop", 0) * 1.4 + 0.15).min(1.), (frame("ambientTop", 1) * 1.4 + 0.16).min(1.), (frame("ambientTop", 2) * 1.4 + 0.2).min(1.)]);
+        put("waterResolution", &[f64::from(screen[0]), f64::from(screen[1])]);
+        put("cameraRange", &range);
+        put("waterSunDirection", &[frame("sunDirection", 0), frame("sunDirection", 1), frame("sunDirection", 2)]);
+        put("waterSunColor", &[frame("sunColor", 0), frame("sunColor", 1), frame("sunColor", 2)]);
+        put("wakes", wakes.points.as_flattened());
+        put("motion", wakes.motion.as_flattened());
+        put("basins", basins.centres.as_flattened());
+        put("hasTier", &[1.]);
+        put("hasFoam", &[f64::from(u8::from(basins.foam))]);
+        const IDENTITY: [f64; 16] = [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.];
+        let mut draws = bridge.r.effects.input[render::IN_DRAWS] as usize;
+        for (k, (model, centre)) in basins.models.iter().enumerate() {
+            if draws == render::MAX_DRAWS {
+                break;
+            }
+            let matrix = (basins.matrices + k) * 16;
+            bridge.r.effects.matrices[matrix..matrix + 16].copy_from_slice(&IDENTITY);
+            let entry = &mut bridge.r.effects.input[render::DRAW_AT + draws * render::DRAW_STRIDE..][..render::DRAW_STRIDE];
+            entry.fill(0.);
+            entry[..4].copy_from_slice(&[render::KIND_MODEL as f64, f64::from(*model), matrix as f64, basins.at as f64]);
+            // The outer pool where the stock basin water was (-17), the tier over it.
+            entry[render::DRAW_KEY + 1] = if k == 0 { -17. } else { -16.9 };
+            entry[render::DRAW_KEY + 2..render::DRAW_KEY + 5].copy_from_slice(centre);
+            entry[render::DRAW_KEY + 5] = f64::from(*model);
+            draws += 1;
+        }
+        bridge.r.effects.input[render::IN_DRAWS] = draws as f64;
     }
 }
 
