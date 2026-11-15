@@ -369,7 +369,7 @@ impl Native {
             input.view_tick,
             input.flight_mode,
         )?;
-        let now = input.tick - 1.;
+        let now = input.now;
         self.commands.mailbox.tick = now;
         let call = &self.commands.mailbox;
         self.args.record(

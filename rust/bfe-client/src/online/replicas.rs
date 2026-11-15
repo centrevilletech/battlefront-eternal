@@ -699,6 +699,20 @@ impl Replicas {
                     self.units.input[f::COMMANDS] += 1.;
                 }
             }
+            if !dead && self.slots[slot].dead {
+                // The same body is alive again (a first spawn keeps the
+                // generation it was admitted with): stand it up, or it
+                // keeps its death pose while it walks.
+                for operation in [kind::RESET, kind::PRESENTATION_RESET] {
+                    let at = self.units.input[f::COMMANDS] as usize * command::STRIDE;
+                    let c = &mut self.units.commands[at..at + command::STRIDE];
+                    c.fill(0.);
+                    c[command::ACTOR] = self.slots[slot].actor as f64;
+                    c[command::KIND] = operation as f64;
+                    c[command::YAW] = row[r::YAW];
+                    self.units.input[f::COMMANDS] += 1.;
+                }
+            }
             self.slots[slot].dead = dead;
             let actor = self.slots[slot].actor;
             let input = &mut self.units.input[f::STRIDE + actor * i::STRIDE..][..i::STRIDE];

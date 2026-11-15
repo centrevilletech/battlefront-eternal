@@ -46,7 +46,7 @@
 //! | World Admission | `WorldThread::admit_instant_action` (`Context::world_admit`) | Remote/local `bfeserver` (`GET /info` + UDP/WebRTC) |
 //! | Simulation Thread | Dedicated 60 Hz `"bfe-world-60hz"` thread | Server-authoritative 60 Hz loop |
 //! | Snapshot Delivery | Lock-free `mpsc::Receiver<Publication>` (`poll_publications`) | Network datagrams (`OnlineClient::receive`) |
-//! | Input Delivery | `WorldMessage::Step { command, look, flight, actions, ack }` | `OnlineClient::step` + `OnlineClient::send` |
+//! | Input Delivery | `WorldMessage::Step { command, look, flight }`, stamped for its world tick | `OnlineClient::step` + `OnlineClient::send` |
 //! | Client Prediction | `Sender::tick` + `Replay::frame` + `MapCamera::follow` | `OnlineClient::step` + `OnlineClient::present` |
 //! | Spawn / Respawn | `WorldMessage::Spawn` / `WorldMessage::Respawn` | `Sender::request_spawn` / `Sender::request_suicide` |
 //! | Pause Behavior | Pauses `"bfe-world-60hz"` (`world.set_paused(true)`) | Simulation continues on server; shows `PLAYER LIST` |
@@ -114,7 +114,6 @@ use crate::{
     input::{Input, ViewActions},
     local::{
         options::Options as LocalOptions,
-        publication::Publication,
         thread::{WorldMessage, WorldThread, WorldTickStats},
     },
     online::{
@@ -846,6 +845,8 @@ pub struct BattleController {
     pub input_tick: u32,
     /// Fractional frame time accumulator for 60 Hz input stepping.
     pub input_accumulator: f64,
+    /// A paused or unfocused local world has been sent the command that lets go of the keys.
+    keys_released: bool,
     /// Live data port feeding the spawn screen.
     pub spawn_port: LiveSpawnPort,
     /// `bfe-battle-ui` spawn screen state machine and renderer.
@@ -1273,6 +1274,7 @@ impl BattleController {
             input: Input::default(),
             input_tick: 0,
             input_accumulator: 0.0,
+            keys_released: false,
             spawn_port,
             spawn_ctrl,
             scoreboard_port,
@@ -1748,7 +1750,11 @@ impl BattleController {
         // `alpha_interp = (input_accumulator / STEP)` to smoothly interpolate the
         // 3D camera between the previous and current 60 Hz simulation states.
         // 3. Pump publications / packets, step input, and compute camera View.
-        self.input_accumulator = (self.input_accumulator + dt).min(0.25);
+        let pace = match &self.authority {
+            BattleAuthority::InstantAction { sender, .. } => sender.pace(),
+            BattleAuthority::Online { client, .. } => client.sender.pace(),
+        };
+        self.input_accumulator = (self.input_accumulator + dt * pace).min(0.25);
         let mut steps = 0usize;
         while self.input_accumulator >= STEP && steps < 4 {
             self.input_accumulator -= STEP;
@@ -1803,7 +1809,12 @@ impl BattleController {
             } => {
                 // Drain non-blocking publications from `"bfe-world-60hz"`, forward input steps,
                 // run client-side prediction replay, and interpolate the 3D camera.
-                *now_ms += dt * 1000.0;
+                // A stopped world's clock stops with it, or its tick estimate
+                // would run ahead of it for a second after it resumes.
+                let halted = self.pause_menu.is_open || !focused;
+                if !halted {
+                    *now_ms += dt * 1000.0;
+                }
                 world.set_paused(self.pause_menu.is_open);
                 world.set_suspended(!focused);
                 world.poll_publications(receiver, *now_ms)?;
@@ -1816,7 +1827,6 @@ impl BattleController {
                 receiver.clock.advance(dt).map_err(str::to_string)?;
 
                 camera.set_flight_mode(receiver.own.flight.is_some());
-                let ack = Publication::acknowledgement(receiver);
                 for (mut cmd, look, flight, actions) in step_cmds.into_iter().flatten() {
                     if actions.perspective {
                         camera.first_person = !camera.first_person;
@@ -1824,17 +1834,28 @@ impl BattleController {
                             settings.interface.set("flightFirstPerson", camera.first_person);
                         }
                     }
+                    // A stopped world takes one more command, the empty one
+                    // that lets go of the held keys, and then none until it runs:
+                    // commands stamped while it stands still would all be early.
+                    if halted && self.keys_released {
+                        continue;
+                    }
+                    self.keys_released = halted;
                     cmd.first_person = Some(camera.first_person);
                     sender.tick(&cmd, &look, &flight, receiver, 0.0, *now_ms);
-                    // Corrections acknowledge the sender's command identities,
-                    // not the render clock or an independently advancing world tick.
+                    // The world takes each command at the tick the sender stamped
+                    // it for and acknowledges its sequence; prediction replays the
+                    // same stamps, so the two agree.
                     cmd.sequence = sender.command_sequence();
+                    cmd.tick = sender.command_tick();
                     world.send(WorldMessage::Step {
                         command: cmd,
                         look,
                         flight,
-                        ack,
                     });
+                }
+                if !halted {
+                    self.keys_released = false;
                 }
 
                 let mut own = receiver.own;
