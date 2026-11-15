@@ -30,6 +30,9 @@ struct Model {
     // outside every authoritative or predicted body in the live battle.
     preview: Box<Units>,
     preview_parts: Vec<Appearance>,
+    // The preview's geometry and its groups (first, count, material), for a
+    // class that draws this body in its own skin.
+    preview_geometry: (u32, usize, Vec<(usize, usize, usize)>),
     preview_animation: preview::Animation,
     inverses: Vec<[f64; 16]>,
     content: usize,
@@ -125,6 +128,10 @@ pub struct Replicas {
     pub items: Box<super::items::Views>,
     models: Vec<Model>,
     classes: Vec<Option<usize>>,
+    class_names: Vec<String>,
+    // By class: a class's own skin on its shared body (OverrideTexture), as
+    // the body's draw textures and spawn screen preview parts.
+    skins: Vec<Option<([f64; 4], Vec<Appearance>)>>,
     dive_times: Vec<f64>,
     preview_weapons: Vec<Option<usize>>,
     preview_banks: Vec<usize>,
@@ -269,6 +276,7 @@ impl Replicas {
                 bones: actor.bones.iter().map(|bone| bone.name.to_lowercase()).collect(),
                 preview,
                 preview_parts,
+                preview_geometry: (preview_geometry, grouped.indices.len(), grouped.groups.iter().map(|g| (g.first, g.count, g.material)).collect()),
                 preview_animation,
                 inverses,
                 content: id,
@@ -302,6 +310,10 @@ impl Replicas {
                 .map_or(-1., |clip| clip as f64);
         }
         let mut classes = vec![None; registry.classes.len() + 1];
+        let mut class_names = vec![String::new(); registry.classes.len() + 1];
+        for (i, name) in registry.classes.iter().enumerate() {
+            class_names[i + 1] = name.to_string();
+        }
         let mut dive_times = vec![0.; classes.len()];
         for class in &defs.classes {
             let Some(id) = class.registry_id else {
@@ -319,6 +331,45 @@ impl Replicas {
                 content.content.actors[body].0.clone()
             };
             classes[id as usize] = names.iter().position(|n| n == &key);
+        }
+        // units.js buildBody: a class's OverrideTexture re-skins its body.
+        // A class the world can field but no body draws would fight unseen.
+        for class in &defs.classes {
+            if let Some(id) = class.registry_id {
+                if classes[id as usize].is_none() {
+                    eprintln!("native unit admission: class {}/{} has no body model; its units would not be drawn", defs.names.text(class.side), defs.names.text(class.name));
+                }
+            }
+        }
+        let mut skins: Vec<Option<([f64; 4], Vec<Appearance>)>> = (0..classes.len()).map(|_| None).collect();
+        for class in &defs.classes {
+            let (Some(id), Some(model)) = (class.registry_id, class.registry_id.and_then(|id| classes[id as usize])) else {
+                continue;
+            };
+            let key = format!("{}/{}", defs.names.text(class.side), defs.names.text(class.name));
+            let Some((_, skin)) = content.skins.iter().find(|(name, _)| *name == key) else {
+                continue;
+            };
+            let mut maps = [-1.; 4];
+            for (slot, texture) in skin.iter().enumerate().take(4) {
+                if let Some(texture) = texture {
+                    maps[slot] = textures[*texture] as f64;
+                }
+            }
+            let (geometry, total, groups) = &models[model].preview_geometry;
+            let mut parts = Vec::new();
+            for &(first, count, material) in groups {
+                let map = maps.get(material).copied().unwrap_or(-1.) as i32;
+                let mut style = appearance::style("model");
+                style.depth_test = Some(true);
+                style.depth_write = Some(true);
+                style.cutoff = Some(-1.);
+                let mut part = Appearance::new(bridge, *geometry, *total, style, true, &[map, -1, preview_skin_sample as i32])?;
+                part.first = first;
+                part.count = count;
+                parts.push(part);
+            }
+            skins[id as usize] = Some((maps, parts));
         }
         // Units owns the generated actor/node limits. Stop cold registration
         // before either budget fills; a live refusal never creates a rig.
@@ -515,6 +566,8 @@ impl Replicas {
             items,
             models,
             classes,
+            class_names,
+            skins,
             dive_times,
             preview_weapons,
             preview_banks,
@@ -541,7 +594,7 @@ impl Replicas {
         bridge: &mut Bridge,
     ) {
         if let Some(census) = &mut self.census {
-            census.observe(tick, receiver.own.id, &self.slots, &self.units.output);
+            census.observe(tick, receiver, &self.slots, &self.units.output, &self.units.input, &self.class_names);
         }
         self.tick = tick;
         self.hud.frame(bridge, receiver, prediction, dt);
@@ -626,11 +679,12 @@ impl Replicas {
                     c[command::YAW] = row[r::YAW];
                     self.units.input[f::COMMANDS] += 1.;
                 }
-                if key.0 as f64 != receiver.own.id {
-                    self.units.network.bind(actor, key.0 as f64, key.1 as f64, if kind == k::SOLDIER { 0. } else { 2. }, &receiver.network);
-                }
                 slot
             };
+            if key.0 as f64 != receiver.own.id {
+                let actor = self.slots[slot].actor;
+                self.units.network.keep(actor, key.0 as f64, key.1 as f64, if kind == k::SOLDIER { 0. } else { 2. }, &receiver.network);
+            }
             self.slots[slot].weapon = self.weapon_classes.get(row[r::WEAPON] as usize).copied().flatten();
             self.slots[slot].walker = kind == k::DROIDEKA;
             self.slots[slot].class = row[r::CLASS_ID] as usize;
@@ -765,6 +819,34 @@ impl Replicas {
                 input[i::RIDER_TIME] = pick.2.unwrap_or(0.);
                 input[i::RIDER_NINE] = pick.3 as u8 as f64;
                 input[i::SOURCE_VERSION] = self.slots[slot].source;
+            }
+            if row[r::ID] != receiver.own.id {
+                // The record itself, as network-entity-game.js applies it:
+                // what the body shows until (and whenever) the timeline has
+                // no sample of this life, never a previous life's last pose.
+                input[i::NETWORK] = 0.;
+                input[i::POSITION..i::POSITION + 3].copy_from_slice(&row[r::POSITION..r::POSITION + 3]);
+                input[i::PREVIOUS_POSITION..i::PREVIOUS_POSITION + 3].copy_from_slice(&row[r::POSITION..r::POSITION + 3]);
+                input[i::VELOCITY..i::VELOCITY + 3].copy_from_slice(&row[r::VELOCITY..r::VELOCITY + 3]);
+                input[i::PREVIOUS_VELOCITY..i::PREVIOUS_VELOCITY + 3].copy_from_slice(&row[r::VELOCITY..r::VELOCITY + 3]);
+                input[i::YAW] = row[r::YAW];
+                input[i::TICK_YAW] = 0.;
+                input[i::PITCH] = row[r::PITCH];
+                if kind == k::SOLDIER {
+                    let state = row[r::STATE] as u32;
+                    input[i::POSTURE] = row[r::POSTURE];
+                    input[i::AIR] = match state { 1 => 1., 2 => 2., 3 | 8 => 3., 4 => 4., _ => 0. };
+                    input[i::DIVE] = match state { 5 => 1., 6 => -1., _ => 0. };
+                    input[i::DEAD] = dead as u8 as f64;
+                } else {
+                    input[i::WALKER_MODE] = row[r::MODE];
+                    input[i::WALKER_TIME] = row[r::TIME];
+                    input[i::WALKER_LEGS] = row[r::LEGS];
+                    input[i::WALKER_ROLL] = row[r::ROLL];
+                    input[i::WALKER_LEAN] = row[r::LEAN];
+                    input[i::WALKER_REVERSE] = row[r::REVERSE];
+                    input[i::DEAD] = row[r::DEAD];
+                }
             }
             if row[r::ID] == receiver.own.id {
                 input[i::NETWORK] = 0.;
@@ -1349,6 +1431,9 @@ impl Replicas {
             // Bind inverses and skin bases belong to this prepared model.
             // Copy one instance record, then its contiguous skin prefix.
             let mut row = self.models[slot.model].row;
+            if let Some((maps, _)) = self.skins.get(slot.class).and_then(Option::as_ref) {
+                row[draw::REC_TEXTURES..draw::REC_TEXTURES + 4].copy_from_slice(maps);
+            }
             row[draw::REC_WORLD..draw::REC_WORLD + 16].copy_from_slice(&output[o::ROOT_WORLD..o::ROOT_WORLD + 16]);
             row[draw::REC_BIND_INVERSE..draw::REC_BIND_INVERSE + 16].copy_from_slice(&output[o::BIND_INVERSE..o::BIND_INVERSE + 16]);
             row[draw::REC_BONES] = count as f64;
@@ -1392,7 +1477,8 @@ struct DisplayCensus {
     seconds: u32,
 }
 impl DisplayCensus {
-    fn observe(&mut self, tick: f64, own: f64, slots: &[Slot], output: &[f64]) {
+    fn observe(&mut self, tick: f64, receiver: &Receiver, slots: &[Slot], output: &[f64], inputs: &[f64], names: &[String]) {
+        let own = receiver.own.id;
         if tick < self.next {
             return;
         }
@@ -1419,6 +1505,42 @@ impl DisplayCensus {
         self.last = next;
         if self.seconds % 10 == 0 {
             eprintln!("ai census display t={}s drawn={drawn} moving={moving} walking={walking}", (tick / 60.) as u64);
+            // By class: living soldiers and droidekas the world publishes
+            // against the bodies drawn for them (the player included).
+            // A drawn body more than 3 m from where the world has it counts
+            // as astray (world/drawn/astray).
+            let mut by_class = std::collections::BTreeMap::<usize, (usize, usize, usize)>::new();
+            let mut world = std::collections::HashMap::new();
+            for row in receiver.active() {
+                let kind = row[r::KIND] as u32;
+                if (kind == k::SOLDIER || kind == k::DROIDEKA) && row[r::DEAD] == 0. && row[r::HEALTH] > 0. {
+                    by_class.entry(row[r::CLASS_ID] as usize).or_default().0 += 1;
+                    world.insert((row[r::ID] as u32, row[r::GENERATION] as u32), [row[r::POSITION], row[r::POSITION + 1], row[r::POSITION + 2], row[r::STATE]]);
+                }
+            }
+            let mut astray = Vec::new();
+            for slot in slots.iter().filter(|s| s.active && s.identity.is_some()) {
+                let out = &output[slot.actor * o::STRIDE..][..o::STRIDE];
+                if slot.identity.is_some_and(|key| world.contains_key(&key)) && (out[o::DEAD] != 0. || out[o::GONE] == -1.) {
+                    let input = &inputs[f::STRIDE + slot.actor * i::STRIDE..][..i::STRIDE];
+                    let state = slot.identity.and_then(|key| world.get(&key)).map_or(-1., |w| w[3]);
+                    astray.push(format!("hidden:{:?} class={} dead={} outdead={} gone={:?} outgone={} pending={} in:dead={} net={} present={} gen={} state={state}", slot.identity, slot.class, slot.dead, out[o::DEAD], slot.gone, out[o::GONE], slot.death_pending, input[i::DEAD], input[i::NETWORK], input[i::PRESENT], input[i::GENERATION]));
+                }
+                if out[o::DEAD] == 0. && out[o::GONE] != -1. {
+                    let entry = by_class.entry(slot.class).or_default();
+                    entry.1 += 1;
+                    if let Some(at) = slot.identity.and_then(|key| world.get(&key)) {
+                        let drawn = [out[o::ROOT_WORLD + 12], out[o::ROOT_WORLD + 13], out[o::ROOT_WORLD + 14]];
+                        let off = ((drawn[0] - at[0]).powi(2) + (drawn[1] - at[1]).powi(2) + (drawn[2] - at[2]).powi(2)).sqrt();
+                        if off > 3. {
+                            entry.2 += 1;
+                            astray.push(format!("{}@{:.0},{:.0},{:.0}->{:.0},{:.0},{:.0}", slot.identity.map_or(0, |k| k.0), at[0], at[1], at[2], drawn[0], drawn[1], drawn[2]));
+                        }
+                    }
+                }
+            }
+            let line = by_class.iter().map(|(c, (w, d, a))| format!("{}={w}/{d}/{a}", names.get(*c).map_or("?", String::as_str))).collect::<Vec<_>>().join(" ");
+            eprintln!("units census t={}s world/drawn/astray {line} astray=[{}]", (tick / 60.) as u64, astray.join(" "));
         }
     }
 }
