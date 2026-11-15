@@ -26,6 +26,31 @@ struct Instance {
     fountain: Option<super::fountains::Fountain>,
 }
 
+/// EnvironmentWakes: the last eight places the player moved through near a
+/// vent or fountain, each with its time, velocity and strength, which the
+/// Enhanced steam parts around.
+pub struct Wakes {
+    pub points: [[f64; 4]; 8],
+    pub motion: [[f64; 4]; 8],
+    pub time: f64,
+    cursor: usize,
+    last: Option<[f64; 3]>,
+    gap: f64,
+}
+
+impl Wakes {
+    fn new() -> Self {
+        Self { points: [[0., 0., 0., -100.]; 8], motion: [[0.; 4]; 8], time: 0., cursor: 0, last: None, gap: 0. }
+    }
+    /// EnvironmentWakes.clear.
+    pub fn clear(&mut self) {
+        for p in &mut self.points {
+            p[3] = -100.;
+        }
+        self.last = None;
+    }
+}
+
 pub struct MapEffects {
     instances: Vec<Instance>,
     reach: f64,
@@ -51,6 +76,8 @@ pub struct MapEffects {
     show_handle: Option<u32>,
     /// Destruction blasts the gallery asks for, for combat's destruction host.
     pub blasts: Vec<[f64; 3]>,
+    /// The player's wakes through the Enhanced steam.
+    pub wakes: Wakes,
     // With the bench's fx key present (even empty), a count line every 10 s.
     pub report: Option<f64>,
 }
@@ -109,7 +136,32 @@ impl MapEffects {
         if wanted.is_some() {
             eprintln!("fx-map placed={} of {} reach={}", instances.len(), content.environment_instances.len(), end.max(90.));
         }
-        Self { instances, reach: end.max(90.), camera: None, enhanced: true, jets: false, volumes: Vec::with_capacity(32), fountains: Vec::with_capacity(8), started: 0, visible: 0, show, show_next: 0, show_clock: 0., show_handle: None, blasts: Vec::new(), report: wanted.map(|_| 0.) }
+        Self { instances, reach: end.max(90.), camera: None, enhanced: true, jets: false, volumes: Vec::with_capacity(32), fountains: Vec::with_capacity(8), started: 0, visible: 0, show, show_next: 0, show_clock: 0., show_handle: None, blasts: Vec::new(), wakes: Wakes::new(), report: wanted.map(|_| 0.) }
+    }
+
+    /// EnvironmentWakes.update for the player's soldier (None when dead,
+    /// seated or Classic): a wake every 0.1 s while moving 0.3 to 60 m/s
+    /// within 12 m of a vent or fountain.
+    pub fn wake(&mut self, dt: f64, actor: Option<[f64; 3]>) {
+        let dt = dt.clamp(0., 0.1);
+        let w = &mut self.wakes;
+        w.time += dt;
+        let Some(at) = actor.filter(|_| self.enhanced) else {
+            w.last = None;
+            return;
+        };
+        let last = w.last.replace(at).unwrap_or(at);
+        let velocity: [f64; 3] = std::array::from_fn(|k| (at[k] - last[k]) / dt.max(1e-5));
+        let speed = velocity.iter().map(|v| v * v).sum::<f64>().sqrt();
+        w.gap += dt;
+        let near = self.instances.iter().any(|i| (0..3).map(|k| (i.position[k] - at[k]).powi(2)).sum::<f64>() < 144.);
+        if dt > 0. && w.gap >= 0.1 && speed > 0.3 && speed < 60. && near {
+            let i = w.cursor % 8;
+            w.cursor += 1;
+            w.points[i] = [at[0], at[1], at[2], w.time];
+            w.motion[i] = [velocity[0], velocity[1], velocity[2], (0.4 + speed * 0.1).min(1.6)];
+            w.gap = 0.;
+        }
     }
 
     /// The frame's camera, once it is chosen: the next update tests

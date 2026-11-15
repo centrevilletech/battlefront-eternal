@@ -394,6 +394,8 @@ pub struct Scene {
     water: Option<crate::water_host::WaterHost>,
     water_data: usize,
     water_time: f64,
+    // The soldiers on foot, gathered each frame for the water's waders.
+    water_soldiers: Vec<(u32, [f64; 3], [f64; 3])>,
     storm: Option<crate::storm_host::StormHost>,
     flyers: Option<crate::sky_host::SkyHost>,
     pub online: Option<Box<crate::online::replicas::Replicas>>,
@@ -1236,6 +1238,7 @@ impl Scene {
                 water: water_host.take(),
                 water_data: water_fx,
                 water_time: f64::NAN,
+                water_soldiers: Vec::new(),
                 storm,
                 flyers,
                 online,
@@ -1954,6 +1957,12 @@ impl Scene {
         }
         let light = self.storm.as_mut().and_then(|storm| storm.frame(&mut self.bridge, view, host.time() + dt));
         host.storm_light(light);
+        if let Some(online) = &self.online {
+            let mut soldiers = std::mem::take(&mut self.water_soldiers);
+            online.soldiers_on_foot(&mut soldiers);
+            host.soldiers(dt, &soldiers);
+            self.water_soldiers = soldiers;
+        }
         host.frame(&mut self.bridge, &mut self.resources, &view.values, dt, self.water_data, self.online.as_ref().map(|online| online.water_collision()))?;
         if host.plan.probe {
             if let Some(probe) = host.ocean().and_then(|o| o.probe) { self.sky_probe(view, probe); }
