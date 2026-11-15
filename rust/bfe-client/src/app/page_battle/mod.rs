@@ -58,6 +58,11 @@ fn page_view(front: &str, override_name: &str) -> bool {
     }
 }
 impl PageBattle {
+    /// Builds the stage's procedural textures off the window's thread; call
+    /// when a battle starts loading.
+    pub fn prefetch() {
+        textures::prefetch();
+    }
     pub fn new(
         scene: &mut Scene,
         size: [i32; 2],

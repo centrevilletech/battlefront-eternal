@@ -1125,7 +1125,9 @@ impl Scene {
         } else {
             None
         };
+        crate::loading_work::frame().await;
         bridge.frame_reserve_frame();
+        crate::loading_work::frame().await;
         Ok((
             Self {
                 online,

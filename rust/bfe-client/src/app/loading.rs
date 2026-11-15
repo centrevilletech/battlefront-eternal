@@ -27,6 +27,7 @@ pub struct Work {
     opening: Option<Opening>,
     pub ready: Option<Box<BattleController>>,
     handover: u8,
+    display_ms: f64,
 }
 impl Work {
     pub fn advance(
@@ -40,6 +41,7 @@ impl Work {
         load: impl FnMut() -> glow::Context + 'static,
     ) -> Result<(), String> {
         if !self.started {
+            super::page_battle::PageBattle::prefetch();
             let (tx, rx) = mpsc::sync_channel(1);
             let content_root = root.to_path_buf();
             let target = target.clone();
@@ -49,6 +51,7 @@ impl Work {
                 .name("bfe-battle-admission".into())
                 .stack_size(8 << 20)
                 .spawn(move || {
+                    let started = std::time::Instant::now();
                     let result = match target {
                         BattleLoadTarget::InstantAction {
                             request,
@@ -69,6 +72,10 @@ impl Work {
                         )
                         .map(Admitted::Online),
                     };
+                    eprintln!(
+                        "battle loading: admission worker finished in {:.0} ms",
+                        started.elapsed().as_secs_f64() * 1000.
+                    );
                     let _ = tx.send(result);
                 })
                 .map_err(|e| format!("cannot start battle admission: {e}"))?;
@@ -108,12 +115,23 @@ impl Work {
             }
         }
         if let Some(opening) = &mut self.opening {
-            if let Poll::Ready(result) = crate::loading_work::poll(opening.as_mut()) {
+            let started = std::time::Instant::now();
+            let polled = crate::loading_work::poll(opening.as_mut());
+            let from = crate::loading_work::resumed_at();
+            let ms = started.elapsed().as_secs_f64() * 1000.;
+            self.display_ms += ms;
+            if ms > 33. {
+                eprintln!("battle loading: display step {ms:.0} ms from {from}");
+            }
+            if let Poll::Ready(result) = polled {
                 // The shell shows the reason in a dialog; the log keeps it too.
                 let result = result.inspect_err(|err| eprintln!("battle loading: display admission failed: {err}"));
                 self.ready = Some(Box::new(result?));
                 self.opening = None;
-                eprintln!("battle loading: display admission complete");
+                eprintln!(
+                    "battle loading: display admission complete ({:.0} ms of display steps)",
+                    self.display_ms
+                );
             }
         }
         Ok(())

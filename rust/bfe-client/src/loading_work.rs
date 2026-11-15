@@ -29,20 +29,38 @@ pub(crate) fn finish<T>(future: impl Future<Output = T>) -> T {
     }
 }
 
-pub(crate) async fn frame() {
-    struct Frame(bool);
-    impl Future for Frame {
-        type Output = ();
-        fn poll(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<()> {
-            if self.0 {
-                Poll::Ready(())
-            } else {
-                self.0 = true;
-                Poll::Pending
-            }
+/// Yields to the window for one frame. The window logs a step that held it
+/// too long with the place it resumed from (`resumed_at`).
+#[track_caller]
+pub(crate) fn frame() -> Frame {
+    Frame { yielded: false, at: std::panic::Location::caller() }
+}
+
+pub(crate) struct Frame {
+    yielded: bool,
+    at: &'static std::panic::Location<'static>,
+}
+
+impl Future for Frame {
+    type Output = ();
+    fn poll(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<()> {
+        if self.yielded {
+            RESUMED.with(|r| r.set(Some(self.at)));
+            Poll::Ready(())
+        } else {
+            self.yielded = true;
+            Poll::Pending
         }
     }
-    Frame(false).await
+}
+
+thread_local! {
+    static RESUMED: std::cell::Cell<Option<&'static std::panic::Location<'static>>> = const { std::cell::Cell::new(None) };
+}
+
+/// Where the last step started: the frame() it resumed from, or "start".
+pub(crate) fn resumed_at() -> String {
+    RESUMED.with(|r| r.get()).map_or_else(|| "start".into(), |at| format!("{}:{}", at.file(), at.line()))
 }
 
 #[cfg(test)]

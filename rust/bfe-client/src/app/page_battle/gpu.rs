@@ -227,12 +227,11 @@ impl Gpu {
             f
         };
         let map = bridge.r.core.add_texture(texture) as i32;
-        let ring_texture =
-            appearance::texture(bridge, 512, 512, &textures::ring(512, false))? as i32;
-        let rim_texture =
-            appearance::texture(bridge, 1024, 1024, &textures::ring(1024, true))? as i32;
-        let dot = appearance::texture(bridge, 256, 256, &textures::dot(256))? as i32;
-        let pin_texture = appearance::texture(bridge, 64, 64, &textures::pin(64))? as i32;
+        let stage = textures::stage();
+        let ring_texture = appearance::texture(bridge, 512, 512, &stage.ring)? as i32;
+        let rim_texture = appearance::texture(bridge, 1024, 1024, &stage.rim)? as i32;
+        let dot = appearance::texture(bridge, 256, 256, &stage.dot)? as i32;
+        let pin_texture = appearance::texture(bridge, 64, 64, &stage.pin)? as i32;
         let mut mesh =
             |m, style, maps: &[i32]| Appearance::mesh(bridge, &expanded(&vertices, m), style, maps);
         let vignette = mesh(

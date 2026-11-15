@@ -981,8 +981,14 @@ impl BattleController {
             bots: bfe_sim::world::admit::Bots::read(&bots.mode, &bots.difficulty, &bots.size),
         };
 
+        let started = std::time::Instant::now();
         let (world, admitted) = WorldThread::admit_instant_action(&local_options)?;
+        let world_ms = started.elapsed().as_secs_f64() * 1000.;
         let graphics = Scene::prepare_online(content_dir, &admitted.query)?;
+        eprintln!(
+            "battle loading: world admitted in {world_ms:.0} ms, scene content prepared in {:.0} ms",
+            started.elapsed().as_secs_f64() * 1000. - world_ms
+        );
         Ok(InstantAdmission {
             request,
             playlist_index,
@@ -1012,6 +1018,7 @@ impl BattleController {
             graphics,
         } = prepared;
         let (mut scene, camera) = Scene::open_prepared(graphics, size, &mut make_gl).await?;
+        crate::loading_work::frame().await;
         // Route the live battle sound mixer into `SharedAudioRouter`.
         let replicas = scene.online.as_mut().ok_or("missing online replicas")?;
         replicas.hud.auto_build = false;
@@ -1034,12 +1041,14 @@ impl BattleController {
         // Drain the initial tick-0 publication so `replicas.hud` has the mission's
         // authoritative command posts, unit classes, and reinforcement counts.
         world.poll_publications(&mut receiver, 0.0)?;
+        crate::loading_work::frame().await;
         eprintln!("local welcome received: welcomed={} packets={} corrections={} alive={}",
             receiver.welcomed, receiver.packets, receiver.corrections, receiver.own.alive);
         replicas
             .hud
             .frame(&mut scene.bridge, &receiver, &replay, 0.0);
         receiver.publications.clear();
+        crate::loading_work::frame().await;
 
         let mut spawn_port = LiveSpawnPort::from_hud_meta(
             &replicas.hud.class_meta,
@@ -1055,6 +1064,7 @@ impl BattleController {
             receiver.own.team,
         );
 
+        crate::loading_work::frame().await;
         Self::finish_init(
             BattleAuthority::InstantAction {
                 request,

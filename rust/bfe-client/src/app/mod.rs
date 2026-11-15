@@ -96,6 +96,7 @@ pub(crate) mod page_battle;
 mod page_pause;
 mod page_browser;
 mod page_surfaces;
+mod frame_log;
 mod frame_pacer;
 mod resize_guard;
 pub mod startup;
@@ -417,6 +418,8 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         resize_guard: Default::default(),
         started: Instant::now(),
         last_frame: Instant::now(),
+        frame_log: frame_log::FrameLog::default(),
+        frame_phase: frame_log::Phase::Other,
         pacer: frame_pacer::FramePacer::new(0.),
         display: Default::default(),
         unpaced,
@@ -518,6 +521,8 @@ struct StandaloneWindowApp {
     started: Instant,
     /// Timestamp of the previous rendered frame for computing `dt`.
     last_frame: Instant,
+    frame_log: frame_log::FrameLog,
+    frame_phase: frame_log::Phase,
     /// The frameLimit setting's deadlines, and the settings revision they
     /// were read at.
     pacer: frame_pacer::FramePacer,
@@ -1883,6 +1888,13 @@ impl StandaloneWindowApp {
         let now = Instant::now();
         let dt = (now - self.last_frame).as_secs_f64().clamp(0.001, 0.1);
         self.last_frame = now;
+        self.frame_log.frame(now, self.frame_phase);
+        self.frame_phase = match &self.state {
+            AppState::BattleLoading { .. } => frame_log::Phase::Loading,
+            AppState::Battle(battle) if battle.spawn_ctrl.is_open() => frame_log::Phase::Spawn,
+            AppState::Battle(_) => frame_log::Phase::Play,
+            _ => frame_log::Phase::Other,
+        };
 
         // If no hardware `cpal` audio device is open, pump headless audio quantums so
         // `ShellAudioMixer` and battle `Stream` queues drain identically to hardware playback.
