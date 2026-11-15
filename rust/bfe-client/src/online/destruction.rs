@@ -28,7 +28,8 @@ use bfe_environment::{
     layout::{
         dst, dst_burst as burst, dst_chunk as chunk, dst_chunk_at as chunk_at, dst_command as cmd, dst_command_kind as kind, dst_event as ev,
         dst_event_kind as ek, dst_frame as frame, dst_matrix_at as matrix_at, dst_piece as piece, dst_result as res, dst_result_at as at,
-        dst_slot_state as slot_state, dst_slot_static as slot_static, result as fxr,
+        dst_slot_state as slot_state, dst_slot_static as slot_static, dst_station as station, dst_station_state as station_state,
+        result as fxr,
     },
     solver::Hit,
     Destruction as Phase,
@@ -172,6 +173,8 @@ pub struct Destructions {
     pub sounds: Vec<(usize, [f64; 3])>,
     /// The hottest piece drawn since the bench last asked (counts).
     pub peak_heat: f64,
+    // The power-up droids watched for wrecking, by building id.
+    stations: Vec<usize>,
 }
 
 fn shape_of(content: &BattleContent, name: &str) -> Option<([f64; 3], [f64; 3], f64, [f64; 3], Vec<f64>)> {
@@ -272,6 +275,7 @@ impl Destructions {
             names,
             sounds: Vec::new(),
             peak_heat: 0.,
+            stations: Vec::new(),
             hidden: Vec::new(),
             lights: Vec::new(),
             deaths: 0,
@@ -507,7 +511,7 @@ impl Destructions {
         f[frame::HAS_EYE] = 1.;
         f[frame::EYE..frame::EYE + 3].copy_from_slice(&eye);
         f[frame::COMMANDS] = self.commands as f64;
-        f[frame::STATIONS] = 0.;
+        f[frame::STATIONS] = self.stations.len() as f64;
         let tracked: Vec<(usize, (u32, u32), bool)> = self.slots.iter().enumerate().filter_map(|(i, s)| s.map(|t| (i, t.unit, t.active))).collect();
         let mut bodies: Vec<Option<Body<'a>>> = Vec::with_capacity(tracked.len());
         for &(i, unit, active) in &tracked {
@@ -667,6 +671,30 @@ impl Destructions {
             draws += 1;
         }
         bridge.r.effects.input[render::IN_DRAWS] = draws as f64;
+    }
+
+    /// destruction.js watch: the power-up droids (Buildings::station_frames)
+    /// and, each frame, whether each is wrecked and how far repaired. A new
+    /// set (a new battle) is watched afresh.
+    pub fn stations(&mut self, frames: impl Iterator<Item = super::buildings::StationFrame>) {
+        let frames: Vec<_> = frames.take(dst::STATIONS).collect();
+        let fresh = frames.len() != self.stations.len() || frames.iter().zip(&self.stations).any(|(f, id)| f.id != *id);
+        for (i, f) in frames.iter().enumerate() {
+            let s = &mut self.phase.station_state[i * station_state::STRIDE..(i + 1) * station_state::STRIDE];
+            s[station_state::DESTROYED] = f.destroyed as u8 as f64;
+            s[station_state::HEALTH] = f.health;
+            s[station_state::MAX_HEALTH] = f.max_health;
+            if fresh {
+                let c = &mut self.phase.station_config[i * station::STRIDE..(i + 1) * station::STRIDE];
+                c[station::MIN..station::MIN + 3].copy_from_slice(&f.bounds[0]);
+                c[station::MAX..station::MAX + 3].copy_from_slice(&f.bounds[1]);
+                c[station::CENTER..station::CENTER + 3].copy_from_slice(&f.center);
+            }
+        }
+        if fresh {
+            self.stations = frames.iter().map(|f| f.id).collect();
+            self.phase.watch(frames.len());
+        }
     }
 
     /// Classic now: everything gone at once.
