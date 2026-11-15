@@ -196,6 +196,9 @@ pub struct Combat {
     flames: Vec<Flame>,
     /// Classic jet exhaust effects started so far.
     pub total_flames: u64,
+    /// The droids' Enhanced deaths (destruction.js).
+    pub destruction: super::destruction::Destructions,
+    droid_explosions: Vec<usize>,
     /// The map's placed effects (torches, smoke, steam).
     pub map_effects: super::map_effects::MapEffects,
     /// The hulls' thrust, damage and death effects.
@@ -393,7 +396,18 @@ impl Combat {
         let streaks_at = particles.words;
         particles.words += STREAK_FLOATS + FLARE_FLOATS;
         bridge.fx_reserve(particles.words as u32);
+        let destruction = super::destruction::Destructions::new(content, bridge, textures, collision.clone(), world, particles.words)?;
+        particles.words = destruction.end();
         let debris = super::debris::Debris::new(content, bridge, textures, &effect_names, collision, world)?;
+        // The explosions droids that come apart die in: Enhanced draws its own
+        // blast for them and leaves the stock effect out (Destruction.explosion).
+        let droid_explosions: Vec<usize> = defs
+            .classes
+            .iter()
+            .filter(|c| c.record.get("chunks").and_then(bfe_content::Value::as_array).is_some_and(|l| !l.is_empty()))
+            .filter_map(|c| c.record.get("ExplosionName").and_then(bfe_content::Value::as_str))
+            .filter_map(|name| defs.registry.combat.iter().position(|(n, _)| n == name).map(|i| i + 1))
+            .collect();
         // environment-effects.js warmup: each group's longest particle life,
         // at most 4 s.
         let lifetime = |d: &serde_json::Value| d["transformer"]["lifetime"].as_f64().unwrap_or(0.);
@@ -465,6 +479,8 @@ impl Combat {
             flames: Vec::with_capacity(16),
             total_flames: 0,
             map_effects,
+            destruction,
+            droid_explosions,
             hull_fx: super::hull_effects::HullEffects::new(),
         })
     }
@@ -857,7 +873,8 @@ impl Combat {
                         bytes[32]
                     );
                 }
-                self.defer(group, position, id, stamp, false);
+                let quiet = self.destruction.enhanced && self.droid_explosions.contains(&definition);
+                self.defer(if quiet { None } else { group }, position, id, stamp, false);
             } else if schema == 6 || schema == 7 {
                 let valid = if schema == 6 { bytes.len() == 82 } else { bytes.len() == 4 };
                 if !valid {
@@ -1273,6 +1290,8 @@ impl Combat {
                     "fx-count map={} in-view={} hull={} stomps={} hull-frames={seen} lowest={lowest:.2} live={live} particles={particles} effects={}",
                     self.map_effects.started, self.map_effects.visible, self.hull_fx.started, self.hull_fx.stomps, self.total_effects
                 );
+                let (pieces, hot, smoke, arcs) = self.destruction.counts();
+                eprintln!("fx-destruction enhanced={} deaths={} pieces={pieces} hot={hot} smoke={smoke} arcs={arcs}", self.destruction.enhanced, self.destruction.deaths);
             }
         }
         self.effects.frame();
@@ -1482,6 +1501,7 @@ impl Combat {
     pub fn record_budget(&self) -> usize {
         self.net.iter().filter(|n| n.active && n.shown).filter_map(|n| self.styles[n.style].model.as_ref()).map(|m| m.rows.len()).sum::<usize>()
             + self.debris.record_budget()
+            + self.destruction.record_budget()
     }
     pub fn append(&self, bridge: &mut Bridge, mut records: usize, mut bones: usize) -> (usize, usize) {
         for net in &self.net {
@@ -1491,6 +1511,7 @@ impl Combat {
                 }
             }
         }
-        self.debris.append(bridge, records, bones)
+        let (records, bones) = self.debris.append(bridge, records, bones);
+        self.destruction.append(bridge, records, bones)
     }
 }

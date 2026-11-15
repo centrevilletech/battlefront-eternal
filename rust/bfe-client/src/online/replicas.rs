@@ -43,8 +43,10 @@ struct Model {
     death_clip: f64,
     // The clip of each weapon action, by bank, posture and action.
     weapon_clips: Vec<presented::BankClips>,
-    // Bone names in lower case, as a class's chunks name them.
+    // Bone names in lower case, as a class's chunks name them, and each
+    // bone's parent (-1 none).
     bones: Vec<String>,
+    parents: Vec<i32>,
 }
 struct Slot {
     actor: usize,
@@ -101,6 +103,7 @@ pub struct Looks {
     pub jetpack: bool,
     pub rain: bool,
     pub environment: bool,
+    pub destruction: bool,
 }
 pub struct Replicas {
     pub shot_aim: super::shot_aim::Shared,
@@ -315,6 +318,7 @@ impl Replicas {
                 death_clip: -1.,
                 weapon_clips: Vec::new(),
                 bones: actor.bones.iter().map(|bone| bone.name.to_lowercase()).collect(),
+                parents: actor.bones.iter().map(|bone| bone.parent as i32).collect(),
                 preview,
                 preview_parts,
                 preview_geometry: (preview_geometry, grouped.indices.len(), grouped.groups.iter().map(|g| (g.first, g.count, g.material)).collect()),
@@ -890,6 +894,15 @@ impl Replicas {
                     self.units.input[f::COMMANDS] += 1.;
                 }
             }
+            // game.js onDeath: a droid that comes apart, killed on its feet,
+            // shorts out the Enhanced way.
+            if dead && !self.slots[slot].dead && self.slots[slot].gone.is_none() && self.combat.destruction.chunked(self.slots[slot].class) {
+                self.slots[slot].dead = true;
+                if let Some(body) = body_of(&self.slots, &self.models, &self.units, slot) {
+                    let body = super::destruction::Body { visible: true, ..body };
+                    self.combat.destruction.died(&body);
+                }
+            }
             self.slots[slot].dead = dead;
             let actor = self.slots[slot].actor;
             let input = &mut self.units.input[f::STRIDE + actor * i::STRIDE..][..i::STRIDE];
@@ -1402,6 +1415,10 @@ impl Replicas {
             rain.enhanced = looks.rain;
         }
         self.combat.map_effects.enhanced = looks.environment;
+        if self.combat.destruction.enhanced && !looks.destruction {
+            self.combat.destruction.clear();
+        }
+        self.combat.destruction.enhanced = looks.destruction;
     }
     /// The softParticles setting: particles and arcs fade where they meet
     /// the scene, which needs the frame's depth copy.
@@ -1424,7 +1441,30 @@ impl Replicas {
     }
     /// Weather.update once the camera is posed: the rain's draws, and its
     /// cover cache's texture when cells changed.
+    /// Destruction.update: the droids it tracks as drawn now, then what it
+    /// asks for (bodies to hide, lights) and its draws.
+    fn present_destruction(&mut self, dt: f64, eye: [f64; 3], bridge: &mut Bridge) {
+        let (slots, models, units) = (&self.slots, &self.models, &self.units);
+        let mut lookup = |unit: (u32, u32)| slots.iter().position(|s| s.active && s.identity == Some(unit)).and_then(|i| body_of(slots, models, units, i));
+        self.combat.destruction.frame(dt, eye, &mut lookup);
+        let hidden = std::mem::take(&mut self.combat.destruction.hidden);
+        for unit in &hidden {
+            if let Some(slot) = self.slots.iter_mut().find(|s| s.identity == Some(*unit)) {
+                slot.gone.get_or_insert(0.);
+            }
+        }
+        self.combat.destruction.hidden = hidden;
+        for (flash, position, color, radius, amount) in std::mem::take(&mut self.combat.destruction.lights) {
+            if flash {
+                self.lights.flash(position, color, radius, amount);
+            } else {
+                self.lights.add(position, color, radius, amount);
+            }
+        }
+        self.combat.destruction.draw(bridge);
+    }
     pub fn present_weather(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], screen: [i32; 2], gpu: &mut crate::resources::Resources, bridge: &mut Bridge) {
+        self.present_destruction(dt, eye, bridge);
         if let Some(steam) = &mut self.steam {
             steam.frame(dt, &self.combat.map_effects.volumes, screen, true, gpu, bridge);
         }
@@ -1867,4 +1907,26 @@ impl DisplayCensus {
             eprintln!("units census t={}s world/drawn/astray {line} astray=[{}] light: shaded={shaded} dimmed={dimmed}", (tick / 60.) as u64, astray.join(" "));
         }
     }
+}
+
+// A droid's body as the destruction effects read it, None without one.
+fn body_of<'a>(slots: &'a [Slot], models: &'a [Model], units: &'a Units, slot: usize) -> Option<super::destruction::Body<'a>> {
+    let s = &slots[slot];
+    let unit = s.identity?;
+    let m = &models[s.model];
+    let out = &units.output[s.actor * o::STRIDE..];
+    Some(super::destruction::Body {
+        unit,
+        class: s.class,
+        walker: s.walker,
+        dead: s.dead,
+        visible: s.active && s.gone.is_none() && out[o::GONE] != -1.,
+        position: std::array::from_fn(|i| out[o::POSITION + i]),
+        velocity: std::array::from_fn(|i| out[o::VELOCITY + i]),
+        names: &m.bones,
+        parents: &m.parents,
+        nodes: &units.nodes,
+        stride: bfe_presentation::layout::unit_node::STRIDE,
+        at: (units.actor_node_start(s.actor) + 2) * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD,
+    })
 }

@@ -1547,6 +1547,7 @@ impl BattleController {
                 jetpack: settings.interface.get_string("jetpackEffects") == "enhanced",
                 rain: settings.interface.get_string("rainEffects") == "enhanced",
                 environment: settings.interface.get_string("environmentEffects") != "classic",
+                destruction: settings.interface.get_string("destructionEffects") == "enhanced",
             });
         }
         let empty = std::collections::BTreeMap::new();

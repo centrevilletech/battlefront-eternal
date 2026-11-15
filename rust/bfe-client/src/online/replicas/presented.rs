@@ -517,6 +517,13 @@ impl Replicas {
             // the last frame posed it, and the effect starts with the next
             // frame's batch, one frame after the browser's.
             Act::DeathBlast => {
+                // Destruction.deathBlast: Enhanced draws a blast of its own.
+                if let Some(body) = super::body_of(&self.slots, &self.models, &self.units, slot) {
+                    if self.combat.destruction.death_blast(&body) {
+                        self.presented.shown[2] += 1;
+                        return true;
+                    }
+                }
                 let bones = self.models[model].inverses.len();
                 let bone = (self.presented.rng.uniform() * bones as f64) as usize;
                 let blast = self.presented.blasts[(self.presented.rng.uniform() * BLASTS.len() as f64) as usize];
@@ -541,6 +548,16 @@ impl Replicas {
             // the bones are read from.
             Act::BlowApart { health } => {
                 let class = self.slots[slot].class;
+                // Destruction.blowApart: Enhanced draws it and its pieces.
+                if self.combat.destruction.chunked(class) {
+                    if let Some(body) = super::body_of(&self.slots, &self.models, &self.units, slot) {
+                        if self.combat.destruction.blow_apart(&body) {
+                            self.slots[slot].gone.get_or_insert(0.);
+                            self.presented.shown[3] += 1;
+                            return true;
+                        }
+                    }
+                }
                 let out = &self.units.output[actor * o::STRIDE..];
                 let origin: [f64; 3] = std::array::from_fn(|axis| out[o::POSITION + axis]);
                 let velocity: [f64; 3] = std::array::from_fn(|axis| out[o::VELOCITY + axis]);
