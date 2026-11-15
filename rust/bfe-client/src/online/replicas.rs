@@ -1591,10 +1591,9 @@ impl Replicas {
             bridge.r.core.input[at..at + draw::REC_STRIDE].copy_from_slice(&row);
             records += 1;
             bones += count;
-            // PlayerCombat.updateHeld: a dead unit's weapon is not shown
-            // (`held.group.visible = !this.dead && ...`), so the death clip's
-            // hand does not fling a rifle across the floor.
-            let weapon = if output[o::DEAD] != 0. { None } else { slot.held };
+            // PlayerCombat.updateHeld hides personal weapons while dead or
+            // mounted, including riders visible in open gunner seats.
+            let weapon = if output[o::DEAD] != 0. || input[i::MOUNT_PRESENT] != 0. { None } else { slot.held };
             if let (Some(hand), Some(model)) =
                 (self.models[slot.model].hand, weapon.and_then(|i| self.held.get(i)).and_then(Option::as_ref))
             {
