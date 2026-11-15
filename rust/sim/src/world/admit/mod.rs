@@ -52,18 +52,20 @@ pub struct Options {
     pub bots: Bots,
 }
 
-/// The settings game.js reads for the bots besides their flavour: whether
-/// any are fielded (aiMode "off" fields none: the player is alone), the
-/// Classic difficulty tier (easy 1, medium 2, hard 3) and the battle size's
-/// unit scale in percent (full 100, reduced 75, small 50).
+/// The player's settings the world is built with: whether any bots are
+/// fielded (aiMode "off" fields none: the player is alone), the Classic
+/// difficulty tier (easy 1, medium 2, hard 3), the battle size's unit scale
+/// in percent (full 100, reduced 75, small 50), and whether a hit from the
+/// victim's own team hurts (friendlyFire, on by default as in the 2004 game).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Bots {
     pub fielded: bool,
     pub tier: u8,
     pub scale_percent: u8,
+    pub friendly_fire: bool,
 }
 impl Default for Bots {
-    fn default() -> Self { Self { fielded: true, tier: 2, scale_percent: 100 } }
+    fn default() -> Self { Self { fielded: true, tier: 2, scale_percent: 100, friendly_fire: true } }
 }
 impl Bots {
     /// SetUnitCount's multiplier: none at all when no bots are fielded.
@@ -78,7 +80,7 @@ impl Bots {
     pub fn read(mode: &str, difficulty: &str, size: &str) -> Self {
         let tier = match difficulty.to_ascii_lowercase().as_str() { "easy" => 1, "hard" => 3, _ => 2 };
         let scale_percent = match size { "large" => 75, "small" => 50, _ => 100 };
-        Self { fielded: mode != "off", tier, scale_percent }
+        Self { fielded: mode != "off", tier, scale_percent, friendly_fire: true }
     }
 }
 impl Options {
