@@ -217,6 +217,9 @@ pub struct Prepared {
     pub combat_classes: Vec<usize>,
     pub stations: Vec<(usize, [f64; 3], bool)>,
     pub posts: Vec<(usize,[f64;post::STRIDE])>,
+    /// Per post: whether a placed building stands for it (its destruction
+    /// takes the post out of the battle and announces it lost).
+    pub post_building: Vec<bool>,
     pub voice_segments: Vec<bool>,
     pub prediction_weapons: Vec<([f64; weapon::STRIDE], usize)>,
     pub actor_limits: Vec<[f64; 3]>,
@@ -919,7 +922,11 @@ impl Prepared {
             let class = content.content.battle.world.get("mission").and_then(|m|m.get("teams")).and_then(|t|t.get(&team.to_string())).and_then(|t|t.get("classes")).and_then(|c|c.at(0)).and_then(|c|c.at(0)).and_then(Value::as_str).unwrap_or("");
             *side = match class.split('_').next().unwrap_or("") { "rep"=>"Rep", "cis"=>"Cis", "all"=>"All", "imp"=>"Imp", _=>"" };
         }
+        let objectives: Vec<&str> = content.content.battle.props.as_ref()
+            .and_then(|props| props.get("instances")).and_then(Value::as_array).unwrap_or(&[]).iter()
+            .filter_map(|instance| instance.get("post").and_then(Value::as_str)).filter(|post| !post.is_empty()).collect();
         let mut posts = Vec::new();
+        let mut post_building = Vec::new();
         for (slot,name) in defs.registry.posts.iter().enumerate() {
             let meta = world.and_then(|w|w.get("posts")).and_then(|p|p.get(name));
             let mut row = [-1.;post::STRIDE]; row[post::ID]=slot as f64;
@@ -939,6 +946,7 @@ impl Prepared {
                 }
             }}
             posts.push((slot+1,row));
+            post_building.push(!name.starts_with('#') && objectives.contains(&name.as_str()));
         }
         // LiveObjects.buildings (src/props.js), in the order a "serve" record
         // counts them: each building's sound class, where it stands
@@ -966,6 +974,7 @@ impl Prepared {
             combat_classes,
             stations,
             posts,
+            post_building,
             voice_segments,
             prediction_weapons,
             actor_limits,

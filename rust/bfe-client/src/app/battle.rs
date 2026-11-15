@@ -683,13 +683,13 @@ impl LiveScoreboardPort {
             t2.reinforcements = hud.teams[2][0].round() as i32;
         }
 
-        self.sync_published_roster(receiver, profile_name);
+        self.sync_published_roster(receiver, hud.game_over, &hud.record_names, profile_name);
     }
 
     // The receiver retains the complete Character roster, including humans
     // admitted after the AI stock. Visible units and a truncated HUD copy
     // cannot identify a dead player or a Character beyond slot 63.
-    fn sync_published_roster(&mut self, receiver: &Receiver, profile_name: &str) {
+    fn sync_published_roster(&mut self, receiver: &Receiver, game_over: bool, names: &crate::online::hud::RecordNames, profile_name: &str) {
         self.inner.characters.clear();
         for (slot, c) in receiver.roster.rows() {
             let local = receiver.roster.local == Some(slot);
@@ -703,10 +703,7 @@ impl LiveScoreboardPort {
             if team != 1 && team != 2 {
                 continue;
             }
-            let mut record = CharacterRecord::default();
-            record.slots[0].deaths = c.deaths as i32;
-            record.slots[0].life_kills = c.kills as i32;
-            record.slots[0].life_kills_best = c.kills as i32;
+            let record = character_record(receiver.roster.record(slot, game_over), names);
             self.inner.characters.push(CharacterStatsEntry {
                 slot,
                 team: team as i32,
@@ -732,6 +729,29 @@ impl LiveScoreboardPort {
             });
         }
     }
+}
+
+/// applyRecord (src/battle-stats.js): a Character's shared record as the
+/// end-of-match screens read it, its favourites named from the content.
+/// Without one (no tally above zero yet) the record is empty.
+fn character_record(packed: Option<&crate::online::roster::Records>, names: &crate::online::hud::RecordNames) -> CharacterRecord {
+    let mut record = CharacterRecord::default();
+    for (out, packed) in record.slots.iter_mut().zip(packed.into_iter().flatten()) {
+        let Some(p) = packed else { continue };
+        let t = p.tallies;
+        (out.team_kills, out.vehicles_destroyed, out.spree, out.survivalist, out.life_kills_best) =
+            (t[0] as i32, t[1] as i32, t[2] as i32, t[3] as i32, t[4] as i32);
+        (out.headshots, out.deaths, out.escapes, out.life_best, out.camp_best) = (t[5] as i32, t[6] as i32, t[7] as i32, t[8], t[9]);
+        out.victims = p.victims.iter().map(|&(victim, n)| (usize::from(victim), i32::from(n))).collect();
+        for (which, table) in [&mut out.classes, &mut out.weapons, &mut out.vehicles].into_iter().enumerate() {
+            table.clear();
+            let Some((id, time)) = p.favourites[which] else { continue };
+            if let Some((key, label)) = names.favourite(which, id) {
+                table.push(bfe_battle_ui::scoreboard::TimedEntry { key: key.into(), label: label.map(str::to_string), time });
+            }
+        }
+    }
+    record
 }
 
 // Implementation of `bfe_battle_ui::scoreboard::ScoreboardPort` for `LiveScoreboardPort`.
@@ -3216,7 +3236,7 @@ mod tests {
         receiver.roster.receive(4, 70000, &bytes).unwrap();
         receiver.roster.local = Some(0);
         let mut board = LiveScoreboardPort::new(true, "cw");
-        board.sync_published_roster(&receiver, "Player");
+        board.sync_published_roster(&receiver, false, &Default::default(), "Player");
         let rows = board.roster();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].name, "Player");
@@ -3253,7 +3273,7 @@ mod tests {
         receiver.roster.local = Some(70);
         receiver.own.team = 2;
         let mut board = LiveScoreboardPort::new(false, "cw");
-        board.sync_published_roster(&receiver, "Pilot");
+        board.sync_published_roster(&receiver, false, &Default::default(), "Pilot");
         let rows = board.roster();
         assert_eq!(rows.len(), 71);
         let human = rows.iter().find(|r| r.local).unwrap();
@@ -3265,7 +3285,7 @@ mod tests {
         assert_eq!((human.kills, human.deaths, human.points), (5, 3, 4));
         assert!(!rows.iter().any(|r| r.slot == 0));
         receiver.roster.local = None;
-        board.sync_published_roster(&receiver, "Spectator");
+        board.sync_published_roster(&receiver, false, &Default::default(), "Spectator");
         assert!(!board.roster().iter().any(|r| r.local));
     }
 

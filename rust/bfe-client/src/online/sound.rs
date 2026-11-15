@@ -223,6 +223,7 @@ pub struct Sound {
     pub voice_decoded: u64,
     voice_segments: Vec<bool>,
     posts: Vec<(usize,[f64;post::STRIDE])>,
+    post_building: Vec<bool>,
     runtime: Runtime,
     pending: Vec<Shot>,
     pending_effects: Vec<[f64; event::STRIDE]>,
@@ -277,6 +278,7 @@ impl Sound {
             voice_decoded: 0,
             voice_segments: prepared.voice_segments,
             posts: prepared.posts,
+            post_building: prepared.post_building,
             runtime: prepared.runtime,
             pending: Vec::with_capacity(2048),
             pending_effects: Vec::with_capacity(2048),
@@ -556,31 +558,7 @@ impl Sound {
                 && field.row[r::SCHEMA] == 2.
                 && field.length >= 23
             {
-                let b = &field.bytes[..field.length];
-                let id = u16::from_le_bytes([b[0], b[1]]) as usize;
-                if let Some((slot, (_, p))) =
-                    self.posts.iter_mut().enumerate().find(|(_, p)| p.0 == id)
-                {
-                    let old = p[post::TEAM];
-                    let team = b[2] as f64;
-                    if p[post::PRESENT] != 0.
-                        && team != old
-                        && self.pending_effects.len() < self.pending_effects.capacity()
-                    {
-                        let mut e = [0.; event::STRIDE];
-                        e[event::KIND] = event_kind::POST as f64;
-                        e[event::OWNER] = slot as f64;
-                        e[event::VALUE] = if team != 0. { team } else { old };
-                        e[event::SECONDS] = if team != 0. { 0. } else { 2. };
-                        self.pending_effects.push(e);
-                    }
-                    p[post::PRESENT] = 1.;
-                    p[post::TEAM] = team;
-                    p[post::ACTIVE] = b[21] as f64;
-                    p[post::CONTESTED] = b[20] as f64;
-                    p[post::PROGRESS] = f64::from_le_bytes(b[4..12].try_into().unwrap());
-                    p[post::NEUTRALIZE] = f64::from_le_bytes(b[12..20].try_into().unwrap());
-                }
+                apply_post_summary(&mut self.posts, &self.post_building, &mut self.pending_effects, &field.bytes[..field.length]);
             }
             // applyWorldPresentation, schema 7: a building's state leads its
             // record, after its place among the live buildings. Only "built"
@@ -1283,4 +1261,61 @@ fn unit(receiver: &Receiver, id: u32, generation: u32) -> Option<&[f64; r::STRID
 // A present entry may still be the sound manifest's missing-class sentinel.
 fn registered(table: &[usize], id: usize) -> Option<usize> {
     table.get(id.checked_sub(1)?).copied()
+}
+
+/// applyWorldSummary's post sounds: a post that changed hands is captured by
+/// its new team or lost by its old one; a destructible post whose building
+/// died goes inactive with its owner kept and is lost by that owner, as the
+/// local battle's CommandPost.destroy event is (src/commandposts.js). The
+/// first sample of a post only initializes it.
+fn apply_post_summary(posts: &mut [(usize, [f64; post::STRIDE])], building: &[bool], effects: &mut Vec<[f64; event::STRIDE]>, b: &[u8]) {
+    let id = u16::from_le_bytes([b[0], b[1]]) as usize;
+    let Some((slot, (_, p))) = posts.iter_mut().enumerate().find(|(_, p)| p.0 == id) else { return };
+    let old = p[post::TEAM];
+    let team = b[2] as f64;
+    let active = b[21] != 0;
+    let lost = p[post::ACTIVE] != 0. && !active && building.get(slot).copied().unwrap_or(false);
+    if p[post::PRESENT] != 0. && (team != old || lost) && effects.len() < effects.capacity() {
+        let mut e = [0.; event::STRIDE];
+        e[event::KIND] = event_kind::POST as f64;
+        e[event::OWNER] = slot as f64;
+        e[event::VALUE] = if team != old && team != 0. { team } else { old };
+        e[event::SECONDS] = if team != old && team != 0. { 0. } else { 2. };
+        effects.push(e);
+    }
+    p[post::PRESENT] = 1.;
+    p[post::TEAM] = team;
+    p[post::ACTIVE] = b[21] as f64;
+    p[post::CONTESTED] = b[20] as f64;
+    p[post::PROGRESS] = f64::from_le_bytes(b[4..12].try_into().unwrap());
+    p[post::NEUTRALIZE] = f64::from_le_bytes(b[12..20].try_into().unwrap());
+}
+
+#[cfg(test)]
+mod post_tests {
+    use super::*;
+
+    fn summary(id: u16, team: u8, active: u8) -> [u8; 23] {
+        let mut b = [0u8; 23];
+        b[0..2].copy_from_slice(&id.to_le_bytes());
+        b[2] = team;
+        b[21] = active;
+        b
+    }
+
+    #[test]
+    fn a_destroyed_building_post_is_announced_lost_by_its_owner() {
+        let mut posts = vec![(1, [0.; post::STRIDE]), (2, [0.; post::STRIDE])];
+        let building = [true, false];
+        let mut events = Vec::with_capacity(8);
+        for id in [1, 2] { apply_post_summary(&mut posts, &building, &mut events, &summary(id, 2, 1)); }
+        assert!(events.is_empty(), "the first sample only initializes");
+        apply_post_summary(&mut posts, &building, &mut events, &summary(2, 2, 0));
+        assert!(events.is_empty(), "a post without a building going inactive is not a loss");
+        apply_post_summary(&mut posts, &building, &mut events, &summary(1, 2, 0));
+        assert_eq!(events.len(), 1);
+        assert_eq!((events[0][event::OWNER], events[0][event::VALUE], events[0][event::SECONDS]), (0., 2., 2.));
+        apply_post_summary(&mut posts, &building, &mut events, &summary(1, 2, 0));
+        assert_eq!(events.len(), 1, "announced once");
+    }
 }
