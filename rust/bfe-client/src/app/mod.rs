@@ -1975,7 +1975,7 @@ impl StandaloneWindowApp {
                         }
                     }
                     if let Some(bench) = &mut self.bench {
-                        transition = bench.launch().or(transition);
+                        transition = bench.launch(self.shell.as_ref().map(|shell| &shell.core.gl)).or(transition);
                     }
                     self.apply_shell_transition(transition, event_loop);
                     if let (Some(smoke), Some(shell), Some(context)) =

@@ -159,13 +159,14 @@ impl Bench {
     }
 
     /// The battle to launch, once, as soon as the front end is up.
-    pub fn launch(&mut self) -> Option<ShellTransition> {
+    pub fn launch(&mut self, gl: Option<&glow::Context>) -> Option<ShellTransition> {
         if let Some(since) = self.at_menu {
             if since.elapsed().as_secs_f64() < 5. {
                 return None;
             }
             self.at_menu = None;
-            eprintln!("bench: memory at=menu after={} {}", self.battles, memory(None));
+            let names = gl.map(|gl| live_gl_names(gl, 1)).unwrap_or_default();
+            eprintln!("bench: memory at=menu after={} {}{names}", self.battles, memory(None));
             self.launched = false;
         }
         if std::mem::replace(&mut self.launched, true) {
@@ -587,6 +588,7 @@ fn memory(battle: Option<&BattleController>) -> String {
         line += &format!(" {}={}", key.trim_start_matches("drm-"), n >> 20);
     }
     if let Some(battle) = battle {
+        line += &live_gl_names(&battle.scene.bridge.r.core.gl, 0);
         let core = &battle.scene.bridge.r.core;
         line += &format!(
             " gl_textures={} gl_texture_mb={} gl_geometries={} gl_programs={} res_texture_mb={} res_target_mb={}",
@@ -616,3 +618,55 @@ fn heap() -> (u64, u64, u64) {
 
 #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
 fn heap() -> (u64, u64, u64) { (0, 0, 0) }
+
+/// How many names of each GL object type are alive in the context (all owners: battle, shell, UI).
+/// GL hands out the lowest free name, so a count that grows from battle to battle is a leak.
+fn live_gl_names(gl: &glow::Context, place: usize) -> String {
+    use glow::HasContext;
+    use std::num::NonZeroU32;
+    let count = |alive: &dyn Fn(NonZeroU32) -> bool| {
+        let (mut n, mut misses, mut name) = (0, 0, 1u32);
+        while misses < 4096 {
+            if alive(NonZeroU32::new(name).unwrap()) { n += 1; misses = 0 } else { misses += 1 }
+            name += 1;
+        }
+        n
+    };
+    // Texture names that appeared since the last sample at the same place (battle, menu), with their size.
+    static TEXTURES: std::sync::Mutex<[Option<std::collections::BTreeSet<u32>>; 2]> = std::sync::Mutex::new([None, None]);
+    let mut now = std::collections::BTreeSet::new();
+    let (mut name, mut misses) = (1u32, 0);
+    while misses < 4096 {
+        // SAFETY: as below.
+        if unsafe { gl.is_texture(glow::NativeTexture(NonZeroU32::new(name).unwrap())) } { now.insert(name); misses = 0 } else { misses += 1 }
+        name += 1;
+    }
+    if let Ok(mut all) = TEXTURES.lock() {
+        let previous = &mut all[place];
+        if let Some(before) = previous.as_ref() {
+            for &n in now.difference(before).take(16) {
+                let size = unsafe {
+                    gl.bind_texture(glow::TEXTURE_2D, Some(glow::NativeTexture(NonZeroU32::new(n).unwrap())));
+                    let w = gl.get_tex_level_parameter_i32(glow::TEXTURE_2D, 0, glow::TEXTURE_WIDTH);
+                    let h = gl.get_tex_level_parameter_i32(glow::TEXTURE_2D, 0, glow::TEXTURE_HEIGHT);
+                    let f = gl.get_tex_level_parameter_i32(glow::TEXTURE_2D, 0, glow::TEXTURE_INTERNAL_FORMAT);
+                    gl.bind_texture(glow::TEXTURE_2D, None);
+                    format!("{w}x{h}:{f:#x}")
+                };
+                eprintln!("bench: new texture name {n} {size}");
+            }
+        }
+        *previous = Some(now);
+    }
+    // SAFETY: glIs* only reads; the battle's context is current on this thread.
+    unsafe {
+        format!(
+            " names_buffers={} names_textures={} names_framebuffers={} names_renderbuffers={} names_programs={}",
+            count(&|n| gl.is_buffer(glow::NativeBuffer(n))),
+            count(&|n| gl.is_texture(glow::NativeTexture(n))),
+            count(&|n| gl.is_framebuffer(glow::NativeFramebuffer(n))),
+            count(&|n| gl.is_renderbuffer(glow::NativeRenderbuffer(n))),
+            count(&|n| gl.is_program(glow::NativeProgram(n))),
+        )
+    }
+}
