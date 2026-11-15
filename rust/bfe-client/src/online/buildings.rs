@@ -345,6 +345,10 @@ impl Buildings {
             }
         }
     }
+    pub fn position(&self, id: usize) -> Option<[f64; 3]> {
+        let p = &self.rows.iter().find(|b| b.id == id)?.placement.elements;
+        Some([p[12], p[13], p[14]])
+    }
     pub fn states(&self) -> impl Iterator<Item=(usize, &'static str, f64, bool, f64)> + '_ {
         self.rows.iter().map(|b|(b.id,["built","destroyed","unbuilt"][b.state],b.health,b.mode,b.active))
     }

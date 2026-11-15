@@ -277,6 +277,11 @@ impl Bench {
             if !std::mem::replace(&mut first, false) {
                 out.write_all(b",")?;
             }
+            // Fixed turrets publish their building identity and aim; their
+            // placement belongs to matched content, not the transform slots.
+            let position = (kind == k::TURRET).then(|| battle.scene.online.as_ref()
+                .and_then(|scene| scene.buildings.position(row[r::BUILDING] as usize)))
+                .flatten().unwrap_or([row[r::POSITION], row[r::POSITION + 1], row[r::POSITION + 2]]);
             write!(
                 out,
                 r#"[{},"{}",{},{},{:.1},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.4},"{}",{},{},{},{:.4},{:.3}]"#,
@@ -285,9 +290,9 @@ impl Bench {
                 row[r::TEAM],
                 row[r::DEAD] == 0. && row[r::HEALTH] > 0.,
                 row[r::HEALTH],
-                row[r::POSITION],
-                row[r::POSITION + 1],
-                row[r::POSITION + 2],
+                position[0],
+                position[1],
+                position[2],
                 row[r::VELOCITY],
                 row[r::VELOCITY + 1],
                 row[r::VELOCITY + 2],
