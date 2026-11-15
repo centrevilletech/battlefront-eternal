@@ -395,6 +395,16 @@ pub struct Core<C: HasContext, M: MultiDraw> {
     // The first failure a pass met where it cannot return one (a draw run inside
     // the transparent sort); the phase's end hands it back to the page as its error.
     pub fault: Option<String>, #[cfg(not(target_arch = "wasm32"))] pub canvas_framebuffer: Option<C::Framebuffer>,
+    // GL objects the passes made for this renderer and never delete themselves: deleted with the
+    // renderer's own (Drop), since the context outlives every battle.
+    held: std::cell::RefCell<Vec<Held<C>>>,
+}
+
+pub(crate) enum Held<C: HasContext> {
+    Buffer(C::Buffer),
+    VertexArray(C::VertexArray),
+    Texture(C::Texture),
+    Framebuffer(C::Framebuffer),
 }
 
 pub(crate) fn upload_texture<C: HasContext>(gl: &C, width: i32, height: i32) -> C::Texture {
@@ -478,8 +488,21 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
             shadow_input: vec![0.0; SHADOW_FLOATS], shadow: vec![0.0; SHADOW_FLOATS], shadow_ubo, shadow_maps: vec![],
             lamp_texture, lamps: vec![], lamps_dirty: false, frame: vec![0.0; FRAME_FLOATS],
             input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), profile: crate::profile::Profile::default(), log: vec![], fault: None, #[cfg(not(target_arch = "wasm32"))] canvas_framebuffer: None,
+            held: Default::default(),
         }
     }
+
+    // Record a GL object a pass made, to be deleted when this renderer is dropped. Only for objects
+    // the pass never deletes itself: GL reuses names, so a second delete could hit another owner's.
+    pub(crate) fn hold_buffer(&self, b: C::Buffer) -> C::Buffer { self.held.borrow_mut().push(Held::Buffer(b)); b }
+    pub(crate) fn hold_vertex_array(&self, v: C::VertexArray) -> C::VertexArray { self.held.borrow_mut().push(Held::VertexArray(v)); v }
+    pub fn hold_texture(&self, t: C::Texture) -> C::Texture { self.held.borrow_mut().push(Held::Texture(t)); t }
+    // Delete a held buffer now (a pass replacing one of its own).
+    pub(crate) fn release_buffer(&self, b: C::Buffer) {
+        self.held.borrow_mut().retain(|h| !matches!(h, Held::Buffer(x) if *x == b));
+        unsafe { self.gl.delete_buffer(b) };
+    }
+    pub(crate) fn hold_framebuffer(&self, f: C::Framebuffer) -> C::Framebuffer { self.held.borrow_mut().push(Held::Framebuffer(f)); f }
 
     pub fn add_texture(&mut self, t: C::Texture) -> u32 {
         self.textures.push(t);
@@ -1015,4 +1038,41 @@ impl NativeProgramSet {
 impl<C: HasContext,M: MultiDraw> Core<C,M> {
     pub fn native_texture_count(&self)->usize {self.textures.len()}
     pub fn native_uniform_slot(&self,program:u32,name:&str)->Option<usize>{self.programs.get(program as usize)?.uniforms.iter().position(|(n,_,_)|n==name)}
+}
+
+// The renderer's GL objects go with it: programs, geometry (vertex arrays and buffers), uniform
+// buffers, its framebuffers, the lamp table and what the passes held. Textures registered with
+// add_texture belong to the resource owner (GpuResources), which deletes them itself.
+impl<C: HasContext, M: MultiDraw> Drop for Core<C, M> {
+    fn drop(&mut self) {
+        fn unique<T: Ord>(mut v: Vec<T>) -> Vec<T> { v.sort(); v.dedup(); v }
+        let mut buffers: Vec<C::Buffer> = self.frame_ubos.to_vec();
+        buffers.push(self.shadow_ubo);
+        let mut arrays = Vec::new();
+        let mut textures = vec![self.lamp_texture];
+        let mut framebuffers: Vec<C::Framebuffer> = self.framebuffers.iter().map(|f| f.2).collect();
+        for g in &self.geometries {
+            arrays.push(g.vao);
+            buffers.extend(&g.buffers);
+        }
+        for held in self.held.get_mut().drain(..) {
+            match held {
+                Held::Buffer(b) => buffers.push(b),
+                Held::VertexArray(v) => arrays.push(v),
+                Held::Texture(t) => textures.push(t),
+                Held::Framebuffer(f) => framebuffers.push(f),
+            }
+        }
+        let programs = unique(self.programs.iter().map(|p| p.program).collect());
+        let gl = &self.gl;
+        // SAFETY: every name below was created on this context by this renderer and is deleted once.
+        unsafe {
+            gl.bind_vertex_array(None);
+            for p in programs { gl.delete_program(p); }
+            for v in unique(arrays) { gl.delete_vertex_array(v); }
+            for b in unique(buffers) { gl.delete_buffer(b); }
+            for f in unique(framebuffers) { gl.delete_framebuffer(f); }
+            for t in unique(textures) { gl.delete_texture(t); }
+        }
+    }
 }

@@ -350,7 +350,7 @@ impl<C: HasContext> EffectsPass<C> {
     pub fn new<M: MultiDraw>(core: &mut Core<C, M>) -> EffectsPass<C> {
         let gl = &core.gl;
         let (quad, quad_index) = unsafe {
-            let quad = gl.create_buffer().unwrap();
+            let quad = core.hold_buffer(gl.create_buffer().unwrap());
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(quad));
             crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes(&QUAD), glow::STATIC_DRAW);
@@ -360,7 +360,7 @@ impl<C: HasContext> EffectsPass<C> {
             // it here would take that geometry's index away, and its next draw
             // would fail for an empty element buffer. Bind none first.
             gl.bind_vertex_array(None);
-            let index = gl.create_buffer().unwrap();
+            let index = core.hold_buffer(gl.create_buffer().unwrap());
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(index));
             crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, bytes(&QUAD_INDEX), glow::STATIC_DRAW);
@@ -383,7 +383,7 @@ impl<C: HasContext> EffectsPass<C> {
     // An analytic batches' owner: three's texture of its tracks (rows of
     // them), and the renderer's of its emitters.
     pub fn add_owner<M: MultiDraw>(&mut self, core: &Core<C, M>, tracks: u32, track_rows: f32) -> u32 {
-        let emitters = unsafe { core.gl.create_texture().unwrap() };
+        let emitters = core.hold_texture(unsafe { core.gl.create_texture().unwrap() });
         // GpuEffects admits all emitter slots cold. The upload phase never
         // changes dimensions after a long load or a burst of simultaneous FX.
         unsafe {
@@ -407,7 +407,7 @@ impl<C: HasContext> EffectsPass<C> {
         let sizes: Vec<usize> = attributes.chunks(2).map(|a| a[1] as usize).collect();
         let stride: usize = sizes.iter().sum();
         let (vao, vbo) = unsafe {
-            let vao = gl.create_vertex_array().unwrap();
+            let vao = core.hold_vertex_array(gl.create_vertex_array().unwrap());
             gl.bind_vertex_array(Some(vao));
             // The corner quad (none: a base of its own follows, batch_base).
             if corner != NO_CORNER {
@@ -416,7 +416,7 @@ impl<C: HasContext> EffectsPass<C> {
                 gl.vertex_attrib_pointer_f32(corner, 2, glow::FLOAT, false, 0, 0);
                 gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(self.quad_index));
             }
-            let vbo = gl.create_buffer().unwrap();
+            let vbo = core.hold_buffer(gl.create_buffer().unwrap());
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
             let mut offset = 0;
             for a in attributes.chunks(2) {
@@ -503,7 +503,7 @@ impl<C: HasContext> EffectsPass<C> {
         interleave(&mut interleaved, data, 0, vertices as usize, vertices as usize, &sizes, stride);
         unsafe {
             gl.bind_vertex_array(Some(b.vao));
-            let vbo = gl.create_buffer().unwrap();
+            let vbo = core.hold_buffer(gl.create_buffer().unwrap());
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
             crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes(&interleaved), glow::STATIC_DRAW);
@@ -513,7 +513,7 @@ impl<C: HasContext> EffectsPass<C> {
                 gl.vertex_attrib_pointer_f32(a[0], a[1] as i32, glow::FLOAT, false, (stride * 4) as i32, (offset * 4) as i32);
                 offset += a[1] as usize;
             }
-            let ebo = gl.create_buffer().unwrap();
+            let ebo = core.hold_buffer(gl.create_buffer().unwrap());
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(ebo));
             crate::core::spare_view_slot();
             gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, bytes(index), glow::STATIC_DRAW);
@@ -692,7 +692,7 @@ impl<C: HasContext> EffectsPass<C> {
     #[allow(clippy::too_many_arguments)]
     pub fn add_mesh<M: MultiDraw>(&mut self, core: &Core<C, M>, texture: i32, blend: &[u32], depth_flags: u32, depth_func: u32, sizes: &[u32], values: &str) -> u32 {
         let gl = &core.gl;
-        let (vbo, ebo) = unsafe { (gl.create_buffer().unwrap(), gl.create_buffer().unwrap()) };
+        let (vbo, ebo) = unsafe { (core.hold_buffer(gl.create_buffer().unwrap()), core.hold_buffer(gl.create_buffer().unwrap())) };
         let mut b = [0u32; 7];
         b.copy_from_slice(&blend[..7]);
         let sizes: Vec<usize> = sizes.iter().map(|&s| s as usize).collect();
@@ -722,7 +722,7 @@ impl<C: HasContext> EffectsPass<C> {
     }
     pub fn mesh_trace_line<M:MultiDraw>(&mut self,core:&Core<C,M>,id:u32,location:u32){
         let Some(m)=self.meshes.get_mut(id as usize)else{return};
-        unsafe{let gl=&core.gl;let buffer=gl.create_buffer().unwrap();m.extra_buffers.push(buffer);gl.bind_buffer(glow::ARRAY_BUFFER,Some(buffer));gl.buffer_data_u8_slice(glow::ARRAY_BUFFER,bytes(&[0f32,-1.,0.,1.,1.,-1.,1.,1.]),glow::STATIC_DRAW);
+        unsafe{let gl=&core.gl;let buffer=core.hold_buffer(gl.create_buffer().unwrap());m.extra_buffers.push(buffer);gl.bind_buffer(glow::ARRAY_BUFFER,Some(buffer));gl.buffer_data_u8_slice(glow::ARRAY_BUFFER,bytes(&[0f32,-1.,0.,1.,1.,-1.,1.,1.]),glow::STATIC_DRAW);
             for pass in &m.passes{gl.bind_vertex_array(Some(pass.vao));gl.enable_vertex_attrib_array(location);gl.vertex_attrib_pointer_f32(location,2,glow::FLOAT,false,0,0);}
             gl.bind_vertex_array(None);gl.bind_buffer(glow::ARRAY_BUFFER,None);
         }
@@ -744,7 +744,7 @@ impl<C: HasContext> EffectsPass<C> {
         core.programs[program as usize].material_owners.set(core.programs[program as usize].material_owners.get() | 1);
         let p = core.programs[program as usize].program;
         let vao = unsafe {
-            let vao = gl.create_vertex_array().unwrap();
+            let vao = core.hold_vertex_array(gl.create_vertex_array().unwrap());
             gl.bind_vertex_array(Some(vao));
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(m.vbo));
             let mut offset = 0;

@@ -236,7 +236,7 @@ impl Replicas {
         let program = bridge.add_owned_program(&key)?;
         let preview_skin = unsafe {
             use glow::HasContext;
-            let gl=&bridge.r.core.gl;let texture=gl.create_texture()?;
+            let gl=&bridge.r.core.gl;let texture=bridge.r.core.hold_texture(gl.create_texture()?);
             gl.bind_texture(glow::TEXTURE_2D,Some(texture));
             gl.tex_image_2d(glow::TEXTURE_2D,0,glow::RGBA32F as i32,1024,4,0,glow::RGBA,glow::FLOAT,glow::PixelUnpackData::Slice(None));
             for key in [glow::TEXTURE_MIN_FILTER,glow::TEXTURE_MAG_FILTER]{gl.tex_parameter_i32(glow::TEXTURE_2D,key,glow::NEAREST as i32);}

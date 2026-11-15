@@ -104,9 +104,9 @@ impl<C: HasContext> InstancePass<C> {
     pub fn texture_bytes(&self) -> u64 { ((MAX_ROWS*ROW_TEXELS+BONE_TEXELS*BONE_ROWS+1)*16) as u64 }
     pub fn new<M: MultiDraw>(core: &mut Core<C, M>) -> InstancePass<C> {
         let gl = &core.gl;
-        let instance_texture = upload_texture(gl, ROW_TEXELS as i32, MAX_ROWS as i32);
-        let bone_texture = upload_texture(gl, BONE_TEXELS as i32, BONE_ROWS as i32);
-        let empty = upload_texture(gl, 1, 1);
+        let instance_texture = core.hold_texture(upload_texture(gl, ROW_TEXELS as i32, MAX_ROWS as i32));
+        let bone_texture = core.hold_texture(upload_texture(gl, BONE_TEXELS as i32, BONE_ROWS as i32));
+        let empty = core.hold_texture(upload_texture(gl, 1, 1));
         unsafe { gl.bind_texture(glow::TEXTURE_2D, None) };
         InstancePass {
             actor_descriptors: vec![],
