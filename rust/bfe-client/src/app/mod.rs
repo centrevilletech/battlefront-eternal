@@ -20,6 +20,7 @@ pub(crate) mod bench;
 pub mod cli;
 mod loading;
 mod folder_dialog;
+mod gpu_probe;
 mod first_run;
 mod platform_smoke;
 mod slint_battle;
@@ -1014,7 +1015,8 @@ impl ApplicationHandler for StandaloneWindowApp {
             let gl = make_gl();
             // gl_PointSize is always live in OpenGL ES; desktop GL needs it switched on.
             if !gl.version().is_embedded { unsafe { gl.enable(glow::PROGRAM_POINT_SIZE); } }
-            self.settings.adopt_gpu_preset(&unsafe { gl.get_parameter_string(glow::RENDERER) }, &unsafe { gl.get_parameter_string(glow::VENDOR) })?;
+            let fill = if self.settings.interface.fresh { gpu_probe::fill_ms_per_mpix(&gl) } else { None };
+            self.settings.adopt_gpu_preset(&unsafe { gl.get_parameter_string(glow::RENDERER) }, &unsafe { gl.get_parameter_string(glow::VENDOR) }, fill)?;
             crate::resources::Ranges::install_multi_draw(&gl,display.get_proc_address(std::ffi::CStr::from_bytes_with_nul(if gl.version().is_embedded{b"glMultiDrawElementsEXT\0"}else{b"glMultiDrawElements\0"}).unwrap()));
             let physical = window.inner_size();
             self.opts.size = [physical.width as i32, physical.height as i32];
