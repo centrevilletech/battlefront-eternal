@@ -26,6 +26,21 @@ const POSTURES: [&str; 3] = ["stand", "crouch", "prone"];
 const KINDS: [&str; 4] = ["soldier", "droideka", "vehicle", "turret"];
 const GAITS: [&str; 9] = ["idle", "walk", "run", "walkBack", "runBack", "turnLeft", "turnRight", "walkLeft", "walkRight"];
 
+pub(super) fn observe_tows(receiver: &crate::online::receiver::Receiver) {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if !*ENABLED.get_or_init(|| std::env::var_os("BFE_BENCH").is_some()) { return; }
+    let Some((id, _, _)) = receiver.own.mount else { return; };
+    for field in receiver.publications.iter()
+        .filter(|field| field.row[r::KIND] == k::SUMMARY as f64 && field.row[r::SCHEMA] == 8.)
+    {
+        if let Ok(state) = serde_json::from_slice::<serde_json::Value>(&field.bytes[..field.length]) {
+            if state[0].as_f64() == Some(id as f64) {
+                eprintln!("bench: tow tick={} generation={} state={state}", field.row[r::TICK], field.row[r::GENERATION]);
+            }
+        }
+    }
+}
+
 fn value(key: &str) -> Option<String> {
     let query = std::env::var("BFE_BENCH").ok()?;
     query

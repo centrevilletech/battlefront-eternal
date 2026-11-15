@@ -1998,6 +1998,7 @@ impl BattleController {
                 self.scene.bridge.r.core.profile.cpu("receive/predict",receive_timer);
                 self.scene
                     .present_network(receiver, replay, &sender.history, camera, dt);
+                super::bench::observe_tows(receiver);
                 receiver.publications.clear();
                 *camera.snapshot()
             }
