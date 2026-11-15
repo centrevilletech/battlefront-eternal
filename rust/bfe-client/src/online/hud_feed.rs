@@ -263,6 +263,9 @@ pub struct Feed {
     // BFE_HUD_TRACE names each hit, arc, kill line and message on stderr as
     // it is raised, for checking a battle's HUD against its log.
     trace: bool,
+    /// Whether the player's squad orders show: with no bots (aiMode off) there is no squad to order and the
+    /// browser's game has no `ai.playerCommand`, so nothing shows.
+    pub squads: bool,
 }
 
 impl Feed {
@@ -280,6 +283,7 @@ impl Feed {
             buildings: Vec::with_capacity(256),
             slots: Vec::with_capacity(256),
             trace: std::env::var_os("BFE_HUD_TRACE").is_some(),
+            squads: true,
         }
     }
 
@@ -413,7 +417,7 @@ impl Feed {
                     // presentEntityEvent: only the page's own unit's order
                     // shows, as the line BattleHud.squadCommand lights.
                     if let Ok(squad) = serde_json::from_slice::<Squad>(bytes) {
-                        if let Some(order) = squad_order(squad.label).filter(|_| own.is((squad.owner_id, squad.owner_generation))) {
+                        if let Some(order) = squad_order(squad.label).filter(|_| self.squads && own.is((squad.owner_id, squad.owner_generation))) {
                             self.raise(hud, "squad", C::SQUAD, [order, 0., 0., 0.]);
                         }
                     }

@@ -272,8 +272,7 @@ pub struct ShellApp {
     pub stack: Vec<ScreenId>,
     /// Selected row index per row-based screen.
     pub row_cursor: BTreeMap<&'static str, usize>,
-    /// Cached rows for the active base screen, updated when state changes so
-    /// per-frame rendering (`draw_shell`) performs zero heap allocations.
+    /// Cached rows for the active base screen, updated when state changes.
     pub cached_rows: Vec<MenuRow>,
     /// Selected game family in Instant Action's `AVAILABLE MAPS` game picker
     /// (`GameFamily::Swbf1` = `BATTLEFRONT (2004)`, `GameFamily::Swbf2` planned and disabled).

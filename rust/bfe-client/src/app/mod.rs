@@ -32,6 +32,7 @@ mod slint_mp;
 pub mod script;
 pub mod settings;
 pub mod shell;
+mod leaving;
 mod page_font;
 mod page_backdrop;
 mod page_blur;
@@ -1014,6 +1015,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                 glow::Context::from_loader_function_cstr(|name| display.get_proc_address(name))
             };
             let gl = make_gl();
+            self.settings.adopt_gpu_preset(&unsafe { gl.get_parameter_string(glow::RENDERER) }, &unsafe { gl.get_parameter_string(glow::VENDOR) })?;
             crate::resources::Ranges::install_multi_draw(&gl,display.get_proc_address(std::ffi::CStr::from_bytes_with_nul(if gl.version().is_embedded{b"glMultiDrawElementsEXT\0"}else{b"glMultiDrawElements\0"}).unwrap()));
             let physical = window.inner_size();
             self.opts.size = [physical.width as i32, physical.height as i32];
@@ -1771,7 +1773,8 @@ impl StandaloneWindowApp {
     /// blits to the window surface, and checks for OpenGL errors.
     fn step_frame(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
-        let dt = (now - self.last_frame).as_secs_f64().clamp(0.001, 0.1);
+        let elapsed_dt = (now - self.last_frame).as_secs_f64();
+        let dt = elapsed_dt.clamp(0.001, 0.1);
         self.last_frame = now;
 
         // If no hardware `cpal` audio device is open, pump headless audio quantums so
@@ -2184,7 +2187,7 @@ impl StandaloneWindowApp {
                         bench.step_battle(battle, self.pointer_locked);
                     }
                     let transition = battle.step_and_draw(
-                        dt,
+                        elapsed_dt,
                         self.focused,
                         self.hidden,
                         &mut self.settings,

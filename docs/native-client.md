@@ -64,8 +64,8 @@ USAGE:
    background worker threads for master HTTPS queries, LAN UDP broadcast
    discovery on port `18452`, and concurrent TCP ping/info probes).
    - **`bfe-interface` Options and `Settings`**: Selecting `OPTIONS` from the
-     Main Menu delegates rendering and input to `bfe_interface::OptionsController`
-     and `bfe_interface::ClassicTheme::paint_stack`, persisting all 59
+     Main Menu hands input to `bfe_interface::OptionsController`, which Slint
+     draws (`bfe-client/src/app/slint_options.rs`), persisting all 59
      settings keys through `bfe_interface::Settings` (`AppSettingsStore`
      in `rust/bfe-client/src/app/settings.rs`).
    - **`MULTIPLAYER -> HOST` (`SET GAME OPTIONS`)**: Selecting `CREATE` ->

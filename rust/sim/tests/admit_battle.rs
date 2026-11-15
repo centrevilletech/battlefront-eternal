@@ -283,6 +283,23 @@ fn context_battle_calls_keep_qualified_references_and_shared_class_ids() {
     assert_eq!(queries, 4);
 }
 
+#[test]
+fn ai_off_session_uses_the_player_only_roster() {
+    let (files, mut options) = context_fixture();
+    options.bots.fielded = false;
+    let content_battle = bfe_content::battle::Battle::load(&bfe_content::battle::Loader::new(&files), &options.map, &options.query()).unwrap();
+    let content = bfe_content::content::Content::build(content_battle).unwrap();
+    let defs = bfe_content::defs::Defs::build(&content).unwrap();
+    let mut cx = bfe_sim::world::admit::rows::Cx::new(&content, &defs, &files, &options, Strings::new());
+    let facts = battle::Facts { character: Some(Ref::new(9, 4)), ..Default::default() };
+    let calls = battle::session_with_facts(&mut cx, &facts, &[0.0, 3.0, 4.0]).unwrap();
+    let call = &calls.iter().find(|(_, name, _)| *name == "f4_roster_init").unwrap().2;
+    let setup = F4RosterSetup::take(&call.row, &call.heap);
+    assert!(!setup.classic && !setup.has_ai);
+    assert_eq!(setup.local, facts.character);
+    assert_eq!(setup.army_size, None);
+}
+
 // The diagnostic consumes the same generated records as the builders.
 // A synthetic predecessor stream keeps its dependency inference in CI.
 #[allow(dead_code)]

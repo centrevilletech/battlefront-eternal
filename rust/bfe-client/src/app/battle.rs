@@ -151,6 +151,11 @@ use bfe_shell::{launch::BattleRequest, screens::MultiplayerLaunch};
 use std::path::Path;
 use winit::{event::MouseButton, keyboard::KeyCode};
 
+/// Commands one rendered frame may make: as the page's input clock
+/// (runtime/fixed-clock.js maxSteps), so a frame of 0.1 s still makes one
+/// for each of its six ticks.
+const MAX_FRAME_STEPS: usize = 8;
+
 fn initial_policy(source: &bfe_content::Value, era: &str) -> bfe_content::mission::Policy {
     let query = bfe_content::mission::Query::parse(&format!("?era={era}"));
     let world = bfe_content::mission::select_mission(source, &query);
@@ -866,6 +871,8 @@ pub struct BattleController {
     pub(super) page_battle: super::page_battle::PageBattle,
     /// `bfe-battle-ui` in-battle text chat controller (`All` / `Team`).
     pub chat: ChatController,
+    /// The map's boundary and the LEAVING BATTLEFIELD warning's state.
+    leaving: super::leaving::LeavingFeed,
     pub(super) stats_text: String,
     frame_seconds: f64,
     /// Scratch quad batch used when compositing overlays onto `scene.bridge.hud_model.batch`.
@@ -999,7 +1006,7 @@ impl BattleController {
     }
 
     pub async fn open_instant_action(
-        _content_dir: &Path,
+        content_dir: &Path,
         prepared: InstantAdmission,
         size: [i32; 2],
         settings: &AppSettingsStore,
@@ -1021,6 +1028,7 @@ impl BattleController {
         // Route the live battle sound mixer into `SharedAudioRouter`.
         let replicas = scene.online.as_mut().ok_or("missing online replicas")?;
         replicas.hud.auto_build = false;
+        replicas.hud.show_squad_orders(settings.interface.get_string("aiMode") != "off");
 
         // Initialize the local `Receiver`, client-side `Replay`, and `Sender`.
         let mut receiver = Box::new(Receiver::new(admitted.registry));
@@ -1062,7 +1070,8 @@ impl BattleController {
             receiver.own.team,
         );
 
-        Self::finish_init(
+        let leaving = super::leaving::LeavingFeed::load(content_dir, &map_id);
+        let mut battle = Self::finish_init(
             BattleAuthority::InstantAction {
                 request,
                 playlist_index,
@@ -1081,7 +1090,9 @@ impl BattleController {
             &era,
             size,
             settings,
-        )
+        )?;
+        battle.leaving = leaving;
+        Ok(battle)
     }
 
     /// Handover owns both clocks: loading audio remains alive through the
@@ -1132,7 +1143,7 @@ impl BattleController {
         })
     }
     pub async fn open_online(
-        _content_dir: &Path,
+        content_dir: &Path,
         prepared: OnlineAdmission,
         size: [i32; 2],
         settings: &AppSettingsStore,
@@ -1184,7 +1195,8 @@ impl BattleController {
         let mut client = Box::new(OnlineClient::connect(endpoint, replicas, camera)?);
         client.sender.auto_spawn = false;
 
-        Self::finish_init(
+        let leaving = super::leaving::LeavingFeed::load(content_dir, &map_id);
+        let mut battle = Self::finish_init(
             BattleAuthority::Online {
                 launch,
                 map_id,
@@ -1197,7 +1209,9 @@ impl BattleController {
             &era,
             size,
             settings,
-        )
+        )?;
+        battle.leaving = leaving;
+        Ok(battle)
     }
 
     /// Shared initialization for `SpawnScreenController`, `ScoreboardController`, `PauseMenu`,
@@ -1302,6 +1316,7 @@ impl BattleController {
             pause_page,
             page_battle,
             chat,
+            leaving: Default::default(),
             stats_text: String::with_capacity(256),
             frame_seconds: 0.,
             overlay_batch: Batch::new(),
@@ -1606,7 +1621,7 @@ impl BattleController {
     /// 2. **Overlay Transition Check**: Inspects `PauseMenu` (`ExitToWindows`, `RestartMission`,
     ///    `QuitToMainMenu`, `LeaveOnline`) and `ScoreboardPort::done_triggered` (`NextPlaylistBattle`).
     /// 3. **Simulation / Network Step & Camera Interpolation**:
-    ///    - Accumulates `dt` into 60 Hz `STEP` (`1/60 s`) increments and samples up to 4
+    ///    - Accumulates `dt` into 60 Hz `STEP` (`1/60 s`) increments and samples up to 8
     ///      [`ClientCommand`] steps via [`Self::take_step_command`].
     ///    - In `InstantAction`, drains non-blocking `Publication` frames from `WorldThread`,
     ///      sends `WorldMessage::Step`, steps client-side `Replay`, updates `MapCamera`,
@@ -1784,8 +1799,9 @@ impl BattleController {
                 //
         // The render loop runs at display refresh rate while simulation and network
         // input ticks run at a fixed 60 Hz (`STEP = 1.0 / 60.0` seconds).
-        // We accumulate `dt` (clamped to `0.25s` max catch-up), consume up to 4
-        // discrete 60 Hz steps per rendered frame, and use the residual fraction
+        // We accumulate `dt` (clamped to `0.25s` max catch-up), consume up to 8
+        // discrete 60 Hz steps per rendered frame (the page's input clock
+        // takes as many: a slow frame sends a command for every tick it spans), and use the residual fraction
         // `alpha_interp = (input_accumulator / STEP)` to smoothly interpolate the
         // 3D camera between the previous and current 60 Hz simulation states.
         // 3. Pump publications / packets, step input, and compute camera View.
@@ -1795,7 +1811,7 @@ impl BattleController {
         };
         self.input_accumulator = (self.input_accumulator + dt * pace).min(0.25);
         let mut steps = 0usize;
-        while self.input_accumulator >= STEP && steps < 4 {
+        while self.input_accumulator >= STEP && steps < MAX_FRAME_STEPS {
             self.input_accumulator -= STEP;
             steps += 1;
         }
@@ -1815,7 +1831,7 @@ impl BattleController {
             ClientLook,
             ClientFlightCommand,
             ViewActions,
-        )>; 4] = [None, None, None, None];
+        )>; MAX_FRAME_STEPS] = std::array::from_fn(|_| None);
         for slot in step_cmds.iter_mut().take(steps) {
             *slot = Some(self.take_step_command(generation, active_gameplay, settings));
         }
@@ -2105,6 +2121,7 @@ impl BattleController {
         }
         let overlay_active = self.is_overlay_open() || (game_over && !self.scoreboard_ctrl.ended);
         reset_hud_layer(&mut self.scene.bridge.hud_model.input);
+        self.present_leaving();
         // Fades and message lifetimes keep elapsed time when a slow frame
         // exceeds the movement step limit.
         self.scene.bridge.hud_model.input[H::DT] = elapsed_dt;
@@ -2272,6 +2289,7 @@ impl BattleController {
             self.scene.bridge.hud_model_update();
             if self.page_battle.spawn {
                 let status = super::slint_battle::spawn_battle_status(self);
+                self.page_battle.scale=self.size[0] as f64/self.page_size[0].max(1) as f64;
                 self.page_battle.update(dt,&self.spawn_ctrl.model,&self.spawn_port,self.page_size,&self.pause_page.theme,status.countdown.is_some());
                 self.page_battle.map_texture(&mut self.scene,&self.spawn_ctrl.view,self.height);
                 self.scene.bridge.hud_model.batch.begin();
@@ -2358,6 +2376,18 @@ impl BattleController {
                 self.pause_menu.update(dt);
             }
         }
+    }
+
+    /// LEAVING BATTLEFIELD (`presentLeaving` in src/game.js): from what the player controls as this page
+    /// shows him, alive and outside the map's boundary.
+    fn present_leaving(&mut self) {
+        let (own, tick) = match &self.authority {
+            BattleAuthority::InstantAction { receiver, .. } => (&receiver.own, crate::online::clock::rendered_tick(receiver.clock.shown, receiver.latest)),
+            BattleAuthority::Online { client, .. } => (&client.receiver.own, crate::online::clock::rendered_tick(client.receiver.clock.shown, client.receiver.latest)),
+        };
+        let place = (own.alive && !own.dead && !own.removed).then_some(own.position);
+        let alpha = self.leaving.alpha(tick as f64, place);
+        self.scene.bridge.hud_model.input[H::LEAVING] = alpha;
     }
 
     /// Renders the faction emblems and team labels in the top-left corner of the spawn screen.

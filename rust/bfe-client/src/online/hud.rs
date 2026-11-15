@@ -865,6 +865,11 @@ impl Hud {
     // Health notifications wake the existing faders; summary records supply
     // tickets and objective facts without an authoritative client world.
     // Geometry and glyph emission remain in the native HudModel owner.
+    /// Whether the player's squad orders show in the feed (see `Feed::squads`).
+    pub fn show_squad_orders(&mut self, on: bool) {
+        self.feed.squads = on;
+    }
+
     pub fn frame(&mut self, bridge: &mut Bridge, receiver: &Receiver, prediction: &Replay, dt: f64) {
         // Received combat facts raise their HUD events first, as the browser
         // applies its packets before the frame's own HUD update.
@@ -1250,6 +1255,7 @@ impl Hud {
                     row[W::RESERVE] = reserve;
                     row[W::WAIT] = n[8];
                     row[W::KICK] = n[4];
+                    row[W::LOCK] = (n[16] >= 0.) as u8 as f64;
                     row[W::LOCK_TARGET] = n[16];
                     row[W::LOCK_ELAPSED] = n[18];
                 } else {
@@ -1303,6 +1309,7 @@ impl Hud {
                 row[W::RESERVE] = weapon.reserve;
                 row[W::WAIT] = weapon.wait;
                 row[W::KICK] = weapon.kick;
+                row[W::LOCK] = (weapon.lock_target_id >= 0.) as u8 as f64;
                 row[W::LOCK_TARGET] = weapon.lock_target_id;
                 row[W::LOCK_ELAPSED] = weapon.lock_elapsed;
                 for panel in [channel, channel + 2] {

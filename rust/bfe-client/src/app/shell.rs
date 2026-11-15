@@ -37,7 +37,7 @@ use bfe_shell::{
     data::{load_shell_data_from_dir, ShellData},
     launch::BattleRequest,
     loading::{planet_name, LoadingTimeline, LookId},
-    render::{draw_loading, draw_shell, ShellFonts, ShellTextures, StageTexture},
+    render::{draw_loading, ShellFonts, ShellTextures, StageTexture},
     screens::{
         HostConfig, MultiplayerKind, MultiplayerLaunch, OptionsPageId, PopupState,
         ScreenId, ShellAction, ShellApp,
@@ -87,7 +87,7 @@ const NAMED_TEXTURES: &[&str] = &[
 ];
 
 /// Converts [`ShellTextures`] and viewport dimensions into [`bfe_interface::Surface`]
-/// so `ClassicTheme::paint_stack` uses the exact same GL texture handles as `draw_shell`.
+/// with the shell's GL texture handles.
 fn shell_textures_to_interface_surface(
     textures: &ShellTextures,
     size: [i32; 2],
@@ -492,13 +492,13 @@ pub struct ShellHost {
     pub core: Core<glow::Context, Ranges>,
     /// 2D/3D-anchored HUD/interface quad pass (`post-hud/hud`).
     pub hud: HudPass<glow::Context>,
-    /// CPU-side quad batch populated each frame by `draw_shell`, `draw_loading`, or `ClassicTheme::paint_stack`.
+    /// CPU-side quad batch: the page backdrop (`Page::draw`) or the loading screen (`draw_loading`).
     pub batch: Batch,
     /// Bitmap fonts (`large`, `medium`, `small`, `tiny`) for `bfe-shell`.
     pub fonts: ShellFonts,
     /// Uploaded texture handles and map-loading zoom stages for `bfe-shell`.
     pub textures: ShellTextures,
-    /// Viewport and texture handle table for `bfe_interface::ClassicTheme`.
+    /// Viewport and texture handle table for `bfe-interface`.
     pub interface_surface: InterfaceSurfaceState,
     /// Stateful `bfe-interface` controller driving `OPTIONS` and its 4 sub-pages (`GAME`, `VIDEO`, `AUDIO`, `CONTROLS`).
     pub options_ctrl: OptionsController,
@@ -1563,15 +1563,13 @@ impl ShellHost {
                 self.page.modal_start = Some(self.batch.count);
             }
         } else {
-            let w = self.layout_size[0] as f64;
-            let h = self.layout_size[1] as f64;
-            draw_shell(
+            // A shell popup over OPTIONS: the same backdrop as under any other popup.
+            self.page.draw(
                 &mut self.batch,
-                &self.fonts,
                 &self.textures,
                 &self.app,
-                w,
-                h,
+                self.layout_size[0] as f64,
+                self.layout_size[1] as f64,
             );
         }
 
