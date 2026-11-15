@@ -715,6 +715,11 @@ export component BattleScreen inherits Rectangle {
         }
     }
 
+    if BattleModel.chat-open || BattleModel.chat-lines.length > 0: BattleChat {
+        x: parent.width * 0.03;
+        y: parent.height * 0.2;
+    }
+
     if BattleModel.spawn-visible
         && BattleModel.page-spawn-look
         && !BattleModel.scoreboard-visible
@@ -732,11 +737,6 @@ export component BattleScreen inherits Rectangle {
         y: 0px;
         width: parent.width;
         height: parent.height;
-    }
-
-    if BattleModel.chat-open || BattleModel.chat-lines.length > 0: BattleChat {
-        x: parent.width * 0.03;
-        y: parent.height * 0.2;
     }
 
     if BattleModel.pause-open || BattleModel.waiting-prompt-visible : BattlePauseScreen {

@@ -2076,11 +2076,8 @@ impl BattleController {
         let full_sync = self.frames == 0 || self.overlay_was_active || overlay_active;
         self.overlay_was_active = overlay_active;
         let show_stats = settings.interface.get_bool("showStats");
-        // Page overlays cover the browser's statistics element. Keep the
-        // native diagnostic line below that same screen boundary.
         self.stats_text.clear();
-        if show_stats && !self.pause_menu.is_open && !self.spawn_ctrl.is_open()
-            && !self.scoreboard_ctrl.model.is_open() {
+        if show_stats {
             self.update_stats_line();
         }
         self.scene.bridge.hud_sync_batch(full_sync);
