@@ -519,7 +519,7 @@ impl Replicas {
             Act::DeathBlast => {
                 self.units.refresh_actor(actor);
                 // Destruction.deathBlast: Enhanced draws a blast of its own.
-                if let Some(body) = super::body_of(&self.slots, &self.models, &self.units, slot) {
+                if let Some(body) = super::body_of(&self.slots, &self.models, &self.units, &self.held_names, slot) {
                     if self.combat.destruction.death_blast(&body) {
                         self.presented.shown[2] += 1;
                         return true;
@@ -552,7 +552,7 @@ impl Replicas {
                 let class = self.slots[slot].class;
                 // Destruction.blowApart: Enhanced draws it and its pieces.
                 if self.combat.destruction.chunked(class) {
-                    if let Some(body) = super::body_of(&self.slots, &self.models, &self.units, slot) {
+                    if let Some(body) = super::body_of(&self.slots, &self.models, &self.units, &self.held_names, slot) {
                         if self.combat.destruction.blow_apart(&body) {
                             self.slots[slot].gone.get_or_insert(0.);
                             self.presented.shown[3] += 1;

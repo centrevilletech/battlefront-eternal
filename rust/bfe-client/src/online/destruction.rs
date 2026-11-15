@@ -12,9 +12,13 @@
 //! destructionEffects Classic leaves all of it to debris.rs and the stock
 //! effects.
 //!
-//! Not drawn here: the pieces' heat glow and crumbling (they draw as their
-//! plain model until the phase retires them), the droid's blaster thrown
-//! clear, the blast's sound and wrecks of power-up droids.
+//! The pieces draw with their material's heated twin and are given its
+//! values (hot where they tore, cooling, sooted, crumbling away at the end
+//! of their life); on screen the glow does not show yet. The droid's
+//! blaster is thrown clear with its pieces, and a droid that shorts out is
+//! heard bursting (one blown apart is heard through the world's explosion).
+//!
+//! Not drawn here: wrecks of power-up droids.
 use super::{models::Model, replay::Collision};
 use crate::render_bridge::Bridge;
 use bfe_content::Value;
@@ -61,12 +65,54 @@ fn directions() -> Vec<Vector3> {
 struct Class {
     chunks: Vec<(usize, String, f64)>,
     explosion: bool,
+    // Its ExplosionName's combat definition (one-based, 0 none), for the
+    // blast's sound.
+    sound: usize,
+}
+
+/// The explosion a class dies in, by its class name (the definitions
+/// resolve ExplosionName into the class's explosion record).
+pub fn explosion_of(record: &Value) -> Option<&str> {
+    record.get("explosion").and_then(|e| e.get("class")).and_then(Value::as_str).or_else(|| record.get("ExplosionName").and_then(Value::as_str))
+}
+
+/// The combat definitions (one-based) that are the explosion `name`: the
+/// registry names each by where it sits, so match its own class.
+pub fn explosion_ids<'a>(defs: &'a bfe_content::defs::Defs, name: &'a str) -> impl Iterator<Item = usize> + 'a {
+    defs.registry.combat.iter().enumerate().filter(move |(_, (_, def))| def.get("class").and_then(Value::as_str) == Some(name)).map(|(i, _)| i + 1)
+}
+
+/// A piece's shape, registered once with the phase, and its heated model.
+fn register(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], cascades: usize, phase: &mut Phase, names: &mut Vec<String>, models: &mut Vec<Model>, name: &str) -> Result<Option<usize>, String> {
+    if let Some(h) = names.iter().position(|n| n == name) {
+        return Ok(Some(h));
+    }
+    if names.len() >= dst::SHAPES {
+        return Ok(None);
+    }
+    let (Some(shape), Some(model)) = (shape_of(content, name), Model::new(content, bridge, textures, name, cascades)?) else { return Ok(None) };
+    // Drawn heated: glowing where it tore, sooted, crumbling.
+    let model = match model.heated(bridge) {
+        Some(heated) => heated,
+        None => {
+            eprintln!("destruction: {name} has no heated program; drawn plain");
+            model
+        }
+    };
+    let handle = names.len();
+    let (center, half, radius, inertia, points) = shape;
+    phase.shape_points[..points.len()].copy_from_slice(&points);
+    phase.register_shape(handle, center, half, radius, inertia, points.len() / 3);
+    names.push(name.to_string());
+    models.push(model);
+    Ok(Some(handle))
 }
 
 /// A droid the phase tracks (shorting out, or arcs hanging from its bones).
 #[derive(Clone, Copy)]
 struct Tracked {
     unit: (u32, u32),
+    class: usize,
     active: bool,
 }
 
@@ -86,6 +132,8 @@ pub struct Body<'a> {
     pub nodes: &'a [f64],
     pub stride: usize,
     pub at: usize,
+    /// The weapon in his hand: its model's name and world matrix.
+    pub weapon: Option<(&'a str, [f64; 16])>,
 }
 
 pub struct Destructions {
@@ -105,8 +153,12 @@ pub struct Destructions {
     at: usize,
     arc_vertices: usize,
     arc_indices: usize,
-    /// Pieces to draw: shape and world matrix.
-    pieces: Vec<(usize, [f64; 16])>,
+    /// Pieces to draw: shape, world matrix, and the heated material's
+    /// values (heat, soot, where it tore and how far the heat spreads,
+    /// dissolve).
+    pieces: Vec<(usize, [f64; 16], [f64; 7])>,
+    /// Each registered shape's model name.
+    names: Vec<String>,
     /// Units the phase hid this frame (gone for the rest of their life).
     pub hidden: Vec<(u32, u32)>,
     /// Lights asked for this frame: flash (true) or held, where, colour,
@@ -114,6 +166,12 @@ pub struct Destructions {
     pub lights: Vec<(bool, [f64; 3], [f64; 3], f64, f64)>,
     /// Droid deaths drawn the Enhanced way so far.
     pub deaths: u64,
+    /// Blasts to be heard this frame: the explosion's combat definition and
+    /// where (a droid bursting after its short-out; one blown apart is heard
+    /// through the world's own explosion).
+    pub sounds: Vec<(usize, [f64; 3])>,
+    /// The hottest piece drawn since the bench last asked (counts).
+    pub peak_heat: f64,
 }
 
 fn shape_of(content: &BattleContent, name: &str) -> Option<([f64; 3], [f64; 3], f64, [f64; 3], Vec<f64>)> {
@@ -172,27 +230,19 @@ impl Destructions {
             let mut chunks = Vec::new();
             for c in list {
                 let Some(name) = c.get("ChunkGeometryName").and_then(Value::as_str) else { continue };
-                let handle = match names.iter().position(|n| n == name) {
-                    Some(h) => h,
-                    None => {
-                        if names.len() >= dst::SHAPES {
-                            continue;
-                        }
-                        let (Some(shape), Some(model)) = (shape_of(content, name), Model::new(content, bridge, textures, name, cascades)?) else { continue };
-                        let handle = names.len();
-                        let (center, half, radius, inertia, points) = shape;
-                        phase.shape_points[..points.len()].copy_from_slice(&points);
-                        phase.register_shape(handle, center, half, radius, inertia, points.len() / 3);
-                        names.push(name.to_string());
-                        models.push(model);
-                        handle
-                    }
-                };
+                let Some(handle) = register(content, bridge, textures, cascades, &mut phase, &mut names, &mut models, name)? else { continue };
                 let node = c.get("ChunkNodeName").and_then(Value::as_str).unwrap_or("").to_lowercase();
                 chunks.push((handle, node, c.get("ChunkSpeed").and_then(Value::as_f64).unwrap_or(7.)));
             }
             if !chunks.is_empty() {
-                classes[id as usize] = Some(Class { chunks, explosion: class.record.get("explosion").is_some() });
+                // destruction.js prepare: its weapons' shapes too, to be thrown clear.
+                for w in class.record.get("weapons").and_then(Value::as_array).into_iter().flatten() {
+                    if let Some(name) = w.get("GeometryName").and_then(Value::as_str) {
+                        register(content, bridge, textures, cascades, &mut phase, &mut names, &mut models, name)?;
+                    }
+                }
+                let sound = explosion_of(&class.record).and_then(|name| explosion_ids(&defs, name).next()).unwrap_or(0);
+                classes[id as usize] = Some(Class { chunks, explosion: sound > 0, sound });
             }
         }
         let shadows = cascades > 0;
@@ -219,6 +269,9 @@ impl Destructions {
             arc_vertices,
             arc_indices,
             pieces: Vec::with_capacity(dst::PIECES),
+            names,
+            sounds: Vec::new(),
+            peak_heat: 0.,
             hidden: Vec::new(),
             lights: Vec::new(),
             deaths: 0,
@@ -300,13 +353,21 @@ impl Destructions {
                 slot = i;
             }
         }
-        if self.chunks + dst::UNIT_CHUNKS > chunk_at::BURSTS || self.matrices + 1 > matrix_at::WEAPONS {
+        if self.chunks + dst::UNIT_CHUNKS > chunk_at::BURSTS || self.matrices + 1 > matrix_at::WEAPONS || self.commands >= dst::COMMANDS {
             self.flush();
         }
         let first = self.chunks;
         let count = self.write_chunks(body, first);
         self.chunks += count;
         let explosion = self.classes[body.class].as_ref().is_some_and(|c| c.explosion);
+        // The droid's blaster, thrown clear: its matrix beside the commands'.
+        let matrix_start = self.matrices;
+        let weapon = self.weapon(body).map_or(-1., |(handle, matrix)| {
+            let at = (matrix_at::COMMANDS + self.matrices) * 16;
+            self.phase.matrices[at..at + 16].copy_from_slice(&matrix);
+            self.matrices += 1;
+            handle as f64
+        });
         let c = self.command(kind::BLOW_APART);
         let c = &mut self.phase.commands[c..c + cmd::STRIDE];
         c[cmd::SLOT] = slot as f64;
@@ -315,12 +376,18 @@ impl Destructions {
         c[cmd::VELOCITY..cmd::VELOCITY + 3].copy_from_slice(&body.velocity);
         c[cmd::FRAME_START] = first as f64;
         c[cmd::FRAME_COUNT] = count as f64;
-        c[cmd::WEAPON] = -1.;
-        c[cmd::MATRIX_START] = self.matrices as f64;
+        c[cmd::MATRIX_START] = matrix_start as f64;
+        c[cmd::WEAPON] = weapon;
         c[cmd::EXPLOSION] = explosion as u8 as f64;
         c[cmd::SOUND] = 0.;
         self.deaths += 1;
         true
+    }
+
+    // The shape of the weapon in a body's hand, and its world matrix.
+    fn weapon(&self, body: &Body) -> Option<(usize, [f64; 16])> {
+        let (name, matrix) = body.weapon?;
+        Some((self.names.iter().position(|n| n == name)?, matrix))
     }
 
     // destruction.js skeleton: the bones arcs can crawl over (not the
@@ -374,7 +441,7 @@ impl Destructions {
             j += 2;
         }
         s[base + slot_static::JOINT_COUNT] = j as f64;
-        self.slots[slot] = Some(Tracked { unit: body.unit, active: true });
+        self.slots[slot] = Some(Tracked { unit: body.unit, class: body.class, active: true });
         let c = self.command(kind::DIED);
         self.phase.commands[c + cmd::SLOT] = slot as f64;
         self.phase.commands[c + cmd::WALKER] = body.walker as u8 as f64;
@@ -468,11 +535,17 @@ impl Destructions {
             let first = chunk_at::BURSTS + slot * dst::UNIT_CHUNKS;
             let count = self.write_chunks(b, first);
             let explosion = self.classes.get(b.class).and_then(Option::as_ref).is_some_and(|c| c.explosion);
+            // Its blaster's matrix: the slot's own, beside the commands'.
+            let weapon = self.weapon(b).map_or(-1., |(handle, matrix)| {
+                let at = (matrix_at::WEAPONS + slot) * 16;
+                self.phase.matrices[at..at + 16].copy_from_slice(&matrix);
+                handle as f64
+            });
             let r = &mut self.phase.burst_blocks[o..o + burst::STRIDE];
             r[burst::VELOCITY..burst::VELOCITY + 3].copy_from_slice(&b.velocity);
             r[burst::START] = first as f64;
             r[burst::COUNT] = count as f64;
-            r[burst::WEAPON] = -1.;
+            r[burst::WEAPON] = weapon;
             r[burst::EXPLOSION] = explosion as u8 as f64;
         }
         {
@@ -494,6 +567,11 @@ impl Destructions {
             if e[ev::KIND] == ek::FLASH || e[ev::KIND] == ek::ADD {
                 let color = COLORS[(e[ev::A] as usize).min(2)];
                 self.lights.push((e[ev::KIND] == ek::FLASH, position, color, e[ev::P], e[ev::Q]));
+            } else if e[ev::KIND] == ek::SOUND {
+                let class = self.slots.get(e[ev::A] as usize).copied().flatten().map(|t| t.class);
+                if let Some(c) = class.and_then(|c| self.classes.get(c)).and_then(Option::as_ref).filter(|c| c.sound > 0) {
+                    self.sounds.push((c.sound, position));
+                }
             } else if e[ev::KIND] == ek::HIDE {
                 if let Some(t) = self.slots.get(e[ev::A] as usize).copied().flatten() {
                     self.hidden.push(t.unit);
@@ -513,7 +591,9 @@ impl Destructions {
                 &Quaternion::new(p[piece::QUATERNION], p[piece::QUATERNION + 1], p[piece::QUATERNION + 2], p[piece::QUATERNION + 3]),
                 &Vector3::new(1., 1., 1.),
             );
-            self.pieces.push((shape, m.elements));
+            self.peak_heat = self.peak_heat.max(p[piece::HEAT]);
+            let look = [p[piece::HEAT], p[piece::SOOT], p[piece::TEAR], p[piece::TEAR + 1], p[piece::TEAR + 2], p[piece::TEAR + 3], p[piece::DISSOLVE]];
+            self.pieces.push((shape, m.elements, look));
         }
         for i in 0..dst::SLOTS {
             if let Some(t) = self.slots[i].as_mut() {
@@ -596,12 +676,22 @@ impl Destructions {
     }
 
     pub fn record_budget(&self) -> usize {
-        self.pieces.iter().map(|(shape, _)| self.models[*shape].rows.len()).sum()
+        self.pieces.iter().map(|(shape, _, _)| self.models[*shape].rows.len()).sum()
     }
 
     pub fn append(&self, bridge: &mut Bridge, mut records: usize, mut bones: usize) -> (usize, usize) {
-        for (shape, matrix) in &self.pieces {
+        use bfe_render::instances as draw;
+        for (shape, matrix, look) in &self.pieces {
+            let first = records;
             (records, bones) = self.models[*shape].append(bridge, matrix, records, bones);
+            // shader.rs EXTRAS: heat, heatBase, heatScale, soot; heatTear; dissolve.
+            for r in first..records {
+                let e = draw::IN_RECORDS + r * draw::REC_STRIDE + draw::REC_EXTRA;
+                let row = &mut bridge.r.core.input[e..e + 13];
+                row[4..8].copy_from_slice(&[look[0], 0., 1., look[1]]);
+                row[8..12].copy_from_slice(&look[2..6]);
+                row[12] = look[6];
+            }
         }
         (records, bones)
     }
