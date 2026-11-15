@@ -102,7 +102,9 @@ pub struct ServerConfig {
     pub auto_spawn: bool,
     /// Whether joining players are assigned a team automatically (`config.autoAssignTeams === true`).
     pub auto_assign_teams: bool,
-    /// Bot mode: `"classic"` (default) or `"off"` (`aiMode` in `src/main.js`).
+    /// Bot mode: `"enhanced"` (the default for a new config), `"classic"` or `"off"`, the words
+    /// the client's Instant Action gives its world (`aiMode`). A config.json written before
+    /// Enhanced was the default has no `"ai"` key and keeps the Classic bots it ran.
     pub ai: String,
     /// Whether a hit from the victim's own team hurts (`friendlyFire`, on by default as in the
     /// 2004 game). Off adds `ff=0` to the battle query, which the world's admission reads.
@@ -161,7 +163,7 @@ impl Default for ServerConfig {
             state_bytes_per_second: DEFAULT_STATE_BYTES_PER_SECOND,
             auto_spawn: false,
             auto_assign_teams: false,
-            ai: "classic".to_string(),
+            ai: "enhanced".to_string(),
             friendly_fire: true,
             game_port: None,
             bind: None,
@@ -244,9 +246,11 @@ impl ServerConfig {
         if let Some(b) = obj.get("autoAssignTeams").and_then(Value::as_bool) {
             cfg.auto_assign_teams = b;
         }
-        if let Some(s) = obj.get("ai").and_then(Value::as_str) {
-            cfg.ai = s.to_string();
-        }
+        // Older servers wrote no "ai" for their default, Classic.
+        cfg.ai = match obj.get("ai").and_then(Value::as_str) {
+            Some(mode) => ai_mode(mode).to_string(),
+            None => "classic".to_string(),
+        };
         if let Some(b) = obj.get("friendlyFire").and_then(Value::as_bool) {
             cfg.friendly_fire = b;
         }
@@ -384,9 +388,8 @@ impl ServerConfig {
         if !self.friendly_fire {
             map.insert("friendlyFire".to_string(), Value::Bool(false));
         }
-        if self.ai != "classic" {
-            map.insert("ai".to_string(), Value::String(self.ai.clone()));
-        }
+        // Always written: a file without it reads as an older server's Classic.
+        map.insert("ai".to_string(), Value::String(self.ai.clone()));
         if let Some(port) = self.game_port {
             map.insert("gamePort".to_string(), json!(port));
         }
@@ -523,11 +526,20 @@ pub fn with_friendly_fire(query: &str, friendly_fire: bool) -> String {
     if friendly_fire { query.to_string() } else { format!("{query}&ff=0") }
 }
 
+/// A bot mode word as the world's admission reads it: `"enhanced"`, `"off"`, else `"classic"`.
+pub fn ai_mode(ai: &str) -> &'static str {
+    match ai {
+        "enhanced" => "enhanced",
+        "off" => "off",
+        _ => "classic",
+    }
+}
+
 pub fn query_for_rotation(entry: &str, ai: &str) -> Result<String, String> {
     if entry.starts_with("swbf2/") {
         return Err("BF2 simulation is not implemented".to_string());
     }
-    let ai_mode = if ai == "off" { "off" } else { "classic" };
+    let ai_mode = ai_mode(ai);
     let stripped = entry.strip_prefix("swbf1/").unwrap_or(entry);
     if stripped.contains(':') {
         let parts: Vec<&str> = stripped.split(':').collect();
@@ -698,5 +710,20 @@ mod tests {
         fs::write(config_path_in(&dir), "{\"data\": ").unwrap();
         assert!(ServerConfig::load_checked(&dir).unwrap_err().contains("not valid JSON"));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn new_configs_field_enhanced_bots_and_old_ones_keep_theirs() {
+        // A new server: Enhanced, written out, read back the same.
+        let fresh = ServerConfig::default();
+        assert_eq!(fresh.ai, "enhanced");
+        assert_eq!(ServerConfig::from_json_value(&fresh.to_json_value()).ai, "enhanced");
+        // A config.json from before: Classic was its unwritten default.
+        assert_eq!(ServerConfig::from_json_value(&json!({"name": "Old"})).ai, "classic");
+        for mode in ["enhanced", "classic", "off"] {
+            assert_eq!(ServerConfig::from_json_value(&json!({"ai": mode})).ai, mode);
+            let query = query_for_rotation("swbf1/nab2:rep:conquest", mode).unwrap();
+            assert!(query.contains(&format!("&ai={mode}&")), "{query}");
+        }
     }
 }

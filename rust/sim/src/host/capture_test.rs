@@ -22,8 +22,11 @@ impl Battle {
         Self::on(content, "nab2", "rep", 1, enhanced)
     }
     fn on(content: &std::path::Path, map: &str, side: &str, seed: u32, enhanced: bool) -> Battle {
+        Self::with_bots(content, map, side, seed, enhanced, Default::default())
+    }
+    fn with_bots(content: &std::path::Path, map: &str, side: &str, seed: u32, enhanced: bool, bots: crate::world::admit::Bots) -> Battle {
         let context = Context::new();
-        let options = Options { map: map.into(), side: side.into(), enhanced, seed, heroes: false, unit: None, name: None, bots: Default::default() };
+        let options = Options { map: map.into(), side: side.into(), enhanced, seed, heroes: false, unit: None, name: None, bots };
         let files = bfe_content::files::DirFiles::new(content);
         let admitted = context.world_admit(&files, &options).expect("admission");
         context.world_step_init(admitted.setup.clone()).unwrap();
@@ -111,6 +114,32 @@ impl Battle {
         }).unwrap()
     }
 
+    /// Hands each named post to a team, as a finished capture leaves it.
+    fn stage(&self, owners: &[(&str, f64)]) {
+        self.context.owned(|w| {
+            let named: Vec<_> = w.sim.store.post.iter().map(|(r, p)| (r, String::from_utf16_lossy(w.sim.strings.units(p.name)))).collect();
+            for (r, name) in named {
+                if let Some(&(_, team)) = owners.iter().find(|(n, _)| *n == name) {
+                    let post = w.sim.store.post.get_mut(r).unwrap();
+                    (post.team, post.progress, post.neutralize, post.toward) = (team, 0.0, 0.0, 0.0);
+                }
+            }
+        }).unwrap();
+    }
+    /// A post's owner by name.
+    fn owner(&self, name: &str) -> f64 {
+        self.context.owned(|w| {
+            w.sim.store.post.iter().find(|(_, p)| String::from_utf16_lossy(w.sim.strings.units(p.name)) == name).map_or(f64::NAN, |(_, p)| p.team)
+        }).unwrap()
+    }
+    /// The teams' reinforcements and the loser once the battle is over.
+    fn tickets(&self) -> ([f64; 2], Option<f64>) {
+        self.context.owned(|w| {
+            let b = &w.sim.store.battle;
+            ([b.reinforcements.at(1.0).unwrap_or(f64::NAN), b.reinforcements.at(2.0).unwrap_or(f64::NAN)], b.over.then_some(b.loser).flatten())
+        }).unwrap()
+    }
+
     fn kill(&self, r: Ref<crate::gen::Unit>) {
         self.context.owned(|w| {
             crate::units::f3::with_services_in(w, |w, services| {
@@ -162,6 +191,62 @@ fn dead_soldiers_stop_counting_toward_posts_classic() {
 #[test]
 fn dead_soldiers_stop_counting_toward_posts_enhanced() {
     dead_soldiers_stop_counting(true);
+}
+
+/// The bleed and the no-post countdown on nab2 with no bots, each team given
+/// posts by hand. nab2 scores 10 a post held and 1 a neutral one; a score up
+/// to 1 bleeds 3.0, to 11 bleeds 2.25, to 21 0.75, more nothing, one ticket per
+/// 4 points gathered; a team with a score of 0 counts down 20 s and loses.
+#[test]
+fn bleed_and_the_no_post_countdown_follow_the_posts_held() {
+    let Some(content) = std::env::var_os("BFE_CONTENT_DIR") else { return };
+    let case = |owners: [f64; 6], seconds: u32| {
+        let off = crate::world::admit::Bots::read("off", "medium", "full");
+        let mut battle = Battle::with_bots(std::path::Path::new(&content), "nab2", "rep", 1, false, off);
+        battle.tick();
+        let names = ["cp1", "cp2", "cp3", "cp4", "cp5", "cp6"];
+        battle.stage(&names.iter().zip(owners).map(|(n, t)| (*n, t)).collect::<Vec<_>>());
+        let (start, _) = battle.tickets();
+        let mut over = None;
+        for tick in 1..=seconds * 60 {
+            battle.tick();
+            if over.is_none() { if let (left, Some(loser)) = battle.tickets() { over = Some((tick as f64 / 60.0, loser, left)); } }
+        }
+        let (end, _) = battle.tickets();
+        battle.context.dispose().unwrap();
+        ([start[0] - end[0], start[1] - end[1]], over)
+    };
+    // The player alone in cp2, handed to the other team: neutralized after
+    // neutralizeTime (12 s) and his after captureTime (10 s) more.
+    {
+        let off = crate::world::admit::Bots::read("off", "medium", "full");
+        let mut battle = Battle::with_bots(std::path::Path::new(&content), "nab2", "rep", 1, false, off);
+        battle.tick();
+        battle.stage(&[("cp2", 1.0)]);
+        let (mut neutral_at, mut captured_at) = (None, None);
+        for tick in 1..=30 * 60 {
+            battle.tick();
+            let owner = battle.owner("cp2");
+            if owner == 0.0 && neutral_at.is_none() { neutral_at = Some(tick as f64 / 60.0); }
+            if owner == 2.0 && captured_at.is_none() { captured_at = Some(tick as f64 / 60.0); }
+        }
+        battle.context.dispose().unwrap();
+        eprintln!("one soldier at cp2: neutral at {neutral_at:?} s, captured at {captured_at:?} s");
+        let (n, c) = (neutral_at.expect("neutralized"), captured_at.expect("captured"));
+        assert!((11.9..12.1).contains(&n) && (21.9..22.1).contains(&c), "neutral {n} s, captured {c} s");
+    }
+    let one = case([1.0, 2.0, 2.0, 2.0, 2.0, 2.0], 60);
+    // The harness's player stands at cp2: team 1 gets posts away from him.
+    let two = case([1.0, 2.0, 1.0, 2.0, 2.0, 2.0], 60);
+    let none = case([2.0; 6], 30);
+    let neutral = case([0.0, 2.0, 2.0, 2.0, 2.0, 2.0], 60);
+    eprintln!("tickets lost in 60 s holding one post {one:?}, two {two:?}; none: {none:?}; none but a neutral one {neutral:?}");
+    assert_eq!(one.0, [33.0, 0.0], "one post bleeds 2.25 / 4 a second");
+    assert_eq!(two.0, [11.0, 0.0], "two posts bleed 0.75 / 4 a second");
+    let (at, loser, _) = none.1.expect("a team without posts loses");
+    assert!(loser == 1.0 && (20.0..20.2).contains(&at), "lost by team {loser} at {at} s");
+    assert!(neutral.1.is_none(), "a neutral post pauses the countdown");
+    assert_eq!(neutral.0, [44.0, 0.0], "a neutral post alone scores 1: 3.0 / 4 a second (the staging tick gathers none)");
 }
 
 /// Whole battles on maps with droidekas, vehicles, turrets and locals: on
