@@ -15,7 +15,7 @@ use crate::commands::PLACE as LIGHT_PLACE;
 pub(crate) use crate::commands::arity;
 
 /// Channel-major PCM, at the decoded asset's rate.
-pub struct Sample { pub rate:f64, pub channels:usize, pub frames:usize, pub data:Vec<f32>, pub ring:Option<crate::streaming::Ring>, pub feed:Option<Box<crate::streaming::Adpcm>> }
+pub struct Sample { pub rate:f64, pub channels:usize, pub frames:usize, pub data:Vec<f32>, pub ring:Option<crate::streaming::Ring>, pub feed:Option<Box<crate::streaming::Feed>> }
 
 // TimeToSampleFrame rounds at 1024 times the context rate before rounding
 // to a playback frame; offset and start use different rounding directions.
