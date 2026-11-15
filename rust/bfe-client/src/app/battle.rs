@@ -1023,6 +1023,7 @@ impl BattleController {
         // Route the live battle sound mixer into `SharedAudioRouter`.
         let replicas = scene.online.as_mut().ok_or("missing online replicas")?;
         replicas.hud.auto_build = false;
+        replicas.hud.show_squad_orders(settings.interface.get_string("aiMode") != "off");
 
         // Initialize the local `Receiver`, client-side `Replay`, and `Sender`.
         let mut receiver = Box::new(Receiver::new(admitted.registry));
