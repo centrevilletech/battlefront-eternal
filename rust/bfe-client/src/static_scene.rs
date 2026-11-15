@@ -6,7 +6,7 @@ use bfe_content_native::{
     loader::Blend,
     BattleContent,
 };
-use bfe_render::{far as F, instances as I, programs, shader, water as W};
+use bfe_render::{far as F, instances as I, programs, shader};
 use serde_json::{json, Value};
 use three::Matrix4;
 // FarPass.registerItem retains a numeric admission slot for each sky layer.
@@ -17,39 +17,6 @@ pub struct Sky {
     pub follow: Option<[f64; 2]>,
     uniforms: Vec<(usize, usize, usize)>,
 }
-// WaterPass.write has one camera bank and fixed material values. Sun direction
-// is negated/normalized the way SurfaceHost publishes it; the authored ray
-// direction in the shared lighting bank has the opposite sign.
-pub struct Water {
-    pub(super) key: &'static str,
-    sun: Option<usize>,
-    sun_from: usize,
-    ocean: Option<Box<(bfe_environment::surfaces::Phase, usize, f64)>>,
-    uniforms: Vec<(usize, usize, usize)>,
-    /// Where the frame's time is read from the view.
-    time_from: usize,
-    /// The specular mask's frames and rate, and where its two samplers and
-    /// their blend sit in the surface's uniform rows.
-    masks: Option<(Vec<u32>, f64, [usize; 3])>,
-    camera_range: Option<(usize, usize)>,
-    /// Where the bobbing surface's height goes: its world row and model uniform.
-    bob: Option<(usize, Option<usize>)>,
-}
-// Water.update (water.js): the surface bobs this far, this often.
-const BOB: f64 = 0.06;
-const BOB_RATE: f64 = 0.3;
-fn camera_range(projection: &[f64]) -> [f64; 2] {
-    [projection[14] / (projection[10] - 1.), projection[14] / (projection[10] + 1.)]
-}
-#[inline(never)]
-fn new_ocean_phase(
-    model: usize,
-    height: f64,
-) -> Box<(bfe_environment::surfaces::Phase, usize, f64)> {
-    let mut phase = bfe_environment::surfaces::Phase::new(false);
-    phase.frame[bfe_environment::layout::surface_frame::OCEAN] = 1.;
-    Box::new((phase, model, height))
-}
 // These are cold bind-pose templates, independent of the visible command
 // prefix. Selection owns two reserved index lists, so changing camera views
 // neither allocates nor destroys an object that may be visible later.
@@ -57,7 +24,6 @@ pub struct Admission {
     pub records: Vec<[f64; I::REC_STRIDE]>,
     pub bones: Vec<f32>,
     pub skies: Vec<Sky>,
-    pub water: Option<Water>,
     pub props: usize,
     pub foliage: usize,
     pub deferred: usize,
@@ -174,7 +140,6 @@ pub fn props(
         records: vec![],
         bones: vec![],
         skies: vec![],
-        water: None,
         props: 0,
         foliage: 0,
         deferred: placed.deferred,
@@ -441,14 +406,15 @@ fn gl_type(t: u32) -> u32 {
         _ => 0,
     }
 }
-// graphics.js's sky-follow rule changes placement, not authored vertices.
-// A horizon model can retain some of its fixed height while following the
-// camera in X/Z. All resource identities remain stable across those writes.
-pub fn update(a: &mut Admission, bridge: &mut Bridge, view: &[f64]) {
+// Where each sky layer stands for a view: on the eye, or (the sky-follow
+// rule) partly following its height. A water mirror stands every layer at
+// its reflected eye instead (`follow` false), the way the page's mirror did.
+pub fn place_skies(a: &Admission, bridge: &mut Bridge, view: &[f64], follow: bool) {
     let eye = a.eye;
     for s in &a.skies {
         let y = s
             .follow
+            .filter(|_| follow)
             .map_or(view[eye + 1], |f| f[0] * view[eye + 1] + (1. - f[0]) * f[1]);
         bridge.r.far.input[s.slot + 13..s.slot + 16].copy_from_slice(&[
             view[eye],
@@ -459,253 +425,7 @@ pub fn update(a: &mut Admission, bridge: &mut Bridge, view: &[f64]) {
             bridge.r.far.input[at..at + len].copy_from_slice(&view[from..from + len]);
         }
     }
-    if let Some(w) = &mut a.water {
-        for &(at, from, len) in &w.uniforms {
-            bridge.r.water.input[at..at + len].copy_from_slice(&view[from..from + len]);
-        }
-        if let Some((at, from)) = w.camera_range {
-            // The water shader writes depth explicitly, so it must use the
-            // same clipping planes as the opaque scene in this view.
-            bridge.r.water.input[at..at + 2].copy_from_slice(&camera_range(&view[from..]));
-        }
-        // Water.update: the mask plays as a flip book, blended frame to frame.
-        let time = view[w.time_from];
-        if let Some((textures, fps, [a, b, mix])) = &w.masks {
-            let f = fps * time;
-            let k = f.floor();
-            let n = textures.len();
-            bridge.r.water.input[*a] = textures[k as usize % n] as f64;
-            bridge.r.water.input[*b] = textures[(k as usize + 1) % n] as f64;
-            bridge.r.water.input[*mix] = f - k;
-        }
-        if let Some((world, model)) = w.bob {
-            let wave = BOB * (2. * std::f64::consts::PI * BOB_RATE * time).sin();
-            bridge.r.water.input[world + 13] = wave;
-            if let Some(model) = model {
-                bridge.r.water.input[model + 13] = wave;
-            }
-        }
-        let from = w.sun_from;
-        let mut sun = three::Vector3::new(-view[from], -view[from + 1], -view[from + 2]);
-        sun.normalize();
-        if let Some(at) = w.sun {
-            bridge.r.water.input[at..at + 3].copy_from_slice(&[sun.x, sun.y, sun.z]);
-        }
-        if let Some(ocean) = &mut w.ocean {
-            let (phase, model, height) = &mut **ocean;
-            use bfe_environment::layout::{surface_frame as F, surface_result as R};
-            phase.frame[F::EYE..F::EYE + 3].copy_from_slice(&view[eye..eye + 3]);
-            phase.update::<bfe_environment::surface_math::V8, _>(&mut NoShore);
-            let mut matrix = Matrix4::default();
-            matrix.elements[12] = phase.result[R::OCEAN_X];
-            matrix.elements[13] = *height;
-            matrix.elements[14] = phase.result[R::OCEAN_Z];
-            bridge.r.water.input[*model..*model + 16].copy_from_slice(&matrix.elements);
-            bridge.r.water.input[W::S_WORLD..W::S_WORLD + 16].copy_from_slice(&matrix.elements);
-        }
-    }
 }
-pub fn water(
-    bridge: &mut Bridge,
-    data: &Value,
-    main: u32,
-    masks: &[u32],
-    mask_fps: f64,
-    empty: u32,
-    foam: u32,
-    ocean_mask: u32,
-) -> Result<Option<Water>, String> {
-    if data.is_null() {
-        return Ok(None);
-    }
-    let classic_ocean = data["look"]["OceanEnable"][0].as_f64().unwrap_or(0.) > 0.;
-    let key = if classic_ocean {
-        "effects/ocean-classic-s2"
-    } else {
-        "effects/water-textured-s2"
-    };
-    let spec = programs::spec(key)?;
-    let p = bridge.add_owned_program(key)?;
-    bridge.r.water.prepare_program(p as usize,spec.uniforms);
-    let look = &data["look"];
-    let scale = data["scale"].as_f64().unwrap_or(1.);
-    let divisions = look["PatchDivisions"][0].as_f64().unwrap_or(16.);
-    let rows = look["PatchDivisions"][1].as_f64().unwrap_or(divisions);
-    // Water.isSea selects the coarse surface whenever cells touch all four
-    // grid edges, even when OceanEnable is absent. This changes subdivision
-    // and must agree before geometry is uploaded.
-    let sea = data["grid"]
-        .as_u64()
-        .filter(|n| *n > 0)
-        .is_some_and(|grid| {
-            let Some(cells) = data["cells"].as_array() else {
-                return false;
-            };
-            [(0, 0), (0, grid - 1), (1, 0), (1, grid - 1)]
-                .iter()
-                .all(|&(axis, edge)| cells.iter().any(|c| c[axis].as_u64() == Some(edge)))
-        });
-    let ocean = look["OceanEnable"][0].as_f64().unwrap_or(0.) > 0. || sea;
-    // Water.surface rounds PatchDivisions after applying map scale. A flat
-    // sea uses one quad per cell; clipped shore patches keep their authored
-    // triangles regardless of the regular grid's subdivision.
-    let surface = if classic_ocean {
-        bfe_content_native::water::ocean_geometry()
-    } else {
-        bfe_content_native::water::surface(
-            data,
-            if ocean {
-                1
-            } else {
-                (divisions * scale).round().max(1.) as usize
-            },
-            if ocean {
-                1
-            } else {
-                (rows * scale).round().max(1.) as usize
-            },
-        )?
-    };
-    let mut positions = Vec::new();
-    let mut uv = Vec::new();
-    for row in surface.vertices.chunks_exact(5) {
-        positions.extend_from_slice(&row[..3]);
-        uv.extend_from_slice(&row[3..]);
-    }
-    let g = geometry(&positions, &[], &uv, &surface.index).register(&mut bridge.r, key)?;
-    let blend = [
-        if classic_ocean { 0 } else { 1 },
-        glow::FUNC_ADD,
-        glow::FUNC_ADD,
-        glow::SRC_ALPHA,
-        glow::ONE_MINUS_SRC_ALPHA,
-        glow::ONE,
-        glow::ONE_MINUS_SRC_ALPHA,
-    ];
-    // DrawState requires colour write explicitly as well as depth test and
-    // depth write. Omitting it submits triangles that only alter the depth
-    // buffer, so the isolated water view also qualifies visible colour.
-    let id = bridge.water_surface(g, &blend, glow::LEQUAL, 1 | 2 | 4, 2) as usize;
-    let base = id * W::SURFACE;
-    let v = &mut bridge.r.water.input[base..base + W::SURFACE];
-    v[W::S_SHOWN] = 1.;
-    v[W::S_PROGRAM] = p as f64;
-    v[W::S_KEY + 1] = -20.;
-    v[W::S_WORLD..W::S_WORLD + 16].copy_from_slice(&Matrix4::default().elements);
-    v[W::S_RANGE + 1] = surface.index.len() as f64;
-    v[W::S_UNIFORMS] = spec.uniforms.len() as f64;
-    v[W::S_ARRAY] = -1.;
-    // The browser's pair helper repeats the first component when the second
-    // is absent. Texture tiling scales up with the map; scrolling velocity
-    // scales down, preserving the prepared water look across map scales.
-    let pair = |key: &str, default: f64, mult: f64| {
-        let a = look[key][0].as_f64().unwrap_or(default);
-        vec![a * mult, look[key][1].as_f64().unwrap_or(a) * mult]
-    };
-    let mut uniforms = Vec::new();
-    // Resolve each catalog uniform into the existing WaterPass row format.
-    // Camera sources vary, and time follows the view's clock with them;
-    // texture ids, tint and mask frame stay fixed.
-    let mut sun = None;
-    let mut model = base;
-    let mut model_uniform = None;
-    let mut mask_rows = [None; 3];
-    let mut camera_range = None;
-    let mut wind = three::Vector2::new(
-        look["WindDirection"][0].as_f64().unwrap_or(1.),
-        look["WindDirection"][1].as_f64().unwrap_or(0.),
-    );
-    wind.normalize();
-    if wind.length_sq() == 0. {
-        wind.set(1., 0.);
-    }
-    for (i, (name, ty)) in spec.uniforms.iter().enumerate() {
-        let at = W::S_FIRST + i * bfe_render::post::UNIFORM;
-        v[at] = i as f64;
-        v[at + 1] = *ty as f64;
-        let values = match *name {
-            "mainMap" => vec![main as f64],
-            "maskA" | "maskB" => {
-                mask_rows[(*name == "maskB") as usize] = Some(base + at + 2);
-                vec![masks.first().copied().unwrap_or(empty) as f64]
-            }
-            "maskMix" => {
-                mask_rows[2] = Some(base + at + 2);
-                vec![0.]
-            }
-            "modelMatrix" => {
-                model = base + at + 2;
-                model_uniform = Some(model);
-                Matrix4::default().elements.to_vec()
-            }
-            "waterMap" => vec![main as f64],
-            "foamMap" => vec![foam as f64],
-            "mask" => vec![ocean_mask as f64],
-            "wind" => vec![wind.x, wind.y],
-            "amplitude" => {
-                vec![(look["WindSpeed"][0].as_f64().unwrap_or(0.) * 0.05).clamp(0.15, 2.)]
-            }
-            "foamTile" => pair("FoamTile", 1., 1.),
-            "cell" => vec![data["cell"].as_f64().ok_or("water cell missing")?],
-            "gridWidth" => vec![
-                data["cell"].as_f64().unwrap()
-                    * data["grid"].as_f64().ok_or("water grid missing")?,
-            ],
-            "gridOffset" => serde_json::from_value::<Vec<f64>>(data["offset"].clone())
-                .map_err(|e| e.to_string())?,
-            "tint" => (0..4)
-                .map(|k| look["RefractionColor"][k].as_f64().unwrap_or(255.) / 255.)
-                .collect(),
-            "tile" => pair("Tile", 1., if classic_ocean { 1. } else { scale }),
-            "velocity" => pair("Velocity", 0., if classic_ocean { 1. } else { 1. / scale }),
-            "maskTile" => pair("SpecularMaskTile", 1., scale),
-            "maskVelocity" => pair("SpecularMaskScrollSpeed", 0., 1. / scale),
-            "cameraRange" => {
-                camera_range = Some((base + at + 2, frame("projectionMatrix").unwrap().0));
-                vec![0.; 2]
-            }
-            "toSun" => {
-                sun = Some(base + at + 2);
-                let (from, len) = frame("sunDirection").unwrap();
-                uniforms.push((base + at + 2, from, len));
-                vec![0.; len]
-            }
-            _ => {
-                if let Some((from, len)) = frame(name) {
-                    uniforms.push((base + at + 2, from, len));
-                    vec![0.; len]
-                } else {
-                    return Err(format!("unknown native water uniform {name}"));
-                }
-            }
-        };
-        v[at + 2..at + 2 + values.len()].copy_from_slice(&values);
-    }
-    Ok(Some(Water {
-        key,
-        sun,
-        sun_from: frame("sunDirection").unwrap().0,
-        ocean: if classic_ocean {
-            Some(new_ocean_phase(
-                model,
-                data["height"].as_f64().ok_or("ocean height missing")?,
-            ))
-        } else {
-            None
-        },
-        uniforms,
-        time_from: frame("time").ok_or("frame time missing")?.0,
-        masks: match mask_rows {
-            [Some(a), Some(b), Some(mix)] if !masks.is_empty() => Some((masks.to_vec(), mask_fps, [a, b, mix])),
-            _ => None,
-        },
-        camera_range,
-        // The ocean's surface follows the eye at its own height instead.
-        bob: (!classic_ocean && look["OscillationEnable"][0].as_f64().unwrap_or(1.) > 0.)
-            .then_some((base + W::S_WORLD, model_uniform)),
-    }))
-}
-
 impl Admission {
     // The browser InstancePass culls before filling its bounded command bank.
     // Retain every cold prop; a camera moving elsewhere must not discover that
@@ -781,7 +501,7 @@ mod tests {
             let mut projection = Matrix4::default();
             projection.make_perspective(-1., 1., 1., -1., near, far, three::CoordinateSystem::WebGL);
             let p = projection.elements;
-            let [n, f] = camera_range(&p);
+            let [n, f] = crate::water_host::camera_range(&p);
             for depth in [near, 1., 10., far] {
                 let opaque = ((-p[10] * depth + p[14]) / depth + 1.) * 0.5;
                 let water = (f - n * f / depth) / (f - n);
@@ -835,12 +555,3 @@ mod tests {
 
 // Static ocean admission leaves shoreline quality at zero. Its shared surface
 // owner computes camera-grid placement with zero elapsed time and no contacts.
-struct NoShore;
-impl bfe_environment::shore::Queries for NoShore {
-    fn triangles(&mut self, _: f64, _: f64, _: f64, _: &mut [f64]) -> usize {
-        0
-    }
-    fn exposed(&mut self, _: f64, _: f64, _: f64) -> bool {
-        false
-    }
-}

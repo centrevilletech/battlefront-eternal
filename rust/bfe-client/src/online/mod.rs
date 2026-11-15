@@ -36,8 +36,8 @@ pub mod jetpacks;
 pub mod hull_effects;
 pub mod lightning;
 pub mod map_effects;
-mod shields;
-mod holograms;
+pub(crate) mod shields;
+pub(crate) mod holograms;
 mod lights;
 pub mod particles;
 
@@ -51,7 +51,7 @@ mod events;
 
 pub mod first_person;
 
-mod water;
+pub(crate) mod water;
 
 mod collision;
 

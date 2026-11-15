@@ -1525,6 +1525,11 @@ impl BattleController {
         if let Err(err) = self.scene.set_anisotropy(settings.interface.get_f64("anisotropy")) {
             eprintln!("battle settings: anisotropy not applied: {err}");
         }
+        let water = crate::water_host::Settings {
+            quality: settings.interface.get_string("waterQuality"),
+            ocean: settings.interface.get_string("oceanEffects"),
+        };
+        if let Err(err) = self.scene.set_water_settings(&water) { eprintln!("battle settings: water not applied: {err}"); }
         // The effect looks the browser reads the same two settings for.
         if let Some(online) = &mut self.scene.online {
             let enhanced = |name: &str| settings.interface.get_string(name) != "classic";
