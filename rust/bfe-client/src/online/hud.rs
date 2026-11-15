@@ -1250,6 +1250,7 @@ impl Hud {
                     row[W::RESERVE] = reserve;
                     row[W::WAIT] = n[8];
                     row[W::KICK] = n[4];
+                    row[W::LOCK] = (n[16] >= 0.) as u8 as f64;
                     row[W::LOCK_TARGET] = n[16];
                     row[W::LOCK_ELAPSED] = n[18];
                 } else {
@@ -1303,6 +1304,7 @@ impl Hud {
                 row[W::RESERVE] = weapon.reserve;
                 row[W::WAIT] = weapon.wait;
                 row[W::KICK] = weapon.kick;
+                row[W::LOCK] = (weapon.lock_target_id >= 0.) as u8 as f64;
                 row[W::LOCK_TARGET] = weapon.lock_target_id;
                 row[W::LOCK_ELAPSED] = weapon.lock_elapsed;
                 for panel in [channel, channel + 2] {
