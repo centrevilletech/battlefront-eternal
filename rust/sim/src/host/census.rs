@@ -526,6 +526,7 @@ impl Census {
             v["hullHits"] = serde_json::json!(cl.hull_hits);
             v["hullNaN"] = serde_json::json!(cl.hull_nan);
             v["teamMatrix"] = serde_json::json!(cl.team_matrix);
+            v["relations"] = serde_json::json!((1..5).map(|a| (1..5).map(|b| crate::units::f3::relation_in(&w.units, a as f64, b as f64)).collect::<Vec<_>>()).collect::<Vec<_>>());
             v["classObjectHits"] = map(&cl.object_hits);
             v["negative"] = serde_json::json!(b.negative);
             v["spawns"] = serde_json::Value::Object(b.spawns.iter().map(|((t, p), n)| (format!("t{t}:{}", if *p == 0 { "?".into() } else { name(p) }), (*n).into())).collect());
