@@ -262,7 +262,16 @@ impl Bench {
                 row[r::WALK_BLEND],
             )?;
         }
-        out.write_all(b"]}\n")?;
+        out.write_all(b"]")?;
+        out.write_all(br#","buildings":["#)?;
+        if let Some(scene) = battle.scene.online.as_ref() {
+            for (index, state) in scene.buildings.states().enumerate() {
+                if index != 0 {out.write_all(b",")?;}
+                serde_json::to_writer(&mut *out, &state)?;
+            }
+        }
+        out.write_all(b"]")?;
+        out.write_all(b"}\n")?;
         // A reader follows the file while the battle runs.
         if tick % 6. == 0. {
             out.flush()?;
