@@ -1058,6 +1058,19 @@ impl Replicas {
     }
     // Finalize after the camera selector: FirstPersonView hangs below the
     // selected view and consumes this frame's camera-motion cue.
+    /// Unit.present's view: `values` is the drawn camera's projection, then view matrix. Off-screen bodies pose
+    /// every sixth frame and those past 120 m every second one; past 70 m a body casts no shadow.
+    pub fn set_view(&mut self, values: &[f64]) {
+        let projection: [f64; 16] = values[..16].try_into().unwrap();
+        let view: [f64; 16] = values[16..32].try_into().unwrap();
+        let frustum = bfe_render::math::Frustum::from_matrix(&bfe_render::math::mul(&projection, &view));
+        for (k, plane) in frustum.planes.iter().enumerate() {
+            let at = f::FRUSTUM + k * 4;
+            self.units.input[at..at + 3].copy_from_slice(&plane.n);
+            self.units.input[at + 3] = plane.c;
+        }
+        self.units.input[f::HAS_VIEW] = 1.;
+    }
     pub fn finish_frame(&mut self, receiver: &Receiver, prediction: &super::replay::Replay, camera: &[f64; 16], cue: f64) {
         // FirstPersonView.light: the player's light, with its sun scaled by
         // whether a 500 m ray from the view toward the sun is clear, eased
@@ -1671,6 +1684,11 @@ impl Replicas {
             let start = output[o::SKIN_START] as usize * 16;
             bridge.r.core.bones[bones * 16..(bones + count) * 16].copy_from_slice(&self.units.skin[start..start + count * 16]);
             let at = draw::IN_RECORDS + records * draw::REC_STRIDE;
+            // Unit.present: beyond 70 m a body and its gun cast no shadow.
+            let far = output[o::SHADOW_NEAR] == 0.;
+            if far {
+                row[draw::REC_FLAGS] = (row[draw::REC_FLAGS] as u32 | draw::FLAG_NO_SHADOW) as f64;
+            }
             bridge.r.core.input[at..at + draw::REC_STRIDE].copy_from_slice(&row);
             records += 1;
             bones += count;
@@ -1687,7 +1705,7 @@ impl Replicas {
                 matrix.copy_from_slice(&self.units.nodes[node..node + 16]);
                 let first=records;
                 (records, bones) = model.append(bridge, &matrix, records, bones);
-                for part in first..records{let row=&mut bridge.r.core.input[draw::IN_RECORDS+part*draw::REC_STRIDE..][..draw::REC_STRIDE];row[draw::REC_MOTION_ID]=8589934592.+id as f64;row[draw::REC_MOTION_GENERATION]=generation as f64;row[draw::REC_MOTION_PART]=(part-first+1)as f64;}
+                for part in first..records{let row=&mut bridge.r.core.input[draw::IN_RECORDS+part*draw::REC_STRIDE..][..draw::REC_STRIDE];row[draw::REC_MOTION_ID]=8589934592.+id as f64;row[draw::REC_MOTION_GENERATION]=generation as f64;row[draw::REC_MOTION_PART]=(part-first+1)as f64;if far{row[draw::REC_FLAGS]=(row[draw::REC_FLAGS] as u32|draw::FLAG_NO_SHADOW) as f64;}}
             }
         }
         let (records, bones) = self.hulls.append(bridge, records, bones);
@@ -1794,7 +1812,7 @@ impl DisplayCensus {
                 }
             }
             let mut astray = Vec::new();
-            let (mut shaded, mut dimmed) = (0, 0);
+            let (mut shaded, mut dimmed, mut far) = (0, 0, 0);
             for slot in slots.iter().filter(|s| s.active && s.identity.is_some()) {
                 let out = &output[slot.actor * o::STRIDE..][..o::STRIDE];
                 if slot.identity.is_some_and(|key| world.contains_key(&key)) && (out[o::DEAD] != 0. || out[o::GONE] == -1.) {
@@ -1808,6 +1826,7 @@ impl DisplayCensus {
                     let look = light.at([out[o::ROOT_WORLD + 12], out[o::ROOT_WORLD + 13], out[o::ROOT_WORLD + 14]]);
                     shaded += usize::from(look[0] < 1. || look[1] > 0. || look[2] > 0.);
                     dimmed += usize::from(look[3] < 1.);
+                    far += usize::from(out[o::SHADOW_NEAR] == 0.);
                     if let Some(at) = slot.identity.and_then(|key| world.get(&key)) {
                         let drawn = [out[o::ROOT_WORLD + 12], out[o::ROOT_WORLD + 13], out[o::ROOT_WORLD + 14]];
                         let off = ((drawn[0] - at[0]).powi(2) + (drawn[1] - at[1]).powi(2) + (drawn[2] - at[2]).powi(2)).sqrt();
@@ -1819,7 +1838,7 @@ impl DisplayCensus {
                 }
             }
             let line = by_class.iter().map(|(c, (w, d, a))| format!("{}={w}/{d}/{a}", names.get(*c).map_or("?", String::as_str))).collect::<Vec<_>>().join(" ");
-            eprintln!("units census t={}s world/drawn/astray {line} astray=[{}] light: shaded={shaded} dimmed={dimmed}", (tick / 60.) as u64, astray.join(" "));
+            eprintln!("units census t={}s world/drawn/astray {line} astray=[{}] light: shaded={shaded} dimmed={dimmed} unshadowed={far}", (tick / 60.) as u64, astray.join(" "));
         }
     }
 }

@@ -111,7 +111,7 @@ impl Casters {
         let mut count = 0;
         for record in 0..records.min(I::MAX_RECORDS) {
             let row = &core.input[I::IN_RECORDS + record * I::REC_STRIDE..][..I::REC_STRIDE];
-            if !(1. ..=4.).contains(&row[I::REC_KIND]) {
+            if !(1. ..=4.).contains(&row[I::REC_KIND]) || row[I::REC_FLAGS] as u32 & I::FLAG_NO_SHADOW != 0 {
                 continue;
             }
             let Some(geometry) = core.geometries.get(row[I::REC_GEOMETRY] as usize) else {

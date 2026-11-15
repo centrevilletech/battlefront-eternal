@@ -1658,6 +1658,7 @@ impl Scene {
                 } else {
                     0.
                 };
+            resources.set_view(&camera.snapshot().values);
             resources.finish_frame(receiver, replay, &world.elements, cue);
             resources.capture_shot_scene(receiver, camera);
             resources.present_ordnance(receiver, replay, dt.min(8./60.), &mut self.bridge);
