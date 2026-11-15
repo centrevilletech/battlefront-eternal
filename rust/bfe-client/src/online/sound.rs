@@ -967,8 +967,10 @@ impl Sound {
             row[weapon::WAIT] = state.wait;
             row[weapon::EMPTY] = (!state.bottomless && state.clip <= 0.) as u8 as f64;
             runtime.phase.observe_weapon(&row);
+            // Which weapon the channel holds (the arsenal's selection, as
+            // PlayerSounds compares it), so a switch plays WeaponChangeSound.
             runtime.phase.emitters[OWN][[emitter::SELECTED0, emitter::SELECTED1][channel]] =
-                id as f64;
+                ordinal as f64;
         }
         for (channel, present) in selected_present.into_iter().enumerate() {
             if !present && self.own_weapons[channel] != 0 {
