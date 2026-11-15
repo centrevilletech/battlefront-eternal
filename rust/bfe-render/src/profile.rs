@@ -17,7 +17,7 @@ fn thread_cpu_ms()->Option<f64>{
 #[cfg(not(all(target_os="linux",target_pointer_width="64")))]
 fn thread_cpu_ms()->Option<f64>{None}
 
-pub struct Token<Q> { start: CpuSample, query: Option<Q>, draws: u64, triangles: u64 }
+pub struct Token<Q> { start: CpuSample, query: Option<(Q, Q)>, draws: u64, triangles: u64 }
 #[derive(Default)]
 struct Samples { cpu: Vec<f64>, gpu: Vec<f64>, draws: u64, triangles: u64, calls: u64, cpu_frame:u64, cpu_sum:f64, cpu_pending:bool, gpu_frame:u64, gpu_sum:f64, gpu_pending:bool }
 impl Samples {
@@ -34,7 +34,7 @@ pub struct Profile<C: HasContext> {
     pub enabled: bool,
     pub gpu_supported: bool,
     frame: u64,
-    pending: VecDeque<(&'static str, C::Query, u64)>,
+    pending: VecDeque<(&'static str, C::Query, C::Query, u64)>,
     free: Vec<C::Query>,
     samples: BTreeMap<&'static str, Samples>,
     pub draws: u64,
@@ -55,25 +55,26 @@ impl<C: HasContext> Profile<C> {
     }
     pub fn begin(&mut self, gl: &C) -> Option<Token<C::Query>> {
         let start = self.clock()?;
-        let query = if self.gpu_supported && self.pending.len()<512 {
-            self.free.pop().or_else(|| unsafe {gl.create_query().ok()})
-        } else {None};
-        if let Some(q)=query { unsafe {gl.begin_query(glow::TIME_ELAPSED,q);} }
-        Some(Token {start,query,draws:self.draws,triangles:self.triangles})
-    }
-    // Measure a whole submission on a different frame from the pass queries:
-    // OpenGL ES permits only one active elapsed-time query.
-    pub fn begin_frame(&mut self, gl: &C) -> Option<Token<C::Query>> {
-        if !self.enabled || self.frame % 7 != 1 { return None; }
         let query = if self.gpu_supported && self.pending.len() < 512 {
-            self.free.pop().or_else(|| unsafe { gl.create_query().ok() })
+            let a = self.free.pop().or_else(|| unsafe { gl.create_query().ok() });
+            let b = self.free.pop().or_else(|| unsafe { gl.create_query().ok() });
+            match (a, b) {
+                (Some(a), Some(b)) => Some((a, b)),
+                (a, b) => { self.free.extend(a); self.free.extend(b); None }
+            }
         } else { None };
-        if let Some(q) = query { unsafe { gl.begin_query(glow::TIME_ELAPSED, q); } }
-        Some(Token { start: CpuSample::now(), query, draws: self.draws, triangles: self.triangles })
+        if let Some((a, _)) = query { unsafe { gl.query_counter(a, glow::TIMESTAMP); } }
+        Some(Token { start, query, draws: self.draws, triangles: self.triangles })
     }
+    // Timestamps bracket completed commands. Unlike elapsed queries, a
+    // whole-frame pair can contain pass pairs on the same sampled frame.
+    pub fn begin_frame(&mut self, gl: &C) -> Option<Token<C::Query>> { self.begin(gl) }
     pub fn end(&mut self, gl: &C, label: &'static str, token: Option<Token<C::Query>>) {
-        if let Some(t)=token {
-            if let Some(q)=t.query {unsafe {gl.end_query(glow::TIME_ELAPSED);} self.pending.push_back((label,q,self.frame));}
+        if let Some(t) = token {
+            if let Some((a, b)) = t.query {
+                unsafe { gl.query_counter(b, glow::TIMESTAMP); }
+                self.pending.push_back((label, a, b, self.frame));
+            }
             let s=self.samples.entry(label).or_default();
             s.cpu(self.frame,t.start.elapsed_ms());
             s.draws+=self.draws-t.draws;s.triangles+=self.triangles-t.triangles;s.calls+=1;
@@ -86,13 +87,13 @@ impl<C: HasContext> Profile<C> {
         if !self.enabled {return;}
         self.frame+=1;
         if self.gpu_supported && gl.version().is_embedded && unsafe {gl.get_parameter_i32(0x8FBB)}!=0 {
-            self.free.extend(self.pending.drain(..).map(|(_,q,_)|q));return;
+            self.free.extend(self.pending.drain(..).flat_map(|(_,a,b,_)|[a,b]));return;
         }
         // Never wait for the GPU; keep unfinished queries for a later frame.
-        while let Some(&(label,q,frame))=self.pending.front() {
-            if unsafe {gl.get_query_parameter_u32(q,glow::QUERY_RESULT_AVAILABLE)}==0 {break;}
-            let ns=unsafe {gl.get_query_parameter_u64(q,glow::QUERY_RESULT)};
-            self.pending.pop_front();self.free.push(q);
+        while let Some(&(label,a,b,frame))=self.pending.front() {
+            if unsafe {gl.get_query_parameter_u32(b,glow::QUERY_RESULT_AVAILABLE)}==0 {break;}
+            let ns=unsafe {gl.get_query_parameter_u64(b,glow::QUERY_RESULT).saturating_sub(gl.get_query_parameter_u64(a,glow::QUERY_RESULT))};
+            self.pending.pop_front();self.free.extend([a,b]);
             self.samples.entry(label).or_default().gpu(frame,ns as f64/1e6);
         }
     }
@@ -108,7 +109,7 @@ impl<C: HasContext> Profile<C> {
             eprintln!("graphics row: {label} | {n} | {:.6}/{:.6} | {:.6}/{:.6} | {:.2} | {:.2}",cpu.0,cpu.1,gpu.0,gpu.1,s.draws as f64/n.max(1) as f64,s.triangles as f64/n.max(1) as f64);
         }
         eprintln!("graphics totals: frames={} draws={} triangles={} GPU-pending={}",self.frame,self.draws,self.triangles,self.pending.len());
-        for q in self.free.drain(..).chain(self.pending.drain(..).map(|(_,q,_)|q)) {unsafe {gl.delete_query(q);}}
+        for q in self.free.drain(..).chain(self.pending.drain(..).flat_map(|(_,a,b,_)|[a,b])) {unsafe {gl.delete_query(q);}}
         self.enabled=false;
     }
 }
