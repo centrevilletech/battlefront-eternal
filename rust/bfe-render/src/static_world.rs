@@ -99,6 +99,7 @@ pub struct Material {
     pub key: String,
     pub flags: u32,
     pub receive_shadow: bool,
+    pub blend: Option<[u32; 7]>,
     pub values: BTreeMap<&'static str, Vec<f32>>,
     pub samplers: Vec<(&'static str, u32, u32)>,
 }
@@ -107,10 +108,12 @@ impl Material {
     // the old constructors, including hard alpha clearing normal blending.
     pub fn new(record: &Record, geometry: &Geometry, weights: &[u8], samplers: &[i32], features: &[u32]) -> Result<Self, String> {
         if features.len() != crate::static_layout::FEATURES_LENGTH || samplers.len() < 2 { return Err("invalid world material inputs".into()); }
-        // describe gives hard alpha precedence over normal blending. Blended
-        // and sky families still belong to their separate resource owners.
         let f = if record.terrain { 1 } else { record.flags };
-        if f & 0x80 != 0 || f & 4 != 0 && f & 2 == 0 { return Err("blended world belongs to transparent descriptors".into()); }
+        let blend = if f & 0x80 != 0 {
+            Some([1, glow::FUNC_ADD, glow::FUNC_ADD, glow::SRC_ALPHA, glow::ONE, glow::SRC_ALPHA, glow::ONE])
+        } else if f & 4 != 0 && f & 2 == 0 {
+            Some([1, glow::FUNC_ADD, glow::FUNC_ADD, glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA, glow::ONE, glow::ONE_MINUS_SRC_ALPHA])
+        } else { None };
         let kind = if record.terrain { "terrain" } else if record.color_kind.as_deref() == Some("lit") || f & 0x40 != 0 { "baked" }
             else if f & 1 == 0 { "unlit" } else if record.dynamic { "dynamic" } else { "lit" };
         // Closed catalog selection replaces material defines/version scans.
@@ -119,7 +122,7 @@ impl Material {
         for (yes, name) in [(kind=="dynamic","DYNAMIC"),(kind=="baked","BAKED"),(kind=="unlit","UNLIT"),(kind=="terrain","TERRAIN"),
             (record.color_kind.is_some() || record.terrain,"HAS_COLOR"),(record.color_kind.as_deref()==Some("tint"),"TINT"),
             (f&1==0 && !record.terrain,"NO_POINT"),(samplers[1]>=0 && !record.terrain,"BUMP"),(record.scroll.is_some(),"SCROLL"),
-            (f&0x20!=0 && record.specular.is_some_and(|s| s[1..].iter().any(|v| *v>0.)),"SPECULAR"),(f&2!=0,"ALPHA_TEST"),(record.far,"FAR")] {
+            (f&0x20!=0 && record.specular.is_some_and(|s| s[1..].iter().any(|v| *v>0.)),"SPECULAR"),(f&2!=0,"ALPHA_TEST"),(blend.is_some(),"BLENDED"),(f&0x80!=0,"ADDITIVE"),(record.far,"FAR")] {
             if yes { defines.push((name.into(), "".into())); }
         }
         // Terrain relighting detects a nearly uniform baked colour. The
@@ -185,7 +188,7 @@ impl Material {
             values.insert("layerScale0",(0..4).map(scales).collect()); values.insert("layerScale1",(4..8).map(scales).collect());
         }
         Ok(Self { key: selector.key.clone(), flags: side | if f&2!=0 { 4 } else { 0 } | 8 | if f&1!=0 && kind!="unlit" && !record.far && !record.terrain { 16 } else { 0 } | if record.terrain { 32 } else { 0 },
-            receive_shadow: kind!="baked" && kind!="unlit", values, samplers: textures })
+            receive_shadow: kind!="baked" && kind!="unlit", blend, values, samplers: textures })
     }
 }
 

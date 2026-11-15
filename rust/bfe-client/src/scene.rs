@@ -919,7 +919,7 @@ impl Scene {
                 vertices,
                 mesh.geometry.indices.clone(),
             )?;
-            if live && !mesh.material.far {
+            if live && !mesh.material.far && mesh.material.blend == Blend::Opaque {
                 bridge.static_depth_add(source, mesh.material.texture.map_or(-1, |id| textures[id] as i32))?;
             }
             if let Some(weights) = mesh.geometry.buffers.get(1) {
@@ -969,7 +969,7 @@ impl Scene {
                 far_slot as u32,
                 admitted as u32,
             )?;
-            if !mesh.material.far {
+            if !mesh.material.far && mesh.material.blend == Blend::Opaque {
                 near_world_ids.push(world_id);
             }
             if mesh.material.far {
@@ -1093,8 +1093,56 @@ impl Scene {
             usize::from(static_content.water.is_some()),
             static_content.skies.len()
         );
+        if std::env::var_os("BFE_BENCH").is_some() {
+            let meshes: Vec<_> = content.world.iter().enumerate().map(|(i, m)| serde_json::json!({
+                "segment": i, "name": m.name, "kind": format!("{:?}", m.material.kind),
+                "flags": m.material.flags, "cutout": m.material.cutout,
+                "blended": m.material.blend != Blend::Opaque, "doubleSided": m.material.double_sided,
+                "far": m.material.far, "vertices": m.geometry.vertices, "triangles": m.geometry.indices.len()/3,
+                "admitted": inspectable(m) || m.material.kind == MaterialKind::Sky,
+            })).collect();
+            let props = content.content.battle.props.as_ref().map(bfe_content_native::loader::authored_json);
+            eprintln!("bench world census: {}", serde_json::json!({
+                "map": content.map["name"], "world": meshes,
+                "props": props.as_ref().map(|p| &p["instances"]),
+                "propParts": static_content.props, "deferred": deferred,
+                "foliageClasses": static_content.foliage, "foliage": content.map["foliage"],
+                "waterSurfaces": usize::from(static_content.water.is_some()), "water": content.map["water"],
+                "skyLayers": static_content.skies.len(), "lights": content.map["lighting"],
+                "lightRegions": content.map["lightRegions"], "lumi": content.map["lumi"],
+                "collision": {"buildingsTriangles": content.content.collision.indices.len()/3,
+                    "terrainTriangles": content.content.collision.terrain_indices.len()/3,
+                    "propBodies": content.content.prop_bodies.len()},
+            }));
+        }
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
+        // The HUD's solid art (rings, rules, bars) is a white pixel tinted per quad; the world's empty
+        // fallback is transparent black and drew none of them.
+        let solid = {
+            let gl = &bridge.r.core.gl;
+            let texture = unsafe {
+                let t = gl.create_texture()?;
+                gl.bind_texture(glow::TEXTURE_2D, Some(t));
+                gl.tex_image_2d(
+                    glow::TEXTURE_2D,
+                    0,
+                    glow::RGBA8 as i32,
+                    1,
+                    1,
+                    0,
+                    glow::RGBA,
+                    glow::UNSIGNED_BYTE,
+                    glow::PixelUnpackData::Slice(Some(&[255; 4])),
+                );
+                for key in [glow::TEXTURE_MIN_FILTER, glow::TEXTURE_MAG_FILTER] {
+                    gl.tex_parameter_i32(glow::TEXTURE_2D, key, glow::NEAREST as i32);
+                }
+                t
+            };
+            bridge.r.core.state.reset();
+            bridge.r.core.add_texture(texture)
+        };
         let online = if live {
             Some(Box::new(
                 crate::online::replicas::Replicas::new(
@@ -1106,7 +1154,7 @@ impl Scene {
                     prepared_particles.ok_or("missing battle particle resources")?,
                     prepared_sound.ok_or("missing battle audio resources")?,
                     &mut resources,
-                    empty,
+                    solid,
                     size,
                 )
                 .await?,
@@ -1692,13 +1740,12 @@ impl Scene {
     }
 }
 
-// Blended world buckets need their own authored transparent descriptors.
-// Sky, opaque far meshes and the independent static passes are admitted above.
+// Sky layers have their own admission; every nonempty world material is drawn.
 fn inspectable(mesh: &bfe_content_native::loader::Mesh) -> bool {
     mesh.geometry.vertices != 0
         && !mesh.geometry.indices.is_empty()
         && mesh.material.kind != MaterialKind::Sky
-        && mesh.material.blend == Blend::Opaque
+
 }
 
 // materials.js::setLighting/setFog read only authored map content. The inspector

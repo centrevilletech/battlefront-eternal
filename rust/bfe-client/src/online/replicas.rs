@@ -123,6 +123,7 @@ pub struct Replicas {
     pub replay: Option<super::replay::Replay>,
     pub hulls: Box<super::hulls::Hulls>,
     pub turrets: Box<super::turrets::Turrets>,
+    pub buildings: super::buildings::Buildings,
     pub items: Box<super::items::Views>,
     models: Vec<Model>,
     classes: Vec<Option<usize>>,
@@ -451,6 +452,7 @@ impl Replicas {
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         let turrets = Box::new(super::turrets::Turrets::new(content, bridge, textures)?);
+        let buildings = super::buildings::Buildings::new(content, bridge, textures)?;
         units.rider_sources.bind(&hulls.owner.sources, &turrets.owner.sources);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
@@ -524,6 +526,7 @@ impl Replicas {
             replay,
             hulls,
             turrets,
+            buildings,
             items,
             models,
             classes,
@@ -563,6 +566,7 @@ impl Replicas {
         receiver.network.borrow_mut().present(tick, -1., prediction.fleet.identity.map_or(-1., |p| p.0));
         self.hulls.frame(receiver, tick, dt, &prediction.fleet, history, &mut self.combat.hull_fx);
         self.turrets.frame(receiver, history, dt);
+        self.buildings.frame(receiver, dt);
         self.items.frame(receiver, tick);
         self.frame = self.frame.wrapping_add(1);
         self.visible = 0;
@@ -1309,7 +1313,7 @@ impl Replicas {
             .chain(self.held.iter().flatten().flat_map(|model| {
                 model.rows.iter().map(|row| row[draw::REC_BONES] as usize)
             }))
-            .chain([self.hulls.max_bones(), self.turrets.max_bones()])
+            .chain([self.hulls.max_bones(), self.turrets.max_bones(), self.buildings.max_bones()])
             .max()
             .unwrap_or(1)
     }
@@ -1320,7 +1324,7 @@ impl Replicas {
             .filter(|s| s.active)
             .map(|s| 1 + s.held.and_then(|id| self.held.get(id)).and_then(Option::as_ref).map_or(0, |m| m.rows.len()))
             .sum();
-        actors + self.hulls.record_budget() + self.turrets.record_budget() + self.items.record_budget() + self.combat.record_budget()
+        actors + self.buildings.record_budget() + self.hulls.record_budget() + self.turrets.record_budget() + self.items.record_budget() + self.combat.record_budget()
     }
     pub fn hidden_shadow_budget(&self) -> usize {
         self.hulls.hidden_shadow_budget() + self.turrets.hidden_shadow_budget()
@@ -1387,6 +1391,7 @@ impl Replicas {
         }
         let (records, bones) = self.hulls.append(bridge, records, bones);
         let (records, bones) = self.turrets.append(bridge, records, bones);
+        let (records, bones) = self.buildings.append(bridge, records, bones);
         let (records, bones) = self.items.append(bridge, records, bones);
         self.combat.append(bridge, records, bones)
     }

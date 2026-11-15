@@ -15,6 +15,7 @@ pub mod checkpoint;
 
 pub mod hulls;
 
+pub mod props;
 pub mod publications;
 
 pub mod hud;
@@ -68,3 +69,5 @@ mod own_view;
 mod radar;
 
 pub mod shot_aim;
+
+pub mod buildings;

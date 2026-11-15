@@ -845,8 +845,11 @@ pub struct BattleController {
     pub input_tick: u32,
     /// Fractional frame time accumulator for 60 Hz input stepping.
     pub input_accumulator: f64,
-    /// A paused or unfocused local world has been sent the command that lets go of the keys.
+    /// A paused or hidden local world has been sent the command that lets go of the keys.
     keys_released: bool,
+    /// Commands sent to the local world, and when the input line was last logged.
+    commands_sent: u64,
+    input_logged_s: f64,
     /// Live data port feeding the spawn screen.
     pub spawn_port: LiveSpawnPort,
     /// `bfe-battle-ui` spawn screen state machine and renderer.
@@ -1282,6 +1285,8 @@ impl BattleController {
             input_tick: 0,
             input_accumulator: 0.0,
             keys_released: false,
+            commands_sent: 0,
+            input_logged_s: 0.,
             spawn_port,
             spawn_ctrl,
             scoreboard_port,
@@ -1831,7 +1836,10 @@ impl BattleController {
                 // run client-side prediction replay, and interpolate the 3D camera.
                 // A stopped world's clock stops with it, or its tick estimate
                 // would run ahead of it for a second after it resumes.
-                let halted = self.pause_menu.is_open || !focused;
+                // Stopped means what stops the world below: the pause menu or
+                // a hidden window. An unfocused window's world plays on and
+                // must keep getting commands (empty ones: input is shut).
+                let halted = self.pause_menu.is_open || hidden;
                 if !halted {
                     *now_ms += dt * 1000.0;
                 }
@@ -1850,6 +1858,7 @@ impl BattleController {
                 receiver.clock.advance(dt).map_err(str::to_string)?;
 
                 camera.set_flight_mode(receiver.own.flight.is_some());
+                let mut held_now = 0;
                 for (mut cmd, look, flight, actions) in step_cmds.into_iter().flatten() {
                     if actions.perspective {
                         camera.first_person = !camera.first_person;
@@ -1871,6 +1880,8 @@ impl BattleController {
                     // same stamps, so the two agree.
                     cmd.sequence = sender.command_sequence();
                     cmd.tick = sender.command_tick();
+                    self.commands_sent += 1;
+                    held_now = cmd.held;
                     world.send(WorldMessage::Step {
                         command: cmd,
                         look,
@@ -1881,6 +1892,17 @@ impl BattleController {
                 }
                 if !halted {
                     self.keys_released = false;
+                }
+                // Once a second: what became of the player's commands. "sent"
+                // against the world's "taken", "refused" and "late", the keys
+                // of the newest one, and everything that can shut input off.
+                if self.elapsed_s - self.input_logged_s >= 1. {
+                    self.input_logged_s = self.elapsed_s;
+                    let [taken, refused, late] = world.command_counts();
+                    eprintln!("battle input: sent={} taken={taken} refused={refused} late={late} worldTick={} stamp={} sequence={} applied={} held={held_now:#x} alive={} generation={} focused={focused} hidden={hidden} paused={} suspended={} halted={halted} spawnScreen={} scoreboard={} chat={} steps={steps} position={:?}",
+                        self.commands_sent, world.latest_tick(), sender.command_tick(), sender.command_sequence(), receiver.corrected_sequence,
+                        receiver.own.alive, receiver.own.generation, world.is_paused(), world.is_suspended(),
+                        self.spawn_ctrl.is_open(), self.scoreboard_ctrl.model.is_open(), self.chat.is_open(), receiver.own.position);
                 }
 
                 let mut own = receiver.own;
@@ -2091,6 +2113,7 @@ impl BattleController {
         let pause_groups=self.scene.bridge.r.hud.input[render_hud::IN_GROUPS];
         if self.pause_menu.is_open||page_spawn||page_score {self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=0.;}
         if page_spawn {self.page_battle.direct(&mut view);}
+        super::bench::apply_view(&mut view);
         self.scene.draw(&view)?;
         if page_spawn || page_score {
             if page_spawn {
