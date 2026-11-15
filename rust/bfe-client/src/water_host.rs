@@ -169,6 +169,29 @@ fn target(resources: &mut Resources, bridge: &mut Bridge, size: [i32; 2], with_d
     Ok((Target { target: id, source, sample, texture, size }, depth))
 }
 
+/// A copy of the near scene's colour and depth for a pass that reads them
+/// (the fountains' basin water): target, colour (source, sample, texture),
+/// depth (source, sample, texture).
+pub(crate) type SceneCopy = (u32, [u32; 3], [u32; 3]);
+pub(crate) fn scene_copy(resources: &mut Resources, bridge: &mut Bridge, size: [i32; 2]) -> Result<SceneCopy, String> {
+    let (colour, depth) = target(resources, bridge, size, true)?;
+    let depth = depth.ok_or("scene copy without depth")?;
+    Ok((colour.target, [colour.source, colour.sample, colour.texture], [depth.0, depth.1, depth.2]))
+}
+/// The copy follows the window's size.
+pub(crate) fn scene_copy_resize(resources: &mut Resources, bridge: &mut Bridge, copy: &SceneCopy, size: [i32; 2]) -> Result<(), String> {
+    let (target, colour, depth) = copy;
+    resources.source_desc(colour[0], &image(size, 1023, 1009))?;
+    resources.source_desc(depth[0], &image(size, 1027, 1020))?;
+    resources.resize_target(*target, &target_desc(size, colour[1], Some(depth[1])))?;
+    for (sample, texture) in [(colour[1], colour[2]), (depth[1], depth[2])] {
+        if let Ok(gl) = resources.texture(sample) {
+            let _ = bridge.r.replace_sample_texture(texture as usize, gl);
+        }
+    }
+    Ok(())
+}
+
 // The neutral normal and the black specular mask the page kept as
 // DataTextures: one texel, nearest, clamped.
 fn fallback(resources: &mut Resources, bridge: &mut Bridge, pixels: [u8; 4]) -> Result<u32, String> {

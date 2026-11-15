@@ -1774,6 +1774,20 @@ impl Scene {
             row[b::CLEAR..b::CLEAR + 4].copy_from_slice(&[0.04, 0.06, 0.09, 1.]);
             self.bridge.r.frames.meta[role * m::LEN + m::BOUND] = 1.;
         }
+        // FountainWater.capture: the opaque scene's colour and depth, copied
+        // for the basins' water before the first blend.
+        if let Some((target, size)) = self.online.as_ref().and_then(|online| online.fountains.as_ref()).and_then(|f| f.scene_copy()) {
+            let row = &mut self.bridge.r.frames.bindings[r::BASIN * b::LEN..(r::BASIN + 1) * b::LEN];
+            row.fill(0.);
+            row[b::TARGET] = f64::from(target);
+            row[b::SAMPLE] = -1.;
+            row[b::WIDTH] = f64::from(size[0]);
+            row[b::HEIGHT] = f64::from(size[1]);
+            row[b::SCISSOR + 2] = f64::from(size[0]);
+            row[b::SCISSOR + 3] = f64::from(size[1]);
+            self.bridge.r.frames.meta[r::BASIN * m::LEN + m::BOUND] = 1.;
+            self.bridge.r.frames.plan.facts[f::FOUNTAIN_COPY] = 1.;
+        }
         // ParticleDepth: with soft particles on, the frame plan copies the
         // opaque scene's depth into the depth target before the first blend.
         if self.temporal_motion.is_some()||self.online.as_ref().is_some_and(|online| online.soft_particles()) {

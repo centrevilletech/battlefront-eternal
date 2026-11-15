@@ -87,8 +87,13 @@ impl<S: Services> PostsWorld for World<'_, S> {
     }
 }
 impl<S: Services> RulesWorld for World<'_, S> {
+    /// Whose end-of-match record tallies this tick: every bot, and a player
+    /// from his spawn until his body is gone and his spawn screen opens. A
+    /// player who joined like an online one (Instant Action's own player
+    /// included) never moves the single-player spawn phase, so his body is
+    /// the test.
     fn stats_active(&mut self, s: &Store, _: Ref<Character>, c: &Character, _: bool) -> bool {
-        !c.human || matches!(s.human_spawn.phase, crate::gen::HumanPhase::Alive | crate::gen::HumanPhase::Dying)
+        !c.human || c.unit.is_some() || matches!(s.human_spawn.phase, crate::gen::HumanPhase::Alive | crate::gen::HumanPhase::Dying)
     }
     fn prepare_record(&mut self, s: &mut Store, r: Ref<Character>) { self.services.prepare_record(s,r); }
     fn relation(&mut self, a: f64, b: f64) -> f64 { self.services.relation(a,b) }

@@ -290,18 +290,25 @@ impl Feed {
         }
     }
 
-    /// MobilePosts.events (src/mobile-posts.js) as a page showing a server's
-    /// battle reads it: a command vehicle that was alive and no longer is
-    /// has lost its post. Each loss is the team the hull had and its class;
-    /// at most four a frame. A new battle forgets the old one's hulls.
-    pub fn lost_posts(&mut self, receiver: &Receiver) -> ([(u8, usize); LOST], usize) {
-        if self.epoch != receiver.epoch {
-            self.epoch = receiver.epoch;
+    // A new battle (epoch) forgets the old one's hulls, buildings and seats.
+    // Whichever of frame and lost_posts runs first in a frame does it, so
+    // the first frame's records are kept.
+    fn sync_epoch(&mut self, epoch: f64) {
+        if self.epoch != epoch {
+            self.epoch = epoch;
             self.hulls.clear();
             self.repair = None;
             self.buildings.clear();
             self.slots.clear();
         }
+    }
+
+    /// MobilePosts.events (src/mobile-posts.js) as a page showing a server's
+    /// battle reads it: a command vehicle that was alive and no longer is
+    /// has lost its post. Each loss is the team the hull had and its class;
+    /// at most four a frame. A new battle forgets the old one's hulls.
+    pub fn lost_posts(&mut self, receiver: &Receiver) -> ([(u8, usize); LOST], usize) {
+        self.sync_epoch(receiver.epoch);
         for hull in &mut self.hulls {
             hull.seen = false;
         }
@@ -366,6 +373,7 @@ impl Feed {
     /// hands them on, then the shots still waiting for their unit
     /// (CombatPresentation.present).
     pub fn frame(&mut self, hud: &mut impl Sink, receiver: &Receiver, teams: &Teams) {
+        self.sync_epoch(receiver.epoch);
         self.trace_tick = [receiver.latest, receiver.clock.shown];
         let lookup = |id: u32| find(receiver, id);
         let own = Own::of(receiver);

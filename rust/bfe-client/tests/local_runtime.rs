@@ -1283,6 +1283,34 @@ fn menu_admission_waits_for_the_players_class_and_post_before_spawning() {
 }
 
 #[test]
+fn the_players_own_record_tallies_while_he_lives() {
+    let Some(root) = std::env::var_os("BFE_CONTENT_DIR") else { return };
+    let options = options::Options {
+        root: root.into(),
+        battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into()],
+        audio: false,
+        duration: None,
+        name: None, bots: Default::default()
+    };
+    let prepared = local::launch::Prepared::with_spawn_screen(&options, true).unwrap();
+    let mut world = runtime::Runtime::new(*prepared.engine, *prepared.admission, 0.0, 0.0).unwrap();
+    world.spawn_human(world.receiver().own.team, "rep_inf_clone_trooper", "cp6").unwrap();
+    for sequence in 1..=240 {
+        world.step(&ClientCommand { sequence: sequence as f64, mouse_scale: 1.0,
+            ..Default::default() }, &ClientLook::default(), &ClientFlightCommand::default()).unwrap();
+    }
+    let receiver = world.receiver();
+    assert!(receiver.own.alive, "the player lives");
+    let slot = receiver.roster.local.expect("the player's roster slot");
+    let record = receiver.roster.record(slot, false).and_then(|pair| pair.iter().flatten().next().cloned())
+        .expect("his own record arrives while he lives");
+    // Longest life (whole seconds while the scores run) and his class's time.
+    assert!(record.tallies[8] >= 2.0, "longest life {}", record.tallies[8]);
+    assert!(record.favourites[0].is_some_and(|(_, time)| time >= 2.0), "favourite class {:?}", record.favourites[0]);
+    world.close();
+}
+
+#[test]
 fn native_local_controls_move_authority_and_keep_the_applied_heading() {
     let Some(root) = std::env::var_os("BFE_CONTENT_DIR").map(std::path::PathBuf::from) else { return; };
     std::thread::Builder::new().stack_size(8 << 20).spawn(move || {
