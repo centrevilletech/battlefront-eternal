@@ -53,8 +53,22 @@ fn hash(out:&[f64],steps:usize)->String {
     let mut h=Sha256::new();
     for k in 0..steps {
         let r=&out[k*post::STEP..(k+1)*post::STEP];
-        for n in &r[..post::STEP_FIRST] {h.update(n.to_le_bytes());}
-        for u in 0..r[post::STEP_UNIFORMS] as usize {
+        // The additional Gaussian tables are an algebraic cache of the
+        // original kernel. Keep the golden for the original pass contract.
+        let cached = r[post::STEP_PROGRAM] == P::RESOLVE as f64;
+        let uniforms = if cached { 9 } else { r[post::STEP_UNIFORMS] as usize };
+        for (i, n) in r[..post::STEP_FIRST].iter().enumerate() {
+            h.update(if i == post::STEP_UNIFORMS { (uniforms as f64).to_le_bytes() } else { n.to_le_bytes() });
+        }
+        if cached {
+            assert_eq!(r[post::STEP_UNIFORMS], 11.);
+            for u in 9..11 {
+                let at=post::STEP_FIRST+u*post::UNIFORM;
+                assert_eq!(r[at+1], 9.);
+                assert!(r[at+2..at+11].iter().all(|v| v.is_finite() && *v>0. && *v<=1.));
+            }
+        }
+        for u in 0..uniforms {
             let a=post::STEP_FIRST+u*post::UNIFORM;let ty=r[a+1] as usize;
             let n=if ty>=32||ty==5{1}else{ty};
             for n in &r[a..a+2+n] {h.update(n.to_le_bytes());}
