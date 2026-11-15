@@ -409,6 +409,16 @@ impl Destructions {
         true
     }
 
+    /// Destruction.blast: the Enhanced blast at a point, scale 1, fully
+    /// electric, inheriting no motion.
+    pub fn blast(&mut self, at: [f64; 3]) {
+        let c = self.command(kind::BLAST);
+        let c = &mut self.phase.commands[c..c + cmd::STRIDE];
+        c[cmd::AT..cmd::AT + 3].copy_from_slice(&at);
+        c[cmd::SCALE] = 1.;
+        c[cmd::ELECTRIC] = 1.;
+    }
+
     /// The droids the phase tracks, for the frame's bodies.
     pub fn tracked(&self) -> impl Iterator<Item = (usize, (u32, u32))> + '_ {
         self.slots.iter().enumerate().filter_map(|(i, s)| s.map(|t| (i, t.unit)))
