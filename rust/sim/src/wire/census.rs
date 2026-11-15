@@ -15,7 +15,5 @@ impl Census {
         self.result[WireCensus::ALLOCATION_BYTES]=counts.bytes as f64;self.result.as_ptr()
     }
 }
-pub(crate) fn wire_census_begin_in(w: &mut crate::world::owner::World, counts: Counts) {super::owner::with_in(w, |owner|owner.census.begin(counts));}
-pub(crate) fn wire_census_end_in(w: &mut crate::world::owner::World, counts: Counts) -> Option<&[f64]> {super::owner::with_in(w, |owner| { owner.census.end(counts); }); Some(&w.wire.as_deref().expect("admitted wire owner").census.result)}
 
 // The WASM boundary owns addresses; shared services borrow their owners.

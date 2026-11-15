@@ -1053,10 +1053,6 @@ impl ShellHost {
         viewpoint
     }
 
-    /// Whether an option page is open over a paused battle.
-    pub(super) fn battle_options_open(&self) -> bool {
-        self.front_end_options.is_some()
-    }
 
     /// Drains sound cues and named actions from [`Self::options_ctrl`] and persists
     /// any modified settings into `settings` and `self.app`.

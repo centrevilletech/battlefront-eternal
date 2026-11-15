@@ -37,30 +37,10 @@ pub(crate) fn world_clock_run_in(w: &mut crate::world::owner::World) -> Option<&
 }
 pub fn world_clock_time(tick: f64, hz: f64) -> f64 { tick / hz }
 
-struct EventHost;
-impl events::Host for EventHost {
-    fn call(&mut self, state: &mut WorldEventState, op: WorldEventCall, index: f64) -> bool {
-        let reply = import_world_events(&WorldEventArgs { op, state: state.clone(), index });
-        *state = reply.state;
-        reply.present
-    }
-}
 pub fn world_events_words(which: u32) -> u32 {
     (match which { 0 => WorldEventInput::WORDS, 1 => WorldEventState::WORDS, _ => 0 }) as u32
 }
 
-pub(crate) fn world_events_run_in(w: &mut crate::world::owner::World) -> Option<&[f64]> {
-    let input = { let (row, heap) = w.sim.calls.args(); WorldEventInput::take(row, heap) };
-    let mut state = input.state;
-    match input.op {
-        WorldEventOperation::Emit => events::emit(&mut state, &mut EventHost),
-        WorldEventOperation::Read => events::read(&mut state, &mut EventHost),
-        WorldEventOperation::Reset => events::reset(&mut state, &mut EventHost),
-    }
-    let sim = &mut w.sim;
-    sim.calls.result(WorldEventState::WORDS, |row, heap| state.put(row, heap));
-    Some(&sim.calls.block.words[..])
-}
 
 struct LocalHost;
 impl local::Host for LocalHost {

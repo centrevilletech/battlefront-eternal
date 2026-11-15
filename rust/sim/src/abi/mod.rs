@@ -91,7 +91,6 @@ impl Sim {
 pub(crate) fn cold() -> &'static mut crate::world::owner::World {
     panic!("WASM facade called by native host")
 }
-pub(crate) fn world() -> &'static mut crate::world::owner::World { cold() }
 
 pub fn sim_abi() -> u32 { ABI }
 
@@ -102,11 +101,7 @@ pub fn sim_kinds() -> u32 { KINDS as u32 }
 
 pub fn sim_kind_hash(kind: u32) -> u32 { KIND_HASHES.get(kind as usize).copied().unwrap_or(0) }
 
-/// Room for `bytes` bytes of input, where JavaScript writes it.
-pub(crate) fn sim_scratch_in(w: &mut crate::world::owner::World, bytes: u32) -> &mut [u8] { w.sim.scratch_room(bytes as usize) }
 
-/// Interns the string whose `units` UTF-16 units are in the scratch buffer.
-pub(crate) fn sim_str_intern_in(w: &mut crate::world::owner::World, units: u32) -> u32 { w.sim.intern_scratch(units as usize).0 }
 
 pub(crate) fn sim_str_count_in(w: &mut crate::world::owner::World) -> u32 { w.sim.strings.list.len() as u32 }
 
@@ -137,9 +132,6 @@ pub(crate) fn sim_import_room_in(w: &mut crate::world::owner::World, kind: u32, 
 /// JavaScript's list). 0, or -1 for a kind the store holds no fields of.
 pub(crate) fn sim_import_in(w: &mut crate::world::owner::World, kind: u32, flags: u32) -> i32 { if w.sim.import(kind, flags) { 0 } else { -1 } }
 
-/// Room for a call's record (`words` words, then `heap` heap words): a
-/// command's arguments, or an import's result.
-pub(crate) fn sim_call_room_in(w: &mut crate::world::owner::World, words: u32, heap: u32) -> &mut Block { w.sim.calls.room(words as usize, heap as usize); &mut w.sim.calls.block }
 
 /// The call block (an import's arguments, as Rust wrote them).
 pub(crate) fn sim_calls_in(w: &mut crate::world::owner::World) -> &Block { &w.sim.calls.block }

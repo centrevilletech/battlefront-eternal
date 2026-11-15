@@ -168,6 +168,7 @@ pub(crate) fn connection_rows_in(units: &mut super::owner::Units, rows: &[F3Phas
     state.rows_network = tails.len() as u32;
     rows.len() - count
 }
+#[cfg(test)]
 /// The connection rows the last players' phase wrote: rows and network tails.
 pub(crate) fn connection_rows_written_in(units: &super::owner::Units) -> (u32, u32) {
     let state = units.state.as_ref().expect("prepared unit service");
@@ -301,9 +302,6 @@ impl WorldServices<'_> {
     /// AI owner. False means this outer entry has no native AI phase bound.
     pub(crate) fn aim_in(&mut self, world_ctx: &mut crate::world::owner::World, key:&F3UnitKey,dt:f64)->bool {
         let Some(ai)=self.ai.as_mut() else{return false};ai.aim_in(world_ctx,key,dt,self.recon,self.queries);true
-    }
-    pub(crate) fn lifecycle_in(&mut self, world_ctx: &mut crate::world::owner::World, hook:&F4AIHook)->bool {
-        let Some(ai)=self.ai.as_mut() else{return false};ai.lifecycle_in(world_ctx,hook,self.recon,self.queries);true
     }
 
     pub(crate) fn reborrow(&mut self) -> WorldServices<'_> {
@@ -2004,11 +2002,6 @@ pub fn f3_body_names_in(world_ctx: &mut crate::world::owner::World, count: u32) 
     // rather than charging the first weapon's ray with index allocations.
     crate::collision::broad::prepare(&mut world_ctx.collision.state,world_ctx.units.state.as_mut().expect("prepared unit service").world);
     world_ctx.movement.prepare_world_gathers(&world_ctx.collision.state, world_ctx.units.state.as_mut().expect("prepared unit service").world);
-}
-// A native F1 cast returns the body that was named with the collision tree.
-// It must never manufacture generation zero from the kernel's numeric slot.
-pub(crate) fn body_reference_in(_world_ctx: &mut crate::world::owner::World, kernel: usize) -> Option<Ref<Body>> {
-    crate::vehicles::module::collision_world_in(_world_ctx)?.kernel_reference(kernel)
 }
 
 // Weapon-targeting's bot override is a phase fact from JS AI. Missing and null

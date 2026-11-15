@@ -4,7 +4,6 @@
 //! finishes all flight records together. Resource objects stay on the page.
 use crate::gen::{ClientShotInput as Input, ClientShotRecord as Record, ClientShotReply as Reply,
     ClientShotContact as Contact, ClientShotOp as Op};
-#[path="shot_host.rs"] pub mod host;
 use three::{Vector3, Quaternion};
 use v8math::{min, max};
 
@@ -40,13 +39,12 @@ struct Shot { record: Record, fade_time: f64, length: f64, grouped: bool, epoch:
 // stack iterators; a paused page can receive arbitrarily many observations
 // without growing a flight or claim store on its eventual drawing frame.
 pub struct Shots {
-    host: host::Host,
     rows: [Option<Shot>; CAPACITY], claims: [Claim; CLAIMS], cooldowns: [Cooldown; WEAPONS],
     claim_next: usize, serial: u32, life: Option<(f64, f64, f64)>,
     pub input: Vec<f64>, pub output: Vec<f64>, heap: Vec<f64>,
 }
 impl Default for Shots {
-    fn default() -> Self { Self { host: host::Host::default(), rows: std::array::from_fn(|_| None), claims: [Claim::default(); CLAIMS],
+    fn default() -> Self { Self { rows: std::array::from_fn(|_| None), claims: [Claim::default(); CLAIMS],
         cooldowns: [Cooldown::default(); WEAPONS], claim_next: 0, serial: 0, life: None,
         input: vec![0.0; INPUT], output: vec![0.0; OUTPUT], heap: Vec::new() } }
 }

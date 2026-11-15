@@ -46,11 +46,6 @@ use crate::gen::{WorldTickInput, WorldTickOutput, WorldTickSetup};
 use crate::world::owner::World;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-/// The stable refusal of an entry whose body has not landed. Its message
-/// is the entry's name, so a host can tell which call it reached.
-pub(crate) fn unavailable(entry: &'static str) -> Error {
-    Error::new(ErrorKind::Unavailable, entry)
-}
 
 /// Which entries have bodies. A host reports these in its handshake instead
 /// of hard-coding them, so a build with a refusing entry says so.

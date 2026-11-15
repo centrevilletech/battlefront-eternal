@@ -127,6 +127,7 @@ pub fn f4_tail_init_in(w: &mut Root) -> Option<&[f64]> {
     }
     super::f4_live::descriptor_words(w)
 }
+#[cfg(test)]
 /// HumanSpawn's commands share the tail owner's retained bank. Native hosts
 /// publish a count and no address; Chromium keeps its existing typed view.
 pub fn f4_tail_write_commands_in(w: &mut Root, commands: &[HsCommand]) -> bool {

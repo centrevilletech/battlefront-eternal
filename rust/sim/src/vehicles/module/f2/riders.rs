@@ -78,10 +78,6 @@ pub(crate) fn hull_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle
     }
 }
 
-/// Turret.riderBody uses its seat's full world turn, including a bound drum.
-pub(crate) fn turret_in(world_ctx: &mut crate::world::owner::World, unit: Ref<Unit>, turret: Ref<Turret>, show: bool, point: Vector3, turn: Quaternion, pitch: f64, yaw: f64) {
-    turret_sample(&mut world_ctx.units,&mut world_ctx.fleet.riders, &world_ctx.sim.store, &world_ctx.pose.clips, unit, turret, show, point, turn, pitch, yaw);
-}
 pub(super) fn turret_sample(units:&mut crate::units::owner::Units,riders: &mut Riders, store: &Store, clips: &[crate::pose::Clip], unit: Ref<Unit>, turret: Ref<Turret>, show: bool, point: Vector3, turn: Quaternion, pitch: f64, yaw: f64) {
     let mut frame = Matrix4::default(); frame.compose(&point, &turn, &Vector3::new(1.0, 1.0, 1.0));
     riders.sample(units,store, clips, unit, None, Some(turret), 0, show, point, frame, None, pitch, yaw, 0.0);
@@ -94,9 +90,6 @@ pub(crate) fn drop_in(world_ctx: &mut crate::world::owner::World, unit: Ref<Unit
 /// Copying it does not sample a newer pose or advance Unit.spheresTick.
 pub(crate) fn shapes_in(world_ctx: &mut crate::world::owner::World, unit: Ref<Unit>, life: f64, out: &mut [crate::gen::HitShape]) -> usize { world_ctx.fleet.riders.shapes(unit, life, out) }
 
-/// Publish only samples whose numeric values changed. A stationary nine-pose
-/// rider keeps its shape cache while tickCount continues its normal cadence.
-pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> { Some(world_ctx.fleet.riders.publish_words()) }
 
 impl Riders {
     pub(super) fn reserve(&mut self, count: usize) {

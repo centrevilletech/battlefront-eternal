@@ -24,7 +24,6 @@ pub mod math;
 pub mod module;
 pub mod world;
 pub mod resources;
-pub mod control;
 
 use std::f64::consts::PI;
 

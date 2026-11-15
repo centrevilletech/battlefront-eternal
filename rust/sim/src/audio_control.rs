@@ -15,7 +15,6 @@ pub(crate) fn sound_info_in(w: &mut crate::world::owner::World, h: u32) -> Optio
 pub(crate) fn sound_commands_in(w: &mut crate::world::owner::World, h: u32) -> Option<&[f64]> { w.page.sound.get_mut(h as usize).map_or(None, |r| Some(&r.phase.engine.commands[..])) }
 pub(crate) fn sound_placements_in(w: &mut crate::world::owner::World, h: u32) -> Option<&[f64]> { w.page.sound.get_mut(h as usize).map_or(None, |r| Some(&r.phase.engine.placements[..])) }
 pub(crate) fn sound_requests_in(w: &mut crate::world::owner::World, h: u32) -> Option<&[f64]> { w.page.sound.get_mut(h as usize).map_or(None, |r| Some(&r.requests[..])) }
-pub(crate) fn sound_follows_in(w: &mut crate::world::owner::World, h: u32) -> Option<&[u32]> { w.page.sound.get_mut(h as usize).map_or(None, |r| Some(&r.follows[..])) }
 pub(crate) fn sound_debug_in(w: &mut crate::world::owner::World, h: u32) -> Option<&[f64]> { let Some(r) = w.page.sound.get_mut(h as usize) else { return None }; r.diagnostic(); Some(&r.debug[..]) }
 pub(crate) fn sound_import_in(w: &mut crate::world::owner::World, h: u32, kind: u32, length: u32) { if let Some(r) = w.page.sound.get_mut(h as usize) { r.import(kind as usize, length as usize); } }
 pub(crate) fn sound_ready_in(w: &mut crate::world::owner::World, h: u32) { if let Some(r) = w.page.sound.get_mut(h as usize) { r.ready(); } }

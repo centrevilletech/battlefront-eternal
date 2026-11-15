@@ -443,27 +443,6 @@ pub(crate) fn veh_locks_in(world_ctx: &mut crate::world::owner::World) -> Option
 /// A class's flight keys (flightConfig's own, from its definition) and its
 /// takeoff clip (the gear's), from the pack.
 
-/// predictionVehicle resolved immutable content once per source. The client
-/// gets an independent hull, row, strings and query view; it never takes a
-/// working row out of the authoritative phase's reentrant pool.
-pub(crate) fn prediction_hull_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>) -> Option<crate::client::hulls::Session> {
-    let s = &mut world_ctx.sim;
-    // F2 normally interns these enum messages at fleet construction. A page
-    // has only resource rows, so resolve the same IDs before cloning strings.
-    // Published message handles must remain valid in the shared bridge table.
-    let _ = crate::flight::store::FlightTextIds::new(&mut s.strings);
-    let v = s.store.vehicle.get(r)?;
-    let name = String::from_utf16_lossy(s.strings.units(v.name));
-    let class = world_ctx.fleet.classes.get_or_insert_with(HashMap::new).get(&name)?;
-    let mut hull = Hull::from_store(r, v, class, 0);
-    let (config, gear) = if f2::active_in(&world_ctx.fleet) { f2::flight_keys_for_in(&world_ctx.fleet, r) } else { Fleet::flight_keys(&mut world_ctx.fleet.flight_keys, &mut world_ctx.fleet.defs, &mut world_ctx.fleet.templates, &name) };
-    hull.flight = Flight::from_store(v, &s.strings, config, gear).ok()?;
-    hull.pose = Some(world_ctx.fleet.poses.get(r.slot as usize)?.as_ref()?.pose.clone());
-    Some(crate::client::hulls::Session::new(hull, v.clone(), s.strings.clone(),
-        world_ctx.fleet.collision.as_mut()?.prediction_view(), world_ctx.fleet.map.as_mut()?.clone(),
-        world_ctx.fleet.flight_env.as_ref()?.clone(),
-        *world_ctx.fleet.tunings.as_ref()?))
-}
 
 /// A craft as the phase works on it: the hull with its flight.
 fn load_flyer_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>, index: usize) -> Hull {

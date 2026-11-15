@@ -1708,7 +1708,6 @@ pub(crate) fn refresh_weapon_masks_in(world_ctx: &mut crate::world::owner::World
 
 
 
-pub(super) fn descriptor_words(fleet:&super::super::Fleet)->&[f64] { &fleet.seats.as_ref().expect("prepared native seats").io }
 /// The same bank for a native host reading by name; None before the seats are prepared.
 pub(super) fn descriptor_bank(fleet:&super::super::Fleet)->Option<&[f64]> { fleet.seats.as_ref().map(|seats|&seats.io[..]) }
 /// The descriptor's child banks by name, for a native host that cannot
