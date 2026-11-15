@@ -39,8 +39,9 @@ impl SkyHost {
                 texture: mesh.material.texture.map_or(-1, |id| textures[id] as i32) });
         }
         let mission = content.content.battle.mission().and_then(|v| v.get("name")).and_then(bfe_content::Value::as_str).unwrap_or("");
+        let seed = content.content.battle.query.get("seed").parse::<u32>().unwrap_or(1);
         let (phase, admitted) = bfe_environment::admission::sky(&json!({
-            "data":data,"mission":mission,"models":bounds,"seed":1,"enhanced":true}));
+            "data":data,"mission":mission,"models":bounds,"seed":seed,"enhanced":true}));
         let mut draws = Vec::new();
         for (class, record) in admitted["classes"].as_array().into_iter().flatten().enumerate() {
             let index = record["index"].as_u64().unwrap() as usize;
