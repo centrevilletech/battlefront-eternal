@@ -912,6 +912,14 @@ impl SlintHost {
     /// UI input is logical; combat continues to receive the original winit event.
     /// In particular physical bindings, XI2/raw motion and extra buttons never
     /// travel through Slint's text-oriented key event representation.
+    /// Tells the page again where the pointer is, so a screen that comes up under a parked pointer lights the row
+    /// there (winit reports only real motion; the browser sends one after the page changes).
+    pub fn repeat_pointer(&mut self) {
+        self.root.window().dispatch_event(UiEvent::PointerMoved {
+            position: self.cursor_position,
+        });
+    }
+
     pub fn event(&mut self, event: &WindowEvent, locked: bool) -> bool {
         match event {
             WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => self.resize(),

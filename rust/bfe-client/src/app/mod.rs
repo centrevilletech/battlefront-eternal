@@ -584,6 +584,9 @@ impl StandaloneWindowApp {
             if let Some(shell) = &mut self.shell {
                 shell.handle_cursor_move(x, y);
             }
+            if let Some(ui) = &mut self.slint_ui {
+                ui.repeat_pointer();
+            }
         }
     }
 
