@@ -102,7 +102,7 @@ impl Model {
             let heated = bfe_render::actor_resources::heated(&key)?;
             row[draw::REC_PROGRAM] = bridge.add_owned_program(&heated).ok()? as f64;
         }
-        Some(Self { rows, radius: self.radius })
+        Some(Self { rows, radius: self.radius, bounds: self.bounds.clone() })
     }
     pub fn append(&self, bridge: &mut Bridge, matrix: &[f64; 16], records: usize, bones: usize) -> (usize, usize) {
         self.append_look(bridge, matrix, records, bones, None)
