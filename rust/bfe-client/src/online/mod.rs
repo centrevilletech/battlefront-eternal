@@ -15,6 +15,7 @@ pub mod checkpoint;
 
 pub mod hulls;
 
+pub mod props;
 pub mod publications;
 
 pub mod hud;
