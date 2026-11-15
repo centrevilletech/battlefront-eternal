@@ -1557,10 +1557,13 @@ impl ApplicationHandler for StandaloneWindowApp {
 const HIDDEN_FRAME: Duration = Duration::from_millis(100);
 
 impl StandaloneWindowApp {
-    /// Whether the loading screens are up. Their frames are slices of the
-    /// load's own work, so they are never held back for the display.
+    /// Whether a startup or hosting screen is up. Their frames are slices of
+    /// the load's own work, so they are never held back for the display. The
+    /// battle loading screen is paced like any screen: its load runs for a
+    /// time budget each frame (loading.rs), and a slow PC's other cores keep
+    /// the time the extra frames took.
     fn loading(&self) -> bool {
-        matches!(self.state, AppState::StartupLoader(_) | AppState::HostStarting { .. } | AppState::BattleLoading { .. })
+        matches!(self.state, AppState::StartupLoader(_) | AppState::HostStarting { .. })
     }
 
     /// A chance to present a frame: the window's redraw, or the loop's own

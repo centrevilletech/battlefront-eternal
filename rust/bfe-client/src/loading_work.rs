@@ -58,6 +58,23 @@ thread_local! {
     static RESUMED: std::cell::Cell<Option<&'static std::panic::Location<'static>>> = const { std::cell::Cell::new(None) };
 }
 
+thread_local! {
+    static IDLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Yields to the window for one frame while waiting on another thread, so
+/// the window does not spend the rest of its frame budget polling again.
+#[track_caller]
+pub(crate) fn idle() -> Frame {
+    IDLE.with(|i| i.set(true));
+    frame()
+}
+
+/// Whether the last step ended waiting (`idle`); clears the mark.
+pub(crate) fn take_idle() -> bool {
+    IDLE.with(|i| i.replace(false))
+}
+
 /// Where the last step started: the frame() it resumed from, or "start".
 pub(crate) fn resumed_at() -> String {
     RESUMED.with(|r| r.get()).map_or_else(|| "start".into(), |at| format!("{}:{}", at.file(), at.line()))
@@ -76,5 +93,17 @@ mod tests {
         assert!(poll(future.as_mut()).is_pending());
         assert!(poll(future.as_mut()).is_pending());
         assert_eq!(poll(future.as_mut()), Poll::Ready(7));
+    }
+    #[test]
+    fn a_waiting_step_is_marked_idle() {
+        let mut future = Box::pin(async {
+            frame().await;
+            idle().await;
+        });
+        take_idle();
+        assert!(poll(future.as_mut()).is_pending());
+        assert!(!take_idle());
+        assert!(poll(future.as_mut()).is_pending());
+        assert!(take_idle());
     }
 }

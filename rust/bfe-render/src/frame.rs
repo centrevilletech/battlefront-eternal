@@ -190,7 +190,9 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
                 let capacity=if matches!(channel,Channel::FxData) && kind==K::TRANSPARENT { current.max(4<<20) } else if matches!(channel,Channel::Interface) {0}else {current};
                 packet.spans.push(Span{channel,offset:size,capacity,used:0});size+=capacity;
             }
-            packet.data.resize(size,0);self.frames.packets.push(packet);
+            // Zeroed pages from the allocator: nothing is written up front and
+            // a span's memory is committed only when a frame first uses it.
+            packet.data=vec![0;size];self.frames.packets.push(packet);
         }
     }
     // ShadowPass.admitNative expands its command store at cold static-source

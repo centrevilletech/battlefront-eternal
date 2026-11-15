@@ -24,6 +24,9 @@ enum Message {
     Online(Result<OnlineAdmission, String>),
 }
 type Opening = Pin<Box<dyn Future<Output = Result<BattleController, String>>>>;
+/// Display steps run until this much of a frame is used (the loading screen
+/// draws in the rest of a 60 Hz frame on a slow PC).
+const STEP_BUDGET: std::time::Duration = std::time::Duration::from_millis(10);
 type WorldSlot = Rc<RefCell<Option<Result<InstantAdmission, String>>>>;
 
 #[derive(Default)]
@@ -116,7 +119,7 @@ impl Work {
                                 if let Some(world) = slot.borrow_mut().take() {
                                     return world;
                                 }
-                                crate::loading_work::frame().await;
+                                crate::loading_work::idle().await;
                             }
                         };
                         BattleController::open_instant_action(prepared, world, size, &settings, load).await
@@ -143,8 +146,11 @@ impl Work {
                 }
             }
         }
-        if let Some(opening) = &mut self.opening {
+        // As many display steps as fit in this frame's budget, then the frame.
+        let frame_started = std::time::Instant::now();
+        while let Some(opening) = &mut self.opening {
             let started = std::time::Instant::now();
+            crate::loading_work::take_idle();
             let polled = crate::loading_work::poll(opening.as_mut());
             let from = crate::loading_work::resumed_at();
             let ms = started.elapsed().as_secs_f64() * 1000.;
@@ -152,7 +158,13 @@ impl Work {
             if ms > 33. {
                 eprintln!("battle loading: display step {ms:.0} ms from {from}");
             }
-            if let Poll::Ready(result) = polled {
+            let Poll::Ready(result) = polled else {
+                if crate::loading_work::take_idle() || frame_started.elapsed() >= STEP_BUDGET {
+                    break;
+                }
+                continue;
+            };
+            {
                 // The shell shows the reason in a dialog; the log keeps it too.
                 let result = result.inspect_err(|err| eprintln!("battle loading: display admission failed: {err}"));
                 self.ready = Some(Box::new(result?));
