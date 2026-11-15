@@ -312,13 +312,13 @@ impl Replicas {
             row[draw::REC_LOOK] = 1.;
             row[draw::REC_LOOK + 3] = 1.;
             let inverses: Vec<[f64;16]> = actor.bones.iter().map(|b| b.inverse.elements).collect();
-            let mut preview = Box::new(Units::preview());
-            let preview_content = preview.load(bfe_content_native::units::copy_input(&input));
-            preview.actor(preview_content, &inverses);
             let emote=content.content.body_clips.iter().find(|(name,_)|name==body_key)
                 .and_then(|(_,clips)|clips.list.iter().position(|c|c.name=="human_rifle_stand_idle_emote"));
             let preview_animation=preview::Animation::new(&input,emote);
             let id = units.load(input);
+            let mut preview = Box::new(Units::preview());
+            let preview_content = preview.share(units.content(id));
+            preview.actor(preview_content, &inverses);
             names.push(name);
             models.push(Model {
                 row,
@@ -1665,6 +1665,12 @@ impl Replicas {
         self.trails.frame(dt, &self.rollers, bridge);
         if let Some(rain) = &mut self.rain {
             rain.frame(dt, eye, gpu, bridge);
+            let group = rain.ground.as_ref().and_then(|(name, _, _)| self.combat.effect_names.iter().find(|(n, _)| n == name)).map(|(_, id)| *id);
+            for at in rain.splashes.drain(..) {
+                if let Some(group) = group {
+                    self.combat.hull_fx.once(group, at);
+                }
+            }
         }
         if let Some(snow) = &mut self.snow {
             snow.frame(dt, eye, camera, gpu, bridge);

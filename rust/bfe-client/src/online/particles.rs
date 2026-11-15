@@ -118,6 +118,7 @@ impl Prepared {
         resources.source_pixels(source, &bytes)?;
         let sample=resources.sample(source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1003,"mag":1003,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
         resources.upload(sample)?;
+        resources.release_pixels(source)?;
         let tracks = bridge.r.core.add_texture(resources.texture(sample)?);
         let owner = bridge.fx_add_owner(tracks, effects.gpu_size[1] as f32);
         bridge.r.effects.prepare_owner(&mut bridge.r.core, owner, 1024);

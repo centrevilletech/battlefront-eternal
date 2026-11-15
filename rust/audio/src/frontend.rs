@@ -132,6 +132,7 @@ impl Frontend {
             rate,
             data,
             ring: None,
+            feed: None,
         });
         self.samples[slot].as_mut().unwrap().data.as_mut_ptr()
     }

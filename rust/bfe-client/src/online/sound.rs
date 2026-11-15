@@ -99,11 +99,7 @@ impl LiveOutput {
                 batch.retired = Some(next);
             }
             for (id, pcm) in batch.samples.drain(..) {
-                if let Some(pcm) = pcm {
-                    self.output.voices.decoded_sample(id, pcm.rate, pcm.channels, pcm.frames, pcm.data);
-                } else {
-                    self.output.voices.decoded_sample(id, 48000., 1, 0, Vec::new());
-                }
+                self.output.voices.set_sample(id, pcm.map(|pcm| pcm.sample));
             }
             if let Some(master) = &mut self.output.master {
                 if batch.mask != 0 {

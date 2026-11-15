@@ -1026,6 +1026,7 @@ impl BattleController {
         });
         eprintln!("battle loading: world admitted in {:.0} ms", world_time.as_secs_f64() * 1000.);
         let (world, admitted) = admission?;
+        eprintln!("battle loading: world {} with bots {}", admitted.query, if local_options.bots.fielded { "on" } else { "off" });
         if admitted.query != query {
             return Err(format!("world admitted {} but the scene was read for {query}", admitted.query));
         }

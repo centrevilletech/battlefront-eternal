@@ -259,7 +259,7 @@ fn menu(directory: &Path, operator_port: u16) {
     let mut handle = stdin.lock();
     loop {
         println!(
-            "\nBattlefront Eternal Dedicated Server\n1  Server name: {}\n2  Data directory: {}\n3  Playlist: {}\n4  Online listing: {}\n5  Relay policy: {}\n6  Global bans: {}\n7  Show config file\n8  Import gameplay bundle\n9  Live server admin\n0  Start server\nq  Quit",
+            "\nBattlefront Eternal Dedicated Server\n1  Server name: {}\n2  Data directory: {}\n3  Playlist: {}\n4  Online listing: {}\n5  Relay policy: {}\n6  Global bans: {}\n7  Show config file\n8  Import gameplay bundle\n9  Live server admin\na  Bots: {}\n0  Start server\nq  Quit",
             config.name,
             if config.data.is_empty() {
                 "(not configured)"
@@ -273,7 +273,8 @@ fn menu(directory: &Path, operator_port: u16) {
                 "off"
             },
             config.relay_policy,
-            if config.honor_global_bans { "on" } else { "off" }
+            if config.honor_global_bans { "on" } else { "off" },
+            config.ai
         );
         let Ok(choice) = prompt(&mut handle, "Choice: ") else {
             break;
@@ -377,6 +378,13 @@ fn menu(directory: &Path, operator_port: u16) {
             }
             "9" => {
                 let _ = admin_menu(&mut handle, directory, operator_port);
+            }
+            "a" => {
+                if let Ok(mode) = prompt(&mut handle, "Bots: enhanced, classic, or off: ") {
+                    if matches!(mode.as_str(), "enhanced" | "classic" | "off") {
+                        config.ai = mode;
+                    }
+                }
             }
             _ => {}
         }
