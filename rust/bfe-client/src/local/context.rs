@@ -271,7 +271,7 @@ impl Engine for Native {
                 self.sample_host_journal();
                 if let Some(census) = &mut self.census {
                     if let Ok(Some(line)) = census.sample(&self.context.value, tick as u64, 600) {
-                        eprintln!("ai census local {line}");
+                        for line in line.lines() { eprintln!("ai census local {line}"); }
                     }
                 }
                 Ok(output)

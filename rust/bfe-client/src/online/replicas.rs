@@ -541,7 +541,8 @@ impl Replicas {
         bridge: &mut Bridge,
     ) {
         if let Some(census) = &mut self.census {
-            census.observe(tick, receiver.own.id, &self.slots, &self.units.output);
+            let known = receiver.active().filter(|row| row[r::ID] != receiver.own.id && row[r::HEALTH] > 0. && ((row[r::KIND] == k::SOLDIER as f64 && !matches!(row[r::STATE] as u32, 7 | 8)) || (row[r::KIND] == k::DROIDEKA as f64 && row[r::DEAD] == 0.))).count();
+            census.observe(tick, receiver.own.id, &self.slots, &self.units.output, known);
         }
         self.tick = tick;
         self.hud.frame(bridge, receiver, prediction, dt);
@@ -1392,7 +1393,7 @@ struct DisplayCensus {
     seconds: u32,
 }
 impl DisplayCensus {
-    fn observe(&mut self, tick: f64, own: f64, slots: &[Slot], output: &[f64]) {
+    fn observe(&mut self, tick: f64, own: f64, slots: &[Slot], output: &[f64], known: usize) {
         if tick < self.next {
             return;
         }
@@ -1418,7 +1419,7 @@ impl DisplayCensus {
         }
         self.last = next;
         if self.seconds % 10 == 0 {
-            eprintln!("ai census display t={}s drawn={drawn} moving={moving} walking={walking}", (tick / 60.) as u64);
+            eprintln!("ai census display t={}s known={known} drawn={drawn} moving={moving} walking={walking}", (tick / 60.) as u64);
         }
     }
 }

@@ -1,11 +1,15 @@
-//! A once-in-a-while line about the battle's bots, for comparing hosts with
-//! each other and with the browser build: per team the bots alive, those
-//! that moved more than a metre in the last second and those seated, the
-//! team's kills and deaths, its reinforcements and posts, and the shots and
-//! damage the journal heard since the last line. A host calls `sample`
-//! after every tick; it reads the world only once a second.
+//! A once-in-a-while account of the battle's bots, for comparing hosts with
+//! each other and with the browser build (BFE_AI_TRACE). Every ten seconds a
+//! line: per team the bots alive, those that moved more than a metre in the
+//! last second and those seated, the team's kills and deaths, its
+//! reinforcements and posts, and the shots and damage heard since. Every
+//! minute a behaviour summary since the battle began: bot shots by weapon
+//! (on foot and mounted), grenades, repair and melee swings, boardings, long
+//! hits, time spent standing, crouched and prone, hits on and by players, the
+//! first capture, and bots standing still. A host calls `sample` after every
+//! tick; it reads the world once a second.
 use crate::abi::context::{Context, Error};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 
 const TEAMS: usize = 8;
@@ -15,6 +19,62 @@ pub struct Census {
     /// Each unit's horizontal position and life a second ago, by store slot.
     last: HashMap<u32, (f64, f64, f64)>,
     journal_seen: usize,
+    /// Shots and damage since the last ten-second line.
+    shots: u32,
+    damage: u32,
+    behaviour: Behaviour,
+}
+
+#[derive(Default)]
+struct Behaviour {
+    shots: BTreeMap<u32, u32>,
+    mounted: BTreeMap<u32, u32>,
+    grenades: BTreeMap<u32, u32>,
+    repair: u32,
+    melee: u32,
+    boards: u32,
+    unboards: u32,
+    hits: u32,
+    hits_50m: u32,
+    hits_100m: u32,
+    hits_on_players: u32,
+    hits_by_players: u32,
+    /// Bot shots on foot and bot hits on soldiers, by the shooter's team.
+    team_shots: [u32; TEAMS],
+    /// Damage bots dealt to soldiers, and their hits that dealt none.
+    damage_sum: f64,
+    zero_hits: u32,
+    team_hits: [u32; TEAMS],
+    /// Alive bot soldiers' seconds standing, crouched and prone.
+    posture: [u32; 3],
+    /// The posts' teams at the start, and the second of the first change.
+    posts: Option<Vec<f64>>,
+    first_capture: Option<u64>,
+    /// Seconds each bot has stood within a metre, by store slot and life.
+    still: HashMap<u32, (f64, u32)>,
+    /// Bots that stood more than ten seconds on foot, once a life, by class.
+    stood: HashMap<(u32, u64), u32>,
+    /// Seconds each bot has pressed to move on foot without covering a metre.
+    pressing: HashMap<u32, (f64, u32)>,
+    /// Bots stuck five seconds or more that way, once a life, by class.
+    stuck: HashMap<(u32, u64), u32>,
+    /// Where each bot's life began, the second it began and whether it has
+    /// gone 10 m from there; lives over 30 s that never did, by class.
+    anchor: HashMap<u32, (f64, f64, f64, u64, bool, u32)>,
+    never_left: BTreeMap<u32, u32>,
+    /// Post-seconds where a post counted more of a team inside its region
+    /// than living soldiers on foot of that team stand there.
+    ghost_seconds: u32,
+    /// Deaths inside a capture region (alive a second ago, dead now), and
+    /// seconds bodies (dead or removed soldiers) lay inside one.
+    deaths_in_regions: u32,
+    body_seconds_in_regions: u32,
+    removed_seconds_in_regions: u32,
+    /// Corpses (dead, not yet removed) by how many seconds they have lain.
+    corpse_age: HashMap<u32, u32>,
+    corpse_max: u32,
+    corpses_over_5s: u32,
+    was_alive: HashSet<u32>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -29,36 +89,85 @@ struct Team {
 }
 
 impl Census {
-    /// Answers a line every `every` ticks (and reads positions the second
-    /// before it), else None.
+    /// Reads the world once a second; answers a line every `every` ticks
+    /// (and the behaviour summary every minute), else None.
     pub fn sample(&mut self, context: &Context, tick: u64, every: u64) -> Result<Option<String>, Error> {
-        let every = every.max(120);
-        let phase = tick % every;
-        if phase != 0 && phase != every - 60 {
+        if tick % 60 != 0 {
             return Ok(None);
         }
-        let report = phase == 0;
+        let second = tick / 60;
+        let report = tick % every.max(60) == 0;
         let last = std::mem::take(&mut self.last);
-        let (teams, reinforcements) = context.owned(|w| {
+        let behaviour = &mut self.behaviour;
+        let (teams, reinforcements, humans) = context.owned(|w| {
             let store = &w.sim.store;
             let mut teams = [Team::default(); TEAMS];
+            let mut humans = HashSet::new();
             let mut next = HashMap::with_capacity(last.len());
             for (r, unit) in store.unit.iter() {
                 let p = unit.position();
                 next.insert(r.slot, (p.x, p.z, unit.generation));
+                if unit.human {
+                    humans.insert(r.slot);
+                }
                 if unit.human || !(0.0..TEAMS as f64).contains(&unit.team) {
                     continue;
                 }
                 let t = &mut teams[unit.team as usize];
                 t.present = true;
+                if unit.dead && !unit.removed {
+                    let age = behaviour.corpse_age.entry(r.slot).or_default();
+                    *age += 1;
+                    behaviour.corpse_max = behaviour.corpse_max.max(*age);
+                    if *age > 5 { behaviour.corpses_over_5s += 1; }
+                } else {
+                    behaviour.corpse_age.remove(&r.slot);
+                }
                 if !unit.alive || unit.dead {
+                    behaviour.still.remove(&r.slot);
+                    behaviour.pressing.remove(&r.slot);
+                    if let Some((_, _, _, born, left, class)) = behaviour.anchor.remove(&r.slot) {
+                        if !left && second >= born + 30 { *behaviour.never_left.entry(class).or_default() += 1; }
+                    }
                     continue;
                 }
                 t.alive += 1;
-                t.seated += u32::from(unit.seat.is_some());
+                let seated = unit.seat.is_some();
+                t.seated += u32::from(seated);
+                let mut moved = false;
                 if let Some(&(x, z, life)) = last.get(&r.slot) {
-                    if life == unit.generation && (p.x - x).hypot(p.z - z) > 1.0 {
-                        t.moving += 1;
+                    moved = life != unit.generation || (p.x - x).hypot(p.z - z) > 1.0;
+                }
+                t.moving += u32::from(moved);
+                if let crate::gen::UnitBody::Soldier(s) = &unit.soldier {
+                    if !seated {
+                        behaviour.posture[s.posture as usize] += 1;
+                    }
+                }
+                let anchor = behaviour.anchor.entry(r.slot).or_insert((unit.generation, p.x, p.z, second, false, unit.class_name.0));
+                if anchor.0 != unit.generation {
+                    *anchor = (unit.generation, p.x, p.z, second, false, unit.class_name.0);
+                } else if (p.x - anchor.1).hypot(p.z - anchor.2) > 10.0 {
+                    anchor.4 = true;
+                }
+                let pushing = !seated && unit.intent.forward.abs() + unit.intent.right.abs() > 0.3;
+                let press = behaviour.pressing.entry(r.slot).or_insert((unit.generation, 0));
+                let covered = last.get(&r.slot).is_some_and(|&(x, z, life)| life == unit.generation && (p.x - x).hypot(p.z - z) > 1.0);
+                if press.0 != unit.generation || !pushing || covered {
+                    *press = (unit.generation, 0);
+                } else {
+                    press.1 += 1;
+                    if press.1 >= 5 {
+                        behaviour.stuck.insert((r.slot, unit.generation as u64), unit.class_name.0);
+                    }
+                }
+                let still = behaviour.still.entry(r.slot).or_insert((unit.generation, 0));
+                if still.0 != unit.generation || moved || seated {
+                    *still = (unit.generation, 0);
+                } else {
+                    still.1 += 1;
+                    if still.1 > 10 {
+                        behaviour.stood.insert((r.slot, unit.generation as u64), unit.class_name.0);
                     }
                 }
             }
@@ -69,46 +178,161 @@ impl Census {
                     t.deaths += c.deaths;
                 }
             }
+            // A post's counts against the living soldiers on foot inside its
+            // region: any surplus is someone counted who should not be.
+            for (_, post) in store.post.iter().filter(|(_, p)| p.capture.is_some()) {
+                let mut living = [0.0f64; TEAMS];
+                let mut inside = String::new();
+                for (r, unit) in store.unit.iter() {
+                    let at = unit.position();
+                    if !crate::battle::posts::contains(post, &at) { continue; }
+                    if unit.removed { behaviour.removed_seconds_in_regions += 1; }
+                    if (!unit.alive || unit.dead) && !unit.removed {
+                        behaviour.body_seconds_in_regions += 1;
+                        if behaviour.was_alive.contains(&r.slot) { behaviour.deaths_in_regions += 1; }
+                    }
+                    let live = unit.alive && !unit.dead && !unit.combat.dead && !unit.removed && unit.combat.health > 0.0 && unit.seat.is_none();
+                    if live && (0.0..TEAMS as f64).contains(&unit.team) { living[unit.team as usize] += 1.0; }
+                    let _ = write!(inside, " {}:t{}:{}{}{}{}{}:h{}", r.slot, unit.team, if unit.alive {"A"} else {"a"}, if unit.dead {"D"} else {"-"},
+                        if unit.combat.dead {"C"} else {"-"}, if unit.removed {"R"} else {"-"}, if unit.seat.is_some() {"S"} else {"-"}, unit.combat.health.round());
+                }
+                for (team, &n) in post.counts.iter() {
+                    if (1.0..3.0).contains(&team) && n > living[team as usize] {
+                        behaviour.ghost_seconds += 1;
+                        eprintln!("ai capture ghost t={second} post={} team={team} counted={n} living={} progress={:.3} neutralize={:.3} owner={} inside:{inside}",
+                            String::from_utf16_lossy(w.sim.strings.units(post.name)), living[team as usize], post.progress, post.neutralize, post.team);
+                    }
+                }
+            }
+            behaviour.was_alive = store.unit.iter().filter(|(_, u)| u.alive && !u.dead).map(|(r, _)| r.slot).collect();
+            let mut posts = Vec::new();
             for (_, post) in store.post.iter() {
+                posts.push(post.team);
                 if (0.0..TEAMS as f64).contains(&post.team) {
                     teams[post.team as usize].posts += 1;
                 }
             }
+            match &behaviour.posts {
+                None => behaviour.posts = Some(posts),
+                Some(start) if behaviour.first_capture.is_none() && *start != posts => behaviour.first_capture = Some(second),
+                _ => {}
+            }
             let reinforcements: Vec<(f64, f64)> = store.battle.reinforcements.iter().filter(|(t, _)| *t < 3.0).map(|(t, v)| (t, *v)).collect();
             self.last = next;
-            (teams, reinforcements)
+            (teams, reinforcements, humans)
         })?;
-        if !report {
-            return Ok(None);
-        }
         let seen = self.journal_seen;
-        let (shots, damage, head) = context.world_host_journal(|journal| {
+        let positions = &self.last;
+        let (shots, damage) = (&mut self.shots, &mut self.damage);
+        let head = context.world_host_journal(|journal| {
+            use super::journal::Event;
             let head = journal.seq;
             let start = seen.max(head.saturating_sub(super::journal::CAPACITY));
-            let (mut shots, mut damage) = (0u32, 0u32);
+            let human = |life: &Option<super::journal::Life>| life.is_some_and(|l| humans.contains(&l.id));
             for record in journal.records().filter(|r| r.seq >= start && r.seq < head) {
-                match record.event.kind() {
-                    "shot" => shots += 1,
-                    "damage" => damage += 1,
+                match &record.event {
+                    Event::Shot { source, team, weapon, repair, melee, .. } => {
+                        *shots += 1;
+                        if humans.contains(&source.id) {
+                            continue;
+                        }
+                        if !*repair && (0.0..TEAMS as f64).contains(team) { behaviour.team_shots[*team as usize] += 1; }
+                        *behaviour.shots.entry(weapon.map_or(0, |w| w.0)).or_default() += 1;
+                        behaviour.repair += u32::from(*repair);
+                        behaviour.melee += u32::from(*melee);
+                    }
+                    Event::MountedShot { source, weapon, repair, .. } => {
+                        *shots += 1;
+                        if human(source) {
+                            continue;
+                        }
+                        *behaviour.mounted.entry(weapon.map_or(0, |w| w.0)).or_default() += 1;
+                        behaviour.repair += u32::from(*repair);
+                    }
+                    Event::Grenade { source, def, .. } if !human(source) => {
+                        *behaviour.grenades.entry(def.map_or(0, |d| d.0)).or_default() += 1;
+                    }
+                    Event::Seat { boarded, source, .. } if !human(source) => {
+                        if *boarded { behaviour.boards += 1 } else { behaviour.unboards += 1 }
+                    }
+                    Event::Damage { target, position, attacker, attacker_team, amount, .. } => {
+                        *damage += 1;
+                        if humans.contains(&target.id) {
+                            behaviour.hits_on_players += 1;
+                        } else if human(attacker) {
+                            behaviour.hits_by_players += 1;
+                        } else {
+                            behaviour.hits += 1;
+                            behaviour.damage_sum += amount;
+                            behaviour.zero_hits += u32::from(!(*amount > 0.0));
+                            if (0.0..TEAMS as f64).contains(attacker_team) { behaviour.team_hits[*attacker_team as usize] += 1; }
+                            // The attacker where the census last saw him (within a second).
+                            if let Some(&(x, z, _)) = attacker.and_then(|a| positions.get(&a.id)) {
+                                let d = ((position[0] - x).powi(2) + (position[2] - z).powi(2)).sqrt();
+                                behaviour.hits_50m += u32::from(d > 50.0);
+                                behaviour.hits_100m += u32::from(d > 100.0);
+                            }
+                        }
+                    }
+                    Event::HullDamage { .. } | Event::PropDamage { .. } => *damage += 1,
                     _ => {}
                 }
             }
-            (shots, damage, head)
+            head
         })?;
         self.journal_seen = head;
-        let mut line = format!("t={}s", tick / 60);
-        for (index, t) in teams.iter().enumerate().filter(|(_, t)| t.present) {
-            let _ = write!(line, " t{index}:{}/{}/{} kd{}-{}", t.alive, t.moving, t.seated, t.kills, t.deaths);
+        let mut out = String::new();
+        if report {
+            let _ = write!(out, "t={}s", second);
+            for (index, t) in teams.iter().enumerate().filter(|(_, t)| t.present) {
+                let _ = write!(out, " t{index}:{}/{}/{} kd{}-{}", t.alive, t.moving, t.seated, t.kills, t.deaths);
+            }
+            let _ = write!(out, " reinf=");
+            for (team, count) in &reinforcements {
+                let _ = write!(out, "{team}:{count},");
+            }
+            let _ = write!(out, " posts=");
+            for (index, t) in teams.iter().enumerate().filter(|(_, t)| t.posts > 0) {
+                let _ = write!(out, "{index}:{},", t.posts);
+            }
+            let _ = write!(out, " shots={} dmg={}", self.shots, self.damage);
+            self.shots = 0;
+            self.damage = 0;
         }
-        let _ = write!(line, " reinf=");
-        for (team, count) in &reinforcements {
-            let _ = write!(line, "{team}:{count},");
+        if second % 60 == 0 && second > 0 {
+            let summary = self.summary(context, second)?;
+            let _ = write!(out, "{}behaviour {summary}", if out.is_empty() { "" } else { "\n" });
         }
-        let _ = write!(line, " posts=");
-        for (index, t) in teams.iter().enumerate().filter(|(_, t)| t.posts > 0) {
-            let _ = write!(line, "{index}:{},", t.posts);
-        }
-        let _ = write!(line, " shots={shots} dmg={damage}");
-        Ok(Some(line))
+        Ok((!out.is_empty()).then_some(out))
+    }
+
+    /// The behaviour since the battle began, as one JSON object.
+    fn summary(&self, context: &Context, second: u64) -> Result<String, Error> {
+        let b = &self.behaviour;
+        context.owned(|w| {
+            let name = |id: &u32| -> String {
+                w.sim.strings.list.get(*id as usize).map(|v| String::from_utf16_lossy(v)).unwrap_or_default()
+            };
+            let map = |m: &BTreeMap<u32, u32>| -> serde_json::Value {
+                serde_json::Value::Object(m.iter().map(|(k, v)| (if *k == 0 { "?".into() } else { name(k) }, (*v).into())).collect())
+            };
+            serde_json::json!({
+                "t": second, "shots": map(&b.shots), "mounted": map(&b.mounted), "grenades": map(&b.grenades),
+                "repair": b.repair, "melee": b.melee, "boards": b.boards, "unboards": b.unboards,
+                "hits": b.hits, "hits50m": b.hits_50m, "hits100m": b.hits_100m,
+                "hitsOnPlayers": b.hits_on_players, "hitsByPlayers": b.hits_by_players,
+                "teamShots": b.team_shots[..3], "teamHits": b.team_hits[..3],
+                "damageSum": b.damage_sum.round(), "zeroHits": b.zero_hits,
+                "postureSeconds": {"stand": b.posture[0], "crouch": b.posture[1], "prone": b.posture[2]},
+                "firstCapture": b.first_capture, "stoodStill10s": b.stood.len(),
+                "stoodByClass": map(&b.stood.values().fold(BTreeMap::new(), |mut m, c| { *m.entry(*c).or_default() += 1; m })),
+                "stuck5s": b.stuck.len(),
+                "stuckByClass": map(&b.stuck.values().fold(BTreeMap::new(), |mut m, c| { *m.entry(*c).or_default() += 1; m })),
+                "neverLeftSpawn": b.never_left.values().sum::<u32>(), "neverLeftByClass": map(&b.never_left),
+                "ghostCaptureSeconds": b.ghost_seconds, "deathsInRegions": b.deaths_in_regions, "bodySecondsInRegions": b.body_seconds_in_regions,
+                "removedSecondsInRegions": b.removed_seconds_in_regions, "corpseMaxSeconds": b.corpse_max, "corpseSecondsOver5": b.corpses_over_5s,
+            })
+            .to_string()
+        })
     }
 }
