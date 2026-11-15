@@ -60,14 +60,15 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Cli, String> {
             "--serve" => set(Command::Serve, &mut command)?,
             "--version" => set(Command::Version, &mut command)?,
             "--admin" => {
+                // An operator command is a JSON object; a following flag is not one.
                 let json = match it.peek() {
-                    Some(next) if !next.starts_with("--") => it.next().unwrap(),
+                    Some(next) if !next.starts_with('-') => it.next().unwrap(),
                     _ => "{\"action\":\"status\"}".to_string(),
                 };
                 set(Command::Admin(json), &mut command)?
             }
             "--dir" => {
-                let value = it.next().ok_or("missing value for --dir")?;
+                let value = it.next().filter(|v| !v.starts_with('-')).ok_or("missing value for --dir")?;
                 dir = Some(non_empty_dir(&value)?);
             }
             other => {
@@ -80,6 +81,18 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Cli, String> {
         }
     }
     Ok(Cli { command: command.unwrap_or(Command::Menu), dir })
+}
+
+/// The loopback port of /admin and /healthz from `PORT`: 18450 when unset, an error when it is
+/// not a port number from 1 to 65535.
+pub fn operator_port(raw: Option<String>) -> Result<u16, String> {
+    let Some(raw) = raw.filter(|v| !v.trim().is_empty()) else {
+        return Ok(18450);
+    };
+    match raw.trim().parse::<u16>() {
+        Ok(port) if port > 0 => Ok(port),
+        _ => Err(format!("PORT={raw} is not a port number from 1 to 65535")),
+    }
 }
 
 fn set(c: Command, command: &mut Option<Command>) -> Result<(), String> {
@@ -123,5 +136,24 @@ mod tests {
         assert!(p(&["--dir"]).is_err());
         assert!(p(&["--dir", ""]).is_err());
         assert!(p(&["--serve", "--version"]).is_err());
+    }
+
+    #[test]
+    fn a_flag_is_never_taken_as_a_value() {
+        // Not a folder named "--help", and not "-h" read as an operator command.
+        assert!(p(&["--dir", "--help"]).is_err());
+        assert!(p(&["--dir", "-h"]).is_err());
+        assert_eq!(p(&["--admin", "-h"]).unwrap().command, Command::Help);
+        assert_eq!(p(&["--admin", "--help"]).unwrap().command, Command::Help);
+    }
+
+    #[test]
+    fn operator_port_is_a_real_port_or_an_error() {
+        assert_eq!(operator_port(None), Ok(18450));
+        assert_eq!(operator_port(Some(" ".into())), Ok(18450));
+        assert_eq!(operator_port(Some("19000".into())), Ok(19000));
+        for bad in ["0", "70000", "invalid", "-1", "1.5"] {
+            assert!(operator_port(Some(bad.into())).is_err(), "PORT={bad}");
+        }
     }
 }
