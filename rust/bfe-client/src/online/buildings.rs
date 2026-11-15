@@ -345,7 +345,7 @@ impl Buildings {
                         generation: 0,
                         state: if b.state == 0 { 0 } else if objective.left > 0. { 1 } else { 2 },
                         dying: objective.span - objective.left,
-                        health: b.health, thrusting: false, velocity: [0.; 3],
+                        health: b.health, thrusting: false, velocity: [0.; 3], water: None,
                         nodes: Some((&look.nodes, 16, 0)),
                     }, dt);
                 }

@@ -336,7 +336,7 @@ impl Turrets {
                         key: (1u64 << 49) | turret.building.unwrap_or(0) as u64,
                         generation: turret.generation as u32,
                         state: if turret.shown { 0 } else { 2 }, dying: 0., health: turret.health,
-                        thrusting: false, velocity: [0.;3],
+                        thrusting: false, velocity: [0.;3], water: None,
                         nodes: Some((&self.owner.nodes[turret.start..turret.start+turret.node_count*n::STRIDE], n::STRIDE, n::WORLD)),
                     },dt);
                 }
