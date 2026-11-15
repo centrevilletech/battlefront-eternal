@@ -960,7 +960,7 @@ impl Drain<'_> {
                 );
                 let info = &e.info;
                 if std::env::var_os("BFE_HUD_TRACE").is_some() {
-                    eprintln!("[combat-damage] {}",serde_json::json!({"target":e.key.slot,"attacker":e.has_attacker_ref.then_some(e.attacker_ref.id),
+                    eprintln!("[combat-damage] {}",serde_json::json!({"tick":self.tick,"target":e.key.slot,"attacker":e.has_attacker_ref.then_some(e.attacker_ref.id),
                         "amount":info.amount.unwrap_or(e.amount),"healthDamage":e.amount,"point":info.point,"position":e.position}));
                 }
                 let target = Life {

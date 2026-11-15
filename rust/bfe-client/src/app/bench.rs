@@ -258,6 +258,12 @@ impl Bench {
         out.write_all(b"]")?;
         write!(out, r#","mount":{},"vehicle":{},"flight":{}"#,
             serde_json::to_string(&own.mount)?, own.vehicle, serde_json::to_string(&own.flight)?)?;
+        // The reticle as drawn: its anchor on the screen (0..1, y down) and whether it shows.
+        {
+            use bfe_render::hud_model::layout::HudFrame as h;
+            let x = &battle.scene.bridge.hud_model.input;
+            write!(out, r#","reticle":[{:.5},{:.5},{}]"#, x[h::RETICLE_X], x[h::RETICLE_Y], x[h::RETICLE])?;
+        }
         if let Some(hull) = &replay.fleet.state {
             write!(out, r#","hull":{}"#, serde_json::json!({
                 "pos": hull.position, "vel": hull.velocity, "yaw": hull.yaw,
