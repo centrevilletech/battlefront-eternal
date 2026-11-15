@@ -41,6 +41,7 @@ pub struct ClassFx {
     class: usize,
     names: Vec<String>,
     chunks: bool,
+    carrier: Option<(usize, three::Matrix4)>,
 }
 
 impl ClassFx {
@@ -87,8 +88,12 @@ impl ClassFx {
             class,
             chunks: fx.get("chunks").and_then(Value::as_array).is_some_and(|c| !c.is_empty()),
             names: names.iter().map(|n| n.to_lowercase()).collect(),
+            carrier: None,
         };
         (!fx.thrust.is_empty() || !fx.damage.is_empty() || fx.water.is_some() || fx.dust.is_some() || fx.dying.is_some() || fx.chunks).then_some(fx)
+    }
+    pub fn body_carrier(&mut self, node: usize, inverse_bind: three::Matrix4) {
+        self.carrier = Some((node, inverse_bind));
     }
 }
 
@@ -164,6 +169,20 @@ pub struct Wreck {
     pub names: Vec<String>,
     pub origin: [f64; 3],
     pub velocity: [f64; 3],
+    carrier: Option<three::Matrix4>,
+}
+
+impl Wreck {
+    pub fn matrix(&self, name: &str) -> three::Matrix4 {
+        let node = self.names.iter().position(|n| !name.is_empty() && n == name);
+        if node.is_none() {
+            if let Some(carrier) = self.carrier { return carrier; }
+        }
+        let mut matrix = three::Matrix4::default();
+        let at = node.unwrap_or(0) * 16;
+        if let Some(elements) = self.nodes.get(at..at + 16) { matrix.elements.copy_from_slice(elements); }
+        matrix
+    }
 }
 
 #[derive(Default)]
@@ -232,7 +251,7 @@ impl HullEffects {
                 body.dying = (hull.state == 1 && fx.dying.is_some()).then_some((0., fx.dust.is_none()));
                 body.dust_left = fx.dust.filter(|_| body.dying.is_none()).map(|(_, _, delay)| delay);
                 if body.dying.is_none() {
-                    self.wreck(fx, body);
+                    self.wreck(fx, body, false);
                 }
             }
             body.alive = false;
@@ -248,7 +267,7 @@ impl HullEffects {
                         }
                     }
                     body.dying = None;
-                    self.wreck(fx, body);
+                    self.wreck(fx, body, true);
                 } else {
                     let elapsed = hull.dying.min(*span).max(0.);
                     if !*dusted {
@@ -325,14 +344,23 @@ impl HullEffects {
         self.stomps += 1;
         self.shots.push((group, position, turn));
     }
-    fn wreck(&mut self, fx: &ClassFx, body: &Body) {
+    fn wreck(&mut self, fx: &ClassFx, body: &Body, fallen: bool) {
         if fx.chunks && !body.nodes.is_empty() {
+            // Unnamed walker chunks are modelled in the standing hull's frame.
+            // Carry that frame with the body bone to its final death pose.
+            let carrier = fx.carrier.filter(|_| fallen).and_then(|(node, inverse)| {
+                let mut matrix = three::Matrix4::default();
+                matrix.elements.copy_from_slice(body.nodes.get(node * 16..node * 16 + 16)?);
+                matrix.multiply(&inverse);
+                Some(matrix)
+            });
             self.wrecks.push(Wreck {
                 class: fx.class,
                 nodes: body.nodes.clone(),
                 names: fx.names.clone(),
                 origin: [body.root[12], body.root[13], body.root[14]],
                 velocity: body.velocity,
+                carrier,
             });
         }
     }
@@ -425,7 +453,7 @@ mod tests {
         let class = ClassFx {
             thrust: vec![], damage: vec![], water: None, speed: [0.; 2], max_health: 100.,
             dust: Some((3, [0.; 3], 0.5)), dying: None,
-            class: 7, names: vec!["root".into()], chunks: true,
+            class: 7, names: vec!["root".into()], chunks: true, carrier: None,
         };
         let mut fx = HullEffects::new();
         let mut body = Body::default();
@@ -447,5 +475,42 @@ mod tests {
         assert_eq!(fx.shots.len(), 1);
         assert_eq!(fx.shots[0].1, [12., 4., -8.]);
         assert!(!body.pending());
+    }
+    #[test]
+    fn fallen_walker_carries_unnamed_chunks_with_its_body() {
+        let mut inverse = three::Matrix4::default();
+        inverse.make_translation(0., -4., 0.);
+        let class = ClassFx {
+            thrust: vec![], damage: vec![], water: None, speed: [0.; 2], max_health: 100.,
+            dust: None, dying: Some((3., 0.4, vec![], vec![])),
+            class: 7, names: vec!["root".into(), "bone_root".into(), "gun".into()], chunks: true,
+            carrier: Some((1, inverse)),
+        };
+        let mut root = three::Matrix4::default();
+        root.make_translation(12., 0., -8.);
+        let mut fallen = three::Matrix4::default();
+        fallen.make_rotation_x(std::f64::consts::FRAC_PI_2);
+        fallen.elements[12] = 12.;
+        fallen.elements[13] = 2.;
+        fallen.elements[14] = -8.;
+        let mut gun = three::Matrix4::default();
+        gun.make_translation(13., 2., -8.);
+        let nodes: Vec<_> = [root, fallen, gun].into_iter().flat_map(|m| m.elements).collect();
+        let mut fx = HullEffects::new();
+        let mut body = Body::default();
+        let frame = |state, nodes| Frame {
+            key: 9, generation: 2, state, dying: 0., health: 0.,
+            thrusting: false, velocity: [0.; 3], nodes, water: None,
+        };
+        fx.hull(&class, &mut body, frame(0, Some((&nodes, 16, 0))), 0.);
+        fx.hull(&class, &mut body, frame(1, Some((&nodes, 16, 0))), 0.);
+        fx.hull(&class, &mut body, frame(2, None), 0.);
+        let wreck = &fx.wrecks[0];
+        let mut center = three::Vector3::new(0., 4., 0.);
+        center.apply_matrix4(&wreck.matrix(""));
+        assert!((center.x - 12.).abs() < 1e-12 && (center.y - 2.).abs() < 1e-12 && (center.z + 8.).abs() < 1e-12);
+        assert_eq!(wreck.matrix("missing").elements, wreck.matrix("").elements);
+        assert_eq!(wreck.matrix("gun").elements, gun.elements);
+        assert_eq!(wreck.origin, [12., 0., -8.]);
     }
 }

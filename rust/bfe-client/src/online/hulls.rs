@@ -89,6 +89,7 @@ struct Model {
     seats: usize,
     rider: Vec<(Option<String>, Option<String>, bool)>,
     hover: f64,
+    death_span: f64,
     // Its thrust, damage and death effects (VehicleEffects).
     fx: Option<super::hull_effects::ClassFx>,
     // A walker's feet (vehicle-feet.js): its foot detector's content, its
@@ -101,7 +102,7 @@ struct Slot {
     identity: Option<(u32, u32)>,
     active: bool,
     skin: Vec<f32>,
-    dying_since: Option<f64>,
+    dying: bool,
     velocity: [f64; 3],
     flight_frame: [f64; 4],
     health: f64,
@@ -336,6 +337,19 @@ impl Hulls {
             classes[id as usize] = Some(models.len());
             let walk_length =
                 descriptor["left"]["duration"].as_f64().unwrap_or(0.) + descriptor["right"]["duration"].as_f64().unwrap_or(0.);
+            let death_span = descriptor["deathSpan"].as_f64().unwrap_or(0.);
+            let mut fx = super::hull_effects::ClassFx::parse(
+                id as usize,
+                &class.record,
+                nodes.iter().map(|n| n["name"].as_str().unwrap_or("").to_string()).collect(),
+                effect,
+            );
+            if let Some((node, inverse)) = nodes[1..1 + bone_count].iter()
+                .position(|n| n["name"].as_str().is_some_and(|s| s.eq_ignore_ascii_case("bone_root")))
+                .and_then(|bone| inverses.get(bone).map(|inverse| (bone + 1, *inverse)))
+            {
+                if let Some(fx) = fx.as_mut() { fx.body_carrier(node, Matrix4 { elements: inverse }); }
+            }
             descriptors.push(descriptor);
             models.push(Model {
                 views: records["seats"].as_array().unwrap().iter().map(|s| super::seat_view::View::new(&s["view"])).collect(),
@@ -354,13 +368,9 @@ impl Hulls {
                 seats: seats.len(),
                 rider,
                 hover,
+                death_span,
                 feet: walker_feet(&class.record, &records, &bones, t.clips.as_ref(), walk_length, &effect),
-                fx: super::hull_effects::ClassFx::parse(
-                    id as usize,
-                    &class.record,
-                    nodes.iter().map(|n| n["name"].as_str().unwrap_or("").to_string()).collect(),
-                    effect,
-                ),
+                fx,
             });
         }
         // The fixed hull pool is shared by class, with a minimum reservation
@@ -381,7 +391,7 @@ impl Hulls {
                     identity: None,
                     active: false,
                     skin: vec![0.; m.inverses.len() * 16],
-                    dying_since: None,
+                    dying: false,
                     velocity: [0.; 3],
                     flight_frame: [0., 0., 0., 1.],
                     health: 0.,
@@ -478,7 +488,7 @@ impl Hulls {
     }
     pub fn aim_point(&self, key: (u32, u32)) -> Option<[f64; 3]> {
         let slot = &self.slots[*self.bound.get(&key)?];
-        if !slot.active || slot.health <= 0. || slot.dying_since.is_some() { return None; }
+        if !slot.active || slot.health <= 0. || slot.dying { return None; }
         let b = self.models[slot.model].bounds;
         let nodes = self.owner.slot_nodes(slot.rig, 0)?;
         let mut matrix = Matrix4::default();
@@ -588,7 +598,7 @@ impl Hulls {
                     continue;
                 };
                 self.slots[i].identity = Some(key);
-                self.slots[i].dying_since = None;
+                self.slots[i].dying = false;
                 self.bound.insert(key, i);
                 i
             };
@@ -610,19 +620,16 @@ impl Hulls {
             x[e::GEAR_FOLLOW] = m.flying as u8 as f64;
             x[e::GEAR_GENERATION] = row[r::GENERATION];
             x[e::GROUND_FROM..e::GROUND_FROM + 3].copy_from_slice(&row[r::POSITION..r::POSITION + 3]);
-            if row[r::STATE] == 6. {
-                let since = *s.dying_since.get_or_insert(tick);
-                x[e::DYING] = (tick - since).max(0.) / 60.;
-            } else {
-                s.dying_since = None;
-            }
+            s.dying = row[r::STATE] == 6.;
+            // Dying records carry the authoritative milliseconds left in power.
+            x[e::DYING] = if s.dying { row[r::POWER] / 1000. } else { 0. };
             x[e::ALPHA] = 1.;
             x[e::DT] = dt;
             x[e::FRAME_DT] = dt;
             x[e::LOCAL_PRESENT] = 0.;
             x[e::POSITION..e::POSITION + 3].copy_from_slice(&row[r::POSITION..r::POSITION + 3]);
             x[e::QUATERNION..e::QUATERNION + 4].copy_from_slice(&row[r::QUATERNION..r::QUATERNION + 4]);
-            x[e::YAW] = row[r::YAW];
+            x[e::YAW] = hull_heading(row);
             x[e::TILT] = row[r::TILT];
             x[e::ROLL] = row[r::MOUNT_ROLL];
             if mount[mo::VALID] != 0. {
@@ -763,7 +770,7 @@ impl Hulls {
                 }
             }
         }
-        self.effects(receiver, tick, dt, fx);
+        self.effects(receiver, dt, fx);
         self.stomp(dt, fx);
     }
     // VehicleEffects.updateStomp: where a walker's foot comes down this
@@ -786,7 +793,7 @@ impl Hulls {
                     x[fi::PRESENT] = 0.;
                     continue;
                 };
-                x[fi::PRESENT] = (s.identity.is_some() && s.dying_since.is_none()) as u8 as f64;
+                x[fi::PRESENT] = (s.identity.is_some() && !s.dying) as u8 as f64;
                 x[fi::GENERATION] = s.identity.map_or(0., |i| i.1 as f64);
                 x[fi::PHASE] = s.walk[0];
                 x[fi::BLEND] = s.walk[1];
@@ -811,7 +818,7 @@ impl Hulls {
     }
     // VehicleEffects.update: every hull with effects, drawn or a wreck
     // whose record remains, from the pose just published.
-    fn effects(&mut self, receiver: &Receiver, tick: f64, dt: f64, fx: &mut super::hull_effects::HullEffects) {
+    fn effects(&mut self, receiver: &Receiver, dt: f64, fx: &mut super::hull_effects::HullEffects) {
         use super::hull_effects::Frame;
         for body in &mut self.bodies {
             body.2 = false;
@@ -843,7 +850,7 @@ impl Hulls {
             let (health, velocity, dying) = match slot {
                 Some(i) => {
                     let s = &self.slots[i];
-                    (s.health, s.velocity, s.dying_since.map_or(0., |since| (tick - since).max(0.) / 60.))
+                    (s.health, s.velocity, if s.dying { (self.models[model].death_span - row[r::POWER] / 1000.).max(0.) } else { 0. })
                 }
                 None => (row[r::HEALTH], std::array::from_fn(|i| row[r::VELOCITY + i]), 0.),
             };
