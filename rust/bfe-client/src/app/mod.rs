@@ -292,6 +292,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         headless_audio,
         _audio_device: audio_device,
         audio_channels_asked: 2,
+        window_size: winit::dpi::PhysicalSize::new(0, 0),
         state: AppState::StartupLoader(startup_content),
         shell: None,
         #[cfg(target_os = "linux")]
@@ -391,6 +392,8 @@ struct StandaloneWindowApp {
     _audio_device: Option<AudioDevice>,
     // The channel count last asked of the device (crate::audio::wanted_channels).
     audio_channels_asked: usize,
+    /// The window's physical size from its last resize or scale event.
+    window_size: winit::dpi::PhysicalSize<u32>,
     /// The mix's own thread while no sound device is open.
     headless_audio: Option<HeadlessAudio>,
     /// Active top-level state (`StartupLoader`, `Shell`, `HostStarting`, `BattleLoading`, `Battle`).
@@ -1022,6 +1025,7 @@ impl ApplicationHandler for StandaloneWindowApp {
             self.settings.adopt_gpu_preset(&unsafe { gl.get_parameter_string(glow::RENDERER) }, &unsafe { gl.get_parameter_string(glow::VENDOR) }, fill)?;
             crate::resources::Ranges::install_multi_draw(&gl,display.get_proc_address(std::ffi::CStr::from_bytes_with_nul(if gl.version().is_embedded{b"glMultiDrawElementsEXT\0"}else{b"glMultiDrawElements\0"}).unwrap()));
             let physical = window.inner_size();
+            self.window_size = physical;
             self.opts.size = [physical.width as i32, physical.height as i32];
             let shell = Box::new(ShellHost::new(
                 self.opts.size,
@@ -1158,6 +1162,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                         let _ = window.request_inner_size(phys);
                     }
                 }
+                self.window_size = phys;
                 // Resize the EGL/GLX window surface when physical dimensions change.
                 if phys.width > 0 && phys.height > 0 {
                     let new_size = [phys.width as i32, phys.height as i32];
@@ -1177,6 +1182,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                 // the pointer alone by scale_factor (that would apply scaling twice).
                 if let Some(window) = &self.window {
                     let size = window.inner_size();
+                    self.window_size = size;
                     if size.width > 0 && size.height > 0 {
                         self.opts.size = [size.width as i32, size.height as i32];
                         if let (Some(surface), Some(context)) = (&self.surface, &self.context) {
@@ -1862,8 +1868,10 @@ impl StandaloneWindowApp {
             battle.scene.bridge.r.core.state.reset();
         }
 
-        if let Some(window) = &self.window {
-            let phys = window.inner_size();
+        if self.window.is_some() {
+            // The size the window's last resize event gave (asking the window each frame
+            // is a round trip to the X server on X11).
+            let phys = self.window_size;
             if phys.width > 0 && phys.height > 0 {
                 let new_size = [phys.width as i32, phys.height as i32];
                 if new_size != self.opts.size {

@@ -71,6 +71,9 @@ struct Adapter {
     cursor: Cell<CursorIcon>,
     cursor_requests: Cell<u64>,
     ime_requests: Cell<u64>,
+    // The window's size as its last resize gave it (asking the window is a round trip to
+    // the X server every time on X11), shared with the underlay copy.
+    size: Rc<Cell<winit::dpi::PhysicalSize<u32>>>,
 }
 impl WindowAdapter for Adapter {
     fn window(&self) -> &slint::Window {
@@ -80,7 +83,7 @@ impl WindowAdapter for Adapter {
         &self.renderer
     }
     fn size(&self) -> slint::PhysicalSize {
-        let s = self.window.inner_size();
+        let s = self.size.get();
         slint::PhysicalSize::new(s.width, s.height)
     }
     fn request_redraw(&self) {
@@ -292,6 +295,7 @@ impl SlintHost {
             context: context.clone(),
         })
         .map_err(|e| e.to_string())?;
+        let window_size = Rc::new(Cell::new(window.inner_size()));
         let adapter: Rc<Adapter> = Rc::new_cyclic(|weak: &std::rc::Weak<Adapter>| Adapter {
             ui_window: slint::Window::new(weak.clone()),
             renderer,
@@ -300,6 +304,7 @@ impl SlintHost {
             cursor: Cell::new(CursorIcon::Default),
             cursor_requests: Cell::new(0),
             ime_requests: Cell::new(0),
+            size: window_size.clone(),
         });
         let pending: Pending = Default::default();
         let quit = Arc::new(AtomicBool::new(false));
@@ -412,7 +417,7 @@ impl SlintHost {
         }
         let underlay: Rc<Cell<Option<(glow::Framebuffer, [i32; 2])>>> = Rc::new(Cell::new(None));
         let source = underlay.clone();
-        let os = window.clone();
+        let os = window_size.clone();
         let gl = Rc::new(unsafe {
             glow::Context::from_loader_function_cstr(|name| {
                 context.display().get_proc_address(name)
@@ -433,7 +438,7 @@ impl SlintHost {
                             gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
                             gl.disable(glow::SCISSOR_TEST);
                             composited.set(composited.get() + 1);
-                            let target = os.inner_size();
+                            let target = os.get();
                             gl.blit_framebuffer(
                                 0,
                                 0,
@@ -517,6 +522,7 @@ impl SlintHost {
     pub fn resize(&mut self) {
         let scale = self.adapter.window.scale_factor() as f32;
         let s = self.adapter.window.inner_size();
+        self.adapter.size.set(s);
         self.root
             .window()
             .dispatch_event(UiEvent::ScaleFactorChanged {
@@ -858,7 +864,7 @@ impl SlintHost {
                 self.gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
                 self.gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(fb));
                 self.gl.disable(glow::SCISSOR_TEST);
-                let target = self.adapter.window.inner_size();
+                let target = self.adapter.size.get();
                 self.gl.blit_framebuffer(
                     0,
                     0,
