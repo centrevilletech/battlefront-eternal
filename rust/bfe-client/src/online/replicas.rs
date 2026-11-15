@@ -139,6 +139,8 @@ pub struct Replicas {
     /// have asked for theirs.
     pub lights: Box<super::lights::SceneLights>,
     held: Vec<Option<super::models::Model>>,
+    // Each held model's geometry name (a droid's blaster, thrown clear).
+    held_names: Vec<String>,
     weapon_classes: Vec<Option<usize>>,
     pub replay: Option<super::replay::Replay>,
     pub hulls: Box<super::hulls::Hulls>,
@@ -477,6 +479,7 @@ impl Replicas {
             }
         }
         let mut held = Vec::new();
+        let mut held_names = Vec::new();
         let mut weapon_classes = vec![None; registry.weapons.len() + 1];
         for weapon in &defs.weapons {
             crate::loading_work::frame().await;
@@ -494,6 +497,7 @@ impl Replicas {
             }
             weapon_classes[id as usize] = Some(held.len());
             held.push(model);
+            held_names.push(name.to_string());
         }
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
@@ -662,6 +666,7 @@ impl Replicas {
             holograms,
             lights: Box::new(super::lights::SceneLights::new()),
             held,
+            held_names,
             weapon_classes,
             replay,
             hulls,
@@ -924,7 +929,7 @@ impl Replicas {
             if dead && !self.slots[slot].dead && self.slots[slot].gone.is_none() && self.combat.destruction.chunked(self.slots[slot].class) {
                 self.slots[slot].dead = true;
                 self.units.refresh_actor(self.slots[slot].actor);
-                if let Some(body) = body_of(&self.slots, &self.models, &self.units, slot) {
+                if let Some(body) = body_of(&self.slots, &self.models, &self.units, &self.held_names, slot) {
                     let body = super::destruction::Body { visible: true, ..body };
                     self.combat.destruction.died(&body);
                 }
@@ -1558,8 +1563,8 @@ impl Replicas {
                 if self.slots[slot].active { self.units.refresh_actor(self.slots[slot].actor); }
             }
         }
-        let (slots, models, units) = (&self.slots, &self.models, &self.units);
-        let mut lookup = |unit: (u32, u32)| slots.iter().position(|s| s.active && s.identity == Some(unit)).and_then(|i| body_of(slots, models, units, i));
+        let (slots, models, units, names) = (&self.slots, &self.models, &self.units, &self.held_names);
+        let mut lookup = |unit: (u32, u32)| slots.iter().position(|s| s.active && s.identity == Some(unit)).and_then(|i| body_of(slots, models, units, names, i));
         self.combat.destruction.frame(dt, eye, &mut lookup);
         let hidden = std::mem::take(&mut self.combat.destruction.hidden);
         for unit in &hidden {
@@ -1574,6 +1579,9 @@ impl Replicas {
             } else {
                 self.lights.add(position, color, radius, amount);
             }
+        }
+        for (definition, position) in std::mem::take(&mut self.combat.destruction.sounds) {
+            self.sound.explosion(definition, position);
         }
         self.combat.destruction.draw(bridge);
     }
@@ -2034,11 +2042,18 @@ impl DisplayCensus {
 }
 
 // A droid's body as the destruction effects read it, None without one.
-fn body_of<'a>(slots: &'a [Slot], models: &'a [Model], units: &'a Units, slot: usize) -> Option<super::destruction::Body<'a>> {
+fn body_of<'a>(slots: &'a [Slot], models: &'a [Model], units: &'a Units, held_names: &'a [String], slot: usize) -> Option<super::destruction::Body<'a>> {
     let s = &slots[slot];
     let unit = s.identity?;
     let m = &models[s.model];
     let out = &units.output[s.actor * o::STRIDE..];
+    // The weapon in his hand, where the hand is (shown or not: a dead
+    // unit's is hidden, and Enhanced throws it clear).
+    let weapon = s.held.zip(m.hand).and_then(|(held, hand)| {
+        let name = held_names.get(held)?.as_str();
+        let node = (units.actor_node_start(s.actor) + hand) * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
+        Some((name, std::array::from_fn(|i| units.nodes[node + i])))
+    });
     Some(super::destruction::Body {
         unit,
         class: s.class,
@@ -2052,5 +2067,6 @@ fn body_of<'a>(slots: &'a [Slot], models: &'a [Model], units: &'a Units, slot: u
         nodes: &units.nodes,
         stride: bfe_presentation::layout::unit_node::STRIDE,
         at: (units.actor_node_start(s.actor) + 2) * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD,
+        weapon,
     })
 }

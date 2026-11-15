@@ -1379,7 +1379,7 @@ impl Combat {
                     self.map_effects.started, self.map_effects.visible, self.hull_fx.started, self.hull_fx.stomps, self.total_effects
                 );
                 let (pieces, hot, smoke, arcs) = self.destruction.counts();
-                eprintln!("fx-destruction enhanced={} deaths={} pieces={pieces} hot={hot} smoke={smoke} arcs={arcs}", self.destruction.enhanced, self.destruction.deaths);
+                eprintln!("fx-destruction enhanced={} deaths={} pieces={pieces} hot={hot} smoke={smoke} arcs={arcs} peak-heat={:.2}", self.destruction.enhanced, self.destruction.deaths, std::mem::take(&mut self.destruction.peak_heat));
             }
         }
         self.effects.frame();

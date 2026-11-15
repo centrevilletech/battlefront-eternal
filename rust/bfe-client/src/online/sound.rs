@@ -315,6 +315,18 @@ impl Sound {
         }
     }
 
+    /// GameAudio.explosion: an explosion's SoundProperty at its point, by
+    /// its combat definition (one-based).
+    pub fn explosion(&mut self, definition: usize, position: [f64; 3]) {
+        let Some(&class) = self.combat_classes.get(definition).filter(|&&c| c != usize::MAX && definition != 0) else { return };
+        if self.pending_effects.len() == self.pending_effects.capacity() {
+            self.pending_effects.remove(0);
+            self.refused += 1;
+        }
+        self.pending_effects.push(super::sound_events::placed(event_kind::EXPLOSION, class, position));
+        self.events += 1;
+    }
+
     fn ui_event(&mut self, kind: usize, name: &str, value: f64, seconds: f64) {
         if self.pending_effects.len() == self.pending_effects.capacity() {
             self.refused += 1;
@@ -573,6 +585,14 @@ impl Sound {
                             .push(super::sound_events::impact(&self.cosmetic, class));
                     }
                 }
+            }
+            // Ordnance.explosion's emitSound("explosion"): a blast heard where
+            // it went off (schema 5: definition, then its point).
+            if field.row[r::KIND] == k::COMBAT as f64 && field.row[r::SCHEMA] == 5. && field.length == 33 {
+                let b = &field.bytes[..33];
+                let definition = u32::from_le_bytes(b[4..8].try_into().unwrap()) as usize;
+                let position: [f64; 3] = std::array::from_fn(|i| f64::from_le_bytes(b[8 + i * 8..16 + i * 8].try_into().unwrap()));
+                self.explosion(definition, position);
             }
             if field.row[r::KIND] != k::COMBAT as f64 || field.row[r::SCHEMA] != 8. {
                 continue;
