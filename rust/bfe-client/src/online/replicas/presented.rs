@@ -517,6 +517,7 @@ impl Replicas {
             // the last frame posed it, and the effect starts with the next
             // frame's batch, one frame after the browser's.
             Act::DeathBlast => {
+                self.units.refresh_actor(actor);
                 // Destruction.deathBlast: Enhanced draws a blast of its own.
                 if let Some(body) = super::body_of(&self.slots, &self.models, &self.units, slot) {
                     if self.combat.destruction.death_blast(&body) {
@@ -547,6 +548,7 @@ impl Replicas {
             // drawn. Origin and velocity are the drawn body's, the same pose
             // the bones are read from.
             Act::BlowApart { health } => {
+                self.units.refresh_actor(actor);
                 let class = self.slots[slot].class;
                 // Destruction.blowApart: Enhanced draws it and its pieces.
                 if self.combat.destruction.chunked(class) {

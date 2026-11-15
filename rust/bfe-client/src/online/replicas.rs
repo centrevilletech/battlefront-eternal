@@ -909,6 +909,7 @@ impl Replicas {
             // shorts out the Enhanced way.
             if dead && !self.slots[slot].dead && self.slots[slot].gone.is_none() && self.combat.destruction.chunked(self.slots[slot].class) {
                 self.slots[slot].dead = true;
+                self.units.refresh_actor(self.slots[slot].actor);
                 if let Some(body) = body_of(&self.slots, &self.models, &self.units, slot) {
                     let body = super::destruction::Body { visible: true, ..body };
                     self.combat.destruction.died(&body);
@@ -1534,6 +1535,13 @@ impl Replicas {
     /// Destruction.update: the droids it tracks as drawn now, then what it
     /// asks for (bodies to hide, lights) and its draws.
     fn present_destruction(&mut self, dt: f64, eye: [f64; 3], bridge: &mut Bridge) {
+        // Off-screen skins are placed only when a visual reader needs them.
+        // Active destruction effects still need their current bone positions.
+        for unit in self.combat.destruction.tracked_bodies() {
+            if let Some(&slot) = self.bound.get(&unit) {
+                if self.slots[slot].active { self.units.refresh_actor(self.slots[slot].actor); }
+            }
+        }
         let (slots, models, units) = (&self.slots, &self.models, &self.units);
         let mut lookup = |unit: (u32, u32)| slots.iter().position(|s| s.active && s.identity == Some(unit)).and_then(|i| body_of(slots, models, units, i));
         self.combat.destruction.frame(dt, eye, &mut lookup);
