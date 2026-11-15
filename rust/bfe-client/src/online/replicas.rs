@@ -43,8 +43,10 @@ struct Model {
     death_clip: f64,
     // The clip of each weapon action, by bank, posture and action.
     weapon_clips: Vec<presented::BankClips>,
-    // Bone names in lower case, as a class's chunks name them.
+    // Bone names in lower case, as a class's chunks name them, and each
+    // bone's parent (-1 none).
     bones: Vec<String>,
+    parents: Vec<i32>,
 }
 struct Slot {
     actor: usize,
@@ -101,6 +103,7 @@ pub struct Looks {
     pub jetpack: bool,
     pub rain: bool,
     pub environment: bool,
+    pub destruction: bool,
 }
 pub struct Replicas {
     pub shot_aim: super::shot_aim::Shared,
@@ -141,10 +144,11 @@ pub struct Replicas {
     pub hulls: Box<super::hulls::Hulls>,
     pub turrets: Box<super::turrets::Turrets>,
     pub buildings: super::buildings::Buildings,
-    animated: super::animated_props::Animated,
+    pub animated: super::animated_props::Animated,
     pub items: Box<super::items::Views>,
     models: Vec<Model>,
     classes: Vec<Option<usize>>,
+    can_repair: Vec<bool>,
     class_names: Vec<String>,
     // By class: a class's own skin on its shared body (OverrideTexture), as
     // the body's draw textures and spawn screen preview parts.
@@ -316,6 +320,7 @@ impl Replicas {
                 death_clip: -1.,
                 weapon_clips: Vec::new(),
                 bones: actor.bones.iter().map(|bone| bone.name.to_lowercase()).collect(),
+                parents: actor.bones.iter().map(|bone| bone.parent as i32).collect(),
                 preview,
                 preview_parts,
                 preview_geometry: (preview_geometry, grouped.indices.len(), grouped.groups.iter().map(|g| (g.first, g.count, g.material)).collect()),
@@ -357,6 +362,7 @@ impl Replicas {
             class_names[i + 1] = name.to_string();
         }
         let mut dive_times = vec![0.; classes.len()];
+        let mut can_repair = vec![false; classes.len()];
         for class in &defs.classes {
             let Some(id) = class.registry_id else {
                 continue;
@@ -364,6 +370,7 @@ impl Replicas {
             let body_constants = bfe_sim::units::class::soldier_body(&class.record, 1e6, class.getup_time, class.dive_time);
             turns[id as usize] = (body_constants.max_turn, body_constants.pitch_limits);
             dive_times[id as usize] = class.dive_time;
+            can_repair[id as usize] = class.weapons.iter().any(|w|defs.weapons[*w].record.get("base").and_then(bfe_content::Value::as_str)==Some("repair"));
             let Some(body) = class.body else {
                 continue;
             };
@@ -543,9 +550,12 @@ impl Replicas {
         let items = Box::new(super::items::Views::new(content, bridge, textures, resources.collision.clone(), resources.world)?);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
-        let turrets = Box::new(super::turrets::Turrets::new(content, bridge, textures)?);
-        let buildings = super::buildings::Buildings::new(content, bridge, textures)?;
-        let animated = super::animated_props::Animated::new(content, bridge, textures)?;
+        let turrets = Box::new(super::turrets::Turrets::new(content, bridge, textures, &combat.effect_names, registry.classes.len() + 1)?);
+        let buildings = super::buildings::Buildings::new(content, bridge, textures, &combat.effect_names, registry.classes.len() + 1)?;
+        let mut animated = super::animated_props::Animated::new(content, bridge, textures)?;
+        for slot in &slots {
+            animated.bind_actor(&units,slot.actor,slot.model,&models[slot.model].clips);
+        }
         units.rider_sources.bind(&hulls.owner.sources, &turrets.owner.sources);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
@@ -649,6 +659,7 @@ impl Replicas {
             items,
             models,
             classes,
+            can_repair,
             class_names,
             skins,
             light,
@@ -704,12 +715,13 @@ impl Replicas {
             );
             let (collision, world) = (&self.collision, self.world);
             let [yaw, pitch] = shot.fire;
+            let origin = if shot.walker { [shot.position[0], shot.position[1] + 1., shot.position[2]] } else { [basis.origin.x, basis.origin.y, basis.origin.z] };
             self.combat.predict(
                 shot.weapon,
                 shot.level,
                 shot.tick,
                 shot.button,
-                [basis.origin.x, basis.origin.y, basis.origin.z],
+                origin,
                 [yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos()],
                 shot.spread,
                 &mut |from, direction, far| {
@@ -722,9 +734,8 @@ impl Replicas {
         // The unit links then borrow its output by identity and generation.
         receiver.network.borrow_mut().present(tick, -1., prediction.fleet.identity.map_or(-1., |p| p.0));
         self.hulls.frame(receiver, tick, dt, &prediction.fleet, history, &mut self.combat.hull_fx);
-        self.turrets.frame(receiver, history, dt);
-        self.buildings.frame(receiver, dt);
-        self.animated.frame(receiver, tick, dt);
+        self.turrets.frame(receiver, history, dt, &mut self.combat.hull_fx);
+        self.buildings.frame(receiver, dt, &mut self.combat.hull_fx);
         self.items.frame(receiver, tick);
         self.frame = self.frame.wrapping_add(1);
         self.visible = 0;
@@ -895,6 +906,15 @@ impl Replicas {
                     self.units.input[f::COMMANDS] += 1.;
                 }
             }
+            // game.js onDeath: a droid that comes apart, killed on its feet,
+            // shorts out the Enhanced way.
+            if dead && !self.slots[slot].dead && self.slots[slot].gone.is_none() && self.combat.destruction.chunked(self.slots[slot].class) {
+                self.slots[slot].dead = true;
+                if let Some(body) = body_of(&self.slots, &self.models, &self.units, slot) {
+                    let body = super::destruction::Body { visible: true, ..body };
+                    self.combat.destruction.died(&body);
+                }
+            }
             self.slots[slot].dead = dead;
             let actor = self.slots[slot].actor;
             let input = &mut self.units.input[f::STRIDE + actor * i::STRIDE..][..i::STRIDE];
@@ -1024,6 +1044,10 @@ impl Replicas {
         // Network-linked rows receive motion from Rust. The retained parent
         // matrices describe placement only and do not reapply network motion.
         let identity = Matrix4::default().elements;
+        self.animated.frame(receiver,tick,dt,&self.units,|id,generation| {
+            let slot = &self.slots[*self.bound.get(&(id,generation))?];
+            (slot.active && !slot.walker).then_some((slot.actor,slot.model))
+        });
         for slot in &self.slots {
             let input = &mut self.units.input[f::STRIDE + slot.actor * i::STRIDE..][..i::STRIDE];
             if !slot.active {
@@ -1037,6 +1061,13 @@ impl Replicas {
             input[i::ACTOR] = slot.actor as f64;
             input[i::ALPHA] = 1.;
             input[i::HELD_CLIP] = -1.;
+            input[i::HELD] = 0.;
+            if let Some((matrix,time,clip)) = slot.identity.and_then(|(id,generation)|self.animated.held(id,generation)) {
+                input[i::HELD] = 1.;
+                input[i::HELD_MATRIX..i::HELD_MATRIX+16].copy_from_slice(&matrix);
+                input[i::HELD_TIME] = time;
+                input[i::HELD_CLIP] = clip as f64;
+            }
             input[i::ROOT_QUATERNION + 3] = 1.;
             input[i::POSE_PARENT..i::POSE_PARENT + 16].copy_from_slice(&identity);
             input[i::ATTACHMENT_PARENT..i::ATTACHMENT_PARENT + 16].copy_from_slice(&identity);
@@ -1429,6 +1460,10 @@ impl Replicas {
             rain.enhanced = looks.rain;
         }
         self.combat.map_effects.enhanced = looks.environment;
+        if self.combat.destruction.enhanced && !looks.destruction {
+            self.combat.destruction.clear();
+        }
+        self.combat.destruction.enhanced = looks.destruction;
     }
     /// The softParticles setting: particles and arcs fade where they meet
     /// the scene, which needs the frame's depth copy.
@@ -1451,7 +1486,30 @@ impl Replicas {
     }
     /// Weather.update once the camera is posed: the rain's draws, and its
     /// cover cache's texture when cells changed.
+    /// Destruction.update: the droids it tracks as drawn now, then what it
+    /// asks for (bodies to hide, lights) and its draws.
+    fn present_destruction(&mut self, dt: f64, eye: [f64; 3], bridge: &mut Bridge) {
+        let (slots, models, units) = (&self.slots, &self.models, &self.units);
+        let mut lookup = |unit: (u32, u32)| slots.iter().position(|s| s.active && s.identity == Some(unit)).and_then(|i| body_of(slots, models, units, i));
+        self.combat.destruction.frame(dt, eye, &mut lookup);
+        let hidden = std::mem::take(&mut self.combat.destruction.hidden);
+        for unit in &hidden {
+            if let Some(slot) = self.slots.iter_mut().find(|s| s.identity == Some(*unit)) {
+                slot.gone.get_or_insert(0.);
+            }
+        }
+        self.combat.destruction.hidden = hidden;
+        for (flash, position, color, radius, amount) in std::mem::take(&mut self.combat.destruction.lights) {
+            if flash {
+                self.lights.flash(position, color, radius, amount);
+            } else {
+                self.lights.add(position, color, radius, amount);
+            }
+        }
+        self.combat.destruction.draw(bridge);
+    }
     pub fn present_weather(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], screen: [i32; 2], gpu: &mut crate::resources::Resources, bridge: &mut Bridge) {
+        self.present_destruction(dt, eye, bridge);
         if let Some(steam) = &mut self.steam {
             steam.frame(dt, &self.combat.map_effects.volumes, screen, true, gpu, bridge);
         }
@@ -1538,12 +1596,16 @@ impl Replicas {
     ) {
         let hud = &self.hud;
         let viewer = receiver.own.team;
+        let can_repair = receiver.own.alive && self.bound.get(&(receiver.own.id as u32,receiver.own.generation as u32))
+            .and_then(|slot|self.can_repair.get(self.slots[*slot].class)).copied().unwrap_or(false);
         self.holograms.present(
             dt,
             eye,
             camera,
             world,
             &|name| hud.post_meta.iter().find(|post| post.name == name).map(|post| (post.team, post.active)),
+            &|id| self.buildings.states().any(|(i,state,_,_,_)|i==id && state=="unbuilt") || self.animated.unbuilt(id),
+            can_repair,
             &|team| hud.team_look(viewer, team),
             &mut self.lights,
             bridge,
@@ -1894,4 +1956,26 @@ impl DisplayCensus {
             eprintln!("units census t={}s world/drawn/astray {line} astray=[{}] light: shaded={shaded} dimmed={dimmed}", (tick / 60.) as u64, astray.join(" "));
         }
     }
+}
+
+// A droid's body as the destruction effects read it, None without one.
+fn body_of<'a>(slots: &'a [Slot], models: &'a [Model], units: &'a Units, slot: usize) -> Option<super::destruction::Body<'a>> {
+    let s = &slots[slot];
+    let unit = s.identity?;
+    let m = &models[s.model];
+    let out = &units.output[s.actor * o::STRIDE..];
+    Some(super::destruction::Body {
+        unit,
+        class: s.class,
+        walker: s.walker,
+        dead: s.dead,
+        visible: s.active && s.gone.is_none() && out[o::GONE] != -1.,
+        position: std::array::from_fn(|i| out[o::POSITION + i]),
+        velocity: std::array::from_fn(|i| out[o::VELOCITY + i]),
+        names: &m.bones,
+        parents: &m.parents,
+        nodes: &units.nodes,
+        stride: bfe_presentation::layout::unit_node::STRIDE,
+        at: (units.actor_node_start(s.actor) + 2) * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD,
+    })
 }

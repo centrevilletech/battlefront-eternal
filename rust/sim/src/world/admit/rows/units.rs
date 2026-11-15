@@ -561,7 +561,8 @@ pub fn build_bound_with(cx: &mut super::Cx<'_>, bindings: &InitialBindings,
     for binding in &bindings.items {
         calls.push(in_context(cx,|_,_|Ok(Entry::ItemClass(items.prepare(&binding.definition,binding.id,binding.pool,binding.model.clone()))))?);
     }
-    calls.push(in_context(cx,|_,_|Ok(Entry::ImpactRules(impact_rules(None))))?);
+    let friendly_fire=cx.options.bots.friendly_fire;
+    calls.push(in_context(cx,|_,_|Ok(Entry::ImpactRules(impact_rules(Some(&Value::Bool(friendly_fire))))))?);
     calls.push(in_context(cx,|_,_|Ok(Entry::RegistryPrepare))?);
     // Units.setTeams runs after AI admission. This first table is the original
     // six-team fallback, including neutral team zero on its own diagonal.

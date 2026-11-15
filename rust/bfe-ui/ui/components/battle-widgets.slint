@@ -138,7 +138,7 @@ component BattleSwapIcon inherits Rectangle {
         width: 100%;
         height: 100%;
         stroke: root.ink;
-        stroke-width: 1.6px;
+        stroke-width: max(1.6px, root.height * 0.16);
         fill: transparent;
         MoveTo { x: 2; y: 4; }
         LineTo { x: 14; y: 4; }
@@ -658,6 +658,8 @@ export component BattleTurntableArea inherits Rectangle {
         width: self.pill-w;
         height: self.pill-h;
         border-radius: self.pill-h * 0.5;
+        // bfe-spawn-hint: .55 to 1 and back every 3s.
+        opacity: 0.775 - 0.225 * cos(360deg * mod(animation-tick() / 1ms, 3000) / 3000);
         background: rgba(0, 0, 0, 0.42);
         border-width: 1px;
         border-color: Theme.bfe-accent.with-alpha(0.35);
@@ -835,15 +837,6 @@ export component BattleSpawnButton inherits Rectangle {
     property <length> key-size: clamp(1.2 * Theme.vh, 9px, 12px);
 
     background: transparent;
-
-    // .bfe-spawn-go-slot.ready breathes a drop shadow of the accent between 4px/40% and 18px/85%; held at its
-    // middle here (an animated blur re-renders the shadow every frame).
-    if root.can-spawn : Rectangle {
-        border-radius: Theme.bf2 ? self.height * 0.5 : 0px;
-        background: Theme.bfe-accent.with-alpha(0.01);
-        drop-shadow-blur: 11px;
-        drop-shadow-color: Theme.bfe-accent.with-alpha(0.62);
-    }
 
     PageButton {
         width: 100%;

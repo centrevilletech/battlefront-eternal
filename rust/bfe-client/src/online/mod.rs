@@ -32,6 +32,7 @@ pub mod sound_data;
 
 pub mod combat;
 mod debris;
+pub mod destruction;
 mod effects;
 pub mod jetpacks;
 pub mod fountains;
