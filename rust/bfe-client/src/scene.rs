@@ -1095,6 +1095,32 @@ impl Scene {
         );
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
+        // The HUD's solid art (rings, rules, bars) is a white pixel tinted per quad; the world's empty
+        // fallback is transparent black and drew none of them.
+        let solid = {
+            let gl = &bridge.r.core.gl;
+            let texture = unsafe {
+                let t = gl.create_texture()?;
+                gl.bind_texture(glow::TEXTURE_2D, Some(t));
+                gl.tex_image_2d(
+                    glow::TEXTURE_2D,
+                    0,
+                    glow::RGBA8 as i32,
+                    1,
+                    1,
+                    0,
+                    glow::RGBA,
+                    glow::UNSIGNED_BYTE,
+                    glow::PixelUnpackData::Slice(Some(&[255; 4])),
+                );
+                for key in [glow::TEXTURE_MIN_FILTER, glow::TEXTURE_MAG_FILTER] {
+                    gl.tex_parameter_i32(glow::TEXTURE_2D, key, glow::NEAREST as i32);
+                }
+                t
+            };
+            bridge.r.core.state.reset();
+            bridge.r.core.add_texture(texture)
+        };
         let online = if live {
             Some(Box::new(
                 crate::online::replicas::Replicas::new(
@@ -1106,7 +1132,7 @@ impl Scene {
                     prepared_particles.ok_or("missing battle particle resources")?,
                     prepared_sound.ok_or("missing battle audio resources")?,
                     &mut resources,
-                    empty,
+                    solid,
                     size,
                 )
                 .await?,
