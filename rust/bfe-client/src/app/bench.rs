@@ -4,8 +4,8 @@
 //! skips the menus, launches the battle, picks the team, class and command
 //! post on the spawn screen and spawns once. Only `map` is required. With
 //! `out`, the client appends one JSON line per simulation tick: the player
-//! and every soldier, droideka, vehicle and turret it knows, in the columns
-//! of `UNIT_COLUMNS`. The battle itself is the ordinary one: the world
+//! (with the weapons the client predicts for him) and every soldier,
+//! droideka, vehicle and turret it knows, in the columns of `UNIT_COLUMNS`. The battle itself is the ordinary one: the world
 //! thread, its publications and the spawn screen are untouched.
 use super::{
     battle::{BattleAuthority, BattleController},
@@ -21,7 +21,7 @@ use std::{
 };
 
 const UNIT_COLUMNS: &str =
-    r#"["id","kind","team","alive","health","x","y","z","vx","vy","vz","yaw","posture","state","weapon","fired"]"#;
+    r#"["id","kind","team","alive","health","x","y","z","vx","vy","vz","yaw","posture","state","weapon","fired","walkPhase","walkBlend"]"#;
 const POSTURES: [&str; 3] = ["stand", "crouch", "prone"];
 const KINDS: [&str; 4] = ["soldier", "droideka", "vehicle", "turret"];
 const GAITS: [&str; 9] = ["idle", "walk", "run", "walkBack", "runBack", "turnLeft", "turnRight", "walkLeft", "walkRight"];
@@ -94,7 +94,8 @@ impl Bench {
         }
     }
 
-    pub fn step_battle(&mut self, battle: &mut BattleController) {
+    /// `captured`: the window holds the mouse, so its motion turns the player.
+    pub fn step_battle(&mut self, battle: &mut BattleController, captured: bool) {
         if !self.spawned && battle.spawn_ctrl.is_open() {
             let waiting = self.spawn(battle);
             if waiting != self.waiting {
@@ -105,7 +106,7 @@ impl Bench {
             }
         }
         if self.out.is_some() {
-            if let Err(error) = self.log(battle) {
+            if let Err(error) = self.log(battle, captured) {
                 eprintln!("bench: log failed: {error}");
                 self.out = None;
             }
@@ -149,8 +150,8 @@ impl Bench {
         ""
     }
 
-    fn log(&mut self, battle: &BattleController) -> std::io::Result<()> {
-        let BattleAuthority::InstantAction { receiver, sender, map_id, replay, camera, .. } = &battle.authority else {
+    fn log(&mut self, battle: &BattleController, captured: bool) -> std::io::Result<()> {
+        let BattleAuthority::InstantAction { receiver, sender, replay, map_id, camera, .. } = &battle.authority else {
             return Ok(());
         };
         let Some(out) = &mut self.out else { return Ok(()) };
@@ -176,7 +177,7 @@ impl Bench {
         let [vx, vy, vz] = velocity;
         write!(
             out,
-            r#"{{"t":{:.4},"wall":{wall:.1},"tick":{tick},"player":{{"id":{},"team":{},"alive":{},"health":{:.1},"pos":[{x:.3},{y:.3},{z:.3}],"vel":[{vx:.3},{vy:.3},{vz:.3}],"yaw":{:.4},"pitch":{:.4},"posture":"{}","air":{},"spawnScreen":{},"auth":{{"tick":{},"pos":[{ax:.3},{ay:.3},{az:.3}],"vel":[{avx:.3},{avy:.3},{avz:.3}]}}"#,
+            r#"{{"t":{:.4},"wall":{wall:.1},"tick":{tick},"player":{{"id":{},"team":{},"alive":{},"health":{:.1},"pos":[{x:.3},{y:.3},{z:.3}],"vel":[{vx:.3},{vy:.3},{vz:.3}],"yaw":{:.4},"pitch":{:.4},"posture":"{}","air":{},"spawnScreen":{},"captured":{captured},"selected":{:?},"auth":{{"tick":{},"pos":[{ax:.3},{ay:.3},{az:.3}],"vel":[{avx:.3},{avy:.3},{avz:.3}]}},"weapons":["#,
             tick / 60.,
             own.id,
             own.team,
@@ -187,8 +188,22 @@ impl Bench {
             POSTURES.get(posture).copied().unwrap_or("?"),
             air,
             battle.spawn_ctrl.is_open(),
+            replay.selected(),
             own.tick,
         )?;
+        // The player's own weapons as the client predicts them: definition, rounds in the
+        // magazine, magazines in reserve, heat, and seconds of reload left.
+        let mut first = true;
+        for weapon in replay.weapons() {
+            if !std::mem::replace(&mut first, false) {
+                out.write_all(b",")?;
+            }
+            let rounds = if weapon.per_shot > 0. { (weapon.clip / weapon.per_shot).round() } else { 0. };
+            // A weapon that never runs out has no finite reserve: -1.
+            let reserve = if weapon.reserve.is_finite() { weapon.reserve } else { -1. };
+            write!(out, "[{},{rounds},{reserve},{:.3},{:.3}]", weapon.def.0, weapon.heat, weapon.reload_left)?;
+        }
+        out.write_all(b"]")?;
         if let Some((animation, clips)) = battle.scene.online.as_ref().and_then(|scene| scene.own_animation(receiver)) {
             write!(
                 out,
@@ -226,7 +241,7 @@ impl Bench {
             }
             write!(
                 out,
-                r#"[{},"{}",{},{},{:.1},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.4},"{}",{},{},{}]"#,
+                r#"[{},"{}",{},{},{:.1},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.4},"{}",{},{},{},{:.4},{:.3}]"#,
                 row[r::ID],
                 KINDS[kind as usize],
                 row[r::TEAM],
@@ -243,6 +258,8 @@ impl Bench {
                 row[r::STATE],
                 row[r::WEAPON],
                 row[r::FIRE_COUNTER],
+                row[r::WALK_PHASE],
+                row[r::WALK_BLEND],
             )?;
         }
         out.write_all(b"]}\n")?;

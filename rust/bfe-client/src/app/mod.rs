@@ -2284,7 +2284,7 @@ impl StandaloneWindowApp {
                         gate.step_battle(battle, &mut self.settings)?;
                     }
                     if let Some(bench) = &mut self.bench {
-                        bench.step_battle(battle);
+                        bench.step_battle(battle, self.pointer_locked);
                     }
                     let transition = battle.step_and_draw(
                         dt,

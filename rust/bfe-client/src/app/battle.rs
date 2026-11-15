@@ -1492,6 +1492,18 @@ impl BattleController {
         }
         self.settings_revision = rev;
         // Graphics settings the browser applies as they change.
+        if let Err(err) = self.scene.set_render_scale(settings.interface.get_f64("renderScale")) {
+            eprintln!("battle settings: render scale not applied: {err}");
+        }
+        let distance = self.scene.set_view_distance(&settings.interface.get_string("viewDistance"));
+        match &mut self.authority {
+            BattleAuthority::InstantAction { camera, .. } => camera.set_view_distance(distance),
+            BattleAuthority::Online { client, .. } => client.camera.set_view_distance(distance),
+        }
+        self.scene.set_post_effects(settings.interface.get_bool("bloom"), settings.interface.get_bool("softFocus"), &settings.interface.get_string("upscaler"));
+        self.scene.set_far_terrain(settings.interface.get_string("farTerrain") == "reduced");
+        self.scene.set_shadows_enabled(settings.interface.get_string("shadows") != "off");
+        self.scene.set_material_detail(settings.interface.get_bool("bumpMapping"), settings.interface.get_string("terrainDetail") == "enhanced");
         if let Err(err) = self
             .scene
             .set_antialiasing(&settings.interface.get_string("antialiasing"), &settings.interface.get_string("upscaler"))
@@ -1852,6 +1864,7 @@ impl BattleController {
                         command: cmd,
                         look,
                         flight,
+                        view_tick: receiver.clock.shown,
                     });
                 }
                 if !halted {
@@ -2477,6 +2490,7 @@ impl BattleController {
     // Pausing is a cold diagnostic boundary: record the actual displayed view
     // and input acknowledgement without formatting on the steady render path.
     fn log_control_snapshot(&self) {
+        self.scene.log_graphics();
         let (receiver, sender, camera, replay) = match &self.authority {
             BattleAuthority::InstantAction {
                 receiver,

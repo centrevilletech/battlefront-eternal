@@ -112,6 +112,8 @@ pub enum WorldMessage {
         command: ClientCommand,
         look: ClientLook,
         flight: ClientFlightCommand,
+        // The target sample actually displayed when this command was captured.
+        view_tick: f64,
     },
     /// Pauses (`true`) or resumes (`false`) the 60 Hz world simulation loop.
     Pause(bool),
@@ -791,7 +793,7 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
             };
             let Some(msg) = msg else { break };
             let done = match msg {
-                WorldMessage::Step { command, look, flight } => runtime.submit(&command, &look, &flight),
+                WorldMessage::Step { command, look, flight, view_tick } => runtime.submit(&command, &look, &flight, view_tick),
                 WorldMessage::Pause(p) => {
                     paused = p;
                     Ok(())

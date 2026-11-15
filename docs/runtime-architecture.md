@@ -103,10 +103,8 @@ and application state machine.
 
 ## Validation and performance
 
-`cargo xtask matrix` (`rust/xtask (matrix.rs)`) compares state, deep digest
-and publication hashes across the 61-cell world-hash matrix against the frozen
-reference in `tests/fixtures/world-hashes.json`. Native phase fixtures and
-recorded input replays (`rust/sim-replay`) check shared core behavior.
+Native phase fixtures and recorded input replays (`rust/sim-replay`) check
+shared core behavior. Complete battles use the shipped client/server pipeline.
 [renderer-smoke.md](renderer-smoke.md) describes content-free GPU checks;
 [host-qualification.md](host-qualification.md) covers server lifecycle, load
 and network acceptance.

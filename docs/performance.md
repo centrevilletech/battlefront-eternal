@@ -55,13 +55,12 @@ retained content, reserved capacity, used records and resources after close.
 
 ## Reproduce and check
 
-Use `rust/glbench`, `rust/v8math-check`, `cargo xtask matrix` and `bfe-client`
-to benchmark and verify simulation and rendering workloads:
+Use the simulation/rendering tests and `bfe-client` to verify and measure
+simulation and rendering workloads:
 
 ```sh
 cd rust
 cargo test --release --locked -p sim -p bfe-presentation -p bfe-render
-cargo run --release --locked -p glbench -- --help
 ```
 
 For a complete battle, use a release `bfe-client` build with the same content,
@@ -70,9 +69,7 @@ Alternate candidate and reference order, retain warmup rules, and record device
 and driver details with the result. Avoid background work that changes CPU or
 GPU contention during one role.
 
-`cargo xtask matrix` checks state, deep digest and published bytes against
-frozen reference hashes (`tests/fixtures/world-hashes.json`). Correctness
-captures and load tests are not performance qualification. In particular,
+Correctness captures and load tests are not performance qualification. In particular,
 software rendering cannot predict a physical GPU, and a fast GPU test machine
 cannot establish CPU performance on an older laptop.
 

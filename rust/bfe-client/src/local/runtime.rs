@@ -350,6 +350,9 @@ impl<E: Engine> Runtime<E> {
         command: &ClientCommand,
         look: &ClientLook,
         flight: &ClientFlightCommand,
+        // The target sample the screen showed when this command was made.
+        // The world's own receiver never advances a display clock.
+        view_tick: f64,
     ) -> Result<(), String> {
         if self.closed {
             return Err("local battle is closed".into());
@@ -364,7 +367,7 @@ impl<E: Engine> Runtime<E> {
             at_ms: self.now_ms,
             epoch: self.receiver.epoch,
             generation: self.receiver.own.generation,
-            view_tick: Some(self.receiver.clock.shown),
+            view_tick: Some(view_tick),
             flight_mode: self.receiver.own.body_schema == 7,
         })
     }

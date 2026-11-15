@@ -342,7 +342,7 @@ pub fn era_display_name(era_code: &str) -> Option<&'static str> {
     era_name(era_code)
 }
 
-/// Structured presence input from the native client or `desktop-tool presence test`.
+/// Structured presence input from the native client.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RawPresenceInput {

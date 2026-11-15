@@ -984,6 +984,7 @@ fn operation_packing_uses_generated_records_and_retains_both_arenas() {
 }
 
 struct ThreadedBoundary {
+    view_tick: std::sync::Arc<std::sync::atomic::AtomicU64>,
     sequence: std::sync::Arc<std::sync::atomic::AtomicU64>,
     block: bfe_sim::store::block::Block,
 }
@@ -992,6 +993,7 @@ impl runtime::Engine for ThreadedBoundary {
         Ok(())
     }
     fn input(&mut self, input: runtime::Input<'_>) -> Result<(), String> {
+        self.view_tick.store(input.view_tick.unwrap_or(-1.).to_bits(), std::sync::atomic::Ordering::SeqCst);
         self.sequence.store(input.command.sequence as u64, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
@@ -1072,8 +1074,8 @@ fn submitted_commands_keep_their_tick_stamps() {
     let (look, flight) = (ClientLook::default(), ClientFlightCommand::default());
     let ahead = ClientCommand { sequence: 1., tick: 3., ..Default::default() };
     let stale = ClientCommand { sequence: 2., tick: 0., ..Default::default() };
-    local.submit(&ahead, &look, &flight).unwrap();
-    local.submit(&stale, &look, &flight).unwrap();
+    local.submit(&ahead, &look, &flight, 0.).unwrap();
+    local.submit(&stale, &look, &flight, 0.).unwrap();
     assert_eq!(*seen.borrow(), [[3., 0.], [1., 0.]]);
 }
 
@@ -1088,8 +1090,11 @@ fn threaded_world_steps_at_60hz_without_blocking_or_allocating_on_render_thread(
 
     let sequence = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let observed = sequence.clone();
+    let view_tick = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let observed_view = view_tick.clone();
     let mut world = WorldThread::spawn_native(move || {
         let engine = ThreadedBoundary {
+            view_tick,
             sequence,
             block: published(&bfe_sim::gen::WirePublicationOutput::default()),
         };
@@ -1148,6 +1153,7 @@ fn threaded_world_steps_at_60hz_without_blocking_or_allocating_on_render_thread(
             command: cmd,
             look: ClientLook { x: 1.0, y: 0.0 },
             flight: ClientFlightCommand::default(),
+            view_tick: 42.5,
         });
         let _ = world
             .poll_publications(&mut receiver, 200.0 + i as f64)
@@ -1156,6 +1162,12 @@ fn threaded_world_steps_at_60hz_without_blocking_or_allocating_on_render_thread(
     MEASURE.with(|enabled| enabled.set(false));
     assert_eq!(ALLOCATIONS.with(|count| count.get()), 0);
     assert_eq!(world.renderer_blocks(), 0);
+
+    // Allow the real world-thread handoff to consume the queued input.
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    let shown = f64::from_bits(observed_view.load(std::sync::atomic::Ordering::SeqCst));
+    println!("render view tick=42.5 authority fire view tick={shown}");
+    assert_eq!(shown, 42.5, "fire rewind must use the renderer's displayed tick");
 
     // Verify pause halts tick advancement and resume continues.
     world.set_paused(true);

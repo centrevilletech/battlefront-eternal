@@ -35,9 +35,9 @@ Server qualification exercises `bfeserver` across four areas:
    namespace (`ip`/`tc`), apply 50 +/- 15 ms delay and 5% kernel loss in each
    direction, followed by a 3-second total blackout and recovery, verifying
    authenticated reconnects and continuous 60 Hz authority advancement.
-4. **Exact-tree parity:** Run `cargo xtask check` and `cargo xtask matrix`
-   against the frozen 61-cell reference hashes (`tests/fixtures/world-hashes.json`)
-   and frozen publication cases (`tests/fixtures/f6-publications.jsonl`).
+4. **Generated code and publication checks:** Run `cargo xtask check` and
+   the simulation publication tests, including cross-architecture determinism
+   fixtures (`cargo test -p sim --test arm64_determinism`).
 
 ## Acceptance matrix
 
