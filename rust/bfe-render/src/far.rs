@@ -80,6 +80,9 @@ pub const F_TRANSPARENT: u32 = 64; // in three's transparent list
 pub const F_PLACED: u32 = 128; // its matrix comes from the input
 pub const F_CULLED: u32 = 256; // frustum culled by its bounding sphere
 pub const F_BLEND: u32 = 512;
+// Transparent double-sided world materials draw backs before fronts, as
+// WebGLRenderer does when forceSinglePass is false.
+pub const F_DOUBLE_PASS: u32 = 1024;
 
 // GL uniform types.
 const FLOAT: u32 = 0x1406;
@@ -806,7 +809,6 @@ impl<C: HasContext> FarPass<C> {
         }
         // three's setMaterial: culling, blending, depth, colour, coverage.
         let f = item.flags;
-        state.cull(gl, stats, f & 3);
         if f & F_BLEND != 0 && !item.input_blend.is_some_and(|at|self.input.get(at).copied().unwrap_or(0.)>0.) {
             let b = item.blend;
             state.blend(gl, stats, true);
@@ -825,23 +827,28 @@ impl<C: HasContext> FarPass<C> {
             self.vao = Some(geo.vao);
             stats.gl_calls += 1;
         }
-        unsafe {
-            if ranges > 1 {
-                match &mut item.draw {
-                    Draw::Cells(c) => core.multi.multi_draw(glow::TRIANGLES, &mut c.counts[..ranges], geo.index_type, &mut c.offsets[..ranges]),
-                    Draw::Terrain(t) => core.multi.multi_draw(glow::TRIANGLES, &mut t.counts[..ranges], glow::UNSIGNED_INT, &mut t.offsets[..ranges]),
-                    Draw::Range(..) => {}
+        let double = f & F_DOUBLE_PASS != 0;
+        let sides = [if double { 3 } else { f & 3 }, 0];
+        for &side in &sides[..if double { 2 } else { 1 }] {
+            state.cull(gl, stats, side);
+            unsafe {
+                if ranges > 1 {
+                    match &mut item.draw {
+                        Draw::Cells(c) => core.multi.multi_draw(glow::TRIANGLES, &mut c.counts[..ranges], geo.index_type, &mut c.offsets[..ranges]),
+                        Draw::Terrain(t) => core.multi.multi_draw(glow::TRIANGLES, &mut t.counts[..ranges], glow::UNSIGNED_INT, &mut t.offsets[..ranges]),
+                        Draw::Range(..) => {}
+                    }
+                } else if matches!(item.draw, Draw::Terrain(_)) {
+                    gl.draw_elements(glow::TRIANGLES, count, glow::UNSIGNED_INT, first * 4);
+                } else if instances > 0 {
+                    gl.draw_elements_instanced(glow::TRIANGLES, count, geo.index_type, first * geo.index_bytes, instances as i32);
+                } else {
+                    gl.draw_elements(glow::TRIANGLES, count, geo.index_type, first * geo.index_bytes);
                 }
-            } else if matches!(item.draw, Draw::Terrain(_)) {
-                gl.draw_elements(glow::TRIANGLES, count, glow::UNSIGNED_INT, first * 4);
-            } else if instances > 0 {
-                gl.draw_elements_instanced(glow::TRIANGLES, count, geo.index_type, first * geo.index_bytes, instances as i32);
-            } else {
-                gl.draw_elements(glow::TRIANGLES, count, geo.index_type, first * geo.index_bytes);
             }
+            stats.gl_calls += 1;
+            stats.pass_draws[counted] += 1;
         }
-        stats.gl_calls += 1;
-        stats.pass_draws[counted] += 1;
     }
 
     // How many items are registered (the page's checks).
