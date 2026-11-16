@@ -636,6 +636,8 @@ impl Replicas {
         bridge.r.core.state.reset();
         let steam_at = snow.as_ref().map_or(snow_at, |s| s.end());
         let steam = super::steam::Steam::new(content, bridge, textures, renderer, steam_at)?.map(Box::new);
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let fountains_at = steam.as_ref().map_or(steam_at, |s| s.end());
         let fountains = super::fountains::Fountains::new(content, bridge, textures, renderer, fountains_at)?.map(Box::new);
         crate::loading_work::frame().await;
