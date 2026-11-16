@@ -2,7 +2,7 @@
 //! This adapter supplies generated device records and transport receipts; it
 //! keeps only the bounded command/edge metadata needed to retry publication.
 use super::receiver::Receiver;
-use crate::generated_input::{ClientCommand, ClientFlightCommand, ClientLook};
+use crate::generated_input::{ClientCommand, ClientFlightAction, ClientFlightCommand, ClientFlightHeld, ClientLook};
 use bfe_presentation::{
     network::{input::encode, outbound::Outbound, Output, Words},
     network_layout::{net_edge as e, net_header as h, net_op as op, net_outbound as out, net_view as v},
@@ -49,8 +49,11 @@ pub struct Sender {
     latest: Option<State>,
     backup: Option<State>,
     use_backup: bool,
-    held: [usize; 9],
+    held: [usize; KEYS.len()],
     actions: [usize; ACTIONS.len()],
+    flight_actions: [usize; ClientFlightAction::NAMES.len()],
+    // The newest command's flight settings and pad, sent with its view.
+    flight: Option<ClientFlightCommand>,
     pointers: [Pointer; 128],
     pointer_at: usize,
     pointer_count: usize,
@@ -80,7 +83,11 @@ pub struct Sender {
     late_seen: u64,
     local_next: Option<f64>,
 }
-const KEYS: [&str; 9] = ["KeyW", "KeyS", "KeyD", "KeyA", "NumpadMultiply", "NumpadDivide", "Mouse0", "Mouse2", "Space"];
+// ClientCommand.held bit order, then a pilot's boost and roll lock (the
+// world's own keys for them), which only a craft's command carries.
+const KEYS: [&str; 11] =
+    ["KeyW", "KeyS", "KeyD", "KeyA", "NumpadMultiply", "NumpadDivide", "Mouse0", "Mouse2", "Space", "ShiftLeft", "KeyZ"];
+const FLIGHT_KEYS: [(ClientFlightHeld, u32); 2] = [(ClientFlightHeld::Boost, 9), (ClientFlightHeld::RollLock, 10)];
 // ClientCommand.actions bit order (ClientAction).
 const ACTIONS: [&str; 15] = crate::generated_input::ClientAction::NAMES;
 fn put(x: &mut [f64], at: &mut usize, n: f64) {
@@ -94,6 +101,8 @@ impl Default for Sender {
         let held = KEYS.map(|name| INPUT_CODES.iter().position(|n| *n == name).expect("generated input code"));
         let actions =
             ACTIONS.map(|name| INPUT_ACTIONS.iter().position(|n| *n == name).unwrap_or(if name == "firePrimary" { 21 } else { 22 }));
+        let flight_actions =
+            ClientFlightAction::NAMES.map(|name| INPUT_ACTIONS.iter().position(|n| *n == name).expect("generated flight action"));
         Self {
             aim_scene: None,
             fire_aim: None,
@@ -110,6 +119,8 @@ impl Default for Sender {
             use_backup: false,
             held,
             actions,
+            flight_actions,
+            flight: None,
             pointers: [Pointer::default(); 128],
             pointer_at: 0,
             pointer_count: 0,
@@ -250,6 +261,20 @@ impl Sender {
         self.invert = c.invert.unwrap_or(false);
         self.first_person = c.first_person.unwrap_or(false);
         self.sequence = self.sequence.wrapping_add(1).max(1);
+        // A pilot's command carries the craft's own keys as the Instant Action
+        // command does (local/commands.rs): its boost and roll lock held, its
+        // take-off, trick, loop and target lock presses. On foot they stay off
+        // the wire, so a press is never left queued for a later boarding.
+        let flying = receiver.in_aircraft();
+        let mut held = c.held & 0x1ff;
+        if flying {
+            for (flag, bit) in FLIGHT_KEYS {
+                if flight.held & (1 << flag as u8) != 0 {
+                    held |= 1 << bit;
+                }
+            }
+        }
+        self.flight = flying.then(|| flight.clone());
         // TargetLead uses the same transit estimate and future bound as the
         // page. Sequences remain distinct even when that bound holds a tick.
         if self.local {
@@ -289,8 +314,8 @@ impl Sender {
         let count = at;
         put(&mut x, &mut at, 0.);
         let start = at;
-        for bit in 0..9 {
-            if c.held & (1 << bit) != 0 {
+        for bit in 0..KEYS.len() {
+            if held & (1 << bit) != 0 {
                 let name = KEYS[bit];
                 put(&mut x, &mut at, name.len() as f64);
                 for b in name.bytes() {
@@ -310,6 +335,13 @@ impl Sender {
                 put(&mut x, &mut at, self.actions[bit] as f64);
             }
         }
+        if flying {
+            for (bit, &action) in self.flight_actions.iter().enumerate() {
+                if flight.actions & (1 << bit) != 0 {
+                    put(&mut x, &mut at, action as f64);
+                }
+            }
+        }
         for (code, count) in [(21, c.primary_count.min(32)), (22, c.secondary_count.min(32))] {
             for _ in 0..count {
                 put(&mut x, &mut at, code as f64);
@@ -326,7 +358,7 @@ impl Sender {
         let state = State {
             sequence: self.sequence as f64,
             tick,
-            held: c.held,
+            held,
             look: [values[out::LOOK_X], values[out::LOOK_Y]],
             revision: values[out::REVISION],
         };
@@ -525,6 +557,30 @@ impl Sender {
             x[start + v::MOUSE_SCALE] = self.mouse_scale;
             x[start + v::ASPECT] = self.aspect;
             x[start + v::VIEW_TICK] = super::clock::rendered_tick(receiver.clock.shown, receiver.latest);
+            // A pilot's flight settings and pad, as the Instant Action
+            // mailbox gets them: the server's stick reads them as the
+            // prediction does.
+            if let Some(flight) = &self.flight {
+                let mut flags = 4. + if flight.invert { 8. } else { 0. };
+                // Settings outside the wire's ranges stay home: the server
+                // then reads its own defaults rather than refusing the packet.
+                if flight.scale > 0. && flight.scale <= 10. {
+                    flags += 256.;
+                    x[start + v::SENSITIVITY] = flight.scale;
+                }
+                if (0.1..=4.).contains(&flight.curve) {
+                    flags += 512.;
+                    x[start + v::CURVE] = flight.curve;
+                }
+                if flight.pad_buttons != 0 || flight.pad_axes.iter().any(|a| *a != 0.) {
+                    flags += 16.;
+                    for (out, axis) in x[start + v::AXES..start + v::AXES + 4].iter_mut().zip(flight.pad_axes) {
+                        *out = axis.clamp(-1., 1.);
+                    }
+                    x[start + v::BUTTONS] = f64::from(flight.pad_buttons & 0xffff);
+                }
+                x[start + v::FLAGS] += flags;
+            }
             for state in &states[..commands] {
                 for n in [1., state.sequence, state.tick, 0.] {
                     put(&mut x, &mut at, n);
@@ -532,7 +588,7 @@ impl Sender {
                 let count = at;
                 put(&mut x, &mut at, 0.);
                 let first = at;
-                for bit in 0..9 {
+                for bit in 0..KEYS.len() {
                     if state.held & (1 << bit) != 0 {
                         put(&mut x, &mut at, self.held[bit] as f64);
                     }
@@ -669,5 +725,33 @@ mod tests {
         // The world took one late: a tick more from now on.
         sender.local_lateness(1);
         assert_eq!(step(&mut sender, 104.), 106.);
+    }
+
+    // A pilot's take-off press and boost reach the server as they reach an
+    // Instant Action world; on foot the same flight bits send nothing.
+    #[test]
+    fn a_pilots_flight_keys_go_on_the_wire() {
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        receiver.welcomed = true;
+        receiver.complete = true;
+        receiver.corrections = 1;
+        receiver.own.generation = 1.;
+        let flight = ClientFlightCommand {
+            held: 1 << ClientFlightHeld::Boost as u8,
+            actions: 1 << ClientFlightAction::Takeoff as u8,
+            scale: 1.,
+            curve: 1.35,
+            ..Default::default()
+        };
+        let takeoff = INPUT_ACTIONS.iter().position(|a| *a == "takeoff").unwrap() as f64;
+        let sent = |receiver: &Receiver| {
+            let mut sender = Sender::default();
+            sender.tick(&ClientCommand::default(), &ClientLook::default(), &flight, receiver, 0., 0.);
+            let actions: Vec<f64> = sender.edges[..sender.edge_count].iter().map(|row| row[e::ACTION]).collect();
+            (actions, sender.latest.unwrap().held, sender.flight.is_some())
+        };
+        assert_eq!(sent(&receiver), (vec![], 0, false));
+        receiver.own.flight = Some(0);
+        assert_eq!(sent(&receiver), (vec![takeoff], 1 << 9, true));
     }
 }
