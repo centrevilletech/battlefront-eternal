@@ -35,7 +35,7 @@ EXACT = [
 # the HUD's atlases and vectors, audits and test harnesses.
 UNFINGERPRINTED = {
     "enhance_audio.py", "make_binaural.py", "zero_sound.py", "zero_texture.py", "ktx2.py",
-    "upscale_hud.py", "vectorize_hud.py",
+    "upscale_hud.py", "vectorize_hud.py", "renderer-smoke-native.py",
 }
 PLATFORM_MATH = re.compile(
     r"math\.(sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|asinh|acosh|atanh|exp|exp2|expm1|log|log2|log10|log1p|pow|cbrt|erf|erfc|gamma|lgamma)\("
