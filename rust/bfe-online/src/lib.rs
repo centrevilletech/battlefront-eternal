@@ -19,6 +19,7 @@ pub mod identity;
 pub mod lan;
 pub mod master;
 pub mod ping;
+pub mod rendezvous;
 
 pub use browser::{
     battle_params, battle_summary_params, clean_sponsor, compatible, country_of, describe_server,

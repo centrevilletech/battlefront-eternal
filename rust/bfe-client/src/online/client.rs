@@ -97,7 +97,7 @@ impl Client {
             self.authenticated = true;
         }
         if !self.authenticated && self.endpoint.now() - self.connecting_at >= Duration::from_secs(30).as_millis() as f64 {
-            return Err("battle connection timed out".into());
+            return Err(self.endpoint.waiting_reason().unwrap_or_else(|| "battle connection timed out".into()));
         }
         if let Some(error) = receiver.error() {
             return Err(error);

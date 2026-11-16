@@ -1,7 +1,7 @@
 //! Direct joins read bounded public metadata before signing a game hello.
 //! Gameplay policy remains in bfeserver; the client checks its own content and
 //! the engine's generated contract independently of the advertised digest.
-use std::{io::{Read,Write},net::{TcpStream,ToSocketAddrs},path::{Path,PathBuf},time::Duration};
+use std::{io::{Read,Write},net::{TcpStream,ToSocketAddrs},path::{Path,PathBuf},time::{Duration,Instant}};
 use serde::Deserialize;
 use bfe_transport::{crypto::{Identity,random},layout::network_contract as contract};
 #[derive(Deserialize)]
@@ -106,6 +106,22 @@ pub fn identity(path:&Path)->Result<Identity,String>{
         assert!(version_mismatch(&format!("bfe-sim-{}",ours+1)).contains("Update the game"));
         assert!(version_mismatch("unknown").contains("another version"));
     }
+    // Rehearsal probe (not run by default): joins the listed server BFE_PROBE_SERVER through the
+    // master at BFE_MASTER_URL with content BFE_PROBE_CONTENT, exactly as JOIN does, and reports the path.
+    #[test]#[ignore]fn relay_probe(){
+        let id=std::env::var("BFE_PROBE_SERVER").expect("BFE_PROBE_SERVER");let content=std::env::var("BFE_PROBE_CONTENT").expect("BFE_PROBE_CONTENT");
+        let key=std::env::temp_dir().join(format!("bfe-probe-{}.key",std::process::id()));
+        let started=std::time::Instant::now();
+        let (server,mut endpoint)=super::prepare_listed(&id,Path::new(&content),&key,"PROBE").expect("prepare");
+        eprintln!("PROBE prepared {} in {} ms",server.name,started.elapsed().as_millis());
+        while !endpoint.ready(){
+            endpoint.pump(&mut |_,_,_,_|{}).expect("pump");
+            assert!(started.elapsed()<Duration::from_secs(40),"PROBE FAILED: {:?}",endpoint.waiting_reason());
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        eprintln!("PROBE CONNECTED via {:?} after {} ms",endpoint.path(),started.elapsed().as_millis());
+        let _=std::fs::remove_file(key);
+    }
     #[test]fn bounded_http_body_handles_content_length_and_chunks(){
         assert_eq!(response(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}").unwrap(),b"{}");
         assert_eq!(response(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\n{\r\n1\r\n}\r\n0\r\n\r\n").unwrap(),b"{}");
@@ -125,4 +141,103 @@ pub fn prepare(address:&str,root:&Path,path:&Path,name:&str,expected:Option<&str
     let hash=bfe_content_native::fingerprint::hash(&files,&server.query)?;
     let endpoint=Box::new(bfe_transport::endpoint::Endpoint::connect(address,identity(path)?,server.identity()?,&Server::hello(&hash,name)).map_err(|e|e.to_string())?);
     Ok((server,endpoint))
+}
+
+// A listed server that names no direct address (relay policy "auto" or
+// "always"): its information comes from the master's listing, and the paths to
+// it from the master's signalling (hole punching, then the relayed address the
+// server adds). `target` for later probes is "listed:<id>".
+pub const LISTED:&str="listed:";
+pub fn listed_server(master:&bfe_online::master::MasterClient,server_id:&str)->Result<(Server,bfe_online::browser::ServerEntry),String>{
+    let listing=master.server_info(&server_id.to_ascii_lowercase()).map_err(|e|format!("The online service no longer lists this server ({e}). Refresh the list."))?;
+    if !listing.id.eq_ignore_ascii_case(server_id){return Err("The online service listed another server under this identity. Refresh the list.".into());}
+    let server=Server{id:listing.id.clone(),protocol:listing.protocol.unwrap_or(0) as usize,profile:contract::PROFILE.to_string(),simulation:listing.simulation.clone().unwrap_or_default(),
+        content:listing.content.clone().unwrap_or_default(),query:listing.query.clone().unwrap_or_default(),name:listing.name.clone()};
+    server.validate()?;Ok((server,listing))
+}
+// Rotation and rejoin probes: /info over HTTP for an address, the master's
+// listing (renewed by the server's heartbeat every 20 s) for a listed server.
+pub fn read_target(target:&str)->Result<Server,String>{
+    let Some(id)=target.strip_prefix(LISTED)else{return Server::read(target);};
+    let player=bfe_online::identity::PlayerIdentity::load_or_create(&default_identity()?)?;
+    let master=bfe_online::master::MasterClient::new(bfe_online::master::resolve_master_url(),player);
+    listed_server(&master,id).map(|(server,_)|server)
+}
+pub fn prepare_listed(server_id:&str,root:&Path,path:&Path,name:&str)->Result<(Server,Box<bfe_transport::endpoint::Endpoint>),String>{
+    use bfe_online::rendezvous::{self as rv,Candidate,Signalling};
+    use std::net::{SocketAddr,UdpSocket};
+    // The game identity first: it creates the key file in the game's format.
+    let transport=identity(path)?;
+    let player=bfe_online::identity::PlayerIdentity::load_or_create(path)?;
+    let master=bfe_online::master::MasterClient::new(bfe_online::master::resolve_master_url(),player);
+    let (server,listing)=listed_server(&master,server_id)?;
+    let id=listing.id.to_ascii_lowercase();
+    if listing.relay_policy.as_deref()==Some("never"){return Err("This server is listed without an address. Refresh the list.".into());}
+    // The relay the master names also answers STUN: this player's public address.
+    let credentials=master.relay_credentials(Some(&id));
+    if let Err(error)=&credentials{eprintln!("online join: no relay credentials ({error}); trying without them");}
+    let stun_host=credentials.as_ref().ok().and_then(|c|rv::stun_from_turn_urls(&c.urls)).unwrap_or_else(||rv::DEFAULT_STUN.to_string());
+    let stun=stun_host.to_socket_addrs().ok().and_then(|mut a|a.find(SocketAddr::is_ipv4));
+    let v4=UdpSocket::bind("0.0.0.0:0").map_err(|e|format!("cannot open UDP socket: {e}"))?;
+    let mut offered=Vec::with_capacity(4);
+    let port=v4.local_addr().map_err(|e|e.to_string())?.port();
+    if let Some(stun)=stun{
+        if let Some(ip)=rv::local_address(stun){offered.push(Candidate{address:SocketAddr::new(ip,port),kind:"host"});}
+        match rv::reflexive(&v4,stun,Duration::from_secs(3)){
+            Some(mapped)=>{if !offered.iter().any(|c|c.address==mapped){offered.push(Candidate{address:mapped,kind:"srflx"});}},
+            None=>eprintln!("online join: no STUN answer from {stun_host}"),
+        }
+    }else{eprintln!("online join: cannot resolve STUN server {stun_host}");}
+    let mut sockets=vec![v4];
+    // IPv6 when this machine has a global address (no NAT to open there).
+    if let Ok(v6)=UdpSocket::bind("[::]:0"){
+        let global=rv::local_address("[2001:4860:4860::8888]:53".parse().map_err(|_|"bad address")?).filter(|ip|matches!(ip,std::net::IpAddr::V6(v)if v.segments()[0]&0xe000==0x2000));
+        if let (Some(ip),Ok(local))=(global,v6.local_addr()){offered.push(Candidate{address:SocketAddr::new(ip,local.port()),kind:"host"});}
+        sockets.push(v6);
+    }
+    eprintln!("online join: offering {} candidates to {}",offered.len(),&id[..12]);
+    let mut signalling=Signalling::open(&master).map_err(|e|format!("Cannot reach the online service to contact this server: {e}"))?;
+    let nonce=rv::new_nonce()?;
+    signalling.send(&id,"offer",&rv::offer_payload(&nonce,&offered))?;
+    let mut nonces=vec![nonce];
+    let deadline=Instant::now()+Duration::from_secs(10);let mut first=None;
+    while first.is_none()&&Instant::now()<deadline{
+        if let Some(text)=signalling.receive(Duration::from_millis(200))?{first=rv::parse_answer(&text,&id,&nonces);}
+    }
+    let Some(first)=first else{signalling.close();return Err("The server did not answer through the online service. It may have stopped or be busy; refresh the list and try again.".into());};
+    eprintln!("online join: answer with {} candidates",first.len());
+    let (found,candidates)=std::sync::mpsc::channel();let (start,started)=std::sync::mpsc::channel();
+    for path in &first{let _=found.send(*path);}
+    let alive=std::sync::Arc::new(());let watch=std::sync::Arc::downgrade(&alive);
+    let keep=sockets[0].try_clone().map_err(|e|e.to_string())?;
+    let hello_offered=offered.clone();
+    std::thread::Builder::new().name("bfe-rendezvous".into()).spawn(move||{
+        // Until the handshake starts (after the battle loads), keep this
+        // player's router mapping open toward the server's addresses; then
+        // offer again so the server punches again, and pass on what follows.
+        let mut known:Vec<SocketAddr>=first;let begun=Instant::now();let mut next_keep=Instant::now();let mut renewed=false;
+        while watch.upgrade().is_some()&&begun.elapsed()<Duration::from_secs(300){
+            if !renewed&&started.try_recv().is_ok(){
+                renewed=true;
+                if let Ok(nonce)=rv::new_nonce(){if signalling.send(&id,"offer",&rv::offer_payload(&nonce,&hello_offered)).is_ok(){nonces.push(nonce);}}
+            }
+            if !renewed&&Instant::now()>=next_keep{
+                next_keep=Instant::now()+Duration::from_secs(2);
+                for path in known.iter().filter(|p|p.is_ipv4()){let _=keep.send_to(&[bfe_transport::layout::packet::PUNCH as u8,0,0,0,0,0,0,0,0],path);}
+            }
+            match signalling.receive(Duration::from_millis(200)){
+                Ok(Some(text))=>if let Some(paths)=rv::parse_answer(&text,&id,&nonces){
+                    for path in paths{if !known.contains(&path){eprintln!("online join: further candidate {path}");known.push(path);}if found.send(path).is_err(){break;}}
+                },
+                Ok(None)=>{},
+                Err(error)=>{eprintln!("online join: {error}");break;},
+            }
+        }
+        signalling.close();
+    }).map_err(|e|e.to_string())?;
+    let files=bfe_content::files::DirFiles::new(root);
+    let hash=bfe_content_native::fingerprint::hash(&files,&server.query)?;
+    let endpoint=bfe_transport::endpoint::Endpoint::rendezvous(sockets,transport,server.identity()?,&Server::hello(&hash,name),
+        bfe_transport::endpoint::Rendezvous{candidates,start:Some(start),alive}).map_err(|e|e.to_string())?;
+    Ok((server,Box::new(endpoint)))
 }
