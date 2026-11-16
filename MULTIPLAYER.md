@@ -54,7 +54,7 @@ behavior. Multiplayer is designed for both games from the start.
 | The server browser shows whether this player connects directly or through a relay | Today it shows the server's relay policy; planned: per-player path checks, explicit unchecked/checking states, actual active path shown while connected |
 | ONLINE lists servers from a master server at `online.battlefronteternal.com`; settings can point at any other | The master also does signaling, player identity and relay credentials; a client can list several masters and merge them |
 | The master is open source, ships as a Docker container, and runs HTTPS over IPv4 and IPv6 from day one | Its own public repository; a Compose file behind an HTTPS reverse proxy, plus a compatible relay stack |
-| Linux dedicated servers: one install, runs as a service, a menu instead of config files | `bfeserver`: a native Rust service running the client's own simulation; a systemd service today, with a numbered menu that works over SSH planned |
+| Linux dedicated servers: one install, runs as a service, a menu instead of config files | `bfeserver`: a native Rust service running the client's own simulation, a systemd service, with a numbered setup menu (`bfeserver` with no arguments); the fuller menu below is planned |
 | Direct connections to a public IPv4 or IPv6 address; otherwise through `relay.battlefronteternal.com` | Native encrypted UDP (BFE-UDP/1, protocol 3) replaced WebRTC; direct, hole punching, then relay |
 | A playlist editor with rules per map; optional location sharing | Location off by default for players and hosts; coarse location only when enabled |
 | Notice before entering the online server browser | Explain IP processing, conditional relay use and independent operators; separate optional location permission |
@@ -732,9 +732,10 @@ distributed alongside its service unit repository
 It runs on a GPU-free Linux VPS, serves up to 64 players (32 a side) with bots
 filling the empty slots, and is the same binary the desktop app launches for
 HOST. What runs today is the systemd service described in
-[docs/server-updates.md](docs/server-updates.md). The install packages, the
-setup menu, the command line and the Steam acquisition below are planned
-design, and are marked as such.
+[docs/server-updates.md](docs/server-updates.md), its setup menu (`bfeserver`
+with no arguments) and its command line (`--serve`, `--admin`, `--version`,
+`--help`). The install packages, the fuller menu and commands and the Steam
+acquisition below are planned design, and are marked as such.
 
 ### Headless performance requirement
 
@@ -890,11 +891,16 @@ through setup. Bundle-only import and the running server need neither Python
 nor SteamCMD. The distribution must account for Valve's SteamCMD distribution
 terms; provision the official helper rather than assuming it can be repackaged.
 
-### The menu (planned)
+### The menu
 
-The current server is configured through `config.json` in its state folder (see
-the battlefront-eternal-server README). The menu and commands below are the
-planned interface.
+Today `bfeserver` with no arguments opens a numbered menu over its
+`config.json` (state folder: `--dir`, else `BFE_STATE_DIR`, else
+`~/.local/share/bfeserver`): the server's name, data folder, playlist,
+online listing, relay policy, global bans, bots, the config file, live
+administration of a running server (status and players, kick, ban, unban,
+statistics, a server message, restart the match) and starting the server.
+It saves after every choice. The menu and commands below are the planned,
+fuller interface.
 
 `bfeserver` with no arguments opens the menu: numbered choices, keyboard
 only, working over SSH in 80x24 and without colour. It talks to the running
