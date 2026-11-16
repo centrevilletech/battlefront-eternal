@@ -110,7 +110,7 @@ Measured on an old machine, with the preset the app picked by itself:
 
 Busy maps (Endor, Mos Eisley, Geonosis) are the hardest. Minimum draws the
 scenery out to the 2004 game's SHORT view distance; past that, a lower
-RENDER SCALE helps most on a weak chip.
+RENDER SCALE or a lower full-screen RESOLUTION helps most on a weak chip.
 
 ## Classic and Enhanced
 

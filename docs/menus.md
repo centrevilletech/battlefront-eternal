@@ -215,7 +215,9 @@ end also the online and credits rows and STEAM & DISCORD,
   INSTANT ACTION HEROES, DIFFICULTY, BATTLE AI, BATTLE SIZE, STATS LINE,
   SIMULATION RATE, RESET TO DEFAULTS.
 - **VIDEO OPTIONS:** the quality preset (its note names the GPU, and warns
-  when the graphics driver draws in software), frame limit, adaptive resolution, render scale (0.25 to 2; its
+  when the graphics driver draws in software), RESOLUTION (DESKTOP, or one of
+  the monitor's own modes for exclusive full screen, as the 2004 game's
+  option offered them), frame limit, adaptive resolution, render scale (0.25 to 2; its
   note the 3D view's size), upscaler (its note what each costs) and
   sharpening, antialiasing, shadows, texture filtering, compressed
   textures, water, view distance (SHORT, ORIGINAL, FAR, MAXIMUM), far terrain, bump mapping, soft focus,
