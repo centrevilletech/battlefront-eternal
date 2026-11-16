@@ -1628,6 +1628,33 @@ fn loopback_http_request(
 
 #[cfg(test)]
 mod tests {
+    // Rehearsal probe (not run by default): hosts a PUBLIC game exactly as the CREATE tab does
+    // (BFE_HOST_SERVER_BIN, master BFE_MASTER_URL, state BFE_HOST_PROBE_STATE, content
+    // BFE_HOST_PROBE_CONTENT), prints its identity and keeps it up BFE_HOST_PROBE_SECONDS.
+    #[test]
+    #[ignore]
+    fn host_probe() -> Result<(), String> {
+        let var = |name: &str| std::env::var(name).map_err(|_| format!("{name} not set"));
+        let mut config = HostControllerConfig::new(
+            PathBuf::from(var("BFE_HOST_PROBE_STATE")?),
+            PathBuf::from(var("BFE_HOST_PROBE_CONTENT")?),
+        );
+        config.master_url = var("BFE_MASTER_URL")?;
+        config.online_consent = true;
+        let host = HostController::new(config)?;
+        let options = HostOptions {
+            name: "Hosted rehearsal (private)".to_string(),
+            mode: HostMode::Public,
+            ..HostOptions::default()
+        };
+        let info = host.start(&options)?;
+        eprintln!("HOST UP id {} port {}", info.id, info.port);
+        let seconds = var("BFE_HOST_PROBE_SECONDS")?.parse::<u64>().map_err(|e| e.to_string())?;
+        std::thread::sleep(Duration::from_secs(seconds));
+        host.stop()?;
+        Ok(())
+    }
+
     use super::*;
     use std::net::TcpListener;
     use std::sync::atomic::{AtomicUsize, Ordering};

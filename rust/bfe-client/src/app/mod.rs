@@ -45,6 +45,7 @@ mod page_surfaces;
 mod frame_log;
 mod frame_pacer;
 mod resize_guard;
+mod display_mode;
 pub mod startup;
 
 use crate::{
@@ -240,6 +241,8 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         Some(&settings.paths.project_root),
     );
     host_cfg.online_consent = settings.player.privacy_notice_accepted;
+    // A hosted game registers with the master this client lists from.
+    host_cfg.master_url = bfe_online::master::resolve_master_url();
     let host_controller =
         HostController::new(host_cfg).map_err(|e| format!("host controller init: {e}"))?;
     if let Err(err) = host_controller.attach() {
@@ -315,6 +318,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         ime_preedit: false,
         clipboard: arboard::Clipboard::new().ok(),
         fullscreen: false,
+        display_mode: Default::default(),
         resize_guard: Default::default(),
         started: Instant::now(),
         last_frame: Instant::now(),
@@ -339,7 +343,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
     };
 
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
-    if let Some(err) = app.error {
+    if let Some(err) = app.error.take() {
         return Err(err);
     }
     Ok(())
@@ -423,6 +427,8 @@ struct StandaloneWindowApp {
     pointer_icon: winit::window::CursorIcon,
     /// Whether borderless fullscreen mode is currently active (`F11`).
     fullscreen: bool,
+    /// VIDEO OPTIONS RESOLUTION: the display mode set while full screen (display_mode.rs).
+    display_mode: display_mode::DisplayMode,
     /// Ends a size the window and the compositor keep handing back and forth.
     resize_guard: resize_guard::ResizeGuard,
     /// When the window was made, for the guard's clock.
@@ -1065,6 +1071,9 @@ impl ApplicationHandler for StandaloneWindowApp {
                 context.clone(),
                 surface.clone(),
             )?);
+            let modes = display_mode::modes(&window);
+            eprintln!("display modes: {} offered (desktop {:?})", modes.len(), display_mode::desktop(&window));
+            bfe_interface::options::set_display_modes(&modes, display_mode::desktop(&window));
             self.window = Some(window);
             self.surface = Some(surface);
             self.context = Some(context);
@@ -1433,6 +1442,12 @@ impl ApplicationHandler for StandaloneWindowApp {
     /// and in an unpaced run, that is at once, every turn of the loop.
     /// Otherwise the loop sleeps until the frame limit's deadline, and until
     /// the next refresh where the loop counts those itself.
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(window) = &self.window {
+            self.display_mode.restore(window);
+        }
+    }
+
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let Some(window) = &self.window else {
             return;
@@ -1801,6 +1816,18 @@ impl StandaloneWindowApp {
             AppState::Battle(_) => frame_log::Phase::Play,
             _ => frame_log::Phase::Other,
         };
+
+        // RESOLUTION: count down an untried choice's 15 seconds, then put the chosen mode on the display
+        // while full screen and focused (the desktop's otherwise).
+        if let Some(shell) = &mut self.shell {
+            if shell.options_ctrl.tick_display_trial(elapsed_dt) {
+                shell.flush_options_controller(&mut self.settings);
+            }
+        }
+        if let Some(window) = &self.window {
+            let choice = self.settings.interface.get_string("displayMode");
+            self.display_mode.update(window, window.fullscreen().is_some(), self.focused, &choice);
+        }
 
         // A battle whose output layout wants another channel count (5.1,
         // 7.1, 7.1.4, or back to stereo) reopens the device that wide, once
@@ -2514,4 +2541,13 @@ pub(crate) fn trace_own_aim(receiver: &crate::online::receiver::Receiver, sender
         replay.restored_locks(),
         replay.weapons().map(|w| (w.lock_target_id, w.lock_generation, (w.lock_elapsed * 100.).round() / 100.)).collect::<Vec<_>>(),
     );
+}
+
+// A panic unwinds through here too: give the desktop its display mode back before the window goes.
+impl Drop for StandaloneWindowApp {
+    fn drop(&mut self) {
+        if let Some(window) = &self.window {
+            self.display_mode.restore(window);
+        }
+    }
 }

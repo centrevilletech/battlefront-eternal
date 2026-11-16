@@ -5,7 +5,7 @@ use crate::config::{check_content, check_state_budget, ServerConfig};
 use crate::identity::ServerIdentity;
 use crate::lan::LanDiscoveryResponder;
 use crate::udp_server::{UdpGameServer, WorldPeerEvent};
-use crate::world_worker::{build_welcome_message, NativeWorldHost};
+use crate::world_worker::{build_welcome_message, FaultWatch, NativeWorldHost};
 use bfe_content_native::fingerprint;
 use bfe_sim::abi::context_step::Publication;
 use bfe_transport::crypto::random;
@@ -281,6 +281,7 @@ impl LocalDedicatedServer {
 
             let mut next_tick = Instant::now();
             let mut world_tick_failed = false;
+            let mut faults = FaultWatch::default();
             while !stop_c.load(Ordering::Relaxed) {
                 while let Ok(cmd) = world_rx.try_recv() {
                     match cmd {
@@ -368,6 +369,7 @@ impl LocalDedicatedServer {
                                 }
                             }
                             WorldPeerEvent::Left { id } => {
+                                faults.forget(&id);
                                 w.remove_player(&id);
                             }
                             WorldPeerEvent::Start { id, call_id, .. } => {
@@ -453,6 +455,15 @@ impl LocalDedicatedServer {
                         }
                     };
                     if let Some(pub_out) = publication {
+                        // A player whose updates have failed for a second is told why and
+                        // leaves; the battle goes on for everyone else.
+                        for (id, reason) in faults.note(&pub_out.faults, unix_ms) {
+                            eprintln!("ending player {id}'s session: their updates failed for a second: {reason}");
+                            let now_ms = u.now_ms();
+                            u.close_peer(&id, close_code::APPLICATION as u16, &format!("your updates failed: {reason}"), now_ms);
+                            faults.forget(&id);
+                            w.remove_player(&id);
+                        }
                         for ev in pub_out.events {
                             match ev.message.get("type").and_then(serde_json::Value::as_str) {
                                 Some("input-ack" | "entity-edge-results") => u.send_superseding(&ev.peer_id, &ev.message),

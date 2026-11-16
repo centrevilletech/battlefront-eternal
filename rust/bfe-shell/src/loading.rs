@@ -409,6 +409,12 @@ pub struct PlannedSound {
     pub until: Option<f64>,
 }
 
+/// The pictures one loading screen runs through: the galaxy, the planet, its
+/// surface, the level. The screen lasts their three zooms and the hold on every
+/// map, with fewer pictures or none (an add-on map without its own): every
+/// client loads for the same time, so its length never depends on content.
+pub const PICTURES: usize = 4;
+
 /// Pure clock-driven loading sequence timeline (`track`, `zoom`, `hold`,
 /// `targets`).
 ///
@@ -463,12 +469,15 @@ impl LoadingTimeline {
         self.targets.len()
     }
 
-    /// Total duration of the sequence in seconds:
-    /// `max(stages - 1, 0) * (track + zoom) + hold`.
-    /// Mirrors `get duration()`.
+    /// Total duration of the sequence in seconds, the same for every map
+    /// however many pictures it has: `(PICTURES - 1) * (track + zoom) + hold`.
     pub fn duration(&self) -> f64 {
-        let transitions = self.stages().saturating_sub(1) as f64;
-        transitions * (self.track + self.zoom) + self.hold
+        (PICTURES - 1) as f64 * (self.track + self.zoom) + self.hold
+    }
+
+    /// The stages that zoom into the next: the map's pictures, at most `PICTURES`.
+    fn transitions(&self) -> usize {
+        self.stages().min(PICTURES).saturating_sub(1)
     }
 
     /// Evaluates the sequence state `t` seconds after start.
@@ -476,7 +485,7 @@ impl LoadingTimeline {
     pub fn at(&self, t: f64) -> TimelineAt {
         let t = if t.is_finite() && t > 0.0 { t } else { 0.0 };
         let cycle = self.track + self.zoom;
-        let last = self.stages().saturating_sub(1);
+        let last = self.transitions();
         let last_end = (last as f64) * cycle;
         if t >= last_end {
             return TimelineAt {
@@ -528,8 +537,7 @@ impl LoadingTimeline {
         let mut out = Vec::new();
         let cycle = self.track + self.zoom;
         let half = self.track * 0.5;
-        let transitions = self.stages().saturating_sub(1);
-        for n in 0..transitions {
+        for n in 0..self.transitions() {
             let base = (n as f64) * cycle;
             let [x0, y0, _, _] = self.targets.get(n).and_then(|t| *t).unwrap_or([0.0; 4]);
             if let Some([y_from, y_to]) = pulse(y0, half, STEP, STILL) {
@@ -903,6 +911,25 @@ mod tests {
         assert!(!held.at(15.0).done);
         assert!(held.at(15.5).done);
         Ok(())
+    }
+
+    // Every client loads for the same time: no map's pictures, or lack of them
+    // (Jabba's Palace has none), shorten or lengthen the screen.
+    #[test]
+    fn no_stage_count_changes_the_loading_screen_length() {
+        let full = LoadingTimeline::new(3.5, 1.0, 0.0, geo1_targets()).duration();
+        assert_eq!(full, 13.5);
+        for count in 0..=6 {
+            let targets = vec![Some([0.25, 0.25, 0.75, 0.75]); count];
+            let timeline = LoadingTimeline::new(3.5, 1.0, 0.0, targets);
+            assert_eq!(timeline.duration(), full, "{count} pictures");
+            assert!(!timeline.at(full - 0.01).done, "{count} pictures");
+            assert!(timeline.at(full).done, "{count} pictures");
+            assert!(timeline.at(full).stage < count.max(1));
+        }
+        let none = LoadingTimeline::new(3.5, 1.0, 0.0, Vec::new());
+        assert_eq!(none.at(5.0).phase, LoadingPhase::Hold);
+        assert!(none.sounds().is_empty());
     }
 
     #[test]

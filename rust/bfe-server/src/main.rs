@@ -444,6 +444,7 @@ fn launch_match(
             // directory heartbeats and WebSocket rendezvous signaling (`if (config.onlineNoticeAccepted)`).
             if config.online_notice_accepted {
                 let mut active_cfg = config.clone();
+                let content_for_listing = content.clone();
                 active_cfg.content = Some(content);
                 let names = map_names(&config.data);
                 let cfg_for_browser = active_cfg.clone();
@@ -457,6 +458,11 @@ fn launch_match(
                         now_unix_ms(),
                     )
                 });
+                let kept = control.online.lock().unwrap().clone();
+                if let Some(online) = kept {
+                    online.next_battle(query, content_for_listing, active_cfg.rotation.clone(), browser_fn);
+                    return Ok(());
+                }
                 let op_ban = Arc::clone(operator);
                 let is_local_banned = Arc::new(move |id: &str| op_ban.banned(id));
                 let contract_json = NetworkContract::current().to_json();
@@ -599,13 +605,9 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
         }
         if let Some(next) = rotation.take_ready(now) {
             *control.status.write().unwrap() = "loading".to_string();
-            // Close the old registrations before admitting a new authority.
-            // No old snapshot baseline or own-player mapping crosses rounds.
-            let online = control.online.lock().unwrap().take();
-            if let Some(online) = online {
-                online.close();
-            }
-            // The game port outlives the battle: the next battle takes it over.
+            // No old snapshot baseline or own-player mapping crosses rounds, but the game port
+            // outlives the battle (the next battle takes it over), and so do the online
+            // registration, its signalling connection and its relay allocations.
             let port = control.local.lock().unwrap().take().map(LocalDedicatedServer::hand_over);
             match launch_match(
                 directory,

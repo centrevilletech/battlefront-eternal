@@ -22,6 +22,15 @@ pub fn sim_number(sim: &str) -> Option<u32> {
     sim.rsplit('-').next()?.parse().ok()
 }
 
+/// The badge after a row's name: why JOIN will not work, or empty.
+pub fn row_tag(server: &ServerEntry, contract: &ServerContract) -> &'static str {
+    if compatible(server, contract) {
+        ""
+    } else {
+        "OTHER VERSION"
+    }
+}
+
 pub fn compatible(server: &ServerEntry, contract: &ServerContract) -> bool {
     let sim = server
         .simulation
@@ -498,6 +507,8 @@ pub fn describe_server(
     // Maps `relayPolicy` and `address` to the `LINK` fact in `GAME INFO`:
     // `"always"` -> `"RELAYED"`, `"never"` -> `"DIRECT"`, LAN/direct entries
     // with an explicit IP -> `"LAN"`, and `"auto"`/default -> `"DIRECT OR RELAY"`.
+    // A listing without an address is joined through the master (hole
+    // punching, then the relay), so "auto" is DIRECT OR RELAY.
     let link_text = match server.relay_policy.as_deref() {
         Some("always") => "RELAYED",
         Some("never") => "DIRECT",

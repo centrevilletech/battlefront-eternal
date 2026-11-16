@@ -1,7 +1,7 @@
 //! direct-client socket host. Identity and application hellos
 //! arrive from the caller; bans, admission, relay and service policy remain
 //! at bfeserver. A live pump borrows messages and never creates a native world.
-use std::{net::{SocketAddr,UdpSocket,ToSocketAddrs},time::{Instant,Duration}};
+use std::{net::{SocketAddr,UdpSocket,ToSocketAddrs},sync::mpsc::{Receiver,Sender},time::{Instant,Duration}};
 use crate::{Result,Error,crypto::Identity,handshake::{ClientHandshake,Event},connection::{Connection,Lane,Sink},layout::{limits as l,packet,common,close_code}};
 struct Candidate{path:SocketAddr,socket:usize,token:[u8;l::MAX_TOKEN],length:usize,retries:u8,rejected:bool}
 struct Socket{udp:UdpSocket,v6:bool}
@@ -20,7 +20,15 @@ impl<F:FnMut(Lane,bool,&[u8],f64)> Sink for Output<'_,F>{
 pub struct Endpoint{
     sockets:Vec<Socket>,candidates:Vec<Candidate>,handshake:Option<ClientHandshake>,pub connection:Option<Connection>,
     start:Instant,last_handshake:f64,chosen:Option<usize>,ready:bool,pub server_hello:Vec<u8>,pub identity:[u8;32],
+    rendezvous:Option<Rendezvous>,
 }
+/// Candidates exchanged through the master arrive while the handshake runs:
+/// the server's answer, then a relayed address when it allocates one. `start`
+/// is told once when the handshake begins, so the offer (and the server's
+/// punches) can be renewed after a long battle load. The signalling side
+/// holds a weak reference to `alive` and stops once the endpoint lets go.
+pub struct Rendezvous{pub candidates:Receiver<SocketAddr>,pub start:Option<Sender<()>>,pub alive:std::sync::Arc<()>}
+fn canonical(path:SocketAddr)->SocketAddr{match path{SocketAddr::V6(v)=>v.ip().to_ipv4_mapped().map_or(path,|ip|SocketAddr::from((ip,v.port()))),_=>path}}
 impl Endpoint{
     // DNS, sockets and identity proofs are connection-time work. The display
     // phase later iterates these already-open candidates without allocation.
@@ -28,7 +36,7 @@ impl Endpoint{
         let paths=address.to_socket_addrs().map_err(|_|Error("cannot resolve server address"))?;
         let mut candidates=Vec::with_capacity(16);let mut sockets:Vec<Socket>=Vec::with_capacity(2);
         for path in paths.take(16){
-            let path=match path{SocketAddr::V6(v)=>v.ip().to_ipv4_mapped().map_or(path,|ip|SocketAddr::from((ip,v.port()))),_=>path};
+            let path=canonical(path);
             if path.port()==0||path.ip().is_unspecified()||path.ip().is_multicast()||candidates.iter().any(|c:&Candidate|c.path==path){continue;}
             let socket=if let Some(i)=sockets.iter().position(|s|s.v6==path.is_ipv6()){i}else{
                 let udp=UdpSocket::bind(if path.is_ipv6(){"[::]:0"}else{"0.0.0.0:0"}).map_err(|_|Error("cannot open UDP socket"))?;
@@ -37,7 +45,31 @@ impl Endpoint{
             candidates.push(Candidate{path,socket,token:[0;l::MAX_TOKEN],length:0,retries:0,rejected:false});
         }
         if candidates.is_empty(){return Err(Error("no usable server address"));}let id=identity.id;
-        Ok(Self{sockets,candidates,handshake:Some(ClientHandshake::new(identity,expected,hello)?),connection:None,start:Instant::now(),last_handshake:f64::NEG_INFINITY,chosen:None,ready:false,server_hello:Vec::with_capacity(l::MAX_HELLO),identity:id})
+        Ok(Self{sockets,candidates,handshake:Some(ClientHandshake::new(identity,expected,hello)?),connection:None,start:Instant::now(),last_handshake:f64::NEG_INFINITY,chosen:None,ready:false,server_hello:Vec::with_capacity(l::MAX_HELLO),identity:id,rendezvous:None})
+    }
+    /// A listed server reached through the master: `sockets` are already bound
+    /// (their public mappings were offered), candidates come from `rendezvous`.
+    pub fn rendezvous(sockets:Vec<UdpSocket>,identity:Identity,expected:[u8;32],hello:&[u8],rendezvous:Rendezvous)->Result<Self>{
+        let mut bound=Vec::with_capacity(2);
+        for udp in sockets{let v6=udp.local_addr().map_err(|_|Error("cannot read UDP socket address"))?.is_ipv6();udp.set_nonblocking(true).map_err(|_|Error("cannot configure UDP socket"))?;bound.push(Socket{udp,v6});}
+        if bound.is_empty(){return Err(Error("cannot open UDP socket"));}let id=identity.id;
+        Ok(Self{sockets:bound,candidates:Vec::with_capacity(16),handshake:Some(ClientHandshake::new(identity,expected,hello)?),connection:None,start:Instant::now(),last_handshake:f64::NEG_INFINITY,chosen:None,ready:false,server_hello:Vec::with_capacity(l::MAX_HELLO),identity:id,rendezvous:Some(rendezvous)})
+    }
+    /// Adds a path to try (at most 16; duplicates and unusable addresses are skipped).
+    pub fn add_candidate(&mut self,path:SocketAddr)->bool{
+        let path=canonical(path);
+        if self.candidates.len()>=16||path.port()==0||path.ip().is_unspecified()||path.ip().is_multicast()||self.candidates.iter().any(|c|c.path==path){return false;}
+        let Some(socket)=self.sockets.iter().position(|s|s.v6==path.is_ipv6())else{return false;};
+        self.candidates.push(Candidate{path,socket,token:[0;l::MAX_TOKEN],length:0,retries:0,rejected:false});
+        // Send to the new path at once rather than at the next retry tick.
+        self.last_handshake=f64::NEG_INFINITY;true
+    }
+    /// Why no path has answered yet, for a timeout message the player can act on.
+    pub fn waiting_reason(&self)->Option<String>{
+        if self.chosen.is_some(){return None;}
+        if self.rendezvous.is_some()&&self.candidates.is_empty(){return Some("The server did not answer through the online service. It may have stopped; refresh the list.".into());}
+        if self.rendezvous.is_some(){return Some(format!("No path to the server answered ({} addresses tried, direct and through the relay). The server or your network blocks the connection.",self.candidates.len()));}
+        None
     }
     // A single monotonic origin stamps retries, RTT samples and application
     // receipts. Wall-clock corrections never move the transport backward.
@@ -50,6 +82,8 @@ impl Endpoint{
     }
     // Expose the selected bound socket only after path selection. Other
     // address-family candidates cannot impersonate that connection endpoint.
+    /// The server address of the path that answered (a relayed address when the relay won).
+    pub fn path(&self)->Option<SocketAddr>{self.chosen.map(|i|self.candidates[i].path)}
     pub fn local_addr(&self)->Option<SocketAddr>{self.chosen.and_then(|i|self.sockets[self.candidates[i].socket].udp.local_addr().ok())}
     // Connect is cold admission. Reserve packet/ring storage before returning
     // to the display loop, while retaining any early snapshot receipt times.
@@ -73,6 +107,13 @@ impl Endpoint{
     pub fn close(&mut self,code:u64,reason:&[u8]){if let Some(c)=&mut self.connection{c.close(code,reason);}}
     pub fn pump(&mut self,messages:&mut impl FnMut(Lane,bool,&[u8],f64))->Result<()>{
         let now=self.now();let mut bytes=[0;1500];
+        if self.chosen.is_none(){
+            if let Some(r)=&mut self.rendezvous{
+                if let Some(start)=r.start.take(){let _=start.send(());}
+                let mut late=Vec::new();while let Ok(path)=r.candidates.try_recv(){late.push(path);}
+                for path in late{self.add_candidate(path);}
+            }
+        }
         for socket in 0..self.sockets.len(){
             // A datagram flood has a bounded turn, so native input and drawing
             // still get their next frame. Remaining packets stay in the kernel.
@@ -107,7 +148,7 @@ impl Endpoint{
             let h=self.handshake.as_ref().ok_or(Error("handshake is unavailable"))?;
             if let Some(index)=self.chosen{let c=&self.candidates[index];send_datagram(&self.sockets[c.socket].udp,h.confirm(),c.path);}
             else{let mut init=[0;l::INITIATION_BYTES];let mut any=false;for c in &self.candidates{if !c.rejected{any=true;h.initiation(&c.token[..c.length],&mut init)?;send_datagram(&self.sockets[c.socket].udp,&init,c.path);}}
-                if !any{return Err(Error("server identity or transport version does not match"));}}
+                if !any&&(self.rendezvous.is_none()||!self.candidates.is_empty()){return Err(Error("server identity or transport version does not match"));}}
             self.last_handshake=now;
         }
         if let Some(c)=&mut self.connection{
@@ -116,7 +157,7 @@ impl Endpoint{
             if c.closed.is_some(){return Err(Error("connection to server closed"));}
         }
         // Release handshake state once the first authenticated DATA packet arrives.
-        if self.ready{self.handshake=None;}Ok(())
+        if self.ready{self.handshake=None;self.rendezvous=None;}Ok(())
     }
 }
 

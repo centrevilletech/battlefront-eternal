@@ -6,7 +6,7 @@ use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -18,7 +18,21 @@ use crate::config::ServerConfig;
 use crate::identity::{is_hex_64, load_identity, ServerIdentity};
 use crate::master_client::{MasterClient, MasterEvent, SignalEnvelope};
 use crate::network_contract::{validate_network_contract, wire_compatibility, WireCompatibility};
-use crate::udp_server::{CandidateEntry, ReflexiveMap, UdpGameServer};
+use crate::udp_server::{CandidateEntry, ReflexiveMap, RelayEvent, UdpGameServer};
+
+/// A relay allocation not taken up by a playing player is released after this long
+/// (`sweep(30000)`): identities are free, so offers alone must not
+/// hold allocations.
+const RELAY_UNUSED: Duration = Duration::from_secs(30);
+
+/// One player's relay allocation as signalling sees it (`this.relays`).
+#[derive(Clone, Debug)]
+struct RelayEntry {
+    created: Instant,
+    /// The nonce of the player's latest offer: the relayed candidate answers that one.
+    nonce: String,
+    relayed: Option<SocketAddr>,
+}
 
 /// Returns `true` if `address` is a globally routable unicast IPv4 or IPv6 address
 /// (`export function publicAddress(address)`).
@@ -139,11 +153,28 @@ pub struct OnlineServer {
     pub offers: Arc<Mutex<HashMap<String, Instant>>>,
     pub beats: Arc<Mutex<u64>>,
     pub family_down: Arc<Mutex<HashMap<u8, Instant>>>,
+    relays: Mutex<HashMap<String, RelayEntry>>,
+    /// The STUN host learned from the master's relay URL (see [`Self::stun_server`]).
+    master_stun: Mutex<Option<(String, u16)>>,
+    /// Local addresses the system sends from towards the STUN server (see [`Self::natted`]).
+    route_addresses: Mutex<Vec<String>>,
     udp: Option<Arc<Mutex<UdpGameServer>>>,
     browser: Arc<dyn Fn() -> BrowserInfo + Send + Sync>,
     is_banned: Arc<dyn Fn(&str) -> bool + Send + Sync>,
     stop: Arc<AtomicBool>,
     worker: Mutex<Option<JoinHandle<()>>>,
+    /// The battle being played once it is no longer the one this server started with: the
+    /// registration, the signalling connection and the relay allocations carry on across a battle
+    /// change, and only these details change (see [`Self::next_battle`]).
+    battle: RwLock<Option<NextBattle>>,
+}
+
+/// One battle's details in the listing and in the answer to a match probe.
+struct NextBattle {
+    query: String,
+    content: String,
+    rotation: Vec<String>,
+    browser: Arc<dyn Fn() -> BrowserInfo + Send + Sync>,
 }
 
 impl OnlineServer {
@@ -189,11 +220,15 @@ impl OnlineServer {
             offers: Arc::new(Mutex::new(HashMap::new())),
             beats: Arc::new(Mutex::new(0)),
             family_down: Arc::new(Mutex::new(HashMap::new())),
+            relays: Mutex::new(HashMap::new()),
+            master_stun: Mutex::new(None),
+            route_addresses: Mutex::new(Vec::new()),
             udp,
             browser,
             is_banned,
             stop: Arc::new(AtomicBool::new(false)),
             worker: Mutex::new(None),
+            battle: RwLock::new(None),
         })
     }
 
@@ -216,14 +251,19 @@ impl OnlineServer {
         } else {
             serde_json::json!([])
         };
-        let browser = (self.browser)();
+        let battle = self.battle.read().unwrap_or_else(|e| e.into_inner());
+        let (browser, content, rotation) = match battle.as_ref() {
+            Some(b) => ((b.browser)(), b.content.clone(), b.rotation.clone()),
+            None => ((self.browser)(), self.content.clone(), self.config.rotation.clone()),
+        };
+        drop(battle);
         let mut obj = serde_json::json!({
             "name": self.config.name,
             "protocol": self.wire.protocol,
             "profile": self.wire.profile,
             "simulation": self.wire.simulation,
-            "content": self.content,
-            "rotation": self.config.rotation,
+            "content": content,
+            "rotation": rotation,
             "players": players,
             "maxPlayers": max_players,
             "relayPolicy": self.config.relay_policy,
@@ -294,13 +334,40 @@ impl OnlineServer {
             .unwrap_or(false)
     }
 
-    /// Returns the configured STUN `(host, port)` pair (`OnlineServer.stunServer()`).
+    /// Returns the STUN `(host, port)` pair (`OnlineServer.stunServer()`): the configured one,
+    /// else the relay host the master names (so a server registered with another master asks
+    /// that master's relay), else the default.
     pub fn stun_server(&self) -> (String, u16) {
+        if self.config.stun.is_none() {
+            if let Some(stun) = self.master_stun.lock().ok().and_then(|s| s.clone()) {
+                return stun;
+            }
+        }
         parse_stun_server(self.config.stun.as_deref())
+    }
+
+    /// Learns the master's relay host for STUN when the configuration names none. A server
+    /// with relay policy never is refused relay credentials and keeps the default.
+    fn learn_master_stun(&self) {
+        if self.config.stun.is_some() {
+            return;
+        }
+        let Ok(servers) = self.master.credentials(&self.id, None) else {
+            return;
+        };
+        if let Some(server) = servers.iter().find(|s| s.relay_type == "TurnUdp") {
+            if let Ok(mut stun) = self.master_stun.lock() {
+                *stun = Some((server.hostname.clone(), server.port));
+            }
+        }
     }
 
     /// Queries the STUN server from the game port to discover the server's reflexive IPv4 and IPv6
     /// addresses (`async discover()`).
+    ///
+    /// The requests go out from the game socket and their answers come back through the game
+    /// loop's poll, so no game packet is lost to the query and the game loop is never held up.
+    /// A server whose game socket nobody polls yet reads the answers itself.
     pub fn discover(&self) {
         if self.config.relay_policy == "always" {
             return;
@@ -320,7 +387,63 @@ impl OnlineServer {
                 }
             }
         }
+        let targets: Vec<SocketAddr> = [addrs_v4, addrs_v6].into_iter().flatten().collect();
+        if let Ok(mut routes) = self.route_addresses.lock() {
+            *routes = targets.iter().filter_map(|t| route_address(*t)).collect();
+        }
+        let polled = |udp: &Arc<Mutex<UdpGameServer>>| udp.lock().map(|u| u.polls()).unwrap_or(0);
+        let before = polled(udp_arc);
+        let sent: Vec<[u8; 12]> = match udp_arc.lock() {
+            Ok(mut udp) => targets.iter().filter_map(|t| udp.send_binding(*t)).collect(),
+            Err(_) => return,
+        };
+        let deadline = Instant::now() + Duration::from_millis(1500);
         let mut map = ReflexiveMap::default();
+        let mut answered = 0;
+        while Instant::now() < deadline && answered < sent.len() {
+            thread::sleep(Duration::from_millis(20));
+            let Ok(mut udp) = udp_arc.lock() else {
+                return;
+            };
+            for tx in &sent {
+                if let Some(mapped) = udp.binding_answer(tx) {
+                    answered += 1;
+                    let entry = CandidateEntry {
+                        address: mapped.ip().to_string(),
+                        port: mapped.port(),
+                        kind: Some("srflx".to_string()),
+                    };
+                    if mapped.is_ipv4() {
+                        map.ipv4 = Some(entry);
+                    } else {
+                        map.ipv6 = Some(entry);
+                    }
+                }
+            }
+        }
+        if answered == 0 && polled(udp_arc) == before {
+            map = self.discover_unpolled(addrs_v4, addrs_v6);
+        }
+        // Nothing answered: keep what the last discovery found rather than forget it.
+        if map == ReflexiveMap::default() {
+            return;
+        }
+        if let Ok(mut guard) = self.reflexive.lock() {
+            *guard = map;
+        }
+    }
+
+    /// Whether a reflexive address is known.
+    fn discovered(&self) -> bool {
+        self.reflexive.lock().is_ok_and(|r| *r != ReflexiveMap::default())
+    }
+
+    /// Reflexive discovery for a game socket nobody polls: reads the answers from it directly.
+    fn discover_unpolled(&self, addrs_v4: Option<SocketAddr>, addrs_v6: Option<SocketAddr>) -> ReflexiveMap {
+        let mut map = ReflexiveMap::default();
+        let Some(udp_arc) = self.udp.as_ref() else {
+            return map;
+        };
         if let Ok(udp) = udp_arc.lock() {
             if let Some(target) = addrs_v4 {
                 if let Ok(res) = udp.reflexive(target, Duration::from_millis(1500)) {
@@ -337,15 +460,16 @@ impl OnlineServer {
                 }
             }
         }
-        if let Ok(mut guard) = self.reflexive.lock() {
-            *guard = map;
-        }
+        map
     }
 
-    /// Returns `true` when the server appears to be behind NAT (`OnlineServer.natted()` in
-    /// no reflexive mapping or any reflexive address not owned by a local interface).
+    /// Returns `true` when the server appears to be behind NAT (`OnlineServer.natted()`: no
+    /// reflexive mapping or any reflexive address not owned by a local interface).
+    ///
+    /// The host's own addresses are the game socket's bound address and the local address the
+    /// system routes to the STUN server from (a socket bound to every interface names none).
     pub fn natted(&self) -> bool {
-        let hosts: HashSet<String> = self
+        let mut hosts: HashSet<String> = self
             .udp
             .as_ref()
             .and_then(|u| {
@@ -354,6 +478,9 @@ impl OnlineServer {
                     .map(|g| g.candidates().into_iter().map(|c| c.address).collect())
             })
             .unwrap_or_default();
+        if let Ok(routes) = self.route_addresses.lock() {
+            hosts.extend(routes.iter().cloned());
+        }
         let reflexive = self
             .reflexive
             .lock()
@@ -465,7 +592,7 @@ impl OnlineServer {
                     ) {
                         if is_hex_32(probe)
                             && is_hex_32(nonce)
-                            && Some(probe) == query_param(&self.query, "match").as_deref()
+                            && Some(probe) == query_param(&self.battle_query(), "match").as_deref()
                         {
                             let _ = self.master.signal(
                                 &m.from,
@@ -535,14 +662,171 @@ impl OnlineServer {
             );
             if let Some(udp_arc) = self.udp.as_ref() {
                 let public_only: Vec<CandidateEntry> = client_candidates
-                    .into_iter()
+                    .iter()
                     .filter(|c| public_address(&c.address))
+                    .cloned()
                     .collect();
                 if let Ok(mut udp) = udp_arc.lock() {
                     udp.punch(&public_only);
                 }
             }
         }
+
+        // A relay follows when this server needs one: always, or behind NAT under "auto".
+        self.sweep(RELAY_UNUSED);
+        if policy == "always" || (policy == "auto" && self.natted()) {
+            if let Err(error) = self.relay_for(&m.from, &client_candidates, nonce) {
+                eprintln!("Online relay: {error}");
+            }
+        }
+    }
+
+    /// Most relay allocations at once (`relayLimit()`).
+    pub fn relay_limit(&self) -> usize {
+        self.config.max_players.unwrap_or(64) + 8
+    }
+
+    /// Relay allocations held now.
+    pub fn relay_count(&self) -> usize {
+        self.relays.lock().map(|r| r.len()).unwrap_or(0)
+    }
+
+    /// A TURN allocation for one player, permitted for that player's public addresses only, with
+    /// short-lived per-pair credentials from the master (`relayFor`).
+    /// The relayed candidate is signalled when the allocation is ready ([`Self::pump_relays`]);
+    /// a player who offers again gets the same allocation, answered with the new nonce.
+    fn relay_for(&self, peer: &str, client: &[CandidateEntry], nonce: &str) -> Result<(), String> {
+        let udp_arc = self.udp.as_ref().ok_or("no game port")?;
+        let permit: Vec<IpAddr> = client
+            .iter()
+            .filter(|c| public_address(&c.address))
+            .filter_map(|c| c.address.split('%').next()?.parse().ok())
+            .collect();
+        {
+            let mut relays = self.relays.lock().map_err(|_| "lock poisoned")?;
+            if let Some(entry) = relays.get_mut(peer) {
+                entry.nonce = nonce.to_string();
+                let relayed = entry.relayed;
+                drop(relays);
+                if let Ok(mut udp) = udp_arc.lock() {
+                    udp.permit_relay(peer, &permit);
+                }
+                if let Some(relayed) = relayed {
+                    self.signal_relay(peer, nonce, relayed);
+                }
+                return Ok(());
+            }
+            if relays.len() >= self.relay_limit() {
+                return Err("limit reached".to_string());
+            }
+        }
+        let servers = self.master.credentials(&self.id, Some(peer))?;
+        let server = servers
+            .iter()
+            .find(|s| s.relay_type == "TurnUdp")
+            .ok_or("no UDP relay offered")?;
+        let address = resolve_relay(&server.hostname, server.port)?;
+        udp_arc
+            .lock()
+            .map_err(|_| "lock poisoned")?
+            .open_relay(peer, address, &server.username, &server.password, &permit)?;
+        self.relays.lock().map_err(|_| "lock poisoned")?.insert(
+            peer.to_string(),
+            RelayEntry {
+                created: Instant::now(),
+                nonce: nonce.to_string(),
+                relayed: None,
+            },
+        );
+        Ok(())
+    }
+
+    /// Signals ready relays to their players and forgets failed ones.
+    pub fn pump_relays(&self) {
+        let Some(udp_arc) = self.udp.as_ref() else {
+            return;
+        };
+        let events = match udp_arc.lock() {
+            Ok(mut udp) => udp.relay_events(),
+            Err(_) => return,
+        };
+        for event in events {
+            match event {
+                RelayEvent::Ready { peer_id, relayed } => {
+                    let nonce = self.relays.lock().ok().and_then(|mut relays| {
+                        let entry = relays.get_mut(&peer_id)?;
+                        entry.relayed = Some(relayed);
+                        Some(entry.nonce.clone())
+                    });
+                    if let Some(nonce) = nonce {
+                        eprintln!("Online relay: {relayed} allocated for player {}", short(&peer_id));
+                        self.signal_relay(&peer_id, &nonce, relayed);
+                    }
+                }
+                RelayEvent::Failed { peer_id, reason } => {
+                    eprintln!("Online relay: player {}: {reason}", short(&peer_id));
+                    if let Ok(mut relays) = self.relays.lock() {
+                        relays.remove(&peer_id);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The relayed candidate: an answer of its own under "always", a later candidate otherwise.
+    fn signal_relay(&self, peer: &str, nonce: &str, relayed: SocketAddr) {
+        let kind = if self.config.relay_policy == "always" { "answer" } else { "candidate" };
+        let _ = self.master.signal(
+            peer,
+            &serde_json::json!({
+                "type": kind,
+                "udp": 1,
+                "nonce": nonce,
+                "candidates": [{
+                    "address": relayed.ip().to_string(),
+                    "port": relayed.port(),
+                    "kind": "relay",
+                }],
+            }),
+        );
+    }
+
+    /// Releases relay allocations of players not playing after `max_age` (`sweep`).
+    pub fn sweep(&self, max_age: Duration) {
+        let Some(udp_arc) = self.udp.as_ref() else {
+            return;
+        };
+        let Ok(mut relays) = self.relays.lock() else {
+            return;
+        };
+        if relays.is_empty() {
+            return;
+        }
+        let Ok(mut udp) = udp_arc.lock() else {
+            return;
+        };
+        let playing: HashSet<String> = udp.players().into_iter().collect();
+        relays.retain(|id, entry| {
+            let keep = playing.contains(id) || entry.created.elapsed() <= max_age;
+            if !keep {
+                eprintln!("Online relay: released for player {} (not playing)", short(id));
+                udp.close_relay(id);
+            }
+            keep
+        });
+    }
+
+    /// Releases every relay allocation.
+    fn close_relays(&self) {
+        let Ok(mut relays) = self.relays.lock() else {
+            return;
+        };
+        if let Some(Ok(mut udp)) = self.udp.as_ref().map(|u| u.lock()) {
+            for id in relays.keys() {
+                udp.close_relay(id);
+            }
+        }
+        relays.clear();
     }
 
     /// Registers the server with the master (`POST /v1/servers`), connects the `/v1/signal`
@@ -559,6 +843,7 @@ impl OnlineServer {
         self.master
             .request("/v1/servers", "POST", Some(&listing), 0)
             .map_err(|e| e.message)?;
+        self.learn_master_stun();
         let (events_tx, events_rx): (Sender<MasterEvent>, Receiver<MasterEvent>) = mpsc::channel();
         self.master.connect(events_tx.clone())?;
         self.discover();
@@ -572,6 +857,9 @@ impl OnlineServer {
                 let mut last_beat = Instant::now();
                 let mut last_ban = Instant::now();
                 let mut last_maint = Instant::now();
+                // Until a reflexive address is known, discovery is retried after 5, 10, 20 and
+                // 40 s, then with the minute's maintenance.
+                let mut retry = Duration::from_secs(5);
                 while !stop.load(Ordering::Relaxed) {
                     match events_rx.recv_timeout(Duration::from_millis(200)) {
                         Ok(MasterEvent::Signal(sig)) => {
@@ -598,6 +886,7 @@ impl OnlineServer {
                         Err(mpsc::RecvTimeoutError::Timeout) => {}
                         Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     }
+                    server.pump_relays();
 
                     // 20-second directory heartbeat (`setInterval(..., 20000)`).
                     let now = Instant::now();
@@ -631,6 +920,14 @@ impl OnlineServer {
                     if now.duration_since(last_maint) >= Duration::from_secs(60) {
                         last_maint = now;
                         server.discover();
+                        server.sweep(RELAY_UNUSED);
+                    } else if retry <= Duration::from_secs(40)
+                        && now.duration_since(last_maint) >= retry
+                        && server.config.relay_policy != "always"
+                        && !server.discovered()
+                    {
+                        retry *= 2;
+                        server.discover();
                     }
                 }
             })
@@ -639,6 +936,30 @@ impl OnlineServer {
             *guard = Some(handle);
         }
         Ok(())
+    }
+
+    /// The next battle starts on the same game port: the listing and the match probe answer
+    /// describe it from now on, and the listing is refreshed at once. The registration, the
+    /// signalling connection and the relay allocations stay as they are.
+    pub fn next_battle(
+        &self,
+        query: String,
+        content: String,
+        rotation: Vec<String>,
+        browser: Arc<dyn Fn() -> BrowserInfo + Send + Sync>,
+    ) {
+        if let Ok(mut battle) = self.battle.write() {
+            *battle = Some(NextBattle { query, content, rotation, browser });
+        }
+        let _ = self.beat();
+    }
+
+    /// The query of the battle being played.
+    fn battle_query(&self) -> String {
+        match self.battle.read().ok().as_deref().and_then(Option::as_ref) {
+            Some(b) => b.query.clone(),
+            None => self.query.clone(),
+        }
     }
 
     /// Unregisters the server (`DELETE /v1/servers/:id`) and stops the signaling thread
@@ -651,6 +972,7 @@ impl OnlineServer {
                 let _ = handle.join();
             }
         }
+        self.close_relays();
         let route = format!("/v1/servers/{}", self.id);
         let _ = self.master.request(&route, "DELETE", None, 0);
     }
@@ -661,6 +983,34 @@ impl Drop for OnlineServer {
         self.stop.store(true, Ordering::SeqCst);
         self.master.close();
     }
+}
+
+/// The first characters of a player identity, for the log.
+fn short(id: &str) -> &str {
+    id.get(..12).unwrap_or(id)
+}
+
+/// The local address the system would send from to reach `target` (no packet is sent).
+fn route_address(target: SocketAddr) -> Option<String> {
+    let any = if target.is_ipv6() { "[::]:0" } else { "0.0.0.0:0" };
+    let socket = std::net::UdpSocket::bind(any).ok()?;
+    socket.connect(target).ok()?;
+    let ip = socket.local_addr().ok()?.ip();
+    (!ip.is_unspecified()).then(|| ip.to_string())
+}
+
+/// The relay server's address, IPv4 first.
+fn resolve_relay(host: &str, port: u16) -> Result<SocketAddr, String> {
+    let addresses: Vec<SocketAddr> = (host, port)
+        .to_socket_addrs()
+        .map_err(|e| format!("relay address {host}: {e}"))?
+        .collect();
+    addresses
+        .iter()
+        .find(|a| a.is_ipv4())
+        .or_else(|| addresses.first())
+        .copied()
+        .ok_or_else(|| format!("relay address {host}: not found"))
 }
 
 /// Validates a 32-character lowercase hex nonce or match probe token (`/^[a-f0-9]{32}$/`).

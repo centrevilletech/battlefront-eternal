@@ -7,9 +7,11 @@ use bfe_transport::connection::{Closed, Lane};
 use bfe_transport::crypto::{Identity, RetryTokens};
 use bfe_transport::layout::{close_code, network_contract};
 use bfe_transport::server::{
-    address_prefix, valid_peer_ip, AdmitDecision, ClientInfo, ServerEndpoint, ServerSink,
+    address_prefix, normalize_socket_addr, valid_peer_ip, AdmitDecision, ClientInfo,
+    ServerEndpoint, ServerSink,
 };
 use bfe_transport::stun;
+use bfe_transport::turn::{TurnClient, TurnEvent, TurnState};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -113,16 +115,123 @@ pub enum WorldPeerEvent {
     },
 }
 
+/// What became of a relay allocation opened with [`UdpGameServer::open_relay`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RelayEvent {
+    /// The relayed address is allocated and the player's addresses are permitted.
+    Ready { peer_id: String, relayed: SocketAddr },
+    /// The allocation failed or expired; it is gone.
+    Failed { peer_id: String, reason: String },
+}
+
+/// Peer addresses one relay allocation may carry at once (see `Relays::route`).
+const ROUTES_PER_RELAY: usize = 8;
+
+/// One player's TURN allocation. Each has its own UDP socket: a TURN server tells allocations
+/// apart by the client's address and port, so one game socket could hold only one.
+struct RelayAllocation {
+    peer_id: String,
+    socket: UdpSocket,
+    turn: TurnClient,
+}
+
+/// The relay allocations, and which peer addresses currently reach the game through which one.
+/// A peer address is routed through a relay from the moment a packet arrives from it through
+/// that relay until one arrives from it directly (the last path heard from wins, as for direct
+/// path changes).
+#[derive(Default)]
+struct Relays {
+    allocations: HashMap<u32, RelayAllocation>,
+    next_id: u32,
+    routes: HashMap<SocketAddr, u32>,
+    events: Vec<RelayEvent>,
+    buf: Vec<u8>,
+}
+
+impl Relays {
+    /// Sends a game datagram to `to`: through its relay when it is routed through one.
+    fn send(&mut self, socket: &UdpSocket, bytes: &[u8], to: SocketAddr, now_ms: f64) {
+        if !self.routes.is_empty() {
+            if let Some(id) = self.routes.get(&normalize_socket_addr(to)) {
+                if let Some(relay) = self.allocations.get_mut(id) {
+                    if relay.turn.send_to(to, bytes, &mut self.buf, now_ms) {
+                        crate::sockets::send_to(&relay.socket, &self.buf, relay.turn.server());
+                    }
+                    return;
+                }
+            }
+        }
+        crate::sockets::send_to(socket, bytes, to);
+    }
+
+    /// Routes `peer` through allocation `id`. A player's packets arrive from a few addresses at
+    /// most; one allocation keeps at most [`ROUTES_PER_RELAY`], dropping its others for a new one.
+    fn route(&mut self, peer: SocketAddr, id: u32) {
+        if self.routes.get(&peer) == Some(&id) {
+            return;
+        }
+        if self.routes.values().filter(|routed| **routed == id).count() >= ROUTES_PER_RELAY {
+            self.routes.retain(|_, routed| *routed != id);
+        }
+        self.routes.insert(peer, id);
+    }
+
+    fn find(&self, peer_id: &str) -> Option<u32> {
+        self.allocations.iter().find(|(_, r)| r.peer_id == peer_id).map(|(id, _)| *id)
+    }
+
+    /// Sends what each allocation has queued and collects its events; failed ones are removed.
+    fn pump(&mut self, now_ms: f64) {
+        let mut failed = Vec::new();
+        for (id, relay) in &mut self.allocations {
+            relay.turn.poll(now_ms);
+            let server = relay.turn.server();
+            for packet in relay.turn.transmit() {
+                crate::sockets::send_to(&relay.socket, &packet, server);
+            }
+            for event in relay.turn.events() {
+                self.events.push(match event {
+                    TurnEvent::Ready { relayed, .. } => RelayEvent::Ready { peer_id: relay.peer_id.clone(), relayed },
+                    TurnEvent::Failed(reason) => RelayEvent::Failed { peer_id: relay.peer_id.clone(), reason },
+                });
+            }
+            if relay.turn.state() == TurnState::Failed {
+                failed.push(*id);
+            }
+        }
+        for id in failed {
+            self.remove(id);
+        }
+    }
+
+    /// Releases an allocation (a Refresh with lifetime 0) and forgets its routes.
+    fn remove(&mut self, id: u32) {
+        if let Some(mut relay) = self.allocations.remove(&id) {
+            relay.turn.close();
+            let server = relay.turn.server();
+            for packet in relay.turn.transmit() {
+                crate::sockets::send_to(&relay.socket, &packet, server);
+            }
+        }
+        self.routes.retain(|_, routed| *routed != id);
+    }
+}
+
 /// `ServerSink` implementation used when flushing outbound packets or closing a session outside `poll()`.
 ///
 /// Admission and message callbacks are no-ops because no inbound datagrams are fed through
 /// `SendOnlySink`. Closes are kept: the transport's idle timeout can fire inside `flush()`, and it
 /// reports each close once, so `poll()` retires those players later.
-struct SendOnlySink<'a>(&'a UdpSocket, &'a mut Vec<u32>);
+struct SendOnlySink<'a> {
+    socket: &'a UdpSocket,
+    relays: &'a mut Relays,
+    closed: &'a mut Vec<u32>,
+    now_ms: f64,
+}
 
 impl ServerSink for SendOnlySink<'_> {
     fn send_packet(&mut self, bytes: &[u8], to: SocketAddr) {
-        crate::sockets::send_to(self.0, bytes, to);
+        self.relays.send(self.socket, bytes, to, self.now_ms);
     }
 
     fn on_hello(&mut self) -> Value {
@@ -140,7 +249,7 @@ impl ServerSink for SendOnlySink<'_> {
     fn on_path(&mut self, _session_id: u32, _new_path: SocketAddr, _old_path: SocketAddr) {}
 
     fn on_close(&mut self, session_id: u32, _closed: Closed) {
-        self.1.push(session_id);
+        self.closed.push(session_id);
     }
 }
 
@@ -148,6 +257,9 @@ impl ServerSink for SendOnlySink<'_> {
 /// sessions, incoming lane messages, path migrations, and closed sessions from `ServerEndpoint`.
 struct PollSink<'a, F: FnMut(&str) -> bool> {
     socket: &'a UdpSocket,
+    relays: &'a mut Relays,
+    bindings: &'a mut Bindings,
+    now_ms: f64,
     content: &'a str,
     fingerprint: &'a str,
     max_players: usize,
@@ -194,7 +306,7 @@ pub fn version_refusal(protocol: usize, profile: &str, simulation: &str) -> Stri
 
 impl<F: FnMut(&str) -> bool> ServerSink for PollSink<'_, F> {
     fn send_packet(&mut self, bytes: &[u8], to: SocketAddr) {
-        crate::sockets::send_to(self.socket, bytes, to);
+        self.relays.send(self.socket, bytes, to, self.now_ms);
     }
 
     /// Builds the server handshake `hello` payload (`server.hello` in `startUdpServer`).
@@ -273,6 +385,32 @@ impl<F: FnMut(&str) -> bool> ServerSink for PollSink<'_, F> {
     fn on_close(&mut self, session_id: u32, _closed: Closed) {
         self.closed.push(session_id);
     }
+
+    fn on_stun_response(&mut self, msg: &stun::StunMessage<'_>, _from: SocketAddr) {
+        self.bindings.answer(msg);
+    }
+}
+
+/// STUN Binding requests sent from the game socket and their answers, which arrive through
+/// [`UdpGameServer::poll`] like every other datagram (nothing else may read the game socket).
+#[derive(Default)]
+struct Bindings {
+    pending: Vec<[u8; 12]>,
+    answers: Vec<([u8; 12], SocketAddr)>,
+}
+
+impl Bindings {
+    fn answer(&mut self, msg: &stun::StunMessage<'_>) {
+        if msg.klass != stun::class::SUCCESS {
+            return;
+        }
+        if let Some(i) = self.pending.iter().position(|tx| *tx == msg.transaction) {
+            self.pending.swap_remove(i);
+            if let Some(mapped) = msg.mapped_address() {
+                self.answers.push((msg.transaction, normalize_socket_addr(mapped)));
+            }
+        }
+    }
 }
 
 /// Authoritative UDP game port server (`export async function startUdpServer`).
@@ -311,6 +449,12 @@ pub struct UdpGameServer {
     start_instant: Instant,
     /// Reusable 1500-byte UDP receive buffer.
     recv_buf: [u8; MAX_PACKET],
+    /// TURN allocations for players who reach this server through a relay.
+    relays: Relays,
+    /// Reflexive address queries in flight on the game socket.
+    bindings: Bindings,
+    /// Completed `poll` calls, so a waiting caller knows answers can arrive.
+    polls: u64,
 }
 
 impl UdpGameServer {
@@ -365,6 +509,9 @@ impl UdpGameServer {
             closed_outside_poll: Vec::new(),
             start_instant: Instant::now(),
             recv_buf: [0u8; MAX_PACKET],
+            relays: Relays::default(),
+            bindings: Bindings::default(),
+            polls: 0,
         })
     }
 
@@ -394,8 +541,33 @@ impl UdpGameServer {
         out
     }
 
+    /// Sends a STUN Binding request to `server` from the game socket; its answer arrives through
+    /// [`Self::poll`] and is read with [`Self::binding_answer`]. At most four are in flight.
+    pub fn send_binding(&mut self, server: SocketAddr) -> Option<[u8; 12]> {
+        let tx = stun::new_transaction().ok()?;
+        if self.bindings.pending.len() >= 4 {
+            self.bindings.pending.remove(0);
+        }
+        self.bindings.pending.push(tx);
+        self.bindings.answers.retain(|(t, _)| self.bindings.pending.contains(t));
+        crate::sockets::send_to(&self.socket, &stun::encode_binding_request(&tx), server);
+        Some(tx)
+    }
+
+    /// The reflexive address answered to a [`Self::send_binding`] request, once it has arrived.
+    pub fn binding_answer(&mut self, tx: &[u8; 12]) -> Option<SocketAddr> {
+        let i = self.bindings.answers.iter().position(|(t, _)| t == tx)?;
+        Some(self.bindings.answers.swap_remove(i).1)
+    }
+
+    /// Completed [`Self::poll`] calls.
+    pub fn polls(&self) -> u64 {
+        self.polls
+    }
+
     /// Performs an RFC 5389 STUN Binding Request over the game port socket to discover the server's
-    /// public reflexive address (`endpoint.reflexive`).
+    /// public reflexive address (`endpoint.reflexive`), reading the socket itself: only for a
+    /// server whose game socket nobody polls (it drops anything else that arrives).
     pub fn reflexive(&self, server: SocketAddr, timeout: Duration) -> Result<ReflexiveMap, String> {
         let tx = stun::new_transaction().map_err(|e| e.to_string())?;
         let req = stun::encode_binding_request(&tx);
@@ -511,6 +683,9 @@ impl UdpGameServer {
         {
             let mut sink = PollSink {
                 socket: &self.socket,
+                relays: &mut self.relays,
+                bindings: &mut self.bindings,
+                now_ms,
                 content: &self.content,
                 fingerprint: &self.fingerprint,
                 max_players: self.max_players,
@@ -531,6 +706,10 @@ impl UdpGameServer {
                             continue;
                         }
                         let packet = &self.recv_buf[..len];
+                        // A packet straight from a relayed peer's address moves it back to the direct path.
+                        if !sink.relays.routes.is_empty() {
+                            sink.relays.routes.remove(&normalize_socket_addr(rinfo));
+                        }
                         self.endpoint.receive(packet, rinfo, now_ms, &mut sink);
                     }
                     Err(e)
@@ -542,6 +721,29 @@ impl UdpGameServer {
                     Err(_) => break,
                 }
             }
+
+            // Datagrams from the TURN servers: responses go to their allocation, relayed game
+            // packets to the transport with the peer's address as their path.
+            let ids: Vec<u32> = sink.relays.allocations.keys().copied().collect();
+            for id in ids {
+                while let Some(relay) = sink.relays.allocations.get_mut(&id) {
+                    let Ok((len, from)) = crate::sockets::recv_from(&relay.socket, &mut self.recv_buf) else {
+                        break;
+                    };
+                    if normalize_socket_addr(from) != relay.turn.server() {
+                        continue;
+                    }
+                    let Some((peer, data)) = relay.turn.handle(&self.recv_buf[..len], now_ms) else {
+                        continue;
+                    };
+                    if data.is_empty() || data.len() > 1200 {
+                        continue;
+                    }
+                    sink.relays.route(peer, id);
+                    self.endpoint.receive(data, peer, now_ms, &mut sink);
+                }
+            }
+            sink.relays.pump(now_ms);
 
             // Advance transport timers (handshake expirations, punch bursts, keepalives, retransmit timers).
             self.endpoint.poll(now_ms, &mut sink);
@@ -556,7 +758,7 @@ impl UdpGameServer {
         for (sid, client, remote, rtt) in admitted {
             let peer_id = client.id_hex.clone();
             let name = clean_player_name(client.hello.get("name").and_then(Value::as_str));
-            let path = PeerPath::direct(remote);
+            let path = self.path_to(remote);
             let address = remote.ip().to_string();
             let prefix = address_prefix(remote.ip());
 
@@ -564,7 +766,12 @@ impl UdpGameServer {
             if let Some(old) = self.peers.remove(&peer_id) {
                 self.by_session.remove(&old.peer.session_id);
                 self.dec_prefix(&old.peer.prefix);
-                let mut sink = SendOnlySink(&self.socket, &mut self.closed_outside_poll);
+                let mut sink = SendOnlySink {
+                    socket: &self.socket,
+                    relays: &mut self.relays,
+                    closed: &mut self.closed_outside_poll,
+                    now_ms,
+                };
                 self.endpoint.close_session(
                     old.peer.session_id,
                     close_code::REJECTED as u64,
@@ -610,9 +817,10 @@ impl UdpGameServer {
 
         // Update peer path on NAT rebinding (`session.on("path", ...)`).
         for (sid, new_addr) in paths {
+            let path = self.path_to(new_addr);
             if let Some(peer_id) = self.by_session.get(&sid) {
                 if let Some(connected) = self.peers.get_mut(peer_id) {
-                    connected.peer.path = PeerPath::direct(new_addr);
+                    connected.peer.path = path;
                     connected.peer.address = new_addr.ip().to_string();
                 }
             }
@@ -775,6 +983,7 @@ impl UdpGameServer {
         }
 
         self.flush();
+        self.polls += 1;
         events
     }
 
@@ -904,7 +1113,12 @@ impl UdpGameServer {
     /// (`UdpPeer.flush()`).
     pub fn flush(&mut self) {
         let now_ms = self.now_ms();
-        let mut sink = SendOnlySink(&self.socket, &mut self.closed_outside_poll);
+        let mut sink = SendOnlySink {
+            socket: &self.socket,
+            relays: &mut self.relays,
+            closed: &mut self.closed_outside_poll,
+            now_ms,
+        };
         let sids: Vec<u32> = self.by_session.keys().copied().collect();
         for sid in sids {
             let _ = self.endpoint.flush_session(sid, now_ms, &mut sink);
@@ -919,7 +1133,12 @@ impl UdpGameServer {
         };
         self.by_session.remove(&removed.peer.session_id);
         self.dec_prefix(&removed.peer.prefix);
-        let mut sink = SendOnlySink(&self.socket, &mut self.closed_outside_poll);
+        let mut sink = SendOnlySink {
+            socket: &self.socket,
+            relays: &mut self.relays,
+            closed: &mut self.closed_outside_poll,
+            now_ms,
+        };
         self.endpoint.close_session(
             removed.peer.session_id,
             code as u64,
@@ -929,13 +1148,98 @@ impl UdpGameServer {
         );
     }
 
-    /// Closes all connected peers with `CLOSE_CODE.SHUTDOWN` (`clearBattle` / `close`).
+    /// Closes all connected peers with `CLOSE_CODE.SHUTDOWN` (`clearBattle` / `close`), then
+    /// releases every relay allocation.
     pub fn close_all(&mut self) {
         let now_ms = self.now_ms();
         let ids: Vec<String> = self.peers.keys().cloned().collect();
         for id in ids {
             self.close_peer(&id, close_code::SHUTDOWN as u16, "server stopping", now_ms);
         }
+        let relays: Vec<u32> = self.relays.allocations.keys().copied().collect();
+        for id in relays {
+            self.relays.remove(id);
+        }
+    }
+
+    /// The path descriptor for a peer address: relayed when it currently arrives through a relay.
+    fn path_to(&self, address: SocketAddr) -> PeerPath {
+        let mut path = PeerPath::direct(address);
+        if self.relays.routes.contains_key(&normalize_socket_addr(address)) {
+            path.kind = "relay";
+        }
+        path
+    }
+
+    /// Opens a TURN allocation for `peer_id` on the relay server `server` with the given
+    /// credentials (the Node server's `allocateRelay`), permitting `permit`. Its outcome arrives
+    /// as a [`RelayEvent`] from [`UdpGameServer::relay_events`].
+    pub fn open_relay(
+        &mut self,
+        peer_id: &str,
+        server: SocketAddr,
+        username: &str,
+        password: &str,
+        permit: &[IpAddr],
+    ) -> Result<(), String> {
+        if self.relays.find(peer_id).is_some() {
+            return Err("a relay is already open for this player".to_string());
+        }
+        let local = if server.is_ipv6() {
+            SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
+        } else {
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
+        };
+        let socket = crate::sockets::udp(local, server.is_ipv6())
+            .map_err(|e| format!("relay socket: {e}"))?;
+        socket
+            .set_nonblocking(true)
+            .map_err(|e| format!("relay socket: {e}"))?;
+        let now_ms = self.now_ms();
+        let mut turn = TurnClient::new(server, username, password);
+        turn.allocate(now_ms);
+        turn.permit(permit, now_ms);
+        for packet in turn.transmit() {
+            crate::sockets::send_to(&socket, &packet, server);
+        }
+        let id = self.relays.next_id;
+        self.relays.next_id = self.relays.next_id.wrapping_add(1);
+        self.relays.allocations.insert(
+            id,
+            RelayAllocation {
+                peer_id: peer_id.to_string(),
+                socket,
+                turn,
+            },
+        );
+        Ok(())
+    }
+
+    /// Permits more of a player's addresses on its relay (ports do not matter).
+    pub fn permit_relay(&mut self, peer_id: &str, addresses: &[IpAddr]) {
+        let now_ms = self.now_ms();
+        if let Some(id) = self.relays.find(peer_id) {
+            if let Some(relay) = self.relays.allocations.get_mut(&id) {
+                relay.turn.permit(addresses, now_ms);
+            }
+        }
+    }
+
+    /// Releases a player's relay allocation, if it has one.
+    pub fn close_relay(&mut self, peer_id: &str) {
+        if let Some(id) = self.relays.find(peer_id) {
+            self.relays.remove(id);
+        }
+    }
+
+    /// Relay allocations open now.
+    pub fn relay_count(&self) -> usize {
+        self.relays.allocations.len()
+    }
+
+    /// Relay outcomes since the last call.
+    pub fn relay_events(&mut self) -> Vec<RelayEvent> {
+        std::mem::take(&mut self.relays.events)
     }
 
     /// Returns per-player status and transport metrics for the operator `status` action

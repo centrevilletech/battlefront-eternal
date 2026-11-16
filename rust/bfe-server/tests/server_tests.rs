@@ -4032,3 +4032,206 @@ fn unit_rows(context: &bfe_sim::abi::context::Context) -> Result<Vec<(u32, u32, 
     }
     Ok(out)
 }
+
+// ============================================================================
+// Relay: a player reaches the server through a TURN allocation the server holds
+// ============================================================================
+
+/// A TURN server just big enough for one allocation: long-term auth (401 first), permissions,
+/// channels, Send indications and ChannelData out, Data indications and ChannelData in. `control`
+/// is its TURN port, `relayed` the relayed address players send to.
+struct MiniTurn {
+    control: std::net::UdpSocket,
+    relayed: std::net::UdpSocket,
+    key: [u8; 16],
+    client: Option<SocketAddr>,
+    permitted: Vec<IpAddr>,
+    channels: Vec<(u16, SocketAddr)>,
+    released: bool,
+}
+
+impl MiniTurn {
+    fn new() -> Self {
+        let bind = || {
+            let socket = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind");
+            socket.set_nonblocking(true).expect("nonblocking");
+            socket
+        };
+        Self {
+            control: bind(),
+            relayed: bind(),
+            key: bfe_transport::turn::long_term_key("player", b"mini", "secret"),
+            client: None,
+            permitted: Vec::new(),
+            channels: Vec::new(),
+            released: false,
+        }
+    }
+
+    fn step(&mut self) {
+        use bfe_transport::stun::{self, attr, class, method};
+        use bfe_transport::turn::{check_integrity, encode};
+        let mut buf = [0u8; 1600];
+        while let Ok((n, from)) = self.control.recv_from(&mut buf) {
+            let packet = &buf[..n];
+            self.client = Some(from);
+            if stun::is_channel_data(packet) {
+                let number = u16::from_be_bytes([packet[0], packet[1]]);
+                let length = u16::from_be_bytes([packet[2], packet[3]]) as usize;
+                if let Some((_, peer)) = self.channels.iter().find(|(c, _)| *c == number) {
+                    let _ = self.relayed.send_to(&packet[4..4 + length], peer);
+                }
+                continue;
+            }
+            let Some(m) = stun::decode_message(packet) else { continue };
+            if m.method == method::SEND && m.klass == class::INDICATION {
+                if let (Some(peer), Some(data)) = (m.address(attr::XOR_PEER_ADDRESS), m.attr(attr::DATA)) {
+                    if self.permitted.contains(&peer.ip()) {
+                        let _ = self.relayed.send_to(data, peer);
+                    }
+                }
+                continue;
+            }
+            if m.klass != class::REQUEST {
+                continue;
+            }
+            if !check_integrity(&m, &self.key) {
+                let error = [0u8, 0, 4, 1];
+                let reply = encode(m.method, class::ERROR, &m.transaction, &[(attr::ERROR_CODE, &error), (attr::REALM, b"mini"), (attr::NONCE, b"n1")], None);
+                let _ = self.control.send_to(&reply, from);
+                continue;
+            }
+            let mut fields: Vec<(u16, Vec<u8>)> = Vec::new();
+            match m.method {
+                method::ALLOCATE => {
+                    let relayed = self.relayed.local_addr().expect("relayed address");
+                    fields.push((attr::XOR_RELAYED_ADDRESS, stun::encode_address(relayed, &m.transaction, true)));
+                    fields.push((attr::LIFETIME, 600u32.to_be_bytes().to_vec()));
+                }
+                method::CREATE_PERMISSION => {
+                    if let Some(peer) = m.address(attr::XOR_PEER_ADDRESS) {
+                        self.permitted.push(peer.ip());
+                    }
+                }
+                method::CHANNEL_BIND => {
+                    if let (Some(number), Some(peer)) = (m.attr(attr::CHANNEL_NUMBER), m.address(attr::XOR_PEER_ADDRESS)) {
+                        self.channels.push((u16::from_be_bytes([number[0], number[1]]), peer));
+                        self.permitted.push(peer.ip());
+                    }
+                }
+                method::REFRESH if m.attr(attr::LIFETIME) == Some(&[0u8, 0, 0, 0][..]) => self.released = true,
+                _ => {}
+            }
+            let list: Vec<(u16, &[u8])> = fields.iter().map(|(t, v)| (*t, v.as_slice())).collect();
+            let reply = encode(m.method, class::SUCCESS, &m.transaction, &list, Some(&self.key));
+            let _ = self.control.send_to(&reply, from);
+        }
+        while let Ok((n, peer)) = self.relayed.recv_from(&mut buf) {
+            let (Some(client), true) = (self.client, self.permitted.contains(&peer.ip())) else { continue };
+            let data = &buf[..n];
+            if let Some((number, _)) = self.channels.iter().find(|(_, p)| *p == peer) {
+                let mut out = number.to_be_bytes().to_vec();
+                out.extend_from_slice(&(data.len() as u16).to_be_bytes());
+                out.extend_from_slice(data);
+                let _ = self.control.send_to(&out, client);
+            } else {
+                let tx = [9u8; 12];
+                let indication = bfe_transport::turn::encode(
+                    bfe_transport::stun::method::DATA,
+                    bfe_transport::stun::class::INDICATION,
+                    &tx,
+                    &[(bfe_transport::stun::attr::XOR_PEER_ADDRESS, &bfe_transport::stun::encode_address(peer, &tx, true)), (bfe_transport::stun::attr::DATA, data)],
+                    None,
+                );
+                let _ = self.control.send_to(&indication, client);
+            }
+        }
+    }
+}
+
+/// The server opens a relay allocation for a player, and a client that can only send to the
+/// relayed address joins, gets its welcome and an answer to its start call, and the allocation is released when
+/// the server drops it.
+#[test]
+fn a_player_joins_through_the_servers_relay_allocation() {
+    use bfe_server::udp_server::RelayEvent;
+    let dir = temp_dir("relay");
+    let content_root = minimal_content_dir(&dir);
+    let cfg = ServerConfig {
+        data: content_root.to_string_lossy().into_owned(),
+        rotation: vec!["swbf1/nab2:rep:conquest".to_string()],
+        game_port: Some(0),
+        bind: Some("127.0.0.1".to_string()),
+        discovery: false,
+        ..Default::default()
+    };
+    let srv_id = ServerIdentity::load(&dir).expect("server identity");
+    let server = LocalDedicatedServer::start(&cfg, &srv_id, |_peer| false, |_m, _id, _n, _k, _d, _p| {}).expect("start local server");
+
+    let mut turn = MiniTurn::new();
+    let turn_address = turn.control.local_addr().expect("turn address");
+    server
+        .udp
+        .lock()
+        .unwrap()
+        .open_relay("player-1", turn_address, "player", "secret", &[IpAddr::V4(Ipv4Addr::LOCALHOST)])
+        .expect("open relay");
+    let mut relayed = None;
+    let start = Instant::now();
+    while relayed.is_none() && start.elapsed() < Duration::from_secs(5) {
+        turn.step();
+        for event in server.udp.lock().unwrap().relay_events() {
+            match event {
+                RelayEvent::Ready { peer_id, relayed: address } => {
+                    assert_eq!(peer_id, "player-1");
+                    relayed = Some(address);
+                }
+                RelayEvent::Failed { reason, .. } => panic!("relay failed: {reason}"),
+            }
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let relayed = relayed.expect("relay ready");
+    assert_eq!(relayed, turn.relayed.local_addr().unwrap());
+    assert_eq!(server.udp.lock().unwrap().relay_count(), 1);
+
+    let hello = serde_json::to_vec(&json!({
+        "name": "Relayed",
+        "protocol": layout_contract::PROTOCOL,
+        "profile": layout_contract::PROFILE,
+        "simulation": layout_contract::SIMULATION,
+        "content": server.fingerprint,
+    }))
+    .unwrap();
+    let mut client = Endpoint::connect(&relayed.to_string(), Identity::generate().unwrap(), srv_id.inner.id, &hello).expect("connect");
+    let mut events: Vec<String> = Vec::new();
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(8) && !events.iter().any(|t| t == "reply") {
+        turn.step();
+        let _ = client.pump(&mut |lane, text, bytes, _| {
+            if text && lane == Lane::Events {
+                if let Ok(v) = serde_json::from_slice::<Value>(bytes) {
+                    events.push(v["type"].as_str().unwrap_or("?").to_string());
+                }
+            }
+        });
+        if client.ready() && events.iter().any(|t| t == "welcome") && !events.iter().any(|t| t == "start-sent") {
+            events.push("start-sent".to_string());
+            let call = serde_json::to_vec(&json!({"type": "call", "id": 1, "method": "start", "args": {}})).unwrap();
+            let _ = client.send(Lane::Events, true, &call);
+            let _ = client.flush();
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(events.iter().any(|t| t == "welcome"), "welcome through the relay: {events:?}");
+    assert!(events.iter().any(|t| t == "reply"), "the start call answered through the relay: {events:?}");
+    let stats = server.stats();
+    assert_eq!(stats.len(), 1, "one player, relayed");
+    assert!(!turn.channels.is_empty(), "the server bound a channel for the player");
+
+    server.udp.lock().unwrap().close_relay("player-1");
+    turn.step();
+    assert!(turn.released, "the allocation was released with a zero lifetime");
+    assert_eq!(server.udp.lock().unwrap().relay_count(), 0);
+    let _ = fs::remove_dir_all(&dir);
+}

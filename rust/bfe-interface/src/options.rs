@@ -294,6 +294,59 @@ const CHOICES_PERFORMANCE_PRESET: [ChoiceItem; 5] = [
     ChoiceItem::s("quality", "HIGH QUALITY"),
 ];
 
+/// Full-screen display resolution choices (`displayMode`): the desktop's own mode, then the monitor's modes as
+/// the host lists them at run time ([`set_display_modes`]), as the 2004 game's RESOLUTION option offered them.
+const CHOICES_DISPLAY_MODE: [ChoiceItem; 1] = [ChoiceItem::s("desktop", "DESKTOP")];
+static DISPLAY_MODES: std::sync::RwLock<Option<&'static [ChoiceItem]>> = std::sync::RwLock::new(None);
+
+/// Installs the monitor's full-screen modes (width, height) as the `displayMode` choices, after DESKTOP. A
+/// platform that cannot change the display mode lists none. A mode shaped unlike the desktop's (`desktop`)
+/// is labelled with its shape ("1280x960 4:3"): the monitor stretches it to the screen. The list lives for the
+/// process (a few entries).
+pub fn set_display_modes(modes: &[(u32, u32)], desktop: (u32, u32)) {
+    let mut items = vec![ChoiceItem::s("desktop", "DESKTOP")];
+    for &(w, h) in modes {
+        let value: &'static str = Box::leak(format!("{w}x{h}").into_boxed_str());
+        let label: &'static str = match mode_shape(w, h, desktop) {
+            Some(shape) => Box::leak(format!("{w}x{h} {shape}").into_boxed_str()),
+            None => value,
+        };
+        items.push(ChoiceItem { value: ChoiceVal::Text(value), label, label_key: None });
+    }
+    if let Ok(mut list) = DISPLAY_MODES.write() {
+        *list = Some(Box::leak(items.into_boxed_slice()));
+    }
+}
+
+/// A mode's shape when it differs from the desktop's by more than 1%: "4:3", "5:4", "16:10", "16:9", or w:h.
+fn mode_shape(w: u32, h: u32, desktop: (u32, u32)) -> Option<String> {
+    if w == 0 || h == 0 || desktop.0 == 0 || desktop.1 == 0 {
+        return None;
+    }
+    let (ratio, own) = (w as f64 / h as f64, desktop.0 as f64 / desktop.1 as f64);
+    if (ratio / own - 1.0).abs() <= 0.01 {
+        return None;
+    }
+    let named = [(4.0 / 3.0, "4:3"), (5.0 / 4.0, "5:4"), (16.0 / 10.0, "16:10"), (16.0 / 9.0, "16:9")];
+    Some(named.iter().find(|(r, _)| (ratio / r - 1.0).abs() <= 0.01).map_or_else(
+        || {
+            let g = (1..=h).rev().find(|&d| w.is_multiple_of(d) && h.is_multiple_of(d)).unwrap_or(1);
+            format!("{}:{}", w / g, h / g)
+        },
+        |(_, n)| n.to_string(),
+    ))
+}
+
+/// An option's choices: its own list, or for `displayMode` the monitor's modes once the host has listed them.
+pub fn choices_of(spec: &OptionSpec) -> &'static [ChoiceItem] {
+    if spec.key == "displayMode" {
+        if let Some(list) = DISPLAY_MODES.read().ok().and_then(|l| *l) {
+            return list;
+        }
+    }
+    spec.choices
+}
+
 /// Frame rate cap choices (`frameLimit` / `FPS("DISPLAY")`).
 const CHOICES_FRAME_LIMIT: [ChoiceItem; 6] = [
     // Paced to the display's native refresh rate (`"0"` -> `"DISPLAY"`).
@@ -570,7 +623,7 @@ impl OptionSpec {
 }
 
 /// All 57 option specifications in exact `src/menus/options.js` order.
-pub const OPTIONS: [OptionSpec; 57] = [
+pub const OPTIONS: [OptionSpec; 58] = [
     // 1..6: Starfighter & key bindings
     // 1. `flightFirstPerson`: starfighter cockpit camera preference (`game` page, live toggle).
     // Default: `false` (3rd-person chase camera); toggles cockpit view in starfighters.
@@ -723,6 +776,18 @@ pub const OPTIONS: [OptionSpec; 57] = [
         ApplyMode::Live,
         None,
         &CHOICES_PERFORMANCE_PRESET,
+    ),
+    // 14b. `displayMode`: full-screen output resolution (`desktop`, or one of the monitor's modes as `WxH`).
+    // Default: `"desktop"`; another mode switches the display while the game is full screen, with a
+    // 15-second keep-or-revert confirmation (OptionsController).
+    OptionSpec::choice(
+        "displayMode",
+        "video",
+        "RESOLUTION",
+        None,
+        ApplyMode::Live,
+        None,
+        &CHOICES_DISPLAY_MODE,
     ),
     // 15. `frameLimit`: frame pacing cap (`0` display refresh, `30`, `60`, `120`, `144`, `240` FPS).
     // Default: `"0"` (`DISPLAY`); caps frame presentation rate or follows display refresh.
@@ -1248,7 +1313,7 @@ pub const OPTIONS: [OptionSpec; 57] = [
 ];
 
 /// Keys in [`OPTIONS`] (`OPTION_KEYS`), in exact table order.
-pub const OPTION_KEYS: [&str; 57] = [
+pub const OPTION_KEYS: [&str; 58] = [
     // 1..6: Starfighter camera, key binding maps, and flight controls.
     "flightFirstPerson",
     "keyBindings",
@@ -1266,6 +1331,7 @@ pub const OPTION_KEYS: [&str; 57] = [
     "physicsRate",
     // 14..26: Video quality preset, frame pacing, upscaling, shadows, textures, water, and distance.
     "performancePreset",
+    "displayMode",
     "frameLimit",
     "dynamicResolution",
     "renderScale",
@@ -1425,7 +1491,7 @@ pub fn format_option_value(
     match spec.kind {
         // Look up the matching choice item's localized label, or format raw value as fallback.
         OptionKind::Choice => {
-            if let Some(choice) = spec.choices.iter().find(|c| c.value.matches(&val)) {
+            if let Some(choice) = choices_of(spec).iter().find(|c| c.value.matches(&val)) {
                 say(strings, choice.label_key, choice.label)
             } else {
                 match val {
@@ -1468,18 +1534,18 @@ pub fn step_option(spec: &OptionSpec, settings: &mut Settings, dir: i32) -> bool
     let step_dir = if dir < 0 { -1 } else { 1 };
     match spec.kind {
         OptionKind::Choice => {
-            if spec.choices.is_empty() {
+            let choices = choices_of(spec);
+            if choices.len() < 2 {
                 return false;
             }
             let current = settings.get(spec.key);
-            let idx = spec
-                .choices
+            let idx = choices
                 .iter()
                 .position(|c| c.value.matches(&current))
                 .unwrap_or(0) as isize;
-            let len = spec.choices.len() as isize;
+            let len = choices.len() as isize;
             let next = (idx + (step_dir as isize)).rem_euclid(len) as usize;
-            settings.set(spec.key, spec.choices[next].value.to_setting_value());
+            settings.set(spec.key, choices[next].value.to_setting_value());
             true
         }
         OptionKind::Toggle => {
@@ -1526,7 +1592,7 @@ mod tests {
 
     #[test]
     fn every_settings_key_is_present_with_default_and_page() {
-        assert_eq!(DEFAULTS.len(), 59);
+        assert_eq!(DEFAULTS.len(), 60);
         for def in DEFAULTS {
             assert!(
                 default_for(def.key).is_some(),
