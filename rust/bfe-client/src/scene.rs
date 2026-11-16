@@ -293,6 +293,14 @@ fn texture_capabilities(has:impl Fn(&str)->bool,renderer:&str,embedded:bool)->u3
     if bfe_render::texture_format::unpacks_bc7(renderer){capabilities|=64;}
     capabilities
 }
+/// An RGBA image's grey and alpha, when its red, green and blue are equal in every texel.
+fn grey_alpha(rgba: &[u8]) -> Option<Vec<u8>> {
+    if rgba.len() % 4 != 0 || !rgba.chunks_exact(4).all(|p| p[0] == p[1] && p[1] == p[2]) {
+        return None;
+    }
+    Some(rgba.chunks_exact(4).flat_map(|p| [p[0], p[3]]).collect())
+}
+
 #[cfg(test)]
 mod texture_capability_tests {
     use bfe_render::texture_format::{choose,Capabilities,Format};
@@ -305,6 +313,11 @@ mod texture_capability_tests {
             assert_eq!(choose(c,true,false,256,256,bits&64!=0),Format::Bc1);
             assert_eq!(choose(c,true,true,256,256,bits&64!=0),Format::Bc3);
         }
+    }
+    #[test]
+    fn only_a_grey_image_keeps_grey_and_alpha() {
+        assert_eq!(super::grey_alpha(&[255, 255, 255, 7, 0, 0, 0, 0]), Some(vec![255, 7, 0, 0]));
+        assert_eq!(super::grey_alpha(&[255, 255, 254, 7]), None);
     }
     // A GLES 3.0 GPU with no ASTC, BPTC or S3TC samples ETC2 (core there) rather than taking RGBA8.
     #[test]
@@ -896,11 +909,14 @@ impl Scene {
                 continue;
             }
             let compressed=image.format!=bfe_render::texture_format::Format::Rgba||image.mips.len()>1;
-            let source=resources.source(&serde_json::json!({"width":image.width,"height":image.height,"depth":1,"target":glow::TEXTURE_2D,"format":image.format.descriptor(),"dataType":1009,"srgb":false}).to_string())?;
+            // A grey image (the HUD's font pages) keeps grey and alpha only: the same texels in half the memory.
+            let grey=(!compressed).then(||grey_alpha(&image.data)).flatten();
+            let format=if grey.is_some(){1030}else{image.format.descriptor()};
+            let source=resources.source(&serde_json::json!({"width":image.width,"height":image.height,"depth":1,"target":glow::TEXTURE_2D,"format":format,"dataType":1009,"srgb":false,"greyAlpha":grey.is_some()}).to_string())?;
             if compressed{
                 let mips=image.mips.iter().map(|m|serde_json::json!({"width":m.width,"height":m.height,"offset":m.offset,"length":m.length})).collect::<Vec<_>>();
                 resources.source_blocks(source,&image.data,&serde_json::to_string(&mips).map_err(|e|e.to_string())?)?;
-            }else{resources.source_pixels(source,&image.data)?;}
+            }else{resources.source_pixels(source,grey.as_deref().unwrap_or(&image.data))?;}
             let sampling=if compressed{sampling.replace("\"mipmaps\":true","\"mipmaps\":false")}else{sampling.clone()};
             let sample = resources.sample(source, &sampling)?;
             resources.upload(sample)?;
@@ -1090,6 +1106,8 @@ impl Scene {
             }
             admitted += 1;
         }
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         // Graphics.farTarget and NearPass.writeImage retain separate images:
         // the shared schedule clears near depth/color before the far image's
         // depth-tested composite. A canvas alias cannot preserve that order.
@@ -1170,8 +1188,12 @@ impl Scene {
         let storm = if sea_water && rain.is_object() && !rain["Type"][0].as_str().unwrap_or("").eq_ignore_ascii_case("quads") {
             Some(crate::storm_host::StormHost::new(&mut bridge, &mut resources, &content.world, &textures, water_data, &mut far_slot)?)
         } else { None };
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let flyers = crate::sky_host::SkyHost::new(&mut bridge, &mut resources, &content, &textures, &mut far_slot)?;
         bridge.r.far.prepare_frame_capacity();
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         bridge.r.foliage.prepare_frame_caches();
         if admitted == 0 {
             return Err("map contains no inspectable static world".into());

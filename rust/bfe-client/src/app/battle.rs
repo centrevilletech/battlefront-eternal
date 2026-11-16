@@ -1379,7 +1379,7 @@ impl BattleController {
 
         let page_battle = match super::page_battle::PageBattle::new(&mut scene,size,settings) {
             Ok(page) => page,
-            Err(err) => { pause_page.blur.dispose(&scene.bridge.r.core.gl); return Err(err); }
+            Err(err) => { let mut pause_page = pause_page; pause_page.blur.dispose(&scene.bridge.r.core.gl); return Err(err); }
         };
         if page_battle.spawn { spawn_ctrl.view.theme_hotspots=Some(Vec::with_capacity(64)); }
         if page_battle.scoreboard { scoreboard_ctrl.view.theme_hotspots=Some(Vec::with_capacity(128)); }
@@ -2271,7 +2271,14 @@ impl BattleController {
         super::bench::apply_view(&mut view);
         self.scene.set_direct(self.direct_allowed && !overlay_active && !self.pause_menu.is_open && !page_spawn && !page_score);
         let behind=if page_spawn {self.page_battle.backdrop()} else {super::page_battle::Backdrop::Draw};
-        if behind==super::page_battle::Backdrop::Draw {
+        // Instant Action's world stands still behind the pause menu: its
+        // filtered frame is drawn once and shown again until something
+        // that changes it (window size, settings, look).
+        let frozen=self.pause_menu.is_open&&matches!(self.authority,BattleAuthority::InstantAction{..});
+        let key=(self.size,settings.interface.revision,self.pause_page.theme.clone());
+        let kept=frozen&&self.pause_page.kept.as_ref()==Some(&key)&&self.pause_page.blur.show_kept(&self.scene.bridge.r.core.gl,self.scene.canvas.framebuffer);
+        if kept {
+        } else if behind==super::page_battle::Backdrop::Draw {
             self.scene.draw(&view)?;
         } else {
             self.page_battle.show_behind(&mut self.scene,behind);
@@ -2292,9 +2299,23 @@ impl BattleController {
             self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=pause_groups;
         }
         if self.pause_menu.is_open {
-            self.pause_page.blur.apply(&self.scene.bridge.r.core.gl,self.scene.canvas.framebuffer,6.);
+            if !kept {
+                let gl=&self.scene.bridge.r.core.gl;
+                self.pause_page.blur.apply(gl,self.scene.canvas.framebuffer,6.);
+                self.pause_page.modal=None;
+                self.pause_page.kept=None;
+                if frozen {
+                    match self.pause_page.blur.keep(gl) {
+                        Ok(())=>self.pause_page.kept=Some(key),
+                        Err(err)=>eprintln!("pause backdrop not kept: {err}"),
+                    }
+                }
+            }
             self.scene.bridge.r.core.state.reset();
             self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=pause_groups;
+        } else if self.pause_page.kept.take().is_some() {
+            self.pause_page.modal=None;
+            self.pause_page.blur.forget(&self.scene.bridge.r.core.gl);
         }
         if measure_steady && !overlay_active {
             self.steady_frames_measured += 1;

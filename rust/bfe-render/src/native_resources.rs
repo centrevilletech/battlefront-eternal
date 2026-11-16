@@ -527,6 +527,11 @@ impl GpuResources {
             }
             gl.tex_parameter_i32(d.target, glow::TEXTURE_MIN_FILTER, filter(sampling.min));
             gl.tex_parameter_i32(d.target, glow::TEXTURE_MAG_FILTER, filter(sampling.mag));
+            if d.grey_alpha && d.format == 1030 {
+                for (channel, source) in [(glow::TEXTURE_SWIZZLE_R, glow::RED), (glow::TEXTURE_SWIZZLE_G, glow::RED), (glow::TEXTURE_SWIZZLE_B, glow::RED), (glow::TEXTURE_SWIZZLE_A, glow::GREEN)] {
+                    gl.tex_parameter_i32(d.target, channel, source as i32);
+                }
+            }
             let aniso = gl
                 .supported_extensions()
                 .iter()

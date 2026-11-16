@@ -20,6 +20,10 @@ pub(crate) struct ImageDesc {
     pub(crate) srgb: bool,
     #[serde(default)]
     pub(crate) render_target: bool,
+    /// Two channels (grey, alpha) sampled as grey, grey, grey, alpha: the same
+    /// values as an RGBA image whose red, green and blue are equal, at half its size.
+    #[serde(default)]
+    pub(crate) grey_alpha: bool,
 }
 
 #[derive(Clone, Deserialize, Serialize)]

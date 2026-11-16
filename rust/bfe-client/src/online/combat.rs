@@ -417,6 +417,8 @@ impl Combat {
                     .collect()
             })
             .collect();
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let effects = bfe_presentation::Presentation::new(
             serde_json::from_value(library.descriptor.clone()).map_err(|e| e.to_string())?,
             bfe_presentation::Limits { effects: 1024, emitters: 4096, particles: 16384, commands: 2048, events: 32768 },
@@ -434,11 +436,17 @@ impl Combat {
         let streaks_at = particles.words;
         particles.words += STREAK_FLOATS + FLARE_FLOATS;
         bridge.fx_reserve(particles.words as u32);
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let destruction = super::destruction::Destructions::new(content, bridge, textures, collision.clone(), world, particles.words)?;
         particles.words = destruction.end();
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let debris = super::debris::Debris::new(content, bridge, textures, &effect_names, collision, world).await?;
         // The explosions droids that come apart die in: Enhanced draws its own
         // blast for them and leaves the stock effect out (Destruction.explosion).
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let droid_explosions: Vec<usize> = defs
             .classes
             .iter()

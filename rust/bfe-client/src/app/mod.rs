@@ -2241,6 +2241,9 @@ impl StandaloneWindowApp {
                         .slint_ui
                         .as_ref()
                         .is_some_and(|ui| ui.battle_modal_open());
+                    if !two_pass {
+                        battle.pause_page.modal = None;
+                    }
                     if battle.scene.direct {
                         battle.scene.resolution_presented(battle.pause_menu.is_open||!self.focused||self.hidden)?;
                         let (Some(surface), Some(context)) = (&self.surface, &self.context) else {
@@ -2250,13 +2253,22 @@ impl StandaloneWindowApp {
                         surface.swap_buffers(context).map_err(|e| format!("window presentation failed: {e}"))?;
                         battle.scene.bridge.r.core.profile.cpu("window swap", swap);
                     } else if two_pass {
-                        if let Some(ui) = &self.slint_ui {
-                            ui.render_pass(fb, sz, 1)?;
+                        // Over a kept pause backdrop the dialog's backdrop cannot change either,
+                        // once the menu under it has finished animating.
+                        let key = battle.pause_page.kept.clone();
+                        if key.is_some() && battle.pause_page.modal == key {
+                            battle.pause_page.blur.show_blurred(&battle.scene.bridge.r.core.gl, fb);
+                        } else {
+                            if let Some(ui) = &self.slint_ui {
+                                ui.render_pass(fb, sz, 1)?;
+                            }
+                            battle
+                                .pause_page
+                                .blur
+                                .apply(&battle.scene.bridge.r.core.gl, fb, 4.0);
+                            let settled = self.slint_ui.as_ref().is_some_and(|ui| !ui.animating());
+                            battle.pause_page.modal = key.filter(|_| settled);
                         }
-                        battle
-                            .pause_page
-                            .blur
-                            .apply(&battle.scene.bridge.r.core.gl, fb, 4.0);
                         battle.scene.bridge.r.core.state.reset();
                         let (Some(ui), Some(surface), Some(context)) =
                             (&self.slint_ui, &self.surface, &self.context)
