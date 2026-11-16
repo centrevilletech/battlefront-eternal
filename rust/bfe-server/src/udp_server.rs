@@ -124,6 +124,9 @@ pub enum RelayEvent {
     Failed { peer_id: String, reason: String },
 }
 
+/// Peer addresses one relay allocation may carry at once (see `Relays::route`).
+const ROUTES_PER_RELAY: usize = 8;
+
 /// One player's TURN allocation. Each has its own UDP socket: a TURN server tells allocations
 /// apart by the client's address and port, so one game socket could hold only one.
 struct RelayAllocation {
@@ -159,6 +162,18 @@ impl Relays {
             }
         }
         crate::sockets::send_to(socket, bytes, to);
+    }
+
+    /// Routes `peer` through allocation `id`. A player's packets arrive from a few addresses at
+    /// most; one allocation keeps at most [`ROUTES_PER_RELAY`], dropping its others for a new one.
+    fn route(&mut self, peer: SocketAddr, id: u32) {
+        if self.routes.get(&peer) == Some(&id) {
+            return;
+        }
+        if self.routes.values().filter(|routed| **routed == id).count() >= ROUTES_PER_RELAY {
+            self.routes.retain(|_, routed| *routed != id);
+        }
+        self.routes.insert(peer, id);
     }
 
     fn find(&self, peer_id: &str) -> Option<u32> {
@@ -243,6 +258,7 @@ impl ServerSink for SendOnlySink<'_> {
 struct PollSink<'a, F: FnMut(&str) -> bool> {
     socket: &'a UdpSocket,
     relays: &'a mut Relays,
+    bindings: &'a mut Bindings,
     now_ms: f64,
     content: &'a str,
     fingerprint: &'a str,
@@ -337,6 +353,32 @@ impl<F: FnMut(&str) -> bool> ServerSink for PollSink<'_, F> {
     fn on_close(&mut self, session_id: u32, _closed: Closed) {
         self.closed.push(session_id);
     }
+
+    fn on_stun_response(&mut self, msg: &stun::StunMessage<'_>, _from: SocketAddr) {
+        self.bindings.answer(msg);
+    }
+}
+
+/// STUN Binding requests sent from the game socket and their answers, which arrive through
+/// [`UdpGameServer::poll`] like every other datagram (nothing else may read the game socket).
+#[derive(Default)]
+struct Bindings {
+    pending: Vec<[u8; 12]>,
+    answers: Vec<([u8; 12], SocketAddr)>,
+}
+
+impl Bindings {
+    fn answer(&mut self, msg: &stun::StunMessage<'_>) {
+        if msg.klass != stun::class::SUCCESS {
+            return;
+        }
+        if let Some(i) = self.pending.iter().position(|tx| *tx == msg.transaction) {
+            self.pending.swap_remove(i);
+            if let Some(mapped) = msg.mapped_address() {
+                self.answers.push((msg.transaction, normalize_socket_addr(mapped)));
+            }
+        }
+    }
 }
 
 /// Authoritative UDP game port server (`export async function startUdpServer` in `src/udp-server.js`).
@@ -378,6 +420,10 @@ pub struct UdpGameServer {
     recv_buf: [u8; MAX_PACKET],
     /// TURN allocations for players who reach this server through a relay.
     relays: Relays,
+    /// Reflexive address queries in flight on the game socket.
+    bindings: Bindings,
+    /// Completed `poll` calls, so a waiting caller knows answers can arrive.
+    polls: u64,
 }
 
 impl UdpGameServer {
@@ -433,6 +479,8 @@ impl UdpGameServer {
             start_instant: Instant::now(),
             recv_buf: [0u8; MAX_PACKET],
             relays: Relays::default(),
+            bindings: Bindings::default(),
+            polls: 0,
         })
     }
 
@@ -463,8 +511,33 @@ impl UdpGameServer {
         out
     }
 
+    /// Sends a STUN Binding request to `server` from the game socket; its answer arrives through
+    /// [`Self::poll`] and is read with [`Self::binding_answer`]. At most four are in flight.
+    pub fn send_binding(&mut self, server: SocketAddr) -> Option<[u8; 12]> {
+        let tx = stun::new_transaction().ok()?;
+        if self.bindings.pending.len() >= 4 {
+            self.bindings.pending.remove(0);
+        }
+        self.bindings.pending.push(tx);
+        self.bindings.answers.retain(|(t, _)| self.bindings.pending.contains(t));
+        crate::sockets::send_to(&self.socket, &stun::encode_binding_request(&tx), server);
+        Some(tx)
+    }
+
+    /// The reflexive address answered to a [`Self::send_binding`] request, once it has arrived.
+    pub fn binding_answer(&mut self, tx: &[u8; 12]) -> Option<SocketAddr> {
+        let i = self.bindings.answers.iter().position(|(t, _)| t == tx)?;
+        Some(self.bindings.answers.swap_remove(i).1)
+    }
+
+    /// Completed [`Self::poll`] calls.
+    pub fn polls(&self) -> u64 {
+        self.polls
+    }
+
     /// Performs an RFC 5389 STUN Binding Request over the game port socket to discover the server's
-    /// public reflexive address (`endpoint.reflexive` in `src/udp-server.js`).
+    /// public reflexive address (`endpoint.reflexive` in `src/udp-server.js`), reading the socket
+    /// itself: only for a server whose game socket nobody polls (it drops anything else that arrives).
     pub fn reflexive(&self, server: SocketAddr, timeout: Duration) -> Result<ReflexiveMap, String> {
         let tx = stun::new_transaction().map_err(|e| e.to_string())?;
         let req = stun::encode_binding_request(&tx);
@@ -582,6 +655,7 @@ impl UdpGameServer {
             let mut sink = PollSink {
                 socket: &self.socket,
                 relays: &mut self.relays,
+                bindings: &mut self.bindings,
                 now_ms,
                 content: &self.content,
                 fingerprint: &self.fingerprint,
@@ -623,10 +697,7 @@ impl UdpGameServer {
             // packets to the transport with the peer's address as their path.
             let ids: Vec<u32> = sink.relays.allocations.keys().copied().collect();
             for id in ids {
-                loop {
-                    let Some(relay) = sink.relays.allocations.get_mut(&id) else {
-                        break;
-                    };
+                while let Some(relay) = sink.relays.allocations.get_mut(&id) {
                     let Ok((len, from)) = crate::sockets::recv_from(&relay.socket, &mut self.recv_buf) else {
                         break;
                     };
@@ -639,7 +710,7 @@ impl UdpGameServer {
                     if data.is_empty() || data.len() > 1200 {
                         continue;
                     }
-                    sink.relays.routes.insert(peer, id);
+                    sink.relays.route(peer, id);
                     self.endpoint.receive(data, peer, now_ms, &mut sink);
                 }
             }
@@ -883,6 +954,7 @@ impl UdpGameServer {
         }
 
         self.flush();
+        self.polls += 1;
         events
     }
 

@@ -632,7 +632,7 @@ pub fn md5(input: &[u8]) -> [u8; 16] {
         message.push(0);
     }
     message.extend_from_slice(&((input.len() as u64).wrapping_mul(8)).to_le_bytes());
-    for block in message.chunks_exact(64) {
+    for block in message.as_chunks::<64>().0 {
         let m: [u32; 16] = std::array::from_fn(|i| u32::from_le_bytes([block[i * 4], block[i * 4 + 1], block[i * 4 + 2], block[i * 4 + 3]]));
         let [mut a, mut b, mut c, mut d] = state;
         for i in 0..64 {

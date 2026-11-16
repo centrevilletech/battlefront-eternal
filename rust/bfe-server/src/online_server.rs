@@ -154,6 +154,8 @@ pub struct OnlineServer {
     pub beats: Arc<Mutex<u64>>,
     pub family_down: Arc<Mutex<HashMap<u8, Instant>>>,
     relays: Mutex<HashMap<String, RelayEntry>>,
+    /// Local addresses the system sends from towards the STUN server (see [`Self::natted`]).
+    route_addresses: Mutex<Vec<String>>,
     udp: Option<Arc<Mutex<UdpGameServer>>>,
     browser: Arc<dyn Fn() -> BrowserInfo + Send + Sync>,
     is_banned: Arc<dyn Fn(&str) -> bool + Send + Sync>,
@@ -205,6 +207,7 @@ impl OnlineServer {
             beats: Arc::new(Mutex::new(0)),
             family_down: Arc::new(Mutex::new(HashMap::new())),
             relays: Mutex::new(HashMap::new()),
+            route_addresses: Mutex::new(Vec::new()),
             udp,
             browser,
             is_banned,
@@ -317,6 +320,10 @@ impl OnlineServer {
 
     /// Queries the STUN server from the game port to discover the server's reflexive IPv4 and IPv6
     /// addresses (`async discover()` in `src/online-server.js`).
+    ///
+    /// The requests go out from the game socket and their answers come back through the game
+    /// loop's poll, so no game packet is lost to the query and the game loop is never held up.
+    /// A server whose game socket nobody polls yet reads the answers itself.
     pub fn discover(&self) {
         if self.config.relay_policy == "always" {
             return;
@@ -336,7 +343,54 @@ impl OnlineServer {
                 }
             }
         }
+        let targets: Vec<SocketAddr> = [addrs_v4, addrs_v6].into_iter().flatten().collect();
+        if let Ok(mut routes) = self.route_addresses.lock() {
+            *routes = targets.iter().filter_map(|t| route_address(*t)).collect();
+        }
+        let polled = |udp: &Arc<Mutex<UdpGameServer>>| udp.lock().map(|u| u.polls()).unwrap_or(0);
+        let before = polled(udp_arc);
+        let sent: Vec<[u8; 12]> = match udp_arc.lock() {
+            Ok(mut udp) => targets.iter().filter_map(|t| udp.send_binding(*t)).collect(),
+            Err(_) => return,
+        };
+        let deadline = Instant::now() + Duration::from_millis(1500);
         let mut map = ReflexiveMap::default();
+        let mut answered = 0;
+        while Instant::now() < deadline && answered < sent.len() {
+            thread::sleep(Duration::from_millis(20));
+            let Ok(mut udp) = udp_arc.lock() else {
+                return;
+            };
+            for tx in &sent {
+                if let Some(mapped) = udp.binding_answer(tx) {
+                    answered += 1;
+                    let entry = CandidateEntry {
+                        address: mapped.ip().to_string(),
+                        port: mapped.port(),
+                        kind: Some("srflx".to_string()),
+                    };
+                    if mapped.is_ipv4() {
+                        map.ipv4 = Some(entry);
+                    } else {
+                        map.ipv6 = Some(entry);
+                    }
+                }
+            }
+        }
+        if answered == 0 && polled(udp_arc) == before {
+            map = self.discover_unpolled(addrs_v4, addrs_v6);
+        }
+        if let Ok(mut guard) = self.reflexive.lock() {
+            *guard = map;
+        }
+    }
+
+    /// Reflexive discovery for a game socket nobody polls: reads the answers from it directly.
+    fn discover_unpolled(&self, addrs_v4: Option<SocketAddr>, addrs_v6: Option<SocketAddr>) -> ReflexiveMap {
+        let mut map = ReflexiveMap::default();
+        let Some(udp_arc) = self.udp.as_ref() else {
+            return map;
+        };
         if let Ok(udp) = udp_arc.lock() {
             if let Some(target) = addrs_v4 {
                 if let Ok(res) = udp.reflexive(target, Duration::from_millis(1500)) {
@@ -353,15 +407,16 @@ impl OnlineServer {
                 }
             }
         }
-        if let Ok(mut guard) = self.reflexive.lock() {
-            *guard = map;
-        }
+        map
     }
 
     /// Returns `true` when the server appears to be behind NAT (`OnlineServer.natted()` in
     /// `src/online-server.js`: no reflexive mapping or any reflexive address not owned by a local interface).
+    ///
+    /// The host's own addresses are the game socket's bound address and the local address the
+    /// system routes to the STUN server from (a socket bound to every interface names none).
     pub fn natted(&self) -> bool {
-        let hosts: HashSet<String> = self
+        let mut hosts: HashSet<String> = self
             .udp
             .as_ref()
             .and_then(|u| {
@@ -370,6 +425,9 @@ impl OnlineServer {
                     .map(|g| g.candidates().into_iter().map(|c| c.address).collect())
             })
             .unwrap_or_default();
+        if let Ok(routes) = self.route_addresses.lock() {
+            hosts.extend(routes.iter().cloned());
+        }
         let reflexive = self
             .reflexive
             .lock()
@@ -836,6 +894,15 @@ impl Drop for OnlineServer {
         self.stop.store(true, Ordering::SeqCst);
         self.master.close();
     }
+}
+
+/// The local address the system would send from to reach `target` (no packet is sent).
+fn route_address(target: SocketAddr) -> Option<String> {
+    let any = if target.is_ipv6() { "[::]:0" } else { "0.0.0.0:0" };
+    let socket = std::net::UdpSocket::bind(any).ok()?;
+    socket.connect(target).ok()?;
+    let ip = socket.local_addr().ok()?.ip();
+    (!ip.is_unspecified()).then(|| ip.to_string())
 }
 
 /// The relay server's address, IPv4 first (`lookup(host, { family: 4 })` in the Node endpoint).

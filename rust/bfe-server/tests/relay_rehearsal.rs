@@ -7,7 +7,8 @@
 //!
 //! It offers its reflexive address (from the STUN server), waits for the server's answer and its
 //! relayed candidate, connects to that candidate (or to every candidate with `any`), takes a spawn
-//! and keeps sending inputs and acknowledgements for the given time, then reports what arrived.
+//! and keeps sending inputs and acknowledgements for the given time or until the battle ends,
+//! then reports what arrived.
 //! It fails if the session does not open or closes early.
 
 use bfe_server::identity::ServerIdentity;
@@ -32,6 +33,45 @@ fn reflexive(stun_server: &str) -> SocketAddr {
     let mut buf = [0u8; 512];
     let (n, _) = socket.recv_from(&mut buf).expect("STUN answer");
     stun::decode_message(&buf[..n]).and_then(|m| m.mapped_address()).expect("mapped address")
+}
+
+/// Many players offer and none joins: the server must stop at its relay limit and release
+/// every allocation once its player has not joined for 30 s.
+/// `BFE_RELAY_OFFERS="<master url> <server id> <stun host:port> <players>"`
+#[test]
+#[ignore = "needs a master, a TURN server and a running bfeserver"]
+fn many_offers_stop_at_the_relay_limit() {
+    let Ok(setting) = std::env::var("BFE_RELAY_OFFERS") else {
+        return;
+    };
+    let args: Vec<&str> = setting.split_whitespace().collect();
+    let (master_url, server_id, stun_server) = (args[0], args[1], args[2]);
+    let players: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(30);
+    let mapped = reflexive(stun_server);
+    let mut sessions = Vec::new();
+    for _ in 0..players {
+        let player = ServerIdentity::generate().expect("identity");
+        let master = MasterClient::new(master_url, player, true).expect("master client");
+        let (events_tx, events_rx) = mpsc::channel();
+        master.connect(events_tx).expect("signalling");
+        let nonce: String = stun::new_transaction().expect("random").iter().chain(&[0u8; 4]).map(|b| format!("{b:02x}")).collect();
+        assert!(master.signal(server_id, &json!({"type": "offer", "udp": 1, "nonce": nonce, "candidates": [{"address": mapped.ip().to_string(), "port": mapped.port(), "kind": "srflx"}]})));
+        sessions.push((master, events_rx));
+        std::thread::sleep(Duration::from_millis(150));
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut relayed = std::collections::BTreeSet::new();
+    while Instant::now() < deadline {
+        for (i, (_, events)) in sessions.iter().enumerate() {
+            while let Ok(MasterEvent::Signal(signal)) = events.try_recv() {
+                if signal.payload.contains("\"relay\"") {
+                    relayed.insert(i);
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    println!("RESULT {players} offers, {} relayed candidates", relayed.len());
 }
 
 #[test]
@@ -120,6 +160,7 @@ fn join_and_play_through_the_relay() {
     let mut asked_start = false;
     let play = Instant::now();
     let mut last_ack = Instant::now();
+    let mut next_report = Instant::now() + Duration::from_secs(30);
     while play.elapsed() < Duration::from_secs(seconds) {
         let mut welcome = false;
         let pumped = client.pump(&mut |lane, text, bytes, _| {
@@ -134,6 +175,11 @@ fn join_and_play_through_the_relay() {
                 state_bytes += bytes.len() as u64;
             }
         });
+        // The battle is over when the next one is announced.
+        if types.contains_key("match") {
+            println!("{:>4} s: the battle ended (next one announced)", play.elapsed().as_secs());
+            break;
+        }
         if let Err(error) = pumped {
             panic!("session ended after {} s: {}", play.elapsed().as_secs(), client.failure(error));
         }
@@ -151,14 +197,15 @@ fn join_and_play_through_the_relay() {
             let _ = client.send(Lane::State, false, &ack);
             let _ = client.flush();
         }
-        if play.elapsed().as_secs() % 30 == 0 && last_ack.elapsed() < Duration::from_millis(10) && play.elapsed().as_millis() % 30_000 < 100 {
+        if Instant::now() >= next_report {
+            next_report += Duration::from_secs(30);
             println!("{:>4} s: state packets {state_packets} ({state_bytes} bytes), events {types:?}", play.elapsed().as_secs());
         }
         std::thread::sleep(Duration::from_millis(5));
     }
     println!("RESULT {seconds} s through {relayed}: state packets {state_packets} ({state_bytes} bytes), events {types:?}");
     assert!(types.contains_key("welcome"), "welcome arrived");
-    assert!(state_packets > seconds * 10, "snapshots kept arriving");
+    assert!(state_packets > play.elapsed().as_secs() * 10, "snapshots kept arriving");
     client.close(0, b"rehearsal over");
     let _ = client.flush();
 }
