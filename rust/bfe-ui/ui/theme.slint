@@ -92,7 +92,7 @@ export global Theme {
     out property <length> dialog-input-pad-x: 10px;
     out property <length> dialog-button-pad-x: 18px;
     // Buttons of the screen's dialogs sit outside `.bfe-page`, so `font: inherit` does not reach them
-    // and they keep the browser's 13.333px default (`html[data-bfe-theme] dialog button`).
+    // and they keep the earlier build's 13.333px default (`html[data-bfe-theme] dialog button`).
     out property <length> dialog-button-font-size: 13.333px;
     // The online notice hard-codes its eyebrow (#94cce9) and focus ring (#7bdbff).
     // The Discord and Steam offers use `var(--bfe-note, #94cce9)` and
@@ -202,7 +202,7 @@ export global Theme {
     // Setup / preparation screen tokens.
     out property <string> monospace-font-family: "DejaVu Sans Mono";
     // Natural line height of the mono face (ascent + descent over the em): Slint's
-    // line-height-factor is relative to it, the browser's line-height to the font size.
+    // line-height-factor is relative to it, the line-height to the font size.
     out property <float> monospace-natural-line: 1.164;
     // The same for the bundled Saira faces (hhea ascent 1135 + descent 439 over 1000).
     out property <float> font-natural-line: 1.574;

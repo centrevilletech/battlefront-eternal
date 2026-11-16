@@ -83,7 +83,7 @@ impl Library {
             images: Vec::new(),
         })
     }
-    /// Prepared paths are content-relative names. Query strings are a browser
+    /// Prepared paths are content-relative names. Query strings are a client
     /// cache detail; traversal and external schemes are never asset identifiers.
     pub fn path(&self, name: &str) -> Result<PathBuf, String> {
         let name = name

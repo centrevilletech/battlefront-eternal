@@ -97,7 +97,7 @@ pub struct SpawnMetrics {
     pub scale: f64,
 }
 /// "line-height: normal" of the screen font (Saira) it: the font's ascent (1.135 em) and
-/// descent (.439 em), each rounded to a whole device pixel. Fits every line box measured in the browser build
+/// descent (.439 em), each rounded to a whole device pixel. Fits every line box measured in the earlier build
 /// (15 px at 10 px and scale 1, 16 at scale 2; 22 at 13.68 px; 33 at 21 px, scale 2).
 pub fn line_at(f: f64, scale: f64) -> f64 {
     let d = f * scale;
@@ -364,7 +364,7 @@ mod spawn_layout_tests {
     fn near(a: f64, b: f64) {
         assert!((a - b).abs() < 1.6, "{a} != {b}");
     }
-    // Boxes the browser build measured (getBoundingClientRect) on its spawn screen.
+    // Boxes the earlier build measured (getBoundingClientRect) on its spawn screen.
     #[test]
     fn spawn_layout_matches_the_browser_build() {
         // The owner's 2512x1500 panel at scale 2, the 2005 look, the other team switchable.

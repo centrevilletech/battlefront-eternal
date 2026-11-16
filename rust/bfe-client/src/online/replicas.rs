@@ -683,7 +683,7 @@ impl Replicas {
             rollers: Vec::with_capacity(16),
             own: (0, 0),
             guns,
-            // The browser's defaults, until the player's settings arrive.
+            // The defaults, until the player's settings arrive.
             soft: true,
             tick: 0.,
             collision,
@@ -1486,11 +1486,11 @@ impl Replicas {
     // updateFlashes, for every body: the flash model sits at the
     // muzzle of the gun in his hand (0.6 of its size, FLASH_SCALE) while the
     // flash lasts and that gun is the one drawn, at full alpha for the
-    // first half of its time and fading through the second. The browser
+    // first half of its time and fading through the second. The earlier build
     // counts the flash down once a simulation tick (Combat.update), the
     // first time on the tick of the shot, so a rifle's 0.025 s flash shows
     // for one tick however fast frames are drawn; the time left here is
-    // counted from the ticks gone by the same way. The browser also lights
+    // counted from the ticks gone by the same way. The earlier build also lights
     // the scene from it; there are no such lights here.
     fn present_flashes(&mut self, receiver: &Receiver, dt: f64, bridge: &mut Bridge) {
         let own = (receiver.own.id as u32, receiver.own.generation as u32);

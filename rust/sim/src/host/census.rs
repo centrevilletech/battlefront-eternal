@@ -74,7 +74,7 @@ struct Classes {
 /// distance to the target (all target ticks and validated-fire ticks, by
 /// 10/20/40/80 m), the requested stance, and the current goal's kind. A bot
 /// in a seat drives through another controller and is not counted here.
-/// The browser build's decisions.mjs counts the same fields.
+/// The earlier build's decisions.mjs counts the same fields.
 #[derive(Default)]
 struct Decisions {
     teams: BTreeMap<u32, TeamDecisions>,

@@ -120,7 +120,7 @@ fn seat(
     }
 }
 impl Phase {
-    // Ports cold camera construction, independent of a browser or scene.
+    // Ports cold camera construction, independent of a client or scene.
     // Generated capacities exceed all authored soldier and spawn-shot tables.
     // Excess rows are dropped as complete records, preserving admitted ids.
     // Definitions never compact or move when another class is registered.

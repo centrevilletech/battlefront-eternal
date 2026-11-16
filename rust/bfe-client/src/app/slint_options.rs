@@ -429,7 +429,7 @@ pub(super) fn sync(root: &GameUi, shell: &mut ShellHost, models: &OptionsModels)
                         value_text: item.value_text.as_str().into(),
                         kind: map_option_kind(item),
                         fraction: item.ratio as f32,
-                        // The browser never dims a fixed row (only a keyboard skip), so it only reads as disabled when it is.
+                        // The earlier build never dims a fixed row (only a keyboard skip), so it only reads as disabled when it is.
                         disabled: item.disabled && item.kind != InterfaceOptionKind::Fixed,
                         dim_value: item.dim,
                     });
@@ -457,7 +457,7 @@ pub(super) fn sync(root: &GameUi, shell: &mut ShellHost, models: &OptionsModels)
                             .iter()
                             .map(|s| s.as_str().into())
                             .collect(),
-                        // The browser's hotkey rows carry no disabled flag, so none is dimmed there; the cursor still skips them here.
+                        // The hotkey rows carry no disabled flag, so none is dimmed there; the cursor still skips them here.
                         disabled: false,
                     });
                 }

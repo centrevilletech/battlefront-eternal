@@ -67,7 +67,7 @@ impl Scene {
             parent
         });
         // Offsets survive later registrations even if the backing allocation
-        // moves. The browser rebinds its typed view at the phase boundary.
+        // moves. The earlier build rebinds its typed view at the phase boundary.
         let start = output.len();
         output.resize(start + nodes.len() * n::STRIDE, 0.0);
         Self { tree, nodes, bones: input.bones, skinned, start, first: true, parent }

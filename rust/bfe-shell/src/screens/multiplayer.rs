@@ -443,7 +443,7 @@ impl ShellApp {
         }
     }
 
-    /// Select entries retain the browser's order, including its independent side choice.
+    /// Select entries retain the order, including its independent side choice.
     pub fn host_choices(&self, field: usize) -> Vec<(String, String)> {
         let options: &[(&str, &str)] = match field {
             1 => &[("lan", "LAN only"), ("public", "Public online")],
@@ -495,7 +495,7 @@ impl ShellApp {
     }
 
     /// HostDialog's controls share one form owner with the native text editor.
-    /// Numeric drafts remain strings until submission, just as the browser input.
+    /// Numeric drafts remain strings until submission, just as the earlier build input.
     pub fn host_control(&mut self, control: HostControl) {
         self.host_form.error = None;
         match control {

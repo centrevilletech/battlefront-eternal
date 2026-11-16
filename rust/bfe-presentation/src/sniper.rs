@@ -49,7 +49,7 @@ impl Default for Sniper {
 }
 impl Sniper {
     // The displayed camera is already posed. Reading its matrices directly
-    // avoids asking a browser scene to recompute any native-owned transform.
+    // avoids asking a client scene to recompute any native-owned transform.
     fn facts(&mut self){self.now=self.input[f::TIME];self.eye=vector(&self.input,f::EYE);
         self.camera=(self.input[f::HAS_CAMERA]!=0.0).then(||matrix(&self.input,f::CAMERA));self.inverse=matrix(&self.input,f::INVERSE);
         self.muzzle=(self.input[f::HAS_MUZZLE]!=0.0).then(||vector(&self.input,f::MUZZLE));}

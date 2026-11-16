@@ -1,8 +1,5 @@
 //! The note under the QUALITY PRESET row: the GPU the client draws with, and a warning when it is a
-//! software renderer (`gpuLabel`, `gpuWarning` and `gpuNote`).
-//!
-//! The browser reads Chromium's own GPU report as well (compositing in software, a second idle GPU);
-//! a native window has only the GL renderer string, so only the software-renderer warning applies.
+//! software renderer. A native window has only the GL renderer string to go by.
 
 /// Renderer names that are a CPU rasteriser (`SOFTWARE`), tried in this order.
 const SOFTWARE: [&str; 8] = [

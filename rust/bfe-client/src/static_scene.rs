@@ -480,7 +480,7 @@ pub fn place_skies(a: &Admission, bridge: &mut Bridge, view: &[f64], follow: boo
     }
 }
 impl Admission {
-    // The browser InstancePass culls before filling its bounded command bank.
+    // The earlier build InstancePass culls before filling its bounded command bank.
     // Retain every cold prop; a camera moving elsewhere must not discover that
     // admission permanently discarded the last objects after a capacity limit.
     // Online actors share the same near bank. Reserving their prefix budget

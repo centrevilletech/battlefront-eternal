@@ -130,7 +130,7 @@ fn make_content(root: &Path, maps: &[&str], current: bool, game: Option<&Path>) 
         let mdir = root.join("maps").join(map);
         fs::create_dir_all(&mdir).unwrap();
         fs::write(mdir.join("scene.json"), format!("{{\"id\":\"{}\"}}\n", map)).unwrap();
-        // The browser importer treats `maps/<id>/map.json` as the proof of a playable map.
+        // The earlier build importer treats `maps/<id>/map.json` as the proof of a playable map.
         fs::write(mdir.join("map.json"), format!("{{\"id\":\"{}\"}}\n", map)).unwrap();
     }
     // Write `.prepare.json` with either the current `ver.state` or an outdated `1`.
@@ -1825,7 +1825,7 @@ fn sha_hex(data: &[u8]) -> String {
     format!("{:x}", Sha256::digest(data))
 }
 
-/// A browser-form manifest record: `path`, `size`, `mtime`, `sha256`, plus `linkTo` and
+/// A client-form manifest record: `path`, `size`, `mtime`, `sha256`, plus `linkTo` and
 /// `hardlink` for an alias.
 fn record(path: &str, data: &[u8], mtime: f64, alias: Option<(&str, bool)>) -> Value {
     let mut r = json!({"path": path, "size": data.len(), "mtime": mtime, "sha256": sha_hex(data)});

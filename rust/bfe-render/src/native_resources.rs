@@ -270,7 +270,7 @@ impl GpuResources {
         let render_target = self.source_ref(source)?.desc.render_target;
         let released = self.released(source);
         // Render target attachments and sole filtering revisions retain their
-        // GL name. The browser does the same; changing this invalidates pass
+        // GL name. The earlier build does the same; changing this invalidates pass
         // framebuffers and registered texture ids without a transport event.
         // A released image has only its uploaded texture, so every sampling
         // change applies to that texture.

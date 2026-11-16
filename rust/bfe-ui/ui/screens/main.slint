@@ -97,7 +97,7 @@ export component MainMenuScreen inherits Rectangle {
         x: (parent.width - self.width) / 2;
         y: 16 * Theme.vh;
     }
-    // The browser's .bfe-rows is as wide as its widest button (never under min(400px, 30vw), never over 86vw), and
+    // The earlier build's .bfe-rows is as wide as its widest button (never under min(400px, 30vw), never over 86vw), and
     // every button fills it: a layout's preferred width is its widest child's.
     m-main := VerticalLayout { visible: false; x: 0px; y: 0px; for item in root.rows: PageButton { label: item.label; } }
     VerticalLayout {

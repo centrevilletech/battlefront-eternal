@@ -3,7 +3,7 @@
 //! Each plays its stock effect while it is in view, out to the near scene's
 //! end, and is killed when it leaves; on entering view it is stepped ahead
 //! by up to its particles' lifetime, so a torch is already burning.
-//! The browser's Enhanced forms of fountains and steam vents (water and
+//! The Enhanced forms of fountains and steam vents (water and
 //! volume shaders) are not drawn natively; those play their stock effect in
 //! both modes.
 use super::effects::Spawner;

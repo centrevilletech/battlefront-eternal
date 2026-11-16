@@ -126,7 +126,7 @@ pub struct PersistedPlayerSettings {
     /// Whether the player has accepted the online multiplayer privacy notice.
     #[serde(default)]
     pub privacy_notice_accepted: bool,
-    /// Native projection revision; absent in browser records and older native files.
+    /// Native projection revision; absent in earlier builds' records and older native files.
     #[serde(default)]
     pub native_settings_version: u32,
     /// Whether `values` holds a complete 59-key [`bfe_interface::DesktopSettingsSnapshot`].

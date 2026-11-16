@@ -1195,7 +1195,7 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, "notice");
 
-        // Transition the browser to Ready with one server and accept the notice row.
+        // Transition the earlier build to Ready with one server and accept the notice row.
         let tok2 = browser.begin_refresh(false).ok_or("missing refresh token")?;
         browser.finish_refresh_ok(
             tok2,

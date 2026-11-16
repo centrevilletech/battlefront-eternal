@@ -40,7 +40,7 @@ impl Image {
 // as GPU upload. Flipping and premultiplication belong to the sampler upload,
 // never this shared source: clones may request different sampler settings.
 // Raster HUD atlases are lossless WebP, while imported source images are PNG.
-// Decode both in Rust so atlas upgrades cannot secretly reintroduce a browser
+// Decode both in Rust so atlas upgrades cannot secretly reintroduce a client
 // codec. Container identification uses bytes rather than a URL suffix.
 pub fn decode_image(bytes: &[u8], max_size: u32) -> Result<Image,String> {
     if bytes.starts_with(b"RIFF") && bytes.get(8..12)==Some(b"WEBP") {

@@ -45,7 +45,7 @@ export component ScreenFrame inherits Rectangle {
     }
     body := Rectangle {
         x: (root.width - root.frame-width) / 2;
-        // The browser's title block is a little taller than the drawn title in the side-by-side layout.
+        // The title block is a little taller than the drawn title in the side-by-side layout.
         y: heading.y + heading.height + root.head-body-gap + (root.layout == ScreenLayout.wide ? (Theme.eternal ? 1px : 3px) : 0px);
         width: root.frame-width;
         height: root.center-rows ? root.body-content-height : (root.height - self.y - root.pad-bottom);

@@ -470,7 +470,7 @@ impl Feed {
         }
     }
 
-    // presentFeedback. The browser also marks a sniper hit early from its
+    // presentFeedback. The earlier build also marks a sniper hit early from its
     // own predicted round (claimPredictedHit); this client flies no rounds
     // of its own, so every hit is marked from the server's record.
     #[allow(clippy::too_many_arguments)]
@@ -660,7 +660,7 @@ fn find(receiver: &Receiver, id: u32) -> Option<Unit> {
 
 /// InterfaceSurface.text(key, ...args): the
 /// localized string with each %s filled in order, or the arguments joined
-/// by spaces when there is no such string. The browser's replace also reads
+/// by spaces when there is no such string. The replace also reads
 /// `$` patterns in an argument; team and post names have none.
 pub fn fill(template: Option<&str>, args: &[&str]) -> String {
     let Some(template) = template.filter(|text| !text.is_empty()) else {

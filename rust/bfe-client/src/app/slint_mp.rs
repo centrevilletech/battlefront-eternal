@@ -997,7 +997,7 @@ impl SlintHost {
                 sh.app.back();
             }
             MpAction::NoticeAccept(version) => {
-                // The browser refuses a notice whose version differs from the one
+                // The earlier build refuses a notice whose version differs from the one
                 // it was opened for (`onlineNotice`).
                 let mp = self.root.global::<MpModel>();
                 if mp.get_notice_busy() {

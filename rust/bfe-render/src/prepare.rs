@@ -1,5 +1,5 @@
 //! Loading policy from Graphics.warmupPaced and actorKeys/effectProgramKeys.
-//! The browser supplies settings and pacing; Rust selects and links the catalog.
+//! The earlier build supplies settings and pacing; Rust selects and links the catalog.
 #[path="program_warmup.rs"] mod catalog;
 pub struct WarmSpec { pub key:&'static str, pub family:u32, pub cascades:i32, pub lamps:i32,
     pub dynamic:bool, pub derived:bool, pub shadow:i32, pub csm:i32 }

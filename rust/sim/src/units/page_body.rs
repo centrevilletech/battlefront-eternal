@@ -103,7 +103,7 @@ pub(crate) mod module {
             f.source_basis=source.basis;
         }
         preview(&mut f, &p.looks);
-        // The camera's scalar host math preserves the browser's last bits;
+        // The camera's scalar host math preserves the last bits;
         // body/scene methods never cross this numeric boundary.
         if with_aim!=0 {aim::<crate::cameras::HostMath>(&mut f);}
         // Both records contain scalars only; no heap can grow on this path.

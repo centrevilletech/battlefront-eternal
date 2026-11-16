@@ -15,7 +15,7 @@
 //   `src/menus/popup.js`) so an accidental double-tap on `Enter` or `Space` never aborts a match.
 // - Pressing `Escape` to close the main pause menu sets `resume_on_release = true` and waits for
 //   the `Escape` keyup before closing (`LOCK_GRACE = 0.25s` also ignores an `Escape` keydown that
-//   arrived right after a browser pointer-unlock caused by that same physical key press).
+//   arrived right after a client pointer-unlock caused by that same physical key press).
 
 use super::overrides::{with_settings, PauseSettingsLookup};
 use crate::scoreboard::PlayerListRow;

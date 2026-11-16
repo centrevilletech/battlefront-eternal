@@ -505,7 +505,7 @@ export component BrowserPreviewCard inherits VerticalLayout {
     spacing: 0.6 * Theme.vh;
     alignment: center;
 
-    // The browser gives the frame `height: 0; flex: 1 1 auto; aspect-ratio: 3 / 2`, so the column is as
+    // The earlier build gives the frame `height: 0; flex: 1 1 auto; aspect-ratio: 3 / 2`, so the column is as
     // wide as its caption and the frame fills the height left over.
     property <length> frame-h: max(40px, root.height - caption-text.preferred-height - 0.6 * Theme.vh);
     width: caption-text.preferred-width;

@@ -196,7 +196,7 @@ fn unreleased_lease_owns_an_inactive_control_until_release_or_replacement() {
     };
     use crate::gen::*;
     // SeatUnit.alive can be false before boarding commits Unit.seat, during
-    // holder/rider death, or while promotion changes the index. The browser's
+    // holder/rider death, or while promotion changes the index. The earlier build's
     // SeatLease still owns its controllable across each synchronous boundary.
     for transition in 0..4 {
         let mut world = super::empty_world();

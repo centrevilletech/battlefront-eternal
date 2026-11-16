@@ -189,7 +189,7 @@ fn choose_native(kind: Kind) -> Result<Option<PathBuf>, String> {
             return Err("Cannot create the folder chooser.".into());
         }
         modal(dialog, 1);
-        // The browser's filters: `.bfepack` for an export, `.bfepack` and `.zip` for an import.
+        // The filters: `.bfepack` for an export, `.bfepack` and `.zip` for an import.
         if kind != Kind::Folder {
             let new_filter: libloading::Symbol<unsafe extern "C" fn() -> *mut c_void> = gtk
                 .get(b"gtk_file_filter_new\0")

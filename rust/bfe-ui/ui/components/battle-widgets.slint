@@ -392,7 +392,7 @@ export component BattleTeamCard inherits Rectangle {
         }
     }
 
-    // The glow behind the renderer-drawn emblem (the browser's .bfe-spawn-emblem: its side colour at 18%
+    // The glow behind the renderer-drawn emblem (the earlier build's .bfe-spawn-emblem: its side colour at 18%
     // fading out by 70% of the way to the corner).
     Rectangle {
         x: (root.model.logo-x - root.model.logo-size * 0.5 - root.model.plate-x) * 1px;
@@ -835,7 +835,7 @@ export component BattleClassBanner inherits Rectangle {
         font-family: Theme.font-family;
         font-size: root.title-size;
         font-weight: 900;
-        // The browser stretches this face to 116%; only the 125% face is baked (weight 900), so the tracking is
+        // The earlier build stretches this face to 116%; only the 125% face is baked (weight 900), so the tracking is
         // tightened from the CSS .1em until the caption measures the same width.
         letter-spacing: 0.064 * root.title-size;
         color: Theme.bfe-spawn-title;
@@ -1081,7 +1081,7 @@ component ScoreSignalMeter inherits Rectangle {
 }
 
 // The header bar of a scoreboard list or stat sheet: the screen's accent fill (the 2005 look's steel capsule with
-// its red line, the 2004 look's right-hand cut), the same bar the browser draws over the table and the sheets.
+// its red line, the 2004 look's right-hand cut), the same bar the earlier build draws over the table and the sheets.
 component BoardBar inherits Rectangle {
     in property <length> cut: 0px;
     background: transparent;
@@ -1349,7 +1349,7 @@ export component ScoreTeamPanel inherits Rectangle {
                 vertical-alignment: center;
             }
 
-            // The browser underlines a hovered sort header (2px, .3em below the text).
+            // The earlier build underlines a hovered sort header (2px, .3em below the text).
             if col-touch.has-hover : Rectangle {
                 x: parent.width - root.mark - col-label.preferred-width;
                 y: parent.height * 0.5 + root.hs * 0.7;

@@ -964,7 +964,7 @@ export component SetupScreen inherits Rectangle {
                 }
             }
         }
-        // The browser's thin scrollbar, shown only when the panel overflows.
+        // The thin scrollbar, shown only when the panel overflows.
         if panel-scroll.viewport-height > panel-scroll.height + 0.5px: Rectangle {
             x: parent.width - 7px;
             y: (-panel-scroll.viewport-y / panel-scroll.viewport-height) * panel-scroll.height;

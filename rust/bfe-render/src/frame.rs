@@ -336,7 +336,7 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
 }
 
 // GpuResources implements this bridge natively. A platform may supply its own
-// target owner; no operation calls a browser scene or material callback.
+// target owner; no operation calls a client scene or material callback.
 pub trait FrameTargets {
     fn present(&mut self,_source:i32,_width:i32,_height:i32)->Result<bool,String>{Ok(false)}
     fn bind(&mut self, binding: &[f64]) -> Result<(),String>;

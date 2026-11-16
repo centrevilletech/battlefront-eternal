@@ -84,7 +84,7 @@ use std::f64::consts::PI;
 use std::fmt::Write;
 
 // The flat block has fixed regions, with row widths supplied by the schema.
-// A browser and a native client therefore feed the same model without object
+// A client and a native client therefore feed the same model without object
 // identity, a string heap or callbacks on the frame boundary. Latest-value
 // state rows have dirty bits; real events enter the model synchronously.
 pub const MAX_POSTS: usize = 128;

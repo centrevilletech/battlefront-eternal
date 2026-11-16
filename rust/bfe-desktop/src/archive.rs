@@ -1138,7 +1138,7 @@ pub fn validate_manifest(manifest: &ArchiveManifest) -> Result<u64, String> {
     let mut folded: BTreeMap<String, &ManifestFileEntry> = BTreeMap::new();
     for file in &manifest.files {
         safe_path(&file.path, true)?;
-        // The browser folds with NFC then lower case; content names are ASCII, so lower case alone.
+        // The earlier build folds with NFC then lower case; content names are ASCII, so lower case alone.
         let key = file.path.to_lowercase();
         if seen.contains_key(file.path.as_str()) {
             return Err(format!("Duplicate archive path: {}", file.path));

@@ -155,7 +155,7 @@ impl Gpu {
         grid: u32,
     ) -> Result<Self, String> {
         // Plane, CircleGeometry(96), the six-sided projector, the open beam
-        // and column, and GridRoom's box use the browser's metre dimensions.
+        // and column, and GridRoom's box use the metre dimensions.
         let mut vertices = Vec::new();
         triangle(
             &mut vertices,

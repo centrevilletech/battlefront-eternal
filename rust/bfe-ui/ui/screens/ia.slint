@@ -190,7 +190,7 @@ export component InstantActionScreen inherits Rectangle {
                     text: "AVAILABLE MAPS:";
                 }
                 SelectField {
-                    // The label keeps its width and the dropdown shrinks toward its arrow, as the browser's flex row does.
+                    // The label keeps its width and the dropdown shrinks toward its arrow, as the flex row does.
                     width: max(4.5 * Theme.field-font-size, min(self.preferred-width, parent.width - avail-label.preferred-width - 1 * Theme.vw));
                     x: parent.width - self.width;
                     y: 0px;
@@ -233,7 +233,7 @@ export component InstantActionScreen inherits Rectangle {
             height: frame.body-height;
             property <length> hbuttons-gap: 1.2 * Theme.vw;
             property <length> hbuttons-w: add-btn.width + remove-btn.width + self.hbuttons-gap;
-            // The browser's .bfe-hbuttons wraps: when the pair does not fit the column, REMOVE drops under ADD.
+            // The earlier build's .bfe-hbuttons wraps: when the pair does not fit the column, REMOVE drops under ADD.
             property <bool> wrapped: self.hbuttons-w > self.width;
             property <length> stack-h: preview.height + 2.4 * Theme.vh + add-btn.height
                 + (self.wrapped ? add-btn.height + self.hbuttons-gap : 0px);

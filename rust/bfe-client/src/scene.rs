@@ -557,7 +557,7 @@ impl Scene {
     ) -> Result<(Self, MapCamera), String> {
         Self::load_with_random(root, map, size, None, load)
     }
-    /// Recorded random draws are admission facts, shared with a browser view.
+    /// Recorded random draws are admission facts, shared with a client view.
     /// Ordinary inspection uses one deterministic host stream instead.
     pub fn load_with_random(
         root: &Path,

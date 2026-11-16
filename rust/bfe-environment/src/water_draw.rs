@@ -65,7 +65,7 @@ impl Draws {
         &mut self.values[slot.min(5)]
     }
     // All three records begin with the same generated camera fields. These
-    // matrices are observed facts; this owner does not update a browser camera
+    // matrices are observed facts; this owner does not update a client camera
     // or derive another transform while preparing the upload packet.
     pub fn prepare(&mut self, slot: usize, result: &[f64], p: &[f64]) {
         let slot = slot.min(5);

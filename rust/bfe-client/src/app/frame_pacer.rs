@@ -1,4 +1,4 @@
-//! When the window presents a frame. The browser hands the client one chance
+//! When the window presents a frame. The earlier build hands the client one chance
 //! to draw every display refresh and its FramePacer
 //! lets a chance pass while the frameLimit
 //! setting's deadline is still ahead. Here the chances come from the display
