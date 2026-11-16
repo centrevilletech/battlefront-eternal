@@ -111,13 +111,14 @@ def build_deb(staged_dir: Path, platform: str, version: str, out_dir: Path, repo
             'Priority: optional',
             f'Architecture: {deb_arch}',
             f'Installed-Size: {installed_kib}',
-            'Depends: libc6, libstdc++6, libgcc-s1, libfontconfig1, libasound2t64 | libasound2, libxkbcommon-x11-0, libxkbcommon0, libwayland-client0, libwayland-cursor0, libwayland-egl1, libegl1, libgl1, libgtk-3-0t64 | libgtk-3-0, ca-certificates',
+            'Depends: libc6 (>= 2.35), libstdc++6, libgcc-s1, libfontconfig1, libasound2t64 | libasound2, libxkbcommon-x11-0, libxkbcommon0, libwayland-client0, libwayland-cursor0, libwayland-egl1, libegl1, libgl1, libgtk-3-0t64 | libgtk-3-0, ca-certificates',
             'Recommends: libvulkan1, libx11-6',
             'Maintainer: Battlefront Eternal Contributors <contact@battlefronteternal.com>',
             'Homepage: https://battlefronteternal.com',
-            'Description: Star Wars Battlefront II (2005) preservation and remaster runtime',
-            ' Battlefront Eternal is a native client and dedicated server runtime for',
-            ' Star Wars Battlefront II (2005).',
+            'Description: Fan-made engine for Star Wars: Battlefront (2004)',
+            ' Battlefront Eternal plays Star Wars: Battlefront (2004) from your own Steam',
+            ' or GOG copy: desktop client, dedicated server and the tools that prepare',
+            ' the game data. No original game files are included.',
             '',
         ]
         control_file = debian_dir / 'control'
@@ -160,7 +161,7 @@ def build_appimage(
         appimage_desktop = '\n'.join([
             '[Desktop Entry]',
             'Name=Battlefront Eternal',
-            'Comment=Star Wars Battlefront II (2005) preservation and remaster runtime',
+            'Comment=Fan-made engine for Star Wars: Battlefront (2004)',
             'Exec=bfe-client %U',
             'Icon=battlefront-eternal',
             'Terminal=false',

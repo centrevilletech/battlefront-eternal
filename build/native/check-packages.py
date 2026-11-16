@@ -29,6 +29,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -173,6 +174,26 @@ def check_staged_dir(staged_dir: Path, platform: str) -> None:
     smoke_python(staged_dir, platform)
 
 
+def required_glibc(binary: Path) -> tuple[int, ...]:
+    """The newest glibc version the binary cannot load without (weak references excluded)."""
+    text = subprocess.run(['readelf', '-V', '--wide', str(binary)], check=True, capture_output=True, text=True).stdout
+    versions = [tuple(int(part) for part in match.group(1).split('.'))
+                for match in re.finditer(r'Name: GLIBC_([0-9.]+)\s+Flags: none', text)]
+    return max(versions, default=(0,))
+
+
+def check_glibc_dependency(depends: str, binaries: list[Path]) -> None:
+    """The package's libc6 dependency must be at least what its programs need, or APT installs it where it cannot start."""
+    match = re.search(r'libc6 \(>= ([0-9.]+)\)', depends)
+    declared = tuple(int(part) for part in match.group(1).split('.')) if match else (0,)
+    for binary in binaries:
+        if binary.is_file():
+            needed = required_glibc(binary)
+            if needed > declared:
+                raise RuntimeError(f'{binary.name} needs glibc {".".join(map(str, needed))} but the package declares '
+                                   f'"{match.group(0) if match else "libc6"}"')
+
+
 def check_deb(deb_path: Path, platform: str, install_deb: bool = False) -> None:
     with tempfile.TemporaryDirectory(prefix='bfe-check-deb-') as tmp:
         root = Path(tmp) / 'extracted'
@@ -190,6 +211,7 @@ def check_deb(deb_path: Path, platform: str, install_deb: bool = False) -> None:
                 raise RuntimeError(f'Missing Debian display dependency: {library}')
 
         opt_app = root / 'opt' / 'Battlefront Eternal'
+        check_glibc_dependency(depends, [opt_app / 'bfe-client', opt_app / 'bfeserver'])
         manifest = verify_tree_manifest(opt_app, opt_app / 'resources' / 'bfe-tree.json', allow_extra_root=set())
         has_server = 'server_executable' in manifest
 
