@@ -225,10 +225,8 @@ fn new_event_loop() -> Result<EventLoop<()>, String> {
             use winit::platform::wayland::EventLoopBuilderExtWayland;
             builder.with_wayland();
         }
-        Err(message) => {
-            eprintln!("{message}");
-            return Err(message);
-        }
+        // The caller prints it and shows it in a dialog.
+        Err(message) => return Err(message),
     }
     builder.build().map_err(|e| e.to_string())
 }

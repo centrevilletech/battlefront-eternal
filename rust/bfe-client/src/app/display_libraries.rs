@@ -66,7 +66,7 @@ pub fn decide(
             let packages: Vec<&str> = missing.iter().map(|(_, package)| *package).collect();
             Err(format!(
                 "Battlefront Eternal cannot open its window: the system is missing {}.\n\
-                 Install them with your package manager (on Debian and Ubuntu: sudo apt install {}) and start the game again.",
+                 Install what is missing with your package manager (on Debian and Ubuntu: sudo apt install {}) and start the game again.",
                 files.join(", "),
                 packages.join(" ")
             ))
