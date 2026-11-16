@@ -30,7 +30,7 @@ pub struct VehicleTemplate {
     pub gear_foot: Option<f64>,
 }
 
-/// A prop instance's collision bodies (props.js `body(range)`), by look.
+/// A prop instance's collision bodies (`body(range)`), by look.
 pub struct PropBodies {
     pub instance: usize,
     pub built: Option<BodyTriangles>,
@@ -166,7 +166,7 @@ impl Content {
                 }
             }
         }
-        // Bodies and their clips (units.js clipsFor: one bank a skeleton).
+        // Bodies and their clips (clipsFor: one bank a skeleton).
         let anim_floats = floats(&b.anim_buf)?;
         let mut actors = Vec::new();
         let mut banks: Vec<(String, Rc<Clips>)> = Vec::new();

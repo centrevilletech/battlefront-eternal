@@ -1,5 +1,5 @@
-//! The terrain water's host (Water, src/water.js, and the mirror part of
-//! BattleFrame, src/rust-render/frame.js, in the client this client replaces).
+//! The terrain water's host (Water, and the mirror part of
+//! BattleFrame, in the client this client replaces).
 //!
 //! The renderer already owns the water passes: the tint pass over a copy of
 //! the opaque scene, the reflection pass and the low textured pass, each for
@@ -46,7 +46,7 @@ impl Default for Settings {
 /// Images the water reads, by index in the map's texture library.
 #[derive(Default)]
 pub struct Images {
-    /// The wake rings' texture (water.js ringMesh: FXrippl1).
+    /// The wake rings' texture (ringMesh: FXrippl1).
     pub ripple: Option<usize>,
     pub main: Option<usize>,
     pub normals: Vec<usize>,

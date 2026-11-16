@@ -169,7 +169,7 @@ pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut 
         match stage {
             Stage::Content => {}
             // validateStartupClass runs on the client before loading, never in a
-            // headless world (game.js: `!headless && !params.has("network")`);
+            // headless world (`!headless && !params.has("network")`);
             // the row stays for the comparison tests.
             Stage::Startup => {}
             Stage::Kernels => { cx.ids.kernel = Some(super::kernels::install(world, content)?); }

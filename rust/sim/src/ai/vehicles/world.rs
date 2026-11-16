@@ -305,7 +305,7 @@ pub struct StuckAt {
     pub z: f64,
 }
 
-/// A control's steering bag (steering.js steerState: `unit.steer`), each
+/// A control's steering bag (steerState: `unit.steer`), each
 /// field `None` where the bag lacks it: a flyer's pilot input makes the
 /// bag `{}` when it has none (`unit.steer ||= {}`), and
 /// the fields are written one by one from then on.
@@ -446,7 +446,7 @@ pub struct Sphere {
     pub radius: f64,
 }
 
-/// The weapon choice's answer (weapons-ai.js selectWeapon's `out`).
+/// The weapon choice's answer (selectWeapon's `out`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Choice {
     pub ok: bool,
@@ -468,7 +468,7 @@ pub enum QueryFilter {
     FriendsOf { entry: Obj, team: f64 },
 }
 
-/// A hub of the navigation graph (support.js reads its place and mask).
+/// A hub of the navigation graph (reads its place and mask).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Hub {
     pub index: usize,

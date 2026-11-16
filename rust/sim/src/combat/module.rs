@@ -222,7 +222,7 @@ pub(crate) fn select(c: &mut Combat, defs: &CombatDefs, i: usize) -> bool {
     super::weapons::select(c,&defs.weapons,i)
 }
 
-/// A field the battle sets on a combat (src/f3-combat.js CombatFacade's
+/// A field the battle sets on a combat (CombatFacade's
 /// setters): 0 health, 1 zoomStep, 2 dead, 3 deathTime, 4 blowApart; and
 /// what the battle's JavaScript keeps on a combat, which the units' phase
 /// reads from the store: 5 mounted, 6 gunUnderwater, 7 team, 8 player,

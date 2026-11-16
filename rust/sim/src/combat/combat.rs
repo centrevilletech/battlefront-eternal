@@ -1,4 +1,4 @@
-//! A soldier's side of the fight (src/combat.js PlayerCombat, with,
+//! A soldier's side of the fight (PlayerCombat, with,
 //! and src/heroes.js regenerate): his aim,
 //! his triggers and weapons, the rounds, items, droids and lightning they
 //! fire, a repair tool's lock and a launcher's, the aim's kick, what

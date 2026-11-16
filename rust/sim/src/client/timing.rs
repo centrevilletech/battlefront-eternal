@@ -1,4 +1,4 @@
-//! runtime/reconcile.js, playout.js and frame-pacing.js. Each client retains
+//! runtime/reconcile.js and frame-pacing.js. Each client retains
 //! its arrival windows and clocks here; the client supplies timestamps only.
 //!
 //! Where the world's clock is now. Each packet's arrival gives a lower bound

@@ -40,7 +40,7 @@ pub(crate) fn lerp(a: f64, b: f64, t: f64) -> f64 {
 /// Deterministic pseudo-random delay in `[0.0, max_delay]` avoiding allocation or external RNG state.
 ///
 /// Uses a PCG-style 32-bit permutation (`747_796_405` multiplier + xorshift-multiply-xorshift)
-/// to replace `Math.random() * max_delay` from `src/scoreboard/classic/pages.js` and `view.js`
+/// to replace `Math.random() * max_delay` and `view.js`
 /// with reproducible per-row/per-column stagger delays (`ROW_DELAY = 0.25s`, `INTRO_DELAY = 0.15s`).
 #[inline]
 pub(crate) fn hash_delay(seed: u32, max_delay: f64) -> f64 {

@@ -1,4 +1,4 @@
-//! A walker or riding animal on the ground (src/vehicles.js walkGround,
+//! A walker or riding animal on the ground (walkGround,
 //! standOnLegs): it moves at its speeds in the plane, its wall probes push
 //! it out of what it walks into, and its probes (an animal's, lying with
 //! the ground) or its legs' rays find the floor under it.

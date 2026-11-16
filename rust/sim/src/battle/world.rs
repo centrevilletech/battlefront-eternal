@@ -123,7 +123,7 @@ pub trait BattleWorld {
     /// vehicle.position.
     fn vehicle_position(&mut self, vehicle: Ref<Vehicle>) -> [f64; 3];
     /// A command vehicle's post's class spawn points where its hull is now
-    /// (src/mobile-posts.js commandSpawnPoint: through the hull's frame, then
+    /// (commandSpawnPoint: through the hull's frame, then
     /// back toward its centre to the first static surface).
     fn class_spawn_world(&mut self, post: Ref<MobilePost>) -> Vec<[f64; 4]>;
 

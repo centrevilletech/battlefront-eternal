@@ -1,5 +1,5 @@
 //! UnitFactory's cold construction and the native host's remaining tick
-//! inputs (src/units.js, f3-sim.js preparePhase and PlayersBridge.actions).
+//! inputs (f3-sim.js preparePhase and PlayersBridge.actions).
 //! The store and F3's factory order are the source of identity here: stock
 //! waiting for a birth and the dormant viewpoint never contribute a row.
 use crate::gen::{PlayerActions, PlayerAdmission};

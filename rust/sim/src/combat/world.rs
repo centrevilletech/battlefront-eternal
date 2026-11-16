@@ -88,7 +88,7 @@ pub enum Presentation<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Droid(pub u32);
 
-/// The combat's boundary (src/combat-world.js, its methods in its order).
+/// The combat's boundary (its methods in its order).
 pub trait CombatWorld: WeaponDraws {
     /// cast(origin, direction, far, out, null, staticOnly).
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, static_only: bool) -> Option<CastHit>;
@@ -111,7 +111,7 @@ pub trait CombatWorld: WeaponDraws {
         combat: &mut Combat,
     );
 
-    // ---- A repair tool (src/props.js lockOn, repair).
+    // ---- A repair tool (lockOn, repair).
     #[allow(clippy::too_many_arguments)]
     /// (`tool`: the weapon at `weapon` as it is now, its level its `def`.)
     fn lock_on(

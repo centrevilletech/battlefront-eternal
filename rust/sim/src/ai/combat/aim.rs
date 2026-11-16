@@ -346,7 +346,7 @@ pub fn aim_point_for<W: World + ?Sized>(w: &mut W, controller: Obj, unit: Obj, d
 }
 
 /// A weak reference's unit while it is the same life and alive
-/// (aim.js:437, perception.js:318 and every `resolve` of these files).
+/// (perception.js:318 and every `resolve` of these files).
 pub fn resolve<W: World + ?Sized>(w: &W, r: Option<super::world::Ref>) -> Option<Obj> {
     let r = r?;
     let (alive,generation) = w.unit_life(r.obj);

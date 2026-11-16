@@ -238,7 +238,7 @@ pub enum TeamAssignment {
 }
 
 /// Game and network options passed to [`HostController::start`], combining the desktop host
-/// host dialog options (`src/shell/host-dialog.js` and the desktop host) with the
+/// host dialog options (and the desktop host) with the
 /// native client's `SET GAME OPTIONS` screen (`rust/bfe-shell/src/screens.rs`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

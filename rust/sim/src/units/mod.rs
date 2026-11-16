@@ -1,5 +1,5 @@
-//! The battle's units (src/units.js, src/registry.js, src/soldier.js,
-//! src/droideka.js, src/collision-damage.js and src/game.js's
+//! The battle's units (src/registry.js,
+//! src/droideka.js and src/game.js's
 //! separateSoldiers): every soldier on the field, his tick, the registry
 //! that answers who is near a point and what a segment passes through, and
 //! the crowd's push.

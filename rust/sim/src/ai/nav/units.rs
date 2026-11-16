@@ -126,7 +126,7 @@ impl Default for SoldierView {
 }
 
 /// A unit as navigation sees it in one call. `alive_false` is exactly
-/// `unit.alive === false` (goto.js:726 tests `!== false`, so a missing
+/// `unit.alive === false` (tests `!== false`, so a missing
 /// alive counts as alive). `id` is the caller's identity token for the
 /// unit object: follow targets, leaders and control attachment compare
 /// it where the JavaScript compares objects.

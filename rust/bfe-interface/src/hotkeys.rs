@@ -54,7 +54,7 @@ pub const WORLD_AXES: [(&str, &[&str]); 6] = [
 pub const RESERVED: [&str; 6] = ["Escape", "Tab", "KeyT", "KeyY", "F11", "F12"];
 
 /// Canonical set of 104 bindable DOM `KeyboardEvent.code` and mouse/wheel tokens
-/// (`INPUT_CODES` in `src/runtime/network-entity-input.js` and `BINDABLE`).
+/// (`INPUT_CODES` and `BINDABLE`).
 #[path = "input_codes.rs"]
 mod input_codes;
 pub use input_codes::INPUT_CODES;

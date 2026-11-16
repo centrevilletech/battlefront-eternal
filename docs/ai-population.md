@@ -23,7 +23,7 @@ ownership. Further rules found while implementing are listed under
 | `rust/sim` (`post-data`), `rust/sim` | `attachPostAI` (post AI properties by name), the page's mission team table |
 | `rust/sim/src/ai/owned/tests/phase.rs` | Rust tests |
 | `tests/test_ai_mission_export.py` | `python3 -m unittest tests/test_ai_mission_export.py` |
-| `cargo test --locked --workspace` | the native roster through the page boundary |
+| `cargo test --locked --workspace` | the native roster |
 
 Every random draw goes through the AI's generator A
 (`rust/sim/src/ai/random.rs`) in the original game's order.

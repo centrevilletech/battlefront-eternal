@@ -162,7 +162,7 @@ impl Rig {
             .apply_matrix4(&self.projection);
         p
     }
-    /// Where the camera has the soldier's pivot (stage.js before(): the vignette's pool is centred there),
+    /// Where the camera has the soldier's pivot (before(): the vignette's pool is centred there),
     /// in clip space.
     pub fn pivot_clip(&self) -> [f64; 2] {
         let p = self.project(V::new(0., 0.95, 0.));

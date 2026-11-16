@@ -142,7 +142,7 @@ pub fn font_draw_text(
 }
 
 /// Four-font bitmap registry (`gamefont_large`, `gamefont_medium`, `gamefont_small`, `gamefont_tiny`)
-/// (`Fonts` in `src/interface/fonts.js` and `ShellFonts` in `rust/bfe-shell/src/render.rs`).
+/// (`Fonts` and `ShellFonts` in `rust/bfe-shell/src/render.rs`).
 #[derive(Default)]
 pub struct Fonts {
     /// `gamefont_large` (`28.0` line height) used for screen titles and headings.

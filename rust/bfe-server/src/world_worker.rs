@@ -1,4 +1,4 @@
-//! Native authoritative world host (`src/world-worker.js`, `SnapshotHost` in
+//! Native authoritative world host (`SnapshotHost` in
 //! `src/runtime/snapshot-host.js`, and `createMultiplayerWorld`).
 
 use crate::udp_peer::{ACK_MAGIC, INPUT_MAGIC};
@@ -505,9 +505,53 @@ pub struct DecodedPublication {
     pub faults: Vec<(Option<String>, String)>,
 }
 
+/// Publication faults per player. The publisher marks a fault for one player
+/// when it cannot write that player's update; the world itself is intact and
+/// the other players are served. Each player and reason is logged once; a
+/// player still faulting a second after the fault began is returned once, with
+/// the reason, so the server can end that session instead of leaving the player
+/// frozen. A world-wide fault (no player) is logged once per reason.
+#[derive(Default)]
+pub struct FaultWatch {
+    open: HashMap<String, u64>,
+    logged: std::collections::HashSet<(Option<String>, String)>,
+}
+
+impl FaultWatch {
+    pub const LIMIT_MS: u64 = 1000;
+
+    pub fn note(&mut self, faults: &[(Option<String>, String)], now_ms: u64) -> Vec<(String, String)> {
+        let mut ended = Vec::new();
+        self.open.retain(|peer, _| faults.iter().any(|(p, _)| p.as_deref() == Some(peer)));
+        for (peer, message) in faults {
+            if self.logged.insert((peer.clone(), message.clone())) {
+                match peer {
+                    Some(peer) => eprintln!("publication fault for player {peer}: {message}; their update is skipped"),
+                    None => eprintln!("publication fault for every player: {message}"),
+                }
+            }
+            let Some(peer) = peer else { continue };
+            let since = *self.open.entry(peer.clone()).or_insert(now_ms);
+            if now_ms.saturating_sub(since) >= Self::LIMIT_MS && !ended.iter().any(|(p, _)| p == peer) {
+                ended.push((peer.clone(), message.clone()));
+            }
+        }
+        for (peer, _) in &ended {
+            self.open.remove(peer);
+        }
+        ended
+    }
+
+    /// Forgets a player who left, so a later player with the same id starts clean.
+    pub fn forget(&mut self, peer: &str) {
+        self.open.remove(peer);
+        self.logged.retain(|(p, _)| p.as_deref() != Some(peer));
+    }
+}
+
 /// Decodes a `Publication` (`WirePublicationOutput` block + byte arena) into transport-ready
 /// shared `BNS1` groups, per-client `BNO1` packets, `input-ack`, `entity-edge-results`, and
-/// `gameplay-events` (`publish()` in `src/world-worker.js` and `WorldRouter.route`).
+/// `gameplay-events` (`publish()` and `WorldRouter.route`).
 #[allow(clippy::chunks_exact_to_as_chunks)]
 pub fn decode_publication_block(
     pub_data: &Publication,
@@ -745,8 +789,7 @@ pub fn decode_publication_block(
     Ok(out)
 }
 
-/// Composes the canonical `welcome` event payload (`m.type === "joined"` handler in `GameSession`
-/// in `src/game-session.js` and `welcome` callback in `startLocalServer`):
+/// Composes the canonical `welcome` event payload sent to a player who joined:
 /// `{ type: "welcome", ...info(), serverId: identity.id, ...m.player, playerId: m.player.unitId, tick: m.tick }`.
 pub fn build_welcome_message(info: &Value, server_id: &str, player: &PlayerWelcome) -> Value {
     let mut map = info.as_object().cloned().unwrap_or_default();
@@ -990,7 +1033,7 @@ impl NativeWorldHost {
                 // to the client via `entity-edge-results`.
                 let _ = context.players_outcomes_enable(admitted_handles.player);
                 // Configure `wire_host` to publish world snapshots every 3 ticks (20 Hz), matching
-                // `PUBLISH_EVERY_TICKS = 3` in `src/world-worker.js` and `MAX_LOCAL_INTERVAL = 3`.
+                // `PUBLISH_EVERY_TICKS = 3` and `MAX_LOCAL_INTERVAL = 3`.
                 let _ = context.invoke_export(
                     "wire_host_set",
                     &AdmitCall {
@@ -1493,7 +1536,7 @@ impl NativeWorldHost {
     }
 
     /// Resets a client's snapshot delta baseline to force a full keyframe on the next publication
-    /// (`handle("resync")` in `src/world-worker.js` and `Host::resync` in `rust/sim/src/wire/host.rs`).
+    /// (`handle("resync")` and `Host::resync` in `rust/sim/src/wire/host.rs`).
     pub fn handle_resync(&mut self, peer_id: &str, now_ms: f64) {
         self.last_now_ms = self.last_now_ms.max(now_ms);
         let Some(&native_id) = self.native_by_client.get(peer_id) else {
@@ -1656,7 +1699,7 @@ impl NativeWorldHost {
         }
 
         // Push per-tick movement/look commands (`pkt.commands`) into the client's mailbox
-        // (`world.input(id, command)` in `src/runtime/snapshot-host.js` and `Native::submit` in
+        // (`world.input(id, command)` and `Native::submit` in
         // `rust/bfe-client/src/local/context.rs`).
         let mailbox_handle = self
             .mailbox_by_native
@@ -1868,5 +1911,26 @@ mod friendly_fire_tests {
         assert!(super::parse_admit_options("?map=nab2&side=rep&ai=classic&seed=1", "nab2").bots.friendly_fire);
         let off = crate::config::with_friendly_fire("?map=nab2&side=rep&ai=classic&seed=1", false);
         assert!(!super::parse_admit_options(&off, "nab2").bots.friendly_fire);
+    }
+}
+
+#[cfg(test)]
+mod fault_tests {
+    use super::FaultWatch;
+
+    #[test]
+    fn a_player_whose_updates_fail_for_a_second_is_ended_once() {
+        let mut watch = FaultWatch::default();
+        let fault = |peer: &str| vec![(Some(peer.to_string()), "unknown post".to_string())];
+        assert!(watch.note(&fault("a"), 0).is_empty());
+        assert!(watch.note(&fault("a"), 950).is_empty());
+        // A clean publication starts the second again.
+        assert!(watch.note(&[], 1000).is_empty());
+        assert!(watch.note(&fault("a"), 1050).is_empty());
+        assert!(watch.note(&[(None, "world".to_string())], 1100).is_empty());
+        assert!(watch.note(&fault("a"), 1200).is_empty());
+        assert_eq!(watch.note(&fault("a"), 2200), vec![("a".to_string(), "unknown post".to_string())]);
+        // Another player is not ended with it.
+        assert!(watch.note(&fault("b"), 2300).is_empty());
     }
 }

@@ -1,5 +1,5 @@
 //! A network player's controls applied to his body each tick
-//! (src/runtime/multiplayer-world.js applyNetworkControls and stopInput):
+//! (applyNetworkControls and stopInput):
 //! squad orders, the movement and press keys into his intent, his trigger
 //! edges, his mouse into his soldier or his flown droid, his seat's keys
 //! and switches, and what his use key reaches. Every seat, body and

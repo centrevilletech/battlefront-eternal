@@ -598,7 +598,7 @@ impl Units {
                 rider_sample(a, input, &mut state, out, content.clips.len());
             }
             let held = input[i::HELD] != 0.0;
-            // Out of a seat (seats.js placeOnFoot, unseatBody) or a
+            // Out of a seat (placeOnFoot, unseatBody) or a
             // creature's hold (Unit.letGo) the body takes its own clips
             // again; a live soldier leaving a seat starts standing, facing
             // his aim. Nothing else clears a seat's pose, and a pooled body
