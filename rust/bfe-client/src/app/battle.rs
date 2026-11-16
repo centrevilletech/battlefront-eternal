@@ -913,6 +913,8 @@ pub struct BattleController {
     pub steady_frames_measured: u64,
     /// Total elapsed seconds in the current battle.
     pub elapsed_s: f64,
+    /// When the last `prediction:` line was written (battle seconds).
+    prediction_logged: f64,
     /// Whether the local player was alive on the previous frame (used to detect death -> spawn screen).
     pub was_alive: bool,
     /// The player died and the spawn screen has not reopened for it yet.
@@ -1413,6 +1415,7 @@ impl BattleController {
             steady_frames: 0,
             steady_frames_measured: 0,
             elapsed_s: 0.0,
+            prediction_logged: 0.0,
             was_alive: false,
             death_screen_pending: false,
             death_classic: false,
@@ -2045,7 +2048,8 @@ impl BattleController {
                 }
                 replay.present(alpha_interp, dt);
                 if let Some(hull) = &replay.fleet.state {
-                    own.position = hull.position;
+                    let offset = replay.fleet.offset();
+                    own.position = std::array::from_fn(|i| hull.position[i] + offset[i]);
                 }
                 if replay.fleet.identity.is_some() {
                     sender.yaw = replay.fleet.aim[0];
@@ -2102,6 +2106,17 @@ impl BattleController {
                 }
                 self.scene.bridge.r.core.profile.cpu("receive/predict",receive_timer);
                 self.scene.online_frame(client, dt);
+                // Every ten seconds: how often and how far the own prediction was corrected,
+                // the command lead, and commands the server ran late.
+                if self.elapsed_s - self.prediction_logged >= 10. && client.receiver.own.alive {
+                    let r = &client.replay;
+                    self.prediction_logged = self.elapsed_s;
+                    eprintln!("prediction: corrections={} worst={:.2} m mean={:.3} m snaps={} lead={:.1} late={} late_ticks={:.0} rtt={:.0} server_dropped_ticks={} vehicle_corrections={} vehicle_worst={:.2} m vehicle_snaps={}",
+                        r.smoother.count, r.smoother.worst, r.correction_metres / r.smoother.count.max(1.), r.snaps,
+                        client.sender.lead(&client.receiver), client.sender.late, client.sender.late_ticks,
+                        client.endpoint.connection.as_ref().map_or(f64::NAN, |c| c.rtt), client.receiver.server_dropped,
+                        r.fleet.smoother.count, r.fleet.smoother.worst, r.fleet.snaps);
+                }
                 if self.frames == 60 {
                     eprintln!("online HUD publications: welcomed={} packets={} corrections={} alive={} active={} visible={}",
                         client.receiver.welcomed, client.receiver.packets, client.receiver.corrections,
