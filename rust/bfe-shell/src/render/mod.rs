@@ -10,7 +10,7 @@ use bfe_render::interface::{
 };
 use std::collections::HashMap;
 mod screens;
-pub use self::screens::draw_loading;
+pub use self::screens::{draw_loading, LOADING_BACKDROP};
 
 /// White RGBA (`[1.0, 1.0, 1.0, 1.0]`).
 /// Mirrors `WHITE`.

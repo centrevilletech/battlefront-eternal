@@ -851,8 +851,7 @@ impl ShellHost {
             .find(|m| m.id == "nab2")
             .or_else(|| data.maps.first());
         if let Some(map) = load_map {
-            let (stages, made) = Self::upload_stages(&mut self.core, &mut lib, map);
-            textures.loading_stages = stages;
+            let made = Self::upload_stages(&mut self.core, &mut lib, map, data.load.backdrop.as_deref(), &mut textures);
             self.stage_map = Some((map.id.clone(), made));
         }
         let mut stage_targets = Self::stage_targets(&textures.loading_stages);
@@ -1319,15 +1318,19 @@ impl ShellHost {
         }
     }
 
-    /// Decodes and uploads one map's loading pictures; the last stage zooms nowhere.
+    /// Decodes and uploads one map's loading pictures (the last stage zooms
+    /// nowhere) into `textures`; a map without pictures (an add-on's) gets
+    /// load.lvl's simple backdrop instead. Returns the GL textures made.
     fn upload_stages(
         core: &mut Core<glow::Context, Ranges>,
         images: &mut Library,
         map: &bfe_shell::data::ShellMap,
-    ) -> (Vec<StageTexture>, Vec<glow::Texture>) {
+        backdrop: Option<&str>,
+        textures: &mut ShellTextures,
+    ) -> Vec<glow::Texture> {
         let (mut stages, mut made) = (Vec::new(), Vec::new());
-        let Some(metadata) = &map.load else { return (stages, made) };
-        for (index, stage) in metadata.stages.iter().enumerate() {
+        let pictures = map.load.as_ref().map_or(&[][..], |load| &load.stages[..]);
+        for (index, stage) in pictures.iter().enumerate() {
             let Ok(id) = images.load(stage.url.trim_start_matches('/')) else { continue };
             let image = &images.images[id];
             let Ok(texture) = Self::upload_rgba(&core.gl, image.width as i32, image.height as i32, &image.data) else { continue };
@@ -1336,10 +1339,19 @@ impl ShellHost {
                 texture: core.add_texture(texture),
                 width: image.width.max(1) as f64,
                 height: image.height.max(1) as f64,
-                target: if index + 1 < metadata.stages.len() { stage.target } else { None },
+                target: if index + 1 < pictures.len() { stage.target } else { None },
             });
         }
-        (stages, made)
+        textures.by_name.remove(bfe_shell::render::LOADING_BACKDROP);
+        if stages.is_empty() {
+            let image = backdrop.and_then(|url| images.load(url.trim_start_matches('/')).ok()).map(|id| &images.images[id]);
+            if let Some(texture) = image.and_then(|i| Self::upload_rgba(&core.gl, i.width as i32, i.height as i32, &i.data).ok()) {
+                made.push(texture);
+                textures.by_name.insert(bfe_shell::render::LOADING_BACKDROP.into(), core.add_texture(texture));
+            }
+        }
+        textures.loading_stages = stages;
+        made
     }
 
     /// Each stage's zoom target as a fraction of its picture.
@@ -1368,10 +1380,10 @@ impl ShellHost {
                     unsafe { self.core.gl.delete_texture(texture) };
                 }
                 self.textures.loading_stages.clear();
+                self.textures.by_name.remove(bfe_shell::render::LOADING_BACKDROP);
                 if let Some(root) = &self.content_dir {
                     if let Ok(mut images) = Library::new(root, false, 4096, 0) {
-                        let (stages, made) = Self::upload_stages(&mut self.core, &mut images, map);
-                        self.textures.loading_stages = stages;
+                        let made = Self::upload_stages(&mut self.core, &mut images, map, self.app.data.load.backdrop.as_deref(), &mut self.textures);
                         self.stage_map = Some((map_id.to_string(), made));
                     }
                 }
