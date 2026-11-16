@@ -154,6 +154,8 @@ pub struct OnlineServer {
     pub beats: Arc<Mutex<u64>>,
     pub family_down: Arc<Mutex<HashMap<u8, Instant>>>,
     relays: Mutex<HashMap<String, RelayEntry>>,
+    /// The STUN host learned from the master's relay URL (see [`Self::stun_server`]).
+    master_stun: Mutex<Option<(String, u16)>>,
     /// Local addresses the system sends from towards the STUN server (see [`Self::natted`]).
     route_addresses: Mutex<Vec<String>>,
     udp: Option<Arc<Mutex<UdpGameServer>>>,
@@ -207,6 +209,7 @@ impl OnlineServer {
             beats: Arc::new(Mutex::new(0)),
             family_down: Arc::new(Mutex::new(HashMap::new())),
             relays: Mutex::new(HashMap::new()),
+            master_stun: Mutex::new(None),
             route_addresses: Mutex::new(Vec::new()),
             udp,
             browser,
@@ -313,9 +316,32 @@ impl OnlineServer {
             .unwrap_or(false)
     }
 
-    /// Returns the configured STUN `(host, port)` pair (`OnlineServer.stunServer()`).
+    /// Returns the STUN `(host, port)` pair (`OnlineServer.stunServer()`): the configured one,
+    /// else the relay host the master names (so a server registered with another master asks
+    /// that master's relay), else the default.
     pub fn stun_server(&self) -> (String, u16) {
+        if self.config.stun.is_none() {
+            if let Some(stun) = self.master_stun.lock().ok().and_then(|s| s.clone()) {
+                return stun;
+            }
+        }
         parse_stun_server(self.config.stun.as_deref())
+    }
+
+    /// Learns the master's relay host for STUN when the configuration names none. A server
+    /// with relay policy never is refused relay credentials and keeps the default.
+    fn learn_master_stun(&self) {
+        if self.config.stun.is_some() {
+            return;
+        }
+        let Ok(servers) = self.master.credentials(&self.id, None) else {
+            return;
+        };
+        if let Some(server) = servers.iter().find(|s| s.relay_type == "TurnUdp") {
+            if let Ok(mut stun) = self.master_stun.lock() {
+                *stun = Some((server.hostname.clone(), server.port));
+            }
+        }
     }
 
     /// Queries the STUN server from the game port to discover the server's reflexive IPv4 and IPv6
@@ -380,9 +406,18 @@ impl OnlineServer {
         if answered == 0 && polled(udp_arc) == before {
             map = self.discover_unpolled(addrs_v4, addrs_v6);
         }
+        // Nothing answered: keep what the last discovery found rather than forget it.
+        if map == ReflexiveMap::default() {
+            return;
+        }
         if let Ok(mut guard) = self.reflexive.lock() {
             *guard = map;
         }
+    }
+
+    /// Whether a reflexive address is known.
+    fn discovered(&self) -> bool {
+        self.reflexive.lock().is_ok_and(|r| *r != ReflexiveMap::default())
     }
 
     /// Reflexive discovery for a game socket nobody polls: reads the answers from it directly.
@@ -792,6 +827,7 @@ impl OnlineServer {
             .map_err(|e| e.message)?;
         let (events_tx, events_rx): (Sender<MasterEvent>, Receiver<MasterEvent>) = mpsc::channel();
         self.master.connect(events_tx.clone())?;
+        self.learn_master_stun();
         self.discover();
 
         self.stop.store(false, Ordering::SeqCst);
@@ -803,6 +839,9 @@ impl OnlineServer {
                 let mut last_beat = Instant::now();
                 let mut last_ban = Instant::now();
                 let mut last_maint = Instant::now();
+                // Until a reflexive address is known, discovery is retried after 5, 10, 20 and
+                // 40 s, then with the minute's maintenance.
+                let mut retry = Duration::from_secs(5);
                 while !stop.load(Ordering::Relaxed) {
                     match events_rx.recv_timeout(Duration::from_millis(200)) {
                         Ok(MasterEvent::Signal(sig)) => {
@@ -864,6 +903,13 @@ impl OnlineServer {
                         last_maint = now;
                         server.discover();
                         server.sweep(RELAY_UNUSED);
+                    } else if retry <= Duration::from_secs(40)
+                        && now.duration_since(last_maint) >= retry
+                        && server.config.relay_policy != "always"
+                        && !server.discovered()
+                    {
+                        retry *= 2;
+                        server.discover();
                     }
                 }
             })
