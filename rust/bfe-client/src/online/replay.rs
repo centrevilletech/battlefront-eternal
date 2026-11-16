@@ -214,6 +214,8 @@ pub struct Replay {
     shot_delays: Vec<f64>,
     walker_next: f64,
     walker_ahead: bool,
+    // The reason and life whose prediction last failed, logged once.
+    failed: Option<(&'static str, [f64; 3])>,
 }
 impl Replay {
     /// The mounted subject stays out of its camera and aiming rays.
@@ -293,6 +295,7 @@ impl Replay {
             shot_delays: defs.weapons.iter().map(|weapon| weapon.record.get("ShotDelay").and_then(bfe_content::Value::as_f64).unwrap_or(0.) * 60.).collect(),
             walker_next: 0.,
             walker_ahead: false,
+            failed: None,
         })
     }
     // HUD, arms and audio borrow the same completed arsenal. Iteration
@@ -340,7 +343,23 @@ impl Replay {
             }
         }
     }
-    pub fn frame(&mut self, r: &Receiver, sender: &Sender) -> Result<(), &'static str> {
+    /// Predicts the player's own body and seat. Prediction only runs ahead of
+    /// the server: when it cannot run, the player plays on with the server's
+    /// state, and the reason is logged once per reason and life.
+    pub fn frame(&mut self, r: &Receiver, sender: &Sender) {
+        let Err(reason) = self.predict(r, sender) else { return };
+        self.body = None;
+        self.displayed = None;
+        self.shots.clear();
+        self.weapon_count = 0;
+        self.walker_ahead = false;
+        let failed = Some((reason, [r.epoch, r.own.id, r.own.generation]));
+        if self.failed != failed {
+            self.failed = failed;
+            eprintln!("own prediction off: {reason}; showing the server's state");
+        }
+    }
+    fn predict(&mut self, r: &Receiver, sender: &Sender) -> Result<(), &'static str> {
         // Clear result presence before examining the new correction. A dead
         // or mounted player must never keep the previous infantry position.
         // The retained numerical owners keep their allocations, but their
@@ -359,7 +378,7 @@ impl Replay {
         self.life = life;
         self.weapon_count = 0;
         self.props.frame(r, &mut collision_mut(&self.collision));
-        self.fleet.frame(r, sender, &mut self.words, &mut collision_mut(&self.collision))?;
+        self.fleet.frame(r, sender, &mut self.words, &mut collision_mut(&self.collision));
         if r.own.remote.is_some() {
             return Ok(());
         }
