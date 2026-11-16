@@ -437,6 +437,10 @@ fn launch_match(
             let query = local.query.clone();
             let content = local.content.clone();
             let udp = Arc::clone(&local.udp);
+            // The previous battle's announcement of this one stays until the online registration
+            // names this battle too: a player who asks in between hears "next", never the old one.
+            let announced = Arc::clone(&local.udp);
+            let settle = move || announced.lock().unwrap().pending_match = None;
             *control.local.lock().unwrap() = Some(local);
             *control.status.write().unwrap() = "running".to_string();
 
@@ -461,6 +465,7 @@ fn launch_match(
                 let kept = control.online.lock().unwrap().clone();
                 if let Some(online) = kept {
                     online.next_battle(query, content_for_listing, active_cfg.rotation.clone(), browser_fn);
+                    settle();
                     return Ok(());
                 }
                 let op_ban = Arc::clone(operator);
@@ -494,6 +499,7 @@ fn launch_match(
                     }
                 }
             }
+            settle();
         }
         Err(err) => {
             return Err(err);
