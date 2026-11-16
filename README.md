@@ -33,12 +33,11 @@ ARM64), and update themselves.
   project's additions (see below).
 - **Graphics.** Cascaded shadows, reflective water, weather, destruction
   effects, upscaling and four quality presets (Minimum, Performance, Balanced
-  and High Quality). On first launch the app measures the graphics card and picks a
-  starting preset. Gameplay always runs at a fixed 60 Hz, whatever the frame
+  and High Quality). On first launch the app measures the graphics card and
+  picks a starting preset. Gameplay always runs at a fixed 60 Hz, whatever the frame
   rate.
 - **Sound.** Original (2004) and Enhanced (2026) modes, with 3D audio on
-  headphones and speaker layouts up to 7.1.4, and a light stereo mix of the
-  original for slow PCs.
+  headphones and speaker layouts up to 7.1.4.
 - **Movies.** The game's own menu movies and map flyovers play straight from
   your game folder, decoded by this project's
   [Bink decoder](https://github.com/centrevilletech/bink-decoder); nothing is
@@ -59,9 +58,9 @@ ARM64), and update themselves.
 *Star Wars: Battlefront II* (2005) maps, units, vehicles, modes and
 interface; mixed playlists from both games; Galactic Conquest and the
 Historical Campaign; vehicle cockpits in first person; macOS builds; signed
-Windows installers; easier dedicated server setup; leaderboards; custom maps and mods; a Vulkan
-renderer backend, followed by FSR upscaling on every GPU and DLSS as an
-optional add-on for RTX cards. Dates depend on testing and are not promised.
+Windows installers; easier dedicated server setup; leaderboards; custom maps
+and mods; a Vulkan renderer backend, followed by FSR upscaling on every GPU
+and DLSS as an optional add-on for RTX cards. Dates depend on testing and are not promised.
 The [feature audit](docs/feature-audit.md) lists what the original game's
 data holds that the engine does not do yet.
 
