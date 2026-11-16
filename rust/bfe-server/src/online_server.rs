@@ -706,11 +706,12 @@ impl OnlineServer {
                         Some(entry.nonce.clone())
                     });
                     if let Some(nonce) = nonce {
+                        eprintln!("Online relay: {relayed} allocated for player {}", short(&peer_id));
                         self.signal_relay(&peer_id, &nonce, relayed);
                     }
                 }
                 RelayEvent::Failed { peer_id, reason } => {
-                    eprintln!("Online relay: {reason}");
+                    eprintln!("Online relay: player {}: {reason}", short(&peer_id));
                     if let Ok(mut relays) = self.relays.lock() {
                         relays.remove(&peer_id);
                     }
@@ -756,6 +757,7 @@ impl OnlineServer {
         relays.retain(|id, entry| {
             let keep = playing.contains(id) || entry.created.elapsed() <= max_age;
             if !keep {
+                eprintln!("Online relay: released for player {} (not playing)", short(id));
                 udp.close_relay(id);
             }
             keep
@@ -894,6 +896,11 @@ impl Drop for OnlineServer {
         self.stop.store(true, Ordering::SeqCst);
         self.master.close();
     }
+}
+
+/// The first characters of a player identity, for the log.
+fn short(id: &str) -> &str {
+    id.get(..12).unwrap_or(id)
 }
 
 /// The local address the system would send from to reach `target` (no packet is sent).
