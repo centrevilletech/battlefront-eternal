@@ -850,6 +850,28 @@ impl StandaloneWindowApp {
     /// Detaches the battle `Stream` (`audio_router.set_live(None)`) and constructs a
     /// fresh [`ShellAudioMixer`] configured with the user's persisted `master_volume`,
     /// `music_volume`, and `interface_volume`.
+    /// A battle that cannot go on: back to the main menu (Multiplayer for an online
+    /// battle) with the reason in a notice the player closes like any other.
+    fn leave_failed_battle(&mut self, online: bool, error: String) {
+        eprintln!("battle stopped: {error}; back to the menu");
+        let content_dir = self
+            .shell
+            .as_ref()
+            .and_then(|s| s.content_dir.clone())
+            .unwrap_or_else(|| self.settings.paths.content_root.clone());
+        self.state = AppState::Shell;
+        self.restore_shell_audio(&content_dir);
+        if let Some(shell) = &mut self.shell {
+            shell.app.settings.menu_theme = self.settings.player.shell.menu_theme.clone();
+            shell.app.stack = vec![ScreenId::Main];
+            if online {
+                shell.app.stack.push(ScreenId::Multiplayer);
+            }
+            shell.app.rebuild_cached_rows();
+            shell.app.popup = Some(PopupState::Notice { message: format!("BATTLE ERROR: {error}") });
+        }
+        release_freed_memory();
+    }
     fn restore_shell_audio(&self, content_dir: &Path) {
         if let Some(shell) = &self.shell {
             let mut mixer = ShellAudioMixer::new(&shell.app.data, Some(content_dir));
@@ -2217,13 +2239,23 @@ impl StandaloneWindowApp {
                         && self.gate.as_ref().is_none_or(|gate| gate.allows_direct())
                         && self.slint_ui.as_ref().is_some_and(|ui| !ui.battle_overlay_visible());
                     battle.scene.set_direct(false);
-                    let transition = battle.step_and_draw(
+                    let transition = match battle.step_and_draw(
                         elapsed_dt,
                         self.focused,
                         self.hidden,
                         &mut self.settings,
                         &self.audio_router,
-                    )?;
+                    ) {
+                        Ok(transition) => transition,
+                        // A scripted run fails on it; a player goes back to the menu
+                        // with the reason on screen, never to a window that is stuck.
+                        Err(error) if self.gate.is_some() => return Err(error),
+                        Err(error) => {
+                            let online = matches!(battle.authority, BattleAuthority::Online { .. });
+                            self.leave_failed_battle(online, error);
+                            return Ok(());
+                        }
+                    };
                     if let Some(ui) = &mut self.slint_ui {
                         ui.drain_battle_actions(battle, &mut self.settings);
                     }

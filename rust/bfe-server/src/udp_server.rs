@@ -60,7 +60,15 @@ pub struct ConnectedPeer {
     pub peer: UdpPeerState,
     /// Per-peer input/control rate limiters, ping/pong RTT tracker, and 15 s silence timer (`src/game-session.js`).
     pub session: GameSessionState,
+    /// The last edge-results message sent and when, so a repeat of it is not queued again at once.
+    last_edges: Option<(Vec<u8>, f64)>,
+    /// Superseding messages not queued because the reliable lane was backed up, or repeated.
+    pub superseded: u64,
 }
+
+/// Reliable bytes pending for a player above which superseding messages wait (see
+/// [`UdpGameServer::send_superseding`]).
+const SUPERSEDING_BACKLOG_BYTES: usize = 8_192;
 
 /// Events emitted by [`UdpGameServer::poll`] for the world loop (`WorldRouter` in `src/game-session.js`).
 #[derive(Clone, Debug)]
@@ -558,6 +566,8 @@ impl UdpGameServer {
                 ConnectedPeer {
                     peer: udp_peer,
                     session: game_session,
+                    last_edges: None,
+                    superseded: 0,
                 },
             );
             events.push(WorldPeerEvent::Joined {
@@ -752,6 +762,37 @@ impl UdpGameServer {
 
     /// Serializes `payload` as JSON and queues it on `peer_id`'s reliable `events` lane
     /// (`peer.send("events", value)` in `src/udp-peer.js`).
+    /// Queues a message that replaces the previous one of its kind (an input acknowledgement,
+    /// the edges received so far): the next one carries the same news, so such a message is not
+    /// queued while the player's reliable lane is backed up (a slow or lossy link then gets
+    /// fewer of them instead of an ever longer queue), and an edge-results message equal to the
+    /// one queued less than 100 ms ago is not queued again.
+    pub fn send_superseding(&mut self, peer_id: &str, payload: &Value) -> bool {
+        let now_ms = self.now_ms();
+        let Some(connected) = self.peers.get_mut(peer_id) else {
+            return false;
+        };
+        let backlog = self
+            .endpoint
+            .session_mut(connected.peer.session_id)
+            .map_or(0, |s| s.connection.backlog());
+        if backlog > SUPERSEDING_BACKLOG_BYTES {
+            connected.superseded += 1;
+            return false;
+        }
+        let Ok(bytes) = serde_json::to_vec(payload) else {
+            return false;
+        };
+        if payload.get("type").and_then(Value::as_str) == Some("entity-edge-results") {
+            if connected.last_edges.as_ref().is_some_and(|(last, at)| *last == bytes && now_ms - at < 100.) {
+                connected.superseded += 1;
+                return false;
+            }
+            connected.last_edges = Some((bytes.clone(), now_ms));
+        }
+        self.send_events_bytes(peer_id, &bytes)
+    }
+
     pub fn send_events(&mut self, peer_id: &str, payload: &Value) -> bool {
         let Ok(bytes) = serde_json::to_vec(payload) else {
             return false;
@@ -883,6 +924,7 @@ impl UdpGameServer {
                     "address": connected.peer.address,
                     "rtt": connected.session.rtt,
                     "droppedInputs": connected.session.dropped_inputs,
+                    "supersededEvents": connected.superseded,
                     "net": net,
                 }));
             }
