@@ -1987,6 +1987,15 @@ fn online_server_registers_with_master_and_relays_signaling_over_websocket() {
                                         if let Ok(v) = serde_json::from_str::<Value>(&txt) {
                                             match v.get("type").and_then(Value::as_str) {
                                                 Some("answer") => {
+                                                    // The answer names the battle the server runs:
+                                                    // a list join loads that, not the listing's.
+                                                    let payload = v
+                                                        .get("payload")
+                                                        .and_then(Value::as_str)
+                                                        .and_then(|p| serde_json::from_str::<Value>(p).ok())
+                                                        .unwrap_or_default();
+                                                    let battle = payload["battle"].as_str().unwrap_or_default();
+                                                    assert!(battle.contains("map="), "answer without its battle: {payload}");
                                                     ans_clone.store(true, Ordering::SeqCst);
                                                 }
                                                 Some("matchReady") => {

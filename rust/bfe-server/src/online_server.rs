@@ -654,12 +654,12 @@ impl OnlineServer {
             let answer_candidates = self.candidates(&client_candidates);
             let _ = self.master.signal(
                 &m.from,
-                &serde_json::json!({
+                &self.with_battle(serde_json::json!({
                     "type": "answer",
                     "udp": 1,
                     "nonce": nonce,
                     "candidates": answer_candidates,
-                }),
+                })),
             );
             if let Some(udp_arc) = self.udp.as_ref() {
                 let public_only: Vec<CandidateEntry> = client_candidates
@@ -779,7 +779,7 @@ impl OnlineServer {
         let kind = if self.config.relay_policy == "always" { "answer" } else { "candidate" };
         let _ = self.master.signal(
             peer,
-            &serde_json::json!({
+            &self.with_battle(serde_json::json!({
                 "type": kind,
                 "udp": 1,
                 "nonce": nonce,
@@ -788,8 +788,27 @@ impl OnlineServer {
                     "port": relayed.port(),
                     "kind": "relay",
                 }],
-            }),
+            })),
         );
+    }
+
+    /// Adds to an answer the battle this server runs ("battle") and, while the next one is
+    /// announced (the end table), that one ("next"). A player joining from the list learns the
+    /// battle from the server itself: the master's listing lags a battle change by a minute or
+    /// more, and names no battle at all for some.
+    fn with_battle(&self, mut answer: Value) -> Value {
+        let next = self
+            .udp
+            .as_ref()
+            .and_then(|u| u.lock().ok())
+            .and_then(|u| u.pending_match.as_ref().map(|(query, _)| query.clone()));
+        if let Some(fields) = answer.as_object_mut() {
+            fields.insert("battle".to_string(), Value::String(self.battle_query()));
+            if let Some(next) = next {
+                fields.insert("next".to_string(), Value::String(next));
+            }
+        }
+        answer
     }
 
     /// Marks the relay allocations of the players now playing as in use, just before a battle

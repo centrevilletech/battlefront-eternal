@@ -111,6 +111,36 @@ pub fn identity(path:&Path)->Result<Identity,String>{
 }
 #[cfg(test)]mod tests{
     use super::*;
+    fn answer(from:&str,kind:&str,payload:serde_json::Value)->String{serde_json::json!({"from":from,"type":kind,"payload":payload.to_string()}).to_string()}
+    #[test]fn a_listed_join_loads_the_battle_the_server_names_not_a_stale_listing(){
+        let id="ab".repeat(32);let nonces=vec!["1".repeat(32)];
+        let stale="?map=nab2&side=all&match=00000000000000000000000000000000";
+        let running="?map=tat1&side=rep&match=11111111111111111111111111111111";
+        let text=answer(&id,"answer",serde_json::json!({"udp":1,"nonce":nonces[0],"candidates":[],"battle":running}));
+        let named=answered_battle(&text,&id,&nonces).unwrap();
+        assert_eq!(battle_to_load(stale,&named).as_deref(),Some(running));
+        // Between battles: wait for the announced one.
+        let text=answer(&id,"candidate",serde_json::json!({"udp":1,"nonce":nonces[0],"candidates":[],"battle":stale,"next":running}));
+        assert_eq!(battle_to_load(stale,&answered_battle(&text,&id,&nonces).unwrap()),None);
+        // An older server names no battle: the listing's stays.
+        let text=answer(&id,"answer",serde_json::json!({"udp":1,"nonce":nonces[0],"candidates":[]}));
+        assert_eq!(battle_to_load(stale,&answered_battle(&text,&id,&nonces).unwrap()).as_deref(),Some(stale));
+        // Not an answer to our offer, or not from this server.
+        assert!(answered_battle(&answer(&id,"answer",serde_json::json!({"nonce":"2".repeat(32),"battle":running})),&id,&nonces).is_none());
+        assert!(answered_battle(&answer(&"cd".repeat(32),"answer",serde_json::json!({"nonce":nonces[0],"battle":running})),&id,&nonces).is_none());
+    }
+    #[test]fn a_refusal_is_judged_by_the_battle_the_server_names(){
+        // The client loaded the stale battle the list named and was refused. The listing still
+        // names that battle, the server names another: that is a battle change to follow
+        // (the rejoin probe's rule is "changed when the server's query differs from the loaded").
+        let loaded="?map=nab2&side=all&match=00000000000000000000000000000000";
+        let mut server:Server=serde_json::from_value(serde_json::json!({"id":"ab".repeat(32),"protocol":3,"profile":"p","simulation":"s","content":"c","query":loaded})).unwrap();
+        server.take_answer(AnsweredBattle{battle:Some("?map=tat1&match=11111111111111111111111111111111".into()),next:None});
+        assert_ne!(server.query,loaded);
+        // The server names the loaded battle itself: a real content mismatch.
+        server.take_answer(AnsweredBattle{battle:Some(loaded.into()),next:None});
+        assert_eq!(server.query,loaded);
+    }
     #[test]fn the_next_battle_is_read_from_the_end_table_information(){
         let base=r#""id":"x","protocol":3,"profile":"p","simulation":"s","content":"c","query":"?map=nab2""#;
         let during:Server=serde_json::from_str(&format!(r#"{{{base},"next":{{"query":"?map=hot1&side=imp","delayMs":4200}}}}"#)).unwrap();
@@ -137,7 +167,7 @@ pub fn identity(path:&Path)->Result<Identity,String>{
         let id=std::env::var("BFE_PROBE_SERVER").expect("BFE_PROBE_SERVER");let content=std::env::var("BFE_PROBE_CONTENT").expect("BFE_PROBE_CONTENT");
         let key=std::env::temp_dir().join(format!("bfe-probe-{}.key",std::process::id()));
         let started=std::time::Instant::now();
-        let (server,mut endpoint)=super::prepare_listed(&id,Path::new(&content),&key,"PROBE").expect("prepare");
+        let (server,mut endpoint)=super::prepare_listed(&id,Path::new(&content),&key,"PROBE",&mut |_|{}).expect("prepare");
         eprintln!("PROBE prepared {} in {} ms",server.name,started.elapsed().as_millis());
         // The client pumps the endpoint only once the battle has loaded: BFE_PROBE_LOAD_MS stands for that load.
         let load=std::env::var("BFE_PROBE_LOAD_MS").ok().and_then(|v|v.parse::<u64>().ok()).unwrap_or(0);
@@ -183,13 +213,61 @@ pub fn listed_server(master:&bfe_online::master::MasterClient,server_id:&str)->R
         content:listing.content.clone().unwrap_or_default(),query:listing.query.clone().unwrap_or_default(),name:listing.name.clone(),next:None};
     server.validate()?;Ok((server,listing))
 }
-// Rotation and rejoin probes: /info over HTTP for an address, the master's
-// listing (renewed by the server's heartbeat every 20 s) for a listed server.
+// The battle a server's answer to our offer names ("battle"), and the next one while it is
+// announced ("next"), when the answer is to one of our offers. A server that names none (an
+// older one) leaves the listing's battle in force.
+#[derive(Debug,Default,PartialEq)]
+pub struct AnsweredBattle{pub battle:Option<String>,pub next:Option<String>}
+pub fn answered_battle(text:&str,server_id:&str,nonces:&[String])->Option<AnsweredBattle>{
+    #[derive(Deserialize)]struct Envelope{#[serde(default)]from:String,#[serde(rename="type",default)]kind:String,#[serde(default)]payload:String}
+    #[derive(Deserialize)]struct Payload{#[serde(default)]nonce:String,#[serde(default)]battle:Option<String>,#[serde(default)]next:Option<String>}
+    let envelope:Envelope=serde_json::from_str(text).ok()?;
+    if !envelope.from.eq_ignore_ascii_case(server_id)||!matches!(envelope.kind.as_str(),"answer"|"candidate"){return None;}
+    let payload:Payload=serde_json::from_str(&envelope.payload).ok()?;
+    nonces.contains(&payload.nonce).then_some(AnsweredBattle{battle:payload.battle.filter(|q|!q.is_empty()),next:payload.next.filter(|q|!q.is_empty())})
+}
+// What a listed join loads: the battle the server names, never the listing's when they differ
+// (the listing lags a battle change by a minute or more); None while the next battle is
+// announced, to wait for it.
+pub fn battle_to_load(listing:&str,answer:&AnsweredBattle)->Option<String>{
+    if answer.next.is_some(){return None;}
+    Some(answer.battle.clone().unwrap_or_else(||listing.to_string()))
+}
+// Asks a listed server through the master's signalling which battle it runs: one offer
+// without candidates, its answer read for "battle". None when the server names none.
+fn listed_battle(master:&bfe_online::master::MasterClient,server_id:&str)->Result<Option<AnsweredBattle>,String>{
+    use bfe_online::rendezvous::{self as rv,Signalling};
+    let id=server_id.to_ascii_lowercase();
+    let mut signalling=Signalling::open(master)?;
+    let nonce=rv::new_nonce()?;signalling.send(&id,"offer",&rv::offer_payload(&nonce,&[]))?;
+    let nonces=[nonce];let by=Instant::now()+Duration::from_secs(3);let mut answer=None;
+    while answer.is_none()&&Instant::now()<by{
+        match signalling.receive(Duration::from_millis(200)){
+            Ok(Some(text))=>answer=answered_battle(&text,&id,&nonces),
+            Ok(None)=>{},
+            Err(_)=>break,
+        }
+    }
+    signalling.close();
+    Ok(answer.filter(|a|a.battle.is_some()))
+}
+// Rotation and rejoin probes: /info over HTTP for an address; for a listed server its
+// listing, with the battle the server itself names through the master's signalling (the
+// listing lags a battle change, so a refusal must not be judged by it).
 pub fn read_target(target:&str)->Result<Server,String>{
     let Some(id)=target.strip_prefix(LISTED)else{return Server::read(target);};
     let player=bfe_online::identity::PlayerIdentity::load_or_create(&default_identity()?)?;
     let master=bfe_online::master::MasterClient::new(bfe_online::master::resolve_master_url(),player);
-    listed_server(&master,id).map(|(server,_)|server)
+    let (mut server,_)=listed_server(&master,id)?;
+    if let Some(answer)=listed_battle(&master,id)?{server.take_answer(answer);}
+    Ok(server)
+}
+impl Server{
+    // The battle the server itself named replaces the listing's.
+    fn take_answer(&mut self,answer:AnsweredBattle){
+        if let Some(battle)=answer.battle{self.query=battle;}
+        self.next=answer.next.map(|query|NextBattle{query});
+    }
 }
 // Asks a listed server through the master's signalling, about once a second for up to two
 // minutes, whether it already runs the match `token` names. Its listing may not carry the battle
@@ -221,14 +299,16 @@ pub fn listed_match_ready(server_id:&str,token:&str,stop:&std::sync::atomic::Ato
     if let Some(s)=signalling.take(){s.close();}
     false
 }
-pub fn prepare_listed(server_id:&str,root:&Path,path:&Path,name:&str)->Result<(Server,Box<bfe_transport::endpoint::Endpoint>),String>{
+// `on_battle` hears the battle the server names (the next one while it is announced), for the
+// loading screen to show.
+pub fn prepare_listed(server_id:&str,root:&Path,path:&Path,name:&str,on_battle:&mut dyn FnMut(&str))->Result<(Server,Box<bfe_transport::endpoint::Endpoint>),String>{
     use bfe_online::rendezvous::{self as rv,Candidate,Signalling};
     use std::net::{SocketAddr,UdpSocket};
     // The game identity first: it creates the key file in the game's format.
     let transport=identity(path)?;
     let player=bfe_online::identity::PlayerIdentity::load_or_create(path)?;
     let master=bfe_online::master::MasterClient::new(bfe_online::master::resolve_master_url(),player);
-    let (server,listing)=listed_server(&master,server_id)?;
+    let (mut server,listing)=listed_server(&master,server_id)?;
     let id=listing.id.to_ascii_lowercase();
     if listing.relay_policy.as_deref()==Some("never"){return Err("This server is listed without an address. Refresh the list.".into());}
     // The relay the master names also answers STUN: this player's public address.
@@ -262,7 +342,10 @@ pub fn prepare_listed(server_id:&str,root:&Path,path:&Path,name:&str)->Result<(S
     // reconnecting (as at a battle change) drops what arrives in between.
     // Between two battles the server is briefly unregistered and the master closes a socket that
     // offers to it: open a new one and offer again.
-    let deadline=Instant::now()+Duration::from_secs(10);let mut first=None;let mut resend=Instant::now()+Duration::from_millis(2500);
+    // The answer also names the battle the server runs: that one is loaded, not the listing's.
+    // While it names a next battle (end table), offer again until the server runs that one.
+    let mut deadline=Instant::now()+Duration::from_secs(10);let mut first=None;let mut resend=Instant::now()+Duration::from_millis(2500);
+    let mut between:Option<Instant>=None;
     while first.is_none()&&Instant::now()<deadline{
         let mut lost=false;
         if Instant::now()>=resend{
@@ -271,7 +354,26 @@ pub fn prepare_listed(server_id:&str,root:&Path,path:&Path,name:&str)->Result<(S
             eprintln!("online join: no answer yet; offer sent again");
         }
         match signalling.receive(Duration::from_millis(200)){
-            Ok(Some(text))=>first=rv::parse_answer(&text,&id,&nonces),
+            Ok(Some(text))=>{
+                first=rv::parse_answer(&text,&id,&nonces);
+                if first.is_some(){
+                    let answer=answered_battle(&text,&id,&nonces).unwrap_or_default();
+                    match battle_to_load(&server.query,&answer){
+                        Some(battle)=>{
+                            if battle!=server.query{eprintln!("online join: the list names another battle; loading the one the server runs");}
+                            server.query=battle;
+                        }
+                        None=>{
+                            // The battle is over and the next announced: wait for it (up to 90 s).
+                            if between.is_none(){if let Some(next)=&answer.next{on_battle(next);}}
+                            let since=*between.get_or_insert_with(||{eprintln!("online join: the server is between battles; waiting for the next one");Instant::now()});
+                            if since.elapsed()<Duration::from_secs(90){
+                                first=None;deadline=Instant::now()+Duration::from_secs(10);resend=Instant::now()+Duration::from_millis(1000);
+                            }else if let Some(next)=answer.next{server.query=next;}
+                        }
+                    }
+                }
+            },
             Ok(None)=>{},
             Err(error)=>{eprintln!("online join: {error}");lost=true;},
         }

@@ -1190,6 +1190,7 @@ impl BattleController {
                 content_dir,
                 &id_path,
                 &settings.player.profile_name,
+                &mut |query: &str| tell_map(query),
             )?;
             tell_map(&server_info.query);
             let graphics = Scene::prepare_online(content_dir, &server_info.query, textures)?;
