@@ -10,7 +10,9 @@ mkdir -p "$output"; output=$(cd "$output" && pwd)
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 failed=0
 check() { # check NAME OK DETAIL
-  if [ "$2" = 0 ]; then echo "PASS $1: $3"; else echo "FAIL $1: $3"; failed=1; fi | tee -a "$output/checks.txt"
+  local line="PASS $1: $3"
+  if [ "$2" != 0 ]; then line="FAIL $1: $3"; failed=1; fi
+  echo "$line" | tee -a "$output/checks.txt"
 }
 deb=$(ls "$packages"/*.deb | head -1)
 appimage=$(ls "$packages"/*.AppImage | head -1)
@@ -26,8 +28,9 @@ check "linked libraries" "$([ -z "$missing" ]; echo $?)" "${missing:-all found}"
 # Libraries the client opens at run time rather than links.
 absent=""
 for lib in libEGL.so.1 libGL.so.1 libwayland-client.so.0 libwayland-cursor.so.0 libwayland-egl.so.1 \
-           libxkbcommon.so.0 libxkbcommon-x11.so.0 libX11.so.6 libX11-xcb.so.1 libXcursor.so.1 libXrandr.so.2 libXi.so.6; do
-  ldconfig -p | grep -q " $lib " || absent="$absent $lib"
+           libxkbcommon.so.0 libxkbcommon-x11.so.0 libX11.so.6 libX11-xcb.so.1 libxcb.so.1 libXcursor.so.1 libXi.so.6 \
+           libgtk-3.so.0; do
+  ldconfig -p | grep -qF "$lib (" || absent="$absent $lib"
 done
 check "run-time libraries" "$([ -z "$absent" ]; echo $?)" "${absent:-all present}"
 check "version" 0 "$(cat "$app/resources/bfe-release.json" | tr -d '\n ')"
@@ -35,7 +38,7 @@ check "licence and notices" "$([ -f "$app/resources/legal/LICENSE" ] && [ -f "$a
 check "launchers" "$([ -x /usr/bin/battlefront-eternal ] && [ -x /usr/bin/bfeserver ] && [ -f /usr/share/applications/battlefront-eternal.desktop ]; echo $?)" "/usr/bin, desktop entry"
 
 # Xvfb and Mesa's llvmpipe are the test's own display, not the package's.
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends xvfb xauth libgl1-mesa-dri > /dev/null 2>&1
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends xvfb xauth libgl1-mesa-dri xz-utils > /dev/null 2>&1
 python3 "$repo/tools/platform-smoke-native.py" --client-bin "$app/bfe-client" --output-dir "$output/deb" > "$output/deb.log" 2>&1
 check "platform smoke, installed package" $? "$(tail -c 300 "$output/deb.log" | tr '\n' ' ')"
 
