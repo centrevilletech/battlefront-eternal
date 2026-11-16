@@ -222,7 +222,7 @@ impl Hulls {
                     radius: array(&b["radius"])?,
                 });
             }
-            let admission = crate::static_scene::props(bridge, content, textures, placements, shadow_cascades)?;
+            let admission = crate::static_scene::props(bridge, content, textures, placements, shadow_cascades, false)?;
             let base = class.record.get("base").and_then(bfe_content::Value::as_str).unwrap_or("hover");
             let flying = base == "flyer";
             let walking = base == "walker" || base == "commandwalker";

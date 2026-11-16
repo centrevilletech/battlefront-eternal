@@ -211,13 +211,17 @@ int bfeRow;
 mat4 modelMatrix; mat4 modelViewMatrix; mat3 normalMatrix; mat4 bindMatrixInverse; mat4 bindMatrix;
 ";
 
+// The vertex stage reads as little of the row as it can, every vertex: a texel fetch each on old GPUs with
+// one sampler (an Intel HD 2000 ran 25 a vertex at ~6.5k triangles per ms). The model-view and normal
+// matrices come from the model matrix and the frame's view; the bind inverse is already in the bone rows
+// (InstancePass::draw multiplies it in), and so is the bind matrix: the shader's are the identity.
 const INSTANCE_VERTEX_LOAD: &str = "void bfeLoad() {
   bfeRow = bfeInstanceBase + gl_InstanceID; vBfeRow = bfeRow;
   modelMatrix = mat4(bfeTexel(0), bfeTexel(1), bfeTexel(2), bfeTexel(3));
-  modelViewMatrix = mat4(bfeTexel(4), bfeTexel(5), bfeTexel(6), bfeTexel(7));
-  normalMatrix = mat3(bfeTexel(8).xyz, bfeTexel(9).xyz, bfeTexel(10).xyz);
-  bindMatrixInverse = mat4(bfeTexel(11), bfeTexel(12), bfeTexel(13), bfeTexel(14));
-  bindMatrix = mat4(bfeTexel(21), bfeTexel(22), bfeTexel(23), bfeTexel(24));
+  modelViewMatrix = viewMatrix * modelMatrix;
+  normalMatrix = transpose(inverse(mat3(modelViewMatrix)));
+  bindMatrixInverse = mat4(1.0);
+  bindMatrix = mat4(1.0);
   bfeLoadLook();
   bfeLoadExtras();
 }
@@ -374,6 +378,13 @@ pub fn rewrite_lamps(source: &str, stage: Stage, kind: Kind, lamps: bool) -> Res
             if out.len() == before {
                 return Err("getBoneMatrix not found".into());
             }
+            // A bone with no weight on this vertex (most of a soldier's vertices hang from one) is not fetched.
+            for c in ["y", "z", "w"] {
+                out = out.replace(
+                    &format!("mat4 boneMat{} = getBoneMatrix( skinIndex.{c} );", c.to_uppercase()),
+                    &format!("mat4 boneMat{u} = mat4( 0.0 ); if ( skinWeight.{c} != 0.0 ) boneMat{u} = getBoneMatrix( skinIndex.{c} );", u = c.to_uppercase()),
+                );
+            }
         }
         let main = out.find("void main() {").ok_or("no main")?;
         out.insert_str(main + "void main() {".len(), "\n  bfeLoad();");
@@ -514,6 +525,10 @@ mod tests {
         assert!(out.contains("bfeLoadLook(); bfeLoadExtras(); }"));
         // A program that declares none loads none.
         let plain = rewrite("#version 300 es\nuniform float sunScale;\nvoid main() {}\n", Stage::Vertex, Kind::Rigid).unwrap();
+        // An instance's vertex stage fetches the model matrix only; the model-view and normal matrices are made
+        // from it and the frame's view, and the bind inverse is already in the bones.
+        assert!(plain.contains("modelViewMatrix = viewMatrix * modelMatrix;") && plain.contains("bindMatrixInverse = mat4(1.0);"));
+        assert!(!plain.contains("bfeTexel(4)") && !plain.contains("bfeTexel(8)") && !plain.contains("bfeTexel(11)") && !plain.contains("bfeTexel(21)"));
         assert!(plain.contains("void bfeLoadExtras() {\n}\n") && plain.contains("bfeLoadExtras();"));
     }
 
@@ -641,5 +656,12 @@ mod tests {
         // The locked mask: no skinning, no last frame.
         let locked = rewrite("#version 300 es\nuniform mat4 modelViewMatrix;\nuniform mat4 projectionMatrix;\nin vec3 position;\nvoid main() {\n  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);\n}\n", Stage::Vertex, Kind::Motion).unwrap();
         assert!(locked.contains("bfeLoad();") && !locked.contains("uniform mat4 modelViewMatrix;"));
+    }
+    #[test]
+    fn a_skinned_vertex_skips_the_bones_it_has_no_weight_on() {
+        let vs = "#version 300 es\nuniform mat4 bindMatrix;\nuniform highp sampler2D boneTexture;\nin vec4 skinIndex;\nin vec4 skinWeight;\nmat4 getBoneMatrix( const in float i ) {\n  int j = int( i ) * 4;\n  return mat4(float(j));\n}\nvoid main() {\n\tmat4 boneMatX = getBoneMatrix( skinIndex.x );\n\tmat4 boneMatY = getBoneMatrix( skinIndex.y );\n\tgl_Position = boneMatX[0] + boneMatY[0];\n}\n";
+        let out = rewrite(vs, Stage::Vertex, Kind::Skinned).unwrap();
+        assert!(out.contains("mat4 boneMatX = getBoneMatrix( skinIndex.x );"));
+        assert!(out.contains("mat4 boneMatY = mat4( 0.0 ); if ( skinWeight.y != 0.0 ) boneMatY = getBoneMatrix( skinIndex.y );"));
     }
 }

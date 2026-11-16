@@ -315,7 +315,7 @@ fn doppler_follows_the_sources_velocity_not_the_frames_position_steps() {
     // steps (two ticks one frame, none the next): the 2004 rule reads the
     // velocities, so the shift stays 1 + 34.4/344 every frame.
     let mut p = phase();
-    actor(&mut p, 0, emitter_kind::SOLDIER as usize);
+    actor(&mut p, 0, emitter_kind::SOLDIER);
     p.emitters[0][emitter::Z] = -100.0; p.emitters[0][emitter::VZ] = 34.4;
     let mut ask = Ask::new(0, EFFECTS); ask.emitter = 0; ask.looping = Some(true);
     assert_ne!(p.play(ask), SILENT);

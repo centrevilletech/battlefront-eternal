@@ -149,6 +149,10 @@ pub struct Combat {
     bolts: Vec<Bolt>,
     bound: Index,
     free: Vec<usize>,
+    // One past the highest bolt slot in use: the per-frame passes stop there
+    // (slots are reused lowest first, so it stays near the most bolts in flight
+    // at once instead of the 4063 slots).
+    top: usize,
     net: Vec<Net>,
     net_bound: Index,
     net_free: Vec<usize>,
@@ -480,6 +484,7 @@ impl Combat {
             bolts: vec![Bolt::default(); BOLTS],
             bound: Index::new(BOLTS),
             free: (0..BOLTS).rev().collect(),
+            top: 0,
             net: vec![Net::default(); limits::NET_SLOTS],
             net_bound: Index::new(limits::NET_SLOTS),
             net_free: (0..limits::NET_SLOTS).rev().collect(),
@@ -736,6 +741,7 @@ impl Combat {
             self.free.clear();
             self.free.extend((0..BOLTS).rev());
             self.bolts.fill(Bolt::default());
+            self.top = 0;
             self.net_bound.clear();
             self.net_free.clear();
             self.net_free.extend((0..limits::NET_SLOTS).rev());
@@ -828,6 +834,7 @@ impl Combat {
                     self.bound.insert(key, slot);
                     slot
                 };
+                self.top = self.top.max(slot + 1);
                 let old = self.bolts[slot];
                 if old.active && (old.terminal || stamp < old.tick) {
                     continue;
@@ -1089,7 +1096,7 @@ impl Combat {
         // bounded by the launch presentation interval. Thereafter the bolt
         // flies on the displayed clock from that tick: frame frequency
         // cannot advance a second projectile flight clock.
-        for (slot, bolt) in self.bolts.iter_mut().enumerate() {
+        for (slot, bolt) in self.bolts[..self.top].iter_mut().enumerate() {
             if !bolt.active {
                 continue;
             }
@@ -1105,6 +1112,9 @@ impl Combat {
                     bolt.flight = tick.min(bolt.flight.max(bolt.execution) + 24.);
                 }
             }
+        }
+        while self.top > 0 && !self.bolts[self.top - 1].active {
+            self.top -= 1;
         }
         // NetworkCombatViews.settle ties an impact to the visible flight,
         // not packet receipt. A lost launch retains the terminal's own tick.
@@ -1168,7 +1178,7 @@ impl Combat {
         let tick = self.tick;
         let net_count = std::mem::take(&mut self.net_count);
         let mut count = 0;
-        for (slot, bolt) in self.bolts.iter_mut().enumerate() {
+        for (slot, bolt) in self.bolts[..self.top].iter_mut().enumerate() {
             if !bolt.active || bolt.predicted.is_some() {
                 continue;
             }

@@ -400,3 +400,59 @@ fn read_variant(variant: &Variant, decode: &Sender<Job>) -> Result<Pcm, String> 
     }
     Ok(Pcm { rate, channels, frames: sample.frames, sample })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    // An upscaled segment nobody hears for a while: its decoding holds, then
+    // picks up from where playback got to, and plays the same samples there
+    // as a decode of the whole file (past the codec's pre-roll).
+    #[test]
+    fn an_upscaled_segment_skipped_unheard_plays_on_from_where_it_got_to() {
+        let file = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/audio-codecs/opus-hybrid.opus");
+        let bytes = std::fs::read(&file).unwrap();
+        let mut whole = audio_decode::Decoder::new(0, 0., false);
+        whole.push(&bytes, true).unwrap();
+        let mut reference = Vec::new();
+        loop {
+            match whole.step(2048).unwrap() {
+                audio_decode::Step::Output(n) => reference.extend_from_slice(&whole.output[..n]),
+                audio_decode::Step::Done => break,
+                _ => {}
+            }
+        }
+        let (decode, decodes) = channel::<Job>();
+        let ahead = std::thread::spawn(move || decode_ahead(decodes));
+        let mut pcm = read_variant(&Variant { file, gain_db: 0. }, &decode).unwrap();
+        let sample = &mut pcm.sample;
+        let play = |sample: &mut audio::voices::Sample, from: usize, to: usize| -> f32 {
+            let mut worst = 0f32;
+            let mut index = from;
+            let started = std::time::Instant::now();
+            while index < to {
+                if sample.available(index) {
+                    worst = worst.max((sample.value(0, index) - reference[index]).abs());
+                    index += 1;
+                } else {
+                    assert!(started.elapsed().as_secs() < 20, "stalled at frame {index}");
+                    sample.consumed(index);
+                    sample.feed();
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            }
+            sample.consumed(index);
+            worst
+        };
+        assert_eq!(play(sample, 0, 10_000), 0., "heard from the start: the whole decode's samples");
+        // Unheard from 10000 to 60000, a quantum at a time.
+        for at in (10_000..60_000).step_by(128) {
+            sample.skip_to(at);
+        }
+        sample.skip_to(60_000);
+        let worst = play(sample, 60_000, reference.len());
+        assert!(worst < 1e-3, "heard again from frame 60000: {worst}");
+        drop(pcm);
+        drop(decode);
+        ahead.join().unwrap();
+    }
+}

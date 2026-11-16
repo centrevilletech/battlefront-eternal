@@ -268,6 +268,14 @@ fn set(view: &mut View, name: &str, values: &[f64]) {
     }
 }
 
+// NearSceneRange holds the fade's start and end at the 2004 game's shortest and
+// longest view distance: [start short, start long, end short, end long]. The
+// longest pair is the authored default; a short pair that is missing or not
+// below it falls back to the longest.
+fn short_fade(range: &serde_json::Value, long: [f64; 2]) -> [f64; 2] {
+    let (start, end) = (range[0].as_f64().unwrap_or(f64::NAN), range[2].as_f64().unwrap_or(f64::NAN));
+    if start.is_finite() && end.is_finite() && start >= 0. && end > start.max(0.3) && end <= long[1] { [start, end] } else { long }
+}
 #[derive(Clone,Copy)]
 pub(crate) struct TextureOptions{pub compressed:bool,pub max_size:u32,pub capabilities:u32}
 impl TextureOptions{
@@ -301,6 +309,16 @@ fn grey_alpha(rgba: &[u8]) -> Option<Vec<u8>> {
     Some(rgba.chunks_exact(4).flat_map(|p| [p[0], p[3]]).collect())
 }
 
+#[cfg(test)]
+mod short_fade_tests {
+    // Endor's NearSceneRange: full detail to 60 m at the 2004 game's shortest distance.
+    #[test]
+    fn short_view_distance_reads_the_first_and_third_values() {
+        assert_eq!(super::short_fade(&serde_json::json!([50.0, 180.0, 60.0, 220.0]), [180., 220.]), [50., 60.]);
+        assert_eq!(super::short_fade(&serde_json::json!([300.0, 180.0, 400.0, 220.0]), [180., 220.]), [180., 220.]);
+        assert_eq!(super::short_fade(&serde_json::Value::Null, [180., 220.]), [180., 220.]);
+    }
+}
 #[cfg(test)]
 mod texture_capability_tests {
     use bfe_render::texture_format::{choose,Capabilities,Format};
@@ -423,6 +441,8 @@ pub struct Scene {
     far_reach: f64,
     distance_scale: f64,
     near_range: [f64; 2],
+    /// The near scene's fade at the 2004 game's shortest view distance (NearSceneRange's first and third values).
+    near_short: [f64; 2],
     shadows: Option<crate::shadows::Shadows>,
     canopies: Option<crate::canopies::Canopies>,
     tree_sun: [f64;3],
@@ -502,8 +522,15 @@ fn post_image(size:[i32;2],slot:usize)->String{
 // the scene's size and stretched when read: it is distant, fogged scenery behind the near scene, and at
 // 1920x1080 on an Intel HD 2000 the full-size far pass cost 7.4 ms of a 20 ms frame. The near scene reads it
 // by its own pixel position over `resolution`, so any size of the far image lines up.
+// The reduced far image never drops below this many lines: smaller, the mountains and forests the far scene
+// draws on open maps (Kashyyyk) blur into one smear.
+const FAR_MIN_LINES: f64 = 540.;
+/// The far image's size: the scene's, or with reduced far terrain down to half of it, but no fewer than
+/// FAR_MIN_LINES lines (so a 960x540 scene keeps a full-size far image and a 1920x1080 one gets 960x540).
 fn far_extent(size: [i32; 2], reduced: bool) -> [i32; 2] {
-    if reduced { size.map(|v| ((v + 1) / 2).max(1)) } else { size }
+    if !reduced { return size; }
+    let scale = (FAR_MIN_LINES / size[1].max(1) as f64).clamp(0.5, 1.);
+    size.map(|v| ((v as f64 * scale).round() as i32).max(1))
 }
 fn frame_image(size: [i32; 2]) -> String {
     serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1009,"srgb":false,"renderTarget":true}).to_string()
@@ -973,7 +1000,7 @@ impl Scene {
             ocean_mask = bridge.r.core.add_texture(resources.texture(sample)?);
         }
         let mut static_content =
-            crate::static_scene::props(&mut bridge, &content, &textures, placed, shadow_count)?;
+            crate::static_scene::props(&mut bridge, &content, &textures, placed, shadow_count, true)?;
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         for (class, image) in foliage.iter().zip(foliage_images) {
@@ -1348,6 +1375,7 @@ impl Scene {
                 far_reach,
                 distance_scale: 1.,
                 near_range: [camera.view.values[bfe_render::cameras::layout::shader_frame::FADE], camera.view.values[bfe_render::cameras::layout::shader_frame::FADE + 1]],
+                near_short: short_fade(&content.map["distance"]["nearScene"], [camera.view.values[bfe_render::cameras::layout::shader_frame::FADE], camera.view.values[bfe_render::cameras::layout::shader_frame::FADE + 1]]),
                 shadows,lamps,lamp_worlds:vec![],
                 tree_sun:camera.view.values[bfe_render::cameras::layout::shader_frame::SUN_DIRECTION..][..3].try_into().unwrap(),
                 canopies:canopy_leaf.zip(canopy_state).map(|(leaf,state)|crate::canopies::Canopies::new(content.map["treeCanopies"].clone(),textures[leaf],state)),
@@ -1408,6 +1436,9 @@ impl Scene {
         let far = self.far_reach * self.distance_scale;
         self.far_projection[10] = -(far + 2.) / (far - 2.);
         self.far_projection[14] = -4. * far / (far - 2.);
+        // Short: the near scene ends where the 2004 game's shortest view distance
+        // ended it; past that every object is its far scene image, as there.
+        if choice == "short" { return self.near_short; }
         self.near_range.map(|v| v * self.distance_scale)
     }
 
@@ -2584,7 +2615,11 @@ mod camera_tests {
     #[test]
     fn the_reduced_far_image_is_half_the_scene_and_never_empty(){
         assert_eq!(far_extent([1920,1080],true),[960,540]);
-        assert_eq!(far_extent([1281,721],true),[641,361]);
+        assert_eq!(far_extent([3840,2160],true),[1920,1080]);
+        // Never fewer than 540 lines: Minimum's 960x540 scene keeps a full-size far image.
+        assert_eq!(far_extent([1280,720],true),[960,540]);
+        assert_eq!(far_extent([960,540],true),[960,540]);
+        assert_eq!(far_extent([480,270],true),[480,270]);
         assert_eq!(far_extent([1,1],true),[1,1]);
         assert_eq!(far_extent([1920,1080],false),[1920,1080]);
     }
