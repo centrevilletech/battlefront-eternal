@@ -6,6 +6,12 @@ use bfe_render::effects as render;
 use serde_json::json;
 use std::collections::BTreeMap;
 const CAPACITY: usize = 1024;
+// The 2004 game's drop shadow under a soldier: a blurred standing figure, head at the image's top row.
+const DROP_SHADOW_TEXTURE: &str = "player_shadow";
+// The figure fills the image from about 12% to 88% of its height; its feet are at 88%.
+const DROP_SHADOW_FEET: f64 = 0.88;
+const DROP_SHADOW_FIGURE: f64 = 0.76;
+const DROP_SHADOW_OPACITY: f32 = 0.6;
 // Model particles drawn in one frame, each part of a model counting one.
 const MODEL_DRAWS: usize = 256;
 // A particle recipe names existing renderer programs and one texture.
@@ -25,6 +31,8 @@ pub struct Prepared {
     // The model each GEOMETRY definition draws its particles with.
     pub effect_models: Vec<Option<String>>,
     pub textures: BTreeMap<String, usize>,
+    // The batch of the soldiers' drop shadows (`player_shadow`), when the content has it.
+    pub drop_shadow: Option<usize>,
 }
 impl Prepared {
     pub fn new(content: &mut BattleContent) -> Result<Self, String> {
@@ -47,6 +55,8 @@ impl Prepared {
         names.push("thicksmoke2".into());
         // The Enhanced fountains' foam (fountains.rs).
         names.push("waterfoam1".into());
+        // The soldiers' drop shadows while the sun casts none (drop_shadows).
+        names.push(DROP_SHADOW_TEXTURE.into());
         // The map's snowflake, which the snow draws (weather.rs).
         if let Some(name) = content.map["weather"]["precipitation"]["Texture"][0].as_str() {
             names.push(name.into());
@@ -71,7 +81,8 @@ impl Prepared {
                 textures.insert(name, content.textures.load(path)?);
             }
         }
-        let mut prepared = Self { recipes: vec![], keys: BTreeMap::new(), effect_batches: vec![], effect_models: vec![], textures };
+        let mut prepared = Self { recipes: vec![], keys: BTreeMap::new(), effect_batches: vec![], effect_models: vec![], textures, drop_shadow: None };
+        prepared.drop_shadow = prepared.textures.get(DROP_SHADOW_TEXTURE).copied().map(|image| prepared.batch(image, false, false, false));
         if let Some((_, effects)) = content.effects.iter().find(|(n, _)| n == "battle") {
             for d in effects.descriptor["definitions"].as_array().into_iter().flatten() {
                 let name = d["geometry"]["texture"].as_str().unwrap_or("");
@@ -234,6 +245,7 @@ impl Prepared {
             batches,
             sequence: 0,
             effect_batches: self.effect_batches,
+            drop_shadow: self.drop_shadow,
             glows: glows.into_iter().map(|(_, glow)| glow).collect(),
             effect_glows,
             flash,
@@ -308,6 +320,7 @@ pub struct Particles {
     batches: Vec<Batch>,
     sequence: u32,
     pub effect_batches: Vec<Option<usize>>,
+    drop_shadow: Option<usize>,
     glows: Vec<Glow>,
     effect_glows: Vec<Option<usize>>,
     // The muzzle flash's glow model, when the content has one.
@@ -333,6 +346,19 @@ impl Particles {
         bridge.r.effects.input[render::IN_OWNERS] = 0.;
         // Hard-edged until `project` hears of the frame's depth copy.
         bridge.r.effects.input[render::IN_SOFT..render::IN_SOFT + 6].copy_from_slice(&[0., 1., 1., 0.3, 20000., -1.]);
+    }
+    /// Without sun shadows, a drop shadow under each soldier standing at `feet`, as the 2004 game drew one: the
+    /// figure image laid flat on the ground with its feet at his and its head away from the sun, as long as a
+    /// 1.8 m figure's shadow at the sun's height (between 1.2 m and 2.6 m). `sun` is the sun's direction toward
+    /// the scene, unit length.
+    pub fn drop_shadows(&mut self, bridge: &mut Bridge, feet: &[[f64; 3]], sun: [f64; 3]) {
+        let Some(batch) = self.drop_shadow else { return };
+        if feet.is_empty() || bridge.shadow_cascades() > 0 {
+            return;
+        }
+        for values in drop_shadow_quads(feet, sun) {
+            self.quad(bridge, batch, &values);
+        }
     }
     pub fn quad(&mut self, bridge: &mut Bridge, batch: usize, values: &[f32]) {
         let Some(b) = self.batches.get_mut(batch) else { return };
@@ -552,5 +578,52 @@ impl Particles {
                 *slot = *value as f32;
             }
         }
+    }
+}
+
+/// The flat quads (particle-cpu's shape 2: position, two half axes) of drop shadows at `feet`, lifted 4 cm off the
+/// ground they stand on.
+fn drop_shadow_quads(feet: &[[f64; 3]], sun: [f64; 3]) -> impl Iterator<Item = [f32; 21]> + '_ {
+    let flat = (sun[0] * sun[0] + sun[2] * sun[2]).sqrt();
+    let away = if flat > 1e-3 { [sun[0] / flat, sun[2] / flat] } else { [0., 1.] };
+    let length = if flat > 1e-3 && sun[1] < 0. { (1.8 * flat / -sun[1]).clamp(1.2, 2.6) } else { 1.2 };
+    let side = length / DROP_SHADOW_FIGURE;
+    let half = (side / 2.) as f32;
+    let centre = (DROP_SHADOW_FEET - 0.5) * side;
+    feet.iter().map(move |p| {
+        let mut q = [0f32; 21];
+        q[0] = (p[0] + away[0] * centre) as f32;
+        q[1] = (p[1] + 0.04) as f32;
+        q[2] = (p[2] + away[1] * centre) as f32;
+        q[3..7].copy_from_slice(&[1., 1., 1., DROP_SHADOW_OPACITY]);
+        q[7..11].copy_from_slice(&[1., 0., 0., 2.]);
+        // First axis across the figure, second from its head toward its feet (the image's rows grow downward).
+        q[11..14].copy_from_slice(&[-away[1] as f32 * half, 0., away[0] as f32 * half]);
+        q[14..17].copy_from_slice(&[-away[0] as f32 * half, 0., -away[1] as f32 * half]);
+        q[17..21].copy_from_slice(&[0., 0., 1., 1.]);
+        q
+    })
+}
+
+#[cfg(test)]
+mod drop_shadow_tests {
+    #[test]
+    fn a_drop_shadow_lies_flat_with_its_feet_at_the_soldier_and_its_head_away_from_the_sun() {
+        // Sun 45 degrees up, shining toward +x: the shadow runs toward +x and is 1.8 m long.
+        let sun = [std::f64::consts::FRAC_1_SQRT_2, -std::f64::consts::FRAC_1_SQRT_2, 0.];
+        let q: Vec<_> = super::drop_shadow_quads(&[[10., 2., -5.]], sun).collect();
+        let q = q[0];
+        assert_eq!(q[10], 2., "flat quad");
+        assert!((q[1] - 2.04).abs() < 1e-5);
+        let side = 1.8 / super::DROP_SHADOW_FIGURE;
+        // The feet row (image row 88%, corner y = 0.76) lands on the soldier's feet.
+        let feet_x = q[0] as f64 + q[14] as f64 * (2. * super::DROP_SHADOW_FEET - 1.);
+        assert!((feet_x - 10.).abs() < 1e-4, "{feet_x}");
+        // The head end lies down-sun (+x), the axes are horizontal and the quad is the figure's side long.
+        assert!(q[14] < 0. && q[15] == 0. && q[12] == 0.);
+        assert!(((q[14].abs() * 2.) as f64 - side).abs() < 1e-4);
+        // A sun overhead still leaves a short shadow, and no direction is NaN.
+        let q: Vec<_> = super::drop_shadow_quads(&[[0., 0., 0.]], [0., -1., 0.]).collect();
+        assert!(q[0].iter().all(|v| v.is_finite()));
     }
 }
