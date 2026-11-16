@@ -82,7 +82,7 @@ impl std::error::Error for DirectConnectError {}
 
 // Strips surrounding whitespace and a single pair of outer `[` / `]` brackets,
 // matching `String(address ?? '').trim().replace(/^\[|\]$/g, '')` in
-// `src/shell/direct-connect.js` and the desktop host.
+// and the desktop host.
 pub fn strip_host_brackets(raw: &str) -> &str {
     let trimmed = raw.trim();
     let without_open = trimmed.strip_prefix('[').unwrap_or(trimmed);

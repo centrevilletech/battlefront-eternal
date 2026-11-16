@@ -29,7 +29,7 @@ const DEFINITIONS: usize = lim::DEFINITIONS;
 const BATCH: usize = lim::BATCH;
 const ROUNDS: usize = lim::ROUNDS;
 
-// network-entity-items.js constants.
+// constants.
 const STEP: f64 = 1.0 / 60.0;
 const SMOOTH: f64 = 0.08;
 const TOLERANCE: f64 = 0.05;
@@ -39,7 +39,7 @@ const MAX_OFFSET: f64 = 2.0;
 const JUMP: f64 = 12.0;
 const MAX_STEPS: f64 = 60.0;
 const PROBE_LIMIT: f64 = 600.0;
-// items.js constants.
+// constants.
 const GRAVITY: f64 = 9.8;
 const HARD: f64 = 1.0;
 const MINE_SINK: f64 = 0.2;
@@ -78,7 +78,7 @@ struct Def {
     set: bool,
 }
 
-/// items.js itemState: the part of an item `fly` reads and writes.
+/// itemState: the part of an item `fly` reads and writes.
 #[derive(Clone, Copy, Default)]
 struct Body {
     position: Vector3,
@@ -333,7 +333,7 @@ fn put3(a: &mut [f64], at: usize, v: &Vector3) {
     a[at + 2] = v.z;
 }
 
-/// network-entity-items.js follow: the world's state from a record. At rest
+/// follow: the world's state from a record. At rest
 /// is landed; a mine going straight down at its sinking speed (within the
 /// record's rounding) is sinking.
 fn follow(b: &mut Body, r: &Rec) {
@@ -348,7 +348,7 @@ fn follow(b: &mut Body, r: &Rec) {
     b.sinking = b.mine && !b.landed && v.x == 0.0 && v.z == 0.0 && (v.y + MINE_SINK).abs() < 0.15;
 }
 
-/// items.js fly up to the queries: gravity in two half steps around the move,
+/// fly up to the queries: gravity in two half steps around the move,
 /// then what the move needs asked of the client (the mine's water crossing,
 /// contact's ray). Returns whether anything was asked.
 fn fly_begin(b: &mut Body, d: &Def, water_on: bool, p: &mut Pending) -> bool {
@@ -374,7 +374,7 @@ fn fly_begin(b: &mut Body, d: &Def, water_on: bool, p: &mut Pending) -> bool {
         p.from = b.previous;
         p.to = b.position;
     }
-    // items.js contact: what the item meets between where it was and where
+    // contact: what the item meets between where it was and where
     // it is, a ray a little behind the start.
     // The ray starts 5 cm behind the old position so a copy resting on a surface still meets
     // it; a move shorter than a micrometre casts nothing.
@@ -394,7 +394,7 @@ fn fly_begin(b: &mut Body, d: &Def, water_on: bool, p: &mut Pending) -> bool {
     p.water || p.cast
 }
 
-/// items.js fly from the answers: the water, then contact's bounce or settle.
+/// fly from the answers: the water, then contact's bounce or settle.
 /// Returns where a mine went into the water (the ripple).
 fn fly_end(b: &mut Body, d: &Def, p: &Pending, a: &Answer) -> Option<Vector3> {
     let mut ripple = None;
@@ -412,7 +412,7 @@ fn fly_end(b: &mut Body, d: &Def, p: &Pending, a: &Answer) -> Option<Vector3> {
     ripple
 }
 
-/// items.js contact, from the hit.
+/// contact, from the hit.
 fn contact(b: &mut Body, d: &Def, hit: &Answer) {
     let n = hit.normal;
     // Speed into the surface; a copy moving off it meets nothing.
@@ -447,7 +447,7 @@ fn contact(b: &mut Body, d: &Def, hit: &Answer) {
     b.velocity.add_scaled_vector(&n, rebound * -dd);
 }
 
-/// items.js settle.
+/// settle.
 fn settle(b: &mut Body, normal: &Vector3) {
     b.landed = true;
     b.sinking = false;
@@ -455,7 +455,7 @@ fn settle(b: &mut Body, normal: &Vector3) {
     b.up.copy(normal);
 }
 
-/// items.js place: the model upright on its surface, facing its way.
+/// place: the model upright on its surface, facing its way.
 fn place(up: &Vector3, yaw: f64) -> Quaternion {
     // The facing is the yaw's heading made level with the surface: the part along the normal
     // is taken out, and a heading straight up the normal falls back to +z.

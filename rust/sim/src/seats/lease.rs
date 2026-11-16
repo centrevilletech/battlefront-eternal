@@ -4,14 +4,14 @@
 //! The lease is the store's (`gen::SeatLease`, rust/sim/schema/seats.json);
 //! the intent it plays is its unit's (`gen::Intent`, the units' schema) or,
 //! once the AI drives the seat, the seat's own (`SeatIntent`: SeatUnit's,
-//! seats.js blankSeatIntent).
+//! blankSeatIntent).
 
 use super::{or_zero, truthy};
 use crate::gen::{Intent, SeatInput, SeatLease, SeatRole, SeatUnit, Turret, Unit, Vehicle};
 use crate::store::{Ref, Slab};
 use three::Vector3;
 
-/// seats.js seatRole: seat 0 drives; a seat with weapons guns; any other
+/// seatRole: seat 0 drives; a seat with weapons guns; any other
 /// carries. `weapons`: each seat's number of weapons.
 pub fn seat_role(weapons: &[usize], index: usize) -> SeatRole {
     if index == 0 {
@@ -94,7 +94,7 @@ pub fn network_human(u: &Unit) -> bool {
     u.network_human == Some(true)
 }
 
-/// boarding.js personLease: a person's lease (the player's, or a network
+/// personLease: a person's lease (the player's, or a network
 /// human's) rather than a bot's.
 pub fn person_lease(lease: &SeatLease, units: &Slab<Unit>) -> bool {
     lease.human || lease.unit.and_then(|r| units.get(r)).is_some_and(network_human)
@@ -279,7 +279,7 @@ impl PlayIntent for SeatIntent {
     }
 }
 
-/// seats.js clamp: `v < lo ? lo : v > hi ? hi : v`.
+/// clamp: `v < lo ? lo : v > hi ? hi : v`.
 #[inline(always)]
 fn clamp(v: f64, lo: f64, hi: f64) -> f64 {
     if v < lo {

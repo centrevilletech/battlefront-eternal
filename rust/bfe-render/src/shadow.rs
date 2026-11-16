@@ -78,7 +78,7 @@ impl<C: HasContext> ShadowPass<C> {
         unsafe { core.gl.disable(glow::SCISSOR_TEST); }
         core.stats.gl_calls += 1;
         if v[S_FROM] >= 0.0 {
-            // graphics.js copyDepth: the cache's depth in place of a clear.
+            // copyDepth: the cache's depth in place of a clear.
             let from = core.framebuffer(None, Some(v[S_FROM] as u32))?;
             let timer = core.profile.begin(&core.gl);
             if let Some([x, y, w, h]) = self.copy_rect {

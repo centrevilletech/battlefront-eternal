@@ -6,9 +6,7 @@
 use super::math::{f32, lowest_bit, Vec3};
 use crate::ai::random::Random;
 
-/// graph.js:20.
 pub const UNUSED: u32 = 255;
-/// graph.js:21.
 pub const NO_TABLE: i32 = -1;
 
 const MAX_PASSES: u32 = 64; // graph.js:28

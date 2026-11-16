@@ -1,5 +1,5 @@
 //! Which battle a map plays and which side and class load first: ports of
-//! src/mission.js (battlesOf, pickMission, selectMission, selectAIMission)
+//! (battlesOf, pickMission, selectMission, selectAIMission)
 //! and src/spawn-screen/policy.js (spawnPolicy), which decide what a battle
 //! fetches. Pure functions of map.json and the battle's query, as there.
 

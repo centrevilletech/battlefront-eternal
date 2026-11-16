@@ -18,7 +18,6 @@ pub struct Coefficients {
     pub pitch: f64,
 }
 
-/// analogs.js:33.
 pub fn coefficients(unit: &NavUnit) -> Coefficients {
     let def = unit.class_def.as_ref();
     let s = unit.soldier.as_ref();
@@ -35,7 +34,7 @@ pub fn coefficients(unit: &NavUnit) -> Coefficients {
 /// The booleans are the presses the JavaScript sets true; fields it
 /// leaves alone stay as the caller had them, which for a fresh intent
 /// is false. `jet_direction` models the field as written at
-/// analogs.js:221: not written, null, or the request vector itself.
+/// not written, null, or the request vector itself.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Intent {
     pub forward: f64,

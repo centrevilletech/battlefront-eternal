@@ -57,15 +57,15 @@ fn model<'a>(cx: &'a Cx, instance: usize) -> Result<&'a Value, AdmitError> {
     data.get("models").and_then(|m| m.get(name)).ok_or_else(|| error(format!("animated prop model {name} is missing")))
 }
 
-/// f4-live.js `clip`: a clip's frames, rate, root motion flag, track bones
+/// `clip`: a clip's frames, rate, root motion flag, track bones
 /// and sampled data, as the extractor wrote them.
 fn pa_clip(clip: &Clip) -> PaClip {
     PaClip { frames: clip.frames_f64(), fps: clip.fps, root_motion: clip.root_motion, tracks: clip.tracks.clone(),
         data: clip.data().iter().map(|v| f64::from(*v)).collect() }
 }
-/// props.js `phase(index)`: a fixed point of the idle for each prop.
+/// `phase(index)`: a fixed point of the idle for each prop.
 fn phase(index: usize) -> f64 { ((((index as u64 + 1) * 2654435761) & 0xffff_ffff) as f64) / 4294967296.0 }
-/// props.js `length(clip)`: seconds, 0 without a clip.
+/// `length(clip)`: seconds, 0 without a clip.
 fn length(clip: Option<&Clip>) -> f64 { clip.map_or(0.0, |c| c.frames_f64() / c.fps) }
 fn m16(m: &Matrix4) -> [f64; 16] { m.elements }
 

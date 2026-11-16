@@ -62,7 +62,7 @@ pub struct Content {
 }
 
 /// One network client of the authority (`snapshot-host.js` `clients` and
-/// `multiplayer-world.js` `byHandle`, which the local server keeps as one):
+/// `byHandle`, which the local server keeps as one):
 /// its players handle, its entity edge runtime, the generation that runtime
 /// last answered (`state.edges.generation`), the host's mirror of his body
 /// (`p.unit`, a store slot) and of its presses (`u.networkShots`, by button).

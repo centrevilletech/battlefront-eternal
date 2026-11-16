@@ -1,5 +1,5 @@
 //! What rounds and sight lines meet on a soldier: his hit shapes, as
-//! src/units.js builds them each tick from his posture (or a droideka's
+//! builds them each tick from his posture (or a droideka's
 //! from its ball and its upright cylinder), the broadphase sphere about
 //! them, and src/registry.js's segment tests against each kind of shape.
 //!

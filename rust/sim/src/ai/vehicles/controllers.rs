@@ -8,7 +8,7 @@ use super::world::UnitView;
 /// The terminal state every machine uses (DONE).
 pub const DONE: f64 = 100.0;
 
-/// controller.js ROLE: the support and pilot roles the boarding policy
+/// ROLE: the support and pilot roles the boarding policy
 /// keeps out of turrets, and the role of a class with none.
 pub const ROLE_SUPPORT: f64 = 3.0;
 pub const ROLE_PILOT: f64 = 4.0;
@@ -106,7 +106,7 @@ pub fn controller_policy(unit: Option<&UnitView>) -> Option<Policy> {
     Some(Policy::Mobile)
 }
 
-/// index.js MOBILE_GOAL: the goal kind a mobile controller's state came from.
+/// MOBILE_GOAL: the goal kind a mobile controller's state came from.
 fn mobile_goal(state: f64) -> Option<f64> {
     const TABLE: [(f64, f64); 9] = [(1.0, 1.0), (2.0, 2.0), (3.0, 3.0), (4.0, 4.0), (5.0, 5.0), (6.0, 6.0), (9.0, 8.0), (10.0, 9.0), (11.0, 10.0)];
     TABLE.iter().find(|(k, _)| *k == state).map(|&(_, g)| g)

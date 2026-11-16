@@ -1,5 +1,5 @@
 //! A network human's seat (src/runtime/network-seat.js cycleNetworkSeat,
-//! src/runtime/network-vehicle.js networkVehicleInput, and the seat switch
+//! networkVehicleInput, and the seat switch
 //! they share with the player's keys, src/boarding.js switchSeat): his
 //! mouse and keys in a hull's seat, and his move to another seat.
 
@@ -43,7 +43,7 @@ pub enum SeatKeysOut {
     Turret,
 }
 
-/// boarding.js seatInput, but for the flight keys (the flight package's).
+/// seatInput, but for the flight keys (the flight package's).
 pub fn seat_input(v: &Vehicle, index: usize, keys: &SeatKeys) -> Option<SeatKeysOut> {
     Some(match seat_control(v, index)? {
         SeatControl::Flight => SeatKeysOut::Flight,
@@ -145,7 +145,7 @@ impl InputAccess for NativeInput<'_> {
     fn space(&mut self) -> Result<Value, Self::Error> { Ok(Value::boolean(self.keys.space)) }
 }
 
-/// boarding.js switchSeat: a person's seat switch, on to the next seat that
+/// switchSeat: a person's seat switch, on to the next seat that
 /// way that no other person holds; a bot there trades places with him. Into
 /// a gunner's seat his view goes with him, inside its arc; back at the
 /// controls he aims along the hull. Leaving the pilot's seat lets go of

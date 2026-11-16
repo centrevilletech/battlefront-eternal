@@ -613,7 +613,7 @@ impl DefinitionValues {
     pub fn from_context(cx: &Cx) -> Result<Self, AdmitError> {
         use super::rows::combat::{source_definitions, DefinitionKind};
         let values = |table: &[(String, ContentValue)]| table.iter().map(|(_, value)| value.clone()).collect();
-        // combat-sources.js derivedFrom: a derived definition (a hull's
+        // derivedFrom: a derived definition (a hull's
         // launcher ordnance copy) takes its authored source's protocol id.
         let sources = |kind| -> Result<Vec<ContentValue>, AdmitError> {
             Ok(source_definitions(cx, kind)?.into_iter().map(|(_, value)| value).collect())

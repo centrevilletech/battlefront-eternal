@@ -27,7 +27,7 @@ use crate::store::{Ref, StrId};
 use std::collections::HashMap;
 use three::{Matrix4, Quaternion, Vector3};
 
-/// vehicles.js FIXED_STEP: a ground hull's substep.
+/// FIXED_STEP: a ground hull's substep.
 const FIXED_STEP: f64 = 1.0 / 120.0;
 
 /// A ground hull's pose kept in the module: the life it was taken for, the

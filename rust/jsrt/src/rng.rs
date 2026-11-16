@@ -1,5 +1,5 @@
 //! The game's random generators, transliterated from
-//! `src/ai/random.js` and `src/weapons.js`. Draw order is behaviour:
+//! and `src/weapons.js`. Draw order is behaviour:
 //! the shared AI generator means every draw anywhere moves every
 //! later result, so ported code draws through these types, in the
 //! order the JavaScript draws, and the replay harness logs draws per
@@ -239,7 +239,7 @@ mod tests {
     use super::*;
 
     // Values the JavaScript produces (checked against
-    // src/ai/random.js and src/weapons.js under Node by the
+    // and src/weapons.js under Node by the
     // differential harness; these pin the shapes in unit tests).
     #[test]
     fn classic_random_first_draws() {

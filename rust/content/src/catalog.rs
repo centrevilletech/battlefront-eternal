@@ -1,6 +1,6 @@
 //! Every battle of every map in a content folder, each side it fields as
 //! the side played first: the battles the content dump covers (the same list
-//! tools/content-dump.mjs makes).
+//! makes).
 
 use crate::json;
 use crate::mission::{battles_of, utf16_cmp};

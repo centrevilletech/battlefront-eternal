@@ -403,7 +403,7 @@ pub fn describe_server(
         .unwrap_or_default();
 
     // Build the 4 optional rule chips shown under the server description in
-    // `src/shell/server-browser-view.js`: mode, era, bot fill policy, and team
+    // mode, era, bot fill policy, and team
     // assignment policy. Top-level server flags take precedence over nested
     // `battle` summary flags when both are present.
     let mut chips = Vec::with_capacity(4);

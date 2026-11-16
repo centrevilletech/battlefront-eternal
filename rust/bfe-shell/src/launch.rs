@@ -132,7 +132,7 @@ impl PlaylistEntry {
 /// `random`).
 ///
 /// Mirrors the playlist state `{ entries, round, random }` in
-/// `src/launch.js` (`readPlaylist`, `launchUrl`, `nextUrl`).
+/// (`readPlaylist`, `launchUrl`, `nextUrl`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Playlist {
     /// Ordered or shuffled mission queue entries for the current lap (up to 64).
@@ -390,7 +390,7 @@ pub fn parse_rotation(text: Option<&str>) -> Vec<PlaylistEntry> {
         }
         // In bare 2-field form (`bad:x:y`), if there was no family prefix and a
         // third field is not a known mode while the second isn't an era or side,
-        // `src/launch.js` rejected `bad:x:y`. Preserve that rejection when no
+        // rejected `bad:x:y`. Preserve that rejection when no
         // family prefix is present and `era` is not a valid era/side identifier.
         if !raw_map.contains('/')
             && mode.is_some()

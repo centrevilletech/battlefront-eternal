@@ -18,7 +18,7 @@ pub struct Snipe {
     pub stance: f64,
     pub look: bool,
     pub look_point: Vec3,
-    /// classes.js's behavior helper rather than the agents.js base.
+    /// behavior helper rather than the agents.js base.
     pub full: bool,
     pub retry_at: Option<f64>,
     pub revalidate_at: f64,

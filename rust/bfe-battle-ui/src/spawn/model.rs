@@ -299,7 +299,7 @@ pub fn choose_frontline_post(
         let dx = a[0] - b[0];
         let dy = a[1] - b[1];
         let dz = a[2] - b[2];
-        // goals.js rounds distanceSq through f32 before strict comparisons.
+        // rounds distanceSq through f32 before strict comparisons.
         // Preserve the first post when two long distances round to a tie.
         (dx * dx + dy * dy + dz * dz) as f32 as f64
     };

@@ -1,5 +1,5 @@
 //! A battle's content, fetched and parsed in the order and by the rules of
-//! src/game.js's headless start (the local world thread's and the dedicated
+//! headless start (the local world thread's and the dedicated
 //! server's load): map.json and the shared files, the battle and side the
 //! query picks, that side's classes and weapons and the other sides', the
 //! bodies every soldier class needs, the collision, props, vehicle pack and
@@ -179,7 +179,7 @@ pub struct Battle {
     pub vehicle_dir: String,
     pub vehicle_def: Option<Value>,
     pub vehicle_bufs: Option<VehicleBufs>,
-    /// game.js `sides`: the side played first, then the mission's others in
+    /// `sides`: the side played first, then the mission's others in
     /// the order their loads finish (the mission's order: every side has the
     /// same files).
     pub sides: Vec<SideFiles>,
@@ -211,12 +211,12 @@ fn has_keys(v: Option<&Value>) -> bool {
 }
 
 impl Battle {
-    /// game.js start(), headless, for `map` and the battle's query.
+    /// start(), headless, for `map` and the battle's query.
     pub fn load(loader: &Loader, map: &str, query_text: &str) -> Result<Battle, String> {
         let mut f = Fetch { loader, log: FetchLog::default() };
         let query = Query::parse(query_text);
         let map_dir = format!("/maps/{map}");
-        // game.js 214-219
+        // 214-219
         let map_data = f.json(&format!("{map_dir}/map.json"))?;
         let anim_meta = f.json("/common/anims.json")?;
         let common = f.json("/common/common.json")?;

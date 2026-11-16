@@ -253,7 +253,7 @@ impl CommandQueue {
         self.current_done = false;
         self.current
     }
-    /// controller.js:251: a record of kind 0 ends the scan and drops
+    /// a record of kind 0 ends the scan and drops
     /// everything after it.
     pub fn remove_kind(&mut self, kind: f64) {
         let mut ended=false;

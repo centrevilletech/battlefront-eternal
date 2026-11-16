@@ -181,7 +181,7 @@ impl Shields {
             }
             aura.length += size as usize;
         }
-        // units.js: a walker's bubble takes the look its shield weapon names.
+        // a walker's bubble takes the look its shield weapon names.
         for class in &defs.classes {
             let Some(id) = class.registry_id else {
                 continue;

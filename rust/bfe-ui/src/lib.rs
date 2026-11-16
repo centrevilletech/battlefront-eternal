@@ -14,7 +14,7 @@ where
     theme.on_format_label(|text, uppercase| format_label(&text, uppercase).into());
 }
 
-/// page/index.js lowercases button source labels, then looks.css applies
+/// lowercases button source labels, then looks.css applies
 /// uppercase or CSS capitalize. Keep punctuation and whitespace intact.
 pub fn format_label(text: &str, uppercase: bool) -> String {
     if uppercase {

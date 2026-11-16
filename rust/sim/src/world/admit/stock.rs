@@ -21,7 +21,7 @@ fn refused(call: &str) -> AdmitError { AdmitError::Refused { stage: Stage::Ai, c
 /// droideka with a prepared body on some side (UnitFactory.sideOf).
 fn prepared(cx: &Cx, class_name: &str) -> bool { bodies::prepare::parts(cx, class_name).is_ok() }
 
-/// game.js (AI_MODE !== "off"): the armies' classes (the player's and the
+/// (AI_MODE !== "off"): the armies' classes (the player's and the
 /// enemy's teams, plus each team's hero with ?heroes) must prepare; the
 /// locals' may fail and then field nobody. Every class that prepared is
 /// what createNativeAI later reads as `factory.prepared(name)`: those
@@ -243,7 +243,7 @@ fn construct(world: &mut World, cx: &mut Cx, class_name: &str, holders: &[bodies
             |clip| clip_ids.iter().find(|(name, _)| *name == clip.name).map_or(0, |(_, id)| *id));
         dispatch(world, cx, &mut calls, "f2_rider_birth", units::call(F2RiderBirth::WORDS, |r, h| rider.put(r, h)))?;
     }
-    // game.js instrument: `unit.combat.random = gameplayRandom` sets the
+    // instrument: `unit.combat.random = gameplayRandom` sets the
     // flag and binds the stream; UnitFactory.release then returns the body
     // to the pool (F3Sim.release: poolRelease).
     for (action, field, value) in [(F3Action::CombatField, F3CombatField::Random as u32, 1.), (F3Action::RandomBinding, 0, f64::from(gameplay)), (F3Action::PoolRelease, 0, 0.)] {

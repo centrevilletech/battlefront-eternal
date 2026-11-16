@@ -181,7 +181,7 @@ pub fn decode_address(value: &[u8], transaction: &[u8; 12], xor: bool) -> Result
     }
 }
 
-/// `src/net/stun.js` `encodeMessage(method, klass, transaction, attributes)`:
+/// `encodeMessage(method, klass, transaction, attributes)`:
 /// encodes a STUN message with 4-byte padded attributes and trailing
 /// `FINGERPRINT` (`0x8028`).
 pub fn encode_message(

@@ -130,7 +130,7 @@ impl PingFilter {
 }
 
 // Era filter choices (`[["all", "ALL ERAS"], ...Object.entries(ERAS)]` in
-// `src/shell/server-browser-view.js` and `ERAS`).
+// and `ERAS`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EraOption {
     All,
@@ -296,7 +296,7 @@ pub enum FilterUpdate {
 }
 
 // High-level lifecycle state of the server browser table (`this.state` in
-// `src/shell/server-browser.js`: `"idle"`, `"loading"`, `"notice"`, `"ready"`,
+// `"idle"`, `"loading"`, `"notice"`, `"ready"`,
 // or `"error"` with an uppercase failure message).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum BrowserState {
@@ -383,7 +383,7 @@ pub struct EndpointAddr {
 }
 
 // Wire and simulation compatibility contract (`NETWORK_CONTRACT` in
-// `src/runtime/network-contract.js` and `bfe_transport::layout::network_contract`).
+// and `bfe_transport::layout::network_contract`).
 // Two peers can play together iff both `sim` (`simulation`) and `protocol` match.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerContract {
@@ -633,7 +633,7 @@ pub enum PingQuality {
 
 impl PingQuality {
     // Signal bars (`q0`..`q4`) matching `quality(ms)` in
-    // `src/shell/server-browser-view.js`: 4 under 60ms, 3 under 100ms, 2 under
+    // 4 under 60ms, 3 under 100ms, 2 under
     // 160ms, 1 otherwise, 0 when unknown.
     pub fn bars(self) -> u8 {
         match self {
@@ -1269,7 +1269,7 @@ impl ServerBrowserService for ServerBrowser {
     }
 }
 
-// server-browser-view.js renders absent description/location as empty text.
+// renders absent description/location as empty text.
 // The dedicated server publishes JSON null for an empty operator setting.
 fn null_text<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
     Ok(Option::<String>::deserialize(d)?.unwrap_or_default())

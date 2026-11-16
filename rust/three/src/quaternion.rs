@@ -1,4 +1,4 @@
-//! `Quaternion.js` (r170). The `_onChangeCallback` sync to a
+//! (r170). The `_onChangeCallback` sync to a
 //! sibling Euler lives in [`crate::TransformNode`]; a bare
 //! `Quaternion` here is just the four numbers, as in three when
 //! nothing registered a callback.

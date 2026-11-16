@@ -122,7 +122,7 @@ impl VehicleWorld for ColdWorld<'_> {
     fn tow_released(&mut self, _hull: usize, _reason: &str) {}
 }
 
-/// collision.js createBodyShape through the ray kernel: the shape's corners
+/// createBodyShape through the ray kernel: the shape's corners
 /// and its tree (three-mesh-bvh's build, bfe_content::bvh), and the tree's
 /// polygon numbers once a body uses it (body). Answers the
 /// tree's id.
@@ -136,13 +136,13 @@ fn shape_tree(world: &mut World, shape: &BodyTriangles, with_polygons: bool) -> 
     tree
 }
 
-/// vehicle-phase-data.js pullPose for a facade just constructed (and
+/// pullPose for a facade just constructed (and
 /// spawned, or not): no age or phases yet, the visual position the spawn
 /// copied, every seat without a last aim or target, every aimer at rest
 /// (yaw and pitch 0, limits unknown, off target, facing +z, posed), no
 /// muzzle kicked, then each rig node's rest transform.
 fn pull_values(pose: &HullPose, pad: &[f64; 16], visual: [f64; 3]) -> Vec<f64> {
-    // vehicles.js: `this.hoverPhase = (e[12] * .13 + e[14] * .17) % (Math.PI * 2)`.
+    // `this.hoverPhase = (e[12] * .13 + e[14] * .17) % (Math.PI * 2)`.
     let hover_phase = (pad[12] * 0.13 + pad[14] * 0.17) % (std::f64::consts::PI * 2.0);
     let mut out = vec![0.0, hover_phase, 0.0, 0.0, visual[0], visual[1], visual[2]];
     for seat in &pose.seats {
@@ -342,7 +342,7 @@ fn attach_f2(world: &mut World, cx: &mut Cx, rows: &mut Rows, data: &Value, made
         (Some(shape), Some(tree)) => {
             let bounds = bfe_content::collision::triangle_bounds(&shape.positions, &shape.indices);
             let count = shape.indices.len() / 3;
-            // collision.js BLOCKER_POLYGONS: the barriers' polygon numbers.
+            // BLOCKER_POLYGONS: the barriers' polygon numbers.
             world.collision.fixed_set(tree, &bounds, &shape.polygons[..count.min(shape.polygons.len())], 1879048192.0) as i32
         }
         _ => -1,
@@ -538,7 +538,7 @@ fn prepare_variants(world: &mut World, cx: &mut Cx, rows: &mut Rows, data: &Valu
     Ok(())
 }
 
-/// weapons.js Weapon constructor (`new Weapon(def)`, `player` true) as a
+/// Weapon constructor (`new Weapon(def)`, `player` true) as a
 /// store row at birth: level zero, its ammunition and spread floor from the
 /// class, every clock at rest.
 fn weapon_state(def: &Value, weapon_id: crate::store::DefId) -> Weapon {

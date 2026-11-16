@@ -7,7 +7,7 @@
 //! out on a timer where they don't (a software surface, a driver with its
 //! sync forced off), so no frame is ever drawn faster than it can be shown.
 
-/// frame-pacing.js FramePacer. Times are seconds.
+/// FramePacer. Times are seconds.
 pub struct FramePacer {
     pub limit: f64,
     elapsed: f64,

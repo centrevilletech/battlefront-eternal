@@ -11,9 +11,7 @@
 use super::world::{Obj, Ref, World};
 use crate::ai::owned::scratch::List;
 
-/// reservations.js:125.
 pub const RESERVATION_LIFE: f64 = 3.0;
-/// reservations.js:126.
 pub const SEAT: f64 = 1.0;
 
 /// One record.

@@ -45,7 +45,7 @@ pub const VERTEX: usize = 16;
 const VERTEX_PARTS: [i32; 6] = [3, 4, 2, 2, 4, 1];
 const ROW_PARTS: [i32; 6] = [3, 3, 3, 3, 3, 1];
 
-// foliage-gpu.js patchIndex: the smallest cell.
+// patchIndex: the smallest cell.
 const MIN_CELL: f64 = 8.0;
 
 struct Patch {

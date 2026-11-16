@@ -1,6 +1,6 @@
 //! Classic population and spawning (src/ai/classic/spawning.js;
 //! docs/ai-population.md), and the spawn post choices it makes through
-//! src/ai/classic/goals.js (friendlySpawn, selectSpawnPost,
+//! (friendlySpawn, selectSpawnPost,
 //! retainSpawnPost, humanSpawnPost).
 
 use super::names::{human_name, BotNames, NameLists};

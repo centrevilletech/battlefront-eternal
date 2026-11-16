@@ -607,7 +607,7 @@ pub fn finish_bound(cx: &mut super::Cx<'_>, hulls: &[HullBinding],
     Ok(calls)
 }
 
-/// game.js presentationLibrary uses last-definition-wins spreads. A later
+/// presentationLibrary uses last-definition-wins spreads. A later
 /// empty emitter list removes an earlier lightning definition of that name.
 pub fn lightning_in<'a>(name: &str, libraries: impl IntoIterator<Item=&'a Value>) -> bool {
     let mut selected=None;

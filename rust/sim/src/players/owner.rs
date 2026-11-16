@@ -1,5 +1,5 @@
 //! The connected players a dedicated match keeps (src/runtime/
-//! multiplayer-world.js `players`): each one's command queues, connection
+//! `players`): each one's command queues, connection
 //! facts and the per-body facts the JavaScript kept on its Unit objects.
 //! Bodies are pooled, so those facts are kept by body slot, as the objects
 //! were, and outlive the player who set them exactly as the source's did.

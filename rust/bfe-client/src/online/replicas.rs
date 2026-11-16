@@ -22,7 +22,7 @@ use three::Matrix4;
 use crate::app::page_battle::appearance::{self,Appearance};
 use bfe_render::interface_resource_layout::look as UI;
 const POOL: usize = lim::ACTORS;
-// combat.js FLASH_SCALE: the flash model's size at a muzzle.
+// FLASH_SCALE: the flash model's size at a muzzle.
 const FLASH_SCALE: f64 = 0.6;
 struct Model {
     row: [f64; draw::REC_STRIDE],
@@ -156,7 +156,7 @@ pub struct Replicas {
     // By class: a class's own skin on its shared body (OverrideTexture), as
     // the body's draw textures and spawn screen preview parts.
     skins: Vec<Option<([f64; 4], Vec<Appearance>)>>,
-    // game.js lightAt for every drawn body and the first-person view.
+    // lightAt for every drawn body and the first-person view.
     light: super::unit_light::UnitLight,
     // The sun's direction toward the scene, the frame's dt, the player's feet,
     // and FirstPersonView.sunSeen (eased: is the sun seen from the gun?).
@@ -388,7 +388,7 @@ impl Replicas {
             };
             classes[id as usize] = names.iter().position(|n| n == &key);
         }
-        // units.js buildBody: a class's OverrideTexture re-skins its body.
+        // buildBody: a class's OverrideTexture re-skins its body.
         // A class the world can field but no body draws would fight unseen.
         for class in &defs.classes {
             if let Some(id) = class.registry_id {
@@ -843,7 +843,7 @@ impl Replicas {
                 self.slots[slot].rider = (-1., false, None, false);
                 self.slots[slot].identity = Some(key);
                 self.slots[slot].active = true;
-                // units.js: a walker with a shield look has a bubble.
+                // a walker with a shield look has a bubble.
                 if kind == k::DROIDEKA {
                     self.slots[slot].bubble = self.shields.take(row[r::CLASS_ID] as usize);
                 }
@@ -954,7 +954,7 @@ impl Replicas {
                     self.units.input[f::COMMANDS] += 1.;
                 }
             }
-            // game.js onDeath: a droid that comes apart, killed on its feet,
+            // onDeath: a droid that comes apart, killed on its feet,
             // shorts out the Enhanced way.
             if dead && !self.slots[slot].dead && self.slots[slot].gone.is_none() && self.combat.destruction.chunked(self.slots[slot].class) {
                 self.slots[slot].dead = true;
@@ -1447,7 +1447,7 @@ impl Replicas {
         self.present_flashes(receiver, dt, bridge);
         self.present_jets(dt, bridge);
     }
-    // game.js updateJetFlame for every body drawn: a soldier jetting and
+    // updateJetFlame for every body drawn: a soldier jetting and
     // alive (`soldier.air === "jet"`) burns at his ribcage as posed this
     // frame, with the Enhanced flame and wake or, in Classic, his class's
     // JetExhaust effect.
@@ -1483,7 +1483,7 @@ impl Replicas {
         self.jets.finish(self.soft, bridge);
         self.presented.shown[13] = self.jets.draws + self.combat.total_flames;
     }
-    // combat.js updateFlashes, for every body: the flash model sits at the
+    // updateFlashes, for every body: the flash model sits at the
     // muzzle of the gun in his hand (0.6 of its size, FLASH_SCALE) while the
     // flash lasts and that gun is the one drawn, at full alpha for the
     // first half of its time and fading through the second. The browser

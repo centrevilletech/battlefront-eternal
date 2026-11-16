@@ -398,7 +398,7 @@ impl Presentation {
             };
             let definition = self.content.groups[effect.content][k];
             let def = &self.content.definitions[definition];
-            // effects.js Emitter constructor: keep random draws in authored order.
+            // Emitter constructor: keep random draws in authored order.
             let delay = effect.random.range(def.start_delay);
             let limit = v8math::round(effect.random.range(def.max_particles));
             let size = effect.random.range(def.size);
@@ -895,7 +895,7 @@ impl Presentation {
             }
         }
         if !analytic && g.r#type == "geometry" {
-            // effects.js drawModel / Object3D.rotateY, now composed by the
+            // drawModel / Object3D.rotateY, now composed by the
             // state owner. Hosts apply the resulting quaternion directly.
             let mut spin = Quaternion::default();
             spin.set_from_axis_angle(&Vector3::new(0.0, 1.0, 0.0), rotation);
@@ -960,7 +960,7 @@ fn put3(out: &mut [f64], at: usize, v: Vector3) {
     out[at + 1] = v.y;
     out[at + 2] = v.z;
 }
-// effects.js hsv, with a stack table rather than temporary RGB arrays.
+// hsv, with a stack table rather than temporary RGB arrays.
 fn hsv(c: &mut [f64; 4]) {
     let h = c[0];
     let s = c[1];
@@ -980,7 +980,7 @@ fn hsv(c: &mut [f64; 4]) {
     };
     c[..3].copy_from_slice(&rgb);
 }
-// effects.js travel: preserve expression and key order, including zero spans.
+// travel: preserve expression and key order, including zero spans.
 fn travel(keys: &[Key], age: f64, v: &mut Vector3) -> Vector3 {
     let mut p = Vector3::default();
     let mut left = age;

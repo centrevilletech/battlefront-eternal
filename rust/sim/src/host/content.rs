@@ -24,7 +24,7 @@ use bfe_content::files::{DirFiles, Files};
 use bfe_content::registry::{combat_registry, registry_content};
 use bfe_content::value::Value;
 
-/// world-hash.mjs's page query for the row's options.
+/// page query for the row's options.
 fn query(options: &Options) -> String {
     let era = if options.side == "rep" || options.side == "cis" {
         "cw"

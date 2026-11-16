@@ -107,7 +107,7 @@ fn vec3(value: Option<&Value>) -> [f64; 3] {
     std::array::from_fn(|i| a.get(i).map_or(0.0, |v| to_number(Some(v))))
 }
 
-/// traps.js Trap's placement facts: the trigger point (TriggerOffset at the
+/// Trap's placement facts: the trigger point (TriggerOffset at the
 /// trigger node at bind, else in the trap's frame), the death effect's
 /// point, the build and trigger clips' lengths, and the pad's sphere where
 /// repair weapons, the AI and blasts find the trap (placePad over the pad

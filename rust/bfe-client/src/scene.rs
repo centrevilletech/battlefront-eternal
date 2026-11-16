@@ -779,7 +779,7 @@ impl Scene {
                 .map(|path| content.textures.load(path))
                 .transpose()
         })?;
-        // game.js constructs eight ordnance light shells and each visible post hologram.
+        // constructs eight ordnance light shells and each visible post hologram.
         // Preserve that cold catalog identity; this neutral inspection frame
         // publishes zero active lights until a native World supplies them.
         const ORDNANCE_LIGHTS: usize = 8;
@@ -1691,7 +1691,7 @@ impl Scene {
         let Some(frame) = &mut self.frame else {
             return Ok(());
         };
-        // settings.js ANTIALIASING; an unknown choice is the default's four.
+        // ANTIALIASING; an unknown choice is the default's four.
         let wanted = match choice {
             "off" | "fxaa-fast" | "fxaa" => 0,
             "2x" => 2,

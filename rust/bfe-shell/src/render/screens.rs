@@ -1,7 +1,7 @@
 //! Planetary zoom-in loading screen rendering.
 //!
 //! Mirrors `LoadingView.prototype.draw` (`drawPictures` and `drawDisk`) in
-//! `src/shell/loading.js`: 4-stage planetary zoom-in pictures (`zoomView`,
+//! 4-stage planetary zoom-in pictures (`zoomView`,
 //! `onScreen`), cyan tracking crosshair lines (`load_edge_horz`,
 //! `load_edge_vert`, or `TRACK_LINE_COLOR`), top-left planet name (`NAME`),
 //! and lower-right rotating `LOADING` disk (`diskPlace`, `DISK.turn = 0.866`,

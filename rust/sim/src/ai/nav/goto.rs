@@ -47,7 +47,7 @@ pub trait GotoWorld {
     fn follow_far(&mut self) -> f64;
 }
 
-/// goto.js:722's fallback branch, for implementors: the ref's unit when
+/// fallback branch, for implementors: the ref's unit when
 /// `alive !== false` and (no generation named or it matches).
 pub fn resolve_ref(r: UnitRef, unit: Option<&NavUnit>) -> Option<Resolved> {
     let unit = unit.filter(|u| u.id == r.unit)?;
@@ -281,7 +281,6 @@ impl Nav {
         self.control_attach(helper.control, Some(unit));
     }
 
-    /// goto.js:88.
     pub fn ground_goto(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld, point: Vec3, mode: GotoMode) {
         self.goto_attach(helper, unit);
         self.control_strand(helper.control, false, Some(unit));
@@ -303,7 +302,6 @@ impl Nav {
         self.ground_flush(helper, unit, world);
     }
 
-    /// goto.js:105.
     pub fn ground_stop(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld) {
         self.ground_drop_route(helper);
         self.control_strand(helper.control, false, Some(unit));
@@ -311,14 +309,12 @@ impl Nav {
         self.ground_flush(helper, unit, world);
     }
 
-    /// goto.js:114.
     pub fn ground_hold_path(&mut self, helper: &GroundGoto, on: bool) {
         if let Some(e) = self.controls[helper.control].executor.as_mut() {
             e.hold = on;
         }
     }
 
-    /// goto.js:115.
     pub fn ground_install_path(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, points: &[Vec3]) {
         self.goto_attach(helper, unit);
         if points.is_empty() {
@@ -335,7 +331,6 @@ impl Nav {
         helper.pending = 0.0;
     }
 
-    /// goto.js:130.
     pub fn ground_follow(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld, target: Option<UnitRef>, distance: f64, remembered: bool) {
         self.goto_attach(helper, unit);
         helper.follow_distance = distance;
@@ -359,7 +354,6 @@ impl Nav {
         self.ground_flush(helper, unit, world);
     }
 
-    /// goto.js:147.
     pub fn ground_tick(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld, dt: f64) {
         self.goto_attach(helper, unit);
         for _ in 0..8 {
@@ -372,7 +366,6 @@ impl Nav {
         self.ground_flush(helper, unit, world);
     }
 
-    /// goto.js:157.
     pub fn ground_arrived(&self, helper: &GroundGoto) -> bool {
         let c = &self.controls[helper.control];
         match helper.state {
@@ -406,13 +399,11 @@ impl Nav {
         unit.position
     }
 
-    /// goto.js:193.
     pub fn ground_stance(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld, value: f64) {
         self.controls[helper.control].stance = value;
         self.ground_flush(helper, unit, world);
     }
 
-    /// goto.js:200.
     pub fn ground_jet(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld, vector: Vec3) {
         let c = &mut self.controls[helper.control];
         c.jet.pending = true;
@@ -420,21 +411,20 @@ impl Nav {
         self.ground_flush(helper, unit, world);
     }
 
-    /// goto.js:209 (the controller branch: controller.js:613).
+    /// (the controller branch: controller.js:613).
     pub fn ground_aim_at(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld, point: Vec3) {
         helper.aim_state = 1.0;
         helper.aim_point = point;
         self.ground_flush(helper, unit, world);
     }
 
-    /// goto.js:219 (controller.js:618: aimTarget = ref ?? null).
+    /// (controller.js:618: aimTarget = ref ?? null).
     pub fn ground_aim_at_target(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld, target: Option<UnitRef>) {
         helper.aim_state = 0.0;
         helper.aim_target = target;
         self.ground_flush(helper, unit, world);
     }
 
-    /// goto.js:229.
     pub fn ground_aim_along_path(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld) {
         helper.aim_state = 2.0;
         self.ground_flush(helper, unit, world);
@@ -850,7 +840,6 @@ impl Nav {
 
     // ----- FlyGotoHelper -----
 
-    /// goto.js:624.
     pub fn fly_goto(&mut self, helper: &mut FlyGoto, unit: &mut NavUnit, point: Vec3, mode: GotoMode) {
         self.control_attach(helper.control, Some(unit));
         if mode != GotoMode::Route {
@@ -874,7 +863,6 @@ impl Nav {
         self.fly_flush(helper, unit);
     }
 
-    /// goto.js:648.
     pub fn fly_stop(&mut self, helper: &mut FlyGoto, unit: &mut NavUnit) {
         helper.pending = 5.0;
         self.fly_flush(helper, unit);
@@ -898,7 +886,6 @@ impl Nav {
         }
     }
 
-    /// goto.js:666.
     pub fn fly_tick(&mut self, helper: &mut FlyGoto, unit: &mut NavUnit) {
         self.control_attach(helper.control, Some(unit));
         self.fly_flush(helper, unit);
@@ -918,7 +905,6 @@ impl Nav {
         self.fly_flush(helper, unit);
     }
 
-    /// goto.js:685.
     pub fn fly_arrived(&self, helper: &FlyGoto) -> bool {
         let c = &self.controls[helper.control];
         if helper.state == 2.0 {

@@ -77,7 +77,7 @@ impl Views {
             row[d::MINE] = (base == "mine") as u8 as f64;
             row[d::RADIUS] = bfe_content::derived::item_radius(content.content.weapon_models.get(name)).0;
             row[d::LIGHT_RADIUS] = def.get("LightRadius").and_then(bfe_content::Value::as_f64).unwrap_or(0.).max(0.);
-            // items.js color01: a missing colour is black, no light.
+            // color01: a missing colour is black, no light.
             let color = def.get("LightColor").and_then(bfe_content::Value::as_array);
             let channel = |k: usize, default: f64| color.and_then(|c| c.get(k)).and_then(bfe_content::Value::as_f64).unwrap_or(default);
             let alpha = channel(3, 255.) / 255.;

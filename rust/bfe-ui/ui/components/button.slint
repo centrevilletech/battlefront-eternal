@@ -3,7 +3,7 @@ import { Interaction } from "interaction.slint";
 import { Surface } from "surface.slint";
 
 export enum ButtonVariant { menu, small, dialog, accept, ghost }
-// looks.css button variants share one interaction owner. Pressed keeps the
+// button variants share one interaction owner. Pressed keeps the
 // browser's active fill; it does not introduce an extra native shrink state.
 export component PageButton inherits Interaction {
     in property <string> label;

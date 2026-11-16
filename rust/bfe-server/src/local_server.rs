@@ -129,7 +129,7 @@ impl LocalDedicatedServer {
             .unwrap_or_else(random_match_hex);
         let active_query = with_match_param(&crate::config::with_friendly_fire(&checked.first_query, config.friendly_fire), &match_token);
 
-        // local-server.js info() includes the active battle, bot and team policy.
+        // info() includes the active battle, bot and team policy.
         let browser = browser_info(config, &active_query, 0, &map_names(&config.data), 0);
 
         // Compute the 64-hex content fingerprint for the active map query (`fingerprint::hash`).
@@ -359,7 +359,7 @@ impl LocalDedicatedServer {
                                 );
                             }
                             WorldPeerEvent::Chat { id, text, team } => {
-                                // world-worker.js routes only started players, and a
+                                // routes only started players, and a
                                 // team line follows current teams after a side switch.
                                 if !u.peers.get(&id).is_some_and(|p| p.session.started) {
                                     continue;

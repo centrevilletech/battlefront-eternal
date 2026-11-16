@@ -291,7 +291,7 @@ impl UdpPeerState {
     }
 
     /// Builds the per-peer transport diagnostics JSON object (`UdpPeer.transportStats` in
-    /// `src/udp-peer.js` and `GameSession.transportDiagnostics`).
+    /// and `GameSession.transportDiagnostics`).
     pub fn stats(&mut self, conn: &mut Connection, now_ms: f64) -> Value {
         self.update_congestion(conn, now_ms);
         let snap = self.metrics.snapshot(now_ms as u64);

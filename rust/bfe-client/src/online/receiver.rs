@@ -1,4 +1,4 @@
-//! network-session.js's delivery boundary.
+//! delivery boundary.
 //! Packet callbacks consume leases before the next datagram can recycle them;
 //! only resource identities and the own camera checkpoint are retained here.
 use super::feedback::{Ids, Results};

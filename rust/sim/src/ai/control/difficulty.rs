@@ -38,7 +38,7 @@ pub const ANCHORS_S: [f64; 3] = [2.0, 1.0, 0.0];
 /// The danger notifier's delay rows.
 pub const DANGER_ROWS: [[f64; 2]; 3] = [[1.1, 2.1], [0.6, 1.3], [0.0, 0.8]];
 
-/// difficulty.js:55 (`value | 0`, then clamped).
+/// (`value | 0`, then clamped).
 pub fn clamp_skill(value: f64) -> f64 {
     v8math::min(v8math::max(v8math::to_int32(value) as f64, SKILL_MIN), SKILL_MAX)
 }
@@ -156,7 +156,7 @@ impl Difficulty {
         d
     }
 
-    /// difficulty.js:137 (Enhanced: enhanced/difficulty.js init).
+    /// (Enhanced: enhanced/difficulty.js init).
     pub fn init(&mut self, player_offset: f64, enemy_offset: f64) {
         if self.enhanced {
             let skill = clamp_skill(enhanced_skill(self.tier));
@@ -234,7 +234,6 @@ impl Difficulty {
         }
     }
 
-    /// difficulty.js:193.
     pub fn is_player_team(&self, team: f64) -> bool {
         if self.network || self.player_team.is_none() {
             return false;

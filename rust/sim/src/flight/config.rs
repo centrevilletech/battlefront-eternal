@@ -1,4 +1,4 @@
-//! src/flight/config.js and the flight half: the
+//! and the flight half: the
 //! port's tuning per class of craft (`FLIGHT_CLASSES`: shared live by every
 //! craft of the class, retuned by a command), a craft's class from its name,
 //! its own speeds and handling (its class definition's keys, read as the
@@ -163,7 +163,7 @@ impl Tuning {
         copy.slot(key).map(|x| *x)
     }
 
-    /// src/game.js step, `command.flightTuning`: a key of the class's own,
+    /// step, `command.flightTuning`: a key of the class's own,
     /// set to a finite number above 0; anything else is let be. Returns
     /// whether it was set. (The JavaScript's `key in FLIGHT_CLASSES[name]`
     /// also takes keys every object inherits, which no flight code reads:
@@ -210,7 +210,7 @@ impl Tunings {
     }
 }
 
-/// src/flight/config.js flightClass: a craft's class from its class name.
+/// flightClass: a craft's class from its class name.
 pub fn flight_class(name: &str) -> FlightClass {
     let n = name.to_ascii_lowercase();
     let any = |words: &[&str]| words.iter().any(|w| n.contains(w));
@@ -254,7 +254,7 @@ impl Config {
     /// flightConfig(def, kind)'s own keys: flightSpeeds(def),
     /// flightHandling(def), then `{ boostSpeed: speeds.maxSpeed }`.
     pub fn of(def: &Value) -> Config {
-        // vehicle-motion.js number(def, name, fallback, read): parseFloat
+        // number(def, name, fallback, read): parseFloat
         // of the key as `read` finds it, when finite.
         let class = |name: &str, fallback: f64| num(class_setting(Some(def), name), fallback);
         let body = |name: &str, fallback: f64| num(setting(def.get("settings"), name), fallback);

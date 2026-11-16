@@ -7,7 +7,7 @@ use crate::gen::*;
 
 /// The random-stream registry the owners share through `Cx::streams`.
 pub mod streams;
-/// game.js 3110-3126 headless: the viewpoint's adoption, the factory's
+/// 3110-3126 headless: the viewpoint's adoption, the factory's
 /// reservation and the prepared stock, between the world owners and F4Live.
 pub mod stock;
 /// F4Live, F4Battle and F4Tail construction with the AI's activation and the

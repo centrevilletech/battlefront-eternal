@@ -310,7 +310,6 @@ impl Nav {
         c.generation = unit.and_then(|u| u.generation).unwrap_or(-1.0);
     }
 
-    /// control.js:101.
     pub fn control_reset(&mut self, control: usize) {
         self.controls[control].serial += 1.0;
         self.planner_cancel(control);
@@ -359,7 +358,6 @@ impl Nav {
         }
     }
 
-    /// control.js:133.
     pub fn control_dispose(&mut self, control: usize) {
         self.control_reset(control);
         self.controls[control].disposed = true;
@@ -487,7 +485,6 @@ impl Nav {
         }
     }
 
-    /// control.js:281.
     pub fn control_following(&self, control: usize) -> bool {
         self.controls[control].executor.is_some()
     }

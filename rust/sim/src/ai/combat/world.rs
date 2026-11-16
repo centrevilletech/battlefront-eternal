@@ -445,18 +445,18 @@ pub struct Ctl {
 }
 
 impl Ctl {
-    /// controller.js:381 `lookAt`.
+    /// `lookAt`.
     pub fn look_at(&mut self, point: &Vector3) {
         self.aim_state = 1.0;
         self.aim_point = *point;
     }
 
-    /// controller.js:390 `lookAlongPath`.
+    /// `lookAlongPath`.
     pub fn look_along_path(&mut self) {
         self.aim_state = 2.0;
     }
 
-    /// controller.js:396 `setStance`.
+    /// `setStance`.
     pub fn set_stance(&mut self, stance: f64) {
         self.stance = stance;
         if self.nav_stance.is_some() {
@@ -464,13 +464,13 @@ impl Ctl {
         }
     }
 
-    /// controller.js:386 `aimAt(ref)`.
+    /// `aimAt(ref)`.
     pub fn aim_at(&mut self, r: Option<Ref>) {
         self.aim_state = 0.0;
         self.aim_target = r;
     }
 
-    /// controller.js:439 `notifyShot`.
+    /// `notifyShot`.
     pub fn notify_shot(&mut self, source: Option<Obj>, known: bool, point: Option<Vector3>) {
         let Some(source) = source else { return };
         self.shot.pending = true;
@@ -483,13 +483,13 @@ impl Ctl {
         }
     }
 
-    /// controller.js:432 `notifyDanger`.
+    /// `notifyDanger`.
     pub fn notify_danger(&mut self, point: &Vector3) {
         self.danger.pending = true;
         self.danger.point = *point;
     }
 
-    /// controller.js:449 `addAcoustic` (20 at most).
+    /// `addAcoustic` (20 at most).
     pub fn add_acoustic(&mut self, r: Ref) {
         if self.acoustic.len() < 20 {
             self.acoustic.push(r);
@@ -554,7 +554,7 @@ pub trait Draws {
     fn uniform_c(&mut self) -> f64;
 }
 
-/// random.js:41 `int(lo, hi)` on generator `which` (no draw when hi <= lo).
+/// `int(lo, hi)` on generator `which` (no draw when hi <= lo).
 pub fn draw_int(d: &mut (impl Draws + ?Sized), which: Gen, lo: f64, hi: f64) -> f64 {
     if !(hi > lo) {
         return lo;
@@ -563,7 +563,7 @@ pub fn draw_int(d: &mut (impl Draws + ?Sized), which: Gen, lo: f64, hi: f64) -> 
     v8math::trunc(v8math::fround(v8math::fround(u * v8math::fround(hi - lo + 1.0)) + lo))
 }
 
-/// random.js:49 `range(lo, hi)`.
+/// `range(lo, hi)`.
 pub fn draw_range(d: &mut (impl Draws + ?Sized), which: Gen, lo: f64, hi: f64) -> f64 {
     let u = uniform(d, which);
     v8math::fround(v8math::fround(lo) + v8math::fround(u * v8math::fround(hi - lo)))
@@ -692,7 +692,7 @@ pub trait World: Draws {
     fn relation(&mut self, a: f64, b: f64) -> f64;
     /// `units.living()`: every living member, in registry order.
     fn living(&mut self) -> List<Obj>;
-    /// game.js `los(from, to, a, b)`: the segment is clear.
+    /// `los(from, to, a, b)`: the segment is clear.
     fn los(&mut self, from: &Vector3, to: &Vector3, a: Option<Obj>, b: Option<Obj>) -> bool;
 
     // -- Controllers and agents (the control core's).
@@ -801,6 +801,6 @@ pub trait World: Draws {
     fn request_jet(&mut self, controller: Obj, vector: &Vector3);
 
     // -- Squads.
-    /// squads.js emitVo(ai, unit, { event, property }).
+    /// emitVo(ai, unit, { event, property }).
     fn emit_vo(&mut self, unit: Obj, event: &str, property: &str);
 }

@@ -1,6 +1,6 @@
 //! What the rounds and items ask of the rest of the battle: the trait their
 //! Rust reaches it through, method for method the boundary object of
-//! src/ordnance-world.js (OrdnanceWorld and ItemsWorld), called at the same
+//! (OrdnanceWorld and ItemsWorld), called at the same
 //! points in the same order. In a battle the module's imports implement it
 //!; in a replay the capture does (rust/sim-replay's
 //! `Log`), checking every argument.

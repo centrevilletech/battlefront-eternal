@@ -25,10 +25,10 @@ use super::world::{Curves, Obj, Ref, World};
 #[derive(Clone, Debug, Default)]
 pub struct CombatAi {
     pub shared: Shared,
-    /// classic/index.js:131: the global deferred line-of-sight queue.
+    /// the global deferred line-of-sight queue.
     pub los: DeferredLos,
     pub reservations: Reservations,
-    /// combat.js:1408 `aimHooked`: the aim runs from the unit's tick.
+    /// `aimHooked`: the aim runs from the unit's tick.
     pub aim_hooked: bool,
     /// The Enhanced AI's aim (None: Classic).
     pub enhanced: Option<EnhancedCombat>,
@@ -51,7 +51,7 @@ pub enum Event {
     Damage { target: EventRef, attacker: EventRef, attacker_character: Option<Obj>, amount: Option<f64>, generic: Option<f64>, typed: Option<f64>, known: bool, point: Option<Vector3> },
 }
 
-/// combat.js:1525 `eventUnit(ref)`.
+/// `eventUnit(ref)`.
 fn event_unit<W: World + ?Sized>(w: &W, r: EventRef) -> Option<Obj> {
     match r {
         EventRef::None => None,
@@ -61,20 +61,20 @@ fn event_unit<W: World + ?Sized>(w: &W, r: EventRef) -> Option<Obj> {
 }
 
 impl CombatAi {
-    /// combat.js:1462: the sides' ai.json weapon records registered.
+    /// the sides' ai.json weapon records registered.
     pub fn new(enhanced: Option<EnhancedCombat>) -> CombatAi {
         CombatAi { enhanced, ..CombatAi::default() }
     }
 
     // -- Lifetime (controller bind and unbind).
 
-    /// combat.js:1466 `createPerception(controller)`: a fresh perception.
+    /// `createPerception(controller)`: a fresh perception.
     pub fn create_perception<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj) {
         let p = w.fresh_perception(controller);
         w.ctl_mut(controller).perception = Some(p);
     }
 
-    /// combat.js:1471 `attachController(controller)`: the bot's weapons
+    /// `attachController(controller)`: the bot's weapons
     /// draw their spread from generator A.
     pub fn attach_controller<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj) {
         if let Some(u) = w.ctl(controller).unit {
@@ -84,65 +84,65 @@ impl CombatAi {
         }
     }
 
-    /// combat.js:1475 `detachController(controller)`.
+    /// `detachController(controller)`.
     pub fn detach_controller<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj) {
         clear_candidate(w, controller);
     }
 
-    /// classic/index.js:142 `initAgent(agent)`: every agent's tracker.
+    /// `initAgent(agent)`: every agent's tracker.
     pub fn init_agent(&mut self, controller: Obj) -> TargetTracker {
         TargetTracker::new(controller)
     }
 
     // -- The scheduler's services.
 
-    /// combat.js:1479 `rebuildProtected()` (at a cycle wrap).
+    /// `rebuildProtected()` (at a cycle wrap).
     pub fn rebuild_protected<W: World + ?Sized>(&mut self, w: &mut W) {
         rebuild_protected_humans(w);
     }
 
-    /// classic/index.js:147 `scan(controller)`.
+    /// `scan(controller)`.
     pub fn scan<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj) -> f64 {
         scan(w, self, controller)
     }
 
-    /// classic/index.js:148 `dropLosRequests(controller)`.
+    /// `dropLosRequests(controller)`.
     pub fn drop_los_requests<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj) {
         self.los.drain(w, controller);
     }
 
-    /// classic/index.js:149 `serviceLos(world, budget)`.
+    /// `serviceLos(world, budget)`.
     pub fn service_los<W: World + ?Sized>(&mut self, w: &mut W, budget: f64) -> bool {
         self.los.service(w,&mut self.shared,budget)
     }
 
-    /// classic/index.js:150 `broadcastAcoustic(unit)`.
+    /// `broadcastAcoustic(unit)`.
     pub fn broadcast_acoustic<W: World + ?Sized>(&mut self, w: &mut W, unit: Obj) -> f64 {
         broadcast_acoustic(w, unit)
     }
 
-    /// classic/index.js:151 `clearCandidate(controller)`.
+    /// `clearCandidate(controller)`.
     pub fn clear_candidate<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj) {
         clear_candidate(w, controller);
     }
 
     // -- The agents' services.
 
-    /// classic/index.js:152 `rankTargets(agent)`.
+    /// `rankTargets(agent)`.
     pub fn rank_targets<W: World + ?Sized>(&mut self, w: &mut W, agent: Obj) -> f64 {
         let controller = w.agent_controller(agent);
         let retained = w.tracker(agent).and_then(|t| t.target);
         thin(w, &mut self.los, controller, retained)
     }
 
-    /// classic/index.js:153 `updateTarget(agent)`.
+    /// `updateTarget(agent)`.
     pub fn update_target<W: World + ?Sized>(&mut self, w: &mut W, agent: Obj) {
         if w.tracker(agent).is_some() {
             tracker_update(w, self, agent);
         }
     }
 
-    /// classic/index.js:154 `updateTargetSelection(agent)`.
+    /// `updateTargetSelection(agent)`.
     pub fn update_target_selection<W: World + ?Sized>(&mut self, w: &mut W, agent: Obj) {
         let Some(mut t) = w.tracker(agent).copied() else { return };
         t.select(w);
@@ -150,38 +150,38 @@ impl CombatAi {
         t.assign_weapon_target(w, &self.shared.weapons);
     }
 
-    /// classic/index.js:160 `gateFire(agent)`.
+    /// `gateFire(agent)`.
     pub fn gate_fire<W: World + ?Sized>(&mut self, w: &mut W, agent: Obj) {
         if let Some(t) = w.tracker(agent).copied() {
             t.fire_controls(w, &self.shared.weapons);
         }
     }
 
-    /// classic/index.js:161 `currentTarget(agent)`.
+    /// `currentTarget(agent)`.
     pub fn current_target<W: World + ?Sized>(&mut self, w: &mut W, agent: Obj) -> Option<Obj> {
         let t = *w.tracker(agent)?;
         t.fresh_target(w)
     }
 
-    /// classic/index.js:162 `memoryPoint(agent)`.
+    /// `memoryPoint(agent)`.
     pub fn memory_point<W: World + ?Sized>(&mut self, w: &mut W, agent: Obj) -> Option<Vector3> {
         let t = *w.tracker(agent)?;
         t.target(w).map(|_| t.point)
     }
 
-    /// classic/index.js:163 `acquiredTarget(agent)`.
+    /// `acquiredTarget(agent)`.
     pub fn acquired_target<W: World + ?Sized>(&mut self, w: &mut W, agent: Obj) -> Option<Obj> {
         let controller = w.agent_controller(agent);
         let c = w.ctl(controller).perception.as_ref().and_then(|p| p.candidate);
         resolve(w, c)
     }
 
-    /// classic/index.js:136 `canEngage(controller, target)`.
+    /// `canEngage(controller, target)`.
     pub fn can_engage<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj, target: Option<Obj>) -> bool {
         can_engage(w, self, controller, target)
     }
 
-    /// classic/index.js:165 `hasWeapon(controller)`.
+    /// `hasWeapon(controller)`.
     pub fn has_weapon<W: World + ?Sized>(&mut self, w: &W, controller: Obj) -> bool {
         match w.ctl(controller).unit {
             Some(u) => selected_weapon(w, u, Some(controller)).is_some(),
@@ -189,20 +189,20 @@ impl CombatAi {
         }
     }
 
-    /// classic/index.js:166 `sensorRange(controller, target)`: the sight
+    /// `sensorRange(controller, target)`: the sight
     /// range to it.
     pub fn sensor_range<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj, target: Obj) -> f64 {
         let unit = w.ctl(controller).unit.expect("sensorRange: the controller's unit");
         sight_range(w, unit, target)
     }
 
-    /// classic/index.js:167 `acousticRange(controller)`.
+    /// `acousticRange(controller)`.
     pub fn acoustic_range<W: World + ?Sized>(&mut self, w: &W, controller: Obj) -> f64 {
         let unit = w.ctl(controller).unit.expect("acousticRange: the controller's unit");
         sensor_range(w, &self.shared.weapons, unit, controller)
     }
 
-    /// combat.js:1494 `consumeFire(controller, unit, step, intent)` (the
+    /// `consumeFire(controller, unit, step, intent)` (the
     /// Enhanced one, src/ai/enhanced/aim.js:225, when Enhanced): the fire
     /// buttons, and the aim while the unit's tick does not run it yet.
     pub fn consume_fire<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj, unit: Obj, step: f64, intent: bool) {
@@ -218,12 +218,12 @@ impl CombatAi {
         }
     }
 
-    /// combat.js:1490 `aimPoint(controller, unit, dt, out)`.
+    /// `aimPoint(controller, unit, dt, out)`.
     pub fn aim_point<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj, unit: Obj, dt: f64) -> Option<Vector3> {
         aim_point_for(w, controller, unit, dt)
     }
 
-    /// combat.js:1482 `leadPoint(controller, target, dt, out)`.
+    /// `leadPoint(controller, target, dt, out)`.
     pub fn lead_point<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj, target: Obj, dt: f64) -> Option<Vector3> {
         let unit = w.ctl(controller).unit?;
         let i = selected_weapon(w, unit, Some(controller))?;
@@ -231,7 +231,7 @@ impl CombatAi {
         Some(lead_point(w, dt, unit, target, Some(&def)).0)
     }
 
-    /// combat.js:1503 `aim(controller, dt)` (the Enhanced one when Enhanced):
+    /// `aim(controller, dt)` (the Enhanced one when Enhanced):
     /// the filtered aim into the unit's intent.
     pub fn aim<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj, dt: f64) -> Option<Vector3> {
         if let Some(mut e) = self.enhanced.take() {
@@ -249,7 +249,7 @@ impl CombatAi {
         direction
     }
 
-    /// combat.js:1509 `updateAim(controller, dt)`.
+    /// `updateAim(controller, dt)`.
     pub fn update_aim<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj, dt: f64) -> Option<Vector3> {
         let unit = w.ctl(controller).unit?;
         if !w.unit_scalars(unit).alive || w.ctl(controller).perception.is_none() {
@@ -271,10 +271,10 @@ impl CombatAi {
         Some(direction)
     }
 
-    /// combat.js:1494 `markSkip`: nothing.
+    /// `markSkip`: nothing.
     pub fn mark_skip(&mut self) {}
 
-    /// combat.js:1503 `ingest()`: the step's shot and damage events become
+    /// `ingest()`: the step's shot and damage events become
     /// controller alerts.
     pub fn ingest<W: World + ?Sized>(&mut self, w: &mut W, events: &[Event]) {
         for e in events {
@@ -314,7 +314,7 @@ impl CombatAi {
         }
     }
 
-    /// combat.js:1527 `grenadeUpdate(round, position, owner, firstContact)`:
+    /// `grenadeUpdate(round, position, owner, firstContact)`:
     /// the danger broadcast of one live grenade or sticky charge; `state` is
     /// the round's (`round.aiDanger`, made at its first call).
     pub fn grenade_update<W: World + ?Sized>(&mut self, w: &mut W, state: &mut DangerState, position: &Vector3, owner: Option<Obj>, first_contact: f64) -> f64 {
@@ -333,23 +333,23 @@ impl CombatAi {
 
     // -- The interrupt helper's responses.
 
-    /// classic/index.js:170 `hazardResponse(controller, agent)`.
+    /// `hazardResponse(controller, agent)`.
     pub fn hazard_response<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj, agent: Option<Obj>) -> Option<Response> {
         hazard_response(w, controller, agent)
     }
 
-    /// classic/index.js:171 `alertResponse(controller, agent)`.
+    /// `alertResponse(controller, agent)`.
     pub fn alert_response<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj, agent: Option<Obj>) -> Option<Response> {
         alert_response(w, self, controller, agent)
     }
 
-    /// classic/index.js:172 `acousticResponse(controller, agent)`.
+    /// `acousticResponse(controller, agent)`.
     pub fn acoustic_response<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj, agent: Option<Obj>) -> Option<Response> {
         acoustic_response(w, self, controller, agent)
     }
 }
 
-/// combat.js:1494 `curvesOf(controller, unit, ai)`: the controller's
+/// `curvesOf(controller, unit, ai)`: the controller's
 /// curves, else its team's from the difficulty.
 pub fn curves_of<W: World + ?Sized>(w: &mut W, controller: Obj, unit: Obj) -> Option<Curves> {
     let d = w.ctl(controller).difficulty;

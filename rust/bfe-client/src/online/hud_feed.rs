@@ -34,7 +34,7 @@ const FEEDBACK_BYTES: usize = 78;
 const FEEDBACK_EXPIRY: f64 = 18.;
 // decodePresentation: a presentation event may wait 120 ticks for its unit.
 const PRESENTATION_EXPIRY: f64 = 120.;
-// entity-unit-state.js: a unit's state summary is 100000 plus its id, and
+// a unit's state summary is 100000 plus its id, and
 // 65535 is a unit without a Character.
 const UNIT_STATE_ID: f64 = 100000.;
 const NO_SLOT: u16 = 65535;
@@ -44,7 +44,7 @@ const UNIT_STATE_SLOT: usize = 13;
 // The repair key's length byte, after the slot, two selected weapons (u16
 // each) and the weapon count; its text follows.
 const UNIT_STATE_REPAIR: usize = 20;
-// entity-world-state.js: a building's state summary is 200000 plus its number.
+// a building's state summary is 200000 plus its number.
 const BUILDING_STATE_ID: f64 = 200000.;
 // humanName() for the client's own player without a name.
 const HUMAN_NAME: &str = "Player 1";

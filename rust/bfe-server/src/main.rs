@@ -383,7 +383,7 @@ fn menu(directory: &Path, operator_port: u16) -> Result<(), String> {
 }
 
 /// Launch each round through the same admission, LAN and online setup.
-/// main.js rotate closes the previous listeners before invoking launch again;
+/// rotate closes the previous listeners before invoking launch again;
 /// the fresh host must advertise the token sent in the match notification.
 fn launch_match(
     directory: &Path,

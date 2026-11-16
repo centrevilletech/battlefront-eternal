@@ -54,7 +54,7 @@ impl LockState {
 
 /// A message a craft shows (its warning, its landing prompt and reason),
 /// the texts the network's flight records know (src/runtime/
-/// network-entity-flight.js `messages`).
+/// `messages`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Message {
     #[default]

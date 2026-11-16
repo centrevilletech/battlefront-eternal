@@ -91,14 +91,14 @@ impl Prepared {
                         prepared.batch(image, d["gpu"].as_bool().unwrap_or(false), false, d["geometry"]["blend"] == "additive")
                     });
                 prepared.effect_batches.push(batch);
-                // effects.js: a GEOMETRY particle draws its model, never a quad.
+                // a GEOMETRY particle draws its model, never a quad.
                 let model = (d["geometry"]["type"] == "geometry").then(|| d["geometry"]["model"].as_str()).flatten();
                 prepared.effect_models.push(model.map(str::to_string));
             }
         }
         Ok(prepared)
     }
-    // effects.js batches by geometry layout and blend state as well as map.
+    // batches by geometry layout and blend state as well as map.
     // Deduplicating only the image would pair analytic tracks with CPU quads,
     // or additive bolts with alpha particles. This lookup is cold admission;
     // runtime publications carry the resulting fixed batch handle.
@@ -179,7 +179,7 @@ impl Prepared {
             words += CAPACITY * stride;
             batches.push(Batch { handle, analytic: recipe.analytic, at, stride, count: 0, order: 0 });
         }
-        // game.js glowModel: each model a GEOMETRY definition names, drawn
+        // glowModel: each model a GEOMETRY definition names, drawn
         // additive and double-sided with its first part's texture, tinted
         // by the particle. One renderer model serves every particle of a
         // part; a model the content lacks draws nothing.
@@ -196,7 +196,7 @@ impl Prepared {
         }
         let mut glows: Vec<(String, Glow)> = Vec::new();
         let mut effect_glows = Vec::new();
-        // game.js hands combat `glowModel("muzzleflash")` for the flash at a
+        // hands combat `glowModel("muzzleflash")` for the flash at a
         // held gun's muzzle: the same kind of model, listed last here.
         let flash = Some(FLASH.to_string());
         for name in self.effect_models.iter().chain([&flash]) {
@@ -303,7 +303,7 @@ struct Batch {
     order: u32,
 }
 impl Batch {
-    // particles.js ParticleRenderer.batch makes a batch the first time a
+    // ParticleRenderer.batch makes a batch the first time a
     // particle asks for it, and three draws transparent meshes that tie on
     // render order and depth in the order they were made. So a batch first
     // used earlier in the battle draws under one first used later: the
@@ -393,7 +393,7 @@ impl Particles {
         }
         for row in owner.draws.chunks_exact(d::STRIDE).take(owner.header[h::DRAWS] as usize) {
             let definition = row[d::DEFINITION] as usize;
-            // effects.js drawModel: the model at the particle, turned by its
+            // drawModel: the model at the particle, turned by its
             // quaternion (the owner has already spun it about its own up),
             // scaled by its size, in its colour and opacity.
             if row[d::KIND] == kind::MODEL as f64 {
@@ -488,7 +488,7 @@ impl Particles {
         row[render::DRAW_KEY + 2..render::DRAW_KEY + 5].copy_from_slice(position);
         row[render::DRAW_KEY + 5] = *model as f64;
     }
-    /// combat.js updateFlashes: the muzzle flash model at `matrix`, in the
+    /// updateFlashes: the muzzle flash model at `matrix`, in the
     /// weapon's flash colour. It is asked for after the frame's bodies are
     /// posed, when the particle draws are already listed, so it adds its
     /// own. False when there is no such model or no room left for it.

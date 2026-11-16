@@ -217,7 +217,7 @@ pub(crate) fn cmb_new_in(w: &mut crate::world::owner::World, unit: u32, class: u
     answer(&mut w.sim, r)
 }
 
-/// weapons.js Arsenal.select (:517).
+/// Arsenal.select (:517).
 pub(crate) fn select(c: &mut Combat, defs: &CombatDefs, i: usize) -> bool {
     super::weapons::select(c,&defs.weapons,i)
 }

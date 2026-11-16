@@ -70,7 +70,7 @@ impl Cameras {
     pub fn new(content: &bfe_content_native::BattleContent, collision: Collision, world: u32) -> Result<Self, String> {
         let defs = content.defs()?;
         let mut cameras = Content::default();
-        // game.js constructs SoldierCamera with common.cameraMotions. These
+        // constructs SoldierCamera with common.cameraMotions. These
         // curves belong to visual motion, never authority or prediction replay.
         for name in ["RollLeft", "RollRight", "StandToProne", "CrouchToProne", "ProneToStand", "CrouchToStand", "Land"] {
             let keys = content.content.battle.common.get("cameraMotions").and_then(|tables| tables.get(name));
@@ -188,7 +188,7 @@ impl Cameras {
             self.killer = None;
             self.killer_tick = f64::NEG_INFINITY;
         }
-        // game.js noteAttacker tracks the last attacker from damage (schema 3)
+        // noteAttacker tracks the last attacker from damage (schema 3)
         // and death (schema 4) feedback so the death camera can frame the killer.
         for field in receiver.publications.iter() {
             if field.row[r::KIND] == k::COMBAT as f64
@@ -266,7 +266,7 @@ impl Cameras {
         } else {
             x[f::EYE_KIND] = eyes::INFANTRY as f64;
         }
-        // game.js startDeathCamera: while the dead soldier's corpse remains in
+        // startDeathCamera: while the dead soldier's corpse remains in
         // the world (4 s linger, non-walker), DeathShot frames the body and killer.
         let dead_active = (receiver.own.dead || drawn.held_camera == Some(true))
             && !receiver.own.removed && !receiver.own.walker;

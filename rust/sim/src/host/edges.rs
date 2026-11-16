@@ -1,5 +1,5 @@
 //! Each client's entity edge runtime (`WireEntityEdges`,
-//! src/runtime/wire-edges.js over `wire_edges_run`) as `snapshot-host.js`
+//! over `wire_edges_run`) as `snapshot-host.js`
 //! drives it around the step: `advanceEdges()` before it (a reset when the
 //! actor's unit life moved since the runtime last saw it, then
 //! `advance(worldClock.tick + 1)`), `consumedEdges(tick)` after it (op 5,
@@ -217,7 +217,7 @@ impl Authority {
         Ok(result)
     }
 
-    /// `snapshot-host.js` `add`: the client's runtime generation from its
+    /// `add`: the client's runtime generation from its
     /// `feedback()` (op 8, a read), and his body as his connection's view
     /// names it.
     pub(super) fn add_client(

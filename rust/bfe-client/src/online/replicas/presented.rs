@@ -14,7 +14,7 @@ use bfe_presentation::{
 // place in the list is its identity for endWeaponAction.
 const ACTIONS: [&str; 7] = ["reload", "charge", "shoot", "shoot2", "shoot3", "shoot4", "shoot5"];
 const POSTURES: [&str; 3] = ["stand", "crouch", "prone"];
-// game.js droidBlasts: one of these goes off at a bone of the dying droid.
+// droidBlasts: one of these goes off at a bone of the dying droid.
 const BLASTS: [&str; 3] = ["explosion", "med_explosion", "small_explosion"];
 // decodePresentation: a record nobody could show yet is kept for 120 ticks.
 const EXPIRY: f64 = 120.;
@@ -505,14 +505,14 @@ impl Replicas {
                 if repair || melee || !thrown {
                     self.command(actor, kind::FIRE);
                 }
-                // combat.js flash: each round restarts its gun's flash.
+                // flash: each round restarts its gun's flash.
                 if !repair && !melee {
                     let (length, color) = self.guns.flashes.get(weapon).copied().unwrap_or((0.1, [1.; 4]));
                     self.slots[slot].flash = (weapon, self.tick.floor(), length, color);
                 }
                 self.presented.shown[4] += 1;
             }
-            // game.js presentEvent "deathBlast": one of the three blasts at
+            // presentEvent "deathBlast": one of the three blasts at
             // a bone of the body, both picked at random. The bone is where
             // the last frame posed it, and the effect starts with the next
             // frame's batch, one frame after the client's.
@@ -533,7 +533,7 @@ impl Replicas {
                 self.combat.present_effect(blast, position, event.seed);
                 self.presented.shown[2] += 1;
             }
-            // game.js presentEvent "shieldHit": the droideka's bubble flares
+            // presentEvent "shieldHit": the droideka's bubble flares
             // where the hit landed. A unit without a bubble shows nothing.
             Act::ShieldHit { amount, source, explosion } => {
                 if let Some(bubble) = self.slots[slot].bubble {
@@ -542,7 +542,7 @@ impl Replicas {
                     self.presented.shown[6] += 1;
                 }
             }
-            // game.js presentEvent "blowApart": Debris.blowApart sends each
+            // presentEvent "blowApart": Debris.blowApart sends each
             // of the class's chunks flying from its bone, away from the
             // body's origin, then Unit.goUp: nothing more of this life is
             // drawn. Origin and velocity are the drawn body's, the same pose

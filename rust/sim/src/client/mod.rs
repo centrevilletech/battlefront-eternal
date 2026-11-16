@@ -57,7 +57,7 @@ fn span(words: &[f64], at: u32, count: u32, stride: usize) -> Result<&[f64], &'s
     let end = (count as usize).checked_mul(stride).and_then(|n| (at as usize).checked_add(n)).ok_or(INVALID)?;
     words.get(at as usize..end).ok_or(INVALID)
 }
-// game.js replayPrediction published full-precision poses at effect boundaries.
+// replayPrediction published full-precision poses at effect boundaries.
 // These fixed records have no heap fields: the empty heap never allocates, and
 // the retained output vectors grow only when their high-water mark increases.
 fn append_record<T>(out: &mut Vec<f64>, n: usize, value: &T, put: fn(&T, &mut [f64], &mut Vec<f64>)) -> u32 {
@@ -175,7 +175,7 @@ impl ClientPrediction {
         Ok(())
     }
 
-    /// game.js replayPrediction: continuation selection, correction restore,
+    /// replayPrediction: continuation selection, correction restore,
     /// replayTicks ordering, look, movement, crowd push, kick and weapons.
     pub fn predict_session(&mut self, words: &[f64], collision: &mut State) -> Result<(), &'static str> {
         if !self.configured || words.len() < ClientFrame::WORDS { return Err(INVALID); }
@@ -336,7 +336,7 @@ impl ClientPrediction {
                 result.before_shot = (self.notices.len() / (ClientShot::WORDS + actor_words)) as u32;
             }
             let yaw_before = self.actor.unit.aim_yaw();
-            // game.js replayPrediction applied look before controls and
+            // replayPrediction applied look before controls and
             // movement. Its current weapon zoom scales each raw mouse count;
             // clamping or summing those counts in another order changes aim.
             let zoom = self.zoom();
@@ -405,7 +405,7 @@ impl ClientPrediction {
                     if cosmetic_slots > 0 && w.level(self.arsenal.defs.class(w.def)).cosmetic_round {
                         cosmetic_slots -= 1;
                         if let UnitBody::Droideka(d) = &mut self.actor.unit.soldier {
-                            // droideka.js nextVisualGun: cosmetic admission is a
+                            // nextVisualGun: cosmetic admission is a
                             // frame fact; the shared checkpoint owns the cursor.
                             let guns = self.barrels.len() as f64;
                             if guns != 0.0 {
@@ -422,7 +422,7 @@ impl ClientPrediction {
                     append_actor(&mut self.notices, &self.actor.unit.soldier);
                 }
             }
-            // game.js replayPrediction clamped pitch after weapon replay.
+            // replayPrediction clamped pitch after weapon replay.
             // Moving the clamp earlier changes a boundary-angle shot's aim.
             // Likewise, only a fresh replay supplies the correction probe pose.
             self.presented = self.presented.max(tick);

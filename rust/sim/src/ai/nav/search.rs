@@ -163,7 +163,7 @@ pub struct BarrierSearch {
 }
 
 impl BarrierSearch {
-    /// search.js:121 with its defaults (1024 nodes, a 512-entry heap);
+    /// with its defaults (1024 nodes, a 512-entry heap);
     /// `nodes` and `heap` are the JavaScript's options of the same names.
     pub fn new(nodes: Option<f64>, heap: Option<f64>) -> Self {
         BarrierSearch {
@@ -388,7 +388,7 @@ impl BarrierSearch {
 }
 
 fn relink(n: &mut SearchNode, x: f64, y: f64, z: f64, step: f64, parent_g: f64, parent: usize) {
-    // search.js:288: g is f32(parent.g + step) at relink time.
+    // g is f32(parent.g + step) at relink time.
     n.x = x;
     n.y = y;
     n.z = z;

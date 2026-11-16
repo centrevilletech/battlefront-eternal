@@ -674,7 +674,7 @@ impl Gpu {
         }
         Self::submit(bridge, count);
     }
-    // holomap.js addPin/pinPosts: two crossed planes of light standing out of the disc (its +z), a soft dot
+    // addPin/pinPosts: two crossed planes of light standing out of the disc (its +z), a soft dot
     // at the foot, and for the picked post a turning ring; a ripple running out when it is picked.
     fn pin(&self, bridge: &mut Bridge, count: &mut usize, rig: &Rig, disc: &Matrix4, pin: &Pin) {
         let (v, p) = (&rig.inverse, &rig.projection);

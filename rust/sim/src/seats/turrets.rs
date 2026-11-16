@@ -19,9 +19,9 @@ use three::{clamp, Euler, EulerOrder, Matrix4, NodeId, Quaternion, TransformTree
 const UP: Vector3 = Vector3::new(0.0, 1.0, 0.0);
 const X_AXIS: Vector3 = Vector3::new(1.0, 0.0, 0.0);
 const ONE: Vector3 = Vector3::new(1.0, 1.0, 1.0);
-/// seats.js AIM_REACH: m along the aim to the point the gun turns to.
+/// AIM_REACH: m along the aim to the point the gun turns to.
 const AIM_REACH: f64 = 512.0;
-/// props.js AIMED: a gun this close to its target fires straight at it.
+/// AIMED: a gun this close to its target fires straight at it.
 const AIMED: f64 = std::f64::consts::PI / 180.0;
 
 // Imports must observe the command's writes, including when a death or a
@@ -429,7 +429,7 @@ impl TurretSide {
         out
     }
 
-    /// seats.js turretOrigin (740): a turret's gun pivot (the gun node, else
+    /// turretOrigin (740): a turret's gun pivot (the gun node, else
     /// its fire point, else the drum's bounding centre), what its gunner
     /// sees and fires from.
     pub fn origin(&mut self) -> Vector3 {
@@ -473,7 +473,7 @@ impl TurretSide {
     }
 }
 
-/// seats.js turretAimPoint (759): along `direction` from the turret's aim
+/// turretAimPoint (759): along `direction` from the turret's aim
 /// origin, the first wall, prop, hull or soldier (`exclude` left out, the
 /// turret's own body too) within 512 m, else 512 m out.
 pub fn turret_aim_point<W: SeatWorld + ?Sized>(w: &mut W, t: &mut TurretSide, first_person: bool, direction: &Vector3, collide: bool, exclude: Option<u32>) -> Vector3 {

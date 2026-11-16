@@ -94,13 +94,13 @@ pub const FOV_DEG: f64 = 60.0;
 pub const PLANE: f64 = 886.810_013_475_265_1;
 
 /// Safe-area inset fraction (`0.05` on each side, leaving `0.9` in the middle;
-/// `src/interface/space.js` `SAFE`, `SAFE_SCALE`).
+/// `SAFE`, `SAFE_SCALE`).
 pub const SAFE: f64 = 0.05;
 /// Fraction of the screen inside the 5% safe-area margins (`1.0 - 2.0 * SAFE = 0.9`).
 pub const SAFE_SCALE: f64 = 0.9;
 
 /// Scale factor of the `shell_cube` hologram room (`1.6 / 0.009`,
-/// `src/interface/models.js` `ROOM_SCALE`).
+/// `ROOM_SCALE`).
 pub const ROOM_SCALE: f64 = 1.6 / 0.009;
 
 /// Alias for [`ROOM_SCALE`].
@@ -118,7 +118,7 @@ pub const BODY_UNITS: f64 = 0.936 / (0.006 / (1024.0 / 800.0));
 pub const PREVIEW_UNITS: f64 = BODY_UNITS;
 
 /// Scale factor per meter of a standing droideka body (`0.9 * BODY_UNITS`,
-/// `src/interface/models.js` `DROIDEKA_UNITS`).
+/// `DROIDEKA_UNITS`).
 pub const DROIDEKA_UNITS: f64 = 0.9 * BODY_UNITS;
 
 /// Standard RGBA color constants.

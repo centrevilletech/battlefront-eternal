@@ -47,7 +47,6 @@ impl Boundary {
         Boundary { polygons }
     }
 
-    /// boundary.js:28.
     pub fn empty(&self) -> bool {
         self.polygons.is_empty()
     }

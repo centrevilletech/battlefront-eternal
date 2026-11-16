@@ -191,7 +191,6 @@ fn is_integer(x: f64) -> bool {
     x.is_finite() && v8math::trunc(x) == x
 }
 
-/// units.js:22.
 pub fn traversal_mask(unit: &NavUnit) -> u32 {
     if let Some(mask) = unit.nav_mask {
         if is_integer(mask) {
@@ -205,10 +204,8 @@ pub fn traversal_mask(unit: &NavUnit) -> u32 {
     }
 }
 
-/// units.js:35.
 pub const DEFAULT_RADIUS: f64 = 0.476;
 
-/// units.js:37.
 pub fn traversal_radius(unit: &NavUnit) -> f64 {
     if let Some(r) = unit.nav_radius {
         return r;
@@ -237,17 +234,15 @@ pub fn nominal_speed(unit: &NavUnit) -> f64 {
     9.0
 }
 
-/// units.js:60.
 pub fn is_soldier(unit: &NavUnit) -> bool {
     unit.kind == kind::SOLDIER
 }
 
-/// units.js:64.
 pub fn is_soldier_or_droid(unit: &NavUnit) -> bool {
     unit.kind == kind::SOLDIER || unit.kind == kind::DROID
 }
 
-/// units.js:69: JetFuelRechargeRate > 0 (or the soldier's jet recharge).
+/// JetFuelRechargeRate > 0 (or the soldier's jet recharge).
 pub fn has_jetpack(unit: &NavUnit) -> bool {
     let rate = unit
         .class_def

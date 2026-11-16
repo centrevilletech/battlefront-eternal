@@ -1,6 +1,6 @@
 //! What a soldier's combat asks of the rest of the battle: the trait its
 //! Rust reaches it through, method for method the boundary object of
-//! src/combat-world.js (CombatWorld), plus the body calls combat makes on
+//! (CombatWorld), plus the body calls combat makes on
 //! a droideka's hidden gun rig and its shield's hook, and the draws of its
 //! generators. In a battle the module answers (the subsystems that are
 //! Rust's, JavaScript's through imports until they move); in a replay the

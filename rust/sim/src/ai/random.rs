@@ -20,7 +20,7 @@ pub struct ClassicRandom {
 }
 
 impl ClassicRandom {
-    /// random.js:23: the seed as `seed >>> 0` of a JavaScript number.
+    /// the seed as `seed >>> 0` of a JavaScript number.
     pub fn new(seed: f64) -> Self {
         ClassicRandom { state: v8math::to_uint32(seed), draws: 0 }
     }
@@ -51,7 +51,7 @@ impl ClassicRandom {
         self.state
     }
 
-    /// random.js:65 `set seed`.
+    /// `set seed`.
     pub fn set_seed(&mut self, value: f64) {
         self.state = v8math::to_uint32(value);
     }

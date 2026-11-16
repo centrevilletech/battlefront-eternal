@@ -6,7 +6,6 @@
 use super::math::{f32, Vec3};
 use crate::ai::random::Random;
 
-/// hints.js:21.
 pub const POOL_CAPACITY: f64 = 350.0;
 
 /// The stance numbers.
@@ -107,7 +106,7 @@ fn scan_int(text: &str, fallback: i32) -> i32 {
     v8math::to_int32(value)
 }
 
-/// hints.js:38: the %f shape its regex accepts, then
+/// the %f shape its regex accepts, then
 /// f32(Number.parseFloat(...)), or the fallback untouched.
 fn scan_float(text: &str, fallback: f64) -> f64 {
     let chars: Vec<char> = text.chars().collect();
@@ -381,7 +380,6 @@ impl HintSet {
         }
     }
 
-    /// hints.js:229.
     pub fn available(&self, hint: usize, now: f64) -> bool {
         !(now < self.list[hint].reserved_at + 4.0)
     }

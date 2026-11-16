@@ -37,7 +37,7 @@ pub fn run_stage(world: &mut World, cx: &mut Cx) -> Result<Calls, AdmitError> {
     let rows = units::relations(count, relation)?;
     let (_, name, call) = units::in_context(cx, |_, _| Ok(units::Entry::Relations(rows)))?;
     dispatch_all(world, cx, &mut calls, vec![(Stage::Ai, name, call)])?;
-    // game.js: the player's combat after the teams are known.
+    // the player's combat after the teams are known.
     let viewpoint = cx.ids.registry.iter().find(|(key, _)| key == "viewpoint").map(|(_, id)| *id)
         .ok_or_else(|| error("viewpoint registry id is not assigned"))?;
     let team = cx.battle.policy.team;

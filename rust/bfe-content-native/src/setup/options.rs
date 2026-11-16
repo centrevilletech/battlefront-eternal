@@ -18,7 +18,7 @@ impl Ai {
             Ai::Enhanced => "enhanced",
         }
     }
-    /// world-hash.mjs: `--ai classic|enhanced`, anything else refused.
+    /// `--ai classic|enhanced`, anything else refused.
     pub fn parse(text: &str) -> Result<Self, String> {
         match text {
             "classic" => Ok(Ai::Classic),
@@ -80,7 +80,7 @@ impl BattleOptions {
         if let Some(unit) = &self.unit { if !plain(unit) { return Err(format!("invalid class {unit:?}")); } }
         Ok(())
     }
-    /// world-hash.mjs: `['rep', 'cis'].includes(side) ? 'cw' : 'gcw'`.
+    /// `['rep', 'cis'].includes(side) ? 'cw' : 'gcw'`.
     pub fn era(&self) -> &'static str {
         if self.side == "rep" || self.side == "cis" { "cw" } else { "gcw" }
     }

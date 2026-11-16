@@ -894,7 +894,7 @@ impl Prepared {
                 }
             }
         }
-        // game.js onOver uses the two literal banner labels, not the
+        // onOver uses the two literal banner labels, not the
         // localized "VICTORY IN" / "DEFEAT IN" countdown templates.
         let end_labels = [
             bridge.hud_model_text("VICTORY", false),

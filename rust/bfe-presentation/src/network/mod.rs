@@ -110,7 +110,7 @@ impl Bindings {
         let mut table=self.table.borrow_mut();if table.rows.len()<=key{table.rows.resize(key+1,None);}
         table.rows[key]=Some(Binding{id,generation,kind,slot:owner.borrow().timeline.slot(id),lease:owner.borrow().lease});table.states[key*link::STRIDE+link::ACTIVE]=1.;
     }
-    // network-entity-game.js binds a soldier with every record it applies,
+    // binds a soldier with every record it applies,
     // a no-op while the binding holds. A binding retired on a life mismatch
     // (the timeline still showing the previous life just after a respawn)
     // is admitted again here; without this the body never samples again.

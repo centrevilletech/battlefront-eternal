@@ -146,7 +146,7 @@ impl NetMetrics {
     }
 
     /// Serializes a point-in-time metrics snapshot at `now_ms` (`export function netMetrics()` in
-    /// `src/net-metrics.js` and `UdpPeer.transportStats()`).
+    /// and `UdpPeer.transportStats()`).
     pub fn snapshot(&self, now_ms: u64) -> Value {
         let cur_slot = now_ms / BUCKET_MS;
         let mut bytes_in = 0u64;

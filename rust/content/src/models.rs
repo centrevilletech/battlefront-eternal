@@ -131,7 +131,7 @@ fn number(v: Option<&Value>) -> f64 {
     }
 }
 
-/// src/models.js modelPack(records, buffer, indexBuffer).
+/// modelPack(records, buffer, indexBuffer).
 pub fn model_pack(records: Option<&Value>, floats: &[f32], indices: &[u32]) -> Result<ModelMap, String> {
     let mut models = ModelMap::default();
     let records = match records.filter(|r| r.truthy()).and_then(Value::as_object) {

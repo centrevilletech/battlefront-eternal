@@ -10,7 +10,7 @@ use crate::gen::{Air, Droideka, LastGun, Posture, Soldier};
 use crate::rig::droideka::DroidekaRig;
 use three::{clamp, Vector3};
 
-/// soldier.js ENGINE: the mouse's counts per radian per unit of
+/// ENGINE: the mouse's counts per radian per unit of
 /// MaxTurnSpeed, the rate a mouse may ask for (in stick units), and the
 /// prone pitch limit.
 const LOOK_SCALE: f64 = 2048.0;

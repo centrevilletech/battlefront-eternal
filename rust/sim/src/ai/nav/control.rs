@@ -36,7 +36,6 @@ impl Default for MovementRequest {
 }
 
 impl MovementRequest {
-    /// control.js:20.
     pub fn write(&mut self, target: Vec3, waypoint: Vec3, direction: Vec3, mode: f64, lower: f64, upper: f64) {
         self.valid = true;
         self.steering_target = target;
@@ -47,7 +46,6 @@ impl MovementRequest {
         self.upper = upper;
     }
 
-    /// control.js:31.
     pub fn clear(&mut self) {
         self.valid = false;
     }
@@ -90,7 +88,7 @@ pub struct NavControl {
 }
 
 impl NavControl {
-    /// control.js:64's field initializers. (When a controller already
+    /// field initializers. (When a controller already
     /// holds a MovementRequest the JavaScript shares it; the service's
     /// control is the one request, so there is nothing to share.)
     pub fn new() -> Self {

@@ -1,5 +1,5 @@
 //! A soldier's side of the fight (src/combat.js PlayerCombat, with,
-//! src/runtime/network-shot-aim.js and src/heroes.js regenerate): his aim,
+//! and src/heroes.js regenerate): his aim,
 //! his triggers and weapons, the rounds, items, droids and lightning they
 //! fire, a repair tool's lock and a launcher's, the aim's kick, what
 //! explosions and hurts do to him, his death and a droid's blowing apart.

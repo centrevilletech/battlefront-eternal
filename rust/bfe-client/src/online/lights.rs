@@ -12,11 +12,11 @@ use bfe_presentation::{
 };
 use bfe_render::shader::MAX_LIGHTS;
 
-// game.js: `new LightPool(scene, 8)`.
+// `new LightPool(scene, 8)`.
 const POOL: usize = 8;
 // Lights that stand in the scene on their own: one a hologram.
 const FIXED: usize = super::holograms::HOLOGRAMS;
-// graphics.js: the view camera's far plane.
+// the view camera's far plane.
 const VIEW_FAR: f64 = 10.;
 /// Floats of a packed light: position, range, colour times intensity, 0.
 pub const LIGHT: usize = 8;

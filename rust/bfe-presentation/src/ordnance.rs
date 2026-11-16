@@ -34,18 +34,18 @@ use v8math::{exp, hypot3, max, min};
 /// recycled: a bolt is drawn every frame it lives, and a clock run back
 /// brings it back within a second or two.
 const VIEW_WINDOW: u32 = 120;
-/// Ordnance.js MERGE: the metres over which a bolt drawn from the muzzle
+/// MERGE: the metres over which a bolt drawn from the muzzle
 /// joins its path.
 const MERGE: f64 = 8.0;
-/// ordnance.js CORE_TAPER and GLOW_TAPER: a streak's tail share of its width.
+/// CORE_TAPER and GLOW_TAPER: a streak's tail share of its width.
 const CORE_TAPER: [f64; 3] = [0.5, 0.0, 0.0];
 const GLOW_TAPER: [f64; 3] = [0.8, 0.0, 0.0];
-/// particles.js STREAK.
+/// STREAK.
 const STREAK: f32 = 1.0;
 /// A muzzle further than this (squared, 20 m) from its round is a respawn or
 /// a seat, and is ignored.
 const FAR_MUZZLE: f64 = 400.0;
-/// network-combat-projectile.js constants.
+/// constants.
 const COAST_TICKS: f64 = 6.0;
 const COAST_FULL_TICKS: f64 = 3.0;
 const SMOOTH_SECONDS: f64 = 0.08;
@@ -123,7 +123,7 @@ const EMPTY_VIEW: View = View { key: UNUSED, stamp: 0, seed: f64::NAN, presented
 /// Open addressing over a fixed table. A view not drawn for VIEW_WINDOW
 /// frames is stale and its slot is reused; a table three quarters full of
 /// ever-used slots is rebuilt into the spare one.
-// ordnance.js kept `presented` and `seed` as properties on each bolt object.
+// kept `presented` and `seed` as properties on each bolt object.
 // Here a bolt is named by a number the client gives it (its simulation slot and
 // generation, or a counter for the replicated and predicted ones), and the
 // table is sized once: a long battle recycles views instead of growing.
@@ -320,7 +320,7 @@ struct Out {
     tail: Vec<f32>,
     blaster_color: Vec<f32>,
     size: Vec<f32>,
-    /// ordnance.js `boltAxis`, the scratch direction boltSpan leaves.
+    /// `boltAxis`, the scratch direction boltSpan leaves.
     bolt_axis: [f64; 3],
 }
 
@@ -460,7 +460,7 @@ impl Out {
         }
     }
 
-    /// ordnance.js boltSpan: the visible path converges from the displayed
+    /// boltSpan: the visible path converges from the displayed
     /// muzzle to the gameplay ray; both ends of the streak are computed on
     /// it. Leaves the streak's axis in `bolt_axis` and returns its length.
     fn bolt_span(&mut self, b: &BoltDraw, span_in: f64) -> f64 {
@@ -515,7 +515,7 @@ struct BoltDraw {
     first_draw: bool,
 }
 
-/// linear-bolt.js boltFade: all of a bolt in flight; after its end a class
+/// boltFade: all of a bolt in flight; after its end a class
 /// with a FadeOutTime fades linearly, and any other is gone at once.
 fn bolt_fade(fade_out: f64, after: f64) -> f64 {
     if after < 0.0 {
@@ -553,7 +553,7 @@ pub struct Ordnance {
     refused_views: usize,
     out: Out,
     frame: u32,
-    /// ordnance.js `boltSeed`.
+    /// `boltSeed`.
     bolt_seed: f64,
 }
 
@@ -814,7 +814,7 @@ impl Ordnance {
         }
     }
 
-    /// ordnance.js drawBeam.
+    /// drawBeam.
     // A beam is a straight fat ray from its source to where it struck; it
     // fades over its last 0.08 s. Classic draws one textured streak at the
     // far end back along the ray; Enhanced draws a capsule from end to source.
@@ -842,7 +842,7 @@ impl Ordnance {
         self.out.light(position, s.glow_color, or(s.light_radius, 3.0));
     }
 
-    /// ordnance.js drawProjectileView (and, for a network projectile, the
+    /// drawProjectileView (and, for a network projectile, the
     /// same call with alpha 1 and no launch). `wants_light` is its third
     /// argument.
     #[allow(clippy::too_many_arguments)]
@@ -910,7 +910,7 @@ impl Ordnance {
         }
     }
 
-    /// ordnance.js drawBolt, with linear-bolt.js linearBoltFrame for a
+    /// drawBolt, with linear-bolt.js linearBoltFrame for a
     /// replicated bolt flown on the playout clock.
     fn draw_bolt(&mut self, r: &[f64; rc::STRIDE], s: &Style, flags: u32, enhanced: bool, sniper: bool) {
         let has = |f: u32| flags & (1 << f) != 0;
@@ -1403,7 +1403,7 @@ fn push_sample(n: &mut Net, s: Sample) {
     n.len += 1;
 }
 
-/// network-combat-projectile.js changedFlight: a sharp turn or authoritative
+/// changedFlight: a sharp turn or authoritative
 /// stop can be a bounce or contact, so no correction carries across it.
 fn changed_flight(a: &Vector3, b: &Vector3) -> bool {
     let speed_a = hypot3(a.x, a.y, a.z);

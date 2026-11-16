@@ -264,7 +264,7 @@ pub fn detour(b: &Barrier, p: Vec3, q: Vec3, r: f64, left: &mut Vec3, right: &mu
 }
 
 fn cell_key(x: f64, z: f64) -> i32 {
-    // barriers.js:142 `x * 73856093 ^ z * 19349663`: f64 products, then
+    // `x * 73856093 ^ z * 19349663`: f64 products, then
     // the ^ operator's ToInt32 on each.
     v8math::to_int32(x * 73856093.0) ^ v8math::to_int32(z * 19349663.0)
 }
@@ -383,7 +383,6 @@ impl BarrierSet {
         (true, None)
     }
 
-    /// barriers.js:199.
     pub fn segment_blocked(&mut self, s: Vec3, e: Vec3, r: f64, mask: u32, mut work: Option<&mut Work>) -> bool {
         let dx = s.x - e.x;
         let dy = s.y - e.y;

@@ -110,7 +110,7 @@ impl Guns {
             let Some(id) = weapon.registry_id.map(usize::from) else {
                 continue;
             };
-            // src/muzzles.js: the point the mesh gives, else the authored one.
+            // the point the mesh gives, else the authored one.
             let point = match &weapon.muzzle {
                 Some(Muzzle::Found(point)) => Some(*point),
                 Some(Muzzle::Authored(Some(Value::Array(list)))) if list.len() >= 3 => {
@@ -121,7 +121,7 @@ impl Guns {
             if guns.muzzles[id].is_none() {
                 guns.muzzles[id] = point;
             }
-            // combat.js flash: `d.FlashLength || 0.1` seconds in
+            // flash: `d.FlashLength || 0.1` seconds in
             // `d.FlashColor || [255, 255, 255, 255]`, alpha 255 when the
             // colour names none.
             let length = weapon.record.get("FlashLength").and_then(Value::as_f64).filter(|length| *length != 0.).unwrap_or(0.1);

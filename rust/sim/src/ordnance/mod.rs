@@ -116,7 +116,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         self.s().round.get_mut(r).expect("a round the ordnance holds")
     }
 
-    /// ordnance.js fireRound: a round of the class `def` fired from
+    /// fireRound: a round of the class `def` fired from
     /// `origin` along `direction`. The round made, for a bolt, rocket,
     /// missile, shell or fat ray; beams and grenades give none.
     /// `emitter`: what a beam follows (Null: its owner). `target_id`,
@@ -139,7 +139,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
     }
 
-    /// ordnance.js flightMissile: a flyer's missile (fireSeat),
+    /// flightMissile: a flyer's missile (fireSeat),
     /// steered by its seeker for the class's missile lifetime at its missile
     /// speed. False for a round no longer flying.
     pub fn flight_missile(&mut self, r: Ref<Round>, flight_class: Option<StrId>, life: f64, speed: f64) -> bool {
@@ -151,7 +151,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         true
     }
 
-    /// ordnance.js fatray.
+    /// fatray.
     fn fatray(&mut self, def: DefId, origin: Vec3, direction: Vec3, owner: OrdnanceOwner, ignore_body: Option<Ref<Body>>, channel: f64) -> Ref<Round> {
         let dir = normalize(direction);
         let (speed, life) = {
@@ -191,7 +191,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         r
     }
 
-    /// ordnance.js sweepFat: every unit whose sphere comes within
+    /// sweepFat: every unit whose sphere comes within
     /// FATRAY_RADIUS of the segment flown is struck, once over the ray's life.
     fn sweep_fat(&mut self, r: Ref<Round>, direction: Vec3, span: f64) {
         if span <= 0.0 {
@@ -224,7 +224,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         self.w.recycle_fat_query(near);
     }
 
-    /// ordnance.js beam: a beam persists for LifeSpan and follows its source.
+    /// beam: a beam persists for LifeSpan and follows its source.
     #[allow(clippy::too_many_arguments)]
     fn beam_fire(&mut self, def: DefId, origin: Vec3, direction: Vec3, owner: OrdnanceOwner, ignore_body: Option<Ref<Body>>, emitter: BeamSource, channel: f64) {
         let (duration, damage) = {
@@ -259,7 +259,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         self.w.projectile(Shot::Beam(r), ShotKind::Beam);
     }
 
-    /// ordnance.js stepBeam (a world's: nothing drawn).
+    /// stepBeam (a world's: nothing drawn).
     fn step_beam(&mut self, r: Ref<Beam>, dt: f64) {
         let (life, owner, source, local_origin) = {
             let b = self.beam(r);
@@ -316,7 +316,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         b.life -= dt;
     }
 
-    /// ordnance.js round: a rocket, missile or shell.
+    /// round: a rocket, missile or shell.
     #[allow(clippy::too_many_arguments)]
     fn round_fire(&mut self, kind: RoundKind, def: DefId, origin: Vec3, direction: Vec3, owner: OrdnanceOwner, ignore_body: Option<Ref<Body>>, channel: f64, target_id: Option<f64>, target_generation: Option<f64>) -> Ref<Round> {
         let bullet = kind == RoundKind::Bullet;
@@ -370,7 +370,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         r
     }
 
-    /// ordnance.js bolt: a bolt's flight traced once at launch (its life cut
+    /// bolt: a bolt's flight traced once at launch (its life cut
     /// at what it will hit), then flown, at once to the world's tick for a
     /// shot judged in the past.
     #[allow(clippy::too_many_arguments)]
@@ -425,7 +425,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         r
     }
 
-    /// ordnance.js throw: a grenade, tumbling about an axis drawn from the
+    /// throw: a grenade, tumbling about an axis drawn from the
     /// grenade-spin stream (three's Vector3.randomDirection).
     fn throw(&mut self, def: DefId, origin: Vec3, direction: Vec3, owner: OrdnanceOwner, channel: f64) {
         let (speed, gravity) = {
@@ -460,7 +460,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         self.w.projectile(Shot::Grenade(r), ShotKind::Grenade);
     }
 
-    /// ordnance.js update (a world's: nothing drawn): every beam, bolt,
+    /// update (a world's: nothing drawn): every beam, bolt,
     /// grenade and round steps in its list's order, then each list keeps
     /// those still flying. A round fired meanwhile (by a call the steps
     /// make) joins its list and steps too, as the JavaScript's loop visits
@@ -531,7 +531,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         });
     }
 
-    /// ordnance.js stepRound.
+    /// stepRound.
     fn step_round(&mut self, r: Ref<Round>, dt: f64) {
         let (dead, impact, kind, def, owner) = {
             let o = self.round(r);
@@ -629,7 +629,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         orient(o.velocity, &mut o.quaternion);
     }
 
-    /// ordnance.js steer: a missile turns toward where it wants to go at
+    /// steer: a missile turns toward where it wants to go at
     /// TurnRate (no target: the way it was fired) and wavers by WaverTurn,
     /// both eased in over ScaleTime.
     fn steer(&mut self, r: Ref<Round>, dt: f64) {
@@ -697,7 +697,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
     }
 
-    /// ordnance.js impactAt: what hit, told to the capture, damaged, and its
+    /// impactAt: what hit, told to the capture, damaged, and its
     /// ExplosionImpact set off just off the surface.
     #[allow(clippy::too_many_arguments)]
     fn impact_at(&mut self, r: Ref<Round>, point: Vec3, normal: Vec3, terrain: bool, body: Option<Ref<Body>>, unit: Option<Ref<Unit>>, part: Nullable<HitPart>) {
@@ -735,12 +735,12 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
     }
 
-    /// ordnance.js remove (a round's).
+    /// remove (a round's).
     fn remove_round(&mut self, r: Ref<Round>) {
         self.round(r).gone = Some(true);
     }
 
-    /// ordnance.js stepBolt (a world's: nothing drawn). `history_tick`: the
+    /// stepBolt (a world's: nothing drawn). `history_tick`: the
     /// tick a lag-compensated bolt's step meets the others at.
     fn step_bolt(&mut self, r: Ref<Bolt>, dt: f64, history_tick: Option<f64>) {
         let (def, life, start, direction, speed, owner, ignore_body) = {
@@ -839,7 +839,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
     }
 
-    /// ordnance.js stepGrenade.
+    /// stepGrenade.
     fn step_grenade(&mut self, r: Ref<Grenade>, dt: f64) {
         let def = self.grenade(r).def;
         let fuse_life = self.ord(def).life_span.or(0.0);
@@ -888,7 +888,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
     }
 
-    /// ordnance.js bounce: sweep from just behind where the grenade was to
+    /// bounce: sweep from just behind where the grenade was to
     /// just past where it is.
     fn bounce(&mut self, r: Ref<Grenade>) {
         let (position, previous, def) = {
@@ -947,7 +947,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
     }
 
-    /// ordnance.js explode (a grenade's).
+    /// explode (a grenade's).
     fn explode(&mut self, r: Ref<Grenade>) {
         let (def, position, owner) = {
             let g = self.grenade(r);
@@ -965,7 +965,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
     }
 
-    /// ordnance.js castUnits: the first unit a segment meets (the world
+    /// castUnits: the first unit a segment meets (the world
     /// says which may be struck). `mount`: the hull a round has gone
     /// through to its riders (riderBehind).
     #[allow(clippy::too_many_arguments)]
@@ -976,7 +976,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         self.w.raycast_units(origin, direction, far, owner, history_tick, ignore_body, mount)
     }
 
-    /// ordnance.js riderBehind: a round that met a hull whose collision
+    /// riderBehind: a round that met a hull whose collision
     /// doesn't keep rounds off its riders goes on through it to a rider of
     /// it, if it crosses his body before anything else.
     #[allow(clippy::too_many_arguments)]
@@ -998,7 +998,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
     }
 }
 
-/// ordnance.js orient: nose (+z) along the flight, its x across the world's up.
+/// orient: nose (+z) along the flight, its x across the world's up.
 fn orient(velocity: Vec3, quaternion: &mut Quat) {
     let forward = normalize(velocity);
     if length_sq(forward) < 1e-8 {
@@ -1013,7 +1013,7 @@ fn orient(velocity: Vec3, quaternion: &mut Quat) {
     *quaternion = from_basis(right, up, forward);
 }
 
-/// ordnance.js healthScale for the share of an item's blast.
+/// healthScale for the share of an item's blast.
 pub fn blast_distance(position: Vec3, center: Vec3, radius: f64) -> f64 {
     distance_to(center, position) - 0.5 * radius
 }

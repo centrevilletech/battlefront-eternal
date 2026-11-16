@@ -24,7 +24,6 @@ fn make_lists(entries: &[(usize, Vec<&str>, Vec<&str>)], local: Option<&str>) ->
     }
 }
 
-// Mirrors `tests/bot-names.test.js`:
 // "a name: a first name and a last name from the side's lists, each a raw draw modulo the list"
 // "empty lists: two letters A-Z, three digits"
 #[test]
@@ -78,7 +77,6 @@ fn side_lists_and_empty_fallbacks_draw_modulo_from_classic_random() {
     assert!(bytes[3].is_ascii_digit() && bytes[4].is_ascii_digit() && bytes[5].is_ascii_digit());
 }
 
-// Mirrors `tests/bot-names.test.js`:
 // "each side's generator starts from its own side type, so the same side names its bots the same"
 // "locals all take the level's local name; the lists hold 64 names at most"
 #[test]
@@ -126,7 +124,6 @@ fn per_side_seeds_locals_64_entry_cap_and_human_name_match_2004_rules() {
     assert_eq!(human_name(0.0), "Player 1");
 }
 
-// Mirrors `tests/bot-names.test.js`:
 // "the retail sequences: Geonosis' end screen names"
 #[test]
 fn retail_sequences_match_geonosis_end_screen_names_when_extracted() {

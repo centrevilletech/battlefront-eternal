@@ -1,6 +1,6 @@
 //! Dedicated 60 Hz local world thread and bounded non-blocking command/publication
 //! boundary for Instant Action battles (`src/game.js` `step` loop,
-//! `src/network-session.js` snapshot delivery).
+//! snapshot delivery).
 //!
 //! Why a separate thread with pre-allocated mailboxes:
 //! - Deliverable 3 requires the local world to step at 60 Hz on its own thread

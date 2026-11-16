@@ -75,7 +75,7 @@ impl Bots {
     }
 }
 impl Options {
-    /// world-hash.mjs: `['rep', 'cis'].includes(side) ? 'cw' : 'gcw'`.
+    /// `['rep', 'cis'].includes(side) ? 'cw' : 'gcw'`.
     pub fn era(&self) -> &'static str {
         if self.side == "rep" || self.side == "cis" { "cw" } else { "gcw" }
     }

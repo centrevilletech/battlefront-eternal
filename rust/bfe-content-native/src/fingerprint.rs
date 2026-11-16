@@ -1,4 +1,4 @@
-//! content-hash.js's gameplay-only fingerprint. Native and browser clients
+//! gameplay-only fingerprint. Native and browser clients
 //! hash their own prepared files; a server's advertised digest never substitutes
 //! for missing local content. Text formatting and incidental bone order do not
 //! change the agreement that gates spawning.

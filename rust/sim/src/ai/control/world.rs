@@ -326,7 +326,7 @@ pub struct CaptureSnap {
 }
 
 /// A command post as the core reads it (commandposts.js Post,
-/// mobile-posts.js MobilePost). `region` is what `post.contains`
+/// MobilePost). `region` is what `post.contains`
 /// tests; `capture` inside `ai` is the mission's region the patrol
 /// geometry reads (patrol.js captureRegion prefers the population's).
 #[derive(Clone, Debug, PartialEq)]
@@ -781,7 +781,7 @@ pub trait AiWorld: Characters {
     fn emit_vo(&mut self, unit: UKey, event: &str, property: &str, command: f64, context: Option<f64>, positional: Option<bool>, notice: Option<bool>);
 
     // -- AI combat services (classic/index.js combatAdapter +
-    // combat.js classicBinding; the combat package's).
+    // classicBinding; the combat package's).
     /// A live native host keeps the control and combat projections of
     /// this controller current before entering combat. Boundary replays
     /// already supply their entry state and need no additional action.
@@ -972,7 +972,7 @@ pub trait AiWorld: Characters {
     fn combat_writes(&mut self, controller: usize) -> CombatWrites;
     /// world.network && world.secondaryWorldActive.
     fn network_secondary_active(&self) -> bool;
-    /// nav/analogs.js navigationInput (executor step, posture/jet,
+    /// navigationInput (executor step, posture/jet,
     /// analogs into the intent) and analogs alone.
     fn nav_navigation_input(&mut self, _core:&mut crate::ai::control::Core, controller: usize, step: f64, aim: Option<Vec3>,facing:bool) -> (Option<HelperObs>, Vec<CoreEffect>);
     fn nav_analogs(&mut self, _core:&mut crate::ai::control::Core, controller: usize, aim: Option<Vec3>, step: f64,facing:bool) -> ([f64; 4], Vec<CoreEffect>);
@@ -997,7 +997,7 @@ pub struct TeamTable {
 }
 
 impl TeamTable {
-    /// registry.js relation(a, b).
+    /// relation(a, b).
     pub fn relation(&self, a: f64, b: f64) -> f64 {
         if a == b {
             return if a != 0.0 && !a.is_nan() { 1.0 } else { 0.0 };

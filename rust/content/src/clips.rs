@@ -74,7 +74,7 @@ fn element(list: &[f64], i: f64) -> Option<f64> {
     }
 }
 
-/// src/anim.js loadClips(meta, buffer, boneNames).
+/// loadClips(meta, buffer, boneNames).
 pub fn load_clips(meta: &Value, floats: &Rc<[f32]>, bone_names: Option<&[String]>) -> Result<Clips, String> {
     // lookup: lower-case name -> index (a later duplicate wins).
     let lookup = bone_names.map(|names| {
@@ -127,7 +127,7 @@ pub fn load_clips(meta: &Value, floats: &Rc<[f32]>, bone_names: Option<&[String]
     Ok(out)
 }
 
-/// src/vehicles.js 1987-1996: a walker bank holds a reference record and
+/// 1987-1996: a walker bank holds a reference record and
 /// then the animated record for the same joint; only the last drives it.
 pub fn keep_last_tracks(clips: &mut Clips) {
     for clip in &mut clips.list {

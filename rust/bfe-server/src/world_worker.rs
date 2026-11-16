@@ -1480,7 +1480,7 @@ impl NativeWorldHost {
     }
 
     /// Marks a joined client as started and ready for snapshot streaming (`handle("start")` in
-    /// `src/world-worker.js` and `setStarted` / `setReady`).
+    /// and `setStarted` / `setReady`).
     pub fn handle_start(&mut self, peer_id: &str, now_ms: f64) {
         self.last_now_ms = self.last_now_ms.max(now_ms);
         let Some(&native_id) = self.native_by_client.get(peer_id) else {

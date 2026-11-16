@@ -55,7 +55,7 @@ impl Definitions {
     }
 }
 
-/// weapon-content-sim.js valueWords. Missing and null are distinct; numbers
+/// valueWords. Missing and null are distinct; numbers
 /// are copied without arithmetic to preserve signed zero and NaN payloads.
 /// The depth guard applies only to containers, just as in JavaScript.
 pub fn value_words(value: Option<&Value>, strings: &mut Strings, weapons: Option<&Definitions>) -> Vec<f64> {
@@ -281,7 +281,7 @@ pub struct Bindings {
     pub combat: CombatRows,
     pub ordnance: super::ordnance::OrdnanceRows,
     pub items: super::items::ItemRows,
-    // combat-sources.js derivedFrom: keep the authored provenance separate
+    // derivedFrom: keep the authored provenance separate
     // from the derived object's own immutable fields and native identity.
     sources: HashMap<usize,(Value,Value)>,
 }
@@ -513,7 +513,7 @@ pub fn attach_unit(cx:&mut super::Cx,id:u32,def:&Value,player:bool,stage:Stage)-
     Ok(calls)
 }
 
-/// game.js's initial viewpoint attaches before the fleet. Its registry id
+/// initial viewpoint attaches before the fleet. Its registry id
 /// must already be supplied by the registry owner, as Units.add supplied it.
 pub fn build(cx:&mut super::Cx)->Result<super::Calls,AdmitError> {
     let id=cx.ids.registry.iter().find(|(key,_)|key=="viewpoint").map(|(_,id)|*id)
@@ -579,7 +579,7 @@ fn sources_of(cx:&super::Cx,kind:DefinitionKind,registered:Vec<Value>)->Result<V
     Ok(values)
 }
 
-/// weapon-targeting.js vehicleMissileDefinition runs before policy loading.
+/// vehicleMissileDefinition runs before policy loading.
 /// It shallow-copies only the three authored tank launchers; every hull gets
 /// fresh weapon and ordnance identities, retaining all other child aliases.
 pub fn vehicle_missile_definition(def:&Value)->Result<Value,AdmitError> {

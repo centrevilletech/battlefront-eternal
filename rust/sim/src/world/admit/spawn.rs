@@ -469,7 +469,7 @@ fn prepare_body(world: &mut World, cx: &mut super::rows::Cx, class_name: &str,
         crate::vehicles::module::f2::riders::f2_rider_birth_in(world);
         calls.push((Stage::Player,"f2_rider_birth",units::call(F2RiderBirth::WORDS,|r,h|rider.put(r,h))));
     }
-    // game.js instrument runs after F3's adoption and crew preparation.
+    // instrument runs after F3's adoption and crew preparation.
     // Assigning CombatFacade.random emits the flag setter, then refresh binds
     // its gameplay callback. Registration was earlier; this never draws it.
     for (action,field,value) in [(F3Action::CombatField,F3CombatField::Random as u32,1.),
@@ -508,7 +508,7 @@ fn droideka_class_id(world: &mut World, cx: &mut super::rows::Cx, parts: &super:
     Ok(id)
 }
 
-/// game.js 3111 headless: `unitsSim.adopt(playerUnit, true)` then
+/// 3111 headless: `unitsSim.adopt(playerUnit, true)` then
 /// `unitsSim.registerViewpoint(playerUnit)` and F3Factory.resident. The
 /// dormant viewpoint is the body PlayerBodies built and placed before the
 /// handoff: its Unit import carries the body_spawn answer (the grounded
@@ -562,7 +562,7 @@ pub fn adopt_viewpoint(world: &mut World, cx: &mut super::rows::Cx, slot: u32, s
     }
     body.unit.alive = true; body.unit.dead = false; body.unit.removed = false; body.unit.targetable = Some(true);
     body.unit.tick_count = 1.0;
-    // game.js: `new Unit({..., human: true})`, `playerUnit.team =
+    // `new Unit({..., human: true})`, `playerUnit.team =
     // playerTeam`, and createNativeAI's `playerUnit.character = battle.human`
     // all precede the headless adoption, so its import carries them.
     body.unit.human = true;

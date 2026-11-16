@@ -217,7 +217,7 @@ impl ServerHandshakes {
         self.pending.iter().filter(|p| p.prefix == prefix).count()
     }
 
-    /// `src/net/handshake.js` `ServerHandshakes.initiation`: validates the
+    /// `ServerHandshakes.initiation`: validates the
     /// 1,200-byte UDP initiation, enforces retry tokens when `require_retry`
     /// is set or pending count reaches `retry_above`, and returns `VERSION`,
     /// `RETRY`, or a signed `RESPONSE` datagram.
@@ -385,7 +385,7 @@ impl ServerHandshakes {
         Some(out)
     }
 
-    /// `src/net/handshake.js` `ServerHandshakes.confirm`: verifies the
+    /// `ServerHandshakes.confirm`: verifies the
     /// client's signed confirmation from the same source path and derives
     /// server traffic keys (`s ap` for send, `c ap` for receive).
     pub fn confirm(&mut self, bytes: &[u8], source: &str, now: f64) -> Option<CompletedHandshake> {

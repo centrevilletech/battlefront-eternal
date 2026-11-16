@@ -129,7 +129,7 @@ impl Authority {
             "F4_TAIL_INPUT",
             &put::<{ F4TailInput::WORDS }>(|row, heap| tail.put(row, heap)),
         )?;
-        // ai-world-load.js prepare(dt, tick, true): network views (the
+        // prepare(dt, tick, true): network views (the
         // players' phase writes the cameras natively), no reticle, the AI's
         // time is simTime, the journal is the sim events since its cursor:
         // each shot or damage record as an AiJournalEvent row, a unit

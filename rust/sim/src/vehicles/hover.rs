@@ -309,7 +309,7 @@ pub fn hover_springs(v: &mut Hull, dt: f64, compressions: &[f64; SPRINGS]) {
     v.hover_class = Some(h);
 }
 
-/// src/vehicle-hover.js restHeight: how high over the floor a hover rests
+/// restHeight: how high over the floor a hover rests
 /// (a new hull is set down there): without springs, SetAltitude less what
 /// its lift spring gives under its gravity; with them, the height their
 /// lift carries its weight at (its springs' travel bisected 40 times).

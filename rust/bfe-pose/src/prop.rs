@@ -33,13 +33,13 @@ pub fn max(a: f64, b: f64) -> f64 {
     }
 }
 
-/// props.js length(): the original game's length of a clip, its frames
+/// length(): the original game's length of a clip, its frames
 /// at 30 a second (one frame past the port's duration).
 pub fn length(clip: Option<&Clip>) -> f64 {
     clip.map_or(0.0, |c| c.frames as f64 / c.fps)
 }
 
-/// props.js within(): a soldier with his feet at `feet` is within
+/// within(): a soldier with his feet at `feet` is within
 /// `reach` of `point` as the 2004 game's region query has it, his
 /// collision sphere's box against the box `reach` round the point.
 pub fn within(point: [f64; 3], reach: f64, feet: [f64; 3]) -> bool {

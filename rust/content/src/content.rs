@@ -25,7 +25,7 @@ pub struct VehicleTemplate {
     pub clips: Option<Clips>,
     pub wheel_radii: Vec<(String, f64)>,
     pub muzzle_tips: Vec<(String, [f64; 3])>,
-    /// flight/gear.js gearFoot: how far below its origin it stands on its
+    /// gearFoot: how far below its origin it stands on its
     /// gear (a craft with a takeoff clip), else None.
     pub gear_foot: Option<f64>,
 }
@@ -58,7 +58,7 @@ pub struct Content {
     pub vehicle_models: Option<ModelMap>,
     pub vehicle_extras: Option<ModelMap>,
     pub props_models: Option<ModelMap>,
-    /// game.js weaponModels: the played side's pack, the other sides'
+    /// weaponModels: the played side's pack, the other sides'
     /// (first name wins), then the vehicle pack's extras (a headless world
     /// has no turret extras). Values say which pack each came from.
     pub weapon_models: ModelMap,
@@ -73,7 +73,7 @@ pub struct Content {
     pub vehicle_templates: Vec<VehicleTemplate>,
     pub vehicle_blockers: Option<BodyTriangles>,
     pub prop_bodies: Vec<PropBodies>,
-    /// props.js clipsFor: a model's clips, by model, in first-use order.
+    /// clipsFor: a model's clips, by model, in first-use order.
     pub prop_clips: Vec<(String, Option<Clips>)>,
     pub death_regions: Vec<(Value, BuiltRegion)>,
     /// ai-nav.bin's routing words (routeWords).
@@ -101,7 +101,7 @@ fn parts_records(models: Option<&Value>) -> Value {
     Value::Object(Rc::new(Object::from_written(out)))
 }
 
-/// nav/data.js routeWords(bin, routes).
+/// routeWords(bin, routes).
 pub fn route_words(bin: Option<&[u8]>, routes: Option<&Value>) -> Option<Result<Vec<u32>, String>> {
     let routes = routes.filter(|r| r.truthy())?;
     let Some(bytes) = bin else { return Some(Err("ai-nav: graph without ai-nav.bin".into())) };
@@ -246,7 +246,7 @@ impl Content {
         let mut prop_bodies = Vec::new();
         let mut prop_clips: Vec<(String, Option<Clips>)> = Vec::new();
         if let Some(props) = &b.props {
-            // game.js 1229-1231: present with props_collision.bin; a missing
+            // 1229-1231: present with props_collision.bin; a missing
             // index or polygon file is `new Uint32Array(null)`, empty.
             let triangles = match &b.props_coll_buf {
                 Some(p) => Some((
@@ -316,7 +316,7 @@ impl Content {
                 }
             }
         }
-        // placed-items.js spawnPlacedItems.
+        // spawnPlacedItems.
         let mut placed_items = Vec::new();
         for (index, entry) in b.props.as_ref().and_then(|p| p.get("items")).and_then(Value::as_array).unwrap_or(&[]).iter().enumerate() {
             let Some(item) = entry.get("item").filter(|i| i.truthy()) else { continue };

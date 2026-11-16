@@ -611,13 +611,13 @@ impl MapRules {
         MapRules { water, level: f64::NAN, kill_y, regions }
     }
 
-    /// game.js inDeathRegion(p).
+    /// inDeathRegion(p).
     pub fn in_death_region(&self, p: &Vector3) -> bool {
         p.y < self.kill_y || self.regions.iter().any(|r| in_region(r, p))
     }
 }
 
-/// src/regions.js inRegion(built, point).
+/// inRegion(built, point).
 pub fn in_region(built: &BuiltRegion, point: &Vector3) -> bool {
     let kind = built.kind.as_ref().and_then(Value::as_str);
     if kind == Some("sphere") {

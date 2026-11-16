@@ -32,7 +32,7 @@ fn dispatch(world: &mut World, cx: &mut Cx, calls: &mut Calls, name: &'static st
     Ok(answer)
 }
 
-/// f4-live.js `text`: `String(value ?? '').trim().replace(/\n/g,' ') || null`.
+/// `text`: `String(value ?? '').trim().replace(/\n/g,' ') || null`.
 fn text(value: Option<&Value>) -> Result<Option<String>, AdmitError> {
     let s = match value {
         None | Some(Value::Null) => String::new(),
@@ -187,7 +187,7 @@ fn ensure_battle(world: &mut World, cx: &Cx) -> Result<(), AdmitError> {
     Ok(())
 }
 
-/// game.js spawnPosts at the human's first spawn: the player's team's
+/// spawnPosts at the human's first spawn: the player's team's
 /// active posts with a spawn path, else every active post with one.
 /// Mobile posts have no spawn path, so only the command posts count.
 fn spawn_posts(world: &World, cx: &Cx, team: f64) -> Vec<Ref<Post>> {

@@ -1,4 +1,4 @@
-//! `MathUtils.js` (r170), function by function. The UUID table and
+//! (r170), function by function. The UUID table and
 //! the `Math.random` helpers take their draws from the caller (see
 //! the crate notes).
 

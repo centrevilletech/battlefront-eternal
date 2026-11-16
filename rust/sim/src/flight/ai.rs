@@ -1,4 +1,4 @@
-//! src/flight/ai.js: a bot pilot's stick (`pilotInput`), from the steering
+//! a bot pilot's stick (`pilotInput`), from the steering
 //! point its path planning gives (or what it aims at), and the 2004 game's
 //! altitude stage (`raiseOverTerrain`), which raises that point so the
 //! craft clears what lies ahead by 25 m. The vehicle AI calls these (its

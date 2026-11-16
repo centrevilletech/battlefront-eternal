@@ -6,7 +6,7 @@
 use bfe_sim::gen::{WorldClockState, WorldTickInput, WorldTickOutput};
 use bfe_sim::world::clock;
 
-/// game.js: `new FixedClock({ budget: 0.035, maxDebt: 8 })`, 60 Hz and
+/// `new FixedClock({ budget: 0.035, maxDebt: 8 })`, 60 Hz and
 /// maxSteps 8 by default, every running field zero from `reset()`.
 pub fn battle_clock() -> WorldClockState {
     WorldClockState { hz: 60.0, dt: 1.0 / 60.0, max_steps: 8.0, budget: 0.035, max_debt: 8.0, ..Default::default() }

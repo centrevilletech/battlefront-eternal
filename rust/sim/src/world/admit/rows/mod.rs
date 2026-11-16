@@ -241,7 +241,7 @@ impl<'a> Cx<'a> {
 pub struct Rows {
     /// WorldOperation's water row (the setup builder's twin).
     pub setup: WorldTickSetup,
-    /// f3-factory.js: the cold stage rows of the bodies prepared before
+    /// the cold stage rows of the bodies prepared before
     /// ticking; their cookies resolve in construction order through `Cx`.
     pub cold_stages: Vec<F3ColdStage>,
     pub calls: Vec<(Stage, Calls)>,

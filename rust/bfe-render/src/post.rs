@@ -67,7 +67,7 @@ pub const STATE_DEPTH_WRITE: u32 = 2;
 pub const STATE_BLEND: u32 = 4;
 pub const STATE_OWN_GEOMETRY: u32 = 8;
 
-// render-passes.js: one oversized triangle, positions then uvs.
+// one oversized triangle, positions then uvs.
 const TRIANGLE: [f32; 15] = [-1.0, -1.0, 0.0, 3.0, -1.0, 0.0, -1.0, 3.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 2.0];
 // Where every post program reads them (add_program's attributes).
 pub const POSITION: u32 = 0;

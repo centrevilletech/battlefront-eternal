@@ -8,19 +8,19 @@ use super::{truthy, SeatWorld};
 use crate::gen::{SeatLease, Store, Unit, UnitBody, Vehicle};
 use crate::store::{Ref, Slab};
 
-/// boarding.js personUnit: a person (the player, a network human) rather
+/// personUnit: a person (the player, a network human) rather
 /// than a bot.
 pub fn person_unit(u: &Unit) -> bool {
     u.human || network_human(u)
 }
 
-/// boarding.js inFlight: a craft off the ground (taking off, flying or
+/// inFlight: a craft off the ground (taking off, flying or
 /// landing).
 pub fn in_flight(v: &Vehicle, _side: &HullSide) -> bool {
     v.flying && v.alive && v.flight_state != Some(crate::gen::FlightState::Landed)
 }
 
-/// boarding.js teamRelation: 1 friend, 0 neutral, -1 enemy, without
+/// teamRelation: 1 friend, 0 neutral, -1 enemy, without
 /// alliances.
 pub fn team_relation(a: f64, b: f64) -> f64 {
     if a == b {
@@ -36,7 +36,7 @@ pub fn team_relation(a: f64, b: f64) -> f64 {
     }
 }
 
-/// boarding.js canBoard: alive, a soldier on foot in no seat (not a
+/// canBoard: alive, a soldier on foot in no seat (not a
 /// droideka), of a class that may enter vehicles; a person not in a jump,
 /// fall or jet. `no_enter`: Number.parseFloat of the class's
 /// NoEnterVehicles (0 when it has none).
@@ -81,7 +81,7 @@ pub fn controlling_team(v: &Vehicle, _side: &HullSide, leases: &Slab<SeatLease>)
     v.team
 }
 
-/// boarding.js boardingSeat: the seat a soldier of `team` boarding `v`
+/// boardingSeat: the seat a soldier of `team` boarding `v`
 /// takes, or -1 when he may not. A hull anyone holds takes only that
 /// crew's friends; a bot boards only its own team's hulls (a hull of no
 /// team, anyone's) and only a free seat; a person takes `preferred` when it
@@ -132,13 +132,13 @@ pub fn boarding_seat_with(relation:&mut impl FnMut(f64,f64)->f64,st:&Store,v:&Ve
     -1
 }
 
-/// boarding.js mayLeave: a person may get out at any time; a bot stays
+/// mayLeave: a person may get out at any time; a bot stays
 /// aboard a craft in flight.
 pub fn may_leave(v: &Vehicle, side: &HullSide, lease: &SeatLease, units: &Slab<Unit>) -> bool {
     person_lease(lease, units) || !in_flight(v, side)
 }
 
-/// boarding.js claimSeat: makes seat `index` his; a bot holding it moves
+/// claimSeat: makes seat `index` his; a bot holding it moves
 /// on to the next free seat or gets out (Vehicles.displace). Whether the
 /// seat is free now.
 pub fn claim_seat<W: SeatWorld + ?Sized>(hulls: &mut Hulls, st: &mut Store, w: &mut W, hull: usize, index: usize) -> bool {
@@ -169,7 +169,7 @@ pub enum SeatControl {
     Turret,
 }
 
-/// boarding.js seatControl (None: no such seat).
+/// seatControl (None: no such seat).
 pub fn seat_control(v: &Vehicle, index: usize) -> Option<SeatControl> {
     v.seats.get(index)?;
     Some(if index > 0 {
@@ -190,7 +190,7 @@ pub struct LookScales {
     pub flight_invert: bool,
 }
 
-/// boarding.js seatLook: mouse counts on a seat. A craft's pilot moves its
+/// seatLook: mouse counts on a seat. A craft's pilot moves its
 /// virtual stick (stickX, stickY, kept inside the unit circle); any other
 /// seat turns its look, held inside the seat's limits.
 #[derive(Clone, Copy)]
@@ -257,7 +257,7 @@ pub fn seat_look(v: &mut Vehicle, index: usize, dx: f64, dy: f64, s: &LookScales
     seat_look_with(&mut NativeLook { vehicle: v, index }, dx, dy, s).unwrap();
 }
 
-/// boarding.js turretTakeover: whether a person may take this turret from
+/// turretTakeover: whether a person may take this turret from
 /// whoever mans it: unmanned, or manned by a bot's lease.
 pub fn turret_takeover(gunner: bool, lease: Option<&SeatLease>, units: &Slab<Unit>) -> bool {
     if !gunner {
@@ -348,7 +348,7 @@ pub enum Mount {
     Turret(usize),
 }
 
-/// boarding.js mountInReach: the nearest hull in reach ahead of him that he
+/// mountInReach: the nearest hull in reach ahead of him that he
 /// may board, else the turret he faces (a person may take a bot's over).
 /// `hulls`: the battle's hulls; `crews`: its turret crews.
 pub fn mount_in_reach<W: SeatWorld + ?Sized>(w: &mut W, st: &Store, hulls: &super::hulls::Hulls, crews: &super::turrets::Crews, unit: u32, person: bool) -> Option<Mount> {
@@ -386,7 +386,7 @@ fn math_cos(x: f64) -> f64 {
     crate::rig::math::cos(x)
 }
 
-/// boarding.js leaveKilled: a rider killed on his seat leaves it at once,
+/// leaveKilled: a rider killed on his seat leaves it at once,
 /// his body falling from where it rode (the seat is handed on as after any
 /// exit); a turret's gunner the same. Whether he held a seat. (The client's
 /// own player leaves through his VehicleDriver or Gunner, not here.)

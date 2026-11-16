@@ -314,7 +314,7 @@ impl Sender {
         if !receiver.welcomed || receiver.spectator || receiver.corrections == 0 {
             return;
         }
-        // game.js applyLook and NetworkSession's view context use the same
+        // applyLook and NetworkSession's view context use the same
         // mouse settings. Advertising a fixed scale made the server turn
         // twice as far as the default desktop prediction requested.
         self.mouse_scale = if c.has_mouse_scale && c.mouse_scale.is_finite() && c.mouse_scale > 0. { c.mouse_scale.min(2.) } else { 1. };

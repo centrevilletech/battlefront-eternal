@@ -37,7 +37,7 @@ pub fn decode_view(tick: f64, schema: f64, payload: &[u8]) -> Result<View, Strin
     })
 }
 
-/// wire-presentation.js `ERRORS`: the message of each event writer error.
+/// `ERRORS`: the message of each event writer error.
 const PRESENTATION_ERRORS: [&str; 15] = [
     "",
     "Invalid presentation exchange",
@@ -83,7 +83,7 @@ pub struct Capture {
 }
 
 /// What `capture_bolt` answered for a launched round (src/runtime/
-/// network-entity-combat.js `captureBolt`), kept until its terminal. The
+/// `captureBolt`), kept until its terminal. The
 /// page passed these numbers through JSON, where a value that is not finite
 /// is null and reads back as 0 (`expiry` stays raw: a terminal replaces a
 /// null expiry with `tick + 18`).

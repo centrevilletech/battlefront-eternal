@@ -1,7 +1,7 @@
 //! The Classic AI's control core (src/ai/classic/: index.js's entry
 //! point, controller.js's controllers, scheduler.js, interrupts.js,
 //! agents.js, patrol.js, squads.js, goals.js's objectives,
-//! classes.js's behavior helpers, difficulty.js, and the Enhanced
+//! behavior helpers, difficulty.js, and the Enhanced
 //! objective agents and objectives). Everything outside it crosses
 //! `world::AiWorld`. The JavaScript's classes
 //! become index-driven dispatch here: every state machine's state is
@@ -2504,7 +2504,7 @@ impl Core {
     }
 
     fn hint_available_at<W:AiWorld+?Sized>(&self, w: &W, hint: usize) -> bool {
-        // classes.js available(): the raw reservedAt rule, not the
+        // available(): the raw reservedAt rule, not the
         // bag's hintAvailable.
         !(w.time() < w.nav_hint(hint).reserved_at.unwrap_or(-10.0) + 4.0)
     }
@@ -2514,7 +2514,7 @@ impl Core {
         (team == 1.0 || team == 2.0) && count.map(|c| c <= 25.0).unwrap_or(false)
     }
 
-    /// classes.js query(): candidates within range (+ radius),
+    /// query(): candidates within range (+ radius),
     /// predicate applied, capped. `include_dead` uses the service
     /// candidates (buildings included).
     fn classes_query<W:AiWorld+?Sized>(&mut self, w: &mut W, center: Vec3, range: f64, cap: usize, include_dead: bool, pred: &dyn Fn(&Core, &W, UKey) -> bool) -> crate::ai::owned::scratch::List<UKey> {
@@ -3386,7 +3386,7 @@ impl Core {
 
 impl Core {
     // -- alert policies (agents.js virtuals, patrol/snipe/mine policies,
-    // enhanced/agents.js focused) -----------------------------------------
+    // focused) -----------------------------------------
 
     fn active_helper(&self, ci: usize) -> u8 {
         // 1 patrol, 2 snipe, 3 mine, 0 none.
@@ -3505,7 +3505,7 @@ impl Core {
 
     fn turret_cannot_reach<W:AiWorld+?Sized>(&mut self, w: &mut W, ci: usize, point: Vec3) -> bool {
         let Some(unit) = self.controllers[ci].unit else { return false };
-        // interrupts.js nominalSpeed: soldier?.maxSpeed ?? MaxSpeed (no
+        // nominalSpeed: soldier?.maxSpeed ?? MaxSpeed (no
         // ForwardSpeed fallback there).
         let u = w.unit(unit);
         let speed = u.soldier.and_then(|s| s.max_speed).or_else(|| u.class_def.as_ref().and_then(|c| c.max_speed)).unwrap_or(0.0);

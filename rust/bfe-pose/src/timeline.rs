@@ -1,4 +1,4 @@
-//! snapshot-timeline.js: one retained, bounded snapshot ring and one sample
+//! one retained, bounded snapshot ring and one sample
 //! batch for every remote body and hull. Histories pair by entity id, never
 //! by a packet's or a renderer's row number. The frame allocates nothing.
 use crate::timeline_layout::{timeline_frame as f, timeline_record as r, timeline_output as o, timeline_limits as lim, VERSION};

@@ -794,7 +794,7 @@ impl Input {
         }
     }
 
-    // flight/controls.js uses a separate scheme over the same physical keys.
+    // uses a separate scheme over the same physical keys.
     // Publish its generated record beside the infantry command, so the World
     // chooses its current seat mode without asking the window for key names.
     pub fn take_flight(&mut self) -> ClientFlightCommand {

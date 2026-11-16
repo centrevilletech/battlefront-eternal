@@ -343,7 +343,7 @@ impl OnlineServer {
     }
 
     /// Returns `true` when the server appears to be behind NAT (`OnlineServer.natted()` in
-    /// `src/online-server.js`: no reflexive mapping or any reflexive address not owned by a local interface).
+    /// no reflexive mapping or any reflexive address not owned by a local interface).
     pub fn natted(&self) -> bool {
         let hosts: HashSet<String> = self
             .udp

@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 // Online notice version required in the `x-bfe-notice` header by
-// `battlefront-eternal-master/src/auth.js` (`NOTICE_VERSION`) and stored by
+// (`NOTICE_VERSION`) and stored by
 // the desktop host (`ONLINE_NOTICE_VERSION`).
 pub const ONLINE_NOTICE_VERSION: &str = "2026-10-11";
 

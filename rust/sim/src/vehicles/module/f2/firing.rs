@@ -59,7 +59,7 @@ fn nearest_cosine(a: &Vector3, e: &Vector3, d: &Vector3) -> f64 {
     best
 }
 
-/// hud-units.js lockSpan: hulls offer their box, units their lazy sphere.
+/// lockSpan: hulls offer their box, units their lazy sphere.
 pub(crate) fn box_span(origin: &Vector3, direction: &Vector3, matrix: &Matrix4, lo: &Vector3, hi: &Vector3) -> (f64, f64) {
     let mut inverse = *matrix; inverse.invert();
     let mut o = *origin; o.apply_matrix4(&inverse);

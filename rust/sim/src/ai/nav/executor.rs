@@ -45,7 +45,6 @@ fn node_vec(n: &PathNode) -> Vec3 {
 }
 
 impl PathExecutor {
-    /// executor.js:34.
     pub fn new(store: &mut PathStore, host: &mut dyn ExecutorHost, path: usize, control: usize, unit: &mut NavUnit) -> Self {
         let mut e = PathExecutor {
             path,
@@ -90,7 +89,7 @@ impl PathExecutor {
     }
 
     pub fn last(&self, store: &PathStore) -> bool {
-        // executor.js:71: index >= nodes.length - 1, in f64 as written.
+        // index >= nodes.length - 1, in f64 as written.
         self.index as f64 >= store.paths[self.path].nodes.len() as f64 - 1.0
     }
 
@@ -142,7 +141,6 @@ impl PathExecutor {
         }
     }
 
-    /// executor.js:113.
     pub fn reached(&self, store: &PathStore, unit: &NavUnit) -> bool {
         let r = if self.last(store) { near_radius(unit) } else { pass_radius(unit) };
         let dx = self.waypoint.x - unit.position.x;
@@ -150,7 +148,6 @@ impl PathExecutor {
         dx * dx + dz * dz < r * r
     }
 
-    /// executor.js:122.
     pub fn passed(&self, unit: &NavUnit) -> bool {
         let sx = self.waypoint.x - self.prev.x;
         let sz = self.waypoint.z - self.prev.z;
@@ -293,7 +290,6 @@ impl PathExecutor {
         host.write_request(target, self.waypoint, self.direction, self.mode, -1.0, 1.0);
     }
 
-    /// executor.js:245.
     pub fn release(&self, store: &mut PathStore) {
         store.release(self.path);
     }
@@ -353,7 +349,6 @@ pub fn lookahead(a: Vec3, b: Vec3, p: Vec3, ahead: f64, _out: Vec3) -> Vec3 {
     Vec3::new(bx, y, bz)
 }
 
-/// executor.js:300.
 pub fn near_radius(unit: &NavUnit) -> f64 {
     let k = unit.kind;
     if k == kind::SOLDIER || k == kind::DROID {
@@ -365,7 +360,6 @@ pub fn near_radius(unit: &NavUnit) -> f64 {
     4.0
 }
 
-/// executor.js:309.
 pub fn pass_radius(unit: &NavUnit) -> f64 {
     let k = unit.kind;
     if k == kind::FLYER {

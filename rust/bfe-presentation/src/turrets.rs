@@ -54,7 +54,7 @@ impl Turret {
         crate::rider_sources::Source{frame,position:Vector3::new(frame.elements[12],frame.elements[13],frame.elements[14]),
             yaw:input[i::YAW],pitch:input[i::PITCH],yaw_rate:input[i::YAW_RATE],shown:self.shown,turn_rate:self.turn_rate,..Default::default()}
     }
-    /// props.js Turret.present preserves the operation order: parent turn
+    /// Turret.present preserves the operation order: parent turn
     /// times look basis for the drum, bind times YXZ for the gun.
     pub fn present(&mut self, input: &[f64], out: &mut [f64]) {
         // Malformed/stale scalar inputs retain the last pose. A bounded

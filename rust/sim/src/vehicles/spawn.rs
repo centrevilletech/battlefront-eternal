@@ -12,7 +12,7 @@ use bfe_content::value::Value;
 use three::Vector3;
 use v8math::{abs, max, pow};
 
-/// vehicles.js vehicleFootprintsOverlap(a, matrixA, b, matrixB, .3): two
+/// vehicleFootprintsOverlap(a, matrixA, b, matrixB, .3): two
 /// yawed hull rectangles by separating axes (two narrow fighters fit side
 /// by side on a pad even where their bounding spheres overlap).
 pub fn footprints_overlap(a_center: &Vector3, a_size: &Vector3, ma: &[f64; 16], b_center: &Vector3, b_size: &Vector3, mb: &[f64; 16]) -> bool {

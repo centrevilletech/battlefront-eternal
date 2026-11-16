@@ -183,7 +183,7 @@ fn after_tick(id: u32, unit: &mut Unit, info: &UnitsPhaseUnit, level: f64, dt: f
     }
     if water && unit.alive && unit.seat.is_none() && !held(unit) && unit.walker {
         if let (Some(rule), UnitBody::Droideka(d)) = (&info.droideka_water, &mut unit.soldier) {
-            // src/vehicle-water.js waterDamageStep(body, dt, water, rule,
+            // waterDamageStep(body, dt, water, rule,
             // body.position, droidekaWaterDepth(def, rolled)).
             let mut hurt = 0.0;
             if dt > 0.0 {

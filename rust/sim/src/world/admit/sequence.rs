@@ -161,7 +161,7 @@ pub(crate) fn push_page_streams(world: &mut World, cx: &mut Cx) -> Result<(), Ad
 /// prefix, partial.rs) runs a lane's stages alone over the host's recorded
 /// construction of the stages before them.
 pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut Rows, admitted: &mut Admitted, stages: &[Stage]) -> Result<(), AdmitError> {
-    // game.js createGame: `new Units()` numbers members from 1.
+    // createGame: `new Units()` numbers members from 1.
     // The host hands the registry over whole before attachF3 (the KIND_UNITS
     // import); the owning world keeps it as members are added instead.
     if stages.first() == Some(&Stage::Content) && world.sim.store.units.list.is_empty() { world.sim.store.units.next_id = 1.0; }
@@ -227,7 +227,7 @@ pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut 
                 }
             }
             Stage::Player => {}
-            // game.js: `units.add(new Unit({... human: true}))` gives the
+            // `units.add(new Unit({... human: true}))` gives the
             // dormant viewpoint the registry's first id before attachF3Combat
             // constructs its combat; Units.add keeps generation 0.
             // PlayerBodies constructs the player's page body before the
@@ -267,7 +267,7 @@ pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut 
                 let facts = cx.ids.battle.take().unwrap_or_default();
                 cx.ids.battle = Some(rows::battle::Facts { gameplay, ..facts });
             }
-            // game.js after bindWeaponPolicyContent: the fielded classes'
+            // after bindWeaponPolicyContent: the fielded classes'
             // corpse stock (UnitFactory.build/release), then createNativeAI
             // and the roster's missionTeams, each piece against the string
             // table its predecessor left (stock.rs, rows/ai/drive.rs).
@@ -282,7 +282,7 @@ pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut 
                 let constructed = rows::battle::posts::construct(world, cx, &mut imports);
                 rows.calls.push((stage, imports));
                 constructed?;
-                // ai-world-load.js 27: the AI's two bare generators register
+                // 27: the AI's two bare generators register
                 // at ai_world_begin (streamA, streamB), after the stock.
                 let stream_a = cx.streams.register(rows::battle::streams::WORLD_RANDOM);
                 let stream_b = cx.streams.register(rows::battle::streams::WORLD_RANDOM_B);

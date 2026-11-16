@@ -1157,7 +1157,7 @@ fn lod(frame: &[f64], input: &[f64], position: Vector3) -> u32 {
     }
 }
 
-/// vehicles.js riderSample/ninePose and props.js Turret.riderSample. Clip
+/// riderSample/ninePose and props.js Turret.riderSample. Clip
 /// aliases have already resolved at resource registration, including missing
 /// clips and the held-frame stand-ins. A timed clip retains JS loop behavior.
 fn rider_sample(a: &mut Actor, input: &[f64], state: &mut SoldierState, out: &mut [f64], clips: usize) {

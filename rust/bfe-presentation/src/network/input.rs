@@ -26,7 +26,7 @@ impl WiEdge { const WORDS: usize = crate::network_layout::net_edge::STRIDE;
             aim_yaw: row[f::AIM_YAW], aim_pitch: row[f::AIM_PITCH], team: row[f::TEAM],
             team_range_valid: row[f::TEAM_RANGE_VALID] != 0., class_id: row[f::CLASS_ID], post_id: row[f::POST_ID], } }
 }
-// wire-input.js Writer used the same datagram bound. Stack storage permits
+// Writer used the same datagram bound. Stack storage permits
 // complete validation before publication, with no packet-time reservation.
 // A failing scalar never leaves a partially accepted outbound datagram.
 struct Fields { bytes: [u8; 1100], at: usize, limit: usize, }

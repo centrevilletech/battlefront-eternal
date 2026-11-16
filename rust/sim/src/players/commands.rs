@@ -122,8 +122,8 @@ impl InputReader for FlightReader<'_> {
     fn button(&mut self, index: usize) -> Result<bool, Self::Error> { Ok(self.pad.is_some_and(|(_, buttons)| index < 32 && buttons & (1 << index) != 0)) }
 }
 
-/// boarding.js seatInput for a network pilot (no steering assistance), as
-/// vehicle-phase-data.js flightKeys encodes it: an absent key is NaN.
+/// seatInput for a network pilot (no steering assistance), as
+/// flightKeys encodes it: an absent key is NaN.
 fn seat_keys(w: &World, p: &mut Player, names: &super::owner::Names, hull: Ref<Vehicle>, index: usize, command: &Command) -> FlightInput {
     let nan = f64::NAN;
     let blank = FlightInput { forward: 0.0, right: 0.0, turn: 0.0, pitch: nan, up: nan, down: nan, takeoff: nan, stick_x: None, stick_y: None,
@@ -144,7 +144,7 @@ fn seat_keys(w: &World, p: &mut Player, names: &super::owner::Names, hull: Ref<V
     }
 }
 
-/// boarding.js seatInput's `brake`: the driving keys' Space, else nothing.
+/// seatInput's `brake`: the driving keys' Space, else nothing.
 fn seat_brake(w: &World, p: &Player, names: &super::owner::Names, hull: Ref<Vehicle>, index: usize) -> bool {
     w.sim.store.vehicle.get(hull).and_then(|v| seat_control(v, index)) == Some(SeatControl::Drive) && p.controls.has(names.space)
 }

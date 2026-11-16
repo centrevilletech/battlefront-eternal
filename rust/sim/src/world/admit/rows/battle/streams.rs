@@ -49,12 +49,12 @@ mod tests {
     #[test]
     fn registration_order_gives_ids_and_repeats_answer_the_first() {
         let mut streams = Streams::default();
-        // game.js 1392: configure(gameplay, grenade-spin, gameplay, seat).
+        // 1392: configure(gameplay, grenade-spin, gameplay, seat).
         assert_eq!(streams.register(GAMEPLAY), 0);
         assert_eq!(streams.register(GRENADE_SPIN), 1);
         assert_eq!(streams.register(GAMEPLAY), 0);
         assert_eq!(streams.register(SEAT_WEAPONS), 2);
-        // ai-world-load.js: streamA, streamB; then the tail finds streamA again.
+        // streamA, streamB; then the tail finds streamA again.
         assert_eq!(streams.register(WORLD_RANDOM), 3);
         assert_eq!(streams.register(WORLD_RANDOM_B), 4);
         assert_eq!(streams.register(WORLD_RANDOM), 3);

@@ -80,7 +80,6 @@ fn baseline_phase() -> Phase {
     p
 }
 
-// Mirrors `tests/camera-shake.test.js`:
 // "the camera phase measures explosion falloff at the followed origin less half its sphere"
 // "explosion shake has two admissions, four slots, and sums before decaying"
 #[test]
@@ -154,7 +153,6 @@ fn explosion_falloff_two_admission_cap_and_linear_decay_match_2004_rules() {
     assert!(phase.output[o::SHAKE_TOTAL].abs() < 1e-12);
 }
 
-// Mirrors `tests/camera-shake.test.js`:
 // "paused and death views consume no random turns while live views turn on all three axes"
 #[test]
 fn shake_turns_view_by_cubic_random_draw_and_skips_turns_when_paused_or_dead() {
@@ -208,7 +206,6 @@ fn shake_turns_view_by_cubic_random_draw_and_skips_turns_when_paused_or_dead() {
     assert!((phase.output[o::SHAKE_TOTAL] - 0.45).abs() < 1e-9);
 }
 
-// Mirrors `tests/camera.test.js`:
 // "responsive chase view follows mouse aim and an unobstructed orbit on the same frame"
 // "native chase retracts against a wall and releases continuously"
 #[test]

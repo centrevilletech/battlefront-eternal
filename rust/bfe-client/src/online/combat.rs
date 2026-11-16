@@ -392,7 +392,7 @@ impl Combat {
             .weapons
             .iter()
             .map(|weapon| {
-                // weapons.js levels: the class itself, then each of its
+                // levels: the class itself, then each of its
                 // charges laid over it.
                 let charges = weapon.record.get("charges").and_then(bfe_content::Value::as_array).map_or(&[][..], |list| &list[..]);
                 std::iter::once(None)
@@ -454,7 +454,7 @@ impl Combat {
             .filter_map(|c| super::destruction::explosion_of(&c.record))
             .flat_map(|name| super::destruction::explosion_ids(&defs, name).collect::<Vec<_>>())
             .collect();
-        // environment-effects.js warmup: each group's longest particle life,
+        // warmup: each group's longest particle life,
         // at most 4 s.
         let lifetime = |d: &serde_json::Value| d["transformer"]["lifetime"].as_f64().unwrap_or(0.);
         let definitions_json = library.descriptor["definitions"].as_array().map_or(&[][..], |v| v.as_slice());
@@ -1281,7 +1281,7 @@ impl Combat {
         self.ordnance.input[f::FRAME] = self.frame as f64;
         self.ordnance.input[f::RECORDS] = count as f64;
         self.ordnance.input[f::NET_COMMANDS] = net_count as f64;
-        // graphics.js: `boltLook.enhanced = settings.get("boltEffects") !==
+        // `boltLook.enhanced = settings.get("boltEffects") !==
         // "classic"`; the owner draws either look from this one flag.
         self.ordnance.input[f::ENHANCED_BOLTS] = self.enhanced_bolts as u8 as f64;
         self.ordnance.input[f::ENHANCED_SNIPER] = self.enhanced_sniper as u8 as f64;
@@ -1289,7 +1289,7 @@ impl Combat {
         self.clock += dt;
         self.rail_touches.clear();
         for call in self.ordnance.calls().chunks_exact(call::STRIDE).take(self.ordnance.header[h::CALLS] as usize) {
-            // ordnance.js lights.add: a bolt, round or beam asks for one of
+            // lights.add: a bolt, round or beam asks for one of
             // the pool's lights where it is drawn this frame.
             if call[call::KIND] == ck::LIGHT as f64 {
                 lights.add(

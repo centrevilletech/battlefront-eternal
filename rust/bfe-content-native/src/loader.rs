@@ -1,4 +1,4 @@
-//! game.js's native asset admission: the canonical content crate owns authored
+//! native asset admission: the canonical content crate owns authored
 //! definitions and derived collision data; this module adds the visible mesh
 //! streams and texture resources the headless content loader never needed.
 use crate::{
@@ -413,7 +413,7 @@ impl Loader {
                 &mut textures,
             )?;
         }
-        // units.js: a class's textures come from its own side first
+        // a class's textures come from its own side first
         // (`side.texture(name) || anyTexture(name)`).
         let side_tables: Vec<(String, BTreeMap<String, String>)> = content
             .battle
@@ -678,7 +678,7 @@ impl Files for CheckedFiles<'_> {
     }
 }
 
-/// units.js textureOverrides: OverrideTexture takes the place of the texture
+/// textureOverrides: OverrideTexture takes the place of the texture
 /// most of the body's vertices use, OverrideTexture2 of the next. Gives the
 /// body material slot (textures in first-use order, as actor_mesh numbers
 /// them) and the override's name for each override the class has.
@@ -701,7 +701,7 @@ fn override_slots<'a>(def: &Authored, wanted: [Option<&'a str>; 2]) -> Vec<(usiz
         .collect()
 }
 
-/// actor.js keeps one vertex stream for all material groups, with four skin
+/// keeps one vertex stream for all material groups, with four skin
 /// indices/weights even though this imported actor format binds one bone.
 fn actor_mesh(
     name: &str,

@@ -1,10 +1,10 @@
 //! Bitmap font registry, measurement, and quad emission.
 //!
 //! Ports `Fonts` (`lineHeight`, `glyphHeight`, `capsMiddle`, `width`, `draw`) from
-//! `src/interface/fonts.js` on top of [`bfe_render::interface::Font`] and [`bfe_render::interface::Glyph`].
+//! on top of [`bfe_render::interface::Font`] and [`bfe_render::interface::Glyph`].
 //! Uses the exact `f64` advance/bound rounding (`(v * scale + 0.5).floor() + spacing`)
 //! and alignment convention (`0` = left, `1` = right, `2` = center) as
-//! `src/interface/fonts.js` and `rust/bfe-shell/src/render.rs`.
+//! and `rust/bfe-shell/src/render.rs`.
 
 pub use bfe_render::interface::{Batch, Font, Glyph};
 use crate::space::{Color, Matrix, WHITE_COLOR};

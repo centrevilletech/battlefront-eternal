@@ -1,5 +1,5 @@
 //! One page camera phase, replacing game.js's exclusive camera branch,
-//! camera-shake.js and the spawn-shot override. First-person attachments
+//! and the spawn-shot override. First-person attachments
 //! consume the pre-shake record; rendering and sound consume the final one.
 pub mod death;
 pub mod math;
@@ -333,7 +333,7 @@ impl Phase {
         }
         let dead = flag(a, f::DEATH_ACTIVE);
         let mode;
-        // game.js: death, flown recon, driven vehicle, manned turret, own
+        // death, flown recon, driven vehicle, manned turret, own
         // soldier. These are exclusive even if stale leases overlap a death.
         // DeathCamera.update/apply in camera.js is an authority camera too.
         // Classic AI schedules and aim queries can observe it in a world tick.
@@ -758,7 +758,7 @@ impl Phase {
             put_v(out, o::WORLD_DEATH_ANCHOR, state.anchor);
             out[o::WORLD_DEATH_HFOV] = state.hfov;
         }
-        // game.js exposed this pose to first-person arms before camera shake.
+        // exposed this pose to first-person arms before camera shake.
         // Its Euler mirror is produced beside the quaternion, not in Three.
         // Compose precedes inverse, with no parent transform on these cameras.
         // The host applies these fields with callbacks disabled by raw writes.

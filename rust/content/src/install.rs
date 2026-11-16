@@ -43,7 +43,7 @@ pub trait CollisionKernel {
     fn world_statics(&mut self, world: u32, set: u32);
 }
 
-/// collision.js 160-165 through ray-kernel.js: the grid (the terrain's
+/// 160-165 through ray-kernel.js: the grid (the terrain's
 /// corners copied), then the buildings' tree and the terrain's (over the
 /// same terrain copy), the world, and the buildings' fixed set.
 pub fn install(k: &mut dyn CollisionKernel, col: &MapCollision, buildings: &BvhTree, terrain: Option<&BvhTree>) -> Result<Installed, String> {
@@ -70,7 +70,7 @@ pub fn install(k: &mut dyn CollisionKernel, col: &MapCollision, buildings: &BvhT
         _ => -1,
     };
     let world = k.world(buildings_tree, terrain_tree, grid);
-    // ray-kernel.js fixedSet(staticSet, bvh).
+    // fixedSet(staticSet, bvh).
     let count = col.tri_bounds.len() / 6;
     if col.polygons.len() < count {
         return Err("A fixed triangle has no polygon number".into());

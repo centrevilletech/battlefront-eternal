@@ -1,4 +1,4 @@
-//! src/flight/pilotless.js: a craft in flight that nobody flies. Empty,
+//! a craft in flight that nobody flies. Empty,
 //! after its pilot bailed out or was taken out of it, it comes down:
 //! nothing holds it up, its speed carries on and gravity bends its path,
 //! the nose following the path, until it strikes the ground, a building,

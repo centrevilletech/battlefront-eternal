@@ -1,4 +1,4 @@
-//! game.js 3110-3126 (headless), between createWorldSim and F4Live: the
+//! 3110-3126 (headless), between createWorldSim and F4Live: the
 //! viewpoint joins F3 and is registered, the factory reserves the registry's
 //! future id bound, and inactive construction stock is prepared for every
 //! class the roster can field. Everything here runs against the world the
@@ -90,7 +90,7 @@ pub fn facts(world: &World, cx: &mut Cx) -> Result<Facts, AdmitError> {
         fleet: u32::try_from(fleet).map_err(|_| error("too many hulls"))?,
         prepared: u32::try_from(prepared).map_err(|_| error("too many prepared hulls"))?,
         point_capacity: previous.point_capacity,
-        // game.js `let spawnIndex = 0`: respawn keeps index 0 at admission.
+        // `let spawnIndex = 0`: respawn keeps index 0 at admission.
         spawn_index: 0.0,
         random: previous.random,
         // configure registered the gameplay stream at attachF3's end; this
@@ -99,7 +99,7 @@ pub fn facts(world: &World, cx: &mut Cx) -> Result<Facts, AdmitError> {
     })
 }
 
-/// game.js's PlayerBodies before attachF3Combat: the player's page body,
+/// PlayerBodies before attachF3Combat: the player's page body,
 /// `new Soldier(world, def)` (constructSoldier): the
 /// class record as JSON.stringify spells it, through body_construct, whose
 /// answer row is the body's state (its jet recharge among it).
@@ -114,7 +114,7 @@ pub fn construct_viewpoint_body(world: &mut World, cx: &mut Cx, calls: &mut Call
     Ok(())
 }
 
-/// game.js 1060-1063 (`if (policy.auto) respawn(pick, !wanted)`): the
+/// 1060-1063 (`if (policy.auto) respawn(pick, !wanted)`): the
 /// player's first spawn point, the first post his team owns with a spawn
 /// path (else any post with one), at a point the gameplay stream picks.
 fn spawn_point(cx: &Cx) -> Result<([f64; 3], f64), AdmitError> {

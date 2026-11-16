@@ -711,7 +711,7 @@ impl StandaloneWindowApp {
                 self.folder_dialog = Some(folder_dialog::import_file());
             }
             Action::MainMenu => {
-                // prepare.js `play`: reload the menu, with the startup check deciding first.
+                // `play`: reload the menu, with the startup check deciding first.
                 let Some(content) = model.transfer.as_ref().and_then(|t| t.content.clone()) else {
                     return;
                 };
@@ -2291,7 +2291,7 @@ impl StandaloneWindowApp {
                             .and_then(|s| s.content_dir.clone())
                             .unwrap_or_else(|| self.settings.paths.content_root.clone());
                         match t {
-                            // src/launch.js nextUrl wraps and optionally reshuffles
+                            // nextUrl wraps and optionally reshuffles
                             // an Instant Action playlist; quitting is a separate menu action.
                             BattleTransition::NextPlaylistBattle { request } => {
                                 let playlist_index = request.playlist.as_ref().map_or(0, |p| p.round);

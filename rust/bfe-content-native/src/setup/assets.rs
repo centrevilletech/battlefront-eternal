@@ -1,7 +1,7 @@
 //! The files a battle fetches, as the headless host's manifest keys them:
 //! URL paths with their leading slash, in fetch order, each with its bytes'
 //! SHA-256 (a missing file is recorded too: a 404 is an input as well).
-//! game.js start()'s order is the content crate's (rust/content/src/battle.rs);
+//! start()'s order is the content crate's (rust/content/src/battle.rs);
 //! this only names and hashes what it fetched.
 use bfe_content::battle::{Battle, Fetched};
 use bfe_content::files::Files;

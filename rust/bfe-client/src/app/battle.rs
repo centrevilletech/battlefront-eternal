@@ -2158,7 +2158,7 @@ impl BattleController {
             }
         };
 
-        // spawn-screen/index.js closes at battle.over, including when the
+        // closes at battle.over, including when the
         // player was dead or had never spawned. Otherwise an open spawn
         // view would keep the end scoreboard from updating forever.
         if self.scene.online.as_ref().is_some_and(|r| r.hud.over)
@@ -2185,7 +2185,7 @@ impl BattleController {
             self.was_alive = false;
             self.death_screen_pending = true;
         }
-        // human-spawn.js emits awaitingSpawn only after the 4 s dying hold
+        // emits awaitingSpawn only after the 4 s dying hold
         // completes (phase == Awaiting, corpse removed). Opening early hides
         // DeathShot and causes COMMIT_WAIT (1.0 s) to cancel an early SPAWN click.
         if self.death_screen_pending
@@ -2355,7 +2355,7 @@ impl BattleController {
                     client.receiver.own.alive,
                     client.receiver.own.team,
                 );
-                // spawn-screen/index.js follows the authoritative teamChanged
+                // follows the authoritative teamChanged
                 // event even when its initial screen opened before welcome.
                 if self.spawn_port.human.team != previous_team {
                     self.spawn_ctrl.notify_team_changed(&self.spawn_port, self.spawn_port.human.team, unit_random());

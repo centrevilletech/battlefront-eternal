@@ -38,7 +38,7 @@ pub struct Numbers {
     pub glow_length: f64,
 }
 
-// blaster-bolts.js sheathColor ignores authored alpha so a dim glow retains
+// sheathColor ignores authored alpha so a dim glow retains
 // the texture's hue. The peak includes one, including for an all-black input.
 pub fn sheath(rgba: &[f64]) -> [f64; 3] {
     let r = rgba.first().copied().unwrap_or(255.0);
@@ -48,7 +48,7 @@ pub fn sheath(rgba: &[f64]) -> [f64; 3] {
     [r / peak, g / peak, b / peak]
 }
 
-// blaster-bolts.js vivid keeps the strongest channel at one; use the same
+// vivid keeps the strongest channel at one; use the same
 // power implementation as the client to retain float32 draw receipts.
 pub fn vivid(rgb: &[f64], power: f64) -> [f64; 3] {
     std::array::from_fn(|i| pow(max(rgb.get(i).copied().unwrap_or(0.0), 0.0), power))
@@ -94,7 +94,7 @@ pub fn style(def: Content) -> Numbers {
     }
 }
 
-// blaster-bolts.js textureHue weights saturated texels; white cores and dark
+// textureHue weights saturated texels; white cores and dark
 // fringes must not wash out the sheath. An empty result means a grey texture.
 pub fn texture_hue(data: &[u8]) -> Vec<f64> {
     let mut sum = [0.0; 3];

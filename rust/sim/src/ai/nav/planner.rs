@@ -6,7 +6,6 @@
 
 use super::math::f32;
 
-/// planner.js:31.
 pub const STARVED: f64 = 20.0;
 
 /// A counted pool. Counts stay f64: the JavaScript's
@@ -271,7 +270,7 @@ impl PathStore {
         self.paths.reserve(simultaneous);
     }
 
-    /// planner.js:51 (new AIPath) via planner.js:108 path(). Its public id
+    /// (new AIPath) via planner.js:108 path(). Its public id
     /// follows construction order while its physical storage returns on release.
     pub fn make(&mut self) -> usize {
         self.pools.paths.used += 1.0;

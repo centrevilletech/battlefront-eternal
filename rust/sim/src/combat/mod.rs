@@ -1,5 +1,5 @@
 //! A soldier's side of the fight (src/combat.js, src/weapons.js,
-//! src/runtime/network-shot-aim.js and src/heroes.js's swing and
+//! and src/heroes.js's swing and
 //! regeneration):
 
 // The JavaScript's own spellings are kept (`!(a < b)` where NaN must take

@@ -1,5 +1,5 @@
 //! The sea (OceanSurface and EnhancedOcean, src/ocean-surface.js and
-//! src/ocean-storm.js in the client this client replaces).
+//! in the client this client replaces).
 //!
 //! A map whose water look asks for an ocean, or whose water reaches every edge
 //! of its grid while OCEAN AND SKY is Enhanced, draws the sea in place of the

@@ -338,7 +338,7 @@ impl StartupContentState {
                 };
                 let message = match (result, operation) {
                     (Ok(path), TransferKind::Import) => {
-                        // main.js makes the imported folder the content in use; whether it is
+                        // makes the imported folder the content in use; whether it is
                         // current is decided when MAIN MENU runs the startup check.
                         store.desktop.chosen_content_dir =
                             Some(path.to_string_lossy().into_owned());

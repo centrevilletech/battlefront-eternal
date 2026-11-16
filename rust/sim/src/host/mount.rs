@@ -1,5 +1,5 @@
 //! Seat commands used by authority hosts. F2Seats.invoke in
-//! src/sim/wasm/f2-seats.js passes scalar requests to the same native owner;
+//! passes scalar requests to the same native owner;
 //! the owner validates both the soldier life and the current occupancy.
 use crate::abi::context::Context;
 use crate::gen::{

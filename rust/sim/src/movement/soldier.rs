@@ -1,4 +1,4 @@
-//! src/soldier.js's Soldier.tick, operation by operation: the posture and
+//! Soldier.tick, operation by operation: the posture and
 //! jump states, the drive along the ground, the jetpack, and the collision
 //! pass against the terrain, the buildings and the bodies.
 
@@ -1128,7 +1128,7 @@ fn along_plane(push: &mut V3, plane: V3, into: f64, depth: f64) -> f64 {
     depth / len
 }
 
-/// collision-damage.js contactDamage(rule, into, up, forward).
+/// contactDamage(rule, into, up, forward).
 pub fn contact_damage(threshold: &[f64; 3], scale: &[f64; 3], into: f64, up: f64, forward: f64) -> f64 {
     if !(into < 0.0) {
         return 0.0;

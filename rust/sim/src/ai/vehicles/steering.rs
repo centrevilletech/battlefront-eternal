@@ -516,7 +516,7 @@ pub fn seat_analogs<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Opti
         k if k == kind::FLYER => {
             let orbit = orbit_input(w, unit);
             let request = orbit.as_ref().or(request);
-            // src/flight/ai.js `const st = unit.steer ||= {}`.
+            // `const st = unit.steer ||= {}`.
             w.edit_steer(unit.obj, |s| { s.get_or_insert_with(Steer::empty); });
             let pilot = PilotEnv { has_path: env.has_path, min_fly_height: env.min_fly_height, max_fly_height: env.max_fly_height };
             full = w.pilot_input(unit.obj, request, aim, dt, &pilot);

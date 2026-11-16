@@ -10,7 +10,6 @@ use super::hints::{build_hints, HintPosts, HintRecord, HintSet, POOL_CAPACITY};
 use super::math::Vec3;
 use bfe_content::Value;
 
-/// data.js:10.
 pub const SCHEMA: f64 = 1.0;
 
 /// A number as an error message's `${}` writes it (ECMAScript

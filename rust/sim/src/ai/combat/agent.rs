@@ -23,15 +23,15 @@ use super::weapons_ai::{
 use super::world::{draw_int, draw_range as draw_range_raw, uniform, Engagement, Gen, GotoMode, HintView, Obj, QueryFilter, Ref, World};
 use crate::combat::defs::Js;
 
-/// controller.js:26 `DONE`.
+/// `DONE`.
 pub const DONE: f64 = 100.0;
 
-/// combat.js:53 `COS_ALIGN`.
+/// `COS_ALIGN`.
 fn cos_align() -> f64 {
     f(0.939)
 }
 
-/// combat.js:61 `now(world)`: the time as float32.
+/// `now(world)`: the time as float32.
 fn now<W: World + ?Sized>(w: &W) -> f64 {
     f(w.time())
 }
@@ -39,7 +39,7 @@ fn now<W: World + ?Sized>(w: &W) -> f64 {
 // ---------------------------------------------------------------------------
 // Engagement dispatch.
 
-/// combat.js:121 `roleOf(classDef)` (the combat dispatcher's own: ai.json's
+/// `roleOf(classDef)` (the combat dispatcher's own: ai.json's
 /// role, then the class's, then UnitType's name; a name that is one of
 /// Object.prototype's lower-case properties reads as no role, NaN).
 pub fn role_of(class: Option<&super::world::ClassView>) -> f64 {
@@ -68,7 +68,7 @@ pub fn role_of(class: Option<&super::world::ClassView>) -> f64 {
     }
 }
 
-/// combat.js:121 `dispatch(controller, unit, target, switchAllowed, world)`.
+/// `dispatch(controller, unit, target, switchAllowed, world)`.
 pub fn dispatch<W:World+?Sized>(w:&mut W,cx:&mut CombatAi,controller:Option<Obj>,unit:Obj,target:Obj,switch_allowed:bool)->Engagement {
     dispatch_shared(w,&mut cx.shared,controller,unit,target,switch_allowed)
 }
@@ -100,7 +100,7 @@ pub fn dispatch_shared<W: World + ?Sized>(w: &mut W, shared: &mut Shared, contro
     out
 }
 
-/// combat.js:166 `selectOnly`.
+/// `selectOnly`.
 fn select_only<W: World + ?Sized>(w: &mut W, shared: &mut Shared, controller: Option<Obj>, unit: Obj, target: Obj, switch_allowed: bool, out: &mut Engagement) {
     let choice = select_weapon(w, shared, controller, unit, Some(target), switch_allowed);
     out.aux = choice.ok;
@@ -109,7 +109,7 @@ fn select_only<W: World + ?Sized>(w: &mut W, shared: &mut Shared, controller: Op
     out.weapon = choice.index;
 }
 
-/// combat.js:179 `footPolicy`.
+/// `footPolicy`.
 #[allow(clippy::too_many_arguments)]
 fn foot_policy<W: World + ?Sized>(w: &mut W, shared: &mut Shared, controller: Option<Obj>, unit: Obj, target: Obj, role: f64, switch_allowed: bool, out: &mut Engagement) {
     if w.unit_scalars(unit).hero && w.unit_scalars(target).hero {
@@ -131,7 +131,7 @@ fn foot_policy<W: World + ?Sized>(w: &mut W, shared: &mut Shared, controller: Op
     range_policy(w, controller, out);
 }
 
-/// combat.js:198 `rangePolicy(controller, world, out)`.
+/// `rangePolicy(controller, world, out)`.
 pub fn range_policy<W: World + ?Sized>(w: &W, controller: Option<Obj>, out: &mut Engagement) {
     let b = out.in_band;
     out.pattern = 0.0;
@@ -180,7 +180,7 @@ pub fn range_policy<W: World + ?Sized>(w: &W, controller: Option<Obj>, out: &mut
     };
 }
 
-/// combat.js:221 `vehiclePolicy`.
+/// `vehiclePolicy`.
 fn vehicle_policy<W: World + ?Sized>(w: &mut W, shared: &mut Shared, controller: Option<Obj>, unit: Obj, target: Obj, switch_allowed: bool, out: &mut Engagement) {
     out.probability = f(0.75);
     select_only(w, shared, controller, unit, target, switch_allowed, out);
@@ -211,7 +211,7 @@ pub struct Reservation {
     pub at: f64,
 }
 
-/// combat.js:244 `reservations`: by hint (a module WeakMap; the battle's
+/// `reservations`: by hint (a module WeakMap; the battle's
 /// here).
 #[derive(Clone, Debug, Default)]
 pub struct Reservations {
@@ -222,7 +222,7 @@ impl Reservations {
     /// Hints are authored once. Reserve their full set before controllers
     /// start taking cover, including rings not selected in the warmup.
     pub fn prepare(&mut self,hints:usize) {self.by_hint.reserve(hints.saturating_add(1));}
-    /// combat.js:246 `hintAvailable(hint, owner, t)`.
+    /// `hintAvailable(hint, owner, t)`.
     fn available(&self, hint: Obj, owner: Option<Obj>, t: f64) -> bool {
         match self.by_hint.get(&hint) {
             None => true,
@@ -230,7 +230,7 @@ impl Reservations {
         }
     }
 
-    /// combat.js:251 `reserveHint(hint, owner, t)`: the hint and its ring.
+    /// `reserveHint(hint, owner, t)`: the hint and its ring.
     fn reserve(&mut self, hint: Option<&HintView>, owner: Option<Obj>, t: f64) {
         let Some(hint) = hint else { return };
         for h in ring(hint) {
@@ -238,7 +238,7 @@ impl Reservations {
         }
     }
 
-    /// combat.js:256 `releaseHint(hint)`.
+    /// `releaseHint(hint)`.
     fn release(&mut self, hint: Option<&HintView>) {
         let Some(hint) = hint else { return };
         for h in ring(hint) {
@@ -249,7 +249,7 @@ impl Reservations {
     }
 }
 
-/// combat.js:264 `hintRing(hint)`.
+/// `hintRing(hint)`.
 fn ring(hint: &HintView) -> impl Iterator<Item=Obj>+'_ {
     std::iter::once(hint.obj).chain(hint.siblings.iter().copied().filter(|&s|s!=hint.obj))
 }
@@ -259,7 +259,7 @@ fn bits(mask: f64, b: i32) -> bool {
     v8math::to_int32(mask) & b != 0
 }
 
-/// combat.js:271 `drawStance(random, mask)`.
+/// `drawStance(random, mask)`.
 fn draw_stance<W: World + ?Sized>(w: &mut W, mask: f64) -> f64 {
     if !bits(mask, 7) {
         return 0.0;
@@ -272,7 +272,7 @@ fn draw_stance<W: World + ?Sized>(w: &mut W, mask: f64) -> f64 {
     }
 }
 
-/// combat.js:280 `drawSide(random, mask)`.
+/// `drawSide(random, mask)`.
 fn draw_side<W: World + ?Sized>(w: &mut W, mask: f64) -> f64 {
     if !bits(mask, 3) {
         return 0.0;
@@ -285,7 +285,7 @@ fn draw_side<W: World + ?Sized>(w: &mut W, mask: f64) -> f64 {
     }
 }
 
-/// combat.js:961 `drawRange(random, lo, hi)`: lo itself, with no draw,
+/// `drawRange(random, lo, hi)`: lo itself, with no draw,
 /// when the ends are equal.
 fn draw_range<W: World + ?Sized>(w: &mut W, lo: f64, hi: f64) -> f64 {
     let lo = f(lo);
@@ -308,7 +308,7 @@ pub enum M {
     Cover,
 }
 
-/// combat.js:332 `CoverHelper`'s own fields.
+/// `CoverHelper`'s own fields.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Cover {
     pub state: f64,
@@ -320,7 +320,7 @@ pub struct Cover {
     pub reselect_at: f64,
 }
 
-/// combat.js:497 `AttackPatterns`' own fields.
+/// `AttackPatterns`' own fields.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Patterns {
     pub state: f64,
@@ -398,7 +398,7 @@ pub struct Goal {
     pub ref_a: Option<Ref>,
 }
 
-/// combat.js:978 `UnitCombatAgent`: its machine and fields, its tracker,
+/// `UnitCombatAgent`: its machine and fields, its tracker,
 /// its attack patterns. `obj` is the agent itself (what the base's calls
 /// name), `controller` its controller.
 #[derive(Clone, Debug, PartialEq)]
@@ -434,7 +434,7 @@ pub enum Phase {
 const DRAIN_LIMIT: u32 = 64;
 
 impl CombatAgent {
-    /// combat.js:982 `constructor(controller, goal)`, after the base's
+    /// `constructor(controller, goal)`, after the base's
     /// (which made the helper and, through initAgent, the tracker
     /// `tracker`): the patterns, the fields, and the goal's state.
     pub fn new<W: World + ?Sized>(w: &W, obj: Obj, controller: Obj, tracker: TargetTracker, goal: Goal) -> CombatAgent {
@@ -528,7 +528,7 @@ impl CombatAgent {
     fn on_tick<W: World + ?Sized>(&mut self, m: M, w: &mut W, cx: &mut CombatAi, dt: f64, phase: Phase) {
         match m {
             M::Agent => {
-                // agents.js:367 Agent.onTick: the ranking pass in phase 1,
+                // Agent.onTick: the ranking pass in phase 1,
                 // the behaviour in phase 0.
                 if phase != Phase::Behave {
                     let retained = self.tracker.target;
@@ -542,7 +542,7 @@ impl CombatAgent {
         }
     }
 
-    /// controller.js:233 `Fsm.update(dt, alternate)`.
+    /// `Fsm.update(dt, alternate)`.
     fn update<W: World + ?Sized>(&mut self, m: M, w: &mut W, cx: &mut CombatAi, dt: f64, alternate: bool, phase: Phase) {
         if alternate {
             if self.st(m) != 0.0 {
@@ -577,7 +577,7 @@ impl CombatAgent {
         }
     }
 
-    /// controller.js:258 `Fsm.flush()`.
+    /// `Fsm.flush()`.
     fn flush<W: World + ?Sized>(&mut self, m: M, w: &mut W, cx: &mut CombatAi) {
         let mut rounds = 0;
         while self.pend(m) != 0.0 {
@@ -596,14 +596,14 @@ impl CombatAgent {
 
     // -- The base's entry points (Agent).
 
-    /// agents.js:360 `tick(dt, phase)`: the machine's round; whether the
+    /// `tick(dt, phase)`: the machine's round; whether the
     /// agent reached its terminal state.
     pub fn tick<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi, dt: f64, phase: Phase) -> bool {
         self.update(M::Agent, w, cx, dt, phase == Phase::Behave, phase);
         self.state == DONE
     }
 
-    /// combat.js:1022 `exit()`: the patterns let go of cover, then the
+    /// `exit()`: the patterns let go of cover, then the
     /// base ends the helper and the machine.
     pub fn exit<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
         self.patterns_cleanup(cx);
@@ -617,7 +617,7 @@ impl CombatAgent {
 
     // -- Policies.
 
-    /// combat.js:1034 `acceptsAlert(known, point)`.
+    /// `acceptsAlert(known, point)`.
     pub fn accepts_alert<W: World + ?Sized>(&self, w: &mut W, known: bool, point: &Vector3) -> bool {
         let unit = w.ctl(self.controller).unit;
         let k = unit.map(|u| w.unit_scalars(u).kind);
@@ -641,13 +641,13 @@ impl CombatAgent {
         false
     }
 
-    /// combat.js:1047 `acceptsHazard()`.
+    /// `acceptsHazard()`.
     pub fn accepts_hazard<W: World + ?Sized>(&self, w: &W) -> bool {
         let k = w.ctl(self.controller).unit.map(|u| w.unit_scalars(u).kind);
         k != Some(5.0) && self.state != 5.0
     }
 
-    /// combat.js:1055 `acceptsAcoustic(source)`.
+    /// `acceptsAcoustic(source)`.
     pub fn accepts_acoustic<W: World + ?Sized>(&self, w: &mut W, cx: &mut CombatAi, source: Option<Obj>) -> bool {
         self.accepts_acoustic_shared(w,&mut cx.shared,source)
     }
@@ -678,12 +678,12 @@ impl CombatAgent {
         can_engage_shared(w, shared, self.controller, Some(source))
     }
 
-    /// combat.js:1075 `acceptsTarget()`: never.
+    /// `acceptsTarget()`: never.
     pub fn accepts_target(&self) -> bool {
         false
     }
 
-    /// combat.js:1081 `acceptsBoard(candidate)`.
+    /// `acceptsBoard(candidate)`.
     pub fn accepts_board<W: World + ?Sized>(&self, w: &mut W, candidate: Obj) -> bool {
         let unit = w.ctl(self.controller).unit;
         boarding_clear(w, unit, Some(candidate)) && w.agent_board_policy(self.obj, candidate)
@@ -698,7 +698,7 @@ impl CombatAgent {
         false
     }
 
-    /// combat.js:1095 `mountUnreachable(point)`.
+    /// `mountUnreachable(point)`.
     fn mount_unreachable<W: World + ?Sized>(&self, w: &mut W, point: &Vector3) -> bool {
         if !w.has_mount_reach() {
             return false;
@@ -709,7 +709,7 @@ impl CombatAgent {
 
     // -- Shared steps.
 
-    /// combat.js:1104 `facingTarget(cosLimit)`.
+    /// `facingTarget(cosLimit)`.
     fn facing_target<W: World + ?Sized>(&self, w: &mut W, cos_limit: f64) -> bool {
         let Some(target) = self.tracker.fresh_target(w) else { return false };
         let unit = w.ctl(self.controller).unit.expect("a facing agent's unit");
@@ -720,7 +720,7 @@ impl CombatAgent {
         cos_limit < dot32(fwd.x, 0.0, fwd.z, n.x, n.y, n.z)
     }
 
-    /// combat.js:1117 `nextLook()`.
+    /// `nextLook()`.
     fn next_look<W: World + ?Sized>(&mut self, w: &mut W) {
         if self.looks == 0.0 {
             self.look_angle = f(draw_range(w, 30.0, 75.0) * f(0.017453292));
@@ -743,7 +743,7 @@ impl CombatAgent {
         self.looks += 1.0;
     }
 
-    /// combat.js:1134 `alignedTo(point)`.
+    /// `alignedTo(point)`.
     fn aligned_to<W: World + ?Sized>(&self, w: &mut W, point: &Vector3) -> bool {
         let unit = w.ctl(self.controller).unit.expect("an aligning agent's unit");
         let o = w.origin(unit);
@@ -755,7 +755,7 @@ impl CombatAgent {
 
     // -- The agent's machine.
 
-    /// combat.js:1145 `onEnter()`.
+    /// `onEnter()`.
     fn agent_enter<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
         let c = self.controller;
         let unit = w.ctl(c).unit;
@@ -814,7 +814,7 @@ impl CombatAgent {
         }
     }
 
-    /// combat.js:1197 `evade(t)`.
+    /// `evade(t)`.
     fn evade<W: World + ?Sized>(&mut self, w: &mut W, t: f64) {
         let c = self.controller;
         let unit = w.ctl(c).unit.expect("an evading agent's unit");
@@ -846,7 +846,7 @@ impl CombatAgent {
         self.hazard_until = f(t + 2.0);
     }
 
-    /// combat.js:1224 `onExit()`.
+    /// `onExit()`.
     fn agent_exit_state<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
         w.ctl_mut(self.controller).wanted_mode = 2.0;
         if self.state == 4.0 {
@@ -854,7 +854,7 @@ impl CombatAgent {
         }
     }
 
-    /// combat.js:1230 `behave(dt)`: phase 0, one service's work.
+    /// `behave(dt)`: phase 0, one service's work.
     fn behave<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi, dt: f64) {
         let c = self.controller;
         let Some(unit) = w.ctl(c).unit else { return };
@@ -974,7 +974,7 @@ impl CombatAgent {
         r
     }
 
-    /// combat.js:1323 `raiseShield(unit)`.
+    /// `raiseShield(unit)`.
     fn raise_shield<W: World + ?Sized>(&mut self, w: &mut W, unit: Obj) -> bool {
         let Some(shield) = w.unit(unit).soldier.as_ref().and_then(|s| s.shield) else { return false };
         if shield.on {
@@ -996,7 +996,7 @@ impl CombatAgent {
         }
     }
 
-    /// combat.js:109 `helperGoto(helper, point, options)`.
+    /// `helperGoto(helper, point, options)`.
     fn helper_goto<W: World + ?Sized>(&self, w: &mut W, point: &Vector3, mode: Option<GotoMode>) {
         if w.has_helper(self.obj) {
             w.helper_goto(self.obj, point, mode);
@@ -1005,7 +1005,7 @@ impl CombatAgent {
 
     // -- The cover helper's machine.
 
-    /// combat.js:351 `init(hint)`.
+    /// `init(hint)`.
     fn cover_init<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi, hint: Option<HintView>) {
         let t = now(w);
         self.patterns.cover.hint = hint;
@@ -1019,7 +1019,7 @@ impl CombatAgent {
         self.flush(M::Cover, w, cx);
     }
 
-    /// combat.js:362 `renew()`.
+    /// `renew()`.
     fn cover_renew<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
         let owner = w.ctl(self.controller).unit;
         cx.reservations.reserve(self.patterns.cover.hint.as_ref(), owner, now(w));
@@ -1029,7 +1029,7 @@ impl CombatAgent {
         self.patterns.cover.hint.clone().expect("the cover helper's hint")
     }
 
-    /// combat.js:366 `onEnter()`.
+    /// `onEnter()`.
     fn cover_enter<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
         let t = now(w);
         let s = self.patterns.cover.state;
@@ -1065,7 +1065,7 @@ impl CombatAgent {
         }
     }
 
-    /// combat.js:395 `onExit()`.
+    /// `onExit()`.
     fn cover_exit<W: World + ?Sized>(&mut self, w: &mut W) {
         let t = now(w);
         self.patterns.cover.posture = 0.0;
@@ -1077,7 +1077,7 @@ impl CombatAgent {
         }
     }
 
-    /// combat.js:403 `onTick()`.
+    /// `onTick()`.
     fn cover_tick<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
         if self.patterns.cover.state == DONE {
             return;
@@ -1141,7 +1141,7 @@ impl CombatAgent {
         }
     }
 
-    /// combat.js:458 `cleanup()`.
+    /// `cleanup()`.
     fn cover_cleanup(&mut self, cx: &mut CombatAi) {
         cx.reservations.release(self.patterns.cover.hint.as_ref());
         self.patterns.cover.hint = None;
@@ -1149,7 +1149,7 @@ impl CombatAgent {
 
     // -- The attack patterns' machine.
 
-    /// combat.js:543 `init(pattern, probability)`.
+    /// `init(pattern, probability)`.
     fn patterns_init<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi, pattern: f64, probability: f64) {
         self.patterns.probability = f(probability);
         self.patterns.prior = DONE;
@@ -1157,14 +1157,14 @@ impl CombatAgent {
         self.flush(M::Patterns, w, cx);
     }
 
-    /// combat.js:551 `restore()`.
+    /// `restore()`.
     fn restore(&mut self) {
         let next = self.patterns.prior;
         self.patterns.prior = DONE;
         self.patterns.pending = next;
     }
 
-    /// combat.js:557 `onEnter()`.
+    /// `onEnter()`.
     fn patterns_enter<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
         let t = now(w);
         self.patterns.cover_retry = -1.0;
@@ -1215,7 +1215,7 @@ impl CombatAgent {
         }
     }
 
-    /// combat.js:606 `onExit()`.
+    /// `onExit()`.
     fn patterns_exit<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
         let t = now(w);
         w.set_stance(self.controller,0.0);
@@ -1241,7 +1241,7 @@ impl CombatAgent {
         }
     }
 
-    /// combat.js:647 `onTick(dt)`.
+    /// `onTick(dt)`.
     fn patterns_tick<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi, dt: f64) {
         self.patterns.skip_fire = false;
         let s = self.patterns.state;
@@ -1270,12 +1270,12 @@ impl CombatAgent {
         }
     }
 
-    /// combat.js:675 `cleanup()`.
+    /// `cleanup()`.
     fn patterns_cleanup(&mut self, cx: &mut CombatAi) {
         self.cover_cleanup(cx);
     }
 
-    /// combat.js:680 `face(posture)`: the agent's aim (agents.js:395
+    /// `face(posture)`: the agent's aim (agents.js:395
     /// Agent.aim, the base's, through the combat services' currentTarget
     /// and memoryPoint): the stance, then the fresh target, else the
     /// remembered point, else along the path.
@@ -1295,7 +1295,7 @@ impl CombatAgent {
         }
     }
 
-    /// combat.js:687 `tryCover(from)`.
+    /// `tryCover(from)`.
     fn try_cover<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi, from: f64) -> bool {
         let t = now(w);
         if !(self.patterns.cover_retry < t) {
@@ -1316,7 +1316,7 @@ impl CombatAgent {
         true
     }
 
-    /// combat.js:703 `jetReady()`.
+    /// `jetReady()`.
     fn jet_ready<W: World + ?Sized>(&self, w: &W) -> bool {
         let Some(unit) = w.ctl(self.controller).unit else { return false };
         let u = w.unit(unit);
@@ -1344,7 +1344,7 @@ impl CombatAgent {
         f(border) < fuel
     }
 
-    /// combat.js:714 `tryHintJet(from)`.
+    /// `tryHintJet(from)`.
     fn try_hint_jet<W: World + ?Sized>(&mut self, w: &mut W, from: f64) -> bool {
         if !self.jet_ready(w) {
             return false;
@@ -1369,7 +1369,7 @@ impl CombatAgent {
         true
     }
 
-    /// combat.js:731 `tryDirectJet(from)`.
+    /// `tryDirectJet(from)`.
     fn try_direct_jet<W: World + ?Sized>(&mut self, w: &mut W, from: f64) -> bool {
         if !self.jet_ready(w) {
             return false;
@@ -1385,7 +1385,7 @@ impl CombatAgent {
         true
     }
 
-    /// combat.js:743 `tryLostTarget(from)`.
+    /// `tryLostTarget(from)`.
     fn try_lost_target<W: World + ?Sized>(&mut self, w: &W, from: f64) -> bool {
         let t = now(w);
         if !(f(t - self.tracker.sample_time) > 2.0) {
@@ -1396,7 +1396,7 @@ impl CombatAgent {
         true
     }
 
-    /// combat.js:753 `standing()`: pattern 2.
+    /// `standing()`: pattern 2.
     fn standing<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
         if self.try_cover(w, cx, 2.0) || self.try_hint_jet(w, 2.0) || self.try_direct_jet(w, 2.0) {
             return;
@@ -1411,7 +1411,7 @@ impl CombatAgent {
         self.face(w, crouch);
     }
 
-    /// combat.js:764 `pauseAndMove()`: pattern 3.
+    /// `pauseAndMove()`: pattern 3.
     fn pause_and_move<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
         if self.try_cover(w, cx, 3.0) || self.try_hint_jet(w, 3.0) || self.try_direct_jet(w, 3.0) || self.try_lost_target(w, 3.0) {
             return;
@@ -1436,7 +1436,7 @@ impl CombatAgent {
         self.face(w, 0.0);
     }
 
-    /// combat.js:787 `reposition()`.
+    /// `reposition()`.
     fn reposition<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
         let z = f(f(uniform(w, Gen::A) - 0.5) * 2.0);
         uniform(w, Gen::A); // y, dropped
@@ -1458,7 +1458,7 @@ impl CombatAgent {
         self.helper_goto(w, &at, None);
     }
 
-    /// combat.js:812 `bandFlank()`: pattern 4.
+    /// `bandFlank()`: pattern 4.
     fn band_flank<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
         if self.try_cover(w, cx, 4.0) || self.try_hint_jet(w, 4.0) || self.try_direct_jet(w, 4.0) || self.try_lost_target(w, 4.0) {
             return;
@@ -1504,7 +1504,7 @@ impl CombatAgent {
         self.face(w, 0.0);
     }
 
-    /// combat.js:844 `redirect(toward, t)`.
+    /// `redirect(toward, t)`.
     fn redirect<W: World + ?Sized>(&mut self, w: &mut W, toward: f64, t: f64) {
         self.patterns.toward = toward;
         self.patterns.band_check_at = f(t + 3.0);
@@ -1512,7 +1512,7 @@ impl CombatAgent {
         self.face(w, 0.0);
     }
 
-    /// combat.js:851 `upperBand()`.
+    /// `upperBand()`.
     fn upper_band<W: World + ?Sized>(&self, w: &mut W, cx: &CombatAi) -> f64 {
         let c = self.controller;
         let unit = w.ctl(c).unit.expect("the agent's unit");
@@ -1523,7 +1523,7 @@ impl CombatAgent {
         upper_band(w, &cx.shared.weapons, unit, c, sight)
     }
 
-    /// combat.js:859 `flank()`.
+    /// `flank()`.
     fn flank<W: World + ?Sized>(&mut self, w: &mut W) {
         let c = self.controller;
         let unit = w.ctl(c).unit.expect("a flanking agent's unit");
@@ -1547,7 +1547,7 @@ impl CombatAgent {
         }
     }
 
-    /// combat.js:877 `stepToBand()`.
+    /// `stepToBand()`.
     fn step_to_band<W: World + ?Sized>(&mut self, w: &mut W, cx: &CombatAi) -> bool {
         let c = self.controller;
         let unit = w.ctl(c).unit.expect("a stepping agent's unit");
@@ -1573,7 +1573,7 @@ impl CombatAgent {
         true
     }
 
-    /// combat.js:897 `lateral()`: pattern 5.
+    /// `lateral()`: pattern 5.
     fn lateral<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
         if self.try_cover(w, cx, 5.0) || self.try_hint_jet(w, 5.0) || self.try_direct_jet(w, 5.0) || self.try_lost_target(w, 5.0) {
             return;
@@ -1611,7 +1611,7 @@ impl CombatAgent {
         self.face(w, 0.0);
     }
 
-    /// combat.js:929 `melee()`: pattern 6.
+    /// `melee()`: pattern 6.
     fn melee<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
         let _ = cx;
         if self.try_lost_target(w, 6.0) || self.try_direct_jet(w, 6.0) || self.try_hint_jet(w, 6.0) {
@@ -1648,7 +1648,7 @@ impl CombatAgent {
         self.face(w, 0.0);
     }
 
-    /// combat.js:958 `retreat()`: pattern 8 (no stock dispatch selects it).
+    /// `retreat()`: pattern 8 (no stock dispatch selects it).
     fn retreat<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
         if self.try_cover(w, cx, 8.0) || self.try_hint_jet(w, 8.0) || self.try_direct_jet(w, 8.0) {
             return;
@@ -1669,7 +1669,7 @@ impl CombatAgent {
         self.face(w, 0.0);
     }
 
-    /// combat.js:976 `inCover(dt)`: pattern 9.
+    /// `inCover(dt)`: pattern 9.
     fn in_cover<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi, dt: f64) {
         self.update(M::Cover, w, cx, dt, false, Phase::Behave);
         if self.patterns.cover.state != DONE {
@@ -1680,7 +1680,7 @@ impl CombatAgent {
         self.restore();
     }
 
-    /// combat.js:989 `directJet()`: ten tries at a point, every one of
+    /// `directJet()`: ten tries at a point, every one of
     /// which navigation's missing pointClear refuses (quirks R1c).
     fn direct_jet<W: World + ?Sized>(&mut self, w: &mut W) {
         let unit = w.ctl(self.controller).unit.expect("a jetting agent's unit");
@@ -1713,7 +1713,7 @@ impl CombatAgent {
         self.restore();
     }
 
-    /// combat.js:1015 `jetTick()`.
+    /// `jetTick()`.
     fn jet_tick<W: World + ?Sized>(&mut self, w: &mut W) {
         if f(self.patterns.jet_start + 1.0) < now(w) && !(w.has_helper(self.obj) && w.helper_flying(self.obj)) {
             self.patterns.jetting = false;
@@ -1721,7 +1721,7 @@ impl CombatAgent {
         }
     }
 
-    /// combat.js:1022 `hintJetTick(dt)`.
+    /// `hintJetTick(dt)`.
     fn hint_jet_tick<W: World + ?Sized>(&mut self, w: &mut W, dt: f64) {
         let done = if w.has_jet_hints() {
             let h = self.patterns.jet_hint;
@@ -1734,7 +1734,7 @@ impl CombatAgent {
         }
     }
 
-    /// combat.js:1029 `lostTarget()`: pattern 12.
+    /// `lostTarget()`: pattern 12.
     fn lost_target<W: World + ?Sized>(&mut self, w: &mut W) {
         if self.tracker.fresh_target(w).is_some() {
             self.restore();
@@ -1751,7 +1751,7 @@ impl CombatAgent {
     }
 }
 
-/// agents.js:390 Agent.canEngage through the combat services' canEngage
+/// Agent.canEngage through the combat services' canEngage
 ///: a weapon in the arsenal and the dispatcher
 /// would engage.
 pub fn can_engage<W:World+?Sized>(w:&mut W,cx:&mut CombatAi,controller:Obj,target:Option<Obj>)->bool {
@@ -1767,7 +1767,7 @@ pub fn can_engage_shared<W: World + ?Sized>(w: &mut W, shared: &mut Shared, cont
     e.pattern != 0.0 && !e.pattern.is_nan()
 }
 
-/// combat.js:318 `coverScore(agent, hint)`: lower is better, FLT_MAX when
+/// `coverScore(agent, hint)`: lower is better, FLT_MAX when
 /// unsuitable.
 pub fn cover_score<W: World + ?Sized>(w: &mut W, cx: &CombatAi, a: &CombatAgent, hint: &HintView) -> f64 {
     let c = a.controller;
@@ -1801,7 +1801,7 @@ pub fn cover_score<W: World + ?Sized>(w: &mut W, cx: &CombatAi, a: &CombatAgent,
     f(f(length_sq_xz32(f(h.x - p.x), f(h.z - p.z)) * 2.25) + h2)
 }
 
-/// combat.js:340 `coverRange(agent)`.
+/// `coverRange(agent)`.
 fn cover_range<W: World + ?Sized>(w: &W, cx: &CombatAi, c: Obj, unit: Obj) -> f64 {
     let Some(i) = selected_weapon(w, unit, Some(c)) else { return 40.0 };
     let r = effective_range(&cx.shared.weapons, w.unit_scalars(unit).kind, w.ctl(c).range_scale, &def_at(w, unit, i));
@@ -1812,7 +1812,7 @@ fn cover_range<W: World + ?Sized>(w: &W, cx: &CombatAi, c: Obj, unit: Obj) -> f6
     }
 }
 
-/// combat.js:357 `findCover(agent)`: the cover hints within the cover
+/// `findCover(agent)`: the cover hints within the cover
 /// range, visited in a random order; the available one scoring lowest.
 pub fn find_cover<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, a: &CombatAgent) -> Option<HintView> {
     let c = a.controller;
@@ -1841,7 +1841,7 @@ pub fn find_cover<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, a: &CombatAge
     best
 }
 
-/// combat.js:1339 `boardingClear(world, unit, candidate)`: no valid hostile
+/// `boardingClear(world, unit, candidate)`: no valid hostile
 /// target within 8 of the candidate (the first 30 met).
 pub fn boarding_clear<W: World + ?Sized>(w: &mut W, unit: Option<Obj>, candidate: Option<Obj>) -> bool {
     let Some(candidate) = candidate else { return true };
@@ -1856,7 +1856,7 @@ pub fn boarding_clear<W: World + ?Sized>(w: &mut W, unit: Option<Obj>, candidate
     true
 }
 
-/// combat.js:1349 `inForwardCone(unit, point)`.
+/// `inForwardCone(unit, point)`.
 pub fn in_forward_cone<W: World + ?Sized>(w: &mut W, unit: Obj, point: &Vector3) -> bool {
     let cos_cone = lookup_cos(angle::cone());
     let p = w.unit_scalars(unit).position;

@@ -8,22 +8,21 @@ pub fn f32(x: f64) -> f64 {
     v8math::fround(x)
 }
 
-/// math.js:12: "zero length" for points and segments.
+/// "zero length" for points and segments.
 pub fn tiny() -> f64 {
     f32(0.0001)
 }
 
-/// math.js:13: direction / goal-equality threshold.
+/// direction / goal-equality threshold.
 pub fn tiny_dir() -> f64 {
     f32(9.999999e-9)
 }
 
-/// math.js:14: 0.2 m squared.
+/// 0.2 m squared.
 pub fn near_waypoint() -> f64 {
     f32(0.040000003)
 }
 
-/// math.js:15.
 pub const FLT_MAX: f64 = 3.4028234663852886e38;
 
 /// A point or vector as the navigation code keeps it (math.js:70 `vec`,

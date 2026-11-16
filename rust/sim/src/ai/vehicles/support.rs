@@ -14,13 +14,9 @@ use crate::ai::nav::barriers::BarrierSet;
 use crate::ai::nav::graph::{NavGraph, NO_TABLE};
 use crate::ai::nav::math::Vec3;
 
-/// support.js:22.
 pub const REACH_MARGIN: f64 = 10.0;
-/// support.js:25.
 pub const SUPPORT_RANGE: f64 = 100.0;
-/// support.js:28.
 pub const SUPPORT_SPREAD: f64 = 15.0;
-/// support.js:30.
 const POST_HEIGHT: f64 = 1.5;
 
 /// A support hub and its distance from the post (`{ hub, distance }`).

@@ -242,7 +242,7 @@ impl Destructions {
                 chunks.push((handle, node, c.get("ChunkSpeed").and_then(Value::as_f64).unwrap_or(7.)));
             }
             if !chunks.is_empty() {
-                // destruction.js prepare: its weapons' shapes too, to be thrown clear.
+                // prepare: its weapons' shapes too, to be thrown clear.
                 for w in class.record.get("weapons").and_then(Value::as_array).into_iter().flatten() {
                     if let Some(name) = w.get("GeometryName").and_then(Value::as_str) {
                         register(content, bridge, textures, cascades, &mut phase, &mut names, &mut models, name)?;
@@ -350,7 +350,7 @@ impl Destructions {
         n
     }
 
-    /// game.js onBlowApart: Enhanced draws it (true), the body is hidden at
+    /// onBlowApart: Enhanced draws it (true), the body is hidden at
     /// once. False leaves it to the Classic pieces.
     pub fn blow_apart(&mut self, body: &Body) -> bool {
         if !self.chunked(body.class) {
@@ -400,7 +400,7 @@ impl Destructions {
         Some((self.names.iter().position(|n| n == name)?, matrix))
     }
 
-    // destruction.js skeleton: the bones arcs can crawl over (not the
+    // skeleton: the bones arcs can crawl over (not the
     // hardpoints or dummyroot) and each one's nearest such ancestor.
     fn skeleton(body: &Body) -> (Vec<usize>, Vec<usize>) {
         let bones: Vec<usize> = (0..body.names.len()).filter(|&i| !body.names[i].starts_with("hp_") && !body.names[i].starts_with("dummyroot")).collect();
@@ -418,7 +418,7 @@ impl Destructions {
         (bones, joints)
     }
 
-    /// game.js onDeath: a chunked droid still standing shorts out, then
+    /// onDeath: a chunked droid still standing shorts out, then
     /// blows apart. With every slot taken it blows apart at once.
     pub fn died(&mut self, body: &Body) {
         if !self.chunked(body.class) || !body.visible || self.slots.iter().flatten().any(|t| t.unit == body.unit && t.active) {
@@ -679,7 +679,7 @@ impl Destructions {
         bridge.r.effects.input[render::IN_DRAWS] = draws as f64;
     }
 
-    /// destruction.js watch: the power-up droids (Buildings::station_frames)
+    /// watch: the power-up droids (Buildings::station_frames)
     /// and, each frame, whether each is wrecked and how far repaired. A new
     /// set (a new battle) is watched afresh.
     pub fn stations(&mut self, frames: impl Iterator<Item = super::buildings::StationFrame>) {

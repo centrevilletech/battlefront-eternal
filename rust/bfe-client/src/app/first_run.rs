@@ -309,7 +309,7 @@ impl Setup {
         };
         let target = order[next];
         self.focus = Some(target);
-        // prepare.js lights a button when it takes the focus; focus leaving the
+        // lights a button when it takes the focus; focus leaving the
         // button group lights the state's own choice again.
         self.cursor = if self.is_group_button(target) {
             target
@@ -338,7 +338,7 @@ impl Setup {
         }
         if self.message.is_some() {
             if let Some(end) = &self.transfer {
-                // prepare.js: MAIN MENU (primary) when there is content, IMPORT CONTENT EXPORT,
+                // MAIN MENU (primary) when there is content, IMPORT CONTENT EXPORT,
                 // CHOOSE GAME FOLDER when there is none.
                 let mut actions = Vec::new();
                 if end.content.is_some() {
@@ -427,7 +427,7 @@ impl Setup {
                 }
                 .into();
                 v.code = end.file.clone();
-                // prepare.js styles `error` for loader errors only; a stopped transfer keeps the plain title.
+                // styles `error` for loader errors only; a stopped transfer keeps the plain title.
             } else {
                 v.title = "SOMETHING WENT WRONG".into();
                 v.error = true;
@@ -843,7 +843,7 @@ pub fn progress_view(snapshot: &PrepareSnapshot) -> SetupView {
         fraction,
         label,
         numbers: if known {
-            // prepare.js joins with two spaces each side; the client's `white-space: nowrap`
+            // joins with two spaces each side; the client's `white-space: nowrap`
             // collapses them, so the drawn text has one.
             numbers.join(" \u{00b7} ")
         } else {
@@ -1110,7 +1110,7 @@ mod tests {
 
     #[test]
     fn a_finished_transfer_names_itself_and_offers_the_menus_actions() {
-        // prepare.js `transfer-done`: the title by operation, the file under the message,
+        // `transfer-done`: the title by operation, the file under the message,
         // MAIN MENU first when there is content, and no folder choice then.
         let done = notice(false, TransferKind::Export, Some("/opt/example/content"));
         let view = done.view();

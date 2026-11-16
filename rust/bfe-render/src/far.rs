@@ -17,8 +17,8 @@
 // items that draw and writes what moves (the sky's matrices, the water's
 // values); the pass clears the target as three does, culls each item as
 // three would (its bounding sphere; the map's buckets by spatial cell, as
-// render-culling.js does; the terrain by its cells and the fade start, as
-// terrain-patches.js does), sorts them as three sorts its render lists
+// does; the terrain by its cells and the fade start, as
+// does), sorts them as three sorts its render lists
 // (opaque: group order, render order, material, depth, id; blended: group
 // order, render order, back to front, id) and draws them, setting a
 // uniform or a piece of state only when it differs from what is set.
@@ -581,7 +581,7 @@ impl<C: HasContext> FarPass<C> {
         let view = camera.view;
         let screen = math::mul(&projection, &view);
         let eye = [core.input[32], core.input[33], core.input[34]];
-        // terrain-patches.js leaves out cells wholly nearer than the fade
+        // leaves out cells wholly nearer than the fade
         // start (less a metre), where the far shaders discard every fragment.
         let start = (core.input[crate::shader::FRAME_OFFSETS[18]] - 1.0).max(0.0);
         let limit = start * start;
@@ -870,7 +870,7 @@ impl<C: HasContext> FarPass<C> {
     }
 }
 
-// terrain-patches.js update(): the cells in view and wholly past the fade
+// update(): the cells in view and wholly past the fade
 // start (`limit`: its square), consecutive ones (in the cells' order, empty
 // cells having none) joined in one range. Writes each range's byte offset
 // and index count; returns how many.

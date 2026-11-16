@@ -163,7 +163,6 @@ impl GraphCursor {
         true
     }
 
-    /// cursor.js:142.
     fn pick_destination(&mut self, graph: &NavGraph, t: usize, from_c: Option<usize>, from_d: Option<usize>, end: Vec3) {
         let (ta, tb) = (graph.arcs[t].a, graph.arcs[t].b);
         let chosen = if from_c == Some(t) {
@@ -195,7 +194,7 @@ impl GraphCursor {
 
     /// Next hub.
     pub fn advance(&mut self, graph: &mut NavGraph, random: &mut dyn Random) -> bool {
-        // cursor.js:168: current === primary || current === secondary,
+        // current === primary || current === secondary,
         // with nulls comparing equal, as Option equality does.
         if self.current == self.primary || self.current == self.secondary {
             self.primary = None;

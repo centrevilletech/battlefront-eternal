@@ -415,7 +415,7 @@ pub struct SeatIntent {
 }
 
 /// The analogs of one input step (`out`, and the vehicle fields of
-/// steering.js's `full`).
+/// `full`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Stick {
     pub forward: f64,

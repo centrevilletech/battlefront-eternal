@@ -903,7 +903,7 @@ pub(crate) fn seat_samples_in(world_ctx: &mut crate::world::owner::World, scales
         F2SeatSample { dx: look[0], dy: look[1] }.put(&mut state.input[F2SeatHeader::WORDS + i * F2SeatSample::WORDS..], &mut heap);
     }
 }
-/// boarding.js mountInReach for a network human's use key: the hull or
+/// mountInReach for a network human's use key: the hull or
 /// turret his eye reaches, by the battle's lists (Vehicles.enterable,
 /// LiveObjects.enterable), with the same casts the seats make.
 pub(crate) fn mount_in_reach_in(world_ctx: &mut crate::world::owner::World, unit: Ref<Unit>, person: bool) -> Option<crate::seats::boarding::Mount> {
@@ -1557,7 +1557,7 @@ pub(crate) fn beam_pose_in(world_ctx: &mut crate::world::owner::World, r: Ref<Se
     let mut dir = Vector3::default(); t.muzzle(false, Some(&mut dir)); *direction = v3(&dir);
 }
 
-/// weapon-targeting.js lockPick, preserving lazy shape and sight queries.
+/// lockPick, preserving lazy shape and sight queries.
 fn turret_lock_in(world_ctx: &mut crate::world::owner::World, turret: usize, origin: &Vector3, direction: &Vector3, lease: Ref<SeatLease>,native_hint:Option<F2TurretHint>) -> Option<LockTarget> {
     let w = seats_state(&mut world_ctx.fleet.seats).weapons[turret].as_ref().unwrap();
     let l = &w.locks[w.state.level as usize];
