@@ -8,7 +8,11 @@ use bfe_transport::{crypto::{Identity,random},layout::network_contract as contra
 pub struct Server{
     pub id:String,pub protocol:usize,pub profile:String,pub simulation:String,pub content:String,pub query:String,
     #[serde(default)]pub name:String,
+    /// Set while the battle is over and the next one is announced (the end table).
+    #[serde(default)]pub next:Option<NextBattle>,
 }
+#[derive(Clone,Debug,serde::Deserialize)]
+pub struct NextBattle{pub query:String}
 impl Server{
     // Discovery is connection-time HTTP only. Bound the body before parsing
     // so an endpoint cannot make the native admission buffer unbounded.
@@ -107,6 +111,13 @@ pub fn identity(path:&Path)->Result<Identity,String>{
 }
 #[cfg(test)]mod tests{
     use super::*;
+    #[test]fn the_next_battle_is_read_from_the_end_table_information(){
+        let base=r#""id":"x","protocol":3,"profile":"p","simulation":"s","content":"c","query":"?map=nab2""#;
+        let during:Server=serde_json::from_str(&format!(r#"{{{base},"next":{{"query":"?map=hot1&side=imp","delayMs":4200}}}}"#)).unwrap();
+        assert_eq!(during.next.map(|n|n.query).as_deref(),Some("?map=hot1&side=imp"));
+        let playing:Server=serde_json::from_str(&format!("{{{base}}}")).unwrap();
+        assert!(playing.next.is_none());
+    }
     #[test]fn a_broken_or_refused_connection_is_worth_another_try(){
         assert!(transient("cannot reach server information endpoint"));
         assert!(transient(&format!("{INTERRUPTED}: Connection reset by peer (os error 104)")));
@@ -169,7 +180,7 @@ pub fn listed_server(master:&bfe_online::master::MasterClient,server_id:&str)->R
     let listing=master.server_info(&server_id.to_ascii_lowercase()).map_err(|e|format!("The online service no longer lists this server ({e}). Refresh the list."))?;
     if !listing.id.eq_ignore_ascii_case(server_id){return Err("The online service listed another server under this identity. Refresh the list.".into());}
     let server=Server{id:listing.id.clone(),protocol:listing.protocol.unwrap_or(0) as usize,profile:contract::PROFILE.to_string(),simulation:listing.simulation.clone().unwrap_or_default(),
-        content:listing.content.clone().unwrap_or_default(),query:listing.query.clone().unwrap_or_default(),name:listing.name.clone()};
+        content:listing.content.clone().unwrap_or_default(),query:listing.query.clone().unwrap_or_default(),name:listing.name.clone(),next:None};
     server.validate()?;Ok((server,listing))
 }
 // Rotation and rejoin probes: /info over HTTP for an address, the master's

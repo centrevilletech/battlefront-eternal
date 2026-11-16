@@ -851,7 +851,7 @@ impl ShellHost {
             .find(|m| m.id == "nab2")
             .or_else(|| data.maps.first());
         if let Some(map) = load_map {
-            let made = Self::upload_stages(&mut self.core, &mut lib, map, data.load.backdrop.as_deref(), &mut textures);
+            let made = Self::upload_stages(&mut self.core, &mut lib, Some(map), data.load.backdrop.as_deref(), &mut textures);
             self.stage_map = Some((map.id.clone(), made));
         }
         let mut stage_targets = Self::stage_targets(&textures.loading_stages);
@@ -1327,12 +1327,12 @@ impl ShellHost {
     fn upload_stages(
         core: &mut Core<glow::Context, Ranges>,
         images: &mut Library,
-        map: &bfe_shell::data::ShellMap,
+        map: Option<&bfe_shell::data::ShellMap>,
         backdrop: Option<&str>,
         textures: &mut ShellTextures,
     ) -> Vec<glow::Texture> {
         let (mut stages, mut made) = (Vec::new(), Vec::new());
-        let pictures = map.load.as_ref().map_or(&[][..], |load| &load.stages[..]);
+        let pictures = map.and_then(|m| m.load.as_ref()).map_or(&[][..], |load| &load.stages[..]);
         for (index, stage) in pictures.iter().enumerate() {
             let Ok(id) = images.load(stage.url.trim_start_matches('/')) else { continue };
             let image = &images.images[id];
@@ -1374,33 +1374,51 @@ impl ShellHost {
             .collect()
     }
 
-    pub fn prepare_map_loading(&mut self, map_id: &str, audio_router: &SharedAudioRouter) {
-        self.suspend_movies();
-        if let Some(map) = self.app.data.maps.iter().find(|m| m.id == map_id) {
-            self.loading_planet = planet_name(&map.id, &self.app.data.strings, map.load.as_ref());
-            if self.stage_map.as_ref().is_none_or(|(id, _)| id != map_id) {
-                for texture in self.stage_map.take().into_iter().flat_map(|(_, made)| made) {
-                    unsafe { self.core.gl.delete_texture(texture) };
-                }
-                self.textures.loading_stages.clear();
-                self.textures.by_name.remove(bfe_shell::render::LOADING_BACKDROP);
-                if let Some(root) = &self.content_dir {
-                    if let Ok(mut images) = Library::new(root, false, 4096, 0) {
-                        let made = Self::upload_stages(&mut self.core, &mut images, map, self.app.data.load.backdrop.as_deref(), &mut self.textures);
-                        self.stage_map = Some((map_id.to_string(), made));
-                    }
+    /// The loading screen's planet name and pictures for `map_id`. A map not known (a direct
+    /// join before the server has said which battle it runs) gets the neutral backdrop and no
+    /// planet name. The timeline is the same length for every map.
+    fn load_map_pictures(&mut self, map_id: &str) {
+        let map = self.app.data.maps.iter().find(|m| m.id == map_id).cloned();
+        self.loading_planet = match &map {
+            Some(map) => planet_name(&map.id, &self.app.data.strings, map.load.as_ref()),
+            None => map_id.to_ascii_uppercase(),
+        };
+        if self.stage_map.as_ref().is_none_or(|(id, _)| id != map_id) {
+            for texture in self.stage_map.take().into_iter().flat_map(|(_, made)| made) {
+                unsafe { self.core.gl.delete_texture(texture) };
+            }
+            self.textures.loading_stages.clear();
+            self.textures.by_name.remove(bfe_shell::render::LOADING_BACKDROP);
+            if let Some(root) = &self.content_dir {
+                if let Ok(mut images) = Library::new(root, false, 4096, 0) {
+                    let made = Self::upload_stages(&mut self.core, &mut images, map.as_ref(), self.app.data.load.backdrop.as_deref(), &mut self.textures);
+                    self.stage_map = Some((map_id.to_string(), made));
                 }
             }
-            let targets = Self::stage_targets(&self.textures.loading_stages);
-            self.loading_timeline = LoadingTimeline::new(
-                self.app.data.load.track,
-                self.app.data.load.zoom,
-                self.app.data.load.hold,
-                targets,
-            );
-        } else {
-            self.loading_planet = map_id.to_ascii_uppercase();
         }
+        let targets = Self::stage_targets(&self.textures.loading_stages);
+        self.loading_timeline = LoadingTimeline::new(
+            self.app.data.load.track,
+            self.app.data.load.zoom,
+            self.app.data.load.hold,
+            targets,
+        );
+    }
+
+    /// Shows `map_id`'s planet on a loading screen already under way, once an online server has
+    /// said which battle it runs. The loading clock and its sounds carry on, so the screen keeps
+    /// its fixed length.
+    pub fn retarget_map_loading(&mut self, map_id: &str) {
+        if self.stage_map.as_ref().is_some_and(|(id, _)| id == map_id) {
+            return;
+        }
+        eprintln!("battle loading: the server runs map={map_id}; loading pictures follow it");
+        self.load_map_pictures(map_id);
+    }
+
+    pub fn prepare_map_loading(&mut self, map_id: &str, audio_router: &SharedAudioRouter) {
+        self.suspend_movies();
+        self.load_map_pictures(map_id);
         self.loading_text = self
             .app
             .data

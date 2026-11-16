@@ -85,7 +85,9 @@ impl Client {
         let refused = self.endpoint.connection.as_ref().and_then(|c| c.closed).is_some_and(|c| c.code == close_code::VERSION as u64);
         if refused && !self.receiver.welcomed && self.rejoin.is_none() {
             if let Err(error) = &receipt {
-                eprintln!("online join: refused ({error}); checking whether the server changed battle");
+                // The refusal speaks of different game data; that is only so if /info still names
+                // the battle this client loaded (below), so it is not logged here.
+                eprintln!("online join: refused for its battle; checking whether the server changed battle");
                 let probe = super::rotation::Probe::changed(self.target.clone(), self.query.clone());
                 self.rejoin = Some((probe, self.endpoint.now(), error.clone()));
             }

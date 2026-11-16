@@ -1690,9 +1690,11 @@ impl StandaloneWindowApp {
             }
             ShellTransition::StartOnline(launch) => {
                 // Configure the planet loading screen for the selected online server and transition.
+                // A direct join does not know the battle until the server answers: the neutral
+                // backdrop until then (the loading worker names the map).
                 if let Some(shell) = &mut self.shell {
-                    let map_id = if launch.map.is_empty() {
-                        "nab2"
+                    let map_id = if launch.map.is_empty() || launch.server_id.starts_with("direct-") {
+                        ""
                     } else {
                         launch.map.as_str()
                     };
@@ -2234,6 +2236,9 @@ impl StandaloneWindowApp {
                     );
                     let mut handover = None;
                     let frame = if let Some(shell) = &mut self.shell {
+                        if let Some(map) = work.map.take() {
+                            shell.retarget_map_loading(&map);
+                        }
                         shell.draw_battle_loading(dt);
                         if let Some(ui) = &mut self.slint_ui {
                             ui.sync_shell(shell, false);
