@@ -891,7 +891,6 @@ pub struct BattleController {
     pub chat: ChatController,
     /// The map's boundary and the LEAVING BATTLEFIELD warning's state.
     leaving: super::leaving::LeavingFeed,
-    pub(super) stats_text: String,
     frame_seconds: f64,
     /// Scratch quad batch used when compositing overlays onto `scene.bridge.hud_model.batch`.
     pub overlay_batch: Batch,
@@ -1401,7 +1400,6 @@ impl BattleController {
             page_battle,
             chat,
             leaving: Default::default(),
-            stats_text: String::with_capacity(256),
             frame_seconds: 0.,
             overlay_batch: Batch::new(),
             size,
@@ -1620,7 +1618,7 @@ impl BattleController {
         if let Err(err)=self.scene.set_tree_detail(settings.interface.get_string("treeDetail")!="original"){eprintln!("battle settings: tree detail not applied: {err}");}
         if let Err(err)=self.scene.set_vehicle_blur(settings.interface.get_bool("vehicleMotionBlur")){eprintln!("battle settings: vehicle blur not applied: {err}");}
         if let Err(err)=self.scene.set_lamp_lighting(settings.interface.get_bool("lampLighting")){eprintln!("battle settings: lamp lighting not applied: {err}");}
-        self.scene.set_far_terrain(settings.interface.get_string("farTerrain") == "reduced");
+        if let Err(err)=self.scene.set_far_terrain(settings.interface.get_string("farTerrain") == "reduced"){eprintln!("battle settings: far terrain not applied: {err}");}
         if let Err(err)=self.scene.set_shadows(&settings.interface.get_string("shadows")){eprintln!("battle settings: shadows not applied: {err}");}
         self.scene.set_material_detail(settings.interface.get_bool("bumpMapping"), settings.interface.get_string("terrainDetail") == "enhanced");
         if let Err(err) = self
@@ -2226,6 +2224,10 @@ impl BattleController {
         // Fades and message lifetimes keep elapsed time when a slow frame
         // exceeds the movement step limit.
         self.scene.bridge.hud_model.input[H::DT] = elapsed_dt;
+        self.scene.bridge.hud_model.stats_line.len = 0;
+        if settings.interface.get_bool("showStats") {
+            self.update_stats_line();
+        }
         if overlay_active {
             self.sync_ports_cold(&settings.player.profile_name);
             self.update_and_build_overlays(dt);
@@ -2239,11 +2241,6 @@ impl BattleController {
 
         let full_sync = self.frames == 0 || self.overlay_was_active || overlay_active;
         self.overlay_was_active = overlay_active;
-        let show_stats = settings.interface.get_bool("showStats");
-        self.stats_text.clear();
-        if show_stats {
-            self.update_stats_line();
-        }
         self.scene.bridge.hud_sync_batch(full_sync);
 
         // PageTheme is a compositor over the finished battle, just as its
@@ -2586,10 +2583,11 @@ impl BattleController {
     // Format into retained storage; the page overlay supplies CSS-pixel sizing.
     fn update_stats_line(&mut self) {
         use std::fmt::Write;
-        self.stats_text.clear();
         let mean = self.frame_seconds / self.frames.max(1) as f64;
         let fps = if mean > 0. { 1. / mean } else { 0. };
-        let _ = write!(&mut self.stats_text, "{fps:.0} fps | mean frame {:.2} ms | {}x{} Native", mean * 1000., self.size[0], self.size[1]);
+        let line = &mut self.scene.bridge.hud_model.stats_line;
+        line.len = 0;
+        let _ = write!(line, "{fps:.0} fps | mean frame {:.2} ms | {}x{} Native", mean * 1000., self.size[0], self.size[1]);
     }
 
     // Pausing is a cold diagnostic boundary: record the actual displayed view

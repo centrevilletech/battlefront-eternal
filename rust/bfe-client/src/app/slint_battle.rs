@@ -190,7 +190,6 @@ pub(super) fn register_battle_callbacks(
 pub(super) fn battle_overlay_visible(root: &GameUi) -> bool {
     let bm = root.global::<BattleModel>();
     bm.get_pause_open()
-        || !bm.get_stats_line().is_empty()
         || bm.get_chat_open()
         || bm.get_chat_lines().row_count() > 0
         || bm.get_waiting_prompt_visible()
@@ -232,9 +231,6 @@ pub(super) fn sync_battle(root: &GameUi, lists: &BattleLists, battle: &mut Battl
 
     let bm = root.global::<BattleModel>();
     bm.set_theme_index(look_idx);
-    if bm.get_stats_line().as_str() != battle.stats_text {
-        bm.set_stats_line(battle.stats_text.as_str().into());
-    }
     sync_chat_model(root, lists, battle);
 
     let page_spawn = battle.page_battle.spawn;

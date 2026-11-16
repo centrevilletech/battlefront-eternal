@@ -1331,6 +1331,7 @@ fn local_dedicated_server_full_join_entity_registry_welcome_and_publication_repl
 /// - Exchanges `BNI1` + `BNA1` input datagrams (`decode_entity_input` + `decode_snapshot_ack_keepalive`)
 ///   and verifies `entity-registry`, `welcome`, `reply`, `input-ack`, `entity-edge-results`,
 ///   `gameplay-events`, `BNS1`, and `BNO1`.
+///
 /// A client that vanishes without a close (killed, crashed, network gone) is retired once the
 /// transport's idle time passes: the player count, the roster and the listing must not keep it.
 #[test]
