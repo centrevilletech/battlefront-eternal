@@ -190,7 +190,7 @@ pub fn crossing(b: &Barrier, seg: &Segment, r: f64, work: Option<&mut Work>, hit
 }
 
 /// Ejection candidate i; also returns the candidate
-/// point (the JavaScript's `out`).
+/// point.
 pub fn ejection(b: &Barrier, p: Vec3, r: f64, i: usize) -> (f64, Vec3) {
     let a = corner(b, i, r, 0.0);
     let c = corner(b, if i > 2 { 0 } else { i + 1 }, r, 0.0);
@@ -367,7 +367,7 @@ impl BarrierSet {
         }
     }
 
-    /// barriers.js:184. Returns (clear, the JavaScript's out.barrier).
+    /// barriers.js:184. Returns.
     pub fn point_clear(&mut self, p: Vec3, r: f64, mask: u32) -> (bool, Option<usize>) {
         self.gather_cached(p.x - r, p.z - r, p.x + r, p.z + r);
         for at in 0..self.found.len() {

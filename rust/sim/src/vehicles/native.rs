@@ -129,7 +129,7 @@ impl Collision {
         view
     }
 
-    /// Import the page's body order once, before any pending ticks replay.
+    /// Import the client's body order once, before any pending ticks replay.
     /// Query-local toggles remain private even when a replay exits early.
     pub fn prediction_flags(&mut self, flags: &[f64]) -> bool {
         if flags.len() > self.flags.len() { return false; }
@@ -203,7 +203,7 @@ impl Collision {
     /// CollisionWorld.rayBodies binds both identities at construction, even
     /// for variants admitted after vehicle topology was prepared.
     /// The kernel slot a store body was bound to (`bind_body`), for an
-    /// observer that keeps the page's enabled flags beside the world.
+    /// observer that keeps the client's enabled flags beside the world.
     pub(crate) fn kernel_of(&self, body: Ref<Body>) -> Option<u32> {
         self.bodies.get(body.slot as usize).copied().flatten().filter(|(bound, _)| bound.gen == body.gen).map(|(_, kernel)| kernel)
     }
@@ -245,7 +245,7 @@ impl Collision {
 
     /// CollisionWorld construction sizes native wall-query storage from the
     /// loaded level. A new part of the map must not allocate on first contact.
-    /// The page's prediction prepares through the module's cache bank,
+    /// The client's prediction prepares through the module's cache bank,
     /// reached only for a collider that retains caches.
     pub fn prepare(&mut self, s: &State) {
         // Native prediction owns its query scratch and gathers directly.

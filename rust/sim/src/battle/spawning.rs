@@ -319,7 +319,7 @@ fn sp_mut(c: &mut Character) -> &mut Spawn {
     c.spawn.as_mut().expect("a Character the spawn manager made")
 }
 
-/// A number field the roster may leave undefined, read as JavaScript reads
+/// A number field the roster may leave undefined, read
 /// it in arithmetic and comparisons (undefined: NaN).
 fn num(x: Option<f64>) -> f64 {
     x.unwrap_or(f64::NAN)

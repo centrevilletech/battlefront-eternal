@@ -42,7 +42,7 @@ pub mod kind {
 /// A unit's class as the vehicle AI reads it (`unit.classDef`): for a
 /// control, src/seats.js vehicleClassView (or a gunner's or a turret's
 /// view, with no speed); for a soldier, its class data. A field the class
-/// lacks is `None` (the JavaScript's undefined).
+/// lacks is `None`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ClassView {
     /// `AISizeType`, as the string it is (a number written as JavaScript's
@@ -397,7 +397,7 @@ impl Steer {
     }
 }
 
-/// A number field as JavaScript reads it: undefined is NaN in arithmetic.
+/// A number field it: undefined is NaN in arithmetic.
 pub fn num(x: Option<f64>) -> f64 {
     x.unwrap_or(f64::NAN)
 }

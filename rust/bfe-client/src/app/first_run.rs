@@ -155,7 +155,7 @@ pub struct Setup {
     pub copies: Vec<GameInstall>,
     pub selected: usize,
     pub cursor: usize,
-    /// The action the keyboard's focus is on, if any (the page's `:focus-visible` element).
+    /// The action the keyboard's focus is on, if any (the client's `:focus-visible` element).
     /// `cursor` is the lit button: the hovered one, the focused one, else the state's own choice.
     pub focus: Option<usize>,
     pub check: Option<Value>,
@@ -279,7 +279,7 @@ impl Setup {
             Some((_, Action::Sound | Action::Pick(_) | Action::Details))
         )
     }
-    /// Tab order of the page: the sound option, the other-copy buttons, the actions, then the
+    /// Tab order of the client: the sound option, the other-copy buttons, the actions, then the
     /// details link, as prepare.js lays them out.
     fn focus_order(&self) -> Vec<usize> {
         let actions = self.actions();
@@ -681,7 +681,7 @@ pub fn options(
     }
 }
 
-/// estimate(snapshot) and drawProgress from the browser: duration-weighted
+/// estimate(snapshot) and drawProgress from the client: duration-weighted
 /// work, capped running fractions, batched armies/maps and the same clock text.
 pub fn progress_view(snapshot: &PrepareSnapshot) -> SetupView {
     let mut v = SetupView::default();
@@ -843,7 +843,7 @@ pub fn progress_view(snapshot: &PrepareSnapshot) -> SetupView {
         fraction,
         label,
         numbers: if known {
-            // prepare.js joins with two spaces each side; the page's `white-space: nowrap`
+            // prepare.js joins with two spaces each side; the client's `white-space: nowrap`
             // collapses them, so the drawn text has one.
             numbers.join(" \u{00b7} ")
         } else {
@@ -893,7 +893,7 @@ pub struct TransferWork {
     current: TransferProgress,
 }
 
-/// One progress report from an archive transfer: the phase the browser's `onProgress` names
+/// One progress report from an archive transfer: the phase the client's `onProgress` names
 /// ("Importing and verifying", "Restoring shared content", "Exporting content"), the file, and
 /// bytes done of total.
 #[derive(Clone, Debug, Default)]
@@ -1075,7 +1075,7 @@ mod tests {
     }
 
     /// A checked copy with a second install: the sound option, the other copy's
-    /// button and the three actions, in the order prepare.js puts them in the page.
+    /// button and the three actions, in the order prepare.js puts them in the client.
     fn ready() -> Setup {
         let mut setup = Setup::missing(false);
         setup.copies = vec![copy("/opt/example/one"), copy("/opt/example/two")];

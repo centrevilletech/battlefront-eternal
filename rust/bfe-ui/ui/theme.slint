@@ -18,11 +18,11 @@ export enum ControlState { idle, hover, pressed, focused, disabled }
 
 export global Theme {
     in-out property <string> menu-theme: "eternal";
-    // A key moved the selection and the pointer has not moved since: only the selected row is lit (the browser keeps one focus).
+    // A key moved the selection and the pointer has not moved since: only the selected row is lit.
     in-out property <bool> keyboard-nav: false;
     in-out property <length> viewport-width: 1280px;
     in-out property <length> viewport-height: 720px;
-    // Device pixels per logical pixel (the page's line boxes round in device pixels).
+    // Device pixels per logical pixel (the screen's line boxes round in device pixels).
     in-out property <float> scale-factor: 1.0;
     out property <bool> bf1: self.menu-theme == "bf1";
     out property <bool> bf2: self.menu-theme == "bf2";
@@ -91,7 +91,7 @@ export global Theme {
     out property <length> dialog-input-font-size: 16px;
     out property <length> dialog-input-pad-x: 10px;
     out property <length> dialog-button-pad-x: 18px;
-    // Buttons of the page's dialogs sit outside `.bfe-page`, so `font: inherit` does not reach them
+    // Buttons of the screen's dialogs sit outside `.bfe-page`, so `font: inherit` does not reach them
     // and they keep the browser's 13.333px default (`html[data-bfe-theme] dialog button`).
     out property <length> dialog-button-font-size: 13.333px;
     // The online notice hard-codes its eyebrow (#94cce9) and focus ring (#7bdbff).

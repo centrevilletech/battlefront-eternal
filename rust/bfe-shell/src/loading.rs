@@ -152,7 +152,7 @@ impl LookId {
     }
 
     /// Normalizes an optional `menuTheme` setting into a [`LookId`], defaulting
-    /// any unrecognized or absent value to [`LookId::Eternal`] (`themeOf` in JS).
+    /// any unrecognized or absent value to [`LookId::Eternal`].
     pub fn from_theme(theme: Option<&str>) -> Self {
         match theme {
             Some("bf1") => Self::Bf1,

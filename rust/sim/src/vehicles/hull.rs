@@ -232,7 +232,7 @@ pub struct Hull {
     pub leg_side_scratch: Vec<f64>,
 
     pub seat_index: usize,
-    /// Whether the page's player drives it (VehicleDriver; never in a world).
+    /// Whether the client's player drives it (VehicleDriver; never in a world).
     pub driver: bool,
     pub wheels: Vec<Wheel>,
     pub seats: Vec<Seat>,

@@ -69,7 +69,7 @@ pub struct MapEffects {
     pub started: u64,
     pub visible: usize,
     // BFE_BENCH fx=name,name,...: each named effect group in turn, every 3 s,
-    // 6 m ahead of the camera and 2.5 m right, for side-by-side captures with the browser.
+    // 6 m ahead of the camera and 2.5 m right, for side-by-side captures with the client.
     show: Vec<(String, usize)>,
     show_next: usize,
     show_clock: f64,

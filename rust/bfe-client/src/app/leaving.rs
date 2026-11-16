@@ -1,6 +1,6 @@
 //! The player's LEAVING BATTLEFIELD warning: the map's boundary from its
 //! `ai-nav.json` (`boundary.references` name `paths`, each a polygon), tested against the hull or body
-//! the player controls, and the warning's flashing alpha as the browser's page works it out. The world
+//! the player controls, and the warning's flashing alpha as the client's page works it out. The world
 //! keeps the 10 s count and does the killing; this is only what the player sees.
 use bfe_presentation::{leaving_warning::Warning, page_layout::warning as w};
 use bfe_sim::ai::nav::{boundary::Boundary, math::Vec3};

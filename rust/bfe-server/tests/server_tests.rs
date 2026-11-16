@@ -2401,7 +2401,7 @@ fn sixty_four_concurrent_clients_join_reconnect_and_stream_snapshots() {
                 }
             }
 
-            // Once all 64 clients have joined the world worker, inject a 64-player publication
+            // Once all 64 clients have joined the local world thread, inject a 64-player publication
             // block so `LocalDedicatedServer` fans out `BNS1`, 64 per-client `BNO1` frames, and `input-ack`s.
             if all_welcomed && !pushed_pub {
                 let stats = server.stats();

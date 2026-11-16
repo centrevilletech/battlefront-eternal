@@ -3,7 +3,7 @@
 //! correction has been applied: the target's relation colours the reticle,
 //! and an enemy under channel 0 shows his health under the player's own.
 //! The search itself is bfe_sim::combat::page_targeting::Query; this module
-//! gives it each unit as the browser's registry would (a soldier's hit-shape
+//! gives it each unit as the client's registry would (a soldier's hit-shape
 //! bounds, a hull's box, a turret's sphere) and answers its sight lines.
 use super::{collision::Bodies, radar::Teams, receiver::Receiver};
 use bfe_content::Value;

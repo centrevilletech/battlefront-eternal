@@ -1,4 +1,4 @@
-//! WaterShore.waterlineSegment, clipToTile, sampleTile and update. The page
+//! WaterShore.waterlineSegment, clipToTile, sampleTile and update. The client
 //! supplies collision triangles and downward casts; all geometry, deduplication,
 //! cache admission and stable distance selection remain inside this owner.
 use crate::layout::{shore_point as point, shore_triangle as tri, surface as lim};

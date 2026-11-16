@@ -288,7 +288,7 @@ export component MultiplayerScreen inherits Rectangle {
         accepted(val) => { MpModel.search-submitted(val); }
     }
 
-    // The page's search input shows the browser's clear button once it holds text.
+    // The screen's search input shows the browser's clear button once it holds text.
     if MpModel.search-value != "": search-clear := Interaction {
         x: root.search-x + root.search-w - 26px;
         y: root.filters-y;

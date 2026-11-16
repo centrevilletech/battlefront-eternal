@@ -261,7 +261,7 @@ impl Clarity {
         // Each envelope's coefficient, chosen by whether the power is over
         // it: noise makes that a coin toss the CPU cannot guess, so the
         // choice is made on the coefficients' bits (an integer select,
-        // which the browser makes branch-free; a float select it compiles
+        // which Chromium makes branch-free; a float select it compiles
         // to a jump), giving exactly the coefficient the worklet's ?: does.
         let [fast_up, fast_down, slow_up, slow_down] = self.envelope_bits;
         for i in 0..n {

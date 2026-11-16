@@ -1,9 +1,9 @@
 //! Animated prop clocks shared by the world's props (rust/sim
-//! battle/animated.rs) and the page's prop presentation
+//! battle/animated.rs) and the client's prop presentation
 //! (bfe-presentation props.rs): AnimatedProp.advance, stand, a door's
 //! openness and the trigger reach. Each host keeps its own
-//! control flow (the world seizes and swallows; the page only draws), and
-//! both reach these numerics, so a door or an idle drawn on the page moves
+//! control flow (the world seizes and swallows; the client only draws), and
+//! both reach these numerics, so a door or an idle drawn on the client moves
 //! exactly as the world's.
 use crate::{Clip, Pose};
 

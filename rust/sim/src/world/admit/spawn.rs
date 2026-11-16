@@ -512,7 +512,7 @@ fn droideka_class_id(world: &mut World, cx: &mut super::rows::Cx, parts: &super:
 /// `unitsSim.registerViewpoint(playerUnit)` and F3Factory.resident. The
 /// dormant viewpoint is the body PlayerBodies built and placed before the
 /// handoff: its Unit import carries the body_spawn answer (the grounded
-/// position, velocity and posture the page's spawnSoldier published onto
+/// position, velocity and posture the client's spawnSoldier published onto
 /// the soldier) and the placement's generation, alive flags and tick count
 /// (placePlayer). F3 then prepares its skeleton and whole clip bank,
 /// adopts it passively (no factory order, no corpse pool), binds its combat
@@ -544,7 +544,7 @@ pub fn adopt_viewpoint(world: &mut World, cx: &mut super::rows::Cx, slot: u32, s
     match (&mut body.unit.soldier, spawned) {
         (UnitBody::Soldier(soldier), Spawned::Soldier(spawned)) => {
             soldier.position = spawned.position; soldier.previous = spawned.previous; soldier.settled = spawned.settled;
-            // The soldier row keeps no `origin`: the page's body alone reads it.
+            // The soldier row keeps no `origin`: the client's body alone reads it.
             soldier.velocity = spawned.velocity; soldier.normal = spawned.normal;
             soldier.aim_yaw = spawned.aim_yaw; soldier.aim_pitch = spawned.aim_pitch; soldier.posture = spawned.posture;
             soldier.air = spawned.air; soldier.dive = spawned.dive; soldier.state_time = spawned.state_time;
@@ -574,11 +574,11 @@ pub fn adopt_viewpoint(world: &mut World, cx: &mut super::rows::Cx, slot: u32, s
     if !crate::units::f3::active_in(&world.units) { return Err(fail("f3_init")); }
     // The Unit import (KIND_UNIT) replaces the row attachF3Combat's cmb_new
     // opened for the viewpoint's combat, so no cmb_new here, unlike
-    // UnitFactory.build; the import carries the page's whole unit state.
+    // UnitFactory.build; the import carries the client's whole unit state.
     let reference = match world.sim.store.unit.reference(slot) {
         Some(existing) => {
             if existing.gen != 0 { return Err(fail("viewpoint slot")); }
-            // The import carries the page's unit; the combat attachF3Combat
+            // The import carries the client's unit; the combat attachF3Combat
             // opened for it (cmb_new, its arsenal and settings) stays native.
             let row = world.sim.store.unit.get_mut(existing).ok_or_else(|| fail("viewpoint slot"))?;
             let combat = std::mem::take(&mut row.combat);

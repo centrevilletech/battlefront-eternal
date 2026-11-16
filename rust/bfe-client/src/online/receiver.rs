@@ -66,7 +66,7 @@ pub struct Own {
     pub remote_weapons: [Option<([f64; 20], u8, u8)>; 2],
 }
 // Server diagnostics are terminal observations, not retained JSON objects.
-// Keep at most the browser's 240 characters, including escaped JSON text;
+// Keep at most the client's 240 characters, including escaped JSON text;
 // four UTF-8 bytes per scalar fit the cold diagnostic reservation exactly.
 struct Notice {
     bytes: [u8; 960],
@@ -256,7 +256,7 @@ impl Receiver {
             self.text(bytes, now);
             // State and reliable bootstrap have independent transport order.
             // Keep bounded early state until registry/welcome admission, just
-            // as NetworkSession's initial entity queue did in the browser.
+            // as NetworkSession's initial entity queue did in the client.
             if self.registry && self.welcomed {
                 while self.early_count != 0 && self.fault.is_none() {
                     let early = self.early[self.early_at];

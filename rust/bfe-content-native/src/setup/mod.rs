@@ -1,4 +1,4 @@
-//! A battle's cold setup, built from the player's content the way the page
+//! A battle's cold setup, built from the player's content the way the client
 //! and the headless Node host build it in JavaScript before the first tick:
 //! the query a mission is picked by (the battle URL),
 //! the files the battle fetches (start()), the water clock the world

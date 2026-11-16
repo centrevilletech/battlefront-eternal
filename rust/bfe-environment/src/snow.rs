@@ -68,7 +68,7 @@ impl Wind {
 /// its wander, alpha, spin (turns a second) and turn (0..1), as 32-bit
 /// floats.
 // The flakes of one box: positions in a unit box, each with its wander, alpha,
-// spin (turns a second) and turn (0..1), as 32-bit floats as the page kept them
+// spin (turns a second) and turn (0..1), as 32-bit floats them
 // (the stores round alike).
 struct Flakes {
     count: usize,

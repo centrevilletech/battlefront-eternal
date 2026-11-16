@@ -1,4 +1,4 @@
-//! Retained numeric trees for the page's placed rigs. Three supplies resource
+//! Retained numeric trees for the client's placed rigs. Three supplies resource
 //! shells at birth; subsequent local/world matrices and attached skin inverses
 //! are published here, without a second browser scene walk.
 use crate::layout::scene_node as n;

@@ -1,4 +1,4 @@
-//! The battle's point lights for a frame. The page keeps a pool of eight
+//! The battle's point lights for a frame. The client keeps a pool of eight
 //! lights (LightPool) that every passing glow asks for: a
 //! bolt in flight, a beam, an explosion's flash. Each frame the heaviest
 //! requests get the lights. A command post's hologram has a light of its own

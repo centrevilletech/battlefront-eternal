@@ -199,7 +199,7 @@ fn reset_button(page: &str, strings: &HashMap<String, String>) -> ButtonWidget {
 
 /// Builds the top header title banner for `page` (`title(page, strings, y)`).
 ///
-/// Resolves the page title key from [`PAGES`] (`ifs.GameOpt.title`, `ifs.VideoOpt.title`,
+/// Resolves the client title key from [`PAGES`] (`ifs.GameOpt.title`, `ifs.VideoOpt.title`,
 /// `ifs.SoundOpt.title`, or `ifs.GameOpt.pc_optionstitle`) and positions it at `y`.
 fn page_title(page: &str, strings: &HashMap<String, String>, y: f64) -> TextWidget {
     let entry = PAGES.iter().find(|p| p.id == page).unwrap_or(&PAGES[0]);
@@ -1067,7 +1067,7 @@ mod tests {
         assert_eq!(ctrl.stack.top().unwrap().elapsed, 2.);
     }
 
-    // Down from the last row of an options page lands on RESET TO DEFAULTS (it is in the browser's ring), Down again
+    // Down from the last row of an options page lands on RESET TO DEFAULTS, Down again
     // wraps to the first row, and Up from the first row goes back to RESET.
     #[test]
     fn down_from_the_last_row_stops_on_reset_then_wraps() {

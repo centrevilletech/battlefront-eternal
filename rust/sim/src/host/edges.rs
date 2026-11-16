@@ -49,11 +49,11 @@ fn lanes(context: &Context, player: u32, lane: u32, drain: bool) -> Result<Playe
         .ok_or_else(|| "unknown player".to_string())
 }
 
-/// `p.unit.generation` as the JavaScript reads it live: the unit mirror's
+/// `p.unit.generation` it live: the unit mirror's
 /// life count, from the store's unit export (0 without a body).
 fn unit_generation(context: &Context, unit: Option<u32>) -> Result<f64, String> {
     let Some(slot) = unit else { return Ok(0.0) };
-    // The page exported the units in the mirror's mode here: the rows of the
+    // The client exported the units in the mirror's mode here: the rows of the
     // units retired since the last export came first (and the export took
     // that list), then the store's units in slot order.
     context

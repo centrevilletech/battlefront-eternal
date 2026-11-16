@@ -98,7 +98,7 @@ impl Vehicle {
     // A changed hull, perspective or camera kind starts a fresh section.
     // Only a flyer pilot enters the separate flight controller below.
     // Passenger sections retain the ordinary seat camera, even in a flyer.
-    // Ground pilots keep the page's hover/bike chase values and speed easing.
+    // Ground pilots keep the client's hover/bike chase values and speed easing.
     // Walking pilots use their authored section instead of a hover boom.
     // FOV is horizontal content; only the final lens converts it to vertical.
     // Native frame state survives the host's body and attachment phases.
@@ -170,7 +170,7 @@ impl Vehicle {
         }
         self.set = true;
     }
-    // The hull's frame with its lean: as drawn between ticks on the page, at
+    // The hull's frame with its lean: as drawn between ticks on the client, at
     // the tick in the simulation.
     // Inside the hull's box (a cockpit) the hull leaves the view; outside
     // it (a saddle) it stays.
@@ -330,7 +330,7 @@ impl Vehicle {
     // Resolve that eased endpoint too before publishing the rendered camera.
     // Its corner rays include the near-plane skin in their query length.
     // The own hull is excluded by stable collision slot in the native adapter.
-    // No candidate list or scratch vector crosses back to the page.
+    // No candidate list or scratch vector crosses back to the client.
     // VehicleCamera.follow third-person chase solver.
     #[allow(clippy::too_many_arguments)]
     fn follow<T: Math, C: Cast>(

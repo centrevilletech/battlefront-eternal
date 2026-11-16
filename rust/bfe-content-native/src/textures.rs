@@ -1,6 +1,6 @@
 //! TextureLibrary.prepare/load without fetch, DOM images or a worker heap.
 //! PNG, lossless WebP and KTX2 use the same Rust decoders and GPU format policy
-//! as the page. A declared compressed twin that fails is a loading error.
+//! as the client. A declared compressed twin that fails is a loading error.
 use bfe_render::texture_format::{Capabilities, Format};
 use serde_json::Value;
 use std::{

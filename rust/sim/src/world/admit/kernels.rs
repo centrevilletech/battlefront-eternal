@@ -2,9 +2,9 @@
 //! it through ray-kernel.js (src/collision.js 80-130): the terrain's grid,
 //! the buildings' tree and the terrain's tree over the content's corners,
 //! the world and the buildings as its fixed set. The trees are built here
-//! as the kernel builds them for the page (three-mesh-bvh's CENTER split,
+//! as the kernel builds them for the client (three-mesh-bvh's CENTER split,
 //! bfe_content::bvh) and installed through the content crate's installer,
-//! which the content tests prove against the page's casts on every map.
+//! which the content tests prove against the client's casts on every map.
 //! The movement kernel takes no construction call: a soldier's mover is
 //! made at its birth. The clip bank fills lazily, at the first sample.
 use super::{AdmitError, Stage};

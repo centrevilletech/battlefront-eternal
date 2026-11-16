@@ -1,5 +1,5 @@
 //! predictionCommands and EntityInputSender.replayActions shared sequence
-//! identity but rebuilt Maps and cloned command objects on every page frame.
+//! identity but rebuilt Maps and cloned command objects on every client frame.
 //! Merge their raw transport rows here, in the existing prediction call.
 use super::span;
 use crate::gen::{ClientCommand as C, ClientCommandSource as Source, ClientFrame};

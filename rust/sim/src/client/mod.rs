@@ -27,14 +27,14 @@ const LIMIT: f64 = 120.0;
 const SOLDIER: u32 = ClientActorKind::Soldier as u32;
 const DROIDEKA: u32 = ClientActorKind::Droideka as u32;
 // The internal proven kernels predate this frame ABI. Name their commands so
-// the page operation codes cannot be confused with a weapon restore or tick.
+// the client operation codes cannot be confused with a weapon restore or tick.
 const ACTOR_CONFIGURE: u32 = 0;
 const WEAPON_CONFIGURE: u32 = 0;
 const WEAPON_RESTORE: u32 = 1;
 const WEAPON_STEP: u32 = 2;
 const WEAPON_MOUNTED_STEP: u32 = 3;
 
-/// World key groups, resolved by the page before the frame boundary. Separate
+/// World key groups, resolved by the client before the frame boundary. Separate
 /// positive and negative bits retain cancellation when both keys are held.
 pub const FORWARD: u32 = 1 << ClientHeld::Forward as u8;
 pub const BACKWARD: u32 = 1 << ClientHeld::Backward as u8;
@@ -51,7 +51,7 @@ fn action(bits: u32, key: Action) -> bool { bits & (1 << key as u8) != 0 }
 fn axis(bits: u32, plus: u32, minus: u32) -> f64 {
     f64::from(bits & plus != 0) - f64::from(bits & minus != 0)
 }
-// The page describes subranges, not borrowed JavaScript arrays. Check both
+// The client describes subranges, not borrowed JavaScript arrays. Check both
 // overflow and the final bound before any command may mutate the session.
 fn span(words: &[f64], at: u32, count: u32, stride: usize) -> Result<&[f64], &'static str> {
     let end = (count as usize).checked_mul(stride).and_then(|n| (at as usize).checked_add(n)).ok_or(INVALID)?;
@@ -372,7 +372,7 @@ impl ClientPrediction {
                 frame.underwater, action(actions, Action::FireSecondary), airborne, dive, lock)?;
             // separatePredictedSoldier ran after movement and before weapons.
             // Only this private body moves; remote actors are frozen facts for
-            // the page frame, regardless of how many pending ticks replay.
+            // the client frame, regardless of how many pending ticks replay.
             separate(&mut self.actor.unit.soldier, frame.identity, &mut self.crowd);
             if !action(actions, Action::FirePrimary) { counts[0] = 0; }
             if !action(actions, Action::FireSecondary) { counts[1] = 0; }
@@ -509,7 +509,7 @@ impl ClientPrediction {
             }
             // Vehicle.fireSeat uses two channels and freezes a tow-held gun.
             // Advance-enabled entries alone change barrel cursors; takeoff
-            // eligibility was already decided once by the page's mount owner.
+            // eligibility was already decided once by the client's mount owner.
             self.arsenal.input.clear(); self.arsenal.input.push(frame.mounts_count as f64);
             for (i, row) in mounts.chunks_exact(ClientMount::WORDS).enumerate() {
                 let m = ClientMount::take(row, &[]);
@@ -593,7 +593,7 @@ fn separate(body: &mut UnitBody, identity: f64, crowd: &mut [f64]) {
         let share = overlap * ov;
         p[0] += (dx / d) * share; p[2] += (dz / d) * share;
         // separateSoldiers moves the other body the rest of the way. Only
-        // this replay's copy of it moves: the page's stays where it was told.
+        // this replay's copy of it moves: the client's stays where it was told.
         row[ClientCrowd::POSITION] -= (dx / d) * overlap * volume;
         row[ClientCrowd::POSITION + 2] -= (dz / d) * overlap * volume;
     }

@@ -43,7 +43,7 @@ export component BrowserColHeader inherits Interaction {
             text: root.label.to-uppercase();
             font-family: Theme.font-family;
             // `.bfe-browser-col` is a button: `.bfe-page button { font: inherit }` resets its size
-            // and weight to the page's 16px / 400, keeping only its letter spacing.
+            // and weight to the screen's 16px / 400, keeping only its letter spacing.
             font-size: 16px;
             font-weight: 400;
             letter-spacing: 0.14 * self.font-size;
@@ -561,7 +561,7 @@ export component BrowserSponsorBox inherits Rectangle {
         alignment: center;
 
         Text {
-            // The page balances the label over two lines in its 15em column: after GENEROUSLY.
+            // The screen balances the label over two lines in its 15em column: after GENEROUSLY.
             text: "Hosting Generously\nDonated By".to-uppercase();
             font-family: Theme.font-family;
             font-size: min(11px, max(10px, 1.2 * Theme.vh));

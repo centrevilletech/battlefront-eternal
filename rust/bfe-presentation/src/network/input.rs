@@ -2,7 +2,7 @@
 //! views cross as generated rows; completed bytes leave as one packed span.
 type Result<T> = super::Result<T>;
 #[derive(Default, Clone)]
-// captureWireInput resolves names and binding profiles on the page once.
+// captureWireInput resolves names and binding profiles on the client once.
 // This generated row carries only numeric context; optional fields retain
 // their flag bits rather than inferring presence from zero-valued settings.
 struct WiView { flags: f64, profile: f64, profile_found: bool, mouse_scale: f64, aspect: f64, view_tick: f64,

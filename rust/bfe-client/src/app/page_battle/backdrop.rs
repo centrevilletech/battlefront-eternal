@@ -1,4 +1,4 @@
-//! The battle behind the page spawn screen. The 2004 look's hologram room hides it completely, so it is not
+//! The battle behind the screen spawn screen. The 2004 look's hologram room hides it completely, so it is not
 //! drawn. In the other looks it is darkened behind the screen; on a machine that cannot hold 45 frames a
 //! second the battle and the stage over it (body, hologram) are drawn every other frame and that frame kept
 //! and shown in between, so the screen's chrome (pointer, picks) keeps twice the rate.

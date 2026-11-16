@@ -12,8 +12,8 @@
 // where the material reads only the shared values, Kind::Plain where it
 // keeps values of its own under their names), its geometry and state, and
 // where each uniform the program reads besides the frame block comes from:
-// a fixed value, a slot of the input the page writes each frame, a texture,
-// the camera, or the item's own matrices. Each frame the page marks the
+// a fixed value, a slot of the input the client writes each frame, a texture,
+// the camera, or the item's own matrices. Each frame the client marks the
 // items that draw and writes what moves (the sky's matrices, the water's
 // values); the pass clears the target as three does, culls each item as
 // three would (its bounding sphere; the map's buckets by spatial cell, as
@@ -40,7 +40,7 @@ use std::collections::HashMap;
 // whether the pass draws this frame at all (0: three does), whether it
 // draws over the target as it is (1: three's autoClear is off, as for a
 // water mirror's far scene drawn over its sky), then the items' slots, laid
-// out by the page. An item's first slot says whether it draws this frame; a
+// out by the client. An item's first slot says whether it draws this frame; a
 // placed item's matrix follows it (16), or a terrain's level (0 full, 1
 // reduced); then whatever its uniforms read.
 pub const FAR_CLEAR: usize = 0;
@@ -50,7 +50,7 @@ pub const FAR_KEEP: usize = 5;
 // the pass makes once it has drawn (three makes them after the last face:
 // CubeCamera.update), 0 for none.
 pub const FAR_MIPMAPS: usize = 6;
-// 1 when the page wrote the input for the near scene's items (far.js
+// 1 when the client wrote the input for the near scene's items (far.js
 // drawNear): only the near phase draws them (draw_near), once.
 pub const FAR_NEAR: usize = 7;
 pub const FAR_SLOTS: usize = 8;
@@ -202,7 +202,7 @@ struct Item<C: HasContext> {
     // of a fixed one: a geometry whose range three moves (the storm's bolt).
     range_at: Option<usize>,
     input_blend:Option<usize>,
-    // Vertex buffers of its geometry the page refreshes (the storm's bolt,
+    // Vertex buffers of its geometry the client refreshes (the storm's bolt,
     // rewritten at each strike): (buffer slot, where its values start in
     // `vertices`, floats), uploaded when the input's slot `refresh_at` is 1.
     refresh: Vec<(usize, usize, usize)>,
@@ -211,7 +211,7 @@ struct Item<C: HasContext> {
 
 pub struct FarPass<C: HasContext> {
     pub input: Vec<f64>,
-    // Vertex values the page writes for items whose buffers it refreshes.
+    // Vertex values the client writes for items whose buffers it refreshes.
     pub vertices: Vec<f32>,
     tables: Vec<Vec<Uniform<C>>>,
     // A program's uniforms are shared by all its material tables. A table's
@@ -383,7 +383,7 @@ impl<C: HasContext> FarPass<C> {
 
     // A vertex buffer of its geometry (`buffer`: its slot there) refreshed
     // from `vertices` (`floats` values from `at`) whenever the input's slot
-    // `flag` is 1 (the page wrote them anew).
+    // `flag` is 1 (the client wrote them anew).
     pub fn refresh(&mut self, item: u32, buffer: u32, at: u32, floats: u32, flag: u32) {
         let it = &mut self.items[item as usize];
         it.refresh.push((buffer as usize, at as usize, floats as usize));
@@ -511,9 +511,9 @@ impl<C: HasContext> FarPass<C> {
     }
 
     // The near phase's part (renderer.rs frame, a mirror's too): the items
-    // the page marked from the near scene (the Enhanced ocean's surface,
+    // the client marked from the near scene (the Enhanced ocean's surface,
     // drawn there in three's place: far.js drawNear), with the phase's frame
-    // block, over what the phase drew (the page sets FAR_KEEP). Counted as
+    // block, over what the phase drew (the client sets FAR_KEEP). Counted as
     // the water pass's draws: the ocean is the water's surface.
     pub fn draw_near<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
         if self.input[FAR_NEAR] == 0.0 || self.input[FAR_DRAW] == 0.0 {
@@ -599,8 +599,8 @@ impl<C: HasContext> FarPass<C> {
             stats.gl_calls += 1;
         }
         core.opaque();
-        // The vertices the page wrote anew for items shown this frame (in view
-        // or not: the page counts them as sent), uploaded.
+        // The vertices the client wrote anew for items shown this frame (in view
+        // or not: the client counts them as sent), uploaded.
         for item in &self.items {
             if item.refresh.is_empty() || input[item.slot] == 0.0 || input[item.refresh_at] == 0.0 {
                 continue;
@@ -864,7 +864,7 @@ impl<C: HasContext> FarPass<C> {
         }
     }
 
-    // How many items are registered (the page's checks).
+    // How many items are registered (the client's checks).
     pub fn items(&self) -> u32 {
         self.items.len() as u32
     }

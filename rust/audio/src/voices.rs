@@ -7,8 +7,8 @@
 use crate::timeline::Timeline;
 use crate::FRAMES;
 
-/// The command codes the page sends, and how many numbers each takes after
-/// its code (slot first). `at` is the context time the page set it at (its
+/// The command codes the client sends, and how many numbers each takes after
+/// its code (slot first). `at` is the context time the client set it at (its
 /// AudioParam call's).
 pub use crate::commands::{START, GAIN_SET, GAIN, RATE, CUTOFF, SEND, RELEASE, STOP, SIDE_SET, SIDE, CANCEL, STOP_AT};
 use crate::commands::PLACE as LIGHT_PLACE;
@@ -90,12 +90,12 @@ pub struct Engine {
     rate: f64,
     pub filtered: bool,
     nyquist: f64,
-    // The lowpass's Q (in dB, as the browser takes a lowpass's) as its
+    // The lowpass's Q as its
     // linear resonance.
     resonance: f64,
     // Chromium's x86 build fills a setTargetAtTime's values four at a time.
     x86: bool,
-    // The slots from this one on have no input of the browser's (nobody
+    // The slots from this one on have no input of Chromium's (nobody
     // else says they are empty).
     inputs: usize,
     voices: Vec<Voice>,
@@ -113,7 +113,7 @@ pub struct Engine {
     src: [f32; FRAMES],
 }
 
-// The browser's lowpass coefficients for a normalized cutoff (0..1 of the
+// Chromium's lowpass coefficients for a normalized cutoff (0..1 of the
 // Nyquist frequency), normalized through a0's inverse as it does.
 fn lowpass(cutoff: f64, resonance: f64) -> [f64; 5] {
     let cutoff = cutoff.clamp(0.0, 1.0);
@@ -131,7 +131,7 @@ fn lowpass(cutoff: f64, resonance: f64) -> [f64; 5] {
     [beta * a0, 2.0 * beta * a0, beta * a0, -2.0 * cosw * a0, (1.0 - alpha) * a0]
 }
 
-// Below the smallest normal f32 the browser's biquad flushes its state to
+// Below the smallest normal f32 Chromium's biquad flushes its state to
 // zero at each block's end.
 #[inline(always)]
 fn flush(x: f64) -> f64 {
@@ -145,12 +145,12 @@ fn flush(x: f64) -> f64 {
 // which the nodes after it pass on as silence (nothing for a sum to add).
 // The read position is a double, the sample linearly interpolated between
 // the two frames around it; at the last frame of a sample that does not
-// loop, extrapolated from the last two (the browser's own rule there); a
+// loop, extrapolated from the last two; a
 // loop wraps to its start keeping the fraction.
 fn source_block(v: &mut Voice, data: &[f32], step: f64, frame: f64, src: &mut [f32; FRAMES]) -> bool {
     let len = data.len();
     let end = len as f64;
-    // (A rate over the whole sample a frame renders nothing, the browser's
+    // (A rate over the whole sample a frame renders nothing, Chromium's
     // sanity check.)
     let playing = !v.ended && v.start < frame + FRAMES as f64 && v.stop > frame && step.abs() <= end;
     if !playing {
@@ -255,7 +255,7 @@ impl Engine {
     }
 
     /// An engine for `slots` voices at the context's `rate`; `q_db` is the
-    /// lowpass's Q in dB. Its resonance is 10^(Q / 20) as the browser works
+    /// lowpass's Q in dB. Its resonance is 10^(Q / 20) as Chromium works
     /// it out: fdlibm's expf, which is fdlibm's exp of the argument rounded
     /// to single precision, its result rounded to single.
     pub fn new(rate: f64, slots: usize, q_db: f64, x86: bool) -> Engine {
@@ -278,7 +278,7 @@ impl Engine {
         }
     }
 
-    /// How many of the slots, from the first, have an input of the browser's
+    /// How many of the slots, from the first, have an input of Chromium's
     /// (the rest are the engine's alone).
     pub fn set_inputs(&mut self, inputs: usize) {
         self.inputs = inputs.min(self.voices.len());
@@ -412,7 +412,7 @@ impl Engine {
     /// One block: each voice into its slot's run of `inputs` (and marked
     /// present), and the send summed into `self.send`. A voice past its
     /// stop or its sample's end plays silence into its lowpass until the
-    /// page stops it (the browser's filter rings on until its nodes are
+    /// page stops it (Chromium's filter rings on until its nodes are
     /// disconnected).
     pub fn render(&mut self, inputs: &mut [f32], present: &mut [u8]) {
         present[self.inputs..].fill(0);
@@ -487,7 +487,7 @@ impl Engine {
     /// One block of the light mix: each voice's source through its two
     /// speaker gains, summed into `out` (128 frames of the left speaker,
     /// then 128 of the right) in slot order. A gain's values run every
-    /// block, its input silent or not (the browser works out a node's
+    /// block, its input silent or not (Chromium works out a node's
     /// params even while it passes silence on); a gain holding 0 without
     /// automation outputs silence, as a silent source makes its gains do.
     pub fn render_light(&mut self, out: &mut [f32]) {

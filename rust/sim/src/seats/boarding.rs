@@ -52,7 +52,7 @@ pub fn can_board(u: &Unit, person: bool, no_enter: f64) -> bool {
 }
 
 /// Vehicle.seatFree: the seat is there, nobody's lease
-/// holds it, and the page's player is not in it.
+/// holds it, and the client's player is not in it.
 pub fn seat_free(v: &Vehicle, i: usize) -> bool {
     match v.seats.get(i) {
         Some(seat) => seat.lease.is_none() && !(v.driver.is_some() && i as f64 == v.seat_index),
@@ -267,7 +267,7 @@ pub fn turret_takeover(gunner: bool, lease: Option<&SeatLease>, units: &Slab<Uni
 }
 
 /// Vehicles.enterable: the nearest hull in reach ahead of
-/// an eye that `may` takes (by default one the page's player is not
+/// an eye that `may` takes (by default one the client's player is not
 /// driving): its box's centre within its radius and 3.5 m, ahead of the
 /// aim, and nothing but its own body in the way. Its place, or None.
 pub fn enterable_hull<W: SeatWorld + ?Sized>(w: &mut W, st: &Store, hulls: &[super::hulls::HullSide], eye: &three::Vector3, direction: &three::Vector3, may: &mut dyn FnMut(&mut W, usize) -> bool) -> Option<usize> {
@@ -388,7 +388,7 @@ fn math_cos(x: f64) -> f64 {
 
 /// boarding.js leaveKilled: a rider killed on his seat leaves it at once,
 /// his body falling from where it rode (the seat is handed on as after any
-/// exit); a turret's gunner the same. Whether he held a seat. (The page's
+/// exit); a turret's gunner the same. Whether he held a seat. (The client's
 /// own player leaves through his VehicleDriver or Gunner, not here.)
 pub fn leave_killed<W: super::turrets::CrewWorld + ?Sized>(hulls: &mut super::hulls::Hulls, crews: &mut super::turrets::Crews, st: &mut Store, w: &mut W, unit: u32) -> bool {
     let Some(r) = st.unit.get(super::unit_ref(st, unit)).and_then(|u| u.seat) else { return false };

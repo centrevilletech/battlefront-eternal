@@ -132,7 +132,7 @@ pub fn button(w: usize, h: usize, look: usize, selected: bool) -> Vec<u8> {
     out
 }
 
-/// The look's scanlines/blueprint grid with the page's elliptical mask.
+/// The look's scanlines/blueprint grid with the screen's elliptical mask.
 pub fn pattern(w: usize, h: usize, look: usize) -> Vec<u8> {
     pattern_masked(w, h, look, PAGE_MASK)
 }

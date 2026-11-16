@@ -2,7 +2,7 @@
 //! fountains) are in view (update): each has a
 //! sphere around where it plays, seen if it is close enough (a stock effect
 //! out to the near scene's end, an Enhanced one to 90 m) and the view
-//! frustum touches the sphere. The page plays and stops the stock effects of
+//! frustum touches the sphere. The client plays and stops the stock effects of
 //! those in view and hands the Enhanced ones' volumes and fountains to
 //! their draws.
 

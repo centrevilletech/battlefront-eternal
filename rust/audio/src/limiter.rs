@@ -298,7 +298,7 @@ impl Limiter {
             let x = input.ch(c);
             for (i, &sample) in x.iter().enumerate().take(n) {
                 // The worklet's v is the value before the Float32Array
-                // store rounds it (an assignment's value in JavaScript),
+                // store rounds it,
                 // and its largest sample is taken of those.
                 let v = sample as f64 * self.sample_gain[i];
                 self.scaled[c][i] = v as f32;

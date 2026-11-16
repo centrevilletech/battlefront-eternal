@@ -702,7 +702,7 @@ mod tests {
                 flat_bindings()
             };
             // Flight labels are action names even if ground localization has a
-            // colliding key; the browser deliberately does not translate them.
+            // colliding key; the client deliberately does not translate them.
             let strings =
                 HashMap::from([("ifs.controls.General.ThrottleUp".into(), "IGNORED".into())]);
             for row in hotkey_rows(tab, &bindings, &strings) {

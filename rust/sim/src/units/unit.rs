@@ -253,7 +253,7 @@ impl Unit {
         if !remote_active {
             intent.r#use = false;
         }
-        // (presentation.beforeStep: a page's, and a world's previousYaw
+        // (presentation.beforeStep: a client's, and a world's previousYaw
         // nothing reads.)
         let mut parts = droideka;
         match (&self.soldier, parts.as_deref_mut()) {
@@ -313,7 +313,7 @@ impl Unit {
                 }
                 d.previous = d.position;
                 d.settled = d.position;
-                // (The drawn animator's reset is the page's.) The hidden gun
+                // (The drawn animator's reset is the client's.) The hidden gun
                 // rig's animator: facing the new yaw, its mode unknown.
                 let roll = d.roll;
                 if let Some(a) = &mut d.muzzle_animator {
@@ -339,7 +339,7 @@ impl Unit {
         self.spawn_body(x,y,z,yaw,world);
         world.combat_reset(id, self);
         // (presentation.reset, the drawn animator's reset and the root's
-        // place are the page's.)
+        // place are the client's.)
         self.alive = true;
         self.dead = false;
         self.dead_time = 0.0;
@@ -372,7 +372,7 @@ impl Unit {
         }
         self.held = crate::store::Nullable::Null;
         self.combat.mounted = Some(false);
-        // (The animator's gunner clip and the root's tilt are the page's.)
+        // (The animator's gunner clip and the root's tilt are the client's.)
     }
 
     /// origin(out) on foot: the aim pivot, else the eyes'

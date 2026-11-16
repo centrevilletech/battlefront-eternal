@@ -320,7 +320,7 @@ impl SoldierState {
         out
     }
 }
-/// Fixed storage for the page's compact checkpoint reader. Restoring a
+/// Fixed storage for the client's compact checkpoint reader. Restoring a
 /// soldier does not need the variable-length vectors of the general adapter.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompactSoldierState {

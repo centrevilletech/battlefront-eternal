@@ -149,7 +149,7 @@ pub fn battle_summary_params(battle: Option<&BattleSummary>) -> BTreeMap<String,
 // Ports `errorText(error)`: strips the desktop host's
 // `"Error invoking remote method '...': "` IPC wrapper prefix and any leading
 // JavaScript error constructor prefix (`"Error: "`, `"TypeError: "`, etc.) so
-// the player sees only the actionable failure sentence in the browser banner.
+// the player sees only the actionable failure sentence in the client banner.
 pub fn error_text(raw: &str) -> String {
     let mut s = raw.trim();
     if let Some(rest) = s.strip_prefix("Error invoking remote method '") {

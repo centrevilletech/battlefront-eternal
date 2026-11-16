@@ -498,7 +498,7 @@ fn bank(class: &WeaponClass) -> &str { &class.base().bank }
 
 // PlayerCombat weapon animation is a notification of a completed action.
 // The native solver chooses its bank and posture before publishing.
-// The page later applies it to drawn bones without advancing authority.
+// The client later applies it to drawn bones without advancing authority.
 // A missing action still preserves the original notice ordering.
 fn weapon_action(c: &Combat, defs: &CombatDefs, action: &str, definition: DefId, posture: Option<&'static str>, world: &mut dyn CombatWorld) {
     let bank_name = bank(defs.weapons.class(definition));

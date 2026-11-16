@@ -83,7 +83,7 @@ fn arcs_follow_what_they_hang_from_and_end() {
     assert_eq!(fx.arcs.live, 1);
     assert!(fx.arcs.index >= 72, "the main strand at least");
     assert_eq!(fx.arcs.positions[1], 1.0, "it starts where its holder is");
-    // The holder moves up: the page's owner refreshes the matrix before the step.
+    // The holder moves up: the client's owner refreshes the matrix before the step.
     m.set_position(0.0, 2.0, 0.0);
     fx.arcs.refresh(&mut |a| a.matrix = m.elements);
     step(&mut fx, 1.0 / 60.0);
@@ -324,7 +324,7 @@ mod sky {
         p
     }
 
-    /// With the page's sky probe in place a far, low ship takes on the sky behind
+    /// With the client's sky probe in place a far, low ship takes on the sky behind
     /// it; without one, none does.
     #[test]
     fn far_low_ships_take_on_the_sky_only_with_the_probe() {
@@ -510,7 +510,7 @@ mod destruction {
         c[cmd::WEAPON] = -1.0;
     }
 
-    /// One frame the way the page makes it: the droids about to burst bring their
+    /// One frame the way the client makes it: the droids about to burst bring their
     /// chunks, then the phase steps.
     fn frame(d: &mut Destruction, n: usize, commands: usize, wrecked: bool) {
         let mut cast = floor;
@@ -563,7 +563,7 @@ mod destruction {
     #[test]
     fn a_battle_of_blasts_deaths_and_wrecks_allocates_nothing_a_frame() {
         // From the very first frame: nothing is allocated after construction, so
-        // a view of the module's memory the page took once can never go stale.
+        // a view of the module's memory the client took once can never go stale.
         let mut d = setup();
         station(&mut d);
         droid(&mut d);
@@ -590,7 +590,7 @@ mod destruction {
         assert!(d.result[dr::BLASTS] > 5.0, "blasts were made");
     }
 
-    /// The page may write anything: counts past the block, handles and bones past
+    /// The client may write anything: counts past the block, handles and bones past
     /// their tables, frames that are not numbers. None of it may panic, and the
     /// phase must still make its frames afterwards.
     #[test]

@@ -91,7 +91,7 @@ struct Slot {
     glow: Option<u32>,
 }
 /// The player's VIDEO settings that pick a look here. Each effect setting is
-/// Enhanced unless it says "classic", as the browser reads it.
+/// Enhanced unless it says "classic" it.
 #[derive(Clone, Copy)]
 pub struct Looks {
     pub arcs: bool,
@@ -1549,7 +1549,7 @@ impl Replicas {
             }
         }
     }
-    /// The looks the player's settings choose, as the browser reads them.
+    /// The looks the player's settings choose them.
     /// A class registry id's name ("" when unknown).
     pub fn class_name(&self, id: usize) -> &str {
         self.class_names.get(id).map_or("", String::as_str)
@@ -1854,7 +1854,7 @@ impl Replicas {
     }
 
     // DeathShot.frame follows the dead player's ribcage bone
-    // where the page draws it. The camera owner runs before this frame's pose,
+    // where the client draws it. The camera owner runs before this frame's pose,
     // so this is the node bank as the previous frame placed it; the shot's
     // own spring follows the point, and a body at rest does not move.
     pub fn drawn_chest(&self, receiver: &Receiver) -> Option<[f64; 3]> {
@@ -1885,7 +1885,7 @@ impl Replicas {
 
     // PlayerCombat.updateHud reads the displayed unit's existing aim basis.
     // Reusing it preserves posture, interpolation and the authored walker eye.
-    /// The gun's origin and aim direction of the page's own soldier on foot
+    /// The gun's origin and aim direction of the client's own soldier on foot
     /// (PlayerCombat.origin and aimDir), where the reticle's target search
     /// starts whichever view he is drawn in.
     pub fn aim_ray(&self, receiver: &Receiver) -> Option<([f64; 3], [f64; 3])> {

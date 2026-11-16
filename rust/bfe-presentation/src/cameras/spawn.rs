@@ -1,7 +1,7 @@
 //! ShotDirector's geometry. The screen's
 //! HUD clock and cut notification are input facts; every camera pose is
 //! calculated here in the battle's one camera phase, even on undrawn frames.
-// The battle behind the page spawn screen, through the mission's camera
+// The battle behind the client spawn screen, through the mission's camera
 // shots (its AddCameraShot views, the original's backdrop for the screen):
 // each one held for a while, drifting (a slow pan and a push in) so the
 // battle is never a still, then a cut to the next. A post picked brings up

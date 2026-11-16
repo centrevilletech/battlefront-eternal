@@ -2,7 +2,7 @@
 //! a wandering aim error that grows with range and the bot's own speed, an
 //! acquisition bias that fades, a slew limit, and the player's spread rules
 //! for a bot's weapons. Its draws come from its own generator (C), seeded
-//! from the match seed. f64 throughout, as the JavaScript computes it.
+//! from the match seed. f64 throughout it.
 
 use std::collections::HashMap;
 use three::Vector3;

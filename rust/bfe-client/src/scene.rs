@@ -1636,7 +1636,7 @@ impl Scene {
     }
 
     /// The player's water choices (WATER QUALITY, OCEAN AND SKY, WATER AND
-    /// STEAM), applied as the page applied them: live.
+    /// STEAM), applied as the client applied them: live.
     pub fn set_water_settings(&mut self, settings: &WaterSettings) -> Result<(), String> {
         if let Some(storm) = &mut self.storm { storm.enabled = settings.ocean == "enhanced"; }
         if let Some(flyers) = &mut self.flyers { flyers.set_enhanced(settings.ocean == "enhanced"); }
@@ -2151,8 +2151,8 @@ impl Scene {
             return Ok(());
         };
         let clock = view.values[shader::FRAME_OFFSETS[shader::FRAME_MEMBERS.iter().position(|(n, _)| *n == "time").unwrap_or(0)]];
-        // The frame step is the elapsed battle time, as the page's frame
-        // delta was: capped where the page capped it.
+        // The frame step is the elapsed battle time, as the client's frame
+        // delta was: capped where the client capped it.
         let dt = if self.water_time.is_nan() { 0. } else { (clock - self.water_time).clamp(0., 8. / 60.) };
         self.water_time = clock;
         // Without a battle nothing else builds the effect list.
@@ -2418,7 +2418,7 @@ impl Scene {
         row[m::BONES] = bones as f64;
         row[m::STEPS] = steps as f64;
         // FrameBank clips a full packet and retains its fault marker, just
-        // as the browser producer does. Capacity never terminates the window.
+        // as the client producer does. Capacity never terminates the window.
         self.bridge.frame_publish_frame(role as u32);
     }
     fn prepare_foliage(&mut self, view: &View) {

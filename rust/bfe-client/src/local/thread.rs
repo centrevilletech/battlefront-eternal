@@ -644,7 +644,7 @@ impl WorldThread {
         }
     }
 
-    /// The Friendly Fire option, live as in the browser build: says so once, when it changes.
+    /// The Friendly Fire option, live as in the client build: says so once, when it changes.
     #[inline]
     pub fn set_friendly_fire(&self, on: bool) {
         if self.shared.friendly_fire.swap(on, Ordering::AcqRel) != on {

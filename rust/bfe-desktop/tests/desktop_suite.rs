@@ -1743,7 +1743,7 @@ fn content_archive_exports_imports_deduplicates_hardlinks_and_relocates() {
 // mtime, [linkTo, hardlink,] sha256}` records, deflated entries, `.prepare.json`).
 // ---------------------------------------------------------------------------
 
-/// One synthetic archive entry: name, payload, whether to deflate it (the browser
+/// One synthetic archive entry: name, payload, whether to deflate it (the client
 /// exporter does, level 3), general-purpose flags and the Unix mode in the attributes.
 struct ZipItem {
     name: String,
@@ -1836,7 +1836,7 @@ fn record(path: &str, data: &[u8], mtime: f64, alias: Option<(&str, bool)>) -> V
     r
 }
 
-/// Writes a synthetic archive in the browser's form and returns the payload of the big file.
+/// Writes a synthetic archive in the client's form and returns the payload of the big file.
 fn browser_archive(path: &Path, big_len: usize, deflate: bool) -> Vec<u8> {
     let common = br#"{"ok":true}"#.to_vec();
     let map = br#"{"meshes":[{}]}"#.to_vec();
@@ -1942,7 +1942,7 @@ fn content_archive_imports_the_browser_builds_archive_form() {
                 .as_millis(),
             1700000002000
         );
-        // The receipt is the manifest, so the browser build's `relocatePreparation` can read it.
+        // The receipt is the manifest, so the client build's `relocatePreparation` can read it.
         let receipt: Value =
             serde_json::from_slice(&fs::read(dir.join(RECEIPT_NAME)).unwrap()).unwrap();
         assert_eq!(receipt["format"], "battlefront-eternal-content");

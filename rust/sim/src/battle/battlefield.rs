@@ -98,7 +98,7 @@ impl Battlefield {
     }
 }
 
-/// The page's tick-driven leaving warning (LeavingWarning).
+/// The client's tick-driven leaving warning (LeavingWarning).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct LeavingWarning {
     pub shown: bool,

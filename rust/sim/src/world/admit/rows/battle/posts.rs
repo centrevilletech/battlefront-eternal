@@ -1,9 +1,9 @@
-//! The command posts as the page constructs them (commandposts.js Post,
+//! The command posts as the client constructs them (commandposts.js Post,
 //! post-data.js attachPostAI) and the host-object imports createNativeAI
 //! makes before its first call (ai-world-load.js 69-72: the posts, the
 //! command posts, the mobile posts, the battle), plus the same import twin
 //! for any host object a later owner re-imports from the store. An import
-//! is two calls, as the page makes them: the import room sized for the
+//! is two calls, as the client makes them: the import room sized for the
 //! rows, written with the rows and their heap, then sim_import of the kind.
 use super::super::super::{dispatch, sequence, AdmitError, Stage};
 use super::super::{Call, Calls, Cx};

@@ -1,4 +1,4 @@
-//! What the page's `step()` and the world operation
+//! What the client's `step()` and the world operation
 //! wrote into the owners' input banks before
 //! `world_step_run`, in their order: the fleet's input header
 //! (`F2Sim.foreignIn(true)`), both kernels' body flags and the separation
@@ -66,7 +66,7 @@ impl Authority {
         // kernels. The native owners toggle their own bodies in the movement
         // kernel's flags (hull births and deaths, the animated props); the
         // page saw those as its bodies' `enabled` too. Adopt what changed
-        // since the last write, then the buildings' shown states the page
+        // since the last write, then the buildings' shown states the client
         // toggled (F3Props.show), and hand both kernels the same flags.
         // Both kernels' flag arrays are read and written in place.
         let (enabled, written, toggles) = (&mut self.enabled, &self.written, &mut self.toggles);

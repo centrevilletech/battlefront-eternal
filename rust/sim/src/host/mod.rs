@@ -1,6 +1,6 @@
 //! The authority host's tick: what the JavaScript server did around the
 //! world's step that the step itself does not, as one native entry,
-//! `Context::world_tick`. The page's `LocalServer.step`
+//! `Context::world_tick`. The client's `LocalServer.step`
 //! ran `host.advanceEdges()`, then
 //! `world.step(now)`, whose `game.step`
 //! wrote the owners' input banks before `world_step_run` and
@@ -9,7 +9,7 @@
 //! `world_step` skips all of that: the AI hears nothing, the collision
 //! kernel keeps stale body flags, the notices go unhandled and no cosmetic
 //! combat record reaches the wire. This module keeps the host's state
-//! between ticks on the Context and runs those duties in the page's order:
+//! between ticks on the Context and runs those duties in the client's order:
 //!
 //! 1. `advanceEdges`: each client's edge runtime resets when its unit's life
 //!    moved, then advances to the tick (edges.rs);
@@ -84,7 +84,7 @@ pub struct Authority {
     started: bool,
     /// `vs.water?.level`: the level the last step left (NaN before it).
     water_level: f64,
-    /// The page's SimEvents journal, fed by the notices' handlers.
+    /// The client's SimEvents journal, fed by the notices' handlers.
     journal: Journal,
     /// `AiJournalFacts.cursor`: how far the AI's hearing has read.
     journal_cursor: usize,
@@ -100,13 +100,13 @@ pub struct Authority {
     units: UnitTable,
     /// `bind_dispensers`' rows with a new life, kept for its next tick.
     changed_lives: Vec<usize>,
-    /// `c.bodies[i].enabled` as the page kept them: the kernels' enabled
+    /// `c.bodies[i].enabled` them: the kernels' enabled
     /// flags written before every step (`bodiesIn`), toggled by the fleet's
     /// body changes and the buildings' shown states.
     enabled: Vec<u8>,
     /// The flags as last written, to tell the owners' own toggles apart.
     written: Vec<u8>,
-    /// The body flags the page toggled since the last step (a building's
+    /// The body flags the client toggled since the last step (a building's
     /// shown state), applied over the kernel flags before the next step.
     toggles: Vec<(usize, u8)>,
     /// The combat capture's launched rounds awaiting their impact.
@@ -172,7 +172,7 @@ impl Default for Authority {
 }
 
 impl Authority {
-    /// What the host knows before the first tick: the body flags the page
+    /// What the host knows before the first tick: the body flags the client
     /// last wrote into the movement kernel during admission (`bodiesIn`
     /// writes every body) and the lives the admission built, whose
     /// dispensers it bound; later changes bind theirs.
@@ -348,7 +348,7 @@ fn put<const N: usize>(put: impl FnOnce(&mut [f64], &mut Vec<f64>)) -> Vec<f64> 
 }
 
 /// `bank:NAME` through `invoke_export`: the host's words into an owner's
-/// input bank, as the page wrote them through the descriptor's address.
+/// input bank, as the client wrote them through the descriptor's address.
 fn write_bank(context: &Context, name: &str, words: &[f64]) -> Result<(), String> {
     let call = Call {
         scratch: words.iter().flat_map(|w| w.to_le_bytes()).collect(),

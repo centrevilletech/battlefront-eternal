@@ -1012,7 +1012,7 @@ impl SlintHost {
                     return None;
                 }
                 // Draw one frame of `Saving your choice…` with both buttons
-                // disabled before the write, as the browser does while it awaits.
+                // disabled before the write while it awaits.
                 mp.set_notice_status_text("Saving your choice\u{2026}".into());
                 mp.set_notice_status_error(false);
                 mp.set_notice_busy(true);

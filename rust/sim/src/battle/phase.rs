@@ -3,7 +3,7 @@
 //! points for the first 64 registry members in its region, a destructible
 //! post's kill region), the command vehicles' posts, then the spawn
 //! manager's clock, the battle's rules and each Character's respawn. The
-//! local player's spawn screen, his corpse and the HUD are a page's.
+//! local player's spawn screen, his corpse and the HUD are a client's.
 
 use super::mobile::{self, MobileEvent};
 use super::objectives::{kill_region_built, KillRegionHost};
@@ -153,7 +153,7 @@ pub fn update_battle_with_scratch<W: PhaseWorld + ?Sized>(
 }
 
 /// A destructible post's kill region as the battle runs it: the gameplay
-/// stream's draws, the page's effects, the living soldiers and hulls.
+/// stream's draws, the client's effects, the living soldiers and hulls.
 struct Region<'w, W: PhaseWorld + ?Sized> {
     world: &'w mut W,
     gameplay: &'w mut dyn ContextDraws<W>,

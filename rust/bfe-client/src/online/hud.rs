@@ -1011,7 +1011,7 @@ impl Hud {
     }
 
     pub fn frame(&mut self, bridge: &mut Bridge, receiver: &Receiver, prediction: &Replay, dt: f64) {
-        // Received combat facts raise their HUD events first, as the browser
+        // Received combat facts raise their HUD events first, as the client
         // applies its packets before the frame's own HUD update.
         self.feed.frame(&mut bridge.hud_model, receiver, &self.radar);
         // A command vehicle lost is announced from the hulls this client
@@ -1235,7 +1235,7 @@ impl Hud {
         // The second bar on foot and alive (PlayerCombat.updateHud): a
         // repair weapon's locked target, its health over its maximum, red at
         // half or less; else a droideka's shield over its MaxShield, red at
-        // a quarter or less; else a jetpack's fuel as the page predicts it,
+        // a quarter or less; else a jetpack's fuel as the client predicts it,
         // red at or under the class's border and pulsing while he is still
         // jetting on it.
         let on_foot = receiver.own.alive && receiver.own.mount.is_none();

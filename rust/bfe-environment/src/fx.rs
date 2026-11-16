@@ -7,7 +7,7 @@
 //! retire the dead (swapping the last record in) and keep the clock
 //! precise. Arcs are the exception: their shape is redrawn 30 times a
 //! second with a new random jag, each end fixed in the world or carried by
-//! an object whose world matrix the page hands over each frame.
+//! an object whose world matrix the client hands over each frame.
 //!
 //! Everything is allocated in `new`; no call afterwards allocates.
 
@@ -119,7 +119,7 @@ impl Pool {
 }
 
 /// What an arc end is carried by (Anchor): nothing (a point in the world),
-/// one of the pieces flying, or a bone of a droid (by the page's slot for it
+/// one of the pieces flying, or a bone of a droid (by the client's slot for it
 /// and the bone's place in the list it gave). `matrix` is the carrier's
 /// world matrix as last seen; the owner of the carriers refreshes it.
 #[derive(Clone, Copy)]
@@ -463,7 +463,7 @@ impl Fx {
 
     /// Advances the clock and retires the dead (DestructionFx.update); the
     /// result block takes the counts and the first changed records, which
-    /// the page's upload bookkeeping reads.
+    /// the client's upload bookkeeping reads.
     // Advances the clock and retires the dead.
     pub fn update(&mut self, dt: f64, result: &mut [f64]) {
         self.time += dt;
@@ -478,7 +478,7 @@ impl Fx {
         self.report(result);
     }
 
-    /// The counts and the first changed records, for the page (and the page's
+    /// The counts and the first changed records, for the client (and the client's
     /// upload bookkeeping): what `update` leaves, and what a frame that did
     /// not step the effects (they were cleared) leaves too.
     pub fn report(&mut self, result: &mut [f64]) {

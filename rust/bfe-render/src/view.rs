@@ -6,12 +6,12 @@
 //
 // Each part is a rigid mesh hung from a bone of the arms' rig (or the gun in
 // its hand), drawn as the soldiers' guns are (instances.rs): a record a part
-// the page wrote, instanced by model, texture and program, its matrices,
+// the client wrote, instanced by model, texture and program, its matrices,
 // look and lights in a row of the instance texture. Its draws count as this
 // pass's.
 //
 // Then what the view blends (the muzzle flash on the gun), as three's
-// transparent list draws it: the page writes each draw in three's order
+// transparent list draws it: the client writes each draw in three's order
 // (DRAW f64 each): three's program for its material as three compiled it
 // (Kind::Plain), its geometry, blending and state (transparent.rs DrawState),
 // the sides it is drawn with in turn, its index range and every uniform its
@@ -53,7 +53,7 @@ pub const D_BATCH_CAPACITY: usize = D_UNIFORMS;
 pub const MAX_UNIFORMS: usize = 32;
 pub const DRAW: usize = D_FIRST + MAX_UNIFORMS * UNIFORM;
 pub const MAX_DRAWS: usize = 16;
-// How many draws the page wrote, then the draws.
+// How many draws the client wrote, then the draws.
 pub const IN_DRAWS: usize = 0;
 pub const IN_FIRST_DRAW: usize = 1;
 pub const INPUT_LEN: usize = IN_FIRST_DRAW + MAX_DRAWS * DRAW;
@@ -69,7 +69,7 @@ impl<C: HasContext> ViewPass<C> {
         ViewPass { gl: PhantomData, input: vec![0.0; INPUT_LEN], matrices: HashMap::new() }
     }
 
-    // records: how many the page wrote for the view's parts.
+    // records: how many the client wrote for the view's parts.
     pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>, camera: &Camera, instances: &mut InstancePass<C>, effects: &mut EffectsPass<C>, records: usize) {
         if records > 0 {
             let before = core.stats.pass_draws[PASS_INSTANCES];

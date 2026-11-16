@@ -1,4 +1,4 @@
-//! ODF settings as the JavaScript reads them. Vehicle classes, their seats
+//! ODF settings them. Vehicle classes, their seats
 //! and props carry their 2004 class keys as text ("300.0", "-45.0 45.0",
 //! hashed names where the extractor kept only a hash), and each reader
 //! turns them into numbers its own way: `parseFloat` with a fallback

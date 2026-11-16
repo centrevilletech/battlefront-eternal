@@ -1,7 +1,7 @@
 //! The fielded classes' corpse stock: game.js createGame, headless, after
 //! bindWeaponPolicyContent and before createNativeAI. For every team the
 //! mission fields and each of its classes in authored order, the host
-//! builds `Math.ceil(count * 1.5)` bodies (UnitFactory.build: the page
+//! builds `Math.ceil(count * 1.5)` bodies (UnitFactory.build: the client
 //! body, the registry id, the combat facade, F3's adoption, the crews'
 //! rider rows, game.js instrument's random bindings) and releases each to
 //! the pool at once (F3Sim.release), so the dead can respawn while their
@@ -139,7 +139,7 @@ pub(crate) fn page_body(world: &mut World, cx: &mut Cx, parts: &bodies::prepare:
         // Pose over the actor's bones (root: DummyRoot), samples the roll
         // clip at frame 0 and applies it to find the shell's axle, then
         // Droideka.arm's muzzle sampler makes a second Pose, clears it and
-        // applies the idle clip. The accumulator views the page takes
+        // applies the idle clip. The accumulator views the client takes
         // (pose_q, pose_t, pose_w) are reads of module memory, not calls
         // the sequence makes.
         let root = parts.actor.bone_by_lower_name("dummyroot").map_or(-1.0, |i| i as f64);
@@ -161,7 +161,7 @@ pub(crate) fn page_body(world: &mut World, cx: &mut Cx, parts: &bodies::prepare:
             dispatch(world, cx, calls, "pose_out", Call { args: vec![muzzle], ..Default::default() })?;
         }
     } else {
-        // buildBody for a soldier: the page body module constructs the
+        // buildBody for a soldier: the client body module constructs the
         // actor's rig from the class record as JSON.stringify spells it.
         let json = bfe_content::js::json_stringify(Some(parts.def));
         let construct = Call { args: vec![0.0, json.len() as f64], scratch: json.into_bytes(), ..Default::default() };

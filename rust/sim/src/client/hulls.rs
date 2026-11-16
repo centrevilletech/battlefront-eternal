@@ -1,5 +1,5 @@
 //! Private hull prediction: predictVehicle and predictionVehicleInput, with
-//! every pending tick inside the page's single prediction-session boundary.
+//! every pending tick inside the client's single prediction-session boundary.
 //! F2 supplies immutable construction data. Mutable solver rows, body flags,
 //! command state and continuation history belong exclusively to this owner.
 
@@ -81,7 +81,7 @@ impl Session {
     pub(super) fn flight_lock(&self) -> Option<crate::flight::state::Lock> { self.hull.flight.lock }
     pub fn reset(&mut self) { self.life = None; }
 
-    /// Native hosts can save the same exact checkpoint the page receives.
+    /// Native hosts can save the same exact checkpoint the client receives.
     /// Borrow its retained bytes; only an explicit caller copy owns new memory.
     pub fn checkpoint(&mut self) -> Result<&[u8], &'static str> {
         self.store(); self.capture_checkpoint()?; Ok(&self.checkpoint)
@@ -306,7 +306,7 @@ impl Session {
         Ok(())
     }
     // restoreGroundCorrection/restoreFlightCorrection previously decoded on
-    // the page before replay. Decode into retained native storage instead.
+    // the client before replay. Decode into retained native storage instead.
     // Only validated wire state reaches the working hull; no decoder vectors
     // are created for the pending ticks or for a warm authority update.
     fn restore_correction(&mut self, frame: &ClientFrame, h: &ClientHull, words: &[f64]) -> Result<ClientHullSeat, &'static str> {

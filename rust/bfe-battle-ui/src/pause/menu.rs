@@ -68,7 +68,7 @@ pub const LIST_COUNT: usize = 11;
 
 /// Seconds after pointer-unlock during which an `Escape` keydown is treated as the same press (`LOCK_GRACE = 250ms`).
 ///
-/// When the player presses `Escape` while pointer-locked, the browser releases pointer lock first
+/// When the player presses `Escape` while pointer-locked, the client releases pointer lock first
 /// (which opens the menu with `opened_by = Some("pointer")`) and then delivers the `Escape` keydown;
 /// ignoring `Escape` within `0.25s` prevents that single press from immediately closing the menu.
 pub const LOCK_GRACE: f64 = 0.25;
@@ -286,7 +286,7 @@ pub struct PauseMenu {
     /// Reason string passed to `open(why)` (`"key"` or `"pointer"`).
     pub opened_by: Option<String>,
     /// Set on `Escape` keydown while on `Main`; the menu closes only on the matching `Escape`
-    /// keyup so the browser does not immediately drop a newly reacquired pointer lock.
+    /// keyup so the client does not immediately drop a newly reacquired pointer lock.
     pub resume_on_release: bool,
     /// Elapsed seconds waiting for a pointer-lock click after `close(true)`, or `None`.
     pub waiting_time: Option<f64>,
@@ -813,7 +813,7 @@ impl PauseMenu {
                     true
                 }
                 "Enter" | "NumpadEnter" | "Space" if !repeat => {
-                    // The hub comes back with its first row lit, as the browser's options menu does.
+                    // The hub comes back with its first row lit, as the client's options menu does.
                     self.options_request = Some(std::mem::take(focused_row));
                     self.sounds.push("shell_menu_enter");
                     true

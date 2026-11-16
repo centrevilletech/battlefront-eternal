@@ -16,7 +16,7 @@ use bfe_sim::{
     },
 };
 use three::Matrix4;
-// A private hull session contains the same movement owner used by the page.
+// A private hull session contains the same movement owner used by the client.
 // It has class constants, collision services and a mutable continuation, but
 // no unit registry, spawning owner or authoritative battle scheduler.
 // Restoring a checkpoint always replaces its authority baseline.
@@ -38,7 +38,7 @@ pub struct Fleet {
     pub continued: bool,
     pub prediction_tick: f64,
     pub alpha: f64,
-    /// Hides a small correction of the piloted hull's prediction, as the page's vehicle
+    /// Hides a small correction of the piloted hull's prediction, as the client's vehicle
     /// smoother does (beyond 3 m it is shown at once); counted like the soldier's.
     pub smoother: bfe_pose::smoothing::SmootherState,
     pub snaps: u64,
@@ -255,7 +255,7 @@ impl Fleet {
         words.clear();
         words.resize(ClientFrame::WORDS, 0.);
         let hull_at = owner.native_hull_frame(words, receiver.own.body_schema as u32, self.water.as_ref().map_or(f64::NAN,|w|w.level()))?;
-        // Compact motion corrections omit gait. On a rewind the page clones
+        // Compact motion corrections omit gait. On a rewind the client clones
         // the authoritative facade's walk cursor, not the previous prediction
         // (which would advance the same pending ticks a second time).
         let mut hull = ClientHull::take(&words[hull_at as usize..], &[]);

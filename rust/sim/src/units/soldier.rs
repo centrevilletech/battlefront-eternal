@@ -3,7 +3,7 @@
 //! with no exchange through JavaScript. It reads and writes what
 //! src/movement-kernel.js copies in and out, the same way: the tick itself
 //! is the kernel's (`movement::advance`), which the world's ticks already
-//! run (world-hash's `--movement wasm` is held to the JavaScript's).
+//! run.
 
 use super::unit::or_zero;
 use crate::gen::{Air, MoveInput, Posture, Soldier};

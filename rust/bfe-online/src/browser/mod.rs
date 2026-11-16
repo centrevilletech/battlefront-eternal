@@ -71,7 +71,7 @@ impl Source {
 // Ping filter choices (`PINGS`):
 // `[["any", "ANY PING"], ["50", "UNDER 50 MS"], ["100", "UNDER 100 MS"], ["150", "UNDER 150 MS"]]`.
 // When a numeric threshold is active, both high-latency servers (`latency_ms >= threshold`)
-// and unanswered servers (`latency_ms == None`, mapped to `Infinity` in JS) are excluded.
+// and unanswered servers are excluded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PingFilter {
     #[default]
@@ -322,7 +322,7 @@ impl BrowserState {
         }
     }
 
-    // Returns the uppercase error message when the browser is in `BrowserState::Error`.
+    // Returns the uppercase error message when the client is in `BrowserState::Error`.
     pub fn error_message(&self) -> Option<&str> {
         match self {
             Self::Error(msg) => Some(msg.as_str()),
@@ -789,7 +789,7 @@ impl ServerBrowser {
         &self.servers
     }
 
-    // Returns the currently highlighted server ID, if any (`this.selectedId` in JS).
+    // Returns the currently highlighted server ID, if any.
     pub fn selected_id(&self) -> Option<&str> {
         self.selected_id.as_deref()
     }
@@ -816,7 +816,7 @@ impl ServerBrowser {
         self.busy
     }
 
-    // Monotonic token of the latest `begin_refresh` call (`this.loads` in JS).
+    // Monotonic token of the latest `begin_refresh` call.
     pub fn active_load_token(&self) -> u64 {
         self.loads
     }
@@ -962,12 +962,12 @@ impl ServerBrowser {
     //
     // Key behaviors preserved from the JS implementation:
     // - `SortColumn::Ping` maps `None` (`!Number.isFinite(s.latencyMs)`) to
-    //   `u64::MAX` (`Infinity` in JS) so unanswered servers sort after answered
+    //   `u64::MAX` so unanswered servers sort after answered
     //   ones under ascending ping sort.
     // - `SortColumn::Map` compares `battle.map_name` when non-empty and falls
     //   back to the raw `battle.map` slug (`s.battle?.mapName || s.battle?.map`).
     // - Ties after applying `self.sort.dir` always break by the original listing
-    //   index `a.0.cmp(&b.0)` (`|| i - j` in JS), independent of `sort.dir`.
+    //   index `a.0.cmp(&b.0)`, independent of `sort.dir`.
     fn compare_entries(&self, a: (usize, &ServerEntry), b: (usize, &ServerEntry)) -> Ordering {
         let ord = match self.sort.column {
             SortColumn::Players => a.1.players.cmp(&b.1.players),
@@ -1142,7 +1142,7 @@ impl ServerBrowserService for ServerBrowser {
         changed
     }
 
-    // Resets all toolbar filters to `Filters::default()` (`FILTERS` in JS) and
+    // Resets all toolbar filters to `Filters::default()` and
     // reconciles `selected_id` against the newly unfiltered row order.
     fn clear_filters(&mut self) {
         self.filters = Filters::default();
@@ -1283,7 +1283,7 @@ fn null_text<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error>
 mod tests {
     use super::*;
 
-    // Builds a 4-server fixture covering the browser's sorting, filtering, and
+    // Builds a 4-server fixture covering the client's sorting, filtering, and
     // compatibility cases:
     // - `"a"` (`Alpha`): 12/64 players, 90ms ping, US, Clone Wars on `nab2`,
     //   2-battle rotation, uptime 2h32m, bots + auto-teams enabled, sponsored.

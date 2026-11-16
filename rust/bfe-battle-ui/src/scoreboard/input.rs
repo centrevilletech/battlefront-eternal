@@ -298,7 +298,7 @@ impl ScoreboardInput {
 
     /// Nudges the cursor by `(dx, dy)` in interface units (`nudge`).
     ///
-    /// Used when the browser pointer stays pointer-locked over the canvas and supplies relative
+    /// Used when the client pointer stays pointer-locked over the canvas and supplies relative
     /// `movementX` / `movementY` deltas scaled to interface units.
     #[inline]
     pub fn nudge(&mut self, dx: f64, dy: f64) {

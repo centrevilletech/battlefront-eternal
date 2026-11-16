@@ -43,7 +43,7 @@ pub enum Holder {
 }
 
 /// Who a blow is credited to (a hull's or turret's `lastAttacker`): nobody,
-/// the page's own player, a unit (by id) or a hull (by its place).
+/// the client's own player, a unit (by id) or a hull (by its place).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Attacker {
     #[default]

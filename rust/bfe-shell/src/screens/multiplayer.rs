@@ -60,7 +60,7 @@ impl MultiplayerKind {
     }
 }
 
-/// The HOST A BATTLE form's choices (`ScreenId::HostDialog`, the browser's hostDialog),
+/// The HOST A BATTLE form's choices,
 /// mapped to `bfe_desktop::host::HostOptions` when the hosted server starts.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostConfig {

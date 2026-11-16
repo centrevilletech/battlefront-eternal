@@ -205,7 +205,7 @@ impl Notifications<'_> {
         };
         // WeaponFacade.name and channel are immutable class properties.
         // Read the base level, rather than a charge level's current state:
-        // the page's presentation registry identifies the weapon class.
+        // the client's presentation registry identifies the weapon class.
         // A missing class stays null in the journal and zero on the wire.
         let levels = definition
             .map(|id| self.context.weapon_levels(id))
@@ -385,7 +385,7 @@ mod notification_tests {
 
     #[test]
     fn turret_sound_notice_has_no_journal_listener() {
-        // F2Seats.turretNotice routes this to the page audio hook. The
+        // F2Seats.turretNotice routes this to the client audio hook. The
         // SimEvents listener observes only its distinct fired notification.
         let context = Context::new();
         let mut journal = super::super::journal::Journal::new();

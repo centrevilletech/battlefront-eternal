@@ -132,7 +132,7 @@ pub fn vehicle_class_view(input: &HullFacts<'_>) -> Value {
     match input.base {
         "flyer" => {
             // flightSpeeds reads classSetting and flightHandling reads
-            // body-only turn/pitch, before the same defaults as the page.
+            // body-only turn/pitch, before the same defaults as the client.
             n(
                 "MinSpeed",
                 number(class_setting(input.definition, "MinSpeed"), 10.0, false),

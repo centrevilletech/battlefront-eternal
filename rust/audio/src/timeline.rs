@@ -2,15 +2,15 @@
 //! AudioParamHandler, the timeline of one parameter), for the events the
 //! voice engine sets: setValueAtTime, setTargetAtTime and
 //! cancelScheduledValues. Operation for operation, so a parameter here takes
-//! the browser's values to the bit: the value in single precision, the
+//! Chromium's values to the bit: the value in single precision, the
 //! times in double, the exponentials from fdlibm (rust/v8math's port of the
 //! same library), an event's segment ending at ceil(next event's time *
 //! rate), events in the past clamped to the block they are first seen in,
 //! and, on x86, a setTargetAtTime's run of a-rate values filled four at a
-//! time from closed-form coefficients (the browser's SSE path), which rounds
+//! time from closed-form coefficients, which rounds
 //! otherwise than stepping one value at a time. Nothing here allocates: a
 //! parameter holds at most CAP events (one a frame, the past ones dropped
-//! as the browser drops them).
+//! as Chromium drops them).
 
 const CAP: usize = 16;
 // exp(-10): a setTargetAtTime has converged once this close (relatively),
@@ -60,7 +60,7 @@ impl Timeline {
         self.n > 0
     }
 
-    /// Whether the browser works this parameter out a sample at a time in
+    /// Whether Chromium works this parameter out a sample at a time in
     /// the block starting at `frame` (HasSampleAccurateValues): an event in
     /// or before the block, or two of any kind; a lone setValueAtTime
     /// already past is a constant, as is a first event after the block.
@@ -192,7 +192,7 @@ impl Timeline {
         self.intrinsic = v;
     }
 
-    // The browser's ValuesForFrameRangeImpl for these events: `out` from
+    // Chromium's ValuesForFrameRangeImpl for these events: `out` from
     // `start`, `control` the rate the time constants count in.
     fn values(&mut self, start: u64, out: &mut [f32], rate: f64, control: f64, default: f32, x86: bool) -> f32 {
         let len = out.len();
@@ -265,7 +265,7 @@ impl Timeline {
     }
 }
 
-// The browser's ProcessSetTarget.
+// Chromium's ProcessSetTarget.
 #[allow(clippy::too_many_arguments)]
 fn set_target(fill: usize, e: Event, rate: f64, control: f64, fill_end: u64, out: &mut [f32], frame: u64, value: f32, write: usize, x86: bool) -> (u64, f32, usize) {
     let (mut frame, mut value, mut write) = (frame, value, write);

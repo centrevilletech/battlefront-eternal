@@ -416,7 +416,7 @@ impl GpuResources {
             self.sources[id] = None;
         }
     }
-    // Texture.dispose and the browser's release_physical retire the last
+    // Texture.dispose and the client's release_physical retire the last
     // reference, including cache identity. Repeated disposal remains harmless;
     // a bad reference count is a reported invariant failure, never saturation.
     fn release_physical(&mut self, id: usize) -> Result<(), String> {
@@ -447,7 +447,7 @@ impl GpuResources {
         }
         Ok(())
     }
-    // world_fallback and canopy_state use the browser owner's exact image
+    // world_fallback and canopy_state use the client owner's exact image
     // descriptors. Only their byte source changes from a JS view to a slice.
     pub fn world_fallback(&mut self, neutral: bool) -> Result<u32, String> {
         let slot = usize::from(neutral);

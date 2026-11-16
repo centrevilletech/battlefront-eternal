@@ -195,7 +195,7 @@ impl ChatController {
     /// When closed, only unmodified non-repeat `KeyT` (global) or `KeyY` (team) presses while
     /// `can_open` is `true` open the input line. When open, `Enter`/`NumpadEnter` commits any
     /// non-empty draft to `self.log` and closes, `Escape` cancels, and all other keys are
-    /// swallowed (`stopImmediatePropagation` in JS) so gameplay/menu listeners never fire.
+    /// swallowed so gameplay/menu listeners never fire.
     pub fn handle_key(
         &mut self,
         code: &str,

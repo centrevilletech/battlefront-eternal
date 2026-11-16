@@ -1,5 +1,5 @@
 //! The unit phase's notifications (the `EVENTS` bank, `sim.events`) and
-//! what the page did with each (`F3Sim.notifications()` in
+//! what the client did with each (`F3Sim.notifications()` in
 //! src/sim/wasm/f3-sim.js, the owners' handlers, and the game's emitters in
 //! src/game.js): the records they wrote into the SimEvents journal, the
 //! wire observers they fed (the shot counters, the presentation capture)
@@ -23,7 +23,7 @@ use super::capture::{Capture, Token};
 use super::journal::{Event, Journal, Life, Presentation, Presented, SQUAD_LABELS};
 
 /// One tick's drain: the world's clock for the records, the observers'
-/// handles, and the units' rows (`store.unit`) for the facts the page read
+/// handles, and the units' rows (`store.unit`) for the facts the client read
 /// from its unit objects.
 pub struct Drain<'a> {
     pub recon_definitions: &'a super::recon::Definitions, // matrix-b
@@ -40,7 +40,7 @@ pub struct Drain<'a> {
     pub units: &'a super::UnitTable,
     /// The seat leases (`KIND_SEAT_LEASE`), by slot.
     pub leases: &'a [(u32, gen::SeatLease)],
-    /// The body flags the page toggled this tick (kernel slot, enabled),
+    /// The body flags the client toggled this tick (kernel slot, enabled),
     /// and each building's bodies (built, destroyed, unbuilt) as kernel slots.
     pub toggles: &'a mut Vec<(usize, u8)>,
     pub prop_bodies: &'a [(usize, [Option<u32>; 3])],
@@ -283,7 +283,7 @@ impl Drain<'_> {
             let length = words[at + 1] as usize;
             let record = &words[at + 2..(at + 2 + length).min(end)];
             self.journal.time = time(at - 1);
-            // The page's capture observers ran inside try/catch (`observe`
+            // The client's capture observers ran inside try/catch (`observe`
             //, `guard` in entity-presentation-
             // events.js): a throw became a capture fault and the battle went
             // on. Without a capture nothing here can throw that way.
@@ -466,7 +466,7 @@ impl Drain<'_> {
                     swing: e.shot.swing,
                 });
                 // The shot counters count canonically once attached
-                // (`bindCanonical` detached the page's listener): no observe.
+                // (`bindCanonical` detached the client's listener): no observe.
                 // attachPresentationCapture.describe -> events.capture "shot":
                 // the weapon row is the first arsenal row of that name, its
                 // channel the trigger's; a network human's press id comes

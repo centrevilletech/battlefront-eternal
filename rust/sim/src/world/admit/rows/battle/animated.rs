@@ -2,7 +2,7 @@
 //! Bespin's doors) as F4Live births them (bindAnimated) and as
 //! LiveObjects constructed them: the model's bone rig placed by the
 //! instance, its clips, triggers and grabs from the instance's animation
-//! record, the native pose accumulators the page's Pose made, and the
+//! record, the native pose accumulators the client's Pose made, and the
 //! grip classes every soldier class binds to each of them (prepareGrips).
 use super::super::super::{spawn, AdmitError, Stage};
 use super::super::{Call, Cx};
@@ -26,7 +26,7 @@ pub fn instances(cx: &Cx) -> Vec<usize> {
     }).map(|(i, _)| i).collect()
 }
 
-/// The pose the page's `new Pose(bones, root)` made for the prop at its
+/// The pose the client's `new Pose(bones, root)` made for the prop at its
 /// construction (newPose): the bone count and the dummy
 /// root's index, 0 when the rig has none. Called by the prop constructor
 /// before the prop's body, as LiveObjects does; the id is kept on

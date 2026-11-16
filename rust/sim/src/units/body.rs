@@ -185,7 +185,7 @@ impl Droideka {
     pub fn spawn_place(&mut self, x: f64, y: f64, z: f64, yaw: f64, world: &mut dyn UnitsWorld) {
         self.spawn_with(x,y,z,yaw,|p,d,far|world.cast(p,d,far));
     }
-    /// Droideka.spawn uses this same reset beside the page collision owner.
+    /// Droideka.spawn uses this same reset beside the client collision owner.
     /// The query is native; only its resource mirrors return to the host.
     pub fn spawn_with(&mut self,x:f64,y:f64,z:f64,yaw:f64,
         mut cast:impl FnMut(&Vector3,&Vector3,f64)->Option<super::world::CastHit>) {

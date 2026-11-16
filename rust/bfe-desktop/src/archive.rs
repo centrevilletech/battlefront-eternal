@@ -63,7 +63,7 @@ pub const MAX_MANIFEST: u64 = 64 * 1024 * 1024;
 
 /// Single file record inside `bfe-content-manifest.json`.
 ///
-/// The field order is the browser exporter's: `path`, `size`, `mtime`, then
+/// The field order is the client exporter's: `path`, `size`, `mtime`, then
 /// `linkTo` and `hardlink` for an alias, and `sha256` last (`exportContent` adds the
 /// hash after the stat fields). A source fingerprint record carries only
 /// `path`, `size` and `sha256`.
@@ -99,9 +99,9 @@ pub struct SourceReceipt {
     pub files: Vec<ManifestFileEntry>,
 }
 
-/// Deserialized representation of `bfe-content-manifest.json`: the browser build's
+/// Deserialized representation of `bfe-content-manifest.json`: the client build's
 /// manifest, field for field. Unknown fields (an older native dialect wrote several)
-/// are ignored, like the browser importer ignores them.
+/// are ignored, like the client importer ignores them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ArchiveManifest {
     /// Must equal [`ARCHIVE_FORMAT`] (`"battlefront-eternal-content"`).
@@ -449,7 +449,7 @@ struct CentralRecord {
 
 /// Streaming uncompressed (`method = 0`) ZIP / ZIP64 archive writer.
 ///
-/// Produces store-mode ZIP/ZIP64 archives the browser build's `yauzl` importer reads: regular-file
+/// Produces store-mode ZIP/ZIP64 archives the client build's `yauzl` importer reads: regular-file
 /// modes in the external attributes, UTF-8 names, ZIP64 records past 4 GiB.
 struct ZipStoreWriter {
     /// Underlying output file handle.
@@ -1093,7 +1093,7 @@ fn extract_entry_to_file(
     Ok(())
 }
 
-/// True for `maps/<id>/map.json`, the file the browser importer looks for as proof of a
+/// True for `maps/<id>/map.json`, the file the client importer looks for as proof of a
 /// playable prepared map (`/^maps\/[^/]+\/map\.json$/`).
 fn is_map_record(path: &str) -> bool {
     let mut parts = path.split('/');
@@ -1116,7 +1116,7 @@ fn manifest_maps(manifest: &ArchiveManifest) -> Vec<String> {
     maps
 }
 
-/// Checks a sha256 string the way the browser does (`/^[a-f0-9]{64}$/`).
+/// Checks a sha256 string the way the client does (`/^[a-f0-9]{64}$/`).
 fn valid_sha256(sha: &str) -> bool {
     sha.len() == 64
         && sha
@@ -1281,7 +1281,7 @@ pub struct ExportSummary {
     pub maps: Vec<String>,
 }
 
-/// Exports a prepared content directory to an archive the browser build imports.
+/// Exports a prepared content directory to an archive the client build imports.
 ///
 /// Writes to a temporary sibling file first and renames it on completion.
 pub fn export_content(
@@ -1292,7 +1292,7 @@ pub fn export_content(
     export_content_with_progress(content_dir, archive_path, tools_dir, |_, _, _, _| Ok(()))
 }
 
-/// Like [`export_content`], reporting `(phase, file, done, total)` in bytes as the browser
+/// Like [`export_content`], reporting `(phase, file, done, total)` in bytes as the client
 /// does (`Checking content`, `Recording original source hashes`, `Exporting content`).
 /// An `Err` from the callback cancels the export and removes the partial file.
 ///
@@ -1671,7 +1671,7 @@ pub fn import_content_with_progress(
             progress("Restoring shared content", &item.path, done, total)?;
         }
 
-        // Retain provenance outside the playable roots, as the manifest itself: the browser's
+        // Retain provenance outside the playable roots, as the manifest itself: the client's
         // `relocatePreparation` reads `source` from this receipt.
         let receipt = serde_json::to_vec(&manifest).map_err(|e| e.to_string())?;
         fs::write(staging.join(RECEIPT_NAME), receipt)

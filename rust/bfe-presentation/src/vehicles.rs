@@ -1,4 +1,4 @@
-//! The page's hull presentation (src/vehicles.js Vehicle.present, poseCrew,
+//! The client's hull presentation (src/vehicles.js Vehicle.present, poseCrew,
 //! applyPose, liftLegs, feelLegs, poseSeat, recoilBarrels, drawFlyer and
 //! presentDying; src/flight/gear.js poseGearAt), batched over every hull
 //! drawn this frame. Each hull's rig is a native tree of its root and bones
@@ -9,7 +9,7 @@
 //! The host keeps the hull's own fields (its age, leg sides and aimers
 //! arrive and leave as records), so the own predicted hull is one more
 //! entry over the same rig. A walker's legs (and a lifting craft's gear
-//! clock) feel the page's collision between the two calls: `place` puts
+//! clock) feel the client's collision between the two calls: `place` puts
 //! every root and writes one block of CastRay records, the host casts the
 //! whole block in one call, and `pose` finishes the frame.
 use crate::layout::{
@@ -111,7 +111,7 @@ pub struct AimerInput {
     /// An arc round the back, kept in 0..2pi.
     pub wrap_yaw: bool,
     /// Its angles as the hull holds them at registration; the phase keeps
-    /// them from then on (nothing else on a page turns them).
+    /// them from then on (nothing else in a client turns them).
     pub yaw: f64,
     pub pitch: f64,
 }
@@ -422,7 +422,7 @@ impl Rig {
     }
 }
 
-/// The page's hull phase: loaded clips, registered rigs, and the records
+/// The client's hull phase: loaded clips, registered rigs, and the records
 /// the host writes and reads each frame.
 pub struct Vehicles {
     pub sources:crate::rider_sources::SharedVehicles,

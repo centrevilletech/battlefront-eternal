@@ -116,7 +116,7 @@ impl State {
         self.position = mix(self.position, target, t);
         self.quaternion = slerp::<M>(self.quaternion, want, t);
         // The fixed-tick camera publishes the current endpoint. Rendered
-        // interpolation belongs to the page's independent DeathShot owner.
+        // interpolation belongs to the client's independent DeathShot owner.
         cam.p = mix_vectors(self.previous_position, self.position, 1.0);
         cam.q = slerp_vectors::<M>(self.previous_quaternion, self.quaternion, 1.0);
         cam.fov = 2.0 * M::atan(M::tan(self.hfov / 2.0) / cam.aspect) * (180.0 / PI);

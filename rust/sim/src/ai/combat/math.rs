@@ -46,7 +46,7 @@ fn tables() -> &'static Tables {
 }
 
 /// aim.js:66 `lookup`: the index truncated toward zero, both neighbours
-/// wrapped with `& 2047` (ToInt32 first, as JavaScript's bitwise and).
+/// wrapped with `& 2047`.
 fn lookup(table: &[f64; 2048], angle: f64) -> f64 {
     let t = f(f(angle) * table_scale());
     let i = v8math::trunc(t);

@@ -1,4 +1,4 @@
-//! The page's `SimEvents` journal with the records the
+//! The client's `SimEvents` journal with the records the
 //! game's observers write into it: a ring of 4096 slots, a sequence number
 //! and the simulation time the owner sets each tick. `worldState` reads the
 //! ring's filled slots in slot order (`ring.filter(Boolean)`), and the AI's
@@ -71,7 +71,7 @@ pub enum Presentation {
 }
 
 /// The squad orders' labels in the key table's order (squadMoveOut,
-/// squadHold, squadFollow, squadAtEase), as the page's HUD names them.
+/// squadHold, squadFollow, squadAtEase), as the client's HUD names them.
 pub const SQUAD_LABELS: [&str; 4] = ["moveout", "hold", "follow", "atease"];
 
 impl Presentation {

@@ -1,4 +1,4 @@
-//! The placed buildings' collision bodies in the page's own collision world:
+//! The placed buildings' collision bodies in the client's own collision world:
 //! command posts, health and ammunition stations, doors, animated props and
 //! turret buildings. The world gives each of them a body per look (built,
 //! destroyed, unbuilt); without the same bodies here the player's predicted

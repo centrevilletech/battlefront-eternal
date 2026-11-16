@@ -1,4 +1,4 @@
-//! Private infantry and mounted weapon replay. The page supplies commands
+//! Private infantry and mounted weapon replay. The client supplies commands
 //! and mirrors; this owner retains weapons, selections and barrel counters.
 //! No gameplay or presentation callback runs inside a command.
 

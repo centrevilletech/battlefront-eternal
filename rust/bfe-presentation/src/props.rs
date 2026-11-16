@@ -1,5 +1,5 @@
-//! The page's animated props and log traps (LiveObjects.presentAnimated of
-//! src/props.js, AnimatedProp.step/follow on the page and Trap.present of
+//! The client's animated props and log traps (LiveObjects.presentAnimated of
+//! src/props.js, AnimatedProp.step/follow on the client and Trap.present of
 //! src/traps.js), stepped in one batched frame. Registration owns every
 //! allocation; the frame reads soldiers' feet, bodies and the adopted world
 //! state from fixed records and publishes each posed prop's bones, and
@@ -31,7 +31,7 @@ pub struct TriggerInput {
     /// Whether it plays a sound (the host plays it).
     pub sound: bool,
 }
-/// An AnimatedProp's load-time description (the JS constructor's fields):
+/// An AnimatedProp's load-time description:
 /// clip handles by slot, its triggers' world points, and its bones'
 /// current and bind transforms (quaternion then position, 7 per bone).
 #[derive(Deserialize)]
@@ -102,7 +102,7 @@ struct Prop {
     scene: crate::scene::Scene,
     /// The sampler AnimatedProp keeps.
     pose: Pose,
-    /// The stand pose, Float32Array storage as the JS keeps it.
+    /// The stand pose, Float32Array storage it.
     stand_q: Vec<f32>,
     stand_t: Vec<f32>,
     /// Each bone's bind (a door starts from it).
@@ -227,7 +227,7 @@ impl Props {
         (self.clips.len() - 1) as u32
     }
 
-    /// An animated prop with a pose (the JS constructor's). Returns its
+    /// An animated prop with a pose. Returns its
     /// index; its bones start at `bone_start(index)`.
     pub fn add_prop(&mut self, d: PropInput) -> usize {
         let bones = d.initial.len() / 7;
@@ -327,7 +327,7 @@ impl Props {
         self.traps.len() - 1
     }
     /// TurretSeats.present and poseTurret join this phase; registration
-    /// reserves every matrix row before the page can present a frame.
+    /// reserves every matrix row before the client can present a frame.
     pub fn add_turret(&mut self, d: crate::turrets::Descriptor) -> usize {
         let turret = crate::turrets::Turret::new(d, &mut self.nodes);
         let start = turret.scene.start;
@@ -346,7 +346,7 @@ impl Props {
     }
 
     /// One frame (presentAnimated): the traps at the tick drawn, then each
-    /// prop following the world's state or stepping on the page's soldiers.
+    /// prop following the world's state or stepping on the client's soldiers.
     pub fn frame(&mut self) {
         if self.input[fr::VERSION] != crate::layout::VERSION as f64 {
             self.header[ph::STATUS] = status::VERSION_MISMATCH as f64;
@@ -403,7 +403,7 @@ impl Props {
             }
             // presentAnimated's three cases: a creature following the world,
             // one idling before its state arrives (no bodies: it seizes no
-            // one here), and any other prop stepping on the page's soldiers.
+            // one here), and any other prop stepping on the client's soldiers.
             let posed = if p.grabs && p.adopted != Adopted::None {
                 let posed = p.follow(&self.clips, dt, tick, p.adopted == Adopted::First, out);
                 // follow() keeps easing once the world's clip is known.
@@ -457,7 +457,7 @@ fn clamp_slot(x: f64) -> i32 {
 
 /// AnimatedProp.presentHeld and heldFrame: where a page draws whom a
 /// creature holds, `time` seconds into his hold. Before the tick it took
-/// him (the page draws a little behind the world) he is drawn where his own
+/// him (the client draws a little behind the world) he is drawn where his own
 /// record has him (WAITING). Then his body in his grab clip at that time,
 /// his root bone (bone_root, as the clip poses it) on the grab's node,
 /// turned with it: the 2004 game's inverse root times the node. Not placed

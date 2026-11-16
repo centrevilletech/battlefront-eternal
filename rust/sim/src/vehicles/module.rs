@@ -37,7 +37,7 @@ struct Posed {
     pose: HullPose,
     turn_rates: Vec<f64>,
 }
-/// Each posed hull's seats as an observer reads them (the page's
+/// Each posed hull's seats as an observer reads them (the client's
 /// `Vehicle.seats[i].yawRate/target/weapons[].barrel/aimers[]`): by hull
 /// slot, per seat its yaw rate, its target, and per weapon its barrel and
 /// aimers' yaw, pitch, on-target flag, limit flag and facing.

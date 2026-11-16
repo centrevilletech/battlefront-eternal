@@ -1,4 +1,4 @@
-//! What a battle is asked for, as tools/world-hash.mjs and the page's battle
+//! What a battle is asked for, as tools/world-hash.mjs and the client's battle
 //! URL say it: the map, the side (and so the era), the seed, the AI flavour,
 //! the heroes and the player's class. The query these make is the one
 //! selectMission and spawnPolicy read (rust/content/src/mission.rs).

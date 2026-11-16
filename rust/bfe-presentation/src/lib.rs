@@ -285,7 +285,7 @@ pub struct Presentation {
     lookup: Vec<usize>,
     generations: Vec<u32>,
     /// Page spawns refused this frame (id, generation): published as finished
-    /// rows so the page frees their handles, with no birth or death event.
+    /// rows so the client frees their handles, with no birth or death event.
     refused: Vec<(u32, u32)>,
     /// Totals since load, published every frame for a once-only page report.
     refused_effects: f64,
@@ -431,7 +431,7 @@ impl Presentation {
         slot
     }
     // frame is the sole live phase entry point. Buffers and pools never grow.
-    // Nothing the page sends can fail it: a full store refuses births, and a
+    // Nothing the client sends can fail it: a full store refuses births, and a
     // stale, unknown or malformed command is skipped and counted. Only a
     // page built against another layout is reported, every frame.
     pub fn frame(&mut self) {
@@ -479,7 +479,7 @@ impl Presentation {
                 };
                 let slot = self.start(effect);
                 if slot == NONE {
-                    // The page frees this handle from its finished row.
+                    // The client frees this handle from its finished row.
                     self.generations[id] = generation;
                     self.refused.push((id as u32, generation));
                     continue;

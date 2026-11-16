@@ -46,7 +46,7 @@ const UNIT_STATE_SLOT: usize = 13;
 const UNIT_STATE_REPAIR: usize = 20;
 // entity-world-state.js: a building's state summary is 200000 plus its number.
 const BUILDING_STATE_ID: f64 = 200000.;
-// humanName() for the page's own player without a name.
+// humanName() for the client's own player without a name.
 const HUMAN_NAME: &str = "Player 1";
 // killMessage's last name fallback.
 const SOLDIER: &str = "Soldier";
@@ -72,7 +72,7 @@ pub struct Feedback {
 }
 
 // The presentation fields a "shot" needs. Unknown fields are ignored, as
-// the browser reads only the ones it names.
+// the client reads only the ones it names.
 #[derive(serde::Deserialize, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
 struct Shot {
@@ -339,7 +339,7 @@ impl Feed {
     }
 
     /// The own soldier's repair lock, while it is still the life it was
-    /// reported for (PlayerCombat.lockedTarget on a page showing a server's
+    /// reported for (PlayerCombat.lockedTarget in a client showing a server's
     /// battle).
     pub fn repair(&self, receiver: &Receiver) -> Option<RepairLock> {
         let (life, lock) = self.repair?;
@@ -426,7 +426,7 @@ impl Feed {
                         }
                     }
                 } else if event == "squad" {
-                    // presentEntityEvent: only the page's own unit's order
+                    // presentEntityEvent: only the client's own unit's order
                     // shows, as the line BattleHud.squadCommand lights.
                     if let Ok(squad) = serde_json::from_slice::<Squad>(bytes) {
                         if let Some(order) = squad_order(squad.label).filter(|_| self.squads && own.is((squad.owner_id, squad.owner_generation))) {
@@ -462,7 +462,7 @@ impl Feed {
         let slot = u16::from_le_bytes(slot.try_into().unwrap());
         let generation = row[r::GENERATION] as u32;
         self.units.insert(id, UnitState { generation, slot, hero: flags & 1 != 0 });
-        // unit.combat.repairLock, for the page's own soldier: the key after
+        // unit.combat.repairLock, for the client's own soldier: the key after
         // the two selected weapons and the weapon count, with its length.
         if own.is((id, generation)) {
             let key = bytes.get(UNIT_STATE_REPAIR).and_then(|&size| bytes.get(UNIT_STATE_REPAIR + 1..UNIT_STATE_REPAIR + 1 + size as usize));
@@ -566,7 +566,7 @@ impl Feed {
         receiver.roster.rows().nth(slot).map(|(_, character)| character)
     }
 
-    // victim.human || victim.character?.human: the page's own unit is its
+    // victim.human || victim.character?.human: the client's own unit is its
     // one human Unit; every other human is known by his Character.
     fn human(&self, own: &Own, receiver: &Receiver, unit: &Unit) -> bool {
         own.is((unit.id, unit.generation)) || self.character(own, receiver, unit).is_some_and(|c| c.human)

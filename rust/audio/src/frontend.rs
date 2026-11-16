@@ -3,7 +3,7 @@
 // Bus numbers are the shell's two gain trees: effects and music.
 // All storage, including completion events, exists before the first block.
 use crate::{commands::*, master::gain_product, pcm::Source, voices::Sample, FRAMES};
-// FrontendAudio sends assets and timed controls from the page. This module
+// FrontendAudio sends assets and timed controls from the client. This module
 // reproduces ShellAudio and LoadingSound's BufferSource/GainNode tree; its
 // worklet owns all mutable sources, bus sums and fade state.
 pub const SLOTS: usize = FRONT_SLOTS;
@@ -50,7 +50,7 @@ impl Linear {
         };
     }
 }
-// generation identifies the page's logical playback, independently of its
+// generation identifies the client's logical playback, independently of its
 // reusable slot. Completion messages carry both so a late onended cannot
 // release a new track that has already taken the old slot.
 struct Voice {
@@ -103,7 +103,7 @@ fn gain(value: f32, level: f32) -> f32 {
 }
 impl Frontend {
     // Match ShellAudio's initial music/effect levels. A source can begin
-    // before the page sends a volume update, so defaults are audible behavior,
+    // before the client sends a volume update, so defaults are audible behavior,
     // not merely placeholder state for configuration.
     pub fn new(rate: f64) -> Self {
         Self {

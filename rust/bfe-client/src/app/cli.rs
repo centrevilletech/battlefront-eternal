@@ -55,7 +55,7 @@ pub struct StandaloneOptions {
     pub script: Option<String>,
     /// Optional directory where a scripted run writes screenshots and `gate-summary.json`.
     pub shots_dir: Option<PathBuf>,
-    /// Optional `HOST:PORT` server the browser pins (`--server`).
+    /// Optional `HOST:PORT` server the client pins (`--server`).
     pub server_target: Option<String>,
 }
 

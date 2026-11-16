@@ -238,7 +238,7 @@ impl NavGraph {
         if first == 0 {
             return None;
         }
-        // random.next() % total, in f64 as the JavaScript computes it; the
+        // random.next() % total, in f64 it; the
         // operands are small whole numbers, so it is the integer remainder.
         let mut r = (random.next() % total as u32) as i32;
         let mut w = first;

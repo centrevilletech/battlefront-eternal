@@ -1364,7 +1364,7 @@ mod tests {
         hw.set("shadows", "high");
         assert_eq!(hw.get_string("performancePreset"), "custom");
 
-        // The presets set the same 26 keys as the browser build's, adaptive resolution among them and
+        // The presets set the same 26 keys as the client build's, adaptive resolution among them and
         // sharpening and the death camera not.
         assert_eq!(PRESET_KEYS.len(), 26);
         assert_eq!(s.get_string("dynamicResolution"), "0");

@@ -41,7 +41,7 @@
 //!
 //! It only draws: it reads what every host gives a hull (alive, dying,
 //! health, flight state, velocity and the pose drawn this frame) or a
-//! building (its state and health) and runs on the page, so a battle
+//! building (its state and health) and runs on the client, so a battle
 //! simulated here, in a worker or on a server looks the same. Missing
 //! attach points fall back to the hull's root, as the original game's do.
 //!
@@ -313,7 +313,7 @@ impl Vehicles {
     }
     // VehicleEffects.update is a continuation over one ordered body block.
     // Cosmetic picks occur after earlier resource events have been applied:
-    // dust, debris and effect seeds share the page's random service.
+    // dust, debris and effect seeds share the client's random service.
     pub fn frame(&mut self) {
         self.output.fill(0.);
         self.cursor = 0;

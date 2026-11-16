@@ -5,7 +5,7 @@
 // distance, in the map's fog).
 //
 // The patches are chosen here, as FoliageGpuBatch.update chooses them, when
-// the page's Foliage.update runs (select): a patch passes when its sphere
+// the client's Foliage.update runs (select): a patch passes when its sphere
 // is in the camera's frustum, it is within its cull distance across the
 // ground, and its depth along the view is within its fade. Only the cells of
 // the patch index around the camera are tested (foliage-gpu.js patchIndex:
@@ -21,7 +21,7 @@ use crate::math::{self, Frustum};
 use glow::HasContext;
 use std::collections::HashMap;
 
-// The page's values for a selection (f64 slots of `input`): the camera's
+// The client's values for a selection (f64 slots of `input`): the camera's
 // projection, its inverse world matrix and its world matrix, its position,
 // the near scene's end, the foliage's animation time.
 pub const IN_PROJECTION: usize = 0;
@@ -35,11 +35,11 @@ pub const INPUT_LEN: usize = 53;
 // A patch's row in the instance buffer (f32): its position, tint, the three
 // axes of its matrix, and its own distance (0: the near scene's end).
 pub const ROW: usize = 16;
-// A patch's bounds as the page gives them (f64): position, sphere centre and
+// A patch's bounds as the client gives them (f64): position, sphere centre and
 // radius (radius < 0: none), cull distance (infinite: always tested), max
 // distance.
 pub const BOUNDS: usize = 9;
-// A card vertex as the page gives it (f32): position 3, color 4, uv 2,
+// A card vertex as the client gives it (f32): position 3, color 4, uv 2,
 // corner 2, shape 4, rate 1.
 pub const VERTEX: usize = 16;
 const VERTEX_PARTS: [i32; 6] = [3, 4, 2, 2, 4, 1];
@@ -277,7 +277,7 @@ impl<C: HasContext> FoliagePass<C> {
         (self.classes.len() - 1) as u32
     }
 
-    // FoliageGpuBatch.update for every class, from the page's values in
+    // FoliageGpuBatch.update for every class, from the client's values in
     // `input`; returns how many patches were selected.
     pub fn select(&mut self) -> u32 {
         let input = &self.input;

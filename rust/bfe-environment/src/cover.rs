@@ -28,7 +28,7 @@ impl Cover {
     }
 
     /// A cache of `size` with room for one of up to `largest`, so a switch
-    /// (`reset`) allocates nothing and the page's views stay valid.
+    /// (`reset`) allocates nothing and the client's views stay valid.
     pub fn with_capacity(range: f64, size: usize, largest: usize) -> Cover {
         let mut cover = Cover {
             size,

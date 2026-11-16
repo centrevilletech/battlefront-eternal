@@ -85,7 +85,7 @@ impl Publication {
     }
 
     /// What a flush would have published, dropped unencoded: nothing native
-    /// reads these rows (the JavaScript host did).
+    /// reads these rows.
     pub fn discard(&mut self, st: &mut Store) {
         st.vehicle.retired.clear(); self.dirty.clear(); self.pad_dirty.clear();
     }

@@ -167,7 +167,7 @@ impl Motion {
     // Remember every posture, air and dive transition, even in third person.
     // Only the player's own eyes can trigger a new visible motion.
     // Landing strength reads the remembered downward velocity of the body.
-    // Short stair drops keep the smaller impact response of the page.
+    // Short stair drops keep the smaller impact response of the client.
     // An interrupted bob is allowed to settle at its existing derivative.
     // The cue is a scalar duration for the arms' hands-down/landing clips.
     // The host consumes it in the same frame before attachment sampling.

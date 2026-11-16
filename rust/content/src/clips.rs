@@ -40,7 +40,7 @@ impl Clip {
     }
 }
 
-/// Clips by name, in the bank's order (a JavaScript Map).
+/// Clips by name, in the bank's order.
 #[derive(Clone, Debug, Default)]
 pub struct Clips {
     pub list: Vec<Clip>,

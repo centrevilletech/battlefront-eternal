@@ -2,10 +2,10 @@
 // pass: graphics.js draws each cascade's static cache the frame its window
 // lands and, every frame (the last cascade every other one), its live map:
 // the cache's depth copied in, then the moving casters over it. For each such
-// pass the page walks the scene as three's shadow pass walks it
+// pass the client walks the scene as three's shadow pass walks it
 // and writes a draw a caster: three's program for
 // its depth material, used as three compiled it (Kind::Plain: every uniform
-// the page's), its geometry and the range three would draw, the side its
+// the client's), its geometry and the range three would draw, the side its
 // material casts with, whether its matrix mirrors, its uniforms' values.
 //
 // The pass draws into a framebuffer of its own over the map's depth texture
@@ -66,7 +66,7 @@ impl<C: HasContext> ShadowPass<C> {
         self.matrices.reserve(64);
     }
 
-    // One cascade pass, as the page wrote it.
+    // One cascade pass, as the client wrote it.
     pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>) -> Result<(), String> {
         let v = &self.input;
         let target = v[S_TARGET];

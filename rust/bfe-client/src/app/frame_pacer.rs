@@ -1,4 +1,4 @@
-//! When the window presents a frame. The browser hands the page one chance
+//! When the window presents a frame. The browser hands the client one chance
 //! to draw every display refresh and its FramePacer
 //! lets a chance pass while the frameLimit
 //! setting's deadline is still ahead. Here the chances come from the display
@@ -59,7 +59,7 @@ impl FramePacer {
         Some(dt)
     }
     /// Seconds from the last chance until the deadline can be met: how long
-    /// the loop may sleep instead of asking again. The page has no such
+    /// the loop may sleep instead of asking again. The client has no such
     /// question, its next chance simply comes a refresh later.
     pub fn wait(&self) -> f64 {
         if self.limit == 0. {

@@ -4,7 +4,7 @@
 //! position, quaternion and scale, and each bone hangs from its parent.
 //!
 //! What the simulation reads of a soldier's skeleton is its bind pose (a
-//! world never poses a soldier's drawn bones: `Unit.present` is a page's),
+//! world never poses a soldier's drawn bones: `Unit.present` is a client's),
 //! its names and its parents: the rider's points (`rider.rs`) and a
 //! droideka's hidden gun rig (`droideka.rs`) are made from it.
 

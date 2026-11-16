@@ -1,5 +1,5 @@
-//! The destruction effects' random numbers: one stream, as the page's single
-//! Math.random was for them. The page seeds it once; the births, their seeds
+//! The destruction effects' random numbers: one stream, as the client's single
+//! Math.random was for them. The client seeds it once; the births, their seeds
 //! and the cosmetic randomness all draw from it in the order the effects'
 //! code asks, so a run repeats from its seed.
 

@@ -84,7 +84,7 @@ impl Draws {
         let get = |ids: &[f64], index: f64, fallback: f64| {
             ids.get(index as usize).copied().unwrap_or(fallback)
         };
-        // Each resource kind has its own generated record. The page never
+        // Each resource kind has its own generated record. The client never
         // tests for optional uniform fields or derives a sampler pair.
         // Tint can read opaque colour/depth independently of reflection. Its
         // underwater flag uses the gameplay level while display animation
@@ -189,7 +189,7 @@ impl Draws {
     // Water.applyQuality previously chose both the preset and pass visibility.
     // Keep the original high default for unrecognised settings and the ocean
     // early return, while returning only numeric policy to the resource host.
-    // The page supplies setting strings and actual resource availability.
+    // The client supplies setting strings and actual resource availability.
     // Preset numbers and anchor visibility belong to the native water policy.
     // Enhanced ocean selection keeps the original planar-target early return.
     pub fn mode(&mut self, data: &Value) -> Value {

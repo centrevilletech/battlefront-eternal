@@ -205,7 +205,7 @@ impl Phase {
             .best(point, &self.content.spawn_shots)
             .map_or(-1, |i| i as i32)
     }
-    // SoldierCamera.setDef used to retain a class object on the page.
+    // SoldierCamera.setDef used to retain a class object on the client.
     // The host now resolves that identity to this stable cold numeric handle.
     // Refusing a full table never renames or replaces an earlier definition.
     // Invalid frame handles use the immutable default section instead.
@@ -341,7 +341,7 @@ impl Phase {
         // A cold start derives its anchor from the current camera heading.
         // Later ticks consume body and killer facts sampled by the world host.
         // When the body is gone its last middle remains the framed point.
-        // The page's death shot instead follows its current ribcage node.
+        // The client's death shot instead follows its current ribcage node.
         // The serial identifies a new death even across a missing alive frame.
         // Its killer carries generation-checked identity facts from the host.
         // A stale or absent killer is represented as absence, never a zero id.
@@ -613,9 +613,9 @@ impl Phase {
             // Using the latter applies pitch twice on sloped emplacements.
             // The frame itself is needed to place TrackCenter and EyePointOffset.
             // Canonical seat eyes and directions retain their authority tick.
-            // Preview-only angles retain the page's own input clock.
+            // Preview-only angles retain the client's own input clock.
             // The enclosure test uses the building's model-local bounds.
-            // This result controls retained drum/gun visibility on the page.
+            // This result controls retained drum/gun visibility on the client.
             // It is published only when the turret is the selected owner.
             let root = matrix(a, f::TURRET_ROOT);
             let pivot = transformed(vector(a, f::TURRET_PIVOT), &root);
@@ -811,7 +811,7 @@ impl Phase {
         // The selected horizontal lens has already become vertical degrees.
         // Half-angle tangent is evaluated before the viewport-width multiply.
         // Keep left/right and top/bottom construction, including zero signs.
-        // Native makePerspective uses the WebGL depth convention of the page.
+        // Native makePerspective uses the WebGL depth convention of the client.
         // Projection inverse follows that exact matrix, without host inversion.
         // Temporal jitter and renderer-specific derived views remain consumers.
         let top = cam.near * T::tan(DEG * 0.5 * cam.fov);

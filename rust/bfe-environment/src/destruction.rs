@@ -10,7 +10,7 @@
 //! droideka shorts out for its whole death clip. A power-up droid destroyed
 //! goes up in a blast of its own and then smoulders as a wreck.
 //!
-//! The page tells the phase what happened as commands, with the numbers the
+//! The client tells the phase what happened as commands, with the numbers the
 //! phase cannot get itself (a body's bone matrices, where its chunks were);
 //! the phase decides the births, the pieces' lives and the order of it all,
 //! and answers with events (a light, a sound, a unit to hide, a piece to
@@ -42,7 +42,7 @@ const EMBER: f64 = 4.0;
 const SMOKE: f64 = 0.0;
 const CHIP: f64 = 1.0;
 const SCORCH: f64 = 2.0;
-// Light colours, as the page names them.
+// Light colours, as the client names them.
 pub const ELECTRIC: f64 = 0.0;
 pub const FIRELIGHT: f64 = 1.0;
 pub const EMBERLIGHT: f64 = 2.0;
@@ -112,7 +112,7 @@ struct Live {
     dissolve: f64,
     soot: f64,
     tear: [f64; 4],
-    /// Where the page should sample the map's light, asked for this call.
+    /// Where the client should sample the map's light, asked for this call.
     sample: Option<Vector3>,
     object_position: Vector3,
     matrix: [f64; 16],
@@ -143,7 +143,7 @@ pub struct Destruction {
     pub frame: Vec<f64>,
     pub station_config: Vec<f64>,
     pub station_state: Vec<f64>,
-    /// Per slot of a droid the page tracks: its bones and joints (static, written
+    /// Per slot of a droid the client tracks: its bones and joints (static, written
     /// when it dies), then, every frame, whether it still stands in the way of its
     /// death, where it is, and its bones' world matrices.
     pub slot_static: Vec<f64>,
@@ -170,7 +170,7 @@ fn matrix_of(elements: &[f64]) -> Matrix4 {
 impl Destruction {
     // Everything is allocated here, at the sizes the content needs (the layout
     // lists them: the most any map has of models, bones, droids and wrecks is
-    // below every table), so no frame allocates and the page's views of the
+    // below every table), so no frame allocates and the client's views of the
     // module's memory, taken once, never go stale.
     pub fn new(fx: Fx, seed: u32) -> Destruction {
         let empty = || Shape { center: Vector3::default(), half: Vector3::default(), points: Vec::with_capacity(dst::SHAPE_POINTS), radius: 0.0, inverse_inertia: Vector3::default() };
@@ -208,11 +208,11 @@ impl Destruction {
         }
     }
 
-    /// A model's shape as the page worked it out from its geometry (pieceShape);
+    /// A model's shape as the client worked it out from its geometry (pieceShape);
     /// its extreme points are in `shape_points`.
     pub fn register_shape(&mut self, handle: usize, center: [f64; 3], half: [f64; 3], radius: f64, inertia: [f64; 3], n: usize) {
-        // A handle past the table is a model the page has no room for: it throws
-        // no pieces (the page treats its shape as absent).
+        // A handle past the table is a model the client has no room for: it throws
+        // no pieces (the client treats its shape as absent).
         if handle >= dst::SHAPES {
             return;
         }
@@ -250,7 +250,7 @@ impl Destruction {
         }
     }
 
-    // An event for the page to apply after the call: a light, a sound, a body to
+    // An event for the client to apply after the call: a light, a sound, a body to
     // hide, a wreck to glow or to cool.
     fn event(&mut self, kind: f64, a: f64, b: f64, at: &Vector3, rest: [f64; 6]) {
         // The block holds what one call can make (256 commands, every slot
@@ -440,7 +440,7 @@ impl Destruction {
         self.light(ek::FLASH, at, ELECTRIC, 4.5 * scale, 0.14);
     }
 
-    /// One piece out of a blast at `centre` (throw). The page gave its shape
+    /// One piece out of a blast at `centre` (throw). The client gave its shape
     /// (-1 for none) and the frame of its model in the world.
     #[allow(clippy::too_many_arguments)]
     fn throw(&mut self, shape: i64, matrix: &Matrix4, centre: &Vector3, inherited: &Vector3, speed: f64, heat: f64, cast: Cast) {
@@ -550,7 +550,7 @@ impl Destruction {
         };
         self.uid += 1;
         let uid = self.uid;
-        // The page learns of the piece from its record (its model, how hot,
+        // The client learns of the piece from its record (its model, how hot,
         // where it tore away), not from an event that could be lost.
         let mut live = Live {
             uid, shape, age: 0.0, rest: 0.0, heat, crumble: 0.0, light_clock: 0.0, shadows: true, charge: f64::NAN, trail: 0.0, shed: 0.0, crackle: 0.0, wisp: 0.0, dissolve: 0.0,
@@ -571,7 +571,7 @@ impl Destruction {
 
     /// Its model's place from its body (place): the model's origin is where
     /// the body's centre of mass would put it.
-    // The page's model sits at its own origin, not at the body's centre of mass:
+    // The client's model sits at its own origin, not at the body's centre of mass:
     // so its place is the body's, less the centre turned by the body's rotation.
     // The matrix is kept for the arcs that hang from the piece.
     fn place(shapes: &[Shape], live: &mut Live, body: &Piece) {
@@ -590,7 +590,7 @@ impl Destruction {
     // A droid blowing apart. The blast is at the mean of its chunks' centres; each
     // chunk is thrown out from it, and the droid's blaster too, more gently.
     fn burst(&mut self, slot: usize, walker: bool, position: &Vector3, velocity: &Vector3, start: usize, count: usize, weapon: i64, weapon_matrix: usize, sound: bool, explosion: bool, hide: bool, cast: Cast) {
-        // The frames the page wrote are cut to the block (and the weapon's matrix
+        // The frames the client wrote are cut to the block (and the weapon's matrix
         // to the matrices), whatever count it gave.
         let start = start.min(ca::LEN);
         let count = count.min(ca::LEN - start);
@@ -636,9 +636,9 @@ impl Destruction {
             let m = matrix_of(&self.matrices[weapon_matrix * 16..]);
             self.throw(weapon, &m, &centre, velocity, 5.0, 0.25, cast);
         }
-        // Its pieces take its place, for the rest of its life; the page hides
+        // Its pieces take its place, for the rest of its life; the client hides
         // the body and lets the unit go.
-        // A droid that burst after its short-out is hidden by the page, on this event;
+        // A droid that burst after its short-out is hidden by the client, on this event;
         // one blown apart by command was hidden when the command was made.
         if hide {
             self.event(ek::HIDE, slot as f64, 0.0, &Vector3::default(), [0.0; 6]);
@@ -648,7 +648,7 @@ impl Destruction {
         }
     }
 
-    // A bone's place, from the matrices the page gave this frame.
+    // A bone's place, from the matrices the client gave this frame.
     fn bone_position(&self, slot: usize, bone: usize) -> Vector3 {
         let at = (slot * dst::BONES + bone.min(dst::BONES - 1)) * 16;
         let mut p = Vector3::default();
@@ -696,7 +696,7 @@ impl Destruction {
             self.burst(slot, walker, &position, &velocity, start, count, weapon, wm, true, explosion, true, cast);
             return false;
         }
-        // The bones and joints the page listed, cut to the stores and to whole
+        // The bones and joints the client listed, cut to the stores and to whole
         // pairs, whatever counts it gave.
         let base = slot * sst::STRIDE;
         let bone_count = (self.slot_static[base + sst::BONE_COUNT] as usize).min(dst::BONES);
@@ -789,14 +789,14 @@ impl Destruction {
 
     /// What a bursting droid brings: its velocity, its chunk frames, its held
     /// weapon's shape and matrix, whether it has an explosion. For a death in
-    /// progress the page left them in the slot's burst block.
+    /// progress the client left them in the slot's burst block.
     fn burst_data(&self, slot: usize) -> (Vector3, usize, usize, i64, usize, bool) {
         let b = &self.burst_blocks[slot * burst_at::STRIDE..(slot + 1) * burst_at::STRIDE];
         // The slot's own weapon matrix is the one beside the commands'.
         (Vector3::new(b[burst_at::VELOCITY], b[burst_at::VELOCITY + 1], b[burst_at::VELOCITY + 2]), b[burst_at::START] as usize, b[burst_at::COUNT] as usize, b[burst_at::WEAPON] as i64, ma::WEAPONS + slot, b[burst_at::EXPLOSION] != 0.0)
     }
 
-    /// A shape handle the page gave, if it names a shape the page has
+    /// A shape handle the client gave, if it names a shape the client has
     /// registered.
     fn shape_of(&self, handle: i64) -> Option<usize> {
         let h = usize::try_from(handle).ok()?;
@@ -1144,16 +1144,16 @@ impl Destruction {
         true
     }
 
-    /// Executes one command the page wrote (blowApart, died, deathBlast,
+    /// Executes one command the client wrote (blowApart, died, deathBlast,
     /// blast, clear).
-    // One command the page wrote. Nothing in it is trusted to be in range: a slot
+    // One command the client wrote. Nothing in it is trusted to be in range: a slot
     // past the table is none, a count is cut to its block, a handle to what the
     // page has registered.
     fn command(&mut self, i: usize, cast: Cast) {
         let c: [f64; cmd::STRIDE] = self.commands[i * cmd::STRIDE..(i + 1) * cmd::STRIDE].try_into().expect("a record");
         let at = Vector3::new(c[cmd::AT], c[cmd::AT + 1], c[cmd::AT + 2]);
         let velocity = Vector3::new(c[cmd::VELOCITY], c[cmd::VELOCITY + 1], c[cmd::VELOCITY + 2]);
-        // Nothing the page writes is trusted to be in range: a slot past the
+        // Nothing the client writes is trusted to be in range: a slot past the
         // table is none, a handle or index past its block is none, and
         // counts are cut to what the blocks hold.
         let slot = c[cmd::SLOT] as usize;
@@ -1189,10 +1189,10 @@ impl Destruction {
         }
     }
 
-    /// Everything gone (clear): the deaths, the wrecks (the page puts their
+    /// Everything gone (clear): the deaths, the wrecks (the client puts their
     /// materials back), the pieces and the effects.
-    // Everything gone: the deaths, the wrecks (the page puts their materials back
-    // at the events below), the pieces and the effects. The page runs this at
+    // Everything gone: the deaths, the wrecks (the client puts their materials back
+    // at the events below), the pieces and the effects. The client runs this at
     // once, even while the game is paused.
     fn clear(&mut self) {
         self.deaths.clear();
@@ -1207,9 +1207,9 @@ impl Destruction {
         self.fx.clear();
     }
 
-    /// Which slots will burst this frame: the page then brings the frames of
+    /// Which slots will burst this frame: the client then brings the frames of
     /// their chunks (Destruction.update's first look at the deaths).
-    // Which slots will burst this frame, so the page can bring the frames of
+    // Which slots will burst this frame, so the client can bring the frames of
     // their chunks before the phase runs (it is the only one that has them).
     pub fn prepare(&mut self) {
         let dt = three::clamp(self.frame[df::DT], 0.0, 0.1);
@@ -1223,10 +1223,10 @@ impl Destruction {
         self.result[dr::BURSTS] = n as f64;
     }
 
-    /// The frame (Destruction.update): the commands the page wrote, in order,
+    /// The frame (Destruction.update): the commands the client wrote, in order,
     /// then the wrecks watched, the deaths, the pieces, the emitters, the
     /// wrecks' smoulder and the effects' own step.
-    // The frame: the commands the page wrote, in order, then the wrecks watched,
+    // The frame: the commands the client wrote, in order, then the wrecks watched,
     // the deaths, the pieces, the emitters, the wrecks' smoulder and the effects'
     // own step. Nothing runs but the commands and the wrecks watch when the
     // setting is Classic.
@@ -1275,9 +1275,9 @@ impl Destruction {
     }
 
     /// What a call starts from: no events yet, and no piece moved or asked
-    /// for light since the page last read the records.
+    /// for light since the client last read the records.
     // What each call starts from: no events yet, and no piece moved or asked for
-    // light since the page last read the records.
+    // light since the client last read the records.
     fn begin(&mut self) {
         self.events = 0;
         self.overflow = 0;
@@ -1288,10 +1288,10 @@ impl Destruction {
         }
     }
 
-    /// The commands the page has written, in order, never past the block
+    /// The commands the client has written, in order, never past the block
     /// whatever count it gave.
     fn run_commands(&mut self, cast: Cast) {
-        // The commands are never run past the block, whatever count the page wrote.
+        // The commands are never run past the block, whatever count the client wrote.
         let commands = (self.frame[df::COMMANDS] as usize).min(dst::COMMANDS);
         for i in 0..commands {
             self.command(i, cast);
@@ -1299,7 +1299,7 @@ impl Destruction {
         self.frame[df::COMMANDS] = 0.0;
     }
 
-    /// Only the commands: the page calls this when its queue is nearly full
+    /// Only the commands: the client calls this when its queue is nearly full
     /// (a long load or a pause makes events with no frame to carry them) and
     /// when an effect must happen now (switching to Classic while paused).
     /// The time does not move, and what the commands made is in the result
@@ -1312,9 +1312,9 @@ impl Destruction {
     }
 
     /// Refreshes the matrices of what arcs hang from before they are drawn:
-    /// the pieces' as last placed, a droid's bones as the page last gave them.
+    /// the pieces' as last placed, a droid's bones as the client last gave them.
     // What arcs hang from is refreshed before they are drawn: a piece's matrix as
-    // last placed, a droid's bone as the page last gave it (a bone keeps its last
+    // last placed, a droid's bone as the client last gave it (a bone keeps its last
     // matrix once its droid is gone, so a late arc ends where it was).
     fn refresh_anchors(&mut self) {
         let pieces = &self.pieces;
@@ -1333,9 +1333,9 @@ impl Destruction {
         });
     }
 
-    // What the page reads after a call: counts, the slots' holds, the wrecks' look,
+    // What the client reads after a call: counts, the slots' holds, the wrecks' look,
     // and every piece's record. The records are the whole truth of the pieces,
-    // so a lost event can never leave the page out of step.
+    // so a lost event can never leave the client out of step.
     fn write_result(&mut self, fx_updated: f64) {
         let r = &mut self.result;
         r[dr::EVENTS] = self.events as f64;

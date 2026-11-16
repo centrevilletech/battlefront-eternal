@@ -1,5 +1,5 @@
 //! SniperTrace's retained flight, vapour, head shots and draw records.
-//! The page supplies ordered events and displayed camera facts. Fixed stores
+//! The client supplies ordered events and displayed camera facts. Fixed stores
 //! evict their oldest visual records; an overloaded battle never grows them.
 use crate::sniper_layout::{sniper_frame as f,sniper_command as c,sniper_kind as k,sniper_event as e,sniper_event_kind as ek,sniper_match as m,sniper_limits as lim,sniper_counts as h,sniper_streak as streak,sniper_flare as flare};
 use crate::cameras::math::{plus,sub,cross,Math,V8};

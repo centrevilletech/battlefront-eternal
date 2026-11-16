@@ -307,7 +307,7 @@ export component OptionsModalOverlay inherits Rectangle {
 export component OptionsScreenHost inherits Rectangle {
     in property <bool> use-underlay: true;
     in property <image> movie-frame;
-    // False when the screen it sits on already draws the page backdrop (the pause menu over a battle).
+    // False when the screen it sits on already draws the screen backdrop (the pause menu over a battle).
     in property <bool> backdrop: true;
 
     if root.backdrop: BackdropMovies {

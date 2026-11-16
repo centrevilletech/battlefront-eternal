@@ -9,7 +9,7 @@ use crate::store::DefId;
 
 pub use bfe_content::js::string_to_number;
 
-/// A definition's field as JavaScript reads it.
+/// A definition's field it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Field {
     Undefined,

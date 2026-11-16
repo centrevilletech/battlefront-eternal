@@ -1,4 +1,4 @@
-//! Turret.present and poseTurret: the page's replicated drum and gun pose.
+//! Turret.present and poseTurret: the client's replicated drum and gun pose.
 //! All turrets join the prop frame. Preview angles are scalar inputs; no
 //! gunner, packet callback or camera makes an individual WASM call.
 use crate::{layout::turret_presentation_input as i, scene::{Input, Scene}, vehicles::{aim_vector, look_basis}};

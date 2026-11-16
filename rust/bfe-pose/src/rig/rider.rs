@@ -207,7 +207,7 @@ pub struct RiderPoints {
     pub root_turn: Quaternion,
 }
 
-/// riderPoints' scratch: its pose (one per skeleton in the JavaScript) and
+/// riderPoints' scratch: its pose and
 /// the local and world turns and places it works through.
 pub struct RiderScratch {
     pub pose: Pose,
@@ -255,7 +255,7 @@ fn or_zero(x: f64) -> f64 {
 /// bones' quaternions and positions as they stand (a joint the clip leaves
 /// alone keeps its bone's: in a world, which never poses a soldier's drawn
 /// bones, the bind pose). `root`: whether `out` asks for bone_root's place
-/// and turn (the JavaScript's `out.root` and `out.rootTurn`).
+/// and turn.
 pub fn rider_points(
     skeleton: &RiderSkeleton,
     bone_q: &[Quaternion],

@@ -10,7 +10,7 @@
 // pass drawn twice in a frame (bloom's blur) is two steps, each with its
 // own values.
 //
-// The page writes the frame's steps into `input` (STEP f64 each): the
+// The client writes the frame's steps into `input` (STEP f64 each): the
 // program, the target (-1: the canvas; -2: the framebuffer bound now, its
 // viewport as three set it: the near scene's start), its size,
 // then each uniform the
@@ -24,7 +24,7 @@
 // panorama), each with its material's own state where it is not a
 // full-screen pass's (`states`, STATE f64 a step): its depth test and
 // function, depth write, blending, and the geometry it draws (three's own,
-// where a varying must be interpolated over three's triangles). The page
+// where a varying must be interpolated over three's triangles). The client
 // writes a step's state before the phase that draws it; drawn, it is zeroed.
 use crate::core::{Core, MultiDraw, Value, PASS_POST, PASS_SCREEN};
 use glow::HasContext;
@@ -85,7 +85,7 @@ pub struct PostPass<C: HasContext> {
     pub states: Vec<f64>,
 }
 
-// A uniform from the page's slots (UNIFORM f64: slot, type, values) into a
+// A uniform from the client's slots (UNIFORM f64: slot, type, values) into a
 // program, unless it holds it already; a sampler is bound to `unit`.
 pub(crate) fn set_uniform<C: HasContext, M: MultiDraw>(core: &mut Core<C, M>, matrices: &mut HashMap<(usize, usize), [f32; 16]>, program: usize, u: &[f64], unit: &mut u32) {
     let slot = u[0] as usize;
@@ -185,7 +185,7 @@ pub(crate) fn full_screen<C: HasContext, M: MultiDraw>(core: &mut Core<C, M>) {
 
 // The framebuffer bound now cleared as three's WebGLBackground clears it
 // before a scene: every channel, depth and stencil, with three's clear
-// colour (rgba, premultiplied as the page wrote it), every buffer writable,
+// colour (rgba, premultiplied as the client wrote it), every buffer writable,
 // no scissor (a target's own scissor test, which three's are without).
 pub(crate) fn clear<C: HasContext, M: MultiDraw>(core: &mut Core<C, M>, rgba: &[f64]) {
     let (gl, state, stats) = (&core.gl, &mut core.state, &mut core.stats);
@@ -260,12 +260,12 @@ impl<C: HasContext> PostPass<C> {
         }
     }
 
-    // The steps the page wrote, in order.
+    // The steps the client wrote, in order.
     pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>, steps: usize) {
         self.draw_steps(core, steps, PASS_POST, false);
     }
 
-    // The steps the page wrote, each with its own state (`states`), counted
+    // The steps the client wrote, each with its own state (`states`), counted
     // as the screen pass's: the full-screen passes outside the post chain.
     pub fn draw_screen<M: MultiDraw>(&mut self, core: &mut Core<C, M>, steps: usize) {
         self.draw_steps(core, steps, PASS_SCREEN, true);

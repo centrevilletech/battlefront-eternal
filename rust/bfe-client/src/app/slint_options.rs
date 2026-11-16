@@ -241,7 +241,7 @@ fn map_option_kind(item: &bfe_interface::widgets::OptionsItem) -> SlintOptionKin
 }
 
 /// The key-capture prompt and the confirm and OK popups are screens of their own that are not
-/// flagged `modal`, but they sit over the page like dialogs, so they go on the dialog layer.
+/// flagged `modal`, but they sit over the screen like dialogs, so they go on the dialog layer.
 fn shows_as_modal(screen: &bfe_interface::screen::MenuScreen) -> bool {
     screen.modal || screen.key_capture.is_some() || matches!(screen.id.as_str(), "confirm" | "ok")
 }

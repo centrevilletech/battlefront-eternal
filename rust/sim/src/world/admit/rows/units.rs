@@ -615,7 +615,7 @@ pub fn lightning_in<'a>(name: &str, libraries: impl IntoIterator<Item=&'a Value>
     selected.and_then(Value::as_array).is_some_and(|defs|defs.iter().any(|def|def.get("lightning").is_some_and(Value::truthy)))
 }
 
-/// HeadlessEffects consumes the same merged authored library as the page:
+/// HeadlessEffects consumes the same merged authored library as the client:
 /// props, common, other sides, the played side, then the vehicle pack.
 pub fn has_lightning(battle: &bfe_content::battle::Battle, name: &str) -> bool {
     let mut libraries=Vec::new();

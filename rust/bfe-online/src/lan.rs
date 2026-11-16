@@ -383,7 +383,7 @@ mod tests {
     use crate::browser::{BattleSummary, ServerContract};
 
     // Recorded empty /info fields, wrapped in the LAN reply envelope. The
-    // same ServerEntry decoder serves direct HTTP discovery and the browser.
+    // same ServerEntry decoder serves direct HTTP discovery and the client.
     #[test]
     fn accepts_null_operator_metadata() {
         let reply = br#"{"magic":"BFE-LAN/1","type":"server","nonce":"00000000000000000000000000000000","info":{"id":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","name":"Native LAN paired engine","port":18451,"description":null,"location":null,"players":2,"maxPlayers":8}}"#;

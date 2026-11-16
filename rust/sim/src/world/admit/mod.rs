@@ -79,7 +79,7 @@ impl Options {
     pub fn era(&self) -> &'static str {
         if self.side == "rep" || self.side == "cis" { "cw" } else { "gcw" }
     }
-    /// The battle's query, word for word as the page and the harness compose it.
+    /// The battle's query, word for word as the client and the harness compose it.
     pub fn query(&self) -> String {
         let mut query = format!("?map={}&side={}&era={}&ai={}&seed={}", self.map, self.side, self.era(),
             if self.enhanced { "enhanced" } else { "classic" }, self.seed);
@@ -113,7 +113,7 @@ pub struct Handles {
     pub store_source: u32,
 }
 
-/// An admitted battle: what createLocalServer's welcome tells the page and
+/// An admitted battle: what createLocalServer's welcome tells the client and
 /// what the first tick row needs.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Admitted {

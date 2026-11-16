@@ -176,9 +176,9 @@ pub struct ScoreboardModel {
     pub state: BoardState,
     pub mode: SortMode,
     pub reverse: bool,
-    /// Team 1 rows at index 0, team 2 rows at index 1 (`lists[1]` and `lists[2]` in JS).
+    /// Team 1 rows at index 0, team 2 rows at index 1.
     pub lists: [Vec<ScoreRow>; 2],
-    /// Team 1 header at index 0, team 2 header at index 1 (`titles[1]` and `titles[2]` in JS).
+    /// Team 1 header at index 0, team 2 header at index 1.
     pub titles: [Option<TeamHeader>; 2],
     /// Local player's team (`1` or `2`).
     pub team: i32,

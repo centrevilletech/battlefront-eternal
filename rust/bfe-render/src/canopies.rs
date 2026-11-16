@@ -5,10 +5,10 @@
 // and fog: the World kind) and its state: both sides, alpha to coverage,
 // depth tested and written, no blending.
 //
-// The page selects the groups whose leaves draw (TreeCanopies.update, for
+// The client selects the groups whose leaves draw (TreeCanopies.update, for
 // each camera that renders the near scene) and writes their cards into
 // slots of three instanced attributes (centre, size, shade). The renderer
-// keeps its own copy of them, a buffer an attribute: each frame the page
+// keeps its own copy of them, a buffer an attribute: each frame the client
 // copies the instances whose slots changed since it last copied them into
 // `leaves` (each attribute's values at its instances' places) and names
 // their range in the input, which the pass uploads before it draws.
@@ -17,7 +17,7 @@ use glow::HasContext;
 
 // The input (f64): whether three would draw the mesh this frame, its
 // shadow feature, its texture (-1: none), how many instances draw, and the
-// instances the page copied this frame [first, end).
+// instances the client copied this frame [first, end).
 pub const C_SHOWN: usize = crate::static_layout::CANOPIES_SHOWN;
 pub const C_SHADOWS: usize = crate::static_layout::CANOPIES_SHADOWS;
 pub const C_TEXTURE: usize = crate::static_layout::CANOPIES_TEXTURE;
@@ -59,7 +59,7 @@ impl<C: HasContext> CanopiesPass<C> {
         CanopiesPass { input: vec![0.0; INPUT_LEN], leaves: vec![], mesh: None }
     }
 
-    // The canopies' mesh: a geometry the page registered (core.rs: its card's
+    // The canopies' mesh: a geometry the client registered (core.rs: its card's
     // corners and index), and its per-instance attributes, read at
     // `locations`, `sizes` floats an instance, for up to `max` instances.
     pub fn set_mesh<M: MultiDraw>(&mut self, core: &Core<C, M>, geometry: u32, locations: &[u32], sizes: &[u32], max: u32, programs: [u32;2]) {
@@ -89,7 +89,7 @@ impl<C: HasContext> CanopiesPass<C> {
     }
 
     // The near phase's part (renderer.rs frame, a mirror's too): the
-    // instances the page copied, uploaded, then the cards drawn.
+    // instances the client copied, uploaded, then the cards drawn.
     pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
         let Some(mesh) = &self.mesh else { return };
         let input = &self.input;

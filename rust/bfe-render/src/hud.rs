@@ -7,7 +7,7 @@
 // supplies the program; the interface material supplies values, not shader text.
 //
 // The batch's vertex arrays are mirrored here (`position`, `uv`, `mask_uv`,
-// `tint`, as batch.js lays them out); the page copies the vertices that
+// `tint`, as batch.js lays them out); the client copies the vertices that
 // changed since the last frame into them and says which (IN_UPLOAD), and
 // they go up as one range an array. Then the frame's runs (IN_FIRST_GROUP,
 // GROUP f64 each: first index, index count, texture, mask texture, masked).
@@ -18,7 +18,7 @@ use std::collections::HashMap;
 
 pub const QUADS: usize = 2048;
 pub const MAX_GROUPS: usize = 1024;
-// The page's values (f64): how many runs, the program, the camera's two
+// The client's values (f64): how many runs, the program, the camera's two
 // matrices as uniforms (post.rs UNIFORM each), the slots of map, mask and
 // masked, the vertices changed [start, end), the canvas's size, then the
 // runs.

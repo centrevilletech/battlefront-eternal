@@ -2,7 +2,7 @@
 //! registry's team questions, the units and their combat (whether one
 //! lives, what a Character controls, a kill), the hulls on the command
 //! vehicles' pads, the spawn manager's counts, the live objects' buildings,
-//! and the announcements the page shows. Each method is a call the
+//! and the announcements the client shows. Each method is a call the
 //! JavaScript makes; the replays serve them from captures
 //! (rust/sim/tests/replay_battle.rs).
 
@@ -170,7 +170,7 @@ pub trait BattleWorld {
     /// death path that follows credits the battle and tells the spawn
     /// manager (onDeath).
     fn kill_victim(&mut self, s: &mut Store, victim: Victim);
-    /// presentEffect(name, point): what the page shows.
+    /// presentEffect(name, point): what the client shows.
     fn effect(&mut self, name: &str, at: [f64; 3]);
     /// A post captured, neutralized or lost: the audio's, the AI's
     /// (ai.postEvent, which may send Characters to new objectives) and the
@@ -188,7 +188,7 @@ pub trait BattleWorld {
     /// His body out of the battle (the roster's retire): out of any seat
     /// (unplaced), no longer a player's, removed.
     fn retire_unit(&mut self, s: &mut Store, character: Ref<Character>, unit: Ref<Unit>);
-    // ---- What the page shows.
+    // ---- What the client shows.
 
     /// battle.onOver(loser): Victory or Defeat.
     fn battle_over(&mut self, loser: f64);

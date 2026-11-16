@@ -82,7 +82,7 @@ impl Positions for PartPositions<'_> {
 /// A model: its parts, shared wherever the JavaScript shares the array.
 pub type Model = Rc<Vec<Part>>;
 
-/// Models by name, in insertion order (a JavaScript Map).
+/// Models by name, in insertion order.
 #[derive(Clone, Debug, Default)]
 pub struct ModelMap {
     order: Vec<(String, Model)>,

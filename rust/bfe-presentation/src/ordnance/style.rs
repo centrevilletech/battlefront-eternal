@@ -49,7 +49,7 @@ pub fn sheath(rgba: &[f64]) -> [f64; 3] {
 }
 
 // blaster-bolts.js vivid keeps the strongest channel at one; use the same
-// power implementation as the browser to retain float32 draw receipts.
+// power implementation as the client to retain float32 draw receipts.
 pub fn vivid(rgb: &[f64], power: f64) -> [f64; 3] {
     std::array::from_fn(|i| pow(max(rgb.get(i).copied().unwrap_or(0.0), 0.0), power))
 }
@@ -63,10 +63,10 @@ fn color01(rgba: Option<&[f64]>) -> [f64; 3] {
     std::array::from_fn(|i| (rgba.get(i).copied().unwrap_or(255.0) / 255.0) * alpha)
 }
 
-// PageOrdnance.look, color01 and glowLength, formerly applied on the page.
+// PageOrdnance.look, color01 and glowLength, formerly applied on the client.
 // A heavy gun has no authored glow and keeps the old minimum capsule size.
 pub fn style(def: Content) -> Numbers {
-    // Authored zero width was treated as absent by the page's truthy default.
+    // Authored zero width was treated as absent by the client's truthy default.
     // Keep that distinct from GlowLength's nullish fallback below.
     let width = super::or(def.laser_width.unwrap_or(0.0), 0.1);
     let heavy = super::or(def.glow_length.unwrap_or(0.0), 0.0) == 0.0;
@@ -119,7 +119,7 @@ pub fn texture_hue(data: &[u8]) -> Vec<f64> {
 
 
 // BlasterBatch's per-view pixel scale uses the actual drawing target height,
-// which can differ from the browser window under dynamic resolution.
+// which can differ from the client window under dynamic resolution.
 pub fn bolt_view(fov: f64, zoom: f64, height: f64) -> f64 {
     (2.0*v8math::tan((fov*(std::f64::consts::PI/180.0))/2.0))/max(height,1.0)/super::or(zoom,1.0)
 }

@@ -152,7 +152,7 @@ pub struct StatsPageRow {
 
 /// `DETAILS` or `AWARDS` page renderer (`StatsPage`).
 ///
-/// Manages the per-page elapsed clock `time` (driving the 0.4s `TITLE_FADE` on the page heading),
+/// Manages the per-page elapsed clock `time` (driving the 0.4s `TITLE_FADE` on the screen heading),
 /// the `TitleIntro` animations for the heading (`title_intro`), player name (`name_intro` on `DETAILS`),
 /// and up to `MAX_STAT_ROWS` (`16`) left-aligned/right-aligned row pairs (`label_intros`, `value_intros`),
 /// plus the current `content` rows fetched from [`ScoreboardPort`].
@@ -194,7 +194,7 @@ impl StatsPage {
         }
     }
 
-    /// Opens the page with `content` and restarts all flashy text intros (`open`).
+    /// Opens the screen with `content` and restarts all flashy text intros (`open`).
     ///
     /// Resets `self.time = 0.0` (restarting the 0.4s `TITLE_FADE` on `"PERSONAL STATS"` or
     /// `"PLAYER AWARDS"`), starts `title_intro` and `name_intro` immediately (`delay = 0.0`),
@@ -220,9 +220,9 @@ impl StatsPage {
         self.content = content;
     }
 
-    /// Steps the page timer and flashy text intros (`update`).
+    /// Steps the screen timer and flashy text intros (`update`).
     ///
-    /// Advances `self.time` (which drives the 0.4-second `TITLE_FADE` on the page heading),
+    /// Advances `self.time` (which drives the 0.4-second `TITLE_FADE` on the screen heading),
     /// `title_intro`, `name_intro`, and the active prefix (`0..content.len().min(MAX_STAT_ROWS)`)
     /// of `label_intros` and `value_intros`.
     pub fn update(&mut self, dt: f64) {
@@ -244,7 +244,7 @@ impl StatsPage {
         subject_name: Option<&str>,
     ) {
         // Compute the `DETAILS` (`DETAILS_ROWS`) or `AWARDS` (`AWARDS_ROWS`) layout for the current height.
-        // The page title fades in over `TITLE_FADE` (`0.4s`) while playing its `TitleIntro` at `layout.title`,
+        // The screen title fades in over `TITLE_FADE` (`0.4s`) while playing its `TitleIntro` at `layout.title`,
         // and `DETAILS` draws the inspected player's uppercase name 30 units below the title.
         let layout = stats_page_layout(surface.height(), self.rows_cfg);
         let title_str = if self.is_details {

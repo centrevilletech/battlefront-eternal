@@ -15,7 +15,7 @@ use three::{Matrix4, Quaternion, Vector3};
 // ItemPresentation retains its own fall, bob and water clocks. Wire records
 // admit or retire qualified items; a renderer recipe is only a resource
 // prerequisite. The host never integrates an independent falling body.
-// Mines and power-ups therefore share the page's numerical item owner.
+// Mines and power-ups therefore share the client's numerical item owner.
 pub struct Views {
     pub owner: Items,
     definitions: Vec<Option<usize>>,

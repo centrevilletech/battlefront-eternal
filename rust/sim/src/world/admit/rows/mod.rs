@@ -31,7 +31,7 @@ use bfe_content::files::Files;
 use bfe_content::install::Installed;
 use bfe_content::Value;
 
-/// One export call as the page makes it: everything the recording has.
+/// One export call as the client makes it: everything the recording has.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Call {
     /// The export's scalar arguments, in order (an export without any: empty).
@@ -124,7 +124,7 @@ pub struct Ids {
     /// 2 unbuilt), as LiveObjects' constructor made them.
     pub prop_kernels: Vec<(usize, u8, u32)>,
 
-    /// The pose accumulator the page's AnimatedProp made per animated prop
+    /// The pose accumulator the client's AnimatedProp made per animated prop
     /// instance (newPose), at the prop constructor's seam.
     pub animated_poses: Vec<(usize, u32)>,
     /// Unit class ids (also `recon:` paths) and clip set ids as the units

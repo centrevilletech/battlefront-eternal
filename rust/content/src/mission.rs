@@ -71,7 +71,7 @@ pub fn era_of_side(side: &str) -> Option<&'static str> {
     }
 }
 
-/// UTF-16 code unit order (JavaScript's `<` on strings).
+/// UTF-16 code unit order.
 pub fn utf16_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     a.encode_utf16().cmp(b.encode_utf16())
 }

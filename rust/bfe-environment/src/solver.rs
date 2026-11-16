@@ -57,7 +57,7 @@ const DOWN: Vector3 = Vector3::new(0.0, -1.0, 0.0);
 /// A piece's shape from its model: the centre of its box, the extreme
 /// vertices (from that centre), the box's half size, its reach, and the
 /// inverse inertia of a 1 kg box that size (pieceShape).
-// What the phase knows of a piece's model: all of it worked out by the page
+// What the phase knows of a piece's model: all of it worked out by the client
 // from the model's vertices, once, and registered.
 pub struct Shape {
     pub center: Vector3,
@@ -67,7 +67,7 @@ pub struct Shape {
     pub inverse_inertia: Vector3,
 }
 
-/// What a cast of the page's collision world answers: the point it hit and
+/// What a cast of the client's collision world answers: the point it hit and
 /// the surface's normal, or nothing.
 pub struct Hit {
     pub point: Vector3,
@@ -429,7 +429,7 @@ impl Solver {
                     }
                     if iteration == 0 && -into > piece.impact {
                         piece.impact = -into;
-                        // (Kept as the offset from the plane's point, as the page's code
+                        // (Kept as the offset from the plane's point, as the client's code
                         // left it in its scratch vector: the dust puffs and sparks of a
                         // landing are laid there.)
                         piece.impact_point = off;

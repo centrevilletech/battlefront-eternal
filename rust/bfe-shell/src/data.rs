@@ -363,7 +363,7 @@ impl TextureFiles {
 /// `src/shell/data.js`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ShellData {
-    /// `true` when `shell.json` was absent or `null` (`missing: !shell` in JS).
+    /// `true` when `shell.json` was absent or `null`.
     pub missing: bool,
     /// Resolver mapping `common.json` texture names to `/common/raster-hud/` or `/common/` paths.
     pub textures: TextureFiles,
@@ -966,7 +966,7 @@ pub fn read_shell_data(
     raster: Option<&Value>,
 ) -> ShellData {
     // Merge localization strings with `shell.strings` taking precedence over
-    // `common.strings` (`{ ...common.strings, ...shell.strings }` in JS).
+    // `common.strings`.
     let mut strings = BTreeMap::new();
     if let Some(c_strings) = common
         .and_then(|c| c.get("strings"))

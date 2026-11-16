@@ -1,5 +1,5 @@
 //! Page battle layout and look metrics. Spawn and scoreboard controllers own all
-//! state and actions; Slint renders the page-look battle screens while the game
+//! state and actions; Slint renders the battle screens in the front end's look while the game
 //! renderer places the 3D turntable, holomap, and logos using `SpawnLayout`.
 use bfe_render::interface::Color;
 
@@ -71,7 +71,7 @@ pub struct SpawnFacts {
     /// The player may switch teams: the other plate's state is a badge and the key hint shows.
     pub switchable: bool,
     pub classes: usize,
-    /// Weapon rows of each class's window (the browser's two-column grid).
+    /// Weapon rows of each class's window.
     pub rows: [u8; MAX_CLASSES],
     /// Device pixels per logical pixel (line boxes round in device pixels).
     pub scale: f64,
@@ -85,7 +85,7 @@ impl Default for SpawnFacts {
     }
 }
 
-/// The page/view.js stylesheet's metrics, in logical pixels, as the browser computes them: clamped font
+/// The screen/view.js stylesheet's metrics, in logical pixels them: clamped font
 /// sizes, vh/vw spacing and line boxes. Slint draws inside the boxes with the same formulas.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SpawnMetrics {
@@ -96,7 +96,7 @@ pub struct SpawnMetrics {
     pub bf2: bool,
     pub scale: f64,
 }
-/// "line-height: normal" of the page font (Saira) as the browser computes it: the font's ascent (1.135 em) and
+/// "line-height: normal" of the screen font (Saira) it: the font's ascent (1.135 em) and
 /// descent (.439 em), each rounded to a whole device pixel. Fits every line box measured in the browser build
 /// (15 px at 10 px and scale 1, 16 at scale 2; 22 at 13.68 px; 33 at 21 px, scale 2).
 pub fn line_at(f: f64, scale: f64) -> f64 {

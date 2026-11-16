@@ -17,7 +17,7 @@ pub fn geometry<M:Math>()->[Geometry;3]{
  let classic=shape(p,index);
 
  // stormGeometry's concentric squares preserve triangle order across rings.
- // Only the exponent uses the page builtin; placement is ordinary f64 math.
+ // Only the exponent uses the client builtin; placement is ordinary f64 math.
  let mut p=vec![0.;3];let mut index=vec![];
  for ring in 1..=128{let radius=if ring<=64{ring as f64*3.}else{192.*M::pow(4096./192.,(ring-64) as f64/64.)};
   for side in 0..4{for i in 0..64{let t=-1.+2.*i as f64/64.;let x=[t,1.,-t,-1.][side];let z=[-1.,t,1.,-t][side];p.extend([(x*radius) as f32,0.,(z*radius) as f32]);let next=(side*64+i+1)%256;let a=1+(ring-1)*256+side*64+i;let b=1+(ring-1)*256+next;

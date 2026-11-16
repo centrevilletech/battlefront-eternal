@@ -416,7 +416,7 @@ struct StandaloneWindowApp {
     /// Whether the OS window currently has input focus.
     focused: bool,
     /// Whether the compositor says the window cannot be seen (minimized or
-    /// covered): the page's `document.hidden`, which suspends a local battle.
+    /// covered): the client's `document.hidden`, which suspends a local battle.
     hidden: bool,
     /// Whether the cursor is currently locked and hidden for 3D combat mouselook.
     pointer_locked: bool,
@@ -469,8 +469,8 @@ struct StandaloneWindowApp {
 }
 
 impl StandaloneWindowApp {
-    /// A screen that comes up under a parked pointer lights the row there at once, as the browser does
-    /// (it sends a pointer move after the page changes); winit only reports real motion.
+    /// A screen that comes up under a parked pointer lights the row there at once
+    /// (it sends a pointer move after the client changes); winit only reports real motion.
     fn hover_where_the_pointer_is(&mut self) {
         let screen = match (&self.state, &self.shell) {
             (AppState::Shell, Some(shell)) => Some(shell.app.current_screen()),
@@ -1363,7 +1363,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                         }
                     }
                     AppState::Battle(battle) if battle.options_open => {
-                        // An option page is open over the paused battle: its keys belong to the page
+                        // An option page is open over the paused battle: its keys belong to the client
                         // (the key-capture prompt included), not to the pause menu or to combat.
                         if down && !is_synthetic {
                             if let (PhysicalKey::Code(code), Some(shell)) =
@@ -1400,7 +1400,7 @@ impl ApplicationHandler for StandaloneWindowApp {
             }
             WindowEvent::RedrawRequested => {
                 self.redraw(event_loop);
-                // After the frame: the page's hit regions are those of the screen just drawn.
+                // After the frame: the client's hit regions are those of the screen just drawn.
                 self.hover_where_the_pointer_is();
             }
             _ => {}
@@ -1534,7 +1534,7 @@ impl StandaloneWindowApp {
     }
 
     /// Opens the option page the pause menu's OPTIONS asked for, over the paused battle, and closes it
-    /// again once the page's stack is empty (BACK or Escape), returning to the pause menu's hub.
+    /// again once the client's stack is empty (BACK or Escape), returning to the pause menu's hub.
     fn sync_battle_options(&mut self) {
         if let AppState::Battle(battle) = &mut self.state {
             Self::sync_battle_options_of(battle, &mut self.shell, &mut self.slint_ui, &self.settings);
@@ -1568,7 +1568,7 @@ impl StandaloneWindowApp {
                 }
                 battle.options_open = false;
             } else if let Some(first) = shell.options_ctrl.context.viewpoint {
-                // The VIEWPOINT row takes effect at once, as `viewpoint.set` does in the browser.
+                // The VIEWPOINT row takes effect at once, as `viewpoint.set` does in the client.
                 battle.set_first_person(first);
             }
         }

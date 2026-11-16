@@ -50,7 +50,7 @@ struct Kind {
     scratch: Vec<u32>,
     keys: Vec<f64>,
     /// solid matrices and looks, fading ones, motion's matrices, previous
-    /// matrices and shown flags, in the order the page names them.
+    /// matrices and shown flags, in the order the client names them.
     arrays: [Vec<f32>; 7],
     solids: usize,
     fadings: usize,
@@ -254,7 +254,7 @@ impl Sky {
     // alone.
     pub fn new(config: &[f64]) -> Sky {
         use crate::layout::sky_config as k;
-        // One kind (class) per SkyClass record of the page's configuration.
+        // One kind (class) per SkyClass record of the client's configuration.
         let mut kinds = Vec::new();
         for i in 0..config[k::CLASSES] as usize {
             let c = &config[k::STRIDE + i * sc::STRIDE..k::STRIDE + (i + 1) * sc::STRIDE];
@@ -389,8 +389,8 @@ impl Sky {
         let eye = [frame[sf::EYE], frame[sf::EYE + 1], frame[sf::EYE + 2]];
         let far = frame[sf::FAR];
         let enhanced = self.enhanced && has_eye && far > 0.0;
-        // The haze needs the sky behind (the page's probe); without it, none.
-        // The haze needs the sky behind the ships, which the page's probe supplies;
+        // The haze needs the sky behind (the client's probe); without it, none.
+        // The haze needs the sky behind the ships, which the client's probe supplies;
         // without it there is none.
         let misty = enhanced && frame[sf::MISTY] != 0.0;
         for i in 0..self.kinds.len() {

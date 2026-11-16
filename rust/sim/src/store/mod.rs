@@ -361,7 +361,7 @@ impl<T> JsKey for Ref<T> {
 
 /// A typed array of a fixed length (`Float64Array(100)`, `Int32Array(100)`):
 /// its elements as the array holds them (an Int32Array's i32s; a store into
-/// one converts as JavaScript does, ToInt32, which the port does where the
+/// one converts, ToInt32, which the port does where the
 /// JavaScript stores).
 #[derive(Clone, Debug, PartialEq)]
 pub struct TypedArray<T, const N: usize>(pub [T; N]);

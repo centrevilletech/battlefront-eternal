@@ -433,7 +433,7 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
     // Only this native loop binds, clears, resolves and invokes the passes.
     pub fn battle_frame<T:FrameTargets>(&mut self,targets:&mut T)->Result<(),String> {
         use crate::frame_plan::layout::operation as O;
-        // Seal collection before executing: a draw never asks the browser to
+        // Seal collection before executing: a draw never asks the client to
         // republish scene inputs, update matrices or choose the next pass.
         self.frames.collecting=false;self.frames.plan.state[S::MOTION_COMPLETE]=0.;
         self.frames.plan.select();self.frames.plan.plan();

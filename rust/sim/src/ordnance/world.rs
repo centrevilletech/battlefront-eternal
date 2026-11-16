@@ -2,7 +2,7 @@
 //! Rust reaches it through, method for method the boundary object of
 //! src/ordnance-world.js (OrdnanceWorld and ItemsWorld), called at the same
 //! points in the same order. In a battle the module's imports implement it
-//! (JavaScript answers); in a replay the capture does (rust/sim-replay's
+//!; in a replay the capture does (rust/sim-replay's
 //! `Log`), checking every argument.
 
 use super::defs::Field;

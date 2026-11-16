@@ -57,7 +57,7 @@ pub(crate) fn hull_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle
             point.set(frame.elements[12], frame.elements[13], frame.elements[14]);
         } else { point.y += v.size[1] * 0.5; }
         // ninePose keeps the original pilot pitch divisor and gunner arc
-        // normalization. These weights also drive the page's visible pose.
+        // normalization. These weights also drive the client's visible pose.
         let view = &v.seat_views[index]; let sp = &p.pose.seats[index];
         let (pitch, turn) = if index == 0 { (-seat.pitch / 0.7, 0.0) } else {
             crate::vehicles::pose::nine_pose(view.pitch_limits, view.yaw_limits, view.wrap_yaw,

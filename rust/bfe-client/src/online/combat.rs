@@ -551,7 +551,7 @@ impl Combat {
     /// (`effects.play(name, flameAt, null, velocity, flameTurn)`, then
     /// `jetFlame.move(...)`), from the next frame's batch on. A frame
     /// without this call stops it. The effect's emitters stay where it
-    /// authors them; the browser also moves each to the pack's nearest
+    /// authors them; the client also moves each to the pack's nearest
     /// outlet (attachNozzles).
     pub fn flame(&mut self, unit: (u32, u32), group: usize, position: [f64; 3], velocity: [f64; 3], turn: [f64; 4]) {
         if let Some(flame) = self.flames.iter_mut().find(|flame| flame.unit == unit) {
@@ -762,7 +762,7 @@ impl Combat {
             // Session's changed-field lease was copied by the receiver before
             // another packet could reuse it. Borrow that journal synchronously;
             // no combat object or payload vector is constructed on this path.
-            // Wire schemas below retain the browser's shared decoder rules.
+            // Wire schemas below retain the client's shared decoder rules.
             let bytes = &field.bytes[..field.length];
             let schema = row[wire::SCHEMA] as u32;
             if let Some(count) = self.received.get_mut(schema as usize) {
@@ -1434,7 +1434,7 @@ impl Combat {
         self.particles.finish(bridge);
         // BlasterBatch.load: the owner's capsules, plane after plane, then
         // the batch's value, which `project` fills once the lens is known.
-        // Drawn after the particles, as the browser's mesh is (render
+        // Drawn after the particles, as the client's mesh is (render
         // order 11).
         let count = (self.ordnance.header[h::BLASTERS] as usize).min(limits::BLASTERS);
         self.blaster_count = count;

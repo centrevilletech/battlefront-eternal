@@ -144,7 +144,7 @@ pub trait VehicleWorld {
     fn tow_released(&mut self, hull: usize, reason: &str);
     /// A spawn's new life (Vehicle.spawn): the hull's registry entry starts
     /// a new generation and its seats get new weapons, which are the
-    /// registry's and the combat package's (JavaScript's until they move);
+    /// registry's and the combat package's;
     /// a world whose spawns are JavaScript's has nothing to do.
     fn new_life(&mut self, _hull: usize) {}
     /// A destroyed hull's pad starts its respawn clock (`slot.remaining =

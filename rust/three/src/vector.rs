@@ -543,8 +543,8 @@ impl Vector3 {
         self
     }
 
-    /// Reads through f32 storage (a Float32Array in JS): each value
-    /// widens as JavaScript reads it.
+    /// Reads through f32 storage: each value
+    /// widens it.
     pub fn from_array_f32(&mut self, array: &[f32], offset: usize) -> &mut Self {
         self.x = array[offset] as f64;
         self.y = array[offset + 1] as f64;

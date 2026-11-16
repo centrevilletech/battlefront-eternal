@@ -139,7 +139,7 @@ use bfe_shell::{launch::BattleRequest, screens::MultiplayerLaunch};
 use std::path::Path;
 use winit::{event::MouseButton, keyboard::KeyCode};
 
-/// Commands one rendered frame may make: as the page's input clock
+/// Commands one rendered frame may make: as the client's input clock
 /// (maxSteps), so a frame of 0.1 s still makes one
 /// for each of its six ticks.
 const MAX_FRAME_STEPS: usize = 8;
@@ -251,7 +251,7 @@ pub struct LiveSpawnPort {
 
 /// The spawn screen's Math.random (spawn-screen/index.js gives its model no
 /// other source): uniform in [0, 1) and different on every run, so a team
-/// switch lands on any of the new team's posts, as the page's does.
+/// switch lands on any of the new team's posts, as the client's does.
 pub(super) fn unit_random() -> f64 {
     use std::hash::{BuildHasher, Hasher};
     static DRAWS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -1607,7 +1607,7 @@ impl BattleController {
             return;
         }
         self.settings_revision = rev;
-        // Graphics settings the browser applies as they change.
+        // Graphics settings the client applies as they change.
         let target=settings.interface.get_string("dynamicResolution").parse().unwrap_or(0.);
         let limit=settings.interface.get_string("frameLimit").parse().unwrap_or(0.);
         if let Err(err)=self.scene.set_resolution(settings.interface.get_f64("renderScale"),target,limit){eprintln!("battle settings: resolution not applied: {err}");}
@@ -1638,7 +1638,7 @@ impl BattleController {
             ocean: settings.interface.get_string("oceanEffects"),
         };
         if let Err(err) = self.scene.set_water_settings(&water) { eprintln!("battle settings: water not applied: {err}"); }
-        // The effect looks the browser reads the same two settings for.
+        // The effect looks the client reads the same two settings for.
         if let Some(online) = &mut self.scene.online {
             let enhanced = |name: &str| settings.interface.get_string(name) != "classic";
             let volume = |name: &str| {
@@ -1899,7 +1899,7 @@ impl BattleController {
         // The render loop runs at display refresh rate while simulation and network
         // input ticks run at a fixed 60 Hz (`STEP = 1.0 / 60.0` seconds).
         // We accumulate `dt` (clamped to `0.25s` max catch-up), consume up to 8
-        // discrete 60 Hz steps per rendered frame (the page's input clock
+        // discrete 60 Hz steps per rendered frame (the client's input clock
         // takes as many: a slow frame sends a command for every tick it spans), and use the residual fraction
         // `alpha_interp = (input_accumulator / STEP)` to smoothly interpolate the
         // 3D camera between the previous and current 60 Hz simulation states.
@@ -1974,7 +1974,7 @@ impl BattleController {
                     *now_ms += dt * 1000.0;
                 }
                 world.set_paused(self.pause_menu.is_open);
-                // As the page's world worker: a battle without the window's
+                // As the client's local world thread: a battle without the window's
                 // focus plays on (a released mouse opens the pause menu, which
                 // freezes it); only a hidden window suspends it.
                 world.set_suspended(hidden);
@@ -2616,7 +2616,7 @@ impl BattleController {
         dst.end = v1;
     }
 
-    // Format into retained storage; the page overlay supplies CSS-pixel sizing.
+    // Format into retained storage; the client overlay supplies CSS-pixel sizing.
     fn update_stats_line(&mut self) {
         use std::fmt::Write;
         let mean = self.frame_seconds / self.frames.max(1) as f64;

@@ -1,4 +1,4 @@
-//! The page's retained sound phase shares its existing collision world.
+//! The client's retained sound phase shares its existing collision world.
 //! Commands target the independent audio render module, never simulation I/O.
 use ::audio_control::{Collision, Hit, Point};
 use ::audio_control::runtime::Runtime;

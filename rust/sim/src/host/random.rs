@@ -25,7 +25,7 @@ pub struct Bindings {
 impl Bindings {
     /// Configure is cold. Existing live generators retain both their state
     /// and their first-use sequence; preparing an absent one does not insert
-    /// its name into the page's observed registry or advance its generator.
+    /// its name into the client's observed registry or advance its generator.
     pub fn initialize(&self, words: &mut [f64], seed: u32) {
         for (name, id) in NAMES.iter().zip(self.ids) {
             let Some(id) = id else { continue };

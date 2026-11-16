@@ -1,8 +1,8 @@
-//! The destruction and weather presentation phase. The page writes scalar
+//! The destruction and weather presentation phase. The client writes scalar
 //! commands (a birth, an arc), the world matrices of the objects arcs hang
 //! from and the frame's time into fixed blocks; one call per frame advances
 //! the pooled state and leaves instance records the renderer draws, in
-//! memory the page reads through typed-array views. Block layouts come from
+//! memory the client reads through typed-array views. Block layouts come from
 //! layout.json.
 
 pub mod atmosphere;
@@ -34,8 +34,8 @@ pub mod storm;
 pub use destruction::Destruction;
 pub use fx::Fx;
 
-/// The atmosphere phase and the blocks it shares with the page.
-// The atmosphere phase and the blocks it shares with the page: the page writes
+/// The atmosphere phase and the blocks it shares with the client.
+// The atmosphere phase and the blocks it shares with the client: the client writes
 // the configuration (once) and the camera (each frame) and reads each batch's
 // records and the camera axes.
 pub struct AtmospherePhase {
@@ -49,7 +49,7 @@ pub struct AtmospherePhase {
 
 impl AtmospherePhase {
     /// Blocks for a fog (or not) and `classes` dust classes with `instances`
-    /// objects in all; the page fills config and instances, then `start`s.
+    /// objects in all; the client fills config and instances, then `start`s.
     pub fn new(classes: usize, instances: usize, fog: bool) -> AtmospherePhase {
         let batches = classes + usize::from(fog);
         AtmospherePhase {
@@ -74,7 +74,7 @@ impl AtmospherePhase {
     }
 }
 
-/// The snow phase and the blocks it shares with the page.
+/// The snow phase and the blocks it shares with the client.
 // The snow phase and its blocks.
 pub struct SnowPhase {
     pub config: Vec<f64>,
@@ -113,7 +113,7 @@ impl Default for SnowPhase {
     }
 }
 
-/// The sky's flyers phase and the blocks it shares with the page.
+/// The sky's flyers phase and the blocks it shares with the client.
 // The sky's flyers phase and its blocks.
 pub struct SkyPhase {
     time: f64,
@@ -145,7 +145,7 @@ impl SkyPhase {
     }
 }
 
-/// The rain phase and the blocks it shares with the page.
+/// The rain phase and the blocks it shares with the client.
 // The rain phase and its blocks: the drops' seeds and the sheets' texture are
 // made here once.
 pub struct WeatherPhase {
@@ -180,7 +180,7 @@ impl WeatherPhase {
     }
 }
 
-/// The placed effects' visibility phase and the blocks it shares with the page.
+/// The placed effects' visibility phase and the blocks it shares with the client.
 // The placed effects' visibility phase and its blocks.
 pub struct EnvironmentPhase {
     pub wakes: wakes::Wakes,
@@ -229,7 +229,7 @@ impl EnvironmentPhase {
             let (x,y,z) = (v[0]-p[0],v[1]-p[1],v[2]-p[2]); x*x+y*y+z*z < 144.0
         }));
         self.mode = Some(enhanced);
-        // EnvironmentEffects.update's play/kill decisions are records. The page
+        // EnvironmentEffects.update's play/kill decisions are records. The client
         // applies them to required particle resources in authored source order.
         for i in 0..self.count {
             let classic = self.config[i*layout::environment_instance::STRIDE + layout::environment_instance::CLASSIC] != 0.0;
@@ -262,7 +262,7 @@ mod exports {
     use std::ptr::addr_of_mut;
 
     // One static a piece of state: a WebAssembly instance is single-threaded and
-    // the page never re-enters a call.
+    // the client never re-enters a call.
     static mut SURFACES: Option<surfaces::Phase> = None;
     static mut PUBLICATION: Option<publication::Publication> = None;
     fn publication()->&'static mut publication::Publication{unsafe{(*addr_of_mut!(PUBLICATION)).get_or_insert_with(publication::Publication::new)}}
@@ -381,7 +381,7 @@ mod exports {
     static mut STATE: Option<Destruction> = None;
 
     fn state() -> &'static mut Destruction {
-        // SAFETY: WebAssembly instances are single-threaded and the page
+        // SAFETY: WebAssembly instances are single-threaded and the client
         // never re-enters a call.
         unsafe { (*addr_of_mut!(STATE)).as_mut().expect("env_new first") }
     }
@@ -418,7 +418,7 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn env_arc_indices_len() -> u32 { state().fx.arcs.indices.len() as u32 }
 
-    // The destruction phase's blocks, by name: the page writes the first
+    // The destruction phase's blocks, by name: the client writes the first
     // group and reads the result.
     #[no_mangle]
     pub extern "C" fn dst_frame_ptr() -> *mut f64 { state().frame.as_mut_ptr() }
@@ -461,7 +461,7 @@ mod exports {
     /// Runs the commands written so far, without a frame (see Destruction::apply).
     #[no_mangle]
     pub extern "C" fn dst_apply() {
-        // SAFETY: the host imports are pure queries of the page's collision world.
+        // SAFETY: the host imports are pure queries of the client's collision world.
         state().apply(&mut |origin, direction, far| unsafe {
             if host_cast(origin.x, origin.y, origin.z, direction.x, direction.y, direction.z, far) == 0.0 {
                 None
@@ -475,9 +475,9 @@ mod exports {
     }
     #[no_mangle]
     // The frame. The collision world is asked through two host imports (a cast and
-    // its result), pure queries of the page.
+    // its result), pure queries of the client.
     pub extern "C" fn dst_update() {
-        // SAFETY: the host imports are pure queries of the page's collision world.
+        // SAFETY: the host imports are pure queries of the client's collision world.
         state().update(&mut |origin, direction, far| unsafe {
             if host_cast(origin.x, origin.y, origin.z, direction.x, direction.y, direction.z, far) == 0.0 {
                 None
@@ -492,9 +492,9 @@ mod exports {
 
     #[link(wasm_import_module = "env")]
     extern "C" {
-        /// The page's terrain height under x, z (NaN for none).
+        /// The client's terrain height under x, z (NaN for none).
         fn host_ground(x: f64, z: f64) -> f64;
-        /// The page's rain cover for a cell: the height of what a cast
+        /// The client's rain cover for a cell: the height of what a cast
         /// straight down from (x, y, z) first hits, or of open water over it.
         fn host_cover(x: f64, y: f64, z: f64) -> f64;
         /// A splash's cast from (x, y, z): the height it ends at (-infinity
@@ -502,7 +502,7 @@ mod exports {
         /// and whether it is water (3).
         fn host_impact(x: f64, y: f64, z: f64) -> f64;
         fn host_impact_normal(i: u32) -> f64;
-        /// A cast of the page's collision world from (ox, oy, oz) along (dx,
+        /// A cast of the client's collision world from (ox, oy, oz) along (dx,
         /// dy, dz) for `far` metres: 1 for a hit, 0 for none;
         /// `host_cast_out` then gives the point (0..2) and the normal (3..5).
         fn host_cast(ox: f64, oy: f64, oz: f64, dx: f64, dy: f64, dz: f64, far: f64) -> f64;
@@ -544,7 +544,7 @@ mod exports {
         if kind == 0 { batch.center.as_ptr() } else { batch.spin.as_ptr() }
     }
     fn atm_update() {
-        // SAFETY: the host import is a pure query of the page's terrain.
+        // SAFETY: the host import is a pure query of the client's terrain.
         atmosphere().update(&mut |x, z| unsafe { host_ground(x, z) });
         for row in atmosphere().result[layout::atmosphere_stats::STRIDE..].chunks_exact_mut(layout::square_batch::STRIDE){row[layout::square_batch::VISIBLE]=f64::from(row[layout::square_batch::COUNT]>0.);}
     }
@@ -584,7 +584,7 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn snow_cover_cell() -> f64 { snow().snow.as_ref().expect("snow_start first").cover.cell }
     fn snow_update() {
-        // SAFETY: the host import is a pure query of the page's collision world.
+        // SAFETY: the host import is a pure query of the client's collision world.
         snow().update(&mut |x, y, z| unsafe { let roof=host_cover(x,y,z);if host_water_over(x,z)!=0{v8math::max(roof,host_water_level())}else{roof} })
     }
 
@@ -621,7 +621,7 @@ mod exports {
     pub extern "C" fn sky_count()->u32 {sky_phase().sky.as_ref().map_or(0,|s|s.count() as u32)}
     #[no_mangle]
     pub extern "C" fn sky_active(index:u32)->u32 {sky_phase().sky.as_ref().map_or(0,|s|u32::from(s.active(index as usize)))}
-    /// A class's records, by the order the page names them: solid matrices and
+    /// A class's records, by the order the client names them: solid matrices and
     /// looks, fading ones, motion's matrices, previous matrices and shown flags.
     #[no_mangle]
     pub extern "C" fn sky_array_ptr(class: u32, which: u32) -> *const f32 { sky_phase().sky.as_ref().expect("sky_start first").array(class as usize, which as usize).as_ptr() }
@@ -666,7 +666,7 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn weather_cover_cell() -> f64 { rain().weather.cover.cell }
     fn weather_update() {
-        // SAFETY: the host imports are pure queries of the page's collision world.
+        // SAFETY: the host imports are pure queries of the client's collision world.
         rain().update(
             &mut |x, y, z| unsafe { let roof=host_cover(x,y,z);if host_water_over(x,z)!=0{v8math::max(roof,host_water_level())}else{roof} },
             &mut |x, y, z| unsafe {

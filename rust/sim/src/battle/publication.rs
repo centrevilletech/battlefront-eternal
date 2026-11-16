@@ -139,7 +139,7 @@ impl Publication {
         self.index[h.kind as usize][h.slot as usize] = None; self.order.retain(|old| *old != r); true
     }
     /// What a flush would have published, dropped unencoded: nothing native
-    /// reads these rows (the JavaScript host did).
+    /// reads these rows.
     pub fn discard(&mut self) {
         self.pending = false;
         for e in &self.retired { self.budget -= e.budget; }

@@ -206,7 +206,7 @@ pub fn browser_info(
 /// porting `cleanBrowserInfo(raw)`.
 ///
 /// Enforces character-length caps (`clip_text`) and `https://`-only URL validation (`https_url`) so
-/// malicious server listings cannot inject `javascript:` or `http://` tracking URLs into the browser UI.
+/// malicious server listings cannot inject `javascript:` or `http://` tracking URLs into the client UI.
 pub fn clean_browser_info(
     description: Option<&str>,
     sponsor: Option<&Value>,

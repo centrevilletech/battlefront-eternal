@@ -1,5 +1,5 @@
 //! A battle's content, fetched and parsed in the order and by the rules of
-//! src/game.js's headless start (the world worker's and the dedicated
+//! src/game.js's headless start (the local world thread's and the dedicated
 //! server's load): map.json and the shared files, the battle and side the
 //! query picks, that side's classes and weapons and the other sides', the
 //! bodies every soldier class needs, the collision, props, vehicle pack and

@@ -1,4 +1,4 @@
-//! The page's hull frame: a ground hull, a walker asking for its leg rays,
+//! The client's hull frame: a ground hull, a walker asking for its leg rays,
 //! a dying walker, records at and past their limits, forged offsets, and no
 //! allocation once its rigs are registered; a craft's gear clock following
 //! its replicated flight state.

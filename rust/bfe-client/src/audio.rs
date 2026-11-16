@@ -103,7 +103,7 @@ impl MasterOutput {
         Ok(Self { master: Master::new(rate as f64, 2, -1.0, 0.1, 0.005, cfg!(target_arch = "x86_64")),
             pcm, source: 0, feeds: [0.0; FRAMES * 2], output: [0.0; FRAMES * 2], next: FRAMES * 2, block: 0 })
     }
-    // Output remains planar inside Master, matching the browser DSP stores.
+    // Output remains planar inside Master, matching the client DSP stores.
     // Only this final copy interleaves it into the device buffer. An odd-sized
     // callback preserves both its channel position and remaining quantum.
     pub fn fill<T: SizedSample + FromSample<f32>>(&mut self, data: &mut [T], status: &Status) {

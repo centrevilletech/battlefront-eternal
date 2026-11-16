@@ -292,7 +292,7 @@ pub fn num(value: &Js) -> Option<f64> {
 }
 
 /// weapons-ai.js:113 `maskFromFlags(def)`: TargetAll first, then each
-/// flag its bit (bitwise in 32 bits, as JavaScript's `|`, `&` and `>>> 0`).
+/// flag its bit.
 fn mask_from_flags(def: &JsObj) -> (u32, u32) {
     let mut relation = DEFAULT_RELATION_MASK;
     let mut category = DEFAULT_CATEGORY_MASK;
@@ -680,7 +680,7 @@ pub struct ClusterState {
 }
 
 /// weapons-ai.js:487 `clusters`: keyed by the target's controller, else
-/// the target (a module WeakMap in the JavaScript; the battle's here).
+/// the target.
 #[derive(Clone, Debug, Default)]
 pub struct Clusters {
     pub states: HashMap<Obj, ClusterState>,

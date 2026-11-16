@@ -1,4 +1,4 @@
-// PNG inputs for TextureLibrary.load and texturePixels in the browser host.
+// PNG inputs for TextureLibrary.load and texturePixels in the client host.
 // Decode straight RGBA bytes, without applying the PNG gamma/profile chunks.
 // The battle lights and blends authored byte values in gamma space; applying
 // an image viewer's colour conversion here would change both lighting and HUD.

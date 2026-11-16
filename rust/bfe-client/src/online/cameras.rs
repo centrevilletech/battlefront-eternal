@@ -275,7 +275,7 @@ impl Cameras {
             // startDeathCamera measures the world's camera (simulationCamera),
             // not the drawn one. Only the drawn camera takes the class lens, so
             // the world's is still at its 60 degree default when he dies and
-            // the shot settles wider than the chase view. Kept as the page has it.
+            // the shot settles wider than the chase view. Kept it.
             let across = 2. * ((60_f64.to_radians() * 0.5).tan() * camera.aspect().max(1e-6)).atan();
             let first = self.first_fovs.get(def_idx).copied().unwrap_or(70_f64.to_radians());
             let base = if receiver.own.zoom > 1. { first } else { across };

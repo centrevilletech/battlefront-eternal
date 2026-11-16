@@ -1,6 +1,6 @@
 //! The owner construction sequence: game.js createGame headless, then
 //! createLocalServer, as the ordered stages below. Each stage drives the
-//! existing `_in` bodies with the rows made for it, exactly as the page's
+//! existing `_in` bodies with the rows made for it, exactly as the client's
 //! `bridge.callArgs(...)` then export call does; nothing of an owner is
 //! decided here, only the order and the handles kept for the host.
 use super::rows::{self, Call, Cx};
@@ -54,7 +54,7 @@ pub enum Stage {
 pub const ORDER: [Stage; 15] = [Stage::Content, Stage::Startup, Stage::Kernels, Stage::Cameras, Stage::Teams, Stage::Store,
     Stage::Combat, Stage::Fleet, Stage::Units, Stage::Policies, Stage::Ai, Stage::World, Stage::LiveTail, Stage::Session, Stage::Player];
 
-/// One call against the world as the page makes it: the strings interned
+/// One call against the world as the client makes it: the strings interned
 /// (the builder interned them through the context's copy of the table in
 /// the same order, so the world gives the same ids), the scratch bytes
 /// written, then the argument row and heap in the exchange the `_in` body
@@ -115,7 +115,7 @@ pub fn run_into(world: &mut World, content: &Content, files: &dyn Files, options
     Ok(admitted)
 }
 
-/// F3Random's hand-over before the first tick, which the page made by
+/// F3Random's hand-over before the first tick, which the client made by
 /// writing the phase's memory rather than through a call:
 /// `configure(gameplay, grenade-spin, gameplay, seat-weapons)` binds the
 /// gameplay, spin, drop and seat globals to those streams' ids (a repeated
@@ -168,7 +168,7 @@ pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut 
     for &stage in stages {
         match stage {
             Stage::Content => {}
-            // validateStartupClass runs on the page before loading, never in a
+            // validateStartupClass runs on the client before loading, never in a
             // headless world (game.js: `!headless && !params.has("network")`);
             // the row stays for the comparison tests.
             Stage::Startup => {}

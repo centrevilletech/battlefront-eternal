@@ -8,7 +8,7 @@ pub fn atlas(bytes: &[u8]) -> Result<(Vec<u8>, Font), String> {
     // Coverage only: the texture reads it as white with this alpha.
     let mut pixels = vec![0; 1024 * 1024];
     let mut glyphs = HashMap::new();
-    // The Latin subset shipped by electron/ui/fonts covers the page's labels
+    // The Latin subset shipped by electron/ui/fonts covers the screen's labels
     // and Western player names. Keep layout in baseline coordinates.
     let (mut x, mut y) = (4, 4);
     for code in (32..=255u16).chain([

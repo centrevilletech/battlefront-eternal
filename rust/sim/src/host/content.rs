@@ -1,11 +1,11 @@
 //! What the host's records name from the battle's content that the
 //! recorded admission cannot give it: the ordnance definitions' classes (a
 //! grenade record's `def`) and the combat registry ids of the explosions.
-//! The page's capture named an explosion by
+//! The client's capture named an explosion by
 //! `registry.combat.definitionId(def)`, the id of the definition object
 //!, and the store source's tables
 //! carry the ordnance and item definitions' ids but no explosion's. An
-//! explosion the page registered while it wrote an ordnance or item
+//! explosion the client registered while it wrote an ordnance or item
 //! definition's fields (`writeFields`) is the
 //! object that definition holds under the field naming it, so its id is
 //! that object's in the registry the content crate builds from the same

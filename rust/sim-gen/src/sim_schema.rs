@@ -778,7 +778,7 @@ pub fn build_model(files: &[LoadedSchema], target: Target) -> Result<Model, Stri
             }
         }
 
-        // Pass 1a: collect `commands` (JS -> Rust calls) in schema property order.
+        // Pass 1a: collect `commands` in schema property order.
         // Each command is either a payload record reference (`{ record, returns }`),
         // an inline field map (which synthesizes a `<Pascal>Command` record), or
         // an empty `{}` no-arg command.
@@ -805,7 +805,7 @@ pub fn build_model(files: &[LoadedSchema], target: Target) -> Result<Model, Stri
             );
         }
 
-        // Pass 1b: collect `events` (Rust -> JS notifications) in property order.
+        // Pass 1b: collect `events` in property order.
         for (name, spec) in schema.get("events").and_then(|v| v.as_object()).unwrap_or(&empty) {
             let where_loc = format!("{file} event {name}");
             let record = spec.as_str().ok_or_else(|| format!("{where_loc}: an event is the name of the record it carries"))?;
@@ -815,7 +815,7 @@ pub fn build_model(files: &[LoadedSchema], target: Target) -> Result<Model, Stri
             );
         }
 
-        // Pass 1c: collect `imports` (Rust -> JS synchronous queries) in property order.
+        // Pass 1c: collect `imports` in property order.
         for (name, spec) in schema.get("imports").and_then(|v| v.as_object()).unwrap_or(&empty) {
             let where_loc = format!("{file} import {name}");
             let args = spec.get("args").and_then(|v| v.as_str()).ok_or_else(|| format!("{where_loc}: missing args"))?;
@@ -1394,7 +1394,7 @@ pub fn rust_type(model: &Model, t: &TypeSpec, inner: bool) -> String {
     //   - math types use `Vec3` (`[f64; 3]`), `Quat` (`[f64; 4]`), `Mat4` (`[f64; 16]`)
     //   - `str` -> `StrId` (interned string handle in the store string table)
     //   - `enum`/`rec`/`union` -> generated PascalCase Rust type
-    //   - `ref:<kind>` -> `Id<Kind>` (stored entity) or `Ref<Kind>` (external JS ref)
+    //   - `ref:<kind>` -> `Id<Kind>` (stored entity) or `Ref<Kind>`
     //   - `list:<T>` / `<Typed>Array(N)` -> `Vec<T>`
     //   - `set:<K>` -> `Vec<Id<K>>` or `Vec<Ref<K>>`
     //   - `map:<K, V>` / `obj:<V>` -> `Vec<(K, V)>`
@@ -2038,8 +2038,8 @@ pub fn rust_union(model: &Model, u: &UnionDef) -> Vec<String> {
 // `k`. Mirrors `rustKind(model, k)`.
 // Kind Rust codegen details (`rustKind(model, k)`):
 //   - Every stored kind gets three row layouts computed by `layout()`:
-//     1. `export` (`EXPORT_WORDS`): fields with `mirror: true` (Rust -> JS).
-//     2. `import` (`IMPORT_WORDS`): fields with `import: true` (JS -> Rust).
+//     1. `export` (`EXPORT_WORDS`): fields with `mirror: true`.
+//     2. `import` (`IMPORT_WORDS`): fields with `import: true`.
 //     3. `full` (`FULL_WORDS`): all fields (`mirror || import`) for full snapshots.
 //   - When `import` or `full` has the exact same field sequence as an earlier tier
 //     (`same_layout`), the generated methods delegate directly instead of duplicating

@@ -96,7 +96,7 @@ pub fn units_droideka_attach_in(world_ctx: &mut crate::world::owner::World, unit
 /// A prepared hidden gun hierarchy, before native posing takes ownership.
 
 // Droideka.arm has prepared a hidden muzzle hierarchy before this call.
-// The hierarchy is independent of the page's interpolated drawn bones.
+// The hierarchy is independent of the client's interpolated drawn bones.
 // Gameplay later samples this native rig after movement and before flush.
 // No per-barrel JavaScript query runs inside the combat update.
 pub fn units_muzzle_attach_in(world_ctx: &mut crate::world::owner::World, unit: u32, class: u32) {

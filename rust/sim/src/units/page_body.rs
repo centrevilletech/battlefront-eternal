@@ -64,7 +64,7 @@ pub(crate) mod module {
     use crate::{gen::{BodySpawn,BodySpawnOutput}};
     // Another preview does not resize either reserved allocation.
     fn owner(w: &mut crate::world::owner::World) -> &mut Preview {
-        // One thread owns the page preview; no borrow crosses a host import.
+        // One thread owns the screen preview; no borrow crosses a host import.
         w.page_body.preview.get_or_insert_with(|| Preview {
             frame: [0.0; BodyPreviewFrame::WORDS], looks: vec![0.0; LOOKS * BodyLook::WORDS] })
     }
@@ -141,7 +141,7 @@ pub(crate) mod module {
             spawn_cast(w,world,p,d,far)
         });
         // Native Unit.spawn enters deployed mode and resets interpolation.
-        // The page sends the two animator reset commands after publication.
+        // The screen sends the two animator reset commands after publication.
         let out=DroidekaSpawnOutput{position:body.position,previous:body.position,settled:body.position,
             velocity:body.velocity,aim_yaw:body.aim_yaw,aim_pitch:body.aim_pitch,legs:body.legs,spin:body.spin,
             dead:body.dead,mode:0.0,time:0.0,reverse:false,
@@ -149,7 +149,7 @@ pub(crate) mod module {
         let s=&mut w.sim;s.calls.result(DroidekaSpawnOutput::WORDS,|row,heap|out.put(row,heap));Some(&s.calls.block.words[..])
     }
     // Soldier.spawn uses the same reset as Unit.spawn. The collision store
-    // is borrowed directly, so the grounding query cannot call the page.
+    // is borrowed directly, so the grounding query cannot call the screen.
     pub(crate) fn body_spawn_in(w: &mut crate::world::owner::World, world: u32) -> Option<&[f64]> {
         let (row, heap) = w.sim.calls.args(); let input = BodySpawn::take(row, heap);
         let mut body = Soldier::default(); body.jet.recharge = input.recharge;

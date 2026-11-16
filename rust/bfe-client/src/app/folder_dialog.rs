@@ -21,7 +21,7 @@ enum Kind {
     ExportFile,
 }
 
-/// The archive name the browser build proposes for an export.
+/// The archive name the client build proposes for an export.
 pub const EXPORT_NAME: &str = "Battlefront-Eternal-content.bfepack";
 
 enum Request {

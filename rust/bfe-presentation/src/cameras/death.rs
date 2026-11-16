@@ -2,8 +2,8 @@
 //! exact critically damped springs on the display clock, never the world tick.
 // The death camera as this page draws it. The world keeps the original's
 // (DeathCamera) as the camera its Classic AI schedules from;
-// this one is presentation only. It runs on the page in every host (a local
-// battle, a world worker's, a server's) from what the page draws: the body
+// this one is presentation only. It runs on the client in every host (a local
+// battle, a local world thread's, a server's) from what the client draws: the body
 // where it lies, and the killer the world named (DeathCamera.blame) where he
 // is drawn. While he is dead it is the drawn camera's only writer, on the
 // frame's own clock.
@@ -698,7 +698,7 @@ impl Death {
     // A style change blends from the old style while both booms retain state.
     // Freeze uses zero visual dt without substituting the world tick clock.
     // Trace outputs are geometric facts for the retained DeathTrace mesh.
-    // Its previous-camera draw ordering is preserved by the page publisher.
+    // Its previous-camera draw ordering is preserved by the client publisher.
     // A stopped or Classic trace is hidden without advancing another owner.
     pub fn frame<M: Math, C: Cast>(
         &mut self,

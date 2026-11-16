@@ -279,7 +279,7 @@ impl Replicas {
     // weapon in the hand: the secondary for the whole of a throw, otherwise
     // the primary; the local player's throw is read from his own predicted
     // arsenal, everyone else's from their replicated state. A state whose
-    // body is not drawn yet is dropped, where the browser keeps it for 120
+    // body is not drawn yet is dropped, where the client keeps it for 120
     // ticks.
     // NetworkEntityGame.apply keeps each unit's newest state record
     // (`pendingState`) and asks applyUnitState again with every packet until
@@ -515,7 +515,7 @@ impl Replicas {
             // game.js presentEvent "deathBlast": one of the three blasts at
             // a bone of the body, both picked at random. The bone is where
             // the last frame posed it, and the effect starts with the next
-            // frame's batch, one frame after the browser's.
+            // frame's batch, one frame after the client's.
             Act::DeathBlast => {
                 self.units.refresh_actor(actor);
                 // Destruction.deathBlast: Enhanced draws a blast of its own.
