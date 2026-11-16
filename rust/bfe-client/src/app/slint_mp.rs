@@ -12,7 +12,7 @@ use super::{
 use crate::audio::SharedAudioRouter;
 use bfe_online::{default_consent_path, write_online_consent, ONLINE_NOTICE_VERSION};
 use bfe_online::browser::{
-    compatible, country_of, era_label, mode_label, ping_quality, BrowserState, FilterUpdate,
+    compatible, country_of, era_label, row_tag, mode_label, ping_quality, BrowserState, FilterUpdate,
     MapCatalogEntry, PingFilter, ServerBrowserService, ServerContract, SortColumn, Source,
 };
 use bfe_shell::screens::{HostControl, MultiplayerKind, PopupState, ScreenId};
@@ -612,6 +612,7 @@ impl SlintHost {
                 .into(),
                 country: country_of(s).into(),
                 compatible: is_compat,
+                tag: row_tag(s, &contract).into(),
             });
         }
 

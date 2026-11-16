@@ -24,6 +24,29 @@ pub fn sim_number(sim: &str) -> Option<u32> {
     sim.rsplit('-').next()?.parse().ok()
 }
 
+/// Whether the listing names an address this client can try directly: a LAN
+/// or DIRECT CONNECT address, or a UDP endpoint from the master. A server whose
+/// relay policy is "auto" or "always" is listed without one.
+pub fn has_direct_address(server: &ServerEntry) -> bool {
+    server.address.as_deref().is_some_and(|a| !a.trim().is_empty())
+        || server.endpoints.iter().any(|e| {
+            !e.address.trim().is_empty()
+                && e.port != 0
+                && e.transport.as_deref().is_none_or(|t| t == "udp")
+        })
+}
+
+/// The badge after a row's name: why JOIN will not work, or empty.
+pub fn row_tag(server: &ServerEntry, contract: &ServerContract) -> &'static str {
+    if !compatible(server, contract) {
+        "OTHER VERSION"
+    } else if !has_direct_address(server) {
+        "NO DIRECT ADDRESS"
+    } else {
+        ""
+    }
+}
+
 pub fn compatible(server: &ServerEntry, contract: &ServerContract) -> bool {
     let sim = server
         .simulation
@@ -501,7 +524,10 @@ pub fn describe_server(
     // Maps `relayPolicy` and `address` to the `LINK` fact in `GAME INFO`:
     // `"always"` -> `"RELAYED"`, `"never"` -> `"DIRECT"`, LAN/direct entries
     // with an explicit IP -> `"LAN"`, and `"auto"`/default -> `"DIRECT OR RELAY"`.
+    // A listing without a direct address needs the relay or hole punching,
+    // which this client does not do yet: say so before JOIN is pressed.
     let link_text = match server.relay_policy.as_deref() {
+        _ if !has_direct_address(server) => "RELAY ONLY (NOT YET)",
         Some("always") => "RELAYED",
         Some("never") => "DIRECT",
         _ if server.address.is_some() => "LAN",
