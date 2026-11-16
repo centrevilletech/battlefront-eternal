@@ -21,13 +21,16 @@ fn spread(value:f64)->u64 {
     v=(v|(v<<2))&0x33333333;v=(v|(v<<1))&0x55555555;
     v as u64
 }
-fn bins(g:&Geometry,numeric:bool)->(Vec<u32>,Vec<Cell>) {
-    let width=g.stride as usize/4;
-    let p=|v:u32,k:usize|g.vertices[v as usize*width+k] as f64;
-    let mut parts:Vec<Part>=vec![];let mut lookup=HashMap::new();let mut cell_of=Vec::with_capacity(g.index.len()/3);
+fn bins(g:&Geometry,numeric:bool)->(Vec<u32>,Vec<Cell>) {bins_of(&g.vertices,g.stride as usize/4,&g.index,numeric)}
+// Any triangle list whose vertex rows (`width` floats) start with the position: its index ordered by cell and its
+// cells, as cell_order does for a static geometry.
+pub fn cells_of(vertices:&[f32],width:usize,index:&[u32])->(Vec<u32>,Vec<Cell>) {bins_of(vertices,width,index,false)}
+fn bins_of(vertices:&[f32],width:usize,index:&[u32],numeric:bool)->(Vec<u32>,Vec<Cell>) {
+    let p=|v:u32,k:usize|vertices[v as usize*width+k] as f64;
+    let mut parts:Vec<Part>=vec![];let mut lookup=HashMap::new();let mut cell_of=Vec::with_capacity(index.len()/3);
     // mergeStaticShadows uses a numeric cell key; partitionShadowCaster uses
     // a coordinate pair. Preserve that distinction and first-appearance order.
-    for t in g.index.as_chunks::<3>().0 {
+    for t in index.as_chunks::<3>().0 {
         let x=((p(t[0],0)+p(t[1],0)+p(t[2],0))/3./48.).floor();
         let z=((p(t[0],2)+p(t[1],2)+p(t[2],2))/3./48.).floor();
         let key=if numeric {(((x+32768.)*65536.+(z+32768.)).to_bits(),0)} else {(if x==0. {0} else {x.to_bits()},if z==0. {0} else {z.to_bits()})};
@@ -41,8 +44,8 @@ fn bins(g:&Geometry,numeric:bool)->(Vec<u32>,Vec<Cell>) {
     order.sort_by_key(|i|spread(parts[*i].x)*2+spread(parts[*i].z));
     let mut cells:Vec<_>=parts.iter().map(|p|Cell{first:0,end:0,min:p.min,max:p.max}).collect();let mut cursor=0;
     for &at in &order {cells[at].first=cursor;cursor+=parts[at].count as u32;cells[at].end=cursor;}
-    let mut fill:Vec<_>=cells.iter().map(|c|c.first as usize).collect();let mut sorted=vec![0;g.index.len()];
-    for (t,&at) in g.index.as_chunks::<3>().0.iter().zip(&cell_of) {let first=fill[at];sorted[first..first+3].copy_from_slice(t);fill[at]+=3;}
+    let mut fill:Vec<_>=cells.iter().map(|c|c.first as usize).collect();let mut sorted=vec![0;index.len()];
+    for (t,&at) in index.as_chunks::<3>().0.iter().zip(&cell_of) {let first=fill[at];sorted[first..first+3].copy_from_slice(t);fill[at]+=3;}
     // Cells in index order, so visible neighbours join into one range.
     let mut cells:Vec<Option<Cell>>=cells.into_iter().map(Some).collect();
     (sorted,order.iter().filter_map(|&at|cells[at].take()).collect())

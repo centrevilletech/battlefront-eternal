@@ -669,7 +669,9 @@ pub fn water_surface(&mut self, geometry: u32, blend: &[u32], depth_func: u32, f
 pub fn water_rings(&mut self, index: &[u32], blend: &[u32], depth_func: u32, flags: u32, side: u32) -> u32 { self.r.water.add_rings(&self.r.core, index, blend, depth_func, flags, side) }
 pub fn water_set(&mut self, max: u32, sizes: &[u32]) -> Option<u32> { self.r.water.add_set(&self.r.core, max, sizes) }
 pub fn water_instanced(&mut self, surface: u32, set: u32, k: u32, location: u32)  { self.r.water.instanced(&self.r.core, surface, set, k, location) }
-pub fn water_source(&mut self, authored: &str, ocean: bool) -> Result<Vec<f64>,String> { let source=bfe_render::water_resources::WaterSource::with_math::<bfe_render::pixel_math::V8>(authored,ocean).map_err(String::from)?;
+pub fn water_source(&mut self, authored: &str, ocean: bool) -> Result<Vec<f64>,String> { let mut source=bfe_render::water_resources::WaterSource::with_math::<bfe_render::pixel_math::V8>(authored,ocean).map_err(String::from)?;
+        // The near surface draws only the cells in view (effect_water): its triangles ordered by cell.
+        source.near.index=bfe_render::static_depth::cells_of(&source.near.vertices,source.near.stride,&source.near.index).0;
         let mut facts=vec![self.water_sources.len() as f64];facts.extend(source.near.bounds);
         self.water_sources.push(source);Ok(facts) }
 pub fn water_values(&mut self, source: u32, kind: u32) -> Result<Vec<f64>,String> { let s=self.water_sources.get(source as usize).ok_or_else(||String::from("unknown ocean source"))?;bfe_render::water_resources::defaults(kind as usize,s).map_err(String::from) }
@@ -693,6 +695,7 @@ pub fn effect_water(&mut self, source: u32, kind: u32, far_view: bool, shadows: 
             let values=fields.iter().map(|(name,size)|format!("{name}:{size}:{}",if w::sampler(name){3}else if *name=="waders"{4}else{0})).collect::<Vec<_>>().join(",");
             let id=self.r.effects.add_model(core,-1,&blend,depth,glow::LEQUAL,&values,&[shape.bounds[0],shape.bounds[1],shape.bounds[2],-1.]);
             self.r.effects.model_pass(core,id,program,2,geometry);
+            if !ocean {self.r.effects.model_cells(id,bfe_render::static_depth::cells_of(&shape.vertices,shape.stride,&shape.index).1);}
             let mut unit=3;for(name,_)in fields{if w::sampler(name){let(at,_)=w::field(fields,name).unwrap();self.r.effects.model_input_sampler(core,id,name,unit,at);unit+=1;}}
             if kind==k::WATER_TINT{self.r.effects.model_input_blend(id,w::field(fields,"quality").unwrap().0);}
             id
