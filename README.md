@@ -78,8 +78,9 @@ Download the app from <https://battlefronteternal.com>:
 
 On first launch the app looks for the game in Steam, GOG Galaxy and Heroic,
 asks before preparing anything, and then prepares the maps, armies, interface
-and sound into your user folder. This takes a while once; allow about 7 GB of
-free space. If it cannot find the game, choose the folder that holds
+and sound into your user folder. This happens once: about 9 minutes on a 2011
+quad-core PC (playable after about 5), longer with the optional Enhanced
+sound. Allow about 7 GB of free space. If it cannot find the game, choose the folder that holds
 `GameData`, or import data prepared on another computer.
 
 The app updates itself when it starts, without a reinstall or a password,
@@ -101,7 +102,7 @@ Measured on an old machine, with the preset the app picked by itself:
 
 | Machine | Settings | Result |
 | --- | --- | --- |
-| Intel HD Graphics 2000 (2011 desktop integrated graphics) | full screen 1920x1080, Minimum | Theed about 65 fps, Hoth about 62, Kashyyyk Docks about 52, Mos Eisley about 49, Endor about 40 |
+| Intel HD Graphics 2000 (2011 desktop integrated graphics) | full screen 1920x1080, Minimum | Theed about 65 fps, Hoth about 62, Kashyyyk Docks about 52, Mos Eisley about 49, Geonosis about 48, Endor about 40 |
 
 Busy maps (Endor, Mos Eisley, Geonosis) are the hardest. Minimum draws the
 scenery out to the 2004 game's SHORT view distance; past that, a lower
@@ -214,7 +215,8 @@ with the Python tools, the command-line options, the generated code
 - [bink-decoder](https://github.com/centrevilletech/bink-decoder): the
   movie decoder, a Rust crate of its own.
 - [battlefront-eternal-server](https://github.com/centrevilletech/battlefront-eternal-server):
-  the dedicated server's service units and install notes.
+  getting a dedicated server: an install script (`get-bfeserver.sh`) and a
+  Dockerfile.
 - [battlefront-eternal-master](https://github.com/centrevilletech/battlefront-eternal-master):
   the server list and connection signaling.
 - [battlefront-eternal-relay](https://github.com/centrevilletech/battlefront-eternal-relay):
