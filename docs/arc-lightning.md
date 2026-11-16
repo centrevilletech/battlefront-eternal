@@ -6,16 +6,19 @@ one in the game). `Bolt Caster` on the Video options page selects **Classic**
 or **Enhanced** (the default; the Minimum and Performance presets pick
 Classic). The setting is `arcCasterEffects` and applies live.
 
-**Classic** is the 2004 renderer's look, unchanged (`rust/bfe-client` (`online::lightning`)):
+**Classic** is the 2004 renderer's look, unchanged:
 textured ribbons, two random shapes blended, branches and children, faded
 over `FadeTime`.
 
-**Enhanced** is drawn by `rust/bfe-client` (`online::lightning`). It changes only how the
-bolts look. The world still decides everything about a shot (combat.js
-`arc()`): who is linked, in what order, the damage, the heat.
-The bolts it draws are the ones `Lightning.spawn` receives, from this page's
-own world, from a worker's presentation events, or from a server's, with the
-world's ends, charge and hold. Nothing new travels between world and page.
+**Enhanced** changes only how the bolts look. The world still decides
+everything about a shot (`rust/sim` (`combat`)): who is linked, in what
+order, the damage, the heat. The bolts it draws are the ones the world's
+presentation events or a server's records carry, with the world's ends,
+charge and hold. Nothing new travels between world and client.
+
+Both looks are `rust/bfe-presentation` (`effects::lightning`), which owns the
+bolts' lives, shapes, vertices and capsules, and `rust/bfe-client`
+(`online::lightning`), which feeds it and draws its mesh and batch.
 
 ## What Enhanced draws
 
@@ -71,8 +74,8 @@ strike extends it):
   for the head. It is laid over whatever the animation posed: a bone the
   animation wrote this frame takes that as its pose; one it left keeps the
   last. When the shock ends the pose is put back. Droidekas, riders and a
-  soldier held by a creature don't twitch. Only the page's bones move: hit
-  shapes don't use them (units.js `updateSpheres`).
+  soldier held by a creature don't twitch. Only the drawn bones move: hit
+  shapes don't use them.
 - **Light** from his chest, flickering.
 
 Struck in first person, the bolt ends on the player's own hands (his eye is
@@ -81,13 +84,13 @@ over it in the player's first-person weapon's own scene.
 
 ## A droideka with its shield up
 
-The shield takes the hit first (droideka.js `absorb`), so while its bubble
-is up (the page's `ShieldBubble`, `bubbleOf(unit)`) the bolt stops on the
+The shield takes the hit first, so while its bubble is up (as the client
+draws it) the bolt stops on the
 bubble, on the side it came from, and the droideka inside is not shocked:
 
 - the bubble ripples where it was struck: the world's own hit comes from
-  where its arc started (combat.js `arc()` hands each link's start to its
-  target's `hurt`), so this is the same in both looks.
+  where its arc started (the world hands each link's start to its target's
+  damage), so this is the same in both looks.
 - electricity races over the bubble from the strike for 0.55 s + 0.45 s x
   charge: four to eight arcs along its surface, a couple about the strike and
   the rest up to about 130 degrees round, new 15 to 30 times a second, with
@@ -112,7 +115,7 @@ is drawn over the gun, in the weapon's own scene.
 Everything is glowing capsules, one instance a segment, in one instanced
 draw (plus one in the player's first-person scene when it has something): the
 fragment shader finds the closest distance between the view ray and the
-segment, as `blaster-bolts.js` draws plasma, so a bolt reads the same side
+segment, as the Enhanced blaster bolts draw plasma, so a bolt reads the same side
 on and end on (the shooter's own view down it). Where two segments of a line
 meet, each pixel belongs to only one of them: the plane halving their angle,
 and which side of it the ray passes the joint on, decides. The glow is then
@@ -137,12 +140,11 @@ raster submission.
   clip rather than grow the buffer during a frame. Native descriptors carry
   the geometry and attribute layout; no OpenGL geometry cache sets the limit.
 - A line's segments, its hot loop, and the sparks are written straight into
-  the buffer instead of through `push()`; the displacement settings are one
+  the buffer; the displacement settings are one
   reused object; bolts and sparks are kept in place, the spent left out;
   sparks, the arcs of a shock, a shield's and a muzzle's crackle, and the
   twitched bones' records are reused; a lightning definition's colours are
-  worked out once. A sustained fight makes little garbage for the collector
-  to stop the page over.
+  worked out once. A sustained fight allocates next to nothing per frame.
 - Its lights are requests to the frame's fixed `LightPool` (eight point
   light slots, unused ones at intensity 0). Rust ranks the requests and
   advances their lifetimes in retained storage; firing does not compile
@@ -155,22 +157,22 @@ raster submission.
   the links leaving him, instead of his whole actor's world matrices being
   rebuilt every frame; the chest point itself is kept for the frame. The
   channel's displacement and a line's joint normals are written as plain
-  arithmetic in the same order as three's vector methods (the same bits).
+  arithmetic in the same order as `rust/three`'s vector methods (the same bits).
 - Where the SwiftShader time goes, measured: the fragments that reach the
   output. Fragments rasterized and let go (about 70% of a capsule's quad:
   the joint planes and the brightness cut) cost next to nothing there, and
   the kept ones are the visible glow, 6 to 7 deep where children, branches
   and flares overlap. No change that keeps the look moves that much under
   software GL; on a hardware GPU 190k blended fragments are well under a
-  millisecond, and the page's time is what matters. Tightening the quad to
+  millisecond, and the frame's CPU time is what matters. Tightening the quad to
   the glow's reach or clipping joints in image space (tried) cut rasterized
   fragments 25 to 50% but moved single-pixel seams at the joints (the
   rasterizer snaps corners to a sub-pixel grid; the seams exist today and
   move when corners move), so they are not pixel-identical and were left
   for a measurement on a real GPU.
 
-A failure inside the Enhanced look is reported once (console) and the look
-starts clean; it never stops the battle.
+A failure inside the Enhanced look is reported once (in the log) and the
+look starts clean; it never stops the battle.
 
 ## Checks
 
@@ -181,9 +183,4 @@ starts clean; it never stops the battle.
   new life ends a shock; the fizzle; the player's first-person arcs in the weapon's
   scene; the charge crackle; the setting, presets and Classic switch; the
   batch's growth (every instance drawn, one upload range), a line written
-  straight into the batch as `push()` lays it out, and spent sparks reused.
-- `cargo test --locked --workspace` (the world's side) passes unchanged.
-- Browser frames on Geonosis and Kamino in third person, first person, from
-  the side and struck in first person: about 250 capsules and 0.4 ms of page
-  time a frame for a full-charge shot linking two or three droids (software
-  GL, loaded machine).
+  straight into the batch, and spent sparks reused.
