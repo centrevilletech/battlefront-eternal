@@ -833,6 +833,10 @@ impl SlintHost {
             && !self.root.get_proof_controls()
             && super::slint_battle::battle_modal_open(&self.root)
     }
+    /// Whether a property animation is running (a picture of the interface would be stale).
+    pub fn animating(&self) -> bool {
+        self.root.window().has_active_animations()
+    }
     pub fn render(&self, fb: glow::Framebuffer, size: [i32; 2]) -> Result<(), String> {
         self.render_pass(fb, size, 0)
     }
