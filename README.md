@@ -85,14 +85,16 @@ sound. Allow about 7 GB of free space. If it cannot find the game, choose the fo
 
 The app updates itself when it starts, without a reinstall or a password,
 and keeps your settings, identity and prepared data. Updates never interrupt
-a match.
+a match. An installed earlier preview updates to this build the same way,
+without preparing the game again.
 
 ### What you need
 
 The measured floor is a 2011 integrated graphics chip, so most PCs from the
 last decade play it:
 
-- a 64-bit Windows 10 or 11, or a 64-bit Linux (x64 or ARM64) desktop;
+- a 64-bit Windows 10 or 11, or a 64-bit Linux (x64 or ARM64) desktop with
+  glibc 2.35 or newer (Ubuntu 22.04, Debian 12 or later);
 - a graphics card or chip with OpenGL ES 3.0 or OpenGL 3.3 and a current
   driver;
 - about 4 GB of memory (a battle uses about 1 GB);
