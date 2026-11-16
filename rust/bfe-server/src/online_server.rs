@@ -825,9 +825,9 @@ impl OnlineServer {
         self.master
             .request("/v1/servers", "POST", Some(&listing), 0)
             .map_err(|e| e.message)?;
+        self.learn_master_stun();
         let (events_tx, events_rx): (Sender<MasterEvent>, Receiver<MasterEvent>) = mpsc::channel();
         self.master.connect(events_tx.clone())?;
-        self.learn_master_stun();
         self.discover();
 
         self.stop.store(false, Ordering::SeqCst);
