@@ -187,7 +187,8 @@ impl World for Client {
         self.replay.present(alpha, self.dt);
         let mut own = self.receiver.own;
         if let Some(hull) = &self.replay.fleet.state {
-            own.position = hull.position;
+            let offset = self.replay.fleet.offset();
+            own.position = std::array::from_fn(|i| hull.position[i] + offset[i]);
         }
         if self.replay.fleet.identity.is_some() {
             self.sender.yaw = self.replay.fleet.aim[0];
