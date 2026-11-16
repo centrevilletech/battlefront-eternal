@@ -213,8 +213,6 @@ Empire's spawn at cp1 has stopped.
   bots have one as their sight candidate, how many are sent to it and how
   near they are, and who damaged them; `--destroy` also puts three bots in
   the kill region first.
-- `cargo test --locked --workspace`: the page over the world worker (Geonosis
-  ship standing, dying, gone; the map; Hoth's wreck), with screenshots.
 
 Not yet determined: when `AmbientSound` (the shield generator's
 `hoth_shield_amb`, the control panel's `control_panel_b`) starts, and what
