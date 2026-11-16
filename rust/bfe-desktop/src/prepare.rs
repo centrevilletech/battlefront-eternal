@@ -1546,6 +1546,10 @@ impl PrepareSession {
                     if let Ok(val) =
                         serde_json::from_str::<Value>(trimmed.strip_prefix("@@").unwrap_or(trimmed))
                     {
+                        // Steps, errors and the end go in the log; the frequent busy ticks and the plan do not.
+                        if !matches!(val["event"].as_str(), Some("busy" | "plan")) {
+                            log_line(&log, trimmed);
+                        }
                         apply_event(&mut guard, &val, now_ms);
                     } else {
                         log_line(&log, trimmed);
@@ -1803,12 +1807,16 @@ assert os.environ['BFE_CONTENT_DIR'].endswith('content')
 for event in [{'event':'plan','steps':[{'key':'map:nab2','phase':'maps','label':'Naboo','weight':120,'available':True}]},{'event':'step','key':'map:nab2','status':'start'},{'event':'step','key':'map:nab2','status':'done'},{'event':'finished','complete':True,'playable':True}]:
  print('@@'+json.dumps(event),flush=True)
 "#).unwrap();
-        let session = PrepareSession::start(options).unwrap();
+        let log = root.join("logs/prepare.log");
+        let session = PrepareSession::start_with_timings(options, None, Some(log.clone())).unwrap();
         let snap = terminal(&session);
         assert_eq!(snap.status, "done");
         assert!(snap.complete);
         assert_eq!(snap.done, 1);
         drop(session);
+        // The steps are in the log, the plan is not.
+        let text = fs::read_to_string(&log).unwrap();
+        assert!(text.contains(r#""key": "map:nab2", "status": "done""#) && !text.contains(r#""event": "plan""#), "{text}");
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
