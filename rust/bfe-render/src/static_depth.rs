@@ -47,6 +47,10 @@ fn bins(g:&Geometry,numeric:bool)->(Vec<u32>,Vec<Cell>) {
     let mut cells:Vec<Option<Cell>>=cells.into_iter().map(Some).collect();
     (sorted,order.iter().filter_map(|&at|cells[at].take()).collect())
 }
+// A static geometry's triangles ordered by 48 m cell (by their centres), the cells in Morton order and the triangles
+// of one cell in their authored order. The colour passes' cells (world.rs, far.rs) then each hold one index range,
+// and cells near each other on the map sit near each other in the index.
+pub fn cell_order(g:&Geometry)->Vec<u32> {bins(g,false).0}
 impl DepthGeometry {
     // partitionShadowCaster keeps small or compact cutouts on the live layer;
     // large buckets draw their visible cells on the cached static layer. Fabric
@@ -158,6 +162,18 @@ impl Bank {
 #[cfg(test)]
 mod capacity_tests {
     use super::*;
+    // Triangles of two cells 100 m apart, interleaved in the authored index: ordered by cell, each cell's triangles
+    // keep their authored order.
+    #[test]
+    fn cell_order_groups_each_cells_triangles_together() {
+        let mut vertices=vec![];
+        for x in [0.,1.,100.,101.,2.,3.,102.,103.] {vertices.extend_from_slice(&[x,0.,0.,x,0.,1.,x+0.5,0.,0.]);}
+        let index:Vec<u32>=(0..24).collect();
+        let g=Geometry{vertices,index,index_width:4,interleaved:false,fabric:false,tree_groups:None,attributes:vec![],stride:12,bounds:[0.;10]};
+        let order=cell_order(&g);
+        let tri=|t:u32|order[3*t as usize]/3;
+        assert_eq!((0..8).map(tri).collect::<Vec<_>>(),[0,1,4,5,2,3,6,7]);
+    }
     // Three cells side by side in index order, the middle one out of view: two ranges, not one span over all three.
     #[test]
     fn hidden_cells_between_visible_ones_are_not_drawn() {

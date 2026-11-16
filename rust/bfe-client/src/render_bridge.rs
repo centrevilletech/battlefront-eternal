@@ -1724,6 +1724,9 @@ impl BfeRenderer {
         // into the shared source while keeping reduced indices and cell boxes.
         let mut terrain=record.terrain.then(||Terrain::new(&geometry));
         if let Some(t)=&mut terrain {geometry.index=std::mem::take(&mut t.full.index);}
+        // Opaque buckets culled by cell: one index range per cell instead of thousands of small runs. Blended
+        // buckets keep their authored order (it is their drawing order).
+        else if !blended(&record) && geometry.cells() {geometry.index=bfe_render::static_depth::cell_order(&geometry);}
         // CPU ids are append-only and outlive the replaceable GPU renderer.
         // Recovery recipes refer to these rows instead of journaling copies.
         let id=self.static_sources.len() as u32;
@@ -1756,6 +1759,7 @@ impl BfeRenderer {
     }
 }
 
+fn blended(record:&Record)->bool {!record.terrain && (record.flags & 128 != 0 || record.flags & 4 != 0 && record.flags & 2 == 0)}
 pub(super) struct StaticSource {pub record:Record,pub geometry:Geometry,pub terrain:Option<Terrain>,pub weights:Vec<u8>}
 #[derive(Clone,Copy)]
 pub(super) struct StaticSlot {pub far:bool,pub transparent:bool,pub item:u32,pub geometry:u32}
@@ -1767,7 +1771,7 @@ impl BfeRenderer {
         // Only their small material policy differs between the two views.
         let mut record=source.record.clone();record.far=far_view;record.low_res_scale=Some(low_res_scale);
         let geometry=&source.geometry;let weights=&source.weights;let terrain=&source.terrain;
-        let blended = !record.terrain && (record.flags & 128 != 0 || record.flags & 4 != 0 && record.flags & 2 == 0);
+        let blended = blended(&record);
         let material=Material::new(&record,geometry,weights,samplers,features)?;
         let mut bounds=geometry.bounds;
         if let Some(t)=terrain {bounds[..4].copy_from_slice(&t.sphere);}
