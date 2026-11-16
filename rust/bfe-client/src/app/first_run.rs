@@ -564,34 +564,7 @@ impl Setup {
                 }
             } else {
                 if check["ok"] == true {
-                    let add_on_text = check["addOns"]
-                        .as_array()
-                        .filter(|a| !a.is_empty())
-                        .map(|add_ons| {
-                            let names: Vec<_> = add_ons
-                                .iter()
-                                .take(4)
-                                .map(|item| {
-                                    let id = item["id"].as_str().unwrap_or("");
-                                    let name = item["name"].as_str().unwrap_or(id);
-                                    if !name.is_empty() && name != id {
-                                        format!("{name} ({id})")
-                                    } else {
-                                        id.to_string()
-                                    }
-                                })
-                                .collect();
-                            let more = if add_ons.len() > 4 {
-                                format!(" and {} more", add_ons.len() - 4)
-                            } else {
-                                String::new()
-                            };
-                            format!(
-                                "{}{more} \u{2014} included automatically",
-                                names.join(", ")
-                            )
-                        })
-                        .unwrap_or_else(|| "None".into());
+                    let add_on_text = add_ons_text(&check["addOns"]);
                     v.facts.push(SetupFact {
                         name: "ADD-ON MAPS".into(),
                         value: add_on_text,
@@ -1060,8 +1033,61 @@ impl Drop for TransferWork {
     }
 }
 
+/// The setup screen's ADD-ON MAPS line from the installation check's `addOns`
+/// (each `{ name, folder, maps: [{ id, name }] }`): up to four add-ons by name,
+/// then how many more, or "None".
+fn add_ons_text(add_ons: &serde_json::Value) -> String {
+    let Some(add_ons) = add_ons.as_array().filter(|a| !a.is_empty()) else {
+        return "None".into();
+    };
+    let names: Vec<String> = add_ons.iter().take(4).map(add_on_name).collect();
+    let more = if add_ons.len() > 4 {
+        format!(" and {} more", add_ons.len() - 4)
+    } else {
+        String::new()
+    };
+    format!("{}{more}, included automatically", names.join(", "))
+}
+
+/// An add-on as a player knows it: the official one (Jabba's Palace, the
+/// `tat3` map in `AddOn/Tat3`) by its name; any other by its maps' own names,
+/// else its folder.
+fn add_on_name(add_on: &serde_json::Value) -> String {
+    let text = |v: &serde_json::Value| v.as_str().unwrap_or("").trim().to_string();
+    let maps: Vec<&serde_json::Value> = add_on["maps"].as_array().map(|m| m.iter().collect()).unwrap_or_default();
+    let official = [text(&add_on["name"]), text(&add_on["folder"])]
+        .iter()
+        .chain(maps.iter().map(|m| text(&m["id"])).collect::<Vec<_>>().iter())
+        .any(|id| id.eq_ignore_ascii_case("tat3"));
+    if official {
+        return "Jabba's Palace".into();
+    }
+    let map_names: Vec<String> = maps.iter().map(|m| text(&m["name"])).filter(|n| !n.is_empty()).collect();
+    if !map_names.is_empty() {
+        return map_names.join(" / ");
+    }
+    [text(&add_on["folder"]), text(&add_on["name"])]
+        .into_iter()
+        .find(|n| !n.is_empty())
+        .unwrap_or_else(|| "an add-on".into())
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn add_ons_are_listed_by_name_without_a_dash() {
+        use serde_json::json;
+        let jabba = json!([{ "name": "tat3", "folder": "Tat3", "maps": [{ "id": "tat3", "name": "TATOOINE: JABBA" }] }]);
+        assert_eq!(super::add_ons_text(&jabba), "Jabba's Palace, included automatically");
+        let community = json!([
+            { "name": "abc", "folder": "ABC", "maps": [{ "id": "abc1", "name": "NEW MAP" }] },
+            { "name": "xyz", "folder": "XYZ", "maps": [] }
+        ]);
+        assert_eq!(super::add_ons_text(&community), "NEW MAP, XYZ, included automatically");
+        assert_eq!(super::add_ons_text(&json!([])), "None");
+        assert!(!super::add_ons_text(&jabba).contains('\u{2014}'));
+    }
+
     use super::*;
     use serde_json::json;
 

@@ -923,7 +923,10 @@ impl ShellHost {
         opt_ctx.viewport = Some([self.layout_size[0].max(1) as u32, self.layout_size[1].max(1) as u32]);
         self.options_ctrl = OptionsController::new(settings.interface.clone(), opt_ctx);
 
-        let about = AboutInfo::from_content_dir(content_dir, Some(env!("CARGO_PKG_VERSION")));
+        // The release's own version (PREVIEW N on the version line); a source
+        // build has none and the line says DEVELOPMENT BUILD.
+        let release = super::cli::release_version();
+        let about = AboutInfo::from_content_dir(content_dir, release.as_deref());
         let mut app = ShellApp::new(data.clone(), Some(&about));
         settings.apply_to_shell_app(&mut app);
 
