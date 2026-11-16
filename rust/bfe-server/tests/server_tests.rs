@@ -1325,6 +1325,66 @@ fn local_dedicated_server_full_join_entity_registry_welcome_and_publication_repl
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// A battle change keeps the game port open: between the battles a TCP connect is accepted
+/// and a UDP datagram draws no "port unreachable", the next battle answers on the same port,
+/// and a /info request that arrives in two pieces is answered rather than reset.
+#[test]
+fn a_battle_change_keeps_the_game_port_open() {
+    let dir = temp_dir("battle-change-port");
+    let content_root = minimal_content_dir(&dir);
+    let cfg = ServerConfig {
+        data: content_root.to_string_lossy().into_owned(),
+        rotation: vec!["swbf1/nab2:rep:conquest".to_string()],
+        game_port: Some(0),
+        discovery: false,
+        ..Default::default()
+    };
+    let srv_id = ServerIdentity::load(&dir).expect("server identity");
+    let first = LocalDedicatedServer::start(&cfg, &srv_id, |_peer| false, |_m, _id, _n, _k, _d, _p| {})
+        .expect("start the first battle");
+    let port = first.port;
+    let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    let info = |pieces: &[&str]| -> Result<String, String> {
+        let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2)).map_err(|e| e.to_string())?;
+        stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        for piece in pieces {
+            stream.write_all(piece.as_bytes()).map_err(|e| e.to_string())?;
+            std::thread::sleep(Duration::from_millis(30));
+        }
+        let mut answer = String::new();
+        stream.read_to_string(&mut answer).map_err(|e| e.to_string())?;
+        Ok(answer)
+    };
+    // A request split in two: answered, not reset.
+    let answer = info(&["GET /info HTTP/1.1\r\n", "Host: test\r\nConnection: close\r\n\r\n"]).expect("split request answered");
+    assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+
+    let handed = first.hand_over();
+    // Between the battles: the TCP listener still accepts, and UDP sees no closed port.
+    let probe = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    probe.connect(address).unwrap();
+    probe.set_read_timeout(Some(Duration::from_millis(300))).unwrap();
+    probe.send(b"not a handshake").unwrap();
+    let mut buf = [0u8; 64];
+    let error = probe.recv(&mut buf).expect_err("nothing answers a stray datagram");
+    assert!(
+        matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut),
+        "the port was closed in the gap: {error}"
+    );
+    let waiting = TcpStream::connect_timeout(&address, Duration::from_secs(1)).expect("listener open in the gap");
+    drop(waiting);
+
+    let second = LocalDedicatedServer::start_with_match_token(
+        &cfg, &srv_id, |_peer| false, |_m, _id, _n, _k, _d, _p| {}, None, Some(handed),
+    )
+    .expect("start the next battle on the same port");
+    assert_eq!(second.port, port);
+    let answer = info(&["GET /info HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n"]).expect("next battle answers");
+    assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+    drop(second);
+    let _ = fs::remove_dir_all(&dir);
+}
+
 /// Messages that replace their predecessor (input acknowledgements, edge results) are not
 /// repeated and are held back while a player's reliable lane is backed up, so a slow or lossy
 /// link degrades instead of growing a queue until the player is dropped.
@@ -4090,8 +4150,9 @@ impl MiniTurn {
 }
 
 /// The server opens a relay allocation for a player, and a client that can only send to the
-/// relayed address joins, gets its welcome and an answer to its start call, and the allocation is released when
-/// the server drops it.
+/// relayed address joins, gets its welcome and an answer to its start call, joins the next battle
+/// through the same allocation after a battle change, and the allocation is released when the
+/// server drops it.
 #[test]
 fn a_player_joins_through_the_servers_relay_allocation() {
     use bfe_server::udp_server::RelayEvent;
@@ -4168,6 +4229,26 @@ fn a_player_joins_through_the_servers_relay_allocation() {
     let stats = server.stats();
     assert_eq!(stats.len(), 1, "one player, relayed");
     assert!(!turn.channels.is_empty(), "the server bound a channel for the player");
+
+    // A battle change keeps the allocation: the player joins the next battle through it.
+    let server = LocalDedicatedServer::start_with_match_token(
+        &cfg, &srv_id, |_peer| false, |_m, _id, _n, _k, _d, _p| {}, None, Some(server.hand_over()),
+    )
+    .expect("next battle");
+    turn.step();
+    assert!(!turn.released, "a battle change released the relay allocation");
+    assert_eq!(server.udp.lock().unwrap().relay_count(), 1);
+    let mut client = Endpoint::connect(&relayed.to_string(), Identity::generate().unwrap(), srv_id.inner.id, &hello).expect("connect again");
+    let mut welcomed = false;
+    let start = Instant::now();
+    while !welcomed && start.elapsed() < Duration::from_secs(8) {
+        turn.step();
+        let _ = client.pump(&mut |lane, text, bytes, _| {
+            welcomed |= text && lane == Lane::Events && serde_json::from_slice::<Value>(bytes).is_ok_and(|v| v["type"] == "welcome");
+        });
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(welcomed, "welcome in the next battle through the same relay allocation");
 
     server.udp.lock().unwrap().close_relay("player-1");
     turn.step();

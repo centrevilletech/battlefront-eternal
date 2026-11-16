@@ -65,6 +65,15 @@ struct WorldTickCounters {
     errors: AtomicU64,
 }
 
+/// The game port of a running service: its UDP game socket and its `/info` listener. One battle
+/// hands it to the next (`LocalDedicatedServer::hand_over`), so the port stays open across a battle
+/// change: a join or a probe arriving in between waits in the socket queues instead of meeting a
+/// closed port (a reset or "port unreachable" at the client).
+pub struct GamePort {
+    udp: Arc<Mutex<UdpGameServer>>,
+    info: TcpListener,
+}
+
 /// Running local dedicated server instance (`export async function startLocalServer`).
 pub struct LocalDedicatedServer {
     pub id: String,
@@ -86,6 +95,8 @@ pub struct LocalDedicatedServer {
     world_tx: Sender<WorldCommand>,
     info_http_stop: Arc<AtomicBool>,
     info_http_thread: Option<JoinHandle<()>>,
+    /// A second handle on the `/info` listener, passed on by `hand_over`.
+    info_keep: Option<TcpListener>,
     lan: Option<LanDiscoveryResponder>,
     tick_stop: Arc<AtomicBool>,
     tick_thread: Option<JoinHandle<()>>,
@@ -103,7 +114,7 @@ impl LocalDedicatedServer {
         B: Fn(&str) -> bool + Send + Sync + 'static,
         S: Fn(&str, &str, &str, i64, i64, i64) + Send + Sync + 'static,
     {
-        Self::start_with_match_token(config, identity, is_banned, on_score, None)
+        Self::start_with_match_token(config, identity, is_banned, on_score, None, None)
     }
 
     /// Admit the exact match previously announced by the service's `rotate`.
@@ -114,6 +125,7 @@ impl LocalDedicatedServer {
         is_banned: B,
         on_score: S,
         match_token: Option<&str>,
+        port: Option<GamePort>,
     ) -> Result<Self, String>
     where
         B: Fn(&str) -> bool + Send + Sync + 'static,
@@ -153,7 +165,16 @@ impl LocalDedicatedServer {
                 fp.clone(),
             )
         };
-        let (udp_server, info_listener) = if game_port == 0 {
+        let (udp, info_listener) = if let Some(port) = port {
+            // The previous battle's port: the same sockets, set for this battle.
+            {
+                let mut u = port.udp.lock().unwrap();
+                u.content = content_id.clone();
+                u.fingerprint = fp.clone();
+                u.pending_match = None;
+            }
+            (port.udp, port.info)
+        } else if game_port == 0 {
             // Any port: take an ephemeral TCP port first and then the same UDP port, retrying when UDP refuses it.
             // A UDP ephemeral port can fall in a range Windows reserves for TCP, which refuses the /info listener.
             let mut attempt = 0;
@@ -165,7 +186,7 @@ impl LocalDedicatedServer {
                     .map_err(|e| format!("/info listener address: {e}"))?
                     .port();
                 match bind_udp(port) {
-                    Ok(udp) => break (udp, listener),
+                    Ok(udp) => break (Arc::new(Mutex::new(udp)), listener),
                     Err(e) if attempt >= 20 => return Err(e),
                     Err(_) => {}
                 }
@@ -173,9 +194,13 @@ impl LocalDedicatedServer {
         } else {
             let udp = bind_udp(game_port)?;
             let listener = bind_info_tcp(udp.port, config.bind.as_deref())?;
-            (udp, listener)
+            (Arc::new(Mutex::new(udp)), listener)
         };
-        let actual_port = udp_server.port;
+        let actual_port = udp.lock().unwrap().port;
+        // Kept so that `hand_over` can pass the listener on while this battle's thread stops.
+        let info_keep = info_listener
+            .try_clone()
+            .map_err(|e| format!("/info listener: {e}"))?;
 
         // Build the initial `/info` and LAN discovery snapshot (`const info = () => ({ ... })`).
         let initial_info = build_info_json(
@@ -211,7 +236,6 @@ impl LocalDedicatedServer {
             None
         };
 
-        let udp = Arc::new(Mutex::new(udp_server));
         let ready = Arc::new(AtomicBool::new(false));
         let tick = Arc::new(AtomicU64::new(0));
         let finished = Arc::new(AtomicBool::new(false));
@@ -505,6 +529,7 @@ impl LocalDedicatedServer {
             world_tx,
             info_http_stop,
             info_http_thread: Some(info_http_thread),
+            info_keep: Some(info_keep),
             lan,
             tick_stop,
             tick_thread: Some(tick_thread),
@@ -583,9 +608,27 @@ impl LocalDedicatedServer {
         let _ = self.world_tx.send(WorldCommand::PushPublication(pub_frame));
     }
 
-    /// Stops the 60 Hz tick thread, LAN discovery responder, `/info` HTTP server, and UDP game port
-    /// (`async close()`).
-    pub fn close(&mut self) {
+    /// Ends this battle and passes its game port to the next one: the world, LAN and `/info`
+    /// threads stop and this battle's sessions are closed as by `close`, but the UDP socket and the
+    /// `/info` listener stay open (see [`GamePort`]).
+    pub fn hand_over(mut self) -> GamePort {
+        let info = self.info_keep.take();
+        self.stop_threads();
+        // The battle's sessions close (their players follow to the next battle), but relay
+        // allocations stay: they belong to the online registration, which carries on.
+        let mut udp = self.udp.lock().unwrap();
+        let now_ms = udp.now_ms();
+        for id in udp.players() {
+            udp.close_peer(&id, close_code::SHUTDOWN as u16, "server stopping", now_ms);
+        }
+        drop(udp);
+        GamePort {
+            udp: Arc::clone(&self.udp),
+            info: info.expect("the /info listener is kept until hand_over or close"),
+        }
+    }
+
+    fn stop_threads(&mut self) {
         self.ready.store(false, Ordering::SeqCst);
         self.tick_stop.store(true, Ordering::SeqCst);
         if let Some(handle) = self.tick_thread.take() {
@@ -602,7 +645,16 @@ impl LocalDedicatedServer {
         if let Some(handle) = self.info_http_thread.take() {
             let _ = handle.join();
         }
-        self.udp.lock().unwrap().close_all();
+    }
+
+    /// Stops the 60 Hz tick thread, LAN discovery responder, `/info` HTTP server, and UDP game port
+    /// (`async close()`).
+    pub fn close(&mut self) {
+        self.stop_threads();
+        // After hand_over the socket and its relay allocations belong to the next battle.
+        if self.info_keep.is_some() {
+            self.udp.lock().unwrap().close_all();
+        }
     }
 }
 
@@ -706,8 +758,18 @@ fn bind_info_tcp(port: u16, bind_host: Option<&str>) -> Result<TcpListener, Stri
 fn handle_info_request(stream: &mut TcpStream, info: &Arc<RwLock<Value>>) -> std::io::Result<()> {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+    // Read the whole request header before answering: a client may send it in several segments,
+    // and closing with request bytes still unread makes the system reset the connection, which
+    // the client sees as "connection reset" instead of the answer.
     let mut buf = [0u8; 2048];
-    let n = stream.read(&mut buf)?;
+    let mut n = 0;
+    while n < buf.len() && !buf[..n].windows(4).any(|w| w == b"\r\n\r\n") {
+        let got = stream.read(&mut buf[n..])?;
+        if got == 0 {
+            break;
+        }
+        n += got;
+    }
     if n == 0 {
         return Ok(());
     }

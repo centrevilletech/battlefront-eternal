@@ -914,6 +914,8 @@ pub struct BattleController {
     pub elapsed_s: f64,
     /// When the last `prediction:` line was written (battle seconds).
     prediction_logged: f64,
+    /// Escape on an online battle's end table: leave for the Multiplayer screen.
+    leave_requested: bool,
     /// Whether the local player was alive on the previous frame (used to detect death -> spawn screen).
     pub was_alive: bool,
     /// The player died and the spawn screen has not reopened for it yet.
@@ -1196,36 +1198,53 @@ impl BattleController {
             });
         }
 
-        // Probe `/info` and prepare the authenticated endpoint (`online::info::prepare`),
-        // trying each target until one answers. The first error from a server
-        // that answered explains more than an unreachable address does.
+        // Probe `/info` and prepare the authenticated endpoint (`online::info::prepare`), trying
+        // each target in turn. A server changing battle or restarting may not answer for a moment:
+        // while every target fails that way, try again for up to ten seconds. The first error from
+        // a server that answered explains more than an unreachable address does.
+        let started = std::time::Instant::now();
         let mut failure: Option<(bool, String)> = None;
         let mut admitted = None;
-        for target in &targets {
-            match crate::online::info::prepare(
-                target,
-                content_dir,
-                &id_path,
-                &settings.player.profile_name,
-                launch.listed_identity(),
-            ) {
-                Ok(ready) => {
-                    eprintln!("online join: {target} answered");
-                    admitted = Some((target.clone(), ready));
-                    break;
-                }
-                Err(error) => {
-                    eprintln!("online join: {target}: {error}");
-                    let answered = !crate::online::info::unreachable(&error);
-                    if failure.as_ref().is_none_or(|(had, _)| answered && !had) {
-                        failure = Some((answered, error));
+        'rounds: loop {
+            let mut retry = true;
+            for target in &targets {
+                match crate::online::info::prepare(
+                    target,
+                    content_dir,
+                    &id_path,
+                    &settings.player.profile_name,
+                    launch.listed_identity(),
+                ) {
+                    Ok(ready) => {
+                        eprintln!("online join: {target} answered");
+                        admitted = Some((target.clone(), ready));
+                        break 'rounds;
+                    }
+                    Err(error) => {
+                        eprintln!("online join: {target}: {error}");
+                        retry &= crate::online::info::transient(&error);
+                        let answered = !crate::online::info::unreachable(&error);
+                        if failure.as_ref().is_none_or(|(had, _)| answered && !had) {
+                            failure = Some((answered, error));
+                        }
                     }
                 }
             }
+            if !retry || started.elapsed() >= std::time::Duration::from_secs(10) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
         }
         let (target, (server_info, endpoint)) = match admitted {
             Some(ready) => ready,
-            None => return Err(failure.map(|(_, e)| e).unwrap_or_default()),
+            None => {
+                let error = failure.map(|(_, e)| e).unwrap_or_default();
+                return Err(if crate::online::info::transient(&error) {
+                    "The server did not answer: it may be changing battle or restarting. Try again in a moment.".to_string()
+                } else {
+                    error
+                });
+            }
         };
 
         let graphics = Scene::prepare_online(content_dir, &server_info.query,textures)?;
@@ -1428,6 +1447,7 @@ impl BattleController {
             steady_frames_measured: 0,
             elapsed_s: 0.0,
             prediction_logged: 0.0,
+            leave_requested: false,
             was_alive: false,
             death_screen_pending: false,
             death_classic: false,
@@ -1771,6 +1791,9 @@ impl BattleController {
         self.pause_page.save(settings);
         self.elapsed_s += elapsed_dt;
 
+        if std::mem::take(&mut self.leave_requested) {
+            return Ok(Some(BattleTransition::LeaveOnline { reason: None }));
+        }
         if let BattleAuthority::Online { client, .. } = &mut self.authority {
             client.poll_rotation();
             self.scoreboard_port.next_ready = client.rotation_ready;
@@ -2814,6 +2837,17 @@ impl BattleController {
         // Scoreboard bindDom owns Escape while its table or a detail page is
         // visible. Back closes a peek table or returns from details; the same
         // press must not open the pause menu behind it.
+        // An online battle's end table always has a way out, whatever the network does: Escape
+        // leaves for the Multiplayer screen (BACK still turns its pages).
+        if code == "Escape"
+            && down
+            && !repeat
+            && self.scoreboard_ctrl.model.state == BoardState::End
+            && matches!(self.authority, BattleAuthority::Online { .. })
+        {
+            self.leave_requested = true;
+            return;
+        }
         if !self.pause_menu.is_open && self.scoreboard_ctrl.model.is_open() && code == "Escape" {
             if down && !repeat {
                 self.scoreboard_ctrl

@@ -174,7 +174,7 @@ pub struct ServerHandshakes {
     /// Stateless HMAC-SHA256 retry token generator and verifier.
     /// Global maximum number of simultaneous half-open handshakes (`1024`).
     /// Maximum number of half-open handshakes allowed from a single network prefix (`32`).
-    /// Lifetime in milliseconds (`5000.0`) before an unconfirmed pending entry expires.
+    /// Lifetime in milliseconds (`15000.0`) before an unconfirmed pending entry expires.
     /// Pending-table threshold (`256`) above which stateless `RETRY` cookies are required.
     pub identity: Identity,
     pub retry: RetryTokens,
@@ -188,14 +188,15 @@ pub struct ServerHandshakes {
 impl ServerHandshakes {
     /// Creates a server handshake manager with default capacity and retry thresholds
     /// matching `src/net/handshake.js` (`maxPending = 1024`, `maxPendingPerPrefix = 32`,
-    /// `pendingMs = 5000`, `retryAbove = 256`).
+    /// `retryAbove = 256`), except that a half-open handshake waits 15 s for its confirmation
+    /// (5 s there): a client busy with one long frame while it connects must not lose its join.
     pub fn new(identity: Identity, retry: RetryTokens) -> Self {
         Self {
             identity,
             retry,
             max_pending: 1024,
             max_pending_per_prefix: 32,
-            pending_ms: 5000.0,
+            pending_ms: 15_000.0,
             retry_above: 256,
             pending: VecDeque::with_capacity(64),
         }
@@ -206,7 +207,7 @@ impl ServerHandshakes {
         self.pending.len()
     }
 
-    /// Evicts half-open handshakes older than `pending_ms` (`5000.0` ms by default).
+    /// Evicts half-open handshakes older than `pending_ms` (`15000.0` ms by default).
     pub fn expire(&mut self, now: f64) {
         let window = self.pending_ms;
         self.pending.retain(|p| now - p.created <= window);
@@ -526,9 +527,12 @@ mod tests {
         assert_eq!(client.receive(&resp_pkt), Event::Established);
         assert_eq!(client.receive(&resp_pkt), Event::Duplicate);
         // Step 3: Feeding the client's `CONFIRM` into the server completes the handshake
-        // and produces matching opposite-direction ChaCha20-Poly1305 traffic keys.
+        // and produces matching opposite-direction ChaCha20-Poly1305 traffic keys, even when
+        // it arrives 12 s late (a client busy with one long frame while it connects).
+        server.expire(12_100.0);
+        assert_eq!(server.pending_count(), 1, "the half-open handshake outlived a 12 s wait");
         let completed = server
-            .confirm(client.confirm(), &source, 120.0)
+            .confirm(client.confirm(), &source, 12_110.0)
             .ok_or("expected completed handshake")?;
         assert_eq!(completed.client_id, client_id.id);
         let client_keys = client.take_keys().ok_or("expected client keys")?;

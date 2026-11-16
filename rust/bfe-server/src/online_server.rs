@@ -6,7 +6,7 @@ use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -28,7 +28,8 @@ const RELAY_UNUSED: Duration = Duration::from_secs(30);
 /// One player's relay allocation as signalling sees it (`this.relays`).
 #[derive(Clone, Debug)]
 struct RelayEntry {
-    created: Instant,
+    /// When it was allocated or last seen in use: a player between two battles keeps it.
+    used: Instant,
     /// The nonce of the player's latest offer: the relayed candidate answers that one.
     nonce: String,
     relayed: Option<SocketAddr>,
@@ -163,6 +164,18 @@ pub struct OnlineServer {
     is_banned: Arc<dyn Fn(&str) -> bool + Send + Sync>,
     stop: Arc<AtomicBool>,
     worker: Mutex<Option<JoinHandle<()>>>,
+    /// The battle being played once it is no longer the one this server started with: the
+    /// registration, the signalling connection and the relay allocations carry on across a battle
+    /// change, and only these details change (see [`Self::next_battle`]).
+    battle: RwLock<Option<NextBattle>>,
+}
+
+/// One battle's details in the listing and in the answer to a match probe.
+struct NextBattle {
+    query: String,
+    content: String,
+    rotation: Vec<String>,
+    browser: Arc<dyn Fn() -> BrowserInfo + Send + Sync>,
 }
 
 impl OnlineServer {
@@ -216,6 +229,7 @@ impl OnlineServer {
             is_banned,
             stop: Arc::new(AtomicBool::new(false)),
             worker: Mutex::new(None),
+            battle: RwLock::new(None),
         })
     }
 
@@ -238,14 +252,19 @@ impl OnlineServer {
         } else {
             serde_json::json!([])
         };
-        let browser = (self.browser)();
+        let battle = self.battle.read().unwrap_or_else(|e| e.into_inner());
+        let (browser, content, rotation) = match battle.as_ref() {
+            Some(b) => ((b.browser)(), b.content.clone(), b.rotation.clone()),
+            None => ((self.browser)(), self.content.clone(), self.config.rotation.clone()),
+        };
+        drop(battle);
         let mut obj = serde_json::json!({
             "name": self.config.name,
             "protocol": self.wire.protocol,
             "profile": self.wire.profile,
             "simulation": self.wire.simulation,
-            "content": self.content,
-            "rotation": self.config.rotation,
+            "content": content,
+            "rotation": rotation,
             "players": players,
             "maxPlayers": max_players,
             "relayPolicy": self.config.relay_policy,
@@ -574,7 +593,7 @@ impl OnlineServer {
                     ) {
                         if is_hex_32(probe)
                             && is_hex_32(nonce)
-                            && Some(probe) == query_param(&self.query, "match").as_deref()
+                            && Some(probe) == query_param(&self.battle_query(), "match").as_deref()
                         {
                             let _ = self.master.signal(
                                 &m.from,
@@ -715,7 +734,7 @@ impl OnlineServer {
         self.relays.lock().map_err(|_| "lock poisoned")?.insert(
             peer.to_string(),
             RelayEntry {
-                created: Instant::now(),
+                used: Instant::now(),
                 nonce: nonce.to_string(),
                 relayed: None,
             },
@@ -773,6 +792,12 @@ impl OnlineServer {
         );
     }
 
+    /// Marks the relay allocations of the players now playing as in use, just before a battle
+    /// change closes their sessions, so the allocations outlast the gap until they rejoin.
+    pub fn hold_relays(&self) {
+        self.sweep(RELAY_UNUSED);
+    }
+
     /// Releases relay allocations of players not playing after `max_age` (`sweep`).
     pub fn sweep(&self, max_age: Duration) {
         let Some(udp_arc) = self.udp.as_ref() else {
@@ -789,7 +814,10 @@ impl OnlineServer {
         };
         let playing: HashSet<String> = udp.players().into_iter().collect();
         relays.retain(|id, entry| {
-            let keep = playing.contains(id) || entry.created.elapsed() <= max_age;
+            if playing.contains(id) {
+                entry.used = Instant::now();
+            }
+            let keep = entry.used.elapsed() <= max_age;
             if !keep {
                 eprintln!("Online relay: released for player {} (not playing)", short(id));
                 udp.close_relay(id);
@@ -798,37 +826,18 @@ impl OnlineServer {
         });
     }
 
-    /// Releases the relay allocations of players who are not playing. A playing player's
-    /// allocation stays with the game socket, which the next battle keeps: that battle's
-    /// controller adopts it (`adopt_relays`) and releases it once the player has left.
+    /// Releases every relay allocation (the server is shutting down). A battle change does not
+    /// come here: the registration carries on, and with it the allocations of its players.
     fn close_relays(&self) {
         let Ok(mut relays) = self.relays.lock() else {
             return;
         };
         if let Some(Ok(mut udp)) = self.udp.as_ref().map(|u| u.lock()) {
-            let playing: HashSet<String> = udp.players().into_iter().collect();
-            for id in relays.keys().filter(|id| !playing.contains(*id)) {
+            for id in relays.keys() {
                 udp.close_relay(id);
             }
         }
         relays.clear();
-    }
-
-    /// Takes over the allocations a previous battle left open on this game socket.
-    fn adopt_relays(&self) {
-        let Some(Ok(udp)) = self.udp.as_ref().map(|u| u.lock()) else {
-            return;
-        };
-        let Ok(mut relays) = self.relays.lock() else {
-            return;
-        };
-        for (id, relayed) in udp.relayed_players() {
-            relays.entry(id).or_insert_with(|| RelayEntry {
-                created: Instant::now(),
-                nonce: String::new(),
-                relayed,
-            });
-        }
     }
 
     /// Registers the server with the master (`POST /v1/servers`), connects the `/v1/signal`
@@ -836,7 +845,6 @@ impl OnlineServer {
     /// (`async start()`: 20 s heartbeats, 120 s global ban refresh + kick,
     /// 60 s STUN re-discovery, and 3 s reconnect backoff).
     pub fn start(self: &Arc<Self>) -> Result<(), String> {
-        self.adopt_relays();
         if self.config.honor_global_bans {
             if let Ok(mut bans) = self.bans.lock() {
                 bans.refresh()?;
@@ -939,6 +947,30 @@ impl OnlineServer {
             *guard = Some(handle);
         }
         Ok(())
+    }
+
+    /// The next battle starts on the same game port: the listing and the match probe answer
+    /// describe it from now on, and the listing is refreshed at once. The registration, the
+    /// signalling connection and the relay allocations stay as they are.
+    pub fn next_battle(
+        &self,
+        query: String,
+        content: String,
+        rotation: Vec<String>,
+        browser: Arc<dyn Fn() -> BrowserInfo + Send + Sync>,
+    ) {
+        if let Ok(mut battle) = self.battle.write() {
+            *battle = Some(NextBattle { query, content, rotation, browser });
+        }
+        let _ = self.beat();
+    }
+
+    /// The query of the battle being played.
+    fn battle_query(&self) -> String {
+        match self.battle.read().ok().as_deref().and_then(Option::as_ref) {
+            Some(b) => b.query.clone(),
+            None => self.query.clone(),
+        }
     }
 
     /// Unregisters the server (`DELETE /v1/servers/:id`) and stops the signaling thread

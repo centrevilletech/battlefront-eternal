@@ -392,6 +392,7 @@ fn launch_match(
     control: &Arc<ServiceControl>,
     started_at: u64,
     match_token: Option<&str>,
+    port: Option<bfe_server::local_server::GamePort>,
 ) -> Result<(), String> {
     *control.status.write().unwrap() = "loading".to_string();
     let identity = ServerIdentity::load(directory)?;
@@ -430,6 +431,7 @@ fn launch_match(
         is_banned,
         on_score,
         match_token,
+        port,
     ) {
         Ok(local) => {
             let query = local.query.clone();
@@ -442,6 +444,7 @@ fn launch_match(
             // directory heartbeats and WebSocket rendezvous signaling (`if (config.onlineNoticeAccepted)`).
             if config.online_notice_accepted {
                 let mut active_cfg = config.clone();
+                let content_for_listing = content.clone();
                 active_cfg.content = Some(content);
                 let names = map_names(&config.data);
                 let cfg_for_browser = active_cfg.clone();
@@ -455,6 +458,11 @@ fn launch_match(
                         now_unix_ms(),
                     )
                 });
+                let kept = control.online.lock().unwrap().clone();
+                if let Some(online) = kept {
+                    online.next_battle(query, content_for_listing, active_cfg.rotation.clone(), browser_fn);
+                    return Ok(());
+                }
                 let op_ban = Arc::clone(operator);
                 let is_local_banned = Arc::new(move |id: &str| op_ban.banned(id));
                 let contract_json = NetworkContract::current().to_json();
@@ -557,7 +565,7 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
         *control.error.write().unwrap() = Some(why.clone());
         eprintln!("bfeserver: not hosting a match: {why}");
     } else if let Err(err) =
-        launch_match(directory, &config, &operator, &control, started_at, None)
+        launch_match(directory, &config, &operator, &control, started_at, None, None)
     {
         *control.status.write().unwrap() = "fault".to_string();
         *control.error.write().unwrap() = Some(err.clone());
@@ -597,16 +605,13 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
         }
         if let Some(next) = rotation.take_ready(now) {
             *control.status.write().unwrap() = "loading".to_string();
-            // Close the old registrations before admitting a new authority.
-            // No old snapshot baseline or own-player mapping crosses rounds.
-            let online = control.online.lock().unwrap().take();
-            if let Some(online) = online {
-                online.close();
+            // No old snapshot baseline or own-player mapping crosses rounds, but the game port
+            // outlives the battle (the next battle takes it over), and so do the online
+            // registration, its signalling connection and its relay allocations.
+            if let Some(online) = control.online.lock().unwrap().as_ref() {
+                online.hold_relays();
             }
-            let local = control.local.lock().unwrap().take();
-            if let Some(mut local) = local {
-                local.close();
-            }
+            let port = control.local.lock().unwrap().take().map(LocalDedicatedServer::hand_over);
             match launch_match(
                 directory,
                 &next.config,
@@ -614,6 +619,7 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
                 &control,
                 started_at,
                 Some(&next.token),
+                port,
             ) {
                 Ok(()) => eprintln!("battle rotation ready: query={}", next.query),
                 Err(err) => {

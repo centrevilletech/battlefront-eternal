@@ -17,8 +17,11 @@ impl Server{
         let addresses=address.to_socket_addrs().map_err(|e|format!("cannot resolve server: {e}"))?;let mut socket=None;
         for target in addresses.take(16){if let Ok(s)=TcpStream::connect_timeout(&target,Duration::from_secs(3)){socket=Some(s);break;}}
         let mut socket=socket.ok_or("cannot reach server information endpoint")?;socket.set_read_timeout(Some(Duration::from_secs(5))).map_err(|e|e.to_string())?;socket.set_write_timeout(Some(Duration::from_secs(5))).map_err(|e|e.to_string())?;
-        write!(socket,"GET /info HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\nAccept: application/json\r\n\r\n").map_err(|e|e.to_string())?;
-        let mut bytes=Vec::with_capacity(8192);socket.take(131073).read_to_end(&mut bytes).map_err(|e|e.to_string())?;
+        // One write: a request split over several segments can be answered and closed before its
+        // end arrives, which resets the connection.
+        let request=format!("GET /info HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\nAccept: application/json\r\n\r\n");
+        socket.write_all(request.as_bytes()).map_err(|e|format!("{INTERRUPTED}: {e}"))?;
+        let mut bytes=Vec::with_capacity(8192);socket.take(131073).read_to_end(&mut bytes).map_err(|e|format!("{INTERRUPTED}: {e}"))?;
         if bytes.len()>131072{return Err("server information exceeds bounds".into());}
         let body=response(&bytes)?;let info:Server=serde_json::from_slice(&body).map_err(|e|format!("invalid server information: {e}"))?;
         info.validate()?;Ok(info)
@@ -77,6 +80,10 @@ fn response(bytes:&[u8])->Result<Vec<u8>,String>{
 }
 // Errors of Server::read that mean nothing answered at that address.
 pub fn unreachable(error:&str)->bool{error.starts_with("cannot resolve server")||error.starts_with("cannot reach server")}
+const INTERRUPTED:&str="server information interrupted";
+// Errors worth another try in a moment: nothing answered, or the connection broke off (a server
+// changing battle or restarting). A server that answered with something else has said its piece.
+pub fn transient(error:&str)->bool{unreachable(error)||error.starts_with(INTERRUPTED)||error=="invalid HTTP information response"}
 // Profiles survive process restarts. Platform application data, rather than
 // the executable directory, gives ordinary launches the same durable key.
 pub fn default_identity()->Result<PathBuf,String>{
@@ -100,6 +107,13 @@ pub fn identity(path:&Path)->Result<Identity,String>{
 }
 #[cfg(test)]mod tests{
     use super::*;
+    #[test]fn a_broken_or_refused_connection_is_worth_another_try(){
+        assert!(transient("cannot reach server information endpoint"));
+        assert!(transient(&format!("{INTERRUPTED}: Connection reset by peer (os error 104)")));
+        assert!(transient("invalid HTTP information response"));
+        assert!(!transient("server information request failed"));
+        assert!(!transient(&version_mismatch("bfe-sim-1")));
+    }
     #[test]fn version_refusal_says_which_side_is_behind(){
         let ours:u32=contract::SIMULATION.rsplit('-').next().unwrap().parse().unwrap();
         assert!(version_mismatch(&format!("bfe-sim-{}",ours-1)).contains("older version"));
