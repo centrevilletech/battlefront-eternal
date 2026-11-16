@@ -10,6 +10,7 @@ pub mod archive;
 pub mod discover;
 pub mod host;
 pub mod launch;
+pub mod linux_integration;
 pub mod paths;
 pub mod prepare;
 pub mod presence;
