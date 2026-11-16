@@ -19,6 +19,9 @@ use bfe_render::interface::{
     anchor, mul, rotate_z, translate, Batch, Matrix, IDENTITY, UV,
 };
 
+/// The `ShellTextures::by_name` key of load.lvl's simple backdrop.
+pub const LOADING_BACKDROP: &str = "load_simple_backdrop";
+
 /// Populates `batch` with the loading screen's stage picture, zoom crop,
 /// tracking crosshairs, top-left planet name (in BF1 retail look; Eternal and
 /// BF2 looks render Saira typography through Slint `LoadingPageOverlay`),
@@ -34,9 +37,6 @@ use bfe_render::interface::{
 ///    `DISK.turn = 0.866`, with two counter-rotating `load_rotating_disk`
 ///    layers, 28 chasing LEDs at `DISK.ring = 52`, and `-14 deg` tilted
 ///    `LOADING` text (`gamefont_medium` in BF1 retail look).
-/// The `ShellTextures::by_name` key of load.lvl's simple backdrop.
-pub const LOADING_BACKDROP: &str = "load_simple_backdrop";
-
 #[allow(clippy::too_many_arguments)]
 pub fn draw_loading(
     batch: &mut Batch,
