@@ -54,7 +54,9 @@ pub const VIEW_FAR: usize = 1;
 pub const VIEW_FIRST_PERSON: usize = 2;
 pub const VIEW_SPARE: usize = 3;
 pub const VIEW_FAR_MIRROR: usize = 4;
-pub const VIEWS: usize = 5;
+// The near scene's frame block with the actors' own fade (renderer.rs actor_fade).
+pub const VIEW_ACTORS: usize = 5;
+pub const VIEWS: usize = 6;
 // Where the shadow receivers read BfeShadow (shader.rs); BfeFrame is 0.
 pub const SHADOW_BINDING: u32 = 1;
 
