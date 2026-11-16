@@ -215,6 +215,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
     //    and `PersistedPlayerSettings`.
     let paths = current_desktop_paths();
     let settings = AppSettingsStore::load(paths);
+    bfe_desktop::linux_integration::integrate_in_background();
 
     // 2. Bounded startup update handoff/check before opening the window (<= 1.5s timeout).
     if let UpdateCheckOutcome::UpdateAvailable { version, kind } =
