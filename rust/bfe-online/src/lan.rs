@@ -1,8 +1,7 @@
 // LAN server discovery over IPv4 broadcast and IPv6 link-local multicast
 // (`BFE-LAN/1` UDP protocol on port 18452).
 //
-// Ports the desktop host, the desktop host, and
-// `battlefront-eternal-server/src/lan.js`.
+// Ports the desktop host, the desktop host.
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6, UdpSocket};
@@ -383,7 +382,7 @@ mod tests {
     use crate::browser::{BattleSummary, ServerContract};
 
     // Recorded empty /info fields, wrapped in the LAN reply envelope. The
-    // same ServerEntry decoder serves direct HTTP discovery and the browser.
+    // same ServerEntry decoder serves direct HTTP discovery and the client.
     #[test]
     fn accepts_null_operator_metadata() {
         let reply = br#"{"magic":"BFE-LAN/1","type":"server","nonce":"00000000000000000000000000000000","info":{"id":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","name":"Native LAN paired engine","port":18451,"description":null,"location":null,"players":2,"maxPlayers":8}}"#;

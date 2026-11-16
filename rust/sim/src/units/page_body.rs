@@ -1,4 +1,4 @@
-//! Soldier construction, spawn and immediate look from soldier.js. Cold
+//! Soldier construction, spawn and immediate look. Cold
 //! bodies publish generated mirrors; a frame consumes all pointer samples
 //! together using the same Soldier methods as authority and private replay.
 use crate::gen::{BodyLook, BodyPreviewFrame, Soldier};
@@ -64,7 +64,7 @@ pub(crate) mod module {
     use crate::{gen::{BodySpawn,BodySpawnOutput}};
     // Another preview does not resize either reserved allocation.
     fn owner(w: &mut crate::world::owner::World) -> &mut Preview {
-        // One thread owns the page preview; no borrow crosses a host import.
+        // One thread owns the screen preview; no borrow crosses a host import.
         w.page_body.preview.get_or_insert_with(|| Preview {
             frame: [0.0; BodyPreviewFrame::WORDS], looks: vec![0.0; LOOKS * BodyLook::WORDS] })
     }
@@ -103,7 +103,7 @@ pub(crate) mod module {
             f.source_basis=source.basis;
         }
         preview(&mut f, &p.looks);
-        // The camera's scalar host math preserves the browser's last bits;
+        // The camera's scalar host math preserves the last bits;
         // body/scene methods never cross this numeric boundary.
         if with_aim!=0 {aim::<crate::cameras::HostMath>(&mut f);}
         // Both records contain scalars only; no heap can grow on this path.
@@ -141,7 +141,7 @@ pub(crate) mod module {
             spawn_cast(w,world,p,d,far)
         });
         // Native Unit.spawn enters deployed mode and resets interpolation.
-        // The page sends the two animator reset commands after publication.
+        // The screen sends the two animator reset commands after publication.
         let out=DroidekaSpawnOutput{position:body.position,previous:body.position,settled:body.position,
             velocity:body.velocity,aim_yaw:body.aim_yaw,aim_pitch:body.aim_pitch,legs:body.legs,spin:body.spin,
             dead:body.dead,mode:0.0,time:0.0,reverse:false,
@@ -149,7 +149,7 @@ pub(crate) mod module {
         let s=&mut w.sim;s.calls.result(DroidekaSpawnOutput::WORDS,|row,heap|out.put(row,heap));Some(&s.calls.block.words[..])
     }
     // Soldier.spawn uses the same reset as Unit.spawn. The collision store
-    // is borrowed directly, so the grounding query cannot call the page.
+    // is borrowed directly, so the grounding query cannot call the screen.
     pub(crate) fn body_spawn_in(w: &mut crate::world::owner::World, world: u32) -> Option<&[f64]> {
         let (row, heap) = w.sim.calls.args(); let input = BodySpawn::take(row, heap);
         let mut body = Soldier::default(); body.jet.recharge = input.recharge;

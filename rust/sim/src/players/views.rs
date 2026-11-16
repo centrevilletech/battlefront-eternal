@@ -1,7 +1,7 @@
 //! The AI's camera facts for a dedicated match (src/runtime/network-views.js
 //! networkViews): AI scheduling uses authoritative bodies and aim, never a
 //! client camera position. One broad view a living player, where his body
-//! stands and the way his seat or his soldier looks, composed as the page's
+//! stands and the way his seat or his soldier looks, composed as the client's
 //! camera object did (three.js Object3D.lookAt and updateMatrixWorld).
 use super::owner::Players;
 use crate::gen::{AiPhaseCamera, AiPhaseHeader, UnitBody};

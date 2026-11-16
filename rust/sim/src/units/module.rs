@@ -96,7 +96,7 @@ pub fn units_droideka_attach_in(world_ctx: &mut crate::world::owner::World, unit
 /// A prepared hidden gun hierarchy, before native posing takes ownership.
 
 // Droideka.arm has prepared a hidden muzzle hierarchy before this call.
-// The hierarchy is independent of the page's interpolated drawn bones.
+// The hierarchy is independent of the client's interpolated drawn bones.
 // Gameplay later samples this native rig after movement and before flush.
 // No per-barrel JavaScript query runs inside the combat update.
 pub fn units_muzzle_attach_in(world_ctx: &mut crate::world::owner::World, unit: u32, class: u32) {
@@ -146,7 +146,7 @@ fn held(u: &Unit) -> bool {
     matches!(u.held, Nullable::Value(_))
 }
 
-/// The rest of the step's loop for a unit after his tick (src/game.js):
+/// The rest of the step's loop for a unit after his tick:
 /// a soldier in the water, a droideka in deep water, a death region.
 // Game.step applies water and death regions immediately after Unit.tick.
 // Use that tick's body position, including a just-completed droideka movement.
@@ -183,7 +183,7 @@ fn after_tick(id: u32, unit: &mut Unit, info: &UnitsPhaseUnit, level: f64, dt: f
     }
     if water && unit.alive && unit.seat.is_none() && !held(unit) && unit.walker {
         if let (Some(rule), UnitBody::Droideka(d)) = (&info.droideka_water, &mut unit.soldier) {
-            // src/vehicle-water.js waterDamageStep(body, dt, water, rule,
+            // waterDamageStep(body, dt, water, rule,
             // body.position, droidekaWaterDepth(def, rolled)).
             let mut hurt = 0.0;
             if dt > 0.0 {
@@ -340,7 +340,7 @@ impl UnitsWorld for ModuleWorld<'_, '_> {
     // No other gameplay callback may use this observation to start a second phase.
     fn aim(&mut self, id: u32, unit: &mut Unit, h: f64) {
         // The aimer only for a unit with a controller: without one the
-        // AI's aim does nothing (src/ai/index.js aim).
+        // AI's aim does nothing (aim).
         if unit.controller.is_none() {
             return;
         }

@@ -260,7 +260,7 @@ pub struct BufferedStereoConvolver {
 impl BufferedStereoConvolver {
     // IRCAM HRTFPanner's FFTConvolver collects a half-transform before
     // publishing it. Keep that latency instead of substituting the SADIE
-    // partitioner; source arrival time is part of the browser response.
+    // partitioner; source arrival time is part of Chromium's response.
     pub fn new(len: usize) -> Self {
         Self {
             input: vec![Complex::default(); len],

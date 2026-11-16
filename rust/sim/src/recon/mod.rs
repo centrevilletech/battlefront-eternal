@@ -1510,7 +1510,7 @@ pub struct Blast {
 // The wrapper exposes the ordinary Arsenal draw interface without imports.
 // A collected shot stores its resulting spread before any native F1 fire.
 // The context seed is committed before recursive hit and blast services run.
-// Page prediction retains a separate private stream for its replay session.
+// Client prediction retains a separate private stream for its replay session.
 // Sharing the interface does not share those independent generator states.
 struct Draws(ClassicRandom);
 impl WeaponDraws for Draws {

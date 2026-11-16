@@ -80,7 +80,7 @@ export component SelectField inherits Interaction {
     in property <length> font-size: root.uppercase || root.accent-style ? Theme.field-font-size : Theme.page-theme-select-font-size;
     in-out property <bool> open: false;
     in property <length> popup-width: self.width;
-    // A browser <select> is as wide as its widest option; a column header uses it so the box does not jump per choice.
+    // A client <select> is as wide as its widest option; a column header uses it so the box does not jump per choice.
     in property <bool> fit-widest: false;
     callback selection-changed(int);
     preferred-height: Theme.field-height;

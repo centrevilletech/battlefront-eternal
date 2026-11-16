@@ -99,7 +99,7 @@ impl Policy {
             256.
         };
         // Frame.mirror used to reconstruct a Three frustum and scan every
-        // water-cell Box3 in the browser. Both near and far culling now share
+        // water-cell Box3 in the client. Both near and far culling now share
         // these admitted bounds and the camera's observed matrices.
         let inverse = Matrix4 {
             elements: c[input::INVERSE..input::INVERSE + 16].try_into().unwrap(),

@@ -16,7 +16,7 @@ export component PopupBox inherits Surface {
     callback button-hovered(int);
     property <int> active-button: root.selected-button >= 0 ? root.selected-button : (root.cancel-label != "" ? 1 : 0);
     // Off keeps the fixed width every landed screen was matched with; on shrink-wraps the text between
-    // min(480px, 86vw) and min(700px, 92vw), which is the browser box.
+    // min(480px, 86vw) and min(700px, 92vw), which is the earlier build box.
     in property <bool> fit-text: false;
     preferred-width: root.fit-text
         ? min(700px, 92 * Theme.vw, max(min(480px, 86 * Theme.vw), content.preferred-width + 6 * Theme.vw))
@@ -137,7 +137,7 @@ export component PageDialog inherits Surface {
     }
 }
 
-// Desktop integration offer dialog (src/shell/integrations.js): eyebrow note,
+// Desktop integration offer dialog: eyebrow note,
 // heading, body paragraphs, optional status line, and dialog/accept footer buttons.
 export component OfferDialog inherits Surface {
     in property <string> eyebrow;

@@ -380,6 +380,23 @@ class DistributionTest(unittest.TestCase):
                 '--report-out', str(report),
             ], check=True, stdout=subprocess.DEVNULL)
             self.assertIn('Battlefront-Eternal-0.1.0-preview.10-linux-amd64.deb', report.read_text())
+            # Servers set up before bfeserver update through resources/host-runtime: the launcher,
+            # bfeserver beside it, the checks their updater asks for and that updater.
+            runtime = staged / 'resources/host-runtime'
+            for name in ('server/src/main.js', 'engine/src/runtime/network-contract.js',
+                         'engine/src/runtime/content-hash.js', 'update/server.js', 'update/package.json'):
+                self.assertTrue((runtime / name).is_file(), name)
+            self.assertEqual((runtime / 'server/bfeserver').read_bytes(), (staged / 'bfeserver').read_bytes())
+            self.assertEqual((runtime / 'server/bfeserver').stat().st_mode & 0o777, 0o755)
+            tree = json.loads((staged / 'resources/bfe-tree.json').read_text())
+            self.assertIn('resources/host-runtime/server/src/main.js', {f['path'] for f in tree['files']})
+            import tarfile
+            with tarfile.open(packages / 'battlefront-eternal-server_0.1.0-preview.10_linux-amd64.tar.xz') as archive:
+                names = set(archive.getnames())
+                server_tree = json.load(archive.extractfile('bfe-tree.json'))
+            self.assertIn('install-server.sh', names)
+            self.assertEqual(server_tree['version'], '0.1.0-preview.10')
+            distribution.check_server_archive(packages / 'battlefront-eternal-server_0.1.0-preview.10_linux-amd64.tar.xz')
 
             # Also verify the client-only case when the bfeserver crate is absent:
             # no placeholder server binary is staged, and check-packages.py accepts
@@ -394,6 +411,7 @@ class DistributionTest(unittest.TestCase):
                 '--out-dir', str(staged_no_srv),
             ], check=True, stdout=subprocess.DEVNULL)
             self.assertFalse((staged_no_srv / 'bfeserver').exists())
+            self.assertFalse((staged_no_srv / 'resources/host-runtime').exists())
             subprocess.run([
                 sys.executable, str(repo / 'build/native/package-linux.py'),
                 '--staged-dir', str(staged_no_srv),

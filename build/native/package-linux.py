@@ -121,9 +121,9 @@ def build_deb(staged_dir: Path, platform: str, version: str, out_dir: Path, repo
             'Maintainer: Battlefront Eternal Contributors <contact@battlefronteternal.com>',
             'Homepage: https://battlefronteternal.com',
             'Description: Fan-made engine for Star Wars: Battlefront (2004)',
-            ' Battlefront Eternal plays Star Wars: Battlefront (2004) from your own Steam',
-            ' or GOG copy: desktop client, dedicated server and the tools that prepare',
-            ' the game data. No original game files are included.',
+            ' Battlefront Eternal is a fan-made engine, written in Rust, that plays',
+            ' Star Wars: Battlefront (2004) from the player\'s own Steam or GOG copy.',
+            ' It includes the game client and the dedicated server.',
             '',
         ]
         control_file = debian_dir / 'control'

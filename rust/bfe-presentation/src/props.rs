@@ -1,11 +1,11 @@
-//! The page's animated props and log traps (LiveObjects.presentAnimated of
-//! src/props.js, AnimatedProp.step/follow on the page and Trap.present of
+//! The client's animated props and log traps (LiveObjects.presentAnimated of
+//! src/props.js, AnimatedProp.step/follow on the client and Trap.present of
 //! src/traps.js), stepped in one batched frame. Registration owns every
 //! allocation; the frame reads soldiers' feet, bodies and the adopted world
 //! state from fixed records and publishes each posed prop's bones, and
 //! where a creature hangs whom it holds (AnimatedProp.presentHeld). The
 //! world's props are rust/sim battle/animated.rs: both reach the clocks of
-//! bfe_pose::prop, so a page draws a prop as the world steps it.
+//! bfe_pose::prop, so a client draws a prop as the world steps it.
 use crate::layout::{
     prop_body as pb, prop_held as hs, prop_bone as bo, prop_event as pe, prop_foot as pf,
     prop_frame as fr, prop_header as ph, prop_input as pi, prop_limits as lim, prop_output as po,
@@ -31,7 +31,7 @@ pub struct TriggerInput {
     /// Whether it plays a sound (the host plays it).
     pub sound: bool,
 }
-/// An AnimatedProp's load-time description (the JS constructor's fields):
+/// An AnimatedProp's load-time description:
 /// clip handles by slot, its triggers' world points, and its bones'
 /// current and bind transforms (quaternion then position, 7 per bone).
 #[derive(Deserialize)]
@@ -94,7 +94,7 @@ pub struct TrapDesc {
     pub trigger_clip: Option<u32>,
     /// The haul up, if any.
     pub build_clip: Option<u32>,
-    /// The swing's length at 30 frames a second (traps.js length).
+    /// The swing's length at 30 frames a second (length).
     pub trigger_length: f64,
 }
 
@@ -102,7 +102,7 @@ struct Prop {
     scene: crate::scene::Scene,
     /// The sampler AnimatedProp keeps.
     pose: Pose,
-    /// The stand pose, Float32Array storage as the JS keeps it.
+    /// The stand pose, Float32Array storage it.
     stand_q: Vec<f32>,
     stand_t: Vec<f32>,
     /// Each bone's bind (a door starts from it).
@@ -163,7 +163,7 @@ pub struct Props {
     traps: Vec<Trap>,
     /// PropFrame, then PropLimits.FEET feet and PropLimits.BODIES bodies.
     pub input: Vec<f64>,
-    /// A PropInput record per prop (the world state a page adopted).
+    /// A PropInput record per prop (the world state a client adopted).
     pub prop_input: Vec<f64>,
     pub prop_output: Vec<f64>,
     pub trap_input: Vec<f64>,
@@ -227,7 +227,7 @@ impl Props {
         (self.clips.len() - 1) as u32
     }
 
-    /// An animated prop with a pose (the JS constructor's). Returns its
+    /// An animated prop with a pose. Returns its
     /// index; its bones start at `bone_start(index)`.
     pub fn add_prop(&mut self, d: PropInput) -> usize {
         let bones = d.initial.len() / 7;
@@ -327,7 +327,7 @@ impl Props {
         self.traps.len() - 1
     }
     /// TurretSeats.present and poseTurret join this phase; registration
-    /// reserves every matrix row before the page can present a frame.
+    /// reserves every matrix row before the client can present a frame.
     pub fn add_turret(&mut self, d: crate::turrets::Descriptor) -> usize {
         let turret = crate::turrets::Turret::new(d, &mut self.nodes);
         let start = turret.scene.start;
@@ -346,7 +346,7 @@ impl Props {
     }
 
     /// One frame (presentAnimated): the traps at the tick drawn, then each
-    /// prop following the world's state or stepping on the page's soldiers.
+    /// prop following the world's state or stepping on the client's soldiers.
     pub fn frame(&mut self) {
         if self.input[fr::VERSION] != crate::layout::VERSION as f64 {
             self.header[ph::STATUS] = status::VERSION_MISMATCH as f64;
@@ -393,7 +393,7 @@ impl Props {
             let x = &self.prop_input[at..at + pi::STRIDE];
             // AnimatedProp.adopt: the world's latest state of a creature,
             // taken when its clip or start differs from the one shown. The
-            // first a page has stands at once; later ones ease in.
+            // first a client has stands at once; later ones ease in.
             if p.grabs && x[pi::WORLD] != 0.0 && (x[pi::SLOT] != p.slot as f64 || x[pi::STARTED] != p.started) {
                 p.adopted = if p.adopted == Adopted::None { Adopted::First } else { Adopted::Following };
                 p.slot = clamp_slot(x[pi::SLOT]);
@@ -403,7 +403,7 @@ impl Props {
             }
             // presentAnimated's three cases: a creature following the world,
             // one idling before its state arrives (no bodies: it seizes no
-            // one here), and any other prop stepping on the page's soldiers.
+            // one here), and any other prop stepping on the client's soldiers.
             let posed = if p.grabs && p.adopted != Adopted::None {
                 let posed = p.follow(&self.clips, dt, tick, p.adopted == Adopted::First, out);
                 // follow() keeps easing once the world's clip is known.
@@ -455,9 +455,9 @@ fn clamp_slot(x: f64) -> i32 {
     if x >= 0.0 { x.min(i32::MAX as f64) as i32 } else { -1 }
 }
 
-/// AnimatedProp.presentHeld and heldFrame: where a page draws whom a
+/// AnimatedProp.presentHeld and heldFrame: where a client draws whom a
 /// creature holds, `time` seconds into his hold. Before the tick it took
-/// him (the page draws a little behind the world) he is drawn where his own
+/// him (the client draws a little behind the world) he is drawn where his own
 /// record has him (WAITING). Then his body in his grab clip at that time,
 /// his root bone (bone_root, as the clip poses it) on the grab's node,
 /// turned with it: the 2004 game's inverse root times the node. Not placed
@@ -568,7 +568,7 @@ impl Prop {
             dx * dx + dy * dy + dz * dz <= r
         })
     }
-    /// AnimatedProp.step as a page runs it: no one is seized here, so no
+    /// AnimatedProp.step as a client runs it: no one is seized here, so no
     /// grab or swallow. Returns the trigger whose sound plays, or -1.
     fn step(&mut self, clips: &[Clip], dt: f64, feet: &[f64], bodies: &[f64], tick: f64, out: &mut [f64]) -> i32 {
         if self.door {
@@ -631,7 +631,7 @@ impl Prop {
         fired
     }
     /// AnimatedProp.follow: the clip at the world's time for `tick`, eased
-    /// as the world eases it. The first state a page adopts stands at once.
+    /// as the world eases it. The first state a client adopts stands at once.
     fn follow(&mut self, clips: &[Clip], dt: f64, tick: f64, first: bool, out: &mut [f64]) -> bool {
         if self.slot < 0 {
             return false;

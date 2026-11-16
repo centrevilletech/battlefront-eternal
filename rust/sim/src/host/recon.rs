@@ -1,5 +1,5 @@
 //! The recon gun notification's authority-side listener. F3Recon.fired in
-//! src/sim/wasm/f3-recon.js calls Game's RemoteDroids.onFired callback with
+//! calls Game's RemoteDroids.onFired callback with
 //! the sampled position and immutable droid definition, not its final pose.
 use super::capture::{Capture, Token};
 use super::journal::Journal;

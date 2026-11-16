@@ -1,4 +1,4 @@
-//! Objectives and command-post geometry (goals.js): the mission
+//! Objectives and command-post geometry: the mission
 //! script's controls, the region test a post's contains runs, the
 //! centre/offset/arrival geometry the patrol reads through the
 //! population bag, and ClassicObjectives' data. The objective
@@ -7,7 +7,7 @@
 use super::world::{PostSnap, RegionKind, RegionSnap};
 use super::super::nav::math::Vec3;
 
-/// What a mission script set (goals.js:590 missionControls).
+/// What a mission script set (missionControls).
 #[derive(Clone, Debug, PartialEq)]
 pub struct MissionControls {
     /// team -> aggressiveness (stored, never read as a multiplier).
@@ -139,7 +139,7 @@ fn apply_matrix4(p: Vec3, e: &[f64; 16]) -> Vec3 {
     )
 }
 
-/// inRegion (regions.js:50): the inverse carries the centre, so the
+/// inRegion: the inverse carries the centre, so the
 /// point goes through it as it is; a sphere skips the matrix.
 pub fn in_region(region: &RegionSnap, point: Vec3) -> bool {
     match region.kind {
@@ -156,7 +156,7 @@ pub fn in_region(region: &RegionSnap, point: Vec3) -> bool {
     }
 }
 
-/// Post.contains (commandposts.js:84).
+/// Post.contains.
 pub fn post_contains(post: &PostSnap, point: Vec3) -> bool {
     match &post.region {
         Some(region) => in_region(region, point),
@@ -164,7 +164,7 @@ pub fn post_contains(post: &PostSnap, point: Vec3) -> bool {
     }
 }
 
-/// objectiveCenter (goals.js:472): the capture's centre, else the
+/// objectiveCenter: the capture's centre, else the
 /// post's own position.
 pub fn objective_center(post: &PostSnap) -> Vec3 {
     match &post.ai.capture {
@@ -173,7 +173,7 @@ pub fn objective_center(post: &PostSnap) -> Vec3 {
     }
 }
 
-/// objectiveOffset (goals.js:483): z drawn first, then x, across the
+/// objectiveOffset: z drawn first, then x, across the
 /// built half extents (3 m without a capture region). Draws are
 /// drawRange on the caller's stream.
 pub fn objective_offset(post: &PostSnap, draw: &mut dyn FnMut() -> f64) -> Vec3 {
@@ -186,7 +186,7 @@ pub fn objective_offset(post: &PostSnap, draw: &mut dyn FnMut() -> f64) -> Vec3 
     Vec3::new(x, 0.0, z)
 }
 
-/// objectiveArrived (goals.js:503).
+/// objectiveArrived.
 pub fn objective_arrived(
     post: &PostSnap,
     offset: Vec3,
@@ -213,7 +213,7 @@ pub fn objective_arrived(
     d < v8math::fround(r * r)
 }
 
-/// friendlySpawnEligible (goals.js:532): the radius when flyers may
+/// friendlySpawnEligible: the radius when flyers may
 /// stay around the post, or None for false.
 pub fn friendly_spawn_eligible(post: &PostSnap, team: f64, relation: &dyn Fn(f64, f64) -> f64) -> Option<f64> {
     if !post.active || post.ai.spawn_present != Some(true) {
@@ -232,12 +232,12 @@ pub fn post_radius(post: &PostSnap) -> f64 {
     if post.ai.radius > 0.0 { post.ai.radius } else { post.radius }
 }
 
-/// ownerOf (goals.js:152): the post's team, truncated.
+/// ownerOf: the post's team, truncated.
 pub fn owner_of(post: &PostSnap) -> f64 {
     v8math::to_int32(post.team) as f64
 }
 
-/// friendlySpawn (goals.js:163).
+/// friendlySpawn.
 pub fn friendly_spawn(post: &PostSnap, team: f64, relation: &dyn Fn(f64, f64) -> f64) -> bool {
     if !post.active {
         return false;
@@ -252,7 +252,7 @@ pub fn friendly_spawn(post: &PostSnap, team: f64, relation: &dyn Fn(f64, f64) ->
     relation(owner, team) > 0.0 && post.ai.ally_present == Some(true)
 }
 
-/// postWeight (goals.js:176): by team index. Faction indexes the
+/// postWeight: by team index. Faction indexes the
 /// six values (factionOf gives 0..5; an index outside reads 0).
 pub fn post_weight(post: &PostSnap, team: f64, faction: f64) -> f64 {
     let at = |values: &[f64; 6]| {
@@ -273,10 +273,10 @@ pub fn post_weight(post: &PostSnap, team: f64, faction: f64) -> f64 {
     }
 }
 
-/// The attack bias (goals.js:184).
+/// The attack bias.
 pub const OBJECTIVE_ATTACK_BIAS: f64 = 3.0;
 
-/// selectObjective (goals.js:227). `posts` are the battle's posts in
+/// selectObjective. `posts` are the battle's posts in
 /// order; the answer is an index among them.
 pub fn select_objective(
     posts: &[PostSnap],
@@ -436,7 +436,7 @@ pub fn select_objective_rows<'a>(
     None
 }
 
-/// factionOf (goals.js:56): a team name's faction; anything
+/// factionOf: a team name's faction; anything
 /// unrecognized is Locals (5), "neutral" is none.
 pub fn faction_of(name: &str) -> f64 {
     match name.to_lowercase().as_str() {
@@ -449,7 +449,7 @@ pub fn faction_of(name: &str) -> f64 {
     }
 }
 
-/// travelMaskOf (goals.js:63): String(sizeType) lower-cased in the
+/// travelMaskOf: String(sizeType) lower-cased in the
 /// size table; anything else is soldier. (Navigation's own mask
 /// trims and accepts integers; this one does neither.)
 pub fn travel_mask_of(size: &super::super::nav::units::SizeType) -> f64 {

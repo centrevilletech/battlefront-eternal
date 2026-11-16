@@ -24,7 +24,7 @@ use three::{Matrix4, Quaternion, Vector3};
 // Replicated bolt slots: with every predicted bolt and the closing NET record
 // they fill the ordnance input exactly.
 const BOLTS: usize = limits::RECORDS - COSMETICS - 1;
-// m over which a bolt drawn from the muzzle joins its path (ordnance.js).
+// m over which a bolt drawn from the muzzle joins its path.
 const MERGE: f64 = 8.;
 #[derive(Clone, Copy, Default)]
 // NetworkCombatViews retains a visual life separately from a trigger edge.
@@ -194,7 +194,7 @@ pub struct Combat {
     blaster_count: usize,
     /// Enhanced bolt capsules handed to the renderer so far.
     pub total_blasters: u64,
-    // SniperTrace (src/sniper-trace.js): the Enhanced sniper look's owner,
+    // SniperTrace: the Enhanced sniper look's owner,
     // its two renderer batches and where their rows sit in the effect data.
     sniper: bfe_presentation::sniper::Sniper,
     streaks: u32,
@@ -221,7 +221,7 @@ pub struct Combat {
     flames: Vec<Flame>,
     /// Classic jet exhaust effects started so far.
     pub total_flames: u64,
-    /// The droids' Enhanced deaths (destruction.js).
+    /// The droids' Enhanced deaths.
     pub destruction: super::destruction::Destructions,
     droid_explosions: Vec<usize>,
     /// The map's placed effects (torches, smoke, steam).
@@ -344,7 +344,7 @@ impl Combat {
             // colour and proportions, from the same authored numbers. A
             // heavy gun (no GlowLength) takes its hue from its laser
             // texture's saturated texels when that texture has one
-            // (blaster-bolts.js textureHue).
+            // (textureHue).
             let authored: style::Content = serde_json::from_value(authored_json(def)).unwrap_or_default();
             let look = style::row(&authored, true);
             row[s::LOOK_COLOR..s::LOOK_COLOR + 3].copy_from_slice(&look[s::LOOK_COLOR..s::LOOK_COLOR + 3]);
@@ -392,7 +392,7 @@ impl Combat {
             .weapons
             .iter()
             .map(|weapon| {
-                // weapons.js levels: the class itself, then each of its
+                // levels: the class itself, then each of its
                 // charges laid over it.
                 let charges = weapon.record.get("charges").and_then(bfe_content::Value::as_array).map_or(&[][..], |list| &list[..]);
                 std::iter::once(None)
@@ -454,7 +454,7 @@ impl Combat {
             .filter_map(|c| super::destruction::explosion_of(&c.record))
             .flat_map(|name| super::destruction::explosion_ids(&defs, name).collect::<Vec<_>>())
             .collect();
-        // environment-effects.js warmup: each group's longest particle life,
+        // warmup: each group's longest particle life,
         // at most 4 s.
         let lifetime = |d: &serde_json::Value| d["transformer"]["lifetime"].as_f64().unwrap_or(0.);
         let definitions_json = library.descriptor["definitions"].as_array().map_or(&[][..], |v| v.as_slice());
@@ -551,7 +551,7 @@ impl Combat {
     /// (`effects.play(name, flameAt, null, velocity, flameTurn)`, then
     /// `jetFlame.move(...)`), from the next frame's batch on. A frame
     /// without this call stops it. The effect's emitters stay where it
-    /// authors them; the browser also moves each to the pack's nearest
+    /// authors them; the client also moves each to the pack's nearest
     /// outlet (attachNozzles).
     pub fn flame(&mut self, unit: (u32, u32), group: usize, position: [f64; 3], velocity: [f64; 3], turn: [f64; 4]) {
         if let Some(flame) = self.flames.iter_mut().find(|flame| flame.unit == unit) {
@@ -762,7 +762,7 @@ impl Combat {
             // Session's changed-field lease was copied by the receiver before
             // another packet could reuse it. Borrow that journal synchronously;
             // no combat object or payload vector is constructed on this path.
-            // Wire schemas below retain the browser's shared decoder rules.
+            // Wire schemas below retain the client's shared decoder rules.
             let bytes = &field.bytes[..field.length];
             let schema = row[wire::SCHEMA] as u32;
             if let Some(count) = self.received.get_mut(schema as usize) {
@@ -1281,7 +1281,7 @@ impl Combat {
         self.ordnance.input[f::FRAME] = self.frame as f64;
         self.ordnance.input[f::RECORDS] = count as f64;
         self.ordnance.input[f::NET_COMMANDS] = net_count as f64;
-        // graphics.js: `boltLook.enhanced = settings.get("boltEffects") !==
+        // `boltLook.enhanced = settings.get("boltEffects") !==
         // "classic"`; the owner draws either look from this one flag.
         self.ordnance.input[f::ENHANCED_BOLTS] = self.enhanced_bolts as u8 as f64;
         self.ordnance.input[f::ENHANCED_SNIPER] = self.enhanced_sniper as u8 as f64;
@@ -1289,7 +1289,7 @@ impl Combat {
         self.clock += dt;
         self.rail_touches.clear();
         for call in self.ordnance.calls().chunks_exact(call::STRIDE).take(self.ordnance.header[h::CALLS] as usize) {
-            // ordnance.js lights.add: a bolt, round or beam asks for one of
+            // lights.add: a bolt, round or beam asks for one of
             // the pool's lights where it is drawn this frame.
             if call[call::KIND] == ck::LIGHT as f64 {
                 lights.add(
@@ -1434,7 +1434,7 @@ impl Combat {
         self.particles.finish(bridge);
         // BlasterBatch.load: the owner's capsules, plane after plane, then
         // the batch's value, which `project` fills once the lens is known.
-        // Drawn after the particles, as the browser's mesh is (render
+        // Drawn after the particles, as the client's mesh is (render
         // order 11).
         let count = (self.ordnance.header[h::BLASTERS] as usize).min(limits::BLASTERS);
         self.blaster_count = count;

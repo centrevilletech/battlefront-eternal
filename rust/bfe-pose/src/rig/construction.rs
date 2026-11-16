@@ -46,7 +46,7 @@ fn pair(value: Option<&Value>) -> Option<[f64; 2]> {
     (parts.len() >= 2 && parts[..2].iter().all(|v| v.is_finite())).then(|| [parts[0],parts[1]])
 }
 /// seatView's camera parser also honors hashed tension keys, just as
-/// flight/camera.js cameraTension does for the flyer control section.
+/// cameraTension does for the flyer control section.
 fn view(s: Option<&Value>, index: usize, flying: bool, turn_rate: f64) -> Record {
     let key = |k: &str| s.and_then(|s| s.get(k));
     // EyePointOffset seeds TrackCenter; an explicit center then wins. Camera

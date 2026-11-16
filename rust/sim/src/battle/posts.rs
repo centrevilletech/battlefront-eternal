@@ -1,4 +1,4 @@
-//! Command posts (src/commandposts.js), following the 2004 game. Soldiers in
+//! Command posts, following the 2004 game. Soldiers in
 //! a post's capture region count for their team's capture team; N of a
 //! team capture at 1 + 1/2 + ... (N terms) times the base rate; an owned
 //! post that other teams stand in is neutralized over NeutralizeTime at the
@@ -8,7 +8,7 @@
 //! A post without a capture region never changes hands. A destructible
 //! post (one with a building) goes inactive for the battle when its
 //! building is destroyed. The command vehicles' posts follow the placed
-//! ones in all() and owned() (src/mobile-posts.js).
+//! ones in all() and owned().
 
 use super::mobile::{self, MobileEvent};
 use super::regions::in_region;
@@ -100,7 +100,7 @@ impl Change {
     }
 }
 
-/// destroy() (commandposts.js:69): out of the battle, its owner kept.
+/// destroy(): out of the battle, its owner kept.
 pub fn destroy(post: &mut Post) -> Change {
     post.active = false;
     post.counts.clear();
@@ -111,7 +111,7 @@ pub fn destroy(post: &mut Post) -> Change {
     Change::Destroyed { from: post.team }
 }
 
-/// contains(point) (commandposts.js:81).
+/// contains(point).
 pub fn contains(post: &Post, point: &Vector3) -> bool {
     post.capture.as_ref().is_some_and(|c| in_region(c, point))
 }
@@ -125,7 +125,7 @@ fn present(post: &Post) -> (usize, Option<(f64, f64)>) {
     (count, first)
 }
 
-/// remaining() (commandposts.js:86): seconds until the current capture or
+/// remaining(): seconds until the current capture or
 /// neutralize lands, or Infinity.
 pub fn remaining(post: &Post) -> f64 {
     let (teams, first) = present(post);
@@ -143,7 +143,7 @@ pub fn remaining(post: &Post) -> f64 {
     ((1.0 - post.progress) * post.capture_time) / rate(n)
 }
 
-/// update(dt) (commandposts.js:99).
+/// update(dt).
 pub fn update_post(post: &mut Post, dt: f64) -> Option<Change> {
     let (teams, first) = present(post);
     post.contested = teams > 1;
@@ -209,7 +209,7 @@ pub struct Capturer {
     pub position: Vector3,
 }
 
-/// all() (commandposts.js:349): every post the battle counts, the command
+/// all(): every post the battle counts, the command
 /// vehicles' as they are now.
 pub fn all<W: PostsWorld + ?Sized>(s: &mut Store, world: &mut W) -> Vec<SpawnPost> {
     mobile::refresh_all(s, world);
@@ -293,7 +293,7 @@ pub fn value_bleed(s: &Store, p: SpawnPost) -> Option<f64> {
     }
 }
 
-/// owned(team) (commandposts.js:414): the posts a team holds, its living
+/// owned(team): the posts a team holds, its living
 /// command vehicles' included.
 pub fn owned<W: PostsWorld + ?Sized>(s: &mut Store, team: f64, world: &mut W) -> Vec<SpawnPost> {
     let list = all(s, world);
@@ -311,7 +311,7 @@ pub fn mobile_events<W: PostsWorld + ?Sized>(s: &mut Store, world: &mut W) -> Ve
     mobile::events(s, world)
 }
 
-/// at(point) (commandposts.js:409): the post whose capture region holds a
+/// at(point): the post whose capture region holds a
 /// point.
 pub fn at(s: &Store, point: &Vector3) -> Option<Ref<Post>> {
     s.command_posts.posts.iter().copied().find(|&r| {
@@ -320,7 +320,7 @@ pub fn at(s: &Store, point: &Vector3) -> Option<Ref<Post>> {
     })
 }
 
-/// update(dt, soldiers) (commandposts.js:379) on a world (no camera). Each
+/// update(dt, soldiers) on a world (no camera). Each
 /// soldier counts for his team's capture team (the registry's, when the
 /// posts have its table: the world answers).
 pub fn update<W: PostsWorld + ?Sized>(s: &mut Store, dt: f64, soldiers: &[Capturer], world: &mut W) {

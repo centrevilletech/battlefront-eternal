@@ -44,7 +44,7 @@ pub(super) fn ground(v: &mut Vehicle, c: &GroundState) {
 
 // The full checkpoint and compact authority body share fields but not offsets.
 // Named assignments keep the two established wire orders explicit; neither
-// representation changes when a page prediction mode changes.
+// representation changes when a client prediction mode changes.
 pub(super) fn flight(v: &mut Vehicle, c: &FlightState, texts: &FlightTextIds) {
     // restoreCompactFlight retains inactive vectors. Clearing them would
     // change a later full checkpoint even before the next maneuver starts.

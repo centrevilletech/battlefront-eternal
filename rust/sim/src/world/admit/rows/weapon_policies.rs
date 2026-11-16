@@ -1,4 +1,4 @@
-//! The cold AI weapon source (ai-data.js and weapon-policy-content.js).
+//! The cold AI weapon source.
 //!
 //! The simulation already parses authored policy and computes per-level
 //! defaults. Admission transports original bytes and canonical weapon ids;

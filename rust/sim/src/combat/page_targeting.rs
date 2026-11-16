@@ -5,7 +5,7 @@
 //! Registry order and identity
 //!
 //! A row index identifies one observation in the current query, not a unit
-//! across frames. The browser resolves that index back to the same resource
+//! across frames. The earlier build resolves that index back to the same resource
 //! it supplied. Reused unit IDs therefore cannot borrow an earlier winner.
 //! The generated frame and row strides keep this association independent
 //! of the simulation store's entity slab or a renderer's draw order.

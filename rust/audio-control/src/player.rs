@@ -3,7 +3,7 @@
 //! 2004 game plays them (docs/formats.md, "Sound"). Every sound here is
 //! placed at the unit's origin (its feet) and follows it; none is 2D except
 //! the scope's zoom. Other soldiers' weapons and voices are SoldierSounds'
-//! (soldiers.js), by the same rules.
+//!, by the same rules.
 use crate::{Collision, Point};
 use crate::engine::{Ask, NONE, SILENT, EFFECTS, FOLEY, INTERFACE};
 use crate::phase::{Phase, index};

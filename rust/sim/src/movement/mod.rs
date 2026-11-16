@@ -1,6 +1,6 @@
-//! A soldier's movement (src/soldier.js Soldier.tick) in the ray kernel's
-//! module, for the world's ticks (the world worker and the dedicated server)
-//! and the page's replay of its own soldier alike: src/movement-kernel.js
+//! A soldier's movement (Soldier.tick) in the ray kernel's
+//! module, for the world's ticks (the local world thread and the dedicated server)
+//! and the client's replay of its own soldier alike: src/movement-kernel.js
 //! copies a soldier's state in, runs the tick here against the module's own
 //! copies of the collision world, and copies the state back out, the same to
 //! the last bit as the JavaScript tick (soldier.rs says how).
@@ -68,7 +68,7 @@ pub struct MovementOwner {
     movers: Option<Movers>,
     native_copies: native::Copies,
     io: [f64; IO_LEN],
-    /// Body eligibility follows collision-world order, as in movement-kernel.js.
+    /// Body eligibility follows collision-world order,.
     flags: [u8; MAX_BODIES],
 }
 impl MovementOwner {

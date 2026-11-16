@@ -41,7 +41,7 @@ export component PageTitle inherits Rectangle {
     }
     title-text := Text {
         x: (parent.width - self.preferred-width) / 2;
-        // The browser's eternal title sits on a line box of one em with the underline below it.
+        // The eternal title sits on a line box of one em with the underline below it.
         y: Theme.eternal ? -0.2 * root.size : 0px;
         height: parent.height;
         text: root.title.to-uppercase();
@@ -66,7 +66,7 @@ export component PageTitle inherits Rectangle {
 }
 
 // The bundled 900 face supplies the expanded wordmark. Depth layers retain
-// the browser's ordered colour steps; the amber/red tag is a separate shape.
+// the ordered colour steps; the amber/red tag is a separate shape.
 export component Wordmark inherits Rectangle {
     in property <length> size: min(104px, min(5.5 * Theme.vw, 10 * Theme.vh));
     preferred-width: word.preferred-width;
@@ -170,7 +170,7 @@ export component LoadingWordText inherits Rectangle {
     in property <angle> tilt: -14deg;
     property <length> size: (Theme.bf2 ? 15 : 13) * root.unit;
     property <length> track: self.size * (Theme.bf2 ? 0.04 : 0.24);
-    // The disk is turned about its vertical axis (loading.js DISK.turn), which squeezes the word with it.
+    // The disk is turned about its vertical axis (DISK.turn), which squeezes the word with it.
     property <float> turn: 0.866;
     width: word.preferred-width;
     height: word.preferred-height;

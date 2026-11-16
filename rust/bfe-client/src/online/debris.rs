@@ -1,4 +1,4 @@
-//! A droid's pieces once it blows apart (src/debris.js). The flight, bounce
+//! A droid's pieces once it blows apart. The flight, bounce
 //! and rest rules are the shared port in bfe_sim::battle::debris; this owner
 //! is its page: the pieces' models, the collision they bounce on, and the
 //! trail and impact effects they play. Nothing here deals damage or reaches

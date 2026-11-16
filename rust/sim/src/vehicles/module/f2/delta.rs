@@ -52,7 +52,7 @@ impl Delta {
 
 // Cache comparison is numeric storage work, not gameplay arithmetic. Integer
 // lanes compare f64 bits so signed zero and NaN payloads remain distinct.
-// Audio already requires SIMD in the browser; native replay uses the same
+// Audio already requires SIMD in the client; native replay uses the same
 // bit decisions without introducing a second simulation path.
 fn changed_bits(next: &[f64], last: &[f64]) -> u32 {
     let mut mask = 0;

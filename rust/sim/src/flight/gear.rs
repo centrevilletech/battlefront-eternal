@@ -3,9 +3,9 @@
 //! first frame, landed; 0 its last, in flight), its DummyRoot track left
 //! out (`poseGearAt`). A craft without the clip keeps the pose it was
 //! modelled in. How far below its origin a craft stands on its gear
-//! (`gearFoot`) is the content's (rust/content gear.rs); what a page draws
+//! (`gearFoot`) is the content's (rust/content gear.rs); what a client draws
 //! of another's gear from its records (`followFlightState`, `shownGear`'s
-//! following) is a page's: in a world a craft's drawn gear is its own.
+//! following) is a client's: in a world a craft's drawn gear is its own.
 
 use crate::pose::Pose;
 use crate::rig::hull::HullRig;

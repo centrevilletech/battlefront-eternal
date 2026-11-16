@@ -6,14 +6,14 @@ import { Theme } from "../theme.slint";
 import { Surface } from "surface.slint";
 import { PageButton } from "button.slint";
 
-// The page font's "line-height: normal" as the browser computes it.
+// The screen font's "line-height: normal" it.
 export global SpawnCss {
     // The font's ascent (1.135 em) and descent (.439 em), each rounded to a device pixel.
     public pure function line(f: length) -> length {
         return (round(f / 1px * 1.135 * Theme.scale-factor) + round(f / 1px * 0.439 * Theme.scale-factor)) / Theme.scale-factor * 1px;
     }
     // A CSS animation's progress at `time` s: `delay` s late, `duration` s long, eased out
-    // (the page's cubic-bezier(.2, .8, .2, 1)).
+    // (the screen's cubic-bezier(.2, .8, .2, 1)).
     public pure function appear(time: float, delay: float, duration: float) -> float {
         return 1 - pow(1 - clamp((time - delay) / duration, 0, 1), 3);
     }
@@ -392,7 +392,7 @@ export component BattleTeamCard inherits Rectangle {
         }
     }
 
-    // The glow behind the renderer-drawn emblem (the browser's .bfe-spawn-emblem: its side colour at 18%
+    // The glow behind the renderer-drawn emblem (the earlier build's .bfe-spawn-emblem: its side colour at 18%
     // fading out by 70% of the way to the corner).
     Rectangle {
         x: (root.model.logo-x - root.model.logo-size * 0.5 - root.model.plate-x) * 1px;
@@ -835,7 +835,7 @@ export component BattleClassBanner inherits Rectangle {
         font-family: Theme.font-family;
         font-size: root.title-size;
         font-weight: 900;
-        // The browser stretches this face to 116%; only the 125% face is baked (weight 900), so the tracking is
+        // The earlier build stretches this face to 116%; only the 125% face is baked (weight 900), so the tracking is
         // tightened from the CSS .1em until the caption measures the same width.
         letter-spacing: 0.064 * root.title-size;
         color: Theme.bfe-spawn-title;
@@ -1080,8 +1080,8 @@ component ScoreSignalMeter inherits Rectangle {
     }
 }
 
-// The header bar of a scoreboard list or stat sheet: the page's accent fill (the 2005 look's steel capsule with
-// its red line, the 2004 look's right-hand cut), the same bar the browser draws over the table and the sheets.
+// The header bar of a scoreboard list or stat sheet: the screen's accent fill (the 2005 look's steel capsule with
+// its red line, the 2004 look's right-hand cut), the same bar the earlier build draws over the table and the sheets.
 component BoardBar inherits Rectangle {
     in property <length> cut: 0px;
     background: transparent;
@@ -1349,7 +1349,7 @@ export component ScoreTeamPanel inherits Rectangle {
                 vertical-alignment: center;
             }
 
-            // The browser underlines a hovered sort header (2px, .3em below the text).
+            // The earlier build underlines a hovered sort header (2px, .3em below the text).
             if col-touch.has-hover : Rectangle {
                 x: parent.width - root.mark - col-label.preferred-width;
                 y: parent.height * 0.5 + root.hs * 0.7;
@@ -1664,7 +1664,7 @@ export component ScoreStatSheet inherits Surface {
                     alignment: start;
                     spacing: root.value-size * 0.8;
 
-                    // The team's name as an outlined tag in its colour (the browser's .bfe-board-tag).
+                    // The team's name as an outlined tag in its colour.
                     if line.tag != "" : VerticalLayout {
                         alignment: center;
                         Rectangle {

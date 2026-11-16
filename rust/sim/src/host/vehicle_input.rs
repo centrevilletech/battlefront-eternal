@@ -1,4 +1,4 @@
-//! game.js's flightAssists setting and F2Sim.foreignIn's phase flags.
+//! flightAssists setting and F2Sim.foreignIn's phase flags.
 //! AI's profile tier retains the admitted easy/medium/hard selection;
 //! mission skill overrides do not change that player's flight preference.
 use crate::abi::context::Context;
@@ -11,7 +11,7 @@ pub(super) struct Policy {
 }
 
 impl Policy {
-    /// game.js maps the difficulty setting to TIER before admitting AI.
+    /// maps the difficulty setting to TIER before admitting AI.
     /// A world without an AI owner retains the default medium setting.
     pub(super) fn admit(&mut self, context: &Context) -> Result<(), String> {
         // An explicit host setting can arrive before admission starts.

@@ -170,7 +170,7 @@ pub fn variant(key:&str,cascades:u32,lamps:bool)->Option<String>{
     let lamps=lamps&&from.mode!="plain"&&from.defines.iter().any(|(n,_)|n=="DYNAMIC");
     selectors().iter().find(|s|s.defines==from.defines&&s.skin==from.skin&&s.mode==from.mode&&s.cascades==cascades&&s.lamps==lamps).map(|s|s.key.clone())
 }
-/// The same program with HEATED (destruction-debris.js heatMaterial): a
+/// The same program with HEATED (heatMaterial): a
 /// droid's piece glowing where it tore, sooted, crumbling away.
 pub fn heated(key:&str)->Option<String>{
     let from=selectors().iter().find(|s|s.key==key)?;

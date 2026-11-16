@@ -1,4 +1,4 @@
-//! The collision world's ray casts (src/collision.js): the
+//! The collision world's ray casts: the
 //! first hit along a ray through a three-mesh-bvh tree, through the terrain's
 //! grid of triangles, and through the world's bodies, for `cast`,
 //! `castMoving` and `ground`.
@@ -106,7 +106,7 @@ pub struct Grid {
 pub struct Body {
     pub tree: usize,
     pub moving: bool,
-    /// What its polygon numbers are offset by (collision.js body.offset).
+    /// What its polygon numbers are offset by (body.offset).
     pub offset: f64,
     /// Box3: min x, y, z, max x, y, z.
     pub bounds: [f64; 6],

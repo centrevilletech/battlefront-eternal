@@ -88,7 +88,7 @@ impl Drop for Assets {
 }
 fn read(segment: &Segment) -> Result<Option<Pcm>, std::io::Error> {
     // The whole authored segment, including padding to a substream chunk,
-    // split into its substreams the way the browser decoder reads them.
+    // split into its substreams the way the client decoder reads them.
     let mut file = std::fs::File::open(&segment.file)?;
     file.seek(SeekFrom::Start(segment.offset))?;
     let mut bytes = vec![0; segment.length];

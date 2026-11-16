@@ -38,7 +38,7 @@ impl Leases {
         for i in 0..self.packet.len(){let id=self.packet[i];self.refs[id]=self.refs[id].saturating_sub(1);self.touch(id);}
         self.packet.clear();
         // A foreign retention overflow protects existing views until reset.
-        // New publications can be refused while the page and input keep
+        // New publications can be refused while the client and input keep
         // running; uncertain ownership must never expose a recycled record.
         for id in self.dirty.drain(..){
             self.marked[id]=false;
@@ -65,7 +65,7 @@ impl Leases {
         self.used[id]=true;self.refs[id]=1;self.packet.push(id);Some(id)
     }
     // Vehicle and mount facts are published together from the same entry.
-    // This direct pair replaces the page's vehicle-by-mount nested search.
+    // This direct pair replaces the client's vehicle-by-mount nested search.
     pub fn pair(&mut self,a:usize,b:usize){self.records[a*r::STRIDE+r::PAIR]=b as f64;self.records[b*r::STRIDE+r::PAIR]=a as f64;}
 }
 #[cfg(test)]

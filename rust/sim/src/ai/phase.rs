@@ -92,7 +92,7 @@ impl RandomState {
 
     pub fn seeds(&self) -> [u32; 3] { [self.a.seed(), self.b.seed(), self.c.seed()] }
 
-    /// Enhanced aim alone consumes C (enhanced/aim.js).
+    /// Enhanced aim alone consumes C.
     pub fn aim_uniform(&mut self) -> f64 {
         self.c.uniform()
     }

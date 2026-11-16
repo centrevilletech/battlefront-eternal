@@ -6,10 +6,8 @@ license = "GPL-3.0-only"
 publish = false
 description = "The destruction and weather presentation phase: pooled particle and arc state for the battle renderer"
 
-# A raw WebAssembly module (no wasm-bindgen), as the simulation and audio
-# are: the page and plain Node instantiate it with WebAssembly APIs and read
-# its fixed buffers through typed-array views. The rlib is for the native
-# tests and a native host.
+# The client links the rlib. (The cdylib output is left from an earlier,
+# WebAssembly build of the crate; nothing loads it now.)
 [lib]
 crate-type = ["cdylib", "rlib"]
 

@@ -1,5 +1,5 @@
 //! SeatUnit mirrors carry structural identities only. Steering remains in
-//! the native holder consumed by F2; the page needs the lease and controller
+//! the native holder consumed by F2; the client needs the lease and controller
 //! to resolve captured references, never a second live intent.
 use crate::{gen::AiControlView,vehicles::f2_seats::Seats};
 use super::{entities::Entity,state::State};

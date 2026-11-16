@@ -142,7 +142,7 @@ pub(super) struct Pin {
     pub wave: f64,
     pub color: [f64; 3],
 }
-/// The projector's parts that light with the hologram (holomap.js): ground glow, band and lamp.
+/// The projector's parts that light with the hologram: ground glow, band and lamp.
 fn depth_tested(mut s: bfe_render::interface_resources::Style) -> bfe_render::interface_resources::Style {
     s.depth_test = Some(true);
     s
@@ -155,7 +155,7 @@ impl Gpu {
         grid: u32,
     ) -> Result<Self, String> {
         // Plane, CircleGeometry(96), the six-sided projector, the open beam
-        // and column, and GridRoom's box use the browser's metre dimensions.
+        // and column, and GridRoom's box use the metre dimensions.
         let mut vertices = Vec::new();
         triangle(
             &mut vertices,
@@ -540,7 +540,7 @@ impl Gpu {
         );
         Self::submit(bridge, count);
     }
-    /// The hologram (holomap.js): the projector rising out of the floor, its beam, the disc unfolding and
+    /// The hologram: the projector rising out of the floor, its beam, the disc unfolding and
     /// the posts' pins, in one submission.
     #[allow(clippy::too_many_arguments)]
     pub fn map(
@@ -674,7 +674,7 @@ impl Gpu {
         }
         Self::submit(bridge, count);
     }
-    // holomap.js addPin/pinPosts: two crossed planes of light standing out of the disc (its +z), a soft dot
+    // addPin/pinPosts: two crossed planes of light standing out of the disc (its +z), a soft dot
     // at the foot, and for the picked post a turning ring; a ripple running out when it is picked.
     fn pin(&self, bridge: &mut Bridge, count: &mut usize, rig: &Rig, disc: &Matrix4, pin: &Pin) {
         let (v, p) = (&rig.inverse, &rig.projection);

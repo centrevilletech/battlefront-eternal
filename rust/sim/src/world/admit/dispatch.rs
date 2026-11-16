@@ -1,10 +1,10 @@
 //! One admission export call against its native body: the export's name
 //! selects the `_in` body the module's export wraps, the call's scalar
-//! arguments are passed as the page passed them (pool keys where the module
+//! arguments are passed as the client passed them (pool keys where the module
 //! passes addresses), its scratch bytes fill the buffer the body reads or
-//! the buffer the export hands the page to write, and what the body answers
+//! the buffer the export hands the client to write, and what the body answers
 //! is recorded for the owners after it. A body answering null where the
-//! page would have thrown refuses the call. Exports that only hand the page
+//! page would have thrown refuses the call. Exports that only hand the client
 //! a view of module memory do nothing here; the per-tick exports (steps,
 //! casts, publication) belong to the tick and publication entries.
 use super::rows::{Call, Cx};
@@ -17,7 +17,7 @@ fn u(call: &Call, at: usize) -> u32 { a(call, at) as u32 }
 fn i(call: &Call, at: usize) -> i32 { a(call, at) as i32 }
 
 /// What a body answered: nothing (unit), a scalar, a row of words, bytes,
-/// or null where the page would have thrown.
+/// or null where the client would have thrown.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Returned {
     None,
@@ -31,7 +31,7 @@ fn row(words: Option<&[f64]>) -> Returned { words.map_or(X, |w| R(w.to_vec())) }
 fn block(block: Option<&crate::store::block::Block>) -> Returned { block.map_or(X, |b| R(b.words.clone())) }
 fn bytes(bytes: Option<&[u8]>) -> Returned { bytes.map_or(X, |b| B(b.to_vec())) }
 
-// The page writes into the buffer an export hands it, or reads it back. A
+// The client writes into the buffer an export hands it, or reads it back. A
 // call with scratch bytes fills the buffer (little-endian, by the buffer's
 // element type); a call without reads it: the owned bank comes back as f64
 // words (a Float64Array for the host) or little-endian bytes (a Uint8Array
@@ -71,7 +71,7 @@ fn fill_f64(into: Option<&mut [f64]>, call: &Call) -> Returned {
         _ => X,
     }
 }
-/// The collision kernel's exchange slots, enabled flags and places the page
+/// The collision kernel's exchange slots, enabled flags and places the client
 /// writes before a query (grid_new's bounds, body_set's bounds and matrices,
 /// a cast's ray and candidates' flags): the scratch carries the 64 io words,
 /// then the enabled flags, then the places, each as far as it goes.
@@ -96,13 +96,13 @@ fn scratch(w: &mut World, call: &Call) -> (*const u8, usize) {
     buffer.copy_from_slice(&call.scratch);
     (buffer.as_ptr(), call.scratch.len())
 }
-/// The F3 input bank the page writes rows straight into (f3-sim.js
+/// The F3 input bank the client writes rows straight into (f3-sim.js
 /// `layout.input`: F3BodyName rows before f3_body_names): the call's row.
 fn input(w: &mut World, call: &Call) {
     let Some(bank) = crate::units::f3::input_bank_mut_in(w) else { return; };
     for (slot, word) in bank.iter_mut().zip(call.row.iter()) { *slot = *word; }
 }
-/// The F3 command bank the page writes a direct row into (f3-sim.js
+/// The F3 command bank the client writes a direct row into (f3-sim.js
 /// `layout.command`: F3Change, F3Adoption, F3PoseCommand) before f3_command,
 /// f3_adopt and f3_pose: the call's row and heap, in that order.
 fn direct(w: &mut World, call: &Call) {
@@ -517,7 +517,7 @@ pub(crate) fn call(world: &mut World, stage: Stage, name: &str, call: &Call) -> 
         "world_cast_rays" => S(w.collision.world_cast_rays(u(c,0), u(c,1)) as f64),
         "world_step_init" => { crate::world::step::world_step_init_in(w); N },
         "world_step_run" => row(crate::world::step::world_step_run_in(w)),
-        // Pointer accessors hand the page a view of module memory; a host
+        // Pointer accessors hand the client a view of module memory; a host
         // without that memory gets the owned bank instead (words for f64
         // banks, little-endian bytes otherwise), or fills it with its scratch.
         "io_ptr" => fill_f64(Some(w.collision.io_mut()), c),

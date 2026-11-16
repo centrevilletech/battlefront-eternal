@@ -43,7 +43,7 @@ impl Music {
     pub fn frame(&mut self) {
         self.row[r::STOP] = 0.0;
         self.row[r::START] = 0.0;
-        // One command has at most one stop and one start. The browser
+        // One command has at most one stop and one start. Chromium
         // applies those actions to its independently owned playback handles.
         match self.row[r::OP] as u32 {
             op::SET => {
@@ -56,7 +56,7 @@ impl Music {
             }
             op::HALT => self.halt(),
             op::END => {
-                // The browser qualifies the ended playback handle before
+                // The caller qualifies the ended playback handle before
                 // submitting this command. A stale phase cannot end a gap.
                 if self.row[r::PHASE] == phase::PLAYING as f64 {
                     self.row[r::PHASE] = phase::GAP as f64;

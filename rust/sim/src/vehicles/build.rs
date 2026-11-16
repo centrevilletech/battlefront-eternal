@@ -22,9 +22,9 @@ use three::{Quaternion, Vector3};
 use v8math::{max, min};
 
 const PI: f64 = std::f64::consts::PI;
-/// vehicles.js DEG (`Math.PI / 180`).
+/// DEG (`Math.PI / 180`).
 const DEG: f64 = PI / 180.0;
-/// vehicles.js TURRET_PITCH: a turret seat's pitch bound when its section sets none.
+/// TURRET_PITCH: a turret seat's pitch bound when its section sets none.
 const TURRET_PITCH: f64 = 1.5;
 /// three-mesh-bvh FLOAT32_EPSILON (`Math.pow(2, -24)`).
 const FLOAT32_EPSILON: f64 = 5.960464477539063e-8;
@@ -86,7 +86,7 @@ pub fn local_bounds(positions: &[f32], indices: &[u32]) -> ([f64; 3], [f64; 3]) 
     (lo.map(fround), hi.map(fround))
 }
 
-/// src/vehicle-motion.js groundMotion: top speeds forward, back and
+/// groundMotion: top speeds forward, back and
 /// sideways, acceleration and deceleration, and the turn rate.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Motion {
@@ -98,7 +98,7 @@ pub struct Motion {
     pub turn_rate: f64,
 }
 
-/// vehicle-motion.js `number(def, name, fallback, read)` over the class's
+/// `number(def, name, fallback, read)` over the class's
 /// keys (classSetting: the body's, else a later seat's).
 fn class_number(def: &Value, name: &str, fallback: f64) -> f64 {
     num(class_setting(Some(def), name), fallback)
@@ -117,7 +117,7 @@ pub fn base_of(def: &Value) -> String {
     }
 }
 
-/// vehicle-motion.js gaitSpeed: a walker's pace from its walk clips.
+/// gaitSpeed: a walker's pace from its walk clips.
 fn gait_speed(clips: Option<&Clips>, animation_speed: f64) -> f64 {
     let left = clips.and_then(|c| c.get("walk_leftfoot_rightfoot"));
     let right = clips.and_then(|c| c.get("walk_rightfoot_leftfoot"));
@@ -164,7 +164,7 @@ pub fn ground_motion(def: &Value, clips: Option<&Clips>) -> Motion {
     }
 }
 
-/// vehicle-water.js waterDamageRule over a class's settings.
+/// waterDamageRule over a class's settings.
 pub fn water_damage_rule(settings: Option<&Value>) -> Option<WaterRule> {
     let key = |k: &str| settings.and_then(|s| s.get(k));
     let number = |v: Option<&Value>, fallback: f64| {
@@ -182,7 +182,7 @@ pub fn water_damage_rule(settings: Option<&Value>) -> Option<WaterRule> {
     Some(WaterRule { interval: number(key("WaterDamageInterval"), 1.0), amount })
 }
 
-/// vehicles.js `degrees(v)`: a pair of degrees as radians (`vector(v)`:
+/// `degrees(v)`: a pair of degrees as radians (`vector(v)`:
 /// String(v) split on white space, each Number), else None.
 fn degrees(v: Option<&Value>) -> Option<[f64; 2]> {
     let v = v.filter(|v| v.truthy())?;
@@ -195,7 +195,7 @@ fn degrees(v: Option<&Value>) -> Option<[f64; 2]> {
     }
 }
 
-/// vehicles.js `vec3(v, fallback)`: three numbers of String(v).trim()
+/// `vec3(v, fallback)`: three numbers of String(v).trim()
 /// split on white space, else the fallback.
 fn vec3_key(v: Option<&Value>, fallback: Vector3) -> Vector3 {
     let text = match v {
@@ -511,7 +511,7 @@ pub fn build(src: &HullSource, index: usize, id: crate::store::Ref<crate::gen::V
         slot_index: src.slot,
         pose: Some(pose),
         // Every hull's flight fields as the constructor sets them: a craft
-        // stands landed on its gear (src/flight/gear.js gearFoot); the
+        // stands landed on its gear (gearFoot); the
         // rest wait for a craft's spawn (initFlight).
         flight: crate::flight::Flight {
             state: if flying { Some(crate::flight::FlightState::Landed) } else { None },

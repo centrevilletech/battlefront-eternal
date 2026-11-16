@@ -78,7 +78,7 @@ fn flag(x: f64) -> bool {
     x != 0.0
 }
 
-/// A new facade life's pose (vehicle-phase-data.js pullPose): age, hover and
+/// A new facade life's pose (pullPose): age, hover and
 /// walk phases, walk blend and visual; per seat its last aim yaw (or none), aim rate and target (or
 /// none), per weapon the barrel it fires next, its aimers' turn, limits
 /// flag, on-target flag, facing and whether they posed their node, and its

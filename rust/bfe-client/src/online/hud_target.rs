@@ -1,9 +1,9 @@
-//! What the reticle is on. updateTargetHud (src/game.js) runs
-//! findReticleTarget (src/hud-units.js) for each channel's weapon whenever a
+//! What the reticle is on. updateTargetHud runs
+//! findReticleTarget for each channel's weapon whenever a
 //! correction has been applied: the target's relation colours the reticle,
 //! and an enemy under channel 0 shows his health under the player's own.
 //! The search itself is bfe_sim::combat::page_targeting::Query; this module
-//! gives it each unit as the browser's registry would (a soldier's hit-shape
+//! gives it each unit as the client's registry would (a soldier's hit-shape
 //! bounds, a hull's box, a turret's sphere) and answers its sight lines.
 use super::{collision::Bodies, radar::Teams, receiver::Receiver};
 use bfe_content::Value;
@@ -17,14 +17,14 @@ use bfe_sim::units::shapes::{
 };
 use three::{Matrix4, Quaternion, Vector3};
 
-// ENTITY_SOLDIER_STATES (src/runtime/network-entity-codec.js): jump, fall,
+// ENTITY_SOLDIER_STATES: jump, fall,
 // thrown and jet are in the air, the two dives follow, then the two deaths.
 const AIR: std::ops::RangeInclusive<u32> = 1..=4;
 const DIVE: std::ops::RangeInclusive<u32> = 5..=6;
 const DEAD: std::ops::RangeInclusive<u32> = 7..=8;
 // A hull's record while it burns out (ENTITY_VEHICLE_STATES' "dying").
 const DYING: f64 = 6.;
-// categoryOf (src/ai/classic/weapons-ai.js): a class's HealthType.
+// categoryOf: a class's HealthType.
 const CATEGORIES: [&str; 5] = ["person", "animal", "droid", "vehicle", "building"];
 // The relation code of a reticle on nothing (relationCode(null)).
 const NOTHING: f64 = 4.;
@@ -87,7 +87,7 @@ impl Class {
     }
 }
 
-/// Turret.sphere for a built turret (src/props.js): the middle of its
+/// Turret.sphere for a built turret: the middle of its
 /// model's box where it stands, and half the box's diagonal.
 pub fn turret_sphere(model_box: Option<&Value>, matrix: &[f64; 16]) -> ([f64; 3], f64) {
     let corner = |at: usize| -> Option<[f64; 3]> {
@@ -207,7 +207,7 @@ impl Targets {
                 alive: fact[r::DEAD] == 0. && !(kind == k::SOLDIER && DEAD.contains(&state)) && !(kind == k::VEHICLE && fact[r::STATE] == DYING),
                 seated: fact[r::SEAT_PRESENT] != 0.,
                 health: fact[r::HEALTH],
-                // KIND (src/seats.js): no record here is an item (10), the
+                // KIND: no record here is an item (10), the
                 // one kind the search refuses by its number.
                 kind: 0.,
                 relation: teams.relation(receiver.own.team, fact[r::TEAM] as usize),
@@ -228,7 +228,7 @@ impl Targets {
             let mut bounds = Bounds::default();
             match kind {
                 k::SOLDIER => {
-                    // Unit.hitPosture and updateSpheres (src/units.js): the
+                    // Unit.hitPosture and updateSpheres: the
                     // posture's two shapes about his feet, turned with him.
                     let posture = if DEAD.contains(&state) {
                         HitPosture::Prone
@@ -274,7 +274,7 @@ impl Targets {
                 }
                 k::VEHICLE => {
                     // VehicleTarget: the hull's collision box where it is,
-                    // aimed at by its middle. A hull this page has no body
+                    // aimed at by its middle. A hull this client has no body
                     // for is no target.
                     let Some((body, b)) = bodies.hull(key) else { continue };
                     let q = r::QUATERNION;
@@ -344,7 +344,7 @@ impl Targets {
     }
 }
 
-// reticleLos (src/game.js): nothing between the eye and the point, or the
+// reticleLos: nothing between the eye and the point, or the
 // first thing met is the target itself. A hull is known by its body. A
 // turret's building is part of the placed world here, so a ray that ends
 // within the turret's own sphere counts as ending on it.

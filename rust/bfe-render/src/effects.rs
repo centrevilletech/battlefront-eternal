@@ -1,12 +1,12 @@
 // The battle's effects, drawn in the near scene's transparent list; their
-// simulation stays in the page. Each kind of item uses a catalog-owned
+// simulation stays in the client. Each kind of item uses a catalog-owned
 // program and the material's published raster state:
 //
 // - Particle batches: particles.js's (bolts and their glow, sparks, smoke,
 //   the effects' particles worked out on the CPU) and effects-gpu.js's
 //   analytic ones (particles placed in the vertex shader from their spawn
 //   values and their effect's emitter). Each is one instanced draw of
-//   quads. The page writes each shown batch's instances into `data` (a CPU
+//   quads. The client writes each shown batch's instances into `data` (a CPU
 //   batch's all, an analytic batch's from the first that changed),
 //   attribute by attribute as the batch keeps them (or interleaved, for one
 //   that keeps them so: the Enhanced sniper's); here they are interleaved
@@ -14,23 +14,23 @@
 //   which its vertex array reads. An analytic batch's owner
 //   (effects-gpu.js GpuEffects: its tracks, and the frame's emitters, a row
 //   an effect) is a texture of three's for the tracks and one of the
-//   renderer's for the emitters, a row of which the page writes for each
+//   renderer's for the emitters, a row of which the client writes for each
 //   effect playing.
-// - Dynamic meshes (the Classic arc caster's lightning, lightning.js):
-//   vertices and indices the page rebuilds every frame, uploaded as far as
+// - Dynamic meshes (the Classic arc caster's lightning):
+//   vertices and indices the client rebuilds every frame, uploaded as far as
 //   they are used (three uploads its whole buffers), drawn in each of
 //   three's passes for it (a double-sided transparent material: back faces,
 //   then front), its material's values set as three sets them.
 // - Models (the muzzle flashes, the effects' model particles: game.js
-//   glowModel; the droidekas' shields, droideka-shield.js): a registered
-//   geometry drawn with a world matrix the page writes each frame (the
+//   glowModel; the droidekas' shields): a registered
+//   geometry drawn with a world matrix the client writes each frame (the
 //   model-view matrix, and the normal matrix where the program reads one,
 //   worked out here as three works them out), culled by its bounding sphere
 //   as three culls it, in each of three's passes, with its material's
 //   values. One model serves every object of the same geometry, programs,
 //   texture and state.
 //
-// The page lists the frame's draws (src/rust-render/effects.js), each with
+// The client lists the frame's draws, each with
 // the key three would have sorted it by in its transparent list; each is an
 // item of the transparent pass's list (transparent.rs Source), drawn where
 // three would have drawn it among everything else that blends.
@@ -47,7 +47,7 @@ pub const UNIT_TRACKS: u32 = 4;
 pub const UNIT_EMITTERS: u32 = 5;
 pub const UNIT_SCENE_DEPTH: u32 = 6;
 
-// The page's inputs a frame (f64, `input`): how many draws and owners, the
+// The client's inputs a frame (f64, `input`): how many draws and owners, the
 // soft particles' values, then the owners' entries, then the draws'.
 pub const IN_DRAWS: usize = 0;
 pub const IN_OWNERS: usize = 1;
@@ -78,7 +78,7 @@ pub const KIND_COPY: usize = 3;
 pub const KIND_INTO: usize = 4;
 pub const MAX_DRAWS: usize = 512;
 pub const INPUT_LEN: usize = DRAW_AT + MAX_DRAWS * DRAW_STRIDE;
-// Floats of data a frame, to start with (the page asks for more).
+// Floats of data a frame, to start with (the client asks for more).
 pub const DATA_LEN: usize = 1 << 18;
 // The models' world matrices a frame (f64, 16 each).
 pub const MATRICES_LEN: usize = MAX_DRAWS * 16;
@@ -105,7 +105,7 @@ struct Batch<C: HasContext> {
     vao: C::VertexArray,
     vbo: C::Buffer,
     // EffectsPass publishes changed instance ranges only. Keep the complete
-    // native buffer so recovery never asks the browser to resend an old prefix.
+    // native buffer so recovery never asks the client to resend an old prefix.
     retained: Vec<f32>,
     // Instances the vertex buffer has room for.
     capacity: usize,
@@ -113,7 +113,7 @@ struct Batch<C: HasContext> {
     bounded: bool,
     multiplier: usize,
     constants: Vec<FixedValue<C::UniformLocation>>,
-    // The instance attributes' sizes (floats), as the page writes them
+    // The instance attributes' sizes (floats), as the client writes them
     // (none: a batch whose program finds its instances by their number).
     sizes: Vec<usize>,
     stride: usize,
@@ -176,7 +176,7 @@ struct Mesh<C: HasContext> {
     index_capacity: usize,
     sizes: Vec<usize>,
     stride: usize,
-    // The material values, in the order the page writes them.
+    // The material values, in the order the client writes them.
     values: Vec<MaterialValue>,
     fixed_values: Option<Vec<f32>>,
     fixed_index: bool,
@@ -262,7 +262,7 @@ fn sides<C: HasContext>(gl: &C, state: &mut GlState<C>, stats: &mut Stats, side:
 
 // A material value: its name, its size in floats and its form (0 a float
 // or vector of that size, or a matrix of 9 or 16; 1 an array of floats; 2
-// an int; 4 an array of vec4s), as the page names them ("name:size" or
+// an int; 4 an array of vec4s), as the client names them ("name:size" or
 // "name:size:form", comma-separated).
 pub type MaterialValue = (Cow<'static,str>, usize, u32);
 
@@ -405,7 +405,7 @@ impl<C: HasContext> EffectsPass<C> {
 
     // A particle batch: its program, texture (none: -1) and blending; the
     // locations of its corner and of its instance attributes, with their
-    // sizes (location, size pairs, in the order the page writes them); its
+    // sizes (location, size pairs, in the order the client writes them); its
     // owner (an analytic batch's; none: -1).
     #[allow(clippy::too_many_arguments)]
     pub fn add_batch<M: MultiDraw>(&mut self, core: &Core<C, M>, program: u32, texture: i32, blend: &[u32], corner: u32, attributes: &[u32], owner: i32) -> u32 {
@@ -546,7 +546,7 @@ impl<C: HasContext> EffectsPass<C> {
         self.input[IN_OWNERS]=1.;self.input[OWNER_AT..OWNER_AT+OWNER_STRIDE].copy_from_slice(&[owner as f64,rows as f64,0.,0.]);
         self.upload_owners(core);self.input[IN_OWNERS]=count;self.input[OWNER_AT..OWNER_AT+OWNER_STRIDE].copy_from_slice(&saved);
     }
-    // A batch whose instances the page writes interleaved, as it keeps them
+    // A batch whose instances the client writes interleaved, as it keeps them
     // (one buffer of all its attributes, in add_batch's order).
     pub fn batch_interleaved(&mut self, batch: u32) {
         if let Some(b) = self.batches.get_mut(batch as usize) {
@@ -590,11 +590,11 @@ impl<C: HasContext> EffectsPass<C> {
 
     // A batch drawn into a texture of its own rather than the scene (the
     // steam's volumes, into their half-size target, cleared first): its
-    // `count` instances and its values as the page wrote them from `at` of
+    // `count` instances and its values as the client wrote them from `at` of
     // the data, `capacity` the batch's room, `depth` the scene's depth
-    // (registered texture, -1 none), the frame's soft values as the page
+    // (registered texture, -1 none), the frame's soft values as the client
     // wrote them. Leaves the renderer's framebuffer over that texture bound
-    // and the viewport its size: the page has three bind its own again.
+    // and the viewport its size: the client has three bind its own again.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_into<M: MultiDraw>(&mut self, core: &mut Core<C, M>, batch: usize, target: u32, width: i32, height: i32, count: usize, at: usize, capacity: usize) {
         let Ok(fb) = core.framebuffer(Some(target), None) else { return };
@@ -614,7 +614,7 @@ impl<C: HasContext> EffectsPass<C> {
     }
 
     // ArcLightning.viewBatch: an owned instanced draw at its sorted view
-    // position. Soft intersections are disabled by this material in the page.
+    // position. Soft intersections are disabled by this material in the client.
     pub fn draw_view_batch<M: MultiDraw>(&mut self, core: &mut Core<C, M>, batch: usize, count: usize, at: usize, capacity: usize) {
         let soft = self.input[IN_SOFT];
         self.input[IN_SOFT] = 0.0;
@@ -634,7 +634,7 @@ impl<C: HasContext> EffectsPass<C> {
     }
 
     // A batch's own material values ("name:size" or "name:size:form",
-    // comma-separated: form 2 an int), which the page writes after its
+    // comma-separated: form 2 an int), which the client writes after its
     // instances each frame.
     pub fn batch_values<M: MultiDraw>(&mut self, core: &Core<C, M>, batch: u32, values: &str) {
         let Some(b) = self.batches.get_mut(batch as usize) else { return };
@@ -776,7 +776,7 @@ impl<C: HasContext> EffectsPass<C> {
 
     // A model: its texture (-1 none), blending, depth (flags: 1 test, 2
     // write; and its function), its material values (name:size,
-    // comma-separated, in the order the page writes them) and its geometry's
+    // comma-separated, in the order the client writes them) and its geometry's
     // bounding sphere (centre, radius). Its passes follow (model_pass).
     #[allow(clippy::too_many_arguments)]
     pub fn add_model<M: MultiDraw>(&mut self, core: &Core<C, M>, texture: i32, blend: &[u32], depth_flags: u32, depth_func: u32, values: &str, sphere: &[f64]) -> u32 {
@@ -865,7 +865,7 @@ impl<C: HasContext> EffectsPass<C> {
 
     // What every effect's draw leaves alike, set at the start of a run (three
     // drew in between): every channel written, no stencil, polygon offset or
-    // alpha to coverage; the scene's depth on its unit when the page took it
+    // alpha to coverage; the scene's depth on its unit when the client took it
     // this frame (soft particles, or an effect that reads it whatever the
     // setting), else nothing there (never read then).
     fn common<M: MultiDraw>(&self, core: &mut Core<C, M>) {
@@ -883,7 +883,7 @@ impl<C: HasContext> EffectsPass<C> {
         state.bind_texture(gl, stats, UNIT_SCENE_DEPTH, depth);
     }
 
-    // The frame's draw `d` as the page wrote it.
+    // The frame's draw `d` as the client wrote it.
     fn entry(&self, d: usize) -> (usize, [usize; 5]) {
         let at = DRAW_AT + d * DRAW_STRIDE;
         let mut e = [0usize; 5];
@@ -960,7 +960,7 @@ impl<C: HasContext> EffectsPass<C> {
             let read = if external { None } else { core.gl.get_parameter_framebuffer(glow::READ_FRAMEBUFFER_BINDING) };
             let depth = e[3] != 0;
             // A framebuffer the driver rejects ends the phase with that error
-            // (Core::fail) instead of aborting the page.
+            // (Core::fail) instead of aborting the client.
             let target = match core.framebuffer(if depth { None } else { Some(texture) }, if depth { Some(texture) } else { None }) {
                 Ok(target) => target,
                 Err(error) => {
@@ -1286,7 +1286,7 @@ impl<C: HasContext> EffectsPass<C> {
     }
 
     // The emitters of each owner the frame's analytic batches read: its
-    // rows (made again when the page's texture has a new size), those
+    // rows (made again when the client's texture has a new size), those
     // written uploaded.
     fn upload_owners<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
         let owners = (self.input[IN_OWNERS] as usize).min(MAX_OWNERS);
@@ -1317,7 +1317,7 @@ impl<C: HasContext> EffectsPass<C> {
 }
 
 // The effects as a source of the transparent list's items: each of the
-// frame's draws one item, with the key the page wrote for it, z worked out
+// frame's draws one item, with the key the client wrote for it, z worked out
 // as three works it out; the owners' emitters uploaded as the list is made.
 impl<C: HasContext, M: MultiDraw> Source<C, M> for EffectsPass<C> {
     fn emit(&mut self, core: &mut Core<C, M>, view: &View, source: u32, items: &mut Vec<Item>) {

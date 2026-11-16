@@ -1,17 +1,17 @@
-//! Profile management rules (`src/shell/profile-dialog.js` and `src/shell/screens.js`).
+//! Profile management rules.
 
 use serde::{Deserialize, Serialize};
 
 /// Maximum player profile name length.
-/// Mirrors `PLAYER_NAME_LIMIT` in `src/shell/profile-dialog.js`.
+/// Mirrors `PLAYER_NAME_LIMIT`.
 pub const PLAYER_NAME_LIMIT: usize = 32;
 
 /// Default player profile name on a fresh install or after `DELETE PROFILE`.
-/// Mirrors `DEFAULT_PLAYER_NAME` in `src/shell/profile-dialog.js`.
+/// Mirrors `DEFAULT_PLAYER_NAME`.
 pub const DEFAULT_PLAYER_NAME: &str = "PLAYER 1";
 
 /// Cleans a player name using `DEFAULT_PLAYER_NAME` as the empty fallback.
-/// Mirrors `cleanPlayerName(value)` in `src/shell/profile-dialog.js`.
+/// Mirrors `cleanPlayerName(value)`.
 pub fn clean_player_name(value: &str) -> String {
     clean_player_name_with_fallback(value, DEFAULT_PLAYER_NAME)
 }
@@ -20,7 +20,7 @@ pub fn clean_player_name(value: &str) -> String {
 /// strips `[\x00-\x1f\x7f]`, collapses runs of whitespace to `' '`, trims, and
 /// slices to [`PLAYER_NAME_LIMIT`] characters.
 ///
-/// Mirrors `cleanPlayerName(value, fallback)` in `src/shell/profile-dialog.js`.
+/// Mirrors `cleanPlayerName(value, fallback)`.
 pub fn clean_player_name_with_fallback(value: &str, fallback: &str) -> String {
     let mut no_ctrl = String::with_capacity(value.len());
     for ch in value.chars() {
@@ -53,7 +53,7 @@ pub fn clean_player_name_with_fallback(value: &str, fallback: &str) -> String {
 /// Returns whether `name` satisfies the multiplayer profile requirement:
 /// a non-empty name that is not `DEFAULT_PLAYER_NAME` (`"PLAYER 1"`).
 ///
-/// Ports `hasProfile()` in `src/shell/screens.js`.
+/// Ports `hasProfile()`.
 pub fn has_profile(name: &str) -> bool {
     clean_player_name(name) != DEFAULT_PLAYER_NAME
 }
@@ -108,7 +108,7 @@ impl ProfileState {
     }
 
     /// Resets the profile back to `DEFAULT_PLAYER_NAME` (`DELETE PROFILE`).
-    /// Ports the `delete` row action in `profile()` in `src/shell/screens.js`.
+    /// Ports the `delete` row action in `profile()`.
     pub fn delete_profile(&mut self) {
         self.name = DEFAULT_PLAYER_NAME.to_string();
         self.draft = self.name.clone();

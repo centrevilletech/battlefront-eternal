@@ -1,4 +1,4 @@
-//! runtime/action-queue.js and runtime/commands.js CommandControls.
+//! and runtime/commands.js CommandControls.
 //! Opaque value tokens preserve Set/Map identity at the host boundary.
 use crate::gen::{IcInput, IcOperation, IcResult, IqCount, IqInput, IqOperation, IqResult, IqSlot, IqState};
 use crate::store::{word_u32, Strings};

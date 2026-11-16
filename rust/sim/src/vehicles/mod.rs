@@ -1,4 +1,4 @@
-//! The hulls (src/vehicles.js but flight, src/vehicle-hover.js): each hull's
+//! The hulls (src/vehicles.js but flight): each hull's
 //! tick on the ground, two 1/120 s substeps a world tick, as the JavaScript
 //! steps it, to the last bit.
 
@@ -29,7 +29,7 @@ use three::{Matrix4, Quaternion, Vector3};
 /// A collision body, by its serial (src/collision.js: its `offset` / 2^24).
 pub type BodyId = u32;
 
-/// What a cast met (src/collision.js makeHit).
+/// What a cast met (makeHit).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Hit {
     pub distance: f64,
@@ -86,7 +86,7 @@ impl SpringPolygons<'_> {
     }
 }
 
-/// What a hull asks of the rest of the battle (src/vehicles-world.js), each
+/// What a hull asks of the rest of the battle, each
 /// call as the JavaScript makes it. `hull` names a hull by its place in the
 /// battle's list (Vehicles.vehicles).
 pub trait VehicleWorld {
@@ -144,7 +144,7 @@ pub trait VehicleWorld {
     fn tow_released(&mut self, hull: usize, reason: &str);
     /// A spawn's new life (Vehicle.spawn): the hull's registry entry starts
     /// a new generation and its seats get new weapons, which are the
-    /// registry's and the combat package's (JavaScript's until they move);
+    /// registry's and the combat package's;
     /// a world whose spawns are JavaScript's has nothing to do.
     fn new_life(&mut self, _hull: usize) {}
     /// A destroyed hull's pad starts its respawn clock (`slot.remaining =

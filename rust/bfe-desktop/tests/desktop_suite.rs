@@ -130,7 +130,7 @@ fn make_content(root: &Path, maps: &[&str], current: bool, game: Option<&Path>) 
         let mdir = root.join("maps").join(map);
         fs::create_dir_all(&mdir).unwrap();
         fs::write(mdir.join("scene.json"), format!("{{\"id\":\"{}\"}}\n", map)).unwrap();
-        // The browser importer treats `maps/<id>/map.json` as the proof of a playable map.
+        // The earlier build importer treats `maps/<id>/map.json` as the proof of a playable map.
         fs::write(mdir.join("map.json"), format!("{{\"id\":\"{}\"}}\n", map)).unwrap();
     }
     // Write `.prepare.json` with either the current `ver.state` or an outdated `1`.
@@ -745,8 +745,8 @@ fn prepare_summarizes_addon_failures_and_clears_only_prepared_outputs() {
                 error: Some("bad lvl".to_string()),
             },
             PrepareFailureRecord {
-                id: "movies".to_string(),
-                label: Some("Shell movies".to_string()),
+                id: "textures".to_string(),
+                label: Some("Compressing textures".to_string()),
                 error: Some("missing".to_string()),
             },
         ]),
@@ -818,7 +818,7 @@ fn prepare_tracks_progress_events_and_estimates_remaining_time() {
                 { "id": "common", "kind": "common", "label": "Common assets", "status": "pending" },
                 { "id": "map:bes2a", "kind": "map", "label": "Map: bes2a", "status": "pending" },
                 { "id": "map:tat1i", "kind": "map", "label": "Map: tat1i", "status": "pending" },
-                { "id": "movies", "kind": "movies", "label": "Shell movies", "status": "unavailable" }
+                { "id": "textures", "kind": "textures", "label": "Compressing textures", "status": "unavailable" }
             ]
         }),
         10_000,
@@ -890,7 +890,6 @@ fn prepare_tracks_progress_events_and_estimates_remaining_time() {
             audio: 2,
             sound: 10,
             textures: 1,
-            movies: 1,
         },
         2,
         Some(&timings),
@@ -905,7 +904,6 @@ fn prepare_tracks_progress_events_and_estimates_remaining_time() {
             audio: 2,
             sound: 10,
             textures: 1,
-            movies: 1,
         },
         2,
         Some(&timings),
@@ -920,12 +918,12 @@ fn prepare_tracks_progress_events_and_estimates_remaining_time() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Startup content tests (ports tests/desktop-startup-content.test.js)
+// 3. Startup content tests
 // ---------------------------------------------------------------------------
 
 /// Verifies `resolve_startup_content` transitions between `Confirm`, `Prepare`, and `Menu` modes.
 ///
-/// Mirrors `resolveStartupContent` in `tests/desktop-startup-content.test.js`.
+/// Mirrors `resolveStartupContent`.
 #[test]
 fn startup_content_resolves_menu_confirm_prepare_and_outdated_modes() {
     let tmp = TempDir::new("startup-content");
@@ -1006,12 +1004,11 @@ fn startup_content_resolves_menu_confirm_prepare_and_outdated_modes() {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Content candidates & CLI args (ports tests/desktop-content.test.js)
+// 4. Content candidates & CLI args
 // ---------------------------------------------------------------------------
 
 /// Verifies `parse_content_arg`, `content_candidates`, and `default_prepared_dir` priority order.
 ///
-/// Mirrors `tests/desktop-content.test.js`.
 #[test]
 fn paths_parses_content_arg_and_orders_candidates() {
     // On Unix hosts, verify POSIX absolute paths and forward-slash joining.
@@ -1421,14 +1418,13 @@ fn steam_vdf_roundtrips_and_manages_non_steam_shortcuts_and_overlay() {
 }
 
 // ---------------------------------------------------------------------------
-// 9. Update tests (ports tests/desktop-update.test.js)
+// 9. Update tests
 // ---------------------------------------------------------------------------
 
 /// Verifies SemVer/Debian version ordering, Ed25519 channel envelope verification,
 /// Zstandard manifest decompression, content-addressed blob installation with
 /// `bfe-tree.json` reuse, `settle`, and `MAX_ATTEMPTS` crash-loop rollback.
 ///
-/// Mirrors `tests/desktop-update.test.js`.
 #[test]
 fn update_versions_feed_signatures_payload_slots_and_rollback_work() {
     let _ = Value::Null;
@@ -1740,12 +1736,12 @@ fn content_archive_exports_imports_deduplicates_hardlinks_and_relocates() {
 }
 
 // ---------------------------------------------------------------------------
-// Browser-build archive interop. The fixtures are synthetic bytes made here; the
-// archive layout is `electron/content-archive.js`'s (manifest first, `{path, size,
+// Interop with exports made by earlier releases. The fixtures are synthetic bytes
+// made here; the archive layout is theirs (manifest first, `{path, size,
 // mtime, [linkTo, hardlink,] sha256}` records, deflated entries, `.prepare.json`).
 // ---------------------------------------------------------------------------
 
-/// One synthetic archive entry: name, payload, whether to deflate it (the browser
+/// One synthetic archive entry: name, payload, whether to deflate it (the client
 /// exporter does, level 3), general-purpose flags and the Unix mode in the attributes.
 struct ZipItem {
     name: String,
@@ -1827,7 +1823,7 @@ fn sha_hex(data: &[u8]) -> String {
     format!("{:x}", Sha256::digest(data))
 }
 
-/// A browser-form manifest record: `path`, `size`, `mtime`, `sha256`, plus `linkTo` and
+/// A client-form manifest record: `path`, `size`, `mtime`, `sha256`, plus `linkTo` and
 /// `hardlink` for an alias.
 fn record(path: &str, data: &[u8], mtime: f64, alias: Option<(&str, bool)>) -> Value {
     let mut r = json!({"path": path, "size": data.len(), "mtime": mtime, "sha256": sha_hex(data)});
@@ -1838,7 +1834,7 @@ fn record(path: &str, data: &[u8], mtime: f64, alias: Option<(&str, bool)>) -> V
     r
 }
 
-/// Writes a synthetic archive in the browser's form and returns the payload of the big file.
+/// Writes a synthetic archive in the client's form and returns the payload of the big file.
 fn browser_archive(path: &Path, big_len: usize, deflate: bool) -> Vec<u8> {
     let common = br#"{"ok":true}"#.to_vec();
     let map = br#"{"meshes":[{}]}"#.to_vec();
@@ -1944,7 +1940,7 @@ fn content_archive_imports_the_browser_builds_archive_form() {
                 .as_millis(),
             1700000002000
         );
-        // The receipt is the manifest, so the browser build's `relocatePreparation` can read it.
+        // The receipt is the manifest, so the client build's `relocatePreparation` can read it.
         let receipt: Value =
             serde_json::from_slice(&fs::read(dir.join(RECEIPT_NAME)).unwrap()).unwrap();
         assert_eq!(receipt["format"], "battlefront-eternal-content");

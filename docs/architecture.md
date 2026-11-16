@@ -1,7 +1,7 @@
 # Architecture overview
 
 `bfe-client` is the standalone native game binary: it opens a native desktop
-window, owns its OpenGL ES 3.0 / OpenGL 4.5 context and `cpal` audio device,
+window, owns its OpenGL ES 3.0 (or desktop OpenGL 3.3) context and `cpal` audio device,
 runs the shell menus, server browser, and battle UI overlays in Rust, steps
 Instant Action battles on a dedicated 60 Hz local world thread, and connects to
 `bfeserver` instances over `BFE-UDP/1`. `bfeserver` (`rust/bfe-server`) is the
@@ -14,12 +14,12 @@ For building, testing and schema generation, see [development.md](development.md
 
 | Area | Implementation | Current responsibility |
 | --- | --- | --- |
-| Authoritative world | `rust/sim/rust/world/` | One ordered world tick over battle-local owners, including water, squads, cameras, AI, units, vehicles, recon, live objects, ordnance, items and battle rules. |
-| Units and combat | `rust/sim/rust/units/`, `rust/sim/rust/combat/`, `rust/sim/rust/recon/` | Bodies, pooled lives, collision shapes, weapons, damage, hit history and recon droids. |
-| Vehicles and battle | `rust/sim/rust/vehicles/`, `rust/sim/rust/battle/` | Hulls, flight, seats, riders, turret crews, spawning, objectives, roster and statistics. |
-| AI | `rust/sim/rust/ai/` | Classic and Enhanced decisions, navigation, perception, aim and class jobs over canonical world state. |
-| Prediction and publication | `rust/sim/rust/client/`, `rust/sim/rust/prediction/`, `rust/sim/rust/wire/` | Private own-player replay and reconciliation, authoritative snapshot capture, budgets, deltas and encoded publication. |
-| Collision and movement | `rust/sim/rust/collision/`, `rust/sim/rust/movement/` | Map and dynamic-body queries, soldier movement and retained query scratch. |
+| Authoritative world | `rust/sim/src/world/` | One ordered world tick over battle-local owners, including water, squads, cameras, AI, units, vehicles, recon, live objects, ordnance, items and battle rules. |
+| Units and combat | `rust/sim/src/units/`, `rust/sim/src/combat/`, `rust/sim/src/recon/` | Bodies, pooled lives, collision shapes, weapons, damage, hit history and recon droids. |
+| Vehicles and battle | `rust/sim/src/vehicles/`, `rust/sim/src/battle/` | Hulls, flight, seats, riders, turret crews, spawning, objectives, roster and statistics. |
+| AI | `rust/sim/src/ai/` | Classic and Enhanced decisions, navigation, perception, aim and class jobs over canonical world state. |
+| Prediction and publication | `rust/sim/src/client/`, `rust/sim/src/prediction/`, `rust/sim/src/wire/` | Private own-player replay and reconciliation, authoritative snapshot capture, budgets, deltas and encoded publication. |
+| Collision and movement | `rust/sim/src/collision/`, `rust/sim/src/movement/` | Map and dynamic-body queries, soldier movement and retained query scratch. |
 | Presentation | `rust/bfe-presentation`, `rust/bfe-pose` | Displayed bodies, hulls, riders, props, cameras, items, projectiles, effects, pose sampling and received snapshot timelines. |
 | Rendering | `rust/bfe-render` | Battle frame schedule, shader catalogs, geometry/material descriptors, textures, targets, cameras, lights, draws, post-processing, HUD and interface geometry. |
 | Environment | `rust/bfe-environment` | Destruction, weather, atmosphere, water and shore state, foliage clocks and placed effects. |
@@ -31,18 +31,18 @@ For building, testing and schema generation, see [development.md](development.md
 
 ## Hosts and boundaries
 
-`bfe-client` (`rust/bfe-client/rust/app/`) is the native desktop host.
+`bfe-client` (`rust/bfe-client/src/app/`) is the native desktop host.
 It runs the shell (`bfe-shell`), battle UI overlays (`bfe-battle-ui`), online
 server browser and identity (`bfe-online`), and platform services
 (`bfe-desktop`) in a single process. In `InstantAction`, `bfe-client` spawns a
-dedicated 60 Hz local world thread (`rust/bfe-client/rust/local/`) that communicates
+dedicated 60 Hz local world thread (`rust/bfe-client/src/local/`) that communicates
 with the render thread exclusively through a pre-allocated non-blocking command
 ring and publication slot pool (`try_lock` only on the render thread), feeding
 the same `Receiver` / `Sender` / `Replay` / `Scene` presentation pipeline used
 by online battles. In `Online`, `bfe-client` exchanges `BFE-UDP/1` packets with
 `bfeserver` directly. See [native-client.md](native-client.md).
 
-`rust/sim/rust/world/owner.rs` groups the canonical store and phase owners for
+`rust/sim/src/world/owner.rs` groups the canonical store and phase owners for
 one battle. Internal phase services borrow that `World`, and each battle's
 native `Context` owns a boxed `World`. Generated block readers operate on
 `BlockView` spans.

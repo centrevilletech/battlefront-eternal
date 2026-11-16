@@ -462,8 +462,8 @@ def map_missions(name):
 
 
 def pick_mission(name, side):
-    """The battle a map plays for a side, as the runtime picks it
-    (src/mission.js): the side's era's (rep and cis fight the Clone Wars,
+    """The battle a map plays for a side, as the runtime picks it: the
+    side's era's (rep and cis fight the Clone Wars,
     all and imp the Galactic Civil War), or for a local side the battle that
     fields it, the default era's first. Never a historical version, nor one
     fought in another world. (name, setup), or (None, None) when the map has
@@ -542,7 +542,7 @@ def command_posts(records, classes, skeletons, world_regions, world_name, locl):
         if destructible_post(cls):
             # An objective shot down rather than captured: its building in
             # props.json (write_props) has the same name. Its KillRegion
-            # kills whoever stands in it as it goes (src/objectives.js).
+            # kills whoever stands in it as it goes.
             kill = by_region.get(props.get("KillRegion", "").lower())
             posts[-1]["maxHealth"] = float(class_prop(cls, "MaxHealth"))
             posts[-1]["killRegion"] = {k: kill[k] for k in ("name", "type", "matrix", "size")} if kill else None
@@ -857,7 +857,7 @@ def low_res_terrain(entries, texture_paths):
     so at alpha 100 the fog never passes 100/255 inside FogFar. An alpha of 0
     or 255 leaves it. The range goes out as authored: the game
     fogs only when 0 <= FogNear < FogFar, which the renderer decides
-    (src/materials.js fogs; Kashyyyk: Islands sets 9000 and 8000)."""
+    (Kashyyyk: Islands sets 9000 and 8000)."""
     if not entries:
         return None
     color = value(entries, "FogColor")
@@ -1302,8 +1302,8 @@ def extract_map(name, shared, sides):
     """The map's world, once, and every battle fought in it (map_missions:
     both eras' and the historical versions), each with what follows its
     mission: map.json's missions[<mission>] holds its mission, spawn screen
-    and vehicle pack, and the runtime plays the one a battle asks for
-    (src/mission.js). sides (one, or several in the order tools/prepare.py
+    and vehicle pack, and the runtime plays the one a battle asks for.
+    sides (one, or several in the order tools/prepare.py
     lists them) are searched for placed classes the map's archive lacks."""
     sides = [sides] if isinstance(sides, str) else list(sides)
     out = PUBLIC / "maps" / name
@@ -1546,7 +1546,7 @@ def extract_map(name, shared, sides):
     # names with AddDeathRegion (looked up by name without regard to
     # case), Tatooine: Dune Sea's sarlacc pit (Sarlac01) among them; the
     # port also keeps every region named deathregion*. The runtime picks a
-    # battle's own (src/game.js).
+    # battle's own.
     named = {n.lower() for setup in map_missions(name).values() for n in setup.get("deathRegions") or []}
     deaths = [r for r in world_regions if r["name"].lower().startswith("deathregion") or r["name"].lower() in named]
 
@@ -1590,7 +1590,7 @@ def extract_map(name, shared, sides):
         "deathRegions": deaths,
         # Every battle fought in this world, by mission name: its mission,
         # spawnScreen and vehicles, which the runtime plays as map.json's
-        # own once a battle picks it (src/mission.js).
+        # own once a battle picks it.
         "missions": battles,
         "commandPosts": posts,
         "commandPost": {
@@ -2486,8 +2486,7 @@ def extract_ai(name, side="rep"):
     """The Classic AI's data for a map (docs/ai.md): its planning graph,
     hints and barriers (ai-nav.json), and its mission calls and command-post
     properties (ai-mission.json): every mission script of the map's, its
-    `mission` the side's battle until the runtime picks one
-    (src/mission.js). Each is optional: a failure is reported and the rest
+    `mission` the side's battle until the runtime picks one. Each is optional: a failure is reported and the rest
     of the extraction stands."""
     from zero_ai import export_map
     from zero_ai_mission import write as write_ai_mission

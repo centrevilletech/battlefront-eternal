@@ -145,7 +145,7 @@ impl SlintHost {
             StartupContentState::Preparing { latest, .. } => {
                 (first_run::progress_view(latest), 0, None)
             }
-            // prepare.js lights no button while a transfer runs: CANCEL carries no `primary` flag.
+            // lights no button while a transfer runs: CANCEL carries no `primary` flag.
             StartupContentState::Transfer(work) => (work.view(), NO_ACTION, None),
             StartupContentState::FirstRun(model) => (model.view(), model.cursor, model.focus),
         };
@@ -228,7 +228,7 @@ impl StandaloneWindowApp {
                     if let AppState::StartupLoader(StartupContentState::FirstRun(model)) =
                         &mut self.state
                     {
-                        // prepare.js: leaving the buttons lights the state's own
+                        // leaving the buttons lights the state's own
                         // choice again, unless the keyboard's focus is on one.
                         if !model.focus.is_some_and(|f| model.is_group_button(f)) {
                             model.cursor = model.primary_action();

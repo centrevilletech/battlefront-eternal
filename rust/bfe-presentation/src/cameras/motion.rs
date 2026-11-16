@@ -1,4 +1,4 @@
-//! FirstPersonMotion from src/camera.js. Fixed arrays retain the current
+//! FirstPersonMotion. Fixed arrays retain the current
 //! segment, velocity and joins; authored keys allocate only at registration.
 // The head bob's keys: eye offsets in the camera's frame (x right, y up, z
 // back) and their tangents, one per 0.2 s segment.
@@ -163,11 +163,11 @@ impl Motion {
             self.cue = keys[key].time.iter().sum();
         }
     }
-    // Ports FirstPersonMotion.update in camera.js, before camera selection.
+    // Ports FirstPersonMotion.update, before camera selection.
     // Remember every posture, air and dive transition, even in third person.
     // Only the player's own eyes can trigger a new visible motion.
     // Landing strength reads the remembered downward velocity of the body.
-    // Short stair drops keep the smaller impact response of the page.
+    // Short stair drops keep the smaller impact response of the client.
     // An interrupted bob is allowed to settle at its existing derivative.
     // The cue is a scalar duration for the arms' hands-down/landing clips.
     // The host consumes it in the same frame before attachment sampling.

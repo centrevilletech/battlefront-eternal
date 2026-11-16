@@ -93,14 +93,14 @@ All of it is additions. No existing key changes.
 The atlases land in `public/common/raster-hud/` as
 `<name>-<first 12 hex digits of the PNG's sha256>-4x.webp`. `manifest.json`
 keys them by the PNG's path in `textures`. `RasterHudAssets.upgrade()`
-(`rust/sim` (`raster-hud`)) finds them for any texture the HUD loads by its
+(`rust/bfe-client` (`online::hud`)) finds them for any texture the HUD loads by its
 `/common/textures/<name>.png` URL, which is what `hud.texture(name)` does:
 everything the board and the popup draw goes through it.
 
 ### `public/maps/<map>/ai-mission.json`: `names`
 
 Unchanged. The Classic AI and `Battle.nameBots()` read it, through
-`rust/sim` (`bot-names`):
+`rust/sim` (`battle::names`):
 
 - `"1"` to `"4"`: `{ first, last }` for the Rebels, Empire, Republic and
   CIS. Empty lists mean two letters, or three digits.

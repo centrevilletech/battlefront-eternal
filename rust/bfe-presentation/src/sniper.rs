@@ -1,5 +1,5 @@
 //! SniperTrace's retained flight, vapour, head shots and draw records.
-//! The page supplies ordered events and displayed camera facts. Fixed stores
+//! The client supplies ordered events and displayed camera facts. Fixed stores
 //! evict their oldest visual records; an overloaded battle never grows them.
 use crate::sniper_layout::{sniper_frame as f,sniper_command as c,sniper_kind as k,sniper_event as e,sniper_event_kind as ek,sniper_match as m,sniper_limits as lim,sniper_counts as h,sniper_streak as streak,sniper_flare as flare};
 use crate::cameras::math::{plus,sub,cross,Math,V8};
@@ -49,7 +49,7 @@ impl Default for Sniper {
 }
 impl Sniper {
     // The displayed camera is already posed. Reading its matrices directly
-    // avoids asking a browser scene to recompute any native-owned transform.
+    // avoids asking a client scene to recompute any native-owned transform.
     fn facts(&mut self){self.now=self.input[f::TIME];self.eye=vector(&self.input,f::EYE);
         self.camera=(self.input[f::HAS_CAMERA]!=0.0).then(||matrix(&self.input,f::CAMERA));self.inverse=matrix(&self.input,f::INVERSE);
         self.muzzle=(self.input[f::HAS_MUZZLE]!=0.0).then(||vector(&self.input,f::MUZZLE));}

@@ -1,4 +1,4 @@
-//! High-level Classic spawn screen controller (`src/spawn-screen/index.js` `createSpawnScreen`).
+//! High-level Classic spawn screen controller (`createSpawnScreen`).
 //!
 //! Coordinates the spawn screen's lifecycle between the battle world (`SpawnPort`),
 //! the pure state machine (`SpawnModel`), keyboard/mouse input (`SpawnInput`), and
@@ -92,7 +92,7 @@ impl SpawnScreenController {
         self.model.is_open()
     }
 
-    /// Opens the spawn screen (`open(reason)` in `src/spawn-screen/index.js`).
+    /// Opens the spawn screen (`open(reason)`).
     ///
     /// Resets per-open input state (warping the software cursor back to `(512, H / 2)`
     /// while preserving held keys), disables in-battle player controls, and switches
@@ -114,8 +114,7 @@ impl SpawnScreenController {
         self.pick_camera_shot(port);
     }
 
-    /// Closes the spawn screen and restores controls and camera (`close()` in
-    /// `src/spawn-screen/index.js`).
+    /// Closes the spawn screen and restores controls and camera (`close()`).
     pub fn close(&mut self, port: &mut dyn SpawnPort) {
         if !self.model.is_open() {
             return;
@@ -127,8 +126,7 @@ impl SpawnScreenController {
         self.controls_enabled = true;
     }
 
-    /// Commits the current choice and sends it to `port` (`spawn()` in
-    /// `src/spawn-screen/index.js`).
+    /// Commits the current choice and sends it to `port` (`spawn()`).
     ///
     /// Increments `controls_locks` so the host can re-lock the pointer inside the
     /// user gesture, queues `SpawnDisplaySpawnPointAccept`, and sends the request
@@ -162,8 +160,7 @@ impl SpawnScreenController {
         self.sync_model_events();
     }
 
-    /// Steps the spawn screen by `dt` seconds (`update(dt)` in
-    /// `src/spawn-screen/index.js`).
+    /// Steps the spawn screen by `dt` seconds (`update(dt)`).
     pub fn update(
         &mut self,
         dt: f64,

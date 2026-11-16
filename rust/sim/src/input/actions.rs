@@ -1,4 +1,4 @@
-//! The reliable action lane (runtime/input-actions.js). Its watermark is
+//! The reliable action lane. Its watermark is
 //! independent of replaceable movement, and duplicate presses span ticks.
 use crate::gen::{HsCommand, HsCommandKind, IaEntry, IaHuman, IaInput, IaOperation, IaOutcome, IaResult, IaState};
 use crate::store::{StrId, Strings};

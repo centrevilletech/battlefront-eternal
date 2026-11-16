@@ -1,11 +1,9 @@
-//! A battle's collision world in the collision kernel's state, as
-//! src/ray-kernel.js makes it from a CollisionWorld (src/collision.js
-//! 160-165): the terrain's grid, the buildings' tree and the terrain's tree
-//! over the content's corners (one copy of each corner array), the world,
-//! and the buildings as its fixed set for gathers. The trees are the
-//! JavaScript's (three-mesh-bvh's packed nodes and indirect buffers),
-//! handed over as built: tools/collision-trees.mjs writes them for a host
-//! without JavaScript, and `read_trees` reads that file.
+//! A battle's collision world in the collision kernel's state: the
+//! terrain's grid, the buildings' tree and the terrain's tree over the
+//! content's corners (one copy of each corner array), the world, and the
+//! buildings as its fixed set for gathers. The trees keep three-mesh-bvh's
+//! layout (packed nodes and indirect buffers); `read_trees` reads them from a
+//! trees file (`BFEC`, version 1).
 
 use crate::collision::{MapCollision, TriangleGrid};
 
@@ -45,7 +43,7 @@ pub trait CollisionKernel {
     fn world_statics(&mut self, world: u32, set: u32);
 }
 
-/// collision.js 160-165 through ray-kernel.js: the grid (the terrain's
+/// 160-165 through ray-kernel.js: the grid (the terrain's
 /// corners copied), then the buildings' tree and the terrain's (over the
 /// same terrain copy), the world, and the buildings' fixed set.
 pub fn install(k: &mut dyn CollisionKernel, col: &MapCollision, buildings: &BvhTree, terrain: Option<&BvhTree>) -> Result<Installed, String> {
@@ -72,7 +70,7 @@ pub fn install(k: &mut dyn CollisionKernel, col: &MapCollision, buildings: &BvhT
         _ => -1,
     };
     let world = k.world(buildings_tree, terrain_tree, grid);
-    // ray-kernel.js fixedSet(staticSet, bvh).
+    // fixedSet(staticSet, bvh).
     let count = col.tri_bounds.len() / 6;
     if col.polygons.len() < count {
         return Err("A fixed triangle has no polygon number".into());
@@ -82,7 +80,7 @@ pub fn install(k: &mut dyn CollisionKernel, col: &MapCollision, buildings: &BvhT
     Ok(Installed { world, grid, buildings: buildings_tree, terrain: terrain_tree, statics })
 }
 
-/// A cast the JavaScript answered (tools/collision-trees.mjs).
+/// A cast the JavaScript answered.
 #[derive(Clone, Copy, Debug)]
 pub struct Cast {
     pub origin: [f64; 3],

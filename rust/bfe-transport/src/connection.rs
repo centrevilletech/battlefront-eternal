@@ -1,4 +1,4 @@
-//! connection.js's protected packet, ACK/loss and timer phase. The device
+//! protected packet, ACK/loss and timer phase. The device
 //! supplies a monotonic millisecond clock and borrowed transmit/delivery hooks.
 //! No socket, JSON policy or service admission is called by a packet decoder.
 use std::net::SocketAddr;
@@ -109,12 +109,12 @@ impl Connection{
     pub fn backlog(&self)->usize{self.tx.iter().map(SendStream::pending).sum()}
     // Request an ACK-eliciting PING frame on the next flush.
     pub fn ping(&mut self){self.ping=true;}
-    /// `src/net/connection.js` `Connection.confirmHandshake`: queues a
+    /// `Connection.confirmHandshake`: queues a
     /// `HANDSHAKE_DONE` frame to confirm session establishment to the client.
     pub fn confirm_handshake(&mut self) {
         self.handshake_done = true;
     }
-    /// `src/net/connection.js` `Connection.recentLoss`: fraction of
+    /// `Connection.recentLoss`: fraction of
     /// state-carrying packets lost over the 1000 ms sliding bucket window.
     pub fn recent_loss(&self, now: f64) -> f64 {
         let oldest = ((now - LOSS_WINDOW_MS) / LOSS_BUCKET_MS).floor() as i64;

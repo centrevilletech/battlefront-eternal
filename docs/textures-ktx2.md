@@ -124,7 +124,7 @@ ktx create --format R8G8B8A8_UNORM --assign-tf linear \
   `UASTC_RGBA`. Transcoders use this to pick BC1/ETC1 (4 bpp) over BC3/ETC2
   RGBA where BC7 and ASTC are missing. 685 textures keep alpha; 489 are
   opaque.
-- **Multiples of 4 only.** WebGL's S3TC, RGTC and BPTC extensions reject a
+- **Multiples of 4 only.** OpenGL's S3TC, RGTC and BPTC formats reject a
   level 0 whose width or height is not a multiple of 4. A PNG like that, or
   smaller than 4x4, is not encoded; it is listed under `skipped` with the
   reason, and the runtime keeps the PNG. Later levels need `size << level` to
@@ -253,45 +253,29 @@ textures drop to 4 bpp.
 
 ## Runtime
 
-`rust/sim` (`textures`) (`TextureLibrary`) loads every world texture. `game.js`
-creates it with the renderer and the loading manager, then awaits
-`prepare()`. That reads the `ktx2.json` of each folder the map, side, common,
-vehicle and other-side tables point into. Each `load(url)` then works like
-this:
+The client reads the `ktx2.json` of each folder the map, side, common,
+vehicle and other-side tables point into when a battle loads
+(`rust/bfe-client` `scene.rs`), and for each texture:
 
-- **PNG listed in a manifest:** returns a texture at once, as
-  `TextureLoader` would, so materials can hold it from the start.
-  - Rust's Basis decoder fetches the KTX2 through host IO and transcodes it in a worker to
-    what the GPU samples directly: BC7 on desktop, ASTC or ETC2 on mobile,
-    or BC1/BC3 failing those. Intel GPUs before Ivy Bridge under Mesa get
-    BC1/BC3 too: the driver offers BC7 there but unpacks it to RGBA8 on the
-    CPU as it uploads (`gpu-info.js` `unpacksBc7`).
-  - The result fills the waiting texture: its mip chain (no
-    `generateMipmaps`), `flipY = false`, and `NoColorSpace` so values are
-    sampled raw, as with the PNGs.
-  - The loading manager counts the transcode, so `ready` waits for it.
-  - A listed KTX2 failure stops loading with the GPU name and cause. Only a
-    missing optional index or an unlisted PNG chooses the original PNG before
-    loading; failed decodes and uploads never change the selected format.
-- **Normal maps (`*_bump.png`) stay PNG.** They measured worst (see
-  above), and their block noise shows in the lighting.
-- **CPU readers** call `texturePixels()` (`rust/sim` (`texture-pixels`)) instead of
-  drawing `texture.image` into a canvas: lamp detection and a laser's hue.
-  A compressed texture names its PNG in `userData.png`, which is fetched on
-  first request. `textureHue()` returns `undefined` until then, and `null`
-  for a grey texture.
+- **PNG listed in a manifest:** the KTX2 is transcoded by the Basis decoder
+  (`rust/basis-transcode`) to what the GPU samples directly: BC7 on desktop,
+  ASTC where the GPU has it, ETC2 only on an OpenGL ES GPU with no desktop
+  format (a phone-class GPU; desktop GPUs without an ETC2 sampler have it
+  decoded on the CPU by the driver), or BC1/BC3 failing those. A desktop GPU
+  with neither BC7 nor ASTC (Intel's Sandy Bridge) takes BC1/BC3, and so
+  does one whose driver offers BC7 but unpacks it on the CPU as it uploads
+  (`rust/bfe-render` `texture_format::unpacks_bc7`).
+- The result fills the texture's whole mip chain (no mipmap generation),
+  sampled raw, as with the PNGs.
+- A listed KTX2 failure stops loading with the GPU name and cause. Only a
+  missing optional index or an unlisted PNG chooses the original PNG before
+  loading; failed decodes and uploads never change the selected format.
+- **Normal maps (`*_bump.png`) stay PNG.** They measured worst (see above),
+  and their block noise shows in the lighting.
+- **CPU readers** (lamp detection and a laser's hue) read a compressed
+  texture's PNG instead.
 - **The Settings option "Compressed textures"** (`textureCompression`,
   default on) is read when a map loads.
 
-Checked on Theed (SwiftShader):
-
-- 165 of 172 world textures load compressed; the other 7 are normal maps.
-- The frame matches the PNG run at 47.7 dB PSNR, which is visually identical.
-- Lamp detection finds the same 107 lights once the PNG fetches complete.
-
-The decoder worker loads the independent PNG/WebP and Basis Rust modules from
-the native client's hashed assets. It bounds completed decoded bytes awaiting paced uploads.
-Each upload batch also waits asynchronously for Rust's GPU fence before the
-next batch, so ANGLE's staging buffers cannot grow behind animation frames.
-Rust selects formats, owns texture and target storage, and retains encoded PNGs
-or transcoded blocks for restoration; no OpenGL transcoder ships.
+Rust selects formats, owns texture and target storage, and paces uploads
+while the loading screen runs; no OpenGL transcoder ships.

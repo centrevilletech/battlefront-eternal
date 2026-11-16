@@ -25,7 +25,7 @@ fn element(v: Option<&Value>, i: usize) -> f64 {
     }
 }
 
-/// regions.js buildRegion(region).
+/// buildRegion(region).
 pub fn build_region(region: &Value) -> BuiltRegion {
     let mut matrix = Matrix4::identity();
     let m = region.get("matrix");
@@ -95,7 +95,7 @@ fn text(v: Option<&Value>) -> String {
     }
 }
 
-/// game.js 524-527: the regions the battle's script names with
+/// 524-527: the regions the battle's script names with
 /// AddDeathRegion, and those named deathregion*, in map.json's order.
 pub fn death_regions(world: &Value) -> Vec<(Value, BuiltRegion)> {
     let scripted: Vec<String> = world

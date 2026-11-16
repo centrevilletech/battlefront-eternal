@@ -12,7 +12,7 @@ fn error(message: impl Into<String>) -> AdmitError {
 }
 fn refused(call: &'static str) -> AdmitError { AdmitError::Refused { stage: Stage::Session, call: call.to_string() } }
 
-/// The protocol's fixed keyboard/mouse registry (net/layout.js INPUT_CODES).
+/// The protocol's fixed keyboard/mouse registry (INPUT_CODES).
 /// It is independent of a user's bindings; binding profile zero is empty.
 pub fn input_codes() -> Vec<String> {
     let mut codes = Vec::with_capacity(104);
@@ -613,7 +613,7 @@ impl DefinitionValues {
     pub fn from_context(cx: &Cx) -> Result<Self, AdmitError> {
         use super::rows::combat::{source_definitions, DefinitionKind};
         let values = |table: &[(String, ContentValue)]| table.iter().map(|(_, value)| value.clone()).collect();
-        // combat-sources.js derivedFrom: a derived definition (a hull's
+        // derivedFrom: a derived definition (a hull's
         // launcher ordnance copy) takes its authored source's protocol id.
         let sources = |kind| -> Result<Vec<ContentValue>, AdmitError> {
             Ok(source_definitions(cx, kind)?.into_iter().map(|(_, value)| value).collect())
@@ -663,7 +663,7 @@ pub fn publish_initial(world: &mut World, cx: &mut Cx, session: &mut Session, at
     })
 }
 
-/// The connection key createLocalServer admits (local-server.js `id`).
+/// The connection key createLocalServer admits (`id`).
 pub const LOCAL_CONNECTION: &str = "local";
 
 /// The local connection's bindings as createMultiplayerWorld.addPlayer makes

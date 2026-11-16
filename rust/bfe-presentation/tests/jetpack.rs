@@ -1,12 +1,11 @@
-//! Synthetic jetpack exhaust volume and detached wake tests ported from
-//! `tests/jetpack-effects.test.js` and `tests/jetpack-wake.test.js`.
+//! Synthetic jetpack exhaust volume and detached wake tests.
 //!
 //! These cases exercise `bfe_presentation::unit_effects::jetpack::{Definition,
 //! Jetpack, Wake}` across ribcage/authored/mesh nozzle outlets, ignition and
 //! cutoff envelopes, frame-rate independent wake interpolation, pool bounds,
 //! local light requests, tail bend clamping, and teleport clearing.
 //!
-//! Coverage from `tests/jetpack-effects.test.js`:
+//! Coverage:
 //! - Paired ribcage default nozzle offsets (`[-0.24, -0.21, +/-0.15]`) and
 //!   `-X` local exhaust axis rotated by the soldier's quaternion.
 //! - Authored `JetExhaust` spawner offset/box midpoints and live mesh outlet
@@ -17,7 +16,7 @@
 //! - Active-only local point light requests, frame-rate invariant throttle
 //!   envelopes across 30/60/144 FPS, and perpendicular tail bend clamping.
 //!
-//! Coverage from `tests/jetpack-wake.test.js`:
+//! Coverage:
 //! - Sub-frame path interpolation (`fraction = (birth + 1 - phase) / (dt * rate)`)
 //!   so moving nozzles fill the path between frames rather than clumping.
 //! - Identical birth timestamps and world positions across 30, 60, and 144 FPS.
@@ -32,7 +31,7 @@ use bfe_presentation::visual_effects_layout::{
 use three::{Quaternion, Vector3};
 
 /// Builds a baseline jetpack fixture matching `fixture()` in
-/// `tests/jetpack-effects.test.js` (body at `(2, 5, 3)`, rotated `+90 deg`
+/// (body at `(2, 5, 3)`, rotated `+90 deg`
 /// around `Z`, velocity `(3, 1, 0)`).
 struct JetFixture {
     jet: Jetpack,
@@ -88,7 +87,7 @@ impl JetFixture {
 }
 
 /// Builds a standalone wake fixture matching `fixture()` in
-/// `tests/jetpack-wake.test.js` (single downward nozzle moving at `6 m/s`
+/// (single downward nozzle moving at `6 m/s`
 /// along `+X`).
 struct WakeFixture {
     wake: Wake,
@@ -131,7 +130,6 @@ impl WakeFixture {
     }
 }
 
-// Mirrors `tests/jetpack-effects.test.js`:
 // "enhanced jets follow the original ribcage nozzle offsets and exhaust axis"
 // "authored nozzle positions override defaults without assuming world-down"
 // "mesh outlet frames override the legacy emitters and set the visible exhaust width"
@@ -208,7 +206,6 @@ fn nozzles_follow_ribcage_defaults_authored_definitions_and_mesh_outlet_frames()
     }
 }
 
-// Mirrors `tests/jetpack-effects.test.js`:
 // "sparks and smoke persist briefly after ignition stops; Classic clears enhancements"
 // "long burns keep fixed buffers bounded and zero-time frames do not age particles"
 // "teleporting cannot leave a smoke trail connected across the map"
@@ -264,7 +261,6 @@ fn smoke_and_sparks_persist_after_cutoff_stay_bounded_and_clear_on_classic_or_te
     assert_eq!(long.jet.wake.input[w::COUNTS + 2], 0.0);
 }
 
-// Mirrors `tests/jetpack-effects.test.js`:
 // "enhanced exhaust requests one bounded local light only while burning"
 // "ignition and cutoff envelopes are stable across render rates"
 // "turning bends the combustion tail while the nozzle remains attached; teleport clears history"
@@ -353,7 +349,6 @@ fn local_light_render_rate_envelopes_and_tail_bend_match_expected_bounds() {
     assert!(reset_bend.length() < 1e-8);
 }
 
-// Mirrors `tests/jetpack-wake.test.js`:
 // "moving nozzle emissions fill the actual between-frame path rather than clumping at the endpoint"
 // "emission timestamps and positions are stable at 30, 60 and 144 FPS"
 // "wake stops emitting after cutoff, decays completely, and has sparse embers and low-opacity smoke"

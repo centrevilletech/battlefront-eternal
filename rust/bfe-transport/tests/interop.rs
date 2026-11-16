@@ -15,7 +15,7 @@ use bfe_transport::layout::{
 use bfe_transport::server::{AdmitDecision, ClientInfo, ServerEndpoint, ServerSink};
 
 // Deterministic Ed25519 and HMAC seeds matching `seed = Buffer.alloc(32, 9)`,
-// `identity(17)`, and `RetryTokens(Buffer.alloc(32, 31))` in `tests/native-transport.mjs`.
+// `identity(17)`, and `RetryTokens(Buffer.alloc(32, 31))`.
 // Keeping the exact byte seeds ensures identity hex strings and derived transcripts
 // behave identically to the JavaScript interoperability harness.
 // `CLIENT_SEED` produces client identity `identity(9)`.
@@ -26,7 +26,7 @@ const SERVER_SEED: [u8; 32] = [17u8; 32];
 const RETRY_SECRET: [u8; 32] = [31u8; 32];
 
 // Recorded application message delivered to an endpoint's Sink callback.
-// Mirrors `Delivery` in `rust/bfe-transport/src/node.rs` and `messages` in `tests/native-transport.mjs`.
+// Mirrors `Delivery` in `rust/bfe-transport/src/node.rs` and `messages`.
 // Each delivery records the transport lane (`State`, `Events`, or `Bulk`), whether the wire frame
 // marked the payload as UTF-8 text (`text == true`), and a copy of the reassembled payload bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -49,7 +49,7 @@ struct EndpointObserver {
 impl Sink for EndpointObserver {
     fn packet(&mut self, bytes: &[u8], path: SocketAddr) {
         // Every emitted UDP datagram must respect the 1,200-byte protocol ceiling
-        // (`assert.ok(bytes.length <= MAX_DATAGRAM)` in `tests/native-transport.mjs`).
+        // (`assert.ok(bytes.length <= MAX_DATAGRAM)`).
         // Enforcing the bound here verifies that neither datagram fragmentation nor stream
         // coalescing ever overflows a single UDP packet on the wire.
         assert!(
@@ -72,7 +72,7 @@ impl Sink for EndpointObserver {
     }
 }
 
-// Builds the synthetic application hello object matching `hello` in `tests/native-transport.mjs`:
+// Builds the synthetic application hello object matching `hello`:
 // `{protocol: NETWORK_CONTRACT.protocol, profile: NETWORK_CONTRACT.profile, simulation: NETWORK_CONTRACT.simulation, content: 'synthetic-content', name: 'Player'}`.
 // Both `ClientHandshake` and `ServerHandshakes` sign these exact serialized JSON bytes into the
 // handshake transcript before deriving session traffic keys.
@@ -100,7 +100,7 @@ fn server_addr() -> SocketAddr {
 
 /// Paired native client and native server connections established through the
 /// full `ClientHandshake` and `ServerHandshakes` state machines.
-/// Mirrors `pair({ keyInterval, retry })` in `tests/native-transport.mjs`.
+/// Mirrors `pair({ keyInterval, retry })`.
 struct NativePair {
     client: Connection,
     server: Connection,
@@ -223,7 +223,7 @@ impl NativePair {
 
     /// Transfers queued packets between the two native endpoints for up to 64
     /// passes until neither endpoint emits further packets.
-    /// Mirrors `transfer(filter)` in `tests/native-transport.mjs`.
+    /// Mirrors `transfer(filter)`.
     fn transfer(&mut self, mut filter: impl FnMut(&str, &[u8]) -> bool) {
         for _ in 0..64 {
             let mut moved = false;
@@ -257,7 +257,7 @@ impl NativePair {
 
     /// Advances simulated time in 10 ms increments, polling both endpoints and
     /// transferring emitted datagrams through `filter`.
-    /// Mirrors `advance(milliseconds, filter)` in `tests/native-transport.mjs`.
+    /// Mirrors `advance(milliseconds, filter)`.
     fn advance(&mut self, milliseconds: f64, mut filter: impl FnMut(&str, &[u8]) -> bool) {
         let end = self.now + milliseconds;
         while self.now < end {
@@ -277,7 +277,7 @@ impl NativePair {
 }
 
 /// Mirrors `Rust client authenticates the JS server, retries and repeats one confirmation`
-/// in `tests/native-transport.mjs`, plus wrong-key rejection (`Event::IdentityMismatch`).
+///, plus wrong-key rejection (`Event::IdentityMismatch`).
 #[test]
 fn native_client_authenticates_native_server_retries_and_rejects_wrong_key() {
     // Establish a full pair with `retry: true`, verifying stateless token issuance,
@@ -308,8 +308,7 @@ fn native_client_authenticates_native_server_retries_and_rejects_wrong_key() {
     assert!(client_hs.take_keys().is_none());
 }
 
-/// Mirrors `all three message lanes interoperate without a native world`
-/// in `tests/native-transport.mjs`.
+/// Mirrors `all three message lanes interoperate without a native world`.
 #[test]
 fn all_three_message_lanes_interoperate_between_native_endpoints() {
     let mut p = NativePair::establish(false);
@@ -377,8 +376,7 @@ fn all_three_message_lanes_interoperate_between_native_endpoints() {
     assert_eq!(p.server.backlog(), 0);
 }
 
-/// Mirrors `loss on one ordered stream does not block state or the other stream`
-/// in `tests/native-transport.mjs`.
+/// Mirrors `loss on one ordered stream does not block state or the other stream`.
 #[test]
 fn loss_on_one_ordered_stream_does_not_block_state_or_other_stream() {
     let mut p = NativePair::establish(false);
@@ -433,8 +431,7 @@ fn loss_on_one_ordered_stream_does_not_block_state_or_other_stream() {
     assert!(p.client.stats.retransmitted > 0);
 }
 
-/// Mirrors `reliable messages converge under deterministic bidirectional packet loss`
-/// in `tests/native-transport.mjs`.
+/// Mirrors `reliable messages converge under deterministic bidirectional packet loss`.
 #[test]
 fn reliable_messages_converge_under_deterministic_bidirectional_packet_loss() {
     let mut p = NativePair::establish(false);
@@ -491,8 +488,7 @@ fn reliable_messages_converge_under_deterministic_bidirectional_packet_loss() {
     assert_eq!(p.server.backlog(), 0);
 }
 
-/// Mirrors `authentication and replay checks cannot advance a valid packet away`
-/// in `tests/native-transport.mjs`.
+/// Mirrors `authentication and replay checks cannot advance a valid packet away`.
 #[test]
 fn authentication_and_replay_checks_cannot_advance_a_valid_packet_away() {
     let mut p = NativePair::establish(false);
@@ -532,8 +528,7 @@ fn authentication_and_replay_checks_cannot_advance_a_valid_packet_away() {
     assert_eq!(p.client.stats.duplicates, 1);
 }
 
-/// Mirrors `key phases rotate in both directions while ordered messages remain exact`
-/// in `tests/native-transport.mjs`.
+/// Mirrors `key phases rotate in both directions while ordered messages remain exact`.
 ///
 /// Exercises both ordered stream delivery across 40 messages and explicit wire-level
 /// `DATA_PHASE` key rotation with previous-phase straggler acceptance below `phase_start`.
@@ -728,7 +723,7 @@ fn key_phases_rotate_and_ordered_messages_remain_exact() {
 }
 
 /// Mirrors `authenticated malformed ACKs close cleanly and an ordinary close reaches the peer`
-/// in `tests/native-transport.mjs`, and also verifies oversized frame bounds refusal.
+///, and also verifies oversized frame bounds refusal.
 #[test]
 fn authenticated_malformed_acks_oversized_frames_and_ordinary_close_behave_exact() {
     // 1. Authenticated packet containing two ACK frames is rejected with PROTOCOL close (code 2),
@@ -854,8 +849,7 @@ fn authenticated_malformed_acks_oversized_frames_and_ordinary_close_behave_exact
     }
 }
 
-/// Mirrors `idle peers exchange keepalives and close after the authenticated idle bound`
-/// in `tests/native-transport.mjs`.
+/// Mirrors `idle peers exchange keepalives and close after the authenticated idle bound`.
 #[test]
 fn idle_peers_exchange_keepalives_and_close_after_authenticated_idle_bound() {
     let mut p = NativePair::establish(false);
@@ -932,8 +926,7 @@ impl ServerSink for LiveServerHarness {
     }
 }
 
-/// Mirrors `native UDP sockets authenticate, exchange lanes and reconnect with one identity`
-/// in `tests/native-transport.mjs`.
+/// Mirrors `native UDP sockets authenticate, exchange lanes and reconnect with one identity`.
 #[test]
 fn native_udp_sockets_authenticate_exchange_lanes_and_reconnect_with_one_identity() {
     // Bind an OS-assigned non-blocking IPv4 loopback UDP port for the server endpoint.
@@ -942,7 +935,7 @@ fn native_udp_sockets_authenticate_exchange_lanes_and_reconnect_with_one_identit
     server_socket.set_nonblocking(true).unwrap();
     let listen_addr = server_socket.local_addr().unwrap();
 
-    // Server uses seed 29 (`identity(29)` in `tests/native-transport.mjs`), and client
+    // Server uses seed 29 (`identity(29)`), and client
     // reconnects twice with `CLIENT_SEED` (`identity(9)`).
     let server_identity = Identity::from_seed([29u8; 32]);
     let retry = RetryTokens::from_secret(RETRY_SECRET, 10_000.0);

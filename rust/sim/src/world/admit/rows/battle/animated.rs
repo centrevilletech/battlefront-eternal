@@ -1,8 +1,8 @@
 //! The animated props (props.js AnimatedProp: Tatooine's sarlacc tentacles,
-//! Bespin's doors) as F4Live births them (f4-live.js bindAnimated) and as
+//! Bespin's doors) as F4Live births them (bindAnimated) and as
 //! LiveObjects constructed them: the model's bone rig placed by the
 //! instance, its clips, triggers and grabs from the instance's animation
-//! record, the native pose accumulators the page's Pose made, and the
+//! record, the native pose accumulators the client's Pose made, and the
 //! grip classes every soldier class binds to each of them (prepareGrips).
 use super::super::super::{spawn, AdmitError, Stage};
 use super::super::{Call, Cx};
@@ -26,8 +26,8 @@ pub fn instances(cx: &Cx) -> Vec<usize> {
     }).map(|(i, _)| i).collect()
 }
 
-/// The pose the page's `new Pose(bones, root)` made for the prop at its
-/// construction (anim-kernel.js newPose): the bone count and the dummy
+/// The pose the client's `new Pose(bones, root)` made for the prop at its
+/// construction (newPose): the bone count and the dummy
 /// root's index, 0 when the rig has none. Called by the prop constructor
 /// before the prop's body, as LiveObjects does; the id is kept on
 /// `cx.ids.animated_poses` for the birth.
@@ -57,15 +57,15 @@ fn model<'a>(cx: &'a Cx, instance: usize) -> Result<&'a Value, AdmitError> {
     data.get("models").and_then(|m| m.get(name)).ok_or_else(|| error(format!("animated prop model {name} is missing")))
 }
 
-/// f4-live.js `clip`: a clip's frames, rate, root motion flag, track bones
+/// `clip`: a clip's frames, rate, root motion flag, track bones
 /// and sampled data, as the extractor wrote them.
 fn pa_clip(clip: &Clip) -> PaClip {
     PaClip { frames: clip.frames_f64(), fps: clip.fps, root_motion: clip.root_motion, tracks: clip.tracks.clone(),
         data: clip.data().iter().map(|v| f64::from(*v)).collect() }
 }
-/// props.js `phase(index)`: a fixed point of the idle for each prop.
+/// `phase(index)`: a fixed point of the idle for each prop.
 fn phase(index: usize) -> f64 { ((((index as u64 + 1) * 2654435761) & 0xffff_ffff) as f64) / 4294967296.0 }
-/// props.js `length(clip)`: seconds, 0 without a clip.
+/// `length(clip)`: seconds, 0 without a clip.
 fn length(clip: Option<&Clip>) -> f64 { clip.map_or(0.0, |c| c.frames_f64() / c.fps) }
 fn m16(m: &Matrix4) -> [f64; 16] { m.elements }
 

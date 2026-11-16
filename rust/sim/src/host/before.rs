@@ -1,5 +1,5 @@
-//! What the page's `step()` (src/game.js) and the world operation
-//! (src/sim/wasm/world.js) wrote into the owners' input banks before
+//! What the client's `step()` and the world operation
+//! wrote into the owners' input banks before
 //! `world_step_run`, in their order: the fleet's input header
 //! (`F2Sim.foreignIn(true)`), both kernels' body flags and the separation
 //! scope (`preparePhase`), the live and tail inputs (`F4Live.prepareStep`,
@@ -66,7 +66,7 @@ impl Authority {
         // kernels. The native owners toggle their own bodies in the movement
         // kernel's flags (hull births and deaths, the animated props); the
         // page saw those as its bodies' `enabled` too. Adopt what changed
-        // since the last write, then the buildings' shown states the page
+        // since the last write, then the buildings' shown states the client
         // toggled (F3Props.show), and hand both kernels the same flags.
         // Both kernels' flag arrays are read and written in place.
         let (enabled, written, toggles) = (&mut self.enabled, &self.written, &mut self.toggles);
@@ -129,7 +129,7 @@ impl Authority {
             "F4_TAIL_INPUT",
             &put::<{ F4TailInput::WORDS }>(|row, heap| tail.put(row, heap)),
         )?;
-        // ai-world-load.js prepare(dt, tick, true): network views (the
+        // prepare(dt, tick, true): network views (the
         // players' phase writes the cameras natively), no reticle, the AI's
         // time is simTime, the journal is the sim events since its cursor:
         // each shot or damage record as an AiJournalEvent row, a unit

@@ -223,11 +223,10 @@ impl Resampler {
     }
 }
 
-// The browser module requires the same SIMD128 support as the output DSP.
 // Four independent accumulators preserve the recorded SSE operation order;
 // there is no fused multiply-add or reassociation of the horizontal sum.
-// Native correctness tools use the same four-lane arithmetic. The worker
-// build above always executes SIMD; codec decoding stays off the audio thread.
+// Native correctness tools use the same four-lane arithmetic. Codec decoding
+// stays off the audio thread.
 fn convolve(samples: &[f32; 32], ka: &[f32; 32], kb: &[f32; 32], x: f32) -> f32 {
     let (mut a, mut b) = ([0.0f32; 4], [0.0f32; 4]);
     for i in 0..32 {

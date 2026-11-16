@@ -2,8 +2,8 @@
 //! the dedicated server: collision queries, soldier movement, pose sampling,
 //! vehicles and flight, combat, ordnance, items, AI, the battle rules, the
 //! entity store and its generated code (`gen`, from rust/sim/schema via
-//! `cargo xtask schema`), and the wire publication. Arithmetic matches the
-//! Electron build's JavaScript to the last bit (rust/v8math).
+//! `cargo xtask schema`), and the wire publication. Its arithmetic is
+//! deterministic to the last bit on every platform (rust/v8math).
 
 pub mod abi;
 mod audio_control;

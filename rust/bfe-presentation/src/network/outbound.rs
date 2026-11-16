@@ -71,7 +71,7 @@ impl Outbound {
         edges!=0 || self.sent_tick.is_none_or(|last|self.revision!=self.sent_revision || tick<last || tick-last>=interval.clamp(1,2)as f64)
     }
     // Explicit cold fixture capture is the only JS reader of accounting.
-    // Live send never creates a second look/held/life/ACK state on the page.
+    // Live send never creates a second look/held/life/ACK state on the client.
     pub fn capture(&self)->String {
         let names=self.held.as_ref().map(|(words,length)|{
             let mut names=Vec::new();let mut at=0;
@@ -127,7 +127,7 @@ impl Outbound {
                 // A new life starts with both triggers released, including
                 // a reconnect whose first sample already holds a fire key.
                 if reset {*self=Self::default();self.life=Some(life);}
-                // Add individual samples in source order. A page-side sum
+                // Add individual samples in source order. A client-side sum
                 // would change floating-point cancellation across commands.
                 for look in looks.as_chunks::<2>().0{self.look[0]+=look[0];self.look[1]+=look[1];}
                 let changed=self.held.as_ref().is_some_and(|(last,n)|*n!=length || last[..*n]!=held[..length]);

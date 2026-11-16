@@ -273,7 +273,7 @@ impl Publisher {
                 self.reliable_spare.push(reliable); self.fault(c.id, "publication record capacity exceeded"); continue;
             }
             for (i, event) in self.events.gameplay().iter().enumerate() {
-                // Death feedback concerns every page. Damage concerns only
+                // Death feedback concerns every client. Damage concerns only
                 // the attacker's and target's own identities.
                 if event.schema != 3. || actor.unit.is_some_and(|u| super::journal::concerns(event, u.0)) { reliable.records.push(i as u32); }
             }
