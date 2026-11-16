@@ -18,6 +18,7 @@
 pub mod battle;
 pub(crate) mod bench;
 pub mod cli;
+mod display_libraries;
 mod loading;
 mod folder_dialog;
 mod gpu_probe;
@@ -209,6 +210,29 @@ pub fn run(with_audio: bool) {
     }
 }
 
+/// The window's event loop, on a window system whose libraries this system has
+/// (Linux: `display_libraries`); a player without them reads which to install.
+fn new_event_loop() -> Result<EventLoop<()>, String> {
+    let mut builder = EventLoop::builder();
+    #[cfg(target_os = "linux")]
+    match display_libraries::choose() {
+        Ok(display_libraries::Backend::Default) => {}
+        Ok(display_libraries::Backend::X11) => {
+            use winit::platform::x11::EventLoopBuilderExtX11;
+            builder.with_x11();
+        }
+        Ok(display_libraries::Backend::Wayland) => {
+            use winit::platform::wayland::EventLoopBuilderExtWayland;
+            builder.with_wayland();
+        }
+        Err(message) => {
+            eprintln!("{message}");
+            return Err(message);
+        }
+    }
+    builder.build().map_err(|e| e.to_string())
+}
+
 /// Runs the standalone native game (`Startup` -> `StartupLoader` -> `Shell` -> `Battle`).
 pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<(), String> {
     // 1. Resolve application data paths and load `DesktopSettings`, `bfe_interface::Settings`,
@@ -273,7 +297,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         .map(|map| GateDriver::new(map, opts.shots_dir.clone()));
 
     // 7. Create the `winit` event loop in continuous `Poll` mode for 60 Hz rendering.
-    let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
+    let event_loop = new_event_loop()?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let platform_smoke = (opts.script.as_deref() == Some("platform-smoke"))

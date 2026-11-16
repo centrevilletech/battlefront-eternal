@@ -455,6 +455,21 @@ menus applies the next time the loader opens.
 Without a toolchain (a plain checkout), the system `python3` runs the tools
 and steps whose dependencies are missing are skipped.
 
+## Linux system requirements
+
+The client needs glibc 2.35 or newer (Debian 12, Ubuntu 22.04 and newer). The
+Debian package declares everything it uses. The AppImage bundles none of the
+system's libraries and takes them from the desktop, as any desktop install has
+them: ALSA (`libasound.so.2`), fontconfig, OpenGL or EGL from Mesa or the GPU
+vendor, and for the window either Wayland (`libwayland-client`, `-cursor`,
+`-egl`, `libxkbcommon`) or X11 (`libX11`, `libX11-xcb`, `libxcb`,
+`libXcursor`, `libXi`, `libxkbcommon-x11`); GTK 3 for the folder picker, and
+FUSE to mount it (or run it with `--appimage-extract-and-run`). The window
+system's libraries are opened by name when the window is made: when the X11
+set is incomplete and the session also offers Wayland, the client uses Wayland
+(and the other way round); when neither can be served it exits with the names
+of the missing libraries and their Debian packages.
+
 ## Linux desktop integration
 
 Run from the AppImage, the app registers itself on every launch: a

@@ -111,8 +111,13 @@ def build_deb(staged_dir: Path, platform: str, version: str, out_dir: Path, repo
             'Priority: optional',
             f'Architecture: {deb_arch}',
             f'Installed-Size: {installed_kib}',
-            'Depends: libc6 (>= 2.35), libstdc++6, libgcc-s1, libfontconfig1, libasound2t64 | libasound2, libxkbcommon-x11-0, libxkbcommon0, libwayland-client0, libwayland-cursor0, libwayland-egl1, libegl1, libgl1, libgtk-3-0t64 | libgtk-3-0, ca-certificates',
-            'Recommends: libvulkan1, libx11-6',
+            # Linked: libc6, libstdc++6, libgcc-s1, libfontconfig1, libasound2. Opened by name when the window is
+            # made: X11 (libx11-6, libx11-xcb1, libxcb1, libxcursor1, libxi6, libxkbcommon-x11-0, libgl1),
+            # Wayland (libwayland-client0/-cursor0/-egl1, libxkbcommon0, libegl1); the folder dialog: GTK 3.
+            'Depends: libc6 (>= 2.35), libstdc++6, libgcc-s1, libfontconfig1, libasound2t64 | libasound2, '
+            'libx11-6, libx11-xcb1, libxcb1, libxcursor1, libxi6, libxkbcommon-x11-0, libxkbcommon0, '
+            'libwayland-client0, libwayland-cursor0, libwayland-egl1, libegl1, libgl1, libgtk-3-0t64 | libgtk-3-0, '
+            'ca-certificates',
             'Maintainer: Battlefront Eternal Contributors <contact@battlefronteternal.com>',
             'Homepage: https://battlefronteternal.com',
             'Description: Fan-made engine for Star Wars: Battlefront (2004)',
