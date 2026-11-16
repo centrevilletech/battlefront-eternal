@@ -475,8 +475,8 @@ impl SettingDefault {
     }
 }
 
-/// All 59 keys and defaults from `DEFAULTS`, in exact source order.
-pub const DEFAULTS: [SettingDefault; 59] = [
+/// All 60 keys and defaults from `DEFAULTS`, in exact source order.
+pub const DEFAULTS: [SettingDefault; 60] = [
     // Simulation rate (`"60"` Hz fixed tick) and video preset / pacing / upscaling.
     // 1. Fixed 60 Hz gameplay simulation tick rate.
     SettingDefault::s("physicsRate", "60"),
@@ -557,6 +557,8 @@ pub const DEFAULTS: [SettingDefault; 59] = [
     // Near-scene draw distance, distant terrain LOD, mouse look tuning, and HUD stats line.
     // 37. Near-scene full-detail view distance (`"original"`, `"far"`, `"max"`).
     SettingDefault::s("viewDistance", "original"),
+    // 37b. Full-screen output resolution (`"desktop"`, or `"WxH"`: one of the monitor's modes).
+    SettingDefault::s("displayMode", "desktop"),
     // 38. Distant terrain mesh density (`"full"` or `"reduced"`).
     SettingDefault::s("farTerrain", "full"),
     // 39. Ground/vehicle mouse sensitivity slider (`0.5..10.0`, neutral `5.0`).
@@ -1335,7 +1337,7 @@ mod tests {
     // Verifies all 59 DEFAULTS keys, preset cascading, `physicsRate` lock, `mouseScale`, and `adoptHardwareDefaults`.
     #[test]
     fn settings_defaults_presets_and_hardware_rules_match_js() {
-        assert_eq!(DEFAULTS.len(), 59);
+        assert_eq!(DEFAULTS.len(), 60);
         let mut s = Settings::new();
         assert!(s.fresh);
         assert_eq!(s.get_string("physicsRate"), "60");

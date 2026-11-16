@@ -16,7 +16,7 @@ use crate::options::{
     format_option_value, option_entry, option_note, options_for, reset_page, say, step_option,
     OptionKind, PAGES,
 };
-use crate::popup::{key_popup, ok_popup, KeyCaptureOutcome};
+use crate::popup::{confirm_popup, key_popup, ok_popup, KeyCaptureOutcome};
 use crate::screen::MenuScreen;
 use crate::settings::{SettingValue, Settings};
 use crate::stack::ScreenStack;
@@ -785,6 +785,17 @@ pub struct OptionsController {
     pub controls_tab: String,
     /// Most recent host-handled named action (`"online"`, `"integrations"`, `"audioPanel"`).
     pub last_named_action: Option<String>,
+    /// A display resolution being tried: the value to go back to and the seconds left to keep it. The host
+    /// switches the display when the setting changes; unless the player answers YES in time, the controller
+    /// puts the old value back (a mode the monitor cannot show leaves the player a black screen otherwise).
+    pub display_trial: Option<(SettingValue, f64)>,
+}
+
+/// Seconds a new display resolution stays without the player's YES.
+pub const DISPLAY_TRIAL_SECONDS: f64 = 15.0;
+
+fn display_trial_message(left: f64) -> String {
+    format!("KEEP THIS RESOLUTION?\nRETURNING TO THE OLD ONE IN {}", left.ceil().max(0.0) as i64)
 }
 
 impl OptionsController {
@@ -801,6 +812,7 @@ impl OptionsController {
             input: MenuInput::new(),
             controls_tab: "infantry".to_string(),
             last_named_action: None,
+            display_trial: None,
         }
     }
 
@@ -883,6 +895,35 @@ impl OptionsController {
         }
     }
 
+    /// Counts down a display resolution trial (see [`Self::display_trial`]): the question's text follows the
+    /// seconds left, and at zero the old resolution comes back and the question closes. Returns whether the
+    /// screen changed. The host calls it every frame the options are open, and once more when they close.
+    pub fn tick_display_trial(&mut self, dt: f64) -> bool {
+        let Some((_, left)) = &mut self.display_trial else { return false };
+        let shown = left.ceil();
+        *left -= dt.max(0.0);
+        if *left > 0.0 {
+            if left.ceil() != shown {
+                let text = display_trial_message(*left);
+                if let Some(top) = self.stack.top_mut().filter(|s| s.id == "confirm") {
+                    if let Some(Widget::Text(message)) = top.widget_mut("message") {
+                        message.text = text;
+                    }
+                }
+                return true;
+            }
+            return false;
+        }
+        if let Some((before, _)) = self.display_trial.take() {
+            self.settings.set("displayMode", before);
+        }
+        if self.stack.top().is_some_and(|s| s.id == "confirm") {
+            self.stack.pop();
+        }
+        self.refresh_active_screen();
+        true
+    }
+
     /// Dispatches a [`MenuInputEvent`] produced by [`MenuInput`].
     pub fn apply_event(&mut self, event: MenuInputEvent) {
         match event {
@@ -895,8 +936,13 @@ impl OptionsController {
             // Left/Right arrow or click on a choice, toggle, or slider row.
             MenuInputEvent::StepOption { key, dir } => {
                 if let Some(spec) = option_entry(&key) {
+                    let before = self.settings.get(spec.key);
                     if step_option(spec, &mut self.settings, dir) {
                         self.refresh_active_screen();
+                        if spec.key == "displayMode" && self.display_trial.is_none() {
+                            self.display_trial = Some((before, DISPLAY_TRIAL_SECONDS));
+                            self.stack.push(confirm_popup(&display_trial_message(DISPLAY_TRIAL_SECONDS), &self.context.strings));
+                        }
                     }
                 }
             }
@@ -919,6 +965,10 @@ impl OptionsController {
                 WidgetAction::OpenPage(page) => self.open_page(&page),
                 // Pop the current sub-page or modal popup and refresh the newly exposed top screen.
                 WidgetAction::Back => {
+                    // NO (or Escape) on the resolution question goes back to the old resolution.
+                    if let Some((before, _)) = self.display_trial.take() {
+                        self.settings.set("displayMode", before);
+                    }
                     self.stack.pop();
                     self.refresh_active_screen();
                 }
@@ -956,7 +1006,10 @@ impl OptionsController {
                 }
                 // Handle in-battle viewpoint toggle, credits modal popup, or external host actions.
                 WidgetAction::Named(name) => {
-                    if name == "toggle_viewpoint" {
+                    if name == "yes" && self.display_trial.take().is_some() {
+                        self.stack.pop();
+                        self.refresh_active_screen();
+                    } else if name == "toggle_viewpoint" {
                         if let Some(vp) = &mut self.context.viewpoint {
                             *vp = !*vp;
                         }
@@ -1036,6 +1089,31 @@ impl OptionsController {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_new_resolution_goes_back_unless_the_player_keeps_it() {
+        crate::options::set_display_modes(&[(1920, 1080), (1280, 720)], (1920, 1080));
+        let mut ctrl = OptionsController::new(Settings::new(), OptionsContext::default());
+        ctrl.open_page("video");
+        ctrl.apply_event(MenuInputEvent::StepOption { key: "displayMode".into(), dir: 1 });
+        assert_eq!(ctrl.settings.get_string("displayMode"), "1920x1080");
+        assert_eq!(ctrl.stack.top().unwrap().id, "confirm");
+        assert!(ctrl.tick_display_trial(1.0));
+        assert!(ctrl.tick_display_trial(DISPLAY_TRIAL_SECONDS));
+        assert_eq!(ctrl.settings.get_string("displayMode"), "desktop");
+        assert_eq!(ctrl.stack.top().unwrap().id, "options-video");
+        // YES keeps it.
+        ctrl.apply_event(MenuInputEvent::StepOption { key: "displayMode".into(), dir: -1 });
+        assert_eq!(ctrl.settings.get_string("displayMode"), "1280x720");
+        ctrl.apply_event(MenuInputEvent::Action(WidgetAction::Named("yes".into())));
+        assert!(ctrl.display_trial.is_none() && !ctrl.tick_display_trial(DISPLAY_TRIAL_SECONDS));
+        assert_eq!(ctrl.settings.get_string("displayMode"), "1280x720");
+        assert_eq!(ctrl.stack.top().unwrap().id, "options-video");
+        crate::options::set_display_modes(&[(1920, 1080), (1280, 720), (1280, 960)], (1920, 1080));
+        let spec = crate::options::option_entry("displayMode").unwrap();
+        let labels: Vec<_> = crate::options::choices_of(spec).iter().map(|c| c.label).collect();
+        assert_eq!(labels, ["DESKTOP", "1920x1080", "1280x720", "1280x960 4:3"]);
+    }
 
     #[test]
     fn options_root_swallows_backspace_but_escape_and_back_button_leave() {
@@ -1125,15 +1203,16 @@ mod tests {
         ctrl.on_key_down("Escape", false);
         assert_eq!(ctrl.stack.top().ok_or("missing options top")?.id, "options");
 
-        // Open VIDEO OPTIONS and verify all 31 rendering rows (`performancePreset`..`deathCamera`).
+        // Open VIDEO OPTIONS and verify all 32 rendering rows (`performancePreset`..`deathCamera`).
         ctrl.open_page("video");
         let top = ctrl.stack.top().ok_or("missing options-video top")?;
         assert_eq!(top.id, "options-video");
         if let Some(Widget::Options(opts)) = top.widget("rows") {
-            // 31 video options in exact `src/menus/options.js` order.
-            assert_eq!(opts.items.len(), 31);
+            // The browser build's 31 video options in its order, with the native RESOLUTION second.
+            assert_eq!(opts.items.len(), 32);
             assert_eq!(opts.items[0].id, "performancePreset");
-            assert_eq!(opts.items[30].id, "deathCamera");
+            assert_eq!(opts.items[1].id, "displayMode");
+            assert_eq!(opts.items[31].id, "deathCamera");
         } else {
             return Err("expected Options widget on videoPage".into());
         }
