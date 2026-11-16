@@ -289,6 +289,7 @@ impl StartupContentState {
                 plan_only: false,
             },
             Some(store.paths.timings_file.clone()),
+            Some(store.paths.prepare_log_file.clone()),
         )?;
         let latest = session
             .snapshot

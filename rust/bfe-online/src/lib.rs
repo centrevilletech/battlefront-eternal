@@ -34,7 +34,7 @@ pub use direct::{
     validate_direct_endpoint, DirectConnectError, DirectTarget, DEFAULT_DIRECT_PORT,
 };
 pub use identity::{
-    default_consent_path, default_identity_path, read_online_consent, try_read_online_consent,
+    adopt_desktop_profile, default_consent_path, default_identity_path, read_online_consent, try_read_online_consent,
     write_online_consent, write_online_consent_at, PlayerIdentity, SignedMasterHeaders,
     ED25519_SPKI_PREFIX, ONLINE_NOTICE_VERSION,
 };

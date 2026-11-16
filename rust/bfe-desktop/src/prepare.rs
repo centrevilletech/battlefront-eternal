@@ -657,6 +657,16 @@ pub fn create_snapshot() -> PrepareSnapshot {
     }
 }
 
+/// Appends one line to the run's log file, when there is one.
+fn log_line(log: &Option<Arc<Mutex<fs::File>>>, line: &str) {
+    if let Some(file) = log {
+        if let Ok(mut file) = file.lock() {
+            use std::io::Write;
+            let _ = writeln!(file, "{}", line.trim_end());
+        }
+    }
+}
+
 /// Appends a trimmed log line to `snapshot.logs`, retaining at most the last 160 lines.
 ///
 /// Mirrors `pushLog` in the desktop host.
@@ -1383,13 +1393,16 @@ impl PrepareSession {
     /// First verifies that `<toolchain.tools>/content-version.json` is present and
     /// valid via [`read_content_version`].
     pub fn start(opts: PrepareSpawnOptions) -> Result<Self, String> {
-        Self::start_with_timings(opts, None)
+        Self::start_with_timings(opts, None, None)
     }
 
-    /// Load and save measured tool durations alongside the desktop profile.
+    /// Load and save measured tool durations alongside the desktop profile, and
+    /// write the run's output to `log_file` (`logs/prepare.log`, replaced each run)
+    /// so a player can send it when preparation fails.
     pub fn start_with_timings(
         opts: PrepareSpawnOptions,
         timings_file: Option<PathBuf>,
+        log_file: Option<PathBuf>,
     ) -> Result<Self, String> {
         // Validate the shared content-version.json before launching the Python preparer.
         let _version = read_content_version(&opts.toolchain.tools)?;
@@ -1451,9 +1464,25 @@ impl PrepareSession {
             cmd.process_group(0);
         }
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("Failed to spawn prepare.py: {}", e))?;
+        let log = log_file.and_then(|path| {
+            fs::create_dir_all(path.parent()?).ok()?;
+            fs::File::create(path).ok().map(|file| Arc::new(Mutex::new(file)))
+        });
+        log_line(
+            &log,
+            &format!(
+                "prepare.py from {} into {} (enhanced sound {}, check only {})",
+                opts.game_dir.display(),
+                opts.content_dir.display(),
+                opts.enhanced_sound,
+                opts.plan_only
+            ),
+        );
+        let mut child = cmd.spawn().map_err(|e| {
+            let message = format!("Failed to spawn prepare.py: {}", e);
+            log_line(&log, &message);
+            message
+        })?;
 
         let stderr = child
             .stderr
@@ -1485,8 +1514,10 @@ impl PrepareSession {
         let (tx, rx) = mpsc::channel();
 
         let stderr_snapshot = Arc::clone(&snapshot);
+        let stderr_log = log.clone();
         let stderr_reader = thread::spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                log_line(&stderr_log, &line);
                 if let Ok(mut snap) = stderr_snapshot.lock() {
                     push_log(&mut snap, &line);
                 }
@@ -1511,6 +1542,7 @@ impl PrepareSession {
                     {
                         apply_event(&mut guard, &val, now_ms);
                     } else {
+                        log_line(&log, trimmed);
                         push_log(&mut guard, trimmed);
                     }
                     if let Some(path) = timings_file.as_ref() {
@@ -1553,6 +1585,7 @@ impl PrepareSession {
                         );
                     }
                 }
+                log_line(&log, &format!("finished: {}", snap.error.as_deref().unwrap_or(&snap.status)));
                 let _ = tx.send(snap.clone());
             }
         });
@@ -1776,11 +1809,15 @@ for event in [{'event':'plan','steps':[{'key':'map:nab2','phase':'maps','label':
     fn a_nonzero_child_without_events_becomes_a_terminal_failure() {
         let (root, options) = fixture();
         // The Python process starts, but its missing script can emit no events.
-        let session = PrepareSession::start(options).unwrap();
+        let log = root.join("logs/prepare.log");
+        let session = PrepareSession::start_with_timings(options, None, Some(log.clone())).unwrap();
         let snap = terminal(&session);
         assert_eq!(snap.status, "failed");
         assert!(snap.error.unwrap().contains("Preparation failed (exit"));
         drop(session);
+        // The player can send the log: Python's own complaint and how the run ended are in it.
+        let text = fs::read_to_string(&log).unwrap();
+        assert!(text.contains("prepare.py") && text.contains("finished: Preparation failed (exit"), "{text}");
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

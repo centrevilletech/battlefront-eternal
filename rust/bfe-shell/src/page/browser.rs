@@ -52,7 +52,7 @@ impl BrowserView {
                     .unwrap_or_default(),
                     s.latency_ms
                         .map(|v| format!("{v} MS"))
-                        .unwrap_or_else(|| "\u{2014}".into()),
+                        .unwrap_or_else(|| "-".into()),
                     s.location.clone(),
                 ]
             })

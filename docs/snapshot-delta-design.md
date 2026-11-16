@@ -2,12 +2,12 @@
 
 ## 1. Overview & Bandwidth Targets
 
-The authoritative simulation runs at 60 Hz (`SIM_DT = 1/60s`) and broadcasts snapshots at 20–30 Hz (every 2–3 ticks).
+The authoritative simulation runs at 60 Hz (`SIM_DT = 1/60s`) and broadcasts snapshots at 20 to 30 Hz (every 2 to 3 ticks).
 For a 32-player match with 64 AI bots, 12 vehicles, 8 command posts, and active ordnance:
-- **Uncompressed JSON full snapshot**: ~35–50 KB/snapshot (700–1500 KB/s per client; unviable for 32 clients).
+- **Uncompressed JSON full snapshot**: ~35 to 50 KB/snapshot (700 to 1500 KB/s per client; unviable for 32 clients).
 - **Quantized Delta Snapshot (`rust/sim`, `wire` module)**:
-  - Steady-state delta snapshot (20 Hz): **~800 – 1,800 bytes** (~16–36 KB/s per client).
-  - Full keyframe snapshot (on join / baseline reset): **~4,500 – 6,500 bytes**.
+  - Steady-state delta snapshot (20 Hz): **~800 to 1,800 bytes** (~16 to 36 KB/s per client).
+  - Full keyframe snapshot (on join / baseline reset): **~4,500 to 6,500 bytes**.
 
 ---
 
@@ -32,7 +32,7 @@ All authoritative state fields are quantized to fixed-point integers before hash
 ## 3. Baseline & Delta Compression Protocol
 
 1. **Per-Client Baseline Tracking (`BaselineTracker` in `rust/sim`)**:
-   - The server stores a ring buffer of recent quantized `WorldSnapshot` keyframes (e.g., last 32 emitted snapshots, covering ~1.0–1.6 seconds at 20–30 Hz).
+   - The server stores a ring buffer of recent quantized `WorldSnapshot` keyframes (e.g., last 32 emitted snapshots, covering ~1.0 to 1.6 seconds at 20 to 30 Hz).
    - Each `ClientInputPacket` carries `ackSnapshotTick`: the latest authoritative `simTick` the client has received and applied.
    - When encoding a packet for client $C$ at `simTick`:
      - Look up `baseline = ringBuffer.get(C.ackSnapshotTick)`.

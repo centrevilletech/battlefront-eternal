@@ -11,6 +11,23 @@ use std::path::PathBuf;
 /// Version string for `bfe-client`, embedded from Cargo package metadata at compile time.
 pub const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The release this program belongs to (`0.1.0-preview.N`), from the
+/// `resources/bfe-release.json` the release build puts beside it. A source
+/// build has none.
+pub fn release_version() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    bfe_desktop::launch::read_release_info(exe.parent()?).version
+}
+
+/// `--version`'s line: the release's version, else the crate's marked as a
+/// source build.
+pub fn version_text(release: Option<&str>) -> String {
+    match release {
+        Some(version) => format!("bfe-client {version}"),
+        None => format!("bfe-client {CLIENT_VERSION} (source build)"),
+    }
+}
+
 /// Usage text printed for `--help` / `-h`.
 pub const HELP_TEXT: &str = "\
 Battlefront Eternal Native Client (bfe-client)
@@ -103,9 +120,7 @@ where
         match arg.as_str() {
             "--help" | "-h" => return Ok(CliDispatch::Help(HELP_TEXT.to_string())),
             "--version" | "-V" => {
-                return Ok(CliDispatch::Version(format!(
-                    "bfe-client {CLIENT_VERSION}"
-                )));
+                return Ok(CliDispatch::Version(version_text(release_version().as_deref())));
             }
             _ => {}
         }
@@ -223,6 +238,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn version_names_the_release_or_says_source_build() {
+        assert_eq!(version_text(Some("0.1.0-preview.361")), "bfe-client 0.1.0-preview.361");
+        assert_eq!(version_text(None), format!("bfe-client {CLIENT_VERSION} (source build)"));
+        let about = bfe_shell::version::AboutInfo { version: Some("0.1.0-preview.361".into()), wanted: None, prepared: None };
+        assert!(bfe_shell::version::version_line(Some(&about), None).starts_with("PREVIEW 361"));
+    }
 
     /// Verifies `--help`, `-h`, `--version`, and `-V` return `CliDispatch::Help` / `Version`.
     #[test]
