@@ -1,5 +1,5 @@
 //! The Enhanced destruction's fire, smoke and electric arcs
-//! (src/destruction-fx.js DestructionFx): two fixed pools of instanced quad
+//! (DestructionFx): two fixed pools of instanced quad
 //! records and a pool of jagged ribbons.
 //!
 //! A particle is written once at its birth and the vertex shader works out

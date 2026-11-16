@@ -1,9 +1,8 @@
-//! Option menu and its four sub-pages (`GAME`, `VIDEO`, `AUDIO`, `CONTROL OPTIONS`)
-//! (`src/menus/option-pages.js`).
+//! Option menu and its four sub-pages (`GAME`, `VIDEO`, `AUDIO`, `CONTROL OPTIONS`).
 //!
 //! Ports `TOP_LAYOUT`, `TOP_COUNT`, `optionsMenu`, `gamePage`, `videoPage`,
 //! `audioPage`, `controlsPage`, `controlsWindow`, `CONTROLS_TABS`, and `bindingsLook`
-//! from `src/menus/option-pages.js`, plus [`OptionsController`] for full keyboard/mouse
+//!, plus [`OptionsController`] for full keyboard/mouse
 //! navigation, live setting updates, key-capture popup rebinding, and per-frame
 //! screen state synchronization.
 
@@ -28,17 +27,17 @@ use crate::widgets::{
 };
 use std::collections::HashMap;
 
-/// Original `ifs_opt_top` layout (`TOP_LAYOUT` in `src/menus/option-pages.js`):
+/// Original `ifs_opt_top` layout (`TOP_LAYOUT`):
 /// 8 rows in its list, turned 40 degrees around Y, `gamefont_large`, `width: 360`.
 ///
 /// Used both in the front-end shell and over a paused battle (`in_battle: true`).
 pub const TOP_LAYOUT: RowsLayout = RowsLayout {
-    // Normalized safe-area anchor (`at: [0.6, 0.55]` in `src/menus/option-pages.js`).
+    // Normalized safe-area anchor (`at: [0.6, 0.55]`).
     at: [0.6, 0.55],
     x: 0.0,
-    // Downward offset in interface pixels (`y: 20` in `src/menus/option-pages.js`).
+    // Downward offset in interface pixels (`y: 20`).
     y: 20.0,
-    // Row pill width (`width: 360` in `src/menus/option-pages.js`).
+    // Row pill width (`width: 360`).
     width: 360.0,
     rot_x: 0.0,
     // 3D Y-axis tilt matching `ifs_opt_top` (`rotY: 40`).
@@ -51,7 +50,7 @@ pub const TOP_LAYOUT: RowsLayout = RowsLayout {
     list_count: Some(TOP_COUNT),
 };
 
-/// Row count used for `rowsShift` on `ifs_opt_top` (`TOP_COUNT = 8` in `src/menus/option-pages.js`).
+/// Row count used for `rowsShift` on `ifs_opt_top` (`TOP_COUNT = 8`).
 ///
 /// The 2004 game's `ifs_opt_top` reserved 8 slots (including 2 console-only rows
 /// hidden on PC) when centering the vertical row stack.
@@ -80,13 +79,13 @@ pub const SHELL_OPTIONS_LAYOUT: RowsLayout = RowsLayout {
     list_count: None,
 };
 
-/// Safe-area width in interface coordinates (`SAFE_W = 0.9 * 1024 = 921.6` in `src/menus/option-pages.js`).
+/// Safe-area width in interface coordinates (`SAFE_W = 0.9 * 1024 = 921.6`).
 ///
 /// Forms the horizontal reference width for the `CONTROL OPTIONS` tab bar, outer
 /// window frame, and scrollable bindings list.
 pub const SAFE_W: f64 = 0.9 * 1024.0;
 
-/// Tab bar geometry for `CONTROL OPTIONS` (`CONTROLS_TABS` in `src/menus/option-pages.js`):
+/// Tab bar geometry for `CONTROL OPTIONS` (`CONTROLS_TABS`):
 /// `{ at: [0, 0], x: 16, y: 79, width: 0.30, spacing: 1/3, font: "gamefont_tiny" }`.
 ///
 /// Each tuple stores `(tab_id, x_offset, tab_width, flipped)` in 1024x768 safe-area units.
@@ -172,7 +171,7 @@ impl Default for OptionsContext {
     }
 }
 
-/// Builds the bottom-left `BACK` button (`backButton(strings)` in `src/menus/option-pages.js`).
+/// Builds the bottom-left `BACK` button (`backButton(strings)`).
 ///
 /// Placed in the `"back"` slot at the bottom-left corner of every option screen,
 /// dispatching [`WidgetAction::Back`] when clicked or triggered via `Escape`.
@@ -185,7 +184,7 @@ fn back_button(strings: &HashMap<String, String>) -> ButtonWidget {
     )
 }
 
-/// Builds the bottom-center `RESET TO DEFAULTS` button (`resetButton` in `src/menus/option-pages.js`).
+/// Builds the bottom-center `RESET TO DEFAULTS` button (`resetButton`).
 ///
 /// Placed in the `"middle"` slot on `VIDEO`, `AUDIO`, and `CONTROL OPTIONS`,
 /// dispatching [`WidgetAction::ResetPage`] for the given `page`.
@@ -198,7 +197,7 @@ fn reset_button(page: &str, strings: &HashMap<String, String>) -> ButtonWidget {
     )
 }
 
-/// Builds the top header title banner for `page` (`title(page, strings, y)` in `src/menus/option-pages.js`).
+/// Builds the top header title banner for `page` (`title(page, strings, y)`).
 ///
 /// Resolves the page title key from [`PAGES`] (`ifs.GameOpt.title`, `ifs.VideoOpt.title`,
 /// `ifs.SoundOpt.title`, or `ifs.GameOpt.pc_optionstitle`) and positions it at `y`.
@@ -207,7 +206,7 @@ fn page_title(page: &str, strings: &HashMap<String, String>, y: f64) -> TextWidg
     TextWidget::title("title", say(strings, Some(entry.title_key), entry.title), y)
 }
 
-/// Builds the top-level `OPTIONS` [`MenuScreen`] (`optionsMenu` in `src/menus/option-pages.js`).
+/// Builds the top-level `OPTIONS` [`MenuScreen`] (`optionsMenu`).
 ///
 /// Includes the four sub-page rows (`GAME OPTIONS`, `VIDEO OPTIONS`, `AUDIO OPTIONS`,
 /// `CONTROL OPTIONS`) followed by `ONLINE OPTIONS`, `STEAM & DISCORD`, and `CREDITS`
@@ -216,25 +215,25 @@ pub fn options_menu(ctx: &OptionsContext) -> MenuScreen {
     let strings = &ctx.strings;
     // Core sub-page navigation rows always shown in both front-end and in-battle menus.
     let mut row_items = vec![
-        // Row 1: opens `GAME OPTIONS` (`gamePage` in `src/menus/option-pages.js`).
+        // Row 1: opens `GAME OPTIONS` (`gamePage`).
         RowItem::enabled(
             "general",
             say(strings, Some("ifs.GameOpt.title"), "GAME OPTIONS"),
             Some(WidgetAction::OpenPage("game".to_string())),
         ),
-        // Row 2: opens `VIDEO OPTIONS` (`videoPage` in `src/menus/option-pages.js`).
+        // Row 2: opens `VIDEO OPTIONS` (`videoPage`).
         RowItem::enabled(
             "video",
             say(strings, Some("ifs.VideoOpt.title"), "VIDEO OPTIONS"),
             Some(WidgetAction::OpenPage("video".to_string())),
         ),
-        // Row 3: opens `AUDIO OPTIONS` (`audioPage` in `src/menus/option-pages.js`).
+        // Row 3: opens `AUDIO OPTIONS` (`audioPage`).
         RowItem::enabled(
             "sound",
             say(strings, Some("ifs.SoundOpt.title"), "AUDIO OPTIONS"),
             Some(WidgetAction::OpenPage("audio".to_string())),
         ),
-        // Row 4: opens `CONTROL OPTIONS` (`controlsPage` in `src/menus/option-pages.js`).
+        // Row 4: opens `CONTROL OPTIONS` (`controlsPage`).
         RowItem::enabled(
             "controls",
             say(
@@ -256,7 +255,7 @@ pub fn options_menu(ctx: &OptionsContext) -> MenuScreen {
     online_row.hidden = !ctx.has_online;
     row_items.push(online_row);
 
-    // Row 6: desktop `STEAM & DISCORD` integrations (`src/shell/integrations.js`).
+    // Row 6: desktop `STEAM & DISCORD` integrations.
     let mut int_row = RowItem::enabled(
         "integrations",
         "STEAM & DISCORD",
@@ -287,7 +286,7 @@ pub fn options_menu(ctx: &OptionsContext) -> MenuScreen {
 }
 
 /// Builds the [`OptionsItem`] rows for `page` (`"game"`, `"video"`, or `"audio"`),
-/// mirroring `gamePage`, `videoPage`, and `audioPage` in `src/menus/option-pages.js`.
+/// mirroring `gamePage`, `videoPage`, and `audioPage`.
 fn build_option_items(page: &str, settings: &Settings, ctx: &OptionsContext) -> Vec<OptionsItem> {
     let mut items = Vec::new();
     // When paused in a battle with a live camera viewpoint callback, prepend the `VIEWPOINT` row.
@@ -396,7 +395,7 @@ fn build_option_items(page: &str, settings: &Settings, ctx: &OptionsContext) -> 
     items
 }
 
-/// Builds the `GAME OPTIONS` [`MenuScreen`] (`gamePage` in `src/menus/option-pages.js`).
+/// Builds the `GAME OPTIONS` [`MenuScreen`] (`gamePage`).
 ///
 /// Dims the background behind the screen, places the title at `y = 10.0`, and includes
 /// the `GAME` option rows (with `RESET TO DEFAULTS` as the last row) and `BACK`.
@@ -416,7 +415,7 @@ pub fn game_page(settings: &Settings, ctx: &OptionsContext) -> MenuScreen {
     screen
 }
 
-/// Builds the `VIDEO OPTIONS` [`MenuScreen`] (`videoPage` in `src/menus/option-pages.js`).
+/// Builds the `VIDEO OPTIONS` [`MenuScreen`] (`videoPage`).
 ///
 /// Dims the background, places the title at `y = -30.0`, and provides a scrollable list
 /// of all 31 rendering settings along with `BACK` and a middle `RESET TO DEFAULTS` button.
@@ -437,7 +436,7 @@ pub fn video_page(settings: &Settings, ctx: &OptionsContext) -> MenuScreen {
     screen
 }
 
-/// Builds the `AUDIO OPTIONS` [`MenuScreen`] (`audioPage` in `src/menus/option-pages.js`).
+/// Builds the `AUDIO OPTIONS` [`MenuScreen`] (`audioPage`).
 ///
 /// Dims the background, places the title at `y = 0.0`, and lists volume sliders,
 /// sound engine/output/dynamics options, `BACK`, and `RESET TO DEFAULTS`.
@@ -458,7 +457,7 @@ pub fn audio_page(settings: &Settings, ctx: &OptionsContext) -> MenuScreen {
     screen
 }
 
-/// The battle's AUDIO DETAILS: what the output is and a speaker test (`AudioPanel` in `src/audio/panel.js`): each
+/// The battle's AUDIO DETAILS: what the output is and a speaker test (`AudioPanel`): each
 /// of the layout's speakers by name (the LFE a 50 Hz tone), all in turn, and a burst carried once round the room.
 /// The game's sound is muted while a tone plays; the host plays it (named actions `speaker:<channel>`,
 /// `speaker:all`, `speaker:around`).
@@ -505,25 +504,25 @@ pub fn audio_panel_page(ctx: &OptionsContext) -> MenuScreen {
     screen
 }
 
-/// Window metrics for `CONTROL OPTIONS` (`controlsWindow` in `src/menus/option-pages.js`).
+/// Window metrics for `CONTROL OPTIONS` (`controlsWindow`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ControlsWindow {
-    /// Outer panel `[x, y, w, h]` anchored at `[0.5, 0.0]` (`controlsWindow(surface)` in `option-pages.js`).
+    /// Outer panel `[x, y, w, h]` anchored at `[0.5, 0.0]` (`controlsWindow(surface)`).
     pub window_box: [f64; 4],
     /// Vertical position of the `"CONFIG BINDINGS"` section heading (`186.0`).
     pub heading_y: f64,
     /// Vertical position of the `INFANTRY` / `VEHICLE` / `STARFIGHTER` tab bar (`79.0`).
     pub tab_y: f64,
-    /// Bindings list box `[x, y, w, h]` anchored at `[0.5, 0.0]` (`bindingsLook(surface, extra)` in `option-pages.js`).
+    /// Bindings list box `[x, y, w, h]` anchored at `[0.5, 0.0]` (`bindingsLook(surface, extra)`).
     pub list_box: [f64; 4],
 }
 
-/// Computes `controlsWindow(surface)` (`src/menus/option-pages.js`) for ground/vehicle tabs (`extra = 0.0`).
+/// Computes `controlsWindow(surface)` for ground/vehicle tabs (`extra = 0.0`).
 pub fn controls_window(surface_height: f64) -> ControlsWindow {
     controls_window_for_tab(surface_height, false)
 }
 
-/// Computes `controlsWindow(surface)` and `bindingsLook(surface, extra)` (`src/menus/option-pages.js`).
+/// Computes `controlsWindow(surface)` and `bindingsLook(surface, extra)`.
 ///
 /// When `flying` is true (`"starfighter"` tab), shifts the bindings list top down by
 /// `extra = 24.5` units to make room for the third top option row (`flightResponseCurve`).
@@ -547,12 +546,12 @@ pub fn controls_window_for_tab(surface_height: f64, flying: bool) -> ControlsWin
     }
 }
 
-/// Computes `bindingsLook(surface)` (`src/menus/option-pages.js`) for ground/vehicle tabs (`extra = 0.0`).
+/// Computes `bindingsLook(surface)` for ground/vehicle tabs (`extra = 0.0`).
 pub fn bindings_look(surface_height: f64) -> ListLook {
     bindings_look_for_tab(surface_height, false)
 }
 
-/// Computes `bindingsLook(surface, extra)` (`src/menus/option-pages.js`).
+/// Computes `bindingsLook(surface, extra)`.
 ///
 /// Configures the two-column bindings list with `gamefont_tiny`, `pitch: 22.6`,
 /// `inset: 14.0`, `pad_left: 16.0`, and `pad_right: 20.0`.
@@ -580,7 +579,7 @@ pub fn bindings_look_for_tab(surface_height: f64, flying: bool) -> ListLook {
 }
 
 /// Builds the top option rows above the `CONFIG BINDINGS` list on `CONTROL OPTIONS`
-/// (`rows()` in `controlsPage` in `src/menus/option-pages.js`).
+/// (`rows()` in `controlsPage`).
 ///
 /// Shows `mouseSensitivity` and `invertMouse` on `INFANTRY` / `VEHICLE` tabs, or
 /// `flightSensitivity`, `flightInvertY`, and `flightResponseCurve` on `STARFIGHTER`.
@@ -628,7 +627,7 @@ fn build_controls_top_items(
 }
 
 /// Builds the two-column [`ListEntry`] rows for `tab` in the `CONTROL OPTIONS` bindings list
-/// (`bindings()` in `controlsPage` in `src/menus/option-pages.js`).
+/// (`bindings()` in `controlsPage`).
 fn build_controls_binding_entries(
     tab: &str,
     settings: &Settings,
@@ -657,7 +656,7 @@ fn build_controls_binding_entries(
         .collect()
 }
 
-/// Builds the `CONTROL OPTIONS` [`MenuScreen`] (`controlsPage` in `src/menus/option-pages.js`).
+/// Builds the `CONTROL OPTIONS` [`MenuScreen`] (`controlsPage`).
 ///
 /// Mirrors the 2004 game's `ifs_opt_pccontrols` layout: outer window panel, three-tab
 /// bar (`INFANTRY`, `VEHICLE`, `STARFIGHTER`), top sensitivity/invert rows,
@@ -1006,7 +1005,7 @@ impl OptionsController {
     /// Applies a single-key rebind (or clear when `code` is `None`) to `flightBindings`
     /// on the `"starfighter"` tab or `keyBindings` on `"infantry"` / `"vehicle"`.
     ///
-    /// Mirrors the `assign` callback in `controlsPage` (`src/menus/option-pages.js`),
+    /// Mirrors the `assign` callback in `controlsPage`,
     /// computing the diff against `default_flight_bindings()` or `flat_bindings()`
     /// via [`rebind`] and persisting the updated map in `self.settings`.
     fn apply_rebind(&mut self, tab: &str, action: &str, code: Option<&str>) {

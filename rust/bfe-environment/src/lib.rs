@@ -3,7 +3,7 @@
 //! from and the frame's time into fixed blocks; one call per frame advances
 //! the pooled state and leaves instance records the renderer draws, in
 //! memory the page reads through typed-array views. Block layouts come from
-//! layout.json (tools/environment-schema.mjs).
+//! layout.json.
 
 pub mod atmosphere;
 pub mod common;

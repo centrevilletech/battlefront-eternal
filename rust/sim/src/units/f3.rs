@@ -1280,7 +1280,7 @@ pub(crate) fn weapon_random_binding_in(units: &super::owner::Units, slot: u32) -
     units.state.as_ref()?.random_bindings.get(slot as usize)?.iter().skip(1).copied().find(|id| *id != NO_STREAM)
 }
 
-/// ClassicRandom.uniform (ai/random.js). The numeric binding keeps the shared
+/// ClassicRandom.uniform. The numeric binding keeps the shared
 /// AI stream's draw order without an import for every spread or chunks draw.
 pub(crate) fn random_draw_in(units: &mut super::owner::Units, unit: Ref<Unit>, weapon: Option<u32>) -> f64 { units.state.as_mut().expect("prepared unit service").random_draw(unit, weapon) }
 pub(crate) fn empty_text_in(units: &super::owner::Units) -> crate::store::StrId { units.state.as_ref().expect("prepared unit service").empty_text }
@@ -1819,7 +1819,7 @@ pub(crate) fn relation_in(units: &super::owner::Units, a:f64,b:f64) -> f64 {
 // boundary, after ordnance and items. Capturing never imports body rows.
 
 /// The hit history's capture at the start of a match's tick
-/// (multiplayer-world.js hitHistory.capture): the host's `units` intent
+/// (hitHistory.capture): the host's `units` intent
 /// rows and its network tail precede the foreign facts it wrote.
 pub(crate) fn f3_history_capture_at_in(world_ctx: &mut crate::world::owner::World, tick: u32, units: u32) {
     // F4 may have advanced foreign building life after the unit span. Those

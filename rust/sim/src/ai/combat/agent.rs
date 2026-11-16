@@ -1,9 +1,9 @@
-//! Classic combat (src/ai/classic/combat.js): the dispatcher that decides
+//! Classic combat: the dispatcher that decides
 //! whether and how a bot engages a target, the cover hints and their
 //! reservations, the cover helper, the attack patterns, and the combat
 //! agent (UnitCombatAgent, controller state 2).
 //!
-//! The agent runs on the control core's agent base (agents.js Agent): its
+//! The agent runs on the control core's agent base (Agent): its
 //! helper, interrupts and aim are the base's, reached through [`World`];
 //! its own machine, its patterns' and its cover helper's are driven here by
 //! the generic driver controller.js's Fsm is (`update`, `flush`,
@@ -37,7 +37,7 @@ fn now<W: World + ?Sized>(w: &W) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// Engagement dispatch (combat.js:121).
+// Engagement dispatch.
 
 /// combat.js:121 `roleOf(classDef)` (the combat dispatcher's own: ai.json's
 /// role, then the class's, then UnitType's name; a name that is one of
@@ -202,7 +202,7 @@ fn vehicle_policy<W: World + ?Sized>(w: &mut W, shared: &mut Shared, controller:
 }
 
 // ---------------------------------------------------------------------------
-// Cover hints and their reservations (combat.js:244).
+// Cover hints and their reservations.
 
 /// A hint's reservation (combat.js:244: owner, time).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -594,7 +594,7 @@ impl CombatAgent {
         }
     }
 
-    // -- The base's entry points (agents.js Agent).
+    // -- The base's entry points (Agent).
 
     /// agents.js:360 `tick(dt, phase)`: the machine's round; whether the
     /// agent reached its terminal state.
@@ -604,7 +604,7 @@ impl CombatAgent {
     }
 
     /// combat.js:1022 `exit()`: the patterns let go of cover, then the
-    /// base ends the helper and the machine (agents.js:379).
+    /// base ends the helper and the machine.
     pub fn exit<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
         self.patterns_cleanup(cx);
         if w.has_helper(self.obj) {
@@ -615,7 +615,7 @@ impl CombatAgent {
         self.state = DONE;
     }
 
-    // -- Policies (combat.js:1034).
+    // -- Policies.
 
     /// combat.js:1034 `acceptsAlert(known, point)`.
     pub fn accepts_alert<W: World + ?Sized>(&self, w: &mut W, known: bool, point: &Vector3) -> bool {
@@ -707,7 +707,7 @@ impl CombatAgent {
         !w.mount_reach(unit, point)
     }
 
-    // -- Shared steps (combat.js:1104).
+    // -- Shared steps.
 
     /// combat.js:1104 `facingTarget(cosLimit)`.
     fn facing_target<W: World + ?Sized>(&self, w: &mut W, cos_limit: f64) -> bool {
@@ -753,7 +753,7 @@ impl CombatAgent {
         cos_align() < dot32(n.x, n.y, n.z, m.x, m.y, m.z)
     }
 
-    // -- The agent's machine (combat.js:1145).
+    // -- The agent's machine.
 
     /// combat.js:1145 `onEnter()`.
     fn agent_enter<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
@@ -1003,7 +1003,7 @@ impl CombatAgent {
         }
     }
 
-    // -- The cover helper's machine (combat.js:332).
+    // -- The cover helper's machine.
 
     /// combat.js:351 `init(hint)`.
     fn cover_init<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi, hint: Option<HintView>) {
@@ -1147,7 +1147,7 @@ impl CombatAgent {
         self.patterns.cover.hint = None;
     }
 
-    // -- The attack patterns' machine (combat.js:497).
+    // -- The attack patterns' machine.
 
     /// combat.js:543 `init(pattern, probability)`.
     fn patterns_init<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi, pattern: f64, probability: f64) {
@@ -1752,7 +1752,7 @@ impl CombatAgent {
 }
 
 /// agents.js:390 Agent.canEngage through the combat services' canEngage
-/// (classic/index.js:140): a weapon in the arsenal and the dispatcher
+///: a weapon in the arsenal and the dispatcher
 /// would engage.
 pub fn can_engage<W:World+?Sized>(w:&mut W,cx:&mut CombatAi,controller:Obj,target:Option<Obj>)->bool {
     can_engage_shared(w,&mut cx.shared,controller,target)

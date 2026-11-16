@@ -13,7 +13,7 @@ export struct MenuRowItem {
     disabled: bool,
 }
 
-// Top-right look selector (src/menus/themes/page/index.js).
+// Top-right look selector.
 export component ThemePicker inherits Rectangle {
     in-out property <int> current-index: 2;
     in-out property <bool> open: false;
@@ -43,7 +43,7 @@ export component ThemePicker inherits Rectangle {
     }
 }
 
-// Title gate screen (src/shell/gate.js).
+// Title gate screen.
 export component GateScreen inherits Rectangle {
     in property <string> prompt-text: "PRESS ANY KEY OR CLICK TO BEGIN";
     in property <float> prompt-opacity: 1.0;
@@ -76,7 +76,7 @@ export component GateScreen inherits Rectangle {
     }
 }
 
-// Main menu screen (src/shell/screens.js main()).
+// Main menu screen (main()).
 export component MainMenuScreen inherits Rectangle {
     in property <[MenuRowItem]> rows;
     in property <int> selected-index: 0;
@@ -123,7 +123,7 @@ export component MainMenuScreen inherits Rectangle {
     }
 }
 
-// Profile management screen (src/shell/screens.js profile()).
+// Profile management screen (profile()).
 export component ProfileScreen inherits Rectangle {
     in property <string> title: "PROFILE MANAGEMENT";
     in property <[MenuRowItem]> rows;
@@ -169,7 +169,7 @@ export component ProfileScreen inherits Rectangle {
     }
 }
 
-// Profile editor modal (src/shell/profile-dialog.js).
+// Profile editor modal.
 export component ProfileModal inherits Rectangle {
     in-out property <string> draft;
     in property <string> note;
@@ -206,7 +206,7 @@ export component ProfileModal inherits Rectangle {
     }
 }
 
-// Discord Rich Presence offer modal (src/shell/integrations.js discordDialog).
+// Discord Rich Presence offer modal (discordDialog).
 export component DiscordOfferModal inherits Rectangle {
     in property <int> selected-button: 0;
     callback chosen(string);
@@ -253,7 +253,7 @@ export component DiscordOfferModal inherits Rectangle {
     }
 }
 
-// Steam non-Steam shortcut offer modal (src/shell/integrations.js steamDialog).
+// Steam non-Steam shortcut offer modal (steamDialog).
 export component SteamOfferModal inherits Rectangle {
     in property <[string]> paragraphs: [
         "Battlefront Eternal is added to your Steam library as a non-Steam game. With Steam open, the game then starts through Steam, so your friends see “Playing Battlefront Eternal” and Steam counts your play time.",
@@ -300,7 +300,7 @@ export component SteamOfferModal inherits Rectangle {
     }
 }
 
-// Confirmation / notice popup modal (src/menus/popup.js).
+// Confirmation / notice popup modal.
 export component ShellPopupModal inherits Rectangle {
     in property <string> message;
     in property <string> accept-label: "OK";

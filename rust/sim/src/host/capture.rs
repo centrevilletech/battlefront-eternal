@@ -137,7 +137,7 @@ pub struct View {
 }
 
 impl Capture {
-    /// `eventValue` (src/sim/wasm/runtime/wire-presentation.js): null 0,
+    /// `eventValue`: null 0,
     /// number 1 v, boolean 2 b, string 3 id, array 4 n then up to three
     /// children, undefined 6; the event's words are the kind, the blowApart amount, the
     /// entry count, then key id and value for each entry.

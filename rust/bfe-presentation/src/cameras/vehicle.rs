@@ -386,7 +386,7 @@ impl Vehicle {
     // The eased spot can lag behind a new wall: check where it will draw.
     // The way between the two views stays out of walls.
 
-    // Ports updateFlightCamera from flight/camera.js.
+    // Ports updateFlightCamera.
     // The flight frame excludes the display bank that belongs to hull posing.
     // Pilot look and preview aim are applied in their original frames.
     // Chase turn follows AimTension; signed movement uses six MoveTensions.

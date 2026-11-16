@@ -19,7 +19,7 @@ pub use state::{Flight, LockState, Message, Trick};
 use crate::vehicles::{BodyId, VehicleWorld};
 use three::Vector3;
 
-/// A craft's class of flight (src/flight/config.js flightClass): its
+/// A craft's class of flight (flightClass): its
 /// tuning's row.
 pub use crate::gen::FlightClass;
 /// A craft's flight state (null for a ground hull: `Option`).

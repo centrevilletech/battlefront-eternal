@@ -1,4 +1,4 @@
-//! A soldier's movement from the store (src/soldier.js Soldier.tick): the
+//! A soldier's movement from the store (Soldier.tick): the
 //! store's soldier ticked by the module's own movement (crate::movement),
 //! with no exchange through JavaScript. It reads and writes what
 //! src/movement-kernel.js copies in and out, the same way: the tick itself

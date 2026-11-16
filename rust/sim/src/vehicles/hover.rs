@@ -1,4 +1,4 @@
-//! A hover hull on the ground (src/vehicle-hover.js): its physics before
+//! A hover hull on the ground: its physics before
 //! the collision pass (`hoverPhysics`, `drive`, `hoverWithoutSprings`), its
 //! springs' contacts during it (`hoverContacts`, `springContact`: the
 //! search over the polygons near each spring, which the JavaScript ran

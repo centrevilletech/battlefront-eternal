@@ -1,4 +1,4 @@
-//! The map's haze (src/atmosphere.js): the FogCloud band of big soft squares
+//! The map's haze: the FogCloud band of big soft squares
 //! around the camera and the dusteffect clouds placed through the map, as
 //! the 2004 engine simulates them. Each texture is one batch of at most
 //! CAPACITY squares gathered each frame, sorted back to front, for the

@@ -638,7 +638,7 @@ impl Setup {
         v
     }
 }
-/// Ports `foundIn` in electron/ui/prepare.js: where a copy of the game came from.
+/// Ports `foundIn`: where a copy of the game came from.
 fn found_in(copy: &GameInstall) -> String {
     match copy.source.as_str() {
         "chosen" => "The folder you chose".into(),
@@ -1006,7 +1006,7 @@ impl TransferWork {
             }
         })
     }
-    /// The transfer view of prepare.js: the title, the phase as the detail line (or "Starting…"),
+    /// The transfer view: the title, the phase as the detail line (or "Starting…"),
     /// the file under it, a bar of bytes done over total, the phase beside a percentage, CANCEL.
     pub fn view(&self) -> SetupView {
         let progress = &self.current;

@@ -1,4 +1,4 @@
-//! The rain cover cache (src/weather.js RainCover): a small toroidal grid of
+//! The rain cover cache (RainCover): a small toroidal grid of
 //! the height of the first roof or floor over each cell around the camera,
 //! shared by every drop and flake. Only cells newly entered are asked of the
 //! page's collision world, a few at a time; the shader clips what falls

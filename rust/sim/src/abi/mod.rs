@@ -1,5 +1,5 @@
 //! The store's exports: what JavaScript calls to move state in and out of
-//! the instance (src/sim/runtime.js `SimBridge`), and the memory policy.
+//! the instance (`SimBridge`), and the memory policy.
 //! Plain `extern "C"` functions taking and returning numbers and pointers
 //! into the module's memory, like the collision's.
 //!
@@ -95,7 +95,7 @@ pub(crate) fn cold() -> &'static mut crate::world::owner::World {
 pub fn sim_abi() -> u32 { ABI }
 
 /// How many kinds the module knows, and each one's layout hash: the
-/// generated JavaScript has the same (src/sim/gen/index.js), and a bridge
+/// generated JavaScript has the same, and a bridge
 /// refuses a module whose kinds were generated from other schemas.
 pub fn sim_kinds() -> u32 { KINDS as u32 }
 

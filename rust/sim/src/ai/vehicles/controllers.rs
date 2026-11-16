@@ -1,11 +1,11 @@
-//! The mounted controllers (src/ai/classic/vehicles/controllers.js): the
+//! The mounted controllers: the
 //! 2004 game gives every occupied control its own controller, and they
 //! differ only in which source goals they turn into which states, and in
 //! the flyer's objective agent.
 
 use super::world::UnitView;
 
-/// The terminal state every machine uses (controller.js DONE).
+/// The terminal state every machine uses (DONE).
 pub const DONE: f64 = 100.0;
 
 /// controller.js ROLE: the support and pilot roles the boarding policy
@@ -14,7 +14,7 @@ pub const ROLE_SUPPORT: f64 = 3.0;
 pub const ROLE_PILOT: f64 = 4.0;
 pub const ROLE_OTHER: f64 = 6.0;
 
-/// roleOf(classDef) (controller.js:104): the class's `role` when it is an
+/// roleOf(classDef): the class's `role` when it is an
 /// integer, else its UnitType (or unitType) by name.
 pub fn role_of(role: Option<f64>, unit_type: Option<&str>) -> f64 {
     if let Some(r) = role {
@@ -34,7 +34,7 @@ pub fn role_of(role: Option<f64>, unit_type: Option<&str>) -> f64 {
     }
 }
 
-/// A mounted policy (controllers.js:191-213).
+/// A mounted policy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Policy {
     Mobile,
@@ -59,7 +59,7 @@ impl Policy {
         }
     }
 
-    /// goalState(kind) (controllers.js:187-189): the state a source goal
+    /// goalState(kind): the state a source goal
     /// starts, 0 for none.
     pub fn goal_state(self, goal: f64) -> f64 {
         let table: &[(f64, f64)] = match self {
@@ -71,7 +71,7 @@ impl Policy {
         table.iter().find(|(k, _)| *k == goal).map_or(0.0, |&(_, s)| s)
     }
 
-    /// agentFor(state, controller) (controllers.js:211).
+    /// agentFor(state, controller).
     pub fn agent_for(self, state: f64) -> Option<MountedAgent> {
         if self == Policy::Fly && state == 7.0 {
             Some(MountedAgent::Fly)
@@ -91,7 +91,7 @@ impl Policy {
     }
 }
 
-/// controllerPolicy(unit) (controllers.js:217): none for a soldier on foot.
+/// controllerPolicy(unit): none for a soldier on foot.
 pub fn controller_policy(unit: Option<&UnitView>) -> Option<Policy> {
     let unit = unit?;
     if unit.seat.is_none() || unit.human || unit.lease.is_none() {
@@ -112,7 +112,7 @@ fn mobile_goal(state: f64) -> Option<f64> {
     TABLE.iter().find(|(k, _)| *k == state).map(|&(_, g)| g)
 }
 
-/// mountedState(controller, state) (index.js): the state a controller's
+/// mountedState(controller, state): the state a controller's
 /// request becomes under its policy.
 pub fn mounted_state(policy: Option<Policy>, state: f64) -> f64 {
     let Some(p) = policy else { return state };

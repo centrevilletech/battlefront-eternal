@@ -1,4 +1,4 @@
-// Reusable Server Browser components for the Multiplayer screen (`src/shell/server-browser-view.js`).
+// Reusable Server Browser components for the Multiplayer screen.
 import { Theme, ControlState, MenuSound } from "../theme.slint";
 import { Interaction } from "interaction.slint";
 
@@ -142,7 +142,7 @@ export component BrowserHeaderBar inherits Rectangle {
     @children
 }
 
-// 4-bar signal quality indicator matching `quality(latencyMs)` in `server-browser-view.js`.
+// 4-bar signal quality indicator matching `quality(latencyMs)`.
 export component PingSignalBars inherits Rectangle {
     in property <int> bars: 0;
     width: 18px;

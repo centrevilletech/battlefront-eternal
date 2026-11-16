@@ -27,7 +27,7 @@ const UP: Vector3 = Vector3::new(0.0, 1.0, 0.0);
 const RIGHT: Vector3 = Vector3::new(1.0, 0.0, 0.0);
 const NOSE: Vector3 = Vector3::new(0.0, 0.0, 1.0);
 const PI: f64 = std::f64::consts::PI;
-/// rad: a barrel this close to its target is on it (vehicles.js AIMED).
+/// rad: a barrel this close to its target is on it (AIMED).
 const AIMED: f64 = PI / 180.0;
 /// s a dying walker takes at most from its last pose into its clip.
 const DEATH_BLEND: f64 = 0.3;
@@ -1122,7 +1122,7 @@ fn pose_alive(r: &mut Rig, slot: usize, clips: &[Clip], x: &[f64], sin: &[f64], 
 fn clamp01(x: f64) -> f64 {
     v8math::min(1.0, v8math::max(0.0, x))
 }
-/// The gear a flight state rests at (gear.js `resting`): down on the ground
+/// The gear a flight state rests at (`resting`): down on the ground
 /// and through the lift, stowed in flight (a landing brings it down).
 fn resting(state: f64) -> f64 {
     if state == fs::FLYING as f64 || state == fs::LANDING as f64 { 0.0 } else { 1.0 }

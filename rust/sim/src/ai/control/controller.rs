@@ -1,4 +1,4 @@
-//! The per-bot controller's data (controller.js): source goals and
+//! The per-bot controller's data: source goals and
 //! their queue, weak references, the role of a class, and the
 //! controller's fields. The behavior (bind, the per-service update,
 //! the state machine's entries) is the core's (mod.rs), where the
@@ -10,7 +10,7 @@ use super::super::nav::math::Vec3;
 use std::{collections::HashMap,rc::Rc,cell::RefCell};
 use crate::ai::owned::scratch::Inline;
 
-/// Source-goal kinds (controller.js:30 GOAL).
+/// Source-goal kinds (GOAL).
 pub mod goal {
     pub const NONE: f64 = 0.0;
     pub const WAIT: f64 = 1.0;
@@ -39,7 +39,7 @@ pub mod state {
     pub const HOLD: f64 = 11.0;
 }
 
-/// Combat source-goal sub-modes (controller.js:78).
+/// Combat source-goal sub-modes.
 pub mod combat_mode {
     pub const LOCATION: f64 = 0.0;
     pub const TARGET: f64 = 1.0;
@@ -47,7 +47,7 @@ pub mod combat_mode {
     pub const MODE3: f64 = 3.0;
 }
 
-/// UnitType roles (controller.js:88).
+/// UnitType roles.
 pub mod role {
     pub const SCOUT: f64 = 0.0;
     pub const ANTI_ARMOR: f64 = 1.0;
@@ -58,7 +58,7 @@ pub mod role {
     pub const OTHER: f64 = 6.0;
 }
 
-/// The mobile goal-to-state map (controller.js:60); goal 7 has no
+/// The mobile goal-to-state map; goal 7 has no
 /// branch, and an unmapped goal gives 0 (no state requested).
 pub fn goal_state(kind: f64) -> f64 {
     if kind == goal::WAIT {
@@ -84,7 +84,7 @@ pub fn goal_state(kind: f64) -> f64 {
     }
 }
 
-/// The mounted policies' maps (vehicles/controllers.js), as the
+/// The mounted policies' maps, as the
 /// requestState translation applies them: a mobile state back to its
 /// goal kind, then the policy's goal-to-state.
 pub fn mobile_goal_of_state(state: f64) -> Option<f64> {
@@ -119,7 +119,7 @@ pub fn policy_goal_state(policy: Policy, kind: f64) -> f64 {
     }
 }
 
-/// The role of a class (controller.js:104 roleOf): a numeric role
+/// The role of a class (roleOf): a numeric role
 /// wins; else the UnitType string trimmed and lower-cased (ASCII in
 /// content, as the nav size names are); anything else is OTHER.
 pub fn role_of(role_num: Option<f64>, unit_type: Option<&str>) -> f64 {
@@ -140,7 +140,7 @@ pub fn role_of(role_num: Option<f64>, unit_type: Option<&str>) -> f64 {
     }
 }
 
-/// A source goal (controller.js:117 SourceGoal).
+/// A source goal (SourceGoal).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SourceGoal {
     pub kind: f64,
@@ -190,7 +190,7 @@ impl SourceGoal {
 
 pub const COMMAND_CAPACITY: usize = 5;
 
-/// The CommandFsm's storage (controller.js:187 CommandQueue).
+/// The CommandFsm's storage (CommandQueue).
 #[derive(Clone, Debug, PartialEq)]
 pub struct CommandQueue {
     pub current: SourceGoal,
@@ -268,12 +268,12 @@ impl CommandQueue {
     }
 }
 
-/// refOf (controller.js:343) over a snapshot: None without a unit.
+/// refOf over a snapshot: None without a unit.
 pub fn ref_of<W:AiWorld+?Sized>(w: &W, unit: Option<UKey>) -> Option<EntRef> {
     unit.map(|key| EntRef { unit: key, generation: w.unit_scalars(key).generation })
 }
 
-/// resolveRef (controller.js:347).
+/// resolveRef.
 pub fn resolve_ref<W:AiWorld+?Sized>(w: &W, r: Option<EntRef>) -> Option<UKey> {
     let r = r?;
     let u = w.unit(r.unit);
@@ -283,7 +283,7 @@ pub fn resolve_ref<W:AiWorld+?Sized>(w: &W, r: Option<EntRef>) -> Option<UKey> {
     Some(r.unit)
 }
 
-/// sameRef (controller.js:353).
+/// sameRef.
 pub fn same_ref<W:AiWorld+?Sized>(w: &W, a: Option<EntRef>, b: Option<EntRef>) -> bool {
     match (a, b) {
         (Some(a), Some(b)) => a.unit == b.unit && a.generation == b.generation,
@@ -335,7 +335,7 @@ pub struct SquadCommand {
 }
 
 /// What an Enhanced controller remembers across its agents
-/// (enhanced/agents.js memoryOf). The heard map's iteration order is
+/// (memoryOf). The heard map's iteration order is
 /// insertion order (its cleanup walks it); keys are "id:generation"
 /// as numbers here (unit id bits, generation).
 #[derive(Debug,PartialEq)]
@@ -380,7 +380,7 @@ impl EnhancedMemory {
     }
 }
 
-/// One bot's controller (controller.js UnitController). Its agent and
+/// One bot's controller (UnitController). Its agent and
 /// the navigation control's observable state ride along; its Fsm is
 /// driven by the core.
 pub struct Controller {
@@ -507,7 +507,7 @@ impl Controller {
         }
     }
 
-    /// What phase 0 clears (controller.js:602).
+    /// What phase 0 clears.
     pub fn clear_requests(&mut self) {
         self.jet_pending = false;
         self.jet_vector = Vec3::default();

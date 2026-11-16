@@ -357,7 +357,7 @@ impl Battle {
             }
         }
         // The bodies: the class played, then every soldier and droideka class
-        // of every side (units.js prepareSoldiers), with droideka clips.
+        // of every side (prepareSoldiers), with droideka clips.
         let mut bodies: Vec<(String, BodyFiles)> = vec![(format!("{side_name}/{model}"), BodyFiles { def: actor_def, buf: actor_buf, index_buf: actor_index_buf })];
         let mut walkers: Vec<(String, WalkerFiles)> = Vec::new();
         if let Some(w) = walker_files {
@@ -393,7 +393,7 @@ impl Battle {
                 }
             }
         }
-        // The AI's data (src/ai/index.js loadAIData) for Object.keys(sides).
+        // The AI's data (loadAIData) for Object.keys(sides).
         let nav = f.optional_json(&format!("{map_dir}/ai-nav.json"));
         let ai_mission = f.optional_json(&format!("{map_dir}/ai-mission.json"));
         let class_data: Vec<(String, Option<Value>)> =

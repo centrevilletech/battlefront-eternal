@@ -1,5 +1,5 @@
 //! The movement request and aim point turned into the unit's four
-//! analogs (nav/analogs.js), plus the navigation half of the AI input
+//! analogs, plus the navigation half of the AI input
 //! step's pure part. `navigationInput` itself runs the unit's control,
 //! so it is a Nav service method (nav/mod.rs) built on `analogs` and
 //! `apply_jet_and_posture` here.
@@ -9,7 +9,7 @@ use super::executor::near_radius;
 use super::math::{near_waypoint, tiny, Vec3};
 use super::units::{kind, Air, NavUnit, Posture};
 
-/// Class coefficients (analogs.js:33).
+/// Class coefficients.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Coefficients {
     pub forward: f64,
@@ -31,7 +31,7 @@ pub fn coefficients(unit: &NavUnit) -> Coefficients {
 }
 
 /// The four analogs and the input edges navigation writes
-/// (analogs.js:51's out, and the intent fields of analogs.js:208).
+/// (analogs.js:51's out, and the intent fields).
 /// The booleans are the presses the JavaScript sets true; fields it
 /// leaves alone stay as the caller had them, which for a fresh intent
 /// is false. `jet_direction` models the field as written at
@@ -116,7 +116,7 @@ pub fn analogs(unit: &NavUnit, request: Option<&MovementRequest>, aim: Option<Ve
     out
 }
 
-/// The third aim state (analogs.js:118).
+/// The third aim state.
 pub fn along_path(unit: &NavUnit, request: Option<&MovementRequest>) -> Vec3 {
     let p = unit.position;
     let yaw = unit.soldier.as_ref().and_then(|s| s.aim_yaw).unwrap_or(0.0);
@@ -132,7 +132,7 @@ pub fn along_path(unit: &NavUnit, request: Option<&MovementRequest>) -> Vec3 {
     Vec3::new(p.x + 30.0 * v8math::sin(yaw), p.y, p.z + 30.0 * v8math::cos(yaw))
 }
 
-/// The Soldier branch of the aim conversion (analogs.js:141).
+/// The Soldier branch of the aim conversion.
 fn turn_toward(unit: &NavUnit, point: Vec3, dt: f64, coef: &Coefficients, facing: bool, out: &mut Intent) {
     let s = unit.soldier.as_ref();
     let yaw = s.and_then(|s| s.aim_yaw).unwrap_or(0.0);
@@ -185,7 +185,7 @@ fn turn_toward(unit: &NavUnit, point: Vec3, dt: f64, coef: &Coefficients, facing
     out.pitch = v8math::min(v8math::max(up, -1.0), 1.0);
 }
 
-/// The jet and posture branches of navigationInput (analogs.js:212-241),
+/// The jet and posture branches of navigationInput,
 /// over the control's jet state, which the service holds: given the
 /// control's (jet pending, jetting, jet vector, stance) it returns the
 /// updated (pending, jetting) with the intent filled in.

@@ -20,7 +20,7 @@ pub trait DrawSink {
     fn draw(&mut self, stream: &str, value: f64);
 }
 
-/// `ClassicRandom` (`src/ai/random.js:22-68`): the 2004 game's
+/// `ClassicRandom`: the 2004 game's
 /// generator. One 32-bit state; each draw steps it twice through
 /// x' = x * 1664525 + 1013904223 (mod 2^32) and returns the high
 /// half of the second step over the high half of the first; the
@@ -112,7 +112,7 @@ impl ClassicRandom {
     }
 }
 
-/// `RandomStreams` (`src/ai/random.js:74-93`): named independent
+/// `RandomStreams`: named independent
 /// streams, each a `ClassicRandom` seeded from the match seed and
 /// the name by [`fnv1a_mix`], created on first ask. The map is a
 /// `JsMap`, so its iteration order (first-ask order) is the
@@ -182,7 +182,7 @@ impl RandomStreams {
     }
 }
 
-/// `spreadSeed(unit, channel, press)` (`src/weapons.js:71-78`): a
+/// `spreadSeed(unit, channel, press)`: a
 /// press's spread seed: FNV-1a's fold over the soldier's id, his
 /// generation, the channel and the press's id, each `>>> 0` first,
 /// with a `h ^= h >>> 15` stir after every multiply. Missing id or
@@ -201,7 +201,7 @@ pub fn spread_seed_f64(id: f64, generation: f64, channel: f64, press: f64) -> f6
     spread_seed(id, generation, channel, press) as f64
 }
 
-/// The generator `seededRandom(seed)` makes (`src/weapons.js:82-90`):
+/// The generator `seededRandom(seed)` makes:
 /// mulberry32. State `a` is held as a signed 32-bit value, exactly
 /// as the JavaScript's `| 0` keeps it; each call returns a double
 /// in [0, 1).

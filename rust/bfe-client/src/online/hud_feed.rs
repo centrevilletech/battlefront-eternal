@@ -1,7 +1,7 @@
 //! Battle HUD events raised by received network facts. presentFeedback
-//! (src/runtime/network-combat-feedback.js) calls BattleHud.hit, damageFrom
+//! calls BattleHud.hit, damageFrom
 //! and killMessage; presentEntityEvent's "shot"
-//! (src/runtime/entity-presentation-events.js) calls BattleHud.noteShot.
+//! calls BattleHud.noteShot.
 //! HudModel owns every ring, arc, line, fade and radar flash; this module
 //! only decides which command a fact raises and with which arguments.
 use super::radar::Teams;
@@ -46,13 +46,13 @@ const UNIT_STATE_SLOT: usize = 13;
 const UNIT_STATE_REPAIR: usize = 20;
 // entity-world-state.js: a building's state summary is 200000 plus its number.
 const BUILDING_STATE_ID: f64 = 200000.;
-// humanName() (src/bot-names.js) for the page's own player without a name.
+// humanName() for the page's own player without a name.
 const HUMAN_NAME: &str = "Player 1";
-// killMessage's last name fallback (src/hud-units.js).
+// killMessage's last name fallback.
 const SOLDIER: &str = "Soldier";
 // A burst of fire from units this page has not built yet is bounded.
 const WAITING: usize = 64;
-// isCommandClass (src/mobile-posts.js): the vehicle bases that are command
+// isCommandClass: the vehicle bases that are command
 // posts while they live, and how many of them one frame may lose.
 const COMMAND_BASES: [&str; 2] = ["commandwalker", "commandhover"];
 const LOST: usize = 4;
@@ -107,7 +107,7 @@ struct Squad<'a> {
     label: &'a str,
 }
 
-/// A repair lock as PlayerCombat keeps it (repairLockKey, src/combat.js):
+/// A repair lock as PlayerCombat keeps it (repairLockKey):
 /// "l3" is the building numbered 3, "v1" the vehicle in slot 1, "" none.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RepairLock {
@@ -151,7 +151,7 @@ struct CommandHull {
     seen: bool,
 }
 
-// What applyUnitState (entity-unit-state.js) leaves on a unit that the kill
+// What applyUnitState leaves on a unit that the kill
 // feed reads: its Character slot and the hero flag, for one life.
 #[derive(Clone, Copy)]
 struct UnitState {
@@ -186,7 +186,7 @@ pub struct Tables {
 
 impl Tables {
     // `buildings`: the props that are live buildings, in the order a
-    // turret record counts them (LiveObjects.buildings, src/props.js).
+    // turret record counts them (LiveObjects.buildings).
     pub fn new(defs: &Defs, buildings: &[usize]) -> Self {
         let delay = |record: &bfe_content::Value| record.get("ShotDelay").and_then(bfe_content::Value::as_f64).unwrap_or(0.);
         let mut labels = vec![String::new(); defs.registry.classes.len() + 1];
@@ -303,7 +303,7 @@ impl Feed {
         }
     }
 
-    /// MobilePosts.events (src/mobile-posts.js) as a page showing a server's
+    /// MobilePosts.events as a page showing a server's
     /// battle reads it: a command vehicle that was alive and no longer is
     /// has lost its post. Each loss is the team the hull had and its class;
     /// at most four a frame. A new battle forgets the old one's hulls.
@@ -505,7 +505,7 @@ impl Feed {
         self.kill(hud, own, receiver, teams, killer, victim, event.attacker_team);
     }
 
-    // killMessage (src/hud-units.js): only a line a human took part in, or
+    // killMessage: only a line a human took part in, or
     // one a hero scored. HudModel substitutes the names into the template.
     #[allow(clippy::too_many_arguments)]
     fn kill(
@@ -658,7 +658,7 @@ fn find(receiver: &Receiver, id: u32) -> Option<Unit> {
         .or_else(|| receiver.active().find(|row| known(*row)).map(|row| unit(row, 0)))
 }
 
-/// InterfaceSurface.text(key, ...args) (src/interface/surface.js): the
+/// InterfaceSurface.text(key, ...args): the
 /// localized string with each %s filled in order, or the arguments joined
 /// by spaces when there is no such string. The browser's replace also reads
 /// `$` patterns in an argument; team and post names have none.
@@ -738,7 +738,7 @@ pub fn decode(bytes: &[u8], tick: f64) -> Option<Feedback> {
     })
 }
 
-/// damageDirection (src/combat-input.js): toward the source in the HUD's
+/// damageDirection: toward the source in the HUD's
 /// view convention, positive to the soldier's right.
 pub fn damage_direction(x: f64, z: f64, yaw: f64) -> f64 {
     (-x * yaw.cos() + z * yaw.sin()).atan2(x * yaw.sin() + z * yaw.cos())

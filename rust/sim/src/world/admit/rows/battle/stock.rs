@@ -100,7 +100,7 @@ pub fn facts(world: &World, cx: &mut Cx) -> Result<Facts, AdmitError> {
 }
 
 /// game.js's PlayerBodies before attachF3Combat: the player's page body,
-/// `new Soldier(world, def)` (presentation/body.js constructSoldier): the
+/// `new Soldier(world, def)` (constructSoldier): the
 /// class record as JSON.stringify spells it, through body_construct, whose
 /// answer row is the body's state (its jet recharge among it).
 pub fn construct_viewpoint_body(world: &mut World, cx: &mut Cx, calls: &mut Calls) -> Result<(), AdmitError> {

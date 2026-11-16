@@ -1,4 +1,4 @@
-//! First-person pose and clip clocks from src/firstperson.js. The tree is
+//! First-person pose and clip clocks. The tree is
 //! camera-relative: the host supplies its current camera in a second batch,
 //! after the body's displayed pose has served the death and vehicle cameras.
 

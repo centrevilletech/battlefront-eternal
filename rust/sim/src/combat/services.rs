@@ -1,4 +1,4 @@
-//! CombatWorld.fireRound and dispense (combat-world.js), using prepared F1
+//! CombatWorld.fireRound and dispense, using prepared F1
 //! handles. The caller commits its current unit before entering the context,
 //! so instant hits and depth-first death effects observe the canonical shooter.
 use crate::gen::{BeamSource, ItemOwner, OrdnanceOwner};

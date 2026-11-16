@@ -1,4 +1,4 @@
-//! Main menu version line formatting (`src/shell/version.js`).
+//! Main menu version line formatting.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -192,7 +192,7 @@ impl AboutInfo {
 
 /// Formats a [`Generations`] triple as `"M<maps> S<sides> C<common>"`,
 /// substituting `"?"` for any missing field.
-/// Mirrors `generations(g)` in `src/shell/version.js`.
+/// Mirrors `generations(g)`.
 fn format_generations(g: &Generations) -> String {
     let m = g.maps.map(|n| n.to_string()).unwrap_or_else(|| "?".to_string());
     let s = g.sides.map(|n| n.to_string()).unwrap_or_else(|| "?".to_string());
@@ -205,7 +205,7 @@ fn format_generations(g: &Generations) -> String {
 
 /// Extracts the trailing preview number `<N>` from a version string matching
 /// `^\d+\.\d+\.\d+[-~]preview\.(\d+)$`.
-/// Mirrors the `preview` regex in `versionLine` in `src/shell/version.js`.
+/// Mirrors the `preview` regex in `versionLine`.
 fn parse_preview_number(version: &str) -> Option<&str> {
     let (xyz, rest) = version
         .split_once("-preview.")

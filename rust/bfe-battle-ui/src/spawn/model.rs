@@ -1,5 +1,4 @@
-//! Spawn screen state machine, world commands, and port contract
-//! (`src/spawn-screen/model.js`, `src/runtime/commands.js`).
+//! Spawn screen state machine, world commands, and port contract.
 //!
 //! `SpawnModel` owns the player's pending choice while the spawn screen is up:
 //! - State (`Closed`, `Choosing`, `Committed`)
@@ -9,11 +8,11 @@
 //! - Front-line command post fallback when a post is lost to the enemy while choosing
 
 /// Maximum number of human commands accepted in a single tick packet
-/// (`src/runtime/commands.js` `HUMAN_COMMAND_LIMIT = 16`).
+/// (`HUMAN_COMMAND_LIMIT = 16`).
 pub const HUMAN_COMMAND_LIMIT: usize = 16;
 
 /// Maximum UTF-16 code units in a class or command post identifier
-/// (`src/runtime/commands.js` `NAME_LIMIT = 64`).
+/// (`NAME_LIMIT = 64`).
 pub const NAME_LIMIT: usize = 64;
 
 /// World commands emitted by the spawn screen and pause menu (`command.human` in
@@ -47,7 +46,7 @@ impl HumanCommand {
     }
 }
 
-/// Validates and normalizes a [`HumanCommand`] (`src/runtime/commands.js` `humanEntry`).
+/// Validates and normalizes a [`HumanCommand`] (`humanEntry`).
 ///
 /// Team numbers must be in `1..=7`, and class/post names must be non-empty and
 /// at most 64 UTF-16 code units long.
@@ -346,7 +345,7 @@ pub fn choose_frontline_post(
     best.map(|(p, _)| p.name.clone())
 }
 
-/// The spawn screen's pure state machine (`src/spawn-screen/model.js` `SpawnModel`).
+/// The spawn screen's pure state machine (`SpawnModel`).
 pub struct SpawnModel {
     /// Current lifecycle state (`Closed`, `Choosing`, or `Committed`).
     pub state: SpawnState,

@@ -18,7 +18,7 @@ pub enum Stage {
     Content,
     /// validateStartupClass (f4_startup_class).
     Startup,
-    /// The collision kernel from content triangles (ray-kernel.js, collision.js).
+    /// The collision kernel from content triangles.
     Kernels,
     /// The aim cameras (camera_init, camera_add_definition).
     Cameras,
@@ -161,7 +161,7 @@ pub(crate) fn push_page_streams(world: &mut World, cx: &mut Cx) -> Result<(), Ad
 /// prefix, partial.rs) runs a lane's stages alone over the host's recorded
 /// construction of the stages before them.
 pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut Rows, admitted: &mut Admitted, stages: &[Stage]) -> Result<(), AdmitError> {
-    // game.js createGame: `new Units()` (registry.js) numbers members from 1.
+    // game.js createGame: `new Units()` numbers members from 1.
     // The host hands the registry over whole before attachF3 (the KIND_UNITS
     // import); the owning world keeps it as members are added instead.
     if stages.first() == Some(&Stage::Content) && world.sim.store.units.list.is_empty() { world.sim.store.units.next_id = 1.0; }
@@ -247,7 +247,7 @@ pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut 
             Stage::Fleet => super::fleet::construct(world, cx, rows)?,
             // attachF3, then game.js 1392 right after it: `unitsSim.random
             // .configure(gameplayRandom, grenade-spin, gameplayRandom,
-            // seatRandom)` registers the host's first streams (f3-random.js).
+            // seatRandom)` registers the host's first streams.
             Stage::Units => {
                 // attachF3 reads collision.bodySerial as f3_init's bodySerial:
                 // the fleet stage published it (a prepared variant's body

@@ -1,4 +1,4 @@
-//! presentEntityEvent's unit branches (src/runtime/entity-presentation-events.js):
+//! presentEntityEvent's unit branches:
 //! a soldier's weapon action over his upper body, a droid's death blast and
 //! a droid blown apart. The server decides each; this owner only shows it on
 //! the body the client already draws.
@@ -102,7 +102,7 @@ struct Input<'a> {
     #[serde(default)]
     hit_kind: Option<&'a str>,
 }
-// The animation banks a charge doesn't put on alert (combat.js).
+// The animation banks a charge doesn't put on alert.
 const UNALERTED_BANKS: [&str; 4] = ["tool", "lightsabre", "sabre", "gam"];
 pub struct Presented {
     // Every bank name a record can carry, with the animator's bank for it
@@ -130,7 +130,7 @@ pub struct Presented {
 }
 impl Presented {
     // The bank names come from the animation sets and from every weapon's
-    // AnimationBank (`def.AnimationBank || "rifle"`, src/weapons.js), which
+    // AnimationBank (`def.AnimationBank || "rifle"`), which
     // is all a record can name. `weapons` lists each weapon definition's
     // registry id (0 when the registry lacks it), bank and base.
     pub(super) fn new<'a>(
@@ -236,7 +236,7 @@ impl Presented {
         }
     }
 }
-// decodeUnitState (src/runtime/entity-unit-state.js), as far as a drawn body
+// decodeUnitState, as far as a drawn body
 // needs it: whose state it is, whether a dead droid was blown apart, and
 // the selected secondary weapon while a throw is under way (`throwTime >=
 // 0`, the replicated part of Weapon.busy). None for a malformed payload.
@@ -464,7 +464,7 @@ impl Replicas {
         let actor = self.slots[slot].actor;
         let model = self.slots[slot].model;
         match event.act {
-            // A droideka's animator ignores weapon actions (src/droideka.js).
+            // A droideka's animator ignores weapon actions.
             Act::Weapon { .. } | Act::EndWeapon { .. } | Act::Shot { .. } if self.slots[slot].walker => {}
             Act::Weapon { action, bank, posture } => {
                 // setBank first: changing the bank drops the action under way.

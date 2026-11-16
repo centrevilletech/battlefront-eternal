@@ -140,7 +140,7 @@ use std::path::Path;
 use winit::{event::MouseButton, keyboard::KeyCode};
 
 /// Commands one rendered frame may make: as the page's input clock
-/// (runtime/fixed-clock.js maxSteps), so a frame of 0.1 s still makes one
+/// (maxSteps), so a frame of 0.1 s still makes one
 /// for each of its six ticks.
 const MAX_FRAME_STEPS: usize = 8;
 
@@ -733,7 +733,7 @@ impl LiveScoreboardPort {
     }
 }
 
-/// applyRecord (src/battle-stats.js): a Character's shared record as the
+/// applyRecord: a Character's shared record as the
 /// end-of-match screens read it, its favourites named from the content.
 /// Without one (no tally above zero yet) the record is empty.
 fn character_record(packed: Option<&crate::online::roster::Records>, names: &crate::online::hud::RecordNames) -> CharacterRecord {
@@ -2511,7 +2511,7 @@ impl BattleController {
         }
     }
 
-    /// LEAVING BATTLEFIELD (`presentLeaving` in src/game.js): from what the player controls as this page
+    /// LEAVING BATTLEFIELD (`presentLeaving`): from what the player controls as this page
     /// shows him, alive and outside the map's boundary.
     fn present_leaving(&mut self) {
         let (own, tick) = match &self.authority {
@@ -2743,7 +2743,7 @@ impl BattleController {
                 .key(code, false, false, false, false, |_, _| None);
         }
 
-        // 1. Chat overlay runs first in capture order (`src/chat.js`): when open, `Escape`
+        // 1. Chat overlay runs first in capture order: when open, `Escape`
         // closes chat rather than opening `PauseMenu`, and all keys are swallowed.
         if self.chat.is_open() {
             if down {
@@ -2928,7 +2928,7 @@ impl BattleController {
         }
 
         // 6. Track held `Space` while inactive so holding `Space` during the death camera
-        // spawns on the first frame `SpawnScreen` opens (`src/spawn-screen/input.js`).
+        // spawns on the first frame `SpawnScreen` opens.
         if down {
             let _ = self.spawn_ctrl.input.key(
                 &self.spawn_ctrl.model,

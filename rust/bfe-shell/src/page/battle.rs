@@ -209,7 +209,7 @@ impl SpawnMetrics {
     }
 }
 
-/// CSS grid from page/view.js, in compositor logical pixels. The caller converts only
+/// CSS grid, in compositor logical pixels. The caller converts only
 /// published hit rectangles to the existing 1024-wide input plane.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SpawnLayout {
@@ -231,7 +231,7 @@ pub struct SpawnLayout {
     pub keys_y: f64,
     pub countdown_y: f64,
     pub center: f64,
-    /// The classes do not fit: all but the picked one fold to a line (view.js keys.compact).
+    /// The classes do not fit: all but the picked one fold to a line (keys.compact).
     pub compact: bool,
     class_tops: [f64; MAX_CLASSES + 1],
 }

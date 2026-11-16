@@ -3,7 +3,7 @@
 //! animations): per clip its frames, fps, tracks (remapped by bone name onto
 //! the skeleton that plays it), its slice of the bank's floats, and the
 //! numbers the Clip constructor derives (duration, root motion, stride,
-//! speed). Getting up and diving last as long as their clips (units.js).
+//! speed). Getting up and diving last as long as their clips.
 
 use crate::js::{js_hypot, js_max, relative_range, to_int32};
 use crate::value::Value;

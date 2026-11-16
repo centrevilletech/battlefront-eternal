@@ -1,4 +1,4 @@
-//! LiveObjects' combat services (props.js). Prepared geometry and native
+//! LiveObjects' combat services. Prepared geometry and native
 //! lifecycle effects share F4's canonical health and trap rows. Only the
 //! touched prop's visibility and foreign notifications cross synchronously.
 use super::f3::{self, WorldServices};

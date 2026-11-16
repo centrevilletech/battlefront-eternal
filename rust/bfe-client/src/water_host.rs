@@ -37,7 +37,7 @@ pub struct Settings {
     pub ocean: String,
 }
 impl Default for Settings {
-    // The page's defaults (DEFAULTS in src/settings.js).
+    // The page's defaults (DEFAULTS).
     fn default() -> Self {
         Self { quality: "high".into(), ocean: "enhanced".into() }
     }

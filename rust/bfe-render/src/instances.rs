@@ -3,7 +3,7 @@
 // state, each instance's per-object values in a row of the instance texture
 // and its bones in one texture holding every drawn rig's. The page writes a
 // record an object into `input`, after the frame block's values, and the
-// bones into `bones` (src/rust-render/instances.js).
+// bones into `bones`.
 //
 // A rig whose material blends (bes1's jedi fighter, its glass) is a record
 // of a third kind: its row and bones are made with the others', but it is

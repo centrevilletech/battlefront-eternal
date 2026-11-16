@@ -118,7 +118,7 @@
 //! try to fix a CPU-bound simulation. No localStorage writes while adapting.
 //!
 //! The GPU's share comes from its timer where the browser offers one (gpuMs),
-//! else from the render profiler's fences (render-profiler.js): `behind`, the
+//! else from the render profiler's fences: `behind`, the
 //! last frame's GPU work still unfinished when this one began, and `latency`,
 //! how soon after a frame was sent its fence was seen signaled (ms, an upper
 //! bound of the GPU's time past the frame's last command).

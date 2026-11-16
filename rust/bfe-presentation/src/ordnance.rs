@@ -87,7 +87,7 @@ struct Style {
     blur_length: f64,
     fade_out: f64,
     light_radius: f64,
-    // Colours with their alpha folded in (ordnance.js color01).
+    // Colours with their alpha folded in (color01).
     light_color: [f64; 3],
     glow_color: [f64; 3],
     // Ordnance.blasterLook, worked out by the page once the texture's hue is
@@ -937,7 +937,7 @@ impl Ordnance {
         }
         // Two ways a bolt's extent is known. A replicated bolt carries only its
         // launch sample, and its flight is worked out from the displayed tick
-        // (linear-bolt.js linearBoltFrame). A bolt the page steps carries
+        // (linearBoltFrame). A bolt the page steps carries
         // this and the previous step's distances, drawn between them at alpha.
         let (flown, drawn, ended, fade);
         if has(fl::LINEAR) {
@@ -1085,7 +1085,7 @@ impl Ordnance {
         self.out.light(&light_at, s.light_color, or(s.light_radius, 0.0));
     }
 
-    // ---- network projectiles (network-combat-projectile.js) ----
+    // ---- network projectiles ----
 
     // Leaves the live list and frees the slot for the page to reuse.
     fn unlink(&mut self, slot: u32) {

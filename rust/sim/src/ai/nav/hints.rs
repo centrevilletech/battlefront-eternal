@@ -1,5 +1,5 @@
 //! Tactical hints as the world loader builds them, and the generic hint
-//! query (nav/hints.js). Command posts are reached through `HintPosts`
+//! query. Command posts are reached through `HintPosts`
 //! (their names and positions with the caller's identity tokens for
 //! them), since the posts themselves are the battle package's.
 
@@ -9,14 +9,14 @@ use crate::ai::random::Random;
 /// hints.js:21.
 pub const POOL_CAPACITY: f64 = 350.0;
 
-/// The stance numbers (hints.js:22).
+/// The stance numbers.
 pub mod stance {
     pub const STAND: f64 = 0.0;
     pub const CROUCH: f64 = 1.0;
     pub const PRONE: f64 = 2.0;
 }
 
-/// The hint kind bits (hints.js:20).
+/// The hint kind bits.
 pub fn hint_bit(kind: &str) -> u32 {
     match kind {
         "snipe" => 1,
@@ -46,7 +46,7 @@ pub trait HintPosts {
     fn list(&self) -> &[(u64, Vec3)];
 }
 
-/// One loaded hint (hints.js:45). `link` and `next` are the same ring
+/// One loaded hint. `link` and `next` are the same ring
 /// neighbour, as written; both are kept because different readers use
 /// each. `reserved_by` is the reserving owner's identity token.
 #[derive(Clone, Debug)]
@@ -75,14 +75,14 @@ pub struct Hint {
     pub reserved_at: f64,
     pub reserved_by: Option<u64>,
     pub register_radius: f64,
-    // The names the stance and cover code uses (hints.js:131).
+    // The names the stance and cover code uses.
     pub primary_mask: i32,
     pub secondary_mask: i32,
     pub side_mask: i32,
 }
 
 /// sscanf("%d") into a target that holds `fallback` when nothing parses
-/// (hints.js:33): leading whitespace, an optional sign, digits, through
+///: leading whitespace, an optional sign, digits, through
 /// Number.parseInt and `| 0`.
 fn scan_int(text: &str, fallback: i32) -> i32 {
     let chars: Vec<char> = text.chars().collect();
@@ -234,7 +234,7 @@ fn apply_property(hint: &mut Hint, hash: &str, value: &str, posts: Option<&dyn H
     }
 }
 
-/// The loaded hint list (hints.js:113). `capacity` is the JavaScript's
+/// The loaded hint list. `capacity` is the JavaScript's
 /// options.capacity, defaulted by the caller.
 pub fn build_hints(records: &[HintRecord], posts: Option<&dyn HintPosts>, capacity: f64) -> Vec<Hint> {
     let mut out: Vec<Hint> = Vec::new();
@@ -312,7 +312,7 @@ pub fn build_hints(records: &[HintRecord], posts: Option<&dyn HintPosts>, capaci
     out
 }
 
-/// A stance from a stance mask (hints.js:179).
+/// A stance from a stance mask.
 pub fn pick_stance(mask: i32, random: &mut dyn Random) -> f64 {
     if mask & 7 == 0 {
         return stance::STAND;
@@ -326,7 +326,7 @@ pub fn pick_stance(mask: i32, random: &mut dyn Random) -> f64 {
     stance::STAND
 }
 
-/// A secondary action from the two-bit choice mask (hints.js:189).
+/// A secondary action from the two-bit choice mask.
 pub fn pick_secondary(choices: i32, random: &mut dyn Random) -> f64 {
     if choices & 3 == 0 {
         return -1.0;
@@ -340,7 +340,7 @@ pub fn pick_secondary(choices: i32, random: &mut dyn Random) -> f64 {
     -1.0
 }
 
-/// HintSet (hints.js:198).
+/// HintSet.
 #[derive(Clone, Debug, Default)]
 pub struct HintSet {
     pub list: Vec<Hint>,
@@ -352,7 +352,7 @@ impl HintSet {
     }
 
     /// Hints of `mask` whose registration sphere meets the box
-    /// center +/- half, at most `cap`, in load order (hints.js:215).
+    /// center +/- half, at most `cap`, in load order.
     pub fn query(&self, mask: u32, center: Vec3, half: f64, cap: f64, owner: Option<u64>, now: f64) -> Vec<usize> {
         let mut out = Vec::new();
         self.query_into(mask, center, half, cap, owner, now, &mut out);
@@ -386,7 +386,7 @@ impl HintSet {
         !(now < self.list[hint].reserved_at + 4.0)
     }
 
-    /// Mark a hint and its ring siblings reserved (hints.js:234).
+    /// Mark a hint and its ring siblings reserved.
     pub fn reserve(&mut self, hint: usize, owner: Option<u64>, now: f64) {
         let mut h = Some(hint);
         while let Some(i) = h {

@@ -269,7 +269,7 @@ fn slot_matches(slot: &TriggerSlot, trigger: InputTrigger) -> bool {
     trigger != InputTrigger::None && slot.contains(&trigger)
 }
 
-/// Cold-resolved table of all 24 infantry/vehicle bindings (`BINDINGS` in `src/input.js`).
+/// Cold-resolved table of all 24 infantry/vehicle bindings (`BINDINGS`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GroundBindings {
     pub forward_plus: TriggerSlot,
@@ -332,7 +332,7 @@ impl Default for GroundBindings {
 }
 
 impl GroundBindings {
-    /// Applies user overrides (`keyBindings` in `src/settings.js`) on top of [`Self::default`].
+    /// Applies user overrides (`keyBindings`) on top of [`Self::default`].
     pub fn from_overrides(own: &BTreeMap<String, Vec<String>>) -> Self {
         let def = Self::default();
         if own.is_empty() {
@@ -367,7 +367,7 @@ impl GroundBindings {
     }
 }
 
-/// Cold-resolved table of all 16 starfighter bindings (`FLIGHT_BINDINGS` in `src/flight/controls.js`).
+/// Cold-resolved table of all 16 starfighter bindings (`FLIGHT_BINDINGS`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FlightBindingsTable {
     pub throttle: TriggerSlot,
@@ -414,7 +414,7 @@ impl Default for FlightBindingsTable {
 }
 
 impl FlightBindingsTable {
-    /// Applies user overrides (`flightBindings` in `src/settings.js`) on top of [`Self::default`].
+    /// Applies user overrides (`flightBindings`) on top of [`Self::default`].
     pub fn from_overrides(own: &BTreeMap<String, Vec<String>>) -> Self {
         let def = Self::default();
         if own.is_empty() {
@@ -653,7 +653,7 @@ impl Input {
                 self.view_actions.stats = true;
             }
             // Squad orders go to the world in the command, as every other
-            // press does (Controls.command, src/input.js): the server takes
+            // press does (Controls.command): the server takes
             // them from the player's controls and answers with the order.
             if slot_matches(&self.ground.squad_at_ease, trig) {
                 self.action(Action::SquadAtEase);
@@ -691,7 +691,7 @@ impl Input {
     }
 
     /// Processes a physical key press/release while suppressing `Backquote` stats toggle
-    /// when `shift_or_ctrl` is true (`overlayChord` in `src/input.js`).
+    /// when `shift_or_ctrl` is true (`overlayChord`).
     pub fn key_with_modifiers(&mut self, key: KeyCode, pressed: bool, shift_or_ctrl: bool) {
         let was_primary = self.primary_down();
         let was_secondary = self.secondary_down();

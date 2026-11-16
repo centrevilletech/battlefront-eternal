@@ -1,6 +1,6 @@
 //! Dedicated 60 Hz local world thread and bounded non-blocking command/publication
 //! boundary for Instant Action battles (`src/game.js` `step` loop,
-//! `src/network-session.js` snapshot delivery, `src/runtime/commands.js`).
+//! `src/network-session.js` snapshot delivery).
 //!
 //! Why a separate thread with pre-allocated mailboxes:
 //! - Deliverable 3 requires the local world to step at 60 Hz on its own thread
@@ -115,7 +115,7 @@ pub enum WorldMessage {
     Pause(bool),
     /// Suspends (`true`) or unsuspends (`false`) the world loop on window focus changes.
     Suspend(bool),
-    /// Commits a spawn selection from the classic spawn screen (`src/spawn-screen/index.js`).
+    /// Commits a spawn selection from the classic spawn screen.
     Spawn {
         team: u8,
         class_name: String,

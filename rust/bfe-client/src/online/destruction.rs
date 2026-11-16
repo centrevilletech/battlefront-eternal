@@ -1,4 +1,4 @@
-//! The Enhanced destruction effects (destruction.js) for droids, over the
+//! The Enhanced destruction effects for droids, over the
 //! shared Destruction phase of bfe-environment, which decides the births,
 //! the pieces' lives and their order. This host gives it what only the
 //! client has (a dying droid's bones, where its chunks were, the camera,
@@ -42,7 +42,7 @@ const SMOKE: usize = 1536;
 const ARCS: usize = 48;
 // The lights' colours, by the phase's names for them.
 const COLORS: [[f64; 3]; 3] = [[0.5, 0.72, 1.0], [1.0, 0.62, 0.3], [1.0, 0.42, 0.12]];
-// m/s, drifting the smoke (destruction-fx.js WIND).
+// m/s, drifting the smoke (WIND).
 const WIND: [f32; 3] = [0.55, 0., 0.32];
 // pieceShape: the 26 directions its extreme points are found along.
 fn directions() -> Vec<Vector3> {

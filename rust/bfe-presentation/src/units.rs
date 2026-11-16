@@ -1212,7 +1212,7 @@ fn rider_sample(a: &mut Actor, input: &[f64], state: &mut SoldierState, out: &mu
     }));
 }
 
-/// seatRider from src/vehicles.js. The current hull's rider matrix is an
+/// seatRider. The current hull's rider matrix is an
 /// input; body and pelvis matrices are resolved here after animation.
 fn place_rider(a: &mut Actor, input: &[f64], dt: f64) {
     let seat = matrix(input, i::RIDER_MATRIX);

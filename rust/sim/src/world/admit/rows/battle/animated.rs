@@ -1,5 +1,5 @@
 //! The animated props (props.js AnimatedProp: Tatooine's sarlacc tentacles,
-//! Bespin's doors) as F4Live births them (f4-live.js bindAnimated) and as
+//! Bespin's doors) as F4Live births them (bindAnimated) and as
 //! LiveObjects constructed them: the model's bone rig placed by the
 //! instance, its clips, triggers and grabs from the instance's animation
 //! record, the native pose accumulators the page's Pose made, and the
@@ -27,7 +27,7 @@ pub fn instances(cx: &Cx) -> Vec<usize> {
 }
 
 /// The pose the page's `new Pose(bones, root)` made for the prop at its
-/// construction (anim-kernel.js newPose): the bone count and the dummy
+/// construction (newPose): the bone count and the dummy
 /// root's index, 0 when the rig has none. Called by the prop constructor
 /// before the prop's body, as LiveObjects does; the id is kept on
 /// `cx.ids.animated_poses` for the birth.

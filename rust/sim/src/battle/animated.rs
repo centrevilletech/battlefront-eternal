@@ -1,4 +1,4 @@
-//! Animated prop clocks, doors, triggers and creature holds (src/props.js).
+//! Animated prop clocks, doors, triggers and creature holds.
 //! Prop poses and grab-node transforms are native. Soldier rider sampling,
 //! deaths and removal remain calls into their owning systems.
 use crate::pose::{Clip, Pose};

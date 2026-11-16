@@ -1,5 +1,5 @@
 // The temporal upscaler's motion of the bodies that move on their own
-// (src/motion-vectors.js), drawn in place of three's render of their
+//, drawn in place of three's render of their
 // proxies and of the first-person view's locked mask, into the upscaler's
 // velocity target (input resolution, half floats): the target cleared to
 // no motion (unless three drew into it first: the sky's ships, which draw

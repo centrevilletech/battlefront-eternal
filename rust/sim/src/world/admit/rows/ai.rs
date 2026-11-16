@@ -1,5 +1,5 @@
-//! Cold AI facts and the admission program from ai-world-content.js,
-//! ai-world-load.js and AiWorld in ai-world.js. Identities come from the
+//! Cold AI facts and the admission program,
+//! ai-world-load.js and AiWorld. Identities come from the
 //! earlier native owners; row construction never allocates a second owner.
 mod content;
 mod context;

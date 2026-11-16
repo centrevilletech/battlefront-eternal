@@ -1,7 +1,7 @@
-//! DeathShot from src/death-shot.js. The body, killer and drawn view follow
+//! DeathShot. The body, killer and drawn view follow
 //! exact critically damped springs on the display clock, never the world tick.
 // The death camera as this page draws it. The world keeps the original's
-// (src/camera.js DeathCamera) as the camera its Classic AI schedules from;
+// (DeathCamera) as the camera its Classic AI schedules from;
 // this one is presentation only. It runs on the page in every host (a local
 // battle, a world worker's, a server's) from what the page draws: the body
 // where it lies, and the killer the world named (DeathCamera.blame) where he
@@ -55,7 +55,7 @@ impl Follow {
         x
     }
 }
-// spring in death-shot.js: the moving goal's lag is kept separate from the
+// spring: the moving goal's lag is kept separate from the
 // decaying homogeneous solution, so a long frame traces the same path.
 // One step of a critically damped spring: x (and its velocity v) after dt,
 // following a goal that moved evenly from a0 to a1 over the step. Exact for

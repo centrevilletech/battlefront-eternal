@@ -1,9 +1,9 @@
-// The near scene's terrain water (water.js): the flat surface over the water
+// The near scene's terrain water: the flat surface over the water
 // cells, in Classic settings drawn with the look's own textures (Low: the
 // textured pass), at High and Ultra in two passes (the tint over the opaque
 // scene's copy, then the mirror's reflection); the rings spreading where
 // things meet the water; and at High and Ultra the shore's lapping and
-// splashes (water-shore.js). All blend, so they are items of the
+// splashes. All blend, so they are items of the
 // transparent list (transparent.rs Source): each with three's sort key (its
 // group's and its own render order, z of its geometry's bounding sphere,
 // its id) and drawn in the list's order, with three's program for its

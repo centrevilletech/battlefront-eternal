@@ -30,7 +30,7 @@ pub struct SupportHub {
     pub distance: f64,
 }
 
-/// hubsAt(graph, p, mask) (support.js:38): the hubs a point stands on.
+/// hubsAt(graph, p, mask): the hubs a point stands on.
 pub fn hubs_at(graph:&NavGraph,p:Vec3,mask:u32)->Inline<usize,2> {
     let mut out=Inline::default();
     let a=graph.attach(p,mask);
@@ -40,12 +40,12 @@ pub fn hubs_at(graph:&NavGraph,p:Vec3,mask:u32)->Inline<usize,2> {
     out
 }
 
-/// graph.word(from, table, to) (graph.js:78).
+/// graph.word(from, table, to).
 fn word(graph: &NavGraph, from: usize, table: i32, to: usize) -> u32 {
     graph.words[graph.hubs[from].base + table as usize * graph.hubs.len() + to]
 }
 
-/// routes(graph, from, to, mask) (support.js:47).
+/// routes(graph, from, to, mask).
 pub fn routes(graph: &NavGraph, from: &[usize], to: usize, mask: u32) -> bool {
     let table = graph.table(mask);
     if table < 0 || table == NO_TABLE {
@@ -54,7 +54,7 @@ pub fn routes(graph: &NavGraph, from: &[usize], to: usize, mask: u32) -> bool {
     from.iter().any(|&hub| hub == to || word(graph, hub, table, to) != 0)
 }
 
-/// outOfReach(barriers, center, reach, r, mask) (support.js:56).
+/// outOfReach(barriers, center, reach, r, mask).
 pub fn out_of_reach(barriers: Option<&mut BarrierSet>, center: &Vector3, reach: f64, r: f64, mask: u32) -> bool {
     let Some(barriers) = barriers else { return false };
     let mut p = Vec3::new(center.x, center.y, center.z);
@@ -64,7 +64,7 @@ pub fn out_of_reach(barriers: Option<&mut BarrierSet>, center: &Vector3, reach: 
     hypot(p.x - center.x, p.z - center.z) > reach
 }
 
-/// The point the support hubs must see (support.js:70): POST_HEIGHT
+/// The point the support hubs must see: POST_HEIGHT
 /// over the post's centre.
 pub fn post_target(center: &Vector3) -> Vector3 {
     Vector3::new(center.x, center.y + POST_HEIGHT, center.z)
@@ -80,7 +80,7 @@ pub struct Candidate {
 }
 
 /// supportHubs(nav, los, center, r, mask, eyeHeight)'s graph and barrier
-/// tests (support.js:66-75): the hubs of the mask within SUPPORT_RANGE,
+/// tests: the hubs of the mask within SUPPORT_RANGE,
 /// clear of its barriers, in the graph's order. The caller tests each one's
 /// sight of the post (`los`) in the same order and sorts what is left
 /// (`sort_by_distance`): the tests here are queries of the map's content,

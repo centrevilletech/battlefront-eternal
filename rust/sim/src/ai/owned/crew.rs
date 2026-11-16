@@ -1,4 +1,4 @@
-//! objectiveCrew (ai/index.js): crew is observed from current leases, in seat
+//! objectiveCrew: crew is observed from current leases, in seat
 //! order. Raw hull identity is distinct from the registry's target wrapper.
 use super::rows::{ReadContext,context_store};
 use super::{entities::{Entities,Entity},roster::{CharacterOwner,Roster},scratch::{List,Pool},turrets::Turrets};

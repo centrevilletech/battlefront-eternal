@@ -185,7 +185,7 @@ pub struct Flight {
 }
 
 impl Flight {
-    /// initFlight (src/flight/model.js), for a craft of `class` whose
+    /// initFlight, for a craft of `class` whose
     /// definition's keys are `config`, its frame `quaternion`: the hull's
     /// speeds from the configuration (the caller sets the hull's turn rate
     /// and speed to `config.turn_rate` and `config.max_speed`), then a

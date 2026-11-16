@@ -12,7 +12,7 @@ use crate::vehicles::Hull;
 use three::{clamp, Quaternion};
 use v8math::max;
 
-/// m/s², as shells and grenades fall (ordnance.js).
+/// m/s², as shells and grenades fall.
 const GRAVITY: f64 = 9.8;
 /// 1/s: how fast the nose swings onto the path.
 const NOSE: f64 = 3.0;

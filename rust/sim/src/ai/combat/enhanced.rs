@@ -1,4 +1,4 @@
-//! Enhanced aim (src/ai/enhanced/aim.js): a reaction time per new target,
+//! Enhanced aim: a reaction time per new target,
 //! a wandering aim error that grows with range and the bot's own speed, an
 //! acquisition bias that fades, a slew limit, and the player's spread rules
 //! for a bot's weapons. Its draws come from its own generator (C), seeded
@@ -223,7 +223,7 @@ pub struct EnhancedCombat {
     pub hooked: bool,
 }
 
-/// The seed of the Enhanced aim's generator (aim.js:195).
+/// The seed of the Enhanced aim's generator.
 pub fn seed_c(seed: f64) -> u32 {
     v8math::to_uint32(seed) ^ 0x51ed_270b
 }

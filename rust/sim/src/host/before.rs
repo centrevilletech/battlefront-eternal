@@ -1,5 +1,5 @@
-//! What the page's `step()` (src/game.js) and the world operation
-//! (src/sim/wasm/world.js) wrote into the owners' input banks before
+//! What the page's `step()` and the world operation
+//! wrote into the owners' input banks before
 //! `world_step_run`, in their order: the fleet's input header
 //! (`F2Sim.foreignIn(true)`), both kernels' body flags and the separation
 //! scope (`preparePhase`), the live and tail inputs (`F4Live.prepareStep`,

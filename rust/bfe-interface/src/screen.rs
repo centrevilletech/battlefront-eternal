@@ -1,9 +1,9 @@
-//! Single menu screen container (`src/menus/screen.js`).
+//! Single menu screen container.
 //!
-//! Ports `MenuScreen` from `src/menus/screen.js`: widget tree, focus management
+//! Ports `MenuScreen`: widget tree, focus management
 //! (`"first"` vs `"keep"`), modal/dimming flags, elapsed time, and sound cue emission.
 //!
-//! Focus follows the 2004 PC shell convention (`src/menus/screen.js`):
+//! Focus follows the 2004 PC shell convention:
 //! - One widget (and one row/button/tab inside it) holds focus at a time, rendered pulsing yellow or bright blue.
 //! - Keyboard `ArrowUp`/`ArrowDown` and `Tab` walk focusable items; pointer hover sets focus directly.
 //! - `Enter`/`Space` or a left click activates the focused item; `Escape` triggers [`MenuScreen::back`].
@@ -12,7 +12,7 @@ use crate::popup::KeyCaptureModal;
 use crate::sounds::SoundCue;
 use crate::widgets::{Widget, WidgetAction};
 
-/// Focus retention policy when entering a [`MenuScreen`] (`focus: "first" | "keep"` in `src/menus/screen.js`).
+/// Focus retention policy when entering a [`MenuScreen`] (`focus: "first" | "keep"`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ScreenFocus {
     /// Reset focus to the first focusable widget on enter (`"first"`).
@@ -22,24 +22,24 @@ pub enum ScreenFocus {
     Keep,
 }
 
-/// One screen or modal popup on a [`crate::stack::ScreenStack`] (`MenuScreen` in `src/menus/screen.js`).
+/// One screen or modal popup on a [`crate::stack::ScreenStack`] (`MenuScreen`).
 #[derive(Clone, Debug)]
 pub struct MenuScreen {
     /// Screen identifier (`"options"`, `"game"`, `"video"`, `"audio"`, `"controls"`, `"confirm"`, etc.).
     pub id: String,
     /// Ordered list of the screen's widgets.
     pub widgets: Vec<Widget>,
-    /// Index into `widgets` of the currently focused widget, if any (`MenuScreen.focused` in `screen.js`).
+    /// Index into `widgets` of the currently focused widget, if any (`MenuScreen.focused`).
     pub focused: Option<usize>,
-    /// Whether `enter()` resets focus to the first focusable widget or preserves `focused` (`focusMode` in `screen.js`).
+    /// Whether `enter()` resets focus to the first focusable widget or preserves `focused` (`focusMode`).
     pub focus_policy: ScreenFocus,
-    /// When `true`, this screen is a modal overlay (`popup: true` in `screen.js`) drawn over the screen beneath it.
+    /// When `true`, this screen is a modal overlay (`popup: true`) drawn over the screen beneath it.
     pub modal: bool,
-    /// When `true`, draws a half-alpha black backdrop (`DIM`) behind the screen (`dim: true` in `screen.js`).
+    /// When `true`, draws a half-alpha black backdrop (`DIM`) behind the screen (`dim: true`).
     pub dim_behind: bool,
-    /// Elapsed time in seconds since this screen was last entered (`MenuScreen.time` in `screen.js`).
+    /// Elapsed time in seconds since this screen was last entered (`MenuScreen.time`).
     pub elapsed: f64,
-    /// Optional key-capture state when this screen is a keybinding popup (`grabsKeys` in `popup.js`).
+    /// Optional key-capture state when this screen is a keybinding popup (`grabsKeys`).
     pub key_capture: Option<KeyCaptureModal>,
 }
 
@@ -60,7 +60,7 @@ impl MenuScreen {
         s
     }
 
-    /// Looks up a widget by id (`MenuScreen.widget(id)` in `src/menus/screen.js`).
+    /// Looks up a widget by id (`MenuScreen.widget(id)`).
     pub fn widget(&self, id: &str) -> Option<&Widget> {
         self.widgets.iter().find(|w| w.id() == id)
     }
@@ -92,7 +92,7 @@ impl MenuScreen {
         self.widgets.get_mut(idx)
     }
 
-    /// Focuses the first focusable widget (`this.ring()[0]` in `MenuScreen.enter` in `src/menus/screen.js`),
+    /// Focuses the first focusable widget (`this.ring()[0]` in `MenuScreen.enter`),
     /// and resets a [`Widget::Rows`] selection to its first enabled row.
     pub fn focus_first(&mut self) {
         self.focused = self.widgets.iter().position(Widget::can_focus);
@@ -103,7 +103,7 @@ impl MenuScreen {
         }
     }
 
-    /// Focuses the widget with `id` if it is focusable (`MenuScreen.setFocus` in `src/menus/screen.js`).
+    /// Focuses the widget with `id` if it is focusable (`MenuScreen.setFocus`).
     /// Returns `true` if the focused widget index changed.
     pub fn set_focus_by_id(&mut self, id: &str) -> bool {
         if let Some(idx) = self
@@ -120,7 +120,7 @@ impl MenuScreen {
     }
 
     /// Cycles focus across focusable widgets by `delta` (`+1` or `-1`), wrapping around
-    /// the focus ring (`MenuScreen.move` in `src/menus/screen.js`).
+    /// the focus ring (`MenuScreen.move`).
     pub fn cycle_focus(&mut self, delta: i32) -> bool {
         let focusable: Vec<usize> = self
             .widgets
@@ -146,7 +146,7 @@ impl MenuScreen {
         changed
     }
 
-    /// Called when the screen becomes the top of the stack (`MenuScreen.enter` in `src/menus/screen.js`).
+    /// Called when the screen becomes the top of the stack (`MenuScreen.enter`).
     /// Resets `elapsed` so pulse and intro animations start fresh, and re-initializes focus unless
     /// [`ScreenFocus::Keep`] is set (used by the top-level `OPTIONS` menu so returning from a sub-page
     /// keeps the sub-page's row highlighted).
@@ -157,7 +157,7 @@ impl MenuScreen {
         }
     }
 
-    /// Advances the screen clock and all widget timers (`MenuScreen.update(dt)` in `src/menus/screen.js`).
+    /// Advances the screen clock and all widget timers (`MenuScreen.update(dt)`).
     pub fn update(&mut self, dt: f64) {
         if !dt.is_finite() || dt <= 0.0 {
             return;
@@ -188,7 +188,7 @@ impl MenuScreen {
 
     /// An option page with a RESET TO DEFAULTS button keeps it in the Up/Down ring after the
     /// last row: Down from the last row lands on it, Down again wraps to the first row, and
-    /// Up goes the other way (`ring` in `src/menus/screen.js`; BACK is not in the ring).
+    /// Up goes the other way (`ring`; BACK is not in the ring).
     /// `None` when this screen has no such pair, so the focused widget moves itself.
     fn move_through_reset_button(&mut self, dy: i32) -> Option<bool> {
         let only_rows_and_buttons = self
@@ -229,7 +229,7 @@ impl MenuScreen {
     }
 
     /// Handles horizontal navigation (`ArrowLeft` / `ArrowRight`) on the focused widget
-    /// (`MenuScreen.step` in `src/menus/screen.js`).
+    /// (`MenuScreen.step`).
     pub fn step_horizontal(&mut self, dx: i32) -> Option<WidgetAction> {
         // On `CONTROL OPTIONS`, pressing Left/Right while the `"bindings"` list is focused
         // steps the `"tabs"` header bar (`INFANTRY` / `VEHICLE` / `STARFIGHTER`).
@@ -252,7 +252,7 @@ impl MenuScreen {
     }
 
     /// Activates the currently focused widget (`Enter` / `Space` / click), returning its
-    /// [`WidgetAction`] (`MenuScreen.accept` in `src/menus/screen.js`).
+    /// [`WidgetAction`] (`MenuScreen.accept`).
     pub fn accept(&self) -> Option<WidgetAction> {
         let w = self.focused_widget()?;
         // Dispatch to the active widget's selected row, button, or tab; disabled items
@@ -276,7 +276,7 @@ impl MenuScreen {
                 }
             }
             // A `Button` with `place == "back"` and no explicit action defaults to `WidgetAction::Back`
-            // (`Button.activate` in `src/menus/widgets.js`).
+            // (`Button.activate`).
             Widget::Button(btn) => {
                 if btn.disabled {
                     None
@@ -309,7 +309,7 @@ impl MenuScreen {
     }
 
     /// Invokes the screen's back action (`Escape` or `BACK` button), matching
-    /// `MenuScreen.back()` in `src/menus/screen.js`.
+    /// `MenuScreen.back()`.
     pub fn back(&self) -> Option<WidgetAction> {
         // Prefer an explicit visible, enabled `back` button widget if the screen has one.
         for w in &self.widgets {

@@ -22,7 +22,7 @@ pub fn arr(v: &Vector3) -> [f64; 3] {
 }
 
 impl HitShape {
-    /// riderHitShapes output in the canonical unit shape layout (rider-pose.js).
+    /// riderHitShapes output in the canonical unit shape layout.
     pub fn set_rider(&mut self, shape: &crate::rig::rider::HitShape) {
         use crate::rig::rider::{ShapeKind, ShapePart as RiderPart};
         self.r#type = match shape.kind { ShapeKind::Sphere => ShapeType::Sphere, ShapeKind::Capsule => ShapeType::Capsule };
@@ -52,7 +52,7 @@ impl HitShape {
     }
 }
 
-/// One of soldierShapes' parts (units.js:64): where it sits in his frame
+/// One of soldierShapes' parts: where it sits in his frame
 /// (x his left, y up, z forward), its kind and size.
 #[derive(Clone, Copy, Debug)]
 pub struct Part {
@@ -75,7 +75,7 @@ pub enum HitPosture {
     Prone,
 }
 
-/// soldierShapes(posture, s) (units.js:64): an upright cylinder for the body
+/// soldierShapes(posture, s): an upright cylinder for the body
 /// standing or crouched (a box lying prone) and a sphere for the head. `s`
 /// is the class's CollisionRootScale.
 pub fn soldier_shapes(posture: HitPosture, s: f64) -> [Part; 2] {
@@ -85,7 +85,7 @@ pub fn soldier_shapes(posture: HitPosture, s: f64) -> [Part; 2] {
         part:if p.head{ShapePart::Head}else{ShapePart::Body},at:p.at,radius:p.radius,half:p.half,half_box:p.half_box})
 }
 
-// The droideka's OrdnanceCollision primitives (units.js:62): its ball of
+// The droideka's OrdnanceCollision primitives: its ball of
 // 0.65 m, and deployed the upright cylinder ahead of its root.
 pub const DROIDEKA_BALL: f64 = 0.65;
 pub const DROIDEKA_ORD_AT: [f64; 3] = [0.0, 1.0, 0.506];
@@ -107,14 +107,14 @@ impl bfe_pose::rig::body_shapes::BoundsShape for HitShape {
     fn reach(&self)->f64{reach(self)}
 }
 
-/// boundShapes(shapes, count, bounds) (units.js:95): about the middle of
+/// boundShapes(shapes, count, bounds): about the middle of
 /// the first `count` shapes' centres, reaching past the farthest.
 pub fn bound_shapes(shapes: &[HitShape], count: usize, bounds: &mut Bounds) {
     let(center,radius)=bfe_pose::rig::body_shapes::bounds(&shapes[..count]);
     bounds.center=arr(&center);bounds.radius=radius;
 }
 
-/// segmentShape(origin, dir, far, shape) (registry.js): the entry distance
+/// segmentShape(origin, dir, far, shape): the entry distance
 /// along a ray into a shape, or None.
 pub fn segment_shape(origin: &Vector3, dir: &Vector3, far: f64, shape: &HitShape) -> Option<f64> {
     let center = v3(shape.center);
@@ -128,7 +128,7 @@ pub fn segment_shape(origin: &Vector3, dir: &Vector3, far: f64, shape: &HitShape
     }
 }
 
-/// segmentSphere (registry.js): the first distance in [0, far] at which a
+/// segmentSphere: the first distance in [0, far] at which a
 /// ray from `origin` along unit `dir` is inside the sphere, or None. A ray
 /// starting inside hits at 0.
 pub fn segment_sphere(origin: &Vector3, dir: &Vector3, far: f64, center: &Vector3, radius: f64) -> Option<f64> {
@@ -154,7 +154,7 @@ pub fn segment_sphere(origin: &Vector3, dir: &Vector3, far: f64, center: &Vector
     }
 }
 
-/// segmentCylinder (registry.js): the entry distance into an upright
+/// segmentCylinder: the entry distance into an upright
 /// cylinder, or None; 0 from inside.
 pub fn segment_cylinder(origin: &Vector3, dir: &Vector3, far: f64, center: &Vector3, radius: f64, half: f64) -> Option<f64> {
     let mut near = 0.0;
@@ -198,7 +198,7 @@ pub fn segment_cylinder(origin: &Vector3, dir: &Vector3, far: f64, center: &Vect
     }
 }
 
-/// segmentBox (registry.js): the entry distance into a box turned by `yaw`
+/// segmentBox: the entry distance into a box turned by `yaw`
 /// about the vertical, or None.
 pub fn segment_box(origin: &Vector3, dir: &Vector3, far: f64, center: &Vector3, half: &Vector3, yaw: f64) -> Option<f64> {
     let (sin,cos)=v8math::sin_cos(yaw);
@@ -234,7 +234,7 @@ pub fn segment_box(origin: &Vector3, dir: &Vector3, far: f64, center: &Vector3, 
     Some(near)
 }
 
-/// segmentCapsule (registry.js): the entry distance into a capsule (the
+/// segmentCapsule: the entry distance into a capsule (the
 /// segment from center - half to center + half, swept by the radius), or
 /// None; 0 from inside.
 pub fn segment_capsule(origin: &Vector3, dir: &Vector3, far: f64, center: &Vector3, half: &Vector3, radius: f64) -> Option<f64> {
@@ -285,7 +285,7 @@ pub fn segment_capsule(origin: &Vector3, dir: &Vector3, far: f64, center: &Vecto
     best
 }
 
-/// shapeNormal(point, shape, direction, out) (registry.js): the outward
+/// shapeNormal(point, shape, direction, out): the outward
 /// normal of a shape at a point on it (the way the round came back, for a
 /// point at its middle).
 pub fn shape_normal(point: &Vector3, shape: &HitShape, direction: &Vector3) -> Vector3 {

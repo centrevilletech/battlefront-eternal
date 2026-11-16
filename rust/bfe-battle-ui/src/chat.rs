@@ -1,10 +1,10 @@
 //! Bounded 8-message chat log, interactive chat input controller, and in-battle key routing
 //! (`src/chat.js`, `ChatLog`, `CHAT_COLORS`, `CHAT_LIMIT`).
 
-/// Maximum chat message length in characters (`CHAT_LIMIT` in `src/chat.js`).
+/// Maximum chat message length in characters (`CHAT_LIMIT`).
 pub const CHAT_LIMIT: usize = 240;
 
-/// Chat channel (`global`, `team`, or `server` in `src/chat.js`).
+/// Chat channel (`global`, `team`, or `server`).
 ///
 /// Determines both the HUD text color (`CHAT_COLORS`) and the prefix tag prepended to rendered
 /// lines (`[TEAM] ` or `[SERVER] `, with `Global` omitting any channel tag).
@@ -26,7 +26,7 @@ impl ChatChannel {
 
     /// Parses a wire or caller channel name (`"global"`, `"team"`, `"server"`).
     ///
-    /// Mirrors the `Object.hasOwn(CHAT_COLORS, channel)` guard in `ChatLog.receive` (`src/chat.js`),
+    /// Mirrors the `Object.hasOwn(CHAT_COLORS, channel)` guard in `ChatLog.receive`,
     /// rejecting unknown channel identifiers before any message allocation occurs.
     pub fn from_str_name(s: &str) -> Option<Self> {
         match s {
@@ -37,7 +37,7 @@ impl ChatChannel {
         }
     }
 
-    /// CSS hex color for the channel (`CHAT_COLORS` in `src/chat.js`).
+    /// CSS hex color for the channel (`CHAT_COLORS`).
     ///
     /// Global chat renders in yellow (`#ffff40`), team chat in green (`#50ff70`),
     /// and server announcements in light blue (`#60b8ff`).
@@ -49,7 +49,7 @@ impl ChatChannel {
         }
     }
 
-    /// Prompt prefix when typing a message (`"SAY: "` or `"TEAM: "` in `src/chat.js`).
+    /// Prompt prefix when typing a message (`"SAY: "` or `"TEAM: "`).
     pub fn prompt(self) -> &'static str {
         match self {
             ChatChannel::Team => "TEAM: ",
@@ -58,7 +58,7 @@ impl ChatChannel {
     }
 }
 
-/// Sanitized chat message stored in `ChatLog` (`src/chat.js`).
+/// Sanitized chat message stored in `ChatLog`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChatMessage {
     pub channel: ChatChannel,
@@ -68,7 +68,7 @@ pub struct ChatMessage {
 }
 
 impl ChatMessage {
-    /// Formats the chat line as rendered in the HUD chat feed (`src/chat.js`).
+    /// Formats the chat line as rendered in the HUD chat feed.
     ///
     /// Server messages suppress the speaker name even if one was supplied (`[SERVER] <text>`),
     /// whereas player messages prepend `name: ` when `name` is non-empty.
@@ -87,7 +87,7 @@ impl ChatMessage {
     }
 }
 
-/// Bounded 8-message chat log with control-character stripping (`ChatLog` in `src/chat.js`).
+/// Bounded 8-message chat log with control-character stripping (`ChatLog`).
 #[derive(Clone, Debug, Default)]
 pub struct ChatLog {
     pub messages: Vec<ChatMessage>,
@@ -101,7 +101,7 @@ impl ChatLog {
         }
     }
 
-    /// Sanitizes and appends a message if valid, keeping at most 8 messages (`receive` in `src/chat.js`).
+    /// Sanitizes and appends a message if valid, keeping at most 8 messages (`receive`).
     ///
     /// Control characters (`<= 0x1F` and `0x7F`) in `text` are replaced with spaces before trimming
     /// and truncating to [`CHAT_LIMIT`] (`240`) characters, while control characters in `name` are
@@ -150,7 +150,7 @@ impl ChatLog {
     }
 
     /// Returns messages visible at `now_ms` (all messages while `chat_open` is `true`,
-    /// or those within 12,000 ms otherwise; `src/chat.js`).
+    /// or those within 12,000 ms otherwise).
     ///
     /// Opening the chat box reveals the full 8-message history even if older lines had faded out.
     pub fn visible_messages(&self, chat_open: bool, now_ms: f64) -> Vec<&ChatMessage> {
@@ -161,7 +161,7 @@ impl ChatLog {
     }
 }
 
-/// Interactive chat input state (`createChat` in `src/chat.js`).
+/// Interactive chat input state (`createChat`).
 ///
 /// Tracks the currently open channel (`Some(Global)` or `Some(Team)`), the in-progress `draft`
 /// buffer, and the local `player_name` echoed when submitting messages locally.
@@ -184,13 +184,13 @@ impl ChatController {
         }
     }
 
-    /// Whether the chat entry line is currently open (`isOpen` in `src/chat.js`).
+    /// Whether the chat entry line is currently open (`isOpen`).
     #[inline]
     pub fn is_open(&self) -> bool {
         self.active_channel.is_some()
     }
 
-    /// Processes a keydown event (`key` in `src/chat.js`); returns `true` when swallowed by chat.
+    /// Processes a keydown event (`key`); returns `true` when swallowed by chat.
     ///
     /// When closed, only unmodified non-repeat `KeyT` (global) or `KeyY` (team) presses while
     /// `can_open` is `true` open the input line. When open, `Enter`/`NumpadEnter` commits any

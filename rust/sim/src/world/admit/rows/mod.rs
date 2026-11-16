@@ -125,7 +125,7 @@ pub struct Ids {
     pub prop_kernels: Vec<(usize, u8, u32)>,
 
     /// The pose accumulator the page's AnimatedProp made per animated prop
-    /// instance (anim-kernel.js newPose), at the prop constructor's seam.
+    /// instance (newPose), at the prop constructor's seam.
     pub animated_poses: Vec<(usize, u32)>,
     /// Unit class ids (also `recon:` paths) and clip set ids as the units
     /// stage assigned them.
@@ -189,7 +189,7 @@ pub struct Cx<'a> {
     /// world's at the start of admission, advanced by every intern in call
     /// order, so the ids the builders write are the ids the world has.
     pub strings: Strings,
-    /// The F3 random-stream registry (f3-random.js register): every owner
+    /// The F3 random-stream registry (register): every owner
     /// registers its callbacks here in the host's order, so the stream ids
     /// in the tail setup, the AI setup and the player bindings agree.
     pub streams: battle::streams::Streams,

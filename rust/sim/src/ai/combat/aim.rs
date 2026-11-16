@@ -1,4 +1,4 @@
-//! Classic aiming (src/ai/classic/aim.js): the direction filter every
+//! Classic aiming: the direction filter every
 //! bot's gun sits behind, the curves it reads, the lead it aims with, and
 //! the point its body turns toward. Operation for operation in float32 as
 //! the JavaScript writes it (`Math.fround` at every step it rounds).
@@ -30,7 +30,7 @@ pub fn filter_direction(d: &Vector3, q: &Vector3, v: &mut Vector3, dt: f64, a: f
     let (dx, dy, dz) = (f(d.x), f(d.y), f(d.z));
     let (mut qx, mut qy, mut qz) = (f(q.x), f(q.y), f(q.z));
     let (mut vx, mut vy, mut vz) = (f(v.x), f(v.y), f(v.z));
-    // 1. The 30-degree correction (aim.js:174).
+    // 1. The 30-degree correction.
     if cos_30() > dot32(dx, dy, dz, qx, qy, qz) {
         let cross_y = f(f(qx * dz) - f(dx * qz));
         let theta = if cross_y > 0.0 { theta_30() } else { -theta_30() };
@@ -70,7 +70,7 @@ pub fn filter_direction(d: &Vector3, q: &Vector3, v: &mut Vector3, dt: f64, a: f
 }
 
 // ---------------------------------------------------------------------------
-// Weapon classes as the filter and firing code test them (aim.js:216).
+// Weapon classes as the filter and firing code test them.
 
 /// `def.base` as a string.
 pub fn base_of(def: &JsObj) -> Option<&str> {
@@ -198,7 +198,7 @@ impl Aimer {
 }
 
 // ---------------------------------------------------------------------------
-// Projectile speed and gravity (aim.js:313).
+// Projectile speed and gravity.
 
 /// aim.js:316 `projectileOf(def)`: (speed, gravity).
 pub fn projectile_of(def: Option<&JsObj>) -> (f64, f64) {

@@ -279,7 +279,7 @@ impl Cameras {
             let across = 2. * ((60_f64.to_radians() * 0.5).tan() * camera.aspect().max(1e-6)).atan();
             let first = self.first_fovs.get(def_idx).copied().unwrap_or(70_f64.to_radians());
             let base = if receiver.own.zoom > 1. { first } else { across };
-            // deadFov (camera.js): one world step of 1/60 s toward DEAD_FOV at FOV_RATE.
+            // deadFov: one world step of 1/60 s toward DEAD_FOV at FOV_RATE.
             self.death_hfov = 0.837758 + (base - 0.837758) * (-25_f64 / 60.).exp();
         }
         self.was_dead = dead_active;
@@ -296,7 +296,7 @@ impl Cameras {
                 if let Some(row) = receiver.active().find(|row| {
                     row[r::ID] == kid as f64 && row[r::GENERATION] == kgen as f64
                 }) {
-                    // drawnKiller (death-shot.js), for a killer on foot: his
+                    // drawnKiller, for a killer on foot: his
                     // eyes standing, crouched or prone, a walker's, or the
                     // middle of a corpse, above the feet as drawn. A killer in
                     // a seat is framed at his own row, not at the seat's eye.

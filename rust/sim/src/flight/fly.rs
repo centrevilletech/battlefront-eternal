@@ -9,7 +9,7 @@ use super::{FlightState, FlightWorld};
 use crate::vehicles::Hull;
 
 impl Hull {
-    /// captureTick's flyer part (vehicles.js captureTick): the frame at the
+    /// captureTick's flyer part (captureTick): the frame at the
     /// tick's start, which a page draws the craft from between ticks
     /// (`flightTickQ`). The hulls' captureTick takes the rest.
     pub fn capture_flight_tick(&mut self) {
@@ -73,7 +73,7 @@ impl Hull {
     }
 }
 
-/// What a flyer's shot carries of its lock (vehicles.js emitShot): the
+/// What a flyer's shot carries of its lock (emitShot): the
 /// locked target's id once the lock is Locked (-1 before), and the lock's
 /// generation (whatever its state).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -121,7 +121,7 @@ impl Hull {
 }
 
 impl Hull {
-    /// initFlight (src/flight/model.js) for a craft named `name` (its class
+    /// initFlight for a craft named `name` (its class
     /// by flightClass) whose definition's keys are `config`: the hull's turn
     /// rate and top speed from the configuration, then its flight as a
     /// craft landed with full power (state.rs Flight::init).
@@ -132,7 +132,7 @@ impl Hull {
         self.flight.init(super::config::flight_class(name), config, &quaternion);
     }
 
-    /// Vehicle.spawn's flight part, in its order (vehicles.js spawn): every
+    /// Vehicle.spawn's flight part, in its order (spawn): every
     /// hull grounded as a craft, landed or with no flight state, its flight
     /// numbers 0; a craft turned to its pad's heading and given its flight
     /// (`init_flight`); the floor under it unknown (NaN). The caller sets

@@ -112,7 +112,7 @@ fn default_hero(faction: f64) -> Option<&'static str> {
     }
 }
 
-/// factionOf(name) (goals.js:50): SetTeamName's parser.
+/// factionOf(name): SetTeamName's parser.
 pub fn faction_of(name: Option<&str>) -> f64 {
     let Some(name) = name.filter(|n| !n.is_empty()) else { return super::names::LOCALS };
     match name.to_lowercase().as_str() {
@@ -125,7 +125,7 @@ pub fn faction_of(name: Option<&str>) -> f64 {
     }
 }
 
-/// bonusMask(name) (spawning.js:53).
+/// bonusMask(name).
 pub fn bonus_mask(name: Option<&str>) -> f64 {
     match name.map(str::to_lowercase).as_deref() {
         Some("sabotage") => 32.0,
@@ -154,7 +154,7 @@ fn lua_int(arg: Option<&Arg>) -> f64 {
     v8math::trunc(fround(x))
 }
 
-/// makeTeams(capacity) (spawning.js:72): team 0 holds nobody; each team its
+/// makeTeams(capacity): team 0 holds nobody; each team its
 /// own friend and every other team's enemy, neutral to team 0; teams 3-7
 /// with unlimited reinforcements.
 pub fn make_teams(capacity: f64) -> Vec<SpawnTeam> {
@@ -178,7 +178,7 @@ pub fn make_teams(capacity: f64) -> Vec<SpawnTeam> {
         .collect()
 }
 
-/// applyMission(teams, calls, { hasClass }) (spawning.js:97): the mission's
+/// applyMission(teams, calls, { hasClass }): the mission's
 /// calls in source order; returns the spawn delay the last SetSpawnDelay
 /// left.
 pub fn apply_mission(teams: &mut [SpawnTeam], calls: &[Call], has_class: &dyn Fn(&str) -> bool, strings: &mut Strings) -> [f64; 2] {
@@ -258,7 +258,7 @@ pub fn apply_mission(teams: &mut [SpawnTeam], calls: &[Call], has_class: &dyn Fn
     spawn_delay
 }
 
-/// appendHeroes(teams, { heroes, hasClass }) (spawning.js:185): teams 1 and
+/// appendHeroes(teams, { heroes, hasClass }): teams 1 and
 /// 2 field their hero when heroes are on (or the mission's bonus asks): the
 /// hero class appended with a target of 1, the first class's target one
 /// less.
@@ -287,7 +287,7 @@ pub struct HumanSpec {
     pub name: Option<String>,
 }
 
-/// The bots' names (src/bot-names.js): the mission's lists and each team's
+/// The bots' names: the mission's lists and each team's
 /// generator, made with its first bot. The JavaScript keeps these in
 /// closures (the manager's `names`, each team's `botNames`), so the store
 /// does not hold them; they live beside it.
@@ -405,7 +405,7 @@ pub fn new_spawning(calls: &[Call], unit_scale: f64, heroes: bool, demo: bool, n
     (spawning, Naming { lists: names, teams: vec![None; TEAM_COUNT] })
 }
 
-/// begin() (spawning.js:339): humans join their teams, bots fill each team
+/// begin(): humans join their teams, bots fill each team
 /// to its unit count (named by their team), then each team pads its class
 /// targets and activates its Characters in order.
 pub fn begin<W: SpawningWorld + ?Sized>(s: &mut Store, humans: &[HumanSpec], naming: &mut Naming, strings: &mut Strings, world: &mut W, random: &mut dyn ContextDraws<W>) {
@@ -443,7 +443,7 @@ pub fn begin<W: SpawningWorld + ?Sized>(s: &mut Store, humans: &[HumanSpec], nam
     }
 }
 
-/// insert(t, human, playerId, name) (spawning.js:362): a new Character at
+/// insert(t, human, playerId, name): a new Character at
 /// the end of its team's roster and of the manager's list (which is the
 /// battle's).
 pub fn insert(s: &mut Store, t: f64, human: bool, player_id: f64, name: StrId, strings: &mut Strings) -> Option<Ref<Character>> {
@@ -467,7 +467,7 @@ pub fn insert(s: &mut Store, t: f64, human: bool, player_id: f64, name: StrId, s
     Some(r)
 }
 
-/// botName(team) (spawning.js:387): from the team's own generator, made with
+/// botName(team): from the team's own generator, made with
 /// its first bot.
 pub fn bot_name(sp: &Spawning, t: usize, naming: &mut Naming, strings: &mut Strings) -> StrId {
     let faction = sp.teams[t].faction;
@@ -479,7 +479,7 @@ pub fn bot_name(sp: &Spawning, t: usize, naming: &mut Naming, strings: &mut Stri
     strings.intern_str(&name)
 }
 
-/// setupTeam(team) (spawning.js:392).
+/// setupTeam(team).
 fn setup_team<W: SpawningWorld + ?Sized>(s: &mut Store, t: usize, strings: &mut Strings, world: &mut W, random: &mut dyn ContextDraws<W>) {
     pad_quotas(&mut s.spawning, t, &mut BoundDraws(random, world));
     let list = s.spawning.teams[t].characters.clone();
@@ -488,7 +488,7 @@ fn setup_team<W: SpawningWorld + ?Sized>(s: &mut Store, t: usize, strings: &mut 
     }
 }
 
-/// padQuotas(team) (spawning.js:400): class targets short of the team's
+/// padQuotas(team): class targets short of the team's
 /// Characters gain one at a time at class max(RNG % 4n - 3n, 0).
 pub fn pad_quotas(sp: &mut Spawning, t: usize, random: &mut dyn Draws) {
     let team = &mut sp.teams[t];
@@ -504,7 +504,7 @@ pub fn pad_quotas(sp: &mut Spawning, t: usize, random: &mut dyn Draws) {
     }
 }
 
-/// activate(character) (spawning.js:422): class 0, the final heroCount slots
+/// activate(character): class 0, the final heroCount slots
 /// take the hero classes, a bot draws its objective, then it prepares.
 /// A team fields each hero once: a bot activated later in a final slot (the
 /// roster's replacement for the local player) takes no hero class another
@@ -534,9 +534,9 @@ pub fn activate<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, str
     prepare(s, r, strings, world, random);
 }
 
-// ---- Spawn posts (src/ai/classic/goals.js).
+// ---- Spawn posts.
 
-/// friendlySpawn(post, team, relation) (goals.js:163): its own post with a
+/// friendlySpawn(post, team, relation): its own post with a
 /// spawn path or class spawn points, or a post held by a friend that has an
 /// ally path; never a neutral or inactive one.
 fn friendly_spawn(sp: &Spawning, post: &SpawnFacts, team: f64) -> bool {
@@ -553,7 +553,7 @@ fn friendly_spawn(sp: &Spawning, post: &SpawnFacts, team: f64) -> bool {
     relation(sp, owner, team) > 0.0 && post.ally_path
 }
 
-/// selectSpawnPost (goals.js:278): uniformly among the posts its team can
+/// selectSpawnPost: uniformly among the posts its team can
 /// spawn at (no draw for just one), or nowhere.
 fn select_spawn_post(sp: &Spawning, list: &Scratch, team: f64, random: &mut dyn Draws) -> Option<SpawnPost> {
     let eligible = (0..list.ids.len()).filter(|&i| list.views[i].active && friendly_spawn(sp, &list.views[i], team)).count();
@@ -564,7 +564,7 @@ fn select_spawn_post(sp: &Spawning, list: &Scratch, team: f64, random: &mut dyn 
     Some(list.ids[index])
 }
 
-/// retainSpawnPost (goals.js:285): a bot keeps its post while it stays a
+/// retainSpawnPost: a bot keeps its post while it stays a
 /// valid spawn point for its team.
 fn retain_spawn_post(sp: &Spawning, post: Option<SpawnPost>, list: &Scratch, team: f64, random: &mut dyn Draws) -> Option<SpawnPost> {
     if let Some(p) = post {
@@ -578,7 +578,7 @@ fn retain_spawn_post(sp: &Spawning, post: Option<SpawnPost>, list: &Scratch, tea
     select_spawn_post(sp, list, team, random)
 }
 
-/// humanSpawnPost (goals.js:300): the eligible post nearest the old one;
+/// humanSpawnPost: the eligible post nearest the old one;
 /// with none yet, the eligible post nearest any post an enemy holds.
 fn human_spawn_post(sp: &Spawning, post: Option<SpawnPost>, list: &Scratch, team: f64) -> Option<SpawnPost> {
     let distance = |a: &[f64; 3], b: &[f64; 3]| {
@@ -630,7 +630,7 @@ fn human_spawn_post(sp: &Spawning, post: Option<SpawnPost>, list: &Scratch, team
     pick
 }
 
-/// choosePost(character) (spawning.js:496).
+/// choosePost(character).
 pub fn choose_post<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W, random: &mut dyn ContextDraws<W>) -> Option<SpawnPost> {
     choose_post_with_scratch(s, r, world, random, &mut Scratch::default())
 }
@@ -684,7 +684,7 @@ pub fn queue_of(sp: &mut Spawning, post: SpawnPost) -> &mut [f64; 4] {
     sp.queues.get_mut(&post).unwrap()
 }
 
-/// reserve(post, human, own) (spawning.js:513).
+/// reserve(post, human, own).
 pub fn reserve(sp: &mut Spawning, post: SpawnPost, human: bool, own: bool) -> f64 {
     let queue = queue_of(sp, post);
     let i = (if human { 1 } else { 0 }) + (if own { 2 } else { 0 });
@@ -697,7 +697,7 @@ pub fn reserve(sp: &mut Spawning, post: SpawnPost, human: bool, own: bool) -> f6
     }
 }
 
-/// release(post, human, own) (spawning.js:520).
+/// release(post, human, own).
 pub fn release(sp: &mut Spawning, post: SpawnPost, human: bool, own: bool) -> f64 {
     let queue = queue_of(sp, post);
     let i = (if human { 1 } else { 0 }) + (if own { 2 } else { 0 });
@@ -709,7 +709,7 @@ pub fn release(sp: &mut Spawning, post: SpawnPost, human: bool, own: bool) -> f6
     }
 }
 
-/// changePost(character, post) (spawning.js:529): a held reservation moves
+/// changePost(character, post): a held reservation moves
 /// with him.
 pub fn change_post(s: &mut Store, r: Ref<Character>, post: Option<SpawnPost>) {
     let c = ch(s, r);
@@ -731,7 +731,7 @@ pub fn change_post(s: &mut Store, r: Ref<Character>, post: Option<SpawnPost>) {
 
 // ---- Tickets.
 
-/// tickets(team) (spawning.js:541): the battle's reinforcements.
+/// tickets(team): the battle's reinforcements.
 pub fn tickets(s: &Store, team: f64) -> f64 {
     match s.battle.reinforcements.at(team) {
         Some(r) => r,
@@ -739,7 +739,7 @@ pub fn tickets(s: &Store, team: f64) -> f64 {
     }
 }
 
-/// spendTicket(team) (spawning.js:546).
+/// spendTicket(team).
 pub fn spend_ticket(s: &mut Store, team: f64) {
     if s.battle.reinforcements.at(team).is_some() {
         spend(&mut s.battle, team, 1.0);
@@ -750,7 +750,7 @@ pub fn spend_ticket(s: &mut Store, team: f64) {
 
 // ---- Classes.
 
-/// setClass(character, index) (spawning.js:433): a hero class takes the
+/// setClass(character, index): a hero class takes the
 /// hero's name too.
 pub fn set_class<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, index: f64, strings: &dyn ContextText<W>, world: &mut W) {
     set_class_named_with(s,r,index,strings,world,|world,name|world.hero_name(name));
@@ -776,7 +776,7 @@ fn set_class_named_with<W:?Sized>(s:&mut Store,r:Ref<Character>,index:f64,string
     }
 }
 
-/// pickClass(character) (spawning.js:461): the roster-deficit draw. A hero
+/// pickClass(character): the roster-deficit draw. A hero
 /// keeps his class; no deficit anywhere keeps the current one.
 pub fn pick_class(s: &Store, r: Ref<Character>, random: &mut dyn Draws) -> f64 {
     let c = ch(s, r);
@@ -820,7 +820,7 @@ pub fn pick_class(s: &Store, r: Ref<Character>, random: &mut dyn Draws) -> f64 {
     class_index(c).unwrap_or(0.0)
 }
 
-/// prepare(character) (spawning.js:483): a bot (unless a hero) picks its
+/// prepare(character): a bot (unless a hero) picks its
 /// class and is ready, a human waits; it keeps or picks a post, joins its
 /// queue, and is scheduled for the next wave (two ahead if the wave clock is
 /// overdue).
@@ -851,12 +851,12 @@ pub fn prepare_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Cha
 
 // ---- The update.
 
-/// awaitingHuman(character) (spawning.js:567).
+/// awaitingHuman(character).
 pub fn awaiting_human(c: &Character) -> bool {
     c.human && c.unit.is_none() && !sp(c).ready && sp(c).timer <= 0.0
 }
 
-/// clock(dt) (spawning.js:574): the manager's two clocks, one step each, and
+/// clock(dt): the manager's two clocks, one step each, and
 /// the locals' living cap.
 pub fn clock<W: SpawningWorld + ?Sized>(s: &mut Store, dt: f64, world: &mut W) {
     let dt = fround(dt);
@@ -892,14 +892,14 @@ pub fn clock<W: SpawningWorld + ?Sized>(s: &mut Store, dt: f64, world: &mut W) {
     }
 }
 
-/// waiting(character) (spawning.js:601): whether the wave and stagger gate
+/// waiting(character): whether the wave and stagger gate
 /// holds him back.
 pub fn waiting(sp: &Spawning, c: &Character) -> bool {
     let spawn = self::sp(c);
     (num(spawn.wave) - sp.wave) * sp.q - sp.released + num(spawn.ordinal) >= 0.0
 }
 
-/// updateCharacters(dt) (spawning.js:561): every Character in roster order.
+/// updateCharacters(dt): every Character in roster order.
 pub fn update_characters<W: SpawningWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn ContextText<W>, world: &mut W, random: &mut dyn ContextDraws<W>) {
     update_characters_with_scratch(s, dt, strings, world, random, &mut Scratch::default())
 }
@@ -913,7 +913,7 @@ pub fn update_characters_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, 
     }
 }
 
-/// updateCharacter(character, dt) (spawning.js:605).
+/// updateCharacter(character, dt).
 pub fn update_character<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, dt: f64, strings: &dyn ContextText<W>, world: &mut W, random: &mut dyn ContextDraws<W>) {
     update_character_with_scratch(s, r, dt, strings, world, random, &mut Scratch::default())
 }
@@ -975,7 +975,7 @@ pub fn update_character_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r
     spawn_with_scratch(s, r, strings, world, random, scratch);
 }
 
-/// spawnPoint(post, allied) (spawning.js:651): a random point of the post's
+/// spawnPoint(post, allied): a random point of the post's
 /// spawn path (its ally path when the post is an ally's), else a random
 /// class spawn point (own posts only), else the post itself.
 fn spawn_point<W: SpawningWorld + ?Sized>(s: &Store, post: SpawnPost, allied: bool, world: &mut W,
@@ -1008,7 +1008,7 @@ fn spawn_point<W: SpawningWorld + ?Sized>(s: &Store, post: SpawnPost, allied: bo
     [view.position[0], view.position[1], view.position[2], yaw]
 }
 
-/// spawn(character) (spawning.js:664): into the world; if the class can't be
+/// spawn(character): into the world; if the class can't be
 /// made, class 0 is tried once.
 pub fn spawn<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn ContextText<W>, world: &mut W, random: &mut dyn ContextDraws<W>) -> Option<Ref<Unit>> {
     spawn_with_scratch(s, r, strings, world, random, &mut Scratch::default())
@@ -1055,7 +1055,7 @@ pub fn spawn_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Chara
 
 // ---- Events.
 
-/// onDeath(character) (spawning.js:690): he prepares again in 4 s; a bot
+/// onDeath(character): he prepares again in 4 s; a bot
 /// draws a fresh objective and forgets its post; the team's living count
 /// drops (heroes aren't counted) and it spends a reinforcement.
 pub fn on_death<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W) {
@@ -1083,7 +1083,7 @@ pub struct HumanChoice {
     pub post: Option<Option<SpawnPost>>,
 }
 
-/// onHumanReady(character, choice) (spawning.js:705): a class from his
+/// onHumanReady(character, choice): a class from his
 /// team's roster (by name or index; a name outside it is his class, not
 /// counted) and a post if he chose one; he spawns on the next update.
 pub fn on_human_ready<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, choice: HumanChoice, strings: &dyn ContextText<W>, world: &mut W) {
@@ -1113,7 +1113,7 @@ fn on_human_ready_named_with<W:?Sized>(s:&mut Store,r:Ref<Character>,choice:Huma
     sp_mut(ch_mut(s, r)).ready = true;
 }
 
-/// switchTeam(character, to) (spawning.js:723): a non-hero Character to
+/// switchTeam(character, to): a non-hero Character to
 /// another team with room; a bot picks a class there.
 pub fn switch_team<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, to: f64, strings: &dyn ContextText<W>, world: &mut W, random: &mut dyn ContextDraws<W>) -> bool {
     switch_team_with_scratch(s, r, to, strings, world, random, &mut Scratch::default())

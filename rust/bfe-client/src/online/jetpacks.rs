@@ -1,9 +1,9 @@
 //! JetpackEffects, JetpackVolume and JetpackWake (src/jetpack-effects.js,
-//! jetpack-volume.js, jetpack-wake.js) for the soldiers drawn here, over the
+//! jetpack-volume.js) for the soldiers drawn here, over the
 //! shared Jetpack owner: the attached flame at each nozzle, bent by how the
 //! pack moves, and the combustion wisps, smoke and embers it leaves behind.
 //! The jetpackEffects setting picks this Enhanced look or the class's stock
-//! JetExhaust effect (game.js updateJetFlame), which the combat owner plays.
+//! JetExhaust effect (updateJetFlame), which the combat owner plays.
 //! The nozzles sit where the class's effect authors them on the ribcage,
 //! not on the pack model's own outlets (JetpackNozzles), and the exhaust's
 //! light is not drawn.

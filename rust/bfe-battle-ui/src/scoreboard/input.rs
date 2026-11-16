@@ -20,13 +20,13 @@ use super::model::{RowCursor, ScoreboardModel, SortMode};
 use super::stats::ScoreboardPort;
 use crate::shapes::W;
 
-/// Seconds `Tab` must be held for the peek table to close on release (`HOLD` in `src/scoreboard/input.js`).
+/// Seconds `Tab` must be held for the peek table to close on release (`HOLD`).
 pub const HOLD: f64 = 0.5;
 
-/// Maximum seconds between two clicks on the same row to open `DETAILS` (`DOUBLE_CLICK` in `src/scoreboard/input.js`).
+/// Maximum seconds between two clicks on the same row to open `DETAILS` (`DOUBLE_CLICK`).
 pub const DOUBLE_CLICK: f64 = 0.4;
 
-/// Hotspot target under the scoreboard cursor (`src/scoreboard/input.js`).
+/// Hotspot target under the scoreboard cursor.
 ///
 /// Returned by [`ClassicScoreboardView::hit`](super::view::ClassicScoreboardView::hit) for
 /// column sort icons, scroll arrows, player rows, and bottom action buttons.
@@ -94,7 +94,7 @@ impl ScoreboardHitTarget {
     }
 }
 
-/// Immediate button action triggered inside `click` (`act(kind, detail)` in `src/scoreboard/input.js`).
+/// Immediate button action triggered inside `click` (`act(kind, detail)`).
 ///
 /// Unlike row selection, column sorting, and arrow scrolling, which queue into `self.pending`
 /// and execute on the next `update(dt)` tick, buttons and row double-clicks record a
@@ -107,7 +107,7 @@ pub enum ScoreboardAction {
     Awards,
 }
 
-/// `Tab` hold-or-tap state machine (`TabHold` in `src/scoreboard/input.js`, `ScriptCB_CheckPlayerListDone`).
+/// `Tab` hold-or-tap state machine (`TabHold`, `ScriptCB_CheckPlayerListDone`).
 ///
 /// For the first `0.5s` (`HOLD`), a frame without `Tab` held marks the list as tapped;
 /// after `0.5s`, a held list closes on the first frame without `Tab`, whereas a tapped
@@ -132,7 +132,7 @@ impl TabHold {
     }
 
     /// Evaluates one frame with whether `Tab` is currently `held` at `now`;
-    /// returns `true` when the peek table should close this frame (`step` in `src/scoreboard/input.js`).
+    /// returns `true` when the peek table should close this frame (`step`).
     pub fn step(&mut self, held: bool, now: f64) -> bool {
         // Within the initial 0.5-second window (`HOLD`), releasing `Tab` latches `tapped = true`
         // so the scoreboard stays pinned open instead of closing on key release.
@@ -181,7 +181,7 @@ struct LastClick {
     time: f64,
 }
 
-/// Scoreboard keyboard and mouse input handler (`ScoreboardInput` in `src/scoreboard/input.js`).
+/// Scoreboard keyboard and mouse input handler (`ScoreboardInput`).
 pub struct ScoreboardInput {
     pub width: f64,
     pub height: f64,
@@ -225,7 +225,7 @@ impl ScoreboardInput {
         self.height = height;
     }
 
-    /// Resets pending inputs and centers the cursor when the scoreboard opens (`reset` in `src/scoreboard/input.js`).
+    /// Resets pending inputs and centers the cursor when the scoreboard opens (`reset`).
     ///
     /// Note that `self.held` is intentionally preserved across `reset()` so the `Tab` key press
     /// that opened the peek scoreboard remains recorded as held for `TabHold::step`.
@@ -236,7 +236,7 @@ impl ScoreboardInput {
         self.cursor = [self.width / 2.0, self.height / 2.0];
     }
 
-    /// Processes a key press or release (`key` in `src/scoreboard/input.js`).
+    /// Processes a key press or release (`key`).
     ///
     /// Keys are tracked in `self.held` even while `active` or `act` is `false` so `Tab` held
     /// as the board opens is known. Returns `true` when the key is in `SWALLOW` (`Tab`, arrows,
@@ -289,14 +289,14 @@ impl ScoreboardInput {
         )
     }
 
-    /// Moves the cursor in interface coordinates (`move` in `src/scoreboard/input.js`).
+    /// Moves the cursor in interface coordinates (`move`).
     #[inline]
     pub fn move_cursor(&mut self, x: f64, y: f64) {
         self.cursor[0] = x.clamp(0.0, self.width);
         self.cursor[1] = y.clamp(0.0, self.height);
     }
 
-    /// Nudges the cursor by `(dx, dy)` in interface units (`nudge` in `src/scoreboard/input.js`).
+    /// Nudges the cursor by `(dx, dy)` in interface units (`nudge`).
     ///
     /// Used when the browser pointer stays pointer-locked over the canvas and supplies relative
     /// `movementX` / `movementY` deltas scaled to interface units.
@@ -305,7 +305,7 @@ impl ScoreboardInput {
         self.move_cursor(self.cursor[0] + dx, self.cursor[1] + dy);
     }
 
-    /// Handles a mouse button press (`button` in `src/scoreboard/input.js`).
+    /// Handles a mouse button press (`button`).
     ///
     /// Only the primary mouse button (`index == 0` on mousedown while `active`) triggers a click.
     pub fn button<F>(&mut self, index: u8, down: bool, active: bool, hit_fn: F) -> bool
@@ -320,7 +320,7 @@ impl ScoreboardInput {
         true
     }
 
-    /// Performs a left click at `(x, y)` against `hit_fn` (`click` in `src/scoreboard/input.js`).
+    /// Performs a left click at `(x, y)` against `hit_fn` (`click`).
     ///
     /// Clicking a row queues row selection and, if the same `(side, index)` was clicked less than
     /// [`DOUBLE_CLICK`] (`0.4s`) ago, clears `last_click` and pushes [`ScoreboardAction::Details`].
@@ -372,7 +372,7 @@ impl ScoreboardInput {
         Some(target)
     }
 
-    /// Applies queued presses and updates `model.hover` once per frame (`update` in `src/scoreboard/input.js`).
+    /// Applies queued presses and updates `model.hover` once per frame (`update`).
     ///
     /// Drains `self.pending` in FIFO order (calling `model.touch()` on each input to reset the
     /// 30s end-of-match idle timer) and then refreshes `model.hover` from the cursor position.

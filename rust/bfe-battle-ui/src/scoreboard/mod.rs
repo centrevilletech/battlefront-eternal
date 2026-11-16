@@ -1,7 +1,7 @@
 // Classic battle scoreboard (`ifs_teamstats`, `ifs_personalstats`, `ifs_awardstats`).
 //
 // Ports `src/scoreboard/` (`model.js`, `input.js`, `port.js`, `classic/layout.js`,
-// `classic/view.js`, `classic/pages.js`, `index.js`) and `src/battle-stats.js`.
+// `classic/view.js`, `classic/pages.js`) and `src/battle-stats.js`.
 //
 // Submodules:
 // - `model` / `input` / `controller`: pure table state, `TabHold` & 0.4s double-click input, and orchestration;

@@ -1,4 +1,4 @@
-//! Master directory HTTP and WebSocket signaling client (`src/master-client.js`).
+//! Master directory HTTP and WebSocket signaling client.
 
 use std::io::Read;
 use std::net::TcpStream;
@@ -18,15 +18,15 @@ use ureq::Agent;
 use crate::bans::BanRequester;
 use crate::identity::ServerIdentity;
 
-/// Maximum master HTTP response size (`1 << 20` bytes / 1 MiB, `requestOver` in `src/master-client.js`).
+/// Maximum master HTTP response size (`1 << 20` bytes / 1 MiB, `requestOver`).
 const MAX_RESPONSE_BYTES: u64 = 1 << 20;
-/// Timeout for master HTTP requests (`timeout: 10000` ms in `src/master-client.js`).
+/// Timeout for master HTTP requests (`timeout: 10000` ms).
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Error returned by [`MasterClient::request`], preserving the HTTP status code when the master
-/// answered with `>= 400` (`Object.assign(Error(...), { status: r.status })` in `src/master-client.js`).
+/// answered with `>= 400` (`Object.assign(Error(...), { status: r.status })`).
 ///
-/// Preserving `status` is essential for `OnlineServer.beat` in `src/online-server.js`, which only
+/// Preserving `status` is essential for `OnlineServer.beat`, which only
 /// marks an IP family (`4` or `6`) down for 10 minutes on network/routing failures (`!error.status`),
 /// not on HTTP 4xx/5xx responses.
 #[derive(Debug, Clone)]
@@ -44,7 +44,7 @@ impl std::fmt::Display for MasterHttpError {
 impl std::error::Error for MasterHttpError {}
 
 /// Parsed TURN server descriptor returned by [`MasterClient::credentials`]
-/// (`MasterClient.credentials` in `src/master-client.js`).
+/// (`MasterClient.credentials`).
 ///
 /// Maps `turns:...` to `relayType = "TurnTls"`, `turn:...?transport=tcp` to `"TurnTcp"`, and
 /// `turn:...?transport=udp` to `"TurnUdp"`.
@@ -58,8 +58,7 @@ pub struct RelayCredentialServer {
     pub relay_type: String,
 }
 
-/// Incoming WebSocket signaling envelope from `/v1/signal` (`this.emit("signal", JSON.parse(data))`
-/// in `src/master-client.js`).
+/// Incoming WebSocket signaling envelope from `/v1/signal` (`this.emit("signal", JSON.parse(data))`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignalEnvelope {
     #[serde(default)]
@@ -72,16 +71,16 @@ pub struct SignalEnvelope {
 
 /// Event emitted by the `MasterClient` WebSocket reader thread to [`crate::online_server::OnlineServer`].
 pub enum MasterEvent {
-    /// Parsed signaling message (`"signal"` event in `src/master-client.js`).
+    /// Parsed signaling message (`"signal"` event).
     Signal(SignalEnvelope),
-    /// WebSocket closed or faulted (`"disconnected"` event in `src/master-client.js`).
+    /// WebSocket closed or faulted (`"disconnected"` event).
     Disconnected,
 }
 
 /// Client for the Battlefront Eternal master directory and signaling service
-/// (`export class MasterClient` in `src/master-client.js`).
+/// (`export class MasterClient`).
 /// HTTP + WebSocket client for the BfE master directory and signaling service, porting
-/// `MasterClient` from `packages/bfe-server/src/master-client.js`.
+/// `MasterClient`.
 pub struct MasterClient {
     base_url: String,
     identity: ServerIdentity,
@@ -94,7 +93,7 @@ pub struct MasterClient {
 }
 
 impl MasterClient {
-    /// Constructs a `MasterClient` (`constructor({ url, keys, noticeAccepted = false })` in `src/master-client.js`).
+    /// Constructs a `MasterClient` (`constructor({ url, keys, noticeAccepted = false })`).
     ///
     /// Enforces:
     /// - `https:` scheme unless the hostname is loopback (`"master requires HTTPS"`).
@@ -125,7 +124,7 @@ impl MasterClient {
         })
     }
 
-    /// Returns the server's 64-character hex identity (`this.id = keyId(keys.publicKey)` in `src/master-client.js`).
+    /// Returns the server's 64-character hex identity (`this.id = keyId(keys.publicKey)`).
     pub fn id(&self) -> &str {
         &self.identity.id
     }
@@ -136,7 +135,7 @@ impl MasterClient {
     }
 
     /// Sends an Ed25519-signed HTTP request to `path` on the master server (`request` and
-    /// `requestOver` in `src/master-client.js`).
+    /// `requestOver`).
     pub fn request(
         &self,
         path: &str,
@@ -169,7 +168,7 @@ impl MasterClient {
             })?,
             None => String::new(),
         };
-        // Sign `BFE-Request-v1\n<METHOD>\n<path>\n<timestamp>\n<nonce>\n<sha256(body)>` (`headers` in `src/identity.js`).
+        // Sign `BFE-Request-v1\n<METHOD>\n<path>\n<timestamp>\n<nonce>\n<sha256(body)>` (`headers`).
         let signed = self
             .identity
             .headers(method, path, &body)
@@ -222,7 +221,7 @@ impl MasterClient {
             status: None,
         })?;
 
-        // Enforce the 1 MiB response body cap (`size > 1 << 20` in `requestOver` in `src/master-client.js`).
+        // Enforce the 1 MiB response body cap (`size > 1 << 20` in `requestOver`).
         let status = response.status().as_u16();
         let mut reader = response
             .body_mut()
@@ -263,7 +262,7 @@ impl MasterClient {
     }
 
     /// Requests a single-use signal ticket via `POST /v1/signal-ticket` and opens the `/v1/signal`
-    /// WebSocket (`async connect()` in `src/master-client.js`).
+    /// WebSocket (`async connect()`).
     /// Opens the persistent signaling WebSocket to the master server using a single-use ticket
     /// from `POST /api/servers/ws-ticket`, porting `MasterClient.connect()` in
     /// `packages/bfe-server/src/master-client.js`.
@@ -303,7 +302,7 @@ impl MasterClient {
     }
 
     /// Sends a signaling message to `to` over the open `/v1/signal` WebSocket
-    /// (`signal(to, message)` in `src/master-client.js`).
+    /// (`signal(to, message)`).
     ///
     /// Wraps `message` in `{"to": to, "type": message.type ?? "candidate", "payload": JSON.stringify(message)}`.
     pub fn signal(&self, to: &str, message: &Value) -> bool {
@@ -330,7 +329,7 @@ impl MasterClient {
     }
 
     /// Requests short-lived TURN relay credentials via `POST /v1/relay-credentials`
-    /// (`async credentials(serverId, peerId)` in `src/master-client.js`).
+    /// (`async credentials(serverId, peerId)`).
     /// Fetches ephemeral TURN relay credentials (`POST /api/turn/credentials`) and caches them
     /// until `ttl / 2` before expiry, porting `MasterClient.credentials()` in
     /// `packages/bfe-server/src/master-client.js`.
@@ -388,7 +387,7 @@ impl MasterClient {
         }
     }
 
-    /// Closes the master WebSocket connection (`close()` in `src/master-client.js`).
+    /// Closes the master WebSocket connection (`close()`).
     pub fn close(&self) {
         self.close_ws();
     }
@@ -416,7 +415,7 @@ fn build_agent(family: IpFamily) -> Agent {
     Agent::new_with_config(config)
 }
 
-/// Extracts `(scheme, host)` from `url` to enforce the HTTPS requirement (`new URL(url)` in `src/master-client.js`).
+/// Extracts `(scheme, host)` from `url` to enforce the HTTPS requirement (`new URL(url)`).
 fn parse_scheme_and_host(url: &str) -> Result<(&str, &str), String> {
     let (scheme, rest) = url
         .split_once("://")
@@ -436,7 +435,7 @@ fn parse_scheme_and_host(url: &str) -> Result<(&str, &str), String> {
     Ok((scheme, host))
 }
 
-/// Converts `http(s)://<host>` into `ws(s)://<host>/v1/signal?ticket=<ticket>` (`MasterClient.connect` in `src/master-client.js`).
+/// Converts `http(s)://<host>` into `ws(s)://<host>/v1/signal?ticket=<ticket>` (`MasterClient.connect`).
 fn build_signal_ws_url(base_url: &str, ticket: &str) -> Result<String, String> {
     let (scheme, rest) = base_url
         .split_once("://")
@@ -446,7 +445,7 @@ fn build_signal_ws_url(base_url: &str, ticket: &str) -> Result<String, String> {
     Ok(format!("{ws_scheme}://{rest}/v1/signal?ticket={encoded_ticket}"))
 }
 
-/// Percent-encodes a URL query component (`url.searchParams.set("ticket", ticket)` in `src/master-client.js`).
+/// Percent-encodes a URL query component (`url.searchParams.set("ticket", ticket)`).
 fn url_encode_component(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     for byte in input.bytes() {
@@ -460,7 +459,7 @@ fn url_encode_component(input: &str) -> String {
 }
 
 /// Parses a TURN URI matching `/^(turns?):([^:]+):(\d+)\?transport=(udp|tcp)$/`
-/// (`MasterClient.credentials` in `src/master-client.js`).
+/// (`MasterClient.credentials`).
 pub fn parse_turn_uri(
     uri: &str,
     username: &str,
@@ -518,7 +517,7 @@ fn set_ws_read_timeout(socket: &mut WebSocket<MaybeTlsStream<TcpStream>>, timeou
 }
 
 /// Background WebSocket read/write loop (`this.ws.on("message", ...)` and `this.ws.on("close", ...)`
-/// in `src/master-client.js`), enforcing `maxPayload: 32768` and closing the socket on invalid JSON.
+///), enforcing `maxPayload: 32768` and closing the socket on invalid JSON.
 fn ws_loop(
     mut socket: WebSocket<MaybeTlsStream<TcpStream>>,
     out_rx: Receiver<String>,
@@ -534,7 +533,7 @@ fn ws_loop(
         }
         match socket.read() {
             Ok(Message::Text(text)) => {
-                // Reject WebSocket frames exceeding `maxPayload: 32768` (`src/master-client.js`).
+                // Reject WebSocket frames exceeding `maxPayload: 32768`.
                 if text.len() > 32768 {
                     let _ = socket.close(None);
                     let _ = events_tx.send(MasterEvent::Disconnected);

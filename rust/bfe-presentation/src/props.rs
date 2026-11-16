@@ -94,7 +94,7 @@ pub struct TrapDesc {
     pub trigger_clip: Option<u32>,
     /// The haul up, if any.
     pub build_clip: Option<u32>,
-    /// The swing's length at 30 frames a second (traps.js length).
+    /// The swing's length at 30 frames a second (length).
     pub trigger_length: f64,
 }
 

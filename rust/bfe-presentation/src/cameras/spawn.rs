@@ -1,4 +1,4 @@
-//! ShotDirector's geometry from spawn-screen/page/director.js. The screen's
+//! ShotDirector's geometry. The screen's
 //! HUD clock and cut notification are input facts; every camera pose is
 //! calculated here in the battle's one camera phase, even on undrawn frames.
 // The battle behind the page spawn screen, through the mission's camera

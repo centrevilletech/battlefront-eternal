@@ -219,7 +219,7 @@ impl Phase {
         self.content.definitions.push(def);
         Some(id)
     }
-    // Ports the camera block in game.js, including its pre-shake consumers.
+    // Ports the camera block, including its pre-shake consumers.
     // This is the only displayed camera advancement for a page frame.
     // Both camera matrices and inverse/projection matrices are outputs.
     // The host never reconstructs a lens or resolves a camera collision.

@@ -1,4 +1,4 @@
-//! How a Classic bot uses its weapons (src/ai/classic/weapons-ai.js): what
+//! How a Classic bot uses its weapons: what
 //! it knows about each weapon, which weapon it picks for a target, and how
 //! its controller's two fire requests become trigger presses.
 
@@ -24,7 +24,7 @@ pub const DEFAULT_BARRAGE_MIN: f64 = 3.0;
 pub const DEFAULT_BARRAGE_MAX: f64 = 6.0;
 pub const DEFAULT_BARRAGE_DELAY: f64 = 2.0;
 
-/// A weapon class record's AI view (weapons-ai.js:76).
+/// A weapon class record's AI view.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WeaponAi {
     pub min_range: f64,
@@ -361,7 +361,7 @@ pub mod action {
 }
 
 // ---------------------------------------------------------------------------
-// Entity facts (weapons-ai.js:193).
+// Entity facts.
 
 /// weapons-ai.js:193 `infantryKind`.
 fn infantry_kind(kind: f64) -> bool {
@@ -426,7 +426,7 @@ pub fn relation_bit(relation: f64) -> u32 {
 }
 
 // ---------------------------------------------------------------------------
-// Ranges (weapons-ai.js:230).
+// Ranges.
 
 /// weapons-ai.js:230 `effectiveRange(unit, controller, def)`.
 pub fn effective_range(table: &WeaponAiTable, kind: f64, range_scale: Option<f64>, def: &JsObj) -> f64 {
@@ -518,7 +518,7 @@ pub fn upper_band<W: World + ?Sized>(w: &W, table: &WeaponAiTable, unit: Obj, co
 }
 
 // ---------------------------------------------------------------------------
-// Ammunition (weapons-ai.js:292).
+// Ammunition.
 
 /// weapons-ai.js:292 `ammoCount(weapon)`.
 pub fn ammo_count(wv: &super::world::WeaponView) -> f64 {
@@ -537,7 +537,7 @@ pub fn capacity(wv: &super::world::WeaponView) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// Utility (weapons-ai.js:310).
+// Utility.
 
 const SCALE_KEYS: [&str; 5] = ["PersonScale", "AnimalScale", "DroidScale", "VehicleScale", "BuildingScale"];
 
@@ -654,9 +654,9 @@ pub fn weapon_utility<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, owner
 }
 
 // ---------------------------------------------------------------------------
-// Weapon selection (weapons-ai.js:412).
+// Weapon selection.
 
-/// selectWeapon's answer (weapons-ai.js:409).
+/// selectWeapon's answer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Choice {
     pub ok: bool,
@@ -671,7 +671,7 @@ impl Default for Choice {
     }
 }
 
-/// The per-target-controller cluster timestamps (weapons-ai.js:487).
+/// The per-target-controller cluster timestamps.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ClusterState {
     pub scan_at: f64,
@@ -797,16 +797,16 @@ pub fn select_weapon<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: 
 }
 
 // ---------------------------------------------------------------------------
-// The controller's weapon state (weapons-ai.js:508).
+// The controller's weapon state.
 
-/// A run-length button (weapons-ai.js:511).
+/// A run-length button.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Button {
     pub count: f64,
     pub code: f64,
 }
 
-/// The automatic cannon's burst (weapons-ai.js:517).
+/// The automatic cannon's burst.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Burst {
     pub state: f64,
@@ -977,7 +977,7 @@ pub fn trigger_from_counts(previous: f64, current: f64) -> (bool, bool) {
 }
 
 // ---------------------------------------------------------------------------
-// The fire-request consumer (weapons-ai.js:666).
+// The fire-request consumer.
 
 /// weapons-ai.js:666 `consumeFire(controller, unit, world)`: writes the
 /// unit's intent buttons and returns the shaped request.
@@ -1221,7 +1221,7 @@ fn burst_request<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, controller
 }
 
 // ---------------------------------------------------------------------------
-// Fire validation (weapons-ai.js:847).
+// Fire validation.
 
 /// weapons-ai.js:847 `validateFire(controller, unit, target, world)`.
 pub fn validate_fire<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, controller: Obj, unit: Obj, target: Obj) -> bool {
@@ -1300,7 +1300,7 @@ fn perp_sq(rx: f64, ry: f64, rz: f64, d: &Vector3) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// Friendly-human protection (weapons-ai.js:925).
+// Friendly-human protection.
 
 /// weapons-ai.js:925 `rebuildProtectedHumans(world)`.
 pub fn rebuild_protected_humans<W: World + ?Sized>(w: &mut W) {
@@ -1369,7 +1369,7 @@ pub fn protected_veto<W: World + ?Sized>(w: &mut W, controller: Obj, unit: Obj, 
 }
 
 // ---------------------------------------------------------------------------
-// Spread (weapons-ai.js:977).
+// Spread.
 
 /// weapons-ai.js:980 `sniperYaw(distanceSq)`.
 pub fn sniper_yaw(distance_sq: f64) -> f64 {

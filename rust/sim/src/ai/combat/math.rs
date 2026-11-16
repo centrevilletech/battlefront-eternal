@@ -1,18 +1,18 @@
 //! The 2004 game's float arithmetic the AI's combat code shares
-//! (src/ai/classic/aim.js:43-155): its interpolating sine/cosine tables,
+//!: its interpolating sine/cosine tables,
 //! the angle thresholds it takes from them, and its float32 vector helpers
 //! in the original's operation order. Every rounding point is the
 //! JavaScript's `Math.fround`; every transcendental is V8's (v8math).
 
 use std::sync::OnceLock;
 
-/// `Math.fround` (aim.js:43 `f`).
+/// `Math.fround` (`f`).
 #[inline]
 pub fn f(x: f64) -> f64 {
     v8math::fround(x)
 }
 
-/// FLT_MAX (perception.js:507, combat.js:51).
+/// FLT_MAX.
 pub const FLT_MAX: f64 = 3.4028234663852886e38;
 
 /// aim.js:50-51: 2pi / 2048 and 2048 / 2pi as float32.

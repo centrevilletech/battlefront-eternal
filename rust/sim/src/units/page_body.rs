@@ -1,4 +1,4 @@
-//! Soldier construction, spawn and immediate look from soldier.js. Cold
+//! Soldier construction, spawn and immediate look. Cold
 //! bodies publish generated mirrors; a frame consumes all pointer samples
 //! together using the same Soldier methods as authority and private replay.
 use crate::gen::{BodyLook, BodyPreviewFrame, Soldier};

@@ -1,7 +1,7 @@
 //! Animated prop clocks shared by the world's props (rust/sim
 //! battle/animated.rs) and the page's prop presentation
 //! (bfe-presentation props.rs): AnimatedProp.advance, stand, a door's
-//! openness and the trigger reach of src/props.js. Each host keeps its own
+//! openness and the trigger reach. Each host keeps its own
 //! control flow (the world seizes and swallows; the page only draws), and
 //! both reach these numerics, so a door or an idle drawn on the page moves
 //! exactly as the world's.
@@ -10,7 +10,7 @@ use crate::{Clip, Pose};
 /// One world tick.
 pub const TICK: f64 = 1.0 / 60.0;
 // A soldier's collision sphere: its centre above his feet and its radius
-// (src/units.js), for the trigger region test.
+//, for the trigger region test.
 const SOLDIER_MIDDLE: f64 = 1.048;
 const SOLDIER_RADIUS: f64 = 1.278;
 

@@ -1,4 +1,4 @@
-//! Stage Ai on the owning world: createNativeAI (ai-world-load.js) piece by
+//! Stage Ai on the owning world: createNativeAI piece by
 //! piece against the string table each native birth leaves, then the
 //! roster's missionTeams, Units.setTeams' relation table and the player's
 //! combat settings game.js makes right after (combat.team, remotes, random,

@@ -87,7 +87,7 @@ impl Reason {
     }
 }
 
-/// What the seats ask of the rest of the battle (src/seats-world.js), each
+/// What the seats ask of the rest of the battle, each
 /// call as the JavaScript makes it. Units are named by their registry id.
 /// Lease and hull rows are disjoint from the mutable occupant being sampled.
 pub struct RiderRows<'a> {

@@ -54,7 +54,7 @@ pub fn or_zero(x: f64) -> f64 {
     }
 }
 
-/// A seat's lease as the hull's tick reads it (src/seats.js SeatLease): a
+/// A seat's lease as the hull's tick reads it (SeatLease): a
 /// person's (the player's own, `human`) or a unit's, a network player's
 /// (`network_human`) or a bot's, and its frozen input's analogs.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -98,7 +98,7 @@ pub struct Wheel {
     pub tick_from: Option<f64>,
 }
 
-/// A walker's water damage (src/vehicle-water.js waterDamageRule).
+/// A walker's water damage (waterDamageRule).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WaterRule {
     pub interval: f64,
@@ -115,7 +115,7 @@ pub struct Spring {
     pub factors: [f64; 6],
 }
 
-/// A hover class's keys (src/vehicle-hover.js hoverClass).
+/// A hover class's keys (hoverClass).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HoverClass {
     pub altitude: f64,
@@ -332,7 +332,7 @@ impl Hull {
         if w.in_death_region(&self.position) || self.position.y < -300.0 {
             self.damage(w, f64::INFINITY, OrdnanceOwner::Null);
         }
-        // Deep water wears a walker down (src/vehicle-water.js).
+        // Deep water wears a walker down.
         if self.walking && self.alive {
             let hurt = self.water_damage_step(w, dt);
             if hurt > 0.0 {

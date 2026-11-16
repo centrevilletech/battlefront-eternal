@@ -1,5 +1,5 @@
 //! The live-object owners' construction (game.js 3128-3160 headless):
-//! F4Live (f4-live.js), then F4Battle inside F4Tail (f4-battle.js,
+//! F4Live, then F4Battle inside F4Tail (f4-battle.js,
 //! f4-tail.js), the AI's activation, and the viewpoint's player binding.
 //! Each export runs against the world as the page's constructors ran it,
 //! with every answer (handles, descriptors) fed back before the next call.
@@ -391,7 +391,7 @@ pub fn run(world: &mut World, cx: &mut Cx, calls: &mut Calls) -> Result<(), Admi
         let row = F4PostSetup { post: *post, raw_path: raw_path(cx, i)? };
         dispatch(world, cx, calls, "f4_tail_post", block(F4PostSetup::WORDS, |r, h| row.put(r, h)))?;
     }
-    // Every command vehicle's pad, by pad index (f4-tail.js f4_tail_pad).
+    // Every command vehicle's pad, by pad index (f4_tail_pad).
     for pad in &pads {
         let mut call = Call::default();
         let setup = pad.setup(&mut |text| cx.intern(&mut call, text));

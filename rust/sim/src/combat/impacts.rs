@@ -1,4 +1,4 @@
-//! Game.onHitUnit and teamDamage (game.js), with explosion definitions
+//! Game.onHitUnit and teamDamage, with explosion definitions
 //! prepared once rather than looking up a health-scale name for every victim.
 use super::{
     combat::{self, CombatDefs},
@@ -157,7 +157,7 @@ impl<W: CombatWorld + ?Sized> ImpactWorld for W {
     }
 }
 
-/// teamDamage(owner, unit) (game.js). Allies with different team numbers
+/// teamDamage(owner, unit). Allies with different team numbers
 /// still take full damage. A bot never hurts a human on its own team, even
 /// when Friendly Fire is enabled; neutral owners bypass that same-team rule.
 pub fn team_damage(owner_team: f64, owner_human: bool, team: f64, human: bool, friendly_fire: bool) -> f64 {
@@ -174,7 +174,7 @@ pub fn team_damage(owner_team: f64, owner_human: bool, team: f64, human: bool, f
     }
 }
 
-/// Game.onHitUnit (game.js): the head effect precedes friendly-fire rejection,
+/// Game.onHitUnit: the head effect precedes friendly-fire rejection,
 /// and headshot credit reads the previous attacker before this hit changes it.
 /// Damage info keeps the untyped amount and the point thirty units behind it.
 #[allow(clippy::too_many_arguments)]
@@ -260,7 +260,7 @@ pub trait BlastWorld {
     fn blast_recon(&mut self, packet: &BlastPacket, at: &Vector3);
 }
 
-/// Ordnance.onExplode (game.js): complete each unit's recursive damage before
+/// Ordnance.onExplode: complete each unit's recursive damage before
 /// visiting the next index, then emit the explosion and visit the other owners
 /// in their original order. No queue flattens a nested blast into a later tick.
 // Ordnance.onExplode revisits the registry length after every victim.

@@ -125,7 +125,7 @@ impl Authority {
             .map_err(|e| e.message().to_string())
     }
 
-    /// `F3Items.flush` (src/sim/wasm/f3-items.js): a unit whose life changed
+    /// `F3Items.flush`: a unit whose life changed
     /// gets a dispenser binding for every weapon level that dispenses an
     /// item, keyed `NAME:body:SLOT:GENERATION:LIFE` where NAME is the
     /// level's class; the native dispenser later asks for that key. The
@@ -218,7 +218,7 @@ impl Authority {
         Ok(())
     }
 
-    /// `mirrorShots()` (src/runtime/multiplayer-world.js): the presses of
+    /// `mirrorShots()`: the presses of
     /// each player the players' phase listed this tick (`players_shots`),
     /// by button, onto his body (`u.networkShots`); a player it did not
     /// list, or one without a body, keeps what his body had.

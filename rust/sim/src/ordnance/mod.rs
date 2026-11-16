@@ -1,4 +1,4 @@
-//! The rounds in flight (src/ordnance.js), in Rust: what fire makes of each
+//! The rounds in flight, in Rust: what fire makes of each
 //! class of round and each tick's flight of the battle's bolts, beams,
 //! grenades and rounds (rockets, missiles, shells, fat rays). Every function
 //! transliterates the JavaScript method it names, operation by operation and
@@ -139,7 +139,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
     }
 
-    /// ordnance.js flightMissile: a flyer's missile (vehicles.js fireSeat),
+    /// ordnance.js flightMissile: a flyer's missile (fireSeat),
     /// steered by its seeker for the class's missile lifetime at its missile
     /// speed. False for a round no longer flying.
     pub fn flight_missile(&mut self, r: Ref<Round>, flight_class: Option<StrId>, life: f64, speed: f64) -> bool {

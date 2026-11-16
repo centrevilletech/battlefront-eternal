@@ -1,9 +1,9 @@
-//! Small numeric helpers the navigation code shares (nav/math.js), and
+//! Small numeric helpers the navigation code shares, and
 //! the plain {x, y, z} point the JavaScript's `vec()` makes. Every
 //! transcendental and rounding comes from `v8math`, JavaScript's Math as
 //! the production server's V8 computes it.
 
-/// `Math.fround` (math.js:9).
+/// `Math.fround`.
 pub fn f32(x: f64) -> f64 {
     v8math::fround(x)
 }
@@ -41,14 +41,14 @@ impl Vec3 {
     }
 }
 
-/// Horizontal squared length of (ax - bx, az - bz) (math.js:18).
+/// Horizontal squared length of (ax - bx, az - bz).
 pub fn h2(ax: f64, az: f64, bx: f64, bz: f64) -> f64 {
     let dx = ax - bx;
     let dz = az - bz;
     dx * dx + dz * dz
 }
 
-/// Full 3D squared distance (math.js:25).
+/// Full 3D squared distance.
 pub fn d2(a: Vec3, b: Vec3) -> f64 {
     let dx = a.x - b.x;
     let dy = a.y - b.y;
@@ -56,13 +56,13 @@ pub fn d2(a: Vec3, b: Vec3) -> f64 {
     dx * dx + dy * dy + dz * dz
 }
 
-/// Componentwise exact equality (math.js:33). `-0 === 0` is true and
+/// Componentwise exact equality. `-0 === 0` is true and
 /// NaN is unequal to itself, as with f64 `==`.
 pub fn same(a: Vec3, b: Vec3) -> bool {
     a.x == b.x && a.y == b.y && a.z == b.z
 }
 
-/// Normalize in place; a zero vector stays zero (math.js:38).
+/// Normalize in place; a zero vector stays zero.
 pub fn normalize(v: &mut Vec3) {
     let l = v8math::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
     if l > 0.0 {
@@ -73,7 +73,7 @@ pub fn normalize(v: &mut Vec3) {
 }
 
 /// The horizontal unit direction; a zero horizontal vector becomes
-/// (1, 0, 0) (math.js:50).
+/// (1, 0, 0).
 pub fn flat_dir(x: f64, z: f64) -> Vec3 {
     let l = v8math::sqrt(x * x + z * z);
     if l > 0.0 {
@@ -96,7 +96,7 @@ pub fn three_normalize(v: &mut Vec3) {
     v.z *= inv;
 }
 
-/// Lowest set bit's index; 0 for 0 (math.js:75). The argument is a
+/// Lowest set bit's index; 0 for 0. The argument is a
 /// JavaScript number first reduced by `>>>= 0`.
 pub fn lowest_bit(mask: f64) -> f64 {
     let mask = v8math::to_uint32(mask);

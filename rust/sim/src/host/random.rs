@@ -1,4 +1,4 @@
-//! F3Random.push (src/sim/wasm/f3-random.js) supplies the initial words of
+//! F3Random.push supplies the initial words of
 //! absent named streams, without drawing or materializing them. A native
 //! host must do this at admission too: a zero-filled lazy bank otherwise
 //! starts its first held-trigger spread from zero instead of the match seed.

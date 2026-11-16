@@ -12,7 +12,7 @@
 //
 // The page writes the frame's steps into `input` (STEP f64 each): the
 // program, the target (-1: the canvas; -2: the framebuffer bound now, its
-// viewport as three set it: the near scene's start, near.js), its size,
+// viewport as three set it: the near scene's start), its size,
 // then each uniform the
 // program reads as a slot of its uniforms (core.rs Program.uniforms) with a
 // type and value (UNIFORM f64 each). Values are only sent when they differ

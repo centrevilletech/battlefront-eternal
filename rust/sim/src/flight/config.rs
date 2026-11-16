@@ -1,4 +1,4 @@
-//! src/flight/config.js and the flight half of src/vehicle-motion.js: the
+//! src/flight/config.js and the flight half: the
 //! port's tuning per class of craft (`FLIGHT_CLASSES`: shared live by every
 //! craft of the class, retuned by a command), a craft's class from its name,
 //! its own speeds and handling (its class definition's keys, read as the

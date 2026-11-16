@@ -11,7 +11,7 @@ pub const EXCHANGE: &str = "invalid page networking exchange";
 pub const ROOM: usize = crate::network_layout::net_limits::EXCHANGE;
 
 // Wire sections mix counted scalars with word-aligned packed byte spans. The
-// surrounding header, operations and pose rows come from page-net.mjs.
+// surrounding header, operations and pose rows come.
 // Counted streams borrow only the reserved input range. Every crossing count
 // is checked before it can become a slice length or a native table index.
 pub struct Words<'a> { pub values: &'a [f64], pub at: usize, }

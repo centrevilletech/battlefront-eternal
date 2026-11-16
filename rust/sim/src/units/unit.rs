@@ -1,4 +1,4 @@
-//! A unit (src/units.js Unit): one body of one class on the field, its
+//! A unit (Unit): one body of one class on the field, its
 //! life, the intent its controller writes, the controls that latch it, the
 //! hit shapes made from its body, and its tick. The unit is the store's
 //! (`crate::gen::Unit`, rust/sim/schema/units.json); its id is its slot.
@@ -10,9 +10,9 @@ use super::world::UnitsWorld;
 use crate::gen::{Controls, Posture, Unit, UnitBody};
 use three::Vector3;
 
-/// A body lies 4 s where it fell, then is gone (units.js DEATH_LINGER).
+/// A body lies 4 s where it fell, then is gone (DEATH_LINGER).
 pub const DEATH_LINGER: f64 = 4.0;
-/// The most shapes a rider (or a held body) has (src/rider-pose.js).
+/// The most shapes a rider (or a held body) has.
 pub const RIDER_SHAPES: usize = crate::rig::rider::RIDER_SHAPES;
 
 /// `x || 0` for a number: 0, -0 and NaN become 0.
@@ -32,7 +32,7 @@ pub fn truthy(x: f64) -> bool {
 }
 
 impl Controls {
-    /// IntentControls.latch() (units.js:138): a channel's count above zero
+    /// IntentControls.latch(): a channel's count above zero
     /// is held; the first held count after a release is a press.
     pub fn latch(&mut self, buttons: &[f64; 2]) {
         for c in 0..2 {
@@ -43,7 +43,7 @@ impl Controls {
 }
 
 impl Unit {
-    /// `hitPosture` (units.js:304): standing in the air, crouched in a dive,
+    /// `hitPosture`: standing in the air, crouched in a dive,
     /// lying down prone or dead. (A droideka's is its posture's.)
     pub fn hit_posture(&self) -> HitPosture {
         let UnitBody::Soldier(s) = &self.soldier else { return HitPosture::Stand };
@@ -112,7 +112,7 @@ impl Unit {
         matches!(&self.soldier, UnitBody::Droideka(d) if d.mode >= 11.0)
     }
 
-    /// `sphere` (units.js:268): the broadphase sphere about the hit shapes,
+    /// `sphere`: the broadphase sphere about the hit shapes,
     /// for this tick's pose (made on first asking in a tick).
     pub fn sphere(&mut self, id: u32, world: &mut dyn UnitsWorld) -> Bounds {
         if self.spheres_tick != self.tick_count {
@@ -121,7 +121,7 @@ impl Unit {
         self.bounds.clone()
     }
 
-    /// `hitShapes()` (units.js:296): the hit shapes, for this tick's pose.
+    /// `hitShapes()`: the hit shapes, for this tick's pose.
     pub fn hit_shapes(&mut self, id: u32, world: &mut dyn UnitsWorld) -> &[HitShape] {
         if self.spheres_tick != self.tick_count {
             self.update_spheres(id, world);
@@ -130,11 +130,11 @@ impl Unit {
         &self.hit_set()[..count]
     }
 
-    /// updateSpheres() (units.js:312).
+    /// updateSpheres().
     pub fn update_spheres(&mut self, id: u32, world: &mut dyn UnitsWorld) {
         // A rider shown in the open (SeatLease exposed): rounds meet his posed
-        // body on the seat (src/rider-pose.js). Held by a creature
-        // (src/props.js), his body as it hangs from its node.
+        // body on the seat. Held by a creature
+        //, his body as it hangs from its node.
         let exposed = self.seat.is_some() && world.seat_exposed(id, self);
         let held_frame = matches!(&self.held, crate::store::Nullable::Value(h) if !matches!(h.frame, crate::store::Nullable::Null | crate::store::Nullable::Undefined));
         if exposed || held_frame {
@@ -207,7 +207,7 @@ impl Unit {
         self.spheres_tick = self.tick_count;
     }
 
-    /// tick(h) (units.js:515): the intent through the body's own movement,
+    /// tick(h): the intent through the body's own movement,
     /// then its weapons. `droideka`: a droideka's class, clips and gun rig.
     pub fn tick(&mut self, id: u32, h: f64, world: &mut dyn UnitsWorld, droideka: Option<&mut DroidekaParts>) {
         if self.removed {
@@ -261,7 +261,7 @@ impl Unit {
             _ => world.move_soldier(id, self, h),
         }
         // What hitting the ground or a wall too hard did to him, or a fall
-        // past saving (src/collision-damage.js).
+        // past saving.
         take_impacts(id, self, world);
         // The aimer runs between moving and firing (a bot's Classic Aimer).
         if self.alive {
@@ -327,7 +327,7 @@ impl Unit {
         }
     }
 
-    /// spawn(x, y, z, yaw) (units.js:375): into the world at (x, y, z)
+    /// spawn(x, y, z, yaw): into the world at (x, y, z)
     /// facing yaw, fresh, a life later.
     pub fn spawn(&mut self, id: u32, x: f64, y: f64, z: f64, yaw: f64, world: &mut dyn UnitsWorld) {
         self.seat = None;
@@ -350,7 +350,7 @@ impl Unit {
         self.update_spheres(id, world);
     }
 
-    /// remove() (units.js:425): off the field (after a death, or between
+    /// remove(): off the field (after a death, or between
     /// lives); its Character lets go of it and the body goes back to the
     /// pool for anyone's next spawn.
     pub fn remove(&mut self, id: u32, world: &mut dyn UnitsWorld) {
@@ -365,7 +365,7 @@ impl Unit {
         world.release(id, self);
     }
 
-    /// letGo() (units.js:437): out of a creature's hold.
+    /// letGo(): out of a creature's hold.
     pub fn let_go(&mut self) {
         if !matches!(self.held, crate::store::Nullable::Value(_)) {
             return;
@@ -375,7 +375,7 @@ impl Unit {
         // (The animator's gunner clip and the root's tilt are the page's.)
     }
 
-    /// origin(out) (units.js:279) on foot: the aim pivot, else the eyes'
+    /// origin(out) on foot: the aim pivot, else the eyes'
     /// height over his feet by posture. (A seated unit's is his seat's.)
     pub fn origin_on_foot(&self) -> Vector3 {
         let pivot = v3(self.combat.pivot);
@@ -401,7 +401,7 @@ impl Unit {
         Vector3 { x: p.x, y: p.y + rise, z: p.z }
     }
 
-    /// forward(out) (units.js:287) on foot: the aim direction, unit length.
+    /// forward(out) on foot: the aim direction, unit length.
     pub fn forward_on_foot(&self) -> Vector3 {
         let (yaw, pitch) = (self.aim_yaw(), self.aim_pitch());
         let (sy,cy)=v8math::sin_cos(yaw);
@@ -410,7 +410,7 @@ impl Unit {
     }
 }
 
-/// blankIntent() (units.js:114).
+/// blankIntent().
 pub fn blank_intent() -> crate::gen::Intent {
     crate::gen::Intent {
         forward: 0.0,

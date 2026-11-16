@@ -167,7 +167,7 @@ fn js_sign(v: f64) -> f64 {
     }
 }
 
-// ENGINE (soldier.js)
+// ENGINE
 pub const GRAVITY: f64 = 18.0;
 const DRIVE: f64 = 1.2;
 const AIR_DRIVE: f64 = 0.2;
@@ -378,7 +378,7 @@ pub struct Mover {
     pub jet: Jet,
     pub threshold: [f64; 3],
     pub scale: [f64; 3],
-    // Set after construction (units.js buildBody).
+    // Set after construction (buildBody).
     pub max_fly_height: f64,
     pub getup_time: f64,
     pub dive_time: f64,

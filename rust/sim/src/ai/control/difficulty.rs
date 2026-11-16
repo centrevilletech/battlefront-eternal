@@ -1,5 +1,5 @@
-//! Classic difficulty (difficulty.js) and its Enhanced flavor
-//! (enhanced/difficulty.js): the tier's skills, the four aim curves of
+//! Classic difficulty and its Enhanced flavor
+//!: the tier's skills, the four aim curves of
 //! each skill in float32 one operation at a time, the mission setters,
 //! and the scheduler numbers each flavor runs.
 
@@ -15,7 +15,7 @@ fn f32(x: f64) -> f64 {
     v8math::fround(x)
 }
 
-/// [player, enemy] skill by tier (difficulty.js:35); any other tier
+/// [player, enemy] skill by tier; any other tier
 /// falls through to 4/14. Tier keys are the numbers 1/2/3 exactly.
 fn base_skills(tier: f64) -> (f64, f64) {
     if tier == EASY {
@@ -29,13 +29,13 @@ fn base_skills(tier: f64) -> (f64, f64) {
     }
 }
 
-/// Each curve's values at skill 1, 14 and 20 (difficulty.js:39).
+/// Each curve's values at skill 1, 14 and 20.
 pub const ANCHORS_A: [f64; 3] = [0.8, 1.9, 20.0];
 pub const ANCHORS_D: [f64; 3] = [0.8, 1.9, 2.4];
 pub const ANCHORS_B: [f64; 3] = [3.0, 1.6, 1.0];
 pub const ANCHORS_S: [f64; 3] = [2.0, 1.0, 0.0];
 
-/// The danger notifier's delay rows (difficulty.js:49).
+/// The danger notifier's delay rows.
 pub const DANGER_ROWS: [[f64; 2]; 3] = [[1.1, 2.1], [0.6, 1.3], [0.0, 0.8]];
 
 /// difficulty.js:55 (`value | 0`, then clamped).
@@ -43,7 +43,7 @@ pub fn clamp_skill(value: f64) -> f64 {
     v8math::min(v8math::max(v8math::to_int32(value) as f64, SKILL_MIN), SKILL_MAX)
 }
 
-/// A curve at an integer skill (difficulty.js:61).
+/// A curve at an integer skill.
 pub fn curve(anchors: [f64; 3], skill: f64) -> f64 {
     let below = skill < 14.0;
     let lo = f32(if below { anchors[0] } else { anchors[1] });
@@ -64,14 +64,14 @@ pub fn skill_curves(skill: f64) -> Curves {
     Curves { a: curve(ANCHORS_A, skill), d: curve(ANCHORS_D, skill), b: curve(ANCHORS_B, skill), s: curve(ANCHORS_S, skill) }
 }
 
-/// A mission script's number argument (difficulty.js:80). Only finite
+/// A mission script's number argument. Only finite
 /// script numbers reach here (Number(value) || 0 in the JavaScript:
 /// NaN and +-0 become 0, which the caller spells).
 fn lua_int(value: f64) -> f64 {
     v8math::trunc(f32(value))
 }
 
-/// The 2004 game's float range draw (difficulty.js:86): lo itself and
+/// The 2004 game's float range draw: lo itself and
 /// no draw when the ends are equal. `draw` produces the stream's
 /// uniform.
 pub fn draw_range(draw: &mut dyn FnMut() -> f64, lo: f64, hi: f64) -> f64 {
@@ -84,7 +84,7 @@ pub fn draw_range(draw: &mut dyn FnMut() -> f64, lo: f64, hi: f64) -> f64 {
     f32(f32(u * f32(hi - lo)) + lo)
 }
 
-/// ClassicDifficulty's options (difficulty.js:113).
+/// ClassicDifficulty's options.
 #[derive(Clone, Debug)]
 pub struct DifficultyOptions {
     pub tier: f64,
@@ -211,7 +211,7 @@ impl Difficulty {
         self.refresh();
     }
 
-    /// Mission calls in source order (difficulty.js:181). Values are
+    /// Mission calls in source order. Values are
     /// the calls' first arguments as numbers (Number(value) || 0 is
     /// the caller's, in lua_int's input here).
     pub fn apply(&mut self, calls: &[MissionCall]) {
@@ -300,7 +300,7 @@ pub struct MissionCall {
     pub str_args: Vec<String>,
 }
 
-/// Every team's skill by tier, Enhanced (enhanced/difficulty.js).
+/// Every team's skill by tier, Enhanced.
 pub fn enhanced_skill(tier: f64) -> f64 {
     if tier == EASY {
         8.0

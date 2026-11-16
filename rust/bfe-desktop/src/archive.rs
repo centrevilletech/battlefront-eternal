@@ -324,7 +324,7 @@ fn walk_content_dir(
 
 /// Resolves the `GameData` directory from the `game` path recorded in `.prepare.json`.
 ///
-/// Ports the check at the top of `provenance` in `electron/content-archive.js`: the recorded
+/// Ports the check at the top of `provenance`: the recorded
 /// path must end in `_LVL_PC` (any case), and `GameData` is two levels above it.
 fn game_data_root(state_game: Option<&str>) -> Option<PathBuf> {
     let game_str = state_game.filter(|s| !s.is_empty())?;
@@ -415,7 +415,7 @@ fn walk_lvl_files(
 }
 
 // ---------------------------------------------------------------------------
-// ZIP / ZIP64 Store Reader & Writer (compatible with yazl / yauzl in content-archive.js)
+// ZIP / ZIP64 Store Reader & Writer (compatible with yazl / yauzl)
 // ---------------------------------------------------------------------------
 
 /// ZIP local file header signature (`PK\x03\x04`).
@@ -1296,7 +1296,7 @@ pub fn export_content(
 /// does (`Checking content`, `Recording original source hashes`, `Exporting content`).
 /// An `Err` from the callback cancels the export and removes the partial file.
 ///
-/// Ports `exportContent` in `electron/content-archive.js`: hash every file first, build the
+/// Ports `exportContent`: hash every file first, build the
 /// manifest, then write the manifest entry followed by the stored files in sorted order.
 pub fn export_content_with_progress(
     content_dir: &Path,
@@ -1541,7 +1541,7 @@ fn read_archive(
 
 /// Validates an archive's central directory and manifest without extracting files.
 ///
-/// Mirrors the manifest inspection step of `importContent` in `electron/content-archive.js`.
+/// Mirrors the manifest inspection step of `importContent`.
 pub fn inspect_archive(archive_path: &Path) -> Result<InspectArchiveResult, String> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let resolved = resolve_from(&cwd, archive_path);

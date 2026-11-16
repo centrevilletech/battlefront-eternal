@@ -1,6 +1,6 @@
-//! 2D/3D interface drawing surface (`src/interface/surface.js`).
+//! 2D/3D interface drawing surface.
 //!
-//! Ports `InterfaceSurface` and `commonTextureUrl` from `src/interface/surface.js`:
+//! Ports `InterfaceSurface` and `commonTextureUrl`:
 //! tracks the virtual `1024 x H` coordinate height, named GPU texture handles,
 //! bitmap fonts, and quad batch.
 
@@ -9,7 +9,7 @@ use crate::space::{anchor_matrix, interface_height, Matrix, Point, IH, IW};
 pub use bfe_render::interface::{Batch, Draw, Font, QUADS};
 use std::collections::HashMap;
 
-/// Resolves a texture name in `common.json`'s `textures` list (`commonTextureUrl` in `src/interface/surface.js`).
+/// Resolves a texture name in `common.json`'s `textures` list (`commonTextureUrl`).
 /// Matches case-insensitively because `common.lvl` scripts refer to textures with mixed case,
 /// and prefixes the resolved relative path with `/assets/swbf1/`.
 pub fn common_texture_url(common: &serde_json::Value, name: &str) -> Option<String> {
@@ -60,7 +60,7 @@ impl Surface {
     }
 
     /// Computes the interface coordinate height `768 + (vh / vw - 0.75) * 768` matching
-    /// `gate_layout` in `rust/bfe-shell/src/gate.rs` and `interfaceHeight` in `src/interface/space.js`.
+    /// `gate_layout` in `rust/bfe-shell/src/gate.rs` and `interfaceHeight`.
     pub fn from_viewport(vw: f64, vh: f64) -> Self {
         let w = vw.max(1.0);
         let h = vh.max(1.0);
@@ -77,7 +77,7 @@ impl Surface {
     }
 
     /// Looks up a named texture handle (`0` if not loaded), matching `ShellTextures::get`
-    /// in `rust/bfe-shell/src/render.rs` and `InterfaceSurface.texture(name)` in `surface.js`.
+    /// in `rust/bfe-shell/src/render.rs` and `InterfaceSurface.texture(name)`.
     #[inline]
     pub fn texture(&self, name: &str) -> u32 {
         // Fast path: check exact string slice before allocating an ASCII-lowercased copy.
@@ -104,7 +104,7 @@ impl Surface {
     }
 }
 
-/// Retained 2D/3D interface drawing surface (`InterfaceSurface` in `src/interface/surface.js`).
+/// Retained 2D/3D interface drawing surface (`InterfaceSurface`).
 pub struct InterfaceSurface {
     /// Quad batch accumulator submitted to the HUD/interface render pass each frame.
     pub batch: Batch,
@@ -142,7 +142,7 @@ impl InterfaceSurface {
     }
 
     /// Updates the viewport dimensions and recomputes the virtual interface height `H`
-    /// (`InterfaceSurface.height` in `src/interface/surface.js`).
+    /// (`InterfaceSurface.height`).
     pub fn resize(&mut self, pixel_width: u32, pixel_height: u32) {
         self.pixel_width = pixel_width.max(1);
         self.pixel_height = pixel_height.max(1);
@@ -150,7 +150,7 @@ impl InterfaceSurface {
         self.surface.height = interface_height(self.aspect);
     }
 
-    /// Builds the 4x4 placement matrix for normalized anchor `(ax, ay)` (`InterfaceSurface.anchor` in `surface.js`).
+    /// Builds the 4x4 placement matrix for normalized anchor `(ax, ay)` (`InterfaceSurface.anchor`).
     #[inline]
     pub fn anchor(&self, ax: f64, ay: f64, safe: bool) -> Matrix {
         anchor_matrix(ax, ay, safe, self.surface.height)
@@ -163,7 +163,7 @@ impl InterfaceSurface {
         self.fonts.by_name(key)
     }
 
-    /// Emits textured glyph quads for `text` into `self.batch` (`Fonts.draw` in `src/interface/fonts.js`).
+    /// Emits textured glyph quads for `text` into `self.batch` (`Fonts.draw`).
     #[inline]
     pub fn draw_text(
         &mut self,
@@ -179,7 +179,7 @@ impl InterfaceSurface {
     }
 
     /// Converts client pixel coordinates `(client_x, client_y)` relative to a canvas bounding rect
-    /// into `1024 x H` interface units (`InterfaceSurface.toInterface` in `src/interface/surface.js`).
+    /// into `1024 x H` interface units (`InterfaceSurface.toInterface`).
     #[inline]
     pub fn to_interface(
         &self,

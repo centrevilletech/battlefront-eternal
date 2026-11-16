@@ -264,7 +264,7 @@ pub fn item_radius(model: Option<&Model>) -> (f64, Option<Vector3>) {
     }
 }
 
-/// A droideka's guns (src/droideka.js arm): each aimer's bone, and the
+/// A droideka's guns (arm): each aimer's bone, and the
 /// barrels' tips in the gun's parent bone's frame (None: the gun itself).
 #[derive(Clone, Debug)]
 pub struct DroidekaGun {

@@ -91,7 +91,7 @@ fn encode_xbox_adpcm(channels: &[Vec<f64>]) -> Vec<u8> {
     out
 }
 
-// Ported from `tests/audio-units.test.js`:
+// Test:
 // "Xbox ADPCM decodes a stereo test tone back to the tone".
 // Encodes 40 blocks (2560 frames) of a 440 Hz left sine and phase-shifted
 // 660 Hz right sine at 48 kHz, decodes them with `audio::adpcm::Decoder`,
@@ -136,7 +136,7 @@ fn xbox_adpcm_decodes_a_stereo_test_tone_back_to_the_tone() {
     assert_eq!((dl[64] as f64 * 32768.0).round(), left[64].round());
 }
 
-// Ported from `tests/audio-units.test.js`:
+// Test:
 // "substreams interleave in fixed chunks and come back in order".
 // Quad ambient beds interleave two stereo substreams in fixed byte chunks;
 // deinterleaving must restore each substream's channel pair in order.

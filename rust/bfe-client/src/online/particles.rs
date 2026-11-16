@@ -562,7 +562,7 @@ impl Particles {
     /// projection matrix (`camera`'s first sixteen values), which is known
     /// only once the frame's view is chosen.
     /// `soft` is the frame's size and its depth copy when the softParticles
-    /// setting is on (particle-depth.js): the particle and arc shaders then
+    /// setting is on: the particle and arc shaders then
     /// fade against the scene's depth, which they turn into metres with the
     /// lens's near and far planes.
     /// The scene's depth goes over whatever the setting: the steam needs it.

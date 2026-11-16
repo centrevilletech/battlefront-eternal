@@ -1,4 +1,4 @@
-//! High-level Classic spawn screen controller (`src/spawn-screen/index.js` `createSpawnScreen`).
+//! High-level Classic spawn screen controller (`createSpawnScreen`).
 //!
 //! Coordinates the spawn screen's lifecycle between the battle world (`SpawnPort`),
 //! the pure state machine (`SpawnModel`), keyboard/mouse input (`SpawnInput`), and
@@ -92,7 +92,7 @@ impl SpawnScreenController {
         self.model.is_open()
     }
 
-    /// Opens the spawn screen (`open(reason)` in `src/spawn-screen/index.js`).
+    /// Opens the spawn screen (`open(reason)`).
     ///
     /// Resets per-open input state (warping the software cursor back to `(512, H / 2)`
     /// while preserving held keys), disables in-battle player controls, and switches

@@ -6,7 +6,7 @@
 //! cutoff envelopes, frame-rate independent wake interpolation, pool bounds,
 //! local light requests, tail bend clamping, and teleport clearing.
 //!
-//! Coverage from `tests/jetpack-effects.test.js`:
+//! Coverage:
 //! - Paired ribcage default nozzle offsets (`[-0.24, -0.21, +/-0.15]`) and
 //!   `-X` local exhaust axis rotated by the soldier's quaternion.
 //! - Authored `JetExhaust` spawner offset/box midpoints and live mesh outlet
@@ -17,7 +17,7 @@
 //! - Active-only local point light requests, frame-rate invariant throttle
 //!   envelopes across 30/60/144 FPS, and perpendicular tail bend clamping.
 //!
-//! Coverage from `tests/jetpack-wake.test.js`:
+//! Coverage:
 //! - Sub-frame path interpolation (`fraction = (birth + 1 - phase) / (dt * rate)`)
 //!   so moving nozzles fill the path between frames rather than clumping.
 //! - Identical birth timestamps and world positions across 30, 60, and 144 FPS.

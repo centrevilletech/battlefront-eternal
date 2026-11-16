@@ -1,19 +1,18 @@
-//! Server-side game session framing, rate limits, liveness timeouts, and RPC dispatch
-//! (`src/game-session.js` and `src/udp-peer.js`).
+//! Server-side game session framing, rate limits, liveness timeouts, and RPC dispatch.
 
 use serde_json::{json, Value};
 
-/// Sustained client input datagram refill rate (`export const INPUT_RATE_PER_SECOND = 75` in `src/game-session.js`).
+/// Sustained client input datagram refill rate (`export const INPUT_RATE_PER_SECOND = 75`).
 pub const INPUT_RATE_PER_SECOND: f64 = 75.0;
-/// Maximum client input token burst capacity (`export const INPUT_BURST = 360` in `src/game-session.js`).
+/// Maximum client input token burst capacity (`export const INPUT_BURST = 360`).
 pub const INPUT_BURST: f64 = 360.0;
-/// Maximum client silence once started in the battle (`SESSION_SILENT_MS = 30000` in `src/game-session.js`).
+/// Maximum client silence once started in the battle (`SESSION_SILENT_MS = 30000`).
 pub const SESSION_SILENT_MS: f64 = 30_000.0;
-/// Maximum client silence while loading / before sending `start` (`SESSION_JOIN_SILENT_MS = 180000` in `src/game-session.js`).
+/// Maximum client silence while loading / before sending `start` (`SESSION_JOIN_SILENT_MS = 180000`).
 pub const SESSION_JOIN_SILENT_MS: f64 = 180_000.0;
 /// Maximum size in bytes of an incoming JSON control frame on the `events` lane.
 const CONTROL_MAX_BYTES: usize = 65_536;
-/// Interval in milliseconds between server-initiated application `ping` messages on `events` (`src/udp-peer.js`).
+/// Interval in milliseconds between server-initiated application `ping` messages on `events`.
 const PING_INTERVAL_MS: f64 = 2_000.0;
 
 /// Action emitted by [`GameSessionState`] for [`crate::udp_server::UdpGameServer`] and the world loop to execute.
@@ -35,9 +34,9 @@ pub enum SessionAction {
     ForwardInput(Vec<u8>),
 }
 
-/// Per-player session state machine (`export class GameSession` in `src/game-session.js`).
+/// Per-player session state machine (`export class GameSession`).
 pub struct GameSessionState {
-    /// 64-character lowercase hex SHA-256 client identity (`this.id` in `src/game-session.js`).
+    /// 64-character lowercase hex SHA-256 client identity (`this.id`).
     pub id: String,
     /// Available input datagram tokens (`this.inputTokens`, initialized to `INPUT_BURST = 360`).
     pub tokens: f64,
@@ -64,7 +63,7 @@ pub struct GameSessionState {
 
 impl GameSessionState {
     /// Creates a new `GameSessionState` at `now_ms` with a full `INPUT_BURST` (360) token bucket
-    /// (`new GameSession` in `src/game-session.js`).
+    /// (`new GameSession`).
     pub fn new(id: String, now_ms: f64) -> Self {
         Self {
             id,
@@ -83,7 +82,7 @@ impl GameSessionState {
     }
 
     /// Refills and consumes one token from the `75/s` (`burst 360`) input rate limiter
-    /// (`GameSession.admitInput(now)` in `src/game-session.js`).
+    /// (`GameSession.admitInput(now)`).
     ///
     /// Returns `false` and increments `dropped_inputs` when the client exceeds the token budget.
     pub fn take_input_token(&mut self, now_ms: f64) -> bool {
@@ -109,8 +108,8 @@ impl GameSessionState {
         false
     }
 
-    /// Evaluates periodic session timers at `now_ms` (`WorldRouter.checkLiveness` in `src/game-session.js`
-    /// and `this.timer` in `src/udp-peer.js`):
+    /// Evaluates periodic session timers at `now_ms` (`WorldRouter.checkLiveness`
+    /// and `this.timer`):
     /// - Evicts the session if silent for longer than `SESSION_SILENT_MS` (30 s when `started`) or
     ///   `SESSION_JOIN_SILENT_MS` (180 s before `started`).
     /// - Emits a `{"type": "ping", "time": ...}` message every `PING_INTERVAL_MS` (2,000 ms).
@@ -141,7 +140,7 @@ impl GameSessionState {
         Vec::new()
     }
 
-    /// Handles a validated binary datagram on the `state` lane (`GameSession.binary` in `src/game-session.js`).
+    /// Handles a validated binary datagram on the `state` lane (`GameSession.binary`).
     ///
     /// Applies `take_input_token(now_ms)` before copying `bytes` into `SessionAction::ForwardInput`.
     pub fn on_state_datagram(&mut self, bytes: &[u8], now_ms: f64) -> Option<SessionAction> {
@@ -156,10 +155,10 @@ impl GameSessionState {
     }
 
     /// Parses and dispatches a JSON message on the reliable `events` lane
-    /// (`GameSession.message` in `src/game-session.js` and `UdpPeer.receive` in `src/udp-peer.js`).
+    /// (`GameSession.message` in `src/game-session.js` and `UdpPeer.receive`).
     ///
     /// Oversized frames (`> 65,536` bytes) or malformed JSON close the session immediately with
-    /// protocol close code `2` (`"invalid-message"` in `src/udp-peer.js`).
+    /// protocol close code `2` (`"invalid-message"`).
     pub fn on_events_message(&mut self, raw: &[u8], now_ms: f64) -> Vec<SessionAction> {
         if self.closed {
             return Vec::new();

@@ -1,15 +1,15 @@
-//! What navigation needs to know about a unit (nav/units.js), as a plain
+//! What navigation needs to know about a unit, as a plain
 //! snapshot the caller fills from the unit it drives: the fields the
 //! JavaScript reads through `unit.*`, `unit.classDef?.*` and
 //! `unit.soldier?.*`, each `Option` where the JavaScript's `?.` or a
 //! typeof check can find it missing. `forward` and `origin` are the
 //! results of the unit's own `forward(out)` / `origin(out)` methods when
-//! it has them (executor.js:321, analogs.js:166): computing them belongs
+//! it has them: computing them belongs
 //! to the unit's own package, and a replay serves them from its log.
 
 use super::math::{f32, Vec3};
 
-/// The classifier IDs, as docs/ai.md's unit.kind (units.js:5). Kinds stay
+/// The classifier IDs, as docs/ai.md's unit.kind. Kinds stay
 /// f64: the JavaScript compares them with `===` against these numbers.
 pub mod kind {
     pub const SOLDIER: f64 = 0.0;
@@ -24,7 +24,7 @@ pub mod kind {
     pub const ITEM: f64 = 10.0;
 }
 
-/// `unit.classDef?.AISizeType` (units.js:24): a string, an integer, or
+/// `unit.classDef?.AISizeType`: a string, an integer, or
 /// anything else (which falls back to Soldier).
 #[derive(Clone, Debug, PartialEq)]
 pub enum SizeType {
@@ -35,7 +35,7 @@ pub enum SizeType {
 }
 
 /// The class fields navigation reads. `bounds` is `[[min], [max]]` when
-/// it is an array of length 2 (units.js:40); the entries it indexes can
+/// it is an array of length 2; the entries it indexes can
 /// themselves be missing in the JavaScript, which reads as NaN through
 /// the arithmetic, so they are kept as written.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -58,7 +58,7 @@ impl Default for SizeType {
     }
 }
 
-/// `unit.soldier?.jet` (units.js:70, goto.js:579).
+/// `unit.soldier?.jet`.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct JetView {
     pub min_border: Option<f64>,
@@ -76,7 +76,7 @@ pub enum Air {
     Other,
 }
 
-/// A soldier's posture string (analogs.js:232-238).
+/// A soldier's posture string.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Posture {
     Stand,
@@ -86,7 +86,7 @@ pub enum Posture {
 }
 
 /// The fields of `unit.soldier` navigation reads. `avoidance` is the
-/// collision contact vector (executor.js:257): the executor zeroes it
+/// collision contact vector: the executor zeroes it
 /// when it uses it, so the caller writes the snapshot's back.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SoldierView {
@@ -170,15 +170,14 @@ impl NavUnit {
 }
 
 /// A reference to a unit across calls: `{ unit, generation }` (goto.js
-/// follow targets, control.js leaders). An absent generation matches any
-/// (goto.js:726).
+/// follow targets, control.js leaders). An absent generation matches any.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UnitRef {
     pub unit: u64,
     pub generation: Option<f64>,
 }
 
-/// AISizeType bits (units.js:20), compared case-insensitively.
+/// AISizeType bits, compared case-insensitively.
 fn size_bit(text: &str) -> Option<u32> {
     let text=text.trim_matches(bfe_content::js::is_js_space);
     for (name,bit) in [("soldier",1),("hover",2),("small",4),("medium",8),("huge",16),("flyer",32)] {

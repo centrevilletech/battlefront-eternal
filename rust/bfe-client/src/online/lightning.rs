@@ -1,4 +1,4 @@
-//! The arc caster's lightning (src/lightning.js, src/arc-lightning.js), in
+//! The arc caster's lightning, in
 //! the look the player's arcCasterEffects setting names. Classic: every live
 //! bolt is redrawn each frame as camera-facing ribbons in one dynamic mesh.
 //! Enhanced: lit, animated arcs that leap from the gun to whoever they
@@ -167,7 +167,7 @@ impl Collision for Casts<'_> {
     }
 }
 
-/// Effects' `lightning` table (src/effects.js): for each effect of the
+/// Effects' `lightning` table: for each effect of the
 /// battle's merged library whose definitions hold a LightningBolt, its name,
 /// its settings and its texture's name. The libraries merge as the battle's
 /// effects do: props, common, the other sides, the played side, vehicles.

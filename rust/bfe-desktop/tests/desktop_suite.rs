@@ -920,12 +920,12 @@ fn prepare_tracks_progress_events_and_estimates_remaining_time() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Startup content tests (ports tests/desktop-startup-content.test.js)
+// 3. Startup content tests
 // ---------------------------------------------------------------------------
 
 /// Verifies `resolve_startup_content` transitions between `Confirm`, `Prepare`, and `Menu` modes.
 ///
-/// Mirrors `resolveStartupContent` in `tests/desktop-startup-content.test.js`.
+/// Mirrors `resolveStartupContent`.
 #[test]
 fn startup_content_resolves_menu_confirm_prepare_and_outdated_modes() {
     let tmp = TempDir::new("startup-content");
@@ -1006,12 +1006,11 @@ fn startup_content_resolves_menu_confirm_prepare_and_outdated_modes() {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Content candidates & CLI args (ports tests/desktop-content.test.js)
+// 4. Content candidates & CLI args
 // ---------------------------------------------------------------------------
 
 /// Verifies `parse_content_arg`, `content_candidates`, and `default_prepared_dir` priority order.
 ///
-/// Mirrors `tests/desktop-content.test.js`.
 #[test]
 fn paths_parses_content_arg_and_orders_candidates() {
     // On Unix hosts, verify POSIX absolute paths and forward-slash joining.
@@ -1421,14 +1420,13 @@ fn steam_vdf_roundtrips_and_manages_non_steam_shortcuts_and_overlay() {
 }
 
 // ---------------------------------------------------------------------------
-// 9. Update tests (ports tests/desktop-update.test.js)
+// 9. Update tests
 // ---------------------------------------------------------------------------
 
 /// Verifies SemVer/Debian version ordering, Ed25519 channel envelope verification,
 /// Zstandard manifest decompression, content-addressed blob installation with
 /// `bfe-tree.json` reuse, `settle`, and `MAX_ATTEMPTS` crash-loop rollback.
 ///
-/// Mirrors `tests/desktop-update.test.js`.
 #[test]
 fn update_versions_feed_signatures_payload_slots_and_rollback_work() {
     let _ = Value::Null;

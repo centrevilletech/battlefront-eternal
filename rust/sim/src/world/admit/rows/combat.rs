@@ -1,4 +1,4 @@
-//! Immutable combat content and cold scalar commands (f3-combat.js).
+//! Immutable combat content and cold scalar commands.
 //!
 //! Registration follows object identity, not class names: two loadouts can
 //! contain equal weapon records with different native handles. Keep these
@@ -32,7 +32,7 @@ impl ExportCall {
     }
 }
 
-/// DefTable.id in bridge-core.js. Retaining values keeps allocation identities
+/// DefTable.id. Retaining values keeps allocation identities
 /// alive for the table's entire lifetime, even for merged charge definitions.
 #[derive(Default)]
 pub struct Definitions {

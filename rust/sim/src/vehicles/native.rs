@@ -4,7 +4,7 @@
 //! JavaScript's CollisionWorld fills and queries through src/ray-kernel.js),
 //! and the map's water and death regions from the map's own data, built as
 //! the content crate builds them. Each answer is the one the JavaScript the
-//! hulls called (src/vehicles-world.js) gives, to the last bit, because it
+//! hulls called gives, to the last bit, because it
 //! runs the same code: the kernel functions collision.js's ray paths call,
 //! in the order they call them, over the same inputs.
 
@@ -49,7 +49,7 @@ impl Default for GroundCache {
 
 /// The hulls' view of the module's collision world.
 pub struct Collision {
-    /// The kernel's world (collision.js rayWorld) and the vehicle-only
+    /// The kernel's world (rayWorld) and the vehicle-only
     /// barriers' fixed set (rays.fixedSet of blockerSet), if any.
     pub world: usize,
     pub blockers: Option<usize>,
@@ -285,7 +285,7 @@ impl Collision {
     }
 
     /// Body `body`'s kernel slot, if JavaScript named it (the units'
-    /// phase: the body a soldier falls through, src/units-sim.js).
+    /// phase: the body a soldier falls through).
     pub fn kernel_slot(&self, body: BodyId) -> Option<usize> {
         self.kernel(body)
     }
@@ -396,7 +396,7 @@ impl Collision {
         }))
     }
 
-    /// VehiclesWorld.pushWalls over the kernel (collision.js rayPushWalls):
+    /// VehiclesWorld.pushWalls over the kernel (rayPushWalls):
     /// the hull's probes through its own caches, the barriers, the bodies'
     /// flags now. None: the hull's body is not one this knows.
     #[allow(clippy::too_many_arguments)]
@@ -546,7 +546,7 @@ impl Collision {
     }
 }
 
-/// The map's water as a world's hulls meet it (src/runtime/water-state.js).
+/// The map's water as a world's hulls meet it.
 #[derive(Clone)]
 pub struct Water {
     cell: f64,

@@ -100,7 +100,7 @@ pub struct Seen {
     pub class_label: Option<StrId>,
 }
 
-/// addTime(table, size, key, label, dt) (battle-stats.js:96).
+/// addTime(table, size, key, label, dt).
 fn add_time(table: &mut Vec<TimeEntry>, size: usize, key: Option<StrId>, label: Option<StrId>, dt: f64, strings: &dyn Text) {
     if !truthy(strings, key) {
         return;
@@ -130,7 +130,7 @@ fn add_time(table: &mut Vec<TimeEntry>, size: usize, key: Option<StrId>, label: 
     e.time = dt;
 }
 
-/// kill(killer, victim, relation) (battle-stats.js:150).
+/// kill(killer, victim, relation).
 pub fn kill(stats: &mut BattleStats, characters: &mut Slab<Character>, killer: Option<Ref<Character>>, victim: Option<Ref<Character>>, relation: f64) {
     let Some(k) = killer else { return };
     if relation == 0.0 {
@@ -156,7 +156,7 @@ pub fn kill(stats: &mut BattleStats, characters: &mut Slab<Character>, killer: O
     spree(stats, characters, k);
 }
 
-/// spree(killer) (battle-stats.js:167): the killer's kills in the last 5 s,
+/// spree(killer): the killer's kills in the last 5 s,
 /// counted only when the slot at the ring's next free entry is his (the
 /// original game's).
 fn spree(stats: &mut BattleStats, characters: &mut Slab<Character>, killer: Ref<Character>) {
@@ -189,7 +189,7 @@ fn spree(stats: &mut BattleStats, characters: &mut Slab<Character>, killer: Ref<
     record.spree = v8math::max(record.spree, u8_of(count));
 }
 
-/// death(victim) (battle-stats.js:187).
+/// death(victim).
 pub fn death(characters: &mut Slab<Character>, victim: Option<Ref<Character>>) {
     let Some(v) = victim else { return };
     let c = characters.get_mut(v).expect("a victim");
@@ -200,21 +200,21 @@ pub fn death(characters: &mut Slab<Character>, victim: Option<Ref<Character>>) {
     record_of(c).low = false;
 }
 
-/// headshot(credited) (battle-stats.js:196).
+/// headshot(credited).
 pub fn headshot(characters: &mut Slab<Character>, credited: Option<Ref<Character>>) {
     let Some(r) = credited else { return };
     let record = slot_mut(characters.get_mut(r).expect("a Character"));
     record.headshots = ((jsrt::conv::to_int32(record.headshots + 1.0)) & 0xffff) as f64;
 }
 
-/// vehicleDestroyed(destroyer) (battle-stats.js:202).
+/// vehicleDestroyed(destroyer).
 pub fn vehicle_destroyed(characters: &mut Slab<Character>, destroyer: Option<Ref<Character>>) {
     let Some(r) = destroyer else { return };
     let record = slot_mut(characters.get_mut(r).expect("a Character"));
     record.vehicles_destroyed = u8_of(record.vehicles_destroyed + 1.0);
 }
 
-/// tick(dt, characters, active, see) (battle-stats.js:210): one world tick
+/// tick(dt, characters, active, see): one world tick
 /// for each Character of `list` whose tallies run (`active(him)`).
 /// `see(him)` is observe(him), asked only for one with a class or a unit.
 #[allow(clippy::too_many_arguments)]

@@ -1,8 +1,8 @@
 // The far scene, drawn into the far target before the near scene in place
-// of three's render of it (src/rust-render/far.js): the sky dome and the
+// of three's render of it: the sky dome and the
 // models on its horizon, the map's low-detail buckets, the far terrain and
 // the far water, with a frame block of the far camera's own (VIEW_FAR). A
-// water's mirror (water.js reflect) draws it too, from its own camera into
+// water's mirror (reflect) draws it too, from its own camera into
 // its own target, before the frame's far scene: its frame block is
 // VIEW_FAR_MIRROR's, and the mirror's second pass draws over its sky
 // without clearing (FAR_KEEP).
@@ -24,7 +24,7 @@
 // uniform or a piece of state only when it differs from what is set.
 //
 // The Enhanced sky's flyers and the Enhanced ocean read a sky probe, a cube
-// map (sky-probe.js): a cube sampler's source binds it by its target. The
+// map: a cube sampler's source binds it by its target. The
 // probe's captures are the far pass too, each face a phase of its own (the
 // probe phase) with a frame block of its own, and the cube's mipmaps made
 // after the last face as three makes them. Shadows, lamp lighting and the
@@ -141,7 +141,7 @@ enum Source {
     CubeInput(usize),
 }
 
-// A bucket's spatial cells (render-culling.js): runs of consecutive
+// A bucket's spatial cells: runs of consecutive
 // triangles in one cell, each cell's box, and the ranges drawn.
 struct Cells {
     runs: Vec<[u32; 3]>,
@@ -151,7 +151,7 @@ struct Cells {
     counts: Vec<i32>,
 }
 
-// A terrain level (terrain-patches.js): its index, cells in row order
+// A terrain level: its index, cells in row order
 // (first index, end, box), each a range of it.
 struct Level<C: HasContext> {
     buffer: C::Buffer,

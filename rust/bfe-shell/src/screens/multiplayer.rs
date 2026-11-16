@@ -1,6 +1,5 @@
 //! Instant Action playlist actions, multiplayer server browser synchronization,
-//! join/host target resolution, and keyboard dispatch for [`ShellApp`]
-//! (`src/shell/screens.js`, `src/shell/index.js`).
+//! join/host target resolution, and keyboard dispatch for [`ShellApp`].
 
 use super::{
     IaFocus, OptionsPageId, PendingMpAction, PopupState, ScreenId, ShellAction, ShellApp,
@@ -24,13 +23,13 @@ use serde::{Deserialize, Serialize};
 /// is enabled and selected by default, while the 2005 game (`swbf2`) is listed
 /// as planned and disabled.
 ///
-/// Mirrors `gamePicker()` in `src/shell/index.js`.
+/// Mirrors `gamePicker()`.
 pub const GAME_PICKER_OPTIONS: [(GameFamily, &str, bool); 2] = [
     (GameFamily::Swbf1, "BATTLEFRONT (2004)", true),
     (GameFamily::Swbf2, "BATTLEFRONT II (2005), PLANNED", false),
 ];
 
-/// Default operator name displayed in the online privacy notice (`src/shell/online-notice.js`).
+/// Default operator name displayed in the online privacy notice.
 pub const ONLINE_NOTICE_OPERATOR: &str = "Josh Lambert";
 
 /// Source kind for a multiplayer session (`"LAN"` or `"ONLINE"`).
@@ -124,7 +123,7 @@ impl Default for HostForm {
     }
 }
 
-/// The host dialog has the same inputs as hostDialog in src/shell/host-dialog.js.
+/// The host dialog has the same inputs as hostDialog.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum HostControl {
     Field(usize),
@@ -394,7 +393,7 @@ pub fn direct_connect_entry(address: &str) -> Result<ServerEntry, String> {
 
 /// Builds a local loopback (`127.0.0.1:18451`) [`ServerEntry`] from a
 /// [`HostConfig`] so hosting uses the same `resolve_server_join` pipeline as
-/// joining (`host()` in `src/shell/screens.js`).
+/// joining (`host()`).
 pub fn hosted_server_entry(config: &HostConfig) -> ServerEntry {
     // Use the configured side when non-empty; otherwise default to Republic
     // (`"rep"`) in Clone Wars or Rebel Alliance (`"all"`) in Galactic Civil War.
@@ -610,7 +609,7 @@ impl ShellApp {
         Self::online_notice_for(&bfe_online::resolve_master_url())
     }
 
-    /// Builds the online privacy notice popup for `master_url` (`src/shell/online-notice.js`).
+    /// Builds the online privacy notice popup for `master_url`.
     pub fn online_notice_for(master_url: &str) -> PopupState {
         PopupState::OnlineNotice {
             message: format!(
@@ -623,7 +622,7 @@ impl ShellApp {
     /// Adds the currently highlighted map in `AVAILABLE MAPS` to `SELECTED MAPS`
     /// (or pushes the era picker popup when the map has both `cw` and `gcw`).
     ///
-    /// Mirrors `add(screen)` in `instantAction()` in `src/shell/screens.js`.
+    /// Mirrors `add(screen)` in `instantAction()`.
     pub fn ia_add(&mut self) {
         let Some(map) = self.data.maps.get(self.ia_available_selected).cloned() else {
             self.sound_queue.push("shell_menu_error");
@@ -635,7 +634,7 @@ impl ShellApp {
             self.sound_queue.push("shell_menu_error");
             return;
         }
-        // Enforce the 32-entry playlist cap (`MAX_PLAYLIST` in `src/launch.js`),
+        // Enforce the 32-entry playlist cap (`MAX_PLAYLIST`),
         // showing the `"SELECTED MAPLIST IS FULL."` notice popup when full.
         if self.ia_entries.len() >= MAX_PLAYLIST {
             self.sound_queue.push("shell_menu_error");
@@ -657,7 +656,7 @@ impl ShellApp {
     }
 
     /// Returns the extracted eras (`"cw"` and/or `"gcw"`) available for `map`.
-    /// Mirrors `eras(map)` in `instantAction()` in `src/shell/screens.js`.
+    /// Mirrors `eras(map)` in `instantAction()`.
     fn map_choices(map: &ShellMap) -> Vec<String> {
         let playable = map.playable_eras();
         if !playable.is_empty() {
@@ -672,7 +671,7 @@ impl ShellApp {
 
     /// Appends `(family, map_id, era, DEFAULT_MODE)` to `self.ia_entries` if
     /// under [`MAX_PLAYLIST`] and moves `ia_selected_cursor` to the new entry.
-    /// Mirrors `append(era)` in `instantAction()` in `src/shell/screens.js`.
+    /// Mirrors `append(era)` in `instantAction()`.
     fn ia_append_with_family(&mut self, family: GameFamily, map_id: &str, era: &str) {
         if self.ia_entries.len() < MAX_PLAYLIST {
             self.ia_entries.push(PlaylistEntry::with_family_and_mode(
@@ -686,7 +685,7 @@ impl ShellApp {
     }
 
     /// Removes the highlighted entry in `SELECTED MAPS`.
-    /// Mirrors `remove()` in `instantAction()` in `src/shell/screens.js`.
+    /// Mirrors `remove()` in `instantAction()`.
     pub fn ia_remove(&mut self) {
         if self.ia_entries.is_empty() {
             return;
@@ -705,7 +704,7 @@ impl ShellApp {
 
     /// Toggles Instant Action's `PLAY IN ORDER` (`ia_random = false`) /
     /// `RANDOM ORDER` (`ia_random = true`) button and plays `"shell_menu_accept"`.
-    /// Mirrors the `"order"` button action in `instantAction()` (`src/shell/screens.js`).
+    /// Mirrors the `"order"` button action in `instantAction()`.
     pub fn ia_toggle_order(&mut self) {
         self.ia_random = !self.ia_random;
         self.sound_queue.push("shell_menu_accept");
@@ -715,7 +714,7 @@ impl ShellApp {
     /// [`BattleRequest::launch`], playing `"shell_menu_accept"` and storing
     /// `Some(ShellAction::LaunchBattle(req))` in `self.pending_action`.
     ///
-    /// Mirrors the `"launch"` button action in `instantAction()` (`src/shell/screens.js`).
+    /// Mirrors the `"launch"` button action in `instantAction()`.
     pub fn ia_launch<F>(&mut self, rand: F) -> Option<BattleRequest>
     where
         F: FnMut() -> f64,
@@ -734,7 +733,7 @@ impl ShellApp {
     /// [`ServerBrowserService`] implementation (`bfe_online::browser::ServerBrowser`).
     pub fn sync_from_browser(&mut self, browser: &dyn ServerBrowserService) {
         // Map `BrowserState` (`Notice`, `Error`, `Loading`/`Idle`/`Ready`) into
-        // `ShellApp`'s multiplayer list fields (`network(kind)` in `screens.js`).
+        // `ShellApp`'s multiplayer list fields (`network(kind)`).
         match browser.state() {
             BrowserState::Notice => {
                 self.mp_needs_notice = true;
@@ -865,7 +864,7 @@ impl ShellApp {
                         self.push_screen(ScreenId::Profile);
                     }
                     // Both rows hand the transfer to the client, which owns the file
-                    // dialogs and the work (`transferContent` in `src/shell/screens.js`).
+                    // dialogs and the work (`transferContent`).
                     "export-content" | "import-content" => {
                         self.sound_queue.push("shell_menu_accept");
                         self.pending_action = Some(ShellAction::ContentTransfer(
@@ -1160,7 +1159,7 @@ impl ShellApp {
     /// hosting or joining multiplayer; if not, stores `action` and opens the
     /// profile editor with the multiplayer prompt message.
     ///
-    /// Mirrors `requireProfile()` in `src/shell/screens.js`.
+    /// Mirrors `requireProfile()`.
     fn require_profile_for(&mut self, action: PendingMpAction) -> bool {
         if has_profile(&self.profile.name) {
             return true;
@@ -1314,7 +1313,7 @@ impl ShellApp {
             return true;
         }
 
-        // 4. Standard menu navigation keys (`bindMenuInput` in `src/menus/input.js`):
+        // 4. Standard menu navigation keys (`bindMenuInput`):
         //    arrow keys / WASD move focus, `Enter`/`Space` accepts, `Escape`/`Backspace`
         //    goes back, and `Delete` removes the selected Instant Action entry.
         match key {
@@ -1342,7 +1341,7 @@ impl ShellApp {
                 self.back();
                 true
             }
-            // `onKey` in `instantAction()` (`src/shell/screens.js`): `Delete`
+            // `onKey` in `instantAction()`: `Delete`
             // removes the currently selected map from `SELECTED MAPS`.
             "Delete" if self.current_screen() == ScreenId::InstantAction => {
                 self.ia_remove();

@@ -1,4 +1,4 @@
-// The near scene's foliage (foliage.js, foliage-gpu.js): each class's cards
+// The near scene's foliage: each class's cards
 // (a grasspatch's or a leafpatch's), one instanced draw a class over the
 // patches in view, drawn in the near phase with three's program for the
 // class (its card shader: cards turned to the camera, swaying, fading with

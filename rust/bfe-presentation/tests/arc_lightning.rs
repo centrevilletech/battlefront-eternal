@@ -1,5 +1,5 @@
 //! Synthetic arc-lightning bolt, chain, body/shield shock, charging muzzle, and
-//! classic fallback tests ported from `tests/arc-lightning.test.js`.
+//! classic fallback tests.
 //!
 //! These cases exercise `bfe_presentation::effects::lightning::{Actor,
 //! Collision, Definition, DrawCamera, EmptyCollision, Fixture, Lightning}`

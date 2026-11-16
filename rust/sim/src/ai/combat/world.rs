@@ -14,7 +14,7 @@ pub use super::perception::Perception;
 /// entry, a controller, an agent, a Character, a hint, a post, a hull).
 pub type Obj = u64;
 
-/// `{ unit, generation }`: a weak reference (perception.js:323 `refOf`).
+/// `{ unit, generation }`: a weak reference (`refOf`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ref {
     pub obj: Obj,
@@ -109,7 +109,7 @@ pub struct SoldierView {
     pub max_speed: Js,
 }
 
-/// A seat lease as the alerts read it (src/seats.js SeatLease).
+/// A seat lease as the alerts read it (SeatLease).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct LeaseView {
     pub obj: Obj,
@@ -123,7 +123,7 @@ pub struct LeaseView {
     pub unit_controller: Option<Obj>,
 }
 
-/// One weapon of an arsenal (src/weapons.js Weapon), as this package reads
+/// One weapon of an arsenal (Weapon), as this package reads
 /// it, and the AI settings it writes on it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WeaponView {
@@ -154,7 +154,7 @@ pub struct WeaponView {
     pub yaw_spread_override: Option<f64>,
     pub kick: f64,
     pub floor: f64,
-    /// The Enhanced aim's mark (src/ai/enhanced/aim.js playerSpread).
+    /// The Enhanced aim's mark (playerSpread).
     pub enhanced_floor: bool,
 }
 
@@ -183,8 +183,8 @@ impl WeaponSettings {
     }
 }
 
-/// Which arsenal a unit holds: a soldier's (src/weapons.js Arsenal) or a
-/// seat control's (src/seats.js seatArsenal), which select differently.
+/// Which arsenal a unit holds: a soldier's (Arsenal) or a
+/// seat control's (seatArsenal), which select differently.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ArsenalKind {
     #[default]
@@ -203,7 +203,7 @@ pub struct ArsenalView {
 }
 
 impl ArsenalView {
-    /// `arsenal.current(channel)` (weapons.js:511; a seat's, seats.js:563).
+    /// `arsenal.current(channel)` (weapons.js:511; a seat's).
     pub fn current(&self, channel: f64) -> Option<usize> {
         match self.kind {
             ArsenalKind::Soldier => {
@@ -333,7 +333,7 @@ impl UnitView {
     }
 }
 
-/// A cover hint as combat reads it (src/ai/classic/nav/hints.js records).
+/// A cover hint as combat reads it (records).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HintView {
     pub obj: Obj,
@@ -378,7 +378,7 @@ pub struct Curves {
     pub s: Option<f64>,
 }
 
-/// A targeted-shot or damage alert on a controller (controller.js:419).
+/// A targeted-shot or damage alert on a controller.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ShotAlert {
     pub pending: bool,
@@ -388,7 +388,7 @@ pub struct ShotAlert {
     pub source: Option<Obj>,
 }
 
-/// A danger alert on a controller (controller.js:418).
+/// A danger alert on a controller.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DangerAlert {
     pub pending: bool,
@@ -402,7 +402,7 @@ pub struct JetRequest {
     pub vector: Vector3,
 }
 
-/// A controller (src/ai/classic/controller.js UnitController) as this
+/// A controller (UnitController) as this
 /// package reads and writes it: the control core holds one per controller.
 /// `perception` is this package's own (created at each bind).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -547,7 +547,7 @@ impl QueryFilter {
 }
 
 /// The draws: the AI's shared generator A, the game's B, and the Enhanced
-/// aim's own (C), each a ClassicRandom (src/ai/random.js) the world keeps;
+/// aim's own (C), each a ClassicRandom the world keeps;
 /// `int` and `range` are its methods over the uniform drawn.
 pub trait Draws {
     fn uniform_a(&mut self) -> f64;
@@ -680,7 +680,7 @@ pub trait World: Draws {
     /// refused while the channel's weapon is busy; a seat's: always).
     fn arsenal_select(&mut self, u: Obj, index: usize) -> bool;
     /// useClassicRandom: the unit's weapons draw their spread from
-    /// generator A from now on (weapons-ai.js:999).
+    /// generator A from now on.
     fn use_classic_random(&mut self, u: Obj);
 
     // -- The registry.

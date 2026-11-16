@@ -1,4 +1,4 @@
-//! Bot and human player naming tests ported from `tests/bot-names.test.js`.
+//! Bot and human player naming tests.
 
 use bfe_sim::battle::names::{human_name, BotNames, NameLists, LOCALS};
 use jsrt::rng::ClassicRandom;

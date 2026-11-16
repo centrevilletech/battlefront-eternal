@@ -1,4 +1,4 @@
-//! What a Classic bot notices (src/ai/classic/perception.js): the sight
+//! What a Classic bot notices: the sight
 //! scan and its 112-entry heap, the global deferred line-of-sight queue (two
 //! 200-entry heaps), each agent's target tracker, hearing, grenade danger,
 //! and the alerts shots and damage raise, with the interrupt helper's
@@ -21,7 +21,7 @@ pub const GLOBAL_SENTINEL: f64 = 200.0;
 pub const SCAN_CAPACITY: usize = 175;
 
 // ---------------------------------------------------------------------------
-// Heaps (perception.js:66).
+// Heaps.
 
 /// perception.js:66 `PriorityHeap`: a one-based max-heap over priorities
 /// kept in an Int32Array (each stored as ToInt32), with a sentinel at 0.
@@ -153,7 +153,7 @@ impl<T: Clone> PriorityHeap<T> {
 }
 
 // ---------------------------------------------------------------------------
-// Matchup priority and the target cost (perception.js:170).
+// Matchup priority and the target cost.
 
 const PRIORITY_INFANTRY: [f64; 11] = [10.0, 5.0, 20.0, 10.0, 5.0, 3.0, 15.0, 0.0, 20.0, 1.0, 0.0];
 const PRIORITY_GROUND: [f64; 11] = [5.0, 1.0, 20.0, 5.0, 1.0, 10.0, 10.0, 0.0, 10.0, 1.0, 0.0];
@@ -209,7 +209,7 @@ pub fn raw_cost_points(eye: &Vector3, at: &Vector3, priority: f64) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// Sight geometry (perception.js:220).
+// Sight geometry.
 
 /// perception.js:225 `coneDistanceSq(unit, target)`: the squared distance
 /// to the target's aim point inside the 77.5-degree cone, else -2.
@@ -308,7 +308,7 @@ pub fn clear_shot<W: World + ?Sized>(w: &mut W, unit: Obj, point: &Vector3, targ
 }
 
 // ---------------------------------------------------------------------------
-// Per-controller perception (perception.js:299).
+// Per-controller perception.
 
 /// perception.js:299 `Perception`.
 #[derive(Clone, Debug, PartialEq)]
@@ -319,7 +319,7 @@ pub struct Perception {
     pub aimer: Aimer,
     pub fire: FireControl,
     pub last_scan_count: f64,
-    /// The Enhanced aimer (src/ai/enhanced/aim.js aimerOf), when made.
+    /// The Enhanced aimer (aimerOf), when made.
     pub enhanced: Option<super::enhanced::EnhancedAimer>,
 }
 
@@ -361,7 +361,7 @@ fn ref_of<W: World + ?Sized>(w: &W, u: Option<Obj>) -> Option<Ref> {
 }
 
 // ---------------------------------------------------------------------------
-// The scan (perception.js:334).
+// The scan.
 
 /// perception.js:334 `scan(controller, world, dispatch)`.
 pub fn scan<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, controller: Obj) -> f64 {
@@ -420,9 +420,9 @@ pub fn scan<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, controller: Obj) ->
 }
 
 // ---------------------------------------------------------------------------
-// The global deferred-LOS queue (perception.js:377).
+// The global deferred-LOS queue.
 
-/// A sight request (perception.js:388): the controller, the target's
+/// A sight request: the controller, the target's
 /// reference, the controller's life when it asked.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LosRequest {
@@ -628,7 +628,7 @@ pub fn clear_candidate<W: World + ?Sized>(w: &mut W, controller: Obj) {
 }
 
 // ---------------------------------------------------------------------------
-// The target tracker (perception.js:509).
+// The target tracker.
 
 const DEFAULT_DELAY: f64 = 3.0;
 
@@ -841,7 +841,7 @@ pub fn tracker_update<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, agent: Ob
 }
 
 // ---------------------------------------------------------------------------
-// Acoustic awareness (perception.js:678).
+// Acoustic awareness.
 
 const DEFAULT_MUTE: f64 = 400.0;
 
@@ -936,9 +936,9 @@ pub fn broadcast_acoustic_with<W:World+?Sized>(w:&mut W,source:Obj,notify:&mut i
 }
 
 // ---------------------------------------------------------------------------
-// Grenade and sticky danger (perception.js:745).
+// Grenade and sticky danger.
 
-/// A live grenade's danger state (`round.aiDanger`, perception.js:745).
+/// A live grenade's danger state (`round.aiDanger`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DangerState {
     pub first_contact: f64,
@@ -1000,7 +1000,7 @@ pub fn notify_danger_with<W:World+?Sized>(w:&mut W,state:&mut DangerState,positi
 }
 
 // ---------------------------------------------------------------------------
-// Targeted-fire and damage alerts (perception.js:787).
+// Targeted-fire and damage alerts.
 
 /// perception.js:812 `alertControllers(target, out)`.
 pub fn alert_controllers<W: World + ?Sized>(w: &W, target: Obj) -> crate::ai::owned::scratch::List<Obj> {
@@ -1052,7 +1052,7 @@ pub fn notify_targeted_shot<W: World + ?Sized>(w: &mut W, shooter: Obj, target: 
     notified
 }
 
-/// A damage packet (perception.js:832).
+/// A damage packet.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Packet {
     pub amount: Option<f64>,
@@ -1099,9 +1099,9 @@ pub fn notify_damage<W: World + ?Sized>(w: &mut W, victim: Obj, attacker: Attack
 }
 
 // ---------------------------------------------------------------------------
-// The interrupt helper's responses (perception.js:858).
+// The interrupt helper's responses.
 
-/// A response (perception.js:858): a combat goal (`kind` 2) in `mode` at
+/// A response: a combat goal (`kind` 2) in `mode` at
 /// `point`, whether the mount is to be left, whether the bot shouts.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Response {

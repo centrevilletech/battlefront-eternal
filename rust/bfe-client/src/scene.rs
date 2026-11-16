@@ -1185,7 +1185,7 @@ impl Scene {
         bridge.r.world.sort(false);
         let mut water_host = if !water_data.is_null() {
             let far_reach = content.map["distance"]["farScene"][1].as_f64().unwrap_or(3000.);
-            // A weather of anything but quads storms (ocean-surface.js storms()).
+            // A weather of anything but quads storms (storms()).
             let rain = &content.map["weather"]["precipitation"];
             let stormy = rain.is_object() && !rain["Type"][0].as_str().unwrap_or("").eq_ignore_ascii_case("quads");
             let mut host = crate::water_host::WaterHost::new(
@@ -2113,7 +2113,7 @@ impl Scene {
                 let source=&self.online;self.lamps.instances(&mut self.bridge.r.core,view_records,true,&mut |from,to|source.as_ref().is_none_or(|online|online.lamp_visible(from,to)));
                 if let Some(native)=&mut self.temporal_motion{use bfe_render::motion as M;self.bridge.r.motion.input[M::IN_VIEW_PROJECTION..M::IN_VIEW_PROJECTION+16].copy_from_slice(&projection.elements);native.view(&self.bridge.r.core,&mut self.bridge.r.motion,view_records);}
                 self.bridge.r.core.input[..16].copy_from_slice(&projection.elements);self.bridge.r.frames.plan.facts[f::VIEW_SHOWN]=1.;
-                // The view scene packs its own lights (point-lights.js): only the copies syncViewLights makes.
+                // The view scene packs its own lights: only the copies syncViewLights makes.
                 if let Some(online)=&self.online{let l=&online.lights;let n=l.view_count;self.bridge.r.core.input[shader::FRAME_LIGHT_COUNT]=n as f64;self.bridge.r.core.input[shader::FRAME_LIGHTS..shader::FRAME_LIGHTS+n*8].copy_from_slice(&l.view_packed[..n*8]);}self.publish(r::VIEW,k::VIEW,view_records,view_bones,0);}}
         if let Some(native)=&self.temporal_motion{let count=native.count;self.publish(r::MOTION,k::MOTION,count,0,0);}
         if self.online.is_some(){self.publish(r::HUD0,k::HUD,0,0,0);}

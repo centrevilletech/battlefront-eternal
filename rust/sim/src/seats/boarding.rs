@@ -1,4 +1,4 @@
-//! The rules every boarder follows (src/boarding.js): who may get into
+//! The rules every boarder follows: who may get into
 //! anything, which seat of a hull he takes, whether he may get out, and a
 //! person's seat switch and mouse in a seat.
 
@@ -51,7 +51,7 @@ pub fn can_board(u: &Unit, person: bool, no_enter: f64) -> bool {
     !person || s.air.is_none()
 }
 
-/// Vehicle.seatFree (vehicles.js:696): the seat is there, nobody's lease
+/// Vehicle.seatFree: the seat is there, nobody's lease
 /// holds it, and the page's player is not in it.
 pub fn seat_free(v: &Vehicle, i: usize) -> bool {
     match v.seats.get(i) {
@@ -159,7 +159,7 @@ pub fn hull_of(hulls: &Hulls, lease: &SeatLease) -> usize {
     hulls.hulls.iter().position(|h| h.vehicle == v).expect("the lease's hull")
 }
 
-/// What a seat's keys and mouse do to the hull (boarding.js seatControl):
+/// What a seat's keys and mouse do to the hull (seatControl):
 /// the pilot of a craft flies it, the driver of anything else drives it,
 /// and every other seat only aims and fires its own guns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -266,7 +266,7 @@ pub fn turret_takeover(gunner: bool, lease: Option<&SeatLease>, units: &Slab<Uni
     lease.is_some_and(|l| !l.released && !person_lease(l, units))
 }
 
-/// Vehicles.enterable (vehicles.js:2519): the nearest hull in reach ahead of
+/// Vehicles.enterable: the nearest hull in reach ahead of
 /// an eye that `may` takes (by default one the page's player is not
 /// driving): its box's centre within its radius and 3.5 m, ahead of the
 /// aim, and nothing but its own body in the way. Its place, or None.
@@ -304,7 +304,7 @@ pub fn enterable_hull<W: SeatWorld + ?Sized>(w: &mut W, st: &Store, hulls: &[sup
     best
 }
 
-/// LiveObjects.enterable (props.js:1731): the built turret an eye faces, the
+/// LiveObjects.enterable: the built turret an eye faces, the
 /// one nearest its line (by 16 x miss squared + depth) whose drum is within
 /// reach; a manned one only where `may` takes it (a person's takeover).
 pub fn enterable_turret(turrets: &[super::turrets::TurretSide], eye: &three::Vector3, dir: &three::Vector3, may: Option<&dyn Fn(usize) -> bool>) -> Option<usize> {
@@ -341,7 +341,7 @@ pub fn enterable_turret(turrets: &[super::turrets::TurretSide], eye: &three::Vec
     best
 }
 
-/// What a soldier's use key gets him into (boarding.js mountInReach).
+/// What a soldier's use key gets him into (mountInReach).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mount {
     Hull(usize),

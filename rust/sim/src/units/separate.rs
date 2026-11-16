@@ -1,4 +1,4 @@
-//! Soldiers pushed apart (src/game.js separateSoldiers), as the original
+//! Soldiers pushed apart (separateSoldiers), as the original
 //! game's collision pass does for soldiers, droids and droidekas: each
 //! body's main_body is an upright cylinder for its posture, and an overlap
 //! moves each along the contact by the other's share of their volumes.

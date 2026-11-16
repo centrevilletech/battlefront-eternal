@@ -1,12 +1,12 @@
 //! Stage Fleet as game.js createGame makes it on the host side: `new
-//! Vehicles(...)` (src/vehicles.js), then attachF2 (src/sim/wasm/f2-sim.js
+//! Vehicles(...)`, then attachF2 (src/sim/wasm/f2-sim.js
 //! F2Sim). The owners' row builders (rows/fleet.rs, rows/vehicle_pack.rs,
 //! bodies/seats.rs) make the rows; this module makes, inside the owning
 //! world, the objects the page made in JavaScript between them: the
 //! models' collision shapes and the vehicle blockers, each pad's hull
 //! (vehicles/build.rs, the Vehicle constructor) with its moving body, its
 //! spawn on its pad (Hull::spawn), the store rows the page imported and the
-//! pose values it pulled (vehicle-phase-data.js pullPose).
+//! pose values it pulled (pullPose).
 use super::rows::{fleet, units, Call, Cx};
 use super::{bodies, sequence, AdmitError, Rows, Stage};
 use crate::collision::spheres::{box_apply_matrix4, Bounds};
@@ -59,7 +59,7 @@ struct Shapes {
 }
 
 /// CollisionWorld as a hull's constructor and spawn see it before attachF2
-/// (src/collision.js): casts through the kernel's world directly (rayCast:
+///: casts through the kernel's world directly (rayCast:
 /// the bodies' order refreshed, the broad phase, every body enabled as the
 /// page's plain flags all are at load), bodies moved by writing their
 /// bounds and transforms (moveBody through rays.place). Nothing else is
@@ -124,7 +124,7 @@ impl VehicleWorld for ColdWorld<'_> {
 
 /// collision.js createBodyShape through the ray kernel: the shape's corners
 /// and its tree (three-mesh-bvh's build, bfe_content::bvh), and the tree's
-/// polygon numbers once a body uses it (ray-kernel.js body). Answers the
+/// polygon numbers once a body uses it (body). Answers the
 /// tree's id.
 fn shape_tree(world: &mut World, shape: &BodyTriangles, with_polygons: bool) -> u32 {
     let bvh = build_bvh(Positions::F32(&shape.positions), &shape.indices);
@@ -551,7 +551,7 @@ fn weapon_state(def: &Value, weapon_id: crate::store::DefId) -> Weapon {
         lock_target_id: -1.0, lock_generation: -1.0, ..Default::default() }
 }
 
-/// `num` of f2-firing.js: parseFloat, or 0 where that is not finite.
+/// `num`: parseFloat, or 0 where that is not finite.
 fn finite_or_zero(value: Option<&Value>) -> f64 {
     let number = parse_float_value(value);
     if number.is_finite() { number } else { 0.0 }
@@ -575,10 +575,10 @@ fn emitter(cx: &mut Cx) -> BeamSource {
     BeamSource::Emitter(Ref::new(slot, 1))
 }
 
-/// F2Firing.adopt (src/sim/wasm/f2-firing.js): registers every seat
+/// F2Firing.adopt: registers every seat
 /// weapon's level-zero class and its ordnance (combat::prepare_vehicle_weapon
 /// appends those calls), then builds the FfBirth row: `new Weapon(def)`
-/// (src/weapons.js) at birth, the weapon's lock range, cable, channel and
+/// at birth, the weapon's lock range, cable, channel and
 /// AI masks (weaponAI), its rig nodes by name (rigNodes order: the root,
 /// the bones, the statics, the markers), its beam emitter and its muzzles'.
 fn firing_birth(cx: &mut Cx, calls: &mut Vec<(Stage, &'static str, Call)>, m: &Made, row: &Vehicle, class_def: &Value, extras: &HullExtras, pose: &HullPose) -> Result<Call, AdmitError> {
@@ -657,7 +657,7 @@ fn firing_birth(cx: &mut Cx, calls: &mut Vec<(Stage, &'static str, Call)>, m: &M
     Ok(call)
 }
 
-/// LiveObjects' constructor (src/props.js): every placed building's
+/// LiveObjects' constructor: every placed building's
 /// collision bodies, in instance order and look order (built, destroyed,
 /// unbuilt), through CollisionWorld.addBody: the props' shared corners
 /// once, a tree and a fixed body per look with its polygon numbers and
@@ -700,9 +700,9 @@ fn construct_prop_bodies(world: &mut World, cx: &mut Cx) -> Result<(), AdmitErro
     Ok(())
 }
 
-/// TurretSeats (src/seats.js) after attachF2: every armed building a
+/// TurretSeats after attachF2: every armed building a
 /// TurretTarget in the registry (attachUnits), then F2Seats.attachTurrets
-/// (src/sim/wasm/f2-seats.js): its weapon class registered with its
+///: its weapon class registered with its
 /// ordnance, and its birth row from the placed instance (bodies/seats.rs
 /// turret_geometry and turret_birth): the shown look's sphere, its built
 /// body, its weapon at birth.
@@ -779,7 +779,7 @@ fn sample(world: &mut World, cx: &mut Cx, calls: &mut Vec<(Stage, &'static str, 
 }
 
 /// `new Vehicles`' template loop: a model with a takeoff clip finds how far
-/// below its origin it stands on its gear (src/flight/gear.js gearFoot) by
+/// below its origin it stands on its gear (gearFoot) by
 /// sampling that clip through the anim kernel: `new Pose(bones, -1)`, the
 /// clip registered on its first add (each model's clips are its own
 /// objects), `add(clip, 0, 1, false)`, then `apply`. The foot itself is the

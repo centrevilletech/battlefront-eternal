@@ -124,7 +124,7 @@ pub struct Replicas {
     pub fountains: Option<Box<super::fountains::Fountains>>,
     pub trails: Box<super::trails::Trails>,
     rollers: Vec<super::trails::Roller>,
-    // The player's own body, whose droideka alone trails dust (game.js).
+    // The player's own body, whose droideka alone trails dust.
     own: (u32, u32),
     guns: super::lightning::Guns,
     soft: bool,
@@ -1207,7 +1207,7 @@ impl Replicas {
                 slot.death_pending = false;
             }
             // Unit.presentGone keeps the body's clock; a droideka whose death
-            // clip played out goes up by itself (goneUp, src/droideka.js).
+            // clip played out goes up by itself (goneUp).
             if slot.active && (slot.gone.is_some() || out[o::GONE_BIRTH] != 0.) {
                 slot.gone = Some(out[o::GONE_TIME]);
             }
@@ -1853,7 +1853,7 @@ impl Replicas {
         );
     }
 
-    // DeathShot.frame (death-shot.js) follows the dead player's ribcage bone
+    // DeathShot.frame follows the dead player's ribcage bone
     // where the page draws it. The camera owner runs before this frame's pose,
     // so this is the node bank as the previous frame placed it; the shot's
     // own spring follows the point, and a body at rest does not move.
@@ -1871,7 +1871,7 @@ impl Replicas {
         let world = self.units.nodes.get(at..at + 16)?;
         Some([world[12], world[13], world[14]])
     }
-    // drawnKiller (death-shot.js) reads the killer's feet from his drawn
+    // drawnKiller reads the killer's feet from his drawn
     // actor root, not from the newest network row.
     pub fn drawn_feet(&self, id: u32, generation: u32) -> Option<[f64; 3]> {
         let slot = self

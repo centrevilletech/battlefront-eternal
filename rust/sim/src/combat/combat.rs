@@ -323,7 +323,7 @@ fn aim_basis(c: &mut Combat, b: &Body) {
 
 /// aim() for a combat without a camera: from the gun
 /// origin along the aimer's direction, or straight along the aim; a
-/// droideka from its eye (droideka.js aim).
+/// droideka from its eye (aim).
 // PlayerCombat aim retains a target point independently of its muzzle.
 // A bot's aimer may override direction at the post-movement import point.
 // A missing override uses the body's current yaw and pitch.
@@ -360,7 +360,7 @@ fn aim(c: &mut Combat, b: &Body, eye_height: f64) {
     c.target = a(&target);
 }
 
-/// infantryFireBlocked(soldier, gunUnderwater, stick) (combat-input.js:2).
+/// infantryFireBlocked(soldier, gunUnderwater, stick).
 // PlayerCombat gates fire before updating its arsenal.
 // A dive, get-up or underwater gun can suppress an otherwise valid press.
 // Preserve the existing comparisons so NaN takes the same branches as JS.
@@ -393,7 +393,7 @@ fn held(u: &Unit, channel: usize) -> bool {
     u.intent.buttons[channel] > 0.0
 }
 
-/// readWeaponInput, seedPresses and latePresses (combat-weapon-input.js).
+/// readWeaponInput, seedPresses and latePresses.
 // readWeaponInput consumes control edges at the combat observation point.
 // Network press IDs seed spread using the current body id and gameplay life.
 // Late presses carry their original lockout age into the weapon solver.
@@ -474,7 +474,7 @@ fn network_shot_target(u: &Unit, edges: &Edges, eye: &Vector3, target: &mut Vect
     }
 }
 
-/// regenerate(combat, dt) (heroes.js:6).
+/// regenerate(combat, dt).
 // PlayerCombat.regenerate applies health before this tick's fire.
 // The cap remains full precision, including million-health hero classes.
 // Do not route it through a network field with a sixteen-bit health limit.
@@ -1151,7 +1151,7 @@ fn blast_shield(unit: &Unit) -> Option<(u64,bool)> {
     }
 }
 
-/// falloff(distance, inner, outer) (ordnance.js:1023).
+/// falloff(distance, inner, outer).
 // PlayerCombat.explode keeps the original inner/outer radius arithmetic.
 // Inside the inner radius the full effect applies.
 // At the outer boundary the existing comparisons determine the zero result.
@@ -1166,7 +1166,7 @@ fn falloff(distance: f64, inner: f64, outer: f64) -> f64 {
     0.0
 }
 
-/// blastBlocked(collision, position, target) (ordnance.js:1064): terrain or
+/// blastBlocked(collision, position, target): terrain or
 /// a building (never a moving body) between them.
 // PlayerCombat.explode uses static-only cover for its line of sight.
 // A near-zero ray cannot normalize safely and therefore stays unobstructed.

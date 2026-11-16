@@ -217,7 +217,7 @@ impl TurretSide {
         aim_vector(self.desc.facing + yaw, pitch)
     }
 
-    /// Turret.holdYaw (props.js:652).
+    /// Turret.holdYaw.
     pub fn hold_yaw(&self, yaw: f64) -> f64 {
         let Some(arc) = self.desc.yaw_limits else { return yaw };
         let mut a = wrap(yaw);
@@ -227,7 +227,7 @@ impl TurretSide {
         clamp(a, arc[0], arc[1])
     }
 
-    /// Turret.steer (props.js:662): turn and pitch rates steer the aim,
+    /// Turret.steer: turn and pitch rates steer the aim,
     /// inside the arc and pitch limits.
     pub fn steer(&mut self, dt: f64, turn_input: f64, pitch_input: f64, zoom: f64) {
         let k = v8math::min(1.0, self.desc.filter * dt);
@@ -248,7 +248,7 @@ impl TurretSide {
         self.rig.tree.update_matrix_world(root, true);
     }
 
-    /// Turret.present (props.js:755): the drum and gun from the aim and the
+    /// Turret.present: the drum and gun from the aim and the
     /// gun's own angles.
     pub fn present(&mut self) {
         let (yaw, pitch) = (self.yaw, self.pitch);
@@ -270,7 +270,7 @@ impl TurretSide {
         });
     }
 
-    /// Turret.gunWant (props.js:769): the gun's angles toward a point (None:
+    /// Turret.gunWant: the gun's angles toward a point (None:
     /// the drum's own pitch), held inside its limits: (yaw, pitch).
     pub fn gun_want(&mut self, target: Option<&Vector3>) -> (f64, f64) {
         let mut yaw = 0.0;
@@ -290,7 +290,7 @@ impl TurretSide {
         (clamp(yaw, l.gun_yaw_limits[0], l.gun_yaw_limits[1]), clamp(pitch, l.gun_pitch_limits[0], l.gun_pitch_limits[1]))
     }
 
-    /// Turret.aimGun (props.js:787): toward the target at the gun's rates.
+    /// Turret.aimGun: toward the target at the gun's rates.
     pub fn aim_gun(&mut self, dt: f64, target: Option<&Vector3>) {
         if self.rig.gun.is_none() {
             return;
@@ -301,14 +301,14 @@ impl TurretSide {
         self.gun_pitch = step(self.gun_pitch, want_pitch, self.desc.gun_pitch_rate);
     }
 
-    /// Turret.pose (props.js:745): the gun toward a point, then the drum and
+    /// Turret.pose: the gun toward a point, then the drum and
     /// gun posed.
     pub fn pose(&mut self, dt: f64, target: Option<&Vector3>) {
         self.aim_gun(dt, target);
         self.present();
     }
 
-    /// Turret.muzzle (props.js:796): its fire point in the world (barrels
+    /// Turret.muzzle: its fire point in the world (barrels
     /// take turns when it has several; advance moves on to the next), and
     /// the direction the gun points.
     pub fn muzzle(&mut self, advance: bool, direction: Option<&mut Vector3>) -> Vector3 {
@@ -329,7 +329,7 @@ impl TurretSide {
         position
     }
 
-    /// Turret.fireDirection (props.js:815), with `along` and `out` the same
+    /// Turret.fireDirection, with `along` and `out` the same
     /// vector, as TurretSeats.drive passes them: straight at the target once
     /// the gun has turned as far toward it as it can; along the gun while it
     /// is still turning.
@@ -361,7 +361,7 @@ impl TurretSide {
         *along
     }
 
-    /// Turret.aimFrame (props.js:678): at the drum's pivot, looking along
+    /// Turret.aimFrame: at the drum's pivot, looking along
     /// the aim, its up the drum's. Also the frame's direction and up, as
     /// cameraTurn reads them after.
     fn aim_frame(&mut self, yaw: f64, pitch: f64) -> (Matrix4, Vector3, Vector3) {
@@ -378,7 +378,7 @@ impl TurretSide {
         (out, dir, up)
     }
 
-    /// Turret.eyePoint (props.js:689): EyePointOffset in the aim frame.
+    /// Turret.eyePoint: EyePointOffset in the aim frame.
     pub fn eye_point(&mut self, yaw: f64, pitch: f64) -> Vector3 {
         let (frame, ..) = self.aim_frame(yaw, pitch);
         let mut out = self.desc.camera_eye;
@@ -386,7 +386,7 @@ impl TurretSide {
         out
     }
 
-    /// Turret.cameraTurn (props.js:697): along the aim with the frame's up,
+    /// Turret.cameraTurn: along the aim with the frame's up,
     /// pitched down by TiltValue; the aim frame with it.
     fn camera_turn(&mut self, yaw: f64, pitch: f64) -> (Quaternion, Matrix4) {
         let tilt = self.desc.camera_tilt;
@@ -402,7 +402,7 @@ impl TurretSide {
         (out, frame)
     }
 
-    /// Turret.cameraRest (props.js:708): TrackCenter in the aim frame, then
+    /// Turret.cameraRest: TrackCenter in the aim frame, then
     /// TrackOffset in the camera's turn.
     fn camera_rest(&mut self, yaw: f64, pitch: f64) -> Vector3 {
         let (turn, frame) = self.camera_turn(yaw, pitch);
@@ -414,7 +414,7 @@ impl TurretSide {
         out
     }
 
-    /// Turret.aimOrigin (props.js:721): a person's aim starts at his eye in
+    /// Turret.aimOrigin: a person's aim starts at his eye in
     /// first person, else where the chase camera rests, brought forward
     /// along the aim to the eye's plane.
     pub fn aim_origin(&mut self, first_person: bool, yaw: f64, pitch: f64) -> Vector3 {
@@ -450,13 +450,13 @@ impl TurretSide {
         }
     }
 
-    /// Turret.exposedSeat (props.js:905): rounds, swings and blasts meet its
+    /// Turret.exposedSeat: rounds, swings and blasts meet its
     /// gunner: one shows, and the class leaves him shootable.
     pub fn exposed_seat(&self) -> bool {
         self.alive && self.desc.rider && self.desc.shootable
     }
 
-    /// Turret.seatPoint (props.js:875): the seat node's place in the world.
+    /// Turret.seatPoint: the seat node's place in the world.
     pub fn seat_point(&mut self) -> Vector3 {
         let node = self.rig.seat.unwrap_or(self.rig.root);
         let mut out = Vector3::default();
@@ -464,7 +464,7 @@ impl TurretSide {
         out
     }
 
-    /// Turret.seatYaw (props.js:891): the heading of the seat node's turn.
+    /// Turret.seatYaw: the heading of the seat node's turn.
     pub fn seat_yaw(&mut self) -> f64 {
         let node = self.rig.seat.unwrap_or(self.rig.root);
         self.rig.tree.update_world_matrix(node, true, false);
@@ -492,7 +492,7 @@ pub fn turret_aim_point<W: SeatWorld + ?Sized>(w: &mut W, t: &mut TurretSide, fi
     out
 }
 
-/// The turret crews (src/seats.js TurretSeats): their turrets in the
+/// The turret crews (TurretSeats): their turrets in the
 /// battle's order, the riders' facts and seat controls they read, and the
 /// leases they made in a frame. Their leases, time and updates are the
 /// store's (`turret_seats`).

@@ -1,4 +1,4 @@
-//! A droideka's hidden gun rig (src/droideka.js): the skeleton the world
+//! A droideka's hidden gun rig: the skeleton the world
 //! fires its blasters from. `Droideka.arm` clones the body's bones into a
 //! small rig of their own, hangs a copy of each blaster's barrel markers on
 //! it, and every tick `sampleMuzzles` poses it with a DroidekaAnimator of its
@@ -22,7 +22,7 @@ use three::{smoothstep, Box3, Matrix4, Quaternion, Vector3};
 use three::{NodeId, TransformNode, TransformTree};
 use v8math::hypot as js_hypot2;
 
-// Modes (src/droideka.js): the clip each plays, by mode.
+// Modes: the clip each plays, by mode.
 pub const CLIPS: [Option<&str>; 14] = [
     Some("idle"),
     Some("turnl"),
@@ -301,7 +301,7 @@ impl DroidekaRig {
 /// A droideka's drawn body as its animator's constructor skins it: each
 /// vertex's place (three f32s a vertex), each vertex's bone (the first of
 /// its four skin indices; that one's weight is 1, the others' 0), the body's
-/// bind matrix and the skeleton's bone inverses (src/actor.js).
+/// bind matrix and the skeleton's bone inverses.
 pub struct SkinnedBody<'a> {
     pub positions: &'a [f32],
     pub skin_index: &'a [u16],
@@ -309,7 +309,7 @@ pub struct SkinnedBody<'a> {
     pub bone_inverses: &'a [Matrix4],
 }
 
-/// The drawn DroidekaAnimator's roll axle (its constructor, src/droideka.js):
+/// The drawn DroidekaAnimator's roll axle (its constructor):
 /// `center_box` is an animation control, not the folded shell's axle, so the
 /// axle is found from the skinned body in the roll clip's first pose, in the
 /// ball bone's parent's frame: the pivot (the middle of the silhouette's

@@ -514,7 +514,7 @@ fn droideka_class_id(world: &mut World, cx: &mut super::rows::Cx, parts: &super:
 /// handoff: its Unit import carries the body_spawn answer (the grounded
 /// position, velocity and posture the page's spawnSoldier published onto
 /// the soldier) and the placement's generation, alive flags and tick count
-/// (game.js placePlayer). F3 then prepares its skeleton and whole clip bank,
+/// (placePlayer). F3 then prepares its skeleton and whole clip bank,
 /// adopts it passively (no factory order, no corpse pool), binds its combat
 /// and weapon random callbacks (F3Random.refresh: every one is the gameplay
 /// stream), births its riders for every holder, keeps its class resources

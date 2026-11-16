@@ -1016,7 +1016,7 @@ impl ShellHost {
     }
 
     /// Opens option page `page` (`"game"`, `"video"`, `"audio"`, `"controls"`) over a paused battle, as the
-    /// pause menu's OPTIONS does (`optionsMenu({ inBattle: true, viewpoint })` in `src/pause/index.js`).
+    /// pause menu's OPTIONS does (`optionsMenu({ inBattle: true, viewpoint })`).
     ///
     /// The controller is rebuilt from the live settings with `in_battle` set, so the notes and the VIEWPOINT
     /// row read as they do in the browser; the page is its root, so BACK or Escape empties the stack.
@@ -1890,7 +1890,7 @@ impl ShellHost {
             self.options_ctrl.stack.clear();
             self.sync_options_controller(settings);
         }
-        // The page fetches the list as the screen is entered (`onEnter` in server-browser.js), not on a timer.
+        // The page fetches the list as the screen is entered (`onEnter`), not on a timer.
         let entered_list = prev_screen != self.app.current_screen()
             && matches!(
                 self.app.current_screen(),
@@ -2143,7 +2143,7 @@ impl ShellHost {
             self.options_ctrl.stack.clear();
             self.sync_options_controller(settings);
         }
-        // The page fetches the list as the screen is entered (`onEnter` in server-browser.js), not on a timer.
+        // The page fetches the list as the screen is entered (`onEnter`), not on a timer.
         let entered_list = prev_screen != self.app.current_screen()
             && matches!(
                 self.app.current_screen(),

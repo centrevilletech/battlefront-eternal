@@ -1,4 +1,4 @@
-//! The droidekas' shield bubbles (src/droideka-shield.js), Enhanced or
+//! The droidekas' shield bubbles, Enhanced or
 //! Classic as the player's droidekaEffects setting says. Each drawn droideka
 //! has one: it grows in when the shield goes up,
 //! shows its charge, flares where a hit lands and shrinks away when the
@@ -108,7 +108,7 @@ pub struct Shields {
 pub fn textures(content: &BattleContent) -> Vec<String> {
     looks(content).into_iter().filter_map(|(_, look)| look.get("Texture").and_then(Value::as_str).map(str::to_string)).collect()
 }
-// Effects' `shields` table (src/effects.js): each effect of the merged
+// Effects' `shields` table: each effect of the merged
 // library whose definitions hold a Shield, by name.
 fn looks(content: &BattleContent) -> Vec<(String, Value)> {
     let battle = &content.content.battle;

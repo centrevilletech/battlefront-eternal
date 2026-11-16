@@ -1,4 +1,4 @@
-//! The effects the map's placed objects carry (environment-effects.js):
+//! The effects the map's placed objects carry:
 //! torches, campfires, smoke, mist, waterspouts, steam vents and fountains.
 //! Each plays its stock effect while it is in view, out to the near scene's
 //! end, and is killed when it leaves; on entering view it is stepped ahead
@@ -19,7 +19,7 @@ struct Instance {
     handle: Option<u32>,
     // Seconds stepped at once when it comes into view.
     warmup: f64,
-    // A steam vent's Enhanced volume (environment-effects.js), none for the
+    // A steam vent's Enhanced volume, none for the
     // effects that have no Enhanced form.
     volume: Option<super::steam::Volume>,
     // A fountain's slot and pool levels, for the Enhanced jets.

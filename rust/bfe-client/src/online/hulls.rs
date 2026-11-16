@@ -98,7 +98,7 @@ struct Model {
     death_span: f64,
     // Its thrust, damage and death effects (VehicleEffects).
     fx: Option<super::hull_effects::ClassFx>,
-    // A walker's feet (vehicle-feet.js): its foot detector's content, its
+    // A walker's feet: its foot detector's content, its
     // StompEffect group and each foot's bone.
     feet: Option<(Value, Option<usize>, Vec<usize>)>,
 }

@@ -1,5 +1,5 @@
 //! The water the world adopts at `world_step_init`: WaterState's constructor
-//! (src/runtime/water-state.js) read by WorldOperation (src/sim/wasm/world.js),
+//! read by WorldOperation,
 //! which stamps presence, the surface's own clock (0 at construction), its
 //! height and whether it bobs.
 use bfe_content::js::to_number;

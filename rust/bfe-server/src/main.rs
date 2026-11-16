@@ -1,5 +1,4 @@
-//! Dedicated server CLI entrypoint, interactive configuration/admin menus, and `--serve` supervisor
-//! (`src/main.js`).
+//! Dedicated server CLI entrypoint, interactive configuration/admin menus, and `--serve` supervisor.
 
 use std::fs;
 use std::io::{self, BufRead, Write};
@@ -23,16 +22,16 @@ use serde_json::{json, Value};
 mod rotation;
 
 /// Process-wide shutdown flag set by `SIGINT`, `SIGTERM`, or `POST /admin {"action": "stop"}`
-/// (`shutdown()` in `src/main.js`).
+/// (`shutdown()`).
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 
-/// Async-signal-safe handler for `SIGINT` and `SIGTERM` (`for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, shutdown)` in `src/main.js`).
+/// Async-signal-safe handler for `SIGINT` and `SIGTERM` (`for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, shutdown)`).
 extern "C" fn handle_signal(_sig: libc::c_int) {
     SHUTDOWN_REQUESTED.store(true, Ordering::SeqCst);
 }
 
 /// Shared service state connecting `OperatorHttpServer` (`/admin` and `/healthz`) to the active
-/// `LocalDedicatedServer` and `OnlineServer` (`serve()` in `src/main.js`).
+/// `LocalDedicatedServer` and `OnlineServer` (`serve()`).
 struct ServiceControl {
     started_at: u64,
     status: RwLock<String>,
@@ -44,12 +43,12 @@ struct ServiceControl {
 }
 
 impl OperatorControl for ServiceControl {
-    /// Returns the service lifecycle state (`status` in `serve()` in `src/main.js`).
+    /// Returns the service lifecycle state (`status` in `serve()`).
     fn status(&self) -> String {
         self.status.read().unwrap().clone()
     }
 
-    /// Returns the active 60 Hz world simulation tick (`tick` in `serve()` in `src/main.js`).
+    /// Returns the active 60 Hz world simulation tick (`tick` in `serve()`).
     fn tick(&self) -> u64 {
         self.local
             .lock()
@@ -59,17 +58,17 @@ impl OperatorControl for ServiceControl {
             .unwrap_or(0)
     }
 
-    /// Returns the Unix millisecond timestamp when `serve()` started (`startedAt` in `src/main.js`).
+    /// Returns the Unix millisecond timestamp when `serve()` started (`startedAt`).
     fn started_at(&self) -> u64 {
         self.started_at
     }
 
-    /// Returns the latest startup or online registration error (`lastError` in `src/main.js`).
+    /// Returns the latest startup or online registration error (`lastError`).
     fn error(&self) -> Option<String> {
         self.error.read().unwrap().clone()
     }
 
-    /// Reports `multiplayerReady` for `GET /healthz` (`src/main.js`).
+    /// Reports `multiplayerReady` for `GET /healthz`.
     ///
     /// Returns `true` if and only if `status == "running"` AND `local.ready` is `true`
     /// (`NativeWorldHost` admitted a real world through `Context::world_admit`).
@@ -88,7 +87,7 @@ impl OperatorControl for ServiceControl {
     }
 
     /// Returns the active `NETWORK_CONTRACT` object when `LocalDedicatedServer` is running,
-    /// or `Value::Null` in `"setup"` / `"fault"` mode (`networkContract` in `serve()` in `src/main.js`).
+    /// or `Value::Null` in `"setup"` / `"fault"` mode (`networkContract` in `serve()`).
     fn network_contract(&self) -> Value {
         if self.local.lock().unwrap().is_some() {
             NetworkContract::current().to_json()
@@ -97,7 +96,7 @@ impl OperatorControl for ServiceControl {
         }
     }
 
-    /// Returns connected player status entries (`network?.stats() ?? []` in `handleOperator` in `src/main.js`).
+    /// Returns connected player status entries (`network?.stats() ?? []` in `handleOperator`).
     fn players(&self) -> Vec<Value> {
         self.local
             .lock()
@@ -107,28 +106,28 @@ impl OperatorControl for ServiceControl {
             .unwrap_or_default()
     }
 
-    /// Returns UDP endpoint transport counters (`network?.metrics()` in `handleOperator` in `src/main.js`).
+    /// Returns UDP endpoint transport counters (`network?.metrics()` in `handleOperator`).
     fn transport_metrics(&self, reset: bool) -> Option<Value> {
         let local = self.local.lock().unwrap();
         let l = local.as_ref()?;
         Some(l.transport_metrics(reset))
     }
 
-    /// Kicks a player from the active UDP game server (`network?.kick(cmd.id, cmd.reason)` in `src/main.js`).
+    /// Kicks a player from the active UDP game server (`network?.kick(cmd.id, cmd.reason)`).
     fn kick(&self, id: &str, reason: &str) {
         if let Some(l) = self.local.lock().unwrap().as_ref() {
             l.kick(id, reason);
         }
     }
 
-    /// Broadcasts a server-wide administrative announcement (`worker.postMessage({ type: "announcement", text })` in `src/main.js`).
+    /// Broadcasts a server-wide administrative announcement (`worker.postMessage({ type: "announcement", text })`).
     fn announce(&self, text: &str) {
         if let Some(l) = self.local.lock().unwrap().as_ref() {
             l.announce(text);
         }
     }
 
-    /// Validates that a running match exists for `restart` (`rotate(0, RESTART_DELAY_MS)` in `src/main.js`).
+    /// Validates that a running match exists for `restart` (`rotate(0, RESTART_DELAY_MS)`).
     fn restart(&self) -> Result<(), String> {
         let st = self.status.read().unwrap().clone();
         if st != "running" || self.local.lock().unwrap().is_none() {
@@ -141,13 +140,13 @@ impl OperatorControl for ServiceControl {
         Ok(())
     }
 
-    /// Triggers graceful server shutdown (`shutdown()` in `src/main.js`).
+    /// Triggers graceful server shutdown (`shutdown()`).
     fn stop(&self) {
         SHUTDOWN_REQUESTED.store(true, Ordering::SeqCst);
     }
 }
 
-/// Returns current Unix epoch time in milliseconds (`Date.now()` in `src/main.js`).
+/// Returns current Unix epoch time in milliseconds (`Date.now()`).
 fn now_unix_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -155,7 +154,7 @@ fn now_unix_ms() -> u64 {
         .as_millis() as u64
 }
 
-/// Prints `label` and reads a single line from `stdin` (`io.question(label)` in `src/main.js`).
+/// Prints `label` and reads a single line from `stdin` (`io.question(label)`).
 fn prompt(stdin: &mut io::StdinLock<'_>, label: &str) -> io::Result<String> {
     print!("{label}");
     io::stdout().flush()?;
@@ -168,9 +167,9 @@ fn prompt(stdin: &mut io::StdinLock<'_>, label: &str) -> io::Result<String> {
 }
 
 /// Validates a playlist entry against `/^swbf[12]\/[a-z0-9_-]+:[a-z0-9_-]+:[a-z0-9_-]+$/`
-/// (`choice === "3"` in `menu()` in `src/main.js`).
+/// (`choice === "3"` in `menu()`).
 /// Validates an interactive playlist rotation string (`map=<id>&mode=<id>...`), porting
-/// `validPlaylistEntry(entry)` from `packages/bfe-server/src/main.js`.
+/// `validPlaylistEntry(entry)`.
 fn valid_playlist_entry(entry: &str) -> bool {
     let Some(rest) = entry
         .strip_prefix("swbf1/")
@@ -190,7 +189,7 @@ fn valid_playlist_entry(entry: &str) -> bool {
     })
 }
 
-/// Interactive live server administration submenu (`async function adminMenu(io)` in `src/main.js`).
+/// Interactive live server administration submenu (`async function adminMenu(io)`).
 fn admin_menu(stdin: &mut io::StdinLock<'_>, directory: &Path, port: u16) -> io::Result<()> {
     println!(
         "1  Status and players\n2  Kick player\n3  Ban identity\n4  Unban identity\n5  Player statistics\n6  Server message\n7  Restart match"
@@ -244,8 +243,8 @@ fn admin_menu(stdin: &mut io::StdinLock<'_>, directory: &Path, port: u16) -> io:
     Ok(())
 }
 
-/// Interactive dedicated server configuration and control menu (`async function menu()` in `src/main.js`).
-/// Interactive top-level TUI menu porting `menu(dir, port)` from `packages/bfe-server/src/main.js`.
+/// Interactive dedicated server configuration and control menu (`async function menu()`).
+/// Interactive top-level TUI menu porting `menu(dir, port)`.
 ///
 /// Displays current `ServerConfig` values (server name, ports, visibility, master directory URL,
 /// content directory, rotation) and lets the operator edit settings, start `serve()`, or enter
@@ -398,7 +397,7 @@ fn launch_match(
     let identity = ServerIdentity::load(directory)?;
     let op_for_ban = Arc::clone(operator);
     let online_for_ban = Arc::clone(control);
-    // Combined ban predicate (`isBanned(id)` in `src/main.js`): checks local `operator.sqlite` bans and global master bans.
+    // Combined ban predicate (`isBanned(id)`): checks local `operator.sqlite` bans and global master bans.
     let is_banned = move |peer_id: &str| -> bool {
         if op_for_ban.banned(peer_id) {
             return true;
@@ -440,7 +439,7 @@ fn launch_match(
             *control.status.write().unwrap() = "running".to_string();
 
             // When the operator has accepted the online processing notice, start `OnlineServer`
-            // directory heartbeats and WebSocket rendezvous signaling (`if (config.onlineNoticeAccepted)` in `src/main.js`).
+            // directory heartbeats and WebSocket rendezvous signaling (`if (config.onlineNoticeAccepted)`).
             if config.online_notice_accepted {
                 let mut active_cfg = config.clone();
                 active_cfg.content = Some(content);
@@ -628,7 +627,7 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
         thread::sleep(Duration::from_millis(50));
     }
 
-    // Record graceful shutdown and unregistration (`shutdown()` in `src/main.js`) so `<state>/hosting.log`
+    // Record graceful shutdown and unregistration (`shutdown()`) so `<state>/hosting.log`
     // captures the unregistration of online directory and LAN discovery listeners when `HostController::stop`
     // (`POST /admin {"action": "stop"}` on the operator HTTP endpoint) or `SIGINT`/`SIGTERM` terminates the service.
     println!("bfeserver stopping: unregistering service and closing sessions");

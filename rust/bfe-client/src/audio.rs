@@ -149,7 +149,7 @@ const BURST: f64 = 1.2;
 const GAP: f64 = 0.25;
 const AROUND: f64 = 6.0;
 
-/// The speaker test of the battle's AUDIO DETAILS (`AudioPanel.test` and `around` in `src/audio/panel.js`): pink
+/// The speaker test of the battle's AUDIO DETAILS (`AudioPanel.test` and `around`): pink
 /// noise on one speaker at a time, the LFE a 50 Hz tone, or a burst carried once round the room from ahead to the
 /// left through the layout's panning. It plays in the output layout's channels; while it plays it is all the device
 /// hears.

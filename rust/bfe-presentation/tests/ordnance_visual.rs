@@ -5,7 +5,7 @@
 //! `bfe_presentation::lights::Lights` over synthetic records without requiring
 //! game assets.
 //!
-//! Coverage from `tests/ordnance-visual.test.js`:
+//! Coverage:
 //! - Bolt tail convergence from the displayed muzzle offset `(0.3, -0.2, 0)`
 //!   back onto the gameplay ray over `MERGE` (`8m`), tilting the streak axis.
 //! - First-draw bolt span extension back to the muzzle when a fast bolt has
@@ -17,7 +17,7 @@
 //! - Default `GlowLength = 3 * LaserLength` (`3.6m` vs. `1.2m` core) and
 //!   stopped sniper `FadeOutTime` thinning (`0.9 * fade + 0.1`) and fading.
 //!
-//! Coverage from `tests/ordnance-presentation.test.js`:
+//! Coverage:
 //! - `Lights` pool ranking: keeping the strongest eight lights by
 //!   `(r + g + b) * scale * radius`, preserving emitter order on ties, and
 //!   decaying timed flashes back to zero once their duration elapses.

@@ -1,4 +1,4 @@
-//! Snow (src/snow.js): a world's Precipitation of Type("Quads") as the 2004
+//! Snow: a world's Precipitation of Type("Quads") as the 2004
 //! engine draws it. `count` flakes fill a 5 m box and the box repeats over
 //! the world's 5 m grid out to `range` in view; the flakes keep their place
 //! in the world as the camera moves through them. The flakes move here, and

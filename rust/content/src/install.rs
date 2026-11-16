@@ -82,7 +82,7 @@ pub fn install(k: &mut dyn CollisionKernel, col: &MapCollision, buildings: &BvhT
     Ok(Installed { world, grid, buildings: buildings_tree, terrain: terrain_tree, statics })
 }
 
-/// A cast the JavaScript answered (tools/collision-trees.mjs).
+/// A cast the JavaScript answered.
 #[derive(Clone, Copy, Debug)]
 pub struct Cast {
     pub origin: [f64; 3],

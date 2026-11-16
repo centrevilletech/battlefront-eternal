@@ -28,7 +28,7 @@ pub struct Hit {
     pub body: Option<Ref<Body>>,
 }
 
-/// A unit raycast's answer (src/registry.js raycast).
+/// A unit raycast's answer (raycast).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UnitHit {
     pub unit: Ref<Unit>,

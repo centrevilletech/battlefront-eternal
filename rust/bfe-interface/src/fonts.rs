@@ -1,4 +1,4 @@
-//! Bitmap font registry, measurement, and quad emission (`src/interface/fonts.js`).
+//! Bitmap font registry, measurement, and quad emission.
 //!
 //! Ports `Fonts` (`lineHeight`, `glyphHeight`, `capsMiddle`, `width`, `draw`) from
 //! `src/interface/fonts.js` on top of [`bfe_render::interface::Font`] and [`bfe_render::interface::Glyph`].
@@ -38,7 +38,7 @@ impl TextAlign {
 
 }
 
-/// Options passed to [`Fonts::draw_text`] (`Fonts.draw` parameters in `src/interface/fonts.js`).
+/// Options passed to [`Fonts::draw_text`] (`Fonts.draw` parameters).
 #[derive(Clone, Copy, Debug)]
 pub struct TextDraw {
     /// Uniform horizontal and base vertical glyph scale factor (`scale` in `Fonts.draw`).
@@ -72,7 +72,7 @@ impl Default for TextDraw {
 }
 
 /// Computes the horizontal advance width of `text` in `font`
-/// (`Fonts.width(name, text, scale, spacing)` in `src/interface/fonts.js`).
+/// (`Fonts.width(name, text, scale, spacing)`).
 #[inline]
 pub fn font_text_width(font: &Font, text: &str, scale: f64, spacing: f64) -> f64 {
     let mut width = 0.0;
@@ -87,7 +87,7 @@ pub fn font_text_width(font: &Font, text: &str, scale: f64, spacing: f64) -> f64
 }
 
 /// Emits textured glyph quads for `text` into `batch`
-/// (`Fonts.draw(batch, m, x, y, text, name, tint, align, scale, spacing, z)` in `src/interface/fonts.js`).
+/// (`Fonts.draw(batch, m, x, y, text, name, tint, align, scale, spacing, z)`).
 pub fn font_draw_text(
     font: &Font,
     batch: &mut Batch,
@@ -118,7 +118,7 @@ pub fn font_draw_text(
     for ch in text.encode_utf16() {
         if let Some(g) = font.glyphs.get(&ch) {
             // Snap glyph box edges to integer interface units using the 2004 half-up floor
-            // rule (`Math.floor(v * scale + 0.5)` in `src/interface/fonts.js`).
+            // rule (`Math.floor(v * scale + 0.5)`).
             let x0 = (g.bounds[0] * opts.scale + 0.5).floor();
             let y0 = (g.bounds[1] * sy + 0.5).floor();
             let x1 = (g.bounds[2] * opts.scale + 0.5).floor();
@@ -166,7 +166,7 @@ impl Fonts {
         }
     }
 
-    /// Looks up a [`Font`] by its `common.lvl` name (`this.fonts[name]` in `src/interface/fonts.js`).
+    /// Looks up a [`Font`] by its `common.lvl` name (`this.fonts[name]`).
     /// Falls back to `gamefont_medium` when `name` is unknown or empty.
     #[inline]
     pub fn by_name(&self, name: &str) -> &Font {
@@ -182,7 +182,7 @@ impl Fonts {
 
 
 
-    /// Draws `text` in `font_name` into `batch` (`Fonts.draw` in `src/interface/fonts.js`).
+    /// Draws `text` in `font_name` into `batch` (`Fonts.draw`).
     #[inline]
     #[allow(clippy::too_many_arguments)]
     pub fn draw_text(

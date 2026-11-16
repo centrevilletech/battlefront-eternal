@@ -1,4 +1,4 @@
-//! The sky's flyers (src/sky-flyers.js): the ships of a class kept in the sky
+//! The sky's flyers: the ships of a class kept in the sky
 //! all the time, flown as the 2004 game flies them, and, Enhanced, drawn past
 //! the far plane and faded smoothly. A frame flies each ship, then lays out
 //! the draws far to near from the eye as instance records.

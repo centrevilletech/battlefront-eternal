@@ -1,12 +1,10 @@
-//! Cryptographic handshake state machines (`ClientHandshake` and `ServerHandshakes`)
-//! matching `src/net/handshake.js`.
+//! Cryptographic handshake state machines (`ClientHandshake` and `ServerHandshakes`).
 use std::collections::VecDeque;
 use base64::{Engine,engine::general_purpose::STANDARD};
 use crate::{Error,Result,crypto::{self,Aead,Identity,RetryTokens}};
 use crate::layout::{common as prefix,initiation as init,response as resp,confirm as conf,retry,proof,packet,limits as lim,VERSION};
 use x25519_dalek::{StaticSecret,PublicKey};
-// Domain-separation labels matching `INIT_LABEL`, `SERVER_LABEL`, and `CLIENT_LABEL`
-// in `src/net/handshake.js`.
+// Domain-separation labels matching `INIT_LABEL`, `SERVER_LABEL`, and `CLIENT_LABEL`.
 const INIT_LABEL:&[u8]=b"BFE-UDP/1 initiation";
 const SERVER_LABEL:&[u8]=b"BFE-UDP/1 server";
 const CLIENT_LABEL:&[u8]=b"BFE-UDP/1 client";
@@ -17,7 +15,7 @@ pub struct Keys{pub send:Aead,pub receive:Aead,pub local:u32,pub remote:u32}
 // Outcome of feeding a server datagram into `ClientHandshake::receive`.
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 pub enum Event{Ignore,Retry,Version(u8),IdentityMismatch,Established,Duplicate}
-// Client-side BFE-UDP/1 handshake state (`src/net/handshake.js` `ClientHandshake`).
+// Client-side BFE-UDP/1 handshake state (`ClientHandshake`).
 // Retains the sealed `CONFIRM` packet and matched `RESPONSE` bytes after key derivation
 // so lost confirmations can be retransmitted without regenerating AEAD proofs.
 pub struct ClientHandshake{

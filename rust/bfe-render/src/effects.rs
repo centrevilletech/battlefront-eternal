@@ -16,13 +16,13 @@
 //   an effect) is a texture of three's for the tracks and one of the
 //   renderer's for the emitters, a row of which the page writes for each
 //   effect playing.
-// - Dynamic meshes (the Classic arc caster's lightning, lightning.js):
+// - Dynamic meshes (the Classic arc caster's lightning):
 //   vertices and indices the page rebuilds every frame, uploaded as far as
 //   they are used (three uploads its whole buffers), drawn in each of
 //   three's passes for it (a double-sided transparent material: back faces,
 //   then front), its material's values set as three sets them.
 // - Models (the muzzle flashes, the effects' model particles: game.js
-//   glowModel; the droidekas' shields, droideka-shield.js): a registered
+//   glowModel; the droidekas' shields): a registered
 //   geometry drawn with a world matrix the page writes each frame (the
 //   model-view matrix, and the normal matrix where the program reads one,
 //   worked out here as three works them out), culled by its bounding sphere
@@ -30,7 +30,7 @@
 //   values. One model serves every object of the same geometry, programs,
 //   texture and state.
 //
-// The page lists the frame's draws (src/rust-render/effects.js), each with
+// The page lists the frame's draws, each with
 // the key three would have sorted it by in its transparent list; each is an
 // item of the transparent pass's list (transparent.rs Source), drawn where
 // three would have drawn it among everything else that blends.

@@ -6,7 +6,7 @@ use crate::layout::view as v;
 use jsrt::conv::to_int32;
 use three::{Matrix4, Plane, Vector3};
 
-/// The engine's random numbers (src/atmosphere.js EngineRandom): two steps of
+/// The engine's random numbers (EngineRandom): two steps of
 /// a 32-bit LCG make one draw, the seed first xored with 0xC71C2830.
 #[derive(Clone, Copy)]
 // The engine's random numbers: two steps of a 32-bit LCG make one draw, the

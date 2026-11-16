@@ -5,7 +5,7 @@
 //! `bfe_presentation::cameras::shake::Shake` over synthetic camera commands,
 //! frame rates, and wall raycasts without requiring game assets.
 //!
-//! Coverage from `tests/camera-shake.test.js`:
+//! Coverage:
 //! - Explosion shake falloff (`distance - 0.5 * radius`) between
 //!   `ShakeRadiusInner` (`3m`) and `ShakeRadiusOuter` (`8m`), ignoring blasts
 //!   closer than `1e-4m` or beyond `outer + 0.5 * radius`.
@@ -14,7 +14,7 @@
 //! - Cubic random axis turns (`(2r - 1)^3 * 0.1 * sum`) when `dt > 0` and alive,
 //!   and zero random draws when paused (`dt == 0`) or in death camera mode.
 //!
-//! Coverage from `tests/camera.test.js`:
+//! Coverage:
 //! - Responsive chase camera orbiting and running at `30, 60, 144, 240 Hz`
 //!   with zero screen-space pivot drift (`|ndc.x| < 1e-6`, `|ndc.y| < 1e-6`).
 //! - Immediate boom retraction on wall obstruction and exponential release

@@ -1,5 +1,5 @@
 //! The map's water as the world's simulation sees it
-//! (src/runtime/water-state.js WaterState): its surface height bobbing on
+//! (WaterState): its surface height bobbing on
 //! the tick clock, which cells of its grid are water, where a segment goes
 //! down through it, and what it does to a soldier each tick (his wakes and
 //! the splash of a fall into it, his gun under the surface, drowning).

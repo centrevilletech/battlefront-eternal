@@ -1,4 +1,4 @@
-//! The Enhanced destruction effects (src/destruction.js): how droids die and
+//! The Enhanced destruction effects: how droids die and
 //! how wrecked power-up droids smoulder. Everything here is presentation: the
 //! simulation decides whether a droid blows apart or plays a death clip; this
 //! only reads what it is told and draws.
@@ -33,7 +33,7 @@ const SITE_REACH: f64 = 160.0; // m: wrecks farther from the camera emit nothing
 const NO_FLOOR: f64 = -1e4; // the height of "no floor": nothing skips off it
 const UP: Vector3 = Vector3::new(0.0, 1.0, 0.0);
 const DOWN: Vector3 = Vector3::new(0.0, -1.0, 0.0);
-// The styles of the hot and smoke pools (destruction-fx.js).
+// The styles of the hot and smoke pools.
 const SPARK: f64 = 0.0;
 const FIRE: f64 = 1.0;
 const FLASH: f64 = 2.0;
@@ -46,7 +46,7 @@ const SCORCH: f64 = 2.0;
 pub const ELECTRIC: f64 = 0.0;
 pub const FIRELIGHT: f64 = 1.0;
 pub const EMBERLIGHT: f64 = 2.0;
-// A piece's life (destruction-debris.js).
+// A piece's life.
 const LINGER: f64 = 22.0; // s at rest before a piece crumbles away
 const CRUMBLE: f64 = 1.1; // s to crumble
 const MAX_FLIGHT: f64 = 14.0; // s; a piece still moving then crumbles anyway

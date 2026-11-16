@@ -12,7 +12,7 @@ fn error(message: impl Into<String>) -> AdmitError {
 }
 fn refused(call: &'static str) -> AdmitError { AdmitError::Refused { stage: Stage::Session, call: call.to_string() } }
 
-/// The protocol's fixed keyboard/mouse registry (net/layout.js INPUT_CODES).
+/// The protocol's fixed keyboard/mouse registry (INPUT_CODES).
 /// It is independent of a user's bindings; binding profile zero is empty.
 pub fn input_codes() -> Vec<String> {
     let mut codes = Vec::with_capacity(104);
@@ -663,7 +663,7 @@ pub fn publish_initial(world: &mut World, cx: &mut Cx, session: &mut Session, at
     })
 }
 
-/// The connection key createLocalServer admits (local-server.js `id`).
+/// The connection key createLocalServer admits (`id`).
 pub const LOCAL_CONNECTION: &str = "local";
 
 /// The local connection's bindings as createMultiplayerWorld.addPlayer makes

@@ -511,7 +511,7 @@ pub fn build(src: &HullSource, index: usize, id: crate::store::Ref<crate::gen::V
         slot_index: src.slot,
         pose: Some(pose),
         // Every hull's flight fields as the constructor sets them: a craft
-        // stands landed on its gear (src/flight/gear.js gearFoot); the
+        // stands landed on its gear (gearFoot); the
         // rest wait for a craft's spawn (initFlight).
         flight: crate::flight::Flight {
             state: if flying { Some(crate::flight::FlightState::Landed) } else { None },

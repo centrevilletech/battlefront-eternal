@@ -1,4 +1,4 @@
-//! DeathCamera.update from src/camera.js. This is the authoritative 60 Hz
+//! DeathCamera.update. This is the authoritative 60 Hz
 //! view used by Classic scheduling. The displayed death replay is separate:
 //! it must never advance the world's camera on a render-only frame.
 // The death camera, following the 2004 engine's. From the soldier's death

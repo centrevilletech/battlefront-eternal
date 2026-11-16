@@ -49,7 +49,7 @@ pub struct HudClassMeta {
     pub weapons: Vec<String>,
 }
 
-/// Names for the end-of-match records (contentLabels, src/battle-stats.js):
+/// Names for the end-of-match records (contentLabels):
 /// the registry's class and weapon names (id - 1), and the label of each
 /// class, weapon and vehicle by its name.
 #[derive(Default)]
@@ -368,7 +368,7 @@ impl Prepared {
             shield_icon: 0,
             buildings: vec![],
             repair_icon: 0,
-            // Battle.names (src/battle.js): each mission team's label, else
+            // Battle.names: each mission team's label, else
             // its name; a team the mission does not list has none.
             team_names: std::array::from_fn(|team| {
                 let entry = content.content.battle.world.get("mission").and_then(|m| m.get("teams")).and_then(|t| t.get(&team.to_string()));
@@ -593,7 +593,7 @@ impl Prepared {
             result.turrets.push((building, center, radius));
         }
         // Each class as the reticle's target search sees it, and the icon
-        // an enemy of that class shows by (enemyHealth, src/hud.js).
+        // an enemy of that class shows by (enemyHealth).
         result.target_classes = vec![super::hud_target::Class { scale: 1., category: 0 }; defs.registry.classes.len() + 1];
         result.target_icons = vec![0; defs.registry.classes.len() + 1];
         // What a repair weapon can lock among the live buildings, by the
@@ -611,7 +611,7 @@ impl Prepared {
             result.buildings[building] = (bfe_content::odf::num(settings.get("MaxHealth"), f64::INFINITY), icon);
         }
         // A droideka's shield is its weapon of base "shield": the bar is
-        // the shield over that weapon's MaxShield (Droideka, src/droideka.js).
+        // the shield over that weapon's MaxShield (Droideka).
         result.shield_max = vec![0.; defs.registry.classes.len() + 1];
         result.shield_icon = asset("hud_shield_icon", &mut result)?;
         for class in &defs.classes {
@@ -950,7 +950,7 @@ impl Prepared {
 }
 impl Hud {
     /// How a team looks to the viewer's: 0 neutral, 1 friendly, 2 enemy, 3
-    /// locals (radarRelation in hud-units.js).
+    /// locals (radarRelation).
     /// A post's capture as the world summary last gave it, by name: owner,
     /// the team it is turning toward, capture and neutralize progress, and
     /// each team standing in it with its head count.
@@ -1015,7 +1015,7 @@ impl Hud {
         // applies its packets before the frame's own HUD update.
         self.feed.frame(&mut bridge.hud_model, receiver, &self.radar);
         // A command vehicle lost is announced from the hulls this client
-        // shows, as its post's loss is (announceLost, src/game.js): the
+        // shows, as its post's loss is (announceLost): the
         // server's post summaries carry only the placed posts.
         let (lost, count) = self.feed.lost_posts(receiver);
         for &(team, class) in &lost[..count] {
@@ -1202,7 +1202,7 @@ impl Hud {
         } else {
             receiver.own.health / self.max_health.get(receiver.own.class).copied().unwrap_or(300.)
         };
-        // presentBattle (src/game.js) gives the HUD the local Character's
+        // presentBattle gives the HUD the local Character's
         // score every frame, and BattleHud.stats does nothing with numbers
         // it already has; so only a changed score is passed on, and the
         // popup shows when one number moves.
@@ -1512,7 +1512,7 @@ impl Hud {
         x[H::RETICLE] = receiver.own.alive as u8 as f64;
     }
 
-    // updateTargetHud (src/game.js), once for each applied correction: what
+    // updateTargetHud, once for each applied correction: what
     // each channel's reticle is on colours it, and an enemy under channel 0
     // shows his health. `ray`: the gun's origin and aim on foot, the camera
     // and the seat's view in a vehicle or turret; None hides nothing, the
@@ -1535,7 +1535,7 @@ impl Hud {
         x[H::TARGET_RELATION] = found.as_ref().map_or(4., |found| found.relations[0]);
         x[H::SECOND_RELATION] = found.as_ref().map_or(4., |found| found.relations[1]);
         if let Some((kind, source, health)) = found.and_then(|found| found.enemy) {
-            // enemyHealth (src/hud.js): his health over his class's maximum,
+            // enemyHealth: his health over his class's maximum,
             // by the class's HealthTexture, or hud_health without one.
             let (max, icon) = if kind == k::TURRET {
                 let mount = self.mounts.iter().find(|m| m.kind == k::TURRET as f64 && m.source == source);

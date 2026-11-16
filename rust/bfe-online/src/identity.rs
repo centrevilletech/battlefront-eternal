@@ -278,7 +278,7 @@ impl PlayerIdentity {
     }
 
     // Colon-separated uppercase SHA-256 fingerprint of the 44-byte SPKI DER
-    // public key (`sha-256 XX:XX:...`), matching `src/net/crypto.js::fingerprintOf`
+    // public key (`sha-256 XX:XX:...`),::fingerprintOf`
     // and `battlefront-eternal-server/src/identity.js::fingerprintOf`.
     pub fn fingerprint(&self) -> String {
         let digest = Sha256::digest(self.public_key_spki_der());

@@ -1,4 +1,4 @@
-//! The page's `SimEvents` journal (src/sim-events.js) with the records the
+//! The page's `SimEvents` journal with the records the
 //! game's observers write into it: a ring of 4096 slots, a sequence number
 //! and the simulation time the owner sets each tick. `worldState` reads the
 //! ring's filled slots in slot order (`ring.filter(Boolean)`), and the AI's
@@ -49,7 +49,7 @@ pub enum Presentation {
         owner: Life,
     },
     /// `hooks.presented(kind, unit, amount, source, hitKind, sample)`
-    /// (src/game.js): `{kind, ownerId, ownerGeneration, amount, source,
+    ///: `{kind, ownerId, ownerGeneration, amount, source,
     /// hitKind}`, the source a shield hit's or null.
     Presented {
         kind: Presented,
@@ -57,7 +57,7 @@ pub enum Presentation {
         amount: f64,
         source: Option<[f64; 3]>,
     },
-    /// presentEffect (src/game.js): `{kind: 'effect', name, position}`; a
+    /// presentEffect: `{kind: 'effect', name, position}`; a
     /// melee deflection's onPresentation adds `ownerId, ownerGeneration`.
     Effect {
         name: StrId,
@@ -115,7 +115,7 @@ impl Presented {
 #[derive(Clone, Copy, Debug)]
 pub enum Event {
     Recon(super::recon::Record), // matrix-b
-    /// F4Tail.onSpawn (src/game.js): `spawn {target, team, position,
+    /// F4Tail.onSpawn: `spawn {target, team, position,
     /// className, post}`.
     Spawn {
         target: Life,
@@ -124,7 +124,7 @@ pub enum Event {
         class_name: StrId,
         post: Option<StrId>,
     },
-    /// AiNotices.voice (src/sim/wasm/ai-world-notices.js): `vo {source,
+    /// AiNotices.voice: `vo {source,
     /// team, position, human, event, property}` and the notice's optional
     /// `command`, `context`, `positional`, `notice` when present. The
     /// record's time is the notice's.
@@ -140,7 +140,7 @@ pub enum Event {
         positional: Option<bool>,
         notice: Option<bool>,
     },
-    /// unit.combat.onFired (src/game.js): `shot {source, team, position,
+    /// unit.combat.onFired: `shot {source, team, position,
     /// direction, weapon, repair, melee, swing}`.
     Shot {
         source: Life,
@@ -152,7 +152,7 @@ pub enum Event {
         melee: bool,
         swing: f64,
     },
-    /// mountedShot (src/game.js), a vehicle's or a turret's gun: `shot
+    /// mountedShot, a vehicle's or a turret's gun: `shot
     /// {source, mount, seat, team, position, direction, weapon, repair,
     /// melee, swing}`, the source null when the shot's owner had none.
     MountedShot {
@@ -167,7 +167,7 @@ pub enum Event {
         melee: bool,
         swing: f64,
     },
-    /// blastNotice (src/game.js): `explosion {position, team, source,
+    /// blastNotice: `explosion {position, team, source,
     /// radius}`, the source null when the blast's owner had none.
     Explosion {
         position: [f64; 3],
@@ -175,7 +175,7 @@ pub enum Event {
         source: Option<Life>,
         radius: f64,
     },
-    /// unit.combat.onDamaged (src/game.js instrument): `damage {target,
+    /// unit.combat.onDamaged (instrument): `damage {target,
     /// team, position, amount, typed, generic, known, point, source, health,
     /// attacker, attackerTeam}`; `amount` is the hit's own amount and
     /// `health` what the body lost.
@@ -195,7 +195,7 @@ pub enum Event {
     },
     /// `presentation {event}`.
     Presentation(Presentation),
-    /// ordnance.onGrenadeContact (src/game.js): `grenade {position, team,
+    /// ordnance.onGrenadeContact: `grenade {position, team,
     /// source, def}`, `def` the round's class or null.
     Grenade {
         position: [f64; 3],
@@ -203,7 +203,7 @@ pub enum Event {
         source: Option<Life>,
         def: Option<StrId>,
     },
-    /// vehicles.onDamaged (src/game.js): `damage {target, team, position,
+    /// vehicles.onDamaged: `damage {target, team, position,
     /// amount, typed: 1, generic: 1, known: false, point: null, health:
     /// amount, attacker, attackerTeam}`, no source key; the target is the
     /// hull's registry target.
@@ -215,7 +215,7 @@ pub enum Event {
         attacker: Option<Life>,
         attacker_team: f64,
     },
-    /// a turret's onDamaged (src/game.js): `damage {target, team, position,
+    /// a turret's onDamaged: `damage {target, team, position,
     /// amount, typed, generic, known, point, health, attacker,
     /// attackerTeam}`, `known` whether the hit had a direction, no source
     /// key; the target is the turret's registry target and the life the
@@ -232,7 +232,7 @@ pub enum Event {
         attacker: Option<Life>,
         attacker_team: f64,
     },
-    /// deathNotice (src/game.js): `death {target, team, position, attacker,
+    /// deathNotice: `death {target, team, position, attacker,
     /// attackerTeam}`.
     Death {
         target: Life,
@@ -241,7 +241,7 @@ pub enum Event {
         attacker: Option<Life>,
         attacker_team: f64,
     },
-    /// vehicles/turretSeats.onBoard and onUnboard (src/game.js): `board` or
+    /// vehicles/turretSeats.onBoard and onUnboard: `board` or
     /// `unboard {source, team, position, target, seat}`.
     Seat {
         boarded: bool,

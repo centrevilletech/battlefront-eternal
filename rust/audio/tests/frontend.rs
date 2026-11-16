@@ -6,7 +6,7 @@ use audio::frontend::Frontend;
 use audio::output::Output;
 use audio::FRAMES;
 
-// Ported from `tests/audio-frontend.test.js`:
+// Test:
 // "front-end completion events retire PCM once and allow a slot to be reused".
 //
 // Each active front-end slot carries a caller-supplied generation number alongside
@@ -112,7 +112,7 @@ fn frontend_completion_events_retire_pcm_once_and_allow_a_slot_to_be_reused() {
     assert!(completed.contains(&(0, 3)));
 }
 
-// Ported from `tests/audio-light.test.js`:
+// Test:
 // "Classic stereo has one required Rust source-to-output host".
 //
 // In the light mix (`Output::light`, Classic stereo's cheap path), voices bypass
@@ -169,7 +169,7 @@ fn classic_stereo_builds_the_full_original_chain() {
     assert!(!out.light_mode && out.master.is_some() && !out.enhanced && out.channels == 2);
 }
 
-// Ported from `tests/audio-light.test.js`:
+// Test:
 // "speaker test reaches its named channel after the muted mono game mix".
 //
 // Stream kinds `>= 3` address physical speaker lanes (`kind - 3`) after master
@@ -215,7 +215,7 @@ fn speaker_test_reaches_its_named_channel_after_the_muted_mono_game_mix() {
     }
 }
 
-// Ported from `tests/audio-light.test.js`:
+// Test:
 // "a narrower queued segment preserves the first segment's surround lanes".
 //
 // When a 6-channel stream has a narrower 2-channel segment queued on part 1,

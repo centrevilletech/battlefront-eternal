@@ -1,4 +1,4 @@
-//! The host's world clock as WorldTick (src/runtime/world-tick.js) stamps it
+//! The host's world clock as WorldTick stamps it
 //! into every WorldTickInput and copies it back from every WorldTickOutput.
 //! The world itself advances the clock inside its step (World::step runs
 //! FixedClock's compensated advance once a tick); the host only keeps the

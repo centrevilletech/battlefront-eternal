@@ -1464,7 +1464,7 @@ impl StandaloneWindowApp {
 
     /// A chance to present a frame: the window's redraw, or the loop's own
     /// step for a hidden window. In a battle the frameLimit setting may let
-    /// the chance pass (game.js frameBody).
+    /// the chance pass (frameBody).
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
         self.redraw_asked = None;

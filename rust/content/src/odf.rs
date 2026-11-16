@@ -4,7 +4,7 @@
 //! turns them into numbers its own way: `parseFloat` with a fallback
 //! (vehicles.js num, seats.js numberOf, props.js num, vehicle-hover,
 //! vehicle-motion, flight/camera), `Number` (vehicle-water), whitespace
-//! pairs (props.js pair), sscanf-like vectors (props.js scanVector),
+//! pairs (pair), sscanf-like vectors (scanVector),
 //! `parseInt` (mobile-posts). Each is here, by the same rules, and the
 //! content dump proves them on every setting of every class.
 

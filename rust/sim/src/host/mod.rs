@@ -1,9 +1,9 @@
 //! The authority host's tick: what the JavaScript server did around the
 //! world's step that the step itself does not, as one native entry,
 //! `Context::world_tick`. The page's `LocalServer.step`
-//! (src/runtime/local-server.js) ran `host.advanceEdges()`, then
-//! `world.step(now)` (src/runtime/multiplayer-world.js), whose `game.step`
-//! (src/game.js) wrote the owners' input banks before `world_step_run` and
+//! ran `host.advanceEdges()`, then
+//! `world.step(now)`, whose `game.step`
+//! wrote the owners' input banks before `world_step_run` and
 //! drained the unit phase's notifications after it, then
 //! `host.consumedEdges(tick)`. A native client or server that calls the bare
 //! `world_step` skips all of that: the AI hears nothing, the collision
@@ -257,7 +257,7 @@ impl Context {
         self.host(|host| host.vehicle_input.set_assists(on))
     }
 
-    /// A network client joins the authority (`snapshot-host.js` `add`): its
+    /// A network client joins the authority (`add`): its
     /// players handle and its entity edge runtime. The host reads the
     /// runtime's generation (`feedback()`, a read) and the player's body.
     pub fn world_host_client(&self, player: u32, edges: u32) -> Result<(), Error> {
@@ -265,7 +265,7 @@ impl Context {
             .map_err(Error::host)
     }
 
-    /// A network client leaves the authority (`snapshot-host.js` `removeClient`):
+    /// A network client leaves the authority (`removeClient`):
     /// drops every client entry bound to `edges` so `advance_edges` and
     /// `consumed_edges` stop driving that edge runtime.
     pub fn world_host_client_leave(&self, edges: u32) -> Result<(), Error> {

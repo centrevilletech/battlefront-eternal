@@ -1,4 +1,4 @@
-// The battle HUD (hud.js): the interface's quads (src/interface/batch.js),
+// The battle HUD: the interface's quads,
 // drawn over the finished frame on the canvas through the interface's own
 // perspective camera, as three draws the batch's mesh: each run of quads
 // with one texture (and mask), in the batch's order, alpha blended, neither

@@ -1,8 +1,8 @@
-//! The things lying about (src/items.js), in Rust: mines and power-ups,
+//! The things lying about, in Rust: mines and power-ups,
 //! thrown by dispensers, dropped by the dead, placed by the world. Each
 //! function transliterates the JavaScript method it names and reaches the
 //! rest of the battle through the ordnance's [`World`] (its items' part,
-//! ItemsWorld in src/ordnance-world.js), as rust/sim/src/ordnance does.
+//! ItemsWorld), as rust/sim/src/ordnance does.
 //!
 //! An item taken or set off is marked gone and stays in the list until the
 //! next update's filter, as the JavaScript's does (a dispenser's count and

@@ -153,12 +153,12 @@ pub enum IaFocus {
 /// Modal popup kind (`Ok` notice, `ConfirmExit` `YES`/`NO`, or `HostClosePrompt` 3-button dialog).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PopupState {
-    /// Single-button notice dialog (`okPopup` in `src/menus/index.js`).
+    /// Single-button notice dialog (`okPopup`).
     Notice {
         /// Centered message text displayed above the `OK` button.
         message: String,
     },
-    /// Two-button confirmation dialog (`confirmPopup` in `src/menus/index.js`).
+    /// Two-button confirmation dialog (`confirmPopup`).
     ConfirmExit {
         /// Prompt text (`"EXIT TO WINDOWS?"`).
         message: String,
@@ -192,7 +192,7 @@ pub enum ShellAction {
     /// User decision on the 3-button `HostClosePrompt` (`0` = KeepServer, `1` = StopServer, `2` = Cancel).
     HostCloseDecision(usize),
     /// `EXPORT CONTENT` or `IMPORT CONTENT` on the main menu: the client asks for the file,
-    /// runs the transfer and shows its progress (`transferContent` in `src/shell/screens.js`).
+    /// runs the transfer and shows its progress (`transferContent`).
     ContentTransfer(TransferKind),
 }
 
@@ -233,14 +233,14 @@ pub struct ShellSettings {
     pub battle_size: String,
     /// AI difficulty preset (`"medium"`).
     pub difficulty: String,
-    /// Mouse slider (`0.5..=10.0`, neutral `5.0`), as in `src/settings.js`.
+    /// Mouse slider (`0.5..=10.0`, neutral `5.0`),.
     pub mouse_sensitivity: f32,
     /// Whether vertical mouse look is inverted (`false` by default).
     pub invert_y: bool,
 }
 
 impl Default for ShellSettings {
-    /// Returns the default player settings matching `src/settings.js`.
+    /// Returns the default player settings.
     fn default() -> Self {
         Self {
             master_volume: 1.0,
@@ -256,17 +256,17 @@ impl Default for ShellSettings {
     }
 }
 
-/// Complete state of the front-end shell (`createScreens` in `src/shell/screens.js`).
+/// Complete state of the front-end shell (`createScreens`).
 pub struct ShellApp {
     /// Loaded `shell.json`, `common.json`, and localization strings.
     pub data: ShellData,
-    /// Screen movie, camera flythrough, whoosh, and music controller (`src/shell/media.js`).
+    /// Screen movie, camera flythrough, whoosh, and music controller.
     pub media: ShellMedia,
     /// Current audio, video, game, and control settings.
     pub settings: ShellSettings,
-    /// Player profile name and callsign editor state (`src/shell/profile-dialog.js`).
+    /// Player profile name and callsign editor state.
     pub profile: ProfileState,
-    /// Formatted bottom-right `MAIN MENU` version string (`src/shell/version.js`).
+    /// Formatted bottom-right `MAIN MENU` version string.
     pub version_text: String,
     /// Navigation stack of screens (`Gate` -> `Main` -> `Singleplayer` -> `InstantAction`, etc.).
     pub stack: Vec<ScreenId>,
@@ -333,7 +333,7 @@ pub(super) enum PendingMpAction {
 
 impl ShellApp {
     /// Creates a new `ShellApp` starting on the click gate (`ScreenId::Gate`),
-    /// matching `createShell` in `src/shell/index.js`.
+    /// matching `createShell`.
     pub fn new(data: ShellData, about: Option<&AboutInfo>) -> Self {
         let mut media = ShellMedia::new(&data);
         let media_events = media.begin_enter(&data, "start", false);
@@ -414,7 +414,7 @@ impl ShellApp {
     /// `BATTLEFRONT (2004)` (`Swbf1`, enabled) and `BATTLEFRONT II (2005), PLANNED`
     /// (`Swbf2`, disabled).
     ///
-    /// Mirrors `gamePicker()` in `src/shell/index.js`.
+    /// Mirrors `gamePicker()`.
     pub fn ia_game_picker_options(&self) -> &'static [(GameFamily, &'static str, bool)] {
         &GAME_PICKER_OPTIONS
     }
@@ -455,7 +455,7 @@ impl ShellApp {
     }
 
     /// Looks up a localized string in `data.strings`, falling back to `fallback`.
-    /// Mirrors `say(key, fallback)` in `src/shell/screens.js`.
+    /// Mirrors `say(key, fallback)`.
     pub fn say<'a>(&'a self, key: &str, fallback: &'a str) -> &'a str {
         self.data
             .strings
@@ -526,10 +526,10 @@ impl ShellApp {
     /// Returns the rows for any row-based screen (`Main`, `Singleplayer`,
     /// `Options`, `Profile`, `Multiplayer`, `MultiplayerList`, `InstantActionEra`, `HostDialog`).
     ///
-    /// Mirrors the `rowScreen` definitions in `src/shell/screens.js`.
+    /// Mirrors the `rowScreen` definitions.
     pub fn rows_for(&self, screen: ScreenId) -> Vec<MenuRow> {
         match screen {
-            // `main()` in `src/shell/screens.js`: 7 top-level rows.
+            // `main()`: 7 top-level rows.
             ScreenId::Main => vec![
                 MenuRow::enabled("sp", "SINGLEPLAYER"),
                 MenuRow::enabled("mp", "MULTIPLAYER"),
@@ -539,14 +539,14 @@ impl ShellApp {
                 MenuRow::enabled("import-content", "IMPORT CONTENT"),
                 MenuRow::enabled("quit", "EXIT TO WINDOWS"),
             ],
-            // `singleplayer()` in `src/shell/screens.js`: `HISTORICAL CAMPAIGN`
+            // `singleplayer()`: `HISTORICAL CAMPAIGN`
             // and `GALACTIC CONQUEST` are disabled; `INSTANT ACTION` is enabled.
             ScreenId::Singleplayer => vec![
                 MenuRow::disabled("campaign", "HISTORICAL CAMPAIGN"),
                 MenuRow::disabled("conquest", "GALACTIC CONQUEST"),
                 MenuRow::enabled("instant", "INSTANT ACTION"),
             ],
-            // `optionsMenu` in `src/menus/options.js`: sub-page links and `CREDITS`.
+            // `optionsMenu`: sub-page links and `CREDITS`.
             ScreenId::Options => vec![
                 MenuRow::enabled("game", "GAME OPTIONS"),
                 MenuRow::enabled("video", "VIDEO OPTIONS"),
@@ -556,21 +556,21 @@ impl ShellApp {
                 MenuRow::enabled("credits", "CREDITS"),
             ],
             ScreenId::OptionsPage(page) => self.option_rows(page),
-            // `profile()` in `src/shell/screens.js`: current player name
+            // `profile()`: current player name
             // (disabled header row), `CREATE PROFILE`, and `DELETE PROFILE`.
             ScreenId::Profile => vec![
                 MenuRow::disabled("player", self.profile.name.clone()),
                 MenuRow::enabled("new", "CREATE PROFILE"),
                 MenuRow::enabled("delete", "DELETE PROFILE"),
             ],
-            // Classic `multiplayer()` in `src/shell/screens.js`: `HOST`, `LAN`, `ONLINE`.
+            // Classic `multiplayer()`: `HOST`, `LAN`, `ONLINE`.
             ScreenId::Multiplayer => vec![
                 MenuRow::enabled("host", "HOST"),
                 MenuRow::enabled("lan", "LAN"),
                 MenuRow::enabled("online", "ONLINE"),
             ],
             ScreenId::MultiplayerList(kind) => {
-                // Mirrors `network(kind)` in `src/shell/screens.js`: privacy notice
+                // Mirrors `network(kind)`: privacy notice
                 // gate for `ONLINE`, error + `RETRY` on failure, or server rows
                 // followed by `REFRESH` (and `DIRECT CONNECTION` on `LAN`).
                 let mut rows = Vec::new();
@@ -584,7 +584,7 @@ impl ShellApp {
                     return rows;
                 }
                 // Format each discovered or master-listed server as
-                // `"<name>  <players>/<maxPlayers>"` (`network(kind)` in `screens.js`).
+                // `"<name>  <players>/<maxPlayers>"` (`network(kind)`).
                 for srv in &self.mp_servers {
                     rows.push(MenuRow::enabled(
                         srv.id.clone(),
@@ -649,7 +649,7 @@ impl ShellApp {
                 ),
                 MenuRow::enabled("reset", "RESET TO DEFAULTS"),
             ],
-            // Video quality preset rows (`src/menus/options.js`).
+            // Video quality preset rows.
             OptionsPageId::Video => vec![
                 MenuRow::enabled("resolution", "RESOLUTION: NATIVE"),
                 MenuRow::enabled("antialiasing", "ANTIALIASING: HIGH"),
@@ -782,7 +782,7 @@ impl ShellApp {
             self.row_cursor.insert(key, first_enabled);
         }
         // Entering `INSTANT ACTION` ensures `ia_available_selected` points at an
-        // extracted map and triggers `media.preview(map.id)` (`onEnter` in `screens.js`).
+        // extracted map and triggers `media.preview(map.id)` (`onEnter`).
         if screen == ScreenId::InstantAction {
             if let Some(first_idx) = self
                 .data
@@ -812,7 +812,7 @@ impl ShellApp {
     }
 
     /// Pops the current screen (or invokes `Main`'s `backAction` which pushes
-    /// `Profile`, matching `screen.backAction = push(profile)` in `src/shell/screens.js`).
+    /// `Profile`, matching `screen.backAction = push(profile)`).
     pub fn back(&mut self) {
         // Dismissing a modal popup (`Notice`, `ConfirmExit`, or `HostClosePrompt`)
         // plays `"shell_menu_cancel"` without popping the underlying screen.
@@ -845,7 +845,7 @@ impl ShellApp {
                 if self.stack.len() > 1 {
                     self.stack.pop();
                     self.rebuild_cached_rows();
-                    // Coming back to a screen is `exit`; `cancel` is a popup's NO (`ScreenStack.pop` in src/menus/stack.js).
+                    // Coming back to a screen is `exit`; `cancel` is a popup's NO (`ScreenStack.pop`).
                     self.sound_queue.push("shell_menu_exit");
                     let top = self.current_screen();
                     let evs = self.media.begin_enter(&self.data, top.media_id(), true);
@@ -1083,7 +1083,7 @@ mod tests {
 
     // Verifies that Instant Action's `AVAILABLE MAPS` game picker defaults to
     // `BATTLEFRONT (2004)` (`Swbf1`) and lists `BATTLEFRONT II (2005), PLANNED`
-    // (`Swbf2`) as disabled (`gamePicker()` in `src/shell/index.js`).
+    // (`Swbf2`) as disabled (`gamePicker()`).
     #[test]
     fn game_picker_lists_swbf1_selected_and_swbf2_planned_disabled() {
         let mut app = ShellApp::new(test_shell_data(), None);

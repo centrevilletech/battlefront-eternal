@@ -76,7 +76,7 @@ pub struct Content {
     /// props.js clipsFor: a model's clips, by model, in first-use order.
     pub prop_clips: Vec<(String, Option<Clips>)>,
     pub death_regions: Vec<(Value, BuiltRegion)>,
-    /// ai-nav.bin's routing words (nav/data.js routeWords).
+    /// ai-nav.bin's routing words (routeWords).
     pub route_words: Option<Result<Vec<u32>, String>>,
     /// The placed power-ups a world spawns at the start.
     pub placed_items: Vec<PlacedItem>,
@@ -186,7 +186,7 @@ impl Content {
             body_clips.push((key.clone(), bank));
             actors.push((key.clone(), actor));
         }
-        // Droideka classes: their own clips on their bodies (units.js buildBody).
+        // Droideka classes: their own clips on their bodies (buildBody).
         let mut walker_clips = Vec::new();
         for side in &b.sides {
             let Some(units) = side.units.as_object() else { continue };

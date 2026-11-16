@@ -1,4 +1,4 @@
-//! The master chain in the mixer's own module: what follows the spatial mixer in src/audio/spatial.js
+//! The master chain in the mixer's own module: what follows the spatial mixer
 //! (Renderer.build), worked out here instead of in the browser's nodes and
 //! three more worklets. Per block, as the graph computes it:
 

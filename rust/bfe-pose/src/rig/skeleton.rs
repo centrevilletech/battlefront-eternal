@@ -31,7 +31,7 @@ pub struct Skeleton {
     /// Each bone as buildActor leaves it: `fromArray(local).decompose(...)`
     /// into its position, quaternion and scale, the quaternion's change
     /// callback having synced its Euler once, before buildActor switches
-    /// that callback off (src/actor.js NO_EULER) where `euler_sync` is
+    /// that callback off (NO_EULER) where `euler_sync` is
     /// false. Its matrices are the identity, as a new Bone's.
     pub bind: Vec<TransformNode>,
 }
@@ -112,7 +112,7 @@ impl Skeleton {
     }
 
     /// `bones.findIndex((bone) => bone.name.toLowerCase() === name)`
-    /// (src/droideka.js): the first bone whose lower-cased name is `name`.
+    ///: the first bone whose lower-cased name is `name`.
     pub fn find_lower(&self, name: &str) -> Option<usize> {
         self.names.iter().position(|n| lower(n) == name)
     }

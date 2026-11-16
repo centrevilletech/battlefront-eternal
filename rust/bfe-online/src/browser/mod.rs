@@ -12,15 +12,14 @@ use bfe_transport::layout::{network_contract, VERSION as TRANSPORT_LAYOUT_VERSIO
 use serde::{Deserialize, Serialize};
 
 // Auto-refresh interval (30s) when the server browser is open, matching
-// `REFRESH_EVERY` in `src/shell/server-browser.js`.
+// `REFRESH_EVERY`.
 pub const REFRESH_EVERY_MS: u64 = 30_000;
 
 // Quiet retry interval (10s) after a refresh error while keeping stale rows,
-// matching `RETRY_EVERY` in `src/shell/server-browser.js`.
+// matching `RETRY_EVERY`.
 pub const RETRY_EVERY_MS: u64 = 10_000;
 
-// Browser listing sources (`SOURCES = [["internet", "INTERNET"], ["lan", "LAN"]]`
-// in `src/shell/server-browser.js`).
+// Browser listing sources (`SOURCES = [["internet", "INTERNET"], ["lan", "LAN"]]`).
 // Selecting `Internet` queries the signed HTTPS master directory
 // (`GET /v1/servers`), whereas `Lan` broadcasts a UDP `BFE-LAN/1` beacon on
 // port 18452 to discover local servers without touching the internet.
@@ -69,7 +68,7 @@ impl Source {
     }
 }
 
-// Ping filter choices (`PINGS` in `src/shell/server-browser.js`):
+// Ping filter choices (`PINGS`):
 // `[["any", "ANY PING"], ["50", "UNDER 50 MS"], ["100", "UNDER 100 MS"], ["150", "UNDER 150 MS"]]`.
 // When a numeric threshold is active, both high-latency servers (`latency_ms >= threshold`)
 // and unanswered servers (`latency_ms == None`, mapped to `Infinity` in JS) are excluded.
@@ -110,7 +109,7 @@ impl PingFilter {
     }
 
     // Strict upper bound in milliseconds (`finite(s.latencyMs) < Number(f.ping)`
-    // in `src/shell/server-browser.js`), or `None` when `PingFilter::Any` is selected.
+    //), or `None` when `PingFilter::Any` is selected.
     pub fn threshold_ms(self) -> Option<u32> {
         match self {
             Self::Any => None,
@@ -132,7 +131,7 @@ impl PingFilter {
 }
 
 // Era filter choices (`[["all", "ALL ERAS"], ...Object.entries(ERAS)]` in
-// `src/shell/server-browser-view.js` and `ERAS` in `src/shell/server-browser.js`).
+// `src/shell/server-browser-view.js` and `ERAS`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EraOption {
     All,
@@ -162,9 +161,9 @@ impl EraOption {
     }
 }
 
-// Sortable table columns (`COLUMNS` in `src/shell/server-browser.js`).
+// Sortable table columns (`COLUMNS`).
 // Clicking a column header sorts by that column or reverses the current sort
-// direction when already active (`sortBy(key)` in `src/shell/server-browser.js`).
+// direction when already active (`sortBy(key)`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortColumn {
     Name,
@@ -177,7 +176,7 @@ pub enum SortColumn {
 }
 
 impl SortColumn {
-    // Left-to-right column order in `.bfe-browser-head` (`src/shell/server-browser-view.js`).
+    // Left-to-right column order in `.bfe-browser-head`.
     pub const ALL: [SortColumn; 7] = [
         SortColumn::Name,
         SortColumn::Players,
@@ -227,7 +226,7 @@ impl SortColumn {
 }
 
 // Active sort column and direction (`+1` ascending, `-1` descending),
-// corresponding to `this.sort = { key, dir }` in `src/shell/server-browser.js`.
+// corresponding to `this.sort = { key, dir }`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SortSpec {
     pub column: SortColumn,
@@ -235,7 +234,7 @@ pub struct SortSpec {
 }
 
 impl Default for SortSpec {
-    // Matches `this.sort = { key: "ping", dir: 1 }` in `src/shell/server-browser.js`.
+    // Matches `this.sort = { key: "ping", dir: 1 }`.
     fn default() -> Self {
         Self {
             column: SortColumn::Ping,
@@ -244,7 +243,7 @@ impl Default for SortSpec {
     }
 }
 
-// Active toolbar filter state (`FILTERS` in `src/shell/server-browser.js`).
+// Active toolbar filter state (`FILTERS`).
 // `name` performs a case-insensitive substring match across `server.name`,
 // `server.battle.map_name`, and `server.location`; `map` and `era` default to
 // `"all"`; `hide_full` and `hide_empty` toggle capacity filtering.
@@ -259,8 +258,7 @@ pub struct Filters {
 }
 
 impl Default for Filters {
-    // Matches `FILTERS = { name: "", map: "all", era: "all", ping: "any", hideFull: false, hideEmpty: false }`
-    // in `src/shell/server-browser.js`.
+    // Matches `FILTERS = { name: "", map: "all", era: "all", ping: "any", hideFull: false, hideEmpty: false }`.
     fn default() -> Self {
         Self {
             name: String::new(),
@@ -287,7 +285,7 @@ impl Filters {
 }
 
 // Single-field mutation passed to `ServerBrowserService::set_filter`, mirroring
-// `setFilter(key, value)` in `src/shell/server-browser.js`.
+// `setFilter(key, value)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FilterUpdate {
     Name(String),
@@ -312,7 +310,7 @@ pub enum BrowserState {
 }
 
 impl BrowserState {
-    // Lowercase state discriminator matching `w.state` in `src/shell/server-browser-view.js`
+    // Lowercase state discriminator matching `w.state`
     // (used for placeholder CSS classes `.bfe-browser-empty.{state}`).
     pub fn kind(&self) -> &'static str {
         match self {
@@ -335,15 +333,14 @@ impl BrowserState {
 
 // Distinguishes an initial foreground load (which transitions `state` to
 // `Loading` and shows `"SEARCHING FOR SERVERS…"`) from a background periodic
-// or retry refresh (`refresh({ quiet: true })` in `src/shell/server-browser.js`).
+// or retry refresh (`refresh({ quiet: true })`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RefreshKind {
     Initial,
     Quiet,
 }
 
-// Keyboard navigation keys handled while the server table has focus (`key(code)`
-// in `src/shell/server-browser.js`).
+// Keyboard navigation keys handled while the server table has focus (`key(code)`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserKey {
     ArrowUp,
@@ -430,7 +427,7 @@ impl Default for ServerContract {
 }
 
 // Current battle summary nested under `server.battle` in master and LAN server
-// payloads (`src/shell/server-browser.js` and `src/shell/server-browser-view.js`).
+// payloads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct BattleSummary {
     // Short map slug (`"nab2"`, `"hot1"`, `"bes2"`, ...).
@@ -496,7 +493,7 @@ pub enum RotationItem {
 
 impl RotationItem {
     // Extracts the map id from either `"swbf1/kam1:cw:conquest"` or
-    // `{ map: "kam1", ... }`, matching `src/shell/server-browser-view.js`.
+    // `{ map: "kam1", ... }`,.
     pub fn map_id(&self) -> Option<&str> {
         match self {
             Self::Slug(s) => {
@@ -607,7 +604,7 @@ pub struct ServerEntry {
     pub latency_ms: Option<u32>,
 }
 
-// Known map catalog entry (`{ id, name }` in `src/shell/server-browser-view.js`)
+// Known map catalog entry (`{ id, name }`)
 // used to populate the map filter dropdown and resolve map slugs in `GAME INFO`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MapCatalogEntry {
@@ -625,7 +622,7 @@ impl MapCatalogEntry {
 }
 
 // Signal bar tier (`q0`..`q4` in `.bfe-bars`) computed from a server's TCP
-// handshake latency in `src/shell/server-browser-view.js::quality`.
+// handshake latency::quality`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PingQuality {
     Good,
@@ -651,7 +648,7 @@ impl PingQuality {
 }
 
 // Sanitized sponsor attribution ready for rendering in `.bfe-sponsor` inside
-// the `GAME INFO` panel (`src/shell/server-browser-view.js`).
+// the `GAME INFO` panel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SponsorInfo {
     // Sanitized sponsor display name (1..=60 characters).
@@ -732,9 +729,9 @@ pub use info::*;
 // - `filters` and `sort`: toolbar filter predicates and active sort column/dir.
 // - `servers`: latest completed server list for the current `source`.
 // - `selected_id`: ID of the highlighted row, preserved across refreshes and
-//   filter edits via `keep_selection` (`keep()` in `src/shell/server-browser.js`).
+//   filter edits via `keep_selection` (`keep()`).
 // - `state`, `stale`, `refreshed_at`, `failed_at`: lifecycle state and timestamps
-//   used by `needs_refresh` (`tick()` in `src/shell/server-browser.js`) to
+//   used by `needs_refresh` (`tick()`) to
 //   schedule 30s periodic renewals and 10s quiet retries while preserving rows.
 // - `loads` and `busy`: monotonically increasing request token (`++this.loads`)
 //   that discards out-of-order responses when the user switches source or triggers
@@ -764,7 +761,7 @@ impl Default for ServerBrowser {
 
 impl ServerBrowser {
     // Initializes an idle `ServerBrowser` on the `"internet"` source sorted
-    // ascending by `Ping`, matching `new ServerList()` in `src/shell/server-browser.js`.
+    // ascending by `Ping`, matching `new ServerList()`.
     pub fn new(contract: ServerContract) -> Self {
         Self {
             source: Source::Internet,
@@ -825,7 +822,7 @@ impl ServerBrowser {
     }
 
     // Begins a refresh operation and returns `Some(token)` (`const token = ++this.loads`
-    // in `src/shell/server-browser.js`), or `None` if `quiet` is true while a
+    //), or `None` if `quiet` is true while a
     // load is already busy (`if (quiet && this.busy) return`).
     //
     // Foreground refreshes (`!quiet`) and initial refreshes when not yet `Ready`
@@ -845,7 +842,7 @@ impl ServerBrowser {
     }
 
     // Applies a completed server list if `token` matches `self.loads`
-    // (`if (token !== this.loads) return` in `src/shell/server-browser.js`).
+    // (`if (token !== this.loads) return`).
     // Clears any stale warning, records `refreshed_at = now_ms`, transitions
     // `state` to `BrowserState::Ready`, and runs `keep_selection()` so the
     // player's highlighted server stays selected if still present.
@@ -864,7 +861,7 @@ impl ServerBrowser {
     }
 
     // Transitions to `BrowserState::Notice` (`"ONLINE PLAY NEEDS YOUR OK FIRST"`
-    // in `src/shell/server-browser-view.js`) when the master bridge reports that
+    //) when the master bridge reports that
     // the player has not yet accepted `ONLINE_NOTICE_VERSION`.
     pub fn finish_refresh_notice(&mut self, token: u64) -> bool {
         if token != self.loads {
@@ -961,8 +958,7 @@ impl ServerBrowser {
         true
     }
 
-    // Ports `compare(column.value(a), column.value(b)) * this.sort.dir || i - j`
-    // in `src/shell/server-browser.js`.
+    // Ports `compare(column.value(a), column.value(b)) * this.sort.dir || i - j`.
     //
     // Key behaviors preserved from the JS implementation:
     // - `SortColumn::Ping` maps `None` (`!Number.isFinite(s.latencyMs)`) to
@@ -1066,7 +1062,7 @@ impl ServerBrowser {
         }
     }
 
-    // Ports `keep()` in `src/shell/server-browser.js`:
+    // Ports `keep()`:
     //   if (!rows.some(server => server.id === this.selectedId))
     //     this.selectedId = rows[0]?.id ?? null;
     // Ensures the `GAME INFO` inspector and keyboard cursor always point to a
@@ -1087,7 +1083,7 @@ impl ServerBrowserService for ServerBrowser {
         self.source
     }
 
-    // Ports `setSource(source)` in `src/shell/server-browser.js`. Returns true
+    // Ports `setSource(source)`. Returns true
     // when the source changed so the caller can trigger a refresh.
     fn set_source(&mut self, next: Source) -> bool {
         if self.source == next {
@@ -1104,7 +1100,7 @@ impl ServerBrowserService for ServerBrowser {
         &self.filters
     }
 
-    // Ports `setFilter(key, value)` in `src/shell/server-browser.js`: mutates
+    // Ports `setFilter(key, value)`: mutates
     // the targeted filter field and, when the value actually changed, re-runs
     // `keep_selection()` so a newly filtered-out selection snaps to `rows()[0]`.
     fn set_filter(&mut self, update: FilterUpdate) -> bool {
@@ -1157,7 +1153,7 @@ impl ServerBrowserService for ServerBrowser {
         self.sort
     }
 
-    // Ports `sortBy(key)` in `src/shell/server-browser.js`:
+    // Ports `sortBy(key)`:
     //   this.sort = this.sort.key === key
     //     ? { key, dir: -this.sort.dir }
     //     : { key, dir: column.first ?? 1 };
@@ -1172,7 +1168,7 @@ impl ServerBrowserService for ServerBrowser {
         }
     }
 
-    // Ports `rows()` in `src/shell/server-browser.js`: filters `self.servers`
+    // Ports `rows()`: filters `self.servers`
     // with `matches_filters`, pairs each surviving entry with its original
     // listing index for stable tie-breaking, and sorts via `compare_entries`.
     fn rows(&self) -> Vec<&ServerEntry> {
@@ -1186,7 +1182,7 @@ impl ServerBrowserService for ServerBrowser {
         indexed.into_iter().map(|(_, s)| s).collect()
     }
 
-    // Ports `selected()` in `src/shell/server-browser.js`: looks up `selected_id`
+    // Ports `selected()`: looks up `selected_id`
     // within the currently visible `rows()` slice so a hidden server is never
     // returned as selected.
     fn selected(&self) -> Option<&ServerEntry> {
@@ -1200,7 +1196,7 @@ impl ServerBrowserService for ServerBrowser {
         self.selected_id = id.filter(|s| !s.is_empty()).map(str::to_string);
     }
 
-    // Ports `key(code)` in `src/shell/server-browser.js`:
+    // Ports `key(code)`:
     // - `ArrowUp` at row 0 and `ArrowDown` at `rows.len() - 1` return `false` so
     //   the menu screen can hand focus off to the filter bar above or the action
     //   buttons (`BACK`, `REFRESH`, `DIRECT CONNECT`, `JOIN`) below.
@@ -1249,7 +1245,7 @@ impl ServerBrowserService for ServerBrowser {
         &self.state
     }
 
-    // Ports `tick()` and `onEnter` in `src/shell/server-browser.js`:
+    // Ports `tick()` and `onEnter`:
     // - Returns `None` while a load is already in flight (`busy` or `Loading`).
     // - Returns `Some(RefreshKind::Initial)` when `Idle` so entering the screen
     //   kicks off the initial fetch.
@@ -1386,7 +1382,7 @@ mod tests {
 
     // Verifies default ascending ping order (`20ms`, `90ms`, `140ms`, `None`),
     // auto-selection of the first visible row (`"b"`), `SortColumn::Players`
-    // starting descending (`first: -1` in `src/shell/server-browser.js`) before
+    // starting descending (`first: -1`) before
     // toggling to ascending on a second click, and case-insensitive `Name` sort.
     #[test]
     fn sorts_by_ping_by_default_unknown_last_and_players_starts_fullest(

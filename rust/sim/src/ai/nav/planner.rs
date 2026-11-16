@@ -1,4 +1,4 @@
-//! The shared path pools (nav/planner.js:31-91). The planner itself
+//! The shared path pools. The planner itself
 //! lives in the Nav service (nav/mod.rs), because its requests name
 //! their owning controls; the queue, search and service there use these
 //! pools. Paths are indices into the service's path list where the
@@ -9,7 +9,7 @@ use super::math::f32;
 /// planner.js:31.
 pub const STARVED: f64 = 20.0;
 
-/// A counted pool (planner.js:33). Counts stay f64: the JavaScript's
+/// A counted pool. Counts stay f64: the JavaScript's
 /// `used` is a number and the comparisons are numeric.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pool {
@@ -34,14 +34,14 @@ impl Pool {
     }
 }
 
-/// The two shared pools (planner.js:96).
+/// The two shared pools.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pools {
     pub paths: Pool,
     pub nodes: Pool,
 }
 
-/// One path point; flag bit 0 marks a segment boundary (planner.js:48).
+/// One path point; flag bit 0 marks a segment boundary.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PathNode {
     pub x: f64,
@@ -50,7 +50,7 @@ pub struct PathNode {
     pub flag: i32,
 }
 
-/// An ordered list of path points (planner.js:50). Making, filling and
+/// An ordered list of path points. Making, filling and
 /// releasing one moves the pools' counts, so those live on the service;
 /// this is only the points and the released mark.
 #[derive(Clone, Debug, Default)]
@@ -278,7 +278,7 @@ impl PathStore {
         self.paths.make()
     }
 
-    /// Insert at the front, rounding to float32 (planner.js:59).
+    /// Insert at the front, rounding to float32.
     pub fn prepend(&mut self, path: usize, x: f64, y: f64, z: f64) -> bool {
         if self.pools.nodes.full() {
             return false;
@@ -308,7 +308,7 @@ impl PathStore {
         true
     }
 
-    /// Drop the first k nodes (planner.js:74). Splice can drop fewer nodes;
+    /// Drop the first k nodes. Splice can drop fewer nodes;
     /// the logical count still goes down by k, as the source intentionally does.
     pub fn drop_front(&mut self, path: usize, k: f64) {
         if k <= 0.0 {
@@ -329,7 +329,7 @@ impl PathStore {
             self.pools.paths.used -= 1.;
         }
     }
-    /// Two-point path start -> end (planner.js:113 segment).
+    /// Two-point path start -> end (segment).
     pub fn segment(&mut self, start: super::math::Vec3, end: super::math::Vec3) -> usize {
         let path = self.make();
         self.prepend(path, end.x, end.y, end.z);

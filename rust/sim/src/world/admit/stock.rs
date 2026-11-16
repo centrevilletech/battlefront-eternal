@@ -121,7 +121,7 @@ fn dispatch(world: &mut World, cx: &mut Cx, calls: &mut Calls, name: &'static st
     Ok(answer)
 }
 
-/// UnitFactory.build's page body (units.js buildBody), shared by the warm
+/// UnitFactory.build's page body (buildBody), shared by the warm
 /// stock here and the prepared stock (spawn.rs): a droideka's animator and
 /// muzzle samples over per-body clip copies, or a soldier's body module
 /// constructed from the class record as JSON.stringify spells it.

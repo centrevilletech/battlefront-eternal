@@ -1,4 +1,4 @@
-//! The movement request and one unit's navigation state (nav/control.js).
+//! The movement request and one unit's navigation state.
 //! The state's operations (attach, publish, consume, install, the trail,
 //! the per-tick update) are the Nav service's methods in nav/mod.rs,
 //! because they reach the planner and the path store the service owns;
@@ -8,7 +8,7 @@ use super::executor::PathExecutor;
 use super::math::Vec3;
 use super::units::UnitRef;
 
-/// MovementRequest (control.js:9): what an executor (or a stop) writes
+/// MovementRequest: what an executor (or a stop) writes
 /// for the unit's input step.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MovementRequest {
@@ -53,14 +53,14 @@ impl MovementRequest {
     }
 }
 
-/// A pending jet request (control.js:81).
+/// A pending jet request.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct JetRequest {
     pub pending: bool,
     pub vector: Vec3,
 }
 
-/// NavControl's fields (control.js:63). `unit` is the identity token of
+/// NavControl's fields. `unit` is the identity token of
 /// units.rs for the unit object it is attached to, with the generation
 /// it attached at (`unit?.generation ?? -1`). `published` is a path in
 /// the service's store. `leader` is follow's unit reference.

@@ -1,4 +1,4 @@
-//! Building admission from F3Props.prepare (f3-props.js). Immutable look
+//! Building admission from F3Props.prepare. Immutable look
 //! geometry and the initial F4 life frame are encoded together so combat and
 //! the live owner do not retain divergent copies of building health.
 use super::{Call, units::{call, error}};

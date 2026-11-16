@@ -516,14 +516,14 @@ pub fn to_fixed(x: f64, fraction_digits: f64) -> Option<String> {
 }
 
 /// `value.toString(16)` for the unsigned 32-bit values the engine's
-/// hash keys are made of (`src/audio/hash.js`, `src/seats.js`):
+/// hash keys are made of:
 /// lower-case hex, no padding (the callers pad).
 pub fn u32_to_string_16(value: u32) -> String {
     format!("{:x}", value)
 }
 
 /// `value.toString(16).padStart(8, "0")` with the `0x` the sound
-/// data spells: `hashKey` in `src/audio/hash.js:14-16`.
+/// data spells: `hashKey`:14-16`.
 pub fn hash_key(value: u32) -> String {
     format!("0x{:08x}", value)
 }

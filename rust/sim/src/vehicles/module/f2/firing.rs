@@ -45,7 +45,7 @@ fn winding(previous: f64, accumulated: f64, source: &Vector3, target: &Vector3) 
     (around, wound, v8math::abs(wound) >= 6.0 * std::f64::consts::PI)
 }
 
-/// lockSpan's largest cosine on a box edge (hud-units.js nearestCosine).
+/// lockSpan's largest cosine on a box edge (nearestCosine).
 fn nearest_cosine(a: &Vector3, e: &Vector3, d: &Vector3) -> f64 {
     let a0 = a.dot(d); let a1 = e.dot(d);
     let qa = e.length_sq(); let qb = 2.0 * a.dot(e); let qc = a.length_sq();

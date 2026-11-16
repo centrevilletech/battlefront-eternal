@@ -142,7 +142,7 @@ pub(super) struct Pin {
     pub wave: f64,
     pub color: [f64; 3],
 }
-/// The projector's parts that light with the hologram (holomap.js): ground glow, band and lamp.
+/// The projector's parts that light with the hologram: ground glow, band and lamp.
 fn depth_tested(mut s: bfe_render::interface_resources::Style) -> bfe_render::interface_resources::Style {
     s.depth_test = Some(true);
     s
@@ -540,7 +540,7 @@ impl Gpu {
         );
         Self::submit(bridge, count);
     }
-    /// The hologram (holomap.js): the projector rising out of the floor, its beam, the disc unfolding and
+    /// The hologram: the projector rising out of the floor, its beam, the disc unfolding and
     /// the posts' pins, in one submission.
     #[allow(clippy::too_many_arguments)]
     pub fn map(

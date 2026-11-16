@@ -1,4 +1,4 @@
-//! Cold rasterization of the page button surfaces from electron/ui/looks.css.
+//! Cold rasterization of the page button surfaces.
 //! Each viewport admits its own geometry, so CSS pixel corner cuts stay sharp.
 pub fn button(w: usize, h: usize, look: usize, selected: bool) -> Vec<u8> {
     type Stop = (f64, [f64; 4]);
@@ -146,7 +146,7 @@ pub struct PatternMask {
     pub radius_y: f64,
 }
 
-/// The front end's own mask (page/style.js).
+/// The front end's own mask.
 const PAGE_MASK: PatternMask = PatternMask {
     centre_y: 0.5,
     radius_x: 0.30,

@@ -158,7 +158,7 @@ pub enum StartupContentState {
         started_at: Instant,
     },
     /// A checked content export is staged without blocking the window.
-    /// An import or export running on a worker thread (prepare.js `transfer`).
+    /// An import or export running on a worker thread (`transfer`).
     Transfer(Box<super::first_run::TransferWork>),
     /// Interactive first-run discovery, confirmation, validation or failure.
     FirstRun(Box<super::first_run::Setup>),

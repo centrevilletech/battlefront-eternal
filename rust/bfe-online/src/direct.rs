@@ -1,6 +1,6 @@
 // Direct Connect IPv4/IPv6 address and port validation.
 //
-// Ports the direct connection dialog validation in `src/shell/direct-connect.js`
+// Ports the direct connection dialog validation
 // (`address.value.trim().replace(/^\[|\]$/g, '')`, port `1..=65535` defaulting
 // to `18451`) and the `directInfo` IPC guard in the desktop host
 // (`isIP(value.address) && Number.isInteger(value.port)`), plus `HOST:PORT`
@@ -9,7 +9,7 @@
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 
 // Default UDP/HTTP game port for Direct Connect and dedicated servers,
-// matching `DEFAULT_DIRECT_PORT` in `src/shell/direct-connect.js`.
+// matching `DEFAULT_DIRECT_PORT`.
 pub const DEFAULT_DIRECT_PORT: u16 = 18451;
 
 // Validated Direct Connect endpoint containing the unbracketed address string,

@@ -1,6 +1,6 @@
 //! The Classic AI's perception, combat and aim (src/ai/classic/perception.js,
-//! combat.js, aim.js, weapons-ai.js) and the Enhanced aim
-//! (src/ai/enhanced/aim.js): what a bot notices, which target and weapon it
+//! combat.js, aim.js) and the Enhanced aim
+//!: what a bot notices, which target and weapon it
 //! takes, how it fights (the combat agent, its attack patterns and cover),
 //! how its gun is aimed and its trigger pressed.
 

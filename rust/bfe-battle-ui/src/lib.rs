@@ -1,8 +1,8 @@
 //! Battlefront Eternal in-battle UI crate (`bfe-battle-ui`).
 
-/// In-battle text chat log, channel state (`ALL` / `TEAM`), and key routing (`src/chat.js`).
+/// In-battle text chat log, channel state (`ALL` / `TEAM`), and key routing.
 pub mod chat;
-/// Shared-memory HUD Float64Array state/event publisher (`src/hud-input.js`).
+/// Shared-memory HUD Float64Array state/event publisher.
 pub mod hud_input;
 /// In-battle `ifs_pausemenu` state stack, layout, and confirmation popups (`src/pause/`).
 pub mod pause;
@@ -89,7 +89,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     // ------------------------------------------------------------------------
-    // Fake SpawnPort for unit tests (ports `tests/spawn-screen-fake-port.js`)
+    // Fake SpawnPort for unit tests
     //
     // Simulates a two-team battle (Republic vs. CIS) with 5 playable classes
     // per faction and 4 command posts (`cp_1`..`cp_4`) arranged along the
@@ -288,7 +288,7 @@ mod tests {
 
 
     // ------------------------------------------------------------------------
-    // Spawn policy tests (ports `tests/spawn-policy.test.js`)
+    // Spawn policy tests
     //
     // Checks URL query resolution for default map load (opens screen on
     // `DEFAULT_UNIT`), `?spawnscreen=1` forced screen, `?network=1` online
@@ -376,7 +376,6 @@ mod tests {
 
     // ------------------------------------------------------------------------
     // Spawn model, input, layout, view, and hit tests
-    // (ports `tests/spawn-screen-model.test.js`, `input.test.js`, `hit.test.js`, `index.test.js`)
     // ------------------------------------------------------------------------
     // Verifies `SpawnModel` opening on the frontline command post (`cp_2`),
     // stepping classes, switching teams (`cp_3`), and committing a `SpawnRequest`.
@@ -493,7 +492,7 @@ mod tests {
     // ------------------------------------------------------------------------
     // Scoreboard and battle stats tests
     // (ports `tests/scoreboard-model.test.js`, `scoreboard-input.test.js`,
-    //  `scoreboard-port.test.js`, `scoreboard-index.test.js`, `battle-stats.test.js`)
+    //  `scoreboard-port.test.js`, `scoreboard-index.test.js`)
     // ------------------------------------------------------------------------
     /// Builds a 3-character scoreboard fixture (`Alpha` local human on Team 1,
     /// `Droid-1` AI bot on Team 2, `Bravo` remote human on Team 1) with headshots,
@@ -685,7 +684,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------------
-    // Pause menu tests (ports `tests/pause-menu.test.js`)
+    // Pause menu tests
     // ------------------------------------------------------------------------
     // Verifies `with_settings` URL query rewriting (`tier=`, `heroes=`, `size=`),
     // `Escape` keydown/keyup open and resume-on-release, the 250ms pointer-unlock

@@ -362,7 +362,7 @@ pub fn curves_of<W: World + ?Sized>(w: &mut W, controller: Obj, unit: Obj) -> Op
     w.curves_for(team)
 }
 
-/// Medium's curves (aim.js:243), for a battle without a difficulty.
+/// Medium's curves, for a battle without a difficulty.
 pub fn fallback_curves() -> Curves {
     skill_curves(14.0)
 }

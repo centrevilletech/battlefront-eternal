@@ -1,4 +1,4 @@
-//! Sphere queries in the collision world (src/collision.js): gather (the
+//! Sphere queries in the collision world: gather (the
 //! polygons whose triangles' bounds meet a sphere's, each with those
 //! triangles), its cached form, overlapsSphere and terrainNear, and the
 //! terrain's height under a point (ground). For the world's JavaScript,
@@ -203,7 +203,7 @@ impl Gathered {
 }
 
 /// Polygon ids to list places, open addressing emptied by moving to the
-/// next stamp (collision.js PolygonIndex).
+/// next stamp (PolygonIndex).
 struct PolygonIndex {
     bits: u32,
     mask: usize,
@@ -270,7 +270,7 @@ impl PolygonIndex {
 }
 
 /// A caller's cache of the fixed triangles near where it queries
-/// (collision.js gatherCache): one per caller that queries around the same
+/// (gatherCache): one per caller that queries around the same
 /// spot every tick. Gathers through it come out exactly as without it.
 pub struct GatherCache {
     bounds: Bounds,

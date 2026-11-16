@@ -6,7 +6,7 @@
 //! `bfe_presentation::vehicles::Vehicles` over synthetic descriptors and rigs
 //! without requiring game assets.
 //!
-//! Coverage from `tests/vehicle-effects.test.js`:
+//! Coverage:
 //! - Thrust scale ramp (`thrustScale`) from `MinSpeed + ScaleStart * (MaxSpeed - MinSpeed)`
 //!   up to `MaxSpeed`, clamped between `minScale` and `maxScale`.
 //! - Health band checks (`damageBurns`) with exclusive lower bound (`stop`)
@@ -19,7 +19,7 @@
 //!   release (`BLOW_APART`, `FALLEN`), and `bodyCarrier` inverse-bind matrix
 //!   composition so chunks spawn from the fallen body pose.
 //!
-//! Coverage from `tests/walker-dying.test.js`:
+//! Coverage:
 //! - Posing `death01` from the remaining `dying` clock at `AnimationSpeed`,
 //!   holding the last frame at clip end.
 //! - Smoothstepped `DEATH_BLEND` transition from the last pose drawn alive

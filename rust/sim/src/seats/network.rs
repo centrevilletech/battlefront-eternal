@@ -32,7 +32,7 @@ pub struct SeatKeys {
     pub space: bool,
 }
 
-/// What a seat's keys are to the hull (boarding.js seatInput): a craft's
+/// What a seat's keys are to the hull (seatInput): a craft's
 /// flight keys (the flight package's flightInput, from the command's
 /// bindings, without steering assistance), the driving keys (Space brakes),
 /// or none for a gunner's seat.
@@ -52,7 +52,7 @@ pub fn seat_input(v: &Vehicle, index: usize, keys: &SeatKeys) -> Option<SeatKeys
     })
 }
 
-/// networkVehicleInput (network-vehicle.js): his mouse on the seat (a
+/// networkVehicleInput: his mouse on the seat (a
 /// craft's pilot's virtual stick, else the seat's look, which is its aim at
 /// once), then his keys as the hull takes them.
 pub fn network_vehicle_input(v: &mut Vehicle, index: usize, keys: &SeatKeys, command: &SeatCommand) -> Option<SeatKeysOut> {

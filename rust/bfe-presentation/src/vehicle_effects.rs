@@ -32,7 +32,7 @@
 //!   dust's clock only while the animation plays), and its chunks fly when
 //!   it is gone, with its FinalExplosion (the simulation's blast).
 //!
-//! Placed turrets and destructible posts (src/props.js) go through the same
+//! Placed turrets and destructible posts go through the same
 //! rules (updateBuildings): their damage effects while built, at the built
 //! model's nodes, a post's death animation as a walker's (with its
 //! DeathEffects at their hardpoints as it ends), and their chunks when

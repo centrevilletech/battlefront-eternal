@@ -93,7 +93,7 @@ pub trait CombatWorld: WeaponDraws {
     /// cast(origin, direction, far, out, null, staticOnly).
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, static_only: bool) -> Option<CastHit>;
 
-    // ---- His recon droids (src/remote.js), a network player's.
+    // ---- His recon droids, a network player's.
     /// remoteOf(weapon): the live droid the weapon at `weapon` launched.
     fn remote_of(&mut self, weapon: u32) -> Option<Droid>;
     fn remote_enter(&mut self, droid: Droid, unit: &mut Unit, combat: &mut Combat);
@@ -169,7 +169,7 @@ pub trait CombatWorld: WeaponDraws {
         unit: &mut Unit,
         combat: &mut Combat,
     ) -> bool;
-    /// meleeStrike() (src/heroes.js).
+    /// meleeStrike().
     fn melee_strike(&mut self, unit: &mut Unit, combat: &mut Combat);
     /// arcTargets(): what the arc caster can link.
     fn arc_targets(&mut self) -> Vec<ArcTarget>;
@@ -206,7 +206,7 @@ pub trait CombatWorld: WeaponDraws {
     fn respawn(&mut self, unit: &mut Unit, combat: &mut Combat);
     fn presentation(&mut self, event: &Presentation);
 
-    // ---- A droideka's body (src/droideka.js): its hidden gun rig, and its
+    // ---- A droideka's body: its hidden gun rig, and its
     // shield's hook (onShieldHit: the battle's shieldHit).
     /// nextGun(out): the next gun's muzzle, in turn (its counter and
     /// lastGun move on: the unit's body).

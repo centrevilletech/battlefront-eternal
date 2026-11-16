@@ -1,10 +1,10 @@
-//! Menu sound cues (`src/menus/sounds.js`).
+//! Menu sound cues.
 //!
-//! Ports `SOUNDS` and `menuSound(kind)` from `src/menus/sounds.js`: maps short interaction
+//! Ports `SOUNDS` and `menuSound(kind)`: maps short interaction
 //! kinds (`"select"`, `"accept"`, `"enter"`, `"cancel"`, `"error"`, `"exit"`) to `core.lvl`
 //! sound bank names on the `shellfx` audio bus.
 
-/// Menu sound cues (`SOUNDS` in `src/menus/sounds.js`).
+/// Menu sound cues (`SOUNDS`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SoundCue {
     /// Focus moved via keyboard or pointer hover (`select: "shell_select_change"`).
@@ -24,7 +24,7 @@ pub enum SoundCue {
 /// Alias for [`SoundCue`].
 pub type SoundEvent = SoundCue;
 
-/// Complete mapping table from `(kind, cue_name)` (`SOUNDS` in `src/menus/sounds.js`).
+/// Complete mapping table from `(kind, cue_name)` (`SOUNDS`).
 pub const SOUNDS: [(&str, &str); 6] = [
     ("select", "shell_select_change"),
     ("accept", "shell_menu_accept"),
@@ -48,7 +48,7 @@ impl SoundCue {
         }
     }
 
-    /// `core.lvl` sound cue name (`SOUNDS[kind]` in `src/menus/sounds.js`).
+    /// `core.lvl` sound cue name (`SOUNDS[kind]`).
     #[inline]
     pub const fn cue_name(self) -> &'static str {
         match self {
@@ -63,7 +63,7 @@ impl SoundCue {
 }
 
 /// Resolves a kind key (`"select"`, `"accept"`, etc.) or direct cue name to its `core.lvl`
-/// cue name (`menuSound` in `src/menus/sounds.js`).
+/// cue name (`menuSound`).
 #[inline]
 pub fn sound_asset(kind: &str) -> &'static str {
     for &(k, cue) in &SOUNDS {

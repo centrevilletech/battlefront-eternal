@@ -1,6 +1,6 @@
 //! When the window presents a frame. The browser hands the page one chance
 //! to draw every display refresh and its FramePacer
-//! (src/runtime/frame-pacing.js) lets a chance pass while the frameLimit
+//! lets a chance pass while the frameLimit
 //! setting's deadline is still ahead. Here the chances come from the display
 //! as well: a swap that waits for the refresh, or the compositor's frame
 //! callbacks. `Display` watches that they really do, and counts the refresh

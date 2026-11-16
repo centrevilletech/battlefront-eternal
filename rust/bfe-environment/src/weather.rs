@@ -1,4 +1,4 @@
-//! The rain (src/weather.js, src/rain-impacts.js, src/rain-sheets.js): the
+//! The rain: the
 //! state the drops, their mist, the splashes where they land and the mid
 //! distance sheets share. The drops' positions are worked out by the vertex
 //! shader from their seeds and the rain's clock, so the CPU keeps the clock,

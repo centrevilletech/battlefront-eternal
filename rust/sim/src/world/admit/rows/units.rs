@@ -1,4 +1,4 @@
-//! Unit ownership content from f3-sim.js. Generated records own the boundary
+//! Unit ownership content. Generated records own the boundary
 //! layout; the surrounding admission sequence supplies already allocated ids.
 //! In particular a registry id is never interchangeable with a body slot.
 use super::Call;

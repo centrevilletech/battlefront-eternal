@@ -1,4 +1,4 @@
-//! The generator's tests (tools/sim-schema.mjs) on its own schema
+//! The generator's tests on its own schema
 //! (rust/sim/schema-test/shelf.json, generated into `gen_test`): every type a
 //! field can have goes through the sync rows and the replay values and
 //! comes back the same. tests/sim-schema.test.js checks the JavaScript the

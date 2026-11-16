@@ -1,4 +1,4 @@
-//! Leaving the battlefield (src/battlefield.js), as the 2004 game has it: the
+//! Leaving the battlefield, as the 2004 game has it: the
 //! battlefield is the map's bnd_ boundary (outside: in no polygon, in x and
 //! z only; a map without one has no outside). Each Character's update, while
 //! he has a body, tests what he controls (the hull or turret he sits in,
@@ -46,7 +46,7 @@ impl Battlefield {
         self.boundary.outside(Vec3 { x: p[0], y: p[1], z: p[2] })
     }
 
-    /// update(dt, characters) (battlefield.js:76), over the battle's
+    /// update(dt, characters), over the battle's
     /// Characters. A kill runs the death path, which the world applies to
     /// the store.
     pub fn update<W: BattlefieldWorld + ?Sized>(&self, dt: f64, s: &mut Store, world: &mut W) {
@@ -98,7 +98,7 @@ impl Battlefield {
     }
 }
 
-/// The page's tick-driven leaving warning (battlefield.js LeavingWarning).
+/// The page's tick-driven leaving warning (LeavingWarning).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct LeavingWarning {
     pub shown: bool,

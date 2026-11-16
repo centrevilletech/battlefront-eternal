@@ -19,7 +19,7 @@
 // first-person view (view_frame), the temporal upscaler's motion of the
 // bodies that move on their own (motion_frame), the post passes (post_frame)
 // and, over the finished frame, the HUD (hud_frame). A mirror's render of the near scene
-// (water.js) draws the near phase's passes for its own camera
+// draws the near phase's passes for its own camera
 // (mirror_frame), then what it blends, as the frame's own render does
 // (mirror_transparent_frame, and its segments).
 //
@@ -118,7 +118,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         self.core.end_phase()
     }
 
-    // A face of a sky probe's capture (sky-probe.js), into the cube face
+    // A face of a sky probe's capture, into the cube face
     // three bound: the far pass for the face's camera, with a frame block of
     // the probe's own for the face (far.rs draw_probe).
     pub(crate) fn far_probe_frame(&mut self, face: usize) -> Result<Stats, String> {

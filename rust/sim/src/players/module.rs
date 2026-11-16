@@ -1,5 +1,5 @@
 //! The host's entries for the connected players: admission and linking
-//! (multiplayer-world.js addPlayer), the inputs it admits after their
+//! (addPlayer), the inputs it admits after their
 //! shape checks (input, fire, actions), the stops and disconnects, and
 //! what it reads back after a tick.
 use super::owner::{Player, MAX_INPUT_LEAD_TICKS};

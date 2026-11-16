@@ -1,5 +1,4 @@
-//! Server configuration loading, saving, defaults, and prepared content inspection
-//! (`src/main.js` and `src/world-worker.js`).
+//! Server configuration loading, saving, defaults, and prepared content inspection.
 
 use crate::identity::write_mode_600;
 use bfe_content::files::DirFiles;
@@ -11,9 +10,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-/// Default online master directory URL (`defaults.master` in `src/main.js`).
+/// Default online master directory URL (`defaults.master`).
 pub const DEFAULT_MASTER_URL: &str = "https://online.battlefronteternal.com";
-/// Default per-client outgoing snapshot budget in bytes/sec (`stateBytesPerSecond: 100000` in `src/main.js`).
+/// Default per-client outgoing snapshot budget in bytes/sec (`stateBytesPerSecond: 100000`).
 pub const DEFAULT_STATE_BYTES_PER_SECOND: usize = 100_000;
 /// Minimum valid per-client outgoing snapshot budget in bytes/sec.
 pub const MIN_STATE_BYTES_PER_SECOND: usize = 1024;
@@ -52,25 +51,25 @@ pub fn state_dir() -> PathBuf {
     set("HOME").unwrap_or_else(|| PathBuf::from(".")).join(".local/share/bfeserver")
 }
 
-/// Returns the path to `config.json` inside `dir` (`join(directory, "config.json")` in `src/main.js`).
+/// Returns the path to `config.json` inside `dir` (`join(directory, "config.json")`).
 pub fn config_path_in(dir: &Path) -> PathBuf {
     dir.join("config.json")
 }
 
-/// Returns `true` if `config.json` exists inside `dir` (`existsSync(file)` in `src/main.js`).
+/// Returns `true` if `config.json` exists inside `dir` (`existsSync(file)`).
 pub fn config_exists_in(dir: &Path) -> bool {
     config_path_in(dir).exists()
 }
 
-/// Returns the default playlist (`defaults.rotation = ["swbf1/nab2:rep:conquest"]` in `src/main.js`).
+/// Returns the default playlist (`defaults.rotation = ["swbf1/nab2:rep:conquest"]`).
 pub fn default_rotation() -> Vec<String> {
     vec!["swbf1/nab2:rep:conquest".to_string()]
 }
 
-/// Complete dedicated server configuration (`defaults` merged with `config.json` in `src/main.js`).
+/// Complete dedicated server configuration (`defaults` merged with `config.json`).
 ///
 /// Unknown top-level JSON keys are preserved in `extra` so round-tripping `config.json` through
-/// the interactive menu (`save()` in `src/main.js`) never strips operator-added fields.
+/// the interactive menu (`save()`) never strips operator-added fields.
 #[derive(Clone, Debug, PartialEq)]
 /// Resolved dedicated-server configuration matching the normalized runtime shape produced by
 /// `loadConfig(dir)` in `packages/bfe-server/src/config.js` and consumed by
@@ -92,7 +91,7 @@ pub struct ServerConfig {
     pub relay_policy: String,
     /// Whether to enforce the signed master ban list (`defaults.honorGlobalBans`).
     pub honor_global_bans: bool,
-    /// Maximum simultaneous human players (`config.maxPlayers ?? 64` in `src/main.js`).
+    /// Maximum simultaneous human players (`config.maxPlayers ?? 64`).
     pub max_players: Option<usize>,
     /// Maximum simultaneous sessions from a single IPv4 `/32` or IPv6 `/64` (`config.maxPlayersPerAddress ?? 8`).
     pub max_players_per_address: Option<usize>,
@@ -136,7 +135,7 @@ pub struct ServerConfig {
 }
 
 impl Default for ServerConfig {
-    /// Returns the default configuration (`const defaults = { ... }` in `src/main.js`), reading
+    /// Returns the default configuration (`const defaults = { ... }`), reading
     /// `BFE_ENGINE_DIR` and `BFE_DATA_DIR` from the process environment when present.
     /// Returns default dedicated-server settings matching `DEFAULT_CONFIG` in
     /// `packages/bfe-server/src/config.js`:
@@ -183,7 +182,7 @@ impl Default for ServerConfig {
 
 impl ServerConfig {
     /// Merges a parsed `config.json` value over `ServerConfig::default()`
-    /// (`{ ...defaults, ...JSON.parse(readFileSync(file, "utf8")) }` in `src/main.js`).
+    /// (`{ ...defaults, ...JSON.parse(readFileSync(file, "utf8")) }`).
     /// A known key with a value of the wrong type or out of range is an error naming the key,
     /// never a silent fall back to its default; a JSON `null` counts as absent.
     pub fn from_json_value(value: &Value) -> Result<Self, String> {
@@ -363,9 +362,9 @@ impl ServerConfig {
         }
     }
 
-    /// Serializes the configuration back to a JSON object for `config.json` (`save()` in `src/main.js`).
+    /// Serializes the configuration back to a JSON object for `config.json` (`save()`).
     /// Serializes `self` into the exact camelCase JSON layout written to `<state_dir>/config.json`
-    /// by `saveConfig(dir, cfg)` in `packages/bfe-server/src/config.js`.
+    /// by `saveConfig(dir, cfg)`.
     pub fn to_json_value(&self) -> Value {
         let mut map = Map::new();
         map.insert("name".to_string(), Value::String(self.name.clone()));
@@ -526,7 +525,7 @@ impl ServerConfig {
         bad
     }
 
-    /// Writes `config.json` into `dir` with mode `0600` (`save()` in `src/main.js`:
+    /// Writes `config.json` into `dir` with mode `0600` (`save()`:
     /// `writeFileSync(file, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 })`).
     pub fn save_to_dir(&self, dir: &Path) -> Result<(), String> {
         fs::create_dir_all(dir).map_err(|e| format!("failed to create state dir: {e}"))?;
@@ -550,7 +549,7 @@ pub fn check_state_budget(value: Option<usize>) -> Result<usize, String> {
 }
 
 /// Resolves a rotation entry like `"swbf1/nab2:rep:conquest"` or `"swbf1/nab2/cw"` into a battle
-/// query (`launch()` and `battleQuery(map, side)` in `src/main.js`).
+/// query (`launch()` and `battleQuery(map, side)`).
 pub fn with_friendly_fire(query: &str, friendly_fire: bool) -> String {
     if friendly_fire { query.to_string() } else { format!("{query}&ff=0") }
 }
@@ -589,14 +588,14 @@ pub fn query_for_rotation(entry: &str, ai: &str) -> Result<String, String> {
     Err(format!("invalid rotation entry: {entry}"))
 }
 
-/// Resolved prepared game data directory and list of available map IDs (`dataReader` in `src/content.js`).
+/// Resolved prepared game data directory and list of available map IDs (`dataReader`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ContentRoot {
     pub root: PathBuf,
     pub maps: Vec<String>,
 }
 
-/// Resolves the prepared content directory (`workerData.data` in `src/world-worker.js`).
+/// Resolves the prepared content directory (`workerData.data`).
 ///
 /// Accepts either the direct prepared data folder (containing `maps.json` or `maps/<id>/`) or its
 /// parent directory containing a `data/` subdirectory.
@@ -650,7 +649,7 @@ pub fn resolve_content_root(dir: &str) -> Result<ContentRoot, String> {
     Err(format!("no prepared content found under {dir}"))
 }
 
-/// Validated content root, rotation queries, and initial content fingerprint (`src/world-worker.js`).
+/// Validated content root, rotation queries, and initial content fingerprint.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CheckedContent {
     pub root: PathBuf,
@@ -662,7 +661,7 @@ pub struct CheckedContent {
 }
 
 /// Validates the prepared content directory and rotation, and computes the first mission's
-/// `bfe-content-sha256-...` digest (`contentHash(workerData.query)` in `src/world-worker.js`).
+/// `bfe-content-sha256-...` digest (`contentHash(workerData.query)`).
 /// Verifies that the content directory contains `version.json`, all required maps referenced by
 /// `rotation`, and valid mode/bot descriptors, porting `checkContent(data, rotation, ai)` from
 /// `packages/bfe-server/src/config.js`.

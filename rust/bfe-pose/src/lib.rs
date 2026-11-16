@@ -92,7 +92,7 @@ impl Pose {
         self.w.fill(0.0);
     }
 
-    /// Pose.add(clip, time, weight, loop) of src/anim.js, the caller
+    /// Pose.add(clip, time, weight, loop), the caller
     /// having turned away a missing clip and a weight at or under 1e-4.
     pub fn add(&mut self, clip: &Clip, time: f64, weight: f64, looping: bool) {
         let frames = clip.frames;

@@ -1,5 +1,5 @@
 //! A soldier's body as an exposed seat poses it, for the simulation
-//! (src/rider-pose.js): what a round meets of a rider, and where his body
+//!: what a round meets of a rider, and where his body
 //! falls from when he dies there.
 //!
 //! The rider's points come from his seat's clip at the seat's point in it,
@@ -53,7 +53,7 @@ const ARMS: [&str; 6] = [
 ];
 
 /// The joints the animator gives back their bind translation after every
-/// pose (src/animator.js BIND_LENGTH), in its order.
+/// pose (BIND_LENGTH), in its order.
 pub const BIND_LENGTH: [&str; 22] = [
     "bone_pelvis",
     "bone_a_spine",
@@ -79,7 +79,7 @@ pub const BIND_LENGTH: [&str; 22] = [
     "bone_r_toe",
 ];
 
-/// What riderPoints keeps per skeleton (src/rider-pose.js skeletonOf), and
+/// What riderPoints keeps per skeleton (skeletonOf), and
 /// what it reads of the animator: the bind lengths it restores and its
 /// root's bind place.
 #[derive(Clone, Debug)]

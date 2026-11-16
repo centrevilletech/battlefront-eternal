@@ -1,4 +1,4 @@
-//! UnitFactory.build's immutable construction inputs (src/units.js). A
+//! UnitFactory.build's immutable construction inputs. A
 //! body holds the generated Unit row, adoption and rig facts before they
 //! move into F3. There is no drawn actor or second movement/combat owner.
 mod build;

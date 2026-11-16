@@ -17,7 +17,7 @@ pub mod live;
 pub mod bindings;
 /// The animated props' rigs, births and grip classes (props.js AnimatedProp, f4-live.js bindAnimated).
 pub mod animated;
-/// The command posts and createNativeAI's host-object imports (commandposts.js, post-data.js).
+/// The command posts and createNativeAI's host-object imports.
 pub mod posts;
 
 pub const MAX_TEAM_SIZE: u32 = 32;
@@ -274,7 +274,7 @@ pub fn bound(battle: &ContentBattle, options: &Options, facts: &Facts, factions:
 }
 
 impl BoundRows {
-    /// Relative export order from game.js: live first, then the F4Battle
+    /// Relative export order: live first, then the F4Battle
     /// super-constructor inside F4Tail, its tail records, then the server's
     /// connections and roster. Mirror handle reads interleave these calls;
     /// those handles are results of the owning sequence, not content rows.

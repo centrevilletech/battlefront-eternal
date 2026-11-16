@@ -143,7 +143,7 @@ impl<C: HasContext> WorldPass<C> {
     }
 
     // The cells render-culling.js culls a large bucket by: its triangles in
-    // 48 m cells by their centres (shadow-casters.js), runs of consecutive
+    // 48 m cells by their centres, runs of consecutive
     // triangles in one cell, each cell's box over its vertices.
     pub fn world_cells(&mut self, w: u32, positions: &[f32], index: &[u32], cell_size: f64) {
         let mut ids: HashMap<(i64, i64), usize> = HashMap::new();

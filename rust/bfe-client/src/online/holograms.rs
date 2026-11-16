@@ -1,4 +1,4 @@
-//! The command posts' holograms (src/commandposts.js Hologram). Over each
+//! The command posts' holograms (Hologram). Over each
 //! post that has one stands its owner's logo, turning and flickering in the
 //! colour the viewer's team sees the owner in, with a beam beneath it, a
 //! flare at its foot and a soft halo round it. Fade, flicker, reach and the

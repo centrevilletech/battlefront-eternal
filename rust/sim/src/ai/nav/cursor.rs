@@ -1,4 +1,4 @@
-//! A route through the authored graph, one hub at a time (nav/cursor.js).
+//! A route through the authored graph, one hub at a time.
 //! Hubs and arcs are indices; the graph and barrier set the cursor was
 //! made with are passed to its calls (the service owns them).
 
@@ -7,7 +7,7 @@ use super::graph::NavGraph;
 use super::math::{d2, f32, normalize, Vec3};
 use crate::ai::random::Random;
 
-/// GraphCursor (cursor.js:16).
+/// GraphCursor.
 #[derive(Clone, Debug)]
 pub struct GraphCursor {
     pub mask: u32,
@@ -42,7 +42,7 @@ impl GraphCursor {
         Self::default()
     }
 
-    /// Route from start to end (cursor.js:33).
+    /// Route from start to end.
     pub fn init(&mut self, graph: &mut NavGraph, start: Vec3, end: Vec3, mask: u32, clearance: f64, random: &mut dyn Random) -> bool {
         self.exact = end;
         self.mask = mask;
@@ -193,7 +193,7 @@ impl GraphCursor {
         false
     }
 
-    /// Next hub (cursor.js:167).
+    /// Next hub.
     pub fn advance(&mut self, graph: &mut NavGraph, random: &mut dyn Random) -> bool {
         // cursor.js:168: current === primary || current === secondary,
         // with nulls comparing equal, as Option equality does.
@@ -221,7 +221,7 @@ impl GraphCursor {
         true
     }
 
-    /// A random point on the hub's shell (cursor.js:188).
+    /// A random point on the hub's shell.
     pub fn shell(&self, graph: &NavGraph, hub: usize, random: &mut dyn Random) -> Vec3 {
         let hub = &graph.hubs[hub];
         let r = v8math::max(0.0, f32(hub.radius - self.clearance));
@@ -233,12 +233,12 @@ impl GraphCursor {
         Vec3::new(f32(hub.x + v.x * r), f32(hub.y + v.y * r), f32(hub.z + v.z * r))
     }
 
-    /// The waypoint is a hub shell point (cursor.js:198).
+    /// The waypoint is a hub shell point.
     pub fn regenerable(&self) -> bool {
         self.current.is_some() && (self.current != self.primary || self.attach_type != 1)
     }
 
-    /// Replace a waypoint that sits inside a barrier (cursor.js:205).
+    /// Replace a waypoint that sits inside a barrier.
     pub fn retry(&mut self, graph: &NavGraph, barriers: &mut BarrierSet, radius: f64, random: &mut dyn Random) -> bool {
         if !self.regenerable() {
             return false;

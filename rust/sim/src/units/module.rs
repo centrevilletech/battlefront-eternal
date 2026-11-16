@@ -146,7 +146,7 @@ fn held(u: &Unit) -> bool {
     matches!(u.held, Nullable::Value(_))
 }
 
-/// The rest of the step's loop for a unit after his tick (src/game.js):
+/// The rest of the step's loop for a unit after his tick:
 /// a soldier in the water, a droideka in deep water, a death region.
 // Game.step applies water and death regions immediately after Unit.tick.
 // Use that tick's body position, including a just-completed droideka movement.
@@ -340,7 +340,7 @@ impl UnitsWorld for ModuleWorld<'_, '_> {
     // No other gameplay callback may use this observation to start a second phase.
     fn aim(&mut self, id: u32, unit: &mut Unit, h: f64) {
         // The aimer only for a unit with a controller: without one the
-        // AI's aim does nothing (src/ai/index.js aim).
+        // AI's aim does nothing (aim).
         if unit.controller.is_none() {
             return;
         }

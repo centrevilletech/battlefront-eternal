@@ -24,7 +24,7 @@ use three::{Matrix4, Quaternion, Vector3};
 // Replicated bolt slots: with every predicted bolt and the closing NET record
 // they fill the ordnance input exactly.
 const BOLTS: usize = limits::RECORDS - COSMETICS - 1;
-// m over which a bolt drawn from the muzzle joins its path (ordnance.js).
+// m over which a bolt drawn from the muzzle joins its path.
 const MERGE: f64 = 8.;
 #[derive(Clone, Copy, Default)]
 // NetworkCombatViews retains a visual life separately from a trigger edge.
@@ -194,7 +194,7 @@ pub struct Combat {
     blaster_count: usize,
     /// Enhanced bolt capsules handed to the renderer so far.
     pub total_blasters: u64,
-    // SniperTrace (src/sniper-trace.js): the Enhanced sniper look's owner,
+    // SniperTrace: the Enhanced sniper look's owner,
     // its two renderer batches and where their rows sit in the effect data.
     sniper: bfe_presentation::sniper::Sniper,
     streaks: u32,
@@ -221,7 +221,7 @@ pub struct Combat {
     flames: Vec<Flame>,
     /// Classic jet exhaust effects started so far.
     pub total_flames: u64,
-    /// The droids' Enhanced deaths (destruction.js).
+    /// The droids' Enhanced deaths.
     pub destruction: super::destruction::Destructions,
     droid_explosions: Vec<usize>,
     /// The map's placed effects (torches, smoke, steam).
@@ -344,7 +344,7 @@ impl Combat {
             // colour and proportions, from the same authored numbers. A
             // heavy gun (no GlowLength) takes its hue from its laser
             // texture's saturated texels when that texture has one
-            // (blaster-bolts.js textureHue).
+            // (textureHue).
             let authored: style::Content = serde_json::from_value(authored_json(def)).unwrap_or_default();
             let look = style::row(&authored, true);
             row[s::LOOK_COLOR..s::LOOK_COLOR + 3].copy_from_slice(&look[s::LOOK_COLOR..s::LOOK_COLOR + 3]);

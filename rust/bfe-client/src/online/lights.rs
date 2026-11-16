@@ -1,5 +1,5 @@
 //! The battle's point lights for a frame. The page keeps a pool of eight
-//! lights (src/ordnance.js LightPool) that every passing glow asks for: a
+//! lights (LightPool) that every passing glow asks for: a
 //! bolt in flight, a beam, an explosion's flash. Each frame the heaviest
 //! requests get the lights. A command post's hologram has a light of its own
 //! that is always in the scene. The renderer then packs the scene's lights
@@ -30,7 +30,7 @@ pub struct SceneLights {
     /// The frame's lights as the shaders read them, and how many.
     pub packed: [f64; MAX_LIGHTS * LIGHT],
     pub count: usize,
-    /// The first-person view's lights (graphics.js syncViewLights): copies of
+    /// The first-person view's lights (syncViewLights): copies of
     /// the lights that stand directly in the scene, which are the pool's (a
     /// hologram's light hangs inside its post and is not copied), packed for
     /// the view camera, whose far plane is 10 m.

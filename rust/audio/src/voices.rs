@@ -1,6 +1,6 @@
 //! Voices rendered in one Rust phase:
 //! what each voice's chain of browser nodes does (src/audio/engine.js and
-//! VoiceOut in src/audio/spatial.js), worked out here and written into the
+//! VoiceOut), worked out here and written into the
 //! spatial mixer's slot instead of reaching it through the nodes. Per voice,
 //! as Chromium's nodes compute it:
 

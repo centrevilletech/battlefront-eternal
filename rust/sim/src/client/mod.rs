@@ -565,7 +565,7 @@ impl ClientPrediction {
 }
 
 /// The crowd push on the owned body, in roster order, against the remote
-/// poses of the frame (game.js separatePredictedSoldier). The other body of a
+/// poses of the frame (separatePredictedSoldier). The other body of a
 /// contact gives way in this replay's own copy, as it does in the world.
 fn separate(body: &mut UnitBody, identity: f64, crowd: &mut [f64]) {
     let (p, shape) = match body {

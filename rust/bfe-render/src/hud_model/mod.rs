@@ -45,7 +45,7 @@
 // - Damage direction: a bar at the screen edge on the side an explosion hit
 //   from, fading over a second.
 // - Outside the battlefield: LEAVING BATTLEFIELD flashing red in the middle
-//   of the screen (src/battlefield.js).
+//   of the screen.
 // - Stats, left middle: the player's KILLS, DEATHS and CP POINTS, faint at
 //   rest, for 3 s after one changes, the changed row flashing yellow or red.
 // Dead, the player has no body: until the spawn screen only the

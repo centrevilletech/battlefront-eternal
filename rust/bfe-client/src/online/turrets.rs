@@ -80,7 +80,7 @@ impl Turrets {
         let mut owner = Box::new(Props::new());
         let mut rows = Vec::new();
         // A turret record names its building by its place in
-        // LiveObjects.buildings (src/props.js): traps, power-up stations,
+        // LiveObjects.buildings: traps, power-up stations,
         // armed buildings and command posts whose model exists, in order.
         // That is not its place in props.json wherever a door or an
         // animated prop comes first (Cloud City).

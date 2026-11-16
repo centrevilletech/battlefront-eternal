@@ -3,7 +3,7 @@
 // lands and, every frame (the last cascade every other one), its live map:
 // the cache's depth copied in, then the moving casters over it. For each such
 // pass the page walks the scene as three's shadow pass walks it
-// (src/rust-render/shadow.js) and writes a draw a caster: three's program for
+// and writes a draw a caster: three's program for
 // its depth material, used as three compiled it (Kind::Plain: every uniform
 // the page's), its geometry and the range three would draw, the side its
 // material casts with, whether its matrix mirrors, its uniforms' values.

@@ -1,4 +1,4 @@
-//! The vehicle notifier (src/ai/classic/vehicles/notify.js), at the
+//! The vehicle notifier, at the
 //! controller cycle's wrap. With G the AI cycles per second there are
 //! N = 3G buckets; a persistent counter, N at first, goes 0, 1, ..., N and
 //! round again. A boardable thing whose id mod N is the counter is
@@ -13,7 +13,7 @@
 use super::service::{VehicleAI, VehicleStorage, VehicleServices};
 use super::world::{QueryFilter, Ref, World};
 
-/// VehicleNotifier's state (notify.js:233): the counter, None before the
+/// VehicleNotifier's state: the counter, None before the
 /// first pass.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Notifier {
@@ -25,7 +25,7 @@ impl VehicleAI {
 }
 impl<T: VehicleStorage> VehicleNotify for T {}
 pub trait VehicleNotify: VehicleServices {
-    /// notifier.run(vehicles) (notify.js:240): how many were told.
+    /// notifier.run(vehicles): how many were told.
     fn notify<W: World + ?Sized>(&mut self, w: &mut W) -> f64 {
         self.notify_with(w,&mut |w,controller,note|w.add_vehicle_note(controller,note))
     }
@@ -50,7 +50,7 @@ pub trait VehicleNotify: VehicleServices {
         told
     }
 
-    /// notifier.consider(vehicles, entry) (notify.js:253).
+    /// notifier.consider(vehicles, entry).
     fn consider<W: World + ?Sized>(&mut self, w: &mut W, entry: u64) -> f64 {
         self.consider_with(w,entry,&mut |w,controller,note|w.add_vehicle_note(controller,note))
     }
