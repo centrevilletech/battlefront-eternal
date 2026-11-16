@@ -489,8 +489,15 @@ fn post_image(size:[i32;2],slot:usize)->String{
 // the scene's size and stretched when read: it is distant, fogged scenery behind the near scene, and at
 // 1920x1080 on an Intel HD 2000 the full-size far pass cost 7.4 ms of a 20 ms frame. The near scene reads it
 // by its own pixel position over `resolution`, so any size of the far image lines up.
+// The reduced far image never drops below this many lines: smaller, the mountains and forests the far scene
+// draws on open maps (Kashyyyk) blur into one smear.
+const FAR_MIN_LINES: f64 = 540.;
+/// The far image's size: the scene's, or with reduced far terrain down to half of it, but no fewer than
+/// FAR_MIN_LINES lines (so a 960x540 scene keeps a full-size far image and a 1920x1080 one gets 960x540).
 fn far_extent(size: [i32; 2], reduced: bool) -> [i32; 2] {
-    if reduced { size.map(|v| ((v + 1) / 2).max(1)) } else { size }
+    if !reduced { return size; }
+    let scale = (FAR_MIN_LINES / size[1].max(1) as f64).clamp(0.5, 1.);
+    size.map(|v| ((v as f64 * scale).round() as i32).max(1))
 }
 fn frame_image(size: [i32; 2]) -> String {
     serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1009,"srgb":false,"renderTarget":true}).to_string()
@@ -2562,7 +2569,11 @@ mod camera_tests {
     #[test]
     fn the_reduced_far_image_is_half_the_scene_and_never_empty(){
         assert_eq!(far_extent([1920,1080],true),[960,540]);
-        assert_eq!(far_extent([1281,721],true),[641,361]);
+        assert_eq!(far_extent([3840,2160],true),[1920,1080]);
+        // Never fewer than 540 lines: Minimum's 960x540 scene keeps a full-size far image.
+        assert_eq!(far_extent([1280,720],true),[960,540]);
+        assert_eq!(far_extent([960,540],true),[960,540]);
+        assert_eq!(far_extent([480,270],true),[480,270]);
         assert_eq!(far_extent([1,1],true),[1,1]);
         assert_eq!(far_extent([1920,1080],false),[1920,1080]);
     }
