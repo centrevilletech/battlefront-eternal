@@ -1547,7 +1547,7 @@ mod tests {
         assert!(!info_d.compatible);
         assert_eq!(
             info_d.facts[6],
-            ("VERSION", "UPDATE TO JOIN".to_string())
+            ("VERSION", "OLDER SERVER (SIM 1)".to_string())
         );
 
         let raw_q = format!(

@@ -38,11 +38,28 @@ pub struct Fleet {
     pub continued: bool,
     pub prediction_tick: f64,
     pub alpha: f64,
+    /// Hides a small correction of the piloted hull's prediction, as the page's vehicle
+    /// smoother does (beyond 3 m it is shown at once); counted like the soldier's.
+    pub smoother: bfe_pose::smoothing::SmootherState,
+    pub snaps: u64,
+    pub correction_metres: f64,
+    shown_tick: f64,
+    shown_position: [f64; 3],
+    shown_source: f64,
     active: Option<usize>,
     frozen_weapons: bool,
     water:Option<bfe_sim::units::water::WaterState>,last_water:f64,
 }
 impl Fleet {
+    /// The smoothing offset of the piloted hull's drawn position.
+    pub fn offset(&self) -> [f64; 3] {
+        if self.identity.is_some() { self.smoother.offset } else { [0.; 3] }
+    }
+    pub fn decay(&mut self, dt: f64) {
+        if self.smoother.decay(0.05, dt) {
+            self.smoother.reset();
+        }
+    }
     pub fn vehicle_motion(&self)->(f64,f64){
         let Some(index)=self.active.filter(|_|self.identity.is_some())else{return(0.,0.);};
         let Some(state)=self.state.as_ref()else{return(0.,0.);};let hull=&self.hulls[index];
@@ -159,6 +176,12 @@ impl Fleet {
             ticks: 0,
             continued: false,
             prediction_tick: 0.,
+            smoother: Default::default(),
+            snaps: 0,
+            correction_metres: 0.,
+            shown_tick: 0.,
+            shown_position: [0.; 3],
+            shown_source: -1.,
             alpha: 1.,
             active: None,
             frozen_weapons: false,
@@ -241,6 +264,13 @@ impl Fleet {
         hull.walk_blend = row[r::WALK_BLEND] / 255.;
         hull.walk_from_phase = hull.walk_phase;
         hull.walk_from_blend = hull.walk_blend;
+        // Ask the replay where the hull is at the tick drawn last, to compare after a rewind.
+        let source = receiver.own.vehicle_generation * 65536. + receiver.own.vehicle;
+        if source != self.shown_source {
+            self.smoother.reset();
+            self.shown_tick = 0.;
+        }
+        hull.check_tick = self.shown_tick;
         hull.put(&mut words[hull_at as usize..], &mut Vec::new());
         // Collision presence follows the current snapshot's qualified hull
         // identities. The piloted hull is excluded from its own query world;
@@ -295,7 +325,19 @@ impl Fleet {
         self.continued = result.continued;
         self.prediction_tick = result.tick;
         let hull = ClientHull::take(&owner.output[result.hull_at as usize..], &[]);
-        self.state = Some(ClientHullState::take(&owner.output[hull.state_at as usize..], &[]));
+        let state = ClientHullState::take(&owner.output[hull.state_at as usize..], &[]);
+        if result.check_found && self.shown_tick != 0. {
+            let note = self.smoother.note(self.shown_position, result.check_position, 3.);
+            self.correction_metres += note.size;
+            if note.reset {
+                self.snaps += 1;
+                self.smoother.reset();
+            }
+        }
+        self.shown_tick = result.tick;
+        self.shown_position = state.position;
+        self.shown_source = source;
+        self.state = Some(state);
         self.walk = [
             hull.walk_phase,
             hull.walk_blend,
