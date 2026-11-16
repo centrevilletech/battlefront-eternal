@@ -205,6 +205,7 @@ impl Buildings {
                     textures,
                     bfe_content_native::placed::admit_look(content, source, index)?,
                     cascades,
+                    false,
                 )?;
                 let bind = rig
                     .bones

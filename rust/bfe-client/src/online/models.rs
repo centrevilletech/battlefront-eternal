@@ -88,7 +88,7 @@ impl Model {
             });
         }
         let bounds = placed.parts.iter().map(|p| bounds(&p.positions)).collect();
-        let admitted = crate::static_scene::props(bridge, content, textures, placed, cascades)?;
+        let admitted = crate::static_scene::props(bridge, content, textures, placed, cascades, false)?;
         Ok(Some(Self { rows: admitted.records, radius, bounds }))
     }
     // A one-bone rigid model uses the same attached skin convention as all
@@ -186,7 +186,7 @@ impl Model {
             radius: 2.,
         };
         let bounds = vec![bounds(&part.positions)];
-        let admitted = crate::static_scene::props(bridge, content, textures, Placements { parts: vec![part], deferred: 0 }, 0)?;
+        let admitted = crate::static_scene::props(bridge, content, textures, Placements { parts: vec![part], deferred: 0 }, 0, false)?;
         Ok(Self { rows: admitted.records, radius: 2., bounds })
     }
 }

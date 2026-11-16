@@ -8,6 +8,9 @@ pub(super) struct PageBlur {
     targets: [glow::Framebuffer; 2],
     direction: Option<glow::UniformLocation>,
     size: [i32; 2],
+    // A finished backdrop kept while it cannot change (a paused battle), so
+    // later frames show it instead of drawing and filtering it again.
+    kept: Option<(glow::Texture, glow::Framebuffer)>,
 }
 impl PageBlur {
     pub fn new(gl: &glow::Context, size: [i32; 2]) -> Result<Self, String> {
@@ -42,13 +45,14 @@ impl PageBlur {
                 gl.delete_program(program);
                 return Err(error);
             }
-            let blur = Self {
+            let mut blur = Self {
                 program,
                 vao: gl.create_vertex_array()?,
                 textures: [gl.create_texture()?, gl.create_texture()?],
                 targets: [gl.create_framebuffer()?, gl.create_framebuffer()?],
                 direction: gl.get_uniform_location(program, "direction"),
                 size,
+                kept: None,
             };
             let (textures, targets) = (blur.textures, blur.targets);
             for i in 0..2 {
@@ -129,10 +133,7 @@ impl PageBlur {
             gl.active_texture(glow::TEXTURE0);
             gl.viewport(0, 0, w, h);
             for pass in 0..2 {
-                gl.bind_framebuffer(
-                    glow::FRAMEBUFFER,
-                    Some(if pass == 0 { self.targets[1] } else { target }),
-                );
+                gl.bind_framebuffer(glow::FRAMEBUFFER, Some(self.targets[1 - pass]));
                 gl.bind_texture(glow::TEXTURE_2D, Some(self.textures[pass]));
                 gl.uniform_2_f32(
                     self.direction.as_ref(),
@@ -150,12 +151,58 @@ impl PageBlur {
                 gl.draw_arrays(glow::TRIANGLES, 0, 3);
             }
         }
+        self.show_blurred(gl, target);
+    }
+    /// Copies the last filtered picture to `target`.
+    pub fn show_blurred(&self, gl: &glow::Context, target: glow::Framebuffer) {
+        Self::copy(gl, self.targets[0], target, self.size);
+    }
+    /// Keeps the last filtered picture until [`Self::forget`].
+    pub fn keep(&mut self, gl: &glow::Context) -> Result<(), String> {
+        if self.kept.is_none() {
+            unsafe {
+                let texture = gl.create_texture()?;
+                gl.bind_texture(glow::TEXTURE_2D, Some(texture));
+                gl.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA8 as i32, self.size[0], self.size[1], 0, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(None));
+                let target = gl.create_framebuffer()?;
+                gl.bind_framebuffer(glow::FRAMEBUFFER, Some(target));
+                gl.framebuffer_texture_2d(glow::FRAMEBUFFER, glow::COLOR_ATTACHMENT0, glow::TEXTURE_2D, Some(texture), 0);
+                self.kept = Some((texture, target));
+            }
+        }
+        if let Some((_, kept)) = self.kept {
+            Self::copy(gl, self.targets[0], kept, self.size);
+        }
+        Ok(())
+    }
+    /// Copies the kept picture to `target`; false when nothing is kept.
+    pub fn show_kept(&self, gl: &glow::Context, target: glow::Framebuffer) -> bool {
+        let Some((_, kept)) = self.kept else { return false };
+        Self::copy(gl, kept, target, self.size);
+        true
+    }
+    pub fn forget(&mut self, gl: &glow::Context) {
+        if let Some((texture, target)) = self.kept.take() {
+            unsafe {
+                gl.delete_framebuffer(target);
+                gl.delete_texture(texture);
+            }
+        }
+    }
+    fn copy(gl: &glow::Context, from: glow::Framebuffer, to: glow::Framebuffer, [w, h]: [i32; 2]) {
+        unsafe {
+            gl.disable(glow::SCISSOR_TEST);
+            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(from));
+            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(to));
+            gl.blit_framebuffer(0, 0, w, h, 0, 0, w, h, glow::COLOR_BUFFER_BIT, glow::NEAREST);
+        }
     }
     pub fn resize(&mut self, gl: &glow::Context, size: [i32; 2]) {
         if self.size == size {
             return;
         }
         self.size = size;
+        self.forget(gl);
         unsafe {
             for texture in self.textures {
                 gl.bind_texture(glow::TEXTURE_2D, Some(texture));
@@ -173,7 +220,8 @@ impl PageBlur {
             }
         }
     }
-    pub fn dispose(&self, gl: &glow::Context) {
+    pub fn dispose(&mut self, gl: &glow::Context) {
+        self.forget(gl);
         unsafe {
             for texture in self.textures {
                 gl.delete_texture(texture);

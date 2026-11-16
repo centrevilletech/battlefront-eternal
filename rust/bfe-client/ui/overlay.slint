@@ -205,7 +205,9 @@ export component GameUi inherits Window {
     base-layer := Rectangle {
         x: 0px; y: 0px; width: parent.width; height: parent.height;
         background: transparent;
-        opacity: root.render-pass == 2 ? 0.0 : 1.0;
+        // Hidden, not transparent, in the other pass: a transparent element
+        // still draws into a layer of its own each frame.
+        visible: root.render-pass != 2;
 
         if SetupModel.visible && !root.gameplay: SetupScreen {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
@@ -288,10 +290,9 @@ export component GameUi inherits Window {
     // Pass 2: modal / popup dialogs and their dimmed backdrop (drawn sharp after PageBlur).
     modal-layer := Rectangle {
         // The battle's dialogs (BattleModalScreen) gate themselves; the shell's are covered by modal-open.
-        visible: root.modal-open || root.gameplay;
+        visible: (root.modal-open || root.gameplay) && root.render-pass != 1;
         x: 0px; y: 0px; width: parent.width; height: parent.height;
         background: transparent;
-        opacity: root.render-pass == 1 ? 0.0 : 1.0;
 
         // Profile callsign editor modal (always mounted so focus-profile-input() works when opened).
         profile-modal := ProfileModal {

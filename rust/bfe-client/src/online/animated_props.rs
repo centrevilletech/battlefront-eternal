@@ -235,6 +235,7 @@ impl Animated {
                 textures,
                 bfe_content_native::placed::admit_look(content, source, 0)?,
                 bridge.shadow_cascades(),
+                false,
             )?;
             views.push(View {
                 death_camera: anim.get("deathCamera").is_some_and(Value::truthy),
@@ -272,9 +273,9 @@ impl Animated {
             let index = owner.add_trap(TrapDesc { scene: Default::default(), root: root as i32, initial,
                 trigger_clip: trigger.map(|c|c.0), build_clip: build.map(|c|c.0), trigger_length: trigger.map_or(0.,|c|c.1) });
             let admission = crate::static_scene::props(bridge,content,textures,
-                bfe_content_native::placed::admit_look(content,source,0)?,bridge.shadow_cascades())?;
+                bfe_content_native::placed::admit_look(content,source,0)?,bridge.shadow_cascades(),false)?;
             let pad = crate::static_scene::props(bridge,content,textures,
-                bfe_content_native::placed::admit_trap_pad(content,source)?,bridge.shadow_cascades())?;
+                bfe_content_native::placed::admit_trap_pad(content,source)?,bridge.shadow_cascades(),false)?;
             let building = bfe_sim::world::admit::rows::props::live_sources(&content.content.battle).iter().position(|id|*id==source).ok_or("trap has no building id")?;
             traps.push(TrapView { building, view: View { death_camera: false, skin: vec![0.; inverses.len()*16], rig, inverses,
                 rows: admission.records, bone: owner.bone_start(true,index) }, pad_rows: pad.records, pad_bones: pad.bones,

@@ -211,12 +211,16 @@ int bfeRow;
 mat4 modelMatrix; mat4 modelViewMatrix; mat3 normalMatrix; mat4 bindMatrixInverse; mat4 bindMatrix;
 ";
 
+// The vertex stage reads as little of the row as it can, every vertex: a texel fetch each on old GPUs with
+// one sampler (an Intel HD 2000 ran 25 a vertex at ~6.5k triangles per ms). The model-view and normal
+// matrices come from the model matrix and the frame's view; the bind inverse is already in the bone rows
+// (InstancePass::draw multiplies it in), so the shader's is the identity.
 const INSTANCE_VERTEX_LOAD: &str = "void bfeLoad() {
   bfeRow = bfeInstanceBase + gl_InstanceID; vBfeRow = bfeRow;
   modelMatrix = mat4(bfeTexel(0), bfeTexel(1), bfeTexel(2), bfeTexel(3));
-  modelViewMatrix = mat4(bfeTexel(4), bfeTexel(5), bfeTexel(6), bfeTexel(7));
-  normalMatrix = mat3(bfeTexel(8).xyz, bfeTexel(9).xyz, bfeTexel(10).xyz);
-  bindMatrixInverse = mat4(bfeTexel(11), bfeTexel(12), bfeTexel(13), bfeTexel(14));
+  modelViewMatrix = viewMatrix * modelMatrix;
+  normalMatrix = transpose(inverse(mat3(modelViewMatrix)));
+  bindMatrixInverse = mat4(1.0);
   bindMatrix = mat4(bfeTexel(21), bfeTexel(22), bfeTexel(23), bfeTexel(24));
   bfeLoadLook();
   bfeLoadExtras();
@@ -514,6 +518,10 @@ mod tests {
         assert!(out.contains("bfeLoadLook(); bfeLoadExtras(); }"));
         // A program that declares none loads none.
         let plain = rewrite("#version 300 es\nuniform float sunScale;\nvoid main() {}\n", Stage::Vertex, Kind::Rigid).unwrap();
+        // An instance's vertex stage fetches the model matrix only; the model-view and normal matrices are made
+        // from it and the frame's view, and the bind inverse is already in the bones.
+        assert!(plain.contains("modelViewMatrix = viewMatrix * modelMatrix;") && plain.contains("bindMatrixInverse = mat4(1.0);"));
+        assert!(!plain.contains("bfeTexel(4)") && !plain.contains("bfeTexel(8)") && !plain.contains("bfeTexel(11)"));
         assert!(plain.contains("void bfeLoadExtras() {\n}\n") && plain.contains("bfeLoadExtras();"));
     }
 

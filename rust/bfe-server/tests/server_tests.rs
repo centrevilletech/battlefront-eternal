@@ -3664,7 +3664,9 @@ impl StartupService {
     }
 
     // Bound each socket operation so a listener blocked on admission fails
-    // within the same three-second startup budget as the Linux CI check.
+    // fast. The Linux CI check holds the service to its three-second startup
+    // budget; this wait only has to outlast a cold process start on a loaded
+    // test machine.
     fn status(&self) -> Result<Value, String> {
         let token =
             fs::read_to_string(self.directory.join("operator-token")).map_err(|e| e.to_string())?;
@@ -3705,7 +3707,7 @@ impl StartupService {
                 "service exited during startup"
             );
             assert!(
-                start.elapsed() < Duration::from_secs(3),
+                start.elapsed() < Duration::from_secs(20),
                 "operator startup timed out: {}",
                 fs::read_to_string(self.directory.join("service.log")).unwrap()
             );

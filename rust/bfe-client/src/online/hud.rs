@@ -35,6 +35,8 @@ const ART: [&str; 15] = [
     "stats_deaths",
     "stats_cpp",
 ];
+// The team logos the battle's title card draws (battle.rs).
+const LOGOS: [&str; 2] = ["rep_icon", "cis_icon"];
 
 #[derive(Clone, Debug)]
 pub struct HudClassMeta {
@@ -408,11 +410,10 @@ impl Prepared {
             width: 1.,
             height: 1.,
         });
-        if let Some(tex_obj) = common["textures"].as_object() {
-            let keys: Vec<String> = tex_obj.keys().cloned().collect();
-            for k in keys {
-                let _ = asset(&k, &mut result);
-            }
+        // Only the common art a battle screen names: the menus' briefing,
+        // loading and side images stay out of the battle's memory.
+        for name in bfe_battle_ui::surface::TEXTURE_NAMES.into_iter().chain(LOGOS) {
+            let _ = asset(name, &mut result);
         }
         for name in ["gamefont_tiny", "gamefont_small", "gamefont_medium", "gamefont_large"] {
             let font = &common["fonts"][name];

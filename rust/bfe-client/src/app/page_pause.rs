@@ -2,10 +2,19 @@
 use super::settings::AppSettingsStore;
 use crate::scene::Scene;
 
+/// What a kept backdrop was made for: window size, settings revision and look.
+pub(super) type BackdropKey = ([i32; 2], u64, String);
+
 pub(super) struct PagePause {
     pub theme: String,
     pub blur: super::page_blur::PageBlur,
     pending: bool,
+    /// The paused battle's filtered frame is kept for this key (Instant Action only:
+    /// its world stands still behind the menu).
+    pub kept: Option<BackdropKey>,
+    /// The filtered frame under a dialog over the pause menu is the blur's last
+    /// picture, for this key.
+    pub modal: Option<BackdropKey>,
 }
 
 impl PagePause {
@@ -40,6 +49,8 @@ impl PagePause {
             blur,
             theme: settings.player.shell.menu_theme.clone(),
             pending: false,
+            kept: None,
+            modal: None,
         })
     }
 }

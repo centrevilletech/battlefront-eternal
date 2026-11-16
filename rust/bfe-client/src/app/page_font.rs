@@ -5,10 +5,8 @@ use std::collections::HashMap;
 pub fn atlas(bytes: &[u8]) -> Result<(Vec<u8>, Font), String> {
     let source = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
         .map_err(str::to_owned)?;
-    let mut pixels = vec![0; 1024 * 1024 * 4];
-    for pixel in pixels.chunks_exact_mut(4) {
-        pixel[..3].fill(255);
-    }
+    // Coverage only: the texture reads it as white with this alpha.
+    let mut pixels = vec![0; 1024 * 1024];
     let mut glyphs = HashMap::new();
     // The Latin subset shipped by electron/ui/fonts covers the page's labels
     // and Western player names. Keep layout in baseline coordinates.
@@ -27,8 +25,7 @@ pub fn atlas(bytes: &[u8]) -> Result<(Vec<u8>, Font), String> {
         }
         for row in 0..m.height {
             for col in 0..m.width {
-                let at = ((y + row) * 1024 + x + col) * 4;
-                pixels[at..at + 4].copy_from_slice(&[255, 255, 255, bitmap[row * m.width + col]]);
+                pixels[(y + row) * 1024 + x + col] = bitmap[row * m.width + col];
             }
         }
         glyphs.insert(
@@ -68,7 +65,8 @@ mod tests {
         let (pixels, font) =
             super::atlas(include_bytes!("../../assets/fonts/saira-700.ttf")).unwrap();
         assert!(font.glyphs[&('W' as u16)].advance > font.glyphs[&('I' as u16)].advance);
-        assert!(pixels.chunks_exact(4).any(|p| p[3] > 0));
+        assert_eq!(pixels.len(), 1024 * 1024);
+        assert!(pixels.iter().any(|&a| a > 0));
         assert!(font.glyphs[&0x2026].advance > 0.);
     }
 }

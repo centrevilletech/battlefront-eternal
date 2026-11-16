@@ -39,6 +39,8 @@ pub struct Work {
     pub ready: Option<Box<BattleController>>,
     handover: u8,
     display_ms: f64,
+    /// When loading began, to say how long before the screen's end it was ready.
+    began: Option<std::time::Instant>,
 }
 impl Work {
     pub fn advance(
@@ -53,6 +55,7 @@ impl Work {
     ) -> Result<(), String> {
         if !self.started {
             let started = std::time::Instant::now();
+            self.began = Some(started);
             super::page_battle::PageBattle::prefetch();
             let (tx, rx) = mpsc::sync_channel(2);
             let content_root = root.to_path_buf();
@@ -157,10 +160,11 @@ impl Work {
             crate::loading_work::take_idle();
             let polled = crate::loading_work::poll(opening.as_mut());
             let from = crate::loading_work::resumed_at();
+            let to = crate::loading_work::suspended_at();
             let ms = started.elapsed().as_secs_f64() * 1000.;
             self.display_ms += ms;
             if ms > 33. {
-                eprintln!("battle loading: display step {ms:.0} ms from {from}");
+                eprintln!("battle loading: display step {ms:.0} ms from {from} to {to}");
             }
             let Poll::Ready(result) = polled else {
                 if crate::loading_work::take_idle() || frame_started.elapsed() >= STEP_BUDGET {
@@ -174,8 +178,9 @@ impl Work {
                 self.ready = Some(Box::new(result?));
                 self.opening = None;
                 eprintln!(
-                    "battle loading: display admission complete ({:.0} ms of display steps)",
-                    self.display_ms
+                    "battle loading: display admission complete ({:.0} ms of display steps); ready {:.2} s after loading began",
+                    self.display_ms,
+                    self.began.map_or(0., |began| began.elapsed().as_secs_f64())
                 );
             }
         }

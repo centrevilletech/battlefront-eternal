@@ -361,11 +361,7 @@ impl Page {
                 );
             }
         }
-        let look_index = match a.settings.menu_theme.as_str() {
-            "bf1" => 0,
-            "bf2" => 1,
-            _ => 2,
-        };
+        let look_index = look_index(&a.settings.menu_theme);
         if self.patterns[look_index] != 0 {
             b.quad(
                 m,
@@ -399,6 +395,15 @@ impl Page {
         ) {
             Self::rect(b, m, [0., 0., w, h], solid, [0., 0., 0., 0.5]);
         }
+    }
+}
+
+/// The `patterns` slot of a menu theme: bf1, bf2, else Eternal.
+pub fn look_index(menu_theme: &str) -> usize {
+    match menu_theme {
+        "bf1" => 0,
+        "bf2" => 1,
+        _ => 2,
     }
 }
 

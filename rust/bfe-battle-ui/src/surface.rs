@@ -397,6 +397,33 @@ impl BattleUiSurface for OwnedUiSurface {
     }
 }
 
+/// Every common texture the battle UI looks up by name through
+/// [`BattleUiSurface::texture`]. The battle loads these and no other common
+/// interface art, so a new lookup by name must be listed here.
+pub const TEXTURE_NAMES: [&str; 21] = [
+    "hud_flag_icon",
+    "border_3_pieces",
+    "opaque_rect",
+    "opaque_black",
+    "headerbuttonleft",
+    "headerbuttonmid",
+    "headerbuttonright",
+    "buttonleft",
+    "buttonmid",
+    "buttonright",
+    "backbutton_left",
+    "backbutton_mid",
+    "backbutton_right",
+    "listbox_cursor",
+    "listbox_hilight",
+    "small_arrow",
+    "stats_kills",
+    "stats_deaths",
+    "stats_cpp",
+    "cursor",
+    "mousecursor",
+];
+
 /// Asset IDs used by the Classic battle UI screens (spawn screen, scoreboard,
 /// pause menu). Maps to built-in `HudArt` slots (`SOLID`, `HUD_FLAG_ICON`, `STATS_*`)
 /// plus custom interface textures appended to `HudModel::assets` (or `0` when a
@@ -515,6 +542,30 @@ impl Default for BattleUiAssets {
             stats_cpp: A::STATS_CPP,
             cursor: 0,
             mousecursor: 0,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn the_battle_texture_list_holds_every_name_the_screens_resolve() {
+        let mut surface = OwnedUiSurface::new(1280, 720);
+        for (id, name) in TEXTURE_NAMES.iter().enumerate() {
+            surface.textures.insert(name.to_string(), 1000 + id as u32);
+        }
+        let assets = BattleUiAssets::from_surface(&surface);
+        let resolved = [
+            assets.post_icon, assets.border_3_pieces, assets.opaque_rect, assets.opaque_black,
+            assets.headerbuttonleft, assets.headerbuttonmid, assets.headerbuttonright, assets.buttonleft,
+            assets.buttonmid, assets.buttonright, assets.backbutton_left, assets.backbutton_mid,
+            assets.backbutton_right, assets.listbox_cursor, assets.listbox_hilight, assets.small_arrow,
+            assets.stats_kills, assets.stats_deaths, assets.stats_cpp, assets.cursor, assets.mousecursor,
+        ];
+        assert!(resolved.iter().all(|&id| id >= 1000), "{resolved:?}");
+        for (name, _) in crate::scoreboard::view::HEADERS {
+            assert!(TEXTURE_NAMES.contains(&name), "{name}");
         }
     }
 }
