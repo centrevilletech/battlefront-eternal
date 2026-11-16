@@ -290,9 +290,13 @@ export component GameUi inherits Window {
     // Pass 2: modal / popup dialogs and their dimmed backdrop (drawn sharp after PageBlur).
     modal-layer := Rectangle {
         // The battle's dialogs (BattleModalScreen) gate themselves; the shell's are covered by modal-open.
-        visible: (root.modal-open || root.gameplay) && root.render-pass != 1;
+        visible: root.modal-open || root.gameplay;
         x: 0px; y: 0px; width: parent.width; height: parent.height;
         background: transparent;
+        // Transparent, not hidden, in pass 1: it holds the dialogs' text fields, and hiding it
+        // there took their keyboard focus (a click on Direct Connect's port field typed into
+        // the address).
+        opacity: root.render-pass == 1 ? 0.0 : 1.0;
 
         // Profile callsign editor modal (always mounted so focus-profile-input() works when opened).
         profile-modal := ProfileModal {
