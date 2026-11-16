@@ -66,6 +66,11 @@ pub struct Limiter {
     makeup: f64,
     skip: i64,
     quiet: f64,
+    // Mean squares at or over this are past the knee, where the gain is a
+    // power of the mean square: above_scale * ms^above_power.
+    above: f64,
+    above_power: f64,
+    above_scale: f64,
     comp_gain: f64,
     ms: f64,
     ms_coef: f64,
@@ -78,6 +83,12 @@ pub struct Limiter {
 }
 
 impl Limiter {
+    /// The compressor's gain for a mean square, as first worked out: its
+    /// level in dB through the curve, back to a gain.
+    #[cfg(test)]
+    fn reference_gain(&self, ms: f64) -> f64 {
+        host::pow(10.0, self.curve(10.0 * host::log10(ms)) / 20.0)
+    }
     /// The worklet's processorOptions: ceiling (dBTP), release (s),
     /// lookahead (s), and the dynamics profile (masked fields set, the
     /// rest at their defaults, as setDynamics has them).
@@ -119,6 +130,9 @@ impl Limiter {
             makeup: 1.0,
             skip: -1,
             quiet: 0.0,
+            above: f64::INFINITY,
+            above_power: 0.0,
+            above_scale: 1.0,
             comp_gain: 1.0,
             ms: 0.0,
             ms_coef: 1.0 - host::exp(-1.0 / (0.01 * rate)),
@@ -154,6 +168,14 @@ impl Limiter {
         self.skip = take(6, -1.0) as i64;
         // Mean squares under this are under the knee, where curve() gives 0.
         self.quiet = host::pow(10.0, (self.threshold - self.knee / 2.0) / 10.0) * (1.0 - 1e-9);
+        // Past the knee the gain in dB is -slope (10 log10 ms - threshold), so
+        // the gain is 10^(slope threshold / 20) ms^(-slope / 2): one power a
+        // sample instead of a logarithm and a power, the same value within a
+        // few units in the last place.
+        let slope = 1.0 - 1.0 / self.ratio;
+        self.above = host::pow(10.0, (self.threshold + self.knee / 2.0) / 10.0);
+        self.above_power = -slope / 2.0;
+        self.above_scale = host::pow(10.0, slope * self.threshold / 20.0);
     }
 
     // The compressor's gain for a level in dB (soft knee).
@@ -240,12 +262,18 @@ impl Limiter {
             // value costs the audio thread several times the math. (Under
             // the knee the curve gives 0, so what quiet says of a sample,
             // a gain of exactly 1, comes out with the rest.)
+            // Under the knee the curve gives 0 and the gain is exactly 1; past
+            // it a single power; only within the knee its curve in dB.
             if loud {
-                host::log10_each(&mut levels[..n]);
                 for level in &mut levels[..n] {
-                    *level = self.curve(10.0 * *level) / 20.0;
+                    *level = if *level < quiet {
+                        1.0
+                    } else if *level >= self.above {
+                        self.above_scale * host::pow(*level, self.above_power)
+                    } else {
+                        host::pow(10.0, self.curve(10.0 * host::log10(*level)) / 20.0)
+                    };
                 }
-                host::pow10_each(&mut levels[..n]);
             }
             for (i, want) in levels[..n].iter().enumerate() {
                 let want = if loud { *want } else { 1.0 };
@@ -402,5 +430,25 @@ impl Limiter {
             return Some(reduction);
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn the_compressor_gain_past_the_knee_is_the_curve_s() {
+        for profile in [[-18.0, 2.0, 8.0, 0.025, 0.2, -2.3, -1.0], [-30.0, 5.0, 10.0, 0.004, 0.35, 10.6, -1.0]] {
+            let l = Limiter::new(48000.0, -1.0, 0.08, 0.0015, &profile, (1 << DYNAMICS_COUNT) - 1);
+            let mut ms = l.above;
+            while ms < 4.0 {
+                let fast = l.above_scale * host::pow(ms, l.above_power);
+                let reference = l.reference_gain(ms);
+                assert!((fast - reference).abs() <= 1e-12 * reference, "{ms}: {fast} {reference}");
+                ms *= 1.01;
+            }
+            // Under the knee the gain is exactly 1.
+            assert_eq!(l.reference_gain(l.quiet * 0.99), 1.0);
+        }
     }
 }

@@ -296,6 +296,12 @@ impl LocalDedicatedServer {
                     for ev in events {
                         match ev {
                             WorldPeerEvent::Joined { id, name, .. } => {
+                                // The battle is over and the next one is announced: the finished
+                                // world has no spawn for a newcomer, so send it on to the next battle.
+                                if let Some(next) = u.pending_match_event() {
+                                    u.send_events(&id, &next);
+                                    continue;
+                                }
                                 // Send `entity-registry` before `welcome` (`handle("join")` in `src/world-worker.js`).
                                 let reg_msg = json!({
                                     "type": "entity-registry",

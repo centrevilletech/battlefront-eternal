@@ -278,7 +278,7 @@ impl Publisher {
                 if event.schema != 3. || actor.unit.is_some_and(|u| super::journal::concerns(event, u.0)) { reliable.records.push(i as u32); }
             }
             if reliable.records.is_empty() { self.reliable_spare.push(reliable); } else { self.output.reliable.push(reliable); }
-            let full = c.budget_used(at) < host.budget;
+            let full = c.within_budget(at, host.budget);
             if !full { c.metrics[7] += 1.; if at - c.own_sent_at < 100. { continue; } }
             self.recipients.push(Recipient { at: index, full, actor });
         }

@@ -33,7 +33,8 @@ impl Client {
     // Discovery, identity and DNS finish before the window event loop starts.
     // Handshake retries belong to receive(), so close and paint remain live.
     pub fn connect(endpoint: Box<Endpoint>, resources: &mut Replicas, camera: MapCamera, target: String, query: String) -> Result<Self, String> {
-        let receiver = Box::new(Receiver::new(resources.descriptor.clone()));
+        let mut receiver = Box::new(Receiver::new(resources.descriptor.clone()));
+        receiver.clock = super::clock::Clock::online();
         let replay = Box::new(resources.replay.take().ok_or("native prediction resources already admitted")?);
         let connecting_at = endpoint.now();
         Ok(Self {
@@ -185,9 +186,11 @@ impl World for Client {
             self.receiver.fault = Some(error);
         }
         self.replay.present(alpha, self.dt);
+        crate::app::trace_own_aim(&self.receiver, &self.sender, &self.replay);
         let mut own = self.receiver.own;
         if let Some(hull) = &self.replay.fleet.state {
-            own.position = hull.position;
+            let offset = self.replay.fleet.offset();
+            own.position = std::array::from_fn(|i| hull.position[i] + offset[i]);
         }
         if self.replay.fleet.identity.is_some() {
             self.sender.yaw = self.replay.fleet.aim[0];

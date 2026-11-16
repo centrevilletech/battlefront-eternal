@@ -2,7 +2,7 @@
 //! This adapter supplies generated device records and transport receipts; it
 //! keeps only the bounded command/edge metadata needed to retry publication.
 use super::receiver::Receiver;
-use crate::generated_input::{ClientCommand, ClientFlightCommand, ClientLook};
+use crate::generated_input::{ClientCommand, ClientFlightAction, ClientFlightCommand, ClientFlightHeld, ClientLook};
 use bfe_presentation::{
     network::{input::encode, outbound::Outbound, Output, Words},
     network_layout::{net_edge as e, net_header as h, net_op as op, net_outbound as out, net_view as v},
@@ -39,6 +39,7 @@ pub struct Sender {
     pub fire_aim: Option<[f64;2]>,
     // BFE_HUD_TRACE: the unit the camera ray last held, logged when it changes.
     aim_target: Option<u32>,
+    trace: bool,
     pub history: Box<super::replay::History>,
     owner: Box<Outbound>,
     life: [f64; 2],
@@ -49,8 +50,11 @@ pub struct Sender {
     latest: Option<State>,
     backup: Option<State>,
     use_backup: bool,
-    held: [usize; 9],
+    held: [usize; KEYS.len()],
     actions: [usize; ACTIONS.len()],
+    flight_actions: [usize; ClientFlightAction::NAMES.len()],
+    // The newest command's flight settings and pad, sent with its view.
+    flight: Option<ClientFlightCommand>,
     pointers: [Pointer; 128],
     pointer_at: usize,
     pointer_count: usize,
@@ -79,8 +83,26 @@ pub struct Sender {
     calm: u32,
     late_seen: u64,
     local_next: Option<f64>,
+    // Online: the tick each recent command was stamped for (by sequence), to read how late
+    // the server ran it from its input-ack.
+    stamps: Box<[(u32, f64); 256]>,
+    acked: f64,
+    acked_server_tick: f64,
+    // Online lead feedback (the page's InputLead with recover): acknowledgements still to
+    // pass before lateness may raise the margin again, and on-time ticks in a row.
+    lead_cooldown: f64,
+    lead_calm: f64,
+    /// Commands the server ran after the tick they were stamped for, and by how many ticks in all.
+    pub late: u64,
+    pub late_ticks: f64,
 }
-const KEYS: [&str; 9] = ["KeyW", "KeyS", "KeyD", "KeyA", "NumpadMultiply", "NumpadDivide", "Mouse0", "Mouse2", "Space"];
+/// The furthest ahead of the server an online command may be stamped (the page's 24 ticks).
+const ONLINE_MAX_LEAD: f64 = 24.;
+// ClientCommand.held bit order, then a pilot's boost and roll lock (the
+// world's own keys for them), which only a craft's command carries.
+const KEYS: [&str; 11] =
+    ["KeyW", "KeyS", "KeyD", "KeyA", "NumpadMultiply", "NumpadDivide", "Mouse0", "Mouse2", "Space", "ShiftLeft", "KeyZ"];
+const FLIGHT_KEYS: [(ClientFlightHeld, u32); 2] = [(ClientFlightHeld::Boost, 9), (ClientFlightHeld::RollLock, 10)];
 // ClientCommand.actions bit order (ClientAction).
 const ACTIONS: [&str; 15] = crate::generated_input::ClientAction::NAMES;
 fn put(x: &mut [f64], at: &mut usize, n: f64) {
@@ -94,10 +116,13 @@ impl Default for Sender {
         let held = KEYS.map(|name| INPUT_CODES.iter().position(|n| *n == name).expect("generated input code"));
         let actions =
             ACTIONS.map(|name| INPUT_ACTIONS.iter().position(|n| *n == name).unwrap_or(if name == "firePrimary" { 21 } else { 22 }));
+        let flight_actions =
+            ClientFlightAction::NAMES.map(|name| INPUT_ACTIONS.iter().position(|n| *n == name).expect("generated flight action"));
         Self {
             aim_scene: None,
             fire_aim: None,
             aim_target: None,
+            trace: std::env::var_os("BFE_HUD_TRACE").is_some(),
             history: Box::new(Default::default()),
             owner: Box::new(Outbound::default()),
             life: [0.; 2],
@@ -110,6 +135,8 @@ impl Default for Sender {
             use_backup: false,
             held,
             actions,
+            flight_actions,
+            flight: None,
             pointers: [Pointer::default(); 128],
             pointer_at: 0,
             pointer_count: 0,
@@ -133,6 +160,13 @@ impl Default for Sender {
             cooldown: 0,
             calm: 0,
             late_seen: 0,
+            stamps: Box::new([(0, 0.); 256]),
+            acked: 0.,
+            acked_server_tick: 0.,
+            lead_cooldown: 0.,
+            lead_calm: 0.,
+            late: 0,
+            late_ticks: 0.,
             local_next: None,
             turns: Vec::new(),
         }
@@ -141,6 +175,10 @@ impl Default for Sender {
 impl Sender {
     pub fn command_sequence(&self) -> f64 {
         self.sequence as f64
+    }
+    /// How far ahead of the newest world tick heard the newest command is stamped.
+    pub fn lead(&self, receiver: &Receiver) -> f64 {
+        self.last_tick - receiver.latest
     }
     /// The world tick the newest command is stamped for.
     pub fn command_tick(&self) -> f64 {
@@ -174,6 +212,31 @@ impl Sender {
     /// tick while the command is on its way.
     pub fn local_next_tick(&mut self, next: f64) {
         self.local_next = Some(next);
+    }
+    /// The server ran an acknowledged command `late` ticks after the tick it was stamped for
+    /// (`elapsed` server ticks since the previous acknowledgement). As the page's online
+    /// InputLead: a late one raises the extra margin by its lateness, at most once per 30
+    /// acknowledged ticks (commands in flight were stamped before the raise); after 60 on-time
+    /// ticks in a row the margin sheds a tenth of a tick per tick, so a stall does not leave
+    /// minutes of extra input latency behind it.
+    fn online_lateness(&mut self, late: f64, elapsed: f64) {
+        let elapsed = elapsed.clamp(1., 60.);
+        self.lead_cooldown = (self.lead_cooldown - elapsed).max(0.);
+        if late > 0. {
+            self.late += 1;
+            self.late_ticks += late;
+            self.lead_calm = 0.;
+            if self.lead_cooldown == 0. {
+                self.extra = (self.extra + late).min(ONLINE_MAX_LEAD);
+                self.lead_cooldown = 30.;
+            }
+        } else {
+            self.lead_calm += elapsed;
+            if self.lead_calm >= 60. {
+                self.lead_calm = 60.;
+                self.extra = (self.extra - 0.1 * elapsed).max(0.);
+            }
+        }
     }
     /// The extra margin a local world's lateness has added, in ticks.
     pub fn extra_lead(&self) -> f64 {
@@ -228,6 +291,16 @@ impl Sender {
         self.edge_count = n;
         self.measured = false;
         receiver.received.count = 0;
+        if receiver.ack > self.acked {
+            self.acked = receiver.ack;
+            let (sequence, stamped) = self.stamps[receiver.ack as usize % 256];
+            if !self.local && sequence as f64 == receiver.ack {
+                let late = (receiver.ack_tick - stamped).max(0.);
+                let elapsed = if self.acked_server_tick > 0. { receiver.ack_server_tick - self.acked_server_tick } else { 1. };
+                self.acked_server_tick = receiver.ack_server_tick;
+                self.online_lateness(late, elapsed);
+            }
+        }
         let mut ignored = [0.; 2];
         let _ = self.owner.run(op::OUTBOUND_ACK, &mut Words::new(&[receiver.ack]), &mut Output { values: &mut ignored, at: 0 });
         self.history.acknowledge(receiver.corrected_sequence);
@@ -250,6 +323,20 @@ impl Sender {
         self.invert = c.invert.unwrap_or(false);
         self.first_person = c.first_person.unwrap_or(false);
         self.sequence = self.sequence.wrapping_add(1).max(1);
+        // A pilot's command carries the craft's own keys as the Instant Action
+        // command does (local/commands.rs): its boost and roll lock held, its
+        // take-off, trick, loop and target lock presses. On foot they stay off
+        // the wire, so a press is never left queued for a later boarding.
+        let flying = receiver.in_aircraft();
+        let mut held = c.held & 0x1ff;
+        if flying {
+            for (flag, bit) in FLIGHT_KEYS {
+                if flight.held & (1 << flag as u8) != 0 {
+                    held |= 1 << bit;
+                }
+            }
+        }
+        self.flight = flying.then(|| flight.clone());
         // TargetLead uses the same transit estimate and future bound as the
         // page. Sequences remain distinct even when that bound holds a tick.
         if self.local {
@@ -263,7 +350,7 @@ impl Sender {
         let target = if let (true, Some(next)) = (self.local, self.local_next) { next + 1. + self.extra } else { target_lead(LeadTargetInput {
             hz: 60.,
             margin: 2.,
-            max_lead: 16.,
+            max_lead: ONLINE_MAX_LEAD,
             worst_gap: 0.,
             extra: self.extra,
             extrapolate: true,
@@ -280,6 +367,7 @@ impl Sender {
             self.measured = true;
         }
         self.last_tick = tick;
+        self.stamps[self.sequence as usize % 256] = (self.sequence, tick);
         self.history.push(c, look, flight, tick, receiver.own.generation, self.sequence as f64);
         let mut x = [0.; 512];
         let mut at = 0;
@@ -289,8 +377,8 @@ impl Sender {
         let count = at;
         put(&mut x, &mut at, 0.);
         let start = at;
-        for bit in 0..9 {
-            if c.held & (1 << bit) != 0 {
+        for bit in 0..KEYS.len() {
+            if held & (1 << bit) != 0 {
                 let name = KEYS[bit];
                 put(&mut x, &mut at, name.len() as f64);
                 for b in name.bytes() {
@@ -310,6 +398,13 @@ impl Sender {
                 put(&mut x, &mut at, self.actions[bit] as f64);
             }
         }
+        if flying {
+            for (bit, &action) in self.flight_actions.iter().enumerate() {
+                if flight.actions & (1 << bit) != 0 {
+                    put(&mut x, &mut at, action as f64);
+                }
+            }
+        }
         for (code, count) in [(21, c.primary_count.min(32)), (22, c.secondary_count.min(32))] {
             for _ in 0..count {
                 put(&mut x, &mut at, code as f64);
@@ -326,7 +421,7 @@ impl Sender {
         let state = State {
             sequence: self.sequence as f64,
             tick,
-            held: c.held,
+            held,
             look: [values[out::LOOK_X], values[out::LOOK_Y]],
             revision: values[out::REVISION],
         };
@@ -365,14 +460,19 @@ impl Sender {
         }
         self.preview(receiver);
         self.fire_aim = Some([self.yaw,self.pitch]);
-        if let Some(scene)=&self.aim_scene {
+        // The camera ray's aim is read only by what fires: a trigger edge this
+        // tick, or a trigger held (each predicted round and the walker's
+        // repeater take it). Nothing else looks at it.
+        const TRIGGERS: u32 = 1 << 6 | 1 << 7;
+        let firing = fc > 0 || c.held & TRIGGERS != 0;
+        if let (true, Some(scene)) = (firing || self.trace, &self.aim_scene) {
             let (aim,reach,target)=scene.borrow().sample(&receiver.own,self.yaw,self.pitch,self.first_person);
             self.fire_aim=Some([aim.yaw,aim.pitch]);
-            if target != self.aim_target && std::env::var_os("BFE_HUD_TRACE").is_some() {
+            if target != self.aim_target && self.trace {
                 eprintln!("[combat-aim] {{\"tick\":{},\"target\":{}}}", receiver.latest, target.map_or(-1, i64::from));
             }
             self.aim_target = target;
-            if fires[..fc].iter().any(|fire|fire.pressed && !fire.held) && std::env::var_os("BFE_HUD_TRACE").is_some() {
+            if fires[..fc].iter().any(|fire|fire.pressed && !fire.held) && self.trace {
                 use bfe_presentation::network_layout::net_record as record;
                 let velocity=target.and_then(|id|receiver.active().find(|row|row[record::ID]==id as f64).map(|row|[row[record::VELOCITY],row[record::VELOCITY+1],row[record::VELOCITY+2]]));
                 let team=target.and_then(|id|receiver.active().find(|row|row[record::ID]==id as f64).map(|row|row[record::TEAM]));
@@ -525,6 +625,30 @@ impl Sender {
             x[start + v::MOUSE_SCALE] = self.mouse_scale;
             x[start + v::ASPECT] = self.aspect;
             x[start + v::VIEW_TICK] = super::clock::rendered_tick(receiver.clock.shown, receiver.latest);
+            // A pilot's flight settings and pad, as the Instant Action
+            // mailbox gets them: the server's stick reads them as the
+            // prediction does.
+            if let Some(flight) = &self.flight {
+                let mut flags = 4. + if flight.invert { 8. } else { 0. };
+                // Settings outside the wire's ranges stay home: the server
+                // then reads its own defaults rather than refusing the packet.
+                if flight.scale > 0. && flight.scale <= 10. {
+                    flags += 256.;
+                    x[start + v::SENSITIVITY] = flight.scale;
+                }
+                if (0.1..=4.).contains(&flight.curve) {
+                    flags += 512.;
+                    x[start + v::CURVE] = flight.curve;
+                }
+                if flight.pad_buttons != 0 || flight.pad_axes.iter().any(|a| *a != 0.) {
+                    flags += 16.;
+                    for (out, axis) in x[start + v::AXES..start + v::AXES + 4].iter_mut().zip(flight.pad_axes) {
+                        *out = axis.clamp(-1., 1.);
+                    }
+                    x[start + v::BUTTONS] = f64::from(flight.pad_buttons & 0xffff);
+                }
+                x[start + v::FLAGS] += flags;
+            }
             for state in &states[..commands] {
                 for n in [1., state.sequence, state.tick, 0.] {
                     put(&mut x, &mut at, n);
@@ -532,7 +656,7 @@ impl Sender {
                 let count = at;
                 put(&mut x, &mut at, 0.);
                 let first = at;
-                for bit in 0..9 {
+                for bit in 0..KEYS.len() {
                     if state.held & (1 << bit) != 0 {
                         put(&mut x, &mut at, self.held[bit] as f64);
                     }
@@ -669,5 +793,56 @@ mod tests {
         // The world took one late: a tick more from now on.
         sender.local_lateness(1);
         assert_eq!(step(&mut sender, 104.), 106.);
+    }
+
+    #[test]
+    fn online_lead_rises_with_late_commands_and_relaxes_when_on_time() {
+        let mut sender = Sender::default();
+        // Two ticks late: the margin rises by two at once, and not again within 30 ticks.
+        sender.online_lateness(2., 1.);
+        assert_eq!(sender.extra, 2.);
+        sender.online_lateness(3., 10.);
+        assert_eq!(sender.extra, 2.);
+        sender.online_lateness(3., 25.);
+        assert_eq!(sender.extra, 5.);
+        // On time: nothing for 60 ticks, then a tenth of a tick per tick.
+        sender.online_lateness(0., 50.);
+        assert_eq!(sender.extra, 5.);
+        sender.online_lateness(0., 10.);
+        assert!((sender.extra - 4.).abs() < 1e-9);
+        sender.online_lateness(0., 10.);
+        assert!((sender.extra - 3.).abs() < 1e-9);
+        // Never past the page's 24 ticks.
+        sender.online_lateness(60., 60.);
+        assert_eq!(sender.extra, ONLINE_MAX_LEAD);
+        assert_eq!(sender.late, 4);
+    }
+
+    // A pilot's take-off press and boost reach the server as they reach an
+    // Instant Action world; on foot the same flight bits send nothing.
+    #[test]
+    fn a_pilots_flight_keys_go_on_the_wire() {
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        receiver.welcomed = true;
+        receiver.complete = true;
+        receiver.corrections = 1;
+        receiver.own.generation = 1.;
+        let flight = ClientFlightCommand {
+            held: 1 << ClientFlightHeld::Boost as u8,
+            actions: 1 << ClientFlightAction::Takeoff as u8,
+            scale: 1.,
+            curve: 1.35,
+            ..Default::default()
+        };
+        let takeoff = INPUT_ACTIONS.iter().position(|a| *a == "takeoff").unwrap() as f64;
+        let sent = |receiver: &Receiver| {
+            let mut sender = Sender::default();
+            sender.tick(&ClientCommand::default(), &ClientLook::default(), &flight, receiver, 0., 0.);
+            let actions: Vec<f64> = sender.edges[..sender.edge_count].iter().map(|row| row[e::ACTION]).collect();
+            (actions, sender.latest.unwrap().held, sender.flight.is_some())
+        };
+        assert_eq!(sent(&receiver), (vec![], 0, false));
+        receiver.own.flight = Some(0);
+        assert_eq!(sent(&receiver), (vec![takeoff], 1 << 9, true));
     }
 }

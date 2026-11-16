@@ -1326,12 +1326,6 @@ fn local_dedicated_server_full_join_entity_registry_welcome_and_publication_repl
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// End-to-end `bfe_transport::endpoint::Endpoint` client <-> `LocalDedicatedServer` session gate:
-/// - Connects a Rust `Endpoint` client over `BFE-UDP/1` to a live `LocalDedicatedServer` UDP socket.
-/// - Exchanges `BNI1` + `BNA1` input datagrams (`decode_entity_input` + `decode_snapshot_ack_keepalive`)
-///   and verifies `entity-registry`, `welcome`, `reply`, `input-ack`, `entity-edge-results`,
-///   `gameplay-events`, `BNS1`, and `BNO1`.
-///
 /// A client that vanishes without a close (killed, crashed, network gone) is retired once the
 /// transport's idle time passes: the player count, the roster and the listing must not keep it.
 #[test]
@@ -1396,6 +1390,11 @@ fn silent_client_is_retired_after_the_idle_timeout() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// End-to-end `bfe_transport::endpoint::Endpoint` client <-> `LocalDedicatedServer` session gate:
+/// - Connects a Rust `Endpoint` client over `BFE-UDP/1` to a live `LocalDedicatedServer` UDP socket.
+/// - Exchanges `BNI1` + `BNA1` input datagrams (`decode_entity_input` + `decode_snapshot_ack_keepalive`)
+///   and verifies `entity-registry`, `welcome`, `reply`, `input-ack`, `entity-edge-results`,
+///   `gameplay-events`, `BNS1`, and `BNO1`.
 #[test]
 fn udp_endpoint_client_joins_bfeserver_and_exchanges_events_and_snapshots() {
     let dir = temp_dir("endpoint-interop");
@@ -3480,6 +3479,8 @@ fn budget_limited_client_spawns_and_keeps_getting_whole_snapshots() {
     let mut seconds: Vec<(f64, usize)> = Vec::new(); // (bytes, whole snapshots) per second
     let mut last_own = now;
     let mut longest_own_gap: f64 = 0.;
+    let mut last_whole = now;
+    let mut longest_gap: f64 = 0.;
     let mut spawn_at = None;
     let mut alive_at = None;
     let mut own_after_alive = None;
@@ -3511,6 +3512,11 @@ fn budget_limited_client_spawns_and_keeps_getting_whole_snapshots() {
             }
         }
         if whole {
+            // After the first full snapshot has been paid for (two seconds).
+            if tick > 120 {
+                longest_gap = longest_gap.max(now - last_whole);
+            }
+            last_whole = now;
             seconds[second].1 += 1;
             // The client acknowledges every whole snapshot it received.
             let mut ack = ACK_MAGIC.to_le_bytes().to_vec();
@@ -3536,9 +3542,11 @@ fn budget_limited_client_spawns_and_keeps_getting_whole_snapshots() {
             alive_at = Some(now);
         }
     }
-    eprintln!("state bytes and whole snapshots per second: {seconds:?}");
-    // Skip the first second (the first full snapshot) and the partial last one.
-    for (i, (bytes, whole)) in seconds.iter().enumerate().skip(1).take(seconds.len() - 2) {
+    eprintln!("state bytes and whole snapshots per second: {seconds:?}; longest gap between whole snapshots {longest_gap:.0} ms");
+    // Skipped snapshots are spread out: no hole much longer than a few skipped publications.
+    assert!(longest_gap <= 150., "a {longest_gap:.0} ms hole between whole snapshots");
+    // Skip the first seconds (the first full snapshot) and the partial last one.
+    for (i, (bytes, whole)) in seconds.iter().enumerate().skip(2).take(seconds.len() - 3) {
         assert!(*bytes <= BUDGET * 1.25, "second {i}: {bytes} state bytes against a {BUDGET} budget");
         assert!(*whole >= 2, "second {i}: only {whole} whole snapshots");
     }
