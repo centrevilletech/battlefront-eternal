@@ -2041,9 +2041,7 @@ impl BattleController {
 
                 let mut own = receiver.own;
                 sender.preview(receiver);
-                if let Err(err) = replay.frame(receiver, sender) {
-                    receiver.fault = Some(err);
-                }
+                replay.frame(receiver, sender);
                 replay.present(alpha_interp, dt);
                 crate::app::trace_own_aim(receiver, sender, replay);
                 if let Some(hull) = &replay.fleet.state {
