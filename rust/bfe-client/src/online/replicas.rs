@@ -577,11 +577,15 @@ impl Replicas {
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         let hud = Box::new(hud.admit(bridge, textures, solid, size)?);
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         // The jetpacks' floats sit after the particles', before the arcs'.
         let jets_at = combat.particles.words;
         combat.particles.words += super::jetpacks::FLOATS;
         let jets = Box::new(super::jetpacks::Jetpacks::new(content, bridge, renderer, &combat.effect_names, jets_at)?);
         let arcs = Box::new(super::lightning::Arcs::new(content, bridge, textures, &arc_images, combat.particles.words)?);
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let guns = super::lightning::Guns::new(content)?;
         let charge_effects = guns
             .charge_effects
@@ -598,6 +602,7 @@ impl Replicas {
             &arc_images,
             combat.particles.words + super::lightning::FLOATS,
         )?);
+        crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         // The holograms' values follow the bubbles' in the effect data, and
         // their matrices sit just before the bubbles' at the bank's end.
@@ -611,6 +616,7 @@ impl Replicas {
             // A bubble takes two matrices (shields.rs).
             bfe_render::effects::MAX_DRAWS - 2 * super::shields::BUBBLES - super::holograms::MATRICES,
         )?);
+        crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         // The blades' values follow the holograms', their matrices just before them.
         let blades = Box::new(super::blades::Blades::new(
@@ -626,10 +632,14 @@ impl Replicas {
         let rain = super::weather::Rain::new(content, bridge, renderer, resources.collision.clone(), resources.world, holograms.end())?.map(Box::new);
         let snow_at = rain.as_ref().map_or(holograms.end(), |r| r.end());
         let snow = super::weather::Snow::new(content, bridge, textures, renderer, resources.collision.clone(), resources.world, snow_at)?.map(Box::new);
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let steam_at = snow.as_ref().map_or(snow_at, |s| s.end());
         let steam = super::steam::Steam::new(content, bridge, textures, renderer, steam_at)?.map(Box::new);
         let fountains_at = steam.as_ref().map_or(steam_at, |s| s.end());
         let fountains = super::fountains::Fountains::new(content, bridge, textures, renderer, fountains_at)?.map(Box::new);
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let trails_at = fountains.as_ref().map_or(fountains_at, |f| f.end());
         let trails = Box::new(super::trails::Trails::new(content, bridge, resources.collision.clone(), resources.world, trails_at)?);
         combat.map_effects.jets = fountains.is_some();
