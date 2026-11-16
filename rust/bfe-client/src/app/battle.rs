@@ -1612,10 +1612,10 @@ impl BattleController {
         let limit=settings.interface.get_string("frameLimit").parse().unwrap_or(0.);
         if let Err(err)=self.scene.set_resolution(settings.interface.get_f64("renderScale"),target,limit){eprintln!("battle settings: resolution not applied: {err}");}
         self.scene.bridge.r.post_chain.input[bfe_render::post_chain::layout::facts::SHARPNESS]=settings.interface.get_f64("upscaleSharpness").clamp(0.,1.);
-        let distance = self.scene.set_view_distance(&settings.interface.get_string("viewDistance"));
+        let (fade, far) = self.scene.set_view_distance(&settings.interface.get_string("viewDistance"));
         match &mut self.authority {
-            BattleAuthority::InstantAction { camera, .. } => camera.set_view_distance(distance),
-            BattleAuthority::Online { client, .. } => client.camera.set_view_distance(distance),
+            BattleAuthority::InstantAction { camera, .. } => camera.set_view_range(fade, far),
+            BattleAuthority::Online { client, .. } => client.camera.set_view_range(fade, far),
         }
         if let Err(err)=self.scene.set_post_effects(settings.interface.get_bool("bloom"), settings.interface.get_bool("softFocus"), &settings.interface.get_string("upscaler")){eprintln!("battle settings: post effects not applied: {err}");}
         if let Err(err)=self.scene.set_tree_detail(settings.interface.get_string("treeDetail")!="original"){eprintln!("battle settings: tree detail not applied: {err}");}

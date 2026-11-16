@@ -129,10 +129,15 @@ impl MapCamera {
         set(&mut self.view, "resolution", &[size[0] as f64, size[1] as f64]);
     }
     pub fn set_view_distance(&mut self, range: [f64; 2]) {
-        self.far_plane = range[1];
-        set(&mut self.view, "fade", &range);
-        self.view.values[10] = -(range[1] + 0.3) / (range[1] - 0.3);
-        self.view.values[14] = -0.6 * range[1] / (range[1] - 0.3);
+        self.set_view_range(range, range[1]);
+    }
+    /// The near fade and, separately, the near projection's far plane (at the SHORT view distance the fade
+    /// ends early while units and vehicles still draw out to the authored range).
+    pub fn set_view_range(&mut self, fade: [f64; 2], far: f64) {
+        self.far_plane = far;
+        set(&mut self.view, "fade", &fade);
+        self.view.values[10] = -(far + 0.3) / (far - 0.3);
+        self.view.values[14] = -0.6 * far / (far - 0.3);
     }
     pub fn subject_eye(&self) -> [f64; 3] {
         self.subject_eye
@@ -1432,15 +1437,23 @@ impl Scene {
         self.bridge.r.core.profile.report(&self.bridge.r.core.gl);
     }
 
-    pub fn set_view_distance(&mut self, choice: &str) -> [f64; 2] {
+    /// The view distance: returns the near fade and the near projection's far plane.
+    pub fn set_view_distance(&mut self, choice: &str) -> ([f64; 2], f64) {
         self.distance_scale = match choice { "far" => 2., "max" => 4., _ => 1. };
         let far = self.far_reach * self.distance_scale;
         self.far_projection[10] = -(far + 2.) / (far - 2.);
         self.far_projection[14] = -4. * far / (far - 2.);
         // Short: the near scene ends where the 2004 game's shortest view distance
         // ended it; past that every object is its far scene image, as there.
-        if choice == "short" { return self.near_short; }
-        self.near_range.map(|v| v * self.distance_scale)
+        if choice == "short" {
+            // The static world and the far scene switch at the short range; units, vehicles and command
+            // posts keep the authored range, as play needs them.
+            self.bridge.r.actor_fade = Some(self.near_range);
+            return (self.near_short, self.near_range[1].max(self.near_short[1]));
+        }
+        self.bridge.r.actor_fade = None;
+        let range = self.near_range.map(|v| v * self.distance_scale);
+        (range, range[1])
     }
 
     pub fn log_graphics(&self) {
