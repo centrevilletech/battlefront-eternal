@@ -1,5 +1,5 @@
-//! First-run choices and preflight checks, following electron/main.js's
-//! askToPrepare/checkCopy and electron/ui/prepare.js's state text.
+//! First-run choices and preflight checks: whether to ask before preparing,
+//! checks of a chosen copy, and the setup screen's state text.
 use super::settings::{
     application_resources, current_arch_str, current_platform_str, AppSettingsStore,
 };

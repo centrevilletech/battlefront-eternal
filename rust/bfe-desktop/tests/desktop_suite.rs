@@ -1738,8 +1738,8 @@ fn content_archive_exports_imports_deduplicates_hardlinks_and_relocates() {
 }
 
 // ---------------------------------------------------------------------------
-// Browser-build archive interop. The fixtures are synthetic bytes made here; the
-// archive layout is `electron/content-archive.js`'s (manifest first, `{path, size,
+// Interop with exports made by earlier releases. The fixtures are synthetic bytes
+// made here; the archive layout is theirs (manifest first, `{path, size,
 // mtime, [linkTo, hardlink,] sha256}` records, deflated entries, `.prepare.json`).
 // ---------------------------------------------------------------------------
 

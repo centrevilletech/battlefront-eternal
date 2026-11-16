@@ -1,5 +1,4 @@
-// First-run setup and content preparation screens (electron/ui/prepare.html,
-// prepare.css). All setup state stays in Rust (FirstRun / ImportWork);
+// First-run setup and content preparation screens. All setup state stays in Rust (FirstRun / ImportWork);
 // this module owns only presentation and forwards user actions through SetupModel.
 import { Theme, ControlState, MenuSound } from "../theme.slint";
 import { Interaction } from "../components/interaction.slint";
@@ -354,7 +353,7 @@ component DiskArcSegment inherits Path {
     Close {}
 }
 
-// #disk loading indicator (prepare.js drawDisk + prepare.css #disk).
+// The setup screen's loading disk.
 export component SetupDisk inherits Rectangle {
     in property <float> time: 0.0;
     in property <[color]> led-colors: SetupModel.disk-led-colors;

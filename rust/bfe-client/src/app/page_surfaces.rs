@@ -153,7 +153,7 @@ const PAGE_MASK: PatternMask = PatternMask {
     radius_y: 0.62,
 };
 
-/// The setup page's mask (prepare.css `.pattern`: ellipse 60% 72% at 50% 46%).
+/// The setup screen's mask (an ellipse 60% x 72% at 50%, 46%).
 pub const SETUP_MASK: PatternMask = PatternMask {
     centre_y: 0.46,
     radius_x: 0.60,

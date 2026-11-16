@@ -14,8 +14,8 @@ where
     theme.on_format_label(|text, uppercase| format_label(&text, uppercase).into());
 }
 
-/// lowercases button source labels, then looks.css applies
-/// uppercase or CSS capitalize. Keep punctuation and whitespace intact.
+/// A button's label in its look's casing: upper case, or each word capitalized.
+/// Punctuation and whitespace are kept as they are.
 pub fn format_label(text: &str, uppercase: bool) -> String {
     if uppercase {
         return text.to_uppercase();
