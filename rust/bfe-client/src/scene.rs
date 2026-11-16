@@ -546,7 +546,7 @@ fn frame_image(size: [i32; 2]) -> String {
 fn frame_target(size: [i32; 2], color: u32, stencil: bool, samples: i32) -> String {
     serde_json::json!({"width":size[0],"height":size[1],"color":color,"depth":null,"depthBuffer":true,"stencil":stencil,"samples":samples,"resolveDepth":false,"resolveStencil":false,"cube":false}).to_string()
 }
-// How a content image is sampled (game.js loadTexture: repeating, trilinear)
+// How a content image is sampled (loadTexture: repeating, trilinear)
 // at an anisotropy. The driver's limit is applied where the value is set.
 fn content_sampling(anisotropy: f64) -> String {
     format!(

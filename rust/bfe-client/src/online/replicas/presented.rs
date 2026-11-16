@@ -109,7 +109,7 @@ pub struct Presented {
     // (SoldierAnimator.setBank: an unknown bank is the rifle's, 0).
     banks: Vec<(String, usize)>,
     // Each registry weapon's bank (an index into `banks`) and whether it is
-    // thrown (src/weapons.js: a grenade, dispenser or remote).
+    // thrown (a grenade, dispenser or remote).
     weapons: Vec<Option<(usize, bool)>>,
     // The same two facts for each weapon definition, with its registry id,
     // in the definitions' own order, which the local player's predicted

@@ -1,5 +1,5 @@
 //! Bounded 8-message chat log, interactive chat input controller, and in-battle key routing
-//! (`src/chat.js`, `ChatLog`, `CHAT_COLORS`, `CHAT_LIMIT`).
+//! (`ChatLog`, `CHAT_COLORS`, `CHAT_LIMIT`).
 
 /// Maximum chat message length in characters (`CHAT_LIMIT`).
 pub const CHAT_LIMIT: usize = 240;

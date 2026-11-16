@@ -41,7 +41,7 @@ pub trait UnitsWorld {
     /// it; the count written.
     fn held_shapes(&mut self, id: u32, unit: &Unit, shapes: &mut [HitShape]) -> usize;
 
-    // ---- The registry's other members (src/seats.js VehicleTarget and
+    // ---- The registry's other members (VehicleTarget and
     // TurretTarget, src/objectives.js ObjectiveTarget), by registry id.
 
     /// `alive` (its hull's, turret's or building's).
@@ -53,7 +53,7 @@ pub trait UnitsWorld {
 
     // ---- Across a unit's tick (Unit.tick).
 
-    /// soldier.tick(input, h): a soldier's movement (src/soldier.js, the
+    /// soldier.tick(input, h): a soldier's movement (the
     /// module's `movement`), from the unit's `input`.
     fn move_soldier(&mut self, id: u32, unit: &mut Unit, h: f64);
     /// combat.damage(amount) (takeImpacts): what may kill him.

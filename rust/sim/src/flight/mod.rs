@@ -1,4 +1,4 @@
-//! Flight (src/flight/*.js and `Vehicle.fly`): a craft's tick at 1/60 s,
+//! Flight (and `Vehicle.fly`): a craft's tick at 1/60 s,
 //! inside the hulls' phase, to the last bit as the JavaScript steps it.
 
 pub mod ai;
@@ -50,7 +50,7 @@ pub struct Environment {
     /// `env.landingZones` (None: undefined).
     pub landing_zones: Option<std::rc::Rc<[Zone]>>,
     /// `system.flightAssists`: steering assists and the assist target
-    /// (src/game.js: off on Hard).
+    /// (off on Hard).
     pub assists: bool,
 }
 

@@ -9,7 +9,7 @@ use bfe_content::odf::{class_setting, num, setting};
 use bfe_content::value::Value;
 use v8math::{max, min};
 
-/// A class's tuning (src/flight/config.js `common` and its roll rate), in
+/// A class's tuning (`common` and its roll rate), in
 /// the JavaScript object's key order.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tuning {

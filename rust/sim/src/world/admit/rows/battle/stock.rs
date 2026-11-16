@@ -60,7 +60,7 @@ pub fn prepared_classes(cx: &Cx) -> Vec<String> {
 /// UnitFactory.prepared(className) for one class.
 pub fn prepared(cx: &Cx, class_name: &str) -> bool { prepared_classes(cx).iter().any(|n| n == class_name) }
 
-/// The registry's viewpoint slot (game.js `units.add(new Unit({human:true}))`,
+/// The registry's viewpoint slot (`units.add(new Unit({human:true}))`,
 /// recorded by the sequence before attachF3Combat).
 fn viewpoint_slot(cx: &Cx) -> Result<u32, AdmitError> {
     let id = cx.ids.registry.iter().find(|(key, _)| key == "viewpoint").map(|(_, id)| *id)

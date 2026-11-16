@@ -122,7 +122,7 @@ impl TriangleGrid {
 }
 
 /// A body's triangles: corners, indices into them, each triangle's polygon
-/// number (collision.js addBody/createBodyShape's arguments).
+/// number (addBody/createBodyShape's arguments).
 #[derive(Clone, Debug)]
 pub struct BodyTriangles {
     pub positions: Rc<[f32]>,

@@ -249,7 +249,7 @@ pub struct LiveSpawnPort {
     spawn_eligibility: HudOwnSummary,
 }
 
-/// The spawn screen's Math.random (spawn-screen/index.js gives its model no
+/// The spawn screen's Math.random (gives its model no
 /// other source): uniform in [0, 1) and different on every run, so a team
 /// switch lands on any of the new team's posts, as the client's does.
 pub(super) fn unit_random() -> f64 {
@@ -3463,7 +3463,7 @@ mod startup_policy_tests {
     }
 }
 
-/// The player's bot settings as the options screen keeps them (game.js reads
+/// The player's bot settings as the options screen keeps them (reads
 /// the same four: aiMode, aiDifficulty, aiHeroes, battleSize).
 #[derive(Clone, Debug, Default)]
 pub struct BotSettings {

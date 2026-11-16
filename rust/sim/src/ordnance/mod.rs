@@ -31,7 +31,7 @@ const MERGE: f64 = 8.0; // m over which a bolt drawn from the muzzle joins its p
 const FLOOR: f64 = -500.0;
 const FATRAY_RADIUS: f64 = 1.5;
 
-/// What fire() makes of a class (ordnance.js fireRound's dispatch on base).
+/// What fire() makes of a class (fireRound's dispatch on base).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Base {
     Beam,

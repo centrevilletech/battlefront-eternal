@@ -406,7 +406,7 @@ pub trait OperatorControl: Send + Sync {
 }
 
 /// Loopback TCP HTTP listener serving `POST /admin` and `GET /healthz`
-/// (`operatorHandler` in `src/operator.js` and `createServer`).
+/// (`operatorHandler` and `createServer`).
 pub struct OperatorHttpServer {
     /// Bound loopback TCP port (`PORT` env var or `18450`).
     pub port: u16,

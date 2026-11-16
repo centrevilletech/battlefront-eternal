@@ -1,5 +1,5 @@
-//! `Box3.js`, `Sphere.js`, `Plane.js`, `Ray.js`, `Line3.js`,
-//! `Triangle.js`, `Spherical.js`, `Cylindrical.js` (r170).
+//! `Box3.js`,
+//! `Triangle.js`, `Cylindrical.js` (r170).
 //! three's module-level temporaries (`_vector`, `_v0`, ...) become
 //! locals here; they hold no state between calls in three either
 //! (a sim port must never rely on one surviving a call, and in

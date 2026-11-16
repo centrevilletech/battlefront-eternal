@@ -78,8 +78,9 @@ Download the app from <https://battlefronteternal.com>:
 
 On first launch the app looks for the game in Steam, GOG Galaxy and Heroic,
 asks before preparing anything, and then prepares the maps, armies, interface
-and sound into your user folder. This takes a while once; allow about 7 GB of
-free space. If it cannot find the game, choose the folder that holds
+and sound into your user folder. This happens once: about 9 minutes on a 2011
+quad-core PC (playable after about 5), longer with the optional Enhanced
+sound. Allow about 7 GB of free space. If it cannot find the game, choose the folder that holds
 `GameData`, or import data prepared on another computer.
 
 The app updates itself when it starts, without a reinstall or a password,
@@ -101,10 +102,11 @@ Measured on an old machine, with the preset the app picked by itself:
 
 | Machine | Settings | Result |
 | --- | --- | --- |
-| Intel HD Graphics 2000 (2011 desktop integrated graphics) | full screen 1920x1080, Minimum | Theed about 65 fps, Hoth about 61, Kashyyyk Docks about 45, Mos Eisley about 37, Endor about 19 (about 31 with the SHORT view distance) |
+| Intel HD Graphics 2000 (2011 desktop integrated graphics) | full screen 1920x1080, Minimum | Theed about 65 fps, Hoth about 62, Kashyyyk Docks about 52, Mos Eisley about 49, Geonosis about 48, Endor about 40 |
 
-Busy maps (Endor, Mos Eisley, Geonosis) are the hardest. On a weak chip a
-lower RENDER SCALE or the SHORT VIEW DISTANCE helps most.
+Busy maps (Endor, Mos Eisley, Geonosis) are the hardest. Minimum draws the
+scenery out to the 2004 game's SHORT view distance; past that, a lower
+RENDER SCALE helps most on a weak chip.
 
 ## Classic and Enhanced
 
@@ -143,10 +145,12 @@ only introduces players to servers; battles run on the servers themselves.
   your PC; players on your network find it under LAN.
 - **Dedicated server:** `bfeserver` runs headless on a Linux machine (x64
   or ARM64, no GPU). Run `bfeserver` with no arguments for its setup menu,
-  `bfeserver --serve` to serve, and `bfeserver --help` for the options. The
-  server archive from each release installs as a systemd service that updates
-  itself and prepares its own data from a copy of the game you put on the
-  server ([server updates](docs/server-updates.md),
+  `bfeserver --serve` to serve, and `bfeserver --help` for the options. It
+  runs as a systemd service and prepares its own game data from a copy of the
+  game you put on the server. A server set up with the updater follows the
+  release channel by itself; otherwise the server archive's
+  `install-server.sh` installs or updates it with one command
+  ([server updates](docs/server-updates.md),
   [dedicated server](docs/native-server.md)). The game port (UDP and TCP
   18451 by default) must be open to players.
 
@@ -190,7 +194,11 @@ with the Python tools, the command-line options, the generated code
 - `tools/`: the Python tools that read the original game's files and prepare
   them ([formats](docs/formats.md)).
 - `build/`: packaging (Windows installer, AppImage, Debian package, server
-  archive, update payload) and CI scripts.
+  archive, update payload) and CI scripts. `build/native/host-runtime/` holds
+  the dedicated server's updater (a small Node.js program) and the launcher it
+  starts `bfeserver` through; the Linux releases carry them so servers set up
+  with the updater keep updating
+  ([server updates](docs/server-updates.md)).
 - `docs/`: design and behaviour notes, starting with the
   [architecture overview](docs/architecture.md).
 
@@ -211,7 +219,8 @@ with the Python tools, the command-line options, the generated code
 - [bink-decoder](https://github.com/centrevilletech/bink-decoder): the
   movie decoder, a Rust crate of its own.
 - [battlefront-eternal-server](https://github.com/centrevilletech/battlefront-eternal-server):
-  the dedicated server's service units and install notes.
+  getting a dedicated server: an install script (`get-bfeserver.sh`) and a
+  Dockerfile.
 - [battlefront-eternal-master](https://github.com/centrevilletech/battlefront-eternal-master):
   the server list and connection signaling.
 - [battlefront-eternal-relay](https://github.com/centrevilletech/battlefront-eternal-relay):

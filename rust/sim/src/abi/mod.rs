@@ -134,7 +134,7 @@ pub(crate) fn sim_calls_in(w: &mut crate::world::owner::World) -> &Block { &w.si
 /// is (the call block), or null for no such command.
 pub(crate) fn sim_command_in(w: &mut crate::world::owner::World, code: u32) -> Option<&Block> { if crate::gen::run_command(&mut w.sim, code) { Some(&w.sim.calls.block) } else { None } }
 
-/// The import block's size in words (src/sim/runtime.js writes a result
+/// The import block's size in words (writes a result
 /// there itself, up to this).
 pub fn sim_import_capacity() -> u32 { crate::store::calls::EXCHANGE as u32 }
 

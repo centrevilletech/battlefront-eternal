@@ -1,4 +1,4 @@
-//! Weapons (src/weapons.js Weapon and Arsenal, with src/heroes.js's melee
+//! Weapons (Weapon and Arsenal, with src/heroes.js's melee
 //! swing and src/seats.js seatWeaponPolicy): a weapon's clip, reserve, heat
 //! and kick, its trigger's timers, salvos, throws and charges, the spread
 //! each round draws, a launcher's lock, and a soldier's two channels. The
@@ -62,7 +62,7 @@ pub enum Admission {
     Token(f64),
 }
 
-/// A shot (src/weapons.js:487, a repair tick :293, a melee swing's
+/// A shot (a repair tick :293, a melee swing's
 /// steps src/heroes.js:44-58), its weapon by its place among its owner's.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shot {

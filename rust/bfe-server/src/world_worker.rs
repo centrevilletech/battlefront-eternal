@@ -1,4 +1,4 @@
-//! Native authoritative world host (`src/world-worker.js`, `SnapshotHost` in
+//! Native authoritative world host (`SnapshotHost` in
 //! `src/runtime/snapshot-host.js`, and `createMultiplayerWorld`).
 
 use crate::udp_peer::{ACK_MAGIC, INPUT_MAGIC};
@@ -551,7 +551,7 @@ impl FaultWatch {
 
 /// Decodes a `Publication` (`WirePublicationOutput` block + byte arena) into transport-ready
 /// shared `BNS1` groups, per-client `BNO1` packets, `input-ack`, `entity-edge-results`, and
-/// `gameplay-events` (`publish()` in `src/world-worker.js` and `WorldRouter.route`).
+/// `gameplay-events` (`publish()` and `WorldRouter.route`).
 #[allow(clippy::chunks_exact_to_as_chunks)]
 pub fn decode_publication_block(
     pub_data: &Publication,
@@ -789,8 +789,7 @@ pub fn decode_publication_block(
     Ok(out)
 }
 
-/// Composes the canonical `welcome` event payload (`m.type === "joined"` handler in `GameSession`
-/// in `src/game-session.js` and `welcome` callback in `startLocalServer`):
+/// Composes the canonical `welcome` event payload sent to a player who joined:
 /// `{ type: "welcome", ...info(), serverId: identity.id, ...m.player, playerId: m.player.unitId, tick: m.tick }`.
 pub fn build_welcome_message(info: &Value, server_id: &str, player: &PlayerWelcome) -> Value {
     let mut map = info.as_object().cloned().unwrap_or_default();
@@ -1034,7 +1033,7 @@ impl NativeWorldHost {
                 // to the client via `entity-edge-results`.
                 let _ = context.players_outcomes_enable(admitted_handles.player);
                 // Configure `wire_host` to publish world snapshots every 3 ticks (20 Hz), matching
-                // `PUBLISH_EVERY_TICKS = 3` in `src/world-worker.js` and `MAX_LOCAL_INTERVAL = 3`.
+                // `PUBLISH_EVERY_TICKS = 3` and `MAX_LOCAL_INTERVAL = 3`.
                 let _ = context.invoke_export(
                     "wire_host_set",
                     &AdmitCall {
@@ -1537,7 +1536,7 @@ impl NativeWorldHost {
     }
 
     /// Resets a client's snapshot delta baseline to force a full keyframe on the next publication
-    /// (`handle("resync")` in `src/world-worker.js` and `Host::resync` in `rust/sim/src/wire/host.rs`).
+    /// (`handle("resync")` and `Host::resync` in `rust/sim/src/wire/host.rs`).
     pub fn handle_resync(&mut self, peer_id: &str, now_ms: f64) {
         self.last_now_ms = self.last_now_ms.max(now_ms);
         let Some(&native_id) = self.native_by_client.get(peer_id) else {
@@ -1700,7 +1699,7 @@ impl NativeWorldHost {
         }
 
         // Push per-tick movement/look commands (`pkt.commands`) into the client's mailbox
-        // (`world.input(id, command)` in `src/runtime/snapshot-host.js` and `Native::submit` in
+        // (`world.input(id, command)` and `Native::submit` in
         // `rust/bfe-client/src/local/context.rs`).
         let mailbox_handle = self
             .mailbox_by_native

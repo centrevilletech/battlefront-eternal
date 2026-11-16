@@ -267,7 +267,7 @@ impl Capture {
             },
         ) {
             Ok(Returned::Scalar(0.0)) => {}
-            // `service.event(event)` threw (wire-presentation.js run's
+            // `service.event(event)` threw (run's
             // ERRORS) and attachPresentationCapture's guard handed the error
             // to `capture.fault`: the id stays spent, the battle goes on.
             Ok(Returned::Scalar(error)) => {

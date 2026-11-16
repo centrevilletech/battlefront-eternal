@@ -1,4 +1,4 @@
-//! The droideka (src/droideka.js, cis_inf_droideka, ODF class walkerdroid)
+//! The droideka (cis_inf_droideka, ODF class walkerdroid)
 //! as the 2004 game runs it: its modes (each a clip from its own bank,
 //! played at AnimationSpeed), its walk by the clips' root travel, the ball
 //! it rolls up into, its shield, and its collision against the buildings
@@ -66,7 +66,7 @@ pub struct DroidekaDef {
     pub ball_rolling_friction: Option<f64>,
 }
 
-/// A droideka's clips by mode (src/droideka.js CLIPS: `clips.get(name)`).
+/// A droideka's clips by mode (CLIPS: `clips.get(name)`).
 #[derive(Clone, Default)]
 pub struct ModeClips {
     pub by_mode: [Option<Rc<Clip>>; 14],

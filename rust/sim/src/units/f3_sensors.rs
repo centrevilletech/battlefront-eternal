@@ -1,4 +1,4 @@
-//! Registry-backed CombatWorld sensors (weapon-targeting.js, heroes.js and
+//! Registry-backed CombatWorld sensors (heroes.js and
 //! runtime/hit-history.js). Flags are read before lazy geometry is observed.
 use super::{f3, registry, shapes::v3};
 use crate::combat::{

@@ -1,4 +1,4 @@
-//! A network human's seat (src/runtime/network-seat.js cycleNetworkSeat,
+//! A network human's seat (cycleNetworkSeat,
 //! networkVehicleInput, and the seat switch
 //! they share with the player's keys, src/boarding.js switchSeat): his
 //! mouse and keys in a hull's seat, and his move to another seat.
@@ -22,7 +22,7 @@ pub struct SeatCommand {
     pub flight_invert: bool,
 }
 
-/// The keys the driver's seat reads (boarding.js seatInput's drive branch):
+/// The keys the driver's seat reads (seatInput's drive branch):
 /// the forward, right and turn axes and whether Space is down.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SeatKeys {

@@ -1666,7 +1666,7 @@ impl Replicas {
         if let Some(fountains) = &mut self.fountains {
             fountains.frame(dt, &self.combat.map_effects.fountains, &self.combat.map_effects.wakes, camera, screen, gpu, bridge);
         }
-        // DroidekaTrail.update for the player's droideka (game.js keeps one
+        // DroidekaTrail.update for the player's droideka (keeps one
         // trail, his own; Droideka mode 12: rolling), where it is drawn.
         self.rollers.clear();
         for slot in self.slots.iter().filter(|s| s.active && s.walker && s.identity == Some(self.own)) {

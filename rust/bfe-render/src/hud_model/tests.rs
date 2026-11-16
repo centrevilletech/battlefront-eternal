@@ -361,3 +361,15 @@ fn the_stats_line_draws_with_the_hud_and_not_under_a_covering_overlay() {
     h.build(0);
     assert_eq!(h.batch.count, 0);
 }
+#[test]
+fn the_stats_line_is_small_centred_at_the_bottom_and_not_over_a_layer() {
+    let mut h = model();
+    h.fonts[0].height = 14.;
+    h.fonts[0].glyphs.insert(b'6' as u16, Glyph { page: 1, advance: 8., bounds: [0., 0., 8., 14.], uv: [0., 0., 1., 1.] });
+    let _ = write!(h.stats_line, "6");
+    h.build(0);
+    assert_eq!(h.batch.count, 2);
+    h.input[H::LAYER] = 1.;
+    h.build(0);
+    assert_eq!(h.batch.count, 0);
+}

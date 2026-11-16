@@ -1,4 +1,4 @@
-//! Unit/SeatUnit/VehicleTarget/TurretTarget geometry (src/units.js and
+//! Unit/SeatUnit/VehicleTarget/TurretTarget geometry (and
 //! src/seats.js). Each method observes only its source geometry. In
 //! particular, an aim point reads the lazy sphere, never the gun origin.
 

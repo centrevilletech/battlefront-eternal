@@ -757,10 +757,12 @@ undersized or heavily shared VPS.
 
 Today a Linux server runs `bfeserver.service` under systemd (under
 `/opt/bfeserver` by default) and keeps its state and `config.json` in
-`/var/lib/bfeserver`. It updates itself: a systemd timer follows the signed
-release channel, installs each release's `bfeserver` binary and tools, prepares
-that release's game data from the operator's owned copy of the game, and swaps
-the service over once nobody is playing
+`/var/lib/bfeserver`. With the updater (a small Node.js program each Linux
+release carries) a systemd timer follows the signed release channel, installs
+each release's `bfeserver` and tools, prepares that release's game data from
+the operator's owned copy of the game, and swaps the service over once nobody
+is playing; without it, the server archive's `install-server.sh` installs or
+updates a server with one command
 ([docs/server-updates.md](docs/server-updates.md)). One installation can run
 several servers (`bfeserver-<name>.service`, each with its own state folder,
 ports and identity). The game port (UDP and TCP 18451 by default) must be open
