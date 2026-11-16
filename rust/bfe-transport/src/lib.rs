@@ -9,6 +9,7 @@ pub mod state;
 pub mod connection;
 pub mod endpoint;
 pub mod stun;
+pub mod turn;
 pub mod server;
 
 // Static string slices keep protocol errors copyable without allocating on the

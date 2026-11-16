@@ -68,8 +68,12 @@ pub struct RelayCredentials {
     pub username: String,
     // Base64 HMAC-SHA1 TURN credential paired with `username`.
     pub credential: String,
-    // Time-to-live of the credentials in seconds.
+    // Time-to-live of the credentials in seconds (older masters).
+    #[serde(default)]
     pub ttl: u64,
+    // Unix second the credentials expire (the master sends this, not `ttl`).
+    #[serde(default)]
+    pub expires: u64,
 }
 
 // One-time WebSocket signaling ticket returned by `POST /v1/signal-ticket`
@@ -91,10 +95,12 @@ struct ServersEnvelope {
     servers: Vec<ServerEntry>,
 }
 
-// JSON envelope returned by `GET /v1/servers/:id` (`{ "server": { ... } }`).
+// `GET /v1/servers/:id`: the listing, or `{ "server": { ... } }`.
 #[derive(Debug, Deserialize)]
-struct SingleServerEnvelope {
-    server: ServerEntry,
+#[serde(untagged)]
+enum SingleServerReply {
+    Envelope { server: ServerEntry },
+    Listing(ServerEntry),
 }
 
 // Error JSON body returned by the master on HTTP 4xx/5xx (`{ "error": "..." }`
@@ -259,8 +265,13 @@ impl MasterClient {
             return Err("Invalid server ID".to_string());
         }
         let route = format!("/v1/servers/{server_id}");
-        let env: SingleServerEnvelope = self.request_master("GET", &route, None)?;
-        Ok(env.server)
+        // The master answers with the listing itself; an envelope
+        // `{ "server": ... }` is accepted too.
+        let env: SingleServerReply = self.request_master("GET", &route, None)?;
+        Ok(match env {
+            SingleServerReply::Envelope { server } => server,
+            SingleServerReply::Listing(server) => server,
+        })
     }
 
     // Requests short-lived TURN relay credentials (`POST /v1/relay-credentials`),

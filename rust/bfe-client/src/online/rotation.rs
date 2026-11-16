@@ -62,7 +62,7 @@ impl Probe {
                 if stop.load(Ordering::Acquire) {
                     break;
                 }
-                if let Some(answer) = Server::read(&address).ok().as_ref().and_then(&decide) {
+                if let Some(answer) = super::info::read_target(&address).ok().as_ref().and_then(&decide) {
                     let _ = send.send(answer);
                     break;
                 }
