@@ -535,7 +535,7 @@ impl Replicas {
         let resources = replay.as_ref().unwrap();
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
-        let hulls = Box::new(super::hulls::Hulls::new(content, bridge, textures, resources.collision.clone(), resources.world)?);
+        let hulls = Box::new(super::hulls::Hulls::new(content, bridge, textures, resources.collision.clone(), resources.world).await?);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         let cameras = Box::new(super::cameras::Cameras::new(content, resources.collision.clone(), resources.world)?);
