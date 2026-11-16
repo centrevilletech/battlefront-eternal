@@ -2,7 +2,7 @@
 
 `bfe-client` is the standalone native Battlefront Eternal executable. Running
 `bfe-client` with no sub-mode arguments opens a single `winit` window, creates
-its OpenGL ES 3.0 (or `--desktop-gl` OpenGL 4.5) context and `cpal` audio stream,
+its OpenGL ES 3.0 context (falling back to, or with `--desktop-gl` asking for, desktop OpenGL 3.3) and `cpal` audio stream,
 loads persisted settings (`bfe_interface::Settings`) and desktop state through
 `bfe-desktop`, attaches any already-running hosted server via
 `bfe_desktop::host::HostController::attach()`, and drives the full game
@@ -33,15 +33,17 @@ USAGE:
 - **Common flags**:
   - `--content-dir <DIR>` (or `BFE_CONTENT_DIR`): Prepared content root.
   - `--no-audio`: Disables `cpal` audio device initialization.
-  - `--desktop-gl`: Requests a desktop OpenGL 4.5 context instead of GLES 3.0.
+  - `--desktop-gl`: Requests a desktop OpenGL 3.3 context instead of OpenGL ES 3.0.
   - `--width <PX>`, `--height <PX>`, `--fullscreen`: Initial window geometry and
     borderless fullscreen mode (`F11` toggles fullscreen at runtime).
-  - `--skip-update-check`: Skips the startup master-server version check.
+  - `--skip-update-check`: Skips the startup check for a newer release.
   - `--script ia:<MAP>` (`--shots-dir <DIR>`): Runs Instant Action rounds on one
     map with generated combat input for `BFE_GATE_BATTLE_SECONDS` (default 300)
     of combat and writes screenshots and `gate-summary.json`.
   - `--script platform-smoke` (`--shots-dir <DIR>`): The CI startup, menu and
     synthetic-room smoke on software OpenGL (`tools/platform-smoke-native.py`).
+  - `--server <HOST:PORT>`: The `bfeserver` a scripted run joins online.
+  - `-h`/`--help` and `-V`/`--version` print and exit before any window opens.
 
 ## Application state machine and host services
 
@@ -56,9 +58,10 @@ USAGE:
    prepared content (`bfe-desktop::content::verify_prepared_content`) and
    loading `ui_common.font` + shell audio (`ui.loaded`).
 2. **`Gate`**: Shown when no valid prepared content directory is configured or
-   when a newer release is available. Allows selecting a content folder,
-   extracting raw CD/ISO assets (`bfe-desktop::prepare`), or continuing to the
-   main menu.
+   when a newer release is available. Allows choosing the game's folder or
+   prepared data, preparing the data from the installation
+   (`bfe-desktop::prepare`), importing an export, or continuing to the main
+   menu.
 3. **`Shell`**: Runs `bfe-shell::ShellApp` and `ShellRenderer` inside the shared
    GL context, backed by `LiveServerBrowser` (`bfe-online::ServerBrowser` on
    background worker threads for master HTTPS queries, LAN UDP broadcast
@@ -82,10 +85,10 @@ USAGE:
    with live options and player list, and `T`/`Y` chat).
 
 One `cpal` output stream stays open for the lifetime of the window.
-`SharedAudioRouter` (`rust/bfe-client (audio.rs)`) switches atomically between
-`Shell` (`bfe-shell` UI sound mixer), `Battle` (`audio::MasterProcessor` +
-`audio_control::Runtime`), and `Muted` (when unfocused with `mute_unfocused`
-enabled) without recreating the OS audio stream.
+`SharedAudioRouter` (`rust/bfe-client/src/audio.rs`) switches between the front
+end's mixer (`bfe-shell`) and the battle's sound without recreating the OS
+audio stream; it reopens the device only when a battle's speaker layout needs
+more channels.
 
 ## Local 60 Hz world thread (`InstantAction`)
 
@@ -106,14 +109,10 @@ and publication boundary used by the online path:
   messages are never dropped.
 - **World -> Render (`PublicationQueue`)**: Pre-allocated 4-slot pool of
   `Publication` records recycled between the world thread and render thread. The
-  render thread drains published slots exclusively via `try_lock()`, guaranteeing
-  `worldRendererBlocks == 0`, while the world thread records its per-tick
+  render thread drains published slots exclusively via `try_lock()`, so it never
+  waits on the world thread, while the world thread records its per-tick
   execution time distribution (`WorldTickStats`: `min_ms`, `p50_ms`, `p95_ms`,
   `p99_ms`, `max_ms`, `mean_ms`).
-- **Zero steady-state render allocations**: After initial warmup frames, active
-  battle frames (without cold UI overlays open) perform zero heap allocations on
-  the render thread (`steadyFrameAllocationsAfterWarmup == 0`), tracked by the
-  counting `GlobalAlloc` wrapper in `rust/bfe-client (main.rs)`.
 
 ## Online sessions and content
 
