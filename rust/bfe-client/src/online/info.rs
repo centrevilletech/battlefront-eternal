@@ -203,9 +203,27 @@ pub fn prepare_listed(server_id:&str,root:&Path,path:&Path,name:&str)->Result<(S
     let nonce=rv::new_nonce()?;
     signalling.send(&id,"offer",&rv::offer_payload(&nonce,&offered))?;
     let mut nonces=vec![nonce];
-    let deadline=Instant::now()+Duration::from_secs(10);let mut first=None;
+    // The offer is sent again every 2.5 s until an answer: a server whose signalling socket is
+    // reconnecting (as at a battle change) drops what arrives in between.
+    // Between two battles the server is briefly unregistered and the master closes a socket that
+    // offers to it: open a new one and offer again.
+    let deadline=Instant::now()+Duration::from_secs(10);let mut first=None;let mut resend=Instant::now()+Duration::from_millis(2500);
     while first.is_none()&&Instant::now()<deadline{
-        if let Some(text)=signalling.receive(Duration::from_millis(200))?{first=rv::parse_answer(&text,&id,&nonces);}
+        let mut lost=false;
+        if Instant::now()>=resend{
+            resend=Instant::now()+Duration::from_millis(2500);
+            let nonce=rv::new_nonce()?;lost=signalling.send(&id,"offer",&rv::offer_payload(&nonce,&offered)).is_err();nonces.push(nonce);
+            eprintln!("online join: no answer yet; offer sent again");
+        }
+        match signalling.receive(Duration::from_millis(200)){
+            Ok(Some(text))=>first=rv::parse_answer(&text,&id,&nonces),
+            Ok(None)=>{},
+            Err(error)=>{eprintln!("online join: {error}");lost=true;},
+        }
+        if lost{
+            std::thread::sleep(Duration::from_millis(500));
+            if let Ok(again)=Signalling::open(&master){signalling=again;resend=Instant::now();}
+        }
     }
     let Some(first)=first else{signalling.close();return Err("The server did not answer through the online service. It may have stopped or be busy; refresh the list and try again.".into());};
     eprintln!("online join: answer with {} candidates",first.len());
