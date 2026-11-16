@@ -724,6 +724,9 @@ fn start_info_http_listener(
         while !stop.load(Ordering::Relaxed) {
             match listener.accept() {
                 Ok((mut stream, _)) => {
+                    // Windows hands the listener's non-blocking mode on to the accepted stream (Linux
+                    // does not): a request still in flight would read as WouldBlock and be reset.
+                    let _ = stream.set_nonblocking(false);
                     let _ = handle_info_request(&mut stream, &info);
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
