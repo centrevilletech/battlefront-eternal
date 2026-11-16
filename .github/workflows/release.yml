@@ -166,8 +166,12 @@ jobs:
           import json
           from pathlib import Path
           Path('release/compatibility.json').write_text(json.dumps({
-              'minimum_glibc': '2.39',
-              'targets': ['Debian 13 and newer', 'Ubuntu 24.04 and newer', 'Omarchy'],
+              'minimum_glibc': '2.35',
+              'targets': ['Debian 12 and newer', 'Ubuntu 22.04 and newer', 'Fedora and Arch (AppImage)', 'Omarchy'],
+              'appimage_requires': ['libasound.so.2', 'libfontconfig.so.1', 'libEGL.so.1 or libGL.so.1 (Mesa or the GPU vendor)',
+                                    'Wayland: libwayland-client.so.0, libwayland-cursor.so.0, libwayland-egl.so.1, libxkbcommon.so.0',
+                                    'X11: libX11.so.6, libX11-xcb.so.1, libxcb.so.1, libXcursor.so.1, libXi.so.6, libxkbcommon-x11.so.0',
+                                    'FUSE (fusermount3) to mount it, or --appimage-extract-and-run'],
               'qualification': 'Native package install and runtime smoke checks; GPU and gameplay qualification remains ongoing.',
               'texture_compression': 'Bundled KTX encoder requires glibc 2.34; older systems use the existing PNG fallback.',
           }, indent=2) + '\n', encoding='utf-8')

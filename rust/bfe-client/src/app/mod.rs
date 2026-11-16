@@ -18,6 +18,7 @@
 pub mod battle;
 pub(crate) mod bench;
 pub mod cli;
+mod display_libraries;
 mod loading;
 mod folder_dialog;
 mod gpu_probe;
@@ -214,12 +215,34 @@ pub fn run(with_audio: bool) {
     }
 }
 
+/// The window's event loop, on a window system whose libraries this system has
+/// (Linux: `display_libraries`); a player without them reads which to install.
+fn new_event_loop() -> Result<EventLoop<()>, String> {
+    let mut builder = EventLoop::builder();
+    #[cfg(target_os = "linux")]
+    match display_libraries::choose() {
+        Ok(display_libraries::Backend::Default) => {}
+        Ok(display_libraries::Backend::X11) => {
+            use winit::platform::x11::EventLoopBuilderExtX11;
+            builder.with_x11();
+        }
+        Ok(display_libraries::Backend::Wayland) => {
+            use winit::platform::wayland::EventLoopBuilderExtWayland;
+            builder.with_wayland();
+        }
+        // The caller prints it and shows it in a dialog.
+        Err(message) => return Err(message),
+    }
+    builder.build().map_err(|e| e.to_string())
+}
+
 /// Runs the standalone native game (`Startup` -> `StartupLoader` -> `Shell` -> `Battle`).
 pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<(), String> {
     // 1. Resolve application data paths and load `DesktopSettings`, `bfe_interface::Settings`,
     //    and `PersistedPlayerSettings`.
     let paths = current_desktop_paths();
     let mut settings = AppSettingsStore::load(paths);
+    bfe_desktop::linux_integration::integrate_in_background();
 
     // 2. Bounded startup update handoff/check before opening the window (<= 1.5s timeout).
     if let UpdateCheckOutcome::UpdateAvailable { version, kind } =
@@ -288,7 +311,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         .map(|map| GateDriver::new(map, opts.shots_dir.clone()));
 
     // 7. Create the `winit` event loop in continuous `Poll` mode for 60 Hz rendering.
-    let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
+    let event_loop = new_event_loop()?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let platform_smoke = (opts.script.as_deref() == Some("platform-smoke"))
@@ -992,12 +1015,19 @@ impl ApplicationHandler for StandaloneWindowApp {
         let init_result = (|| -> Result<(), String> {
             self.fullscreen = self.opts.fullscreen;
             let mut attrs = Window::default_attributes()
-                .with_title("Star Wars Battlefront Eternal")
+                .with_title("Battlefront Eternal")
                 .with_inner_size(PhysicalSize::new(
                     self.opts.size[0] as u32,
                     self.opts.size[1] as u32,
                 ))
                 .with_visible(true);
+            // Launchers match the window to the desktop entry (StartupWMClass, app id) by this name.
+            #[cfg(target_os = "linux")]
+            {
+                use winit::platform::{wayland::WindowAttributesExtWayland, x11::WindowAttributesExtX11};
+                attrs = WindowAttributesExtX11::with_name(attrs, "battlefront-eternal", "battlefront-eternal");
+                attrs = WindowAttributesExtWayland::with_name(attrs, "battlefront-eternal", "battlefront-eternal");
+            }
             if self.fullscreen {
                 attrs = attrs.with_fullscreen(Some(Fullscreen::Borderless(None)));
             }
