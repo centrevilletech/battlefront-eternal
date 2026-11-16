@@ -39,7 +39,7 @@ pub struct Blades {
 }
 
 fn melee(content: &BattleContent) -> Vec<(u16, String, [f64; 3])> {
-    let Ok(defs) = bfe_content::defs::Defs::build(&content.content) else { return vec![] };
+    let Ok(defs) = content.defs() else { return vec![] };
     defs.weapons
         .iter()
         .filter(|w| w.record.get("base").and_then(Value::as_str) == Some("melee"))

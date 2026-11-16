@@ -141,6 +141,8 @@ impl<C: HasContext> InstancePass<C> {
         let (input, bones) = (&core.input, &core.bones);
         let view = &camera.view;
         let frustum = &camera.frustum;
+        // Past the fade end the actor shaders paint the far scene's image instead of the surface (world.rs).
+        let fade_end = crate::world::fade_end(input);
         let light_count = camera.light_count;
         let lights = &input[FRAME_LIGHTS..FRAME_LIGHTS + 8 * MAX_LIGHTS];
         self.draws.clear();
@@ -153,7 +155,7 @@ impl<C: HasContext> InstancePass<C> {
             let mut world = [0.0; 16];
             world.copy_from_slice(&rec[REC_WORLD..REC_WORLD + 16]);
             let (center, radius) = math::sphere_to_world(&world, &[rec[REC_SPHERE], rec[REC_SPHERE + 1], rec[REC_SPHERE + 2]], rec[REC_SPHERE + 3]);
-            if !frustum.sphere(&center, radius) {
+            if !frustum.sphere(&center, radius) || crate::world::sphere_beyond(view, &center, radius, fade_end) {
                 continue;
             }
             let blended = rec[REC_KIND] == KIND_BLENDED || rec[REC_KIND] == KIND_BLENDED_RIGID;
@@ -201,13 +203,15 @@ impl<C: HasContext> InstancePass<C> {
             row[shader::ROW_COUNTS * 4 + 1] = bone_cursor as f32;
             if skinned {
                 let at = rec[REC_BONE_AT] as usize * 16;
-                // The bind inverse goes into each bone row here; the vertex stage takes it as the identity
-                // (shader.rs INSTANCE_VERTEX_LOAD). In f32 inputs, as the shader multiplied them.
+                // The bind inverse and bind matrices go into each bone row here (bindInverse * bone * bind);
+                // the vertex stage takes both as the identity (shader.rs INSTANCE_VERTEX_LOAD). In f32 inputs,
+                // as the shader multiplied them.
                 let inverse: [f64; 16] = std::array::from_fn(|k| rec[REC_BIND_INVERSE + k] as f32 as f64);
+                let bind: [f64; 16] = std::array::from_fn(|k| rec[REC_BIND + k] as f32 as f64);
                 for b in 0..bone_count {
                     let from = &bones[at + b * 16..at + (b + 1) * 16];
                     let bone: [f64; 16] = std::array::from_fn(|k| from[k] as f64);
-                    let folded = math::mul(&inverse, &bone);
+                    let folded = math::mul(&math::mul(&inverse, &bone), &bind);
                     for k in 0..16 {
                         self.bone_upload[(bone_cursor + b) * 16 + k] = folded[k] as f32;
                     }

@@ -133,6 +133,20 @@ pub(crate) fn actor_key(material: &bfe_content_native::loader::Material, cascade
         .map(str::to_owned)
         .ok_or_else(|| format!("unowned static prop material {wanted}"))
 }
+// What a part uploads, hashed: two parts with one key share geometry only when their uploads are the same (a
+// baked part's posed positions and normals; a skinned part's joints and weights as well).
+fn contents(part: &bfe_content_native::placed::Part, positions: &[f32], normals: &[f32], bake: bool) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let skin: &[f32] = if bake { &[] } else { &part.weights };
+    for stream in [positions, normals, &part.uv, skin] {
+        stream.len().hash(&mut h);
+        for v in stream.iter() { v.to_bits().hash(&mut h); }
+    }
+    part.index.hash(&mut h);
+    if !bake { part.joints.hash(&mut h); }
+    h.finish()
+}
 // A placed prop's pose never changes after admission, so its parts are skinned once here, as the four-bone
 // shader would skin them every vertex of every frame (bind matrix identity: transformed = bindInverse *
 // sum(weight * bone) * position, the normal through the same matrix), and drawn as rigid meshes: no bone
@@ -187,10 +201,9 @@ pub fn props(
         eye: frame("cameraPosition").unwrap().0,
         selected: Vec::with_capacity(I::MAX_RECORDS),
     };
-    // Copies of one model share GPU geometry. Their skeletons and placements
-    // remain independent, so moving or replacing a later host-owned look
+    // Copies of one model share GPU geometry, across calls too (every building, door and trap is admitted on its
+    // own). Their skeletons and placements remain independent, so moving or replacing a later host-owned look
     // cannot mutate another instance through a shared scene object.
-    let mut geometries = std::collections::BTreeMap::new();
     for part in placed.parts {
         if a.records.len() >= 65536 || part.bones.len() > I::BONES_LEN {
             return Err("placed prop admission capacity".into());
@@ -209,10 +222,9 @@ pub fn props(
         // The batch builder's representative source part fixes its material.
         // Texture names alone are not enough to share batches: flags, scroll
         // values and bind-frame transforms can differ on a single model.
-        // Copies share one baked mesh only when their poses are the same too.
-        let pose = if bake { part.bones.iter().copied().chain(part.bind_inverse.iter().map(|v| *v as f32)).map(f32::to_bits).collect::<Vec<_>>() } else { vec![] };
-        let resource = (part.geometry_key.clone(), pose);
-        let g = if let Some(g) = geometries.get(&resource) {
+        // Copies share one mesh only when what they upload is the same (a baked copy's pose too).
+        let resource = (part.geometry_key.clone(), key.clone(), contents(&part, &positions, &normals, bake));
+        let g = if let Some(g) = bridge.prop_geometries.get(&resource) {
             *g
         } else {
             let mut geometry = geometry(&positions, &normals, &part.uv, &part.index);
@@ -227,7 +239,7 @@ pub fn props(
                 }
             }
             let g = geometry.register(&mut bridge.r, &key)?;
-            geometries.insert(resource, g);
+            bridge.prop_geometries.insert(resource, g);
             g
         };
         // InstancePass reads the existing generated record layout. Matrices
