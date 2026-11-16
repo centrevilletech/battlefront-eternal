@@ -46,7 +46,7 @@ impl ClassicRandom {
     pub fn range(&mut self,lo:f64,hi:f64)->f64 {Random::range(self,lo,hi)}
     pub fn modulo(&mut self,n:f64)->f64 {Random::modulo(self,n)}
 
-    /// The state (random.js:61 `get seed`).
+    /// The state (`get seed`).
     pub fn seed(&self) -> u32 {
         self.state
     }

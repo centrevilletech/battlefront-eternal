@@ -1,4 +1,4 @@
-//! A flyer's pose at the tick (src/vehicles.js, the flyer branches of
+//! A flyer's pose at the tick (the flyer branches of
 //! placeRoot, aimTick and render): the craft drawn by the frame it flies by,
 //! slerped from the tick's start to its end, and leaned into its turn about
 //! its nose (`drawFlyer`); its gear posed at its own gear; and, in a world's

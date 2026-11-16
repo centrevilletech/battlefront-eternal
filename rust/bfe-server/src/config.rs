@@ -72,7 +72,7 @@ pub fn default_rotation() -> Vec<String> {
 /// the interactive menu (`save()`) never strips operator-added fields.
 #[derive(Clone, Debug, PartialEq)]
 /// Resolved dedicated-server configuration matching the normalized runtime shape produced by
-/// `loadConfig(dir)` in `packages/bfe-server/src/config.js` and consumed by.
+/// `loadConfig(dir)` and consumed by.
 pub struct ServerConfig {
     /// Server display name shown in `/info`, LAN discovery, and the online browser (`defaults.name`).
     pub name: String,

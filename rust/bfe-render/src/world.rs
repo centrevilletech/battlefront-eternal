@@ -184,7 +184,7 @@ impl<C: HasContext> WorldPass<C> {
         self.world[w as usize].cells = Some(Cells { visible: vec![0; parts.len()], parts, runs, offsets: vec![0; n], counts: vec![0; n] });
     }
 
-    // Cells given as they are (terrain-patches.js: each cell one range of
+    // Cells given as they are (each cell one range of
     // the index, its triangles' box): ranges [first index, end] and boxes
     // [min, max] per cell, in index order.
     pub fn world_runs(&mut self, w: u32, ranges: &[u32], boxes: &[f64]) {

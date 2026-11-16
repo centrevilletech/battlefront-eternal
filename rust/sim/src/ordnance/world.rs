@@ -16,7 +16,7 @@ pub enum Out {
     Behind,
 }
 
-/// A cast's answer (src/collision.js cast, castMoving): how far along the
+/// A cast's answer (cast, castMoving): how far along the
 /// ray, where, the surface's normal facing back, whether the terrain was
 /// hit, and the body hit (null for the terrain and the world's buildings).
 #[derive(Clone, Copy, Debug, PartialEq)]

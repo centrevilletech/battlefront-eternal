@@ -1,4 +1,4 @@
-//! The spawn pads and a hull's spawn (src/vehicles.js Vehicles.updateSpawns
+//! The spawn pads and a hull's spawn (Vehicles.updateSpawns
 //! and variant, Vehicle.spawn and vehicleFootprintsOverlap): each pad's
 //! clock, the class its team brings, a pad another hull or the client's
 //! player stands on put off a second, and a hull set down on its pad's

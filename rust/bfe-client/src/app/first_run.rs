@@ -74,7 +74,7 @@ pub struct SetupView {
     pub error: bool,
 }
 
-/// How a content transfer ended, for the notice screen (prepare.js `transfer-done` and
+/// How a content transfer ended, for the notice screen (`transfer-done` and
 /// `transfer-error`).
 #[derive(Clone, Debug)]
 pub struct TransferEnd {

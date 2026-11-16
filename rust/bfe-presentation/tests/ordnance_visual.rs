@@ -1,5 +1,5 @@
 //! Synthetic ordnance bolt, beam, projectile, and light-ranking tests ported
-//! from `tests/ordnance-visual.test.js` and `tests/ordnance-presentation.test.js`.
+//! and `tests/ordnance-presentation.test.js`.
 //!
 //! These cases exercise `bfe_presentation::ordnance::Ordnance` and
 //! `bfe_presentation::lights::Lights` over synthetic records without requiring

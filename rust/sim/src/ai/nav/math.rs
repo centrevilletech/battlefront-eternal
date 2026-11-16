@@ -25,7 +25,7 @@ pub fn near_waypoint() -> f64 {
 
 pub const FLT_MAX: f64 = 3.4028234663852886e38;
 
-/// A point or vector as the navigation code keeps it (math.js:70 `vec`,
+/// A point or vector as the navigation code keeps it (`vec`,
 /// and the {x, y, z} fields of three.js Vector3s it reads).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Vec3 {

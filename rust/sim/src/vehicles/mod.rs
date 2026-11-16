@@ -1,4 +1,4 @@
-//! The hulls (src/vehicles.js but flight): each hull's
+//! The hulls (all but flight): each hull's
 //! tick on the ground, two 1/120 s substeps a world tick, as the JavaScript
 //! steps it, to the last bit.
 
@@ -26,7 +26,7 @@ pub use hull::{Hull, Input, Lease, Seat, Wheel};
 
 use three::{Matrix4, Quaternion, Vector3};
 
-/// A collision body, by its serial (src/collision.js: its `offset` / 2^24).
+/// A collision body, by its serial (its `offset` / 2^24).
 pub type BodyId = u32;
 
 /// What a cast met (makeHit).

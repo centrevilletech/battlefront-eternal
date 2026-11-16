@@ -45,7 +45,7 @@ pub const S_ARRAY: usize = S_FIRST + MAX_UNIFORMS * UNIFORM;
 pub const ARRAY_FLOATS: usize = 32;
 pub const SURFACE: usize = S_ARRAY + 3 + ARRAY_FLOATS;
 pub const MAX_SURFACES: usize = 8;
-// The rings' vertex arrays (water.js ringMesh: RIPPLE_MAX x RIPPLE_SEGMENTS
+// The rings' vertex arrays (ringMesh: RIPPLE_MAX x RIPPLE_SEGMENTS
 // quads): position 3, uv 2, alpha 1 a vertex, and where the program reads
 // each; the vertices changed [start, end) follow the surfaces' values.
 pub const RING_VERTICES: usize = 100 * 40 * 4;

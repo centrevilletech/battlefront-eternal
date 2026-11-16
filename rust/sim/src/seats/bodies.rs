@@ -1,4 +1,4 @@
-//! What taking and leaving a seat does to a body (src/seats.js seatBody,
+//! What taking and leaving a seat does to a body (seatBody,
 //! unseatBody, placeOnFoot, dropBody): its unit's seat-side fields, its
 //! soldier's state and the combat flags a seat sets. What only a client draws
 //! (a body's presentation, its animator's gunner pose, its model's root) is

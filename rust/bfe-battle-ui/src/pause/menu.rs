@@ -1,6 +1,6 @@
 // Classic in-battle pause menu (`ifs_pausemenu`), confirm popups, and `still_command`.
 //
-// Ports `src/pause/index.js`, `src/menus/themes/classic/index.js`,
+// Ports `src/pause/index.js`,
 // `src/menus/popup.js`, and `stillCommand`.
 //
 // Key design invariants from the 2004 game (`ifs_pausemenu`):

@@ -22,7 +22,7 @@ pub enum Stage {
 pub enum Kind {
     // One draw a mesh, model matrix the identity (the map's own meshes).
     World,
-    // Instanced, one bone a vertex (actor.js RIGID_SKIN bodies).
+    // Instanced, one bone a vertex (RIGID_SKIN bodies).
     Skinned,
     // Instanced, no skin (a held gun).
     Rigid,
@@ -35,7 +35,7 @@ pub enum Kind {
     // shader reads as modelViewMatrix (the effects' particle batches): the
     // view matrix, from the frame block.
     Effect,
-    // The temporal upscaler's motion (motion-vectors.js: a moving body's
+    // The temporal upscaler's motion (a moving body's
     // proxy, the first-person view's locked mask), drawn by the motion pass
     // (motion.rs): instanced as Skinned and Rigid are, each instance's
     // matrices, bones' base and last frame's placement read from its row
@@ -114,7 +114,7 @@ pub const ROW_TEXELS: usize = 32;
 // source declares them (each instance's own, as three sets them per draw):
 // name, type, texel (from ROW_EXTRA) and its components there. A zero
 // material's scroll (a scrolling texture's speed), and the values a heated
-// copy of one gives each object (destruction-debris.js heatMaterial: a
+// copy of one gives each object (heatMaterial: a
 // dying droideka's body dissolving).
 const EXTRAS: &[(&str, &str, usize, &str)] = &[
     ("scroll", "vec2", 0, "xy"),
@@ -161,7 +161,7 @@ pub fn receives_shadows(source: &str) -> bool {
     source.lines().any(|l| l.trim() == "#define USE_SHADOWMAP")
 }
 
-// Lamp lighting (materials.js DYNAMIC, while lamps are on): the up to four
+// Lamp lighting (DYNAMIC, while lamps are on): the up to four
 // lamps a draw's object has (select) come from the lamp
 // table, a texture of every lamp source of the map (two RGBA32F texels a
 // source, rows of LAMP_TABLE_WIDTH texels: position and radius, colour),

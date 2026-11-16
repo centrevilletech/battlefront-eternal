@@ -4,7 +4,7 @@
 //! class. Fields are held as the JavaScript values the definitions hold
 //! ([`Js`]) and read with JavaScript's own rules (`x || d`, `x ?? d`,
 //! comparisons through ToNumber), so a field the content leaves out reads
-//! here as it reads in src/weapons.js and src/combat.js.
+//! here as it reads and src/combat.js.
 
 use crate::store::DefId;
 use std::rc::Rc;

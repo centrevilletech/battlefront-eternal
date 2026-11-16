@@ -1,4 +1,4 @@
-//! The sea (OceanSurface and EnhancedOcean, src/ocean-surface.js and
+//! The sea (OceanSurface and EnhancedOcean and
 //! in the client this client replaces).
 //!
 //! A map whose water look asks for an ocean, or whose water reaches every edge

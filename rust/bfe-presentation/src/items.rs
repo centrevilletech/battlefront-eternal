@@ -60,7 +60,7 @@ struct Rec {
     up: [f64; 3],
 }
 
-/// What a definition gives the kernel (items.js itemState and the item
+/// What a definition gives the kernel (itemState and the item
 /// class's Gravity, Rebound and Friction, already defaulted by the client).
 #[derive(Clone, Copy, Default)]
 struct Def {

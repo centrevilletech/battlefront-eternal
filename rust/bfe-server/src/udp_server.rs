@@ -1,5 +1,5 @@
 //! UDP game server listener, client authentication, per-prefix player caps, and session routing
-//! (`src/udp-server.js` and `WorldRouter`).
+//! (and `WorldRouter`).
 
 use crate::game_session::{GameSessionState, SessionAction};
 use crate::udp_peer::{valid_incoming_state_payload, PeerPath, UdpPeerState};
@@ -19,10 +19,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Maximum UDP datagram buffer length read on the game port (`1500` bytes Ethernet MTU).
 /// Any `BFE-UDP/1` datagram exceeding `PACKET_MAX_BYTES` (`1200` bytes) is rejected before parsing
-/// (`src/udp-server.js` and `crates/bfe-transport/src/server.rs`).
+/// (and `crates/bfe-transport/src/server.rs`).
 const MAX_PACKET: usize = 1500;
 
-/// Signaling candidate descriptor (`hostCandidates` in `src/udp-server.js` and `parseCandidates`).
+/// Signaling candidate descriptor (`hostCandidates` and `parseCandidates`).
 ///
 /// Why `kind` is optional:
 /// Direct LAN / configured host entries carry `kind: Some("host")`, STUN bindings carry
@@ -54,7 +54,7 @@ pub struct ReflexiveMap {
 /// (`GameSession`) for one connected player.
 ///
 /// Keeping `UdpPeerState` and `GameSessionState` paired by 64-hex Ed25519 identity mirrors
-/// `peers.set(id, peer)` + `sessions.set(id, session)` in `src/udp-server.js` and `src/game-session.js`.
+/// `peers.set(id, peer)` + `sessions.set(id, session)` and `src/game-session.js`.
 pub struct ConnectedPeer {
     /// Per-peer `BFE-UDP/1` token bucket, congestion watermark, and `NetMetrics` tracker.
     pub peer: UdpPeerState,
@@ -282,7 +282,7 @@ pub struct UdpGameServer {
 }
 
 impl UdpGameServer {
-    /// Binds the UDP game server socket (`startUdpServer` in `src/udp-server.js` and `attachNetwork`).
+    /// Binds the UDP game server socket (`startUdpServer` and `attachNetwork`).
     ///
     /// Computes `maxSessions = (maxPlayers * 2 + 32).max(32)` matching
     /// `Math.max(32, (config.maxPlayers ?? 64) * 2 + 32)` in `src/main.js` so transport session
@@ -849,7 +849,7 @@ impl UdpGameServer {
     }
 
     /// Serializes `payload` once and sends it to all connected peers on the `events` lane
-    /// (`WorldRouter.broadcastEvents` in `src/game-session.js` and `match(value)`).
+    /// (`WorldRouter.broadcastEvents` and `match(value)`).
     /// The pending rotation as the `match` event a newly welcomed player needs, with the
     /// delay that is left of it.
     pub fn pending_match_event(&self) -> Option<Value> {

@@ -172,7 +172,7 @@ pub(crate) fn call(world: &mut World, stage: Stage, name: &str, call: &Call) -> 
         "f3_adopt" => { direct(w, c); S(crate::units::f3::f3_adopt_in(w) as f64) },
         "f3_blast_binding" => { crate::units::f3::f3_blast_binding_in(w); N },
         // F3.bodiesIn writes the F3BodyName rows straight into the F3 input
-        // bank (f3-sim.js putF3BodyName at layout.input) before the call.
+        // bank (putF3BodyName at layout.input) before the call.
         "f3_body_names" => { input(w, c); crate::units::f3::f3_body_names_in(w, u(c,0)); N },
         "f3_body_skeleton" => S(crate::units::live_pose::f3_body_skeleton_in(w) as f64),
         "f3_building" => { crate::units::f3_props::f3_building_in(w); N },

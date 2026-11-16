@@ -122,7 +122,7 @@ pub(crate) fn ord_explosion_in(w: &mut crate::world::owner::World, id: u32) {
 }
 
 /// The words of a command's record in the call block: 0 FireArgs, 1
-/// FlightMissileArgs (src/ordnance-sim.js writes them with the generated
+/// FlightMissileArgs (writes them with the generated
 /// put functions).
 pub fn ord_args_words(which: u32) -> u32 {
     (match which {

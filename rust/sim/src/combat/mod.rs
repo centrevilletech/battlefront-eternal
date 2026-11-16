@@ -1,4 +1,4 @@
-//! A soldier's side of the fight (src/combat.js, src/weapons.js,
+//! A soldier's side of the fight (src/weapons.js,
 //! and src/heroes.js's swing and
 //! regeneration):
 

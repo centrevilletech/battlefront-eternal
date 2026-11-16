@@ -394,7 +394,7 @@ pub struct DangerAlert {
     pub point: Vector3,
 }
 
-/// A jet request (controller.js:399, the controller's or its control's).
+/// A jet request (the controller's or its control's).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct JetRequest {
     pub pending: bool,
@@ -498,7 +498,7 @@ impl Ctl {
 }
 
 /// The vehicle AI's dispatch answer for a walker, flyer or hover
-/// (src/ai/classic/vehicles/patterns.js through world.vehicles.dispatch):
+/// (through world.vehicles.dispatch):
 /// what it wrote into the dispatcher's `out`.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Engagement {
@@ -716,7 +716,7 @@ pub trait World: Draws {
     /// (`controller?.addAcoustic`, `?.notifyShot`, `?.notifyDanger`):
     /// every UnitController does.
     fn is_controller(&self, c: Obj) -> bool;
-    /// The active agent's policies (agents.js and its subclasses), as the
+    /// The active agent's policies (and its subclasses), as the
     /// responses ask them (`agent?.acceptsX?.(...)`).
     fn agent_accepts_alert(&mut self, agent: Obj, known: bool, point: &Vector3) -> bool;
     fn agent_accepts_hazard(&mut self, agent: Obj) -> bool;

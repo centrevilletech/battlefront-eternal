@@ -179,7 +179,7 @@ impl RowsWidget {
     }
 
     /// Moves selection by `dy` (`-1` or `+1`) across visible enabled rows, wrapping around
-    /// (`MenuScreen.move` over `Rows.items` in `src/menus/screen.js` and `src/menus/widgets.js`).
+    /// (`MenuScreen.move` over `Rows.items` and `src/menus/widgets.js`).
     pub fn move_selection(&mut self, dy: i32) -> bool {
         let vis: Vec<(usize, bool)> = self
             .visible_rows()
@@ -224,7 +224,7 @@ pub struct ListColumn {
     pub align: u32,
 }
 
-/// Visual layout for a [`ListWidget`] (`List.look` in `src/menus/widgets.js` and `paintList`).
+/// Visual layout for a [`ListWidget`] (`List.look` and `paintList`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ListLook {
     /// Normalized safe-area anchor `[ax, ay]`.
@@ -486,7 +486,7 @@ impl ButtonWidget {
     }
 }
 
-/// Visual style preset for a [`TextWidget`] (`Text.look` in `src/menus/widgets.js` and `paintText`).
+/// Visual style preset for a [`TextWidget`] (`Text.look` and `paintText`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextLook {
     /// Screen title at top-center in `gamefont_large`.
@@ -812,7 +812,7 @@ pub struct OptionsItem {
     pub action: Option<WidgetAction>,
 }
 
-/// Two-column `label | value` options widget (`Options` in `src/menus/widgets.js` and `paintOptions`).
+/// Two-column `label | value` options widget (`Options` and `paintOptions`).
 #[derive(Clone, Debug)]
 pub struct OptionsWidget {
     /// Widget identifier (`"options"` or `"top"`).

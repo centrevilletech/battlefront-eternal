@@ -113,7 +113,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         self.core.end_phase()
     }
 
-    // The far scene from a water's mirror (water.js reflect, before the
+    // The far scene from a water's mirror (reflect, before the
     // frame's own far scene), into the mirror's target: the far pass for the
     // mirror camera, its frame block in VIEW_FAR_MIRROR's buffer.
     pub(crate) fn far_mirror_frame(&mut self) -> Result<Stats, String> {

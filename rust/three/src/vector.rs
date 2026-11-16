@@ -1,4 +1,4 @@
-//! `Vector3.js`, `Vector2.js` and `Vector4.js` (r170). Note the
+//! `Vector3.js` and `Vector4.js` (r170). Note the
 //! spots where three's spelling is behaviour: `divideScalar` is
 //! `multiplyScalar(1 / scalar)`, `normalize` divides by
 //! `length || 1`, `applyMatrix4` multiplies by a computed `1 / w`

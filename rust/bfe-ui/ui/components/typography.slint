@@ -127,7 +127,7 @@ export component PageBrand inherits Wordmark {
 }
 
 // Top-left planet name on the loading screen in eternal and bf2 looks
-// (src/shell/loading.js LOOKS.eternal.type / LOOKS.bf2.type).
+// (LOOKS.eternal.type / LOOKS.bf2.type).
 export component LoadingPlanetText inherits Rectangle {
     in property <string> label;
     in property <length> unit: 1px;
@@ -163,7 +163,7 @@ export component LoadingPlanetText inherits Rectangle {
 }
 
 // Tilted -14deg LOADING text centered on the lower-right loading disk
-// in eternal and bf2 looks (src/shell/loading.js drawDisk / write).
+// in eternal and bf2 looks (drawDisk / write).
 export component LoadingWordText inherits Rectangle {
     in property <string> label: "LOADING";
     in property <length> unit: 1px;

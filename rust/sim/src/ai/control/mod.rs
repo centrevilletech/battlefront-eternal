@@ -1,7 +1,7 @@
 //! The Classic AI's control core (src/ai/classic/: index.js's entry
-//! point, controller.js's controllers, scheduler.js, interrupts.js,
-//! agents.js, patrol.js, squads.js, goals.js's objectives,
-//! behavior helpers, difficulty.js, and the Enhanced
+//! point, controller.js's controllers,
+//! agents.js, goals.js's objectives,
+//! behavior helpers, and the Enhanced
 //! objective agents and objectives). Everything outside it crosses
 //! `world::AiWorld`. The JavaScript's classes
 //! become index-driven dispatch here: every state machine's state is
@@ -203,7 +203,7 @@ impl Core {
         self.unit_controller.get(&unit).copied()
     }
 
-    // -- lifetime (classic/index.js attach/spawned/died/sync) ----------
+    // -- lifetime (attach/spawned/died/sync) ----------
 
     pub fn attach<W:AiWorld+?Sized>(&mut self, w: &mut W, d: &mut dyn Draws, character: usize) -> Option<usize> {
         if character >= self.character_count || w.character(character).human {
@@ -696,7 +696,7 @@ impl Core {
     }
 
     /// After a call that can move the executor: the control's request
-    /// is the controller's (nav/control.js aliases them).
+    /// is the controller's (aliases them).
     fn sync_control<W:helpers::World+?Sized>(&mut self, w: &mut W, ci: usize) {
         if self.controllers[ci].nav_control.is_some() {
             let obs = w.nav_control_obs(ci);
@@ -2495,7 +2495,7 @@ impl Core {
         let _ = d;
     }
 
-    // -- snipe and mine machines (classes.js over agents.js bases) -------------
+    // -- snipe and mine machines (over agents.js bases) -------------
 
     fn mark_hint<W:AiWorld+?Sized>(&mut self, w: &mut W, ci: usize, hint: Option<usize>) {
         if let Some(hint) = hint {
@@ -3385,7 +3385,7 @@ impl Core {
 }
 
 impl Core {
-    // -- alert policies (agents.js virtuals, patrol/snipe/mine policies,
+    // -- alert policies (virtuals, patrol/snipe/mine policies,
     // focused) -----------------------------------------
 
     fn active_helper(&self, ci: usize) -> u8 {

@@ -1,5 +1,5 @@
 //! The unit's compact presentation payload and persistent world-state JSON.
-//! These are the bytes of entity-unit-state.js and entity-world-state.js;
+//! These are the bytes and entity-world-state.js;
 //! numbers retain the server's formatting and original f32 store points.
 use crate::store::Strings;
 

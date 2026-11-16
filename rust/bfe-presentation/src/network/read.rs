@@ -1,4 +1,4 @@
-//! Ports snapshot-codec.js, snapshot-own.js and snapshot-records.js readers.
+//! Ports snapshot-codec.js and snapshot-records.js readers.
 //! The numeric algorithms retain the original packet order and errors. Object
 //! assembly and ACK publication stay in the adjoining native session.
 use super::{Output, Result, Words, EXCHANGE};

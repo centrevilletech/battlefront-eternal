@@ -1,4 +1,4 @@
-//! Crew holder construction (f2-seats.js adopt/attachTurrets and
+//! Crew holder construction (adopt/attachTurrets and
 //! Turret). Authored geometry is resolved once; a body birth then
 //! binds only its retained sampler to these already admitted holders.
 use super::{error, Rider};

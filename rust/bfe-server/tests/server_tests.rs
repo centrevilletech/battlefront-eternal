@@ -1090,7 +1090,7 @@ fn build_multi_client_publication(
 
 /// Verifies `decode_publication_block` against a `WirePublicationOutput` block containing shared
 /// `BNS1` datagrams, per-client `BNO1` datagrams, `input-ack`, `entity-edge-results`, and
-/// `gameplay-events` (`publish()` in `src/world-worker.js` and `WorldRouter.route`).
+/// `gameplay-events` (`publish()` and `WorldRouter.route`).
 #[test]
 /// Verifies `decode_publication_block` and `NativeWorldHost::step_and_drain_publications` in
 /// `world_worker.rs` (porting `packages/bfe-server/src/world-worker.js`):
@@ -2035,7 +2035,7 @@ fn online_server_registers_with_master_and_relays_signaling_over_websocket() {
 // ============================================================================
 //
 // The three tests below port the Node host-qualification harness (`tools/host-qualification.mjs`,
-// `tools/host-qualification/lifecycle.mjs`, `tools/host-qualification/service.mjs`, and
+// `tools/host-qualification/lifecycle.mjs`, and
 // `tools/net-probe-shaping.mjs`) directly into the `bfe-server` integration test suite so
 // every build verifies:
 //
@@ -2451,7 +2451,7 @@ fn sixty_four_concurrent_clients_join_reconnect_and_stream_snapshots() {
 }
 
 /// Host-qualification network shaping & blackout recovery gate (`qualifyService` with `mode = "network"`
-/// in `tools/host-qualification/service.mjs` and `shapeProbeTraffic`):
+/// and `shapeProbeTraffic`):
 /// - Drives 16 concurrent `bfe_transport::connection::Connection` clients against `bfe_transport::server::ServerEndpoint`
 ///   through an impaired deterministic link matching `shapeClients` (`delayMs = 50`, `jitterMs = 15`,
 ///   `lossPercent = 5`, `queuePackets = 32`, `upKbps = 1000`, `downKbps = 2000`) plus packet

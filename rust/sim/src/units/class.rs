@@ -77,7 +77,7 @@ fn num_or(def: &Value, key: &str, fallback: f64) -> f64 {
     }
 }
 
-/// The soldier class's numbers (soldier.js CLASS_DEFAULTS and the jetpack's).
+/// The soldier class's numbers (CLASS_DEFAULTS and the jetpack's).
 const CLASS_DEFAULTS: [(&str, f64); 6] = [("MaxSpeed", 9.0), ("MaxStrafeSpeed", 7.0), ("MaxJumpSpeed", 8.0), ("MaxTurnSpeed", 2.0), ("MaxPitchSpeed", 0.5), ("Acceleraton", 70.0)];
 const JET_DEFAULTS: [(&str, f64); 6] = [("JetJump", 7.0), ("JetPush", 14.0), ("JetFuelRechargeRate", 0.0), ("JetFuelCost", 0.2), ("JetFuelInitialCost", 0.0), ("JetFuelMinBorder", 0.1)];
 

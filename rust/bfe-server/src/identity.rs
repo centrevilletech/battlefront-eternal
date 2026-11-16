@@ -120,7 +120,7 @@ pub fn is_hex_64(value: &str) -> bool {
 }
 
 /// Verifies a base64 Ed25519 signature over `text` against a 60-character base64 SPKI public key
-/// (`export function verifyProof(p, transcript)` in `src/identity.js` and `BanCache.refresh`).
+/// (`export function verifyProof(p, transcript)` and `BanCache.refresh`).
 pub fn verify(public_key_b64: &str, text: &str, signature_b64: &str) -> bool {
     verify_spki_base64(public_key_b64, text.as_bytes(), signature_b64)
 }

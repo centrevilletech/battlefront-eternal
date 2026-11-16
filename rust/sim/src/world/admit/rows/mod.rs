@@ -112,7 +112,7 @@ pub struct Ids {
     /// AI observations retained across voice and Character construction.
     pub ai: Option<ai::Receipts>,
     /// Registry identities by unit key; the key `viewpoint` is the initial
-    /// viewpoint's (game.js attaches it before the fleet).
+    /// viewpoint's (attaches it before the fleet).
     pub registry: Vec<(String, f64)>,
     /// Beam emitter identities handed out so far (the host's mirror pool of
     /// emitter objects numbers them in marshalling order).

@@ -234,7 +234,7 @@ pub fn encode_binding_response(transaction: &[u8; 12], mapped: SocketAddr) -> Ve
 }
 
 /// Zero-copy view over a decoded STUN packet and its TLV attributes
-/// (`src/net/stun.js` `decodeMessage` return object).
+/// (`decodeMessage` return object).
 #[derive(Clone, Debug)]
 pub struct StunMessage<'a> {
     /// Decoded 12-bit STUN method (`method::BINDING`, etc.).

@@ -97,7 +97,7 @@ impl Mailbox {
         for &id in &result.retired {if self.consumed.len()<self.consumed.capacity() {self.consumed.push(id);}}
     }
     /// The host's exchange learns of the natively consumed packets too
-    /// (src/sim/wasm/runtime/input-mailbox.js run reads `retired`).
+    /// (run reads `retired`).
     pub fn lend_consumed(&mut self,result:&mut ImResult) {result.retired.extend(self.consumed.drain(..));}
     /// The host's result lends this retained list for the held codes.
     pub fn lend_down(&mut self,result:&mut ImResult) {result.down=std::mem::take(&mut self.down_out);result.down.clear();result.down.extend_from_slice(&self.down);}

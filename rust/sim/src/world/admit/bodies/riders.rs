@@ -2,7 +2,7 @@ use crate::gen::{F2RiderBirth, F2RiderClip, Turret, Unit, Vehicle};
 use crate::store::Ref;
 use bfe_content::clips::{Clip, Clips};
 
-/// A seat's authored rider description (vehicles.js seat.view.rider and
+/// A seat's authored rider description (seat.view.rider and
 /// Turret.rider). A missing clip and a missing rider are distinct.
 #[derive(Clone, Debug, Default)]
 pub struct Rider {
