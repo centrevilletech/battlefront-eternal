@@ -998,12 +998,19 @@ impl ApplicationHandler for StandaloneWindowApp {
         let init_result = (|| -> Result<(), String> {
             self.fullscreen = self.opts.fullscreen;
             let mut attrs = Window::default_attributes()
-                .with_title("Star Wars Battlefront Eternal")
+                .with_title("Battlefront Eternal")
                 .with_inner_size(PhysicalSize::new(
                     self.opts.size[0] as u32,
                     self.opts.size[1] as u32,
                 ))
                 .with_visible(true);
+            // Launchers match the window to the desktop entry (StartupWMClass, app id) by this name.
+            #[cfg(target_os = "linux")]
+            {
+                use winit::platform::{wayland::WindowAttributesExtWayland, x11::WindowAttributesExtX11};
+                attrs = WindowAttributesExtX11::with_name(attrs, "battlefront-eternal", "battlefront-eternal");
+                attrs = WindowAttributesExtWayland::with_name(attrs, "battlefront-eternal", "battlefront-eternal");
+            }
             if self.fullscreen {
                 attrs = attrs.with_fullscreen(Some(Fullscreen::Borderless(None)));
             }
