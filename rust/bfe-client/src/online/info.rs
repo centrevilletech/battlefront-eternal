@@ -180,6 +180,36 @@ pub fn read_target(target:&str)->Result<Server,String>{
     let master=bfe_online::master::MasterClient::new(bfe_online::master::resolve_master_url(),player);
     listed_server(&master,id).map(|(server,_)|server)
 }
+// Asks a listed server through the master's signalling, about once a second for up to two
+// minutes, whether it already runs the match `token` names. Its listing may not carry the battle
+// query (the master drops queries it does not know), so the listing cannot tell.
+pub fn listed_match_ready(server_id:&str,token:&str,stop:&std::sync::atomic::AtomicBool)->bool{
+    use bfe_online::rendezvous::{self as rv,Signalling};use std::sync::atomic::Ordering;
+    let id=server_id.to_ascii_lowercase();
+    let Ok(path)=default_identity()else{return false;};
+    let _=identity(&path);
+    let Ok(player)=bfe_online::identity::PlayerIdentity::load_or_create(&path)else{return false;};
+    let master=bfe_online::master::MasterClient::new(bfe_online::master::resolve_master_url(),player);
+    let deadline=Instant::now()+Duration::from_secs(120);let mut signalling:Option<Signalling>=None;
+    while Instant::now()<deadline&&!stop.load(Ordering::Acquire){
+        if signalling.is_none(){signalling=Signalling::open(&master).ok();}
+        let Some(socket)=signalling.as_mut()else{std::thread::sleep(Duration::from_secs(1));continue;};
+        let Ok(nonce)=rv::new_nonce()else{return false;};
+        if socket.send(&id,"matchProbe",&rv::match_probe_payload(token,&nonce)).is_err(){signalling=None;continue;}
+        let answer_by=Instant::now()+Duration::from_secs(1);let (mut ready,mut lost)=(false,false);
+        while Instant::now()<answer_by&&!ready{
+            match socket.receive(Duration::from_millis(100)){
+                Ok(Some(text))=>ready=rv::is_match_ready(&text,&id,token,&nonce),
+                Ok(None)=>{},
+                Err(_)=>{lost=true;break;},
+            }
+        }
+        if ready{eprintln!("online join: the server runs the next battle");if let Some(s)=signalling.take(){s.close();}return true;}
+        if lost{signalling=None;}
+    }
+    if let Some(s)=signalling.take(){s.close();}
+    false
+}
 pub fn prepare_listed(server_id:&str,root:&Path,path:&Path,name:&str)->Result<(Server,Box<bfe_transport::endpoint::Endpoint>),String>{
     use bfe_online::rendezvous::{self as rv,Candidate,Signalling};
     use std::net::{SocketAddr,UdpSocket};

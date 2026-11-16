@@ -22,7 +22,9 @@ permissions:
 # A newer push to a pull request replaces its running check. A run on a branch always finishes and
 # the next one waits, so a commit whose run started gets a result on every platform.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # The package smoke (package_run_id given) queues apart from the test runs, so starting one never
+  # replaces the other while it waits.
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ inputs.package_run_id != '' && 'packages' || 'tests' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
