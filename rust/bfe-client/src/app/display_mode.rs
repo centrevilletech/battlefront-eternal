@@ -26,14 +26,21 @@ fn wayland(window: &Window) -> bool {
     window.window_handle().is_ok_and(|h| matches!(h.as_raw(), RawWindowHandle::Wayland(_)))
 }
 
+/// The monitor's modes. winit asserts that Windows reports each mode's refresh rate; Wine (and some
+/// virtual or remote displays) leave it out, and that assertion used to end the game at start. Such a
+/// monitor offers no modes (the option keeps DESKTOP).
+fn video_modes(monitor: &winit::monitor::MonitorHandle) -> Vec<winit::monitor::VideoModeHandle> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| monitor.video_modes().collect())).unwrap_or_default()
+}
+
 /// The monitor's modes the option offers, largest first (none where the platform cannot switch modes).
 pub fn modes(window: &Window) -> Vec<(u32, u32)> {
     if wayland(window) {
         return vec![];
     }
     let Some(monitor) = window.current_monitor() else { return vec![] };
-    let mut modes: Vec<(u32, u32)> = monitor
-        .video_modes()
+    let mut modes: Vec<(u32, u32)> = video_modes(&monitor)
+        .into_iter()
         .map(|m| (m.size().width, m.size().height))
         .filter(|&(w, h)| w >= 640 && h >= 480)
         .collect();
@@ -56,8 +63,8 @@ fn fullscreen_for(window: &Window, choice: &str) -> Fullscreen {
         return Fullscreen::Borderless(None);
     }
     let desktop = monitor.refresh_rate_millihertz().unwrap_or(0);
-    monitor
-        .video_modes()
+    video_modes(&monitor)
+        .into_iter()
         .filter(|m| m.size().width == w && m.size().height == h)
         .max_by_key(|m| (m.refresh_rate_millihertz() == desktop, m.refresh_rate_millihertz()))
         .map_or(Fullscreen::Borderless(None), Fullscreen::Exclusive)
