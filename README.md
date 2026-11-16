@@ -57,8 +57,7 @@ ARM64), and update themselves.
 *Star Wars: Battlefront II* (2005) maps, units, vehicles, modes and
 interface; mixed playlists from both games; Galactic Conquest and the
 Historical Campaign; vehicle cockpits in first person; macOS builds; signed
-Windows installers; a relay for players who cannot reach a server directly;
-easier dedicated server setup; leaderboards; custom maps and mods; a Vulkan
+Windows installers; easier dedicated server setup; leaderboards; custom maps and mods; a Vulkan
 renderer backend, followed by FSR upscaling on every GPU and DLSS as an
 optional add-on for RTX cards. Dates depend on testing and are not promised.
 The [feature audit](docs/feature-audit.md) lists what the original game's
@@ -97,12 +96,11 @@ last decade play it:
 - about 4 GB of memory (a battle uses about 1 GB);
 - about 7 GB of disk space for the prepared game data.
 
-Measured on two old machines:
+Measured on an old machine, with the preset the app picked by itself:
 
 | Machine | Settings | Result |
 | --- | --- | --- |
-| Intel HD Graphics 2000 (2011 desktop integrated graphics) | full screen 1920x1080, Minimum (picked by the app) | Theed about 65 fps, Hoth 61, Kashyyyk Docks 45, Mos Eisley 37, Endor 19 (31 with the SHORT view distance) |
-| AMD A8-6410 laptop (2014), Radeon R5 graphics | 1280x720 window, Performance | 60 fps in battle, at the display's pace |
+| Intel HD Graphics 2000 (2011 desktop integrated graphics) | full screen 1920x1080, Minimum | Theed about 65 fps, Hoth about 61, Kashyyyk Docks about 45, Mos Eisley about 37, Endor about 19 (about 31 with the SHORT view distance) |
 
 Busy maps (Endor, Mos Eisley, Geonosis) are the hardest. On a weak chip a
 lower RENDER SCALE or the SHORT VIEW DISTANCE helps most.
@@ -140,7 +138,7 @@ only introduces players to servers; battles run on the servers themselves. [MULT
 ## Hosting a server
 
 - **From the app:** MULTIPLAYER > HOST starts the bundled `bfeserver` on
-  your PC, LAN only, private, or listed online.
+  your PC; players on your network find it under LAN.
 - **Dedicated server:** `bfeserver` runs headless on a Linux machine (x64
   or ARM64, no GPU). Run `bfeserver` with no arguments for its setup menu,
   `bfeserver --serve` to serve, and `bfeserver --help` for the options. The

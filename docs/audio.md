@@ -70,8 +70,7 @@ Settings → Audio (`rust/audio-control`; the defaults are in
 `rust/bfe-interface` (`settings`)):
 
 - **Sound**: Enhanced (2026 sound stage) or Original (2004), shown as
-  ENHANCED and CLASSIC. A first session on a low-end CPU starts on Classic
-  (below, "The light mix (stereo)"). AUDIO DETAILS says what the mode in
+  ENHANCED and CLASSIC; Enhanced by default. AUDIO DETAILS says what the mode in
   force plays on the output in force; for Classic on stereo, OPENAL SOFT
   STEREO DECODER, THE ORIGINAL REVERB.
 - **Output**: Automatic, Headphones (binaural), Stereo speakers, 5.1, 7.1,
@@ -86,8 +85,7 @@ Settings → Audio (`rust/audio-control`; the defaults are in
   the voice-over and every soldier's own voice: his hurts and death, and
   the AI's chatter (in the original those two are on the effects slider's
   bus).
-- "Speaker test and audio details" opens the audio panel; so does
-  `?audiodebug=1`.
+- "Speaker test and audio details" opens the audio panel (AUDIO DETAILS).
 
 The panel shows the device (channels, rate, latency), what is rendering,
 the loudness meter (momentary, short-term and integrated LUFS, true peak,
@@ -96,19 +94,16 @@ channel at a time, named, with the game muted (the LFE gets a 50 Hz tone),
 and "around the room" pans a burst once round through the game's own
 panner.
 
-`window.__bf.audio` is the browser I/O owner. `engine.stats` exposes the native
-voice counts and rejection counters; `control.diagnostic()` reads native voice
-rows for the panel. `engine.renderer` holds the device host and required render
-module. There is one battle sound implementation. A required module failure
-produces a visible audio error and suspends the device.
+A module failure produces a visible audio error.
 
 ## How it fits together
 
-`rust/audio-control` owns the whole battle sound-control phase inside the
-simulation module, where it borrows the current collision world without JS ray
-callbacks. `rust/audio-control` loads assets, owns the browser lifecycle and
-forwards gameplay events through `events.js`. `control.js` captures scalar facts
-and makes one `sound_step` call per presented frame.
+`rust/audio-control` owns the whole battle sound-control phase: it reads
+the battle's facts each presented frame (listener, units, weapons, posts,
+vehicles, events), borrows the current collision world for its room and
+occlusion rays, and decides what plays. `rust/audio` renders it, and
+`rust/bfe-client` (`audio.rs`, `online/sound.rs`, `online/sound_output.rs`,
+`online/stream_assets.rs`) hosts both on the sound device.
 
 | Owner | Does |
 | --- | --- |
@@ -116,30 +111,20 @@ and makes one `sound_step` call per presented frame.
 | `engine.rs`, `layers.rs` | Gates, sample cycles, layered and parameterized sounds, voice ranking and stealing, bus fades and ducks, distance, Doppler and timed render commands. |
 | `player.rs`, `scene.rs`, `vehicles.rs`, `feet.rs` | Unit foley and state sounds, mines, posts, recon and ordnance, engines, flight, turrets, crashes and walker schedules. |
 | `director.rs`, `streams.rs` | Mission music, VO, chatter, static and region ambience, stream slots and queues, asset variants, decoded-cache budget and segment scheduling. |
-| `acoustics.rs` | Native room and occlusion ray budgets, air, LFE, reverb sends and the loudness window. |
-| `rust/xtask` (`audio_schema.rs`) | Generates matching input/resource/output layouts for Rust and the host. |
-| `rust/audio-control` | Publishes changed identity rows and scalar events, forwards native commands, and delivers generation-checked asset readiness. |
-| `control-resources.js`, `data.js`, `hash.js` | Cold bank and mission serialization: resolved identities, immutable authored tables, PCM uploads and rig height samples. No frame policy runs here. |
-| `engine.js`, `game.js`, `spatial.js`, `layouts.js` | Browser device, clock, lifecycle, selected output configuration and PCM transport. |
-| `stream-assets.js`, `stream-worker.js`, `enhanced.js` | Fetch/Range requests, loading-worker transport and browser asset ownership. Native requests choose what plays and when. |
-| `panel.js`, `options.js` | Diagnostics and settings UI. Speaker checks use native slot ownership. |
+| `acoustics.rs` | Room and occlusion ray budgets, air, LFE, reverb sends and the loudness window. |
+| `rust/xtask` (`audio_schema.rs`) | Generates the matching input, resource and output layouts. |
 | `rust/audio (output.rs)` | Voice and stream playback, placement, convolution, room sends, mono and the complete master phase. |
-| `frontend.js`, `rust/audio (frontend.rs)` | Menu and loading PCM playback, resampling, bus gains and fades. Shell/loading callers retain their own event selection. |
-| `codec.js`, `codec-worker.js`, `rust/audio-decode` | Required FLAC, Ogg Opus and PCM/float WAV decoding off the audio thread, with credited PCM windows. |
-| `worklets/` | Thin required-module hosts for device PCM, front-end PCM and metering. |
+| `rust/audio (frontend.rs)` | Menu and loading PCM playback, resampling, bus gains and fades. |
+| `rust/audio-decode` | FLAC, Ogg Opus and PCM/float WAV decoding, and asset-rate conversion. |
+| `rust/bfe-client` (`audio.rs`) | The one `cpal` output stream, shared by the front end and the battle; device channels and order; the speaker test |
+| `rust/bfe-client` (`online/stream_assets.rs`) | Streamed segments read off the window and device threads; Opus segments decoded ahead of playback |
 
-The frame block contains listener pose, device time/configuration, game clocks,
-poses and velocities, raw entity/weapon/post facts and discrete events. Stable
-rows are retained on both sides; only changed rows cross again. Native voice
-commands use the render phase's existing generated ABI. A small pool of transfer
-buffers is returned by the output host and reused each frame. Stream decode
-completion is a separate I/O boundary so a ready segment starts at device time
-without waiting for a new gameplay frame. It never reruns gameplay policy.
-
-The browser still parses the extracted asset tables and samples rig assets at
-attachment. Native content loading removes that cold serialization dependency;
-a native device host removes the remaining AudioContext and worklet transport.
-There is no JS sound-policy fallback or runtime comparison switch.
+The frame block contains listener pose, device time and configuration, game
+clocks, poses and velocities, raw entity, weapon and post facts and discrete
+events. Stable rows are kept on both sides; only changed rows cross again.
+Stream decode completion is a separate boundary, so a ready segment starts at
+device time without waiting for a new gameplay frame. It never reruns
+gameplay policy.
 
 ## The original mode
 
@@ -178,8 +163,8 @@ What stands in for something:
 
 - **Headphones.** OpenAL Soft turns on its HRTF (the MIT KEMAR set) when
   Windows reports headphones, and pans every source and stream channel
-  through it. The port uses the Rust IRCAM HRTF decoder (Chromium's is the
-  IRCAM LISTEN composite), brought to the same level as a source ahead on
+  through it. The port uses an IRCAM HRTF decoder (the IRCAM LISTEN
+  composite, as Chromium's audio code prepares it), brought to the same level as a source ahead on
   speakers. If Windows didn't report your headphones, the original played
   its stereo panning: choose Stereo instead.
 - **The limiter.** OpenAL Soft's own output limiter is replaced by the
@@ -195,9 +180,9 @@ What stands in for something:
   the mix changes.
 - **7.1.4** is beyond OpenAL Soft 1.20.1: the original plays 7.1, the
   heights silent.
-- **Playback resampling** follows Chromium's linear interpolation in Rust for
-  every voice and stream. It does not use
-  OpenAL Soft's resampler.
+- **Playback resampling** is a linear interpolation (translated from
+  Chromium's audio code, see `THIRD-PARTY-NOTICES.md`) for every voice and
+  stream. It does not use OpenAL Soft's resampler.
 
 Footsteps: the two detectors keep the original game's rules for when a step
 is due (a foot rising from its plant; the stride as the fallback), but the
@@ -211,8 +196,8 @@ every 1.75 m); the enhanced mode steps only on the ground.
 
 Leaving the battlefield plays the mission's `SetOutOfBoundsVoiceOver` line
 for the player's team ("repleaving" on a Clone Wars Bespin) on the VO
-stream, once each time he goes out (rust/sim (battlefield), docs/formats.md
-"Leaving the battlefield"); the page that shows him plays it, in every mode.
+stream, once each time he goes out (docs/formats.md "Leaving the
+battlefield"); the client that shows him plays it, in every mode.
 
 Not in the port yet, because the port lacks what triggers them: the spawn
 screen's sounds, Galactic Conquest's bonus lines, and `LowHealthSound`
@@ -262,25 +247,32 @@ mix, of a 2.67 ms block, and the frame rate is the same (59 frames a
 second with either, three battles each). The chain holds its budget there,
 so nothing switches to the light mix.
 
-A first session (no settings stored) on a low-end CPU starts on Classic:
-four threads or fewer and, as Chromium reports it, 4 GB of memory or less
-(`rust/bfe-interface` (`settings`) `lowEndCpu`, `Settings.adoptHardwareDefaults`), which is
-the A8 laptop above and a 2011 quad-core with 4 GB; current PCs keep
-Enhanced. A choice the player makes stays theirs, and settings already
-stored aren't changed.
+`rust/bfe-interface` (`settings`) has the rule for starting a first
+session on Classic on a low-end CPU (four threads or fewer and 4 GB of
+memory or less), but the Rust client does not read the CPU and memory yet,
+so every first session starts on Enhanced. A choice the player makes stays
+theirs.
 
 ## The enhanced mode
 
 ### Output
 
-The browser outputs discrete PCM channels, in the order Chromium uses:
-stereo L R; 5.1 L R C LFE SL SR; 7.1 FL FR FC LFE BL BR SL SR; 7.1.4 the
-7.1 and then TFL TFR TBL TBR (Chromium 153 and later). The speaker test
-checks the order on your setup. There is no Dolby or DTS bitstream: a
-receiver shows multichannel PCM, never "Dolby Digital" or "Atmos" from the
-game itself.
+The client writes discrete PCM channels to the sound device through one
+`cpal` stream at 48 kHz, in these layouts: stereo L R; 5.1 L R C LFE SL SR;
+7.1 FL FR FC LFE BL BR SL SR; 7.1.4 the 7.1 and then TFL TFR TBL TBR.
+Windows and macOS take that order as it is; on Linux the client reorders
+them for ALSA, which puts the rear pair before the centre and LFE, and for
+7.1.4 uses the PipeWire plugin's order (`rust/bfe-client` `audio.rs`). The
+speaker test checks the order on your setup. There is no Dolby or DTS
+bitstream: a receiver shows multichannel PCM, never "Dolby Digital" or
+"Atmos" from the game itself.
 
-Getting the channels to the browser:
+Automatic follows the device's own channel count. A battle whose layout
+wants more channels opens the device again at that width; a width the device
+will not open is struck off, and the layout plays as the widest one it does
+(else stereo).
+
+Getting the channels to the device:
 
 - **Windows.** Set the output device's speaker setup (Sound control panel →
   Configure) to 5.1 or 7.1; HDMI to a receiver then carries multichannel
@@ -292,8 +284,8 @@ Getting the channels to the browser:
   (From the documentation; not tried on hardware.)
 - **macOS** (experimental, not supported yet). Audio MIDI Setup → the
   device → Configure Speakers.
-- **Linux.** Chromium reports the channel count of the PulseAudio (or
-  pipewire-pulse) default sample spec, which is usually stereo even on a
+- **Linux.** The default device's channel count is usually the PulseAudio
+  (or pipewire-pulse) default sample spec's, which is stereo even on a
   surround card. Set the card's profile to a surround one and the default
   position, for example `pulse.properties = { pulse.default.position = [ FL
   FR FC LFE RL RR SL SR ] }` in a `pipewire-pulse.conf.d` file. (From
@@ -472,23 +464,23 @@ gates).
 
 ## Runtime ownership
 
-One AudioContext supplies the clock and device. The page resumes it on the
-first gesture, suspends it while hidden, selects assets and sends timed
-commands. One zero-input AudioWorklet owns a required Rust module. Every
-render quantum calls `output_process` once and copies the finished PCM to
-the device. Its twelve discrete output lanes allow layout changes without
-replacing the live host; unused lanes are zero and the device truncates them.
+One `cpal` output stream lives as long as the window (`rust/bfe-client`
+`audio.rs`); the front end's mixer and the battle's renderer take turns on
+it. The engine renders in 128-frame blocks; a device buffer that is not a
+multiple of that keeps the unused samples, so a short callback never
+advances or loses DSP time. The callback owns its renderer and its PCM: the
+window never reaches into DSP state while the device thread renders, and
+diagnostics read atomics only.
 
 Rust owns PCM normalization and loading-time gain compensation as well as
-sample cursors, playback-rate interpolation, automation, gain,
-filters, panning, stream routing and upmix delays, both headphone decoders,
-reverb, EQ, clarity, mono, dynamics, limiting and volume. Classic surround
-uses OpenAL Soft's decoder and front stabilizer. Classic headphones and
-Enhanced headphones without the optional dummy-head filters use the IRCAM
-HRTF database. Its kernel preparation, interaural delays and crossfades run
-in Rust. The dummy-head path uses 32 partitioned ear convolutions.
-The browser FFT uses WebAssembly SIMD for adjacent complex butterflies.
-The front end keeps an all-mono mix in one lane until the final stereo copy.
+sample cursors, playback-rate interpolation, automation, gain, filters,
+panning, stream routing and upmix delays, both headphone decoders, reverb,
+EQ, clarity, mono, dynamics, limiting and volume. Classic surround uses
+OpenAL Soft's decoder and front stabilizer. Classic headphones and Enhanced
+headphones without the optional dummy-head filters use the IRCAM HRTF
+database. Its kernel preparation, interaural delays and crossfades run in
+Rust. The dummy-head path uses 32 partitioned ear convolutions. The front
+end keeps an all-mono mix in one lane until the final stereo copy.
 
 Mono keeps the frozen routing, including its existing 7.1/7.1.4 behavior:
 the initial channel is copied to every output. Stereo and 5.1 use their
@@ -503,37 +495,33 @@ has reached (each block starts afresh), and an upscaled Opus segment drops
 whole packets undecoded and decodes again from 80 ms before the frame it
 has reached when the sound returns. Coming back starts a fresh mix
 configuration (no reverb tail or limiter state from before the silence),
-and the volume glides up from 0 as from any other level.
+and the volume glides up from 0 as from any other level. With no sound
+device the battle's sound still runs, on a thread of its own.
 
-The meter is an optional second thin host for Rust's BS.1770 meter.
-Speaker-panel signals are generated by Rust and played through Rust lanes;
-the speaker test targets a device channel after the muted game mix.
-There are no browser source, gain, filter, panner, convolution, delay,
-shaper, splitter or merger DSP nodes in the game, menus or loading screen.
-The front end uses its own two-channel Rust host on its context, retaining
-its music and shellfx gain stages and linear fades. Music is fetched and
-decoded one track at a time, rather than played by an HTML audio element;
-the loading worker feeds a bounded Rust PCM ring, so neither the page nor
-the output host retains a whole decoded track. Enhanced compressed stream
-segments use the same producer and three reusable ring slots per lane.
+The meter is Rust's BS.1770 meter. Speaker-panel signals are generated by
+Rust; the speaker test plays in the output layout's channels and, while it
+plays, is all the device hears. The front end's music is decoded one track
+at a time into a bounded ring, so no whole decoded track is kept.
 
 Sources, filters, delay lines, FFT buffers and render scratch are reserved
-before their first block. PCM and command messages may allocate between
-blocks. Stream segments use three reusable sample slots per lane; finished
-lanes release their PCM. Meter integrated history reserves another hour
-between blocks, requested with one minute of capacity remaining.
+before their first block. Stream segments use three reusable sample slots
+per lane; finished lanes release their PCM. Meter integrated history
+reserves another hour between blocks, requested with one minute of capacity
+remaining.
 
 ### Asset decoding and rate conversion
 
-`rust/audio-decode` owns FLAC, Ogg Opus and PCM/float WAV decoding. Its
-required WASM module runs in `codec-worker.js`, separate from the audio
-worklet. Claxon decodes FLAC integers; opus-pure decodes Opus packets at
+`rust/audio-decode` owns FLAC, Ogg Opus and PCM/float WAV decoding, off the
+device thread. Claxon decodes FLAC integers; opus-pure decodes Opus packets at
 48 kHz. Rust parses Ogg pages, checks CRCs, joins continued packets, applies
 pre-skip, output gain and the final granule trim, and reads multistream
 mappings from the header. The tools' family-255 streams preserve discrete
-lane order; family 1 preserves the recorded Chromium mapping. The optional
-SADIE decoder uses sixteen-channel IEEE-float WAV. Xbox IMA ADPCM continues
-to decode in the Rust stream loader worker.
+lane order; family 1 keeps the standard Vorbis channel mapping. The optional
+SADIE decoder uses sixteen-channel IEEE-float WAV. Xbox IMA ADPCM segments
+stay compressed and are decoded a block at a time as they play; an upscaled
+(Opus) segment is decoded on a thread of its own, a few windows ahead of
+playback, so the device only copies it (`rust/bfe-client`
+`online/stream_assets.rs`).
 
 A native-rate request returns source-rate PCM. Callers request device-rate
 conversion explicitly to preserve the previous asset-loading behavior.
@@ -542,40 +530,35 @@ exactly as the frozen reference does. Track lengths, scheduled segment
 ends, loop offsets and playback-rate scale therefore still use the same
 frame counts and rates. This conversion is separate from the linear
 playback resampler. HRIR conversion also multiplies by the WAV source rate
-divided by the requested output rate; the device context cannot choose
-that scale implicitly. Generated HRIR metadata and WAV rates agree.
+divided by the requested output rate. Generated HRIR metadata and WAV rates agree.
 
-The worker reads seekable assets in at most 64 KiB ranges. An Opus tail
-range provides its final granule and exact duration before playback.
+Seekable assets are read in at most 64 KiB ranges. An Opus tail range
+provides its final granule and exact duration before playback.
 Compressed input, page/packet reassembly and decoder PCM are bounded.
 Long menu music and enhanced beds transfer 4,096-frame planar windows
 directly to a 32,768-frame Rust ring, with credits from the consumer. An
-8,192-frame pre-roll precedes the scheduled start. The worker schedules
-attached playback producers before background effect decoding, so clip
+8,192-frame pre-roll precedes the scheduled start. Attached playback
+producers are scheduled before background effect decoding, so clip
 preloading cannot consume their next decode turn. Stops cancel the producer;
 replacing a segment releases its previous decoder. Short FLAC effects may
 retain their PCM in the existing asset cache. The original ADPCM segment
 cache keeps its existing device-memory limit.
 
-There is no host codec fallback. A module, decode or stream underrun failure
-reaches the player's audio error display. The only Web Audio nodes remain
-the required Rust output/meter hosts and the output device destination;
-AudioBuffers used by original bank assets are PCM storage only.
+There is no codec fallback. A decode or stream underrun failure reaches
+the player's audio error display.
 
 The synthetic codec corpus records native and converted PCM at 22.05,
 44.1 and 48 kHz. FLAC S16/PCM_24 and float HRIR WAV compare bit for bit at
 source rate; converted output and Opus stay below -96 dBFS. S16 conversion
 keeps the host's asymmetric float32 reciprocals: negative samples multiply
 by `1/32768`, nonnegative samples by `1/32767`. Container chunk boundaries
-must not change PCM. Run `cargo test --locked --workspace` in CI;
-`cargo test --locked --workspace` additionally exercises the actual worker,
-byte ranges, stream completion and cancellation in Chromium.
+must not change PCM (`cargo test --locked -p audio-decode`).
 
 ## Recorded render gates
 
-`tests/fixtures/audio` contains synthetic reference renders frozen before
-the old graph was removed. Its manifest records the source revision and
-Chromium version. No game assets are included. The graph fixture exercises
+`tests/fixtures/audio` contains synthetic reference renders, recorded once
+and frozen; its manifest records where they came from. No game assets are
+included. The graph fixture exercises
 both quality modes, stereo, 5.1, 7.1, 7.1.4 and headphones, each with mono
 on/off; headphones cover both IRCAM HRTF and a synthetic dummy-head decoder.
 Additional stream-only cases schedule three overlapping segments at 22.05,
@@ -606,18 +589,10 @@ steals, rejections and random-draw state must match exactly. Synthetic asset
 completions are drained before offline resume, and release timers follow the
 scripted context clock, so host scheduling cannot change the reference.
 
-`cargo test --locked --workspace` measures an already loaded live battle through its
-debug endpoint. It samples audio render threads and the page main thread from
-Linux scheduling counters, verifies the device and world clocks, and records
-voice counts and the selected quality/layout. Its header documents the endpoint,
-warm-up and sample options. Run immutable base and candidate desktop builds in
-one interleaved farm job with the same mission, seed and settings.
-
-Offline rendering proves samples rather than real-time cost. It does not reach
-the same optimizing tiers as a live context. Native control allocation tests
-exercise the complete first frame and retained frames, including asynchronous
-asset completion. The deleted JS policy tests are replaced by native phase
-regressions in `rust/audio-control/tests/` and frozen scripted decisions/PCM.
+Native control allocation tests exercise the complete first frame and
+retained frames, including asynchronous asset completion. The phase
+regressions are in `rust/audio-control/tests/`, with frozen scripted
+decisions and PCM.
 
 Hardware listening
 still needs to check device channel order, headphone placement, mode changes
@@ -637,7 +612,7 @@ by kind; the level set back so the K-weighted energy equals the original's
 (the game's own gains keep doing the mixing); loops kept seamless and cut-off
 one-shots given a 10 ms fade. Samples are written as 24-bit FLAC, streams as
 Opus (96 to 576 kb/s by channel count, discrete channel mapping above two
-channels, which Chromium decodes in order). Music also gets 5.1 and 7.1
+channels, decoded in order by `rust/audio-decode`). Music also gets 5.1 and 7.1
 upmixes by primary/ambient extraction (Avendano and Jot 2004); the stereo
 stays for stereo and headphones.
 
@@ -679,27 +654,12 @@ The game's sound is the user's own copy and stays out of git.
 No game assets are needed for the recorded gates:
 
 ```sh
-cargo test --locked --workspace
-cargo test --manifest-path rust/Cargo.toml -p audio
-cargo test --locked --workspace
+cd rust
+cargo test --locked -p audio -p audio-decode -p audio-control
 ```
 
-The headless audio test host supplies PCM storage and context scheduling only. It
-runs the real page command handoff, output worklet and Rust module against
-the recorded fixtures, so it runs in CI. The component golden gate is also
-available directly as `cargo test --locked --workspace`.
-
-For the actual browser host, start the native client and run Chromium offline:
-
-```sh
-```
-
-Set `PLAYWRIGHT_MODULE` if Playwright is installed outside the project.
-`OUTPUT` and `QUALITY` select a subset. Both entrypoints use
-`cargo test --locked --workspace` and the same goldens. A failed module or silent
-render fails the gate. `cargo test --locked --workspace` uses extracted Theed assets
-to measure live final-output Rust meter readings for each dynamics profile.
-It no longer records a browser DSP reference or rebuilds the mix in nodes.
+They run the Rust renderer and controller against the recorded fixtures,
+in CI. A failed or silent render fails the gate.
 
 ## Listening checklist
 
