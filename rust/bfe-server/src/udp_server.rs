@@ -1232,6 +1232,15 @@ impl UdpGameServer {
         }
     }
 
+    /// The players that have a relay allocation open now, with its relayed address once allocated.
+    pub fn relayed_players(&self) -> Vec<(String, Option<SocketAddr>)> {
+        self.relays
+            .allocations
+            .values()
+            .map(|a| (a.peer_id.clone(), a.turn.relayed()))
+            .collect()
+    }
+
     /// Relay allocations open now.
     pub fn relay_count(&self) -> usize {
         self.relays.allocations.len()
