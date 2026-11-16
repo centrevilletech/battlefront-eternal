@@ -1,4 +1,4 @@
-//! Audio asset decoder tests ported from `tests/audio-codec.test.js`.
+//! Audio asset decoder tests.
 
 use audio_decode::{Decoder, Metadata, Step};
 use std::fs;
@@ -86,7 +86,7 @@ fn read_reference_f32(scene_name: &str) -> Vec<f32> {
 }
 
 /// Runs `audio_decode::Decoder` with the same streaming step protocol as
-/// `decodeFixture` in `tests/audio-codec-host.js`.
+/// `decodeFixture`.
 ///
 /// Feeding bytes is intentionally separated from `step(maximum)` so the loading
 /// worker can yield between decoded windows and let urgent voice starts run
@@ -201,7 +201,7 @@ const SCENES: &[SceneRow] = &[
     ("hrir-libsndfile16-44100", "hrir-libsndfile16.wav", 48000, 16, "wav", 235, 44100),
 ];
 
-// Ported from `tests/audio-codec.test.js`:
+// Test:
 // "Rust codec matches frozen host PCM: <scene.name>".
 #[test]
 fn rust_codec_matches_frozen_host_pcm() {
@@ -246,7 +246,7 @@ fn rust_codec_matches_frozen_host_pcm() {
     }
 }
 
-// Ported from `tests/audio-codec.test.js`:
+// Test:
 // "codec input chunks do not change PCM: <file>".
 // Verifies that arbitrary HTTP range or file read boundaries (7, 257, 4093 bytes)
 // and small output transfer caps (127 frames) produce identical planar samples.
@@ -282,7 +282,7 @@ fn codec_input_chunks_do_not_change_pcm() {
     }
 }
 
-// Ported from `tests/audio-codec.test.js`:
+// Test:
 // "Rust preserves source rate unless conversion is explicitly requested".
 // Passing `rate: 0` to `Decoder::new` leaves the asset at its native codec
 // sample rate (22,050 Hz here) and avoids running the sinc resampler,
@@ -295,7 +295,7 @@ fn rust_preserves_source_rate_unless_conversion_is_explicitly_requested() {
     assert_eq!(pcm.info.frames, Some(8191));
 }
 
-// Ported from `tests/audio-codec.test.js`:
+// Test:
 // "HRIR gain compensation uses the source and requested rates".
 // Impulse responses must be scaled by `source_rate / target_rate` when resampled
 // so convolution energy remains invariant across 44.1 kHz and 48 kHz devices.
@@ -330,7 +330,7 @@ fn hrir_gain_compensation_uses_the_source_and_requested_rates() {
     }
 }
 
-// Ported from `tests/audio-codec.test.js`:
+// Test:
 // "asset playback gain is applied after explicit rate conversion".
 // Asset gain in dB is converted to a linear multiplier using `v8math::pow_legacy`
 // (`10^(gain_db / 20)`) and applied in `f64` inside the sinc resampler before
@@ -367,7 +367,7 @@ fn asset_playback_gain_is_applied_after_explicit_rate_conversion() {
     }
 }
 
-// Ported from `tests/audio-codec.test.js`:
+// Test:
 // "corrupt and truncated containers fail without a host decoder".
 // A truncated stream or a flipped Ogg CRC bit must return a deterministic error
 // rather than emitting a shorter asset that would desynchronize loop points.
@@ -436,7 +436,7 @@ fn build_ogg_page(
     result
 }
 
-// Ported from `tests/audio-codec.test.js`:
+// Test:
 // "Ogg packets continued across pages preserve PCM and end trim".
 // When an Opus packet is split across two Ogg pages (the first page ending
 // with a 255-byte lacing value and granule position -1, and the second page

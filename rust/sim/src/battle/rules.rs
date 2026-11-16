@@ -1,10 +1,10 @@
-//! The battle's rules (src/battle.js): who fights for each team (its
+//! The battle's rules: who fights for each team (its
 //! Characters), their reinforcements, the bleed of reinforcements from
 //! holding fewer posts, how a team loses, and each Character's scores.
 //! Teams 1 and 2 are the armies; 3 to 7 the locals, who neither bleed nor
 //! count down.
 //!
-//! The state is the store's (rust/sim/schema/battle.mjs): the `battle`
+//! The state is the store's (rust/sim/schema/battle.json): the `battle`
 //! singleton and its Characters, by reference.
 
 use super::posts;
@@ -56,7 +56,7 @@ impl<T: BattleWorld + ?Sized> RulesWorld for T {
     fn battle_over(&mut self, _: &mut Store, loser: f64) { BattleWorld::battle_over(self, loser); }
 }
 
-/// new Character(index, team, human) (battle.js:52): his name a human's
+/// new Character(index, team, human): his name a human's
 /// ("Player 1"), else none until his roster names him.
 pub fn new_character(index: f64, team: f64, human: bool, strings: &mut Strings) -> Character {
     Character {
@@ -69,12 +69,12 @@ pub fn new_character(index: f64, team: f64, human: bool, strings: &mut Strings) 
     }
 }
 
-/// new BattleStats() (battle-stats.js:123): an empty ring.
+/// new BattleStats(): an empty ring.
 pub fn new_stats() -> BattleStats {
     BattleStats { time: 0.0, ring: KillRing { killers: vec![None; super::stats::RING_SIZE], times: TypedArray::default(), slots: TypedArray::default(), head: 0.0, tail: 0.0 } }
 }
 
-/// new Battle({ teams, posts, own, foe }) (battle.js:92), its Characters
+/// new Battle({ teams, posts, own, foe }), its Characters
 /// none yet.
 pub fn new_battle(teams: IntObj<TeamDesc>, own: f64, foe: f64) -> Battle {
     let reinforcements: IntObj<f64> = teams.iter().map(|(t, v)| (t, v.reinforcements.unwrap_or(if t >= 3.0 { 2147483647.0 } else { 0.0 }))).collect();
@@ -106,14 +106,14 @@ pub fn new_battle(teams: IntObj<TeamDesc>, own: f64, foe: f64) -> Battle {
     }
 }
 
-/// spend(team, count) (battle.js:159): a death costs the team a
+/// spend(team, count): a death costs the team a
 /// reinforcement.
 pub fn spend(battle: &mut Battle, team: f64, count: f64) {
     let left = battle.reinforcements.at(team).unwrap_or(count);
     battle.reinforcements.set(team, v8math::max(left - count, 0.0));
 }
 
-/// credit(victim, killer, relation) (battle.js:170).
+/// credit(victim, killer, relation).
 pub fn credit(s: &mut Store, victim: Option<Ref<Character>>, killer: Option<Ref<Character>>, relation: f64) {
     if s.battle.game_over {
         return;
@@ -134,21 +134,21 @@ pub fn credit(s: &mut Store, victim: Option<Ref<Character>>, killer: Option<Ref<
     stats::death(&mut s.character, victim);
 }
 
-/// headshot(credited) (battle.js:181).
+/// headshot(credited).
 pub fn headshot(s: &mut Store, credited: Option<Ref<Character>>) {
     if !s.battle.game_over {
         stats::headshot(&mut s.character, credited);
     }
 }
 
-/// vehicleDestroyed(destroyer) (battle.js:186).
+/// vehicleDestroyed(destroyer).
 pub fn vehicle_destroyed(s: &mut Store, destroyer: Option<Ref<Character>>) {
     if !s.battle.game_over {
         stats::vehicle_destroyed(&mut s.character, destroyer);
     }
 }
 
-/// point(character) (battle.js:192): a command post point.
+/// point(character): a command post point.
 pub fn point(s: &mut Store, character: Option<Ref<Character>>) {
     let Some(r) = character else { return };
     if s.battle.game_over {
@@ -158,7 +158,7 @@ pub fn point(s: &mut Store, character: Option<Ref<Character>>) {
     c.captures = ((jsrt::conv::to_int32(c.captures + 1.0)) & 0xffff) as f64;
 }
 
-/// postDestroyed(destroyer, relation) (battle.js:201).
+/// postDestroyed(destroyer, relation).
 pub fn post_destroyed(s: &mut Store, destroyer: Option<Ref<Character>>, relation: f64) {
     if relation < 1.0 {
         point(s, destroyer);
@@ -166,7 +166,7 @@ pub fn post_destroyed(s: &mut Store, destroyer: Option<Ref<Character>>, relation
 }
 
 /// The living soldiers of a team, heroes excepted: the spawn manager's
-/// count, else the Characters' own (battle.js:111).
+/// count, else the Characters' own.
 pub fn living<W: RulesWorld + ?Sized>(s: &Store, team: f64, world: &mut W) -> f64 {
     if let Some(n) = world.living(s, team) {
         return n;
@@ -181,7 +181,7 @@ pub fn living<W: RulesWorld + ?Sized>(s: &Store, team: f64, world: &mut W) -> f6
     n
 }
 
-/// update(dt) (battle.js:205). `stats_active(him)`: whether his tallies run
+/// update(dt). `stats_active(him)`: whether his tallies run
 /// this tick (battle.statsActive).
 pub fn update<W: RulesWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn stats::ContextText<W>, stats_active: impl Fn(Ref<Character>, &Character) -> bool, world: &mut W) {
     if !s.battle.game_over {
@@ -246,14 +246,14 @@ pub fn update<W: RulesWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn stat
     }
 }
 
-/// score(team) (battle.js:237): the ValueBleed of each post it holds (its
+/// score(team): the ValueBleed of each post it holds (its
 /// command vehicles' too), plus 1 per neutral post.
 pub fn score<W: RulesWorld + ?Sized>(s: &mut Store, team: f64, world: &mut W) -> f64 {
     let (_, owned) = world.owned_summary(s, team);
     owned + world.owned_summary(s, 0.0).0 as f64
 }
 
-/// updateTeam(team, dt) (battle.js:242).
+/// updateTeam(team, dt).
 pub fn update_team<W: RulesWorld + ?Sized>(s: &mut Store, team: f64, dt: f64, world: &mut W) {
     if team > 2.0 {
         update_locals(s, team, world);
@@ -290,7 +290,7 @@ pub fn update_team<W: RulesWorld + ?Sized>(s: &mut Store, team: f64, dt: f64, wo
     }
 }
 
-/// updateLocals(team) (battle.js:268): a local team friendly with exactly
+/// updateLocals(team): a local team friendly with exactly
 /// one army follows it out of the battle.
 pub fn update_locals<W: RulesWorld + ?Sized>(s: &mut Store, team: f64, world: &mut W) {
     let mut ally = 0.0;

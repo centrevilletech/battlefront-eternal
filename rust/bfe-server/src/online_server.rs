@@ -1,5 +1,5 @@
 //! Online directory registration, dual-stack heartbeats, STUN NAT detection, and WebSocket
-//! rendezvous signaling (`src/online-server.js`).
+//! rendezvous signaling.
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
@@ -21,11 +21,11 @@ use crate::network_contract::{validate_network_contract, wire_compatibility, Wir
 use crate::udp_server::{CandidateEntry, ReflexiveMap, RelayEvent, UdpGameServer};
 
 /// A relay allocation not taken up by a playing player is released after this long
-/// (`sweep(30000)` in `src/online-server.js`): identities are free, so offers alone must not
+/// (`sweep(30000)`): identities are free, so offers alone must not
 /// hold allocations.
 const RELAY_UNUSED: Duration = Duration::from_secs(30);
 
-/// One player's relay allocation as signalling sees it (`this.relays` in `src/online-server.js`).
+/// One player's relay allocation as signalling sees it (`this.relays`).
 #[derive(Clone, Debug)]
 struct RelayEntry {
     created: Instant,
@@ -35,7 +35,7 @@ struct RelayEntry {
 }
 
 /// Returns `true` if `address` is a globally routable unicast IPv4 or IPv6 address
-/// (`export function publicAddress(address)` in `src/online-server.js`).
+/// (`export function publicAddress(address)`).
 ///
 /// Rejects private, loopback, unspecified, the carrier-grade NAT block, link-local, ULA (`fc00::/7`),
 /// and multicast addresses, stripping any leading `::ffff:` IPv4-mapped prefix first.
@@ -77,7 +77,7 @@ pub fn public_address(address: &str) -> bool {
 }
 
 /// Validates and normalizes an array of up to 8 UDP signaling candidates
-/// (`export function parseCandidates(value)` in `src/online-server.js`).
+/// (`export function parseCandidates(value)`).
 ///
 /// Why candidate lists are capped at 8 entries and restricted to valid IP + port `1..=65535`:
 /// Prevents amplified UDP hole-punch bursts and malformed WebSocket `answer` messages when a client
@@ -123,7 +123,7 @@ pub fn parse_candidates(value: &Value) -> Result<Vec<CandidateEntry>, String> {
     Ok(out)
 }
 
-/// Parses the STUN server `"host:port"` string (`OnlineServer.stunServer()` in `src/online-server.js`),
+/// Parses the STUN server `"host:port"` string (`OnlineServer.stunServer()`),
 /// defaulting to `"relay.battlefronteternal.com:3478"`.
 pub fn parse_stun_server(stun: Option<&str>) -> (String, u16) {
     let raw = stun.unwrap_or("relay.battlefronteternal.com:3478");
@@ -137,9 +137,9 @@ pub fn parse_stun_server(stun: Option<&str>) -> (String, u16) {
 }
 
 /// Online directory registration and rendezvous signaling controller
-/// (`export class OnlineServer` in `src/online-server.js`).
+/// (`export class OnlineServer`).
 /// Public internet listing, NAT traversal, global ban-list sync, and signaling coordinator,
-/// porting `OnlineServer` from `packages/bfe-server/src/online-server.js`.
+/// porting `OnlineServer`.
 pub struct OnlineServer {
     pub id: String,
     pub identity: ServerIdentity,
@@ -164,7 +164,7 @@ pub struct OnlineServer {
 }
 
 impl OnlineServer {
-    /// Constructs an `OnlineServer` (`constructor` in `src/online-server.js`), validating the
+    /// Constructs an `OnlineServer` (`constructor`), validating the
     /// engine network contract, loading `identity.json`, and initializing `MasterClient` and `BanCache`.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -216,7 +216,7 @@ impl OnlineServer {
         })
     }
 
-    /// Builds the directory listing payload (`OnlineServer.listing()` in `src/online-server.js`).
+    /// Builds the directory listing payload (`OnlineServer.listing()`).
     ///
     /// A direct-only server (`relayPolicy === "never"`) advertises `[{"port": port, "transport": "udp"}]`
     /// in `endpoints` so the master records the source IP of each heartbeat for direct client pings;
@@ -259,7 +259,7 @@ impl OnlineServer {
         obj
     }
 
-    /// Sends a heartbeat `PUT /v1/servers/:id` to the master (`async beat()` in `src/online-server.js`).
+    /// Sends a heartbeat `PUT /v1/servers/:id` to the master (`async beat()`).
     pub fn beat(&self) -> Result<(), String> {
         let family = if self.config.relay_policy == "never" {
             let mut b = self.beats.lock().map_err(|_| "lock poisoned")?;
@@ -302,7 +302,7 @@ impl OnlineServer {
     }
 
     /// Checks whether `id` is on the signed global ban list when `honorGlobalBans` is enabled
-    /// (`OnlineServer.globallyBanned(id)` in `src/online-server.js`).
+    /// (`OnlineServer.globallyBanned(id)`).
     pub fn globally_banned(&self, id: &str) -> bool {
         if !self.config.honor_global_bans {
             return false;
@@ -313,13 +313,13 @@ impl OnlineServer {
             .unwrap_or(false)
     }
 
-    /// Returns the configured STUN `(host, port)` pair (`OnlineServer.stunServer()` in `src/online-server.js`).
+    /// Returns the configured STUN `(host, port)` pair (`OnlineServer.stunServer()`).
     pub fn stun_server(&self) -> (String, u16) {
         parse_stun_server(self.config.stun.as_deref())
     }
 
     /// Queries the STUN server from the game port to discover the server's reflexive IPv4 and IPv6
-    /// addresses (`async discover()` in `src/online-server.js`).
+    /// addresses (`async discover()`).
     ///
     /// The requests go out from the game socket and their answers come back through the game
     /// loop's poll, so no game packet is lost to the query and the game loop is never held up.
@@ -410,8 +410,8 @@ impl OnlineServer {
         map
     }
 
-    /// Returns `true` when the server appears to be behind NAT (`OnlineServer.natted()` in
-    /// `src/online-server.js`: no reflexive mapping or any reflexive address not owned by a local interface).
+    /// Returns `true` when the server appears to be behind NAT (`OnlineServer.natted()`: no
+    /// reflexive mapping or any reflexive address not owned by a local interface).
     ///
     /// The host's own addresses are the game socket's bound address and the local address the
     /// system routes to the STUN server from (a socket bound to every interface names none).
@@ -444,7 +444,7 @@ impl OnlineServer {
     }
 
     /// Assembles up to 8 direct (`host` + `srflx`) UDP candidates to answer a client's offer
-    /// (`OnlineServer.candidates(clientCandidates)` in `src/online-server.js`).
+    /// (`OnlineServer.candidates(clientCandidates)`).
     pub fn candidates(&self, client_candidates: &[CandidateEntry]) -> Vec<CandidateEntry> {
         if self.config.relay_policy == "always" {
             return Vec::new();
@@ -514,7 +514,7 @@ impl OnlineServer {
         list
     }
 
-    /// Processes an incoming WebSocket signaling message from a player (`async signal(m)` in `src/online-server.js`).
+    /// Processes an incoming WebSocket signaling message from a player (`async signal(m)`).
     pub fn handle_signal(&self, m: &SignalEnvelope) {
         if !is_hex_64(&m.from) {
             return;
@@ -526,7 +526,7 @@ impl OnlineServer {
             return;
         };
 
-        // Handle map-rotation readiness probe (`m.type === "matchProbe"` in `src/online-server.js`).
+        // Handle map-rotation readiness probe (`m.type === "matchProbe"`).
         if m.msg_type == "matchProbe" || signal.get("matchProbe").is_some() {
             if let Some(obj) = signal.as_object() {
                 if m.msg_type == "matchProbe"
@@ -570,7 +570,7 @@ impl OnlineServer {
             return;
         }
 
-        // Enforce offer rate limits (`this.offers` in `src/online-server.js`):
+        // Enforce offer rate limits (`this.offers`):
         // evict entries older than 10s, cap active peers to `maxPlayers * 2`, and require >= 1s between offers per peer.
         let now = Instant::now();
         let max_offers = (self.config.max_players.unwrap_or(64)) * 2;
@@ -628,7 +628,7 @@ impl OnlineServer {
         }
     }
 
-    /// Most relay allocations at once (`relayLimit()` in `src/online-server.js`).
+    /// Most relay allocations at once (`relayLimit()`).
     pub fn relay_limit(&self) -> usize {
         self.config.max_players.unwrap_or(64) + 8
     }
@@ -639,7 +639,7 @@ impl OnlineServer {
     }
 
     /// A TURN allocation for one player, permitted for that player's public addresses only, with
-    /// short-lived per-pair credentials from the master (`relayFor` in `src/online-server.js`).
+    /// short-lived per-pair credentials from the master (`relayFor`).
     /// The relayed candidate is signalled when the allocation is ready ([`Self::pump_relays`]);
     /// a player who offers again gets the same allocation, answered with the new nonce.
     fn relay_for(&self, peer: &str, client: &[CandidateEntry], nonce: &str) -> Result<(), String> {
@@ -706,11 +706,12 @@ impl OnlineServer {
                         Some(entry.nonce.clone())
                     });
                     if let Some(nonce) = nonce {
+                        eprintln!("Online relay: {relayed} allocated for player {}", short(&peer_id));
                         self.signal_relay(&peer_id, &nonce, relayed);
                     }
                 }
                 RelayEvent::Failed { peer_id, reason } => {
-                    eprintln!("Online relay: {reason}");
+                    eprintln!("Online relay: player {}: {reason}", short(&peer_id));
                     if let Ok(mut relays) = self.relays.lock() {
                         relays.remove(&peer_id);
                     }
@@ -737,8 +738,7 @@ impl OnlineServer {
         );
     }
 
-    /// Releases relay allocations of players not playing after `max_age` (`sweep` in
-    /// `src/online-server.js`).
+    /// Releases relay allocations of players not playing after `max_age` (`sweep`).
     pub fn sweep(&self, max_age: Duration) {
         let Some(udp_arc) = self.udp.as_ref() else {
             return;
@@ -756,6 +756,7 @@ impl OnlineServer {
         relays.retain(|id, entry| {
             let keep = playing.contains(id) || entry.created.elapsed() <= max_age;
             if !keep {
+                eprintln!("Online relay: released for player {} (not playing)", short(id));
                 udp.close_relay(id);
             }
             keep
@@ -777,7 +778,7 @@ impl OnlineServer {
 
     /// Registers the server with the master (`POST /v1/servers`), connects the `/v1/signal`
     /// WebSocket, runs initial STUN discovery, and spawns the periodic maintenance loop
-    /// (`async start()` in `src/online-server.js`: 20 s heartbeats, 120 s global ban refresh + kick,
+    /// (`async start()`: 20 s heartbeats, 120 s global ban refresh + kick,
     /// 60 s STUN re-discovery, and 3 s reconnect backoff).
     pub fn start(self: &Arc<Self>) -> Result<(), String> {
         if self.config.honor_global_bans {
@@ -808,7 +809,7 @@ impl OnlineServer {
                             server.handle_signal(&sig);
                         }
                         Ok(MasterEvent::Disconnected) => {
-                            // Reconnect loop with 3-second backoff (`reconnect()` in `src/online-server.js`).
+                            // Reconnect loop with 3-second backoff (`reconnect()`).
                             while !stop.load(Ordering::Relaxed) {
                                 thread::sleep(Duration::from_secs(3));
                                 if stop.load(Ordering::Relaxed) {
@@ -830,7 +831,7 @@ impl OnlineServer {
                     }
                     server.pump_relays();
 
-                    // 20-second directory heartbeat (`setInterval(..., 20000)` in `src/online-server.js`).
+                    // 20-second directory heartbeat (`setInterval(..., 20000)`).
                     let now = Instant::now();
                     if now.duration_since(last_beat) >= Duration::from_secs(20) {
                         last_beat = now;
@@ -858,7 +859,7 @@ impl OnlineServer {
                             }
                         }
                     }
-                    // 60-second STUN reflexive mapping refresh (`setInterval(..., 60000)` in `src/online-server.js`).
+                    // 60-second STUN reflexive mapping refresh (`setInterval(..., 60000)`).
                     if now.duration_since(last_maint) >= Duration::from_secs(60) {
                         last_maint = now;
                         server.discover();
@@ -874,7 +875,7 @@ impl OnlineServer {
     }
 
     /// Unregisters the server (`DELETE /v1/servers/:id`) and stops the signaling thread
-    /// (`async close()` in `src/online-server.js`).
+    /// (`async close()`).
     pub fn close(&self) {
         self.stop.store(true, Ordering::SeqCst);
         self.master.close();
@@ -896,6 +897,11 @@ impl Drop for OnlineServer {
     }
 }
 
+/// The first characters of a player identity, for the log.
+fn short(id: &str) -> &str {
+    id.get(..12).unwrap_or(id)
+}
+
 /// The local address the system would send from to reach `target` (no packet is sent).
 fn route_address(target: SocketAddr) -> Option<String> {
     let any = if target.is_ipv6() { "[::]:0" } else { "0.0.0.0:0" };
@@ -905,7 +911,7 @@ fn route_address(target: SocketAddr) -> Option<String> {
     (!ip.is_unspecified()).then(|| ip.to_string())
 }
 
-/// The relay server's address, IPv4 first (`lookup(host, { family: 4 })` in the Node endpoint).
+/// The relay server's address, IPv4 first.
 fn resolve_relay(host: &str, port: u16) -> Result<SocketAddr, String> {
     let addresses: Vec<SocketAddr> = (host, port)
         .to_socket_addrs()
@@ -919,7 +925,7 @@ fn resolve_relay(host: &str, port: u16) -> Result<SocketAddr, String> {
         .ok_or_else(|| format!("relay address {host}: not found"))
 }
 
-/// Validates a 32-character lowercase hex nonce or match probe token (`/^[a-f0-9]{32}$/` in `src/online-server.js`).
+/// Validates a 32-character lowercase hex nonce or match probe token (`/^[a-f0-9]{32}$/`).
 fn is_hex_32(value: &str) -> bool {
     value.len() == 32
         && value
@@ -927,7 +933,7 @@ fn is_hex_32(value: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-/// Extracts a parameter from a `?k=v&...` query string (`new URLSearchParams(this.query).get(name)` in `src/online-server.js`).
+/// Extracts a parameter from a `?k=v&...` query string (`new URLSearchParams(this.query).get(name)`).
 fn query_param(query: &str, name: &str) -> Option<String> {
     let trimmed = query.trim_start_matches('?');
     for pair in trimmed.split('&') {

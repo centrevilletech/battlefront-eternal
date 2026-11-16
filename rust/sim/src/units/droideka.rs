@@ -174,7 +174,7 @@ fn enter(id: u32, unit: &mut Unit, mode: f64, carry: f64, world: &mut dyn UnitsW
     }
 }
 
-/// tick(input, dt) (src/droideka.js:382), on the unit's `input`.
+/// tick(input, dt), on the unit's `input`.
 pub fn tick(id: u32, unit: &mut Unit, dt: f64, world: &mut dyn UnitsWorld, parts: &mut DroidekaParts) {
     let input = unit.input.clone();
     tick_input(id, unit, &input, dt, world, parts);

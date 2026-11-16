@@ -198,7 +198,7 @@ impl Steam {
     }
 }
 
-/// environment-effects.js ENHANCED, less the fountains: the vents with an
+/// ENHANCED, less the fountains: the vents with an
 /// Enhanced form.
 pub fn is_steam(effect: &str) -> bool {
     effect.ends_with("/prop_steamgrate") || effect.ends_with("/prop_steampipe")

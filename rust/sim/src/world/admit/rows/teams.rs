@@ -14,7 +14,7 @@ pub struct Input {
     pub input: AiMissionTeamsInput,
 }
 
-/// game.js's first missionTeams call always marshals eight names. An empty
+/// first missionTeams call always marshals eight names. An empty
 /// name is still interned, exactly as the generated string writer does.
 pub fn names(battle: &Battle, intern: &mut impl FnMut(&str) -> StrId) -> Input {
     names_from_mission(battle.world.get("mission"), intern)
@@ -36,7 +36,7 @@ pub fn after_ai(battle: &Battle, has_ai: bool, intern: &mut impl FnMut(&str) -> 
     Ok(Input { roster: u32::from(has_ai), input: AiMissionTeamsInput { calls, names: Vec::new() } })
 }
 
-/// ai-world-load.js and the off-AI missionTeams reader select the same
+/// and the off-AI missionTeams reader select the same
 /// script. A present empty calls array suppresses callsFromMapMission.
 pub fn mission_calls(ai_mission: Option<&Value>, mission: Option<&Value>, intern: &mut impl FnMut(&str) -> StrId) -> Result<Vec<AiRosterCall>, AdmitError> {
     let selected = bfe_content::mission::select_ai_mission(ai_mission, mission);
@@ -105,7 +105,7 @@ pub fn calls_from_map(mission: Option<&Value>) -> Vec<Value> {
     calls
 }
 
-/// game.js's pre-Battle reader uses the shared context's string namespace.
+/// pre-Battle reader uses the shared context's string namespace.
 /// The roster reader is separate because AI construction runs between them.
 pub fn build(cx: &mut super::Cx) -> Result<super::Calls, AdmitError> {
     let battle = cx.battle;

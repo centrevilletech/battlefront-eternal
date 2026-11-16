@@ -1,4 +1,4 @@
-//! The patrol behavior and command-post geometry (patrol.js). The
+//! The patrol behavior and command-post geometry. The
 //! helper's state machine is driven by the core (mod.rs) like every
 //! machine here; this file is its data, the geometry adapters and the
 //! hint queries.
@@ -18,7 +18,7 @@ pub const QUERY_OUTPUT_CAP: usize = 10;
 pub const HINT_RESERVE_TIME: f64 = 4.0;
 pub const REVALIDATE_SENTINEL: f64 = 1e8;
 
-/// PatrolHelper (patrol.js:288). `centered` is added on the state 2
+/// PatrolHelper. `centered` is added on the state 2
 /// entry (absent reads false). `candidates` is the reused query list.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Patrol {
@@ -51,7 +51,7 @@ impl Patrol {
     }
 }
 
-/// captureRegion (patrol.js:47): the mission capture wins, the map's
+/// captureRegion: the mission capture wins, the map's
 /// capture block is the fallback. Returns (origin, sizeX, sizeZ).
 pub fn capture_region(post: &PostSnap) -> Option<(Vec3, f64, f64)> {
     capture_region_pop(post, true)
@@ -99,7 +99,7 @@ pub fn has_capture_region_pop(post: &PostSnap, population: bool) -> bool {
     capture_region_pop(post, population).is_some()
 }
 
-/// cpCenter (patrol.js:71): Population's centre when bound (the same
+/// cpCenter: Population's centre when bound (the same
 /// value), else the region origin or the post's position.
 pub fn cp_center(post: &PostSnap, population: bool) -> Vec3 {
     if population {
@@ -111,7 +111,7 @@ pub fn cp_center(post: &PostSnap, population: bool) -> Vec3 {
     }
 }
 
-/// cpOffset (patrol.js:85). Population's offset draws with drawRange;
+/// cpOffset. Population's offset draws with drawRange;
 /// the fallback draws with the generator's range. Both are stream A,
 /// z first.
 pub fn cp_offset(post: &PostSnap, population: bool, draws: &mut dyn Draws) -> Vec3 {
@@ -127,7 +127,7 @@ pub fn cp_offset(post: &PostSnap, population: bool, draws: &mut dyn Draws) -> Ve
     Vec3::new(x, 0.0, z)
 }
 
-/// arrivedAtObjective (patrol.js:103).
+/// arrivedAtObjective.
 #[allow(clippy::too_many_arguments)]
 pub fn arrived_at_objective(
     post: &PostSnap,
@@ -162,7 +162,7 @@ pub fn arrived_at_objective(
     d2 < r * r
 }
 
-/// friendlySpawnEligible (patrol.js:138): Population's own when bound
+/// friendlySpawnEligible: Population's own when bound
 /// (classicBinding's friendlySpawn), else the map-data test over the snapshot's fields.
 pub fn friendly_spawn_eligible(post: &PostSnap, team: f64, population: bool, relation: &dyn Fn(f64, f64) -> f64) -> bool {
     if population {
@@ -177,14 +177,14 @@ pub fn friendly_spawn_eligible(post: &PostSnap, team: f64, population: bool, rel
     relation(post.team, team) > 0.0 && post.desc_ally_path
 }
 
-/// samePost by index or by name (patrol.js:183): a hint's post is a
+/// samePost by index or by name: a hint's post is a
 /// table index here, so names only matter against raw records the
 /// snapshot already resolved.
 pub fn same_post(hint_post: Option<usize>, post: usize) -> bool {
     hint_post == Some(post)
 }
 
-/// hintAvailable (patrol.js:219).
+/// hintAvailable.
 pub fn hint_available<W:AiWorld+?Sized>(w: &mut W, bind_nav: bool, hint: usize, now: f64) -> bool {
     if bind_nav {
         return w.nav_hint_available(hint);
@@ -193,7 +193,7 @@ pub fn hint_available<W:AiWorld+?Sized>(w: &mut W, bind_nav: bool, hint: usize, 
     !(now < reserved + HINT_RESERVE_TIME)
 }
 
-/// queryPatrolHints (patrol.js:245).
+/// queryPatrolHints.
 pub fn query_patrol_hints<W:AiWorld+?Sized>(w: &mut W, bind_nav: bool, population: bool, post: &PostSnap, requester: Option<super::world::UKey>) -> Inline<usize,QUERY_OUTPUT_CAP> {
     let now = w.time();
     let center = cp_center(post, population);
@@ -233,7 +233,7 @@ pub fn query_patrol_hints<W:AiWorld+?Sized>(w: &mut W, bind_nav: bool, populatio
     out
 }
 
-/// chooseHint (patrol.js:274): random order without replacement.
+/// chooseHint: random order without replacement.
 pub fn choose_hint<W:AiWorld+?Sized>(w: &mut W, bind_nav: bool, candidates: &[usize], previous: Option<usize>, now: f64, draws: &mut dyn Draws) -> Option<usize> {
     let mut list: Inline<usize,QUERY_OUTPUT_CAP> = candidates.iter().copied().collect();
     let mut n = list.len();
@@ -249,7 +249,7 @@ pub fn choose_hint<W:AiWorld+?Sized>(w: &mut W, bind_nav: bool, candidates: &[us
     None
 }
 
-/// pickHintStance (patrol.js:202).
+/// pickHintStance.
 pub fn pick_hint_stance(mask: f64, draws: &mut dyn Draws) -> f64 {
     let mask = v8math::to_int32(mask) & 7;
     if mask == 0 {

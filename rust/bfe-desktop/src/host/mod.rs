@@ -23,7 +23,7 @@ pub const DEFAULT_ADMIN_PORT: u16 = 18460;
 pub const DEFAULT_GAME_PORT: u16 = 18461;
 
 /// Maximum human player count allowed in a hosted match
-/// (`MAX_MATCH_PLAYERS = 64` in `src/battle-limits.js`, imported by the desktop host).
+/// (`MAX_MATCH_PLAYERS = 64`, imported by the desktop host).
 pub const MAX_MATCH_PLAYERS: u32 = 64;
 
 /// Maximum size in bytes (`8 MiB`) of `<state_root>/hosting.log` before `start()` truncates it
@@ -291,7 +291,7 @@ pub struct HostOptions {
 }
 
 impl Default for HostOptions {
-    /// Returns default LAN host options matching `src/shell/host-dialog.js`
+    /// Returns default LAN host options
     /// (`name: "Battlefront Eternal LAN"`, `mode: Lan`, `map: "nab2"`, `side: "rep"`,
     /// `max_players: 8`, `relay: Auto`).
     fn default() -> Self {
@@ -1774,7 +1774,7 @@ mod tests {
     /// when online consent, prepared map data, or the `bfeserver` binary is missing.
     #[test]
     fn start_enforces_consent_content_and_binary_errors() {
-        // Verify exact error strings for missing consent, missing map, and missing binary (`tests/desktop-host.mjs`).
+        // Verify exact error strings for missing consent, missing map, and missing binary.
         let dir = temp_test_dir("validation");
         let state_root = dir.join("state");
         let content_root = dir.join("content");
@@ -1835,7 +1835,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn start_outside_builds_systemd_user_unit_and_checks_active() {
-        // Verify `start_outside` and `unit_active_with_program` (`tests/desktop-host.mjs`).
+        // Verify `start_outside` and `unit_active_with_program`.
         use std::os::unix::fs::PermissionsExt;
 
         let dir = temp_test_dir("outside");

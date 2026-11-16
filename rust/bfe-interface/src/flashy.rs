@@ -1,13 +1,13 @@
-//! Five-stage flashy text reveal animation (`src/interface/flashy.js`).
+//! Five-stage flashy text reveal animation.
 
-/// Stage durations in seconds (`INTRO` in `src/interface/flashy.js`).
+/// Stage durations in seconds (`INTRO`).
 pub const INTRO: [f64; 5] = [0.1, 0.05, 0.05, 0.15, 0.15];
 
-/// Total intro duration in seconds (`INTRO_LENGTH` in `src/interface/flashy.js`).
+/// Total intro duration in seconds (`INTRO_LENGTH`).
 pub const INTRO_LENGTH: f64 = 0.5;
 
 /// Normalized `[0.0, 1.0]` stage progress values returned by [`TitleIntro::frame`]
-/// (`TitleIntro.frame` in `src/interface/flashy.js`).
+/// (`TitleIntro.frame`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FlashyFrame {
     /// Stage 1 progress (`0.0..=1.0`): vertical growth of the leading cursor bar.
@@ -20,7 +20,7 @@ pub struct FlashyFrame {
     pub alpha: f64,
 }
 
-/// Rectangular bar or sweep block emitted during a [`TitleIntro`] reveal (`src/interface/flashy.js`).
+/// Rectangular bar or sweep block emitted during a [`TitleIntro`] reveal.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FlashyBar {
     /// Left X offset relative to the text anchor point.
@@ -57,7 +57,7 @@ pub struct FlashyPieces {
     pub text: FlashyText,
 }
 
-/// Five-stage flashy text reveal state (`TitleIntro` in `src/interface/flashy.js`).
+/// Five-stage flashy text reveal state (`TitleIntro`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TitleIntro {
     /// Initial pre-reveal wait duration in seconds before stage 1 begins.
@@ -76,7 +76,7 @@ impl Default for TitleIntro {
 
 impl TitleIntro {
     /// Creates a new `TitleIntro` with optional start `delay` in seconds
-    /// (`TitleIntro.start(delay)` in `src/interface/flashy.js`).
+    /// (`TitleIntro.start(delay)`).
     #[inline]
     pub fn new(delay: f64) -> Self {
         // Clamp non-finite or negative delays to 0.0 so `elapsed` never starts past 0.0
@@ -94,7 +94,7 @@ impl TitleIntro {
     }
 
     /// Creates a completed `TitleIntro` (`elapsed == duration`) so static headers
-    /// and titles render immediately at full width/alpha (`new TitleIntro()` in `flashy.js`).
+    /// and titles render immediately at full width/alpha (`new TitleIntro()`).
     #[inline]
     pub fn completed() -> Self {
         Self {
@@ -105,7 +105,7 @@ impl TitleIntro {
     }
 
 
-    /// Advances the intro clock by `dt` seconds (`TitleIntro.update(dt)` in `src/interface/flashy.js`).
+    /// Advances the intro clock by `dt` seconds (`TitleIntro.update(dt)`).
     #[inline]
     pub fn step(&mut self, dt: f64) {
         if !dt.is_finite() || dt <= 0.0 {

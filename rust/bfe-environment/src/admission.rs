@@ -197,7 +197,7 @@ pub fn sky(data: &Value) -> (SkyPhase, Value) {
         c[cl::ENHANCED] = f64::from(row["enhanced"].as_bool().unwrap_or(false));
     }
     // Browser metadata contains only the ids needed to install real assets.
-    // Flight parameters stay in the phase and are never mirrored back to JS.
+    // Flight parameters stay in the phase.
     p.start();
     (p, json!({"classes":rows}))
 }

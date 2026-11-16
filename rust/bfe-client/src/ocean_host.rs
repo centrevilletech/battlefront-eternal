@@ -1,10 +1,10 @@
 //! The sea (OceanSurface and EnhancedOcean, src/ocean-surface.js and
-//! src/ocean-storm.js in the page this client replaces).
+//! in the client this client replaces).
 //!
 //! A map whose water look asks for an ocean, or whose water reaches every edge
 //! of its grid while OCEAN AND SKY is Enhanced, draws the sea in place of the
 //! flat surface. The renderer owns its meshes, programs and look constants
-//! (`effect_water`); what stays here is what the page owned: which of its
+//! (`effect_water`); what stays here is what the client owned: which of its
 //! near and far surfaces draw, their per-frame values, the crest spray, and
 //! the cube capture of the sky an Enhanced sea reflects.
 use crate::{render_bridge::Bridge, resources::Resources};

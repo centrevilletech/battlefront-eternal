@@ -353,7 +353,7 @@ pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World) {
 /// Fresh pose output exists only after spawn rendering or the complete phase.
 // Vehicle.aimTick/render already completed the retained rig. Publish compact
 // camera and scalar pose changes at the pre-fire slot, allowing unit raycasts
-// and synchronous fired listeners to read current state without JS rig math.
+// and synchronous fired listeners to read current state.
 fn publish_posed_in(world_ctx: &mut crate::world::owner::World) {
     publish_in(world_ctx);
 }

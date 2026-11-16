@@ -1,4 +1,4 @@
-//! The Enhanced destruction effects (destruction.js) for droids, over the
+//! The Enhanced destruction effects for droids, over the
 //! shared Destruction phase of bfe-environment, which decides the births,
 //! the pieces' lives and their order. This host gives it what only the
 //! client has (a dying droid's bones, where its chunks were, the camera,
@@ -42,7 +42,7 @@ const SMOKE: usize = 1536;
 const ARCS: usize = 48;
 // The lights' colours, by the phase's names for them.
 const COLORS: [[f64; 3]; 3] = [[0.5, 0.72, 1.0], [1.0, 0.62, 0.3], [1.0, 0.42, 0.12]];
-// m/s, drifting the smoke (destruction-fx.js WIND).
+// m/s, drifting the smoke (WIND).
 const WIND: [f32; 3] = [0.55, 0., 0.32];
 // pieceShape: the 26 directions its extreme points are found along.
 fn directions() -> Vec<Vector3> {
@@ -242,7 +242,7 @@ impl Destructions {
                 chunks.push((handle, node, c.get("ChunkSpeed").and_then(Value::as_f64).unwrap_or(7.)));
             }
             if !chunks.is_empty() {
-                // destruction.js prepare: its weapons' shapes too, to be thrown clear.
+                // prepare: its weapons' shapes too, to be thrown clear.
                 for w in class.record.get("weapons").and_then(Value::as_array).into_iter().flatten() {
                     if let Some(name) = w.get("GeometryName").and_then(Value::as_str) {
                         register(content, bridge, textures, cascades, &mut phase, &mut names, &mut models, name)?;
@@ -350,7 +350,7 @@ impl Destructions {
         n
     }
 
-    /// game.js onBlowApart: Enhanced draws it (true), the body is hidden at
+    /// onBlowApart: Enhanced draws it (true), the body is hidden at
     /// once. False leaves it to the Classic pieces.
     pub fn blow_apart(&mut self, body: &Body) -> bool {
         if !self.chunked(body.class) {
@@ -400,7 +400,7 @@ impl Destructions {
         Some((self.names.iter().position(|n| n == name)?, matrix))
     }
 
-    // destruction.js skeleton: the bones arcs can crawl over (not the
+    // skeleton: the bones arcs can crawl over (not the
     // hardpoints or dummyroot) and each one's nearest such ancestor.
     fn skeleton(body: &Body) -> (Vec<usize>, Vec<usize>) {
         let bones: Vec<usize> = (0..body.names.len()).filter(|&i| !body.names[i].starts_with("hp_") && !body.names[i].starts_with("dummyroot")).collect();
@@ -418,7 +418,7 @@ impl Destructions {
         (bones, joints)
     }
 
-    /// game.js onDeath: a chunked droid still standing shorts out, then
+    /// onDeath: a chunked droid still standing shorts out, then
     /// blows apart. With every slot taken it blows apart at once.
     pub fn died(&mut self, body: &Body) {
         if !self.chunked(body.class) || !body.visible || self.slots.iter().flatten().any(|t| t.unit == body.unit && t.active) {
@@ -679,7 +679,7 @@ impl Destructions {
         bridge.r.effects.input[render::IN_DRAWS] = draws as f64;
     }
 
-    /// destruction.js watch: the power-up droids (Buildings::station_frames)
+    /// watch: the power-up droids (Buildings::station_frames)
     /// and, each frame, whether each is wrecked and how far repaired. A new
     /// set (a new battle) is watched afresh.
     pub fn stations(&mut self, frames: impl Iterator<Item = super::buildings::StationFrame>) {

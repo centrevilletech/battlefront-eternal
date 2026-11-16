@@ -7,7 +7,7 @@ use bfe_sim::{
     prediction::corrections::{own_weapons, restore_arsenal_weapon},
     store::DefId,
 };
-// client-prediction.js configure serializes authored definitions once. Preserve
+// configure serializes authored definitions once. Preserve
 // property order and IEEE values instead of passing them through JSON again.
 pub(super) fn value(v: &Value, out: &mut Vec<f64>) {
     match v {

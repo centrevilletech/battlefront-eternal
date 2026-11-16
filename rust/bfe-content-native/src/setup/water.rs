@@ -1,12 +1,12 @@
 //! The water the world adopts at `world_step_init`: WaterState's constructor
-//! (src/runtime/water-state.js) read by WorldOperation (src/sim/wasm/world.js),
+//! read by WorldOperation,
 //! which stamps presence, the surface's own clock (0 at construction), its
 //! height and whether it bobs.
 use bfe_content::js::to_number;
 use bfe_content::Value;
 use bfe_sim::gen::WorldTickSetup;
 
-/// game.js: `world.water ? new WaterState(world.water) : null`, then
+/// `world.water ? new WaterState(world.water) : null`, then
 /// `setup.water=Boolean(water); setup.waterTime=water?water.simulationTime:0;
 /// setup.waterHeight=water?water.height:0; setup.waterBob=Boolean(water?.bobbing)`.
 /// `world` is map.json as the battle plays it (selectMission).

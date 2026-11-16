@@ -434,7 +434,7 @@ impl SlintHost {
         mp.set_notice_active(notice_active);
         mp.set_notice_selected(notice_selected);
         mp.set_notice_version(ONLINE_NOTICE_VERSION.into());
-        // The team limit is the simulation's (`MAX_TEAM_SIZE`, src/battle-limits.js).
+        // The team limit is the simulation's (`MAX_TEAM_SIZE`).
         mp.set_max_team_size(bfe_sim::battle::roster::MAX_TEAM_SIZE as i32);
         if !notice_active && (mp.get_notice_busy() || !mp.get_notice_status_text().is_empty()) {
             // A closed notice starts fresh the next time it opens.
@@ -619,7 +619,7 @@ impl SlintHost {
         sync_rows(&self.mp_models.server_rows, &row_items);
         mp.set_selected_row_index(selected_idx);
 
-        // Status line (`count` + `updated`) matching `server-browser-view.js`
+        // Status line (`count` + `updated`)
         let count_label = if matches!(browser.state(), BrowserState::Ready | BrowserState::Idle) {
             let filtered_out = total_servers.saturating_sub(rows.len());
             let filtered_suffix = if filtered_out > 0 {
@@ -998,8 +998,8 @@ impl SlintHost {
                 sh.app.back();
             }
             MpAction::NoticeAccept(version) => {
-                // The browser refuses a notice whose version differs from the one
-                // it was opened for (`onlineNotice` in src/shell/online-notice.js).
+                // The earlier build refuses a notice whose version differs from the one
+                // it was opened for (`onlineNotice`).
                 let mp = self.root.global::<MpModel>();
                 if mp.get_notice_busy() {
                     return None;
@@ -1013,7 +1013,7 @@ impl SlintHost {
                     return None;
                 }
                 // Draw one frame of `Saving your choice…` with both buttons
-                // disabled before the write, as the browser does while it awaits.
+                // disabled before the write while it awaits.
                 mp.set_notice_status_text("Saving your choice\u{2026}".into());
                 mp.set_notice_status_error(false);
                 mp.set_notice_busy(true);

@@ -1,4 +1,4 @@
-//! The multiplayer roster (src/runtime/multiplayer-roster.js) with the
+//! The multiplayer roster with the
 //! Classic AI: network players take the places of bots without spending a
 //! reinforcement, and a Character keeps its place in the battle's list for
 //! the battle (the network names Characters by place). When the roster is
@@ -13,7 +13,7 @@ use super::world::BattleWorld;
 use crate::gen::{Character, Nullable, PlayerId, Store, Unit};
 use crate::store::{Ref, StrId, Strings};
 
-/// MAX_TEAM_SIZE (src/battle-limits.js).
+/// MAX_TEAM_SIZE.
 pub const MAX_TEAM_SIZE: f64 = 32.0;
 
 /// Services used while the roster owns its team and Character state.
@@ -64,7 +64,7 @@ fn ch_mut(s: &mut Store, r: Ref<Character>) -> &mut Character {
     s.character.get_mut(r).expect("a Character of the battle")
 }
 
-/// retire(character) (multiplayer-roster.js:29): out of his post's queue and
+/// retire(character): out of his post's queue and
 /// the AI, his body (if any) out of the battle, its team's living count down
 /// if it lived.
 pub fn retire<W: RosterWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W) {
@@ -81,7 +81,7 @@ pub fn retire<W: RosterWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: 
     ch_mut(s, r).unit = None;
 }
 
-/// reset(character) (multiplayer-roster.js:44): fresh scores.
+/// reset(character): fresh scores.
 fn reset(c: &mut Character) {
     c.kills = 0.0;
     c.team_kills = 0.0;
@@ -91,7 +91,7 @@ fn reset(c: &mut Character) {
     c.objective = crate::gen::PostRef::Null;
 }
 
-/// bot(character) (multiplayer-roster.js:49): a bot again, named by its
+/// bot(character): a bot again, named by its
 /// team, back in the AI's hands.
 #[allow(clippy::too_many_arguments)]
 fn bot<W: RosterWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W) {
@@ -136,7 +136,7 @@ pub struct Roster {
     pub army_size: Option<f64>,
 }
 
-/// createMultiplayerRoster(game, armySize) (multiplayer-roster.js:5), with
+/// createMultiplayerRoster(game, armySize), with
 /// the Classic AI: the local player's Character dormant, each army trimmed
 /// and filled to its size with bots, their class targets padded.
 #[allow(clippy::too_many_arguments)]
@@ -202,7 +202,7 @@ pub fn create_with<W: RosterWorld + ?Sized>(s: &mut Store, army_size: Option<f64
     Roster { army_size }
 }
 
-/// available(team) (multiplayer-roster.js:89): the team's first bot whose
+/// available(team): the team's first bot whose
 /// body is dead, else its first bot (a stable sort by whether it lives).
 fn available<W: RosterWorld + ?Sized>(s: &Store, team: f64, world: &mut W) -> Option<Ref<Character>> {
     let mut first = None; let mut dead = None;
@@ -217,7 +217,7 @@ fn available<W: RosterWorld + ?Sized>(s: &Store, team: f64, world: &mut W) -> Op
     dead.or(first)
 }
 
-/// reserve(team, id, name) (multiplayer-roster.js:92): a player takes a
+/// reserve(team, id, name): a player takes a
 /// bot's place; Err when the team has none.
 #[allow(clippy::too_many_arguments)]
 pub fn reserve_with<W: RosterWorld + ?Sized>(s: &mut Store, team: f64, id: PlayerId, name: &[u16], world: &mut W) -> Result<Ref<Character>, &'static str> {
@@ -238,14 +238,14 @@ pub fn reserve_with<W: RosterWorld + ?Sized>(s: &mut Store, team: f64, id: Playe
     Ok(r)
 }
 
-/// release(character) (multiplayer-roster.js:105): a player leaves; a bot
+/// release(character): a player leaves; a bot
 /// takes his place.
 pub fn release_with<W: RosterWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W) {
     retire(s, r, world);
     bot(s, r, world);
 }
 
-/// switchTeam(character, target) (multiplayer-roster.js:106): he trades
+/// switchTeam(character, target): he trades
 /// places with a bot of the other team; false when it has none.
 #[allow(clippy::too_many_arguments)]
 pub fn switch_team_with<W: RosterWorld + ?Sized>(s: &mut Store, r: Ref<Character>, target: f64, world: &mut W) -> bool {
@@ -272,7 +272,7 @@ pub fn switch_team_with<W: RosterWorld + ?Sized>(s: &mut Store, r: Ref<Character
     true
 }
 
-/// counts() (multiplayer-roster.js:120): each army's players and size.
+/// counts(): each army's players and size.
 pub fn counts(s: &Store) -> [(f64, f64, f64); 2] {
     [1.0, 2.0].map(|team| {
         let list = &s.spawning.teams[team as usize].characters;

@@ -275,9 +275,9 @@ fn geometry_in<R>(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>, r
     firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings).with_geometry(&world_ctx.sim.store, &mut world_ctx.fleet.poses, r, run)
 }
 
-/// weapon-targeting.js lockPick. Bot targets bypass the view cone, while
+/// lockPick. Bot targets bypass the view cone, while
 /// human acquisition and retention use the candidate's actual box or sphere.
-// weapon-targeting.js uses a bot hint directly, while human acquisition and
+// uses a bot hint directly, while human acquisition and
 // retention search actual target volumes. Keep the translated seat eye as the
 // origin; using the hull root changes both range and the visible lock cone.
 fn lock_pick_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>, class: &WeaponClass, w: &Weapon, seat: usize, target: i32, masks: (u32, u32), angles: [f64; 2]) -> Option<LockTarget> {
@@ -514,8 +514,8 @@ pub(crate) fn fire_round_in(world_ctx: &mut crate::world::owner::World, def: cra
 
 }
 
-/// flight/targeting.js assistShot, on canonical hull fields and registry facts.
-// flight/targeting.js assistShot uses the canonical lock and craft class.
+/// assistShot, on canonical hull fields and registry facts.
+// assistShot uses the canonical lock and craft class.
 // An assist changes direction only after the muzzle and spread are known; it
 // must not replace the seat's stored target or the next weapon's bot aim.
 fn assist_in(world_ctx: &mut crate::world::owner::World, r: Ref<Vehicle>, origin: &Vector3, direction: &mut Vector3) {
@@ -738,7 +738,7 @@ pub(crate) fn emitter_local_in(world_ctx: &mut crate::world::owner::World, sourc
     let mut inverse = emitter_matrix_in(world_ctx, e); inverse.invert();
     let mut p = vec(&origin); p.apply_matrix4(&inverse); Some(v3(&p))
 }
-/// OrdnanceWorld.beamPose reads the retained rig directly, without a JS detour.
+/// OrdnanceWorld.beamPose reads the retained rig directly.
 // Ordnance.updateBeam reads the original emitter, not the current seat owner.
 // This native intercept and the stationary lease intercept must both remain:
 // their lifetime and fallback frame contracts are intentionally distinct.

@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// The original's mission queue limit (`ScriptCB_GetMaxMissionQueue`).
-/// Mirrors `MAX_PLAYLIST` in `src/launch.js`.
+/// Mirrors `MAX_PLAYLIST`.
 pub const MAX_PLAYLIST: usize = 64;
 
 /// Valid era identifiers in Instant Action playlists (`"cw"`, `"gcw"`).
-/// Mirrors `ERAS` in `src/launch.js`.
+/// Mirrors `ERAS`.
 pub const ERAS: [&str; 2] = ["cw", "gcw"];
 
 /// Default game mode for 2004 content (`"conquest"`).
@@ -132,7 +132,7 @@ impl PlaylistEntry {
 /// `random`).
 ///
 /// Mirrors the playlist state `{ entries, round, random }` in
-/// `src/launch.js` (`readPlaylist`, `launchUrl`, `nextUrl`).
+/// (`readPlaylist`, `launchUrl`, `nextUrl`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Playlist {
     /// Ordered or shuffled mission queue entries for the current lap (up to 64).
@@ -146,7 +146,7 @@ pub struct Playlist {
 impl Playlist {
     /// Constructs a playlist from `entries`, wrapping `round` into
     /// `0..entries.len()` with Euclidean remainder (`((round % len) + len) % len`),
-    /// matching `readPlaylist` and `battleUrl` in `src/launch.js`.
+    /// matching `readPlaylist` and `battleUrl`.
     pub fn new(entries: Vec<PlaylistEntry>, round: isize, random: bool) -> Option<Self> {
         let entries: Vec<PlaylistEntry> = entries.into_iter().take(MAX_PLAYLIST).collect();
         if entries.is_empty() {
@@ -185,12 +185,10 @@ pub struct BattleRequest {
     /// Game mode identifier (`"conquest"` by default).
     pub mode: String,
     /// Explicit mission sub-level name (used for historical campaign battles;
-    /// dropped when advancing to the next playlist round, matching `PICK_KEYS`
-    /// in `src/launch.js`).
+    /// dropped when advancing to the next playlist round, matching `PICK_KEYS`).
     pub mission: Option<String>,
     /// Explicit faction/side pick (`"rep"`, `"cis"`, `"all"`, `"imp"`, or a local side;
-    /// dropped when advancing to the next playlist round, matching `PICK_KEYS`
-    /// in `src/launch.js`).
+    /// dropped when advancing to the next playlist round, matching `PICK_KEYS`).
     pub side: Option<String>,
     /// Active Instant Action mission queue carried across rounds, if any.
     pub playlist: Option<Playlist>,
@@ -222,7 +220,7 @@ impl BattleRequest {
     /// [`MAX_PLAYLIST`]), defaulting `family`, `map`, `era`, and `mode` from
     /// `entries[index]` when not explicitly overridden.
     ///
-    /// Ports the playlist entry selection of `battleUrl` in `src/launch.js`.
+    /// Ports the playlist entry selection of `battleUrl`.
     pub fn from_rotation(
         map: Option<&str>,
         era: Option<&str>,
@@ -239,7 +237,7 @@ impl BattleRequest {
             },
             None => (None, None),
         };
-        // Mirror `battleUrl` in `src/launch.js`: `map` defaults to `entry.map`,
+        // Mirror `battleUrl`: `map` defaults to `entry.map`,
         // and `era` only falls back to `entry.era` when `map == entry.map`.
         let resolved_map = override_map
             .or_else(|| entry.map(|e| e.map.clone()))
@@ -269,7 +267,7 @@ impl BattleRequest {
     /// Launches an Instant Action playlist: slices `entries` to [`MAX_PLAYLIST`],
     /// shuffles them first when `random == true`, and starts at `round = 0`.
     ///
-    /// Ports `launchUrl(entries, { random, rand })` in `src/launch.js`.
+    /// Ports `launchUrl(entries, { random, rand })`.
     pub fn launch<F>(entries: &[PlaylistEntry], random: bool, rand: F) -> Result<Self, String>
     where
         F: FnMut() -> f64,
@@ -287,7 +285,7 @@ impl BattleRequest {
     }
 
     /// Returns the same battle request unchanged for a restart.
-    /// Ports `restartUrl` in `src/launch.js`.
+    /// Ports `restartUrl`.
     pub fn restart(&self) -> Self {
         self.clone()
     }
@@ -297,7 +295,7 @@ impl BattleRequest {
     /// `playlist.random` is `true`), and clears single-map picks (`side`,
     /// `mission`). Without a playlist, restarts the current battle.
     ///
-    /// Ports `nextUrl(from, { random })` in `src/launch.js`.
+    /// Ports `nextUrl(from, { random })`.
     pub fn next<F>(&self, rand: F) -> Self
     where
         F: FnMut() -> f64,
@@ -392,7 +390,7 @@ pub fn parse_rotation(text: Option<&str>) -> Vec<PlaylistEntry> {
         }
         // In bare 2-field form (`bad:x:y`), if there was no family prefix and a
         // third field is not a known mode while the second isn't an era or side,
-        // `src/launch.js` rejected `bad:x:y`. Preserve that rejection when no
+        // rejected `bad:x:y`. Preserve that rejection when no
         // family prefix is present and `era` is not a valid era/side identifier.
         if !raw_map.contains('/')
             && mode.is_some()
@@ -421,7 +419,7 @@ pub fn parse_rotation(text: Option<&str>) -> Vec<PlaylistEntry> {
 /// Formats a slice of [`PlaylistEntry`] items.
 ///
 /// Entries with the default `Swbf1` family and `"conquest"` mode format as
-/// `"geo1:cw,nab2"` (matching `formatRotation(entries)` in `src/launch.js`),
+/// `"geo1:cw,nab2"` (matching `formatRotation(entries)`),
 /// while entries with a non-default family (`Swbf2`) or non-default mode format
 /// with their family prefix and mode (`"swbf2/hot1:gcw:ctf"`).
 pub fn format_rotation(entries: &[PlaylistEntry]) -> String {
@@ -455,7 +453,7 @@ pub fn format_rotation_prefixed(entries: &[PlaylistEntry]) -> String {
 /// swaps of two entries picked at random (`min(floor(random() * n), n - 1)`),
 /// where `random()` yields `[0, 1)`.
 ///
-/// Mirrors `shuffle(entries, random)` in `src/launch.js`.
+/// Mirrors `shuffle(entries, random)`.
 pub fn shuffle<T: Clone, F>(entries: &[T], mut random: F) -> Vec<T>
 where
     F: FnMut() -> f64,
@@ -471,7 +469,7 @@ where
 }
 
 /// Checks whether `s` matches `/^[a-z0-9_]+$/` as required for map, era, and
-/// mode tokens in `parseRotation` (`src/launch.js`).
+/// mode tokens in `parseRotation`.
 fn is_ident(s: &str) -> bool {
     !s.is_empty()
         && s.bytes()
@@ -482,7 +480,7 @@ fn is_ident(s: &str) -> bool {
 mod tests {
     use super::*;
 
-    /// Seeded `[0, 1)` LCG matching `seeded(seed)` in `tests/launch.test.js`.
+    /// Seeded `[0, 1)` LCG matching `seeded(seed)`.
     fn seeded(seed: u32) -> impl FnMut() -> f64 {
         let mut s = seed;
         move || {
@@ -643,7 +641,7 @@ mod tests {
 
     // Verifies that in PLAY IN ORDER mode (`random == false`), `next` steps
     // through each entry in sequence and wraps from the last entry back to 0
-    // without reordering the playlist (`nextUrl` in `src/launch.js`).
+    // without reordering the playlist (`nextUrl`).
     #[test]
     fn next_advances_round_in_order_and_wraps_forever() -> Result<(), Box<dyn std::error::Error>> {
         let entries = parse_rotation(Some("geo1:cw,hot1:gcw,nab2:cw"));
@@ -666,7 +664,7 @@ mod tests {
 
     // Verifies that in RANDOM ORDER mode (`random == true`), `next` preserves
     // the current lap's shuffled order across all `entries.len()` rounds and
-    // only reshuffles when `round` wraps back to 0 (`nextUrl` in `src/launch.js`).
+    // only reshuffles when `round` wraps back to 0 (`nextUrl`).
     #[test]
     fn next_in_random_order_keeps_lap_order_then_reshuffles_on_wrap()
     -> Result<(), Box<dyn std::error::Error>> {

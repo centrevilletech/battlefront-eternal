@@ -1,12 +1,10 @@
-# The standing set of battles tools/world-hash-matrix.mjs fingerprints: one
-# battle a line, "LABEL world-hash options". A change to the world step
-# (a kernel, a port to Rust) must leave every tick of every one the same.
-# Run it under Node 24.22 (the production server's V8): another V8's Math
-# functions give other fingerprints.
+# The standing set of battles: one battle a line, "LABEL options". The
+# world's admission test (rust/sim/tests/admit_fleet.rs) loads each with
+# prepared content when BFE_CONTENT_DIR is set.
 #
 # The 31 battles the collision and movement kernels were proven on: every
 # side of the four maps the performance work measures, eleven maps in all,
-# and what a page adds (acknowledged snapshots, shots judged in the past,
+# and what a client adds (acknowledged snapshots, shots judged in the past,
 # a snapshot every third tick), 24 of 2,400 ticks and 7 longer ones.
 nab2-rep-1 --map nab2 --side rep --seed 1 --ticks 2400
 nab2-cis-2 --map nab2 --side cis --seed 2 --ticks 2400

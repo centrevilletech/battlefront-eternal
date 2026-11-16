@@ -1,4 +1,4 @@
-//! Log trap simulation (src/traps.js): building, arming, triggering and
+//! Log trap simulation: building, arming, triggering and
 //! crushing. Loading places the trigger and effect points and supplies
 //! the cooked class settings. The world keeps the hulls and collision
 //! bodies; animation and page presentation stay outside this state machine.

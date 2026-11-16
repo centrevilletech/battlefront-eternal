@@ -1,4 +1,4 @@
-//! src/flight/pilotless.js: a craft in flight that nobody flies. Empty,
+//! a craft in flight that nobody flies. Empty,
 //! after its pilot bailed out or was taken out of it, it comes down:
 //! nothing holds it up, its speed carries on and gravity bends its path,
 //! the nose following the path, until it strikes the ground, a building,
@@ -12,7 +12,7 @@ use crate::vehicles::Hull;
 use three::{clamp, Quaternion};
 use v8math::max;
 
-/// m/s², as shells and grenades fall (ordnance.js).
+/// m/s², as shells and grenades fall.
 const GRAVITY: f64 = 9.8;
 /// 1/s: how fast the nose swings onto the path.
 const NOSE: f64 = 3.0;

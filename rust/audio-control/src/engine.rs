@@ -299,7 +299,7 @@ impl Engine {
         }
     }
     /// ports Voice.measure. Its silent clock deliberately ignores Doppler
-    /// and the Classic glide, just as the page's virtual clock did.
+    /// and the Classic glide, just as the client's virtual clock did.
     /// `motion`: the source's and the listener's velocities. Doppler takes
     /// them as the 2004 game does: Δ is how much nearer the source is now
     /// than one velocity-second ago (docs/formats.md, "Sound"); without them

@@ -1,4 +1,4 @@
-//! The player's spawn state machine (src/human-spawn.js). The world owns
+//! The player's spawn state machine. The world owns
 //! bodies, rosters and the Classic spawn manager; this owns when a choice
 //! may be made, the waiting choice and the events the screen receives.
 //! Commands arrive after runtime/commands.js humanEntry has validated them.
@@ -99,7 +99,7 @@ pub fn state(s: &HumanSpawn, world: &mut dyn World) -> State {
     }
 }
 
-/// flush's splice(0). The page dispatches these in order and keeps listener
+/// flush's splice(0). The client dispatches these in order and keeps listener
 /// errors out of the battle. Events queued by a listener wait for the next
 /// flush, as they do in JavaScript.
 pub fn flush(events: &mut Vec<Event>) -> Vec<Event> {

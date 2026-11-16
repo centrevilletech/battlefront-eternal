@@ -10,7 +10,7 @@ use crate::{Collision, engine::CAPACITY};
 // Disappearance is explicit: stale identities cannot silently keep a loop
 // alive, and recycling an identity first clears its previous edge history.
 // Followed one-shots freeze at the source's last place when it leaves the
-// foreign registry. They can finish without retaining the browser object.
+// foreign registry. They can finish without retaining the source.
 // Input, command and diagnostic storage is reserved before gameplay begins.
 // Decode completion has its own generation-checked I/O boundary because a
 // ready segment starts on the device clock between presented game frames.

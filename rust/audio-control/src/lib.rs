@@ -1,4 +1,4 @@
-//! The page publishes game facts; this phase owns sound state and decisions.
+//! The client publishes game facts; this phase owns sound state and decisions.
 //! Rendering stays in the separate audio module, reached through timed numeric
 //! commands. Collision is borrowed from the simulation's existing map owner.
 

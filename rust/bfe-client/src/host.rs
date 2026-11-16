@@ -1,5 +1,5 @@
 //! Fixed authority time and visual interpolation remain separate, as in
-//! game.js and reconcile.js::advanceInputClock. A pause never replays a backlog.
+//! and reconcile.js::advanceInputClock. A pause never replays a backlog.
 use crate::generated_input::{ClientCommand, ClientLook, ClientFlightCommand};
 use crate::input::{Input, ViewActions};
 

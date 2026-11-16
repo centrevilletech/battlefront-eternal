@@ -1,4 +1,4 @@
-//! Classic spawn screen layout (`src/spawn-screen/classic/layout.js`).
+//! Classic spawn screen layout.
 //!
 //! Places the Classic spawn screen's pieces in the HUD's `1024xH` interface
 //! space inside the 90% safe area (`SAFE = 0.05`, `SAFE_SCALE = 0.9`), checked
@@ -28,7 +28,7 @@ pub const SPAWN_TILT: f64 = 45.0 * PI / 180.0;
 pub const SLOTS: usize = 5;
 
 /// Seconds to wait for the world to realize a committed spawn request before
-/// withdrawing it (`src/spawn-screen/index.js` `COMMIT_WAIT = 1`).
+/// withdrawing it (`COMMIT_WAIT = 1`).
 pub const COMMIT_WAIT: f64 = 1.0;
 
 /// Safe-area rectangle in interface units.

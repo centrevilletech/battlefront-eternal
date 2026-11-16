@@ -126,7 +126,7 @@ impl Bank {
         if !r.active || r.program>=core.programs.len() || r.geometry as usize>=core.geometries.len() {return;}
         if ranges(&r.bounds,r.count,&r.cells,frustum,&mut self.ranges)==0 {return;}
         core.state.use_program(&core.gl,&mut core.stats,core.programs[r.program].program);
-        // shadow-casters.js anchors were identity children of static world
+        // anchors were identity children of static world
         // meshes. Only the light camera changes between these native draws.
         let mut unit=0;
         let identity=[1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.];

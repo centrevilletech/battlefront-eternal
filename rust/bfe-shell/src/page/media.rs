@@ -1,4 +1,4 @@
-//! Texture inputs for MovieBackdrop and MapPreview (src/shell/backdrop.js).
+//! Texture inputs for MovieBackdrop and MapPreview.
 //! Playback, decoding, frame recycling and texture upload belong to the media
 //! host. Page samples its current outputs each draw, including an updated image
 //! in the same texture or a replacement handle. It never opens a media file.

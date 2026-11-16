@@ -1,5 +1,5 @@
 //! What createNativeAI reads from the host's objects before building its
-//! rows (ai-world-load.js): the registry's next id, the fleet's hulls
+//! rows: the registry's next id, the fleet's hulls
 //! (`[...vehicles, ...f2.prepared]`), the posts (`posts.all()`, after
 //! attachPostAI and attachVehicles) and the pads. Observed on the world the
 //! earlier owners constructed and kept on the context as Receipts. The
@@ -50,7 +50,7 @@ pub fn observe(world: &mut World, cx: &mut Cx) -> Result<(), AdmitError> {
     }
     // posts.attachVehicles: the command vehicles' posts (src/mobile-posts.js
     // MobilePost: a desc and an ai record of its own, no building, no
-    // capture), after the placed posts; then preparedPads (f4-tail.js) over
+    // capture), after the placed posts; then preparedPads over
     // the same pads.
     let text = |id: crate::store::StrId| String::from_utf16_lossy(world.sim.strings.units(id));
     let mobile: Vec<_> = world.sim.store.mobile_post.iter().map(|(reference, post)| (reference, post.clone())).collect();

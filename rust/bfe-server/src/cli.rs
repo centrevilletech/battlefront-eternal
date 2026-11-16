@@ -11,6 +11,7 @@ Commands:
   --admin [JSON]   send one operator command to the running server
                    (default {\"action\":\"status\"})
   --version        print the version
+  --contract       print the network contract (protocol, profile, simulation) as JSON
   -h, --help       print this help
 
 Options:
@@ -39,6 +40,7 @@ pub enum Command {
     Serve,
     Admin(String),
     Version,
+    Contract,
     Help,
 }
 
@@ -59,6 +61,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Cli, String> {
             "-h" | "--help" => return Ok(Cli { command: Command::Help, dir }),
             "--serve" => set(Command::Serve, &mut command)?,
             "--version" => set(Command::Version, &mut command)?,
+            "--contract" => set(Command::Contract, &mut command)?,
             "--admin" => {
                 // An operator command is a JSON object; a following flag is not one.
                 let json = match it.peek() {
@@ -121,6 +124,7 @@ mod tests {
     #[test]
     fn flags_and_errors() {
         assert_eq!(p(&[]).unwrap().command, Command::Menu);
+        assert_eq!(p(&["--contract"]).unwrap().command, Command::Contract);
         let serve = p(&["--serve", "--dir", "/srv/state"]).unwrap();
         assert_eq!(serve.command, Command::Serve);
         assert_eq!(serve.dir, Some(PathBuf::from("/srv/state")));

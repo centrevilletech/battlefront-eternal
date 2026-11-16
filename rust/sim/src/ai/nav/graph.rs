@@ -1,4 +1,4 @@
-//! The authored planning graph and its stochastic routing (nav/graph.js).
+//! The authored planning graph and its stochastic routing.
 //! Hubs and arcs are indices into `hubs` / `arcs` where the JavaScript
 //! holds the objects; identity comparisons become index comparisons.
 //! The loader's `report(kind, detail)` calls collect in `reports`.
@@ -6,9 +6,7 @@
 use super::math::{f32, lowest_bit, Vec3};
 use crate::ai::random::Random;
 
-/// graph.js:20.
 pub const UNUSED: u32 = 255;
-/// graph.js:21.
 pub const NO_TABLE: i32 = -1;
 
 const MAX_PASSES: u32 = 64; // graph.js:28
@@ -85,7 +83,7 @@ pub struct Arc {
     pub degenerate: bool,
 }
 
-/// The result of `attach` (graph.js:160): type 0, 1 (hub) or 2 (arc).
+/// The result of `attach`: type 0, 1 (hub) or 2 (arc).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Attach {
     pub kind: u8,
@@ -93,7 +91,7 @@ pub struct Attach {
     pub arc: Option<usize>,
 }
 
-/// NavGraph (graph.js:30).
+/// NavGraph.
 #[derive(Clone, Debug)]
 pub struct NavGraph {
     pub tables: f64,
@@ -188,7 +186,7 @@ impl NavGraph {
         Ok(NavGraph { tables, words, hubs, arcs, reports })
     }
 
-    /// The routing table a traversal mask uses, or NO_TABLE (graph.js:73).
+    /// The routing table a traversal mask uses, or NO_TABLE.
     pub fn table(&self, mask: u32) -> i32 {
         let t = lowest_bit(mask as f64);
         if t < self.tables {
@@ -203,7 +201,7 @@ impl NavGraph {
     }
 
     /// The weighted next arc from hub `from` toward hub `to`, or None
-    /// (graph.js:87). `previous` is excluded as the JavaScript excludes it.
+    ///. `previous` is excluded as the JavaScript excludes it.
     pub fn select(&mut self, previous: Option<usize>, from: usize, to: usize, mask: u32, random: &mut dyn Random) -> Option<usize> {
         let table = self.table(mask);
         if table == NO_TABLE {
@@ -238,7 +236,7 @@ impl NavGraph {
         if first == 0 {
             return None;
         }
-        // random.next() % total, in f64 as the JavaScript computes it; the
+        // random.next() % total, in f64 it; the
         // operands are small whole numbers, so it is the integer remainder.
         let mut r = (random.next() % total as u32) as i32;
         let mut w = first;
@@ -262,7 +260,7 @@ impl NavGraph {
     }
 
     /// The uniform pick among the hub's other mask-compatible arcs
-    /// (graph.js:135): Some(previous) when there is no other, None when
+    ///: Some(previous) when there is no other, None when
     /// the pick falls off the end, as the JavaScript returns them.
     pub fn alternate_opt(&self, hub: usize, previous: Option<usize>, mask: u32, random: &mut dyn Random) -> Option<usize> {
         let mut count = 0u32;
@@ -297,7 +295,7 @@ impl NavGraph {
         None
     }
 
-    /// Attach a point to the graph (graph.js:160).
+    /// Attach a point to the graph.
     pub fn attach(&self, p: Vec3, mask: u32) -> Attach {
         let mut out = Attach::default();
         let mut best = search_start();
@@ -335,7 +333,7 @@ impl NavGraph {
         out
     }
 
-    /// The compatible arc whose tapered corridor is nearest (graph.js:193).
+    /// The compatible arc whose tapered corridor is nearest.
     pub fn nearest_arc(&self, p: Vec3, mask: u32) -> Option<usize> {
         let mut best = far();
         let mut found = None;
@@ -352,7 +350,7 @@ impl NavGraph {
         found
     }
 
-    /// Inside the arc's tapered corridor (graph.js:223).
+    /// Inside the arc's tapered corridor.
     pub fn contains_arc(&self, arc: usize, p: Vec3) -> bool {
         let a = &self.hubs[self.arcs[arc].a];
         let b = &self.hubs[self.arcs[arc].b];
@@ -367,7 +365,7 @@ impl NavGraph {
         v8math::sqrt(dx * dx + dy * dy + dz * dz) < (1.0 - t) * a.radius + t * b.radius
     }
 
-    /// Distance outside the corridor (graph.js:237).
+    /// Distance outside the corridor.
     pub fn corridor_gap(&self, arc: usize, p: Vec3) -> f64 {
         let a = &self.hubs[self.arcs[arc].a];
         let b = &self.hubs[self.arcs[arc].b];
@@ -387,7 +385,7 @@ impl NavGraph {
         v8math::max(0.0, v8math::sqrt(dx * dx + dy * dy + dz * dz) - end.radius)
     }
 
-    /// The other end of an arc from hub h (graph.js:209): hub b unless h
+    /// The other end of an arc from hub h: hub b unless h
     /// is b... exactly as written, `h === arc.a ? arc.b : arc.a`.
     pub fn other_end(&self, arc: usize, h: usize) -> usize {
         let a = &self.arcs[arc];
@@ -399,7 +397,7 @@ impl NavGraph {
     }
 }
 
-/// Strictly inside the hub's sphere (graph.js:214).
+/// Strictly inside the hub's sphere.
 pub fn contains_hub(hub: &Hub, p: Vec3) -> bool {
     let dx = p.x - hub.x;
     let dy = p.y - hub.y;

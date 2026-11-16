@@ -1,9 +1,8 @@
 # Enhanced AI
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-runs in `rust/sim/rust/ai/` (ported from JavaScript). Function names are the
-Rust names where the port keeps one, usually the JavaScript name in
-snake_case; object-shaped examples document the behavioral contract.
+runs in `rust/sim/src/ai/`. Function names are the Rust names;
+object-shaped examples document the behavioral contract.
 
 
 Enhanced is the second battle AI, next to Classic. Classic ([ai.md](ai.md))
@@ -15,7 +14,7 @@ post, and aim that differs by team. This is its first slice, not the whole
 of the planned design (see "Not yet").
 
 Choose it in Options, Game, BATTLE AI (OFF, CLASSIC, ENHANCED; it applies on
-Restart battle), or with `?ai=enhanced`. DIFFICULTY's EASY, NORMAL and ELITE
+Restart battle). DIFFICULTY's EASY, NORMAL and ELITE
 are Enhanced's Easy, Normal and Hard.
 
 Classic is unchanged. Enhanced is a flag on the same native core: it
@@ -29,12 +28,12 @@ it did before Enhanced was added (checked by comparing whole headless battles).
 | File | What |
 | --- | --- |
 | `rust/sim` | `createNativeAI("enhanced", ...)` sets the native owner's `enhanced` flag |
-| `rust/sim/rust/ai/control/difficulty.rs` | the Enhanced flavor of `Difficulty`: one skill for both teams; decision cycle by tier |
-| `rust/sim/rust/ai/control/goals.rs`, `control/mod.rs` | `Objectives` with `enhanced` set (the objective draw, defense, recruitment), `Core::enhanced_objectives_tick` |
-| `rust/sim/rust/battle/spawning.rs` | the Enhanced spawn-post choice |
-| `rust/sim/rust/ai/control/mod.rs` | Trooper, scout and repair agents that keep going for their post |
-| `rust/sim/rust/ai/combat/enhanced.rs` | `EnhancedAimer`, the player's spread rules for bots, the combat overrides (`EnhancedCombat`) |
-| `rust/sim/rust/ai/owned/tests/phase.rs` | tests (threat window and defense exception, Enhanced memory, aim keys and reaction draw order, acceptance policies) |
+| `rust/sim/src/ai/control/difficulty.rs` | the Enhanced flavor of `Difficulty`: one skill for both teams; decision cycle by tier |
+| `rust/sim/src/ai/control/goals.rs`, `control/mod.rs` | `Objectives` with `enhanced` set (the objective draw, defense, recruitment), `Core::enhanced_objectives_tick` |
+| `rust/sim/src/battle/spawning.rs` | the Enhanced spawn-post choice |
+| `rust/sim/src/ai/control/mod.rs` | Trooper, scout and repair agents that keep going for their post |
+| `rust/sim/src/ai/combat/enhanced.rs` | `EnhancedAimer`, the player's spread rules for bots, the combat overrides (`EnhancedCombat`) |
+| `rust/sim/src/ai/owned/tests/phase.rs` | tests (threat window and defense exception, Enhanced memory, aim keys and reaction draw order, acceptance policies) |
 
 ## What Enhanced changes
 
@@ -161,7 +160,7 @@ per tier at twice the initial error, over those maps plus Cloud City and Yavin
 Temple, gave Normal 20% / 16% rifle hits, Hard 25% / 21% and Easy 18% / 13%;
 Easy was widened a little more for the table above. These are starting
 points for play-testing, all in the aim profiles and model
-(`rust/sim/rust/ai/combat/enhanced.rs`, `profile` and the model constants)
+(`rust/sim/src/ai/combat/enhanced.rs`, `profile` and the model constants)
 and the Enhanced objective and focus numbers (`control/mod.rs`).
 
 ## Measuring

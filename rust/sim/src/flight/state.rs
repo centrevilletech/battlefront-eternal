@@ -1,4 +1,4 @@
-//! What flight keeps of a hull (rust/sim/schema/flight.mjs): the numbers
+//! What flight keeps of a hull (rust/sim/schema/flight.json): the numbers
 //! every hull carries for it (its flight state, null on the ground) and
 //! what initFlight gives a craft as it spawns. Field names are the
 //! JavaScript's in snake case, less their `flight` prefix where they have
@@ -54,7 +54,7 @@ impl LockState {
 
 /// A message a craft shows (its warning, its landing prompt and reason),
 /// the texts the network's flight records know (src/runtime/
-/// network-entity-flight.js `messages`).
+/// `messages`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Message {
     #[default]
@@ -185,7 +185,7 @@ pub struct Flight {
 }
 
 impl Flight {
-    /// initFlight (src/flight/model.js), for a craft of `class` whose
+    /// initFlight, for a craft of `class` whose
     /// definition's keys are `config`, its frame `quaternion`: the hull's
     /// speeds from the configuration (the caller sets the hull's turn rate
     /// and speed to `config.turn_rate` and `config.max_speed`), then a

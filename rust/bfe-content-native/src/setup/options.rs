@@ -1,4 +1,4 @@
-//! What a battle is asked for, as tools/world-hash.mjs and the page's battle
+//! What a battle is asked for, as tools/world-hash.mjs and the client's battle
 //! URL say it: the map, the side (and so the era), the seed, the AI flavour,
 //! the heroes and the player's class. The query these make is the one
 //! selectMission and spawnPolicy read (rust/content/src/mission.rs).
@@ -18,7 +18,7 @@ impl Ai {
             Ai::Enhanced => "enhanced",
         }
     }
-    /// world-hash.mjs: `--ai classic|enhanced`, anything else refused.
+    /// `--ai classic|enhanced`, anything else refused.
     pub fn parse(text: &str) -> Result<Self, String> {
         match text {
             "classic" => Ok(Ai::Classic),
@@ -80,7 +80,7 @@ impl BattleOptions {
         if let Some(unit) = &self.unit { if !plain(unit) { return Err(format!("invalid class {unit:?}")); } }
         Ok(())
     }
-    /// world-hash.mjs: `['rep', 'cis'].includes(side) ? 'cw' : 'gcw'`.
+    /// `['rep', 'cis'].includes(side) ? 'cw' : 'gcw'`.
     pub fn era(&self) -> &'static str {
         if self.side == "rep" || self.side == "cis" { "cw" } else { "gcw" }
     }

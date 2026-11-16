@@ -51,7 +51,7 @@ pub fn geometry(kind:usize,variant:u32)->Option<Geometry>{
     }
 }
 // FountainJets.foamPixels stores height/density in Float32 before differences.
-// Keep those boundaries as well as the page's stable hypot and byte rounding.
+// Keep those boundaries as well as the client's stable hypot and byte rounding.
 pub fn atlas<M:Math>()->Vec<u8>{
     let mut state=0x2545f491;let mut lattice=[0f32;256];for v in &mut lattice{*v=random(&mut state) as f32;}
     let smooth=|t:f64|{let t=t.clamp(0.,1.);t*t*(3.-2.*t)};

@@ -184,7 +184,7 @@ export component PageList inherits FocusScope {
             }
         }
     }
-    // The browser's thin scrollbar (scrollbar-width: thin, --bfe-scroll thumb on a clear track), shown only when the rows overflow.
+    // The thin scrollbar (scrollbar-width: thin, --bfe-scroll thumb on a clear track), shown only when the rows overflow.
     if scroll.viewport-height > scroll.height + 0.5px: Rectangle {
         x: root.width - 7px;
         y: scroll.y + (-scroll.viewport-y / scroll.viewport-height) * scroll.height;

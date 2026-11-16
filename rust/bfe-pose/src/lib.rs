@@ -5,7 +5,7 @@
 //!
 //! Every answer must be the JavaScript's own to the last bit: poses are
 //! also evaluated where they feed the simulation (a rider's hit shapes in
-//! src/rider-pose.js), and on the page the drawn skeleton must not move.
+//! src/rider-pose.js), and on the client the drawn skeleton must not move.
 //! Each function repeats the JavaScript it stands for operation by
 //! operation, in the same order, in f64: clip samples are f32 in a
 //! Float32Array there and here, each read widened exactly as JavaScript
@@ -92,7 +92,7 @@ impl Pose {
         self.w.fill(0.0);
     }
 
-    /// Pose.add(clip, time, weight, loop) of src/anim.js, the caller
+    /// Pose.add(clip, time, weight, loop), the caller
     /// having turned away a missing clip and a weight at or under 1e-4.
     pub fn add(&mut self, clip: &Clip, time: f64, weight: f64, looping: bool) {
         let frames = clip.frames;
@@ -117,7 +117,7 @@ impl Pose {
                 continue;
             }
             let bone = bone as usize;
-            // Each frame's seven f32s, widened as JavaScript reads them.
+            // Each frame's seven f32s, widened them.
             let f0 = &d[(k * frames + i0) * STRIDE..][..STRIDE];
             let f1 = &d[(k * frames + i1) * STRIDE..][..STRIDE];
             let at = |frame: &[f32], i: usize| frame[i] as f64;
@@ -227,7 +227,7 @@ mod tests {
 
     // One track on bone 1, two frames: identity to a quarter turn about y,
     // translation doubling. Halfway between the frames at weight 1 the
-    // sample is the normalized lerp, as the JavaScript computes it.
+    // sample is the normalized lerp it.
     #[test]
     fn samples_between_frames() {
         let c = clip(

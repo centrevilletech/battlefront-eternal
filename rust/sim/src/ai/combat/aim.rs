@@ -1,4 +1,4 @@
-//! Classic aiming (src/ai/classic/aim.js): the direction filter every
+//! Classic aiming: the direction filter every
 //! bot's gun sits behind, the curves it reads, the lead it aims with, and
 //! the point its body turns toward. Operation for operation in float32 as
 //! the JavaScript writes it (`Math.fround` at every step it rounds).
@@ -10,7 +10,7 @@ use super::math::{dot32, f, length_sq32, normalize_d3dx};
 use super::world::{Curves, Obj, World};
 use crate::combat::defs::{Js, JsObj};
 
-/// aim.js:162-163: cos and the angle of 30 degrees, float32.
+/// cos and the angle of 30 degrees, float32.
 fn theta_30() -> f64 {
     f(0.5235987901687622)
 }
@@ -21,7 +21,7 @@ fn cos_30() -> f64 {
 /// A direction or rate as the filter keeps it ({x, y, z}).
 pub type V3 = Vector3;
 
-/// aim.js:165 `filterDirection(d, q, v, dt, A, D, out)`: v is updated in
+/// `filterDirection(d, q, v, dt, A, D, out)`: v is updated in
 /// place; returns the new direction (the caller's `out`).
 pub fn filter_direction(d: &Vector3, q: &Vector3, v: &mut Vector3, dt: f64, a: f64, damp: f64) -> Vector3 {
     let dt = f(dt);
@@ -30,7 +30,7 @@ pub fn filter_direction(d: &Vector3, q: &Vector3, v: &mut Vector3, dt: f64, a: f
     let (dx, dy, dz) = (f(d.x), f(d.y), f(d.z));
     let (mut qx, mut qy, mut qz) = (f(q.x), f(q.y), f(q.z));
     let (mut vx, mut vy, mut vz) = (f(v.x), f(v.y), f(v.z));
-    // 1. The 30-degree correction (aim.js:174).
+    // 1. The 30-degree correction.
     if cos_30() > dot32(dx, dy, dz, qx, qy, qz) {
         let cross_y = f(f(qx * dz) - f(dx * qz));
         let theta = if cross_y > 0.0 { theta_30() } else { -theta_30() };
@@ -70,24 +70,24 @@ pub fn filter_direction(d: &Vector3, q: &Vector3, v: &mut Vector3, dt: f64, a: f
 }
 
 // ---------------------------------------------------------------------------
-// Weapon classes as the filter and firing code test them (aim.js:216).
+// Weapon classes as the filter and firing code test them.
 
 /// `def.base` as a string.
 pub fn base_of(def: &JsObj) -> Option<&str> {
     def.get("base").str()
 }
 
-/// aim.js:218 `isCannon`.
+/// `isCannon`.
 pub fn is_cannon(def: Option<&JsObj>) -> bool {
     matches!(def.and_then(base_of), Some("cannon" | "weapon" | "launcher" | "grapplinghookweapon"))
 }
 
-/// aim.js:222 `isLauncher`.
+/// `isLauncher`.
 pub fn is_launcher(def: Option<&JsObj>) -> bool {
     def.and_then(base_of) == Some("launcher")
 }
 
-/// aim.js:233 `skillCurves(skill)`: each curve through its anchors at
+/// `skillCurves(skill)`: each curve through its anchors at
 /// skill 1, 14 and 20, in float32.
 pub fn skill_curves(skill: f64) -> Curves {
     let k = v8math::min(v8math::max(v8math::trunc(skill), 1.0), 20.0);
@@ -112,13 +112,13 @@ pub struct AimCurves {
 }
 
 impl Default for AimCurves {
-    /// aim.js:271: `{ A: 0, D: 0, B: 1, S: 0 }`.
+    /// `{ A: 0, D: 0, B: 1, S: 0 }`.
     fn default() -> Self {
         AimCurves { a: 0.0, d: 0.0, b: 1.0, s: 0.0 }
     }
 }
 
-/// aim.js:247 `aimCurves(curves, weaponDef, out)`: Medium's when the curves
+/// `aimCurves(curves, weaponDef, out)`: Medium's when the curves
 /// have no finite A; A and D halved for a weapon that is not a cannon.
 pub fn aim_curves(curves: Option<&Curves>, weapon_def: Option<&JsObj>, out: &mut AimCurves) {
     let fallback;
@@ -139,7 +139,7 @@ pub fn aim_curves(curves: Option<&Curves>, weapon_def: Option<&JsObj>, out: &mut
     }
 }
 
-/// aim.js:266 `Aimer`: the filtered direction a bot's weapons fire along.
+/// `Aimer`: the filtered direction a bot's weapons fire along.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Aimer {
     pub direction: Vector3,
@@ -162,14 +162,14 @@ pub struct SpreadScales {
 }
 
 impl Aimer {
-    /// aim.js:275 `reset(direction)`.
+    /// `reset(direction)`.
     pub fn reset(&mut self, direction: &Vector3) {
         self.direction = *direction;
         self.velocity = Vector3::default();
         self.started = true;
     }
 
-    /// aim.js:283 `update(desired, dt, curves, weapon, hero)`: `weapon` is
+    /// `update(desired, dt, curves, weapon, hero)`: `weapon` is
     /// the selected weapon's def; the spread curves a cannon takes come
     /// back for the caller to write on it.
     pub fn update(&mut self, desired: &Vector3, dt: f64, curves: Option<&Curves>, weapon: Option<&JsObj>, hero: bool) -> (Vector3, Option<SpreadScales>) {
@@ -198,9 +198,9 @@ impl Aimer {
 }
 
 // ---------------------------------------------------------------------------
-// Projectile speed and gravity (aim.js:313).
+// Projectile speed and gravity.
 
-/// aim.js:316 `projectileOf(def)`: (speed, gravity).
+/// `projectileOf(def)`: (speed, gravity).
 pub fn projectile_of(def: Option<&JsObj>) -> (f64, f64) {
     let Some(def) = def else { return (0.0, 0.0) };
     let ordnance = def.get("ordnance");
@@ -229,7 +229,7 @@ pub fn projectile_values(b: Option<&str>, velocity: Option<f64>, scale: Option<f
     (speed, gravity)
 }
 
-/// aim.js:338 `ballisticLead(p, v, origin, speed, gravity, out)`: the
+/// `ballisticLead(p, v, origin, speed, gravity, out)`: the
 /// corrected point and the solver's validity.
 pub fn ballistic_lead(p: &Vector3, v: &Vector3, origin: &Vector3, speed: f64, gravity: f64) -> (Vector3, bool) {
     let mut out = Vector3 { x: f(p.x), y: f(p.y), z: f(p.z) };
@@ -281,7 +281,7 @@ pub fn ballistic_lead(p: &Vector3, v: &Vector3, origin: &Vector3, speed: f64, gr
     (out, valid)
 }
 
-/// aim.js:390 `leadPoint(h, shooter, target, weapon, out)`: the point a
+/// `leadPoint(h, shooter, target, weapon, out)`: the point a
 /// shooter leads `target` to; `weapon` the selected weapon's def (None: no
 /// projectile correction).
 pub fn lead_point<W: World + ?Sized>(w: &mut W, h: f64, shooter: Obj, target: Obj, weapon: Option<&JsObj>) -> (Vector3, bool) {
@@ -299,14 +299,14 @@ pub fn lead_point<W: World + ?Sized>(w: &mut W, h: f64, shooter: Obj, target: Ob
     ballistic_lead(&lead_p, &tv, &origin, speed, gravity)
 }
 
-/// aim.js:407 `dropCorrect(point, shooter, weapon, out)`.
+/// `dropCorrect(point, shooter, weapon, out)`.
 pub fn drop_correct<W: World + ?Sized>(w: &mut W, point: &Vector3, shooter: Obj, weapon: &JsObj) -> (Vector3, bool) {
     let origin = w.origin(shooter);
     let (speed, gravity) = projectile_of(Some(weapon));
     ballistic_lead(point, &Vector3::default(), &origin, speed, gravity)
 }
 
-/// aim.js:443 `selectedWeapon(unit)`: the arsenal's current weapon of the
+/// `selectedWeapon(unit)`: the arsenal's current weapon of the
 /// unit's controller's channel, else of channel 0 (the arsenal index).
 pub fn selected_weapon_aim<W: World + ?Sized>(w: &W, unit: Obj) -> Option<usize> {
     let controller = w.unit_controller(unit);
@@ -320,7 +320,7 @@ pub fn weapon_def<W: World + ?Sized>(w: &W, unit: Obj, index: usize) -> Rc<JsObj
     w.weapon_definition(unit,index).expect("arsenal member")
 }
 
-/// aim.js:423 `aimPointFor(controller, unit, dt, out)`: the point the
+/// `aimPointFor(controller, unit, dt, out)`: the point the
 /// body turns toward for aim states 0 and 1 (None: the steering states).
 pub fn aim_point_for<W: World + ?Sized>(w: &mut W, controller: Obj, unit: Obj, dt: f64) -> Option<Vector3> {
     let (state, point, aim_target, target) = {

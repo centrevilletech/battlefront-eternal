@@ -1,4 +1,4 @@
-//! What a soldier's tick asks of the collision world (src/collision.js),
+//! What a soldier's tick asks of the collision world,
 //! answered from the ray kernel's own copies of it: the ground under a point,
 //! the first hit along a ray, the polygons near a sphere, and whether a
 //! sphere overlaps anything. Bodies are switched on and off by a plain
@@ -10,7 +10,7 @@ use crate::collision::spheres::{closest_point_to_point, gather, ground, overlaps
 use crate::collision::{triangle_normal, world_candidates_into, world_cast_ray_in, State, MISS, TERRAIN};
 use crate::collision::MAX_BODIES;
 
-/// What a contact may hurt him on (collision-damage.js): terrain counts in
+/// What a contact may hurt him on: terrain counts in
 /// full, a building's or prop's upward share only; a moving body not at all.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Kind {

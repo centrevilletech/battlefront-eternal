@@ -341,7 +341,7 @@ def analyze_rgba(width: int, height: int, rgba_bytes: bytes) -> dict:
 
 
 def perspective_webgl(fov_deg: float, aspect: float, near: float, far: float) -> list[float]:
-    """Build a column-major WebGL perspective projection matrix matching three.js."""
+    """Build a column-major OpenGL perspective projection matrix (depth -1..1), as rust/three makes it."""
     top = near * math.tan(math.radians(fov_deg) * 0.5)
     bottom = -top
     right = top * aspect

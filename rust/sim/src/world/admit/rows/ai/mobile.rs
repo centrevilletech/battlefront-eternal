@@ -1,6 +1,6 @@
 //! The command vehicles' posts as createNativeAI makes them before its
 //! first call (ai-world-load.js: `world.posts.attachVehicles(vehicleSystem,
-//! mission.commandClasses)`, src/mobile-posts.js): one MobilePost for every
+//! mission.commandClasses)`): one MobilePost for every
 //! vehicle pad whose classes include a command vehicle (ODF base
 //! commandwalker or commandhover), in pad order, each presented once
 //! (`post.reported = state(post.present())`) over the hulls the fleet

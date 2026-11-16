@@ -391,8 +391,7 @@ pub(crate) fn watch_in(world_ctx: &mut crate::world::owner::World, index: usize,
     }
 }
 
-// givePowerup (items.js) writes health and reserve ammunition without JS
-// setters. Hull health borrows the existing native death services, preserving
+// A power-up writes health and reserve ammunition directly. Hull health borrows the existing native death services, preserving
 // the original kill path even for a negative authored health amount.
 pub(crate) fn give_in(world_ctx: &mut crate::world::owner::World, index: usize, definition: DefId, services: Option<super::f3::WorldServices<'_>>) -> bool {
     let row = &super::f3::items_in(&mut world_ctx.units).targets[index];

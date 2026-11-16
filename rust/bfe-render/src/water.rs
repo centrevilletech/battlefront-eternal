@@ -1,22 +1,22 @@
-// The near scene's terrain water (water.js): the flat surface over the water
+// The near scene's terrain water: the flat surface over the water
 // cells, in Classic settings drawn with the look's own textures (Low: the
 // textured pass), at High and Ultra in two passes (the tint over the opaque
 // scene's copy, then the mirror's reflection); the rings spreading where
 // things meet the water; and at High and Ultra the shore's lapping and
-// splashes (water-shore.js). All blend, so they are items of the
+// splashes. All blend, so they are items of the
 // transparent list (transparent.rs Source): each with three's sort key (its
 // group's and its own render order, z of its geometry's bounding sphere,
 // its id) and drawn in the list's order, with three's program for its
 // material as three compiled it (Kind::Plain: the water keeps its own
 // `time`).
 //
-// A surface draws a geometry the page registered once (core.rs); the rings
+// A surface draws a geometry the client registered once (core.rs); the rings
 // are a mesh of their own whose vertices change, mirrored here (`rings_*`,
-// as water.js lays them out): the page copies in the vertices that changed.
+// as water.js lays them out): the client copies in the vertices that changed.
 // The shore's two meshes draw one quad instanced, each instance's values
-// from buffers of an instance set (`instances`, laid out by the page), which
-// the page fills again when three would upload them.
-// Each frame the page writes each surface's values (SURFACE f64 each):
+// from buffers of an instance set (`instances`, laid out by the client), which
+// the client fills again when three would upload them.
+// Each frame the client writes each surface's values (SURFACE f64 each):
 // whether three would draw it, its sort key, the sphere's centre, its draw
 // range, its uniforms (post.rs UNIFORM each) and its one uniform array (the
 // waders, read by the High and Ultra passes).
@@ -52,7 +52,7 @@ pub const RING_VERTICES: usize = 100 * 40 * 4;
 const RING_SIZES: [usize; 3] = [3, 2, 1];
 pub const RING_LOCATIONS: [u32; 3] = [0, 1, 2];
 pub const IN_RING_UPLOAD: usize = MAX_SURFACES * SURFACE;
-// The instance sets' state after it: per set, whether the page wrote its
+// The instance sets' state after it: per set, whether the client wrote its
 // values anew (1: upload them) and how many instances draw.
 pub const IN_SETS: usize = IN_RING_UPLOAD + 2;
 pub const MAX_SETS: usize = 2;
@@ -78,7 +78,7 @@ struct Surface<C: HasContext> {
     set: Option<usize>,
 }
 
-// Per-instance attributes the page fills (water-shore.js's shore and
+// Per-instance attributes the client fills (water-shore.js's shore and
 // phase): a buffer each, (buffer, floats an instance, where its values
 // start in `instances`), for up to `max` instances.
 struct Set<C: HasContext> {
@@ -132,7 +132,7 @@ impl<C: HasContext> WaterPass<C> {
         }
     }
 
-    // A surface drawing a geometry the page registered (core.rs); blend,
+    // A surface drawing a geometry the client registered (core.rs); blend,
     // depth function and flags as transparent.rs DrawState takes them; side
     // as transparent.rs apply().
     pub fn add_surface<M: MultiDraw>(&mut self, core: &Core<C, M>, geometry: u32, blend: &[u32], depth_func: u32, flags: u32, side: u32) -> u32 {
@@ -250,7 +250,7 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for WaterPass<C> {
             self.input[IN_RING_UPLOAD] = 0.0;
             self.input[IN_RING_UPLOAD + 1] = 0.0;
         }
-        // The instance sets the page wrote anew, as three uploads them.
+        // The instance sets the client wrote anew, as three uploads them.
         for (k, set) in self.sets.iter().enumerate() {
             let at = IN_SETS + 2 * k;
             if self.input[at] == 0.0 {

@@ -1,6 +1,6 @@
-//! Modal confirmation, notice, and key-capture popups (`src/menus/popup.js`).
+//! Modal confirmation, notice, and key-capture popups.
 //!
-//! Ports `confirmPopup`, `okPopup`, and `keyPopup` from `src/menus/popup.js`
+//! Ports `confirmPopup`, `okPopup`, and `keyPopup`
 //! with the exact geometry of `draw_popup_box` in `rust/bfe-shell/src/render.rs`
 //! and `src/menus/popup.js` (`Popup_YesNo`, `Popup_Ok`, and `ifs.GameOpt.pc_keybindpopup`
 //! from the 2004 `common.lvl` scripts).
@@ -43,7 +43,7 @@ pub enum KeyCaptureOutcome {
     Ignored,
 }
 
-/// Active key-binding capture modal state (`keyPopup` in `src/menus/popup.js`).
+/// Active key-binding capture modal state (`keyPopup`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyCaptureModal {
     /// Controls tab identifier (`"infantry"`, `"vehicle"`, or `"starfighter"`).
@@ -60,7 +60,7 @@ pub struct KeyCaptureModal {
 
 impl KeyCaptureModal {
     /// Creates a new [`KeyCaptureModal`] for `(tab, action, label)`, resolving the prompt text
-    /// from `strings["ifs.GameOpt.pc_keybindpopup"]` (`keyPopup` in `src/menus/popup.js`).
+    /// from `strings["ifs.GameOpt.pc_keybindpopup"]` (`keyPopup`).
     pub fn new(
         tab: impl Into<String>,
         action: impl Into<String>,
@@ -80,7 +80,7 @@ impl KeyCaptureModal {
         }
     }
 
-    /// Processes a key or mouse button code (`keyPopup`'s `onKey` and `take` in `src/menus/popup.js`).
+    /// Processes a key or mouse button code (`keyPopup`'s `onKey` and `take`).
     ///
     /// - `Escape` cancels the modal without changing the binding.
     /// - Any code accepted by [`bindable`] (including `Delete` and `Backspace`) binds `(tab, action)` to `code`.
@@ -99,7 +99,7 @@ impl KeyCaptureModal {
     }
 }
 
-/// Builds a `YES` / `NO` confirmation [`MenuScreen`] (`confirmPopup` in `src/menus/popup.js`,
+/// Builds a `YES` / `NO` confirmation [`MenuScreen`] (`confirmPopup`,
 /// porting the 2004 `Popup_YesNo` window).
 ///
 /// Places a `300 x 180` 9-slice `border_3_pieces` window at the screen center (`safe = false`),
@@ -109,7 +109,7 @@ pub fn confirm_popup(message: &str, strings: &HashMap<String, String>) -> MenuSc
     // Center the 300x180 9-slice frame in full-screen coordinates (`safe = false`).
     let mut box_panel = PanelWidget::new("window", 0.0, 0.0, 300.0, 180.0);
     box_panel.safe = false;
-    // Wrap the question at 260 units wide starting 74 units above the popup center (`classic/index.js`).
+    // Wrap the question at 260 units wide starting 74 units above the popup center.
     let msg = TextWidget {
         id: "message".to_string(),
         look: TextLook::Popup,
@@ -163,7 +163,7 @@ pub fn confirm_popup(message: &str, strings: &HashMap<String, String>) -> MenuSc
     screen
 }
 
-/// Builds a single-button `OK` notice [`MenuScreen`] (`okPopup` in `src/menus/popup.js`,
+/// Builds a single-button `OK` notice [`MenuScreen`] (`okPopup`,
 /// porting the 2004 `Popup_Ok` window).
 ///
 /// Uses the centered `300 x 180` popup frame and single `OK` button (`common.ok`) that
@@ -213,9 +213,9 @@ pub fn ok_popup(message: &str, strings: &HashMap<String, String>) -> MenuScreen 
     screen
 }
 
-/// Builds a key-capture [`MenuScreen`] (`keyPopup` in `src/menus/popup.js`).
+/// Builds a key-capture [`MenuScreen`] (`keyPopup`).
 ///
-/// Uses a wider `360 x 180` window (`size: [360, 180]` in `popup.js`) so the 313-unit
+/// Uses a wider `360 x 180` window (`size: [360, 180]`) so the 313-unit
 /// `"PRESS NEW KEY, ESC TO CANCEL"` prompt fits on a single line of `gamefont_medium`
 /// underneath the stripped action label.
 pub fn key_popup(

@@ -1,26 +1,26 @@
-//! Click/key gate (`PRESS ANY KEY OR CLICK TO BEGIN`, `src/shell/gate.js`).
+//! Click/key gate (`PRESS ANY KEY OR CLICK TO BEGIN`).
 //!
 //! Ports `GATE_TEXT`, `IW = 1024`, `PULSE = 0.7`, `LOW = 0.3`, `AT = 0.82`,
-//! `countsAsPress(event)`, and `pulse(t)` from `src/shell/gate.js`.
+//! `countsAsPress(event)`, and `pulse(t)`.
 
-/// Interface coordinate width (`1024`) from `src/shell/gate.js`.
+/// Interface coordinate width (`1024`).
 pub const IW: f64 = 1024.0;
 
-/// Prompt text displayed on the gate screen (`src/shell/gate.js`).
+/// Prompt text displayed on the gate screen.
 pub const GATE_TEXT: &str = "PRESS ANY KEY OR CLICK TO BEGIN";
 
-/// Period in seconds (`0.7s`) of one full alpha pulse cycle (`src/shell/gate.js`).
+/// Period in seconds (`0.7s`) of one full alpha pulse cycle.
 pub const PULSE: f64 = 0.7;
 
-/// Minimum alpha reached halfway through the pulse (`0.3`, `src/shell/gate.js`).
+/// Minimum alpha reached halfway through the pulse (`0.3`).
 pub const LOW: f64 = 0.3;
 
-/// Vertical fraction (`0.82`) within the safe area (`0.05..0.95` of `H`, `src/shell/gate.js`).
+/// Vertical fraction (`0.82`) within the safe area (`0.05..0.95` of `H`).
 pub const AT: f64 = 0.82;
 
 /// Checks whether an input event unlocks the click gate.
 ///
-/// Mirrors `countsAsPress(event)` in `src/shell/gate.js`:
+/// Mirrors `countsAsPress(event)`:
 /// - Non-`"keydown"` events (`"pointerdown"`, `"touchstart"`) return `true`.
 /// - `"keydown"` events with `ctrl_key`, `meta_key`, or `alt_key` held return `false`.
 /// - Keys matching `/^(F\d+|Tab|Unidentified|Control|Meta|Alt|OS)$/` return `false`.
@@ -70,7 +70,7 @@ fn is_ignored_key(key: &str) -> bool {
 /// Computes the gate prompt's alpha `t` seconds in: starts at `1.0`, dips to
 /// `0.3` at `t = 0.35`, and returns to `1.0` at `t = 0.7`.
 ///
-/// Mirrors `pulse(t)` in `src/shell/gate.js`.
+/// Mirrors `pulse(t)`.
 pub fn pulse(t: f64) -> f64 {
     let phase = (t / PULSE) % 1.0;
     let phase = if phase < 0.0 { phase + 1.0 } else { phase };
@@ -86,7 +86,7 @@ pub fn pulse(t: f64) -> f64 {
 /// and the gate prompt anchor `(IW / 2, H * (0.05 + 0.9 * AT))` for a viewport
 /// of `(w, h)` pixels.
 ///
-/// Mirrors the coordinate calculation in `showGate`'s `draw` in `src/shell/gate.js`.
+/// Mirrors the coordinate calculation in `showGate`'s `draw`.
 pub fn gate_layout(w: f64, h: f64) -> (f64, f64, f64) {
     let w = w.max(1.0);
     let h = h.max(1.0);

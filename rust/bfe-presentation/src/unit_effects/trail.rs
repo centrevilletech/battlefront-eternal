@@ -28,7 +28,7 @@
 //! Their vertical position comes from the cached floor, so stair correction does
 //! not make a dust ribbon float at the body's smoothed height. Terrain and paved
 //! surfaces share timing but retain different opacity. The rounded records feed
-//! three four-float GPU streams without a browser motion implementation.
+//! three four-float GPU streams without a client motion implementation.
 
 //!
 //! The generated trail record groups birth, drift and shape facts into the

@@ -1,6 +1,5 @@
-//! The entity store: the simulation's state, held in Rust for the kinds of
-//! entity Rust owns and copied in for the kinds JavaScript still owns that a
-//! Rust phase reads (docs/sim-store.md).
+//! The entity store: the simulation's state, by kind of entity
+//! (docs/sim-store.md).
 
 pub mod block;
 pub mod handles;
@@ -361,7 +360,7 @@ impl<T> JsKey for Ref<T> {
 
 /// A typed array of a fixed length (`Float64Array(100)`, `Int32Array(100)`):
 /// its elements as the array holds them (an Int32Array's i32s; a store into
-/// one converts as JavaScript does, ToInt32, which the port does where the
+/// one converts, ToInt32, which the port does where the
 /// JavaScript stores).
 #[derive(Clone, Debug, PartialEq)]
 pub struct TypedArray<T, const N: usize>(pub [T; N]);

@@ -26,7 +26,7 @@ pub struct HullReceipt {
     pub pad: usize,
 }
 
-/// preparedPads' padHull (f4-tail.js) before its strings are interned: a
+/// preparedPads' padHull before its strings are interned: a
 /// hull on a command vehicle's pad as the roster setup publishes it.
 #[derive(Clone, Debug)]
 pub struct PadHullFacts {

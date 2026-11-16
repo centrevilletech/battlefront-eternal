@@ -1,5 +1,4 @@
-//! Synthetic droideka rolling dust trail tests ported from
-//! `tests/droideka-trail.test.js`.
+//! Synthetic droideka rolling dust trail tests.
 //!
 //! These cases exercise `bfe_presentation::unit_effects::trail::Trail`
 //! across outdoor paved vs. terrain opacity, cached floor/roof probes,
@@ -18,8 +17,7 @@
 use bfe_presentation::unit_effects::trail::Trail;
 use bfe_presentation::visual_effects_layout::{trail_frame as f, trail_particle as p};
 
-/// Synthetic environment and soldier state matching `fixture()` in
-/// `tests/droideka-trail.test.js`.
+/// Synthetic environment and soldier state matching `fixture()`.
 struct Fixture {
     trail: Trail,
     roof: bool,
@@ -110,7 +108,6 @@ impl Fixture {
     }
 }
 
-// Mirrors `tests/droideka-trail.test.js`:
 // "outdoor paved courtyards emit a lighter trail than terrain, with cached probes"
 #[test]
 fn outdoor_paved_courtyards_emit_lighter_trail_than_terrain_with_cached_probes() {
@@ -133,7 +130,6 @@ fn outdoor_paved_courtyards_emit_lighter_trail_than_terrain_with_cached_probes()
     assert!(paved.trail.records[p::OPACITY] < terrain.trail.records[p::OPACITY]);
 }
 
-// Mirrors `tests/droideka-trail.test.js`:
 // "roof, missing ground, water, air, death, stopped and unfolded prevent emission"
 #[test]
 fn roof_missing_ground_water_air_death_stopped_and_unfolded_prevent_emission() {
@@ -157,7 +153,6 @@ fn roof_missing_ground_water_air_death_stopped_and_unfolded_prevent_emission() {
     }
 }
 
-// Mirrors `tests/droideka-trail.test.js`:
 // "outdoor particles decay after entering a building; Classic clears immediately"
 #[test]
 fn outdoor_particles_decay_after_entering_building_and_classic_clears_immediately() {
@@ -189,7 +184,6 @@ fn outdoor_particles_decay_after_entering_building_and_classic_clears_immediatel
     assert!(f.trail.input[f::COUNT] > 0.0);
 }
 
-// Mirrors `tests/droideka-trail.test.js`:
 // "speed and turning strengthen the trail while its pool and buffers remain bounded"
 #[test]
 fn speed_and_turning_strengthen_trail_while_pool_and_buffers_remain_bounded() {
@@ -218,7 +212,6 @@ fn speed_and_turning_strengthen_trail_while_pool_and_buffers_remain_bounded() {
     assert!(fast.trail.records.iter().all(|n| n.is_finite()));
 }
 
-// Mirrors `tests/droideka-trail.test.js`:
 // "teleporting clears the old wake and zero-time draws cannot emit"
 #[test]
 fn teleporting_clears_old_wake_and_zero_time_draws_cannot_emit() {

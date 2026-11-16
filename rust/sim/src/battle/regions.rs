@@ -1,4 +1,4 @@
-//! World regions (src/regions.js): capture, control, kill, death and light
+//! World regions: capture, control, kill, death and light
 //! regions as the 2004 game builds and tests them (wrld regn: TYPE, XFRM,
 //! SIZE). By type:
 //! - sphere: SIZE as it is; its radius is that length, about its centre;
@@ -24,7 +24,7 @@ pub fn region_desc(kind: RegionType, matrix: Option<&[f64]>, center: Option<&[f6
     RegionDesc { r#type: kind, matrix: matrix.map(|m| m.to_vec()), center: center.map(|c| c.to_vec()), size: size.to_vec() }
 }
 
-/// buildRegion(region) (regions.js:23).
+/// buildRegion(region).
 pub fn build_region(region: &RegionDesc) -> Built {
     let mut matrix = Matrix4::default();
     // `region.matrix?.length >= 16`, else `region.center` (any array).
@@ -66,7 +66,7 @@ pub fn build_region(region: &RegionDesc) -> Built {
     Built { r#type: region.r#type, half, radius, center: [center.x, center.y, center.z], inverse: unit.elements }
 }
 
-/// inRegion(built, point) (regions.js:50): whether a built region holds a
+/// inRegion(built, point): whether a built region holds a
 /// world point.
 pub fn in_region(built: &Built, point: &Vector3) -> bool {
     let mut scratch = *point;
@@ -83,7 +83,7 @@ pub fn in_region(built: &Built, point: &Vector3) -> bool {
     }
 }
 
-/// The regions that kill (src/game.js inDeathRegion): below the map's
+/// The regions that kill (inDeathRegion): below the map's
 /// lowest ground less 10 m (killY), or inside a death region: one named
 /// deathregion* (any case; an unnamed one counts) or one the battle's script
 /// names with AddDeathRegion.

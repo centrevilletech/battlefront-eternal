@@ -293,3 +293,31 @@ fn destructible_posts_know_their_buildings() {
     }
     context.dispose().unwrap();
 }
+
+/// A landed transport is offered to human players as the spawn post named
+/// after its pad (transport-<pad>), the name the entity registry gives it.
+/// Offered under its hull class name, a player who spawned there had no post
+/// id in their own summary and the battle stopped (Bespin Platforms, Clone Wars:
+/// the Republic gunship).
+#[test]
+fn landed_transport_spawn_choices_are_registered_posts() {
+    let Some(content) = std::env::var_os("BFE_CONTENT_DIR") else { return };
+    let context = Context::new();
+    let options = Options { map: "bes1".into(), side: "rep".into(), enhanced: false, seed: 1, heroes: false, unit: None, name: None, bots: Default::default() };
+    let admitted = context.world_admit(&bfe_content::files::DirFiles::new(std::path::Path::new(&content)), &options).expect("admission");
+    let source = admitted.handles.store_source as usize;
+    let transports = context.owned(|w| {
+        let capture = &w.wire.as_deref().expect("wire owner").sources.get(source).expect("store source").capture;
+        let mut transports = 0;
+        for (hull, name) in crate::battle::f4_tail::human_choices(&w.battle).hull_names() {
+            let v = w.sim.store.vehicle.get(hull).expect("prepared hull");
+            let text = String::from_utf16_lossy(w.sim.strings.units(name));
+            assert_eq!(text, format!("transport-{}", v.slot_index), "hull on pad {} offered as {text}", v.slot_index);
+            assert!(capture.post_id(name).is_some(), "{text} has no registry id");
+            if v.flight_class == Some(crate::gen::FlightClass::Transport) { transports += 1; }
+        }
+        transports
+    }).unwrap();
+    assert!(transports > 0, "Bespin Platforms in the Clone Wars has landing transports");
+    context.dispose().unwrap();
+}

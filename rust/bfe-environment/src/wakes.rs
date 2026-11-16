@@ -1,4 +1,4 @@
-//! EnvironmentWakes.update/add/clear from environment-volume.js. Identity is
+//! EnvironmentWakes.update/add/clear. Identity is
 //! numeric, so reordering the input never pairs one actor with another's trail.
 use crate::layout::{wake_actor as actor, wake_frame as frame, wake_result as out, wakes as lim};
 

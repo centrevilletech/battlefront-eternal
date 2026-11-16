@@ -1,4 +1,4 @@
-//! Lightsabre blades (heroes.js attachBlade): under a melee weapon's held hilt, from its authored fire point, two
+//! Lightsabre blades (attachBlade): under a melee weapon's held hilt, from its authored fire point, two
 //! strips along (0, 0.8, 0.5) in the hilt's frame, 0.943 m long, each turned to the camera about that axis: the
 //! weapon's Texture 0.08 m wide, and lightsabreglow 0.16 m wide at opacity 100/255, both additive.
 use crate::render_bridge::Bridge;

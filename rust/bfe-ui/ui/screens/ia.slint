@@ -9,7 +9,7 @@ import { PageScrim, PageDim, PagePattern } from "../components/scrim.slint";
 import { MenuRowItem } from "main.slint";
 
 export global IaModel {
-    // Singleplayer screen state (src/shell/screens.js sp())
+    // Singleplayer screen state (sp())
     in-out property <[MenuRowItem]> sp-rows: [
         { id: "campaign", label: "HISTORICAL CAMPAIGN", disabled: true },
         { id: "conquest", label: "GALACTIC CONQUEST", disabled: true },
@@ -18,7 +18,7 @@ export global IaModel {
     in-out property <int> sp-selected: 2;
     in-out property <bool> sp-back-focused: false;
 
-    // Instant Action screen state (src/shell/screens.js ia())
+    // Instant Action screen state (ia())
     in-out property <[string]> game-choices: ["BATTLEFRONT (2004)", "BATTLEFRONT II (2005), PLANNED"];
     in-out property <[bool]> game-disabled: [false, true];
     in-out property <int> game-index: 0;
@@ -55,7 +55,7 @@ export global IaModel {
     // 0=Available, 1=Add, 2=Remove, 3=Selected, 4=Back, 5=Order, 6=Launch
     in-out property <int> ia-focus: 0;
 
-    // Instant Action Era picker state (src/shell/screens.js iaEra())
+    // Instant Action Era picker state (iaEra())
     in-out property <string> era-map-title: "BESPIN: PLATFORMS";
     in-out property <[MenuRowItem]> era-rows: [
         { id: "cw", label: "CLONE WARS", disabled: false },
@@ -190,7 +190,7 @@ export component InstantActionScreen inherits Rectangle {
                     text: "AVAILABLE MAPS:";
                 }
                 SelectField {
-                    // The label keeps its width and the dropdown shrinks toward its arrow, as the browser's flex row does.
+                    // The label keeps its width and the dropdown shrinks toward its arrow, as the flex row does.
                     width: max(4.5 * Theme.field-font-size, min(self.preferred-width, parent.width - avail-label.preferred-width - 1 * Theme.vw));
                     x: parent.width - self.width;
                     y: 0px;
@@ -233,7 +233,7 @@ export component InstantActionScreen inherits Rectangle {
             height: frame.body-height;
             property <length> hbuttons-gap: 1.2 * Theme.vw;
             property <length> hbuttons-w: add-btn.width + remove-btn.width + self.hbuttons-gap;
-            // The browser's .bfe-hbuttons wraps: when the pair does not fit the column, REMOVE drops under ADD.
+            // The earlier build's .bfe-hbuttons wraps: when the pair does not fit the column, REMOVE drops under ADD.
             property <bool> wrapped: self.hbuttons-w > self.width;
             property <length> stack-h: preview.height + 2.4 * Theme.vh + add-btn.height
                 + (self.wrapped ? add-btn.height + self.hbuttons-gap : 0px);

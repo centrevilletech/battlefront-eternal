@@ -1,4 +1,4 @@
-//! src/flight/targeting.js: a craft's assist target and its lock (each
+//! a craft's assist target and its lock (each
 //! tick, `updateFlightTarget`), a flyer missile's proportional navigation
 //! (`navigateMissile`, which the rounds ask through their world) and the
 //! assisted shot (`assistShot`, in a pilot's fire).

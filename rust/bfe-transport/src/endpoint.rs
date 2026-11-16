@@ -1,4 +1,4 @@
-//! endpoint.js's direct-client socket host. Identity and application hellos
+//! direct-client socket host. Identity and application hellos
 //! arrive from the caller; bans, admission, relay and service policy remain
 //! at bfeserver. A live pump borrows messages and never creates a native world.
 use std::{net::{SocketAddr,UdpSocket,ToSocketAddrs},sync::mpsc::{Receiver,Sender},time::{Instant,Duration}};

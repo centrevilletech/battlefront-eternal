@@ -1,11 +1,11 @@
 //! runtime/reconcile.js, playout.js and frame-pacing.js. Each client retains
-//! its arrival windows and clocks here; the browser supplies timestamps only.
+//! its arrival windows and clocks here; the client supplies timestamps only.
 //!
 //! Where the world's clock is now. Each packet's arrival gives a lower bound
 //! on the world's position (tick - arrival * hz, in ticks): the packet that
 //! came with the least delay is the best estimate, so the largest offset over
 //! a short window is kept. The world running slower than wall time (it drops
-//! ticks) moves that bound down, so the page resets the window when a packet
+//! ticks) moves that bound down, so the client resets the window when a packet
 //! reports dropped ticks.
 //! The world's tick (fractional) at wall time `now`, or null before any packet.
 //! The lowest stamp a command sent now may carry and still reach the world
@@ -35,8 +35,8 @@
 //! measured RTT, extra also covers steady transit, so retain the slower
 //! one-tick reduction per calm interval for the local/unknown-RTT case.
 //! `capped`: the command was stamped while maxLead held the target below
-//! where the margin put it (target), because the page had not heard from
-//! the world for longer than the cap covers. A page that stalls (a long
+//! where the margin put it (target), because the client had not heard from
+//! the world for longer than the cap covers. A client that stalls (a long
 //! frame) does so on the world's packets too: it draws its next frame
 //! before it has taken all that came, and stamps at the cap over a newest
 //! tick some way behind the world. Those commands land late however wide
@@ -85,7 +85,7 @@
 //!
 //! - The delay is a high percentile (95th) of recent arrival gaps, plus a
 //!   margin, within [minDelay, maxDelay] ticks. One isolated stall must not
-//!   widen the cushion for the whole window the way the maximum did. A page drawing at 20 fps
+//!   widen the cushion for the whole window the way the maximum did. A client drawing at 20 fps
 //!   sees packets three at a time, so its delay settles around 4 to 5. Packets that arrive in bursts
 //!   (a tick that ran long, a garbage-collection pause) widen it; a calm
 //!   stream lets it shrink again.
@@ -105,10 +105,10 @@
 //! (fractional: the integer part is the newest tick applied, the fraction
 //! the way to the next).
 //! Trim toward the target: the whole error over about a second.
-//! The newest tick the page should have applied for the clock's position.
+//! The newest tick the client should have applied for the clock's position.
 //!
 //! Presentation deadlines are independent of the world clock. No timer loop or
-//! spin wait: the browser still schedules every opportunity with rAF.
+//! spin wait: the client still schedules every opportunity with rAF.
 //! rAF timestamps have small jitter even on a display matching the cap.
 //! Missing a 60 Hz deadline by 0.1 ms must not throw away a whole refresh.
 //! Retain the phase on an irregular display, but don't render catch-up
@@ -117,8 +117,8 @@
 //! single shader compilation or OS hitch. Never repeatedly shrink the image to
 //! try to fix a CPU-bound simulation. No localStorage writes while adapting.
 //!
-//! The GPU's share comes from its timer where the browser offers one (gpuMs),
-//! else from the render profiler's fences (render-profiler.js): `behind`, the
+//! The GPU's share comes from its timer where the client offers one (gpuMs),
+//! else from the render profiler's fences: `behind`, the
 //! last frame's GPU work still unfinished when this one began, and `latency`,
 //! how soon after a frame was sent its fence was seen signaled (ms, an upper
 //! bound of the GPU's time past the frame's last command).

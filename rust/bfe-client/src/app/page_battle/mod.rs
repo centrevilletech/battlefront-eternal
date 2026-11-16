@@ -49,7 +49,7 @@ pub(super) struct PageBattle {
     logo_swap: f64,
     cursor: [f64; 2],
     pin_heights: Vec<f64>,
-    // Seconds since each post's pin last rippled (holomap.js ping), and the beam's flare after a pick.
+    // Seconds since each post's pin last rippled (ping), and the beam's flare after a pick.
     pin_waves: Vec<f64>,
     flare: f64,
     pins: Vec<gpu::Pin>,
@@ -61,7 +61,7 @@ pub(super) struct PageBattle {
     post: Option<String>,
     pub shot: Option<bfe_battle_ui::spawn::CameraShot>,
 }
-/// An explicitly named view wins. Unknown names retain the browser's Classic
+/// An explicitly named view wins. Unknown names retain the Classic
 /// fallback; no override follows the front end that launched the battle.
 fn page_view(front: &str, override_name: &str) -> bool {
     if override_name.is_empty() {
@@ -537,7 +537,7 @@ impl PageBattle {
                 height: *height,
                 picked,
                 wave: self.pin_waves[index],
-                // The HUD's relation colours (GREEN, RED, LIGHT_GRAY in src/hud.js), as the browser's pins take
+                // The HUD's relation colours (GREEN, RED, LIGHT_GRAY), as the pins take
                 // them from hud.postColor.
                 color: if own {
                     [32. / 255., 223. / 255., 32. / 255.]
