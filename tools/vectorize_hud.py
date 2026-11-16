@@ -144,8 +144,8 @@ def convert(common, output, art=ART):
         print(f"TTF {name}: {len(font['glyphs'])} glyphs", flush=True)
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     style = "".join(f"@font-face{{font-family:'{name}';src:url('{name}.ttf')}}" for name in fonts)
-    samples = "".join(f"<p style=\"font-family:'{name}';font-size:48px\">REPUBLIC 200 — AaBb 0123456789</p>" for name in fonts)
-    art_samples = "".join(f"<figure><figcaption>{html.escape(name)} — traced SVG at 4×</figcaption><img src='{name}.svg' width='{images[name].width * 4}'></figure>" for name in art)
+    samples = "".join(f"<p style=\"font-family:'{name}';font-size:48px\">REPUBLIC 200 - AaBb 0123456789</p>" for name in fonts)
+    art_samples = "".join(f"<figure><figcaption>{html.escape(name)}: traced SVG at 4×</figcaption><img src='{name}.svg' width='{images[name].width * 4}'></figure>" for name in art)
     (output / "preview.html").write_text(f"<!doctype html><meta charset='utf-8'><title>Original HUD vector review</title><style>body{{background:#202633;color:white;font:16px sans-serif}}figure{{display:inline-block;vertical-align:top}}{style}</style><h1>HUD vectors and outline fonts</h1>{samples}{art_samples}")
     return manifest
 

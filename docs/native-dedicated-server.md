@@ -6,18 +6,18 @@
 
 `bfeserver` separates real-time UDP transport I/O, authoritative 60 Hz world simulation, operator HTTP/SQLite administration, LAN discovery, and master-server signaling onto dedicated OS threads communicating over lock-free/bounded `crossbeam_channel` queues:
 
-1. **UDP Transport Thread (`rust/bfe-server/src/udp_server.rs` — `UdpGameServer`)**
+1. **UDP Transport Thread (`rust/bfe-server/src/udp_server.rs`: `UdpGameServer`)**
    - Binds the dual-stack/IPv4 UDP game socket and drives `bfe_transport::server::ServerEndpoint` (`src/net/endpoint.js` `UdpEndpoint` in server mode).
    - Performs 3-packet `BFE-UDP/1` handshakes (`INITIATION` -> `RESPONSE` -> `CONFIRM` -> `HANDSHAKE_DONE`), stateless HMAC `RETRY` cookie challenges under load, per-prefix handshake rate limiting (`MAX_BUCKETS = 4096`), and zero-allocation steady-state packet encryption/decryption.
-2. **Dedicated 60 Hz World Thread (`rust/bfe-server/src/world_worker.rs` — `NativeWorldHost`, `rust/bfe-server/src/local_server.rs` — `LocalDedicatedServer::world_loop`)**
+2. **Dedicated 60 Hz World Thread (`rust/bfe-server/src/world_worker.rs`: `NativeWorldHost`, `rust/bfe-server/src/local_server.rs`: `LocalDedicatedServer::world_loop`)**
    - Owns the authoritative `bfe_sim::abi::context::Context` and runs the 60 Hz simulation and snapshot publication loop (`TICK_DURATION = 16,666,667` ns).
    - Receives `WorldCmd` messages (`Join`, `Leave`, `Start`, `Resync`, `Input`, `EdgeAck`, `PushRecordedPublication`) from the UDP transport thread and emits `WorldEvent::Publication` blocks back to the UDP thread for fanout.
-3. **Operator SQLite & Admin HTTP Thread (`rust/bfe-server/src/operator.rs` — `OperatorService`)**
+3. **Operator SQLite & Admin HTTP Thread (`rust/bfe-server/src/operator.rs`: `OperatorService`)**
    - Uses `rusqlite` (`bundled` feature) to open or initialize `<stateDir>/operator.sqlite` with the exact `server-native/src/operator.js` schema (`bans`, `scores`, `audit` tables in `WAL` mode).
    - Serves `/healthz`, `/v1/status`, `/v1/players`, `/v1/bans`, `/v1/scores`, `/v1/audit`, `/v1/kick`, and `/v1/rotate`.
-4. **LAN Discovery Responder (`rust/bfe-server/src/lan.rs` — `LanResponder`)**
+4. **LAN Discovery Responder (`rust/bfe-server/src/lan.rs`: `LanResponder`)**
    - Listens on UDP port `18452` (unicast + `ff02::1` IPv6 link-local multicast) for `BFE-LAN/1` queries and replies with server status.
-5. **Master Server & WebSocket Signaling Client (`rust/bfe-server/src/online_server.rs` — `OnlineServer`)**
+5. **Master Server & WebSocket Signaling Client (`rust/bfe-server/src/online_server.rs`: `OnlineServer`)**
    - Registers with the master directory (`/v1/servers`), maintains the signaling WebSocket, verifies Ed25519-pinned global ban lists (`rust/bfe-server/src/bans.rs`), and schedules UDP hole-punch probes (`PUNCH_SCHEDULE_MS`).
 
 ## Why `WORLD_SLICE_MS = 4` ms Does Not Apply on the Dedicated 60 Hz World Thread

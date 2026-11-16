@@ -77,7 +77,7 @@ impl ClassicRandom {
         self.next_u32() as f64
     }
 
-    /// `uniform()`: [0, 1) in float32 steps of 2^-23 — the draw's
+    /// `uniform()`: [0, 1) in float32 steps of 2^-23: the draw's
     /// top 23 bits over 8388608, exact in a double.
     pub fn uniform(&mut self) -> f64 {
         (self.next_u32() >> 9) as f64 / 8388608.0
@@ -101,7 +101,7 @@ impl ClassicRandom {
         fround(fround(lo) + fround(u * fround(hi - lo)))
     }
 
-    /// `mod(n)`: `n > 0 ? this.next() % n : 0` — the `%` is on
+    /// `mod(n)`: `n > 0 ? this.next() % n : 0`: the `%` is on
     /// doubles, so a fractional `n` behaves as it does there.
     pub fn modulo(&mut self, n: f64) -> f64 {
         if n > 0.0 {
@@ -183,7 +183,7 @@ impl RandomStreams {
 }
 
 /// `spreadSeed(unit, channel, press)` (`src/weapons.js:71-78`): a
-/// press's spread seed — FNV-1a's fold over the soldier's id, his
+/// press's spread seed: FNV-1a's fold over the soldier's id, his
 /// generation, the channel and the press's id, each `>>> 0` first,
 /// with a `h ^= h >>> 15` stir after every multiply. Missing id or
 /// generation (`unit?.id ?? 0`) pass 0.

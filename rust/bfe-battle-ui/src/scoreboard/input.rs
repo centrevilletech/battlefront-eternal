@@ -96,8 +96,8 @@ impl ScoreboardHitTarget {
 
 /// Immediate button action triggered inside `click` (`act(kind, detail)` in `src/scoreboard/input.js`).
 ///
-/// Unlike row selection, column sorting, and arrow scrolling—which queue into `self.pending`
-/// and execute on the next `update(dt)` tick—buttons and row double-clicks record a
+/// Unlike row selection, column sorting, and arrow scrolling, which queue into `self.pending`
+/// and execute on the next `update(dt)` tick, buttons and row double-clicks record a
 /// `ScoreboardAction` immediately so `ScoreboardController` can trigger sounds or `port.restart()`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScoreboardAction {

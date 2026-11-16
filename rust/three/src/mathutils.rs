@@ -196,8 +196,8 @@ pub fn rad_to_deg(radians: f64) -> f64 {
 }
 
 /// `isPowerOfTwo(value)`: `(value & (value - 1)) === 0 && value !== 0`
-/// — the `&` is ToInt32 on both sides, in JavaScript's arithmetic
-/// (`value - 1` in doubles first).
+/// The `&` converts both sides to 32-bit integers after `value - 1` is
+/// computed in doubles.
 pub fn is_power_of_two(value: f64) -> bool {
     (to_int32(value) & to_int32(value - 1.0)) == 0 && value != 0.0
 }

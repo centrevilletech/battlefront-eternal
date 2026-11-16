@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Battlefront Eternal
-Comment=Star Wars Battlefront II (2005) preservation and remaster runtime
+Comment=Fan-made engine for Star Wars: Battlefront (2004)
 Exec="/opt/Battlefront Eternal/bfe-client" %U
 Icon=battlefront-eternal
 Terminal=false

@@ -61,8 +61,8 @@ pub fn pause_layout_for_family(family: GameFamily) -> Result<PauseLayoutConfig, 
 
 /// Total row count of the 2004 pause menu container, including the 5 hidden console/debug rows (`LIST_COUNT = 11` in `src/pause/index.js`).
 ///
-/// The original `ifs_pausemenu` defines 11 buttons (5 of which—free camera, player list, console,
-/// friends, recent players—are hidden in single-player PC), and `AddVerticalButtons` sizes the
+/// The original `ifs_pausemenu` defines 11 buttons (5 of which, free camera, player list, console,
+/// friends, recent players, are hidden in single-player PC), and `AddVerticalButtons` sizes the
 /// container shift from all 11 entries.
 pub const LIST_COUNT: usize = 11;
 
