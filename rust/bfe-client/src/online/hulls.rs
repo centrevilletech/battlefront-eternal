@@ -709,12 +709,14 @@ impl Hulls {
                     // Vehicle.present draws the solver's last two tick states
                     // at the input clock's fraction, including its walk cycle.
                     x[e::ALPHA] = prediction.alpha;
-                    x[e::TICK_FROM..e::TICK_FROM + 3].copy_from_slice(&p.tick_from.unwrap_or(p.position));
+                    let offset = prediction.offset();
+                    let shifted = |v: [f64; 3]| [v[0] + offset[0], v[1] + offset[1], v[2] + offset[2]];
+                    x[e::TICK_FROM..e::TICK_FROM + 3].copy_from_slice(&shifted(p.tick_from.unwrap_or(p.position)));
                     x[e::TICK_QUATERNION..e::TICK_QUATERNION + 4].copy_from_slice(&p.flight_tick_q.unwrap_or(p.quaternion));
                     x[e::TICK_YAW] = p.tick_from_yaw.unwrap_or(p.yaw);
                     x[e::TICK_TILT] = p.tick_from_tilt.unwrap_or(p.tilt);
                     x[e::TICK_ROLL] = p.tick_from_roll.unwrap_or(p.roll);
-                    x[e::POSITION..e::POSITION + 3].copy_from_slice(&p.position);
+                    x[e::POSITION..e::POSITION + 3].copy_from_slice(&shifted(p.position));
                     x[e::QUATERNION..e::QUATERNION + 4].copy_from_slice(&p.quaternion);
                     x[e::VELOCITY..e::VELOCITY + 3].copy_from_slice(&p.velocity);
                     x[e::YAW] = p.yaw;

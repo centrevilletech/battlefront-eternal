@@ -193,6 +193,9 @@ pub struct Replay {
     shown_tick: f64,
     shown_position: [f64; 3],
     pub smoother: bfe_pose::smoothing::SmootherState,
+    /// Corrections bigger than the smoother hides (shown as a jump), and the summed size of all.
+    pub snaps: u64,
+    pub correction_metres: f64,
     display: super::own_view::Display,
     life: [f64; 3],
     pub fleet: Box<super::hull_replay::Fleet>,
@@ -282,7 +285,7 @@ impl Replay {
             words: Vec::with_capacity(16384),
             class: usize::MAX,
             body: None, displayed: None, before: None, look_yaw: 0., shown_tick: 0., shown_position: [0.; 3],
-            smoother: Default::default(), display: Default::default(), life: [0.; 3],
+            smoother: Default::default(), snaps: 0, correction_metres: 0., display: Default::default(), life: [0.; 3],
             ticks: 0,
             weapon_at: 0,
             weapon_count: 0,
@@ -312,6 +315,11 @@ impl Replay {
     pub fn ahead(&self) -> bool {
         self.body.is_some() || self.walker_ahead
     }
+    /// BFE_HUD_TRACE: each weapon's lock (target id, life, elapsed) as the
+    /// server's last correction restored it, before this client replays.
+    pub fn restored_locks(&self) -> Vec<(f64, f64, f64)> {
+        self.arsenal.rows.iter().map(|w| (w.lock_target_id, w.lock_generation, (w.lock_elapsed * 100.).round() / 100.)).collect()
+    }
     pub fn selected(&self) -> [f64; 2] {
         if self.fleet.identity.is_some() {
             return [0.; 2];
@@ -321,6 +329,7 @@ impl Replay {
     }
     pub fn present(&mut self, alpha: f64, dt: f64) {
         self.fleet.alpha = alpha;
+        self.fleet.decay(dt);
         self.displayed = self.body.as_ref().map(|body| self.display.sample(body, self.before.as_ref(), self.look_yaw, self.life, alpha, dt));
         if self.smoother.decay(0.05, dt) || self.displayed.is_none() {
             self.smoother.reset();
@@ -533,7 +542,15 @@ impl Replay {
             if result.actor_words as usize == Soldier::WORDS {
                 let body = Soldier::take(&self.owner.output[result.actor_at as usize..], &[]);
                 if result.check_found {
-                    if self.smoother.note(self.shown_position, result.check_position, 2.5).reset {
+                    let note = self.smoother.note(self.shown_position, result.check_position, 2.5);
+                    self.correction_metres += note.size;
+                    if note.size > 0.25 {
+                        let d: [f64; 3] = std::array::from_fn(|i| result.check_position[i] - self.shown_position[i]);
+                        eprintln!("prediction: corrected {:.2} m (dx {:.2} dy {:.2} dz {:.2}) at tick {} from authority tick {} with {} pending commands, {} soldiers near, air {}",
+                            note.size, d[0], d[1], d[2], self.shown_tick, r.own.tick, commands_count, crowd_count, body_air(&self.owner.output, &result));
+                    }
+                    if note.reset {
+                        self.snaps += 1;
                         self.smoother.reset();
                     }
                 }
@@ -588,6 +605,9 @@ impl Replay {
     }
 }
 
+fn body_air(output: &[f64], result: &ClientResult) -> bool {
+    output.get(result.actor_at as usize..).is_some_and(|row| row.len() >= Soldier::WORDS && Soldier::take(row, &[]).air.is_some())
+}
 fn collision_mut(c: &Collision) -> std::cell::RefMut<'_, Box<CollisionOwner>> {
     c.borrow_mut()
 }

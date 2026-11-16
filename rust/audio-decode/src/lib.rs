@@ -3,6 +3,8 @@
 //! Audio render threads receive only prepared PCM and never call a codec.
 mod flac;
 mod input;
+// Generated: the shared decoder layout, of which this crate reads only some entries.
+#[allow(dead_code)]
 mod layout;
 mod ogg;
 mod resample;
@@ -176,7 +178,11 @@ impl Decoder {
                 self.resampler
                     .as_mut()
                     .ok_or("audio frame precedes metadata")?
-                    .push(pcm);
+                    .push(&pcm);
+                // The packet's buffer goes back to the parser for the next one.
+                if let Format::Ogg(ogg) = &mut self.format {
+                    ogg.spare = pcm.data;
+                }
             }
             // Signal EOF to the sinc window only after the parser is complete. Its
             // trailing half-kernel may then read zeros up to the exact output length.
@@ -200,6 +206,34 @@ impl Decoder {
     }
 }
 impl Decoder {
+    /// Output frames delivered so far: where the next window starts.
+    pub fn position(&self) -> u64 {
+        self.resampler.as_ref().map_or(0, |r| r.produced)
+    }
+    /// Moves on toward output frame `frame` without decoding what it passes
+    /// (an Ogg Opus stream at its own rate; anything else stays where it is):
+    /// whole packets are dropped and the codec reset, stopping a pre-roll of
+    /// 80 ms before `frame` (RFC 7845's advice after a seek) so the samples
+    /// from `frame` on have converged. Ok(None) when it needs more input, else
+    /// the output frame the next window starts at (at or before `frame`).
+    pub fn skip(&mut self, frame: u64) -> Result<Option<u64>, String> {
+        const PREROLL: u64 = 3840;
+        let (Format::Ogg(ogg), Some(resampler)) = (&mut self.format, &mut self.resampler) else {
+            return Ok(Some(self.position()));
+        };
+        if self.source_done || frame < resampler.produced + PREROLL {
+            return Ok(Some(resampler.produced));
+        }
+        let pre = ogg.pre_skip();
+        let Some(at) = ogg.skip(&mut self.input, (frame - PREROLL) + pre)? else { return Ok(None) };
+        // The packets kept start at `at`; their first frames still fall to the
+        // priming trim when `at` lies within it.
+        let start = at.saturating_sub(pre);
+        if start > resampler.produced && !resampler.jump(start) {
+            return Err("an Opus stream skipped at a converted rate".into());
+        }
+        Ok(Some(resampler.produced))
+    }
     // Opus exposes duration through its final granule rather than OpusHead.
     // Convert that source count with the same arithmetic as ordinary metadata,
     // so early duration discovery and final decoding agree at every device rate.

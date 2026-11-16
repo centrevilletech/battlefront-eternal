@@ -318,13 +318,25 @@ impl Delay {
         let read = (self.at as f64 + len as f64 - frames).rem_euclid(len as f64);
         let index = read as usize;
         let fraction = (read - index as f64) as f32;
-        for (i, &sample) in input.iter().enumerate() {
-            self.data[(self.at + i) % len] = sample;
+        // Ring positions wrap by a test, not a division a sample.
+        let mut at = self.at;
+        for &sample in input {
+            self.data[at] = sample;
+            at += 1;
+            if at == len {
+                at = 0;
+            }
         }
-        for (i, out) in output.iter_mut().enumerate() {
-            let a = self.data[(index + i) % len];
-            let b = self.data[(index + i + 1) % len];
+        let (mut a_at, mut b_at) = (index, if index + 1 == len { 0 } else { index + 1 });
+        for out in output.iter_mut() {
+            let a = self.data[a_at];
+            let b = self.data[b_at];
             *out = a + fraction * (b - a);
+            a_at = b_at;
+            b_at += 1;
+            if b_at == len {
+                b_at = 0;
+            }
         }
         self.at = (self.at + FRAMES) % len;
     }
@@ -344,6 +356,10 @@ pub struct Panner {
     delays: [Delay; 2],
     delayed: [[f32; FRAMES]; 2],
     scratch: [[[f32; FRAMES]; 2]; 2],
+    // Frames of silent input in a row, and how many it takes for the ear
+    // delays and the selected convolution to hold nothing but zeros.
+    quiet: usize,
+    tail: usize,
 }
 impl Panner {
     pub fn new(rate: f64, size: usize) -> Self {
@@ -358,6 +374,8 @@ impl Panner {
             delays: [Delay::new(rate), Delay::new(rate)],
             delayed: [[0.0; FRAMES]; 2],
             scratch: [[[0.0; FRAMES]; 2]; 2],
+            quiet: 0,
+            tail: Delay::new(rate).data.len() + 2 * size,
         }
     }
     pub fn process(&mut self, database: &Database, rate: f64, azimuth: f64, elevation: f64, input: &[f32], output: &mut [[f32; FRAMES]; 2]) {
@@ -388,6 +406,25 @@ impl Panner {
             self.increment = -1.0 / fade;
             self.azimuth[0] = index;
             self.elevation[0] = elevation;
+        }
+        // A bound source that has been silent longer than its tail (a voice
+        // waiting for its next sound, or held under the heard limit) only moves
+        // its rings on: every buffer it would read holds zeros, so its ears are
+        // silent. A crossfade runs in full.
+        if input.iter().all(|&x| x == 0.0) {
+            self.quiet = self.quiet.saturating_add(FRAMES);
+        } else {
+            self.quiet = 0;
+        }
+        if self.quiet > self.tail && self.increment == 0.0 {
+            for delay in &mut self.delays {
+                delay.at = (delay.at + FRAMES) % delay.data.len();
+            }
+            self.convolvers[self.selection].idle(FRAMES);
+            for ear in output.iter_mut() {
+                ear.fill(0.0);
+            }
+            return;
         }
         for ear in 0..2 {
             let k0 = database.kernel(self.azimuth[0], self.elevation[0], ear);

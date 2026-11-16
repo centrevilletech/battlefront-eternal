@@ -539,3 +539,50 @@ fn ogg_packets_continued_across_pages_preserve_pcm_and_end_trim() {
         assert_eq!(actual.channels, expected.channels);
     }
 }
+
+#[test]
+fn an_opus_stream_skips_ahead_without_decoding_and_converges() {
+    let bytes = read_fixture("opus-hybrid.opus");
+    let whole = decode_fixture(&bytes, DecodeOptions { rate: 0, ..Default::default() }).unwrap();
+    let target = 60_000u64;
+    let mut decoder = Decoder::new(0, 0.0, false);
+    let mut offset = 0;
+    let mut feed = |decoder: &mut Decoder| {
+        let end = (offset + INPUT_CHUNK).min(bytes.len());
+        decoder.push(&bytes[offset..end], end == bytes.len()).unwrap();
+        offset = end;
+    };
+    loop {
+        match decoder.step(2048).unwrap() {
+            Step::NeedInput => feed(&mut decoder),
+            Step::Metadata => break,
+            _ => panic!("audio before metadata"),
+        }
+    }
+    let start = loop {
+        match decoder.skip(target).unwrap() {
+            Some(at) => break at,
+            None => feed(&mut decoder),
+        }
+    };
+    assert!(start > 0 && start + 3840 <= target, "packets were dropped and a pre-roll kept: {start}");
+    let mut at = start as usize;
+    let mut worst = 0f32;
+    loop {
+        match decoder.step(2048).unwrap() {
+            Step::NeedInput => feed(&mut decoder),
+            Step::Output(frames) => {
+                for i in 0..frames {
+                    if at + i >= target as usize {
+                        worst = worst.max((decoder.output[i] - whole.channels[0][at + i]).abs());
+                    }
+                }
+                at += frames;
+            }
+            Step::Done => break,
+            Step::Metadata => {}
+        }
+    }
+    assert_eq!(at, whole.channels[0].len(), "the stream ends where it did");
+    assert!(worst < 1e-3, "after the pre-roll the samples match the whole decode: {worst}");
+}

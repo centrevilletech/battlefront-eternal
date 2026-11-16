@@ -28,7 +28,23 @@ impl Complex {
 pub struct Fft {
     len: usize,
     reverse: Vec<usize>,
-    roots: Vec<Complex>,
+    // Each stage's roots in a run of their own (stage of size 2^k: the
+    // 2^(k-1) roots it takes from the table above, in the order it takes
+    // them), and the same conjugated for the inverse transform.
+    stages: Vec<Complex>,
+    inverse_stages: Vec<Complex>,
+}
+// The transform's roots, computed in double precision and stored as floats.
+fn roots(len: usize) -> Vec<Complex> {
+    (0..len / 2)
+        .map(|i| {
+            let angle = -2.0 * std::f64::consts::PI * i as f64 / len as f64;
+            Complex {
+                re: host::cos(angle) as f32,
+                im: host::sin(angle) as f32,
+            }
+        })
+        .collect()
 }
 impl Fft {
     // Radix two requires a power-of-two size. Compute roots in double
@@ -40,19 +56,21 @@ impl Fft {
         let reverse = (0..len)
             .map(|i| i.reverse_bits() >> (usize::BITS - bits))
             .collect();
-        let roots = (0..len / 2)
-            .map(|i| {
-                let angle = -2.0 * std::f64::consts::PI * i as f64 / len as f64;
-                Complex {
-                    re: host::cos(angle) as f32,
-                    im: host::sin(angle) as f32,
-                }
-            })
-            .collect();
+        let roots = roots(len);
+        let mut stages: Vec<Complex> = Vec::with_capacity(len);
+        let mut size = 2;
+        while size <= len {
+            stages.extend(roots.iter().step_by(len / size).take(size / 2));
+            size *= 2;
+        }
+        // Conjugating the root changes transform direction; the butterflies
+        // keep the same order in both directions.
+        let inverse_stages = stages.iter().map(|w| Complex { re: w.re, im: -w.im }).collect();
         Self {
             len,
             reverse,
-            roots,
+            stages,
+            inverse_stages,
         }
     }
     // Transform the caller's scratch in place. Construction and validation
@@ -68,33 +86,29 @@ impl Fft {
                 data.swap(i, j);
             }
         }
-        // Stages combine adjacent transforms of successively doubled size.
-        // Twiddle indices use the full plan's root table so each stage can borrow
-        // the same coefficients without calculating or allocating a smaller plan.
+        // Stages combine adjacent transforms of successively doubled size. A
+        // stage of `size` takes every (len / size)th root of the full plan's
+        // table, so each stage borrows the same coefficients. Every butterfly
+        // keeps its f32 product and sums, in the same order, whatever the loop
+        // shape: the transform's values do not change.
+        let stages = if inverse { &self.inverse_stages } else { &self.stages };
         let mut size = 2;
         while size <= self.len {
             let half = size / 2;
-            // Two adjacent complex butterflies fit one SIMD register. The
-            // first stage has only one butterfly and stays scalar. The
-            // browser target requires SIMD; native hosts use this same
-            // arithmetic below, with no alternate audio implementation.
-            for start in (0..self.len).step_by(size) {
+            let roots = &stages[half - 1..size - 1];
+            for block in data.chunks_exact_mut(size) {
+                let (low, high) = block.split_at_mut(half);
+                let (low, high) = (&mut low[..half], &mut high[..half]);
                 for j in 0..half {
-                    let mut w = self.roots[j * self.len / size];
-                    // Conjugating the root changes transform direction. Leave the same
-                    // butterfly ordering in both directions so scalar and SIMD agree.
-                    if inverse {
-                        w.im = -w.im;
-                    }
-                    let a = data[start + j];
-                    let b = data[start + j + half].product(w);
-                    data[start + j] = Complex {
-                        re: a.re + b.re,
-                        im: a.im + b.im,
+                    let x = low[j];
+                    let y = high[j].product(roots[j]);
+                    low[j] = Complex {
+                        re: x.re + y.re,
+                        im: x.im + y.im,
                     };
-                    data[start + j + half] = Complex {
-                        re: a.re - b.re,
-                        im: a.im - b.im,
+                    high[j] = Complex {
+                        re: x.re - y.re,
+                        im: x.im - y.im,
                     };
                 }
             }
@@ -111,10 +125,6 @@ impl Fft {
             }
         }
     }
-
-    // Work on pairs, retaining each complex product's f32 multiply/add
-    // boundaries. A stage is one internal call, rather than a call per
-    // butterfly. All loads/stores are inside the validated FFT span.
 }
 
 // Pack two real output spectra into one complex inverse transform. The
@@ -260,6 +270,12 @@ impl BufferedStereoConvolver {
             at: 0,
         }
     }
+    /// `frames` of silent input after a silence longer than the response:
+    /// only the partition's position moves on (every buffer already holds
+    /// zeros, and a transform of zeros is zeros).
+    pub fn idle(&mut self, frames: usize) {
+        self.at = (self.at + frames) % self.overlap.len();
+    }
     pub fn process(
         &mut self,
         plan: &Fft,
@@ -289,7 +305,7 @@ impl BufferedStereoConvolver {
                 // for one inverse transform; DC and Nyquist are included exactly once.
                 for k in 0..=half {
                     let a = self.output[k];
-                    let b = self.output[(len - k) % len];
+                    let b = self.output[if k == 0 { 0 } else { len - k }];
                     let l = Complex {
                         re: (a.re + b.re) * 0.5,
                         im: (a.im - b.im) * 0.5,
@@ -326,6 +342,61 @@ impl BufferedStereoConvolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // The transform as first written (a root index and direction test per
+    // butterfly): the loops' shape changed, not one value.
+    fn reference(plan: &Fft, data: &mut [Complex], inverse: bool) {
+        let roots = roots(plan.len);
+        for i in 0..plan.len {
+            let j = plan.reverse[i];
+            if j > i {
+                data.swap(i, j);
+            }
+        }
+        let mut size = 2;
+        while size <= plan.len {
+            let half = size / 2;
+            for start in (0..plan.len).step_by(size) {
+                for j in 0..half {
+                    let mut w = roots[j * plan.len / size];
+                    if inverse {
+                        w.im = -w.im;
+                    }
+                    let a = data[start + j];
+                    let b = data[start + j + half].product(w);
+                    data[start + j] = Complex { re: a.re + b.re, im: a.im + b.im };
+                    data[start + j + half] = Complex { re: a.re - b.re, im: a.im - b.im };
+                }
+            }
+            size *= 2;
+        }
+        if inverse {
+            let scale = 1.0 / plan.len as f32;
+            for c in data {
+                c.re *= scale;
+                c.im *= scale;
+            }
+        }
+    }
+    #[test]
+    fn the_transform_gives_the_same_bits_as_first_written() {
+        let mut x = 12345u32;
+        let mut next = || {
+            x = x.wrapping_mul(1664525).wrapping_add(1013904223);
+            (x >> 8) as f32 / (1 << 23) as f32 - 1.0
+        };
+        for bits in 1..=10 {
+            let plan = Fft::new(1 << bits);
+            for inverse in [false, true] {
+                let input: Vec<Complex> = (0..plan.len).map(|_| Complex { re: next(), im: next() }).collect();
+                let (mut a, mut b) = (input.clone(), input);
+                plan.process(&mut a, inverse);
+                reference(&plan, &mut b, inverse);
+                for (a, b) in a.iter().zip(&b) {
+                    assert_eq!((a.re.to_bits(), a.im.to_bits()), (b.re.to_bits(), b.im.to_bits()), "size {}", plan.len);
+                }
+            }
+        }
+    }
     #[test]
     // Unequal ear taps straddle multiple partition edges. Silent blocks after
     // the impulse must still emit the retained tail, with no left/right leakage

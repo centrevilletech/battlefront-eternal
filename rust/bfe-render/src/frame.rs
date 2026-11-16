@@ -470,6 +470,7 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
                         unsafe {self.core.gl.clear_depth(1.);self.core.gl.clear(glow::DEPTH_BUFFER_BIT);}
                     },
                     O::POST=>{
+                        if let Some(mark)=self.core.scene_end_mark.take(){unsafe{self.core.gl.query_counter(mark,glow::TIMESTAMP);}}
                         use crate::post_chain::layout::{facts as pf,mode,aa,state as ps};
                         let f=&self.post_chain.input;
                         let plain=f[pf::MODE]<=mode::BILINEAR as f64&&f[pf::AA]==aa::OFF as f64&&f[pf::BLOOM]==0.&&!(f[pf::SOFT_FOCUS]!=0.&&f[pf::BLUR_ENABLED]!=0.)&&!(f[pf::SPEED_ENABLED]!=0.&&f[pf::SPEED_AMOUNT]>0.0001/0.085);

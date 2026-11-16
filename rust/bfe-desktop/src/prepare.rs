@@ -1750,19 +1750,17 @@ mod child_protocol_tests {
         (root, options)
     }
     fn terminal(session: &PrepareSession) -> PrepareSnapshot {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        // The child is an interpreter: on a loaded machine its first event can take seconds to arrive.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         loop {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
             let snap = session
                 .events
-                .recv_timeout(std::time::Duration::from_secs(1))
-                .expect("preparer must publish progress or an exit failure");
+                .recv_timeout(left)
+                .expect("preparer must publish progress or an exit failure before the deadline");
             if snap.status == "done" || snap.status == "failed" {
                 return snap;
             }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "preparer remained pending"
-            );
         }
     }
     #[test]

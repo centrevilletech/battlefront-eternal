@@ -15,8 +15,22 @@ struct Look {
     rows: Vec<[f64; draw::REC_STRIDE]>,
     names: Vec<String>,
     nodes: Vec<f64>,
+    // A station's animated nodes, found once: the wobbling one, and those that
+    // rotate and spin while it serves (node and bone index).
+    wobble: Option<(three::NodeId, usize)>,
+    rotate: Vec<(three::NodeId, usize)>,
+    spin: Vec<(three::NodeId, usize)>,
+    // Its pose changed since its matrices were last worked out.
+    stale: bool,
 }
 impl Look {
+    // The look's matrices, worked out again only when its pose changed.
+    fn refresh(&mut self) {
+        if self.stale {
+            self.update();
+            self.stale = false;
+        }
+    }
     fn update(&mut self) {
         self.rig.tree.update_matrix_world(self.rig.root, true);
         self.nodes[..16].copy_from_slice(&self.rig.tree.node(self.rig.root).matrix_world.elements);
@@ -45,6 +59,13 @@ fn clip(source: &bfe_content::clips::Clip) -> bfe_pose::Clip {
     bfe_pose::Clip { frames: source.frames_f64() as usize, fps: source.fps,
         root_motion: source.root_motion, tracks: source.tracks.iter().map(|n| *n as i32).collect(), data: source.data().to_vec() }
 }
+// A building's settings that move it, read once.
+struct Settings {
+    rotate_speed: f64,
+    wait_time: f64,
+    wobble_factor: f64,
+    max_health: f64,
+}
 struct Building {
     turret: bool,
     station: bool,
@@ -52,7 +73,7 @@ struct Building {
     looks: [Option<Look>; 3],
     state: usize,
     health: f64,
-    settings: bfe_content::Value,
+    settings: Settings,
     placement: Matrix4,
     mode: bool,
     active: f64,
@@ -194,6 +215,24 @@ impl Buildings {
                         (n.position, n.quaternion)
                     })
                     .collect();
+                let settings = desc.get("settings").unwrap_or(&bfe_content::Value::Null);
+                let wobble = settings
+                    .get("IdleWobbleNode")
+                    .and_then(bfe_content::Value::as_str)
+                    .and_then(|name| rig.by_name.get(&name.to_lowercase()))
+                    .map(|i| (rig.bones[i], i));
+                let listed = |key: &str| -> Vec<(three::NodeId, usize)> {
+                    let names = settings
+                        .get(key)
+                        .map(|v| {
+                            v.as_array()
+                                .map(|a| a.iter().filter_map(bfe_content::Value::as_str).collect::<Vec<_>>())
+                                .unwrap_or_else(|| v.as_str().into_iter().collect())
+                        })
+                        .unwrap_or_default();
+                    names.into_iter().filter_map(|name| rig.named(Some(name))).map(|id| (id, rig.bone_index(id).unwrap())).collect()
+                };
+                let (rotate, spin) = (listed("ActiveRotateNode"), listed("ActiveSpinNode"));
                 *slot = Some(Look {
                     bind,
                     skin: vec![0.; inverses.len() * 16],
@@ -202,13 +241,20 @@ impl Buildings {
                     rows: admitted.records,
                     names: std::iter::once(String::new()).chain(def.bones.iter().map(|b| b.name.clone())).collect(),
                     nodes: vec![0.; (def.bones.len() + 1) * 16],
+                    wobble,
+                    rotate,
+                    spin,
+                    stale: true,
                 });
             }
-            let settings = desc
-                .get("settings")
-                .cloned()
-                .unwrap_or(bfe_content::Value::Null);
-            let wait = number(&settings, "IdleWaitTime", 2.);
+            let source_settings = desc.get("settings").unwrap_or(&bfe_content::Value::Null);
+            let settings = Settings {
+                rotate_speed: number(source_settings, "IdleRotateSpeed", 1.),
+                wait_time: number(source_settings, "IdleWaitTime", 2.),
+                wobble_factor: number(source_settings, "IdleWobbleFactor", 0.),
+                max_health: number(source_settings, "MaxHealth", 1.),
+            };
+            let wait = settings.wait_time;
             let objective = if desc.get("base").and_then(bfe_content::Value::as_str) == Some("commandpost") {
                 looks[0].as_ref().map(|look| {
                     let model = desc.get("model").and_then(bfe_content::Value::as_str).unwrap_or("");
@@ -249,7 +295,7 @@ impl Buildings {
                     == Some("powerupstation"),
                 id,
                 state: if looks[2].is_some() { 2 } else { 0 },
-                health: if looks[2].is_some(){0.}else{number(&settings,"MaxHealth",f64::INFINITY)},
+                health: if looks[2].is_some(){0.}else{number(source_settings,"MaxHealth",f64::INFINITY)},
                 looks,
                 settings,
                 placement,
@@ -341,9 +387,10 @@ impl Buildings {
                             node.quaternion.set(q[0] as f64, q[1] as f64, q[2] as f64, q[3] as f64).normalize();
                             node.position.set(p[0] as f64 / w, p[1] as f64 / w, p[2] as f64 / w);
                         }
+                        look.stale = true;
                     }
                 }
-                look.update();
+                look.refresh();
                 if let Some(fx) = objective.effects.as_ref() {
                     effects.hull(fx, &mut objective.body, Frame {
                         key: (1 << 48) | b.id as u64,
@@ -356,17 +403,17 @@ impl Buildings {
                 }
             }
             if b.station && b.state == 0 {
-                let speed = number(&b.settings, "IdleRotateSpeed", 1.);
+                let speed = b.settings.rotate_speed;
                 if b.mode {
                     b.active += dt;
-                    b.wait = number(&b.settings, "IdleWaitTime", 2.);
+                    b.wait = b.settings.wait_time;
                     b.turning = false;
                 } else {
                     b.wait -= dt;
                     if b.wait < 0. {
                         if b.turning {
                             b.turning = false;
-                            b.wait = number(&b.settings, "IdleWaitTime", 2.);
+                            b.wait = b.settings.wait_time;
                         } else {
                             b.turning = true;
                             b.direction = -b.direction;
@@ -393,80 +440,47 @@ impl Buildings {
                 turn.make_rotation_y(b.yaw);
                 let mut matrix = b.placement;
                 matrix.multiply(&turn);
-                look.rig.tree.node_mut(root).matrix = matrix;
-                let node = |name: &str| {
-                    look.rig
-                        .by_name
-                        .get(&name.to_lowercase())
-                        .map(|i| look.rig.bones[i])
-                };
-                if let Some(id) = b
-                    .settings
-                    .get("IdleWobbleNode")
-                    .and_then(bfe_content::Value::as_str)
-                    .and_then(node)
-                {
-                    let index = look.rig.bones.iter().position(|n| *n == id).unwrap();
+                if look.rig.tree.node(root).matrix.elements != matrix.elements {
+                    look.rig.tree.node_mut(root).matrix = matrix;
+                    look.stale = true;
+                }
+                if let Some((id, index)) = look.wobble {
                     let (position, quaternion) = look.bind[index];
                     let n = look.rig.tree.node_mut(id);
                     if b.mode {
                         n.position = position;
                         n.position.y += 0.04 * ((std::f64::consts::TAU * b.active).cos() - 1.);
                         n.quaternion = quaternion;
+                        look.stale = true;
                     } else if b.turning {
                         let mut q = Quaternion::default();
                         q.set_from_axis_angle(
                             &Vector3::new(0., 0., 1.),
-                            (12. * std::f64::consts::PI * b.wait / b.span).sin()
-                                * number(&b.settings, "IdleWobbleFactor", 0.),
+                            (12. * std::f64::consts::PI * b.wait / b.span).sin() * b.settings.wobble_factor,
                         );
                         n.quaternion = quaternion;
                         n.quaternion.multiply(&q);
                         n.position = position;
+                        look.stale = true;
                     }
                 }
-                for key in ["ActiveRotateNode", "ActiveSpinNode"] {
-                    let names = b
-                        .settings
-                        .get(key)
-                        .map(|v| {
-                            v.as_array()
-                                .map(|a| {
-                                    a.iter()
-                                        .filter_map(bfe_content::Value::as_str)
-                                        .collect::<Vec<_>>()
-                                })
-                                .unwrap_or_else(|| v.as_str().into_iter().collect())
-                        })
-                        .unwrap_or_default();
-                    if b.mode {
-                        for name in names {
-                            if let Some(id) = look.rig.named(Some(name)) {
-                                let axis = if key == "ActiveRotateNode" {
-                                    Vector3::new(1., 0., 0.)
-                                } else {
-                                    Vector3::new(0., 0., 1.)
-                                };
-                                let amount = if key == "ActiveRotateNode" {
-                                    0.15
-                                } else {
-                                    std::f64::consts::PI
-                                };
-                                let index = look.rig.bone_index(id).unwrap();
-                                let mut q = Quaternion::default();
-                                q.set_from_axis_angle(
-                                    &axis,
-                                    amount * (std::f64::consts::TAU * b.active).sin(),
-                                );
-                                let n = look.rig.tree.node_mut(id);
-                                n.quaternion = look.bind[index].1;
-                                n.quaternion.multiply(&q);
-                            }
+                if b.mode {
+                    for (nodes, axis, amount) in [
+                        (&look.rotate, Vector3::new(1., 0., 0.), 0.15),
+                        (&look.spin, Vector3::new(0., 0., 1.), std::f64::consts::PI),
+                    ] {
+                        for &(id, index) in nodes {
+                            let mut q = Quaternion::default();
+                            q.set_from_axis_angle(&axis, amount * (std::f64::consts::TAU * b.active).sin());
+                            let n = look.rig.tree.node_mut(id);
+                            n.quaternion = look.bind[index].1;
+                            n.quaternion.multiply(&q);
                         }
                     }
+                    look.stale = true;
                 }
             }
-            look.update();
+            look.refresh();
         }
     }
     pub fn position(&self, id: usize) -> Option<[f64; 3]> {
@@ -481,7 +495,7 @@ impl Buildings {
             id: b.id,
             destroyed: b.state == 1,
             health: b.health,
-            max_health: number(&b.settings, "MaxHealth", 1.),
+            max_health: b.settings.max_health,
             bounds: b.station_bounds,
             center: std::array::from_fn(|i| (b.station_bounds[0][i] + b.station_bounds[1][i]) * 0.5),
         })

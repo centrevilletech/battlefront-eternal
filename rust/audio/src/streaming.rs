@@ -17,6 +17,12 @@ const MAX_CHANNELS: usize = 12;
 /// hand over windows decoded elsewhere.
 pub trait Producer: Send {
     fn produce(&mut self, frames: usize) -> Option<(&[f32], usize)>;
+    /// Nobody hears the segment for now: drop what is decoded, stop decoding,
+    /// and start the next window at `frame` once asked for one again. False
+    /// (the default) when the producer cannot jump ahead: it is then fed on.
+    fn skip(&mut self, _frame: usize) -> bool {
+        false
+    }
 }
 /// What feeds a streamed segment's ring as it plays.
 pub enum Feed {
@@ -155,6 +161,42 @@ impl Sample {
     pub fn value(&self, c: usize, index: usize) -> f32 {
         match &self.ring { Some(r) => self.data[c*r.capacity+index%r.capacity], None => self.data[c*self.frames+index] }
     }
+    /// While nobody hears the segment: its source's read position is now
+    /// `position`. Frames up to it need not be decoded: an ADPCM feed moves
+    /// on to the block holding it (each block starts afresh), a codec feed is
+    /// told to jump there; neither decodes what it passes. A codec feed that
+    /// cannot jump is fed as it plays.
+    pub fn skip_to(&mut self, position: usize) {
+        let read = position.saturating_sub(2);
+        let Some(r) = self.ring.as_mut() else { return };
+        if read <= r.written || r.eof {
+            r.read.set(read.min(r.written));
+            return;
+        }
+        let Some(feed) = self.feed.as_mut() else { return };
+        match &mut **feed {
+            Feed::Adpcm(adpcm) => {
+                adpcm.next = (read / 64).clamp(adpcm.next, adpcm.blocks);
+                r.written = adpcm.next * 64;
+                r.read.set(r.written);
+                if adpcm.next == adpcm.blocks {
+                    r.eof = true;
+                    self.frames = r.written;
+                }
+            }
+            Feed::Codec(producer) => {
+                if producer.skip(read) {
+                    r.written = read;
+                    r.read.set(read);
+                    return;
+                }
+                r.read.set(r.written);
+            }
+        }
+        if matches!(self.feed.as_deref(), Some(Feed::Codec(_))) {
+            self.feed();
+        }
+    }
     pub fn available(&self, index: usize) -> bool { self.ring.as_ref().is_none_or(|r| index < r.written) }
     // Keep two old frames for pitched interpolation and final extrapolation.
     // Clamp retirement to written data, so silence after an underrun cannot grant
@@ -213,6 +255,26 @@ mod tests {
             assert!(sample.ring.as_ref().unwrap().eof);
         }
     }
+    #[test]
+    fn a_streamed_segment_skipped_unheard_plays_on_from_where_it_got_to() {
+        let raw = bytes(36 * 2 * 2000, 11);
+        let mut whole = crate::adpcm::Decoder { bytes: raw.clone(), output: Vec::new() };
+        let frames = whole.decode(2, 1, 1);
+        let mut sample = Sample::adpcm(44100., 2, vec![raw]).unwrap();
+        // Unheard from frame 100 to 90000: nothing in between is decoded.
+        sample.skip_to(100);
+        sample.skip_to(90_000);
+        assert!(sample.ring.as_ref().unwrap().written <= 90_000 - 2);
+        for index in 90_000..frames {
+            if !sample.available(index) {
+                sample.consumed(index);
+                sample.feed();
+            }
+            for c in 0..2 {
+                assert_eq!(sample.value(c, index).to_bits(), whole.output[c][index].to_bits(), "channel {c} frame {index}");
+            }
+        }
+    }
     // A ramp in windows of 300 frames, two channels (the second negated).
     struct Ramp { next: usize, total: usize, out: Vec<f32> }
     impl super::Producer for Ramp {
@@ -230,7 +292,7 @@ mod tests {
     impl super::Producer for Late {
         fn produce(&mut self, frames: usize) -> Option<(&[f32], usize)> {
             self.asked += 1;
-            if self.asked % 3 != 0 { return Some((&[], 0)); }
+            if !self.asked.is_multiple_of(3) { return Some((&[], 0)); }
             self.ramp.produce(frames)
         }
     }
