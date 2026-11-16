@@ -25,7 +25,7 @@ impl Server{
     }
     pub fn validate(&self)->Result<(),String>{
         self.identity()?;
-        if self.protocol!=contract::PROTOCOL||self.profile!=contract::PROFILE||self.simulation!=contract::SIMULATION{return Err("Update required: native client and server must use the same engine contract".into());}
+        if self.protocol!=contract::PROTOCOL||self.profile!=contract::PROFILE||self.simulation!=contract::SIMULATION{return Err(version_mismatch(&self.simulation));}
         if self.query.len()>2048||self.content.len()>128||self.name.len()>400{return Err("invalid server information".into());}Ok(())
     }
     // The identity announced here pins the subsequent signed UDP handshake.
@@ -41,12 +41,21 @@ impl Server{
         serde_json::to_vec(&serde_json::json!({"protocol":contract::PROTOCOL,"profile":contract::PROFILE,"simulation":contract::SIMULATION,"content":content,"name":name})).expect("bounded client hello")
     }
 }
+// Which side is behind, in the player's words. Simulation names end in their revision.
+pub fn version_mismatch(server_simulation:&str)->String{
+    let number=|s:&str|s.rsplit('-').next().and_then(|n|n.parse::<u32>().ok());
+    match (number(server_simulation),number(contract::SIMULATION)){
+        (Some(theirs),Some(ours))if theirs<ours=>format!("This server runs an older version of Battlefront Eternal (simulation {theirs}, this game is {ours}). It can be joined once the server updates."),
+        (Some(theirs),Some(ours))if theirs>ours=>format!("This server runs a newer version of Battlefront Eternal (simulation {theirs}, this game is {ours}). Update the game to join it."),
+        _=>"This server runs another version of Battlefront Eternal. Update the game, or wait for the server to update.".into(),
+    }
+}
 // The signed handshake is authoritative. HTTP discovery metadata may have
 // changed between loading the map and opening the authenticated connection.
 pub fn authenticated(bytes:&[u8])->Result<(),String>{
     #[derive(Deserialize)]struct Hello<'a>{protocol:usize,profile:&'a str,simulation:&'a str}
     let hello:Hello=serde_json::from_slice(bytes).map_err(|_|"invalid authenticated server contract")?;
-    if hello.protocol!=contract::PROTOCOL||hello.profile!=contract::PROFILE||hello.simulation!=contract::SIMULATION{return Err("native client and server contract mismatch".into());}Ok(())
+    if hello.protocol!=contract::PROTOCOL||hello.profile!=contract::PROFILE||hello.simulation!=contract::SIMULATION{return Err(version_mismatch(hello.simulation));}Ok(())
 }
 fn response(bytes:&[u8])->Result<Vec<u8>,String>{
     let at=bytes.windows(4).position(|b|b==b"\r\n\r\n").ok_or("invalid HTTP information response")?;
@@ -91,6 +100,12 @@ pub fn identity(path:&Path)->Result<Identity,String>{
 }
 #[cfg(test)]mod tests{
     use super::*;
+    #[test]fn version_refusal_says_which_side_is_behind(){
+        let ours:u32=contract::SIMULATION.rsplit('-').next().unwrap().parse().unwrap();
+        assert!(version_mismatch(&format!("bfe-sim-{}",ours-1)).contains("older version"));
+        assert!(version_mismatch(&format!("bfe-sim-{}",ours+1)).contains("Update the game"));
+        assert!(version_mismatch("unknown").contains("another version"));
+    }
     #[test]fn bounded_http_body_handles_content_length_and_chunks(){
         assert_eq!(response(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}").unwrap(),b"{}");
         assert_eq!(response(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\n{\r\n1\r\n}\r\n0\r\n\r\n").unwrap(),b"{}");
