@@ -338,12 +338,73 @@ impl Ogg {
             }
         }
     }
+    /// Drops whole audio packets, undecoded, while the packet after them still
+    /// starts at or before `until` (a granule position, priming included), then
+    /// resets the codec so the packets that follow decode afresh. Ok(false)
+    /// when it needs more input; the decoded position (a packet's start) then.
+    pub fn skip(&mut self, input: &mut Input, until: u64) -> Result<Option<u64>, String> {
+        if self.info.is_none() || !self.tags {
+            return Ok(Some(self.position));
+        }
+        let mut dropped = false;
+        loop {
+            let Some(packet) = self.packets.front() else {
+                if self.eos || !self.page(input)? {
+                    if dropped {
+                        self.reset()?;
+                    }
+                    return Ok(if self.eos { Some(self.position) } else { None });
+                }
+                continue;
+            };
+            let frames = duration(&packet.data);
+            if packet.end || frames == 0 || self.position + frames > until {
+                break;
+            }
+            self.packets.pop_front();
+            self.position += frames;
+            dropped = true;
+        }
+        if dropped {
+            self.reset()?;
+        }
+        Ok(Some(self.position))
+    }
+    /// The stream's priming (pre-skip), in 48 kHz frames.
+    pub fn pre_skip(&self) -> u64 {
+        self.skip
+    }
+    fn reset(&mut self) -> Result<(), String> {
+        for decoder in &mut self.decoders {
+            decoder.reset_state().map_err(|e| format!("Opus reset: {e}"))?;
+        }
+        Ok(())
+    }
     // Receiving EOS alone is insufficient: its page can still have several
     // queued audio packets. Completion waits until each has been decoded and
     // trimmed against the final granule, preserving the last audible samples.
     pub fn finished(&self) -> bool {
         self.eos && self.packets.is_empty()
     }
+}
+// An Opus packet's length in 48 kHz frames from its table of contents (RFC
+// 6716, 3.1): the frame size by configuration times the frame count. A
+// multistream packet's first stream gives every stream's length. 0 when it
+// cannot be read.
+fn duration(packet: &[u8]) -> u64 {
+    let Some(&toc) = packet.first() else { return 0 };
+    let config = toc >> 3;
+    let size: u64 = match config {
+        0..=11 => [480, 960, 1920, 2880][config as usize % 4],
+        12..=15 => [480, 960][config as usize % 2],
+        _ => [120, 240, 480, 960][config as usize % 4],
+    };
+    let count = match toc & 3 {
+        0 => 1,
+        1 | 2 => 2,
+        _ => packet.get(1).map_or(0, |c| (c & 0x3f) as u64),
+    };
+    size * count
 }
 // Ogg uses its own non-reflected polynomial with the four checksum bytes
 // treated as zero. Verify a page before trusting its lacing or EOS duration;

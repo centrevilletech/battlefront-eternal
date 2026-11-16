@@ -103,6 +103,41 @@ impl Source {
     pub fn stop(&mut self, when: f64, rate: f64) {
         self.stop = frame(when, rate, true);
     }
+    // What process does to the cursor over the block, reading nothing; the
+    // read position after it, for the ring to move on to, while playing.
+    pub(crate) fn skip(&mut self, data: &Sample, block: f64) -> Option<usize> {
+        if !self.on || self.start >= block + FRAMES as f64 {
+            return None;
+        }
+        let frames = data.frames;
+        if data.ring.as_ref().is_some_and(|r| r.eof) { self.end = (frames as f64 / data.rate)*data.rate; }
+        if !self.looping && self.pos >= frames as f64 {
+            self.on = false;
+            return None;
+        }
+        if self.looping && self.pos >= self.end {
+            self.pos = 0.0;
+        }
+        if !self.begun {
+            self.begun = true;
+            if self.offset < 0.0 {
+                self.pos += (self.offset * self.step).abs();
+            }
+        }
+        let span = (self.stop.min(block + FRAMES as f64) - self.start.max(block)).max(0.0);
+        self.pos += self.step * span;
+        if self.pos >= self.end {
+            if self.looping {
+                self.pos = (self.pos - self.end) % self.end;
+            } else {
+                self.on = false;
+            }
+        }
+        if self.stop < block + FRAMES as f64 {
+            self.on = false;
+        }
+        Some(self.pos as usize)
+    }
     // Write only the source's active span into the caller's preallocated
     // planar scratch. add distinguishes the first segment from overlapping
     // segments feeding the same former stream GainNode.
@@ -319,6 +354,24 @@ impl Stream {
                 }
             }
         }
+    }
+}
+
+impl Stream {
+    /// One block nobody hears: the sources' cursors and the bed's parameters
+    /// move on as `process` would move them; nothing is read or mixed. Each
+    /// playing source's sample and read position, for its ring to move on to.
+    pub fn skip(&mut self, samples: &[Option<Sample>], block: u64, rate: f64) -> [Option<(usize, usize)>; 3] {
+        for timeline in [&mut self.gain, &mut self.cutoff, &mut self.send] {
+            timeline.k_rate(block, rate);
+        }
+        let mut reads = [None; 3];
+        for (source, read) in self.sources.iter_mut().zip(&mut reads) {
+            if let Some(Some(sample)) = samples.get(source.sample) {
+                *read = source.skip(sample, block as f64).map(|at| (source.sample, at));
+            }
+        }
+        reads
     }
 }
 

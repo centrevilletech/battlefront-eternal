@@ -304,6 +304,8 @@ impl SharedAudioRouter {
         }
         if let Ok(mut live_guard) = self.live.try_lock() {
             if let Some(live) = live_guard.as_mut() {
+                // No device: the battle's sounds move on at the device's pace, unmixed.
+                live.headless = true;
                 live.fill(scratch, 2, status);
                 return;
             }
@@ -359,6 +361,7 @@ impl DynamicOutput {
         }
         if let Ok(mut live_guard) = self.router.live.try_lock() {
             if let Some(live) = live_guard.as_mut() {
+                live.headless = false;
                 live.fill(data, channels, status);
                 return;
             }

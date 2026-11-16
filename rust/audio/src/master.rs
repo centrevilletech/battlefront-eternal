@@ -152,6 +152,12 @@ impl Master {
         self.volume.insert(!set, value, at, tau, frame, self.rate);
     }
 
+    /// Whether the volume rests at 0 from the block at `frame` on: the chain's
+    /// output is silence whatever comes in.
+    pub fn silent(&self, frame: u64) -> bool {
+        self.volume.holds(0.0, frame, self.rate)
+    }
+
     /// One block at context frame `block`: `feeds` the mixer's speaker
     /// feeds (channels runs), `lfe_send` its LFE send (surround), `send`
     /// the engine's reverb send, `send_in` and `mix_in` the inputs that
@@ -388,31 +394,4 @@ mod tests {
         assert_eq!(last(Some(1.0)), 0.125);
         assert_eq!(last(Some(2.0)), 0.25);
     }
-}
-
-#[cfg(test)]
-mod allocation_tests {
-    use super::*;
-    use std::alloc::{GlobalAlloc, Layout, System};
-    use std::cell::Cell;
-
-    struct Counting;
-    thread_local! { static ALLOCS: Cell<Option<usize>> = const { Cell::new(None) }; }
-    #[global_allocator]
-    static ALLOCATOR: Counting = Counting;
-    unsafe impl GlobalAlloc for Counting {
-        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-            ALLOCS.with(|n| { if let Some(v) = n.get() { n.set(Some(v + 1)); } });
-            System.alloc(layout)
-        }
-        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) { System.dealloc(ptr, layout); }
-        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-            ALLOCS.with(|n| { if let Some(v) = n.get() { n.set(Some(v + 1)); } });
-            System.realloc(ptr, layout, size)
-        }
-    }
-
-
-
-
 }

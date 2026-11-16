@@ -93,6 +93,9 @@ pub struct LiveOutput {
     mail: Arc<Mailbox>,
     next: usize,
     volume: f32,
+    /// Driven with no sound device behind it: nothing is heard, so nothing
+    /// is mixed (Output::muted).
+    pub headless: bool,
 }
 impl LiveOutput {
     // Output.process renders one fixed DSP quantum. Consume every published
@@ -110,8 +113,15 @@ impl LiveOutput {
                 // the old one goes back to the window thread to be dropped.
                 next.take_sources(&mut self.output);
                 std::mem::swap(&mut self.output, &mut next);
-                self.volume = f32::NAN;
                 batch.retired = Some(next);
+                // Coming back from silence the new chain starts at 0 too, so the
+                // volume glides up as it does from any other level.
+                if self.volume == 0. {
+                    let now = self.output.frame as f64 / self.output.rate;
+                    self.output.volume(0., 0., now, true);
+                } else {
+                    self.volume = f32::NAN;
+                }
             }
             for (id, pcm) in batch.samples.drain(..) {
                 if let Some(old) = self.output.voices.set_sample(id, pcm.map(|pcm| pcm.sample)) {
@@ -141,6 +151,7 @@ impl LiveOutput {
             read = read.wrapping_add(1);
             self.mail.read.store(read, Ordering::Release);
         }
+        self.output.muted = self.headless;
         self.output.process();
         self.mail.clock.store(self.output.frame, Ordering::Release);
         self.mail.worst.fetch_max(began.elapsed().as_nanos() as u64, Ordering::Relaxed);
@@ -311,6 +322,8 @@ pub struct Sound {
     // A configuration built before the device took the output, or waiting
     // for the next batch.
     pending_config: Option<Box<Output>>,
+    // The master volume last sent was 0: the device mixes nothing meanwhile.
+    silent_sent: bool,
     // The reverb last sent, so a new configuration starts in the same room.
     room: [f64; audio::reverb::PARAM_COUNT],
     room_mask: u32,
@@ -337,7 +350,7 @@ pub struct Sound {
 impl Sound {
     pub fn new(prepared: Prepared, collision: Collision, world: u32) -> Self {
         let mail = Arc::new(Mailbox::new());
-        let output = Some(LiveOutput { output: Box::new(prepared.output), mail: mail.clone(), next: FRAMES, volume: f32::NAN });
+        let output = Some(LiveOutput { output: Box::new(prepared.output), mail: mail.clone(), next: FRAMES, volume: f32::NAN, headless: false });
         Self {
             ahead: Default::default(),
             volumes: [1.; 6],
@@ -398,6 +411,7 @@ impl Sound {
             space_set: false,
             configuration: 0.,
             pending_config: None,
+            silent_sent: false,
             room: [0.; audio::reverb::PARAM_COUNT],
             room_mask: 0,
             enhanced_items: prepared.enhanced,
@@ -417,6 +431,10 @@ impl Sound {
         if *settings == self.audio && wanted == self.rendering.layout {
             return;
         }
+        self.configure(settings, default, widths);
+    }
+    // Builds the mix configuration for `settings` and hands it to the device.
+    fn configure(&mut self, settings: &super::sound_output::AudioSettings, default: usize, widths: u32) {
         let room = (self.room_mask != 0).then_some((&self.room, self.room_mask));
         let (mut next, rendering) =
             super::sound_output::build(settings, default, widths, room, self.volumes[0].clamp(0., 1.) as f32,
@@ -862,6 +880,16 @@ impl Sound {
         // window wall time for both clocks makes pause/resume schedule audio
         // in a quantum the callback has already consumed.
         let wall = self.mail.clock.load(Ordering::Acquire) as f64 / 48000.;
+        // Back from silence (the master volume was 0, so the device mixed
+        // nothing): a fresh mix configuration, so no reverb tail or limiter
+        // state from before the silence plays; every sound carries on.
+        let volume = self.volumes[0].clamp(0., 1.) as f32;
+        if self.silent_sent && volume > 0. {
+            let (default, widths) = crate::audio::device_channels();
+            let settings = self.audio.clone();
+            self.configure(&settings, default, widths);
+        }
+        self.silent_sent = volume == 0.;
         let runtime = &mut self.runtime;
         let starts = [battle.0[2], battle.0[3]];
         if starts != self.starts {
@@ -1364,6 +1392,7 @@ impl Sound {
         let batch = unsafe { &mut *self.mail.slots[write % QUEUE].get() };
         drop(batch.retired.take());
         batch.freed.clear();
+        let batch = unsafe { &mut *self.mail.slots[write % QUEUE].get() };
         batch.config = self.pending_config.take();
         batch.samples.clear();
         batch.samples.append(&mut arrived);
@@ -1604,7 +1633,7 @@ mod batch_tests {
         }
         assert!(batch.commands.len() <= COMMANDS);
         mail.write.store(1, Ordering::Release);
-        let mut live = LiveOutput { output: Box::new(output), mail, next: 0, volume: 1. };
+        let mut live = LiveOutput { output: Box::new(output), mail, next: 0, volume: 1., headless: false };
         live.quantum();
     }
 }

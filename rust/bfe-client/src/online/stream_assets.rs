@@ -9,6 +9,10 @@ use std::{
     collections::VecDeque,
     io::{Read, Seek, SeekFrom},
     path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
+    },
     sync::mpsc::{channel, sync_channel, Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError, TrySendError},
     time::Duration,
 };
@@ -116,6 +120,23 @@ struct Opus {
     failed: bool,
 }
 impl Opus {
+    // Moves on toward output frame `frame` without decoding what it passes;
+    // the frame the next window starts at.
+    fn skip(&mut self, frame: usize) -> Result<usize, String> {
+        loop {
+            match self.decoder.skip(frame as u64)? {
+                Some(at) => return Ok(at as usize),
+                None => {
+                    if self.at >= self.bytes.len() {
+                        return Err("truncated upscaled segment".into());
+                    }
+                    let end = (self.at + 65536).min(self.bytes.len());
+                    self.decoder.push(&self.bytes[self.at..end], end == self.bytes.len())?;
+                    self.at = end;
+                }
+            }
+        }
+    }
     // The next step that is not a request for input.
     fn step(&mut self, frames: usize) -> Result<audio_decode::Step, String> {
         loop {
@@ -158,7 +179,15 @@ impl audio::streaming::Producer for Opus {
 const WINDOW: usize = 2048;
 const AHEAD: usize = 8;
 const FIRST: usize = 8;
-type Window = Option<(Vec<f32>, usize)>;
+// A window: its PCM, its frames, and the segment frame it starts at.
+type Window = Option<(Vec<f32>, usize, usize)>;
+// While nobody hears a segment the device holds its decoding and says where
+// playback has got to; decoding then picks up from there.
+#[derive(Default)]
+struct Hold {
+    held: AtomicBool,
+    at: AtomicUsize,
+}
 // One upscaled segment decoding ahead of its playback: windows go to the
 // device, and the device hands their buffers back for the next ones.
 struct Job {
@@ -166,6 +195,9 @@ struct Job {
     windows: SyncSender<Window>,
     spare: Receiver<Vec<f32>>,
     held: Option<Window>,
+    hold: Arc<Hold>,
+    // The segment frame the next window starts at.
+    position: usize,
 }
 impl Job {
     // The next window (None at the end), in a buffer the device gave back
@@ -180,12 +212,32 @@ impl Job {
             let mut buffer = spare.try_recv().unwrap_or_default();
             buffer.clear();
             buffer.extend_from_slice(pcm);
-            return Some((buffer, frames));
+            let start = self.position;
+            self.position += frames;
+            return Some((buffer, frames, start));
         }
     }
     // Decodes until the device has AHEAD windows waiting; false once the
-    // segment has ended or the device let it go.
+    // segment has ended or the device let it go. Decodes nothing while the
+    // device holds it, and jumps to where playback got to when let go.
     fn pump(&mut self) -> bool {
+        if self.hold.held.load(Ordering::Acquire) {
+            // The device's end of the hold is gone with the segment.
+            return Arc::strong_count(&self.hold) > 1;
+        }
+        let at = self.hold.at.load(Ordering::Relaxed);
+        if at > self.position + WINDOW {
+            match self.opus.skip(at) {
+                Ok(start) => {
+                    self.position = start;
+                    self.held = None;
+                }
+                Err(err) => {
+                    eprintln!("enhanced audio: an upscaled segment could not skip ahead ({err})");
+                    return false;
+                }
+            }
+        }
         loop {
             let window = match self.held.take() {
                 Some(window) => window,
@@ -205,11 +257,13 @@ impl Job {
     }
 }
 // The decode-ahead thread: every upscaled segment playing, kept AHEAD windows
-// ahead of the device. It looks again every 2 ms (a window lasts 43 ms).
+// ahead of the device. It looks again every 2 ms (a window lasts 43 ms), every
+// 20 ms while the device holds every segment (nobody hears them).
 fn decode_ahead(jobs: Receiver<Job>) {
     let mut live: Vec<Job> = Vec::new();
     loop {
-        match jobs.recv_timeout(Duration::from_millis(if live.is_empty() { 500 } else { 2 })) {
+        let held = live.iter().all(|job| job.hold.held.load(Ordering::Relaxed));
+        match jobs.recv_timeout(Duration::from_millis(if live.is_empty() { 500 } else if held { 20 } else { 2 })) {
             Ok(job) => live.push(job),
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return,
@@ -224,41 +278,81 @@ fn decode_ahead(jobs: Receiver<Job>) {
 // handed over, then those the decode-ahead thread sends. Taking one only
 // moves a buffer; the one before goes back to be decoded into again.
 struct Ahead {
-    first: VecDeque<(Vec<f32>, usize)>,
+    first: VecDeque<(Vec<f32>, usize, usize)>,
     windows: Receiver<Window>,
     spare: SyncSender<Vec<f32>>,
     current: Option<Vec<f32>>,
     ended: bool,
+    hold: Arc<Hold>,
+    // The segment frame the ring wants next.
+    wanted: usize,
     // Buffers the decode-ahead thread no longer takes back (its part has
     // ended): kept, in room reserved beforehand, and freed with the segment
     // off the device thread.
     kept: Vec<Vec<f32>>,
 }
-impl audio::streaming::Producer for Ahead {
-    fn produce(&mut self, frames: usize) -> Option<(&[f32], usize)> {
-        debug_assert!(frames >= WINDOW);
-        if let Some(done) = self.current.take() {
-            if let Err(TrySendError::Full(done) | TrySendError::Disconnected(done)) = self.spare.try_send(done) {
-                if self.kept.len() < self.kept.capacity() {
-                    self.kept.push(done);
-                }
+impl Ahead {
+    // A buffer done with goes back to be decoded into again (or is kept, to be
+    // freed with the segment off the device thread).
+    fn give_back(&mut self, done: Vec<f32>) {
+        if let Err(TrySendError::Full(done) | TrySendError::Disconnected(done)) = self.spare.try_send(done) {
+            if self.kept.len() < self.kept.capacity() {
+                self.kept.push(done);
             }
+        }
+    }
+}
+impl audio::streaming::Producer for Ahead {
+    fn produce(&mut self, _frames: usize) -> Option<(&[f32], usize)> {
+        if let Some(done) = self.current.take() {
+            self.give_back(done);
         }
         if self.ended {
             return None;
         }
-        let (buffer, frames) = match self.first.pop_front() {
-            Some(window) => window,
-            None => match self.windows.try_recv() {
-                Ok(Some(window)) => window,
-                Err(TryRecvError::Empty) => return Some((&[], 0)),
-                Ok(None) | Err(TryRecvError::Disconnected) => {
-                    self.ended = true;
-                    return None;
+        self.hold.held.store(false, Ordering::Release);
+        loop {
+            let (mut buffer, frames, start) = match self.first.pop_front() {
+                Some(window) => window,
+                None => match self.windows.try_recv() {
+                    Ok(Some(window)) => window,
+                    Err(TryRecvError::Empty) => return Some((&[], 0)),
+                    Ok(None) | Err(TryRecvError::Disconnected) => {
+                        self.ended = true;
+                        return None;
+                    }
+                },
+            };
+            // Windows from before a skip are dropped, and the one holding the
+            // frame wanted loses its earlier frames (channel by channel, in place).
+            if start + frames <= self.wanted {
+                self.give_back(buffer);
+                continue;
+            }
+            let cut = self.wanted.saturating_sub(start);
+            let left = frames - cut;
+            if cut > 0 {
+                let channels = buffer.len() / frames;
+                for c in 0..channels {
+                    buffer.copy_within(c * frames + cut..(c + 1) * frames, c * left);
                 }
-            },
-        };
-        Some((self.current.insert(buffer).as_slice(), frames))
+                buffer.truncate(channels * left);
+            }
+            self.wanted = start + frames;
+            return Some((self.current.insert(buffer).as_slice(), left));
+        }
+    }
+    fn skip(&mut self, frame: usize) -> bool {
+        self.hold.at.store(frame, Ordering::Relaxed);
+        self.hold.held.store(true, Ordering::Release);
+        self.wanted = self.wanted.max(frame);
+        while let Some((buffer, ..)) = self.first.pop_front() {
+            self.give_back(buffer);
+        }
+        while let Ok(Some((buffer, ..))) = self.windows.try_recv() {
+            self.give_back(buffer);
+        }
+        true
     }
 }
 /// An upscaled segment, kept compressed and decoded ahead of playback on the
@@ -279,7 +373,8 @@ fn read_variant(variant: &Variant, decode: &Sender<Job>) -> Result<Pcm, String> 
     opus.channels = channels;
     let (windows, from_ahead) = sync_channel(AHEAD);
     let (spare, spares) = sync_channel(AHEAD + FIRST + 4);
-    let mut job = Job { opus, windows, spare: spares, held: None };
+    let hold = Arc::new(Hold::default());
+    let mut job = Job { opus, windows, spare: spares, held: None, hold: hold.clone(), position: 0 };
     let mut first = VecDeque::with_capacity(FIRST);
     let mut ended = false;
     while first.len() < FIRST {
@@ -291,7 +386,7 @@ fn read_variant(variant: &Variant, decode: &Sender<Job>) -> Result<Pcm, String> 
             }
         }
     }
-    let ahead = Ahead { first, windows: from_ahead, spare, current: None, ended: false, kept: Vec::with_capacity(FIRST + AHEAD + 4) };
+    let ahead = Ahead { first, windows: from_ahead, spare, current: None, ended: false, hold, wanted: 0, kept: Vec::with_capacity(FIRST + AHEAD + 4) };
     if ended {
         // Short enough to be decoded whole already: the end follows the windows.
         let _ = job.windows.try_send(None);

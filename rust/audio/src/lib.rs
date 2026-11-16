@@ -11,7 +11,6 @@
 
 pub mod commands;
 pub mod adpcm;
-mod signal;
 mod biquad;
 pub mod clarity;
 pub mod convolution;
