@@ -191,7 +191,7 @@ impl Batch {
 }
 
 #[derive(Clone, Copy, Default)]
-// Fonts.constructor resolves each page to a numeric asset handle once.
+// Fonts.constructor resolves each client to a numeric asset handle once.
 // Bounds are in pen coordinates with y down, while UVs stay in the imported
 // atlas's coordinates. They are not re-normalized against upgraded atlas
 // pixel dimensions, since those atlases preserve the source UV rectangles.

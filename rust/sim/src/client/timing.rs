@@ -36,7 +36,7 @@
 //! one-tick reduction per calm interval for the local/unknown-RTT case.
 //! `capped`: the command was stamped while maxLead held the target below
 //! where the margin put it (target), because the client had not heard from
-//! the world for longer than the cap covers. A page that stalls (a long
+//! the world for longer than the cap covers. A client that stalls (a long
 //! frame) does so on the world's packets too: it draws its next frame
 //! before it has taken all that came, and stamps at the cap over a newest
 //! tick some way behind the world. Those commands land late however wide
@@ -85,7 +85,7 @@
 //!
 //! - The delay is a high percentile (95th) of recent arrival gaps, plus a
 //!   margin, within [minDelay, maxDelay] ticks. One isolated stall must not
-//!   widen the cushion for the whole window the way the maximum did. A page drawing at 20 fps
+//!   widen the cushion for the whole window the way the maximum did. A client drawing at 20 fps
 //!   sees packets three at a time, so its delay settles around 4 to 5. Packets that arrive in bursts
 //!   (a tick that ran long, a garbage-collection pause) widen it; a calm
 //!   stream lets it shrink again.

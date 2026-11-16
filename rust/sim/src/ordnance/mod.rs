@@ -309,7 +309,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
         let b = self.beam(r);
         b.effect_time -= dt;
-        // A beam leaves its ImpactEffect wherever it touches (drawn by a page).
+        // A beam leaves its ImpactEffect wherever it touches (drawn by a client).
         if (hit.is_some() || unit_hit.is_some()) && b.effect_time <= 0.0 {
             b.effect_time = 0.12;
         }

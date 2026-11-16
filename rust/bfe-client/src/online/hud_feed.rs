@@ -50,7 +50,7 @@ const BUILDING_STATE_ID: f64 = 200000.;
 const HUMAN_NAME: &str = "Player 1";
 // killMessage's last name fallback.
 const SOLDIER: &str = "Soldier";
-// A burst of fire from units this page has not built yet is bounded.
+// A burst of fire from units this client has not built yet is bounded.
 const WAITING: usize = 64;
 // isCommandClass: the vehicle bases that are command
 // posts while they live, and how many of them one frame may lose.
@@ -248,7 +248,7 @@ pub struct Feed {
     // Each distinct name is interned once. Keys are the source text, so a
     // repeated name is found without building an uppercase copy.
     texts: HashMap<String, u32>,
-    // Shots whose unit this page does not have yet, with their expiry tick.
+    // Shots whose unit this client does not have yet, with their expiry tick.
     waiting: Vec<(f64, Shot)>,
     // The living command vehicles: each one's life, class and the team it
     // had when last seen, in the battle (epoch) they belong to.
@@ -303,7 +303,7 @@ impl Feed {
         }
     }
 
-    /// MobilePosts.events as a page showing a server's
+    /// MobilePosts.events as a client showing a server's
     /// battle reads it: a command vehicle that was alive and no longer is
     /// has lost its post. Each loss is the team the hull had and its class;
     /// at most four a frame. A new battle forgets the old one's hulls.
@@ -532,7 +532,7 @@ impl Feed {
 
     // noteShot(mount || unit, weapon.def): the radar flashes the shooter's
     // icon for the weapon's ShotDelay. False while a named unit or its
-    // weapon is not on this page yet, as presentEntityEvent returns it.
+    // weapon is not on this client yet, as presentEntityEvent returns it.
     fn shot(&self, hud: &mut impl Sink, shot: &Shot, lookup: &dyn Fn(u32) -> Option<Unit>) -> bool {
         let owner = lookup(shot.owner_id).filter(|unit| shot.owner_id != 0 && unit.generation == shot.owner_generation);
         if shot.owner_id != 0 && owner.is_none() {
@@ -604,7 +604,7 @@ struct Own {
 
 impl Own {
     fn of(receiver: &Receiver) -> Self {
-        // No correction yet means no unit of his own on this page.
+        // No correction yet means no unit of his own on this client.
         let known = receiver.corrections != 0 && receiver.own.id > 0.;
         Self {
             id: if known { receiver.own.id as u32 } else { 0 },
@@ -631,7 +631,7 @@ fn text(texts: &mut HashMap<String, u32>, hud: &mut impl Sink, value: &str) -> u
     id
 }
 
-// game.units.byId(id): a soldier, droideka, vehicle or turret this page has
+// game.units.byId(id): a soldier, droideka, vehicle or turret this client has
 // built. The own player's unit is found even on the frames its soldier
 // record is not indexed; it then has no radar handle, and needs none.
 fn find(receiver: &Receiver, id: u32) -> Option<Unit> {

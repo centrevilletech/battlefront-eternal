@@ -1129,7 +1129,7 @@ fn resting(state: f64) -> f64 {
 }
 
 /// shownGear with followFlightState's view: how far down the gear is
-/// drawn. The hull's own gear where this page steps or corrects its flight
+/// drawn. The hull's own gear where this client steps or corrects its flight
 /// (GEAR_FOLLOW -1, or 0 for his own craft); else its replicated flight
 /// state's, advanced by the frame's dt: held down through the lift, stowed
 /// over TakeoffTime once the craft is TakeoffHeight above where it rests,

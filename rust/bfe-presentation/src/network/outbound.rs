@@ -127,7 +127,7 @@ impl Outbound {
                 // A new life starts with both triggers released, including
                 // a reconnect whose first sample already holds a fire key.
                 if reset {*self=Self::default();self.life=Some(life);}
-                // Add individual samples in source order. A page-side sum
+                // Add individual samples in source order. A client-side sum
                 // would change floating-point cancellation across commands.
                 for look in looks.as_chunks::<2>().0{self.look[0]+=look[0];self.look[1]+=look[1];}
                 let changed=self.held.as_ref().is_some_and(|(last,n)|*n!=length || last[..*n]!=held[..length]);

@@ -2511,7 +2511,7 @@ impl BattleController {
         }
     }
 
-    /// LEAVING BATTLEFIELD (`presentLeaving`): from what the player controls as this page
+    /// LEAVING BATTLEFIELD (`presentLeaving`): from what the player controls as this client
     /// shows him, alive and outside the map's boundary.
     fn present_leaving(&mut self) {
         let (own, tick) = match &self.authority {

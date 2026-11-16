@@ -1,7 +1,7 @@
 //! Water.prepareSurface's draw values and sampler-frame selection.
 //! Real GPU sampler identities enter once after resource registration. Every
 //! view supplies camera/light facts; native retained rows resolve all animated
-//! slots and quality/far rules without page-side record reconstruction.
+//! slots and quality/far rules without client-side record reconstruction.
 use crate::effect_layout::{
     water_reflection as reflection, water_textured as textured, water_tint as tint,
 };

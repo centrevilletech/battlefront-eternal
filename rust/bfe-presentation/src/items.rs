@@ -1,8 +1,8 @@
-//! Item flight, contact and placement for a page online.
+//! Item flight, contact and placement for a client online.
 //!
 //! Ports `EntityItemPresentation` (receive, present, show, seed, step,
 //! reconcile, adopt, draw) and the `Items` helpers it flew with (fly,
-//! contact, settle, place, presentLight). A page online copies the world's
+//! contact, settle, place, presentLight). A client online copies the world's
 //! items from their records: each is flown here by the world's own rules one
 //! 60 Hz tick at a time as the playout clock crosses ticks, and drawn between
 //! the last two at the clock's fraction. Nothing here calls the host, so the

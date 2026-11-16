@@ -1,6 +1,6 @@
 //! DeathShot. The body, killer and drawn view follow
 //! exact critically damped springs on the display clock, never the world tick.
-// The death camera as this page draws it. The world keeps the original's
+// The death camera as this client draws it. The world keeps the original's
 // (DeathCamera) as the camera its Classic AI schedules from;
 // this one is presentation only. It runs on the client in every host (a local
 // battle, a local world thread's, a server's) from what the client draws: the body
@@ -122,7 +122,7 @@ struct FollowTurn {
 }
 // The shorter way round.
 // Where it is, and where the goal went, from the goal's last place.
-// The killer where this page draws him, from the world's record of him
+// The killer where this client draws him, from the world's record of him
 // (DeathCamera.blame): { point (his eyes, or a hull's or turret's), size (m,
 // for framing), living (he has a body now), friendly }, into out, or null.
 // follow: once his life has ended, look for his Character's next body (as

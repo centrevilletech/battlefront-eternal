@@ -662,7 +662,7 @@ impl Ordnance {
     /// then the network projectiles. A frame never fails: a full table drops
     /// what it cannot hold and counts it in the header.
     pub fn present(&mut self) {
-        // A page built against another layout would read garbage rows; it is
+        // A client built against another layout would read garbage rows; it is
         // refused whole and the client reports it, which is a build error.
         let version_ok = self.input[fr::VERSION] == VERSION as f64;
         self.header[hd::VERSION] = VERSION as f64;
@@ -1143,7 +1143,7 @@ impl Ordnance {
         let v3 = |k: usize| Vector3::new(c[k], c[k + 1], c[k + 2]);
         if kind == nk::END {
             let n = &mut self.net[slot as usize];
-            // A terminal for a projectile this page never held, or held in
+            // A terminal for a projectile this client never held, or held in
             // another life, is nothing to end.
             if !n.active || n.generation != c[nc::GENERATION] || n.len == 0 {
                 return;

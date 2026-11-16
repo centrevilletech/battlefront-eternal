@@ -274,7 +274,7 @@ impl Targets {
                 }
                 k::VEHICLE => {
                     // VehicleTarget: the hull's collision box where it is,
-                    // aimed at by its middle. A hull this page has no body
+                    // aimed at by its middle. A hull this client has no body
                     // for is no target.
                     let Some((body, b)) = bodies.hull(key) else { continue };
                     let q = r::QUATERNION;

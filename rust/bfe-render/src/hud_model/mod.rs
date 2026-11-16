@@ -53,7 +53,7 @@
 // - Zoomed in first person, the weapon's scope overlay: a quarter of it per
 //   screen quarter, mirrored about the centre.
 // - Seated (a vehicle's seat, a craft's as any other, or a turret), the
-//   same displays, read from the seat this page knows he holds each frame:
+//   same displays, read from the seat this client knows he holds each frame:
 //   the seat's two channels in the weapons panels, named for the seat
 //   (PILOT, MAIN GUNNER...) when he takes it; his own bar still on top and
 //   what he sits in on the second panel, with a pip per seat of the hull

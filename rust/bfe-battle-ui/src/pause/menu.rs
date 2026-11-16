@@ -248,7 +248,7 @@ pub struct PauseRespawnConfig {
     pub available: bool,
 }
 
-/// Record of a page navigation triggered by `RESTART MISSION`, `QUIT`, or `EXIT TO WINDOWS` (`menu.leaving`).
+/// Record of a client navigation triggered by `RESTART MISSION`, `QUIT`, or `EXIT TO WINDOWS` (`menu.leaving`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LeavingRecord {
     pub url: String,

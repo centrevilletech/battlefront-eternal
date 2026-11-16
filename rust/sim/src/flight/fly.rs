@@ -10,7 +10,7 @@ use crate::vehicles::Hull;
 
 impl Hull {
     /// captureTick's flyer part (captureTick): the frame at the
-    /// tick's start, which a page draws the craft from between ticks
+    /// tick's start, which a client draws the craft from between ticks
     /// (`flightTickQ`). The hulls' captureTick takes the rest.
     pub fn capture_flight_tick(&mut self) {
         if self.flying {

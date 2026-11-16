@@ -1,4 +1,4 @@
-//! SoundControl::drain and AudioOutput::controls without a page or worklet.
+//! SoundControl::drain and AudioOutput::controls without a client or worklet.
 //! Admission runs the Rust control owner from recorded facts. Only its newly
 //! computed commands enter the DSP schedule; reference banks are checks only.
 use audio::{output::Output, FRAMES};

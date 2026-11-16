@@ -381,7 +381,7 @@ impl Arcs {
             let held = (source.channel.is_some() && source.owner_id != 0).then(|| known(source.owner_id, source.owner_generation)).flatten();
             let shooter = held.map(|_| (source.owner_id, source.owner_generation));
             // Lightning.spawn's arguments, as the owner reads them. The owner
-            // never looks the shooter up (FOLLOW_UNIT -1): this page keeps
+            // never looks the shooter up (FOLLOW_UNIT -1): this client keeps
             // him by the bolt's slot and supplies his gun origin each frame.
             let spawn = &mut self.owner.spawn;
             spawn.fill(0.);

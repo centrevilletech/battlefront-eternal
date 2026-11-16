@@ -29,7 +29,7 @@ const STEP: f64 = 1.0 / 60.0;
 const SUBSTEP: f64 = 1.0 / 120.0;
 struct Checkpoint { tick: f64, position: [f64; 3], bytes: [u8; GROUND_BYTES] }
 
-// This owner has battle lifetime but no authoritative lease. A page reconnect
+// This owner has battle lifetime but no authoritative lease. A client reconnect
 // invalidates its identity without replacing immutable class/geometry handles.
 // All mutable rows below are private, even when the canonical hull is borrowed
 // during cold construction. Collision bodies themselves remain world-owned.

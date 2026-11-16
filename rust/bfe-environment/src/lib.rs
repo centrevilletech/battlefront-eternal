@@ -254,7 +254,7 @@ impl EnvironmentPhase {
 
 #[cfg(target_arch = "wasm32")]
 // The module's flat interface. One instance of the module holds one owner's
-// state, so each page owner makes its own instance and its memory is its own;
+// state, so each client owner makes its own instance and its memory is its own;
 // nothing is allocated after it is built.
 mod exports {
     //! The module's flat interface: one instance holds one environment.

@@ -268,7 +268,7 @@ impl ClientPrediction {
         if !same_life { self.presented = frame.authority_tick; }
         self.presented = self.presented.max(frame.authority_tick).max(frame.presented_through);
         self.life = Some(life); self.authority_tick = frame.authority_tick;
-        // Cosmetic admission is a page-frame fact. Replaying ticks cannot
+        // Cosmetic admission is a client-frame fact. Replaying ticks cannot
         // call the renderer or ask JavaScript to admit a predicted projectile.
         // The resulting notice keeps the exact tick, press and barrel identity.
         let mut cosmetic_slots = frame.cosmetic_slots;

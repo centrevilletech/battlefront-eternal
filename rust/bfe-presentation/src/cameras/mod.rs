@@ -220,7 +220,7 @@ impl Phase {
         Some(id)
     }
     // Ports the camera block, including its pre-shake consumers.
-    // This is the only displayed camera advancement for a page frame.
+    // This is the only displayed camera advancement for a client frame.
     // Both camera matrices and inverse/projection matrices are outputs.
     // The host never reconstructs a lens or resolves a camera collision.
     // All candidate inputs are facts from already-owned clocks and poses.

@@ -1,5 +1,5 @@
 //! SnapshotClient's multipart and ACK ownership, beside the retained display
-//! ring. Wire groups use the tested reader above; no baseline becomes a page
+//! ring. Wire groups use the tested reader above; no baseline becomes a client
 //! object and no sampled pose leaves this memory on its way to a display phase.
 use super::*;
 use crate::network_layout::{net_header as h, net_kind as k, net_limits as l, net_record as r};

@@ -399,7 +399,7 @@ fn cosmetic(mut r: Reader, bounds: &[f64; 6], out: &mut Output) -> Result<()> { 
     bytes.put(&[channel]);
     Ok(()) }
 /// Protocol operations are named by PageNetOp, and stream sections retain the
-/// counted format. Every result is consumed before any page callback.
+/// counted format. Every result is consumed before any client callback.
 pub fn run(op: u32, input: &mut Words, out: &mut Output) -> Result<()> { match op { ops::HEADER => {
             let bytes = input.bytes()?;
             let h = header(bytes)?;

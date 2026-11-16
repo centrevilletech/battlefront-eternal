@@ -2468,7 +2468,7 @@ impl ShellHost {
     }
 
     /// Creates a linear-filtered `CLAMP_TO_EDGE` 2D OpenGL texture from raw RGBA8 bytes.
-    /// A page font's coverage as one channel (a quarter of RGBA's memory),
+    /// A client font's coverage as one channel (a quarter of RGBA's memory),
     /// sampled as white with that alpha; mip levels for its smaller sizes.
     pub(super) fn upload_page_font(
         gl: &glow::Context,

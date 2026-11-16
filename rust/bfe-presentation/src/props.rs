@@ -5,7 +5,7 @@
 //! state from fixed records and publishes each posed prop's bones, and
 //! where a creature hangs whom it holds (AnimatedProp.presentHeld). The
 //! world's props are rust/sim battle/animated.rs: both reach the clocks of
-//! bfe_pose::prop, so a page draws a prop as the world steps it.
+//! bfe_pose::prop, so a client draws a prop as the world steps it.
 use crate::layout::{
     prop_body as pb, prop_held as hs, prop_bone as bo, prop_event as pe, prop_foot as pf,
     prop_frame as fr, prop_header as ph, prop_input as pi, prop_limits as lim, prop_output as po,
@@ -163,7 +163,7 @@ pub struct Props {
     traps: Vec<Trap>,
     /// PropFrame, then PropLimits.FEET feet and PropLimits.BODIES bodies.
     pub input: Vec<f64>,
-    /// A PropInput record per prop (the world state a page adopted).
+    /// A PropInput record per prop (the world state a client adopted).
     pub prop_input: Vec<f64>,
     pub prop_output: Vec<f64>,
     pub trap_input: Vec<f64>,
@@ -393,7 +393,7 @@ impl Props {
             let x = &self.prop_input[at..at + pi::STRIDE];
             // AnimatedProp.adopt: the world's latest state of a creature,
             // taken when its clip or start differs from the one shown. The
-            // first a page has stands at once; later ones ease in.
+            // first a client has stands at once; later ones ease in.
             if p.grabs && x[pi::WORLD] != 0.0 && (x[pi::SLOT] != p.slot as f64 || x[pi::STARTED] != p.started) {
                 p.adopted = if p.adopted == Adopted::None { Adopted::First } else { Adopted::Following };
                 p.slot = clamp_slot(x[pi::SLOT]);
@@ -455,7 +455,7 @@ fn clamp_slot(x: f64) -> i32 {
     if x >= 0.0 { x.min(i32::MAX as f64) as i32 } else { -1 }
 }
 
-/// AnimatedProp.presentHeld and heldFrame: where a page draws whom a
+/// AnimatedProp.presentHeld and heldFrame: where a client draws whom a
 /// creature holds, `time` seconds into his hold. Before the tick it took
 /// him (the client draws a little behind the world) he is drawn where his own
 /// record has him (WAITING). Then his body in his grab clip at that time,
@@ -568,7 +568,7 @@ impl Prop {
             dx * dx + dy * dy + dz * dz <= r
         })
     }
-    /// AnimatedProp.step as a page runs it: no one is seized here, so no
+    /// AnimatedProp.step as a client runs it: no one is seized here, so no
     /// grab or swallow. Returns the trigger whose sound plays, or -1.
     fn step(&mut self, clips: &[Clip], dt: f64, feet: &[f64], bodies: &[f64], tick: f64, out: &mut [f64]) -> i32 {
         if self.door {
@@ -631,7 +631,7 @@ impl Prop {
         fired
     }
     /// AnimatedProp.follow: the clip at the world's time for `tick`, eased
-    /// as the world eases it. The first state a page adopts stands at once.
+    /// as the world eases it. The first state a client adopts stands at once.
     fn follow(&mut self, clips: &[Clip], dt: f64, tick: f64, first: bool, out: &mut [f64]) -> bool {
         if self.slot < 0 {
             return false;
