@@ -185,6 +185,7 @@ impl World for Client {
             self.receiver.fault = Some(error);
         }
         self.replay.present(alpha, self.dt);
+        crate::app::trace_own_aim(&self.receiver, &self.sender, &self.replay);
         let mut own = self.receiver.own;
         if let Some(hull) = &self.replay.fleet.state {
             own.position = hull.position;
