@@ -2045,6 +2045,7 @@ impl BattleController {
                     receiver.fault = Some(err);
                 }
                 replay.present(alpha_interp, dt);
+                crate::app::trace_own_aim(receiver, sender, replay);
                 if let Some(hull) = &replay.fleet.state {
                     let offset = replay.fleet.offset();
                     own.position = std::array::from_fn(|i| hull.position[i] + offset[i]);

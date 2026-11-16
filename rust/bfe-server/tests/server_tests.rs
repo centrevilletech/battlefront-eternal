@@ -3479,6 +3479,8 @@ fn budget_limited_client_spawns_and_keeps_getting_whole_snapshots() {
     let mut seconds: Vec<(f64, usize)> = Vec::new(); // (bytes, whole snapshots) per second
     let mut last_own = now;
     let mut longest_own_gap: f64 = 0.;
+    let mut last_whole = now;
+    let mut longest_gap: f64 = 0.;
     let mut spawn_at = None;
     let mut alive_at = None;
     let mut own_after_alive = None;
@@ -3510,6 +3512,11 @@ fn budget_limited_client_spawns_and_keeps_getting_whole_snapshots() {
             }
         }
         if whole {
+            // After the first full snapshot has been paid for (two seconds).
+            if tick > 120 {
+                longest_gap = longest_gap.max(now - last_whole);
+            }
+            last_whole = now;
             seconds[second].1 += 1;
             // The client acknowledges every whole snapshot it received.
             let mut ack = ACK_MAGIC.to_le_bytes().to_vec();
@@ -3535,9 +3542,11 @@ fn budget_limited_client_spawns_and_keeps_getting_whole_snapshots() {
             alive_at = Some(now);
         }
     }
-    eprintln!("state bytes and whole snapshots per second: {seconds:?}");
-    // Skip the first second (the first full snapshot) and the partial last one.
-    for (i, (bytes, whole)) in seconds.iter().enumerate().skip(1).take(seconds.len() - 2) {
+    eprintln!("state bytes and whole snapshots per second: {seconds:?}; longest gap between whole snapshots {longest_gap:.0} ms");
+    // Skipped snapshots are spread out: no hole much longer than a few skipped publications.
+    assert!(longest_gap <= 150., "a {longest_gap:.0} ms hole between whole snapshots");
+    // Skip the first seconds (the first full snapshot) and the partial last one.
+    for (i, (bytes, whole)) in seconds.iter().enumerate().skip(2).take(seconds.len() - 3) {
         assert!(*bytes <= BUDGET * 1.25, "second {i}: {bytes} state bytes against a {BUDGET} budget");
         assert!(*whole >= 2, "second {i}: only {whole} whole snapshots");
     }
@@ -3655,7 +3664,9 @@ impl StartupService {
     }
 
     // Bound each socket operation so a listener blocked on admission fails
-    // within the same three-second startup budget as the Linux CI check.
+    // fast. The Linux CI check holds the service to its three-second startup
+    // budget; this wait only has to outlast a cold process start on a loaded
+    // test machine.
     fn status(&self) -> Result<Value, String> {
         let token =
             fs::read_to_string(self.directory.join("operator-token")).map_err(|e| e.to_string())?;
@@ -3696,7 +3707,7 @@ impl StartupService {
                 "service exited during startup"
             );
             assert!(
-                start.elapsed() < Duration::from_secs(3),
+                start.elapsed() < Duration::from_secs(20),
                 "operator startup timed out: {}",
                 fs::read_to_string(self.directory.join("service.log")).unwrap()
             );

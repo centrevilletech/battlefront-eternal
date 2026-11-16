@@ -2467,3 +2467,19 @@ fn map_shell_key(key: &Key) -> Option<String> {
 fn keycode_to_dom_code(code: KeyCode) -> Option<&'static str> {
     crate::input::keycode_to_dom_code(code)
 }
+
+/// BFE_HUD_TRACE: the server's last corrected aim (and its tick) beside the
+/// aim this client predicts and sends, each drawn frame.
+pub(crate) fn trace_own_aim(receiver: &crate::online::receiver::Receiver, sender: &crate::online::input::Sender, replay: &crate::online::replay::Replay) {
+    static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if !*TRACE.get_or_init(|| std::env::var_os("BFE_HUD_TRACE").is_some()) || !receiver.own.alive {
+        return;
+    }
+    eprintln!(
+        "[aim-own] latest={} corrected={} server=({:.4},{:.4}) sender=({:.4},{:.4}) displayed={:?} server_locks={:?} predicted_locks={:?}",
+        receiver.latest, receiver.own.tick, receiver.own.yaw, receiver.own.pitch, sender.yaw, sender.pitch,
+        replay.displayed.as_ref().map(|b| ((b.aim_yaw * 1e4).round() / 1e4, (b.aim_pitch * 1e4).round() / 1e4)),
+        replay.restored_locks(),
+        replay.weapons().map(|w| (w.lock_target_id, w.lock_generation, (w.lock_elapsed * 100.).round() / 100.)).collect::<Vec<_>>(),
+    );
+}
