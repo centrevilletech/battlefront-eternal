@@ -6,9 +6,10 @@ The port's sound has two modes, switched live in Settings → Audio:
   plays, when and how it plays it: the same sounds from the same archives,
   picked, gated, mixed, and placed by the game's sound library's rules,
   through what the build's OpenAL Soft 1.20.1 output does with them.
-  `docs/formats.md` ("Sound") has the rules. On stereo speakers it plays
-  through the light mix (below): the same mix without the reverb, summed by
-  the Rust output engine. Both modes use Rust for every playback and DSP operation.
+  `docs/formats.md` ("Sound") has the rules. On every output, stereo
+  speakers included, it plays the full original chain: OpenAL Soft's
+  decoder for the layout, the reverb of the listener's space, the dynamics
+  and the limiter. Both modes use Rust for every playback and DSP operation.
 - **Enhanced (2026)** keeps every one of those decisions (which sound, when,
   how loud in the mix, from where) and renders them for a 2026 room: a
   spatial sound stage for headphones, stereo, 5.1, 7.1 and 7.1.4, rooms and
@@ -70,8 +71,9 @@ Settings → Audio (`rust/audio-control`; the defaults are in
 
 - **Sound**: Enhanced (2026 sound stage) or Original (2004), shown as
   ENHANCED and CLASSIC. A first session on a low-end CPU starts on Classic
-  (below, "The light mix"); the row says what Classic is on stereo, and on
-  such a CPU with Enhanced chosen, that Classic is much lighter there.
+  (below, "The light mix (stereo)"). AUDIO DETAILS says what the mode in
+  force plays on the output in force; for Classic on stereo, OPENAL SOFT
+  STEREO DECODER, THE ORIGINAL REVERB.
 - **Output**: Automatic, Headphones (binaural), Stereo speakers, 5.1, 7.1,
   or 7.1.4. Automatic follows the device's channel count: 12 or more is
   7.1.4, 8 to 11 is 7.1, 6 or 7 is 5.1, anything else stereo. Headphones
@@ -182,11 +184,15 @@ What stands in for something:
   its stereo panning: choose Stereo instead.
 - **The limiter.** OpenAL Soft's own output limiter is replaced by the
   master chain's (true peak at −1 dBTP), and the dynamics profile applies
-  to both modes. Home theater leaves the mix as it was. The light mix has a
-  soft clip instead, and the profile is a level there.
+  to both modes. Home theater leaves the mix as it was. The light mix
+  (below, kept as the cheap path and not used now) has a soft clip instead,
+  and the profile is a level there.
 - **Level.** The original mode is raised by the power OpenAL Soft's
-  decoders give a source ahead (1.5 dB on stereo, 3.3 on 5.1, 0.9 on 7.1),
-  so the two modes match in loudness. Nothing else in the mix changes.
+  decoders give a source ahead (3.3 dB on 5.1, 0.9 on 7.1), so the two
+  modes match in loudness. Stereo's 3.2 dB is measured instead: recorded
+  battles on Home theater, where nothing compresses, as loud as Enhanced,
+  which keeps Normal and Night within half a LU as well. Nothing else in
+  the mix changes.
 - **7.1.4** is beyond OpenAL Soft 1.20.1: the original plays 7.1, the
   heights silent.
 - **Playback resampling** follows Chromium's linear interpolation in Rust for
@@ -222,9 +228,16 @@ bots' chatter: the AI's "vo" records stay on the server.
 
 ### The light mix (stereo)
 
-On stereo speakers (and Automatic on a stereo device), Classic uses the
-light mix in `rust/audio (output.rs)`. It keeps the same sound choices,
-distance curve, Doppler, pitch glides and voice ranking.
+Classic on stereo speakers (and Automatic on a stereo device) plays the
+full original chain, as every other layout does: OpenAL Soft's stereo
+decoder, the reverb of the listener's space (Theed and the Dune Sea have
+none; Jabba's Palace, Kamino, Bespin and Endor's bunker do), the dynamics
+and the true-peak limiter. AUDIO DETAILS shows it as OPENAL SOFT STEREO
+DECODER, THE ORIGINAL REVERB.
+
+The light mix stays in `rust/audio (output.rs)` as the cheap path
+(`Output::light`); no setting or device picks it now. It keeps the same
+sound choices, distance curve, Doppler, pitch glides and voice ranking.
 
 - Rust mixes each voice through OpenAL Soft's first-order stereo gains.
   Both gains ease over 15 ms, the initial value applies immediately, and
@@ -234,32 +247,27 @@ distance curve, Doppler, pitch glides and voice ranking.
 - The master applies the original stereo level (+1.5 dB), optional mono,
   the dynamics profile's level (Home theater −8.8 dB, Normal −5.3,
   Night −3.8), the 4097-entry soft-clip curve and master volume.
-- This mode has no reverb or compressor. It uses the same single Rust
-  output worklet as every other mode.
+- It has no reverb, compressor or limiter.
 
-Against the full original output on stereo it drops the reverb of the
-listener's space (Theed and the Dune Sea have none; Jabba's Palace, Kamino,
-Bespin and Endor's bunker do), the dynamics' compression
-(Night no longer narrows the range there), the true-peak limiter, and its
-1.5 ms of lookahead. The rest renders the same: the same 16 moving voices
-through both, aligned for that lookahead, differ by 0.01 dB a channel, the
-residual 47 dB under the signal (the old mixer moved a voice's panning
-within one block, the light mix over 15 ms).
+Against the full chain on stereo it drops the reverb, the dynamics'
+compression (Night no longer narrows the range there), the true-peak
+limiter, and its 1.5 ms of lookahead. The rest renders the same: the same
+16 moving voices through both, aligned for that lookahead, differ by
+0.01 dB a channel, the residual 47 dB under the signal.
 
-On surround and headphones the original keeps OpenAL Soft's output as
-above. Which chain stereo Classic plays is one constant,
-`CLASSIC_STEREO_LIGHT` in `rust/audio (output.rs)`: false gives it the full
-original chain. On the A8 laptop the full chain costs about 0.1 ms more per
-2.67 ms audio block than the light mix. Settings → Audio → Classic, Output Stereo picks the light mix on any
-device.
+Why the full chain on every PC: on the A8 laptop (four cores, Radeon R5) in a
+full bot battle at the Minimum preset, the full chain's worst audio block
+per frame is 0.8 ms at the 99th percentile, against 0.65 ms for the light
+mix, of a 2.67 ms block, and the frame rate is the same (59 frames a
+second with either, three battles each). The chain holds its budget there,
+so nothing switches to the light mix.
 
 A first session (no settings stored) on a low-end CPU starts on Classic:
 four threads or fewer and, as Chromium reports it, 4 GB of memory or less
 (`rust/sim` (`cpu-info`) `lowEndCpu`, `Settings.adoptHardwareDefaults`), which is
 the A8 laptop above and a 2011 quad-core with 4 GB; current PCs keep
 Enhanced. A choice the player makes stays theirs, and settings already
-stored aren't changed: there the SOUND row says that Classic is much
-lighter on that CPU.
+stored aren't changed.
 
 ## The enhanced mode
 
@@ -701,10 +709,12 @@ Things only a person with the hardware can check, in rough order:
    their character, just fuller at the top; anything that sounds smeared,
    metallic, or louder than before is worth a note (the panel lists the
    voices playing; the manifest lists each file with its checks).
-9. **The light mix** (Classic, Output Stereo): on Theed it should sound as
-   the original did on stereo before it (the same levels and placing); on a
-   map whose original space has a reverb (Kamino, Bespin) it is dry. Moving
-   sources should pan smoothly, and the loudest moments shouldn't crackle.
+9. **Classic on stereo** (Classic, Output Stereo): on Theed and the Dune
+   Sea it is dry (their maps have no space); in Jabba's Palace, Kamino's
+   bunker and Bespin each shot has the room's tail, and outdoors on Endor
+   and in Kamino's rain it is dry again. Its loudness should match Enhanced
+   on the same dynamics profile. Moving sources should pan smoothly, and
+   the loudest moments shouldn't crackle.
 10. **Menus and loading**: listen to the initial track starting, rapid menu
     changes during a music dip, track endings and the loading pulses. Leave
     the loading screen during a pulse's end fade; it should end cleanly.

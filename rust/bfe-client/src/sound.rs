@@ -81,7 +81,9 @@ impl SoundOutput {
         }
         let o=&meta["options"];
         if number(&o["channels"])?!=2 || o["headphones"]==true || o["binaural"]==true { return Err("native sound archive requires stereo speakers".into()); }
-        let mut output=Output::new(48000.0,2,o["enhanced"]==true,false,false,o["mono"]==true,cfg!(target_arch="x86_64"));
+        // Archives hold stereo only; Classic ones replay through the light mix, as before.
+        let (enhanced,mono,x86)=(o["enhanced"]==true,o["mono"]==true,cfg!(target_arch="x86_64"));
+        let mut output=if enhanced {Output::new(48000.0,2,true,false,false,mono,x86)} else {Output::light(48000.0,mono,x86)};
         output.reserve_controls(65536);
         let speakers=o["speakers"].as_array().ok_or("missing output speakers")?.iter().map(|s|if s.is_null(){Ok(None)}else{Ok(Some((finite(&s[0])?,finite(&s[1])?)))}).collect::<Result<Vec<_>,String>>()?;
         // Classic speaker layouts carry the same authored decoder matrix as

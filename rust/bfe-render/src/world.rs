@@ -224,6 +224,12 @@ impl<C: HasContext> WorldPass<C> {
         let (state, stats) = (&mut core.state, &mut core.stats);
         let (programs, geometries) = (&mut core.programs, &core.geometries);
         let frustum = &camera.frustum;
+        // Past the view distance's fade end the near shaders paint the far scene's image instead of the
+        // surface, so geometry wholly deeper than that (view depth, as the shaders measure it) changes nothing.
+        let fade = crate::shader::FRAME_MEMBERS.iter().position(|(n, _)| *n == "fade").map(|i| crate::shader::FRAME_OFFSETS[i] + 1);
+        let fade_end = fade.map_or(f64::INFINITY, |at| core.input[at]);
+        let fade_end = if fade_end.is_finite() && fade_end > 0. { fade_end } else { f64::INFINITY };
+        let view = camera.view;
         let light_count = camera.light_count;
         let lights = &core.input[FRAME_LIGHTS..FRAME_LIGHTS + 8 * MAX_LIGHTS];
         let lights32 = &core.frame[FRAME_LIGHTS..FRAME_LIGHTS + 8 * MAX_LIGHTS];
@@ -232,7 +238,7 @@ impl<C: HasContext> WorldPass<C> {
         for &wi in &self.order {
             let w = &mut self.world[wi];
             // three tests a mesh's bounding sphere before it draws any of it.
-            if !w.shown || !frustum.sphere(&w.sphere.0, w.sphere.1) {
+            if !w.shown || !frustum.sphere(&w.sphere.0, w.sphere.1) || sphere_beyond(&view, &w.sphere.0, w.sphere.1, fade_end) {
                 continue;
             }
             let geo = &geometries[w.geometry];
@@ -240,7 +246,7 @@ impl<C: HasContext> WorldPass<C> {
             let mut mask = 0u32;
             if let Some(cells) = &mut w.cells {
                 for (i, (min, max)) in cells.parts.iter().enumerate() {
-                    cells.visible[i] = frustum.aabb(min, max) as u8;
+                    cells.visible[i] = (frustum.aabb(min, max) && !box_beyond(&view, min, max, fade_end)) as u8;
                 }
                 ranges = 0;
                 let (mut start, mut end) = (-1i64, 0u32);
@@ -393,5 +399,34 @@ pub(crate) fn point_lights<C: HasContext>(gl: &C, stats: &mut Stats, program: &m
             program.light_count = n;
             stats.gl_calls += 1;
         }
+    }
+}
+
+// Whether every point of a box lies deeper than `limit` along the view axis (view depth = -view-space z).
+fn box_beyond(view: &[f64; 16], min: &[f64; 3], max: &[f64; 3], limit: f64) -> bool {
+    let forward = [-view[2], -view[6], -view[10]];
+    let mut nearest = -view[14];
+    for k in 0..3 {
+        nearest += forward[k] * if forward[k] > 0. { min[k] } else { max[k] };
+    }
+    nearest > limit
+}
+fn sphere_beyond(view: &[f64; 16], center: &[f64; 3], radius: f64, limit: f64) -> bool {
+    let depth = -(view[2] * center[0] + view[6] * center[1] + view[10] * center[2] + view[14]);
+    depth - radius > limit
+}
+
+#[cfg(test)]
+mod fade_tests {
+    // Looking down -z from the origin (identity view): a box from 300 to 320 m ahead is past a 220 m fade end,
+    // one reaching back to 200 m is not, and one beside the eye at 230 m off-axis but 10 m deep is not.
+    #[test]
+    fn only_geometry_wholly_past_the_fade_end_is_dropped() {
+        let view = [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.];
+        assert!(super::box_beyond(&view, &[-5., -5., -320.], &[5., 5., -300.], 220.));
+        assert!(!super::box_beyond(&view, &[-5., -5., -320.], &[5., 5., -200.], 220.));
+        assert!(!super::box_beyond(&view, &[225., -5., -15.], &[235., 5., -5.], 220.));
+        assert!(super::sphere_beyond(&view, &[0., 0., -300.], 50., 220.) && !super::sphere_beyond(&view, &[0., 0., -300.], 90., 220.));
+        assert!(!super::box_beyond(&view, &[-5., -5., -320.], &[5., 5., -300.], f64::INFINITY));
     }
 }

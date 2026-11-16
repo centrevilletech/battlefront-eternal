@@ -388,7 +388,7 @@ impl Sound {
             // No settings yet: the first set_audio always builds and publishes the output in force.
             audio: super::sound_output::AudioSettings { output: String::new(), ..Default::default() },
             rendering: super::sound_output::Rendering {
-                layout: "stereo", asked: "stereo", channels: 2, enhanced: false, light: true, hrtf: false, binaural: false, lfe: false,
+                layout: "stereo", asked: "stereo", channels: 2, enhanced: false, light: false, hrtf: false, binaural: false, lfe: false,
             },
             device_seen: crate::audio::device_generation(),
             spaces: prepared.spaces,

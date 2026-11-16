@@ -169,20 +169,25 @@ pub struct Output {
     bed_gains: Vec<[[f32; 2]; CHANNELS]>,
     test: Vec<f32>,
 }
-/// Which chain Classic plays on stereo speakers: true, the light mix (no
-/// reverb, compressor or limiter; the cheapest, the documented low-end
-/// design); false, the full original chain the surround layouts use
-/// (OpenAL Soft's stereo decoder, the sub-level's reverb, the dynamics and
-/// the true-peak limiter), which is what the Steam build plays.
-pub const CLASSIC_STEREO_LIGHT: bool = true;
 impl Output {
     // Retains the ported JS/GL call-site signature without an extra wrapper struct.
     #[allow(clippy::too_many_arguments)]
     pub fn new(rate: f64, channels: usize, enhanced: bool, headphones: bool, binaural: bool, mono: bool, x86: bool) -> Self {
+        Self::build(rate, channels, enhanced, headphones, binaural, mono, x86, false)
+    }
+    /// Classic on stereo speakers through the light mix: no reverb, compressor
+    /// or limiter, the cheapest output. Every layout, Classic stereo included,
+    /// otherwise plays the full chain from `new` (on stereo, OpenAL Soft's
+    /// stereo decoder, the reverb of the listener's space, the dynamics and
+    /// the true-peak limiter, as the Steam build plays it).
+    pub fn light(rate: f64, mono: bool, x86: bool) -> Self {
+        Self::build(rate, 2, false, false, false, mono, x86, true)
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn build(rate: f64, channels: usize, enhanced: bool, headphones: bool, binaural: bool, mono: bool, x86: bool, light_mode: bool) -> Self {
         // Match Renderer.build's quality/output combinations, including mono as
         // an output fold rather than a different source layout. Binaural encodes
         // sixteen 3OA feeds internally but still produces two device channels.
-        let light_mode = CLASSIC_STEREO_LIGHT && !enhanced && !headphones && channels == 2;
         let feeds = if binaural { 16 } else { channels };
         let mut voices = Engine::new(rate, VOICES, -3.0103, x86);
         // Classic bypasses the enhanced source lowpass. Source samples, cursor
@@ -278,8 +283,8 @@ impl Output {
                 if lfe >= 0 {
                     master.set_lfe(lfe as usize, 120.0, -3.0103);
                 }
-            } else if center >= 0 {
-                master.set_original(center as usize, original);
+            } else {
+                master.set_original((center >= 0).then_some(center as usize), original);
             }
         }
     }

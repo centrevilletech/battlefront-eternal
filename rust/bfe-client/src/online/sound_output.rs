@@ -103,9 +103,11 @@ fn alsoft(name: &str) -> Option<mixer::Decoder> {
 
 /// Classic's level against Enhanced (dB): what OpenAL Soft's decoders take
 /// from a source ahead, so switching modes compares the sound, not the level.
+/// Stereo's is measured: three recorded battles on Home theater (no
+/// compression) as loud as Enhanced, which holds Normal and Night too.
 fn original_level(name: &str) -> f64 {
     match name {
-        "stereo" => 1.5,
+        "stereo" => 3.2,
         "5.1" => 3.3,
         "7.1" | "7.1.4" => 0.9,
         _ => 0.,
@@ -120,9 +122,10 @@ fn dynamics(name: &str) -> [f64; 6] {
         _ => [-18., 2., 8., 0.025, 0.2, -2.3],
     }
 }
-/// Classic stereo's light mix: the profile is a level ahead of its soft clip,
-/// set so a whole battle plays as loud as Enhanced on the same profile (three
-/// recorded battles each, within half a LU).
+/// The light mix (Output::light, Classic stereo's cheap path, chosen nowhere
+/// now): the profile is a level ahead of its soft clip, set so a whole battle
+/// played as loud as Enhanced on the same profile (three battles each, within
+/// half a LU).
 fn light_level(name: &str) -> f64 {
     match name {
         "home" => -8.8,
@@ -186,6 +189,8 @@ pub fn describe(rendering: &Rendering) -> (String, String) {
         "HRTF (IRCAM)"
     } else if rendering.light {
         "LIGHT MIX (OPENAL SOFT STEREO PANNING)"
+    } else if !rendering.enhanced && rendering.channels == 2 {
+        "OPENAL SOFT STEREO DECODER, THE ORIGINAL REVERB"
     } else if !rendering.enhanced {
         "OPENAL SOFT DECODER AND FRONT STABILIZER"
     } else if rendering.channels == 2 {
@@ -236,12 +241,18 @@ pub fn build(
     let binaural = enhanced && headphones && decoder.is_some();
     let decoder_rows = if !enhanced && !headphones { alsoft(layout.name) } else { None };
     let classic_speakers = decoder_rows.is_some();
+    let rate = 48000.;
+    // Classic on stereo plays the full original chain with its reverb, as
+    // every other layout does; Output::light (the light mix) is the cheap
+    // path, chosen nowhere now: the A8 laptop holds its audio blocks with
+    // the full chain in a full battle at the Minimum preset.
+    let mut output = Output::new(rate, channels, enhanced, headphones, binaural, settings.mono, cfg!(target_arch = "x86_64"));
     let rendering = Rendering {
         layout: layout.name,
         asked: asked(&settings.output, device_default).name,
         channels,
         enhanced,
-        light: !enhanced && layout.name == "stereo" && audio::output::CLASSIC_STEREO_LIGHT,
+        light: output.light_mode,
         hrtf: headphones && !binaural,
         binaural,
         lfe: enhanced && layout.lfe >= 0,
@@ -250,8 +261,6 @@ pub fn build(
     if let Ok(mut r) = RENDERING.lock() {
         *r = Some(rendering);
     }
-    let rate = 48000.;
-    let mut output = Output::new(rate, channels, enhanced, headphones, binaural, settings.mono, cfg!(target_arch = "x86_64"));
     output.reserve_controls(65536);
     let law = if binaural {
         mixer::AMBI3
@@ -314,8 +323,9 @@ mod tests {
     fn each_setting_selects_its_rendering() {
         let s = |enhanced: bool, output: &str| AudioSettings { enhanced, output: output.into(), ..Default::default() };
         let (o, r) = build(&s(false, "stereo"), 2, ALL, None, 1., None);
-        let light = audio::output::CLASSIC_STEREO_LIGHT;
-        assert!(r.light == light && o.light_mode == light && o.master.is_none() == light);
+        // Classic stereo plays the full original chain (master: reverb, dynamics, limiter).
+        assert!(!r.light && !o.light_mode && o.master.is_some() && o.channels == 2);
+        assert!(describe(&r).1.contains("THE ORIGINAL REVERB"));
         let (o, r) = build(&s(true, "stereo"), 2, ALL, None, 1., None);
         assert!(!r.light && o.enhanced && o.master.is_some() && o.channels == 2);
         let (o, r) = build(&s(true, "headphones"), 2, ALL, None, 1., None);
