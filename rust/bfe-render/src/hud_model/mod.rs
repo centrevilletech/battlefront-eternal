@@ -209,6 +209,9 @@ impl Default for RadarState {
 // The model also survives a GPU reset: losing buffers must not wake every
 // panel, forget radar discovery or restart the message feed.
 pub struct HudModel {
+    /// The stats line (frame rate, frame time, size), bottom left, drawn with the HUD so plain play needs no
+    /// interface pass over the battle. Empty: not shown.
+    pub stats_line: Label,
     pub input: Vec<f64>,
     pub batch: Batch,
     pub assets: Vec<Asset>,
@@ -302,6 +305,7 @@ impl HudModel {
             prompt_age: 0.,
             radar: vec![RadarState::default(); MAX_UNITS + 1],
             radar_icons: Vec::with_capacity(450),
+            stats_line: Label::default(),
         }
     }
     // Loading-only methods. Text uses UTF-16 because bitmap lookup in Fonts.draw
@@ -636,6 +640,18 @@ impl HudModel {
 
     // BattleHud.render's own groups. Host layers still draw their independent
     // surfaces around this batch; an overlay that covers HUD emits no groups.
+    // The stats line in the small game font, white over a one-unit shadow, at the bottom left corner where the
+    // browser build's overlay shows it.
+    fn draw_stats_line(&mut self) {
+        if self.stats_line.len == 0 {
+            return;
+        }
+        let m = self.at(0., 1., false);
+        let y = -self.fonts[0].height - 4.;
+        let text = self.stats_line.text();
+        self.fonts[0].draw(&mut self.batch, m, 10., y + 1., text, SHADOW, 0, 1., 1., 0.);
+        self.fonts[0].draw(&mut self.batch, m, 9., y, text, [242. / 255., 239. / 255., 230. / 255., 1.], 0, 1., 1., 0.);
+    }
     pub fn build(&mut self, mode: u32) {
         self.commands();
         self.batch.begin();
@@ -648,6 +664,9 @@ impl HudModel {
         }
         if self.input[H::COVERED] != 0. {
             return;
+        }
+        if mode == 0 {
+            self.draw_stats_line();
         }
         if mode == 1 {
             self.draw_banner();
