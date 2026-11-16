@@ -114,6 +114,9 @@ pub fn identity(path:&Path)->Result<Identity,String>{
         let started=std::time::Instant::now();
         let (server,mut endpoint)=super::prepare_listed(&id,Path::new(&content),&key,"PROBE").expect("prepare");
         eprintln!("PROBE prepared {} in {} ms",server.name,started.elapsed().as_millis());
+        // The client pumps the endpoint only once the battle has loaded: BFE_PROBE_LOAD_MS stands for that load.
+        let load=std::env::var("BFE_PROBE_LOAD_MS").ok().and_then(|v|v.parse::<u64>().ok()).unwrap_or(0);
+        std::thread::sleep(Duration::from_millis(load));let started=std::time::Instant::now();
         while !endpoint.ready(){
             endpoint.pump(&mut |_,_,_,_|{}).expect("pump");
             assert!(started.elapsed()<Duration::from_secs(40),"PROBE FAILED: {:?}",endpoint.waiting_reason());
