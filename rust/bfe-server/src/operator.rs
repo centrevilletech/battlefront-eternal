@@ -435,6 +435,8 @@ impl OperatorHttpServer {
             while !stop_c.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((stream, _)) => {
+                        // Blocking like on Linux: Windows passes the listener's non-blocking mode on.
+                        let _ = stream.set_nonblocking(false);
                         let _ = handle_operator_connection(stream, &token, &store, &control);
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
