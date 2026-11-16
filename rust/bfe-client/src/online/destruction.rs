@@ -218,8 +218,8 @@ fn shape_of(content: &BattleContent, name: &str) -> Option<([f64; 3], [f64; 3], 
 }
 
 impl Destructions {
-    pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], collision: Collision, world: u32, at: usize) -> Result<Self, String> {
-        let defs = bfe_content::defs::Defs::build(&content.content)?;
+    pub async fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], collision: Collision, world: u32, at: usize) -> Result<Self, String> {
+        let defs = content.defs()?;
         let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(7, |t| t.subsec_nanos());
         let mut phase = Box::new(Phase::new(Fx::new(HOT, SMOKE, ARCS), seed));
         let mut names: Vec<String> = Vec::new();
@@ -227,7 +227,11 @@ impl Destructions {
         let mut classes = Vec::new();
         classes.resize_with(defs.registry.classes.len() + 1, || None);
         let cascades = bridge.shadow_cascades();
+        let mut budget = crate::loading_work::Budget::new();
         for class in &defs.classes {
+            if budget.tick().await {
+                bridge.r.core.state.reset();
+            }
             let Some(id) = class.registry_id else { continue };
             let Some(list) = class.record.get("chunks").and_then(Value::as_array).filter(|l| !l.is_empty()) else { continue };
             let mut chunks = Vec::new();
@@ -248,6 +252,8 @@ impl Destructions {
                 classes[id as usize] = Some(Class { chunks, explosion: sound > 0, sound });
             }
         }
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let shadows = cascades > 0;
         let hot = bridge.effect_batch(layout::HOT as u32, 0, shadows, -1, HOT as u32, -1, &[])?;
         let smoke = bridge.effect_batch(layout::SMOKE as u32, 0, shadows, -1, SMOKE as u32, -1, &[])?;
