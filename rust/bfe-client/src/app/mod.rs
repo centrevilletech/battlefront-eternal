@@ -240,6 +240,8 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         Some(&settings.paths.project_root),
     );
     host_cfg.online_consent = settings.player.privacy_notice_accepted;
+    // A hosted game registers with the master this client lists from.
+    host_cfg.master_url = bfe_online::master::resolve_master_url();
     let host_controller =
         HostController::new(host_cfg).map_err(|e| format!("host controller init: {e}"))?;
     if let Err(err) = host_controller.attach() {
