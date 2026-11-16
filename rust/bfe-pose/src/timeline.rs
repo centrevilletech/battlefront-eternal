@@ -20,6 +20,11 @@ pub struct Timeline {
     maximum: usize,
     pub refused: u64,
     presented: Option<f64>,
+    // A body at rest sends nothing. Its last pose, once its snapshot has
+    // left the ring, stays here so the body keeps its place on the playout
+    // clock instead of showing the newest record ahead of it.
+    rest: Vec<f64>,
+    rest_tick: Vec<f64>,
 }
 impl Default for Timeline { fn default() -> Self { Self::new() } }
 impl Timeline {
@@ -30,17 +35,19 @@ impl Timeline {
     pub fn new() -> Self {
         Self { input: vec![0.0;f::STRIDE+lim::ENTITIES*r::STRIDE], output:vec![0.0;lim::ENTITIES*o::STRIDE],
             snapshots:(0..lim::SNAPSHOTS).map(|_|Snapshot { tick:0.0,records:vec![0.0;lim::ENTITIES*r::STRIDE] }).collect(),
-            order:Vec::with_capacity(lim::SNAPSHOTS),entities:Vec::with_capacity(lim::ENTITIES),buckets:vec![usize::MAX;lim::ENTITIES*2],free:Vec::with_capacity(lim::ENTITIES),epoch:0.0,maximum:lim::SNAPSHOTS,refused:0,presented:None }
+            order:Vec::with_capacity(lim::SNAPSHOTS),entities:Vec::with_capacity(lim::ENTITIES),buckets:vec![usize::MAX;lim::ENTITIES*2],free:Vec::with_capacity(lim::ENTITIES),epoch:0.0,maximum:lim::SNAPSHOTS,refused:0,presented:None,
+            rest:vec![0.0;lim::ENTITIES*r::STRIDE],rest_tick:vec![0.0;lim::ENTITIES] }
     }
     // Epoch changes discard history and fire edges together, while retaining
     // the allocation for the next battle state.
-    pub fn reset(&mut self, epoch:f64) { self.epoch=epoch;self.order.clear();self.entities.clear();self.buckets.fill(usize::MAX);self.free.clear();self.output.fill(0.0);self.presented=None; }
+    pub fn reset(&mut self, epoch:f64) { self.epoch=epoch;self.order.clear();self.entities.clear();self.buckets.fill(usize::MAX);self.free.clear();self.output.fill(0.0);self.presented=None;self.rest.fill(0.0); }
     // Removal clears every bracket for this identity. Its reserved slot can
     // safely serve a later generation without exposing an older pose.
     pub fn remove(&mut self,id:f64) {
         let bucket=self.bucket(id);let index=self.buckets[bucket];
         if index==usize::MAX {return;}
         for snapshot in &mut self.snapshots {snapshot.records[index*r::STRIDE+r::VALID]=0.0;}
+        self.rest[index*r::STRIDE+r::VALID]=0.0;
         self.entities[index].id = -1.0;self.entities[index].fire_tick=f64::NEG_INFINITY;self.entities[index].generation = -1.0;
         self.free.push(index);self.buckets[bucket]=usize::MAX;
         // Close this probe cluster instead of retaining tombstones. Long
@@ -62,6 +69,18 @@ impl Timeline {
         while self.buckets[at]!=usize::MAX && self.entities[self.buckets[at]].id!=id {at=(at+1)&mask;}
         at
     }
+    // A snapshot leaving the ring hands each soldier's and droideka's pose
+    // to `rest`. Hulls keep posing their current record once parked.
+    fn retire(&mut self,slot:usize) {
+        let snapshot=&self.snapshots[slot];
+        for (entity,e) in self.entities.iter().enumerate() {
+            let pose=&snapshot.records[entity*r::STRIDE..][..r::STRIDE];
+            if pose[r::VALID]==0.0 || pose[r::ID]!=e.id || pose[r::KIND]==1.0 {continue;}
+            let kept=&mut self.rest[entity*r::STRIDE..][..r::STRIDE];
+            if kept[r::VALID]!=0.0 && kept[r::ID]==e.id && self.rest_tick[entity]>snapshot.tick {continue;}
+            kept.copy_from_slice(pose);self.rest_tick[entity]=snapshot.tick;
+        }
+    }
     /// addSnapshot: later parts merge into a tick. The oldest whole snapshot
     /// is evicted only when a new tick needs its slot. Counts clamp before
     /// any slice, and a full entity store refuses additional identities.
@@ -72,12 +91,12 @@ impl Timeline {
         if epoch>self.epoch {self.reset(epoch);}
         self.maximum=(self.input[f::SNAPSHOTS] as usize).clamp(1,lim::SNAPSHOTS);
         let tick=self.input[f::TICK];if !tick.is_finite() {return;}
-        while self.order.len()>self.maximum {self.order.remove(0);}
+        while self.order.len()>self.maximum {let old=self.order.remove(0);self.retire(old);}
         if self.order.len()>=self.maximum && self.order.first().is_some_and(|&s|tick<self.snapshots[s].tick) {return;}
         // A second part of a tick reuses that whole snapshot. Otherwise its
         // slot is inserted in tick order and the oldest allocation is reused.
         let slot=if let Some(&slot)=self.order.iter().find(|&&s|self.snapshots[s].tick==tick) {slot} else {
-            let slot=if self.order.len()>=self.maximum {self.order.remove(0)} else { (0..lim::SNAPSHOTS).find(|s|!self.order.contains(s)).unwrap_or(0) };
+            let slot=if self.order.len()>=self.maximum {let old=self.order.remove(0);self.retire(old);old} else { (0..lim::SNAPSHOTS).find(|s|!self.order.contains(s)).unwrap_or(0) };
             self.snapshots[slot].tick=tick;self.snapshots[slot].records.fill(0.0);
             let at=self.order.iter().position(|&s|self.snapshots[s].tick>tick).unwrap_or(self.order.len());
             self.order.insert(at,slot);slot
@@ -94,7 +113,7 @@ impl Timeline {
             let bucket=self.bucket(id);
             let entity=if self.buckets[bucket]!=usize::MAX {self.buckets[bucket]} else {
                 let fresh=Entity{id,generation:-1.0,fire_tick:f64::NEG_INFINITY,raw:0.0,total:0.0};
-                let index=if let Some(index)=self.free.pop(){self.entities[index]=fresh;index}else{
+                let index=if let Some(index)=self.free.pop(){self.entities[index]=fresh;self.rest[index*r::STRIDE+r::VALID]=0.0;index}else{
                     if self.entities.len()==lim::ENTITIES {self.refused+=1;continue;}
                     self.entities.push(fresh);self.entities.len()-1
                 };
@@ -134,19 +153,49 @@ impl Timeline {
         for (entity,e) in self.entities.iter().enumerate() {
             let out=&mut self.output[entity*o::STRIDE..][..o::STRIDE];out[o::VALID]=0.0;out[o::ID]=e.id;
             if e.id<0.0 {continue;}
-            let mut a=None;let mut b=None;let mut atick=0.0;let mut btick=0.0;
+            let mut a:Option<&[f64]>=None;let mut b:Option<&[f64]>=None;let mut atick=0.0;let mut btick=0.0;
+            // The newest pose names the life on display: a body is bound to
+            // the newest record's life, so an earlier life's poses are no
+            // longer offered. `hole` is the newest snapshot older than `b`
+            // that came without this unit: it had not changed by then.
+            // `cut` is the newest pose ahead of the clock that the server
+            // marked as a teleport or a seat change. (The mark stays set on
+            // later records of a unit that has not moved since: with no
+            // change of place there is nothing to cut.)
+            let mut life=None;let mut hole=None;let mut cut=None;let mut newer:Option<(&[f64],f64)>=None;
+            let cuts=|older:&[f64],newer:Option<(&[f64],f64)>|newer.is_some_and(|(pose,at)|at>tick && pose[r::DISC]!=0.0 && (0..3).any(|k|older[r::POSITION+k]!=pose[r::POSITION+k]));
             for &slot in self.order.iter().rev() {
                 let snapshot=&self.snapshots[slot];
                 let pose=&snapshot.records[entity*r::STRIDE..][..r::STRIDE];
-                if pose[r::VALID]==0.0 || pose[r::ID]!=e.id {continue;}
-                if snapshot.tick>tick {b=Some(pose);btick=snapshot.tick;continue;}
-                a=Some(pose);atick=snapshot.tick;if b.is_none() {b=Some(pose);btick=atick;}break;
+                if pose[r::VALID]==0.0 || pose[r::ID]!=e.id {if b.is_some()&&hole.is_none() {hole=Some(snapshot.tick);}continue;}
+                let key=(pose[r::GENERATION],pose[r::KIND]);
+                if *life.get_or_insert(key)!=key {break;}
+                if cut.is_none() && cuts(pose,newer) {cut=newer;}
+                newer=Some((pose,snapshot.tick));
+                if snapshot.tick>tick {b=Some(pose);btick=snapshot.tick;hole=None;continue;}
+                a=Some(pose);atick=snapshot.tick;break;
             }
-            let Some(a)=a else {continue;};let mut b=b.unwrap_or(a);
-            // A death, teleport or new life cannot interpolate through the
-            // newer frame. Hold/coast the earlier bracket until it arrives.
-            if b[r::GENERATION]!=a[r::GENERATION] || b[r::KIND]!=a[r::KIND] || b[r::DISC]!=0.0 {b=a;btick=atick;}
-            let blend=if btick>atick {three::clamp((tick-atick)/(btick-atick),0.0,1.0)} else {0.0};
+            if a.is_none() {
+                let kept=&self.rest[entity*r::STRIDE..][..r::STRIDE];
+                if kept[r::VALID]!=0.0 && kept[r::ID]==e.id && life.is_none_or(|key|key==(kept[r::GENERATION],kept[r::KIND])) {if cut.is_none() && cuts(kept,newer) {cut=newer;}a=Some(kept);atick=self.rest_tick[entity];}
+            }
+            // A life whose first pose is still ahead of the clock, and a
+            // teleport or a seat change ahead of it, are shown at that pose
+            // at once and held: the body is where it will next be seen, not
+            // at a place it has already left.
+            let (a,atick,b,btick)=match (cut,a,b) {
+                (Some((pose,at)),_,_)=>(pose,at,pose,at),
+                (None,Some(a),Some(b))=>(a,atick,b,btick),
+                (None,None,Some(b))=>(b,btick,b,btick),
+                (None,Some(a),None)=>(a,atick,a,atick),
+                (None,None,None)=>continue,
+            };
+            // A unit at rest (no speed) that was absent from a later
+            // snapshot stayed where it was until then: its first step or
+            // turn starts at that snapshot, not at its last pose long ago.
+            let still=a[r::VELOCITY]*a[r::VELOCITY]+a[r::VELOCITY+1]*a[r::VELOCITY+1]+a[r::VELOCITY+2]*a[r::VELOCITY+2]<1e-4;
+            let start=if btick>atick && still {hole.unwrap_or(atick)} else {atick};
+            let blend=if btick>start {three::clamp((tick-start)/(btick-start),0.0,1.0)} else {0.0};
             // State 8 is the thrown corpse that still travels. Other dead
             // entities hold their last pose instead of extrapolating it.
             let extra=if btick==atick && tick>=atick && (a[r::HEALTH]>0.0 || a[r::STATE]==8.0) {extrapolate.min(tick-atick)/hz} else {0.0};
@@ -155,7 +204,7 @@ impl Timeline {
             for k in 0..3 {
                 out[o::VELOCITY+k]=a[r::VELOCITY+k]+(b[r::VELOCITY+k]-a[r::VELOCITY+k])*blend;
                 out[o::POSITION+k]=a[r::POSITION+k]+(b[r::POSITION+k]-a[r::POSITION+k])*blend+a[r::VELOCITY+k]*extra;
-                out[o::PATH_VELOCITY+k]=if btick>atick {(b[r::POSITION+k]-a[r::POSITION+k])*hz/(btick-atick)} else if extra>0.0 && tick-atick<extrapolate {a[r::VELOCITY+k]} else {0.0};
+                out[o::PATH_VELOCITY+k]=if btick>start {if tick>=start {(b[r::POSITION+k]-a[r::POSITION+k])*hz/(btick-start)} else {0.0}} else if extra>0.0 && tick-atick<extrapolate {a[r::VELOCITY+k]} else {0.0};
                 out[o::COAST_ORIGIN+k]=a[r::POSITION+k];
             }
             // Hulls use normalized quaternion slerp. Bodies use shortest-arc
@@ -167,8 +216,9 @@ impl Timeline {
             } else {
                 let angle=|a:f64,b:f64,t:f64|a+v8math::atan2(v8math::sin(b-a),v8math::cos(b-a))*t;
                 out[o::YAW]=angle(a[r::YAW],b[r::YAW],blend);out[o::PITCH]=a[r::PITCH]+(b[r::PITCH]-a[r::PITCH])*blend;
-                out[o::YAW_RATE]=if btick>atick {(angle(a[r::YAW],b[r::YAW],1.0)-a[r::YAW])*hz/(btick-atick)} else {0.0};
-                out[o::PITCH_RATE]=if btick>atick {(b[r::PITCH]-a[r::PITCH])*hz/(btick-atick)} else {0.0};
+                let turning=btick>start && tick>=start;
+                out[o::YAW_RATE]=if turning {(angle(a[r::YAW],b[r::YAW],1.0)-a[r::YAW])*hz/(btick-start)} else {0.0};
+                out[o::PITCH_RATE]=if turning {(b[r::PITCH]-a[r::PITCH])*hz/(btick-start)} else {0.0};
                 if a[r::KIND]==2.0 && a[r::MODE]==b[r::MODE] {for key in [r::TIME,r::ROLL,r::LEAN,r::LEGS] {out[key]=a[key]+(b[key]-a[key])*blend;}}
             }
         }
