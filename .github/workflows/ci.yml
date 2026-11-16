@@ -36,7 +36,8 @@ jobs:
       - name: Install Linux audio headers
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libfontconfig1-dev libasound2-dev alsa-utils
+          sudo apt-get install -y --no-install-recommends libfontconfig1-dev libasound2-dev alsa-utils \
+            python3-numpy python3-fonttools python3-pil
 
       - name: Install Rust toolchain
         run: bash build/ci/install-rust.sh

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Native Linux CI gate: formatting check, per-crate clippy (-D warnings),
-# workspace crate test suite, ALSA null-device audio smoke, and CLI/server
-# startup smoke.
+# workspace crate test suite, ALSA null-device audio smoke, CLI/server
+# startup smoke, and the Python tests of the preparation and packaging tools.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -178,5 +178,8 @@ if [[ -f "rust/bfe-server/Cargo.toml" ]]; then
     exit 1
   fi
 fi
+
+echo "==> Step 6: Python tests of the preparation and packaging tools"
+python3 build/ci/python-tests.py
 
 echo "==> Native Linux CI checks passed"
