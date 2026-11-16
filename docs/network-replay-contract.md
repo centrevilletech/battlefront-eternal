@@ -78,7 +78,7 @@ Every authoritative snapshot emitted at `simTick` contains:
      4. If position error `> 0.01m` (`10mm`), velocity error `> 0.05m/s`, or discrete state (`stance`, `alive`, `vehicleId`, `weaponSlot`) differs:
         - Snap local player simulation state to authoritative state at `serverTick`.
         - Re-simulate all buffered local inputs with `seq > lastProcessedInputSeq` through the shared movement & weapon step function (`rust/sim`).
-        - Accumulate visual smoothing offset (`visualErrorOffset`) so the camera/mesh interpolates smoothly over `50–100ms` without affecting simulation coordinates.
+        - Accumulate visual smoothing offset (`visualErrorOffset`) so the camera/mesh interpolates smoothly over `50 to 100ms` without affecting simulation coordinates.
 
 ---
 
