@@ -218,7 +218,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
     // 1. Resolve application data paths and load `DesktopSettings`, `bfe_interface::Settings`,
     //    and `PersistedPlayerSettings`.
     let paths = current_desktop_paths();
-    let settings = AppSettingsStore::load(paths);
+    let mut settings = AppSettingsStore::load(paths);
 
     // 2. Bounded startup update handoff/check before opening the window (<= 1.5s timeout).
     if let UpdateCheckOutcome::UpdateAvailable { version, kind } =
@@ -230,6 +230,10 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
     let adopted = bfe_online::adopt_desktop_profile(&settings.paths.user_data);
     if !adopted.is_empty() {
         eprintln!("adopted from the previous build: {}", adopted.join(", "));
+    }
+    // The consent file records the online notice; the menus read this flag.
+    if bfe_online::default_consent_path().is_some_and(|path| bfe_online::read_online_consent(&path)) {
+        settings.player.privacy_notice_accepted = true;
     }
 
     // 3. Resolve prepared content or start a background `PrepareSession`.
