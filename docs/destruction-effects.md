@@ -57,7 +57,7 @@ The simulation is untouched. It still rolls `ChunkFrequency` with the
 gameplay random stream, still sets off the class explosion (damage, push,
 sound, the AI's explosion event), and still keeps the dead body's hit shapes
 for its linger time. Enhanced reads bodies and settings and draws. It isn't
-built in the headless or worker world, and it never uses the gameplay random
+built in the world (headless, local or on a server), and it never uses the gameplay random
 stream. The only change to the explosion is that its stock `Effect` sprite is
 left out, because Enhanced draws its own blast. Its damage, sound and light
 are unchanged.
