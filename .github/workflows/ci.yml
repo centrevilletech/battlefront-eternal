@@ -9,6 +9,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      package_run_id:
+        description: "Package smoke only: ID of a Release run whose packages to install on clean machines"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -26,6 +32,7 @@ env:
 jobs:
   linux:
     name: Linux Native (x86_64)
+    if: ${{ inputs.package_run_id == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -61,6 +68,7 @@ jobs:
 
   linux-arm64:
     name: Linux Native (arm64)
+    if: ${{ inputs.package_run_id == '' }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     steps:
@@ -111,6 +119,7 @@ jobs:
 
   windows:
     name: Windows Native (x86_64 MSVC)
+    if: ${{ inputs.package_run_id == '' }}
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -164,6 +173,7 @@ jobs:
 
   renderer-smoke-native:
     name: Native Software-GL Renderer Smoke
+    if: ${{ inputs.package_run_id == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -228,4 +238,76 @@ jobs:
           path: |
             renderer-smoke-native.png
             renderer-smoke-native.jsonl
+          if-no-files-found: error
+
+  # Package smoke (workflow_dispatch with package_run_id only): installs a Release run's packages as a
+  # player would on clean hosted machines, starts them, runs the platform smoke on the installed
+  # client, uploads screenshots and logs, and uninstalls.
+  package-smoke-windows:
+    name: Package smoke, Windows installer (${{ matrix.os }})
+    if: ${{ inputs.package_run_id != '' }}
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download the Release run's Windows packages
+        uses: actions/download-artifact@v7
+        with:
+          name: release-windows
+          path: packages
+          run-id: ${{ inputs.package_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Install, start, smoke and uninstall
+        shell: pwsh
+        run: ./build/ci/package-smoke-windows.ps1 -Packages packages -Output package-smoke-${{ matrix.os }}
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-smoke-${{ matrix.os }}
+          path: package-smoke-${{ matrix.os }}/
+          if-no-files-found: error
+
+  package-smoke-linux-arm64:
+    name: Package smoke, Linux ARM64 (Ubuntu 24.04)
+    if: ${{ inputs.package_run_id != '' }}
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download the Release run's ARM64 packages
+        uses: actions/download-artifact@v7
+        with:
+          name: release-linux-arm64
+          path: packages
+          run-id: ${{ inputs.package_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Install, start, smoke and uninstall
+        run: bash build/ci/package-smoke-linux.sh packages package-smoke-linux-arm64
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-smoke-linux-arm64
+          path: package-smoke-linux-arm64/
           if-no-files-found: error
