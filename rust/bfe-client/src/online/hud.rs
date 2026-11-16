@@ -1571,8 +1571,16 @@ impl Hud {
         x[H::MARKER] = 0.;
         let channel = if x[hud_model::WEAPONS + 2 * W::WORDS + W::LOCK] != 0. { 0 } else { 1 };
         x[H::LOCK_CHANNEL] = channel as f64;
+        // The authority's lock arrives a round trip after the aim it was
+        // taken from. The 2004 game keeps a lock only inside the weapon's
+        // release cone about the player's own aim, so the diamond never
+        // stands away from the reticle: a lock that the view has already
+        // left (or not reached yet) is not drawn.
+        let cone = x[hud_model::WEAPONS + (channel + 2) * W::WORDS + W::LOCK_OFF_ANGLE];
         if let Some(lock) = self.locks[channel].filter(|_| x[H::RETICLE] != 0.) {
-            if let Some(point) = hulls.aim_point(lock.key).or_else(|| self.targets.point(lock.key)) {
+            let target = hulls.aim_point(lock.key).or_else(|| self.targets.point(lock.key));
+            let inside = |target: [f64; 3]| point.is_none_or(|aim| cone <= 0. || off_aim(view, aim.point, target).is_some_and(|angle| angle <= cone));
+            if let Some(point) = target.filter(|&target| inside(target)) {
                 let mut inverse = Matrix4::default(); inverse.elements.copy_from_slice(&view.values[16..32]);
                 let mut projection = Matrix4::default(); projection.elements.copy_from_slice(&view.values[..16]);
                 let mut p = three::Vector3::new(point[0], point[1], point[2]);
@@ -1584,6 +1592,17 @@ impl Hud {
                     x[H::MARKER_PROGRESS] = lock.progress;
                 }
             }
+        }
+        // BFE_HUD_TRACE: where the reticle and the lock diamond are drawn,
+        // each frame, with what placed them.
+        static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *TRACE.get_or_init(|| std::env::var_os("BFE_HUD_TRACE").is_some()) {
+            eprintln!(
+                "[hud-aim] ret={} x={:.4} y={:.4} mounted={} vehicle={} project_x={} marker={} mx={:.4} my={:.4} lock={:?}",
+                x[H::RETICLE], x[H::RETICLE_X], x[H::RETICLE_Y], x[H::MOUNT], x[H::VEHICLE],
+                point.is_some_and(|p| p.project_x), x[H::MARKER], x[H::MARKER_X], x[H::MARKER_Y],
+                self.locks[channel].map(|lock| (lock.key, (lock.progress * 100.).round() / 100.)),
+            );
         }
         if self.auto_build {
             bridge.hud_model_update();
@@ -1602,6 +1621,22 @@ fn second_look(low: bool, jetting: bool) -> f64 {
         (true, false) => 1.,
         (true, true) => 2.,
     }
+}
+
+// The angle, in degrees, between two points as seen from the drawn camera:
+// how far a locked target stands from the aim point under the reticle.
+// None when either is behind the camera.
+fn off_aim(view: &crate::scene::View, aim: [f64; 3], target: [f64; 3]) -> Option<f64> {
+    let mut inverse = three::Matrix4::default();
+    inverse.elements.copy_from_slice(&view.values[16..32]);
+    let mut a = three::Vector3::new(aim[0], aim[1], aim[2]);
+    let mut t = three::Vector3::new(target[0], target[1], target[2]);
+    a.apply_matrix4(&inverse);
+    t.apply_matrix4(&inverse);
+    if a.z >= 0. || t.z >= 0. {
+        return None;
+    }
+    Some(a.angle_to(&t).to_degrees())
 }
 
 // Anchors are screen fractions, independent of the HUD's virtual height.
@@ -1737,6 +1772,22 @@ mod tests {
         assert_eq!(second_look(false, false), 0.);
         assert_eq!(second_look(true, false), 1.);
         assert_eq!(second_look(true, true), 2.);
+    }
+
+    #[test]
+    fn a_lock_is_measured_from_the_aim_point_under_the_reticle() {
+        let mut view = crate::scene::View {
+            values: [0.; bfe_render::shader::FRAME_FLOATS],
+        };
+        view.values[16..32].copy_from_slice(&three::Matrix4::default().elements);
+        let aim = [0., 0., -1024.];
+        // 5 m beside a target 100 m out: about 2.9 degrees, inside a 10
+        // degree release cone; 30 m beside it: about 16.7 degrees, outside.
+        let near = off_aim(&view, aim, [5., 0., -100.]).unwrap();
+        let far = off_aim(&view, aim, [30., 0., -100.]).unwrap();
+        assert!((near - 2.862).abs() < 0.01, "{near}");
+        assert!((far - 16.699).abs() < 0.01, "{far}");
+        assert_eq!(off_aim(&view, aim, [0., 0., 10.]), None);
     }
 
     #[test]
