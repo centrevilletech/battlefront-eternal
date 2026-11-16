@@ -94,7 +94,7 @@ fn open_decoder(source: &Source) -> Result<Decoder<Entry>, String> {
     }
     entry.seek(SeekFrom::Start(0)).map_err(fail)?;
     let mut movie = Decoder::new(entry).map_err(|e| e.to_string())?;
-    // The front end plays its movies without sound, as the Electron build does.
+    // The front end plays its movies without sound.
     movie.disable_all_audio();
     Ok(movie)
 }

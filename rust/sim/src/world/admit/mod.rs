@@ -75,11 +75,11 @@ impl Bots {
     }
 }
 impl Options {
-    /// world-hash.mjs: `['rep', 'cis'].includes(side) ? 'cw' : 'gcw'`.
+    /// `['rep', 'cis'].includes(side) ? 'cw' : 'gcw'`.
     pub fn era(&self) -> &'static str {
         if self.side == "rep" || self.side == "cis" { "cw" } else { "gcw" }
     }
-    /// The battle's query, word for word as the page and the harness compose it.
+    /// The battle's query, word for word as the client and the harness compose it.
     pub fn query(&self) -> String {
         let mut query = format!("?map={}&side={}&era={}&ai={}&seed={}", self.map, self.side, self.era(),
             if self.enhanced { "enhanced" } else { "classic" }, self.seed);
@@ -113,7 +113,7 @@ pub struct Handles {
     pub store_source: u32,
 }
 
-/// An admitted battle: what createLocalServer's welcome tells the page and
+/// An admitted battle: what createLocalServer's welcome tells the client and
 /// what the first tick row needs.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Admitted {
@@ -161,7 +161,7 @@ impl std::fmt::Display for AdmitError {
 /// Whether the sequence has bodies. True now that owner construction is wired.
 pub const fn provided() -> bool { true }
 
-/// The unit registry's members (registry.js Units.list) as admission left
+/// The unit registry's members (Units.list) as admission left
 /// them, for the replay driver's comparison with a recorded host's.
 pub fn registry_members(world: &World) -> &[crate::gen::Member] { &world.sim.store.units.list }
 

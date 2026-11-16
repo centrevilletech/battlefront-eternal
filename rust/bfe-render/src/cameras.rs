@@ -1,6 +1,6 @@
 //! Graphics' derived cameras and light inputs, preserving Three's f64 order.
 //! Scene discovery and object visibility remain borrowed facts. No camera
-//! operation walks a registry, changes an actor pose or calls a browser hook.
+//! operation walks a registry, changes an actor pose or calls a client hook.
 pub mod depth_marker;
 #[path="camera_layout.rs"]
 pub mod layout;

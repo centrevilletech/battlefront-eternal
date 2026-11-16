@@ -72,9 +72,6 @@ def ensure_appimagetool(explicit: Path | None = None) -> Path:
     return cached
 
 
-# The one-line summary in the package and the desktop entries.
-SUMMARY = 'Fan-made engine for Star Wars: Battlefront (2004)'
-
 # Preview 331 and older (the Electron builds) registered /usr/bin/battlefront-eternal
 # with update-alternatives. Their removal script runs while this package is
 # upgraded over them, after this package's files are unpacked, and deletes that
@@ -131,9 +128,10 @@ def build_deb(staged_dir: Path, platform: str, version: str, out_dir: Path, repo
             'Recommends: libvulkan1, libx11-6',
             'Maintainer: Battlefront Eternal Contributors <contact@battlefronteternal.com>',
             'Homepage: https://battlefronteternal.com',
-            f'Description: {SUMMARY}',
-            ' Battlefront Eternal plays Star Wars: Battlefront (2004) from your own Steam',
-            ' or GOG copy of the game, and includes its dedicated server (bfeserver).',
+            'Description: Fan-made engine for Star Wars: Battlefront (2004)',
+            ' Battlefront Eternal is a fan-made engine, written in Rust, that plays',
+            ' Star Wars: Battlefront (2004) from the player\'s own Steam or GOG copy.',
+            ' It includes the game client and the dedicated server.',
             '',
         ]
         control_file = debian_dir / 'control'
@@ -178,7 +176,7 @@ def build_appimage(
         appimage_desktop = '\n'.join([
             '[Desktop Entry]',
             'Name=Battlefront Eternal',
-            f'Comment={SUMMARY}',
+            'Comment=Fan-made engine for Star Wars: Battlefront (2004)',
             'Exec=bfe-client %U',
             'Icon=battlefront-eternal',
             'Terminal=false',

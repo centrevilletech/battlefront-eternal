@@ -18,13 +18,13 @@
 //! the viewer's team sees the owner, and goes dark while a change is about to
 //! land; a post whose class has no HoloOdf has none, and one without a
 //! MapTexture (or a MapScale of 0) isn't drawn on the maps. A command vehicle
-//! (the AT-AT, the AT-TE) is a post too while it lives (src/mobile-posts.js):
+//! (the AT-AT, the AT-TE) is a post too while it lives:
 //! all() and owned() count it after the placed posts; it has no capture
 //! region or hologram, and the maps draw it as the vehicle it is.
 //!
 //! A destructible post (a class with MaxHealth: Hoth's shield generator,
 //! Geonosis' Techno Union ships and forward command center, Endor's bunker
-//! control panel) is also a building (src/props.js ObjectivePost). It has
+//! control panel) is also a building (ObjectivePost). It has
 //! no capture region; when the building is destroyed the post goes inactive
 //! for the rest of the battle: no spawns, no bleed
 //! value, no AI objective, off the maps, its hologram dark, and it is

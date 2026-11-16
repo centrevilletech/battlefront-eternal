@@ -72,7 +72,7 @@ pub fn buildings(world: &mut World, cx: &Cx) -> Result<Vec<props::BuildingBindin
             }
             "trap" => {
                 binding.trap = Some(trap(world, cx, desc, &data)?);
-                // LiveObjects.attachTraps (game.js teamOfSide): a trap placed
+                // LiveObjects.attachTraps (teamOfSide): a trap placed
                 // with team 0 belongs to its ResetTeam side's team, the first
                 // mission team whose first class carries that side's prefix.
                 let reset = desc.get("trap").and_then(|t| t.get("resetTeam")).and_then(Value::as_str).filter(|s| !s.is_empty());
@@ -107,7 +107,7 @@ fn vec3(value: Option<&Value>) -> [f64; 3] {
     std::array::from_fn(|i| a.get(i).map_or(0.0, |v| to_number(Some(v))))
 }
 
-/// traps.js Trap's placement facts: the trigger point (TriggerOffset at the
+/// Trap's placement facts: the trigger point (TriggerOffset at the
 /// trigger node at bind, else in the trap's frame), the death effect's
 /// point, the build and trigger clips' lengths, and the pad's sphere where
 /// repair weapons, the AI and blasts find the trap (placePad over the pad
@@ -189,7 +189,7 @@ pub fn hulls(world: &World, cx: &Cx) -> Result<Vec<units::HullBinding>, AdmitErr
         let health_type = settings.and_then(|s| s.get("HealthType")).and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("vehicle").to_lowercase();
         let health = match health_type.as_str() { "person" => 0, "animal" => 1, "droid" => 2, "vehicle" => 3, "building" => 4, _ => 0 };
         // VehicleTarget: an animal is category 1, any other hull 3; its kind
-        // is the class's classifier (seats.js vehicleKind).
+        // is the class's classifier (vehicleKind).
         let category = if health_type == "animal" { 1 } else { 3 };
         let kind = match def.get("base").and_then(Value::as_str).unwrap_or("hover") { "walker" | "commandwalker" => 2.0, "flyer" => 5.0, _ => 6.0 };
         let (member, key) = if plan.prepared { (None, String::new()) } else {

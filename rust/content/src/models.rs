@@ -82,7 +82,7 @@ impl Positions for PartPositions<'_> {
 /// A model: its parts, shared wherever the JavaScript shares the array.
 pub type Model = Rc<Vec<Part>>;
 
-/// Models by name, in insertion order (a JavaScript Map).
+/// Models by name, in insertion order.
 #[derive(Clone, Debug, Default)]
 pub struct ModelMap {
     order: Vec<(String, Model)>,
@@ -131,7 +131,7 @@ fn number(v: Option<&Value>) -> f64 {
     }
 }
 
-/// src/models.js modelPack(records, buffer, indexBuffer).
+/// modelPack(records, buffer, indexBuffer).
 pub fn model_pack(records: Option<&Value>, floats: &[f32], indices: &[u32]) -> Result<ModelMap, String> {
     let mut models = ModelMap::default();
     let records = match records.filter(|r| r.truthy()).and_then(Value::as_object) {

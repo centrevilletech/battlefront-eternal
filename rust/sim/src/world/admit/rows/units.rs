@@ -1,4 +1,4 @@
-//! Unit ownership content from f3-sim.js. Generated records own the boundary
+//! Unit ownership content. Generated records own the boundary
 //! layout; the surrounding admission sequence supplies already allocated ids.
 //! In particular a registry id is never interchangeable with a body slot.
 use super::Call;
@@ -607,7 +607,7 @@ pub fn finish_bound(cx: &mut super::Cx<'_>, hulls: &[HullBinding],
     Ok(calls)
 }
 
-/// game.js presentationLibrary uses last-definition-wins spreads. A later
+/// presentationLibrary uses last-definition-wins spreads. A later
 /// empty emitter list removes an earlier lightning definition of that name.
 pub fn lightning_in<'a>(name: &str, libraries: impl IntoIterator<Item=&'a Value>) -> bool {
     let mut selected=None;
@@ -615,7 +615,7 @@ pub fn lightning_in<'a>(name: &str, libraries: impl IntoIterator<Item=&'a Value>
     selected.and_then(Value::as_array).is_some_and(|defs|defs.iter().any(|def|def.get("lightning").is_some_and(Value::truthy)))
 }
 
-/// HeadlessEffects consumes the same merged authored library as the page:
+/// HeadlessEffects consumes the same merged authored library as the client:
 /// props, common, other sides, the played side, then the vehicle pack.
 pub fn has_lightning(battle: &bfe_content::battle::Battle, name: &str) -> bool {
     let mut libraries=Vec::new();

@@ -1,4 +1,4 @@
-//! HitHistory (runtime/hit-history.js). Samples never move live bodies back
+//! HitHistory. Samples never move live bodies back
 //! in time. Each ring frame retains its entry and shape storage across ticks.
 use crate::gen::{Half, HitShape};
 use crate::units::shapes::{segment_shape, segment_sphere, shape_normal};
@@ -123,7 +123,7 @@ impl<K: Copy + PartialEq> History<K> {
         }
     }
 
-    /// capture (hit-history.js): ask sphere even for an enclosed rider; its
+    /// capture: ask sphere even for an enclosed rider; its
     /// empty strike shape list is separate from the broadphase observation.
     pub fn capture<W: World<Key = K>>(&mut self, tick: u32, world: &mut W) {
         let index = tick as usize % self.frames.len();
@@ -159,7 +159,7 @@ impl<K: Copy + PartialEq> History<K> {
         (self.frames[index].tick == tick).then_some(index)
     }
 
-    /// sample (hit-history.js): keep earlier topology through a stance change;
+    /// sample: keep earlier topology through a stance change;
     /// skip teleports and missing/rebound lives instead of sweeping between them.
     fn sample(&mut self, tick: f64) -> Option<&Frame<K>> {
         if tick.fract() == 0.0 {

@@ -1,4 +1,4 @@
-//! point-lights.js lightsOf/shown and Graphics.syncViewLights retain graph facts.
+//! lightsOf/shown and Graphics.syncViewLights retain graph facts.
 //! Discovery preserves the half-second cache, including detached cached lights.
 use super::{SceneRegistry,NONE,row,flags,bits,index};
 use crate::cameras::{Cameras,layout::{point_change as q,light as p,input as i,camera as c,lens as n,role as r,limit as l}};

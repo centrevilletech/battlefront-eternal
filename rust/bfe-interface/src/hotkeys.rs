@@ -1,11 +1,9 @@
-//! Control tabs, default bindings, key label formatting, and exclusive rebinding
-//! (`src/menus/hotkeys.js`, `src/input.js`, `src/flight/controls.js`,
-//! `src/runtime/network-entity-input.js`).
+//! Control tabs, default bindings, key label formatting, and exclusive rebinding.
 
 use crate::options::say;
 use std::collections::{BTreeMap, HashMap};
 
-/// Metadata for one of the three `CONTROL OPTIONS` tabs (`TABS` in `src/menus/hotkeys.js`).
+/// Metadata for one of the three `CONTROL OPTIONS` tabs (`TABS`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HotkeyTab {
     /// Internal tab identifier (`"infantry"`, `"vehicle"`, or `"starfighter"`).
@@ -16,7 +14,7 @@ pub struct HotkeyTab {
     pub label: &'static str,
 }
 
-/// The three `CONTROL OPTIONS` tabs (`TABS` in `src/menus/hotkeys.js`).
+/// The three `CONTROL OPTIONS` tabs (`TABS`).
 pub const TABS: [HotkeyTab; 3] = [
     // Ground soldier controls (`INFANTRY`).
     HotkeyTab {
@@ -38,7 +36,7 @@ pub const TABS: [HotkeyTab; 3] = [
     },
 ];
 
-/// Fixed mouse-axis movement bindings (`WORLD_AXES` in `src/menus/hotkeys.js`),
+/// Fixed mouse-axis movement bindings (`WORLD_AXES`),
 /// displayed as read-only rows (`disabled: true`) in the infantry and vehicle tables.
 pub const WORLD_AXES: [(&str, &[&str]); 6] = [
     ("Look Up", &["MouseY"]),
@@ -49,20 +47,20 @@ pub const WORLD_AXES: [(&str, &[&str]); 6] = [
     ("Pitch Down", &["MouseY"]),
 ];
 
-/// Reserved keys that cannot be bound to gameplay actions (`RESERVED` in `src/input.js`).
+/// Reserved keys that cannot be bound to gameplay actions (`RESERVED`).
 ///
 /// `Escape` opens the pause menu, `Tab` opens the scoreboard, `F11` toggles fullscreen,
 /// `T`/`Y` open chat, and `F12` is reserved for screenshots/dev tools.
 pub const RESERVED: [&str; 6] = ["Escape", "Tab", "KeyT", "KeyY", "F11", "F12"];
 
 /// Canonical set of 104 bindable DOM `KeyboardEvent.code` and mouse/wheel tokens
-/// (`INPUT_CODES` in `src/runtime/network-entity-input.js` and `BINDABLE` in `src/input.js`).
+/// (`INPUT_CODES` in `src/runtime/network-entity-input.js` and `BINDABLE`).
 #[path = "input_codes.rs"]
 mod input_codes;
 pub use input_codes::INPUT_CODES;
 
 /// Returns `true` if `code` is in [`INPUT_CODES`] and not in [`RESERVED`]
-/// (`bindable(code)` in `src/input.js`).
+/// (`bindable(code)`).
 pub fn bindable(code: &str) -> bool {
     // Reject reserved UI keys and chat keys first, then verify
     // that `code` appears in the canonical `INPUT_CODES` allowlist.
@@ -70,7 +68,7 @@ pub fn bindable(code: &str) -> bool {
 }
 
 /// Converts a raw input code (`"KeyW"`, `"Digit1"`, `"Mouse0"`, `"WheelUp"`) into its
-/// uppercase Battlefront UI display string (`keyName(code)` in `src/menus/hotkeys.js`).
+/// uppercase Battlefront UI display string (`keyName(code)`).
 pub fn key_name(code: &str) -> String {
     // Strip `"Key"` prefix for letter keys (`"KeyA"` -> `"A"`).
     if let Some(letter) = code.strip_prefix("Key") {
@@ -84,7 +82,7 @@ pub fn key_name(code: &str) -> String {
             return digit.to_string();
         }
     }
-    // Format numpad digits as `"KP_INSERT"` (`Numpad0`) or `"KP_1"`..`"KP_9"` (`src/menus/hotkeys.js`).
+    // Format numpad digits as `"KP_INSERT"` (`Numpad0`) or `"KP_1"`..`"KP_9"`.
     if let Some(numpad) = code.strip_prefix("Numpad") {
         if numpad.len() == 1 && numpad.chars().all(|c| c.is_ascii_digit()) {
             return if numpad == "0" {
@@ -94,7 +92,7 @@ pub fn key_name(code: &str) -> String {
             };
         }
     }
-    // Map named special keys, modifiers, punctuation, mouse buttons, and wheel axes (`NAMES` in `src/menus/hotkeys.js`).
+    // Map named special keys, modifiers, punctuation, mouse buttons, and wheel axes (`NAMES`).
     match code {
         // Whitespace & Enter/Escape
         "Space" => "SPACE".to_string(),
@@ -102,7 +100,7 @@ pub fn key_name(code: &str) -> String {
         "NumpadEnter" => "KP_ENTER".to_string(),
         "Escape" => "ESC".to_string(),
         "Tab" => "TAB".to_string(),
-        // Left/Right modifier keys collapse to `"SHIFT"`, `"CONTROL"`, `"ALT"` (`src/menus/hotkeys.js`).
+        // Left/Right modifier keys collapse to `"SHIFT"`, `"CONTROL"`, `"ALT"`.
         "ShiftLeft" | "ShiftRight" => "SHIFT".to_string(),
         "ControlLeft" | "ControlRight" => "CONTROL".to_string(),
         "AltLeft" | "AltRight" => "ALT".to_string(),
@@ -131,7 +129,7 @@ pub fn key_name(code: &str) -> String {
         "Comma" => ",".to_string(),
         "Period" => ".".to_string(),
         "Slash" => "/".to_string(),
-        // Mouse buttons, wheel, and fixed mouse look axes (`NAMES` in `src/menus/hotkeys.js`)
+        // Mouse buttons, wheel, and fixed mouse look axes (`NAMES`)
         "Mouse0" | "MouseLeft" => "MOUSE BUTTON 1".to_string(),
         "Mouse2" | "MouseRight" => "MOUSE BUTTON 2".to_string(),
         "Mouse1" | "MouseMiddle" => "MOUSE BUTTON 3".to_string(),
@@ -145,7 +143,7 @@ pub fn key_name(code: &str) -> String {
 }
 
 /// Formats a slice of key codes as a comma-separated display string
-/// (`keysText(codes)` in `src/menus/hotkeys.js`).
+/// (`keysText(codes)`).
 ///
 /// Deduplicates mapped key names while preserving order (`[...new Set(codes.map(keyName))].join(", ")`),
 /// and returns `""` when `codes` is empty.
@@ -163,7 +161,7 @@ pub fn keys_text<S: AsRef<str>>(codes: &[S]) -> String {
     unique.join(", ")
 }
 
-/// Starfighter binding definition (`FLIGHT_BINDINGS` in `src/flight/controls.js`).
+/// Starfighter binding definition (`FLIGHT_BINDINGS`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FlightBindingDef {
     /// Action identifier in `flightBindings` (`"throttle"`, `"brake"`, `"rollLeft"`, etc.).
@@ -177,7 +175,7 @@ pub struct FlightBindingDef {
 }
 
 /// All 16 starfighter control rows and their default bindings
-/// (`FLIGHT_BINDINGS` in `src/flight/controls.js`).
+/// (`FLIGHT_BINDINGS`).
 pub const FLIGHT_BINDINGS: [FlightBindingDef; 16] = [
     // Increase starfighter engine throttle (`throttle`).
     FlightBindingDef {
@@ -293,10 +291,9 @@ pub const FLIGHT_BINDINGS: [FlightBindingDef; 16] = [
     },
 ];
 
-/// Default flat ground/vehicle bindings (`flatBindings(DEFAULT_BINDINGS)` in `src/input.js`).
+/// Default flat ground/vehicle bindings (`flatBindings(DEFAULT_BINDINGS)`).
 ///
-/// Contains all 24 canonical `axes.*`, `presses.*`, and `holds.*` entries from `DEFAULT_BINDINGS`
-/// in `src/input.js`.
+/// Contains all 24 canonical `axes.*`, `presses.*`, and `holds.*` entries from `DEFAULT_BINDINGS`.
 pub const DEFAULT_FLAT_BINDINGS: [(&str, &[&str]); 24] = [
     // Movement axes (`DEFAULT_BINDINGS.axes`)
     ("axes.forward+", &["KeyW", "ArrowUp"]),
@@ -327,10 +324,10 @@ pub const DEFAULT_FLAT_BINDINGS: [(&str, &[&str]); 24] = [
     ("holds.fireSecondary", &["Mouse2", "AltLeft", "AltRight"]),
 ];
 
-/// Additional default flat bindings (empty in `src/input.js`; retained as a const slice for API compatibility).
+/// Additional default flat bindings (empty; retained as a const slice for API compatibility).
 pub const EXTRA_DEFAULT_FLAT_BINDINGS: [(&str, &[&str]); 0] = [];
 
-/// Builds the complete default ground/vehicle bindings map (`flatBindings()` in `src/input.js`).
+/// Builds the complete default ground/vehicle bindings map (`flatBindings()`).
 ///
 /// Converts [`DEFAULT_FLAT_BINDINGS`] into an owned `BTreeMap<String, Vec<String>>`
 /// used as the baseline for [`player_bindings`] and [`rebind`].
@@ -349,7 +346,7 @@ pub fn flat_bindings() -> BTreeMap<String, Vec<String>> {
 }
 
 /// Merges saved player bindings onto `flat_bindings()`, filtering through [`bindable`]
-/// (`playerBindings(saved)` in `src/input.js`).
+/// (`playerBindings(saved)`).
 ///
 /// Only keys present in [`flat_bindings`] are overridden, and any reserved or unknown
 /// key codes in `saved` are stripped out.
@@ -374,7 +371,7 @@ pub fn player_bindings(
 }
 
 /// Builds the default starfighter bindings map from [`FLIGHT_BINDINGS`]
-/// (`defaultFlightBindings()` in `src/flight/controls.js`).
+/// (`defaultFlightBindings()`).
 pub fn default_flight_bindings() -> BTreeMap<String, Vec<String>> {
     let mut map = BTreeMap::new();
     for entry in FLIGHT_BINDINGS {
@@ -387,7 +384,7 @@ pub fn default_flight_bindings() -> BTreeMap<String, Vec<String>> {
 }
 
 /// Merges saved starfighter bindings onto [`default_flight_bindings`], filtering through [`bindable`]
-/// (`flightBindings(saved)` in `src/flight/controls.js`).
+/// (`flightBindings(saved)`).
 pub fn flight_bindings(
     saved: Option<&BTreeMap<String, Vec<String>>>,
 ) -> BTreeMap<String, Vec<String>> {
@@ -411,7 +408,7 @@ pub fn flight_bindings(
 
 /// Rebinds `action` to `code` (or clears `action` when `code` is `None`), removing `code`
 /// from any other action in the table and returning only the entries that differ from `defaults`
-/// (`rebind(defaults, saved, action, code)` in `src/input.js`).
+/// (`rebind(defaults, saved, action, code)`).
 pub fn rebind(
     defaults: &BTreeMap<String, Vec<String>>,
     saved: Option<&BTreeMap<String, Vec<String>>>,
@@ -467,7 +464,7 @@ pub fn rebind(
 }
 
 /// Schema entry for one row in `INFANTRY_ROWS` or `VEHICLE_ROWS`
-/// (`ROWS.infantry` and `ROWS.vehicle` in `src/menus/hotkeys.js`).
+/// (`ROWS.infantry` and `ROWS.vehicle`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HotkeyRowSpec {
     /// Action key in [`flat_bindings`], or `None` for fixed read-only rows (`Mouse X-Axis`, `ESC`, etc.).
@@ -510,7 +507,7 @@ impl HotkeyRowSpec {
     }
 }
 
-/// The 32 infantry binding rows (`ROWS.infantry` in `src/menus/hotkeys.js`).
+/// The 32 infantry binding rows (`ROWS.infantry`).
 pub const INFANTRY_ROWS: [HotkeyRowSpec; 32] = [
     HotkeyRowSpec::rebindable(
         "holds.firePrimary",
@@ -566,7 +563,7 @@ pub const INFANTRY_ROWS: [HotkeyRowSpec; 32] = [
     HotkeyRowSpec::rebindable("presses.stats", "", "STATS LINE"),
 ];
 
-/// The 19 vehicle binding rows (`ROWS.vehicle` in `src/menus/hotkeys.js`).
+/// The 19 vehicle binding rows (`ROWS.vehicle`).
 pub const VEHICLE_ROWS: [HotkeyRowSpec; 19] = [
     HotkeyRowSpec::rebindable(
         "holds.firePrimary",
@@ -605,7 +602,7 @@ pub const VEHICLE_ROWS: [HotkeyRowSpec; 19] = [
     HotkeyRowSpec::fixed("ifs.controls.General.Pause", "PAUSE MENU", &["ESC"]),
 ];
 
-/// Returns the active key codes for `row` (`bindingCodes(row, bindings)` in `src/menus/hotkeys.js`).
+/// Returns the active key codes for `row` (`bindingCodes(row, bindings)`).
 ///
 /// Fixed rows return their static `row.fixed` slice; rebindable rows look up
 /// `row.action` in `bindings` (or return an empty vector when unbound).
@@ -617,7 +614,7 @@ pub fn binding_codes(row: &HotkeyRowSpec, bindings: &BTreeMap<String, Vec<String
     }
 }
 
-/// Formatted hotkey row returned by [`hotkey_rows`] (`hotkeyRows` in `src/menus/hotkeys.js`).
+/// Formatted hotkey row returned by [`hotkey_rows`] (`hotkeyRows`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HotkeyRow {
     /// Action identifier for rebinding (`None` when the row is a fixed read-only axis).
@@ -631,7 +628,7 @@ pub struct HotkeyRow {
 }
 
 /// Builds the formatted [`HotkeyRow`] list for `tab` (`"infantry"`, `"vehicle"`, or `"starfighter"`)
-/// (`hotkeyRows(tab, bindings, strings)` in `src/menus/hotkeys.js`).
+/// (`hotkeyRows(tab, bindings, strings)`).
 pub fn hotkey_rows(
     tab: &str,
     bindings: &BTreeMap<String, Vec<String>>,
@@ -703,7 +700,7 @@ mod tests {
                 flat_bindings()
             };
             // Flight labels are action names even if ground localization has a
-            // colliding key; the browser deliberately does not translate them.
+            // colliding key; the client deliberately does not translate them.
             let strings =
                 HashMap::from([("ifs.controls.General.ThrottleUp".into(), "IGNORED".into())]);
             for row in hotkey_rows(tab, &bindings, &strings) {

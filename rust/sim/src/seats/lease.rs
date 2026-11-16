@@ -1,17 +1,17 @@
-//! A seat's lease (src/seats.js SeatLease) and the intent its seat freezes
+//! A seat's lease (SeatLease) and the intent its seat freezes
 //! once a batch (SeatInput: latch, take, takeReload).
 //!
-//! The lease is the store's (`gen::SeatLease`, rust/sim/schema/seats.mjs);
+//! The lease is the store's (`gen::SeatLease`, rust/sim/schema/seats.json);
 //! the intent it plays is its unit's (`gen::Intent`, the units' schema) or,
 //! once the AI drives the seat, the seat's own (`SeatIntent`: SeatUnit's,
-//! seats.js blankSeatIntent).
+//! blankSeatIntent).
 
 use super::{or_zero, truthy};
 use crate::gen::{Intent, SeatInput, SeatLease, SeatRole, SeatUnit, Turret, Unit, Vehicle};
 use crate::store::{Ref, Slab};
 use three::Vector3;
 
-/// seats.js seatRole: seat 0 drives; a seat with weapons guns; any other
+/// seatRole: seat 0 drives; a seat with weapons guns; any other
 /// carries. `weapons`: each seat's number of weapons.
 pub fn seat_role(weapons: &[usize], index: usize) -> SeatRole {
     if index == 0 {
@@ -24,7 +24,7 @@ pub fn seat_role(weapons: &[usize], index: usize) -> SeatRole {
     }
 }
 
-/// A fresh SeatInput (seats.js:181): idle until the first batch, its aim
+/// A fresh SeatInput: idle until the first batch, its aim
 /// straight ahead.
 pub fn idle_input() -> SeatInput {
     SeatInput {
@@ -48,7 +48,7 @@ pub fn idle_input() -> SeatInput {
 }
 
 /// `new SeatLease({ unit, human, team, vehicle, turret, index, role, time,
-/// tick })` (seats.js:87): `unit` with the generation it is granted to.
+/// tick })`: `unit` with the generation it is granted to.
 #[allow(clippy::too_many_arguments)]
 pub fn new_lease(unit: Option<(Ref<Unit>, f64)>, human: bool, team: f64, vehicle: Option<Ref<Vehicle>>, turret: Option<Ref<Turret>>, index: f64, role: SeatRole, time: f64, tick: f64) -> SeatLease {
     new_lease_with_input(unit,human,team,vehicle,turret,index,role,time,tick,idle_input())
@@ -76,7 +76,7 @@ pub fn new_lease_with_input(unit: Option<(Ref<Unit>, f64)>, human: bool, team: f
     }
 }
 
-/// SeatLease.live (seats.js:132): not let go, and (for a bot) the same life
+/// SeatLease.live: not let go, and (for a bot) the same life
 /// of its unit, alive, still sitting here.
 pub fn live(lease: &SeatLease, me: Ref<SeatLease>, units: &Slab<Unit>) -> bool {
     if lease.released {
@@ -94,7 +94,7 @@ pub fn network_human(u: &Unit) -> bool {
     u.network_human == Some(true)
 }
 
-/// boarding.js personLease: a person's lease (the player's, or a network
+/// personLease: a person's lease (the player's, or a network
 /// human's) rather than a bot's.
 pub fn person_lease(lease: &SeatLease, units: &Slab<Unit>) -> bool {
     lease.human || lease.unit.and_then(|r| units.get(r)).is_some_and(network_human)
@@ -109,7 +109,7 @@ pub struct SeatControl {
     pub intent: SeatIntent,
 }
 
-/// A seat's own intent (seats.js blankSeatIntent): the units' intent
+/// A seat's own intent (blankSeatIntent): the units' intent
 /// without the jet's direction, with the vehicle fields brake, up and down.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SeatIntent {
@@ -132,14 +132,14 @@ pub struct SeatIntent {
     pub brake: bool,
     pub up: f64,
     pub down: f64,
-    /// What the AI's craft steering adds (src/ai/classic/vehicles/steering.js).
+    /// What the AI's craft steering adds.
     pub trick: bool,
     pub immelmann: bool,
     pub boost: bool,
 }
 
 /// What SeatInput.latch reads of an intent and clears in it: a unit's or a
-/// seat's (`lease.intent`, seats.js:125).
+/// seat's (`lease.intent`).
 pub trait PlayIntent {
     fn forward(&self) -> f64;
     fn right(&self) -> f64;
@@ -159,7 +159,7 @@ pub trait PlayIntent {
     fn boost(&self) -> bool;
     /// `Boolean(intent.use || intent.exit)`.
     fn exit_edge(&self) -> bool;
-    /// The edges a seat takes or drops (seats.js:224-226).
+    /// The edges a seat takes or drops.
     fn clear_edges(&mut self);
 }
 
@@ -279,7 +279,7 @@ impl PlayIntent for SeatIntent {
     }
 }
 
-/// seats.js clamp: `v < lo ? lo : v > hi ? hi : v`.
+/// clamp: `v < lo ? lo : v > hi ? hi : v`.
 #[inline(always)]
 fn clamp(v: f64, lo: f64, hi: f64) -> f64 {
     if v < lo {
@@ -291,7 +291,7 @@ fn clamp(v: f64, lo: f64, hi: f64) -> f64 {
     }
 }
 
-/// SeatInput.latch (seats.js:201): freezes the intent for this batch. Held
+/// SeatInput.latch: freezes the intent for this batch. Held
 /// analogs and buttons are copied; edges are taken from the intent (cleared
 /// there) so they happen once; the edges a seat has no use for are dropped.
 /// `aim_limit`: a network human at a turret turns at up to 16, anyone else
@@ -326,21 +326,21 @@ pub fn latch(input: &mut SeatInput, was: &mut [f64; 2], intent: &mut dyn PlayInt
     intent.clear_edges();
 }
 
-/// SeatInput.take (seats.js:231): a trigger press, once.
+/// SeatInput.take: a trigger press, once.
 pub fn take(input: &mut SeatInput, channel: usize) -> bool {
     let pressed = input.pressed[channel];
     input.pressed[channel] = false;
     pressed
 }
 
-/// SeatInput.takeReload (seats.js:237).
+/// SeatInput.takeReload.
 pub fn take_reload(input: &mut SeatInput) -> bool {
     let reload = input.reload;
     input.reload = false;
     reload
 }
 
-/// The intent a lease plays (seats.js:125): its seat's own when a controller
+/// The intent a lease plays: its seat's own when a controller
 /// drives the seat, else its unit's.
 pub enum Played<'a> {
     Seat(&'a mut SeatIntent),

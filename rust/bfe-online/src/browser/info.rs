@@ -1,7 +1,5 @@
 //! Server compatibility, battle query sanitization, country/flag resolution,
-//! sponsor sanitization, and `GAME INFO` panel description
-//! (`src/shell/server-browser.js`, `src/shell/server-browser-view.js`,
-//! `src/runtime/battle-query.js`).
+//! sponsor sanitization, and `GAME INFO` panel description.
 
 use std::collections::BTreeMap;
 
@@ -10,7 +8,7 @@ use super::{
     SponsorInfo,
 };
 
-// Ports `compatible(server, contract)` in `src/shell/server-browser.js`:
+// Ports `compatible(server, contract)`:
 //   (server?.simulation ?? contract.simulation) === contract.simulation &&
 //   (server?.protocol ?? contract.protocol) === contract.protocol
 // Also falls back to `server.contract` when a dedicated server nests its
@@ -18,7 +16,7 @@ use super::{
 // Servers that omit both top-level and nested contract metadata default to
 // the client's own contract values so minimal LAN or development beacons are
 // not falsely marked incompatible ("a server that doesn't say is taken at its
-// word" in `src/shell/server-browser.js`).
+// word").
 /// The revision number of a simulation contract name (`"bfe-sim-28"` -> 28).
 pub fn sim_number(sim: &str) -> Option<u32> {
     sim.rsplit('-').next()?.parse().ok()
@@ -49,7 +47,7 @@ pub fn compatible(server: &ServerEntry, contract: &ServerContract) -> bool {
     sim == contract.sim && proto == contract.protocol
 }
 
-// Ports `battleParams(query)` from `src/runtime/battle-query.js`: filters a
+// Ports `battleParams(query)`: filters a
 // raw query string down to the first valid occurrence of each allowed battle
 // key (`map`, `side`, `mission`, `era`, `ai`, `seed`, `match`).
 //
@@ -75,7 +73,7 @@ pub fn battle_params(query: Option<&str>) -> String {
             Some((k, v)) => (k, v),
             None => (part, ""),
         };
-        // Matches `!out.has(key)` in `src/runtime/battle-query.js`: the first
+        // Matches `!out.has(key)`: the first
         // valid value for a given key wins and later duplicates are ignored so
         // trailing parameters cannot override an earlier validated setting.
         if seen.iter().any(|existing| existing == k) {
@@ -93,7 +91,7 @@ pub fn battle_params(query: Option<&str>) -> String {
         .join("&")
 }
 
-// Enforces the per-key regexes in `BATTLE_KEYS` from `src/runtime/battle-query.js`:
+// Enforces the per-key regexes in `BATTLE_KEYS`:
 // - `map`, `side`, `mission`: `/^[a-z0-9_-]{1,64}$/i` (alphanumeric, `_`, `-`)
 // - `era`: `/^(cw|gcw)$/` (Clone Wars or Galactic Civil War)
 // - `ai`: `/^(classic|off)$/` (bot fill mode)
@@ -146,10 +144,10 @@ pub fn battle_summary_params(battle: Option<&BattleSummary>) -> BTreeMap<String,
     out
 }
 
-// Ports `errorText(error)` in `src/shell/server-browser.js`: strips the desktop host's
+// Ports `errorText(error)`: strips the desktop host's
 // `"Error invoking remote method '...': "` IPC wrapper prefix and any leading
 // JavaScript error constructor prefix (`"Error: "`, `"TypeError: "`, etc.) so
-// the player sees only the actionable failure sentence in the browser banner.
+// the player sees only the actionable failure sentence in the client banner.
 pub fn error_text(raw: &str) -> String {
     let mut s = raw.trim();
     if let Some(rest) = s.strip_prefix("Error invoking remote method '") {
@@ -202,7 +200,7 @@ pub fn map_name(id: &str, maps: &[MapCatalogEntry]) -> String {
     }
 }
 
-// Ports `uptimeText(seconds)` in `src/shell/server-browser-view.js`: formats a
+// Ports `uptimeText(seconds)`: formats a
 // server's uptime in seconds into compact `"XD YH"`, `"XH YM"`, or `"XM"` text
 // for the `UP FOR` fact in `GAME INFO`, clamping sub-minute uptimes to `"1M"`.
 pub fn uptime_text(seconds: Option<u64>) -> String {
@@ -221,7 +219,7 @@ pub fn uptime_text(seconds: Option<u64>) -> String {
     }
 }
 
-// Ports `countryOf(location)` in `src/shell/server-browser-view.js`
+// Ports `countryOf(location)`
 // (`/,\s*([A-Z]{2})$/.exec(String(location || "").trim())?.[1] || ""`, e.g.
 // `"Alabama, US"` -> `"US"`), and falls back to `server.country` when the
 // master or server provides an explicit two-letter ISO 3166-1 alpha-2 code.
@@ -240,7 +238,7 @@ pub fn country_of(server: &ServerEntry) -> String {
     String::new()
 }
 
-// Ports `flagOf(location)` in `src/shell/server-browser-view.js`: maps a
+// Ports `flagOf(location)`: maps a
 // two-letter uppercase ISO country code (either passed directly as `"US"` or
 // extracted from the trailing `", US"` suffix of a location string) to its pair
 // of Unicode Regional Indicator Symbol letters (`U+1F1E6`..=`U+1F1FF`).
@@ -280,7 +278,7 @@ fn is_two_ascii_upper(s: &str) -> bool {
     s.len() == 2 && s.bytes().all(|b| b.is_ascii_uppercase())
 }
 
-// Ports `quality(ms)` signal bar levels in `src/shell/server-browser-view.js`:
+// Ports `quality(ms)` signal bar levels:
 // 4 bars (`Good`) under 60ms, 3 (`Fair`) under 100ms, 2 (`Slow`) under 160ms,
 // 1 (`Poor`) at or above 160ms, and 0 (`Dead`, displayed as `"-"`) when no TCP
 // probe answered.
@@ -295,7 +293,7 @@ pub fn ping_quality(latency_ms: Option<u32>) -> (PingQuality, String) {
 }
 
 // Validates and formats optional hosting sponsor attribution for the `GAME INFO`
-// panel (`"Hosting Generously Donated By"` in `src/shell/server-browser-view.js`).
+// panel (`"Hosting Generously Donated By"`).
 // Trims and caps the operator-supplied sponsor name to 60 characters and
 // restricts both site and logo URLs to clean `https://` links without embedded
 // credentials or whitespace.
@@ -327,8 +325,7 @@ pub fn clean_sponsor(raw: Option<&RawSponsor>) -> Option<SponsorInfo> {
 // Sanitizes an untrusted sponsor URL into a canonical `https://` `href` and a
 // compact human-readable `display` label (`hostname + pathname + " ↗"`, with
 // leading `"www."` and trailing `"/"` stripped, matching
-// `site.hostname.replace(/^www\./, "") + site.pathname.replace(/\/$/, "")`
-// in `src/shell/server-browser-view.js`).
+// `site.hostname.replace(/^www\./, "") + site.pathname.replace(/\/$/, "")`).
 // Rejects non-HTTPS schemes, URLs over 240 bytes, userinfo (`@`), and
 // whitespace so sponsor links cannot execute `javascript:`/`data:` URIs or
 // spoof hostnames.
@@ -377,7 +374,7 @@ fn clean_https_url(value: &str) -> Option<(String, String)> {
     Some((href, display))
 }
 
-// Ports `ServersView.describe(server)` in `src/shell/server-browser-view.js`:
+// Ports `ServersView.describe(server)`:
 // assembles the complete `GAME INFO` inspector view model for the selected
 // server, including map flyover caption, uppercase mode/era/bot/team chips,
 // the 8 ordered `<dl>` fact pairs (`PLAYERS`, `PING`, `LOCATION`, `NEXT`,
@@ -392,7 +389,7 @@ pub fn describe_server(
     let map_id = battle.map(|b| b.map.as_str()).unwrap_or("");
     // Prefer the server's explicit `battle.mapName` caption when non-empty;
     // otherwise look up the map's display title in `maps` (`server.battle?.mapName
-    // || map?.name || ""` in `src/shell/server-browser-view.js`).
+    // || map?.name || ""`).
     let preview_caption = battle
         .and_then(|b| {
             let trimmed = b.map_name.trim();
@@ -406,7 +403,7 @@ pub fn describe_server(
         .unwrap_or_default();
 
     // Build the 4 optional rule chips shown under the server description in
-    // `src/shell/server-browser-view.js`: mode, era, bot fill policy, and team
+    // mode, era, bot fill policy, and team
     // assignment policy. Top-level server flags take precedence over nested
     // `battle` summary flags when both are present.
     let mut chips = Vec::with_capacity(4);
@@ -478,7 +475,7 @@ pub fn describe_server(
 
     // Compatible servers display `"SIM <number> ✓"` (extracting the simulation
     // revision digits, e.g. `"bfe-sim-1"` -> `"SIM 1 ✓"`), whereas mismatched
-    // servers display `"UPDATE TO JOIN"` (`src/shell/server-browser-view.js`).
+    // servers display `"UPDATE TO JOIN"`.
     let sim_source = server
         .simulation
         .as_deref()
@@ -511,7 +508,7 @@ pub fn describe_server(
 
     // Unanswered TCP latency probes render as `"NO ANSWER"` in `GAME INFO`
     // (`Number.isFinite(server.latencyMs) ? `${server.latencyMs} MS` : "NO ANSWER"`
-    // in `src/shell/server-browser-view.js`), distinct from `"-"` in table rows.
+    //), distinct from `"-"` in table rows.
     let ping_fact = match server.latency_ms {
         Some(ms) => format!("{ms} MS"),
         None => "NO ANSWER".to_string(),
@@ -525,7 +522,7 @@ pub fn describe_server(
     };
 
     // Preserve the exact 8-item `<dl class="bfe-facts">` order expected by the
-    // 3-column `GAME INFO` grid in `src/shell/server-browser-view.js`.
+    // 3-column `GAME INFO` grid.
     let facts = vec![
         (
             "PLAYERS",

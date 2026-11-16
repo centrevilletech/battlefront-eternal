@@ -1,4 +1,4 @@
-//! Launch attribution from ordnance-owner.js. A delayed shot keeps immutable
+//! Launch attribution. A delayed shot keeps immutable
 //! team/Character metadata, while ray exclusion resolves only the same life.
 use crate::gen::{F3OwnerCreated, F3UnitKey, OwnerSnapshot, Store, Unit};
 use crate::store::Ref;

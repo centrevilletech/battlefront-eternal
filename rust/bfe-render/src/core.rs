@@ -1,7 +1,7 @@
 // What every pass of the renderer shares: the GL context (three's, in the
 // page) and its multi-draw, the programs made from three's GLSL, the
-// geometries and textures the page registered, the far scene's image, the
-// inputs the page writes each frame (the frame block's values and the
+// geometries and textures the client registered, the far scene's image, the
+// inputs the client writes each frame (the frame block's values and the
 // passes' records as f64, the drawn soldiers' bones as f32), a frame block
 // for each view, the GL state the passes leave behind them, and the stats of
 // the phase being drawn.
@@ -54,7 +54,9 @@ pub const VIEW_FAR: usize = 1;
 pub const VIEW_FIRST_PERSON: usize = 2;
 pub const VIEW_SPARE: usize = 3;
 pub const VIEW_FAR_MIRROR: usize = 4;
-pub const VIEWS: usize = 5;
+// The near scene's frame block with the actors' own fade (renderer.rs actor_fade).
+pub const VIEW_ACTORS: usize = 5;
+pub const VIEWS: usize = 6;
 // Where the shadow receivers read BfeShadow (shader.rs); BfeFrame is 0.
 pub const SHADOW_BINDING: u32 = 1;
 
@@ -130,7 +132,7 @@ pub(crate) struct Geometry<C: HasContext> {
     pub(crate) short: bool,
 }
 
-// What a phase counts. The first five are what the page has always read
+// What a phase counts. The first five are what the client has always read
 // (the near phase's world and instanced draws, its instances, program
 // switches and GL calls); each pass's draws follow, in pass order.
 #[derive(Default, Clone, Copy)]
@@ -144,7 +146,7 @@ pub struct Stats {
 }
 
 impl Stats {
-    // As a phase returns them to the page.
+    // As a phase returns them to the client.
     pub fn values(&self) -> Vec<u32> {
         let mut v = vec![self.world_draws, self.instance_draws, self.instances, self.program_switches, self.gl_calls];
         v.extend_from_slice(&self.pass_draws);
@@ -372,7 +374,7 @@ pub struct Core<C: HasContext, M: MultiDraw> {
     // Framebuffers of the renderer's own over registered textures (colour,
     // depth), by the texture ids they were made for.
     framebuffers: Vec<(Option<u32>, Option<u32>, C::Framebuffer)>,
-    // The shadow receivers' block (shader.rs BfeShadow): what the page wrote
+    // The shadow receivers' block (shader.rs BfeShadow): what the client wrote
     // (f64, in the block's float layout), as uploaded (f32), its buffer, and
     // the cascades' depth maps (none: shadows off, nothing bound or sent).
     pub shadow_input: Vec<f64>,
@@ -396,7 +398,7 @@ pub struct Core<C: HasContext, M: MultiDraw> {
     pub scene_end_mark: Option<C::Query>,
     pub log: Vec<String>,
     // The first failure a pass met where it cannot return one (a draw run inside
-    // the transparent sort); the phase's end hands it back to the page as its error.
+    // the transparent sort); the phase's end hands it back to the client as its error.
     pub fault: Option<String>, #[cfg(not(target_arch = "wasm32"))] pub canvas_framebuffer: Option<C::Framebuffer>,
     // GL objects the passes made for this renderer and never delete themselves: deleted with the
     // renderer's own (Drop), since the context outlives every battle.
@@ -740,7 +742,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
     }
 
     // A geometry's vertex buffer (its slot) or index given new contents, for
-    // a geometry the page rewrites (the crowd's shadow mesh as its soldiers
+    // a geometry the client rewrites (the crowd's shadow mesh as its soldiers
     // come and go). Its layout stays as made.
     pub fn geometry_buffer_data(&mut self, g: u32, slot: u32, data: &[u8]) {
         let gl = &self.gl;
@@ -818,7 +820,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         self.state.reset();
     }
 
-    // A view's frame block: the page's values (input[0..FRAME_FLOATS]) as
+    // A view's frame block: the client's values (input[0..FRAME_FLOATS]) as
     // three uploads them (f32), into the view's buffer, bound where every
     // program's BfeFrame reads (binding 0).
     pub fn upload_frame(&mut self, view: usize) {
@@ -893,7 +895,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         !self.shadow_maps.is_empty()
     }
 
-    // The shadow block as the page wrote it (f32, as three uploads its
+    // The shadow block as the client wrote it (f32, as three uploads its
     // uniforms), sent and bound where the receivers read it, and the
     // cascades' maps on their units. Nothing while shadows are off.
     pub fn upload_shadow(&mut self) {

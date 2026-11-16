@@ -1,4 +1,4 @@
-//! A hull between the store (`gen::Vehicle`, rust/sim/schema/vehicles.mjs)
+//! A hull between the store (`gen::Vehicle`, rust/sim/schema/vehicles.json)
 //! and the tick's working copy (`Hull`): the store's fields in, its class's
 //! keys from the content (`HullClass`), and what the tick changed back out.
 

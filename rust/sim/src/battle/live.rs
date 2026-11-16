@@ -1,4 +1,4 @@
-//! LiveObjects' blast, repair and target selection (src/props.js).
+//! LiveObjects' blast, repair and target selection.
 //! A target's lifecycle belongs to Building, Trap or Vehicle; this layer
 //! owns traversal, predicates, geometry and callback order.
 use super::props::{Identity, State};

@@ -25,7 +25,7 @@ NUMBERS = (
 )
 # CollisionThreshold and CollisionScale: the speed into a surface that hurts
 # and what each m/s past it costs, each as base, x the contact normal's up and
-# x its forward (src/collision-damage.js). The jet trooper, the dark trooper
+# x its forward. The jet trooper, the dark trooper
 # and the Geonosian set the scale to 0 0 0: they take no fall damage.
 VECTORS = ("PitchLimits", "CollisionThreshold", "CollisionScale")
 STRINGS = (

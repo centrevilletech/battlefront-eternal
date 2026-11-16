@@ -1,6 +1,5 @@
 //! Classic interface geometry, 9-slice containers, tilted plane projection,
 //! word wrapping, flashy title bar intro, and `GameFamily` selector (`src/interface/shapes.js`,
-//! `src/interface/space.js`, `src/interface/surface.js`, `src/interface/flashy.js`,
 //! `src/menus/themes/classic/draw.js`, `MULTIPLAYER.md`).
 
 use std::fmt;
@@ -78,10 +77,10 @@ impl fmt::Display for GameFamilyError {
 
 impl std::error::Error for GameFamilyError {}
 
-/// Fixed horizontal width of the Classic interface plane (`src/interface/space.js` `IW = 1024`).
+/// Fixed horizontal width of the Classic interface plane (`IW = 1024`).
 pub const IW: f64 = 1024.0;
 
-/// Alias for [`IW`] (`1024.0`) matching `W` in `src/scoreboard/classic/layout.js`.
+/// Alias for [`IW`] (`1024.0`) matching `W`.
 pub const W: f64 = IW;
 
 /// Base 4:3 interface height (`768.0`).
@@ -95,20 +94,20 @@ pub const FOV_DEG: f64 = 60.0;
 pub const PLANE: f64 = 886.810_013_475_265_1;
 
 /// Safe-area inset fraction (`0.05` on each side, leaving `0.9` in the middle;
-/// `src/interface/space.js` `SAFE`, `SAFE_SCALE`).
+/// `SAFE`, `SAFE_SCALE`).
 pub const SAFE: f64 = 0.05;
 /// Fraction of the screen inside the 5% safe-area margins (`1.0 - 2.0 * SAFE = 0.9`).
 pub const SAFE_SCALE: f64 = 0.9;
 
 /// Scale factor of the `shell_cube` hologram room (`1.6 / 0.009`,
-/// `src/interface/models.js` `ROOM_SCALE`).
+/// `ROOM_SCALE`).
 pub const ROOM_SCALE: f64 = 1.6 / 0.009;
 
 /// Alias for [`ROOM_SCALE`].
 pub const CUBE_UNITS: f64 = ROOM_SCALE;
 
 /// Scale factor per unit of a spinning faction logo on the interface plane
-/// (`src/interface/models.js` `LOGO_UNITS = 221.3`).
+/// (`LOGO_UNITS = 221.3`).
 pub const LOGO_UNITS: f64 = 221.3;
 
 /// Scale factor per meter of a standing soldier body on the interface plane
@@ -119,10 +118,10 @@ pub const BODY_UNITS: f64 = 0.936 / (0.006 / (1024.0 / 800.0));
 pub const PREVIEW_UNITS: f64 = BODY_UNITS;
 
 /// Scale factor per meter of a standing droideka body (`0.9 * BODY_UNITS`,
-/// `src/interface/models.js` `DROIDEKA_UNITS`).
+/// `DROIDEKA_UNITS`).
 pub const DROIDEKA_UNITS: f64 = 0.9 * BODY_UNITS;
 
-/// Standard RGBA color constants (`src/menus/themes/classic/draw.js`).
+/// Standard RGBA color constants.
 /// Opaque pure white `[1.0, 1.0, 1.0, 1.0]`.
 pub const WHITE: Color = [1.0, 1.0, 1.0, 1.0];
 /// Opaque pure black `[0.0, 0.0, 0.0, 1.0]`.
@@ -132,7 +131,7 @@ pub const GREY: Color = [128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0, 1.0];
 /// Dimmed alpha multiplier (`150 / 255`) for inactive menu and table elements.
 pub const DIMMED: f64 = 150.0 / 255.0;
 
-/// Converts 0..255 RGBA bytes to `[f64; 4]` (`rgba` in `src/menus/themes/classic/draw.js`).
+/// Converts 0..255 RGBA bytes to `[f64; 4]` (`rgba`).
 #[inline]
 pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Color {
     [
@@ -143,19 +142,19 @@ pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Color {
     ]
 }
 
-/// Multiplies a color's alpha by `a` (`tint` in `src/menus/themes/classic/draw.js`).
+/// Multiplies a color's alpha by `a` (`tint`).
 #[inline]
 pub const fn tint(color: Color, a: f64) -> Color {
     [color[0], color[1], color[2], color[3] * a]
 }
 
-/// Scales a color's RGB channels by `k` (`scaled` in `src/menus/themes/classic/draw.js`).
+/// Scales a color's RGB channels by `k` (`scaled`).
 #[inline]
 pub const fn scaled(color: Color, k: f64) -> Color {
     [color[0] * k, color[1] * k, color[2] * k, color[3]]
 }
 
-/// Focused text yellow color whose green follows `a` (`selectedColor` in `src/menus/themes/classic/draw.js`).
+/// Focused text yellow color whose green follows `a` (`selectedColor`).
 #[inline]
 pub fn selected_color(a: f64) -> Color {
     let g = (1.2 * a * 255.0 + 50.0).clamp(100.0, 255.0);
@@ -163,7 +162,7 @@ pub fn selected_color(a: f64) -> Color {
 }
 
 /// Computes the interface height `H` for a window `w x h` pixels
-/// (`src/interface/space.js` `interfaceHeight`).
+/// (`interfaceHeight`).
 ///
 /// At 4:3 (`w = 1024, h = 768`), `H = 768`; at 16:9 (`w = 1280, h = 720`), `H = 576`.
 #[inline]
@@ -172,7 +171,7 @@ pub fn interface_height(w: f64, h: f64) -> f64 {
 }
 
 /// Maps canvas pixel coordinates `(client_x, client_y)` from the top-left corner
-/// into `1024xH` interface units (`src/interface/surface.js` `toInterface`).
+/// into `1024xH` interface units (`toInterface`).
 #[inline]
 pub fn to_interface(
     client_x: f64,
@@ -203,7 +202,7 @@ pub fn rotate_x(a: Matrix, angle: f64) -> Matrix {
     )
 }
 
-/// Builds a rotation matrix in `YXZ` Euler order (`rotation` in `src/menus/themes/classic/index.js`).
+/// Builds a rotation matrix in `YXZ` Euler order (`rotation`).
 #[inline]
 pub fn make_rotation_yxz(rx: f64, ry: f64, rz: f64) -> Matrix {
     let m = rotate_y(IDENTITY, ry);
@@ -226,7 +225,7 @@ pub fn scale_xyz(a: Matrix, sx: f64, sy: f64, sz: f64) -> Matrix {
 }
 
 /// Projects a local point `(x, y, z)` under matrix `m` onto the `1024xH` interface
-/// plane (`src/interface/space.js` `planePoint`).
+/// plane (`planePoint`).
 ///
 /// Transforms `(x, y, z)` into camera space (where the unrotated interface plane sits
 /// at `z = -PLANE`), divides by `-pz` to apply perspective foreshortening, and converts
@@ -240,14 +239,14 @@ pub fn plane_point(m: Matrix, x: f64, y: f64, z: f64, height: f64) -> [f64; 2] {
     [px * k + IW * 0.5, (384.0 - py * k) * (height / 768.0)]
 }
 
-/// Alias for [`plane_point`] at `z = 0.0` (`s.toPlane(m, x, y)` in `src/interface/surface.js`).
+/// Alias for [`plane_point`] at `z = 0.0` (`s.toPlane(m, x, y)`).
 #[inline]
 pub fn to_plane_point(m: &Matrix, x: f64, y: f64, height: f64) -> [f64; 2] {
     plane_point(*m, x, y, 0.0, height)
 }
 
 /// Projects the four corners of `(x0, y0)..(x1, y1)` under `m` onto the interface
-/// plane (`src/menus/themes/classic/draw.js` `corners`).
+/// plane (`corners`).
 #[inline]
 pub fn projected_corners(
     m: Matrix,
@@ -266,7 +265,7 @@ pub fn projected_corners(
 }
 
 /// Point-in-quad test for a convex quad `corners` in either winding order
-/// (`src/interface/shapes.js` `insideQuad`).
+/// (`insideQuad`).
 ///
 /// Checks that the 2D cross product of each directed edge `a -> b` with `a -> (x, y)`
 /// has the same non-zero sign around all four edges of the projected quad.
@@ -291,7 +290,7 @@ pub fn inside_quad(x: f64, y: f64, corners: &[[f64; 2]; 4]) -> bool {
 }
 
 /// Places a 3D interface model at interface point `(x, y)` in the `InterfaceCamera`'s
-/// world space (`src/interface/models.js` `InterfaceCamera.place`).
+/// world space (`InterfaceCamera.place`).
 ///
 /// Because `InterfaceCamera` uses a fixed vertical FOV (`2 * atan(0.75 * tan(PI/6))`)
 /// and adapts horizontally to `aspect`, the X coordinate scales by `0.75 * aspect`
@@ -307,7 +306,7 @@ pub fn place_interface_model(x: f64, y: f64, aspect: f64, height: f64) -> [f64; 
 
 /// Computes the 9-slice pieces `[x0, y0, x1, y1, u0, v0, u1, v1]` of a `w x h`
 /// rectangle centered on `(0, 0)` with `corner`-unit corners and texture cuts
-/// at `0.25` and `0.75` (`src/interface/shapes.js` `nineSlice`).
+/// at `0.25` and `0.75` (`nineSlice`).
 ///
 /// Returns `(pieces, len)` on the stack with zero heap allocations. A side under
 /// `2 * corner` collapses its middle row or column.
@@ -350,7 +349,7 @@ pub fn nine_slice_pieces(w: f64, h: f64, corner: f64) -> ([[f64; 8]; 9], usize) 
     (out, len)
 }
 
-/// Convenience wrapper returning a `Vec<[f64; 8]>` of 9-slice pieces (`nineSlice` in `src/interface/shapes.js`).
+/// Convenience wrapper returning a `Vec<[f64; 8]>` of 9-slice pieces (`nineSlice`).
 pub fn nine_slice(w: f64, h: f64, corner: f64) -> Vec<[f64; 8]> {
     let (pieces, len) = nine_slice_pieces(w, h, corner);
     pieces[..len].to_vec()
@@ -421,7 +420,7 @@ pub fn draw_nine_slice_window(
 }
 
 /// Returns how far below a line's top the deepest glyph in `font` reaches
-/// (`src/interface/fonts.js` `Fonts.glyphHeight`).
+/// (`Fonts.glyphHeight`).
 pub fn glyph_height(font: &Font) -> f64 {
     let mut bottom = font.height;
     for g in font.glyphs.values() {
@@ -432,7 +431,7 @@ pub fn glyph_height(font: &Font) -> f64 {
     bottom
 }
 
-/// Breaks `&str` `text` into lines that fit within `max_width` using `measure` (`wrapLines` in `src/interface/shapes.js`).
+/// Breaks `&str` `text` into lines that fit within `max_width` using `measure` (`wrapLines`).
 pub fn wrap_lines(text: &str, max_width: f64, mut measure: impl FnMut(&str) -> f64) -> Vec<String> {
     let mut out = Vec::new();
     for raw_para in text.split('\n') {
@@ -461,7 +460,7 @@ pub fn wrap_lines(text: &str, max_width: f64, mut measure: impl FnMut(&str) -> f
 
 /// Breaks UTF-16 `text` into lines that fit within `max_width` using `font.width`,
 /// writing `(start, end)` ranges of `text` into `out_ranges` without heap allocation
-/// (`src/interface/shapes.js` `wrapLines`).
+/// (`wrapLines`).
 pub fn wrap_lines_ranges(
     font: &Font,
     text: &[u16],
@@ -573,7 +572,7 @@ pub struct FlashyBlock {
     pub alpha: f64,
 }
 
-/// Instantaneous frame state of a [`TitleIntro`] (`TitleIntro.frame` in `src/interface/flashy.js`).
+/// Instantaneous frame state of a [`TitleIntro`] (`TitleIntro.frame`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FlashyFrame {
     /// Fraction (`0.0..=1.0`) of the backing bar width currently revealed from left to right.
@@ -601,7 +600,7 @@ impl Default for FlashyFrame {
 /// Alias for [`FlashyFrame`].
 pub type IntroFrame = FlashyFrame;
 
-/// The 5-stage flashy text/bar intro (`src/interface/flashy.js` `TitleIntro`).
+/// The 5-stage flashy text/bar intro (`TitleIntro`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TitleIntro {
     /// Elapsed time in seconds relative to the intro start (`< 0.0` while waiting on `delay`).

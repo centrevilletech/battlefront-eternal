@@ -1,4 +1,4 @@
-//! postAI/attachPostAI in post-data.js. Joining by authored world name
+//! postAI/attachPostAI. Joining by authored world name
 //! matters for unnamed posts whose runtime registry name is synthesized.
 use super::{error, present, string};
 use crate::world::admit::AdmitError;

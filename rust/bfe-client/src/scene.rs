@@ -129,10 +129,15 @@ impl MapCamera {
         set(&mut self.view, "resolution", &[size[0] as f64, size[1] as f64]);
     }
     pub fn set_view_distance(&mut self, range: [f64; 2]) {
-        self.far_plane = range[1];
-        set(&mut self.view, "fade", &range);
-        self.view.values[10] = -(range[1] + 0.3) / (range[1] - 0.3);
-        self.view.values[14] = -0.6 * range[1] / (range[1] - 0.3);
+        self.set_view_range(range, range[1]);
+    }
+    /// The near fade and, separately, the near projection's far plane (at the SHORT view distance the fade
+    /// ends early while units and vehicles still draw out to the authored range).
+    pub fn set_view_range(&mut self, fade: [f64; 2], far: f64) {
+        self.far_plane = far;
+        set(&mut self.view, "fade", &fade);
+        self.view.values[10] = -(far + 0.3) / (far - 0.3);
+        self.view.values[14] = -0.6 * far / (far - 0.3);
     }
     pub fn subject_eye(&self) -> [f64; 3] {
         self.subject_eye
@@ -303,10 +308,11 @@ fn texture_capabilities(has:impl Fn(&str)->bool,renderer:&str,embedded:bool)->u3
 }
 /// An RGBA image's grey and alpha, when its red, green and blue are equal in every texel.
 fn grey_alpha(rgba: &[u8]) -> Option<Vec<u8>> {
-    if rgba.len() % 4 != 0 || !rgba.chunks_exact(4).all(|p| p[0] == p[1] && p[1] == p[2]) {
+    let (texels, rest) = rgba.as_chunks::<4>();
+    if !rest.is_empty() || !texels.iter().all(|p| p[0] == p[1] && p[1] == p[2]) {
         return None;
     }
-    Some(rgba.chunks_exact(4).flat_map(|p| [p[0], p[3]]).collect())
+    Some(texels.iter().flat_map(|p| [p[0], p[3]]).collect())
 }
 
 #[cfg(test)]
@@ -556,7 +562,7 @@ impl Scene {
     ) -> Result<(Self, MapCamera), String> {
         Self::load_with_random(root, map, size, None, load)
     }
-    /// Recorded random draws are admission facts, shared with a browser view.
+    /// Recorded random draws are admission facts, shared with a client view.
     /// Ordinary inspection uses one deterministic host stream instead.
     pub fn load_with_random(
         root: &Path,
@@ -778,7 +784,7 @@ impl Scene {
                 .map(|path| content.textures.load(path))
                 .transpose()
         })?;
-        // game.js constructs eight ordnance light shells and each visible post hologram.
+        // constructs eight ordnance light shells and each visible post hologram.
         // Preserve that cold catalog identity; this neutral inspection frame
         // publishes zero active lights until a native World supplies them.
         const ORDNANCE_LIGHTS: usize = 8;
@@ -1184,7 +1190,7 @@ impl Scene {
         bridge.r.world.sort(false);
         let mut water_host = if !water_data.is_null() {
             let far_reach = content.map["distance"]["farScene"][1].as_f64().unwrap_or(3000.);
-            // A weather of anything but quads storms (ocean-surface.js storms()).
+            // A weather of anything but quads storms (storms()).
             let rain = &content.map["weather"]["precipitation"];
             let stormy = rain.is_object() && !rain["Type"][0].as_str().unwrap_or("").eq_ignore_ascii_case("quads");
             let mut host = crate::water_host::WaterHost::new(
@@ -1431,15 +1437,23 @@ impl Scene {
         self.bridge.r.core.profile.report(&self.bridge.r.core.gl);
     }
 
-    pub fn set_view_distance(&mut self, choice: &str) -> [f64; 2] {
+    /// The view distance: returns the near fade and the near projection's far plane.
+    pub fn set_view_distance(&mut self, choice: &str) -> ([f64; 2], f64) {
         self.distance_scale = match choice { "far" => 2., "max" => 4., _ => 1. };
         let far = self.far_reach * self.distance_scale;
         self.far_projection[10] = -(far + 2.) / (far - 2.);
         self.far_projection[14] = -4. * far / (far - 2.);
         // Short: the near scene ends where the 2004 game's shortest view distance
         // ended it; past that every object is its far scene image, as there.
-        if choice == "short" { return self.near_short; }
-        self.near_range.map(|v| v * self.distance_scale)
+        if choice == "short" {
+            // The static world and the far scene switch at the short range; units, vehicles and command
+            // posts keep the authored range, as play needs them.
+            self.bridge.r.actor_fade = Some(self.near_range);
+            return (self.near_short, self.near_range[1].max(self.near_short[1]));
+        }
+        self.bridge.r.actor_fade = None;
+        let range = self.near_range.map(|v| v * self.distance_scale);
+        (range, range[1])
     }
 
     pub fn log_graphics(&self) {
@@ -1635,7 +1649,7 @@ impl Scene {
     }
 
     /// The player's water choices (WATER QUALITY, OCEAN AND SKY, WATER AND
-    /// STEAM), applied as the page applied them: live.
+    /// STEAM), applied as the client applied them: live.
     pub fn set_water_settings(&mut self, settings: &WaterSettings) -> Result<(), String> {
         if let Some(storm) = &mut self.storm { storm.enabled = settings.ocean == "enhanced"; }
         if let Some(flyers) = &mut self.flyers { flyers.set_enhanced(settings.ocean == "enhanced"); }
@@ -1690,7 +1704,7 @@ impl Scene {
         let Some(frame) = &mut self.frame else {
             return Ok(());
         };
-        // settings.js ANTIALIASING; an unknown choice is the default's four.
+        // ANTIALIASING; an unknown choice is the default's four.
         let wanted = match choice {
             "off" | "fxaa-fast" | "fxaa" => 0,
             "2x" => 2,
@@ -2112,7 +2126,7 @@ impl Scene {
                 let source=&self.online;self.lamps.instances(&mut self.bridge.r.core,view_records,true,&mut |from,to|source.as_ref().is_none_or(|online|online.lamp_visible(from,to)));
                 if let Some(native)=&mut self.temporal_motion{use bfe_render::motion as M;self.bridge.r.motion.input[M::IN_VIEW_PROJECTION..M::IN_VIEW_PROJECTION+16].copy_from_slice(&projection.elements);native.view(&self.bridge.r.core,&mut self.bridge.r.motion,view_records);}
                 self.bridge.r.core.input[..16].copy_from_slice(&projection.elements);self.bridge.r.frames.plan.facts[f::VIEW_SHOWN]=1.;
-                // The view scene packs its own lights (point-lights.js): only the copies syncViewLights makes.
+                // The view scene packs its own lights: only the copies syncViewLights makes.
                 if let Some(online)=&self.online{let l=&online.lights;let n=l.view_count;self.bridge.r.core.input[shader::FRAME_LIGHT_COUNT]=n as f64;self.bridge.r.core.input[shader::FRAME_LIGHTS..shader::FRAME_LIGHTS+n*8].copy_from_slice(&l.view_packed[..n*8]);}self.publish(r::VIEW,k::VIEW,view_records,view_bones,0);}}
         if let Some(native)=&self.temporal_motion{let count=native.count;self.publish(r::MOTION,k::MOTION,count,0,0);}
         if self.online.is_some(){self.publish(r::HUD0,k::HUD,0,0,0);}
@@ -2150,8 +2164,8 @@ impl Scene {
             return Ok(());
         };
         let clock = view.values[shader::FRAME_OFFSETS[shader::FRAME_MEMBERS.iter().position(|(n, _)| *n == "time").unwrap_or(0)]];
-        // The frame step is the elapsed battle time, as the page's frame
-        // delta was: capped where the page capped it.
+        // The frame step is the elapsed battle time, as the client's frame
+        // delta was: capped where the client capped it.
         let dt = if self.water_time.is_nan() { 0. } else { (clock - self.water_time).clamp(0., 8. / 60.) };
         self.water_time = clock;
         // Without a battle nothing else builds the effect list.
@@ -2417,7 +2431,7 @@ impl Scene {
         row[m::BONES] = bones as f64;
         row[m::STEPS] = steps as f64;
         // FrameBank clips a full packet and retains its fault marker, just
-        // as the browser producer does. Capacity never terminates the window.
+        // as the client producer does. Capacity never terminates the window.
         self.bridge.frame_publish_frame(role as u32);
     }
     fn prepare_foliage(&mut self, view: &View) {

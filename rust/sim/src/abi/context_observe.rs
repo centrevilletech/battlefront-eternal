@@ -1,10 +1,10 @@
-//! Read-only observations for a host that reproduces the page's bookkeeping
-//! beside the native world (the world-hash matrix worker): facts the page
+//! Read-only observations for a host that reproduces the client's bookkeeping
+//! beside the native world (the world-hash matrix worker): facts the client
 //! read from its own objects and the native world keeps privately.
 use super::super::context::{Context, Error};
 use crate::store::DefId;
 
-/// One charge level of a weapon class as the page's `WeaponFacade.levels`
+/// One charge level of a weapon class as the client's `WeaponFacade.levels`
 /// saw it: whether it dispenses an item (`def.item`) and its class name.
 #[derive(Clone, Debug, Default)]
 pub struct WeaponLevelFacts {
@@ -50,7 +50,7 @@ pub struct ExplosionField {
     pub explosion: u32,
 }
 
-/// A registered building target (a turret or an objective) as the page's
+/// A registered building target (a turret or an objective) as the client's
 /// `TurretTarget` read it: its registry id, whether it stands, its team,
 /// its position and its life (the building's target generation).
 #[derive(Clone, Debug, Default)]
@@ -122,13 +122,13 @@ impl Context {
 
     /// The F3 random entries the bare AI generators were bound to
     /// (`bind_ai_stream_in`), in binding order: the Classic generator, then
-    /// the Enhanced one. The page's `randomState()` reads their seeds.
+    /// the Enhanced one. The client's `randomState()` reads their seeds.
     pub fn ai_random_bindings(&self) -> Result<Vec<u32>, Error> {
         self.world(|w| crate::units::f3::shared_bindings_in(&w.units).to_vec())
     }
 
     /// A weapon class's levels (`WeaponClass.levels`), for the dispenser
-    /// bindings the page made per unit life (`F3Items.flush`).
+    /// bindings the client made per unit life (`F3Items.flush`).
     pub fn weapon_levels(&self, weapon: u32) -> Result<Vec<WeaponLevelFacts>, Error> {
         self.world(|w| {
             let defs = crate::combat::module::defs_in(&mut w.combat);
@@ -177,7 +177,7 @@ impl Context {
 
     /// Each posed hull's seats by hull slot: yaw rate, target, and per
     /// weapon its barrel and aimers (yaw, pitch, on target, in limits,
-    /// facing), as the page's vehicle objects mirrored them.
+    /// facing), as the client's vehicle objects mirrored them.
     pub fn fleet_seat_poses(
         &self,
     ) -> Result<Vec<(u32, Vec<crate::vehicles::module::SeatPoseFacts>)>, Error> {

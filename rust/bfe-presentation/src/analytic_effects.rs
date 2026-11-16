@@ -8,7 +8,7 @@
 //!
 //! Track admission is immutable content policy. Unsupported geometry, blur
 //! blending and tracks longer than eight keys remain ordinary native particles.
-//! The page does not truncate them or choose a second analytic implementation.
+//! The client does not truncate them or choose a second analytic implementation.
 //! The host's definition map retains object identities; this owner returns the
 //! numeric track row for every admitted definition in authored visitation order.
 //!

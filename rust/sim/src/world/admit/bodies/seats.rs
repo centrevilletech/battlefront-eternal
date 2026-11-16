@@ -1,5 +1,5 @@
 //! Crew holder construction (f2-seats.js adopt/attachTurrets and
-//! props.js Turret). Authored geometry is resolved once; a body birth then
+//! Turret). Authored geometry is resolved once; a body birth then
 //! binds only its retained sampler to these already admitted holders.
 use super::{error, Rider};
 use crate::{gen::*, store::{DefId, Ref}, world::admit::{rows::units, AdmitError}};

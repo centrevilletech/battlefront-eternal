@@ -1,6 +1,6 @@
 //! The owner construction sequence: game.js createGame headless, then
 //! createLocalServer, as the ordered stages below. Each stage drives the
-//! existing `_in` bodies with the rows made for it, exactly as the page's
+//! existing `_in` bodies with the rows made for it, exactly as the client's
 //! `bridge.callArgs(...)` then export call does; nothing of an owner is
 //! decided here, only the order and the handles kept for the host.
 use super::rows::{self, Call, Cx};
@@ -18,7 +18,7 @@ pub enum Stage {
     Content,
     /// validateStartupClass (f4_startup_class).
     Startup,
-    /// The collision kernel from content triangles (ray-kernel.js, collision.js).
+    /// The collision kernel from content triangles.
     Kernels,
     /// The aim cameras (camera_init, camera_add_definition).
     Cameras,
@@ -54,7 +54,7 @@ pub enum Stage {
 pub const ORDER: [Stage; 15] = [Stage::Content, Stage::Startup, Stage::Kernels, Stage::Cameras, Stage::Teams, Stage::Store,
     Stage::Combat, Stage::Fleet, Stage::Units, Stage::Policies, Stage::Ai, Stage::World, Stage::LiveTail, Stage::Session, Stage::Player];
 
-/// One call against the world as the page makes it: the strings interned
+/// One call against the world as the client makes it: the strings interned
 /// (the builder interned them through the context's copy of the table in
 /// the same order, so the world gives the same ids), the scratch bytes
 /// written, then the argument row and heap in the exchange the `_in` body
@@ -115,7 +115,7 @@ pub fn run_into(world: &mut World, content: &Content, files: &dyn Files, options
     Ok(admitted)
 }
 
-/// F3Random's hand-over before the first tick, which the page made by
+/// F3Random's hand-over before the first tick, which the client made by
 /// writing the phase's memory rather than through a call:
 /// `configure(gameplay, grenade-spin, gameplay, seat-weapons)` binds the
 /// gameplay, spin, drop and seat globals to those streams' ids (a repeated
@@ -161,14 +161,14 @@ pub(crate) fn push_page_streams(world: &mut World, cx: &mut Cx) -> Result<(), Ad
 /// prefix, partial.rs) runs a lane's stages alone over the host's recorded
 /// construction of the stages before them.
 pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut Rows, admitted: &mut Admitted, stages: &[Stage]) -> Result<(), AdmitError> {
-    // game.js createGame: `new Units()` (registry.js) numbers members from 1.
+    // createGame: `new Units()` numbers members from 1.
     // The host hands the registry over whole before attachF3 (the KIND_UNITS
     // import); the owning world keeps it as members are added instead.
     if stages.first() == Some(&Stage::Content) && world.sim.store.units.list.is_empty() { world.sim.store.units.next_id = 1.0; }
     for &stage in stages {
         match stage {
             Stage::Content => {}
-            // validateStartupClass runs on the page before loading, never in a
+            // validateStartupClass runs on the client before loading, never in a
             // headless world (game.js: `!headless && !params.has("network")`);
             // the row stays for the comparison tests.
             Stage::Startup => {}
@@ -227,7 +227,7 @@ pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut 
                 }
             }
             Stage::Player => {}
-            // game.js: `units.add(new Unit({... human: true}))` gives the
+            // `units.add(new Unit({... human: true}))` gives the
             // dormant viewpoint the registry's first id before attachF3Combat
             // constructs its combat; Units.add keeps generation 0.
             // PlayerBodies constructs the player's page body before the
@@ -247,7 +247,7 @@ pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut 
             Stage::Fleet => super::fleet::construct(world, cx, rows)?,
             // attachF3, then game.js 1392 right after it: `unitsSim.random
             // .configure(gameplayRandom, grenade-spin, gameplayRandom,
-            // seatRandom)` registers the host's first streams (f3-random.js).
+            // seatRandom)` registers the host's first streams.
             Stage::Units => {
                 // attachF3 reads collision.bodySerial as f3_init's bodySerial:
                 // the fleet stage published it (a prepared variant's body
@@ -267,7 +267,7 @@ pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut 
                 let facts = cx.ids.battle.take().unwrap_or_default();
                 cx.ids.battle = Some(rows::battle::Facts { gameplay, ..facts });
             }
-            // game.js after bindWeaponPolicyContent: the fielded classes'
+            // after bindWeaponPolicyContent: the fielded classes'
             // corpse stock (UnitFactory.build/release), then createNativeAI
             // and the roster's missionTeams, each piece against the string
             // table its predecessor left (stock.rs, rows/ai/drive.rs).
@@ -282,7 +282,7 @@ pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut 
                 let constructed = rows::battle::posts::construct(world, cx, &mut imports);
                 rows.calls.push((stage, imports));
                 constructed?;
-                // ai-world-load.js 27: the AI's two bare generators register
+                // 27: the AI's two bare generators register
                 // at ai_world_begin (streamA, streamB), after the stock.
                 let stream_a = cx.streams.register(rows::battle::streams::WORLD_RANDOM);
                 let stream_b = cx.streams.register(rows::battle::streams::WORLD_RANDOM_B);

@@ -230,7 +230,7 @@ impl Value {
         }
     }
 
-    /// Whether two values are the same allocation (JavaScript identity) for
+    /// Whether two values are the same allocation for
     /// objects and arrays; primitives compare by SameValue.
     pub fn same(&self, other: &Value) -> bool {
         match (self, other) {
@@ -250,7 +250,7 @@ pub fn get<'a>(value: Option<&'a Value>, key: &str) -> Option<&'a Value> {
     value.and_then(|v| v.get(key))
 }
 
-/// A number field read as JavaScript reads `def.Key` where it expects a
+/// A number field read `def.Key` where it expects a
 /// number: Some only when the property holds a number.
 pub fn num_field(value: Option<&Value>, key: &str) -> Option<f64> {
     get(value, key).and_then(Value::as_f64)

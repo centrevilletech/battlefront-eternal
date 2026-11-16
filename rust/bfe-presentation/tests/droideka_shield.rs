@@ -1,5 +1,4 @@
-//! Synthetic droideka shield bubble presentation tests ported from
-//! `tests/droideka-shield.test.js`.
+//! Synthetic droideka shield bubble presentation tests.
 //!
 //! These cases exercise `bfe_presentation::unit_effects::shield::Shield`
 //! across Classic activation growth, Enhanced interrupted pop transitions,
@@ -18,7 +17,7 @@ use bfe_presentation::unit_effects::shield::Shield;
 use bfe_presentation::visual_effects_layout::{shield_command as cmd, shield_frame as f};
 
 /// Builds a baseline shield fixture matching `fixture(mode)` in
-/// `tests/droideka-shield.test.js` (`Radius = 1.25`, `Height = 1.25`,
+/// (`Radius = 1.25`, `Height = 1.25`,
 /// `FadeIn = 0.15`, `FadeOut = 0.15`, `ShieldOffset = [0, 1, 0.125]`,
 /// `max = 4000`).
 fn fixture(enhanced: bool) -> Shield {
@@ -58,7 +57,6 @@ fn hit(s: &mut Shield, amount: f64, source: Option<[f64; 3]>) {
     s.frame();
 }
 
-// Mirrors `tests/droideka-shield.test.js`:
 // "Classic uses native activation growth, overshoot, dimensions and collapse timing"
 #[test]
 fn classic_uses_native_activation_growth_overshoot_dimensions_and_collapse_timing() {
@@ -86,7 +84,6 @@ fn classic_uses_native_activation_growth_overshoot_dimensions_and_collapse_timin
     assert_eq!(s.input[f::VISIBLE], 0.0);
 }
 
-// Mirrors `tests/droideka-shield.test.js`:
 // "Enhanced pop remains continuous through interrupted activation and resets after collapse"
 #[test]
 fn enhanced_pop_remains_continuous_through_interrupted_activation_and_resets_after_collapse() {
@@ -117,7 +114,6 @@ fn enhanced_pop_remains_continuous_through_interrupted_activation_and_resets_aft
     assert!(s.input[f::SCALE] < 0.01);
 }
 
-// Mirrors `tests/droideka-shield.test.js`:
 // "real absorption forwards damage source and keeps a bounded localized impact pool"
 #[test]
 fn real_absorption_forwards_damage_source_and_keeps_bounded_localized_impact_pool() {
@@ -142,7 +138,6 @@ fn real_absorption_forwards_damage_source_and_keeps_bounded_localized_impact_poo
     assert_eq!(s.impacts.len(), 24);
 }
 
-// Mirrors `tests/droideka-shield.test.js`:
 // "drain, regeneration and unabsorbed damage cannot fabricate hit animations"
 #[test]
 fn drain_regeneration_and_unabsorbed_damage_cannot_fabricate_hit_animations() {
@@ -163,7 +158,6 @@ fn drain_regeneration_and_unabsorbed_damage_cannot_fabricate_hit_animations() {
     assert_eq!(s.input[f::HIT_INDEX], 0.0);
 }
 
-// Mirrors `tests/droideka-shield.test.js`:
 // "presentation follows rendered feet, switches modes live and disappears rolled/dead"
 #[test]
 fn presentation_follows_rendered_feet_switches_modes_live_and_disappears_rolled_or_dead() {

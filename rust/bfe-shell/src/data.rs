@@ -7,12 +7,12 @@ use serde_json::Value;
 use std::{collections::BTreeMap, path::Path};
 
 /// Root prefix for shell assets in the prepared content tree.
-/// Mirrors `SHELL_ROOT` in `src/shell/data.js`.
+/// Mirrors `SHELL_ROOT`.
 pub const SHELL_ROOT: &str = "/common/shell";
 
 /// The movie config's three base fade pairs (`[fadeIn, fadeOut]` in seconds):
 /// intros and one-shots, screen loops, and map flyovers.
-/// Mirrors `FADES` in `src/shell/data.js`.
+/// Mirrors `FADES`.
 pub mod fades {
     /// Base `[fade_in, fade_out]` in seconds (`[0.0, 0.2]`) for screen intro clips.
     pub const INTRO: [f64; 2] = [0.0, 0.2];
@@ -24,7 +24,7 @@ pub mod fades {
 
 /// The port's screen ids for movies, and the original 2004 screen names that
 /// may key them in `shell.json`'s `"movies"` (the first found is taken).
-/// Mirrors `MOVIE_SCREENS` in `src/shell/data.js`.
+/// Mirrors `MOVIE_SCREENS`.
 pub const MOVIE_SCREENS: [(&str, &[&str]); 7] = [
     ("start", &["ifs_start", "ifs_login", "start_screen"]),
     ("main", &["ifs_main", "ifs_main_intro"]),
@@ -56,20 +56,19 @@ pub const MOVIE_SCREENS: [(&str, &[&str]); 7] = [
 ];
 
 /// One movie clip `{ url, fade_in, fade_out }` returned by [`read_clip`].
-/// Mirrors the `{ url, fadeIn, fadeOut }` object returned by `readClip` in
-/// `src/shell/data.js`.
+/// Mirrors the `{ url, fadeIn, fadeOut }` object returned by `readClip`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MovieClip {
     /// Resolved content URL (e.g. `"/common/shell/movies/main.webm"`).
     pub url: String,
-    /// Fade-in duration in seconds (`fadeIn` in `src/shell/data.js`).
+    /// Fade-in duration in seconds (`fadeIn`).
     pub fade_in: f64,
-    /// Fade-out duration in seconds (`fadeOut` in `src/shell/data.js`).
+    /// Fade-out duration in seconds (`fadeOut`).
     pub fade_out: f64,
 }
 
 /// A screen's movie pair `{ intro, loop }` returned by [`read_movies`].
-/// Mirrors the `{ intro, loop }` entry in `readMovies` in `src/shell/data.js`.
+/// Mirrors the `{ intro, loop }` entry in `readMovies`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ScreenMovie {
     /// Optional transition intro clip played when entering the screen moving forward.
@@ -137,8 +136,7 @@ pub fn poster_still_for_movie(url: &str) -> Option<&'static str> {
 }
 
 /// One stage image and optional target rectangle `[x, y, w, h]` on a map's
-/// loading screen. Mirrors the `{ url, target }` entries in `readMapLoad` in
-/// `src/shell/data.js`.
+/// loading screen. Mirrors the `{ url, target }` entries in `readMapLoad`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LoadStage {
     /// Resolved content URL of the stage picture (`"/common/shell/load/..."`).
@@ -148,7 +146,7 @@ pub struct LoadStage {
 }
 
 /// A map's loading screen metadata `{ planet, planet_key, stages }`.
-/// Mirrors `readMapLoad` in `src/shell/data.js`.
+/// Mirrors `readMapLoad`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 pub struct MapLoad {
     /// Localized or direct display name of the planet (`"GEONOSIS"`, `"NABOO"`, etc.).
@@ -207,7 +205,7 @@ pub struct ShellMap {
 
 impl ShellMap {
     /// Returns the eras (`"cw"`, `"gcw"`) that this map has extracted battles
-    /// for, matching `eras(map)` in `src/shell/screens.js`.
+    /// for, matching `eras(map)`.
     pub fn playable_eras(&self) -> Vec<&'static str> {
         let mut out = Vec::new();
         for era in ["cw", "gcw"] {
@@ -233,7 +231,7 @@ impl ShellMap {
 }
 
 /// Crosshair edge texture paths for the loading screen (`{ horz, vert, corner }`).
-/// Mirrors `edges` in `readLoad` in `src/shell/data.js`.
+/// Mirrors `edges` in `readLoad`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct LoadEdges {
     /// Horizontal crosshair line texture path (`load_edge_horz`).
@@ -246,7 +244,7 @@ pub struct LoadEdges {
 
 /// Shared loading screen art and timing `{ backdrop, disk, leds, edges, text,
 /// track, zoom, hold }`.
-/// Mirrors `readLoad` in `src/shell/data.js`.
+/// Mirrors `readLoad`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LoadChrome {
     /// Fallback backdrop texture path shown when a map has no stage pictures.
@@ -284,7 +282,7 @@ impl Default for LoadChrome {
 
 /// Music track entry from `shell.json`'s `"music"`:
 /// `{ name, url, properties, soundtrack }`.
-/// Mirrors the `music` array entries in `readShellData` in `src/shell/data.js`.
+/// Mirrors the `music` array entries in `readShellData`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MusicTrack {
     /// Cue identifier (`"shell_clonewars"`, `"shell_galacticconquest"`, or `"track1"`).
@@ -299,7 +297,7 @@ pub struct MusicTrack {
 
 /// Sound override entry from `shell.json`'s `"sounds"`:
 /// `{ url, gain, pitch }`.
-/// Mirrors the `sounds` object entries in `readShellData` in `src/shell/data.js`.
+/// Mirrors the `sounds` object entries in `readShellData`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ShellSoundDef {
     /// Resolved content URL of the sound file.
@@ -330,7 +328,7 @@ pub struct ShellFont {
 /// Lookup table resolving a `common.json` texture name to its content path
 /// (using the 4x upscale in `/common/raster-hud/` when `manifest.json` has one,
 /// else `/common/<path>`).
-/// Mirrors `textureFiles(common, raster)` in `src/shell/data.js`.
+/// Mirrors `textureFiles(common, raster)`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextureFiles {
     /// Map from `common.json` texture name (`"load_rotating_disk"`) to relative path (`"textures/load_rotating_disk.png"`).
@@ -359,11 +357,10 @@ impl TextureFiles {
 }
 
 /// Normalized shell data returned by [`read_shell_data`].
-/// Mirrors the object returned by `readShellData(shell, common, raster)` in
-/// `src/shell/data.js`.
+/// Mirrors the object returned by `readShellData(shell, common, raster)`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ShellData {
-    /// `true` when `shell.json` was absent or `null` (`missing: !shell` in JS).
+    /// `true` when `shell.json` was absent or `null`.
     pub missing: bool,
     /// Resolver mapping `common.json` texture names to `/common/raster-hud/` or `/common/` paths.
     pub textures: TextureFiles,
@@ -390,7 +387,7 @@ pub struct ShellData {
 /// Resolves a path from `shell.json`: relative to `root` (defaulting to
 /// [`SHELL_ROOT`]), or unchanged when it starts with `"/"` or a URI scheme.
 ///
-/// Mirrors `resolveUrl(path, root)` in `src/shell/data.js`.
+/// Mirrors `resolveUrl(path, root)`.
 pub fn resolve_url(path: Option<&str>, root: &str) -> Option<String> {
     let path = path?;
     if path.is_empty() {
@@ -404,7 +401,7 @@ pub fn resolve_url(path: Option<&str>, root: &str) -> Option<String> {
 }
 
 /// Checks whether `path` begins with an RFC 3986 URI scheme (`^[a-zA-Z][a-zA-Z0-9+.-]*:`).
-/// Mirrors `/^[a-z][a-z0-9+.-]*:/i.test(path)` in `resolveUrl` (`src/shell/data.js`).
+/// Mirrors `/^[a-z][a-z0-9+.-]*:/i.test(path)` in `resolveUrl`.
 fn has_scheme(path: &str) -> bool {
     let Some((scheme, _)) = path.split_once(':') else {
         return false;
@@ -419,7 +416,7 @@ fn has_scheme(path: &str) -> bool {
 
 /// Coerces an optional JSON number or non-empty numeric string into a finite `f64`,
 /// returning `fallback` for `None`, `null`, `""`, or `NaN`/`±inf`.
-/// Mirrors `const number = (value, fallback) => ...` in `src/shell/data.js`.
+/// Mirrors `const number = (value, fallback) => ...`.
 fn number(value: Option<&Value>, fallback: f64) -> f64 {
     let Some(v) = value else {
         return fallback;
@@ -475,8 +472,7 @@ pub fn read_clip(
     })
 }
 
-/// Returns per-screen `(intro_fades, loop_fades)` overrides from `OWN_FADES` in
-/// `src/shell/data.js`:
+/// Returns per-screen `(intro_fades, loop_fades)` overrides from `OWN_FADES`:
 /// - `"main"`: intro cuts straight into loop (`[0, 0]`), loop fades `[0, 0.5]`.
 /// - `"briefing"` and `"meta"`: intro fades both ways over 1 second (`[1, 1]`).
 fn own_screen_fades(id: &str) -> (Option<[f64; 2]>, Option<[f64; 2]>) {
@@ -529,7 +525,7 @@ fn read_screen_movie(
 /// Normalizes `shell.json`'s `"movies"` under both each entry's own lowercased
 /// name and the port's screen ids ([`MOVIE_SCREENS`]).
 ///
-/// Mirrors `readMovies(movies)` in `src/shell/data.js`.
+/// Mirrors `readMovies(movies)`.
 pub fn read_movies(movies: Option<&Value>) -> BTreeMap<String, ScreenMovie> {
     let mut out = BTreeMap::new();
     let mut by_name: Vec<(String, &Value)> = Vec::new();
@@ -576,7 +572,7 @@ pub fn read_movies(movies: Option<&Value>) -> BTreeMap<String, ScreenMovie> {
 
 /// Parses a 4-number target rectangle `[x, y, w, h]` from an array or an
 /// `{ x, y, w | width, h | height }` object.
-/// Mirrors `rect(value)` in `src/shell/data.js`.
+/// Mirrors `rect(value)`.
 fn rect(value: Option<&Value>) -> Option<[f64; 4]> {
     let value = value?;
     if let Some(arr) = value.as_array() {
@@ -607,7 +603,7 @@ fn rect(value: Option<&Value>) -> Option<[f64; 4]> {
 }
 
 /// Reads a map's loading screen `{ planet, planet_key, stages }` from `load`.
-/// Mirrors `readMapLoad(load, strings)` in `src/shell/data.js`.
+/// Mirrors `readMapLoad(load, strings)`.
 pub fn read_map_load(load: Option<&Value>, strings: &BTreeMap<String, String>) -> Option<MapLoad> {
     let load = load?;
     if load.is_null() {
@@ -683,13 +679,13 @@ pub fn read_map_load(load: Option<&Value>, strings: &BTreeMap<String, String>) -
 }
 
 /// Reads `shell.json`'s `"maps"` array or object into a list of [`ShellMap`]s.
-/// Mirrors `readMaps(maps, strings)` in `src/shell/data.js`.
+/// Mirrors `readMaps(maps, strings)`.
 pub fn read_maps(maps: Option<&Value>, strings: &BTreeMap<String, String>) -> Vec<ShellMap> {
     let Some(maps) = maps else {
         return Vec::new();
     };
     // Accept `maps` either as an array of `{ id, ... }` objects or as an
-    // `{ [id]: { ... } }` map object, matching `readMaps` in `src/shell/data.js`.
+    // `{ [id]: { ... } }` map object, matching `readMaps`.
     let mut entries: Vec<(String, &Value)> = Vec::new();
     if let Some(arr) = maps.as_array() {
         for item in arr {
@@ -790,8 +786,7 @@ pub fn read_load(load: Option<&Value>, textures: &TextureFiles) -> LoadChrome {
     // Resolve a loading art reference: bare identifiers without `'/'` or `'.'`
     // are looked up in `common.json` via `textures.get(s)` (preferring 4x
     // upscales in `/common/raster-hud/`), while file paths are resolved relative
-    // to `SHELL_ROOT` (`/common/shell`), matching `art(value)` in `readLoad`
-    // (`src/shell/data.js`).
+    // to `SHELL_ROOT` (`/common/shell`), matching `art(value)` in `readLoad`.
     let art = |val: Option<&Value>| -> Option<String> {
         let s = val?.as_str()?;
         if s.is_empty() {
@@ -893,7 +888,7 @@ pub fn texture_files(common: Option<&Value>, raster: Option<&Value>) -> TextureF
 /// Reads bitmap fonts and their resolved page texture paths from `common.json`
 /// and `raster-hud/manifest.json`.
 ///
-/// Mirrors `readFonts(common, raster)` in `src/shell/data.js`.
+/// Mirrors `readFonts(common, raster)`.
 pub fn read_fonts(
     common: Option<&Value>,
     raster: Option<&Value>,
@@ -960,14 +955,14 @@ pub fn read_fonts(
 /// Normalizes `shell.json`, `common.json`, and `raster-hud/manifest.json` into
 /// a [`ShellData`] struct.
 ///
-/// Mirrors `readShellData(shell, common, raster)` in `src/shell/data.js`.
+/// Mirrors `readShellData(shell, common, raster)`.
 pub fn read_shell_data(
     shell: Option<&Value>,
     common: Option<&Value>,
     raster: Option<&Value>,
 ) -> ShellData {
     // Merge localization strings with `shell.strings` taking precedence over
-    // `common.strings` (`{ ...common.strings, ...shell.strings }` in JS).
+    // `common.strings`.
     let mut strings = BTreeMap::new();
     if let Some(c_strings) = common
         .and_then(|c| c.get("strings"))
@@ -1127,11 +1122,11 @@ pub fn try_load_shell_data_from_dir(content_dir: &Path) -> Result<ShellData, Str
 
 /// Loads `common/shell/shell.json`, `common/common.json`, and
 /// `common/raster-hud/manifest.json` from a native `content_dir` on disk.
-/// Mirrors `loadShellData` in `src/shell/data.js`.
+/// Mirrors `loadShellData`.
 /// Permissive filesystem loader that treats missing or unparseable manifests as
 /// `None` (setting `ShellData::missing = true` when `shell.json` is absent) so
 /// the shell can still boot with fallback defaults before extraction completes.
-/// Mirrors `loadShellData` in `src/shell/data.js`.
+/// Mirrors `loadShellData`.
 pub fn load_shell_data_from_dir(content_dir: &Path) -> ShellData {
     let read_json = |rel: &str| -> Option<Value> {
         let bytes = std::fs::read(content_dir.join(rel)).ok()?;

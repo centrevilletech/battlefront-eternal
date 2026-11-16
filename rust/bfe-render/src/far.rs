@@ -1,8 +1,8 @@
 // The far scene, drawn into the far target before the near scene in place
-// of three's render of it (src/rust-render/far.js): the sky dome and the
+// of three's render of it: the sky dome and the
 // models on its horizon, the map's low-detail buckets, the far terrain and
 // the far water, with a frame block of the far camera's own (VIEW_FAR). A
-// water's mirror (water.js reflect) draws it too, from its own camera into
+// water's mirror (reflect) draws it too, from its own camera into
 // its own target, before the frame's far scene: its frame block is
 // VIEW_FAR_MIRROR's, and the mirror's second pass draws over its sky
 // without clearing (FAR_KEEP).
@@ -12,19 +12,19 @@
 // where the material reads only the shared values, Kind::Plain where it
 // keeps values of its own under their names), its geometry and state, and
 // where each uniform the program reads besides the frame block comes from:
-// a fixed value, a slot of the input the page writes each frame, a texture,
-// the camera, or the item's own matrices. Each frame the page marks the
+// a fixed value, a slot of the input the client writes each frame, a texture,
+// the camera, or the item's own matrices. Each frame the client marks the
 // items that draw and writes what moves (the sky's matrices, the water's
 // values); the pass clears the target as three does, culls each item as
 // three would (its bounding sphere; the map's buckets by spatial cell, as
-// render-culling.js does; the terrain by its cells and the fade start, as
-// terrain-patches.js does), sorts them as three sorts its render lists
+// does; the terrain by its cells and the fade start, as
+// does), sorts them as three sorts its render lists
 // (opaque: group order, render order, material, depth, id; blended: group
 // order, render order, back to front, id) and draws them, setting a
 // uniform or a piece of state only when it differs from what is set.
 //
 // The Enhanced sky's flyers and the Enhanced ocean read a sky probe, a cube
-// map (sky-probe.js): a cube sampler's source binds it by its target. The
+// map: a cube sampler's source binds it by its target. The
 // probe's captures are the far pass too, each face a phase of its own (the
 // probe phase) with a frame block of its own, and the cube's mipmaps made
 // after the last face as three makes them. Shadows, lamp lighting and the
@@ -40,7 +40,7 @@ use std::collections::HashMap;
 // whether the pass draws this frame at all (0: three does), whether it
 // draws over the target as it is (1: three's autoClear is off, as for a
 // water mirror's far scene drawn over its sky), then the items' slots, laid
-// out by the page. An item's first slot says whether it draws this frame; a
+// out by the client. An item's first slot says whether it draws this frame; a
 // placed item's matrix follows it (16), or a terrain's level (0 full, 1
 // reduced); then whatever its uniforms read.
 pub const FAR_CLEAR: usize = 0;
@@ -50,7 +50,7 @@ pub const FAR_KEEP: usize = 5;
 // the pass makes once it has drawn (three makes them after the last face:
 // CubeCamera.update), 0 for none.
 pub const FAR_MIPMAPS: usize = 6;
-// 1 when the page wrote the input for the near scene's items (far.js
+// 1 when the client wrote the input for the near scene's items (far.js
 // drawNear): only the near phase draws them (draw_near), once.
 pub const FAR_NEAR: usize = 7;
 pub const FAR_SLOTS: usize = 8;
@@ -141,7 +141,7 @@ enum Source {
     CubeInput(usize),
 }
 
-// A bucket's spatial cells (render-culling.js): runs of consecutive
+// A bucket's spatial cells: runs of consecutive
 // triangles in one cell, each cell's box, and the ranges drawn.
 struct Cells {
     runs: Vec<[u32; 3]>,
@@ -151,7 +151,7 @@ struct Cells {
     counts: Vec<i32>,
 }
 
-// A terrain level (terrain-patches.js): its index, cells in row order
+// A terrain level: its index, cells in row order
 // (first index, end, box), each a range of it.
 struct Level<C: HasContext> {
     buffer: C::Buffer,
@@ -202,7 +202,7 @@ struct Item<C: HasContext> {
     // of a fixed one: a geometry whose range three moves (the storm's bolt).
     range_at: Option<usize>,
     input_blend:Option<usize>,
-    // Vertex buffers of its geometry the page refreshes (the storm's bolt,
+    // Vertex buffers of its geometry the client refreshes (the storm's bolt,
     // rewritten at each strike): (buffer slot, where its values start in
     // `vertices`, floats), uploaded when the input's slot `refresh_at` is 1.
     refresh: Vec<(usize, usize, usize)>,
@@ -211,7 +211,7 @@ struct Item<C: HasContext> {
 
 pub struct FarPass<C: HasContext> {
     pub input: Vec<f64>,
-    // Vertex values the page writes for items whose buffers it refreshes.
+    // Vertex values the client writes for items whose buffers it refreshes.
     pub vertices: Vec<f32>,
     tables: Vec<Vec<Uniform<C>>>,
     // A program's uniforms are shared by all its material tables. A table's
@@ -383,7 +383,7 @@ impl<C: HasContext> FarPass<C> {
 
     // A vertex buffer of its geometry (`buffer`: its slot there) refreshed
     // from `vertices` (`floats` values from `at`) whenever the input's slot
-    // `flag` is 1 (the page wrote them anew).
+    // `flag` is 1 (the client wrote them anew).
     pub fn refresh(&mut self, item: u32, buffer: u32, at: u32, floats: u32, flag: u32) {
         let it = &mut self.items[item as usize];
         it.refresh.push((buffer as usize, at as usize, floats as usize));
@@ -511,9 +511,9 @@ impl<C: HasContext> FarPass<C> {
     }
 
     // The near phase's part (renderer.rs frame, a mirror's too): the items
-    // the page marked from the near scene (the Enhanced ocean's surface,
+    // the client marked from the near scene (the Enhanced ocean's surface,
     // drawn there in three's place: far.js drawNear), with the phase's frame
-    // block, over what the phase drew (the page sets FAR_KEEP). Counted as
+    // block, over what the phase drew (the client sets FAR_KEEP). Counted as
     // the water pass's draws: the ocean is the water's surface.
     pub fn draw_near<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
         if self.input[FAR_NEAR] == 0.0 || self.input[FAR_DRAW] == 0.0 {
@@ -581,7 +581,7 @@ impl<C: HasContext> FarPass<C> {
         let view = camera.view;
         let screen = math::mul(&projection, &view);
         let eye = [core.input[32], core.input[33], core.input[34]];
-        // terrain-patches.js leaves out cells wholly nearer than the fade
+        // leaves out cells wholly nearer than the fade
         // start (less a metre), where the far shaders discard every fragment.
         let start = (core.input[crate::shader::FRAME_OFFSETS[18]] - 1.0).max(0.0);
         let limit = start * start;
@@ -599,8 +599,8 @@ impl<C: HasContext> FarPass<C> {
             stats.gl_calls += 1;
         }
         core.opaque();
-        // The vertices the page wrote anew for items shown this frame (in view
-        // or not: the page counts them as sent), uploaded.
+        // The vertices the client wrote anew for items shown this frame (in view
+        // or not: the client counts them as sent), uploaded.
         for item in &self.items {
             if item.refresh.is_empty() || input[item.slot] == 0.0 || input[item.refresh_at] == 0.0 {
                 continue;
@@ -864,13 +864,13 @@ impl<C: HasContext> FarPass<C> {
         }
     }
 
-    // How many items are registered (the page's checks).
+    // How many items are registered (the client's checks).
     pub fn items(&self) -> u32 {
         self.items.len() as u32
     }
 }
 
-// terrain-patches.js update(): the cells in view and wholly past the fade
+// update(): the cells in view and wholly past the fade
 // start (`limit`: its square), consecutive ones (in the cells' order, empty
 // cells having none) joined in one range. Writes each range's byte offset
 // and index count; returns how many.

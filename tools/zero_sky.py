@@ -17,7 +17,7 @@ read (ReadDataFile("SIDE\\rep.lvl", "rep_fly_assault_dome", ...)). So each
 battle draws its own set: Cloud City's Republic assault ships in the Clone
 Wars and none in the Galactic Civil War, Bespin: Platforms none at all.
 
-This port's Enhanced sky (src/sky-flyers.js) draws every class of the
+This port's Enhanced sky draws every class of the
 battle's era instead, models loaded or not: a class's era is its side's,
 the side archive whose sub-level holds its model (rep and cis the Clone
 Wars, all and imp the Galactic Civil War), else its model name's prefix; a
@@ -29,8 +29,8 @@ write_sky_flyers writes <map>/sky/: flyers.json (the classes some battle
 draws, which battles draw which, as the original (`missions`) and as the
 Enhanced sky (`enhanced`), the models' parts and textures), flyers.bin and
 flyers_index.bin (the models, as extract.write_meshes packs them) and
-textures/. None of it is in the content fingerprint
-(src/runtime/content-hash.js): it is presentation only (src/sky-flyers.js).
+textures/. None of it is in the content fingerprint: it is presentation
+only.
 """
 
 import json

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
-//! JavaScript semantics for the Rust port of the world simulation.
+//! The number, string, collection and random-number semantics the world
+//! simulation keeps from its first (JavaScript) implementation.
 
 pub mod conv;
 pub mod hash;

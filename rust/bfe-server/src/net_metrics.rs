@@ -1,4 +1,4 @@
-//! Sliding-window and lifetime network metrics (`src/net-metrics.js`).
+//! Sliding-window and lifetime network metrics.
 
 use serde_json::{json, Value};
 
@@ -17,10 +17,9 @@ struct Bucket {
     packets_out: u64,
 }
 
-/// Per-session and endpoint network metrics collector (`src/net-metrics.js`).
+/// Per-session and endpoint network metrics collector.
 #[derive(Clone)]
-/// Sliding-window transport telemetry accumulator porting `createNetMetrics()` from
-/// `packages/bfe-server/src/net-metrics.js`.
+/// Sliding-window transport telemetry accumulator porting `createNetMetrics()`.
 ///
 /// Tracks 60 one-second ring-buffer buckets (`WINDOW_SECONDS = 60`) of inbound/outbound bytes and
 /// packets partitioned by lane (`events`, `input`, `state`), plus RTT and packet-loss samples,
@@ -42,11 +41,13 @@ pub struct NetMetrics {
     pub state_dropped: u64,
     /// Outbound `events` messages queued on the reliable ordered lane.
     pub events_queued: u64,
-    /// Outbound `events` messages dropped (`oversizedMessages` in `src/net-metrics.js`).
+    /// Bytes queued on the reliable events lane.
+    pub events_bytes: u64,
+    /// Outbound `events` messages dropped (`oversizedMessages`).
     pub events_dropped: u64,
-    /// Smoothed round-trip time in milliseconds (`session.stats().rtt` in `src/udp-peer.js`).
+    /// Smoothed round-trip time in milliseconds (`session.stats().rtt`).
     pub rtt_ms: Option<f64>,
-    /// Recent packet loss fraction in `0.0..=1.0` (`session.stats().loss` in `src/udp-peer.js`).
+    /// Recent packet loss fraction in `0.0..=1.0` (`session.stats().loss`).
     pub loss: f64,
 }
 
@@ -57,7 +58,7 @@ impl Default for NetMetrics {
 }
 
 impl NetMetrics {
-    /// Creates a zeroed `NetMetrics` instance (`resetNetMetrics` initial state in `src/net-metrics.js`).
+    /// Creates a zeroed `NetMetrics` instance (`resetNetMetrics` initial state).
     pub fn new() -> Self {
         Self {
             window_ms: (BUCKETS as u64) * BUCKET_MS,
@@ -69,6 +70,7 @@ impl NetMetrics {
             state_queued: 0,
             state_dropped: 0,
             events_queued: 0,
+            events_bytes: 0,
             events_dropped: 0,
             rtt_ms: None,
             loss: 0.0,
@@ -111,10 +113,11 @@ impl NetMetrics {
             self.state_queued += 1;
         } else if lane == "events" {
             self.events_queued += 1;
+            self.events_bytes += bytes as u64;
         }
     }
 
-    /// Increments the drop counter for `lane` (`countNet` in `src/net-metrics.js`).
+    /// Increments the drop counter for `lane` (`countNet`).
     pub fn record_drop(&mut self, lane: &str) {
         if lane == "state" {
             self.state_dropped += 1;
@@ -143,7 +146,7 @@ impl NetMetrics {
     }
 
     /// Serializes a point-in-time metrics snapshot at `now_ms` (`export function netMetrics()` in
-    /// `src/net-metrics.js` and `UdpPeer.transportStats()` in `src/udp-peer.js`).
+    /// and `UdpPeer.transportStats()`).
     pub fn snapshot(&self, now_ms: u64) -> Value {
         let cur_slot = now_ms / BUCKET_MS;
         let mut bytes_in = 0u64;
@@ -175,6 +178,7 @@ impl NetMetrics {
             "stateQueued": self.state_queued,
             "stateDropped": self.state_dropped,
             "eventsQueued": self.events_queued,
+            "eventsBytes": self.events_bytes,
             "eventsDropped": self.events_dropped,
         })
     }

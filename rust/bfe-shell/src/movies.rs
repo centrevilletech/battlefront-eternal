@@ -1,4 +1,4 @@
-//! Native counterpart of MoviePlayer in src/shell/movies.js. Each active layer
+//! Native counterpart of MoviePlayer. Each active layer
 //! owns a worker, and renderers borrow its latest I420 frame without copying it.
 use crate::data::{MovieClip, ScreenMovie};
 use bfe_video::{Frame, Movie};

@@ -1,9 +1,9 @@
 // Soldiers' bodies and the guns they hold (and, behind ?rustRigs, vehicles'
 // and props' skinned rigs), instanced: a draw a model, texture, program and
 // state, each instance's per-object values in a row of the instance texture
-// and its bones in one texture holding every drawn rig's. The page writes a
+// and its bones in one texture holding every drawn rig's. The client writes a
 // record an object into `input`, after the frame block's values, and the
-// bones into `bones` (src/rust-render/instances.js).
+// bones into `bones`.
 //
 // A rig whose material blends (bes1's jedi fighter, its glass) is a record
 // of a third kind: its row and bones are made with the others', but it is
@@ -46,7 +46,7 @@ pub const REC_EXTRA: usize = 76; // a material's own values the instance gives (
 pub const REC_BLEND: usize = REC_EXTRA + shader::ROW_EXTRA_TEXELS * 4;
 pub const REC_STRIDE: usize = REC_BLEND + 4;
 // receiveShadow, for a program that receives shadows (shader.rs SHADOW_EXTRAS: the record's EXTRA + 14). Bodies,
-// held weapons and vehicle rigs set it, as their meshes do in the browser build (actor.js, combat.js,
+// held weapons and vehicle rigs set it, as their meshes do in the client build (actor.js, combat.js,
 // vehicle-rig.js); props and the first-person view leave it off.
 pub const REC_RECEIVE_SHADOW: usize = REC_EXTRA + 14;
 pub const KIND_BLENDED: f64 = 3.0;
@@ -130,7 +130,7 @@ impl<C: HasContext> InstancePass<C> {
     // ActorMaterial settings preserve blend identity and side order while
     // replacing its linked catalog program on a cold resource command.
     pub fn blend_program(&mut self,id:u32,program:u32){if let Some(blend)=self.blends.get_mut(id as usize){for pass in &mut blend.passes{pass.0=program as usize;}}}
-    // records: how many the page wrote this frame.
+    // records: how many the client wrote this frame.
     pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>, camera: &Camera, records: usize) {
         // Actor resource handles expand in native storage before either opaque
         // batching or transparent emission. Live records contain only poses.
@@ -141,6 +141,8 @@ impl<C: HasContext> InstancePass<C> {
         let (input, bones) = (&core.input, &core.bones);
         let view = &camera.view;
         let frustum = &camera.frustum;
+        // Past the fade end the actor shaders paint the far scene's image instead of the surface (world.rs).
+        let fade_end = crate::world::fade_end(input);
         let light_count = camera.light_count;
         let lights = &input[FRAME_LIGHTS..FRAME_LIGHTS + 8 * MAX_LIGHTS];
         self.draws.clear();
@@ -153,7 +155,7 @@ impl<C: HasContext> InstancePass<C> {
             let mut world = [0.0; 16];
             world.copy_from_slice(&rec[REC_WORLD..REC_WORLD + 16]);
             let (center, radius) = math::sphere_to_world(&world, &[rec[REC_SPHERE], rec[REC_SPHERE + 1], rec[REC_SPHERE + 2]], rec[REC_SPHERE + 3]);
-            if !frustum.sphere(&center, radius) {
+            if !frustum.sphere(&center, radius) || crate::world::sphere_beyond(view, &center, radius, fade_end) {
                 continue;
             }
             let blended = rec[REC_KIND] == KIND_BLENDED || rec[REC_KIND] == KIND_BLENDED_RIGID;
@@ -305,7 +307,7 @@ impl<C: HasContext> InstancePass<C> {
 }
 
 // The blending rigs and parts as a source of the transparent list's items: each one
-// item with the key the page wrote for it (z as three works it out, from
+// item with the key the client wrote for it (z as three works it out, from
 // its sphere's centre in the world), drawn from the row and bones the near
 // phase uploaded, in each of its material's passes with its blending,
 // depth and culling as three sets them.

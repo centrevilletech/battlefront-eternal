@@ -1,4 +1,4 @@
-//! Lightsabre blades (heroes.js attachBlade): under a melee weapon's held hilt, from its authored fire point, two
+//! Lightsabre blades (attachBlade): under a melee weapon's held hilt, from its authored fire point, two
 //! strips along (0, 0.8, 0.5) in the hilt's frame, 0.943 m long, each turned to the camera about that axis: the
 //! weapon's Texture 0.08 m wide, and lightsabreglow 0.16 m wide at opacity 100/255, both additive.
 use crate::render_bridge::Bridge;
@@ -39,7 +39,7 @@ pub struct Blades {
 }
 
 fn melee(content: &BattleContent) -> Vec<(u16, String, [f64; 3])> {
-    let Ok(defs) = bfe_content::defs::Defs::build(&content.content) else { return vec![] };
+    let Ok(defs) = content.defs() else { return vec![] };
     defs.weapons
         .iter()
         .filter(|w| w.record.get("base").and_then(Value::as_str) == Some("melee"))

@@ -1,6 +1,6 @@
 //! TextureLibrary.prepare/load without fetch, DOM images or a worker heap.
 //! PNG, lossless WebP and KTX2 use the same Rust decoders and GPU format policy
-//! as the page. A declared compressed twin that fails is a loading error.
+//! as the client. A declared compressed twin that fails is a loading error.
 use bfe_render::texture_format::{Capabilities, Format};
 use serde_json::Value;
 use std::{
@@ -83,7 +83,7 @@ impl Library {
             images: Vec::new(),
         })
     }
-    /// Prepared paths are content-relative names. Query strings are a browser
+    /// Prepared paths are content-relative names. Query strings are a client
     /// cache detail; traversal and external schemes are never asset identifiers.
     pub fn path(&self, name: &str) -> Result<PathBuf, String> {
         let name = name

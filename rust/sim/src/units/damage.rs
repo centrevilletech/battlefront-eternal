@@ -1,4 +1,4 @@
-//! Fall damage as the 2004 game deals it (src/collision-damage.js): not a
+//! Fall damage as the 2004 game deals it: not a
 //! fall rule of its own but collision damage, from each contact's speed
 //! into the surface past a threshold; and the world's bounds, past which a
 //! soldier dies.

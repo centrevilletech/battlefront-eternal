@@ -1,7 +1,7 @@
 //! A body's numbers from its class (its ODF definition in a side's
 //! units.json), as the Soldier and Droideka constructors and units.js
 //! buildBody take them: what a soldier moves and jumps at, his jetpack, what
-//! landing too hard does to him (src/collision-damage.js collisionRule), a
+//! landing too hard does to him (collisionRule), a
 //! droideka's turn, ball and eye; the mission's ceiling; a soldier's get-up
 //! and dive times from his clips.
 
@@ -26,7 +26,7 @@ fn js_string(v: &Value) -> String {
     }
 }
 
-/// triple(value, defaults) (collision-damage.js): what the ODF sets over the
+/// triple(value, defaults): what the ODF sets over the
 /// defaults, as the original game reads "%f %f %f" into fields that keep
 /// their defaults. An array's numbers count as they are (anything else in it
 /// is no number); a string is split at white space and each part read as

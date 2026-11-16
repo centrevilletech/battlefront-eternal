@@ -2,9 +2,8 @@
 
 Classic and Enhanced bot decisions run in the required simulation module.
 `rust/sim` prepares authored content once and constructs the
-`AiWorld` host in `rust/sim`. There is no JavaScript bot implementation
-or AI backend switch. The mode setting still chooses Classic, Enhanced or no
-bots.
+`AiWorld` host in `rust/sim`. There is one implementation and no backend
+switch. The mode setting chooses Classic, Enhanced or no bots.
 
 The simulation instance owns `ai::owned::Owner`. Its battle retains the
 controller FSMs, scheduler, navigation planner, deferred LOS, reservations,
@@ -15,35 +14,20 @@ persist across battles live in the owner's process state.
 Before each tick the host writes one generated phase header, current camera
 facts and new journal records into the AI exchange (`ai.prepare`, which calls
 `AiWorld.prepare` in `rust/sim`). The native world tick
-(`world_step_run`, `rust/sim/rust/world/step.rs`) then runs the AI phase
+(`world_step_run`, `rust/sim/src/world/step.rs`) then runs the AI phase
 (`ai_world_phase`) after squad commands and before the unit phase.
 Rust runs `Core::decide` followed by `Core::execute` and
-writes held intent into the canonical unit or seat owner. The host does not
-serialize each controller or ask JavaScript navigation, geometry, population
-or combat services between decisions. Changed identity and presentation
-notices return at the outer boundary.
+writes held intent into the canonical unit or seat owner. Changed identity
+and presentation notices are published with the tick.
 
-Within that tick the native unit phase immediately follows AI and reads
-its canonical controls directly. Ordinary bot intent edits join that phase's
-completed body publication instead of crossing to the host twice. Navigation avoidance, foot weapon
-tuning and selection share that boundary, including clear/restore writes whose
-final values equal the prior snapshot. A synchronous observer still flushes
-the complete touched arsenal before its callback. Damage,
-lifecycle and synchronous foreign observation barriers still publish their
-touched rows immediately. The production coordinator owns AI and danger
-execution; the host has no standalone AI step. Seat steering stays with the vehicle phase ([sim-f2.md](sim-f2.md)); seat facades
-publish only their qualified control, lease and controller identities.
+Within that tick the unit phase immediately follows AI and reads its
+canonical controls directly. Seat steering stays with the vehicle phase.
 
 ## Canonical state and callbacks
 
 Units, registry members, hulls, controls, weapons, Characters and posts resolve
 through native stores. References include storage generations and gameplay
-lives where required. A retained controller facade carries identity only;
-reusing its physical slot does not change an older facade's generation.
-Displaced generations remain addressable until the outer publication journal
-has drained, then leave the host lookup bank. A held facade keeps its original
-lease and generation; monotonically increasing controller indices allocate no
-additional host slots.
+lives where required.
 
 Vehicle policy reads native seats and leases. Building repair candidates keep
 their authored insertion order and a separate identity for the repair wrapper.
@@ -54,7 +38,7 @@ Population initializes the native roster before AI attachment. Spawn, death,
 boarding, weapon and post callbacks borrow the same active Core and random
 streams through an explicit service scope. A callback can observe a death or
 new lease immediately, at the original lifecycle point. It does not wait for
-a later page publication.
+a later publication.
 
 Classic input and visibility cadence remain gameplay. The scheduler keeps the
 original cycle, LOS budget, identity parity, carried input time, near radius
@@ -67,8 +51,8 @@ weapon callbacks draw from A at their actual firing point.
 
 Post-movement aim remains in the unit owner's native phase. Grenade danger
 warnings (`ai_world_dangers`) run after the battle tail, at the end of the
-same native world tick. The host makes one call per tick; foreign observers
-such as sounds and presentation receive the tick's events after it returns.
+same native world tick. Observers such as sounds and presentation receive
+the tick's events after it returns.
 
 ## Boundary and validation
 
@@ -113,39 +97,19 @@ queued clients. Queue order, life validation and budgets remain unchanged.
 Reused controller storage clears its sight-visit mark, including across counter
 wrap. The Classic LOD calculations and observation order stay intact.
 
-Bot publications retain the held axes, button counts and aim needed by host
-observers. Their facade reads the retained generated words on demand instead
-of decoding each field every tick. Consumed movement inputs and trigger latches stay native;
-foreign player controls retain complete restoration. Changing control owners
-restores the complete held record even when zero words equal the old cache.
-Generation-stamped membership preserves first-touch order. Unchanged inputs
-publish no row. A
-pending full body update still takes precedence, and post-movement aim marks
-only its actual weapon or intent writes before the unit phase publishes its
-completed body. Lifecycle callbacks keep their immediate observation barriers.
-
-The unit phase omits foreign rows for canonically controlled bots without
-remote or network facts. Supplied rows retain source order, including passive
-rider requests. A qualified slot index resolves omitted bot facts before any
-body advances; body ticks retain canonical factory order. Human,
-network and unbound bodies still supply explicit intent. Rust checks ownership
-again before accepting an omitted request, so a stale page cannot turn missing
-input into authority. Boundary counters count the words actually written.
-
 `cargo test --locked --workspace` exercises the actual native owner with synthetic
-content. The native fixtures in `rust/sim/rust/ai/owned/tests/phase.rs`,
-`rust/sim/rust/ai/owned/tests/native_phase.rs` and the policy tests under
+content. The native fixtures in `rust/sim/src/ai/owned/tests/phase.rs`,
+`rust/sim/src/ai/owned/tests/native_phase.rs` and the policy tests under
 `rust/sim/tests/` cover missing services, lifecycle ordering, control,
 vehicle and combat behavior. External
 capture replays and world hashes supplement these fixtures; retail content
 and captured battle data stay outside the repository.
 
 The detailed AI documents describe behavioral contracts. Function names in
-them are the Rust names where the port keeps one (usually the JavaScript
-name in snake_case); where a game class name such as `UnitFlyAgent` appears,
-it names the original game's behavior, not a runtime import path. Page weapon prediction still
-uses `rust/sim (ai/random)`. Player, mounted and HUD weapon readers receive
-cold cooked policies from the Rust content owner through `rust/sim` (`weapon-policy`).
-The presentation page cooks its resource policies through the same Rust
-content parser without constructing an AI world. Charge levels share their
+them are the Rust names; where a game class name such as `UnitFlyAgent`
+appears, it names the original game's behavior. Player, mounted and HUD
+weapon readers receive cold cooked policies from the Rust content owner
+through `rust/sim` (`combat::weapons`). The client cooks its resource
+policies through the same Rust content parser without constructing an AI
+world. Charge levels share their
 definition's published policy; separate battles never share a class-name cache. These helpers never schedule bots.

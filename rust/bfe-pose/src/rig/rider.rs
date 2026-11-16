@@ -1,5 +1,5 @@
 //! A soldier's body as an exposed seat poses it, for the simulation
-//! (src/rider-pose.js): what a round meets of a rider, and where his body
+//!: what a round meets of a rider, and where his body
 //! falls from when he dies there.
 //!
 //! The rider's points come from his seat's clip at the seat's point in it,
@@ -53,7 +53,7 @@ const ARMS: [&str; 6] = [
 ];
 
 /// The joints the animator gives back their bind translation after every
-/// pose (src/animator.js BIND_LENGTH), in its order.
+/// pose (BIND_LENGTH), in its order.
 pub const BIND_LENGTH: [&str; 22] = [
     "bone_pelvis",
     "bone_a_spine",
@@ -79,7 +79,7 @@ pub const BIND_LENGTH: [&str; 22] = [
     "bone_r_toe",
 ];
 
-/// What riderPoints keeps per skeleton (src/rider-pose.js skeletonOf), and
+/// What riderPoints keeps per skeleton (skeletonOf), and
 /// what it reads of the animator: the bind lengths it restores and its
 /// root's bind place.
 #[derive(Clone, Debug)]
@@ -177,7 +177,7 @@ impl RiderSkeleton {
 }
 
 /// A seat's sample of the rider's clip (src/vehicles.js riderSample,
-/// src/props.js Turret.riderSample, AnimatedProp.heldFrame): a time in it,
+/// Turret.riderSample, AnimatedProp.heldFrame): a time in it,
 /// or the 9-pose's pitch and turn.
 #[derive(Clone, Copy)]
 pub struct RiderSample<'c> {
@@ -207,7 +207,7 @@ pub struct RiderPoints {
     pub root_turn: Quaternion,
 }
 
-/// riderPoints' scratch: its pose (one per skeleton in the JavaScript) and
+/// riderPoints' scratch: its pose and
 /// the local and world turns and places it works through.
 pub struct RiderScratch {
     pub pose: Pose,
@@ -255,7 +255,7 @@ fn or_zero(x: f64) -> f64 {
 /// bones' quaternions and positions as they stand (a joint the clip leaves
 /// alone keeps its bone's: in a world, which never poses a soldier's drawn
 /// bones, the bind pose). `root`: whether `out` asks for bone_root's place
-/// and turn (the JavaScript's `out.root` and `out.rootTurn`).
+/// and turn.
 pub fn rider_points(
     skeleton: &RiderSkeleton,
     bone_q: &[Quaternion],

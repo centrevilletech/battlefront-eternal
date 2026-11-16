@@ -1,6 +1,7 @@
 Synthetic codec fixtures and frozen host PCM. `inputs.json` records encoded
 source hashes, native rates, lengths, channel counts and mapping families.
-`host.json` records the reference revision and browser version. Each gzip
+`host.json` records the reference revision and the decoder the reference
+PCM was first made with. Each gzip
 contains channel-major, little-endian float32 PCM at the stated rate.
 
 FLAC covers the tools' S16 and PCM_24 formats, including libsndfile's encoder,
@@ -11,6 +12,6 @@ one uses libsndfile, including its fact/PEAK metadata, as the generator does.
 No original game data is included.
 
 Source-rate FLAC/WAV must compare bit for bit. Explicit rate conversion and
-Opus must keep every sample's error below -96 dBFS. `audio-codec.test.js`
-also splits compressed input across metadata, frames and pages, and varies
+Opus must keep every sample's error below -96 dBFS. The tests
+(`rust/audio-decode/tests/codec.rs`) also split compressed input across metadata, frames and pages, and varies
 the requested PCM chunk size. No host decoder runs in these tests.

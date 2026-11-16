@@ -1,4 +1,4 @@
-//! Server-side peer wrapper over `bfe_transport` (`src/udp-peer.js` and `src/game-session.js`).
+//! Server-side peer wrapper over `bfe_transport`.
 
 use crate::net_metrics::NetMetrics;
 use bfe_transport::connection::{Connection, Lane};
@@ -9,33 +9,33 @@ use serde_json::{json, Value};
 use std::net::SocketAddr;
 
 /// Little-endian u32 magic `'BNI1'` (`0x31494e42`) for client entity-input datagrams
-/// (`STATE_MAGICS` in `src/udp-peer.js` and `binary()` in `src/game-session.js`).
+/// (`STATE_MAGICS` in `src/udp-peer.js` and `binary()`).
 pub const INPUT_MAGIC: u32 = 0x3149_4e42; // 'BNI1'
 /// Little-endian u32 magic `'BNA1'` (`0x31414e42`) for 10-byte client snapshot-ack keepalive datagrams
-/// (`STATE_MAGICS` in `src/udp-peer.js` and `binary()` in `src/game-session.js`).
+/// (`STATE_MAGICS` in `src/udp-peer.js` and `binary()`).
 pub const ACK_MAGIC: u32 = 0x3141_4e42; // 'BNA1'
 /// Little-endian u32 magic `'BNS1'` (`0x31534e42`) for server shared entity-snapshot delta datagrams
-/// (`entityPacket` in `src/game-session.js`).
+/// (`entityPacket`).
 pub const SNAPSHOT_MAGIC: u32 = 0x3153_4e42; // 'BNS1'
 /// Little-endian u32 magic `'BNO1'` (`0x314f4e42`) for server own-player correction datagrams
-/// (`entityPacket` in `src/game-session.js`).
+/// (`entityPacket`).
 pub const OWN_MAGIC: u32 = 0x314f_4e42; // 'BNO1'
 
-/// Maximum reliable `events` message size and unacknowledged buffer cap (`EVENTS_MESSAGE_BYTES = 262144` in `src/udp-peer.js`).
+/// Maximum reliable `events` message size and unacknowledged buffer cap (`EVENTS_MESSAGE_BYTES = 262144`).
 pub const EVENTS_MESSAGE_BYTES: usize = 262_144;
-/// Maximum `state` lane JSON message size (`STATE_MESSAGE_BYTES = 32768` in `src/udp-peer.js`).
+/// Maximum `state` lane JSON message size (`STATE_MESSAGE_BYTES = 32768`).
 pub const STATE_MESSAGE_BYTES: usize = 32_768;
 
-/// Congestion entry threshold in milliseconds (`CONGESTED_MS = 120` in `src/udp-peer.js`).
+/// Congestion entry threshold in milliseconds (`CONGESTED_MS = 120`).
 const CONGESTED_MS: f64 = 120.0;
-/// Congestion recovery hysteresis threshold in milliseconds (`CLEAR_MS = 50` in `src/udp-peer.js`).
+/// Congestion recovery hysteresis threshold in milliseconds (`CLEAR_MS = 50`).
 const CLEAR_MS: f64 = 50.0;
-/// Unacknowledged byte backlog above which snapshots are skipped (`STATE_BACKLOG_BYTES = 32768` in `src/game-session.js`).
+/// Unacknowledged byte backlog above which snapshots are skipped (`STATE_BACKLOG_BYTES = 32768`).
 const STATE_BACKLOG_BYTES: usize = 32_768;
-/// Maximum age in milliseconds for an outgoing snapshot publication (`STATE_STALE_MS = 100` in `src/game-session.js`).
+/// Maximum age in milliseconds for an outgoing snapshot publication (`STATE_STALE_MS = 100`).
 const STATE_STALE_MS: u64 = 100;
 
-/// Selected transport path metadata for a connected peer (`UdpPeer.path()` in `src/udp-peer.js`).
+/// Selected transport path metadata for a connected peer (`UdpPeer.path()`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PeerPath {
     /// Path kind (`"direct"` or `"relay"`).
@@ -47,7 +47,7 @@ pub struct PeerPath {
 }
 
 impl PeerPath {
-    /// Constructs a direct UDP path descriptor for `address` (`UdpPeer.path()` in `src/udp-peer.js`).
+    /// Constructs a direct UDP path descriptor for `address` (`UdpPeer.path()`).
     pub fn direct(address: SocketAddr) -> Self {
         let family = if address.is_ipv6() { "IPv6" } else { "IPv4" };
         Self {
@@ -58,7 +58,7 @@ impl PeerPath {
     }
 }
 
-/// Per-peer outgoing `state` lane token bucket (`stateBytesPerSecond` budget in `src/world-worker.js`).
+/// Per-peer outgoing `state` lane token bucket (`stateBytesPerSecond` budget).
 ///
 /// Refills continuously at `rate` bytes/sec up to `burst = max(4096, rate * 0.25)` bytes.
 #[derive(Clone, Debug)]
@@ -116,7 +116,7 @@ impl StateBudget {
 }
 
 /// Validates incoming client `state` datagram magic and length bounds
-/// (`receive("state", payload)` in `src/udp-peer.js` and `GameSession.binary` in `src/game-session.js`).
+/// (`receive("state", payload)` in `src/udp-peer.js` and `GameSession.binary`).
 ///
 /// Checks `10 <= bytes.len() <= 1100` and requires either:
 /// - `ACK_MAGIC` (`0x31414e42`, `'BNA1'`) with exact length `10`, or
@@ -133,29 +133,29 @@ pub fn valid_incoming_state_payload(bytes: &[u8]) -> bool {
     }
 }
 
-/// Per-session server transport state (`export class UdpPeer` in `src/udp-peer.js`).
+/// Per-session server transport state (`export class UdpPeer`).
 pub struct UdpPeerState {
-    /// 64-character lowercase hex SHA-256 client identity (`session.id` in `src/udp-peer.js`).
+    /// 64-character lowercase hex SHA-256 client identity (`session.id`).
     pub id: String,
-    /// Sanitized player display name from the handshake hello (`playerName` in `src/game-session.js`).
+    /// Sanitized player display name from the handshake hello (`playerName`).
     pub name: String,
     /// Local numeric session handle inside `bfe_transport::server::ServerEndpoint`.
     pub session_id: u32,
     /// Normalized remote IP string for operator status display.
     pub address: String,
-    /// Network prefix key (IPv4 `/32` or IPv6 `/64`) for `maxPlayersPerAddress` accounting (`src/udp-server.js`).
+    /// Network prefix key (IPv4 `/32` or IPv6 `/64`) for `maxPlayersPerAddress` accounting.
     pub prefix: String,
     /// Active network path (`direct` or `relay`, `IPv4` or `IPv6`).
     pub path: PeerPath,
     /// Outgoing `state` lane bandwidth token bucket.
     pub state_budget: StateBudget,
-    /// Sliding-window and lifetime byte/packet/drop metrics (`src/net-metrics.js`).
+    /// Sliding-window and lifetime byte/packet/drop metrics.
     pub metrics: NetMetrics,
     /// Timestamp (`now_ms`) when the connection backlog first exceeded `STATE_BACKLOG_BYTES`.
     pub congested_since: Option<f64>,
     /// Timestamp (`now_ms`) when a congested connection's backlog dropped back below `STATE_BACKLOG_BYTES`.
     pub clear_since: Option<f64>,
-    /// Whether the peer is currently in the congested hysteresis state (`this.congested` in `src/udp-peer.js`).
+    /// Whether the peer is currently in the congested hysteresis state (`this.congested`).
     pub state_congested: bool,
     /// Count of outgoing snapshots dropped because `unix_now_ms - captured_at_unix_ms > STATE_STALE_MS`.
     pub state_stale_drops: u64,
@@ -168,7 +168,7 @@ pub struct UdpPeerState {
 }
 
 impl UdpPeerState {
-    /// Constructs a new `UdpPeerState` for an admitted `BFE-UDP/1` session (`new UdpPeer` in `src/udp-server.js`).
+    /// Constructs a new `UdpPeerState` for an admitted `BFE-UDP/1` session (`new UdpPeer`).
     pub fn new(
         id: String,
         name: String,
@@ -199,7 +199,7 @@ impl UdpPeerState {
     }
 
     /// Updates RTT/loss metrics and evaluates the `CONGESTED_MS` (120 ms) / `CLEAR_MS` (50 ms)
-    /// congestion hysteresis state machine (`UdpPeer.stateBacklog` in `src/udp-peer.js`).
+    /// congestion hysteresis state machine (`UdpPeer.stateBacklog`).
     pub fn update_congestion(&mut self, conn: &mut Connection, now_ms: f64) {
         if conn.rtt.is_finite() && self.last_rtt != Some(conn.rtt) {
             self.last_rtt = Some(conn.rtt);
@@ -291,7 +291,7 @@ impl UdpPeerState {
     }
 
     /// Builds the per-peer transport diagnostics JSON object (`UdpPeer.transportStats` in
-    /// `src/udp-peer.js` and `GameSession.transportDiagnostics` in `src/game-session.js`).
+    /// and `GameSession.transportDiagnostics`).
     pub fn stats(&mut self, conn: &mut Connection, now_ms: f64) -> Value {
         self.update_congestion(conn, now_ms);
         let snap = self.metrics.snapshot(now_ms as u64);
@@ -307,6 +307,8 @@ impl UdpPeerState {
             }),
         );
         obj.insert("stateCongested".to_string(), Value::Bool(self.state_congested));
+        // Reliable bytes written but not yet sent or acknowledged (lost and owed again).
+        obj.insert("backlogBytes".to_string(), json!(conn.backlog()));
         obj.insert("stateStaleDrops".to_string(), json!(self.state_stale_drops));
         obj.insert(
             "stateBudgetDrops".to_string(),

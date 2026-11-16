@@ -1,4 +1,4 @@
-//! The scheduler's data and its pure geometry (scheduler.js): the
+//! The scheduler's data and its pure geometry: the
 //! candidate budget, the camera gate, and the degraded analog
 //! conversion. The scheduling itself is the core's (mod.rs).
 
@@ -28,7 +28,7 @@ impl Default for Scheduler {
     }
 }
 
-/// candidateBudget (scheduler.js:38).
+/// candidateBudget.
 pub fn candidate_budget(count: f64, cycle: f64, step: f64) -> f64 {
     if step == cycle {
         return count;
@@ -41,7 +41,7 @@ pub fn js_rem(a: f64, b: f64) -> f64 {
     a - v8math::trunc(a / b) * b
 }
 
-/// cameraAccepts (scheduler.js:52).
+/// cameraAccepts.
 pub fn camera_accepts(camera: &CameraView, point: Vec3) -> bool {
     let e = &camera.elements;
     let scale = camera.zoom;
@@ -63,7 +63,7 @@ pub fn camera_accepts(camera: &CameraView, point: Vec3) -> bool {
     true
 }
 
-/// fallbackAnalogs (scheduler.js:300): the degraded conversion,
+/// fallbackAnalogs: the degraded conversion,
 /// writing (forward, right, turn, pitch).
 pub fn fallback_analogs(unit: &AiUnit, request: &super::controller::MoveRequest, aim_point: Option<Vec3>, dt: f64, facing: bool) -> [f64; 4] {
     let mut out = [0.0; 4];
@@ -122,7 +122,7 @@ pub fn fallback_analogs(unit: &AiUnit, request: &super::controller::MoveRequest,
     out
 }
 
-/// visibleOrNear (scheduler.js): offline distance uses the first camera,
+/// visibleOrNear: offline distance uses the first camera,
 /// network distance uses every camera, and frustum tests always use every view.
 pub fn visible_or_near(unit: &AiUnit, cameras: &[CameraView], network_views: bool, lod_disabled: bool) -> bool {
     position_visible_or_near(unit.position, unit.velocity, cameras, network_views, lod_disabled)

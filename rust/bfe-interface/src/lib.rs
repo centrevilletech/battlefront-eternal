@@ -1,7 +1,7 @@
 //! Battlefront Eternal 2D/3D-tilted interface kit, menu framework, classic theme,
-//! options schema, and persistent settings (`src/interface/`, `src/menus/`, `src/settings.js`).
+//! options schema, and persistent settings (`src/interface/`, `src/menus/`).
 
-// 2D/3D interface primitives (`src/interface/`), menu framework (`src/menus/`), and settings (`src/settings.js`).
+// 2D/3D interface primitives (`src/interface/`), menu framework (`src/menus/`), and settings.
 pub mod flashy;
 pub mod fonts;
 pub mod gpu_note;
@@ -20,13 +20,13 @@ pub mod surface;
 pub mod theme;
 pub mod widgets;
 
-// Re-export flashy text intro animation types (`src/interface/flashy.js`) and bitmap fonts (`src/interface/fonts.js`).
+// Re-export flashy text intro animation types and bitmap fonts.
 pub use flashy::{FlashyBar, FlashyFrame, FlashyPieces, FlashyText, TitleIntro, INTRO, INTRO_LENGTH};
 pub use fonts::{
     font_draw_text, font_text_width, Font, Fonts, Glyph, TextAlign, TextDraw, FONT_LARGE,
     FONT_MEDIUM, FONT_SMALL, FONT_TINY,
 };
-// Re-export keybinding tables (`src/menus/hotkeys.js`) and menu input routing (`src/menus/input.js`).
+// Re-export keybinding tables and menu input routing.
 pub use hotkeys::{
     bindable, binding_codes, default_flight_bindings, flat_bindings, flight_bindings, hotkey_rows,
     key_name, keys_text, player_bindings, rebind, FlightBindingDef, HotkeyRow, HotkeyRowSpec,
@@ -34,7 +34,7 @@ pub use hotkeys::{
     WORLD_AXES,
 };
 pub use input::{MenuInput, MenuInputEvent};
-// Re-export option page builders (`src/menus/option-pages.js`) and declarative option specs (`src/menus/options.js`).
+// Re-export option page builders and declarative option specs.
 pub use option_pages::{
     audio_page, bindings_look, bindings_look_for_tab, controls_page, controls_window,
     controls_window_for_tab, game_page, options_menu, video_page, ControlsWindow, OptionsContext,
@@ -46,7 +46,7 @@ pub use options::{
     ChoiceItem, ChoiceVal, OptionKind, OptionSpec, PageDef, SliderFormat, OPTIONS, OPTION_KEYS,
     PAGES, PROFILE_KEYS, THEME_KEYS,
 };
-// Re-export modal popups (`src/menus/popup.js`), screens (`src/menus/screen.js`), and settings (`src/settings.js`).
+// Re-export modal popups, screens, and settings.
 pub use popup::{confirm_popup, key_popup, ok_popup, KeyCaptureModal, KeyCaptureOutcome};
 pub use screen::{MenuScreen, ScreenFocus};
 pub use settings::{

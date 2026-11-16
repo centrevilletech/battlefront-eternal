@@ -41,7 +41,7 @@ fn unit(id: u32, kind: u32, source: usize, team: f64) -> Unit {
     Unit { id, generation: 2, kind, source, team, radar: id as usize + 10 }
 }
 
-// The page's own unit is 7 (life 2) on team 1, facing yaw 0.
+// The client's own unit is 7 (life 2) on team 1, facing yaw 0.
 fn own() -> Own {
     Own { id: 7, generation: 2, team: 1, yaw: 0. }
 }

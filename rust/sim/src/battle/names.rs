@@ -1,4 +1,4 @@
-//! Bot names (src/bot-names.js), as the 2004 game makes them when a team's
+//! Bot names, as the 2004 game makes them when a team's
 //! Characters are created at the battle's start: each team draws from a
 //! generator of its own, seeded with its side type (Rebels 1, Empire 2,
 //! Republic 3, CIS 4); a name is a first name from the side's list (or two
@@ -28,7 +28,7 @@ pub enum BotNames {
 }
 
 impl BotNames {
-    /// botNames(lists, faction) (bot-names.js:23).
+    /// botNames(lists, faction).
     pub fn new(lists: Option<&NameLists>, faction: f64) -> BotNames {
         if faction == LOCALS {
             return BotNames::Locals(lists.and_then(|l| l.local.clone()).filter(|l| !l.is_empty()).unwrap_or_else(|| "LOCAL".into()));
@@ -70,7 +70,7 @@ impl BotNames {
     }
 }
 
-/// humanName(index) (bot-names.js:43): "Player n".
+/// humanName(index): "Player n".
 pub fn human_name(index: f64) -> String {
     format!("Player {}", jsrt::numfmt::number_to_string(index + 1.0))
 }

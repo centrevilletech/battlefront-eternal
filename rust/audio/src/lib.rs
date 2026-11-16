@@ -1,5 +1,5 @@
 //! Rust owns the complete audio render phase: source playback, streams,
-//! placement, convolution, room sends, mono and master processing. The page
+//! placement, convolution, room sends, mono and master processing. The client
 //! supplies decoded PCM and context-timed commands. One worklet copies the
 //! finished 128-frame quantum; the optional meter host copies readings.
 //!
@@ -31,7 +31,7 @@ pub mod voices;
 
 /// A block of samples handed to a processor: `channels` runs of `frames`
 /// f32 samples, one after another (channel-major). Inputs are read widened
-/// to f64, as JavaScript reads a Float32Array.
+/// to f64.
 pub struct Block<'a> {
     pub data: &'a [f32],
     pub channels: usize,

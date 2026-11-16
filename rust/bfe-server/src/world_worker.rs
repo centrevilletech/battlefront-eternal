@@ -1,5 +1,5 @@
 //! Native authoritative world host (`src/world-worker.js`, `SnapshotHost` in
-//! `src/runtime/snapshot-host.js`, and `createMultiplayerWorld` in `src/runtime/multiplayer-world.js`).
+//! `src/runtime/snapshot-host.js`, and `createMultiplayerWorld`).
 
 use crate::udp_peer::{ACK_MAGIC, INPUT_MAGIC};
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -48,13 +48,13 @@ const VIEW_FIELD_NAMES: [&str; 7] = [
 const EDGE_KIND_NAMES: [&str; 6] = ["action", "fire", "team", "spawn", "suicide", "cancel"];
 
 /// Initial player state returned when `add_player` admits a client (`world.player(m.client)` in
-/// `handle("join")` in `src/world-worker.js`).
+/// `handle("join")`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerWelcome {
     /// Authoritative unit entity ID controlled by this player (`1` when spectator or unspawned).
     pub unit_id: u32,
-    /// Alias of `unit_id` (`playerId: m.player.unitId` in `src/game-session.js`).
+    /// Alias of `unit_id` (`playerId: m.player.unitId`).
     pub player_id: u32,
     /// Monotonically increasing spawn generation (`0` before first spawn, incremented on each spawn).
     pub generation: u32,
@@ -66,12 +66,12 @@ pub struct PlayerWelcome {
     pub spectator: bool,
     /// Whether the client should open the team/spawn selection overlay (`!config.autoAssignTeams`).
     pub team_select: bool,
-    /// Server simulation tick at the moment `welcome` was generated (`m.tick` in `src/world-worker.js`).
+    /// Server simulation tick at the moment `welcome` was generated (`m.tick`).
     pub tick: u32,
 }
 
 /// Single per-tick movement/look command decoded from a `BNI1` input packet
-/// (`commands` entry in `decodeEntityInput` in `src/runtime/network-entity-input.js`).
+/// (`commands` entry in `decodeEntityInput`).
 ///
 /// Clients bundle up to `nc <= 8` recent unacknowledged commands per `BNI1` packet so a single lost
 /// UDP datagram on the `state` lane does not cause a gap in the authoritative input mailbox.
@@ -94,7 +94,7 @@ pub struct DecodedInputCommand {
 }
 
 /// Single discrete gameplay edge decoded from a `BNI1` input packet
-/// (`edges` entry in `decodeEntityInput` in `src/runtime/network-entity-input.js`).
+/// (`edges` entry in `decodeEntityInput`).
 #[derive(Clone, Debug)]
 pub struct DecodedEdge {
     /// Client-assigned monotonic edge ID (`> 0`), acknowledged in `entity-edge-results`.
@@ -127,7 +127,7 @@ pub struct DecodedEdge {
     pub post_id: u16,
 }
 
-/// Complete decoded `BNI1` client entity-input datagram (`decodeEntityInput` in `src/runtime/network-entity-input.js`).
+/// Complete decoded `BNI1` client entity-input datagram (`decodeEntityInput`).
 #[derive(Clone, Debug)]
 pub struct DecodedInputPacket {
     /// Battle epoch (`u32`).
@@ -143,7 +143,7 @@ pub struct DecodedInputPacket {
 }
 
 /// Decodes a 10-byte `BNA1` (`0x31414e42`) snapshot acknowledgement keepalive
-/// (`export function decodeSnapshotAckKeepalive` in `src/runtime/network-entity-input.js`).
+/// (`export function decodeSnapshotAckKeepalive`).
 pub fn decode_snapshot_ack_keepalive(bytes: &[u8]) -> Result<(u16, u32), &'static str> {
     if bytes.len() != 10 {
         return Err("invalid snapshot ack keepalive");
@@ -158,7 +158,7 @@ pub fn decode_snapshot_ack_keepalive(bytes: &[u8]) -> Result<(u16, u32), &'stati
 }
 
 /// Decodes a `BNI1` (`0x31494e42`) entity input datagram
-/// (`export function decodeEntityInput` in `src/runtime/network-entity-input.js`).
+/// (`export function decodeEntityInput`).
 ///
 /// Validates all scalar finiteness, count bounds (`nv <= 8`, `nc <= 8`, `ne <= 32`, `na <= 1`),
 /// view flag ranges, `INPUT_CODES` bitmask indices, `INPUT_ACTIONS` indices, fire aim bounds,
@@ -190,7 +190,7 @@ pub fn decode_entity_input(bytes: &[u8]) -> Result<DecodedInputPacket, &'static 
         let b = take(at, 8)?;
         let v = f64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);
         // Every float on the wire (`mouse_scale`, `aspect`, `view_tick`, `look_x`, `look_y`, `aim_yaw`, `aim_pitch`)
-        // must be finite (`Number.isFinite(v)` in `src/runtime/network-entity-input.js`) so `NaN` or `Infinity`
+        // must be finite (`Number.isFinite(v)`) so `NaN` or `Infinity`
         // can never poison the authoritative simulation state.
         if !v.is_finite() {
             return Err("invalid input scalar");
@@ -212,7 +212,7 @@ pub fn decode_entity_input(bytes: &[u8]) -> Result<DecodedInputPacket, &'static 
         return Err("input count limit");
     }
 
-    // Decode `nv` deduplicated view descriptors (`WiView` in `decodeEntityInput` in `src/runtime/network-entity-input.js`).
+    // Decode `nv` deduplicated view descriptors (`WiView` in `decodeEntityInput`).
     // Flag bits:
     // - `4`: flight mode active (required when `256` or `512` is set)
     // - `16`: 4 gamepad axes (`[-1.0, 1.0]`) + `u16` buttons bitmask present
@@ -426,7 +426,7 @@ pub fn decode_entity_input(bytes: &[u8]) -> Result<DecodedInputPacket, &'static 
 
 /// Builds the canonical `entity-registry` JSON descriptor from prepared content
 /// (`entityRegistryDescriptor` in `src/runtime/network-entity-registry.js` and
-/// `ensureEntityHost().descriptor()` in `src/world-worker.js`).
+/// `ensureEntityHost().descriptor()`).
 pub fn build_entity_registry_descriptor(
     root: &Path,
     map: &str,
@@ -469,7 +469,7 @@ fn load_entity_registry(
     Ok((defs, descriptor, bfe_content::registry::registry_content(&content)))
 }
 
-/// Outbound JSON message addressed to a single peer (`toClients` in `src/world-worker.js`).
+/// Outbound JSON message addressed to a single peer (`toClients`).
 #[derive(Clone, Debug)]
 pub struct OutgoingPeerEvents {
     pub peer_id: String,
@@ -477,7 +477,7 @@ pub struct OutgoingPeerEvents {
 }
 
 /// Shared `BNS1` entity delta snapshot group encoded once per baseline and fanned out to all
-/// `clients` sharing that baseline (`out.shared` in `publish()` in `src/world-worker.js`).
+/// `clients` sharing that baseline (`out.shared` in `publish()`).
 #[derive(Clone, Debug)]
 pub struct OutgoingSharedGroup {
     pub clients: Vec<String>,
@@ -485,7 +485,7 @@ pub struct OutgoingSharedGroup {
     pub captured_at_unix_ms: u64,
 }
 
-/// Per-client `BNO1` own-player correction datagram (`out.ownPackets` in `publish()` in `src/world-worker.js`).
+/// Per-client `BNO1` own-player correction datagram (`out.ownPackets` in `publish()`).
 #[derive(Clone, Debug)]
 pub struct OutgoingOwnPacket {
     pub peer_id: String,
@@ -493,7 +493,7 @@ pub struct OutgoingOwnPacket {
     pub captured_at_unix_ms: u64,
 }
 
-/// Decoded output of one 20 Hz world publication (`publish()` in `src/world-worker.js`).
+/// Decoded output of one 20 Hz world publication (`publish()`).
 #[derive(Clone, Debug, Default)]
 pub struct DecodedPublication {
     pub epoch: u32,
@@ -507,7 +507,7 @@ pub struct DecodedPublication {
 
 /// Decodes a `Publication` (`WirePublicationOutput` block + byte arena) into transport-ready
 /// shared `BNS1` groups, per-client `BNO1` packets, `input-ack`, `entity-edge-results`, and
-/// `gameplay-events` (`publish()` in `src/world-worker.js` and `WorldRouter.route` in `src/game-session.js`).
+/// `gameplay-events` (`publish()` in `src/world-worker.js` and `WorldRouter.route`).
 #[allow(clippy::chunks_exact_to_as_chunks)]
 pub fn decode_publication_block(
     pub_data: &Publication,
@@ -558,7 +558,7 @@ pub fn decode_publication_block(
         ..Default::default()
     };
 
-    // Decode `out.faults` (`snapshotFault` in `src/world-worker.js`).
+    // Decode `out.faults` (`snapshotFault`).
     for fault in slice_table(WirePublicationOutput::FAULTS, WirePublishedFault::WORDS)?
         .chunks_exact(WirePublishedFault::WORDS)
     {
@@ -575,7 +575,7 @@ pub fn decode_publication_block(
         out.faults.push((peer, msg));
     }
 
-    // Decode `out.inputAcks` (`input-ack` in `GameSession.inputAck` in `src/game-session.js`).
+    // Decode `out.inputAcks` (`input-ack` in `GameSession.inputAck`).
     for ack in slice_table(WirePublicationOutput::ACKS, WirePublishedAck::WORDS)?
         .chunks_exact(WirePublishedAck::WORDS)
     {
@@ -600,7 +600,7 @@ pub fn decode_publication_block(
         });
     }
 
-    // Decode `out.edgeResults` (`entity-edge-results` in `GameSession.edgeFeedback` in `src/game-session.js`).
+    // Decode `out.edgeResults` (`entity-edge-results` in `GameSession.edgeFeedback`).
     for edge in slice_table(WirePublicationOutput::EDGES, WirePublishedEdges::WORDS)?
         .chunks_exact(WirePublishedEdges::WORDS)
     {
@@ -646,7 +646,7 @@ pub fn decode_publication_block(
         });
     }
 
-    // Decode `out.reliableEvents` (`gameplay-events` in `WorldRouter.broadcastEvents` in `src/game-session.js`).
+    // Decode `out.reliableEvents` (`gameplay-events` in `WorldRouter.broadcastEvents`).
     let records_slice = slice_table(WirePublicationOutput::RECORDS, WirePublishedRecord::WORDS)?;
     let mut encoded_records = Vec::new();
     for rec in records_slice.chunks_exact(WirePublishedRecord::WORDS) {
@@ -694,7 +694,7 @@ pub fn decode_publication_block(
         }
     }
 
-    // Decode `out.shared` baseline groups (`BNS1` datagram parts in `snapshotPublication` in `src/world-worker.js`).
+    // Decode `out.shared` baseline groups (`BNS1` datagram parts in `snapshotPublication`).
     for group in slice_table(WirePublicationOutput::SHARED, WirePublishedGroup::WORDS)?
         .chunks_exact(WirePublishedGroup::WORDS)
     {
@@ -726,7 +726,7 @@ pub fn decode_publication_block(
         });
     }
 
-    // Decode `out.ownPackets` (`BNO1` per-client own-player datagrams in `snapshotPublication` in `src/world-worker.js`).
+    // Decode `out.ownPackets` (`BNO1` per-client own-player datagrams in `snapshotPublication`).
     for own in slice_table(WirePublicationOutput::OWN, WirePublishedOwn::WORDS)?
         .chunks_exact(WirePublishedOwn::WORDS)
     {
@@ -746,7 +746,7 @@ pub fn decode_publication_block(
 }
 
 /// Composes the canonical `welcome` event payload (`m.type === "joined"` handler in `GameSession`
-/// in `src/game-session.js` and `welcome` callback in `startLocalServer` in `src/local-server.js`):
+/// in `src/game-session.js` and `welcome` callback in `startLocalServer`):
 /// `{ type: "welcome", ...info(), serverId: identity.id, ...m.player, playerId: m.player.unitId, tick: m.tick }`.
 pub fn build_welcome_message(info: &Value, server_id: &str, player: &PlayerWelcome) -> Value {
     let mut map = info.as_object().cloned().unwrap_or_default();
@@ -827,7 +827,7 @@ pub fn parse_admit_options(query: &str, fallback_map: &str) -> AdmitOptions {
 }
 
 
-/// Native simulation world host wrapping `bfe_sim::abi::context::Context` (`src/world-worker.js`).
+/// Native simulation world host wrapping `bfe_sim::abi::context::Context`.
 pub struct NativeWorldHost {
     /// BFE_AI_TRACE: a census of the bots every ten seconds on stderr.
     census: Option<bfe_sim::host::census::Census>,
@@ -851,7 +851,7 @@ pub struct NativeWorldHost {
     pub epoch: u32,
     /// Current 60 Hz simulation tick (`0` before first `step()`).
     pub tick: u32,
-    /// Cumulative late-tick drop count (`droppedTicks` in `src/world-worker.js`).
+    /// Cumulative late-tick drop count (`droppedTicks`).
     pub dropped_ticks: u32,
     /// Most recent monotonic timestamp (`now_ms`) observed on the tick thread.
     pub last_now_ms: f64,
@@ -924,7 +924,7 @@ pub struct NativeWorldHost {
 }
 
 impl NativeWorldHost {
-    /// Loads prepared content from `root` for `query` and initializes `Context` (`src/world-worker.js`).
+    /// Loads prepared content from `root` for `query` and initializes `Context`.
     pub fn load_from_content(root: &Path, query: &str, epoch: u32) -> Result<Self, String> {
         let map = query
             .trim_start_matches('?')
@@ -990,8 +990,7 @@ impl NativeWorldHost {
                 // to the client via `entity-edge-results`.
                 let _ = context.players_outcomes_enable(admitted_handles.player);
                 // Configure `wire_host` to publish world snapshots every 3 ticks (20 Hz), matching
-                // `PUBLISH_EVERY_TICKS = 3` in `src/world-worker.js` and `MAX_LOCAL_INTERVAL = 3`
-                // in `src/runtime/snapshot-host.js`.
+                // `PUBLISH_EVERY_TICKS = 3` in `src/world-worker.js` and `MAX_LOCAL_INTERVAL = 3`.
                 let _ = context.invoke_export(
                     "wire_host_set",
                     &AdmitCall {
@@ -1252,7 +1251,7 @@ impl NativeWorldHost {
     }
 
     /// Admits a player into the world roster (`world.addPlayer` and `entityHost.addClient` in
-    /// `handle("join")` in `src/world-worker.js`).
+    /// `handle("join")`).
     pub fn add_player(
         &mut self,
         peer_id: &str,
@@ -1418,7 +1417,7 @@ impl NativeWorldHost {
         Ok(welcome)
     }
 
-    /// Removes a disconnected player from the world roster (`leave(client)` in `src/world-worker.js`).
+    /// Removes a disconnected player from the world roster (`leave(client)`).
     pub fn remove_player(&mut self, peer_id: &str) {
         if let Some(native_id) = self.native_by_client.remove(peer_id) {
             self.client_by_native.remove(&native_id);
@@ -1481,7 +1480,7 @@ impl NativeWorldHost {
     }
 
     /// Marks a joined client as started and ready for snapshot streaming (`handle("start")` in
-    /// `src/world-worker.js` and `setStarted` / `setReady` in `src/runtime/snapshot-host.js`).
+    /// and `setStarted` / `setReady`).
     pub fn handle_start(&mut self, peer_id: &str, now_ms: f64) {
         self.last_now_ms = self.last_now_ms.max(now_ms);
         let Some(&native_id) = self.native_by_client.get(peer_id) else {
@@ -1557,7 +1556,7 @@ impl NativeWorldHost {
     }
 
     /// Decodes and admits an inbound `BNA1` snapshot-ack keepalive or `BNI1` entity-input datagram
-    /// from `peer_id` (`input(id, bytes)` in `src/runtime/snapshot-host.js`).
+    /// from `peer_id` (`input(id, bytes)`).
     ///
     /// Why malformed datagrams never disconnect or stall other players:
     /// All wire validation occurs in `decode_snapshot_ack_keepalive` / `decode_entity_input` before
@@ -1572,7 +1571,7 @@ impl NativeWorldHost {
         }
         self.set_host_client_field(native_id, 6, self.last_now_ms);
 
-        // 10-byte `BNA1` snapshot acknowledgement keepalive (`isSnapshotAckKeepalive` in `snapshot-host.js`).
+        // 10-byte `BNA1` snapshot acknowledgement keepalive (`isSnapshotAckKeepalive`).
         if bytes.len() == 10 {
             if let Ok((ack_epoch, ack_tick)) = decode_snapshot_ack_keepalive(bytes) {
                 self.run_host_op(4, native_id, ack_tick as f64, ack_epoch as f64);
@@ -1580,7 +1579,7 @@ impl NativeWorldHost {
             }
         }
 
-        // `BNI1` entity input packet (`decodeEntityInput` in `snapshot-host.js`).
+        // `BNI1` entity input packet (`decodeEntityInput`).
         let Ok(pkt) = decode_entity_input(bytes) else {
             return;
         };
@@ -1592,7 +1591,7 @@ impl NativeWorldHost {
         }
 
         // Forward discrete gameplay edges (`pkt.edges`) into the client's `wire_edges` receiver
-        // (`state.edges.receive(packet, game.worldClock.tick)` in `snapshot-host.js`).
+        // (`state.edges.receive(packet, game.worldClock.tick)`).
         if !pkt.edges.is_empty() {
             let edges_id = self
                 .edges_by_native
@@ -1739,7 +1738,7 @@ impl NativeWorldHost {
     }
 
     /// Steps the authoritative simulation by one 60 Hz tick and returns the decoded publication
-    /// (`step()` and `publish()` in `src/world-worker.js`).
+    /// (`step()` and `publish()`).
     pub fn step(
         &mut self,
         now_ms: f64,
@@ -1855,7 +1854,7 @@ impl NativeWorldHost {
 
 impl Drop for NativeWorldHost {
     /// Disposes the underlying `bfe_sim::abi::context::Context` when `NativeWorldHost` is dropped
-    /// (`game.dispose()` in `src/world-worker.js`), ensuring `Context::world_replay_live_handles()`
+    /// (`game.dispose()`), ensuring `Context::world_replay_live_handles()`
     /// returns to `0` across sequential battle loads, map rotations, and server teardown.
     fn drop(&mut self) {
         let _ = self.context.dispose();

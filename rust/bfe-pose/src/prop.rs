@@ -1,16 +1,16 @@
 //! Animated prop clocks shared by the world's props (rust/sim
-//! battle/animated.rs) and the page's prop presentation
+//! battle/animated.rs) and the client's prop presentation
 //! (bfe-presentation props.rs): AnimatedProp.advance, stand, a door's
-//! openness and the trigger reach of src/props.js. Each host keeps its own
-//! control flow (the world seizes and swallows; the page only draws), and
-//! both reach these numerics, so a door or an idle drawn on the page moves
+//! openness and the trigger reach. Each host keeps its own
+//! control flow (the world seizes and swallows; the client only draws), and
+//! both reach these numerics, so a door or an idle drawn on the client moves
 //! exactly as the world's.
 use crate::{Clip, Pose};
 
 /// One world tick.
 pub const TICK: f64 = 1.0 / 60.0;
 // A soldier's collision sphere: its centre above his feet and its radius
-// (src/units.js), for the trigger region test.
+//, for the trigger region test.
 const SOLDIER_MIDDLE: f64 = 1.048;
 const SOLDIER_RADIUS: f64 = 1.278;
 
@@ -33,13 +33,13 @@ pub fn max(a: f64, b: f64) -> f64 {
     }
 }
 
-/// props.js length(): the original game's length of a clip, its frames
+/// length(): the original game's length of a clip, its frames
 /// at 30 a second (one frame past the port's duration).
 pub fn length(clip: Option<&Clip>) -> f64 {
     clip.map_or(0.0, |c| c.frames as f64 / c.fps)
 }
 
-/// props.js within(): a soldier with his feet at `feet` is within
+/// within(): a soldier with his feet at `feet` is within
 /// `reach` of `point` as the 2004 game's region query has it, his
 /// collision sphere's box against the box `reach` round the point.
 pub fn within(point: [f64; 3], reach: f64, feet: [f64; 3]) -> bool {

@@ -1,7 +1,6 @@
 //! The live droideka body's clips and collision queries. Clips are copied
 //! once through the pose sampler; casts and gathers use the same collision
-//! world and body flags as the soldiers' movement, without a JavaScript
-//! query or triangle copy (src/collision.js rayCast and rayGather).
+//! world and body flags as the soldiers' movement.
 
 use super::droideka::{DroidekaDef, DroidekaParts, ModeClips};
 use super::world::CastHit;

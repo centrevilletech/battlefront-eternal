@@ -1,4 +1,4 @@
-//! Tick-stamped snapshot retention, following runtime/snapshot-ring.js.
+//! Tick-stamped snapshot retention,.
 
 const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 

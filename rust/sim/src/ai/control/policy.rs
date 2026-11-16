@@ -136,7 +136,7 @@ pub trait Scene {
     fn emit_charge(&mut self, unit: UKey);
     fn new_memory(&mut self) -> EnhancedMemory;
 }
-/// interrupts.js charging: its time cache and the first three fighting allies.
+/// charging: its time cache and the first three fighting allies.
 pub fn charging(input: Input, state: &mut Interrupts, w: &mut dyn Scene) -> bool {
     if !input.has_agent {
         return false;

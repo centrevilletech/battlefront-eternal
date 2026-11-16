@@ -1,14 +1,13 @@
 # Classic AI: navigation
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-runs in `rust/sim/rust/ai/` (ported from JavaScript). Function names are the
-Rust names where the port keeps one, usually the JavaScript name in
-snake_case; object-shaped examples document the behavioral contract.
+runs in `rust/sim/src/ai/`. Function names are the Rust names;
+object-shaped examples document the behavioral contract.
 
 
 Navigation for the Classic AI (`docs/ai.md`): the extracted planning data
 (`tools/zero_ai.py` → `public/maps/<map>/ai-nav.json` + `ai-nav.bin`) and the
-runtime under `rust/sim/rust/ai/nav/`. Behavior follows the 2004 game's route
+runtime under `rust/sim/src/ai/nav/`. Behavior follows the 2004 game's route
 planning and movement; this file records the schema, the module APIs, what is
 provisional, and findings made while implementing.
 
@@ -22,7 +21,7 @@ translation: `[Xx,Xy,Xz, Yx,Yy,Yz, Zx,Zy,Zz, Tx,Ty,Tz]`; Z is a hint's
 forward). Hashes are lowercase 8-digit hex of the repository's FNV-1a with
 each byte OR 0x20 (`tools/zero_hash.py`).
 
-```js
+```text
 {
   schema: 1,
   generator: "tools/zero_ai.py 1",
@@ -44,7 +43,7 @@ each byte OR 0x20 (`tools/zero_hash.py`).
 
 ### `graph`
 
-```js
+```text
 graph: {
   info: [hubCount, arcCount, third],     // INFO: i16, i16, u16 as stored (third is 5 in stock data)
   hubs: [{
@@ -77,7 +76,7 @@ loader, the runtime ORs the masks of the arcs in the hub's eight slots.
 
 ### `hints`
 
-```js
+```text
 hints: [{
   type: "2",                              // INFO/TYPE string as stored
   kind: "cover",                          // snipe | patrol | cover | jetjump | minefield | land | null
@@ -102,7 +101,7 @@ capacity checks and the four-copy radius expansion.
 
 ### `barriers`
 
-```js
+```text
 barriers: [{
   name: "barrier12",                      // INFO/NAME
   xfrm: [12 floats],                      // INFO/XFRM, raw (translation z NOT negated)
@@ -118,7 +117,7 @@ the extractor writes the file's values.
 
 ### `boundary`
 
-```js
+```text
 boundary: {
   configs: [{                             // every top-level bnd_ chunk
     name: "64da3d0a",                     // NAME u32
@@ -142,7 +141,7 @@ enforcement (every point is inside).
 
 ### `paths`
 
-```js
+```text
 paths: [{
   name: "CP1Spawn",
   info: [count, word2, word3],            // i16, i16, u16 as stored; count must equal the points
@@ -153,7 +152,7 @@ paths: [{
 
 ### `regions`
 
-```js
+```text
 regions: [{
   type: "box", name: "cp1_capture",
   xfrm: [12 floats], size: [sx, sy, sz],
@@ -165,7 +164,7 @@ Duplicate names stay separate entries.
 
 ### `counts`
 
-```js
+```text
 counts: {
   hubs, arcs, routeWords, routeNonzero,
   weightSums: { "31": n, "30": n, … },    // nonzero words by candidate weight sum
@@ -228,7 +227,7 @@ routeCapability occurrences are the ten listed above; the other warnings found
 are nab2/nab2_h barrier 341's basis (X·Z = −0.0039) and yav2/yav2_h's two
 paths named "Jungle1".
 
-## Runtime modules (`rust/sim/rust/ai/nav/`)
+## Runtime modules (`rust/sim/src/ai/nav/`)
 
 | File | What |
 | --- | --- |
@@ -248,7 +247,7 @@ paths named "Jungle1".
 | `boundary.rs` | `Boundary` |
 | `units.rs` | `kind`, `SizeType`, `traversal_mask`, `traversal_radius`, `nominal_speed`, `DEFAULT_RADIUS` |
 | `math.rs` | shared numeric helpers and the plain point type |
-| `tests.rs` | focused checks against the JavaScript's answers on the same inputs |
+| `tests.rs` | focused checks against recorded answers on the same inputs |
 
 ### `Nav`
 
@@ -292,7 +291,7 @@ service's `ground_goto`, `ground_tick`, `ground_follow`, `fly_goto`,
 `fly_tick` and the rest run it, and the control core reaches them through
 `Core::helper_goto` and its siblings.
 
-```js
+```text
 // one helper per controller; it drives the controller's unit
 helper.goto(point)                     // "route": graph route over 50 m, else one local path
 helper.goto(point, { mode: "direct" }) // state 3 for Soldier/Droid (cut 1 m before a barrier,
@@ -325,7 +324,7 @@ remembered point for `follow(..., remembered = true)` from Combat's memory.
 
 ### AI input step
 
-```js
+```text
 // Tick order step 2, every AI unit, every simulation step h:
 nav.navigation_input(control, unit, h, aim_point, facing)   // returns the unit's Intent
 ```
@@ -378,13 +377,13 @@ drive a kinematic soldier with the port's axes to its goal.
   `classDef.bounds` ([[min], [max]], the model's INFO box; half for Hover),
   else 0.476.
 
-## Integration (outside `rust/sim/rust/ai/nav/`)
+## Integration (outside `rust/sim/src/ai/nav/`)
 
 1. `tools/extract.py`, end of `extract_map` (after `map.json`):
    `from zero_ai import export_map` and `export_map(name)`. A `ValueError`
    means malformed planning data; report it rather than abort the map.
-2. Soldier contact avoidance (`rust/sim/rust/movement/soldier.rs`, and the
-   same in `rust/sim/rust/units/droideka.rs`): where a polygon contact is
+2. Soldier contact avoidance (`rust/sim/src/movement/soldier.rs`, and the
+   same in `rust/sim/src/units/droideka.rs`): where a polygon contact is
    resolved and its normal's |y| is under 0.3, the contact normal (pointing
    from the geometry toward the soldier, unweighted) is added to
    `avoidance`. Terrain contacts (category 64) do not count; soldiers are
@@ -403,7 +402,7 @@ drive a kinematic soldier with the port's axes to its goal.
 
 ## Tests
 
-- `cargo test` in `rust/sim`: `rust/sim/rust/ai/nav/tests.rs` checks the AI
+- `cargo test` in `rust/sim`: `rust/sim/src/ai/nav/tests.rs` checks the AI
   generator's draws, open-heap ties, a barrier search and graph attach and
   selection against the reference answers on the same inputs.
 - `python3 -m unittest tests.test_ai_nav_export`: synthetic chunk archives for

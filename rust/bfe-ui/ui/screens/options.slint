@@ -78,7 +78,7 @@ export global OptionsModel {
 
 component OptionsHubBody inherits Rectangle {
     property <length> button-width: min(400px, min(86 * Theme.vw, 30 * Theme.vw)) - 16px;
-    // The browser puts 5.55vh between the title and the first button and keeps 0.55vh more
+    // The earlier build puts 5.55vh between the title and the first button and keeps 0.55vh more
     // clear above the foot than the shared frame does.
     property <length> title-gap: 5.55 * Theme.vh;
     property <length> stack-height: title-el.height + root.title-gap
@@ -307,7 +307,7 @@ export component OptionsModalOverlay inherits Rectangle {
 export component OptionsScreenHost inherits Rectangle {
     in property <bool> use-underlay: true;
     in property <image> movie-frame;
-    // False when the screen it sits on already draws the page backdrop (the pause menu over a battle).
+    // False when the screen it sits on already draws the screen backdrop (the pause menu over a battle).
     in property <bool> backdrop: true;
 
     if root.backdrop: BackdropMovies {

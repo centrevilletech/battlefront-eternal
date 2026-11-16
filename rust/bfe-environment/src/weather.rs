@@ -1,4 +1,4 @@
-//! The rain (src/weather.js, src/rain-impacts.js, src/rain-sheets.js): the
+//! The rain: the
 //! state the drops, their mist, the splashes where they land and the mid
 //! distance sheets share. The drops' positions are worked out by the vertex
 //! shader from their seeds and the rain's clock, so the CPU keeps the clock,
@@ -13,10 +13,10 @@ use three::Vector3;
 const COUNT: usize = rain::IMPACTS;
 const LIFE_RATE: f64 = 90.0;
 
-/// What the page's collision world answers for a splash's cast: the height
+/// What the client's collision world answers for a splash's cast: the height
 /// of what a cast straight down first hits (or the water's level over it
 /// if higher, or -infinity for nothing), its normal, and whether it is water.
-// What the page's collision world answers for a splash's cast: the height of
+// What the client's collision world answers for a splash's cast: the height of
 // what a cast straight down first hits (or the water's level over it if higher,
 // or -infinity for nothing), its normal, and whether it is water.
 pub struct Impact {
@@ -191,7 +191,7 @@ pub fn streaks(data: &mut [u8]) {
                 let px = (((x.floor() as i64 + dx) % size as i64) + size as i64) as usize % size;
                 let w = if dx == 0 { 1.0 } else { 0.28 };
                 let at = (y * size + px) * 4;
-                // A streak's last texel can sum below zero; the page's Uint8Array wrapped
+                // A streak's last texel can sum below zero; the client's Uint8Array wrapped
                 // such a value modulo 256 (so a few texels stay bright), and so does this.
                 data[at + 3] = (js_min(255.0, data[at + 3] as f64 + js_round(255.0 * fade * w)) as i64 & 0xff) as u8;
             }

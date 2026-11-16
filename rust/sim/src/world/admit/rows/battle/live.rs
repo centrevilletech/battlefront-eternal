@@ -1,7 +1,7 @@
 //! The live-object owners' construction (game.js 3128-3160 headless):
-//! F4Live (f4-live.js), then F4Battle inside F4Tail (f4-battle.js,
+//! F4Live, then F4Battle inside F4Tail (f4-battle.js,
 //! f4-tail.js), the AI's activation, and the viewpoint's player binding.
-//! Each export runs against the world as the page's constructors ran it,
+//! Each export runs against the world as the client's constructors ran it,
 //! with every answer (handles, descriptors) fed back before the next call.
 //! Definitions and labels come from the loaded content; counts, refs and
 //! roster facts from the world the earlier stages built.
@@ -21,7 +21,7 @@ fn block(words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) -> Call {
 }
 fn scalar(args: &[f64]) -> Call { Call { args: args.to_vec(), ..Default::default() } }
 
-/// One export as the page makes it: interns and the argument block into
+/// One export as the client makes it: interns and the argument block into
 /// the world, the body, its answer recorded for the owners after it.
 fn dispatch(world: &mut World, cx: &mut Cx, calls: &mut Calls, name: &'static str, call: Call) -> Result<Returned, AdmitError> {
     sequence::args(world, &call)?;
@@ -32,7 +32,7 @@ fn dispatch(world: &mut World, cx: &mut Cx, calls: &mut Calls, name: &'static st
     Ok(answer)
 }
 
-/// f4-live.js `text`: `String(value ?? '').trim().replace(/\n/g,' ') || null`.
+/// `text`: `String(value ?? '').trim().replace(/\n/g,' ') || null`.
 fn text(value: Option<&Value>) -> Result<Option<String>, AdmitError> {
     let s = match value {
         None | Some(Value::Null) => String::new(),
@@ -157,7 +157,7 @@ fn hull_class<'a>(world: &World, cx: &'a Cx, hull: Ref<Vehicle>) -> Result<&'a V
 fn hull_class_row(cx: &mut Cx, hull: Ref<Vehicle>, def: &Value, vehicle: bool) -> Result<Call, AdmitError> {
     let label = text(def.get("label"))?;
     let mut call = Call::default();
-    // The page's Vehicle has no `side`: `vehicle.side ?? null` is null.
+    // The client's Vehicle has no `side`: `vehicle.side ?? null` is null.
     let row = F4HullClass { hull, vehicle, side: None, label: label.map(|l| cx.intern(&mut call, &l)) };
     call.row.resize(F4HullClass::WORDS, 0.0); row.put(&mut call.row, &mut call.heap);
     Ok(call)
@@ -177,7 +177,7 @@ fn side_definitions(cx: &Cx) -> Vec<Value> {
 }
 
 /// The sole F4Battle construction import (KIND_BATTLE): the authored
-/// battle tables the page built with `new Battle(mission)`, carried into
+/// battle tables the client built with `new Battle(mission)`, carried into
 /// the store when no earlier owner wrote them. The roster's Characters
 /// stay what the AI's construction committed.
 fn ensure_battle(world: &mut World, cx: &Cx) -> Result<(), AdmitError> {
@@ -187,7 +187,7 @@ fn ensure_battle(world: &mut World, cx: &Cx) -> Result<(), AdmitError> {
     Ok(())
 }
 
-/// game.js spawnPosts at the human's first spawn: the player's team's
+/// spawnPosts at the human's first spawn: the player's team's
 /// active posts with a spawn path, else every active post with one.
 /// Mobile posts have no spawn path, so only the command posts count.
 fn spawn_posts(world: &World, cx: &Cx, team: f64) -> Vec<Ref<Post>> {
@@ -391,7 +391,7 @@ pub fn run(world: &mut World, cx: &mut Cx, calls: &mut Calls) -> Result<(), Admi
         let row = F4PostSetup { post: *post, raw_path: raw_path(cx, i)? };
         dispatch(world, cx, calls, "f4_tail_post", block(F4PostSetup::WORDS, |r, h| row.put(r, h)))?;
     }
-    // Every command vehicle's pad, by pad index (f4-tail.js f4_tail_pad).
+    // Every command vehicle's pad, by pad index (f4_tail_pad).
     for pad in &pads {
         let mut call = Call::default();
         let setup = pad.setup(&mut |text| cx.intern(&mut call, text));

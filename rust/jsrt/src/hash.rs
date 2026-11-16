@@ -2,7 +2,7 @@
 //! way its JavaScript spells it. Two folds exist and must not be
 //! confused: whole UTF-16 code units (the random-stream name mix in
 //! `src/ai/random.js`) and the 2004 engine's per-byte fold with
-//! `| 0x20` (`src/audio/hash.js`, `src/seats.js`).
+//! `| 0x20`.
 
 /// The FNV-1a offset basis and prime, as the code writes them.
 pub const FNV_BASIS: u32 = 0x811c9dc5;
@@ -10,7 +10,7 @@ pub const FNV_PRIME: u32 = 0x01000193;
 
 /// FNV-1a over whole UTF-16 code units (`h ^= name.charCodeAt(i)`,
 /// `h = Math.imul(h, prime)`), starting from `seed ^ basis`. This is
-/// `mix(seed, name)` in `src/ai/random.js:96-103`, which seeds every
+/// `mix(seed, name)`:96-103`, which seeds every
 /// named `RandomStreams` stream (`gameplay`, `player-weapons`, the
 /// `network-recon:` keys, ...). The JavaScript holds `h` as a signed
 /// 32-bit value between steps; the bits are these bits.
@@ -42,7 +42,7 @@ pub fn stream_seed(seed: u32, name: &str) -> u32 {
 /// The 2004 engine's name hash: FNV-1a over each code unit's low byte
 /// OR 0x20 (which folds letters to lower case and also turns `_`
 /// into 0x7f), the state kept unsigned at every step. This is
-/// `fnv1a` in `src/audio/hash.js:5-12` and `fnv` in
+/// `fnv1a`:5-12` and `fnv` in
 /// `src/seats.js:488-495`; both spell the same fold.
 pub fn fnv1a_engine_units(units: &[u16]) -> u32 {
     let mut h: u32 = FNV_BASIS;

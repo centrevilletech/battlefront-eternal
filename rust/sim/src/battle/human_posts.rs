@@ -1,4 +1,4 @@
-//! Human spawn choices (human-spawn.js and flight/spawn.js). Human picks use
+//! Human spawn choices. Human picks use
 //! gameplay uniforms, including a draw for a one-point path; Classic bot
 //! choices retain their separate raw-modulo RNG path in spawning.rs.
 use super::{mobile, posts::{self, SpawnFacts}, world::PostsWorld};

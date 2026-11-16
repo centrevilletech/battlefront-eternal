@@ -279,7 +279,7 @@ fn arsenal(weapon: &Weapon, defs: &WeaponDefs, defaults: &[Option<[f64; 20]>], o
 }
 // captureOwnPlayer derives zoomScale from authored weapon levels.
 // A continuous ZoomRate suppresses the second discrete zoom step.
-// Do not use the page camera, which can be between visual transitions.
+// Do not use the client camera, which can be between visual transitions.
 fn zoom(c: &Combat, defs: &WeaponDefs) -> f64 {
     if c.zoom_step == 0. { return 1.; }
     let Some(w) = current(&c.weapons, c.selected[0], 0., defs) else { return 1. };

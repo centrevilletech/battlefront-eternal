@@ -1,4 +1,4 @@
-//! Local dedicated server orchestrator (`src/local-server.js` and `src/game-session.js`).
+//! Local dedicated server orchestrator.
 
 use crate::browser_info::{browser_info, map_names, BrowserInfo};
 use crate::config::{check_content, check_state_budget, ServerConfig};
@@ -19,18 +19,18 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-/// Fixed 60 Hz simulation step interval (`1 / 60` s = `16,666,667` ns, `src/world-worker.js`).
+/// Fixed 60 Hz simulation step interval (`1 / 60` s = `16,666,667` ns).
 const TICK_DURATION: Duration = Duration::from_nanos(16_666_667);
 
 /// Control commands sent from the main/operator thread to the 60 Hz world tick thread.
 pub enum WorldCommand {
-    /// Remove a kicked or disconnected player from `NativeWorldHost` (`leave(client)` in `src/world-worker.js`).
+    /// Remove a kicked or disconnected player from `NativeWorldHost` (`leave(client)`).
     RemovePlayer(String),
     /// Enqueue a recorded `Publication` frame for deterministic transport/wire testing.
     PushPublication(Publication),
 }
 
-/// Generates a 16-byte (32-hex) random `match` token (`randomBytes(16).toString('hex')` in `src/main.js`).
+/// Generates a 16-byte (32-hex) random `match` token (`randomBytes(16).toString('hex')`).
 ///
 /// The `match` token is appended to the battle query (`&match=<32-hex>`) so clients rotating into a
 /// new battle can probe `matchProbe` over WebSocket signaling and verify `matchReady` before joining.
@@ -43,7 +43,7 @@ pub fn random_match_hex() -> String {
     out
 }
 
-/// Appends or replaces `&match=<match_token>` on a battle query string (`battleQuery` in `src/main.js`).
+/// Appends or replaces `&match=<match_token>` on a battle query string (`battleQuery`).
 pub fn with_match_param(query: &str, match_token: &str) -> String {
     let base = query.trim_start_matches('?');
     let mut pairs: Vec<String> = base
@@ -65,7 +65,7 @@ struct WorldTickCounters {
     errors: AtomicU64,
 }
 
-/// Running local dedicated server instance (`export async function startLocalServer` in `src/local-server.js`).
+/// Running local dedicated server instance (`export async function startLocalServer`).
 pub struct LocalDedicatedServer {
     pub id: String,
     pub port: u16,
@@ -75,7 +75,7 @@ pub struct LocalDedicatedServer {
     /// `true` if and only if the world thread is running AND `NativeWorldHost` admitted a real
     /// world via `Context::world_admit` (`multiplayerReady` on `/healthz`).
     pub ready: Arc<AtomicBool>,
-    /// Current 60 Hz simulation tick (`tick` in `src/main.js`).
+    /// Current 60 Hz simulation tick (`tick`).
     pub tick: Arc<AtomicU64>,
     /// The active battle has finished; the service keeps its end table alive
     /// until the announced rotation deadline, then replaces this host.
@@ -92,7 +92,7 @@ pub struct LocalDedicatedServer {
 }
 
 impl LocalDedicatedServer {
-    /// Starts the local dedicated server (`export async function startLocalServer` in `src/local-server.js`).
+    /// Starts the local dedicated server (`export async function startLocalServer`).
     pub fn start<B, S>(
         config: &ServerConfig,
         identity: &ServerIdentity,
@@ -120,16 +120,16 @@ impl LocalDedicatedServer {
         S: Fn(&str, &str, &str, i64, i64, i64) + Send + Sync + 'static,
     {
         let _ = on_score;
-        // Validate outbound per-peer state budget (`checkStateBudget` in `src/local-server.js`).
+        // Validate outbound per-peer state budget (`checkStateBudget`).
         let state_bytes_per_second = check_state_budget(Some(config.state_bytes_per_second))?;
-        // Verify prepared content manifest and map rotation (`checkContent` in `src/local-server.js`).
+        // Verify prepared content manifest and map rotation (`checkContent`).
         let checked = check_content(&config.data, &config.rotation, &config.ai)?;
         let match_token = match_token
             .map(str::to_owned)
             .unwrap_or_else(random_match_hex);
         let active_query = with_match_param(&crate::config::with_friendly_fire(&checked.first_query, config.friendly_fire), &match_token);
 
-        // local-server.js info() includes the active battle, bot and team policy.
+        // info() includes the active battle, bot and team policy.
         let browser = browser_info(config, &active_query, 0, &map_names(&config.data), 0);
 
         // Compute the 64-hex content fingerprint for the active map query (`fingerprint::hash`).
@@ -177,7 +177,7 @@ impl LocalDedicatedServer {
         };
         let actual_port = udp_server.port;
 
-        // Build the initial `/info` and LAN discovery snapshot (`const info = () => ({ ... })` in `src/local-server.js`).
+        // Build the initial `/info` and LAN discovery snapshot (`const info = () => ({ ... })`).
         let initial_info = build_info_json(
             &identity.id,
             &config.name,
@@ -237,7 +237,7 @@ impl LocalDedicatedServer {
         let root_for_tick = checked.root.clone();
         let query_for_tick = active_query.clone();
 
-        // Spawn the 60 Hz authoritative world thread (`src/world-worker.js`).
+        // Spawn the 60 Hz authoritative world thread.
         // `NativeWorldHost` owns a non-`Send` `bfe_sim::abi::context::Context` on this thread and
         // reports `host.world_admitted` over `init_tx` so `LocalDedicatedServer::start` sets `ready`
         // (`multiplayerReady`) to `true` only when `Context::world_admit` succeeded.
@@ -273,7 +273,7 @@ impl LocalDedicatedServer {
                     continue;
                 }
                 next_tick += TICK_DURATION;
-                // Cap catch-up debt to 4 ticks (`count < 4` and `debt > 8 / 60` in `src/world-worker.js`).
+                // Cap catch-up debt to 4 ticks (`count < 4` and `debt > 8 / 60`).
                 // Any excess backlog beyond `4 * TICK_DURATION` is dropped and recorded in `w.dropped_ticks`
                 // so `WireWorldFacts::DROPPED_TICKS` and `input-ack.dropped` reflect the late tick bound.
                 if now > next_tick + TICK_DURATION * 4 {
@@ -302,7 +302,7 @@ impl LocalDedicatedServer {
                                     u.send_events(&id, &next);
                                     continue;
                                 }
-                                // Send `entity-registry` before `welcome` (`handle("join")` in `src/world-worker.js`).
+                                // Send `entity-registry` before `welcome` (`handle("join")`).
                                 let reg_msg = json!({
                                     "type": "entity-registry",
                                     "registry": w.registry_descriptor,
@@ -329,7 +329,7 @@ impl LocalDedicatedServer {
                                         }
                                     }
                                     Err(err) => {
-                                        // Refuse join with `gameplay-error` (`GameSession.refuse` in `src/game-session.js`).
+                                        // Refuse join with `gameplay-error` (`GameSession.refuse`).
                                         u.send_events(
                                             &id,
                                             &json!({"type": "gameplay-error", "message": err}),
@@ -359,7 +359,7 @@ impl LocalDedicatedServer {
                                 );
                             }
                             WorldPeerEvent::Chat { id, text, team } => {
-                                // world-worker.js routes only started players, and a
+                                // routes only started players, and a
                                 // team line follows current teams after a side switch.
                                 if !u.peers.get(&id).is_some_and(|p| p.session.started) {
                                     continue;
@@ -430,10 +430,13 @@ impl LocalDedicatedServer {
                     };
                     if let Some(pub_out) = publication {
                         for ev in pub_out.events {
-                            u.send_events(&ev.peer_id, &ev.message);
+                            match ev.message.get("type").and_then(serde_json::Value::as_str) {
+                                Some("input-ack" | "entity-edge-results") => u.send_superseding(&ev.peer_id, &ev.message),
+                                _ => u.send_events(&ev.peer_id, &ev.message),
+                            };
                         }
                         // Shared baseline parts are sent before per-client own packets
-                        // (`sendSnapshot` in `src/game-session.js`).
+                        // (`sendSnapshot`).
                         // A snapshot is only useful whole: once one of its parts cannot go to a
                         // client, the rest of it is not sent to that client either. A player's own
                         // datagram (its body, spawn answer, summaries) is never held back here.
@@ -497,7 +500,7 @@ impl LocalDedicatedServer {
         })
     }
 
-    /// Returns the latest `/info` JSON payload (`info()` in `src/local-server.js`).
+    /// Returns the latest `/info` JSON payload (`info()`).
     pub fn info(&self) -> Value {
         self.info_snapshot.read().unwrap().clone()
     }
@@ -507,7 +510,7 @@ impl LocalDedicatedServer {
         self.udp.lock().unwrap().punch_one(host, port)
     }
 
-    /// Kicks `id` from the UDP game server and removes the player from the world (`kick(id)` in `src/local-server.js`).
+    /// Kicks `id` from the UDP game server and removes the player from the world (`kick(id)`).
     pub fn kick(&self, id: &str, reason: &str) {
         let mut u = self.udp.lock().unwrap();
         let now_ms = u.now_ms();
@@ -518,7 +521,7 @@ impl LocalDedicatedServer {
     }
 
     /// Broadcasts an admin announcement chat message to all connected players
-    /// (`notice(m.text)` for `m.type === "announcement"` in `src/world-worker.js`).
+    /// (`notice(m.text)` for `m.type === "announcement"`).
     pub fn announce(&self, text: &str) {
         let cleaned: String = text.chars().take(240).collect();
         if cleaned.is_empty() {
@@ -535,7 +538,7 @@ impl LocalDedicatedServer {
         u.flush();
     }
 
-    /// Broadcasts a `match` rotation event to all connected players (`match(value)` in `src/udp-server.js`).
+    /// Broadcasts a `match` rotation event to all connected players (`match(value)`).
     pub fn match_rotate(&self, query: &str, delay_ms: u64) {
         let mut u = self.udp.lock().unwrap();
         let deadline = u.now_ms() + delay_ms as f64;
@@ -548,12 +551,12 @@ impl LocalDedicatedServer {
         u.flush();
     }
 
-    /// Returns per-player status and network diagnostics (`stats` in `src/udp-server.js`).
+    /// Returns per-player status and network diagnostics (`stats`).
     pub fn stats(&self) -> Vec<Value> {
         self.udp.lock().unwrap().stats()
     }
 
-    /// Returns endpoint-wide transport counters (`metrics` in `src/udp-server.js`).
+    /// Returns endpoint-wide transport counters (`metrics`).
     pub fn transport_metrics(&self, reset: bool) -> Value {
         let mut metrics = self.udp.lock().unwrap().transport_metrics(reset);
         // Like the world tick, lifetime authority totals do not reset when
@@ -570,7 +573,7 @@ impl LocalDedicatedServer {
     }
 
     /// Stops the 60 Hz tick thread, LAN discovery responder, `/info` HTTP server, and UDP game port
-    /// (`async close()` in `src/local-server.js`).
+    /// (`async close()`).
     pub fn close(&mut self) {
         self.ready.store(false, Ordering::SeqCst);
         self.tick_stop.store(true, Ordering::SeqCst);
@@ -598,7 +601,7 @@ impl Drop for LocalDedicatedServer {
     }
 }
 
-/// Composes the `/info` JSON payload (`const info = () => ({ ... })` in `startLocalServer` in `src/local-server.js`).
+/// Composes the `/info` JSON payload (`const info = () => ({ ... })` in `startLocalServer`).
 #[allow(clippy::too_many_arguments)]
 pub fn build_info_json(
     id: &str,
@@ -647,7 +650,7 @@ pub fn build_info_json(
 }
 
 /// Spawns the non-blocking HTTP server serving `GET /info` on the TCP game port
-/// (`http.createServer` in `startLocalServer` in `src/local-server.js`).
+/// (`http.createServer` in `startLocalServer`).
 fn start_info_http_listener(
     listener: TcpListener,
     info: Arc<RwLock<Value>>,
@@ -670,8 +673,7 @@ fn start_info_http_listener(
 }
 
 /// Binds the `/info` TCP listener on `config.bind ?? "::"` with IPv4 fallback (`0.0.0.0`) when IPv6
-/// is unavailable (`try { await listen(config.bind ?? '::'); } catch ... await listen('0.0.0.0')`
-/// in `src/local-server.js`).
+/// is unavailable (`try { await listen(config.bind ?? '::'); } catch ... await listen('0.0.0.0')`).
 fn bind_info_tcp(port: u16, bind_host: Option<&str>) -> Result<TcpListener, String> {
     if let Some(host) = bind_host {
         let addr: SocketAddr = format!("{host}:{port}")
@@ -689,7 +691,7 @@ fn bind_info_tcp(port: u16, bind_host: Option<&str>) -> Result<TcpListener, Stri
 }
 
 /// Handles a single HTTP request on the game port (`GET /info` -> 200 JSON with CORS `*`,
-/// anything else -> 404, matching `src/local-server.js`).
+/// anything else -> 404,).
 fn handle_info_request(stream: &mut TcpStream, info: &Arc<RwLock<Value>>) -> std::io::Result<()> {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));

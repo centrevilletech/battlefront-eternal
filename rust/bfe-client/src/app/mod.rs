@@ -421,7 +421,7 @@ struct StandaloneWindowApp {
     /// Whether the OS window currently has input focus.
     focused: bool,
     /// Whether the compositor says the window cannot be seen (minimized or
-    /// covered): the page's `document.hidden`, which suspends a local battle.
+    /// covered): the client's `document.hidden`, which suspends a local battle.
     hidden: bool,
     /// Whether the cursor is currently locked and hidden for 3D combat mouselook.
     pointer_locked: bool,
@@ -474,8 +474,8 @@ struct StandaloneWindowApp {
 }
 
 impl StandaloneWindowApp {
-    /// A screen that comes up under a parked pointer lights the row there at once, as the browser does
-    /// (it sends a pointer move after the page changes); winit only reports real motion.
+    /// A screen that comes up under a parked pointer lights the row there at once
+    /// (it sends a pointer move after the client changes); winit only reports real motion.
     fn hover_where_the_pointer_is(&mut self) {
         let screen = match (&self.state, &self.shell) {
             (AppState::Shell, Some(shell)) => Some(shell.app.current_screen()),
@@ -716,7 +716,7 @@ impl StandaloneWindowApp {
                 self.folder_dialog = Some(folder_dialog::import_file());
             }
             Action::MainMenu => {
-                // prepare.js `play`: reload the menu, with the startup check deciding first.
+                // `play`: reload the menu, with the startup check deciding first.
                 let Some(content) = model.transfer.as_ref().and_then(|t| t.content.clone()) else {
                     return;
                 };
@@ -854,6 +854,28 @@ impl StandaloneWindowApp {
     /// Detaches the battle `Stream` (`audio_router.set_live(None)`) and constructs a
     /// fresh [`ShellAudioMixer`] configured with the user's persisted `master_volume`,
     /// `music_volume`, and `interface_volume`.
+    /// A battle that cannot go on: back to the main menu (Multiplayer for an online
+    /// battle) with the reason in a notice the player closes like any other.
+    fn leave_failed_battle(&mut self, online: bool, error: String) {
+        eprintln!("battle stopped: {error}; back to the menu");
+        let content_dir = self
+            .shell
+            .as_ref()
+            .and_then(|s| s.content_dir.clone())
+            .unwrap_or_else(|| self.settings.paths.content_root.clone());
+        self.state = AppState::Shell;
+        self.restore_shell_audio(&content_dir);
+        if let Some(shell) = &mut self.shell {
+            shell.app.settings.menu_theme = self.settings.player.shell.menu_theme.clone();
+            shell.app.stack = vec![ScreenId::Main];
+            if online {
+                shell.app.stack.push(ScreenId::Multiplayer);
+            }
+            shell.app.rebuild_cached_rows();
+            shell.app.popup = Some(PopupState::Notice { message: format!("BATTLE ERROR: {error}") });
+        }
+        release_freed_memory();
+    }
     fn restore_shell_audio(&self, content_dir: &Path) {
         if let Some(shell) = &self.shell {
             let mut mixer = ShellAudioMixer::new(&shell.app.data, Some(content_dir));
@@ -990,7 +1012,7 @@ impl ApplicationHandler for StandaloneWindowApp {
             self.wayland = matches!(raw_handle, raw_window_handle::RawWindowHandle::Wayland(_));
             let display = config.display();
 
-            // Prefer OpenGL ES 3.0 by default (matching WebGL2 shaders), falling back to OpenGL 3.3.
+            // Prefer OpenGL ES 3.0 (the shaders are GLSL ES 3.00), falling back to desktop OpenGL 3.3.
             let context_api = if self.opts.desktop_gl {
                 ContextApi::OpenGl(Some(Version::new(3, 3)))
             } else {
@@ -1368,7 +1390,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                         }
                     }
                     AppState::Battle(battle) if battle.options_open => {
-                        // An option page is open over the paused battle: its keys belong to the page
+                        // An option page is open over the paused battle: its keys belong to the client
                         // (the key-capture prompt included), not to the pause menu or to combat.
                         if down && !is_synthetic {
                             if let (PhysicalKey::Code(code), Some(shell)) =
@@ -1405,7 +1427,7 @@ impl ApplicationHandler for StandaloneWindowApp {
             }
             WindowEvent::RedrawRequested => {
                 self.redraw(event_loop);
-                // After the frame: the page's hit regions are those of the screen just drawn.
+                // After the frame: the client's hit regions are those of the screen just drawn.
                 self.hover_where_the_pointer_is();
             }
             _ => {}
@@ -1469,7 +1491,7 @@ impl StandaloneWindowApp {
 
     /// A chance to present a frame: the window's redraw, or the loop's own
     /// step for a hidden window. In a battle the frameLimit setting may let
-    /// the chance pass (game.js frameBody).
+    /// the chance pass (frameBody).
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
         self.redraw_asked = None;
@@ -1539,7 +1561,7 @@ impl StandaloneWindowApp {
     }
 
     /// Opens the option page the pause menu's OPTIONS asked for, over the paused battle, and closes it
-    /// again once the page's stack is empty (BACK or Escape), returning to the pause menu's hub.
+    /// again once the client's stack is empty (BACK or Escape), returning to the pause menu's hub.
     fn sync_battle_options(&mut self) {
         if let AppState::Battle(battle) = &mut self.state {
             Self::sync_battle_options_of(battle, &mut self.shell, &mut self.slint_ui, &self.settings);
@@ -1573,7 +1595,7 @@ impl StandaloneWindowApp {
                 }
                 battle.options_open = false;
             } else if let Some(first) = shell.options_ctrl.context.viewpoint {
-                // The VIEWPOINT row takes effect at once, as `viewpoint.set` does in the browser.
+                // The VIEWPOINT row takes effect at once, as `viewpoint.set` does in the client.
                 battle.set_first_person(first);
             }
         }
@@ -2221,13 +2243,23 @@ impl StandaloneWindowApp {
                         && self.gate.as_ref().is_none_or(|gate| gate.allows_direct())
                         && self.slint_ui.as_ref().is_some_and(|ui| !ui.battle_overlay_visible());
                     battle.scene.set_direct(false);
-                    let transition = battle.step_and_draw(
+                    let transition = match battle.step_and_draw(
                         elapsed_dt,
                         self.focused,
                         self.hidden,
                         &mut self.settings,
                         &self.audio_router,
-                    )?;
+                    ) {
+                        Ok(transition) => transition,
+                        // A scripted run fails on it; a player goes back to the menu
+                        // with the reason on screen, never to a window that is stuck.
+                        Err(error) if self.gate.is_some() => return Err(error),
+                        Err(error) => {
+                            let online = matches!(battle.authority, BattleAuthority::Online { .. });
+                            self.leave_failed_battle(online, error);
+                            return Ok(());
+                        }
+                    };
                     if let Some(ui) = &mut self.slint_ui {
                         ui.drain_battle_actions(battle, &mut self.settings);
                     }
@@ -2296,7 +2328,7 @@ impl StandaloneWindowApp {
                             .and_then(|s| s.content_dir.clone())
                             .unwrap_or_else(|| self.settings.paths.content_root.clone());
                         match t {
-                            // src/launch.js nextUrl wraps and optionally reshuffles
+                            // nextUrl wraps and optionally reshuffles
                             // an Instant Action playlist; quitting is a separate menu action.
                             BattleTransition::NextPlaylistBattle { request } => {
                                 let playlist_index = request.playlist.as_ref().map_or(0, |p| p.round);

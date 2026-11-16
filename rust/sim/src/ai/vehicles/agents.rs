@@ -1,4 +1,4 @@
-//! The vehicle agents (src/ai/classic/vehicles/agents.js): boarding
+//! The vehicle agents: boarding
 //! (controller state 5), leaving (state 6) and the flyer pilot's objective
 //! agent (state 7), as the 2004 game has them.
 
@@ -44,7 +44,7 @@ pub struct AgentCx {
     pub unit: Option<Obj>,
 }
 
-/// What the vehicle agents ask of the agent base (agents.js Agent) and the
+/// What the vehicle agents ask of the agent base (Agent) and the
 /// AI's navigation beyond [`World`].
 pub trait AgentHost: World {
     /// `this.interrupts.tick()`: an interrupt took the agent over.
@@ -77,7 +77,7 @@ pub struct BoardAgent {
     pub vehicle: Option<Ref>,
 }
 
-/// resolveRef(ref) (controller.js:347).
+/// resolveRef(ref).
 fn resolve<W: World + ?Sized>(w: &W, r: Option<Ref>) -> Option<Obj> {
     let r = r?;
     let u = w.unit(r.obj);
@@ -88,7 +88,7 @@ fn resolve<W: World + ?Sized>(w: &W, r: Option<Ref>) -> Option<Obj> {
 }
 
 impl BoardAgent {
-    /// constructor (agents.js:36), after the base's: the candidate, and
+    /// constructor, after the base's: the candidate, and
     /// state 2 requested.
     pub fn new(fsm: &mut Fsm, goal_ref: Option<Ref>) -> BoardAgent {
         fsm.request_state(2.0);
@@ -99,7 +99,7 @@ impl BoardAgent {
         resolve(w, self.vehicle)
     }
 
-    /// onEnter() (agents.js:46).
+    /// onEnter().
     pub fn on_enter<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx) {
         if fsm.state() == 2.0 {
             let vehicle = self.candidate(w);
@@ -116,7 +116,7 @@ impl BoardAgent {
         }
     }
 
-    /// behave(dt) (agents.js:60).
+    /// behave(dt).
     pub fn behave<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx, dt: f64) {
         if fsm.state() == DONE {
             return;
@@ -161,7 +161,7 @@ impl BoardAgent {
         w.tick_helper(cx.agent, dt);
     }
 
-    /// contested() (agents.js:98): alerts, hazards and commands are refused
+    /// contested(): alerts, hazards and commands are refused
     /// while the vehicle is uncontested.
     pub fn contested<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &(impl VehicleServices + ?Sized), cx: &AgentCx) -> bool {
         let Some(vehicle) = self.candidate(w) else { return true };
@@ -200,7 +200,7 @@ impl BoardAgent {
 // ---------------------------------------------------------------------------
 // State 6: get out.
 
-/// UnitUnBoardAgent (agents.js:140): no fields of its own.
+/// UnitUnBoardAgent: no fields of its own.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct UnBoardAgent;
 
@@ -212,14 +212,14 @@ impl UnBoardAgent {
         UnBoardAgent
     }
 
-    /// onEnter() (agents.js:147): the exit asked for.
+    /// onEnter(): the exit asked for.
     pub fn on_enter<W: AgentHost + ?Sized>(&self, w: &mut W, fsm: &(impl AgentMachine + ?Sized), cx: &AgentCx) {
         if fsm.state() == 1.0 {
             w.controller_request_exit(cx.controller);
         }
     }
 
-    /// behave(dt) (agents.js:151).
+    /// behave(dt).
     pub fn behave<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &(impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx, dt: f64) {
         if fsm.state() == DONE {
             return;
@@ -257,7 +257,7 @@ impl UnBoardAgent {
 // ---------------------------------------------------------------------------
 // State 7: the flyer pilot's objective.
 
-/// UnitFlyAgent's own fields (agents.js:209).
+/// UnitFlyAgent's own fields.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FlyAgent {
     pub hint: Option<HintView>,

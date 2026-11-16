@@ -1,4 +1,4 @@
-//! Replaceable movement commands (runtime/transport.js InputMailbox).
+//! Replaceable movement commands (InputMailbox).
 //! Foreign values keep opaque identities until their consumers migrate;
 //! this queue owns stamps, coalescing, cumulative look and acknowledgement.
 use super::actions::safe_integer;

@@ -1,6 +1,6 @@
-//! Live Vehicles seat ownership. Foreign unit facts enter once before latching;
-//! leases and hull links are never imported from JavaScript. Command-local Store
-//! shells transfer ownership across hooks, so no canonical borrow survives JS.
+//! Live Vehicles seat ownership. Unit facts enter once before latching; leases
+//! and hull links are the world's own. Command-local Store shells transfer
+//! ownership across hooks, so no canonical borrow survives a hook.
 //!
 //! Vehicles.board/vacate and TurretSeats.man/leave share the same lease slab.
 //! Both slab generation and soldier life matter: a respawn can reuse a unit
@@ -903,7 +903,7 @@ pub(crate) fn seat_samples_in(world_ctx: &mut crate::world::owner::World, scales
         F2SeatSample { dx: look[0], dy: look[1] }.put(&mut state.input[F2SeatHeader::WORDS + i * F2SeatSample::WORDS..], &mut heap);
     }
 }
-/// boarding.js mountInReach for a network human's use key: the hull or
+/// mountInReach for a network human's use key: the hull or
 /// turret his eye reaches, by the battle's lists (Vehicles.enterable,
 /// LiveObjects.enterable), with the same casts the seats make.
 pub(crate) fn mount_in_reach_in(world_ctx: &mut crate::world::owner::World, unit: Ref<Unit>, person: bool) -> Option<crate::seats::boarding::Mount> {
@@ -1541,7 +1541,7 @@ fn beam_turret<'a>(st: &'a mut State, store: &Store, r: Ref<SeatLease>) -> Optio
     let turret = store.seat_lease.get(r)?.turret?;
     st.owner.crews.turrets.iter_mut().find(|t| t.turret == turret)
 }
-/// SeatLease.emitter.matrix, using the retained gun frame without a JS rig call.
+/// SeatLease.emitter.matrix, using the retained gun frame.
 pub(crate) fn beam_local_in(world_ctx: &mut crate::world::owner::World, r: Ref<SeatLease>, origin: [f64; 3]) -> Option<[f64; 3]> {
     let t = beam_turret(seats_state(&mut world_ctx.fleet.seats), &world_ctx.sim.store, r)?; let node = t.rig.gun.unwrap_or(t.rig.root);
     t.rig.tree.update_matrix_world(t.rig.root, true);
@@ -1557,7 +1557,7 @@ pub(crate) fn beam_pose_in(world_ctx: &mut crate::world::owner::World, r: Ref<Se
     let mut dir = Vector3::default(); t.muzzle(false, Some(&mut dir)); *direction = v3(&dir);
 }
 
-/// weapon-targeting.js lockPick, preserving lazy shape and sight queries.
+/// lockPick, preserving lazy shape and sight queries.
 fn turret_lock_in(world_ctx: &mut crate::world::owner::World, turret: usize, origin: &Vector3, direction: &Vector3, lease: Ref<SeatLease>,native_hint:Option<F2TurretHint>) -> Option<LockTarget> {
     let w = seats_state(&mut world_ctx.fleet.seats).weapons[turret].as_ref().unwrap();
     let l = &w.locks[w.state.level as usize];

@@ -10,7 +10,7 @@ pub use buffered::{json_number_into, fixed_four_number};
 /// The shortest digits of a finite positive double: a digit string
 /// with no point and no leading or trailing zeros (except "0"
 /// itself), and the exponent `n` of the spec's form
-/// `digits x 10^(n - len)` — the position of the decimal point
+/// `digits x 10^(n - len)`: the position of the decimal point
 /// after the first digit is `n - 1` in scientific form.
 fn shortest_digits(x: f64) -> (String, i32) {
     debug_assert!(x > 0.0 && x.is_finite());
@@ -467,8 +467,8 @@ impl BigUint {
 /// `Number.prototype.toFixed(fractionDigits)`. `fraction_digits`
 /// goes through ToIntegerOrInfinity as JavaScript's does; outside
 /// 0..=100 the JavaScript throws a RangeError, which is `None`
-/// here. The rounding is the spec's exact one — the integer `n`
-/// minimizing |n / 10^f - x|, ties to the larger `n` — computed on
+/// here. The rounding is the spec's exact one: the integer `n`
+/// minimizing |n / 10^f - x|, ties to the larger `n`, computed on
 /// the double's exact binary value, so `1.005` (which is not the
 /// decimal 1.005 in a double) behaves as it does in V8.
 pub fn to_fixed(x: f64, fraction_digits: f64) -> Option<String> {
@@ -516,14 +516,14 @@ pub fn to_fixed(x: f64, fraction_digits: f64) -> Option<String> {
 }
 
 /// `value.toString(16)` for the unsigned 32-bit values the engine's
-/// hash keys are made of (`src/audio/hash.js`, `src/seats.js`):
+/// hash keys are made of:
 /// lower-case hex, no padding (the callers pad).
 pub fn u32_to_string_16(value: u32) -> String {
     format!("{:x}", value)
 }
 
 /// `value.toString(16).padStart(8, "0")` with the `0x` the sound
-/// data spells: `hashKey` in `src/audio/hash.js:14-16`.
+/// data spells: `hashKey`:14-16`.
 pub fn hash_key(value: u32) -> String {
     format!("0x{:08x}", value)
 }
