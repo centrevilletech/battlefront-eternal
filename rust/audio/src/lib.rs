@@ -11,7 +11,6 @@
 
 pub mod commands;
 pub mod adpcm;
-mod signal;
 mod biquad;
 pub mod clarity;
 pub mod convolution;
@@ -102,8 +101,6 @@ pub fn js_round(x: f64) -> f64 {
 pub mod host {
     pub use v8math::{sin, cos, tan, asin, atan2, exp, log10};
     pub use v8math::pow_legacy as pow;
-    pub fn log10_each(values: &mut [f64]) { for value in values { *value = log10(*value); } }
-    pub fn pow10_each(values: &mut [f64]) { for value in values { *value = pow(10.0, *value); } }
 }
 
 /// Frames per render quantum.

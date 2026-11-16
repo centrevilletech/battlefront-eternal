@@ -319,3 +319,40 @@ fn a_surround_bed_on_a_narrower_output_keeps_every_lane_by_its_role() {
         assert!(e[lane] > 1e-3 && e.iter().enumerate().all(|(c, &v)| c == lane || v < 1e-9), "lane {lane}: {e:?}");
     }
 }
+
+// With the master volume at 0 nothing is heard, so nothing is mixed: the
+// output is silence, and a voice moves on through the silence, so when the
+// volume comes back it plays from where an output that was heard all along
+// plays it.
+#[test]
+fn a_silent_output_mixes_nothing_and_a_voice_carries_on_through_the_silence() {
+    let start = |volume: f32| {
+        let mut out = Output::new(48000.0, 2, false, false, false, false, false);
+        out.layout(audio::mixer::PANPOT, None, &[Some((30., 0.)), Some((-30., 0.))], -1, -1, 1.0);
+        let data = out.voices.sample_channels(1, 48000, 1, 48000.0);
+        for (i, x) in data.iter_mut().enumerate() {
+            *x = 0.2 * ((i as f32) * 0.05).sin();
+        }
+        out.commands = vec![BIND as f64, 0.0, 0.0, START as f64, 0.0, 1.0, 0.0, 1.0, 1.0, 20000.0, 0.0, GAIN_SET as f64, 0.0, 1.0, 0.0];
+        let len = out.commands.len();
+        out.apply(len);
+        out.volume(volume, 0.0, 0.0, true);
+        out
+    };
+    let (mut heard, mut silent) = (start(1.0), start(0.0));
+    for _ in 0..200 {
+        heard.process();
+        silent.process();
+        assert!(silent.output.iter().all(|&x| x == 0.0));
+    }
+    let now = silent.frame as f64 / 48000.0;
+    silent.volume(1.0, 0.0, now, true);
+    // Past the limiter's lookahead the two outputs are the same.
+    for _ in 0..4 {
+        heard.process();
+        silent.process();
+    }
+    assert!(heard.output.iter().any(|&x| x.abs() > 0.01));
+    let worst = heard.output.iter().zip(&silent.output).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+    assert!(worst < 1e-6, "the voice plays from the same place: {worst}");
+}

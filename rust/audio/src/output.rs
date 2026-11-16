@@ -139,6 +139,8 @@ pub struct Output {
     pub frame: u64,
     pub output: Vec<f32>,
     pub light_mode: bool,
+    /// Nobody can hear this output (no sound device): every block is skipped.
+    pub muted: bool,
     pub decoder_staging: Vec<f32>,
     // Reuse command storage across message batches. The PCM arrays below
     // are permanent render scratch; present marks initialized feeds so stopped
@@ -233,6 +235,7 @@ impl Output {
             frame: 0,
             output: vec![0.0; channels * FRAMES],
             light_mode,
+            muted: false,
             decoder_staging: Vec::new(),
             voice_commands: Vec::new(),
             light: if light_mode { Some(Light::new()) } else { None },
@@ -534,6 +537,10 @@ impl Output {
     // state already exist; loops may write them but must not grow containers,
     // construct a panner, decode an asset, or free a finished sample.
     pub fn process(&mut self) -> Option<f64> {
+        if self.silent() {
+            self.skip();
+            return None;
+        }
         // Clear accumulation buses, including bypass test audio, every quantum.
         // Input scratch is gated by present instead of clearing all reserved slots;
         // this avoids scanning hundreds of inactive virtual speaker lanes.
@@ -813,6 +820,38 @@ impl Output {
         }
         self.frame += FRAMES as u64;
         result
+    }
+    // Nothing this output plays can be heard: no device, or the master volume
+    // rests at 0 (the speaker test's tones, outside the volume, still play).
+    fn silent(&self) -> bool {
+        (self.muted || self.master.as_ref().is_some_and(|m| m.silent(self.frame)))
+            && !self.streams.iter().any(|s| s.on && s.kind >= 3)
+    }
+    // A block nobody hears: the output is silence, and every voice, bed and
+    // placement moves on through the block as if it played, so the sound picks
+    // up where it should when it can be heard again. No sample is decoded,
+    // read, placed or mixed.
+    fn skip(&mut self) {
+        self.output.fill(0.0);
+        self.voices.frame = self.frame as f64;
+        self.voices.skip();
+        for slot in 0..STREAMS {
+            if !self.streams[slot].on {
+                continue;
+            }
+            for (id, read) in self.streams[slot].skip(&self.voices.samples, self.frame, self.rate).into_iter().flatten() {
+                if let Some(Some(sample)) = self.voices.samples.get_mut(id) {
+                    sample.skip_to(read);
+                }
+            }
+        }
+        for placement in self.placements.iter_mut().filter(|p| p.active) {
+            for axis in &mut placement.axes {
+                axis.k_rate(self.frame, self.rate);
+            }
+            placement.pan.k_rate(self.frame, self.rate);
+        }
+        self.frame += FRAMES as u64;
     }
     // StreamOut's nonspatial routing replaces its former split/gain/delay
     // node graph. Preserve each format's coefficients rather than delegating
