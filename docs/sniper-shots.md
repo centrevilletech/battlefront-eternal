@@ -64,9 +64,8 @@ that covers what is behind it; the rest adds light.
 
 ### Cost
 
-- Both draws' programs are compiled while the battle loads: the trace is
-  made by `Ordnance.prepare()`, before `graphics.warmupPaced()`. Made at the
-  first sniper shot, as before, they stalled that frame on compiling (two
+- Both draws' programs are compiled while the battle loads. Made at the
+  first sniper shot, they would stall that frame on compiling (two
   programs, about 100 ms of the frame under software GL). For its
   first 90 frames each empty batch also draws one dark instance (zero
   brightness, let go by its fragment shader): the driver builds a program's
