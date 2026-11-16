@@ -134,11 +134,12 @@ client, through the same pipeline as an online battle.
 
 **Multiplayer** lists online servers with their ping, finds LAN servers, and
 joins by address. The online server list (`online.battlefronteternal.com`)
-only introduces players to servers; battles run on the servers themselves. [MULTIPLAYER.md](MULTIPLAYER.md) describes the design.
+only introduces players to servers; battles run on the servers themselves.
+[MULTIPLAYER.md](MULTIPLAYER.md) describes the design.
 
 ## Hosting a server
 
-- **From the app:** MULTIPLAYER > HOST starts the bundled `bfeserver` on
+- **From the app:** MULTIPLAYER > CREATE starts the bundled `bfeserver` on
   your PC; players on your network find it under LAN.
 - **Dedicated server:** `bfeserver` runs headless on a Linux machine (x64
   or ARM64, no GPU). Run `bfeserver` with no arguments for its setup menu,
