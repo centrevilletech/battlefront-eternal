@@ -4150,8 +4150,9 @@ impl MiniTurn {
 }
 
 /// The server opens a relay allocation for a player, and a client that can only send to the
-/// relayed address joins, gets its welcome and an answer to its start call, and the allocation is released when
-/// the server drops it.
+/// relayed address joins, gets its welcome and an answer to its start call, joins the next battle
+/// through the same allocation after a battle change, and the allocation is released when the
+/// server drops it.
 #[test]
 fn a_player_joins_through_the_servers_relay_allocation() {
     use bfe_server::udp_server::RelayEvent;
@@ -4228,6 +4229,26 @@ fn a_player_joins_through_the_servers_relay_allocation() {
     let stats = server.stats();
     assert_eq!(stats.len(), 1, "one player, relayed");
     assert!(!turn.channels.is_empty(), "the server bound a channel for the player");
+
+    // A battle change keeps the allocation: the player joins the next battle through it.
+    let server = LocalDedicatedServer::start_with_match_token(
+        &cfg, &srv_id, |_peer| false, |_m, _id, _n, _k, _d, _p| {}, None, Some(server.hand_over()),
+    )
+    .expect("next battle");
+    turn.step();
+    assert!(!turn.released, "a battle change released the relay allocation");
+    assert_eq!(server.udp.lock().unwrap().relay_count(), 1);
+    let mut client = Endpoint::connect(&relayed.to_string(), Identity::generate().unwrap(), srv_id.inner.id, &hello).expect("connect again");
+    let mut welcomed = false;
+    let start = Instant::now();
+    while !welcomed && start.elapsed() < Duration::from_secs(8) {
+        turn.step();
+        let _ = client.pump(&mut |lane, text, bytes, _| {
+            welcomed |= text && lane == Lane::Events && serde_json::from_slice::<Value>(bytes).is_ok_and(|v| v["type"] == "welcome");
+        });
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(welcomed, "welcome in the next battle through the same relay allocation");
 
     server.udp.lock().unwrap().close_relay("player-1");
     turn.step();

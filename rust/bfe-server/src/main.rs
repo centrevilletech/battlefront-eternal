@@ -608,6 +608,9 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
             // No old snapshot baseline or own-player mapping crosses rounds, but the game port
             // outlives the battle (the next battle takes it over), and so do the online
             // registration, its signalling connection and its relay allocations.
+            if let Some(online) = control.online.lock().unwrap().as_ref() {
+                online.hold_relays();
+            }
             let port = control.local.lock().unwrap().take().map(LocalDedicatedServer::hand_over);
             match launch_match(
                 directory,

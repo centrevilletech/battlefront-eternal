@@ -28,7 +28,8 @@ const RELAY_UNUSED: Duration = Duration::from_secs(30);
 /// One player's relay allocation as signalling sees it (`this.relays`).
 #[derive(Clone, Debug)]
 struct RelayEntry {
-    created: Instant,
+    /// When it was allocated or last seen in use: a player between two battles keeps it.
+    used: Instant,
     /// The nonce of the player's latest offer: the relayed candidate answers that one.
     nonce: String,
     relayed: Option<SocketAddr>,
@@ -733,7 +734,7 @@ impl OnlineServer {
         self.relays.lock().map_err(|_| "lock poisoned")?.insert(
             peer.to_string(),
             RelayEntry {
-                created: Instant::now(),
+                used: Instant::now(),
                 nonce: nonce.to_string(),
                 relayed: None,
             },
@@ -791,6 +792,12 @@ impl OnlineServer {
         );
     }
 
+    /// Marks the relay allocations of the players now playing as in use, just before a battle
+    /// change closes their sessions, so the allocations outlast the gap until they rejoin.
+    pub fn hold_relays(&self) {
+        self.sweep(RELAY_UNUSED);
+    }
+
     /// Releases relay allocations of players not playing after `max_age` (`sweep`).
     pub fn sweep(&self, max_age: Duration) {
         let Some(udp_arc) = self.udp.as_ref() else {
@@ -807,7 +814,10 @@ impl OnlineServer {
         };
         let playing: HashSet<String> = udp.players().into_iter().collect();
         relays.retain(|id, entry| {
-            let keep = playing.contains(id) || entry.created.elapsed() <= max_age;
+            if playing.contains(id) {
+                entry.used = Instant::now();
+            }
+            let keep = entry.used.elapsed() <= max_age;
             if !keep {
                 eprintln!("Online relay: released for player {} (not playing)", short(id));
                 udp.close_relay(id);

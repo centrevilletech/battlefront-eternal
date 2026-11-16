@@ -608,15 +608,20 @@ impl LocalDedicatedServer {
         let _ = self.world_tx.send(WorldCommand::PushPublication(pub_frame));
     }
 
-    /// Stops the 60 Hz tick thread, LAN discovery responder, `/info` HTTP server, and UDP game port
-    /// (`async close()`).
     /// Ends this battle and passes its game port to the next one: the world, LAN and `/info`
     /// threads stop and this battle's sessions are closed as by `close`, but the UDP socket and the
     /// `/info` listener stay open (see [`GamePort`]).
     pub fn hand_over(mut self) -> GamePort {
         let info = self.info_keep.take();
         self.stop_threads();
-        self.udp.lock().unwrap().close_all();
+        // The battle's sessions close (their players follow to the next battle), but relay
+        // allocations stay: they belong to the online registration, which carries on.
+        let mut udp = self.udp.lock().unwrap();
+        let now_ms = udp.now_ms();
+        for id in udp.players() {
+            udp.close_peer(&id, close_code::SHUTDOWN as u16, "server stopping", now_ms);
+        }
+        drop(udp);
         GamePort {
             udp: Arc::clone(&self.udp),
             info: info.expect("the /info listener is kept until hand_over or close"),
@@ -642,9 +647,14 @@ impl LocalDedicatedServer {
         }
     }
 
+    /// Stops the 60 Hz tick thread, LAN discovery responder, `/info` HTTP server, and UDP game port
+    /// (`async close()`).
     pub fn close(&mut self) {
         self.stop_threads();
-        self.udp.lock().unwrap().close_all();
+        // After hand_over the socket and its relay allocations belong to the next battle.
+        if self.info_keep.is_some() {
+            self.udp.lock().unwrap().close_all();
+        }
     }
 }
 
