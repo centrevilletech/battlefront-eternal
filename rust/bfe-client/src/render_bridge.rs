@@ -29,9 +29,12 @@ static_sources: Vec<static_world::StaticSource>, static_worlds: Vec<static_world
 /// Rigid models already built, by name and shadow cascade count: one set of
 /// GPU resources however many owners (weapons, items, debris) show a model.
 pub models: std::collections::HashMap<(String, usize), Option<crate::online::models::Model>>,
+/// Placed and rigged prop geometry already uploaded, by its part key, program key and contents: every copy of a
+/// building, door, trap or turret draws from one vertex array, so copies batch into one instanced draw.
+pub prop_geometries: std::collections::HashMap<(String, String, u64), u32>,
 }
 impl Bridge {
-pub fn new(gl: glow::Context, multi: Ranges) -> Self { Self { r: Renderer::new(gl,multi), hud_model: bfe_render::hud_model::HudModel::new(),actor_resources:bfe_render::actor_resources::Bank::default(), line_resources:bfe_render::line_resources::Lines::default(),water_sources:vec![],water_geometry:std::collections::HashMap::new(), static_sources:vec![],static_worlds:vec![],static_recipes:vec![], models:std::collections::HashMap::new() } }
+pub fn new(gl: glow::Context, multi: Ranges) -> Self { Self { r: Renderer::new(gl,multi), hud_model: bfe_render::hud_model::HudModel::new(),actor_resources:bfe_render::actor_resources::Bank::default(), line_resources:bfe_render::line_resources::Lines::default(),water_sources:vec![],water_geometry:std::collections::HashMap::new(), static_sources:vec![],static_worlds:vec![],static_recipes:vec![], models:std::collections::HashMap::new(), prop_geometries:std::collections::HashMap::new() } }
 pub fn actor_flyer(&mut self, source: u32, flags: u32, fading: bool, capacity: u32, texture: i32, slot: u32, object: u32, shadows: bool) -> Result<Option<u32>,String> { use bfe_render::actor_layout::flyer as f;
         let capacity=capacity.min(256);let at=slot as usize+17;let end=at+f::LEN+capacity as usize*20;
         if end>self.r.far.input.len(){return Ok(None);}
@@ -666,7 +669,9 @@ pub fn water_surface(&mut self, geometry: u32, blend: &[u32], depth_func: u32, f
 pub fn water_rings(&mut self, index: &[u32], blend: &[u32], depth_func: u32, flags: u32, side: u32) -> u32 { self.r.water.add_rings(&self.r.core, index, blend, depth_func, flags, side) }
 pub fn water_set(&mut self, max: u32, sizes: &[u32]) -> Option<u32> { self.r.water.add_set(&self.r.core, max, sizes) }
 pub fn water_instanced(&mut self, surface: u32, set: u32, k: u32, location: u32)  { self.r.water.instanced(&self.r.core, surface, set, k, location) }
-pub fn water_source(&mut self, authored: &str, ocean: bool) -> Result<Vec<f64>,String> { let source=bfe_render::water_resources::WaterSource::with_math::<bfe_render::pixel_math::V8>(authored,ocean).map_err(String::from)?;
+pub fn water_source(&mut self, authored: &str, ocean: bool) -> Result<Vec<f64>,String> { let mut source=bfe_render::water_resources::WaterSource::with_math::<bfe_render::pixel_math::V8>(authored,ocean).map_err(String::from)?;
+        // The near surface draws only the cells in view (effect_water): its triangles ordered by cell.
+        source.near.index=bfe_render::static_depth::cells_of(&source.near.vertices,source.near.stride,&source.near.index).0;
         let mut facts=vec![self.water_sources.len() as f64];facts.extend(source.near.bounds);
         self.water_sources.push(source);Ok(facts) }
 pub fn water_values(&mut self, source: u32, kind: u32) -> Result<Vec<f64>,String> { let s=self.water_sources.get(source as usize).ok_or_else(||String::from("unknown ocean source"))?;bfe_render::water_resources::defaults(kind as usize,s).map_err(String::from) }
@@ -690,6 +695,7 @@ pub fn effect_water(&mut self, source: u32, kind: u32, far_view: bool, shadows: 
             let values=fields.iter().map(|(name,size)|format!("{name}:{size}:{}",if w::sampler(name){3}else if *name=="waders"{4}else{0})).collect::<Vec<_>>().join(",");
             let id=self.r.effects.add_model(core,-1,&blend,depth,glow::LEQUAL,&values,&[shape.bounds[0],shape.bounds[1],shape.bounds[2],-1.]);
             self.r.effects.model_pass(core,id,program,2,geometry);
+            if !ocean {self.r.effects.model_cells(id,bfe_render::static_depth::cells_of(&shape.vertices,shape.stride,&shape.index).1);}
             let mut unit=3;for(name,_)in fields{if w::sampler(name){let(at,_)=w::field(fields,name).unwrap();self.r.effects.model_input_sampler(core,id,name,unit,at);unit+=1;}}
             if kind==k::WATER_TINT{self.r.effects.model_input_blend(id,w::field(fields,"quality").unwrap().0);}
             id
@@ -1724,6 +1730,9 @@ impl BfeRenderer {
         // into the shared source while keeping reduced indices and cell boxes.
         let mut terrain=record.terrain.then(||Terrain::new(&geometry));
         if let Some(t)=&mut terrain {geometry.index=std::mem::take(&mut t.full.index);}
+        // Opaque buckets culled by cell: one index range per cell instead of thousands of small runs. Blended
+        // buckets keep their authored order (it is their drawing order).
+        else if !blended(&record) && geometry.cells() {geometry.index=bfe_render::static_depth::cell_order(&geometry);}
         // CPU ids are append-only and outlive the replaceable GPU renderer.
         // Recovery recipes refer to these rows instead of journaling copies.
         let id=self.static_sources.len() as u32;
@@ -1756,6 +1765,7 @@ impl BfeRenderer {
     }
 }
 
+fn blended(record:&Record)->bool {!record.terrain && (record.flags & 128 != 0 || record.flags & 4 != 0 && record.flags & 2 == 0)}
 pub(super) struct StaticSource {pub record:Record,pub geometry:Geometry,pub terrain:Option<Terrain>,pub weights:Vec<u8>}
 #[derive(Clone,Copy)]
 pub(super) struct StaticSlot {pub far:bool,pub transparent:bool,pub item:u32,pub geometry:u32}
@@ -1767,7 +1777,7 @@ impl BfeRenderer {
         // Only their small material policy differs between the two views.
         let mut record=source.record.clone();record.far=far_view;record.low_res_scale=Some(low_res_scale);
         let geometry=&source.geometry;let weights=&source.weights;let terrain=&source.terrain;
-        let blended = !record.terrain && (record.flags & 128 != 0 || record.flags & 4 != 0 && record.flags & 2 == 0);
+        let blended = blended(&record);
         let material=Material::new(&record,geometry,weights,samplers,features)?;
         let mut bounds=geometry.bounds;
         if let Some(t)=terrain {bounds[..4].copy_from_slice(&t.sphere);}
@@ -1919,7 +1929,7 @@ if texture < -1 || texture>=0 && texture as usize>=self.r.core.native_texture_co
             if !sources.is_empty() {jobs.push((id,None,side,-1,"actors/depth-solid",DepthGeometry::merged(&sources)));}
         }
         // Cutouts retain each source's map and subdivision representation.
-        // Native cells select the same Morton span as the old shadow proxies.
+        // Each shadow camera draws only the cells it sees.
         for (i,row) in refs.iter().enumerate() {
             let source=&self.static_sources[row.source as usize];let cut=source.record.flags&2!=0;let fabric=source.geometry.fabric;
             if !cut&&!fabric {continue;}
