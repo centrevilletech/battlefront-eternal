@@ -163,8 +163,6 @@ pub struct Replicas {
     sun: [f64; 3],
     dt: f64,
     own_feet: Option<[f64; 3]>,
-    // Where the frame's drawn, living, unmounted soldiers within shadow range stand (their drop shadows).
-    drop_feet: Vec<[f64; 3]>,
     sun_seen: f64,
     dive_times: Vec<f64>,
     // By class: a droideka's AnimationSpeed, the rate its mode clips play at.
@@ -698,7 +696,6 @@ impl Replicas {
             sun,
             dt: 0.,
             own_feet: None,
-            drop_feet: Vec::with_capacity(256),
             sun_seen: 1.,
             dive_times,
             walker_rates,
@@ -1207,7 +1204,8 @@ impl Replicas {
         // the composed root and skin, not the preceding frame's bind pose.
         let mut places = 0;
         let killer = self.cameras.killer();
-        self.drop_feet.clear();
+        self.combat.drop_feet.clear();
+        self.combat.drop_sun = self.sun;
         for slot in &self.slots {
             if !slot.active { continue; }
             let input = &self.units.input[f::STRIDE + slot.actor * i::STRIDE..];
@@ -1220,7 +1218,7 @@ impl Replicas {
                     + self.units.input[at + 3] >= -2.2
             });
             if visible && slot.mount.is_none() && !slot.dead && slot.gone.is_none() && out[o::DEAD] == 0. && out[o::SHADOW_NEAR] != 0. {
-                self.drop_feet.push([out[o::POSITION], out[o::POSITION + 1], out[o::POSITION + 2]]);
+                self.combat.drop_feet.push([out[o::POSITION], out[o::POSITION + 1], out[o::POSITION + 2]]);
             }
             if visible || input[i::OWN] != 0. || slot.mount.is_some() || slot.identity == killer {
                 self.units.places[places] = slot.actor as u32;
@@ -1313,7 +1311,7 @@ impl Replicas {
                 .filter_map(|(_, shape)| bfe_sim::units::shapes::segment_shape(&from, &direction, length, shape))
                 .fold(None, |nearest: Option<f64>, distance| Some(nearest.map_or(distance, |n| n.min(distance))))
         };
-        self.combat.draw(dt, own, &mut muzzle, &strike, (&self.drop_feet, self.sun), &mut self.lights, bridge);
+        self.combat.draw(dt, own, &mut muzzle, &strike, &mut self.lights, bridge);
     }
     /// Lightning.update, once the frame's bodies are posed. A bolt held to
     /// its shooter starts at his gun origin as he is drawn now
