@@ -505,6 +505,50 @@ pub struct DecodedPublication {
     pub faults: Vec<(Option<String>, String)>,
 }
 
+/// Publication faults per player. The publisher marks a fault for one player
+/// when it cannot write that player's update; the world itself is intact and
+/// the other players are served. Each player and reason is logged once; a
+/// player still faulting a second after the fault began is returned once, with
+/// the reason, so the server can end that session instead of leaving the player
+/// frozen. A world-wide fault (no player) is logged once per reason.
+#[derive(Default)]
+pub struct FaultWatch {
+    open: HashMap<String, u64>,
+    logged: std::collections::HashSet<(Option<String>, String)>,
+}
+
+impl FaultWatch {
+    pub const LIMIT_MS: u64 = 1000;
+
+    pub fn note(&mut self, faults: &[(Option<String>, String)], now_ms: u64) -> Vec<(String, String)> {
+        let mut ended = Vec::new();
+        self.open.retain(|peer, _| faults.iter().any(|(p, _)| p.as_deref() == Some(peer)));
+        for (peer, message) in faults {
+            if self.logged.insert((peer.clone(), message.clone())) {
+                match peer {
+                    Some(peer) => eprintln!("publication fault for player {peer}: {message}; their update is skipped"),
+                    None => eprintln!("publication fault for every player: {message}"),
+                }
+            }
+            let Some(peer) = peer else { continue };
+            let since = *self.open.entry(peer.clone()).or_insert(now_ms);
+            if now_ms.saturating_sub(since) >= Self::LIMIT_MS && !ended.iter().any(|(p, _)| p == peer) {
+                ended.push((peer.clone(), message.clone()));
+            }
+        }
+        for (peer, _) in &ended {
+            self.open.remove(peer);
+        }
+        ended
+    }
+
+    /// Forgets a player who left, so a later player with the same id starts clean.
+    pub fn forget(&mut self, peer: &str) {
+        self.open.remove(peer);
+        self.logged.retain(|(p, _)| p.as_deref() != Some(peer));
+    }
+}
+
 /// Decodes a `Publication` (`WirePublicationOutput` block + byte arena) into transport-ready
 /// shared `BNS1` groups, per-client `BNO1` packets, `input-ack`, `entity-edge-results`, and
 /// `gameplay-events` (`publish()` and `WorldRouter.route`).
@@ -1867,5 +1911,26 @@ mod friendly_fire_tests {
         assert!(super::parse_admit_options("?map=nab2&side=rep&ai=classic&seed=1", "nab2").bots.friendly_fire);
         let off = crate::config::with_friendly_fire("?map=nab2&side=rep&ai=classic&seed=1", false);
         assert!(!super::parse_admit_options(&off, "nab2").bots.friendly_fire);
+    }
+}
+
+#[cfg(test)]
+mod fault_tests {
+    use super::FaultWatch;
+
+    #[test]
+    fn a_player_whose_updates_fail_for_a_second_is_ended_once() {
+        let mut watch = FaultWatch::default();
+        let fault = |peer: &str| vec![(Some(peer.to_string()), "unknown post".to_string())];
+        assert!(watch.note(&fault("a"), 0).is_empty());
+        assert!(watch.note(&fault("a"), 950).is_empty());
+        // A clean publication starts the second again.
+        assert!(watch.note(&[], 1000).is_empty());
+        assert!(watch.note(&fault("a"), 1050).is_empty());
+        assert!(watch.note(&[(None, "world".to_string())], 1100).is_empty());
+        assert!(watch.note(&fault("a"), 1200).is_empty());
+        assert_eq!(watch.note(&fault("a"), 2200), vec![("a".to_string(), "unknown post".to_string())]);
+        // Another player is not ended with it.
+        assert!(watch.note(&fault("b"), 2300).is_empty());
     }
 }

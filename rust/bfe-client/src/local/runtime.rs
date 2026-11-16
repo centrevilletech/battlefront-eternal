@@ -2,7 +2,7 @@
 //! gameplay; this host sequences generated input, one enclosing tick and its
 //! publication. The same receiver and display phases used online consume the
 //! result, with no transport, authoritative mirror or second simulation.
-use super::{clock::Clock, publication::Publication, setup::Admitted, thread::PublicationSlot};
+use super::{clock::Clock, publication::{Faults, Publication}, setup::Admitted, thread::PublicationSlot};
 use bfe_client::{
     generated_input::{ClientCommand, ClientFlightCommand, ClientLook},
     online::{feedback::Ids, receiver::Receiver},
@@ -142,6 +142,7 @@ pub struct Runtime<E: Engine> {
     now_ms: f64,
     unix_ms: f64,
     closed: bool,
+    faults: Faults,
 }
 
 impl<E: Engine> Runtime<E> {
@@ -177,6 +178,7 @@ impl<E: Engine> Runtime<E> {
             now_ms: start_ms,
             unix_ms,
             closed: false,
+            faults: Faults::default(),
         };
         // createLocalServer.welcome publishes during Context::world_admit before
         // accepting the first command. Deliver Admitted.publication directly when
@@ -218,6 +220,7 @@ impl<E: Engine> Runtime<E> {
             now_ms: start_ms,
             unix_ms,
             closed: false,
+            faults: Faults::default(),
         };
         if !welcome_bytes.is_empty() {
             runtime.deliver_welcome_into_slot(&welcome_output, &welcome_bytes, slot)?;
@@ -235,6 +238,9 @@ impl<E: Engine> Runtime<E> {
         let mut block = Block::new();
         let published =
             Publication::from_welcome(output, welcome_bytes, &mut block).map_err(String::from)?;
+        if let Some(fault) = published.fault(self.client)? {
+            return Err(fault);
+        }
         let receiver = self.receiver.as_mut().ok_or("no display receiver")?;
         published.deliver(self.client, receiver, self.now_ms)?;
         let ack = Publication::acknowledgement(receiver);
@@ -260,7 +266,9 @@ impl<E: Engine> Runtime<E> {
         published.copy_into(&mut slot.block, &mut slot.bytes);
         slot.tick = 0.0;
         slot.client = self.client;
-        published.fault(self.client)?;
+        if let Some(fault) = published.fault(self.client)? {
+            return Err(fault);
+        }
         self.outcomes.count = 0;
         published.outcomes(self.client, self.own.epoch, self.own.generation, &mut self.outcomes)?;
         self.acknowledge_own()
@@ -334,6 +342,7 @@ impl<E: Engine> Runtime<E> {
         self.facts[WireWorldFacts::AT] = self.now_ms;
         self.facts[WireWorldFacts::UNIX_MS] = self.unix_ms + self.now_ms.floor();
         let published = self.engine.publish(&self.facts)?;
+        self.faults.note(published.fault(self.client)?)?;
         let receiver = self.receiver.as_mut().ok_or("no display receiver")?;
         published.deliver(self.client, receiver, self.now_ms)?;
         let ack = Publication::acknowledgement(receiver);
@@ -361,7 +370,9 @@ impl<E: Engine> Runtime<E> {
         published.copy_into(&mut slot.block, &mut slot.bytes);
         slot.tick = current_tick;
         slot.client = client_id;
-        published.fault(client_id)?;
+        // The render thread delivers this slot either way: without the player's
+        // own update it reads like a lost packet.
+        self.faults.note(published.fault(client_id)?)?;
         self.outcomes.count = 0;
         published.outcomes(client_id, self.own.epoch, self.own.generation, &mut self.outcomes)?;
         self.acknowledge_own()
