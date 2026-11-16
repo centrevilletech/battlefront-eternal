@@ -74,6 +74,9 @@ pub struct Client {
     pub publication: Option<super::publisher::Personal>,
     pub sent: Vec<(f64, f64)>,
     pub sent_bytes: f64,
+    // Pacing credit for a finite budget (bytes) and when it was last brought up to date.
+    credit: f64,
+    credit_at: f64,
     pub own_sent_at: f64,
     pub heard_at: f64,
     pub summaries_due: f64,
@@ -92,6 +95,8 @@ impl Client {
             publication: None,
             sent: Vec::with_capacity(2048),
             sent_bytes: 0.,
+            credit: 0.,
+            credit_at: at,
             own_sent_at: f64::NEG_INFINITY,
             heard_at: at,
             summaries_due: 0.,
@@ -112,6 +117,24 @@ impl Client {
     }
     pub fn charge(&mut self, at: f64, bytes: f64) {
         charge(&mut self.sent, &mut self.sent_bytes, at, bytes);
+    }
+    /// Whether a whole snapshot may go out at `at` within `budget` bytes per second. A finite
+    /// budget is paced like a token bucket: credit grows at the budget's rate up to a tenth of
+    /// a second's worth, a snapshot may go out while the credit is positive, and what went out
+    /// since the last decision is taken off it (it may go below zero). A client over budget
+    /// therefore skips a publication or two at a time, evenly, instead of getting bursts with
+    /// holes of half a second while a one-second window empties.
+    pub fn within_budget(&mut self, at: f64, budget: f64) -> bool {
+        if !budget.is_finite() {
+            return self.budget_used(at) < budget;
+        }
+        let since = self.credit_at;
+        let spent: f64 = self.sent.iter().rev().take_while(|s| s.0 >= since).map(|s| s.1).sum();
+        let earned = (at - since).max(0.) / 1000. * budget;
+        self.credit = (self.credit + earned - spent).min(budget * 0.1);
+        self.credit_at = at;
+        self.budget_used(at);
+        self.credit > 0.
     }
 }
 /// A publication uses one clock sample for all packet charges. Coalescing
@@ -242,7 +265,7 @@ impl Host {
     pub fn delivery(&mut self, id: u32, at: f64) -> u32 {
         let budget = self.budget;
         let c = self.client_mut(id);
-        if c.budget_used(at) < budget {
+        if c.within_budget(at, budget) {
             2
         } else {
             c.metrics[7] += 1.;
@@ -625,6 +648,28 @@ mod tests {
         assert!(!h.accept_ack(1, 302., 3.));
     }
     #[test]
+    fn a_client_over_budget_gets_paced_snapshots_not_bursts() {
+        let mut c = Client::new(1, 0.);
+        // 20 publications a second, 3000 bytes each, against 30000 bytes a second: about every
+        // other one goes out, never more than two skipped in a row.
+        let (mut sent, mut skipped_run, mut worst_run) = (0, 0, 0);
+        for n in 0..200 {
+            let at = n as f64 * 50.;
+            if c.within_budget(at, 30000.) {
+                c.charge(at, 3000.);
+                sent += 1;
+                skipped_run = 0;
+            } else {
+                skipped_run += 1;
+                worst_run = worst_run.max(skipped_run);
+            }
+        }
+        assert!((95..=105).contains(&sent), "{sent} of 200 sent");
+        assert!(worst_run <= 2, "{worst_run} skipped in a row");
+        // An unlimited host is never held back.
+        assert!(c.within_budget(20000., f64::INFINITY));
+    }
+    #[test]
     fn capture_gaps_budget_window_and_stale_boundaries_are_independent() {
         let mut h = Host::new(false, 20000., 5000., 1.);
         h.add(1, 10.);
@@ -641,12 +686,14 @@ mod tests {
         h.client_mut(1).own_sent_at = 1.;
         assert_eq!(h.delivery(1, 100.), 0);
         assert_eq!(h.delivery(1, 101.), 1);
-        assert_eq!(h.delivery(1, 1001.), 2);
+        // Paced: the 20000 bytes are paid back at 20000 a second.
+        assert_eq!(h.delivery(1, 1001.), 1);
+        assert_eq!(h.delivery(1, 1002.), 2);
         h.client_mut(1).charge(2000., 10.);
         h.client_mut(1).charge(1990., 20.);
         assert_eq!(h.client_mut(1).budget_used(2995.), 30.);
         assert_eq!(h.client_mut(1).budget_used(3000.), 0.);
-        assert_eq!(h.client(1).metrics[7], 3.);
+        assert_eq!(h.client(1).metrics[7], 4.);
         assert_eq!(h.client(1).metrics[9], 1.);
         h.client_mut(1).started = true;
         assert_eq!(h.stale(5010., 5.), [1.]);
