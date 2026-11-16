@@ -1173,18 +1173,32 @@ impl BattleController {
                 }
             }));
         }
+        let id_path = crate::online::info::default_identity()?;
+        // A listed server without a direct address: its listing and the master's
+        // signalling (hole punching, then the relay) replace /info.
         if targets.is_empty() {
-            return Err(if launch.listed_identity().is_some() {
-                "This server is reached only through the relay, which this client cannot use yet. Use DIRECT CONNECT with its address.".to_string()
-            } else {
-                "No server address specified for online join".to_string()
+            let Some(id) = launch.listed_identity().map(str::to_string) else {
+                return Err("No server address specified for online join".to_string());
+            };
+            let (server_info, endpoint) = crate::online::info::prepare_listed(
+                &id,
+                content_dir,
+                &id_path,
+                &settings.player.profile_name,
+            )?;
+            let graphics = Scene::prepare_online(content_dir, &server_info.query, textures)?;
+            return Ok(OnlineAdmission {
+                launch,
+                target: format!("{}{id}", crate::online::info::LISTED),
+                server_info,
+                endpoint,
+                graphics,
             });
         }
 
         // Probe `/info` and prepare the authenticated endpoint (`online::info::prepare`),
         // trying each target until one answers. The first error from a server
         // that answered explains more than an unreachable address does.
-        let id_path = crate::online::info::default_identity()?;
         let mut failure: Option<(bool, String)> = None;
         let mut admitted = None;
         for target in &targets {

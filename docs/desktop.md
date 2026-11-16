@@ -518,8 +518,10 @@ Targets:
 
 `.github/workflows/ci.yml` runs on GitHub-hosted runners for every push to
 `main`, every pull request and on demand: the generated-code check
-(`cargo xtask check`), Linux `x64` and `arm64` unit and integration tests,
-Windows `x64` unit tests, and the software OpenGL `renderer-smoke-native` job.
+(`cargo xtask check`), Linux `x64` and `arm64` unit and integration tests
+and the Python tests of the preparation and packaging tools
+(`build/ci/python-tests.py`), Windows `x64` unit tests, and the software
+OpenGL `renderer-smoke-native` job.
 No job in this repository uses a self-hosted runner.
 
 `.github/workflows/release.yml` builds the native Windows (`windows-latest`

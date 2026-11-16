@@ -72,6 +72,19 @@ def ensure_appimagetool(explicit: Path | None = None) -> Path:
     return cached
 
 
+# Preview 331 and older (the Electron builds) registered /usr/bin/battlefront-eternal
+# with update-alternatives. Their removal script runs while this package is
+# upgraded over them, after this package's files are unpacked, and deletes that
+# link, which this package also ships. Put it back, so the command the installer
+# told players to use keeps working.
+POSTINST = """#!/bin/sh
+set -e
+if [ "$1" = configure ] && [ ! -e /usr/bin/battlefront-eternal ] && [ ! -L /usr/bin/battlefront-eternal ]; then
+    ln -s '/opt/Battlefront Eternal/bfe-client' /usr/bin/battlefront-eternal
+fi
+"""
+
+
 def build_deb(staged_dir: Path, platform: str, version: str, out_dir: Path, repo_root: Path = REPO_ROOT) -> Path:
     arch_info = ARCH_MAP[platform]
     deb_arch = arch_info['deb_arch']
@@ -128,6 +141,8 @@ def build_deb(staged_dir: Path, platform: str, version: str, out_dir: Path, repo
         ]
         control_file = debian_dir / 'control'
         control_file.write_text('\n'.join(control_lines), encoding='utf-8')
+        (debian_dir / 'postinst').write_text(POSTINST, encoding='utf-8')
+        (debian_dir / 'postinst').chmod(0o755)
         normalize_permissions(root)
 
         out_dir.mkdir(parents=True, exist_ok=True)

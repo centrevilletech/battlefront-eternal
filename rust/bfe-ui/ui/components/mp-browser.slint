@@ -16,6 +16,8 @@ export struct BrowserRowItem {
     location: string,
     country: string,
     compatible: bool,
+    // Badge after the name: OTHER VERSION, NO DIRECT ADDRESS, or empty.
+    tag: string,
 }
 
 // Key/value fact pair in the `GAME INFO` inspector grid (`PLAYERS`, `PING`, `LOCATION`,
@@ -247,7 +249,7 @@ export component BrowserServerRow inherits Interaction {
         height: parent.height;
         spacing: root.col-gap;
 
-        // Column 0: GAME NAME + optional OTHER VERSION badge
+        // Column 0: GAME NAME + optional badge (OTHER VERSION, NO DIRECT ADDRESS)
         HorizontalLayout {
             width: root.w-name;
             spacing: 8px;
@@ -265,7 +267,7 @@ export component BrowserServerRow inherits Interaction {
                 horizontal-stretch: 1;
             }
 
-            if !root.item.compatible: Rectangle {
+            if root.item.tag != "": Rectangle {
                 width: tag-txt.preferred-width + 10px;
                 height: 16px;
                 y: (parent.height - self.height) / 2;
@@ -277,7 +279,7 @@ export component BrowserServerRow inherits Interaction {
                     x: 5px; y: 0px;
                     width: parent.width - 10px;
                     height: parent.height;
-                    text: "OTHER VERSION";
+                    text: root.item.tag;
                     font-family: Theme.font-family;
                     font-size: 9px;
                     font-weight: 700;

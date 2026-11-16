@@ -179,39 +179,40 @@ impl PlayerIdentity {
         match fs::read(path) {
             Ok(bytes) => Self::from_file_bytes(&bytes, path),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                let identity = Self::generate()?;
-                if let Some(parent) = path.parent() {
-                    if !parent.as_os_str().is_empty() {
-                        fs::create_dir_all(parent)
-                            .map_err(|e| format!("{}: {e}", parent.display()))?;
-                    }
-                }
-                // Use `create_new(true)` (`flag: 'wx'` in the desktop host) and
-                // mode `0o600` on Unix so concurrent processes race safely: if another
-                // process created the identity file first (`AlreadyExists` / `EEXIST`),
-                // reload and adopt the winner's persisted key instead of overwriting it.
-                let mut options = OpenOptions::new();
-                options.write(true).create_new(true);
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::OpenOptionsExt;
-                    options.mode(0o600);
-                }
-                match options.open(path) {
-                    Ok(mut file) => {
-                        file.write_all(&identity.seed)
-                            .map_err(|e| format!("{}: {e}", path.display()))?;
-                        Ok(identity)
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                        let bytes =
-                            fs::read(path).map_err(|re| format!("{}: {re}", path.display()))?;
-                        Self::from_file_bytes(&bytes, path)
-                    }
-                    Err(e) => Err(format!("{}: {e}", path.display())),
-                }
+                Self::persist_new(path, Self::generate()?)
             }
             Err(err) => Err(format!("{}: {err}", path.display())),
+        }
+    }
+
+    // Writes `identity`'s seed to `path`, which must not exist yet, and returns
+    // it. `create_new(true)` (`flag: 'wx'` in the desktop host) and mode `0o600`
+    // on Unix let concurrent processes race safely: if another process created
+    // the file first, its persisted key is adopted instead of overwritten.
+    fn persist_new(path: &Path, identity: Self) -> Result<Self, String> {
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+            }
+        }
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(path) {
+            Ok(mut file) => {
+                file.write_all(&identity.seed)
+                    .map_err(|e| format!("{}: {e}", path.display()))?;
+                Ok(identity)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                let bytes = fs::read(path).map_err(|re| format!("{}: {re}", path.display()))?;
+                Self::from_file_bytes(&bytes, path)
+            }
+            Err(e) => Err(format!("{}: {e}", path.display())),
         }
     }
 
@@ -225,8 +226,15 @@ impl PlayerIdentity {
             return Ok(Self::from_seed(seed));
         }
         if let Ok(stored) = serde_json::from_slice::<StoredJsonIdentity>(bytes) {
+            // The desktop host stores the key as PEM; bare base64 DER is read too.
+            let body: String = stored
+                .private_key
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.starts_with("-----"))
+                .collect();
             let pkcs8 = BASE64
-                .decode(stored.private_key.trim())
+                .decode(body)
                 .map_err(|e| format!("{}: invalid base64 privateKey: {e}", path.display()))?;
             if pkcs8.len() == 48 && pkcs8[..16] == ED25519_PKCS8_PREFIX {
                 let mut seed = [0u8; 32];
@@ -356,6 +364,49 @@ struct ConsentRecord {
     accepted_at: u64,
 }
 
+// The Electron build (preview 331 and earlier) kept the player's identity in
+// `network-identity.json` and the online notice consent in `online-consent.json`
+// inside the user data folder (`~/.config/Battlefront Eternal`,
+// `%APPDATA%\Battlefront Eternal`). The native client keeps them in its own data
+// folder. On the first native start both are copied over, once: the player keeps
+// the same player ID (server bans, admin rights and scoreboards follow it) and is
+// not asked to accept the notice again. Existing native files win; the old files
+// stay where they are. Returns what was copied.
+pub fn adopt_desktop_profile(user_data: &Path) -> Vec<&'static str> {
+    match (default_identity_path(), default_consent_path()) {
+        (Some(identity), Some(consent)) => adopt_desktop_profile_at(user_data, &identity, &consent),
+        _ => Vec::new(),
+    }
+}
+
+fn adopt_desktop_profile_at(user_data: &Path, identity: &Path, consent: &Path) -> Vec<&'static str> {
+    let mut adopted = Vec::new();
+    if !identity.exists() {
+        let legacy = user_data.join("network-identity.json");
+        if let Ok(bytes) = fs::read(&legacy) {
+            if let Ok(found) = PlayerIdentity::from_file_bytes(&bytes, &legacy) {
+                if PlayerIdentity::persist_new(identity, found).is_ok() {
+                    adopted.push("identity");
+                }
+            }
+        }
+    }
+    if !read_online_consent(consent) {
+        #[derive(Deserialize)]
+        struct DesktopConsent {
+            version: String,
+        }
+        let accepted = fs::read(user_data.join("online-consent.json"))
+            .ok()
+            .and_then(|raw| serde_json::from_slice::<DesktopConsent>(&raw).ok())
+            .is_some_and(|record| record.version == ONLINE_NOTICE_VERSION);
+        if accepted && write_online_consent(consent).is_ok() {
+            adopted.push("online consent");
+        }
+    }
+    adopted
+}
+
 // Fallible reader for the online notice consent file that reports path and
 // schema errors.
 pub fn try_read_online_consent(path: &Path) -> Result<bool, String> {
@@ -481,6 +532,34 @@ mod tests {
             signed.signature,
             "i4FIcYs3WubEFerHNMfp7jHatfMc8XlcOfbID9RHusxGWNcQPEBpqH2V656XXXgJrIt8QNtKF/2HgioVRMT1DQ=="
         );
+    }
+
+    // A profile from the Electron build (PEM key, consent without acceptedAt)
+    // is adopted once, keeps the player ID, and never replaces native files.
+    #[test]
+    fn adopts_the_desktop_profile_once() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!("bfe-online-adopt-{}", std::process::id()));
+        let user_data = dir.join("Battlefront Eternal");
+        fs::create_dir_all(&user_data)?;
+        let old = PlayerIdentity::from_seed([7u8; 32]);
+        let mut pkcs8 = ED25519_PKCS8_PREFIX.to_vec();
+        pkcs8.extend_from_slice(old.seed());
+        let pem = format!("-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n", BASE64.encode(&pkcs8));
+        let json = serde_json::json!({ "publicKey": old.public_key_base64(), "privateKey": pem });
+        fs::write(user_data.join("network-identity.json"), serde_json::to_vec(&json)?)?;
+        let consent_json = serde_json::json!({ "version": ONLINE_NOTICE_VERSION, "master": "https://online.battlefronteternal.com" });
+        fs::write(user_data.join("online-consent.json"), serde_json::to_vec(&consent_json)?)?;
+        let identity = dir.join("native").join("identity.key");
+        let consent = dir.join("native").join("online-consent.json");
+
+        assert_eq!(adopt_desktop_profile_at(&user_data, &identity, &consent), vec!["identity", "online consent"]);
+        assert_eq!(PlayerIdentity::load_or_create(&identity)?.id_hex(), old.id_hex());
+        assert!(read_online_consent(&consent));
+        assert!(user_data.join("network-identity.json").exists());
+        // Second start: nothing to do, the native files stay.
+        assert!(adopt_desktop_profile_at(&user_data, &identity, &consent).is_empty());
+        let _ = fs::remove_dir_all(&dir);
+        Ok(())
     }
 
     // Verifies atomic creation and reload of a 32-byte `identity.key` seed file,

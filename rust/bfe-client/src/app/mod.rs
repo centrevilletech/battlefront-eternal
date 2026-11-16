@@ -196,7 +196,11 @@ pub fn run(with_audio: bool) {
         Ok(CliDispatch::Standalone(opts)) => {
             // Launch the default standalone native game lifecycle.
             // Scripted and bench runs have nobody to click a dialog away.
-            let attended = opts.script.is_none() && std::env::var_os("BFE_BENCH").is_none();
+            // Nor a start another version handed off to (BFE_LAUNCH_TOKEN): it waits for
+            // this one to exit on an error and then runs itself, which a dialog would hold up.
+            let attended = opts.script.is_none()
+                && std::env::var_os("BFE_BENCH").is_none()
+                && std::env::var_os("BFE_LAUNCH_TOKEN").is_none();
             if let Err(err) = run_standalone_game(opts, with_audio) {
                 eprintln!("{err}");
                 if attended { folder_dialog::fatal_message(&err); }
@@ -237,7 +241,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
     // 1. Resolve application data paths and load `DesktopSettings`, `bfe_interface::Settings`,
     //    and `PersistedPlayerSettings`.
     let paths = current_desktop_paths();
-    let settings = AppSettingsStore::load(paths);
+    let mut settings = AppSettingsStore::load(paths);
     bfe_desktop::linux_integration::integrate_in_background();
 
     // 2. Bounded startup update handoff/check before opening the window (<= 1.5s timeout).
@@ -245,6 +249,15 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         run_bounded_update_check(&settings, opts.skip_update_check)
     {
         eprintln!("update available: {version} ({kind})");
+    }
+    // A player coming from the Electron build keeps their player ID and consent.
+    let adopted = bfe_online::adopt_desktop_profile(&settings.paths.user_data);
+    if !adopted.is_empty() {
+        eprintln!("adopted from the previous build: {}", adopted.join(", "));
+    }
+    // The consent file records the online notice; the menus read this flag.
+    if bfe_online::default_consent_path().is_some_and(|path| bfe_online::read_online_consent(&path)) {
+        settings.player.privacy_notice_accepted = true;
     }
 
     // 3. Resolve prepared content or start a background `PrepareSession`.
@@ -264,6 +277,8 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         Some(&settings.paths.project_root),
     );
     host_cfg.online_consent = settings.player.privacy_notice_accepted;
+    // A hosted game registers with the master this client lists from.
+    host_cfg.master_url = bfe_online::master::resolve_master_url();
     let host_controller =
         HostController::new(host_cfg).map_err(|e| format!("host controller init: {e}"))?;
     if let Err(err) = host_controller.attach() {
