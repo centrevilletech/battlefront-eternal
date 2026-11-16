@@ -130,8 +130,7 @@ a detached `bfeserver` instance from the native client (`MULTIPLAYER -> CREATE -
 SET GAME OPTIONS -> LAUNCH`):
 
 - **What runs**: `HostController::start` writes `<state>/config.json` (mode
-  `0600`, where `<state>` defaults to `<userData>/server` and can be overridden
-  with `BFE_HOST_STATE_DIR` or `--state-dir`) using the server's configuration
+  `0600`, where `<state>` is `<userData>/server`) using the server's configuration
   schema (`name`, `engine`, `data`, `rotation`, `maxPlayers`,
   `onlineNoticeAccepted`, `master`, `relayPolicy`, `honorGlobalBans`, and
   `gamePort`) and spawns the bundled `bfeserver --serve` binary detached from
@@ -140,12 +139,11 @@ SET GAME OPTIONS -> LAUNCH`):
   `systemd-run --user` unit when launched under native Linux Steam).
 - **Ports and environment overrides**:
   - Loopback operator HTTP port (`/admin` and `/healthz`): `18460` by default,
-    overridable with `BFE_HOST_ADMIN_PORT` (or `--admin-port`).
+    overridable with `BFE_HOST_ADMIN_PORT`.
   - Game port (UDP `BFE-UDP/1` gameplay and TCP `GET /info`): `18461` by
-    default, overridable with `BFE_HOST_GAME_PORT` (or `--game-port`).
+    default, overridable with `BFE_HOST_GAME_PORT`.
   - Server executable path: resolved next to `bfe-client` (`bfeserver` on Linux,
-    `bfeserver.exe` on Windows), overridable with `BFE_HOST_SERVER_BIN` (or
-    `--server-bin`).
+    `bfeserver.exe` on Windows), overridable with `BFE_HOST_SERVER_BIN`.
 - **Logs and state files**: Standard output and standard error from `bfeserver`
   are appended to `<state>/hosting.log` (mode `0600`, truncated automatically
   when exceeding 8 MiB). The bearer token in `<state>/operator-token` (mode
