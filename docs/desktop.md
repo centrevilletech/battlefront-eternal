@@ -347,7 +347,7 @@ Preparation runs `tools/prepare.py` with the bundled toolchain, into the app's
 
 | Step (key) | Tool | After | Needs |
 | --- | --- | --- | --- |
-| Galaxy: the map catalog and loading pictures (`catalog`) | `zero_shell.py --catalog` | | |
+| Galaxy: the map catalog, loading pictures and movie list (`catalog`) | `zero_shell.py --catalog` | | |
 | Each army and local force's units (`side:<side>`) | `extract.py --only side` | the catalog | |
 | What every side shares: clips, effects, HUD art (`common`) | `extract.py --only common` | every side | |
 | Interface: menus, music and sounds (`shell`) | `zero_shell.py` | common | ffmpeg |
@@ -357,12 +357,12 @@ Preparation runs `tools/prepare.py` with the bundled toolchain, into the app's
 | HUD and font atlases at 4x (`hud`) | `upscale_hud.py` | the shell | Pillow |
 | Enhanced sound per battle (`audio:<sublevel>`) | `enhance_audio.py` | its map, and the era's first | numpy, scipy, soundfile, soxr, ffmpeg |
 | KTX2 textures (`textures`) | `ktx2.py` | everything that writes textures | KTX-Software `ktx` |
-| The movies' list (`movie-index`) | `zero_shell.py --movie-index` | the catalog | |
 
 The movies are not converted. The client plays the original Bink files
 straight from the game folder (`GameData/Data/_LVL_PC/Movies/shell.mvs`,
-and each add-on's `Movies/*.mvs`) with its own decoder, so the preparation
-only lists them in `common/shell/movies/manifest.json`, in about a second.
+and each add-on's `Movies/*.mvs`) with its own decoder, so the catalog step
+only lists them in `common/shell/movies/manifest.json`, reading each Bink
+header and nothing more.
 The client finds the game folder through the one the player chose, the
 preparation records, or `BFE_GAME_DIR`; when none holds the movies, the
 menus play without them.
