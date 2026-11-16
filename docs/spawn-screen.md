@@ -17,37 +17,33 @@ screenshots of the 2004 game: Geonosis (Republic), Kamino (CIS) and Hoth
 
 | File | What it does |
 | --- | --- |
-| `rust/bfe-battle-ui` (`spawn_screen`) | `createSpawnScreen()`: opens and closes the screen, drives the model, input and view, plays the sounds, sets the camera shot, frees the mouse. `pauseRespawn()`: the pause menu's RESPAWN. |
-| `rust/bfe-battle-ui` (`spawn_screen`) | Pure: the screen's state (closed, choosing, committed) and the choice (team, class, post), with the original's rules for each |
-| `rust/bfe-battle-ui` (`spawn_screen`) | Keys and mouse to model actions, once per frame; `bindDom()` feeds it from the page |
-| `rust/bfe-battle-ui` (`spawn_screen`) | The Classic screen, as a layer of the battle HUD |
-| `rust/bfe-battle-ui` (`spawn_screen`) | Pure: where each piece sits for an interface height |
-| `rust/bfe-battle-ui` (`spawn_screen`) | The page view: the screen in the front end's look (see [The page view](#the-page-view)) |
-| `rust/bfe-battle-ui` (`spawn_screen`) | The page view's 3D stage on the HUD's canvas: the body on its projector, the room or the vignette, the hologram map |
-| `rust/bfe-battle-ui` (`spawn_screen`) | The stage's camera: the framing (a lens shift), the sweep in, the swings, the drift |
-| `rust/bfe-battle-ui` (`spawn_screen`) | The battlefield projected as a hologram: the HUD's spawn map drawn into a texture, the disc, the pins, the projector, picking |
-| `rust/bfe-battle-ui` (`spawn_screen`) | The 2004 look's hologram room (the `shell_cube` texture), and the floor of light over the battle |
-| `rust/bfe-battle-ui` (`spawn_screen`) | The battle behind the page view: the mission's camera shots, drifting, cut to the one that sees the post picked |
-| `rust/bfe-interface` | The window titles' intro animation (the shared interface kit, docs/menus.md) |
-| `rust/bfe-interface` | The interface's 3D: its material and lights, model scales, its camera |
-| `rust/bfe-interface` | The windows' 9-slice, text wrapping, the hotspots' point-in-quad test |
-| `rust/bfe-battle-ui` (`spawn_screen`) | The picked class's body, standing and lit |
-| `rust/bfe-battle-ui` (`spawn_screen`) | The screen on demand over the running game |
-| `rust/bfe-battle-ui` (`spawn_screen`) | The world side's: whether the screen runs (see human-spawn.md) |
-| `rust/bfe-render` (`hud_model`) | The layer hook, `drawBattlefield()` and the spawn map; `toInterface()` from the interface kit (`rust/bfe-interface`) |
-| `rust/bfe-battle-ui` (`pause`) | RESPAWN in the pause menu (`enableRespawn()`) |
+| `rust/bfe-battle-ui/src/spawn/controller.rs` | `SpawnScreenController`: opens and closes the screen, drives the model, input and view, plays the sounds, sets the camera shot, frees the mouse; the pause menu's RESPAWN |
+| `rust/bfe-battle-ui/src/spawn/model.rs` | Pure: the screen's state (closed, choosing, committed) and the choice (team, class, post), with the original's rules for each; the port to the world |
+| `rust/bfe-battle-ui/src/spawn/input.rs` | Keys and mouse to model actions, once per frame |
+| `rust/bfe-battle-ui/src/spawn/view.rs` | The Classic screen, as a layer of the battle HUD, and the picked class's body, standing and lit |
+| `rust/bfe-battle-ui/src/spawn/layout.rs` | Pure: where each piece sits for an interface height |
+| `rust/bfe-battle-ui/src/spawn/policy.rs` | Whether the screen runs, and the first side, team and class |
+| `rust/bfe-client` (`app/slint_battle.rs`), `rust/bfe-ui` | The screen in the front end's look (see [The front end's look](#the-front-ends-look)) |
+| `rust/bfe-client` (`app/page_battle/gpu.rs`, `textures.rs`) | That look's 3D stage: the body on its projector, the room or the vignette, the hologram map, its pins and picking |
+| `rust/bfe-client` (`app/page_battle/rig.rs`) | The stage's camera: the framing (a lens shift), the sweep in, the swings, the drift |
+| `rust/bfe-client` (`app/page_battle/backdrop.rs`, `director.rs`) | The 2004 look's hologram room, and the battle behind the screen: the mission's camera shots, drifting, cut to the one that sees the post picked |
+| `rust/bfe-interface` | The window titles' intro animation, the interface's 3D (its material, lights, model scales and camera), the windows' 9-slice, text wrapping, the hotspots' point-in-quad test (the shared interface kit, [menus.md](menus.md)) |
+| `rust/bfe-client` (`app/battle.rs`) | The screen over the running battle, and its port to the world (see [human-spawn.md](human-spawn.md)) |
+| `rust/bfe-render` (`hud_model`) | The spawn map and the HUD layer the Classic screen draws on |
+| `rust/bfe-battle-ui` (`pause`) | RESPAWN in the pause menu |
 | `rust/audio-control` | The `interface` sound event |
 
 ## When it shows
 
-- `rust/sim` (`game`) builds the screen only in the page, and only when the
-  policy says it runs: no `side=`, `unit=` or `spawn=`, or `spawnscreen=1`.
-  With them the world confirms the URL's choice by itself, as before.
+- The client builds the screen when the spawn policy says it runs: in every
+  battle the front end launches. A side, unit or post chosen in advance
+  (the scripted runs' options) skips it, and the world confirms that choice
+  by itself.
 - It opens when the map loads (the player starts `unspawned`) and on the
   port's `awaitingSpawn`, four seconds after a death. Nothing shows during
   those four seconds.
 - It closes on `spawned`, when the player gets a unit back any other way,
-  and when the battle is over (`humanState().over`); after that it doesn't
+  and when the battle is over; after that it doesn't
   open again.
 - The world keeps running behind it. The pause menu over it (Esc) pauses
   both, as the original's does, and shows only the screen's room and the
@@ -105,15 +101,12 @@ applies them in order:
 - There is no gamepad input in the port, so the original's pad bindings
   aren't here.
 
-**The mouse.** While the screen is open the game's controls are off
-(`controls.enabled`), the pointer lock is released, and the page's cursor
-is hidden over the canvas, where the screen draws `mousecursor` instead.
-SPAWN asks for the pointer lock again from inside the click or key that
-pressed it, while the browser still allows it. Esc opens the pause menu
-over the screen; closing it, even with RESUME, comes back to the screen
-with the mouse still free. The screen frees the mouse with
-`controls.release()`, the game's own release, so it doesn't pause the
-game.
+**The mouse.** While the screen is open the game's controls are off, the
+mouse is released, and the system's cursor is hidden over the window,
+where the screen draws `mousecursor` instead. SPAWN captures the mouse
+again. Esc opens the pause menu over the screen; closing it, even with
+RESUME, comes back to the screen with the mouse still free. Freeing the
+mouse for the screen doesn't pause the game.
 
 ## Drawing
 
@@ -179,7 +172,7 @@ only their inner halves, so a click anywhere on either logo, with a margin
 10 units left. A team switch by mouse turns it over: π back to 0 about its
 vertical axis at 15 rad/s.
 
-**The map.** The HUD's full battlefield (`drawBattlefield()`), in the spawn
+**The map.** The HUD's full battlefield, in the spawn
 layout:
 
 - 328 × W/800 across, 128 × W/800 left of the safe area's right middle;
@@ -210,9 +203,9 @@ all three retail screenshots gives that same 5.0 independently. The room
 isn't lit. Its vertices carry tints the common model pack drops: grey 192,
 and 68 at the open end of the right-hand wall, which is why the
 screenshots' right edge is darker. The screen puts them back
-(`roomTints()`). It is drawn under everything else.
+It is drawn under everything else.
 
-**The class's body.** The port's `previewBody(className)`: the class
+**The class's body.** The class
 holding its primary weapon in the idle stance, fidgeting every 3 to 8 s; a
 droideka cycles its own states. The view swaps its materials for the
 interface's, on the same textures. The light is ambient (144, 144, 144)
@@ -222,8 +215,8 @@ which gives the clone trooper's 385 units.
 
 **The pointer.** `mousecursor`, 32 units, drawn last.
 
-Every texture comes through `hud.texture()`, so the 4× WebP atlases apply
-(`rasterHud` in common.json), as do the upscaled font pages. A missing
+Every texture comes through the HUD's texture table, so the 4x WebP
+atlases apply (`rasterHud` in common.json), as do the upscaled font pages. A missing
 texture falls back to flat colour.
 
 **Other screens.** The 3D models use a camera of the window's own shape
@@ -233,8 +226,8 @@ follow the HUD's interface space as everything else in the HUD does.
 
 ## Sounds
 
-Through the audio events (`emitSound("interface", effect)`), by the
-mission's `SetSoundEffect` names:
+Through the audio events (the `interface` sound event), by the mission's
+`SetSoundEffect` names:
 
 - `SpawnDisplaySpawnPointChange` (`shell_select_change`) on any class, team
   or post change, the post's default pick on opening included. Its 0.05 s
@@ -253,69 +246,66 @@ first, where the original cuts nowhere, it shows the initial shot: Kamino's
 load.png, taken then, has shot 0's lit pillars and round platform behind
 the room, which shots 1 and 2 don't. Its pillars stand a little further
 apart than the port's shot 0 puts them, so the original may frame shots
-with a narrower view. On closing the screen hands the camera back
-(`setViewShot(null)`). The world's own camera never moves.
+with a narrower view. On closing the screen hands the camera back. The
+world's own camera never moves.
 
-The page view moves through the shots itself (`directsShots`; see [The
-page view](#the-page-view)): each shot is held for 11 seconds, panning
+The front end's look moves through the shots itself (`app/page_battle/director.rs`;
+see [The front end's look](#the-front-ends-look)): each shot is held for 11 seconds, panning
 4.5 degrees and pushing 2.5 m along its own view, then cuts to the next. A
 post picked brings up the shot that best sees it (near it, looking its
 way), turned 40% of the way toward it. Only turns and a short push, so the
 camera stays where the mission's author put it. A shot that moves on from
-the last (`setViewShot(shot, { cut: false })`) keeps the temporal
-upscaler's history; a cut drops it.
+the last keeps the temporal upscaler's history; a cut drops it.
 
 ## The pause menu's RESPAWN
 
 The pause menu (`rust/bfe-battle-ui`, `pause`) lists RESPAWN (`game.pause.suicide`) always, as
 the original's does, with or without the screen. It asks for confirmation
-(`game.pause.suicide_prompt`), and YES calls `port.suicide()` if the soldier
-is alive: a normal death, a ticket spent, then the screen four seconds
+(`game.pause.suicide_prompt`), and YES asks the world for a suicide if the
+soldier is alive: a normal death, a ticket spent, then the screen four seconds
 later.
 
-## The page view
+## The front end's look
 
-`rust/bfe-battle-ui` (`spawn_screen`) draws the same screen, model and input in the
-front end's look (rust/menus/themes/page, docs/menus.md): the battle
-passes `view: "page"` unless the URL has `menus=classic`, which keeps the
-Classic view. The layout is the original's: the classes down the left,
-the soldier in the middle with SPAWN under him, the objectives and the
-map down the right, the teams across the top. The middle and the map are
-a 3D stage on the HUD's canvas:
+The client draws the same screen, model and input in the front end's look
+([menus.md](menus.md)) unless the `menuTheme` setting names the original
+menus (`classic`), which keeps the Classic view. The layout is the
+original's: the classes down the left, the soldier in the middle with
+SPAWN under him, the objectives and the map down the right, the teams
+across the top. The middle and the map are a 3D stage drawn by the
+client's renderer (`rust/bfe-client` `app/page_battle`):
 
-- **The stage** (`stage.js`), a scene in metres with the soldier's feet at
-  the origin: the body (the Classic view's `ClassPreview`) on a hologram
-  projector (a ring of light turning on the floor, a glow, a column of
-  light with scan lines, motes rising), lit in the look's light (the
-  interface material's optional key tint and rim, `rust/bfe-interface`). A new class builds up from its feet behind a line of light
-  (the material's optional `cut`).
-- **The camera** (`rig.js`) frames the soldier into the page's place for
+- **The stage**, a scene in metres with the soldier's feet at the origin:
+  the body (the Classic view's class preview) on a hologram projector (a
+  ring of light turning on the floor, a glow, a column of light with scan
+  lines, motes rising), lit in the look's light (the interface material's
+  optional key tint and rim, `rust/bfe-interface`). A new class builds up
+  from its feet behind a line of light (the material's optional cut).
+- **The camera** (`rig.rs`) frames the soldier into the screen's place for
   him with a lens shift, so he keeps his place while it moves. Opening, it
   sweeps in from his right, high and far back; another class swings it a
   little, another team further; it turns a little with the pointer and
-  drifts; SPAWN pushes it in as the page flashes. A drag on him turns him
+  drifts; SPAWN pushes it in as the screen flashes. A drag on him turns him
   (flung, he slows, then turns back to face the camera after two seconds);
   dragging up or down tilts the camera.
-- **The map** (`holomap.js`) is projected as a hologram over a projector:
-  the HUD's own spawn map (`drawBattlefield()`: the posts, their names
-  and blinking, vehicles, units, the picked post's ring) drawn into a
-  texture every frame, on a disc tilted back 44 degrees, its picture in the
-  hologram's colour (the posts keep theirs), with scan lines, a rolling
-  band and a turning rim; each post a pin of light, taller where picked
-  or under the pointer, a ripple running out from one picked; a cone of
-  light up from the projector; another team's map projects again. The HUD
-  doesn't draw its own spawn map while the screen is open. A press on the
-  disc picks the team's post nearest it (a ray from the camera), or the
-  post whose pin it meets.
+- **The map** is projected as a hologram over a projector: the HUD's own
+  spawn map (the posts, their names and blinking, vehicles, units, the
+  picked post's ring) drawn into a texture every frame, on a disc tilted
+  back 44 degrees, its picture in the hologram's colour (the posts keep
+  theirs), with scan lines, a rolling band and a turning rim; each post a
+  pin of light, taller where picked or under the pointer, a ripple running
+  out from one picked; a cone of light up from the projector; another
+  team's map projects again. The HUD doesn't draw its own spawn map while
+  the screen is open. A press on the disc picks the team's post nearest it
+  (a ray from the camera), or the post whose pin it meets.
 - **By look:** the 2004 look stands it all in its hologram room (the
   `shell_cube` panels on the walls, floor and ceiling of a room round the
-  camera, scrolling, light running along their lines; `rooms.js`), the
-  battle hidden. The others show the battle behind through the mission's
-  camera shots (see [The camera](#the-camera)), darkened to a vignette
-  with a pool of light round the soldier, and a floor of light under him
-  with rings rippling out. The 2005 look's projector is a cone, the
-  others' a low emitter. The colours are the look's custom properties
-  (`--bfe-spawn-*`).
+  camera, scrolling, light running along their lines), the battle hidden.
+  The others show the battle behind through the mission's camera shots
+  (see [The camera](#the-camera)), darkened to a vignette with a pool of
+  light round the soldier, and a floor of light under him with rings
+  rippling out. The 2005 look's projector is a cone, the others' a low
+  emitter. The colours are the look's.
 - **The teams** across the top, as a choice of two in team order: each
   with its logo (the original's `com_icon` models) turning, its name, its
   reinforcements and a bar of them. The joined team is lit in green, YOUR
@@ -330,19 +320,19 @@ a 3D stage on the HUD's canvas:
   under it, the picked one lit; when they don't all fit, the others fold
   to a line. Under the soldier, **the class's name**, the post picked and
   its vehicles, and **SPAWN** (breathing while it can go).
-- The pause menu over it hides it (`hidePointer`); the page's own pointer
-  is used (`systemPointer`). Presses on its elements go through the
-  screen's input as the Classic view's hotspots do (`hit()` reads the
-  element under an interface point, the hologram's posts by a ray), so
-  keys, the wheel and the right button work as before.
+- The pause menu over it hides it; the system's pointer is used. Presses on
+  its elements go through the screen's input as the Classic view's
+  hotspots do (the hologram's posts by a ray), so keys, the wheel and the
+  right button work as before.
 
 ## Not the original's
 
 - The original's gamepad bindings, the multiplayer wait (`ifs_readyselect`,
   "LAUNCH IN:") and its BACK, and the tooltips (off unless the profile turns
   them on) aren't here.
-- The original warps the mouse to the screen's middle. A page can't, so the
-  drawn pointer starts there and follows the mouse once it moves.
+- The original warps the mouse to the screen's middle. The port doesn't
+  move the system's mouse: the drawn pointer starts there and follows the
+  mouse once it moves.
 - Measured from the screenshots rather than taken from the Lua: the title
   bar's extent (from 1.75 units in at the left to 3.9 short of the right, and
   from a line plus 6.3 units above the window to 0.3 short of it; the Lua's
@@ -360,21 +350,10 @@ a 3D stage on the HUD's canvas:
 ## Checks
 
 ```sh
-cargo test --locked --workspace
+cd rust
+cargo test --locked -p bfe-battle-ui
 ```
 
-- The unit tests cover the model's rules, the input's bindings and quirks,
-  and the screen's opening, closing, sounds, camera and withdrawn choices,
-  against a fake port (`cargo test --locked --workspace`).
-- The browser test loads geo1, kam1 and hot1 with the screen, renders each
-  at 1024 × 768 and 1280 × 720 into the folder `SPAWN_SHOTS` names, and on
-  geo1 plays it: a team switch and back, a class picked by a click, SPAWN,
-  RESPAWN from the pause menu, the screen back after the death, the pause
-  menu over it. A run with `unit=` checks the screen is never built.
-- To show the screen over a living player, from the console:
-
-  ```js
-  const { livePort } = await import("/cargo test --locked --workspace");
-  const { spawnScreenDebug } = await import("/rust/sim (spawn-screen/debug)");
-  await spawnScreenDebug(__bf, await livePort(__bf));
-  ```
+The unit tests cover the model's rules, the input's bindings and quirks,
+and the screen's opening, closing, sounds, camera and withdrawn choices,
+against a fake port.
