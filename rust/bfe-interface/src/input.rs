@@ -84,7 +84,7 @@ impl MenuInput {
     }
 
     /// Processes a keyboard key press (`code` such as `"ArrowUp"`, `"Enter"`, `"Escape"`, `"KeyW"`),
-    /// matching `MenuScreen.key` in `src/menus/screen.js` and `keyPopup`.
+    /// matching `MenuScreen.key` and `keyPopup`.
     pub fn on_key_down(
         &mut self,
         stack: &mut ScreenStack,
@@ -193,7 +193,7 @@ impl MenuInput {
                 MenuInputEvent::None
             }
             // Left and Right either step horizontal tabs/buttons or increment/decrement an option value
-            // (`MenuScreen.step` in `src/menus/screen.js` and `OptionRow.stepBy`).
+            // (`MenuScreen.step` and `OptionRow.stepBy`).
             "ArrowLeft" | "ArrowRight" => {
                 // First check if the focused widget (or the `CONTROL OPTIONS` tab bar when
                 // `bindings` is focused) handles horizontal stepping directly.
@@ -443,7 +443,7 @@ impl MenuInput {
     }
 
     /// Processes a left mouse button press at `(px, py)` in a `(vw, vh)` viewport
-    /// (`ScreenStack.pointerDown` in `src/menus/stack.js` and `listenMouse`).
+    /// (`ScreenStack.pointerDown` and `listenMouse`).
     pub fn on_pointer_down(
         &mut self,
         stack: &mut ScreenStack,
@@ -539,7 +539,7 @@ impl MenuInput {
     }
 
     /// Processes a mouse wheel delta (`dy > 0` scrolls down, `dy < 0` scrolls up),
-    /// matching `ScreenStack.wheel` in `src/menus/stack.js` and `listenMouse`.
+    /// matching `ScreenStack.wheel` and `listenMouse`.
     pub fn on_wheel(&mut self, stack: &mut ScreenStack, dy: i32) -> MenuInputEvent {
         let Some(top) = stack.screens.last_mut() else {
             return MenuInputEvent::None;

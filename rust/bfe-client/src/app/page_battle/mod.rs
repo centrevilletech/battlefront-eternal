@@ -36,7 +36,7 @@ pub(super) struct PageBattle {
     pulse: f64,
     walker: bool,
     strength: f64,
-    // A cut to another shot dips the battle behind to dark, fading at 3 per second (stage.js changed("cut")).
+    // A cut to another shot dips the battle behind to dark, fading at 3 per second (changed("cut")).
     dip: f64,
     pub age: f64,
     pub class_age: f64,
@@ -558,7 +558,7 @@ impl PageBattle {
         );
         let sides = &port.teams;
         // The other team's emblem wakes (larger, opaque, spinning the other way) while the pointer is over
-        // its plate or emblem and the player may switch to it (view.js hoverTeam / woken).
+        // its plate or emblem and the player may switch to it (hoverTeam / woken).
         let woken = if model.can_switch_teams(port) {
             let l = self.layout;
             let boxed = (l.height * 0.074).clamp(46., 80.) + l.width * 0.007;

@@ -1,4 +1,4 @@
-//! VehicleCamera and updateFlightCamera from vehicles.js and flight/camera.js.
+//! VehicleCamera and updateFlightCamera and flight/camera.js.
 //! Matrices here are factual hull/seat frames supplied by retained rigs;
 //! camera placement, obstruction, blending and FOV belong to this phase.
 

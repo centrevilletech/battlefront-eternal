@@ -34,7 +34,7 @@ pub struct CombatAi {
     pub enhanced: Option<EnhancedCombat>,
 }
 
-/// An event's reference to a unit (src/sim-events.js records hold
+/// An event's reference to a unit (records hold
 /// `{ unit, generation }` refs).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum EventRef {
@@ -203,7 +203,7 @@ impl CombatAi {
     }
 
     /// `consumeFire(controller, unit, step, intent)` (the
-    /// Enhanced one, src/ai/enhanced/aim.js:225, when Enhanced): the fire
+    /// Enhanced one, when Enhanced): the fire
     /// buttons, and the aim while the unit's tick does not run it yet.
     pub fn consume_fire<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj, unit: Obj, step: f64, intent: bool) {
         if let Some(mut e) = self.enhanced.take() {

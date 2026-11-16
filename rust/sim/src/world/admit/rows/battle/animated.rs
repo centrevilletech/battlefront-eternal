@@ -1,4 +1,4 @@
-//! The animated props (props.js AnimatedProp: Tatooine's sarlacc tentacles,
+//! The animated props (AnimatedProp: Tatooine's sarlacc tentacles,
 //! Bespin's doors) as F4Live births them (bindAnimated) and as
 //! LiveObjects constructed them: the model's bone rig placed by the
 //! instance, its clips, triggers and grabs from the instance's animation

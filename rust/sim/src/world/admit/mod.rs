@@ -1,6 +1,6 @@
 //! Native cold admission: building a battle's owners from the player's
 //! content the way the JavaScript host builds them before the first tick
-//! (game.js createGame headless, then createLocalServer), inside one owning
+//! (createGame headless, then createLocalServer), inside one owning
 //! World. The host hands over files and options; every row the JavaScript
 //! marshals from content (`rows`) and every owner construction call it makes
 //! (`sequence`) are made here, in its order, so a natively admitted world

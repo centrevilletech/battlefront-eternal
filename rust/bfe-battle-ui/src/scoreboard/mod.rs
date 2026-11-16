@@ -1,6 +1,6 @@
 // Classic battle scoreboard (`ifs_teamstats`, `ifs_personalstats`, `ifs_awardstats`).
 //
-// Ports `src/scoreboard/` (`model.js`, `input.js`, `port.js`, `classic/layout.js`,
+// Ports `src/scoreboard/` (`input.js`,
 // `classic/view.js`) and `src/battle-stats.js`.
 //
 // Submodules:

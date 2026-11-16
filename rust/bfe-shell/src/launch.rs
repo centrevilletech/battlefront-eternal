@@ -1,4 +1,4 @@
-//! Instant Action playlist and battle request rules (`src/launch.js` and
+//! Instant Action playlist and battle request rules (and
 //! `MULTIPLAYER.md` lines 106-183).
 
 use bfe_content_native::setup::BattleOptions;

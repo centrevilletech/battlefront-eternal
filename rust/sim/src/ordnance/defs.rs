@@ -3,7 +3,7 @@
 //! field is held as the JavaScript value the definition holds there
 //! ([`Field`]), and read with JavaScript's own rules (`??`, `||`, `typeof`,
 //! ToNumber), so a field the content leaves out or gives an odd type reads
-//! here as it reads in src/ordnance.js and src/items.js.
+//! here as it reads and src/items.js.
 
 use crate::store::DefId;
 
@@ -271,7 +271,7 @@ impl ItemDef {
 }
 
 /// The battle's definitions the rounds and items read, by index, and its
-/// item pools (items.js `pools`: how many items of each base the world
+/// item pools (`pools`: how many items of each base the world
 /// holds at most, power-ups 25 and mines 50 unless the mission says).
 #[derive(Clone, Debug, Default)]
 pub struct Defs {

@@ -41,7 +41,7 @@ impl Director {
         }
     }
     /// The screen opens on a shot chosen at random, then the picked post's best shot takes over
-    /// (view.js open(): director.show(random), then follow(post)).
+    /// (open(): director.show(random), then follow(post)).
     pub fn open(&mut self) {
         self.active = !self.shots.is_empty();
         if self.active {

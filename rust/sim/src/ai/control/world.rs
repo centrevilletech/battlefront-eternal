@@ -36,7 +36,7 @@ pub enum AlertSource {
     Unit(UKey),
 }
 
-/// A soldier body's fields the core reads (units.js Unit.soldier for a
+/// A soldier body's fields the core reads (Unit.soldier for a
 /// soldier or a droideka; a seat controllable has none).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SoldierSnap {
@@ -81,7 +81,7 @@ pub struct ClassSnap {
     pub base: Option<String>,
 }
 
-/// One weapon as the class jobs read it (weapons.js Weapon + its def):
+/// One weapon as the class jobs read it (Weapon + its def):
 /// whether it is the selected one is the arsenal's `selected` on the
 /// unit snapshot.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -99,7 +99,7 @@ pub struct WeaponSnap {
     pub item_life_span: Option<f64>,
     pub item_life_missing: bool,
     /// Service quantities of the weapon's def and of its item def
-    /// (classes.js quantity() reads one of the two by base).
+    /// (quantity() reads one of the two by base).
     pub qty_def: QtySnap,
     pub qty_item: QtySnap,
     /// Items of this dispenser's class the owner has about, not gone
@@ -325,10 +325,10 @@ pub struct CaptureSnap {
     pub half: [f64; 3],
 }
 
-/// A command post as the core reads it (commandposts.js Post,
+/// A command post as the core reads it (Post,
 /// MobilePost). `region` is what `post.contains`
 /// tests; `capture` inside `ai` is the mission's region the patrol
-/// geometry reads (patrol.js captureRegion prefers the population's).
+/// geometry reads (captureRegion prefers the population's).
 #[derive(Clone, Debug, PartialEq)]
 pub struct PostSnap {
     pub index: usize,
@@ -374,7 +374,7 @@ pub struct CharacterSnap {
 
 /// One player's view for the level-of-detail gate (scheduler.js
 /// cameraAccepts reads matrixWorld's elements and these): the
-/// simulation camera offline (camera.js, its matrix as game.js left
+/// simulation camera offline (its matrix as game.js left
 /// it), the network views online.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CameraView {
@@ -386,7 +386,7 @@ pub struct CameraView {
     pub zoom: f64,
 }
 
-/// What is bound (classic/index.js bind() + the vehicle adapter): the
+/// What is bound (bind() + the vehicle adapter): the
 /// presence the JavaScript's `?.` sees. In a battle everything here is
 /// bound; the degraded shapes are the tests'.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -545,7 +545,7 @@ pub struct AlertState {
     pub alert_anim: Option<bool>,
 }
 
-/// A combat response (perception.js hazard/alert/acousticResponse):
+/// A combat response (hazard/alert/acousticResponse):
 /// the goal mode and point, whether the mount is left instead, whether
 /// the soldier shouts that it heard an enemy.
 #[derive(Clone, Debug, PartialEq)]
@@ -659,7 +659,7 @@ pub enum Policy {
     Fly,
 }
 
-/// A hint as patrol and the class jobs read it (nav/hints.js records
+/// A hint as patrol and the class jobs read it (records
 /// through patrol.js's adapters). `post` is the hint's command post by
 /// table index (its authored attachment; the runtime hint's is always
 /// absent, quirks R1d).
@@ -780,7 +780,7 @@ pub trait AiWorld: Characters {
     /// positional, notice) as each call site spells them.
     fn emit_vo(&mut self, unit: UKey, event: &str, property: &str, command: f64, context: Option<f64>, positional: Option<bool>, notice: Option<bool>);
 
-    // -- AI combat services (classic/index.js combatAdapter +
+    // -- AI combat services (combatAdapter +
     // classicBinding; the combat package's).
     /// A live native host keeps the control and combat projections of
     /// this controller current before entering combat. Boundary replays
@@ -851,7 +851,7 @@ pub trait AiWorld: Characters {
     /// the unit's snapshot list.
     fn weapons_selected(&mut self, controller: usize) -> Option<usize>;
     fn weapons_switch(&mut self, controller: usize, index: usize);
-    /// arsenal.select directly (classes.js chooseWeapon's other arm).
+    /// arsenal.select directly (chooseWeapon's other arm).
     fn weapons_select(&mut self, controller: usize, index: usize);
     fn weapons_effective_range(&mut self, controller: usize, weapon: usize) -> f64;
     fn weapons_firing_cone(&mut self, controller: usize, point: Vec3) -> bool;
@@ -885,7 +885,7 @@ pub trait AiWorld: Characters {
     }
     fn repair_matches(&self,target:UKey,current:UKey)->bool {target==current||self.unit(target).repair_aliases.contains(&current)}
 
-    // -- Vehicle AI services (classic/index.js VEHICLE_SERVICES; the
+    // -- Vehicle AI services (VEHICLE_SERVICES; the
     // vehicle AI package's, with its mounted policies).
     fn vehicles_notify(&mut self) -> List<(usize, EntRef)>;
     fn vehicles_request_exit(&mut self,core:&mut super::Core,controller:usize);
@@ -917,7 +917,7 @@ pub trait AiWorld: Characters {
     /// The mounted patrol returns its state and explicit Population
     /// publications. `objectives` is the characters' current objective
     /// table, checked before any callback writes are applied. None means
-    /// the hook is absent (patrol.js then asks out), not a false return.
+    /// the hook is absent (then asks out), not a false return.
     fn vehicles_patrol_mounted(&mut self,core:&mut super::Core, controller: usize, patrol: super::patrol::Patrol, shared: &mut ForeignShared, objectives: &[Option<usize>], support_holds: Option<f64>) -> Option<MountedPatrol>;
     /// controllerPolicy(unit) and its bind/controller/agent effects.
     fn vehicles_policy_of(&mut self, unit: UKey) -> Policy;
@@ -988,7 +988,7 @@ pub struct CrewSnap {
 }
 
 /// The mission's team table the registry's relation reads
-/// (registry.js:74, spawning.js teamTable).
+/// (spawning.js teamTable).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TeamTable {
     pub relations: Vec<Option<Vec<f64>>>,

@@ -155,7 +155,7 @@ impl GameSessionState {
     }
 
     /// Parses and dispatches a JSON message on the reliable `events` lane
-    /// (`GameSession.message` in `src/game-session.js` and `UdpPeer.receive`).
+    /// (`GameSession.message` and `UdpPeer.receive`).
     ///
     /// Oversized frames (`> 65,536` bytes) or malformed JSON close the session immediately with
     /// protocol close code `2` (`"invalid-message"`).

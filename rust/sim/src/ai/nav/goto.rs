@@ -25,7 +25,7 @@ pub struct Resolved {
 /// - `random_b` is the jet attempt's second generator (goto.js:746:
 ///   world.gameRandom, else a private stream seeded 0x9e3779b9 kept on
 ///   the world, shared by every helper) and the trail's
-///   (control.js:227: randomB ?? gameRandom ?? random);
+///   (randomB ?? gameRandom ?? random);
 /// - `resolve` is goto.js:722 (world.units.resolve when present, else
 ///   the ref's unit when alive and of the ref's generation);
 /// - `leader` is control.js:259 (the ref's unit when alive exactly
@@ -418,7 +418,7 @@ impl Nav {
         self.ground_flush(helper, unit, world);
     }
 
-    /// (controller.js:618: aimTarget = ref ?? null).
+    /// (aimTarget = ref ?? null).
     pub fn ground_aim_at_target(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld, target: Option<UnitRef>) {
         helper.aim_state = 0.0;
         helper.aim_target = target;

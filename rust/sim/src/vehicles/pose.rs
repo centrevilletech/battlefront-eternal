@@ -1,4 +1,4 @@
-//! A hull's pose at the tick (src/vehicles.js aimTick, render, placeRoot,
+//! A hull's pose at the tick (aimTick, render, placeRoot,
 //! aimSeats, seatEye, seatFrame, seatForward, poseSeat, recoilBarrels,
 //! lookBasis, aimVector): its root placed between its last two substeps,
 //! each manned seat's aim target (the first thing along its aim within

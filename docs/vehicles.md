@@ -711,7 +711,7 @@ rounds, ShotDelay 3) whose ordnance is a `towcable` with `CableLength 60`
   original's tow-cable weapon answers its fire test no while its cable is
   attached), so a second harpoon cannot release the existing cable and anchor again with
   the winding back at zero.
-- `emitSound("towAttach")` and `"towRelease"` play the sound bank's
+- The `towAttach` and `towRelease` sound events play the sound bank's
   `all_weap_fly_snowspeeder_towcable_attach` and `_release`
   (rust/audio-control).
 - The HUD draws the extra aiming ticks only for a weapon with `LockOffAngle`

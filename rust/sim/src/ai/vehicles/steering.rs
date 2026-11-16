@@ -38,7 +38,7 @@ fn or(x: Option<f64>, d: f64) -> f64 {
     }
 }
 
-/// What the steering's environment carries (index.js analogs' `env`).
+/// What the steering's environment carries (analogs' `env`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Env {
     pub now: f64,

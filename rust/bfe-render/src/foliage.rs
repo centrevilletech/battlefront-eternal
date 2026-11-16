@@ -8,7 +8,7 @@
 // the client's Foliage.update runs (select): a patch passes when its sphere
 // is in the camera's frustum, it is within its cull distance across the
 // ground, and its depth along the view is within its fade. Only the cells of
-// the patch index around the camera are tested (foliage-gpu.js patchIndex:
+// the patch index around the camera are tested (patchIndex:
 // the patches with a cull distance in cells as wide as the longest one, the
 // rest always tested), the selection kept in patch order. When it changes,
 // the selected patches' rows (position, tint, the patch's axes, its own

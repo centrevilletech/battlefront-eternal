@@ -181,7 +181,7 @@ pub fn seat_control(v: &Vehicle, index: usize) -> Option<SeatControl> {
     })
 }
 
-/// A seat's mouse settings (boarding.js seatLook's last argument).
+/// A seat's mouse settings (seatLook's last argument).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LookScales {
     pub scale: f64,

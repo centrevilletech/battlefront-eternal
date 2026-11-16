@@ -215,7 +215,7 @@ pub struct Combat {
     clock: f64,
     /// Tracer capsules and flares handed to the renderer so far.
     pub total_streaks: u64,
-    // The Classic jet exhausts asked for this frame (game.js updateJetFlame
+    // The Classic jet exhausts asked for this frame (updateJetFlame
     // with jetpackEffects "classic"): the body, the effect group, where its
     // ribcage is and how it moves and is turned, and the effect once played.
     flames: Vec<Flame>,

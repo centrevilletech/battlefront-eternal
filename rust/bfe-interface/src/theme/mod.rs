@@ -24,10 +24,10 @@ pub const DIMMED: f64 = 150.0 / 255.0;
 /// Full-screen modal backdrop dimming overlay (`[0, 0, 0, 128/255]`, `DIM`).
 pub const DIM: Color = [0.0, 0.0, 0.0, 128.0 / 255.0];
 
-/// Left offset of row and header 3-piece bars (`BAR_X = -4.7` in `classic/index.js` and `render.rs`).
+/// Left offset of row and header 3-piece bars (`BAR_X = -4.7` and `render.rs`).
 pub const BAR_X: f64 = -4.7;
 
-/// Left offset of row labels (`TEXT_X = 0.8` in `classic/index.js` and `render.rs`).
+/// Left offset of row labels (`TEXT_X = 0.8` and `render.rs`).
 pub const TEXT_X: f64 = 0.8;
 
 /// Horizontal inset of bottom-edge `BACK` / `ACCEPT` buttons (`BUTTON_INSET = 21.0`).
@@ -89,7 +89,7 @@ pub fn row_bar_at(width: f64, pitch: f64, n: usize, k: usize) -> (f64, bool) {
 }
 
 /// Focused text colour without a bar: yellow with green channel following `a`
-/// (`selectedColor(a)` in `src/menus/themes/classic/draw.js` and `render.rs`).
+/// (`selectedColor(a)` and `render.rs`).
 ///
 /// Computes `G = clamp(1.2 * a * 255 + 50, 100, 255)` so focused buttons, tabs, and option
 /// values pulse between warm amber (`a = 0.3`) and bright yellow (`a = 1.0`).
@@ -117,7 +117,7 @@ pub fn menu_pulse(elapsed: f64) -> f64 {
 }
 
 /// Listbox selection frame pulse (`1.0 -> 0.5 -> 1.0`, one cycle per second)
-/// (`cursorPulse(time)` in `src/menus/themes/classic/index.js` and `render.rs`).
+/// (`cursorPulse(time)` and `render.rs`).
 #[inline]
 pub fn cursor_pulse(time: f64) -> f64 {
     let u = (time.rem_euclid(1.0)) * 2.0;
@@ -163,7 +163,7 @@ pub(super) fn mul_color(a: Color, b: Color) -> Color {
     [a[0] * b[0], a[1] * b[1], a[2] * b[2], a[3] * b[3]]
 }
 
-/// Fallback solid colour when a texture handle is `0` (`FALLBACK` in `classic/draw.js` and `render.rs`).
+/// Fallback solid colour when a texture handle is `0` (`FALLBACK` and `render.rs`).
 ///
 /// Ensures menu bars, 9-slice frames, sliders, and faction icons remain legible in headless tests
 /// or before `common.lvl` textures finish loading.

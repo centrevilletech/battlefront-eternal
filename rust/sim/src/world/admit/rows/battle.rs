@@ -15,7 +15,7 @@ pub mod stock;
 pub mod live;
 /// The props' and hulls' bindings attachF3 reads, from the fleet stage's receipts.
 pub mod bindings;
-/// The animated props' rigs, births and grip classes (props.js AnimatedProp, f4-live.js bindAnimated).
+/// The animated props' rigs, births and grip classes (AnimatedProp, f4-live.js bindAnimated).
 pub mod animated;
 /// The command posts and createNativeAI's host-object imports.
 pub mod posts;

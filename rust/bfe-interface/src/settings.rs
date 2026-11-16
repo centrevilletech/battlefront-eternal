@@ -1021,7 +1021,7 @@ impl Settings {
     }
 
     /// Serializes [`Settings`] as a desktop snapshot (`{ complete, values }`), matching
-    /// `Settings.persist()` in `src/settings.js` and the desktop host.
+    /// `Settings.persist()` and the desktop host.
     pub fn to_desktop_snapshot(&self) -> DesktopSettingsSnapshot {
         let mut values = Map::new();
         // Complete records write all 59 keys in `DEFAULTS` order.

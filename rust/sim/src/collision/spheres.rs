@@ -22,7 +22,7 @@ pub type Bounds = [f64; 6];
 
 const EMPTY: Bounds = [f64::INFINITY, f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
 
-/// Fixed triangles a cached gather files by number (collision.js staticSet
+/// Fixed triangles a cached gather files by number (staticSet
 /// and blockerSet): the buildings, or the vehicle-only barriers.
 pub struct FixedSet {
     pub tree: usize,
@@ -812,7 +812,7 @@ pub struct Probes<'a> {
     pub terrain: bool,
 }
 
-/// The hull a probe pushes (vehicles.js pushOut's state): its place and
+/// The hull a probe pushes (pushOut's state): its place and
 /// velocity, and whether its turn this tick is to be undone (yaw).
 pub struct Pushed {
     pub position: [f64; 3],

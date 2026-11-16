@@ -307,7 +307,7 @@ y.json` for one archive). Reads `SIDE/<side>.lvl` plus the shared
 ```
 
 The runtime reads `weapons[*].ai` (and levels) through `weapon_records`
-(`rust/sim/src/ai/owned/load.rs`), from the class data the page hands the
+(`rust/sim/src/ai/owned/load.rs`), from the class data the client hands the
 native owner at battle start.
 
 ## Further behavior details

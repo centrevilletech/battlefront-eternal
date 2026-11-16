@@ -88,7 +88,7 @@ pub struct AttackRun {
     pub b: Option<f64>,
 }
 
-/// The dispatcher's answer (combat.js dispatch's `out`).
+/// The dispatcher's answer (dispatch's `out`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Dispatch {
     pub pattern: f64,

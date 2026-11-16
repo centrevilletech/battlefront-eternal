@@ -1,4 +1,4 @@
-//! The Enhanced fountains (fountain-jets.js FountainJets, as
+//! The Enhanced fountains (FountainJets, as
 //! drives it): each fountain in view, out to 90 m,
 //! throws its jets on the GPU from fixed seeds and the clock alone. Far to
 //! near: the pools' rings and foam, the tier's overflow, the soft spray

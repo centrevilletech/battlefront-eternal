@@ -1,4 +1,4 @@
-//! The client's hull presentation (src/vehicles.js Vehicle.present, poseCrew,
+//! The client's hull presentation (Vehicle.present, poseCrew,
 //! applyPose, liftLegs, feelLegs, poseSeat, recoilBarrels, drawFlyer and
 //! presentDying; src/flight/gear.js poseGearAt), batched over every hull
 //! drawn this frame. Each hull's rig is a native tree of its root and bones
@@ -303,7 +303,7 @@ struct Muzzle {
     recoil: f64,
 }
 
-/// The gear a hull drawn from its records shows (gear.js shownGear's view):
+/// The gear a hull drawn from its records shows (shownGear's view):
 /// the life it belongs to, whether it follows the flight state, the state
 /// last seen and how far down it has the gear (1 down, 0 stowed).
 #[derive(Clone, Copy, Default)]

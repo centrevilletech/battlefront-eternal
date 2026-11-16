@@ -61,7 +61,7 @@ pub struct Content {
     pub ordnance_classes: Vec<Option<StrId>>,
 }
 
-/// One network client of the authority (`snapshot-host.js` `clients` and
+/// One network client of the authority (`clients` and
 /// `byHandle`, which the local server keeps as one):
 /// its players handle, its entity edge runtime, the generation that runtime
 /// last answered (`state.edges.generation`), the host's mirror of his body

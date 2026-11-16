@@ -25,7 +25,7 @@ pub mod goal {
     pub const HOLD: f64 = 10.0;
 }
 
-/// Controller states (controller.js:46 STATE; DONE is fsm::DONE).
+/// Controller states (STATE; DONE is fsm::DONE).
 pub mod state {
     pub const NONE: f64 = 0.0;
     pub const WAIT: f64 = 1.0;

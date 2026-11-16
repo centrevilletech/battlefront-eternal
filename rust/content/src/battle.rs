@@ -99,7 +99,7 @@ impl<'a, 'f> Fetch<'a, 'f> {
     }
 }
 
-/// A side's part of a battle (game.js `sides[name]` and what was fetched
+/// A side's part of a battle (`sides[name]` and what was fetched
 /// for it): units.json, weapons.json and its packs, effects.json.
 #[derive(Clone, Debug)]
 pub struct SideFiles {
