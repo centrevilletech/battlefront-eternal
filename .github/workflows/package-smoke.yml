@@ -1,0 +1,83 @@
+name: Package smoke
+
+# Installs the packages a Release run built, as a player would, on clean
+# GitHub-hosted machines: the Windows installer on Windows Server 2022 and
+# 2025, the ARM64 Debian package and AppImage on Ubuntu 24.04 ARM64. Each job
+# starts the installed client with no game (the first screen a new player
+# sees), runs the platform smoke (startup, main menu, a synthetic room) on
+# software OpenGL, uploads the screenshots and logs, and uninstalls.
+# GitHub-hosted runners only; nothing is published.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "ID of the Release run whose packages to install"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  windows:
+    name: Windows installer (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download the Release run's Windows packages
+        uses: actions/download-artifact@v7
+        with:
+          name: release-windows
+          path: packages
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Install, start, smoke and uninstall
+        shell: pwsh
+        run: ./build/ci/package-smoke-windows.ps1 -Packages packages -Output package-smoke-${{ matrix.os }}
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-smoke-${{ matrix.os }}
+          path: package-smoke-${{ matrix.os }}/
+          if-no-files-found: error
+
+  linux-arm64:
+    name: Linux ARM64 packages (Ubuntu 24.04)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download the Release run's ARM64 packages
+        uses: actions/download-artifact@v7
+        with:
+          name: release-linux-arm64
+          path: packages
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Install, start, smoke and uninstall
+        run: bash build/ci/package-smoke-linux.sh packages package-smoke-linux-arm64
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-smoke-linux-arm64
+          path: package-smoke-linux-arm64/
+          if-no-files-found: error
