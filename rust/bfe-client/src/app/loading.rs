@@ -21,6 +21,8 @@ use std::{
 enum Message {
     Scene(Result<crate::scene::Prepared, String>),
     Instant(Result<InstantAdmission, String>),
+    /// The online battle's map, as soon as the server has said which battle it runs.
+    Map(String),
     Online(Result<OnlineAdmission, String>),
 }
 type Opening = Pin<Box<dyn Future<Output = Result<BattleController, String>>>>;
@@ -41,6 +43,8 @@ pub struct Work {
     display_ms: f64,
     /// When loading began, to say how long before the screen's end it was ready.
     began: Option<std::time::Instant>,
+    /// The online battle's map once known, for the loading screen to show.
+    pub map: Option<String>,
 }
 impl Work {
     pub fn advance(
@@ -57,7 +61,7 @@ impl Work {
             let started = std::time::Instant::now();
             self.began = Some(started);
             super::page_battle::PageBattle::prefetch();
-            let (tx, rx) = mpsc::sync_channel(2);
+            let (tx, rx) = mpsc::sync_channel(4);
             let content_root = root.to_path_buf();
             let target = target.clone();
             let server_target = server_target.clone();
@@ -86,13 +90,19 @@ impl Work {
                                 },
                             ))
                         }
-                        BattleLoadTarget::Online { launch } => Message::Online(BattleController::prepare_online(
-                            &content_root,
-                            launch,
-                            server_target,
-                            &snapshot,
-                            textures,
-                        )),
+                        BattleLoadTarget::Online { launch } => {
+                            let map = tx.clone();
+                            Message::Online(BattleController::prepare_online(
+                                &content_root,
+                                launch,
+                                server_target,
+                                &snapshot,
+                                textures,
+                                move |id| {
+                                    let _ = map.send(Message::Map(id.to_string()));
+                                },
+                            ))
+                        }
                     };
                     eprintln!(
                         "battle loading: admission worker finished in {:.0} ms",
@@ -142,6 +152,7 @@ impl Work {
                     *self.world.borrow_mut() = Some(admitted);
                     eprintln!("battle loading: world admitted");
                 }
+                Message::Map(id) => self.map = Some(id),
                 Message::Online(admitted) => {
                     self.rx = None;
                     let admitted = admitted?;

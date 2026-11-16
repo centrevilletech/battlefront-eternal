@@ -1385,6 +1385,35 @@ fn a_battle_change_keeps_the_game_port_open() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// After a battle ends and the next one is announced, `/info` names that next battle, so a
+/// player joining during the end table loads it instead of the finished one.
+#[test]
+fn the_end_table_information_names_the_next_battle() {
+    let dir = temp_dir("next-battle-info");
+    let content_root = minimal_content_dir(&dir);
+    let cfg = ServerConfig {
+        data: content_root.to_string_lossy().into_owned(),
+        rotation: vec!["swbf1/nab2:rep:conquest".to_string()],
+        game_port: Some(0),
+        discovery: false,
+        ..Default::default()
+    };
+    let srv_id = ServerIdentity::load(&dir).expect("server identity");
+    let server = LocalDedicatedServer::start(&cfg, &srv_id, |_peer| false, |_m, _id, _n, _k, _d, _p| {}).expect("start");
+    assert!(server.info().get("next").is_none(), "no next battle while one is played");
+    let next = "?map=nab2&side=rep&match=0123456789abcdef0123456789abcdef";
+    server.match_rotate(next, 30_000);
+    let start = Instant::now();
+    while server.info().get("next").is_none() && start.elapsed() < Duration::from_secs(3) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let info = server.info();
+    assert_eq!(info["next"]["query"], next, "{info}");
+    assert!(info["next"]["delayMs"].as_u64().is_some_and(|d| d <= 30_000));
+    drop(server);
+    let _ = fs::remove_dir_all(&dir);
+}
+
 /// Messages that replace their predecessor (input acknowledgements, edge results) are not
 /// repeated and are held back while a player's reliable lane is backed up, so a slow or lossy
 /// link degrades instead of growing a queue until the player is dropped.

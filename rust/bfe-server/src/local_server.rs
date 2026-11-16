@@ -492,7 +492,7 @@ impl LocalDedicatedServer {
 
                     tick_c.store(w.tick as u64, Ordering::Relaxed);
                     finished_c.store(w.ended, Ordering::Release);
-                    let updated_info = build_info_json(
+                    let mut updated_info = build_info_json(
                         &server_id,
                         &server_name,
                         &content_for_tick,
@@ -504,6 +504,11 @@ impl LocalDedicatedServer {
                         actual_port,
                         &browser_c,
                     );
+                    // After a battle ends, a joiner learns which battle comes next, so it loads
+                    // that one instead of the finished one.
+                    if let (Some(next), Some(fields)) = (u.pending_match_event(), updated_info.as_object_mut()) {
+                        fields.insert("next".to_string(), json!({"query": next["query"], "delayMs": next["delayMs"]}));
+                    }
                     *info_c.write().unwrap() = updated_info;
                 }
             }

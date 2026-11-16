@@ -1162,7 +1162,10 @@ impl BattleController {
         server_address: Option<String>,
         settings: &AppSettingsStore,
         textures:crate::scene::TextureOptions,
+        mut on_map: impl FnMut(&str),
     ) -> Result<OnlineAdmission, String> {
+        // The loading screen shows the battle's planet once the server has said which it is.
+        let mut tell_map = |query: &str| on_map(bfe_content::mission::Query::parse(query).get("map"));
         // Targets in order: the listing's endpoints (or the LAN/direct address),
         // then an explicit override, then a `HOST:PORT` server id or `BFE_SERVER_TARGET`.
         let mut targets = launch.direct_targets();
@@ -1188,6 +1191,7 @@ impl BattleController {
                 &id_path,
                 &settings.player.profile_name,
             )?;
+            tell_map(&server_info.query);
             let graphics = Scene::prepare_online(content_dir, &server_info.query, textures)?;
             return Ok(OnlineAdmission {
                 launch,
@@ -1202,7 +1206,10 @@ impl BattleController {
         // each target in turn. A server changing battle or restarting may not answer for a moment:
         // while every target fails that way, try again for up to ten seconds. The first error from
         // a server that answered explains more than an unreachable address does.
-        let started = std::time::Instant::now();
+        // A server whose battle is over (end table) names the next battle: wait until it runs
+        // that one and join it, rather than load the finished battle and be turned away.
+        let mut started = std::time::Instant::now();
+        let mut between: Option<std::time::Instant> = None;
         let mut failure: Option<(bool, String)> = None;
         let mut admitted = None;
         'rounds: loop {
@@ -1216,7 +1223,20 @@ impl BattleController {
                     launch.listed_identity(),
                 ) {
                     Ok(ready) => {
+                        if let Some(next) = &ready.0.next {
+                            let since = *between.get_or_insert_with(|| {
+                                eprintln!("online join: {target} is between battles; waiting for the next one");
+                                tell_map(&next.query);
+                                std::time::Instant::now()
+                            });
+                            if since.elapsed() < std::time::Duration::from_secs(90) {
+                                started = std::time::Instant::now();
+                                std::thread::sleep(std::time::Duration::from_millis(500));
+                                continue 'rounds;
+                            }
+                        }
                         eprintln!("online join: {target} answered");
+                        tell_map(&ready.0.query);
                         admitted = Some((target.clone(), ready));
                         break 'rounds;
                     }
@@ -1884,6 +1904,10 @@ impl BattleController {
                     let query = bfe_content::mission::Query::parse(&next.query);
                     launch.map = query.get("map").into();
                     launch.side = query.get("side").into();
+                } else {
+                    // Turned away because the server changed battle meanwhile: which battle it
+                    // runs now is known once it answers (the loading screen follows then).
+                    launch.map.clear();
                 }
                 eprintln!("online match ready: map={} side={}", launch.map, launch.side);
                 return Ok(Some(BattleTransition::NextOnlineBattle { launch }));
