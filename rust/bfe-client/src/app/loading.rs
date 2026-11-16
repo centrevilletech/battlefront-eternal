@@ -160,10 +160,11 @@ impl Work {
             crate::loading_work::take_idle();
             let polled = crate::loading_work::poll(opening.as_mut());
             let from = crate::loading_work::resumed_at();
+            let to = crate::loading_work::suspended_at();
             let ms = started.elapsed().as_secs_f64() * 1000.;
             self.display_ms += ms;
             if ms > 33. {
-                eprintln!("battle loading: display step {ms:.0} ms from {from}");
+                eprintln!("battle loading: display step {ms:.0} ms from {from} to {to}");
             }
             let Poll::Ready(result) = polled else {
                 if crate::loading_work::take_idle() || frame_started.elapsed() >= STEP_BUDGET {

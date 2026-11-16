@@ -49,6 +49,7 @@ impl Future for Frame {
             Poll::Ready(())
         } else {
             self.yielded = true;
+            SUSPENDED.with(|r| r.set(Some(self.at)));
             Poll::Pending
         }
     }
@@ -56,6 +57,7 @@ impl Future for Frame {
 
 thread_local! {
     static RESUMED: std::cell::Cell<Option<&'static std::panic::Location<'static>>> = const { std::cell::Cell::new(None) };
+    static SUSPENDED: std::cell::Cell<Option<&'static std::panic::Location<'static>>> = const { std::cell::Cell::new(None) };
 }
 
 /// A loop's share of the window: `tick().await` yields once `SLICE` has
@@ -117,6 +119,11 @@ pub(crate) fn take_idle() -> bool {
 /// Where the last step started: the frame() it resumed from, or "start".
 pub(crate) fn resumed_at() -> String {
     RESUMED.with(|r| r.get()).map_or_else(|| "start".into(), |at| format!("{}:{}", at.file(), at.line()))
+}
+
+/// Where the last step ended: the frame() it yielded at, or "end".
+pub(crate) fn suspended_at() -> String {
+    SUSPENDED.with(|r| r.take()).map_or_else(|| "end".into(), |at| format!("{}:{}", at.file(), at.line()))
 }
 
 #[cfg(test)]
