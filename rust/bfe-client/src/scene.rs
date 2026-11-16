@@ -303,10 +303,11 @@ fn texture_capabilities(has:impl Fn(&str)->bool,renderer:&str,embedded:bool)->u3
 }
 /// An RGBA image's grey and alpha, when its red, green and blue are equal in every texel.
 fn grey_alpha(rgba: &[u8]) -> Option<Vec<u8>> {
-    if rgba.len() % 4 != 0 || !rgba.chunks_exact(4).all(|p| p[0] == p[1] && p[1] == p[2]) {
+    let (texels, rest) = rgba.as_chunks::<4>();
+    if !rest.is_empty() || !texels.iter().all(|p| p[0] == p[1] && p[1] == p[2]) {
         return None;
     }
-    Some(rgba.chunks_exact(4).flat_map(|p| [p[0], p[3]]).collect())
+    Some(texels.iter().flat_map(|p| [p[0], p[3]]).collect())
 }
 
 #[cfg(test)]

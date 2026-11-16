@@ -226,9 +226,7 @@ impl<C: HasContext> WorldPass<C> {
         let frustum = &camera.frustum;
         // Past the view distance's fade end the near shaders paint the far scene's image instead of the
         // surface, so geometry wholly deeper than that (view depth, as the shaders measure it) changes nothing.
-        let fade = crate::shader::FRAME_MEMBERS.iter().position(|(n, _)| *n == "fade").map(|i| crate::shader::FRAME_OFFSETS[i] + 1);
-        let fade_end = fade.map_or(f64::INFINITY, |at| core.input[at]);
-        let fade_end = if fade_end.is_finite() && fade_end > 0. { fade_end } else { f64::INFINITY };
+        let fade_end = fade_end(&core.input);
         let view = camera.view;
         let light_count = camera.light_count;
         let lights = &core.input[FRAME_LIGHTS..FRAME_LIGHTS + 8 * MAX_LIGHTS];
@@ -411,7 +409,13 @@ fn box_beyond(view: &[f64; 16], min: &[f64; 3], max: &[f64; 3], limit: f64) -> b
     }
     nearest > limit
 }
-fn sphere_beyond(view: &[f64; 16], center: &[f64; 3], radius: f64, limit: f64) -> bool {
+// The view distance's fade end this frame (infinite when the frame has none).
+pub(crate) fn fade_end(input: &[f64]) -> f64 {
+    let fade = crate::shader::FRAME_MEMBERS.iter().position(|(n, _)| *n == "fade").map(|i| crate::shader::FRAME_OFFSETS[i] + 1);
+    let fade_end = fade.map_or(f64::INFINITY, |at| input[at]);
+    if fade_end.is_finite() && fade_end > 0. { fade_end } else { f64::INFINITY }
+}
+pub(crate) fn sphere_beyond(view: &[f64; 16], center: &[f64; 3], radius: f64, limit: f64) -> bool {
     let depth = -(view[2] * center[0] + view[6] * center[1] + view[10] * center[2] + view[14]);
     depth - radius > limit
 }

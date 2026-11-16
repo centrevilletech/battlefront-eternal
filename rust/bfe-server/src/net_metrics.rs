@@ -42,6 +42,8 @@ pub struct NetMetrics {
     pub state_dropped: u64,
     /// Outbound `events` messages queued on the reliable ordered lane.
     pub events_queued: u64,
+    /// Bytes queued on the reliable events lane.
+    pub events_bytes: u64,
     /// Outbound `events` messages dropped (`oversizedMessages` in `src/net-metrics.js`).
     pub events_dropped: u64,
     /// Smoothed round-trip time in milliseconds (`session.stats().rtt` in `src/udp-peer.js`).
@@ -69,6 +71,7 @@ impl NetMetrics {
             state_queued: 0,
             state_dropped: 0,
             events_queued: 0,
+            events_bytes: 0,
             events_dropped: 0,
             rtt_ms: None,
             loss: 0.0,
@@ -111,6 +114,7 @@ impl NetMetrics {
             self.state_queued += 1;
         } else if lane == "events" {
             self.events_queued += 1;
+            self.events_bytes += bytes as u64;
         }
     }
 
@@ -175,6 +179,7 @@ impl NetMetrics {
             "stateQueued": self.state_queued,
             "stateDropped": self.state_dropped,
             "eventsQueued": self.events_queued,
+            "eventsBytes": self.events_bytes,
             "eventsDropped": self.events_dropped,
         })
     }

@@ -215,6 +215,8 @@ struct Model<C: HasContext> {
     samplers: Vec<(u32, Option<C::Texture>)>,
     input_samplers:Vec<(usize,u32)>,
     input_blend:Option<usize>,
+    // Cells of its index (object space, in index order; model_cells): only those in view are drawn.
+    cells: Vec<crate::static_depth::Cell>,
 }
 
 pub struct EffectsPass<C: HasContext> {
@@ -224,6 +226,10 @@ pub struct EffectsPass<C: HasContext> {
     owners: Vec<Owner<C>>,
     meshes: Vec<Mesh<C>>,
     models: Vec<Model<C>>,
+    // A celled model's visible index ranges this draw, and their GL form.
+    ranges: Vec<(u32, u32)>,
+    counts: Vec<i32>,
+    offsets: Vec<i32>,
     // What the meshes' and models' programs hold of their material values
     // (by program and name).
     held: Vec<Vec<f32>>,
@@ -368,7 +374,7 @@ impl<C: HasContext> EffectsPass<C> {
             (quad, index)
         };
         EffectsPass {
-            quad, quad_index, batches: vec![], owners: vec![], meshes: vec![], models: vec![], held: vec![], value_ids: HashMap::new(),
+            quad, quad_index, batches: vec![], owners: vec![], meshes: vec![], models: vec![], ranges: vec![], counts: vec![], offsets: vec![], held: vec![], value_ids: HashMap::new(),
             clipped:0,input: vec![0.0; INPUT_LEN], data: vec![0.0; DATA_LEN], matrices: vec![0.0; MATRICES_LEN], staging: Vec::with_capacity(1<<22),
         }
     }
@@ -780,9 +786,14 @@ impl<C: HasContext> EffectsPass<C> {
         self.models.push(Model {
             passes: vec![], texture: if texture < 0 { None } else { core.textures.get(texture as usize).copied() }, blend: b,
             depth: (depth_flags & 1 != 0, depth_func, depth_flags & 2 != 0), values, sphere: ([sphere[0], sphere[1], sphere[2]], sphere[3]),
-            samplers: vec![],input_samplers:vec![],input_blend:None,
+            samplers: vec![],input_samplers:vec![],input_blend:None,cells:vec![],
         });
         (self.models.len() - 1) as u32
+    }
+
+    // A large model's cells (its index already ordered by them: static_depth::cells_of).
+    pub fn model_cells(&mut self, model: u32, cells: Vec<crate::static_depth::Cell>) {
+        if let Some(m) = self.models.get_mut(model as usize) { m.cells = cells; }
     }
 
     // A model's texture again (three made it anew).
@@ -1192,6 +1203,20 @@ impl<C: HasContext> EffectsPass<C> {
             *v = model_view[k] as f32;
         }
         let mirrored = math::mirrors(&world);
+        // A celled model draws the cells in view: their boxes taken to world space by its matrix.
+        self.ranges.clear();
+        if !m.cells.is_empty() {
+            let frustum = &view.camera.frustum;
+            for c in &m.cells {
+                let (min, max) = world_box(&world, &c.min, &c.max);
+                if !frustum.aabb(&min, &max) { continue; }
+                match self.ranges.last_mut() {
+                    Some((first, n)) if *first + *n == c.first => *n += c.end - c.first,
+                    _ => self.ranges.push((c.first, c.end - c.first)),
+                }
+            }
+            if self.ranges.is_empty() { return; }
+        }
         // three's normalMatrix, for the programs that read one.
         let mut normal = [0.0f32; 9];
         if m.passes.iter().any(|p| p.normal.is_some()) {
@@ -1243,8 +1268,15 @@ impl<C: HasContext> EffectsPass<C> {
             unsafe {
                 if program.depth_clamp { gl.enable(glow::DEPTH_CLAMP); stats.gl_calls += 1; }
                 gl.bind_vertex_array(Some(geo.vao));
-                gl.draw_elements(glow::TRIANGLES, geo.index_count, geo.index_type, 0);
-                core.profile.draw(geo.index_count.max(0) as u64,1,1);
+                if self.ranges.is_empty() {
+                    gl.draw_elements(glow::TRIANGLES, geo.index_count, geo.index_type, 0);
+                    core.profile.draw(geo.index_count.max(0) as u64,1,1);
+                } else {
+                    self.counts.clear();self.offsets.clear();
+                    for &(first, count) in &self.ranges { self.counts.push(count as i32); self.offsets.push(first as i32 * geo.index_bytes); }
+                    core.multi.multi_draw(glow::TRIANGLES, &mut self.counts, geo.index_type, &mut self.offsets);
+                    core.profile.draw(self.counts.iter().map(|n| *n as u64).sum(),1,core.multi.multi_draw_calls(self.ranges.len()));
+                }
                 if program.depth_clamp { gl.disable(glow::DEPTH_CLAMP); stats.gl_calls += 1; }
             }
             stats.gl_calls += 2;
@@ -1334,4 +1366,17 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for EffectsPass<C> {
         }
         core.profile.end(&core.gl,"particles",timer);
     }
+}
+
+// A box (min, max) through a world matrix: the box around its eight corners.
+fn world_box(world: &Mat4, min: &[f64; 3], max: &[f64; 3]) -> ([f64; 3], [f64; 3]) {
+    let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+    for k in 0..8 {
+        let p = [if k & 1 == 0 { min[0] } else { max[0] }, if k & 2 == 0 { min[1] } else { max[1] }, if k & 4 == 0 { min[2] } else { max[2] }];
+        for a in 0..3 {
+            let v = world[a] * p[0] + world[4 + a] * p[1] + world[8 + a] * p[2] + world[12 + a];
+            lo[a] = lo[a].min(v); hi[a] = hi[a].max(v);
+        }
+    }
+    (lo, hi)
 }
