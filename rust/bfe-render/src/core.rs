@@ -391,6 +391,9 @@ pub struct Core<C: HasContext, M: MultiDraw> {
     pub state: GlState<C>,
     pub stats: Stats,
     pub profile: crate::profile::Profile<C>,
+    // A timestamp query the frame writes (and takes) where the scene's own passes end and the
+    // window-size work (present blit or post chain, HUD) begins: dynamic resolution's split.
+    pub scene_end_mark: Option<C::Query>,
     pub log: Vec<String>,
     // The first failure a pass met where it cannot return one (a draw run inside
     // the transparent sort); the phase's end hands it back to the page as its error.
@@ -487,7 +490,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
             gl, multi, scene_stamp: 0, programs: vec![], owned_programs: vec![], instance_programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![],
             shadow_input: vec![0.0; SHADOW_FLOATS], shadow: vec![0.0; SHADOW_FLOATS], shadow_ubo, shadow_maps: vec![],
             lamp_texture, lamps: vec![], lamps_dirty: false, frame: vec![0.0; FRAME_FLOATS],
-            input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), profile: crate::profile::Profile::default(), log: vec![], fault: None, #[cfg(not(target_arch = "wasm32"))] canvas_framebuffer: None,
+            input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), profile: crate::profile::Profile::default(), scene_end_mark: None, log: vec![], fault: None, #[cfg(not(target_arch = "wasm32"))] canvas_framebuffer: None,
             held: Default::default(),
         }
     }

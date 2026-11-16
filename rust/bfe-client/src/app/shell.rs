@@ -2559,9 +2559,8 @@ impl ShellHost {
 }
 
 /// Helper to pump headless audio when no `cpal` stream is open.
-/// With no sound device the mix still runs, as a device would run it: on its own thread, at the device's pace
-/// (48 kHz, one 128-frame quantum at a time), so the battle's sounds drain at the real rate and no drawn frame pays
-/// for the mix.
+/// With no sound device the battle's sounds still move on as a device would move them: on their own thread, at the
+/// device's pace (48 kHz, 128-frame quanta), so they drain at the real rate; nothing is mixed, as nobody hears it.
 pub struct HeadlessAudio {
     run: Arc<std::sync::atomic::AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -2586,7 +2585,10 @@ impl HeadlessAudio {
                         router.pump_headless(&status, &mut scratch);
                         done += 1;
                     }
-                    std::thread::sleep(std::time::Duration::from_millis(2));
+                    // Nothing is heard, so nothing is mixed (Output::muted): a few
+                    // quanta at a time keep the battle's sounds moving on at the
+                    // device's pace.
+                    std::thread::sleep(std::time::Duration::from_millis(8));
                 }
             })
             .ok();

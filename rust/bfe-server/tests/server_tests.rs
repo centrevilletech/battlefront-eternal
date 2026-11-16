@@ -1326,12 +1326,6 @@ fn local_dedicated_server_full_join_entity_registry_welcome_and_publication_repl
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// End-to-end `bfe_transport::endpoint::Endpoint` client <-> `LocalDedicatedServer` session gate:
-/// - Connects a Rust `Endpoint` client over `BFE-UDP/1` to a live `LocalDedicatedServer` UDP socket.
-/// - Exchanges `BNI1` + `BNA1` input datagrams (`decode_entity_input` + `decode_snapshot_ack_keepalive`)
-///   and verifies `entity-registry`, `welcome`, `reply`, `input-ack`, `entity-edge-results`,
-///   `gameplay-events`, `BNS1`, and `BNO1`.
-///
 /// A client that vanishes without a close (killed, crashed, network gone) is retired once the
 /// transport's idle time passes: the player count, the roster and the listing must not keep it.
 #[test]
@@ -1396,6 +1390,11 @@ fn silent_client_is_retired_after_the_idle_timeout() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// End-to-end `bfe_transport::endpoint::Endpoint` client <-> `LocalDedicatedServer` session gate:
+/// - Connects a Rust `Endpoint` client over `BFE-UDP/1` to a live `LocalDedicatedServer` UDP socket.
+/// - Exchanges `BNI1` + `BNA1` input datagrams (`decode_entity_input` + `decode_snapshot_ack_keepalive`)
+///   and verifies `entity-registry`, `welcome`, `reply`, `input-ack`, `entity-edge-results`,
+///   `gameplay-events`, `BNS1`, and `BNO1`.
 #[test]
 fn udp_endpoint_client_joins_bfeserver_and_exchanges_events_and_snapshots() {
     let dir = temp_dir("endpoint-interop");

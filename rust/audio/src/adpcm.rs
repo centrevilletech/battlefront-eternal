@@ -32,8 +32,7 @@ pub fn decode_block(block: &[u8], channels: usize, channel: usize, dest: &mut [f
     let mut sample = i16::from_le_bytes([block[header], block[header + 1]]) as i32;
     let mut index = block[header + 2].min(88) as i32;
     dest[0] = sample as f32 / 32768.0;
-    for frame in 1..64 {
-        let code_index = frame - 1;
+    for (code_index, out) in dest[1..64].iter_mut().enumerate() {
         let group = code_index / 8;
         let byte = block[4 * channels + (group * channels + channel) * 4 + code_index % 8 / 2];
         let code = if code_index % 2 == 0 { byte & 15 } else { byte >> 4 };
@@ -50,7 +49,7 @@ pub fn decode_block(block: &[u8], channels: usize, channel: usize, dest: &mut [f
         }
         sample = (sample + if code & 8 != 0 { -diff } else { diff }).clamp(-32768, 32767);
         index = (index + INDEX[(code & 7) as usize]).clamp(0, 88);
-        dest[frame] = sample as f32 / 32768.0;
+        *out = sample as f32 / 32768.0;
     }
 }
 impl Decoder {

@@ -392,9 +392,11 @@ pub struct Scene {
     resolution_last_frame:Option<std::time::Instant>,
     resolution: bfe_sim::client::timing::Timing,
     resolution_fence: Option<(glow::Fence,std::time::Instant)>,
-    resolution_queries:Option<(glow::Query,glow::Query,bool)>,
+    // Timestamps at the frame's start, the scene's end and the frame's end; result pending; scene mark written.
+    resolution_queries:Option<([glow::Query;3],bool,bool)>,
     resolution_query_active:bool,
     resolution_gpu_ms:f64,
+    resolution_scene_ms:f64,
     resolution_cpu_ms:f64,
     resolution_cpu_sample:Option<CpuSample>,
     render_size: [i32; 2],
@@ -471,8 +473,25 @@ struct SceneFrame {
 }
 // The canvas dimensions are already device pixels, as in getDrawingBufferSize.
 fn render_extent(canvas:[i32;2],base:f64,adaptive:f64)->[i32;2]{
-    let scale=(base*adaptive).max(base.min(0.25));
+    let scale=effective_scale(canvas,base,adaptive);
     canvas.map(|v|(v as f64*scale).round().max(1.)as i32)
+}
+// Dynamic resolution never draws the scene below 720 lines or half the window, whichever is
+// larger (a smaller picture stops looking like the game), unless the player chose a lower scale.
+fn effective_scale(canvas:[i32;2],base:f64,adaptive:f64)->f64{
+    let floor=(720./canvas[1].max(1) as f64).clamp(0.5,1.);
+    (base*adaptive).max(base.min(floor))
+}
+// Whether drawing the scene smaller is worth it for a slow frame: the floor would bring it under
+// the controller's slow line (85% of the budget), or take at least a quarter off it. The GPU time
+// that is not the scene's (the stretch or post chain to the window, the HUD, the interface) stays
+// whatever the scene's size. Unknown split: yes.
+fn resolution_can_help(total_ms:f64,scene_ms:f64,scale:f64,floor:f64,budget_ms:f64)->bool{
+    if !(scene_ms.is_finite()&&total_ms.is_finite()&&scale>0.)||budget_ms<=0.{return true;}
+    if total_ms<=budget_ms*0.85{return true;}
+    let ratio=(floor/scale).min(1.);
+    let saving=scene_ms.clamp(0.,total_ms)*(1.-ratio*ratio);
+    total_ms-saving<=budget_ms*0.85||saving>=total_ms*0.25
 }
 fn post_image(size:[i32;2],slot:usize)->String{
     use bfe_render::post_chain::layout::resource as R;
@@ -1315,7 +1334,7 @@ impl Scene {
                 far_target,
                 depth_target,
                 depth_source, depth_color_source, depth_sample, depth_color,
-                render_scale: 1., render_size: size, adaptive_scale:1., resolution_target:0.,resolution_limit:0.,resolution_configured:false,resolution_last_frame:None, resolution:bfe_sim::client::timing::Timing::new(), resolution_fence:None,resolution_queries:None,resolution_query_active:false,resolution_gpu_ms:f64::NAN,resolution_cpu_ms:f64::NAN,resolution_cpu_sample:None,
+                render_scale: 1., render_size: size, adaptive_scale:1., resolution_target:0.,resolution_limit:0.,resolution_configured:false,resolution_last_frame:None, resolution:bfe_sim::client::timing::Timing::new(), resolution_fence:None,resolution_queries:None,resolution_query_active:false,resolution_gpu_ms:f64::NAN,resolution_scene_ms:f64::NAN,resolution_cpu_ms:f64::NAN,resolution_cpu_sample:None,
                 profile_start: None, profile_rss_after: false, direct: false,
                 post_images, post_mode: 0, temporal_motion:None, blur_downsize:content.map["post"]["blur"]["downsize"].as_f64().filter(|v|v.is_finite()&&*v>0.).unwrap_or(0.25), bloom: false, soft_focus: false, vehicle_blur:false,vehicle_speed:0.,
                 reduced_far_terrain: false, shadows_enabled: shadow_count>0, shadow_bones:bones, shadow_size, features, bump_mapping: true, terrain_detail: true,
@@ -1373,7 +1392,7 @@ impl Scene {
     pub fn finish_profile(&mut self) {
         self.resolution_gpu_end();
         if let Some((fence,_))=self.resolution_fence.take(){unsafe{self.bridge.r.core.gl.delete_sync(fence);}}
-        if let Some((a,b,_))=self.resolution_queries.take(){unsafe{self.bridge.r.core.gl.delete_query(a);self.bridge.r.core.gl.delete_query(b);}}
+        self.delete_resolution_queries();
         self.profile_memory("battle end");
         self.bridge.r.core.profile.report(&self.bridge.r.core.gl);
     }
@@ -1502,9 +1521,9 @@ impl Scene {
         let target=if limit>0.{target.min(limit)}else{target};
         let changed=!self.resolution_configured||self.render_scale!=base||self.resolution_target!=target||self.resolution_limit!=limit;
         if !changed{return Ok(());}
-        if let Some((a,b,_))=self.resolution_queries.take(){unsafe{self.bridge.r.core.gl.delete_query(a);self.bridge.r.core.gl.delete_query(b);}}
+        self.delete_resolution_queries();
         if let Some((fence,_))=self.resolution_fence.take(){unsafe{self.bridge.r.core.gl.delete_sync(fence);}}
-        self.resolution_last_frame=None;self.resolution_cpu_ms=f64::NAN;self.resolution_gpu_ms=f64::NAN;self.resolution_query_active=false;
+        self.resolution_last_frame=None;self.resolution_cpu_ms=f64::NAN;self.resolution_gpu_ms=f64::NAN;self.resolution_scene_ms=f64::NAN;self.resolution_query_active=false;
         self.resolution_configured=true;self.resolution_target=target;self.resolution_limit=limit;self.render_scale=base;self.adaptive_scale=1.;
         self.resolution.run(15,target,0.,0.,0.,0.);
         let previous=self.render_size;self.resize_scene_targets()?;
@@ -1517,19 +1536,30 @@ impl Scene {
         if let Some(sample)=self.resolution_cpu_sample.take(){self.adapt_resolution(sample.elapsed_ms(),paused)?;}
         Ok(())
     }
+    fn delete_resolution_queries(&mut self){
+        let core=&mut self.bridge.r.core;core.scene_end_mark=None;
+        if let Some((q,_,_))=self.resolution_queries.take(){for q in q{unsafe{core.gl.delete_query(q);}}}
+    }
     fn resolution_gpu_begin(&mut self){
         if !self.resolution_enabled(){return;}
         let gl=&self.bridge.r.core.gl;
         if self.resolution_queries.is_none()&&(!gl.version().is_embedded||gl.supported_extensions().iter().any(|e|e.contains("disjoint_timer_query"))){unsafe{
-            if let Ok(a)=gl.create_query(){match gl.create_query(){Ok(b)=>self.resolution_queries=Some((a,b,false)),Err(_)=>gl.delete_query(a)}}
+            let mut made=vec![];
+            for _ in 0..3{if let Ok(q)=gl.create_query(){made.push(q);}}
+            match <[glow::Query;3]>::try_from(made){Ok(q)=>self.resolution_queries=Some((q,false,false)),Err(made)=>for q in made{gl.delete_query(q);}}
         }}
-        if let Some((a,b,false))=self.resolution_queries{
-            if gl.version().is_embedded&&self.bridge.r.core.profile.enabled{return;}
-            unsafe{if gl.version().is_embedded{gl.begin_query(glow::TIME_ELAPSED,b);}else{gl.query_counter(a,glow::TIMESTAMP);}}self.resolution_query_active=true;
+        if let Some((q,false,_))=self.resolution_queries{
+            unsafe{gl.query_counter(q[0],glow::TIMESTAMP);}
+            self.bridge.r.core.scene_end_mark=Some(q[1]);
+            self.resolution_query_active=true;
         }
     }
     fn resolution_gpu_end(&mut self){
-        if self.resolution_query_active{if let Some((_,b,pending))=&mut self.resolution_queries{unsafe{let gl=&self.bridge.r.core.gl;if gl.version().is_embedded{gl.end_query(glow::TIME_ELAPSED);}else{gl.query_counter(*b,glow::TIMESTAMP);}}*pending=true;}self.resolution_query_active=false;}
+        if !self.resolution_query_active{return;}
+        self.resolution_query_active=false;
+        let core=&mut self.bridge.r.core;
+        let marked=core.scene_end_mark.take().is_none();
+        if let Some((q,pending,scene))=&mut self.resolution_queries{unsafe{core.gl.query_counter(q[2],glow::TIMESTAMP);}*pending=true;*scene=marked;}
     }
     pub fn resolution_enabled(&self)->bool{self.resolution_target>0.}
     pub fn adapt_resolution(&mut self,cpu_ms:f64,paused:bool)->Result<(),String>{
@@ -1538,9 +1568,13 @@ impl Scene {
         let now=std::time::Instant::now();
         let interval_ms=self.resolution_last_frame.replace(now).map_or(f64::NAN,|last|now.duration_since(last).as_secs_f64()*1000.);
         let gl=&self.bridge.r.core.gl;
-        if let Some((a,b,pending))=&mut self.resolution_queries{if *pending&&unsafe{gl.get_query_parameter_u32(*b,glow::QUERY_RESULT_AVAILABLE)}!=0{
-            let start=if gl.version().is_embedded{0}else{unsafe{gl.get_query_parameter_u64(*a,glow::QUERY_RESULT)}};let end=unsafe{gl.get_query_parameter_u64(*b,glow::QUERY_RESULT)};
-            self.resolution_gpu_ms=if gl.version().is_embedded&&unsafe{gl.get_parameter_i32(0x8FBB)}!=0{f64::NAN}else{end.saturating_sub(start)as f64/1e6};*pending=false;
+        if let Some((q,pending,scene))=&mut self.resolution_queries{if *pending&&unsafe{gl.get_query_parameter_u32(q[2],glow::QUERY_RESULT_AVAILABLE)}!=0{
+            let [start,mark,end]=q.map(|q|unsafe{gl.get_query_parameter_u64(q,glow::QUERY_RESULT)});
+            let disjoint=gl.version().is_embedded&&unsafe{gl.get_parameter_i32(0x8FBB)}!=0;
+            let ms=|to:u64|if disjoint||start==0{f64::NAN}else{to.saturating_sub(start)as f64/1e6};
+            self.resolution_gpu_ms=ms(end);
+            self.resolution_scene_ms=if *scene{ms(mark)}else{f64::NAN};
+            *pending=false;
         }}
         let(behind,latency)=if let Some((fence,sent))=self.resolution_fence.take(){
             let state=unsafe{gl.client_wait_sync(fence,0,0)};
@@ -1549,13 +1583,18 @@ impl Scene {
         }else{(f64::NAN,f64::NAN)};
         self.resolution_fence=unsafe{gl.fence_sync(glow::SYNC_GPU_COMMANDS_COMPLETE,0)}.ok().map(|f|(f,std::time::Instant::now()));
         if paused{self.resolution.run(16,0.,0.,0.,0.,0.);return Ok(());}
-        let scale=self.resolution.run(17,interval_ms,cpu_ms,self.resolution_gpu_ms,behind,latency);
+        // When even the floor could not bring the frame under the line, the cost is not the
+        // scene's size: give the controller no GPU evidence, so it holds instead of shrinking.
+        let scale=effective_scale(self.size,self.render_scale,self.adaptive_scale);
+        let floor=effective_scale(self.size,self.render_scale,0.5);
+        let (gpu,behind,latency)=if resolution_can_help(self.resolution_gpu_ms,self.resolution_scene_ms,scale,floor,1000./self.resolution_target){(self.resolution_gpu_ms,behind,latency)}else{(f64::NAN,f64::NAN,f64::NAN)};
+        let scale=self.resolution.run(17,interval_ms,cpu_ms,gpu,behind,latency);
         if scale!=self.adaptive_scale{self.adaptive_scale=scale;self.resize_scene_targets()?;}
         Ok(())
     }
     fn log_resolution(&self){
-        let scale=(self.render_scale*self.adaptive_scale).max(self.render_scale.min(0.25));
-        eprintln!("battle resolution: canvas-device={}x{} renderScale={} adaptive={} effective={} scene-device={}x{} target-fps={} GPU-ms={} CPU-thread-ms={}",self.size[0],self.size[1],self.render_scale,self.adaptive_scale,scale,self.render_size[0],self.render_size[1],self.resolution_target,self.resolution_gpu_ms,self.resolution_cpu_ms);
+        let scale=effective_scale(self.size,self.render_scale,self.adaptive_scale);
+        eprintln!("battle resolution: canvas-device={}x{} renderScale={} adaptive={} effective={} scene-device={}x{} target-fps={} GPU-ms={} scene-GPU-ms={} CPU-thread-ms={}",self.size[0],self.size[1],self.render_scale,self.adaptive_scale,scale,self.render_size[0],self.render_size[1],self.resolution_target,self.resolution_gpu_ms,self.resolution_scene_ms,self.resolution_cpu_ms);
     }
 
     /// The player's water choices (WATER QUALITY, OCEAN AND SKY, WATER AND
@@ -2514,6 +2553,27 @@ mod camera_tests {
         assert_eq!(render_extent([2512,1500],1.5,1.),[3768,2250]);
         assert_eq!(render_extent([2512,1500],1.5,0.5),[1884,1125]);
         assert_eq!(render_extent([2512,1500],0.25,0.5),[628,375]);
+        // The adaptive floor: 720 lines or half the window, never below the player's own scale.
+        assert_eq!(render_extent([1920,1080],1.,0.5),[1280,720]);
+        assert_eq!(render_extent([1920,996],0.35,0.5),[672,349]);
+        assert_eq!(render_extent([3840,2160],1.,0.5),[1920,1080]);
+        assert_eq!(render_extent([1280,720],1.,0.5),[1280,720]);
+    }
+    #[test]
+    fn dynamic_resolution_shrinks_only_when_the_scene_is_what_costs(){
+        // 60 fps budget; a 1080p window drawn at full scale, floor 2/3.
+        let b=1000./60.;let floor=2./3.;
+        // The scene is most of a slow frame: shrinking can reach the line.
+        assert!(resolution_can_help(20.,16.,1.,floor,b));
+        // A slow frame made of window-size work (an interface layer, the stretch): it cannot.
+        assert!(!resolution_can_help(20.,6.,1.,floor,b));
+        // Sixty is out of reach, but the floor takes a third off the frame: worth it.
+        assert!(resolution_can_help(28.,16.,1.,floor,b));
+        // Already at the floor: nothing left to take.
+        assert!(!resolution_can_help(20.,16.,floor,floor,b));
+        // Under the line, or no split measured: the controller decides as before.
+        assert!(resolution_can_help(10.,2.,1.,floor,b));
+        assert!(resolution_can_help(20.,f64::NAN,1.,floor,b));
     }
     #[test]
     fn the_reduced_far_image_is_half_the_scene_and_never_empty(){

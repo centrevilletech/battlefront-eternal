@@ -270,7 +270,9 @@ impl Clarity {
             slow += f64::from_bits(std::hint::select_unpredictable(p > slow, slow_up, slow_down)) * (p - slow);
             if i % SUB == 0 {
                 let ratio = (fast + 1e-12) / (slow + 1e-12);
-                goal = if ratio > self.knee { js_min(host::pow(ratio / self.knee, 0.25), self.max_lift) } else { 1.0 };
+                // The fourth root as two square roots (exactly rounded each)
+                // rather than a general power: the same gain to the last place or so.
+                goal = if ratio > self.knee { js_min((ratio / self.knee).sqrt().sqrt(), self.max_lift) } else { 1.0 };
             }
             gain = if goal > gain { goal } else { gain + release * (goal - gain) };
             self.gains[i] = gain as f32;

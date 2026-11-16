@@ -119,6 +119,10 @@ struct Message<'a> {
     #[serde(default)]
     ack: Option<f64>,
     #[serde(default)]
+    ack_tick: Option<f64>,
+    #[serde(default)]
+    dropped: Option<f64>,
+    #[serde(default)]
     spectator: bool,
     #[serde(default)]
     message: Option<Notice>,
@@ -161,6 +165,11 @@ pub struct Receiver {
     expected: serde_json::Value,
     pub estimator: EstimatorState,
     pub ack: f64,
+    /// The tick the server ran the newest acknowledged command at, and its tick when it said so.
+    pub ack_tick: f64,
+    pub ack_server_tick: f64,
+    /// Ticks the server's world has given up so far (it fell behind real time), from its input-ack.
+    pub server_dropped: f64,
     pub packets: u64,
     pub corrections: u64,
     pub corrected_sequence: f64,
@@ -215,6 +224,9 @@ impl Receiver {
             expected,
             estimator: EstimatorState { hz: 60., window: 64., at: 0., count: 0., offset: None, dropped: None, offsets: vec![0.; 64] },
             ack: 0.,
+            ack_tick: 0.,
+            ack_server_tick: 0.,
+            server_dropped: 0.,
             packets: 0,
             corrections: 0,
             corrected_sequence: 0.,
@@ -648,6 +660,11 @@ impl Receiver {
             }
             "input-ack" => {
                 if m.epoch == Some(self.epoch) && m.generation == Some(self.own.generation) {
+                    if m.ack.unwrap_or(0.) > self.ack {
+                        self.ack_tick = m.ack_tick.unwrap_or(0.);
+                        self.ack_server_tick = m.server_tick.unwrap_or(0.);
+                    }
+                    self.server_dropped = self.server_dropped.max(m.dropped.unwrap_or(0.));
                     self.ack = self.ack.max(m.ack.unwrap_or(0.));
                     if let Some(t) = m.server_tick {
                         self.latest = self.latest.max(t);
