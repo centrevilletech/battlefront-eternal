@@ -48,6 +48,8 @@ pub struct Fleet {
     shown_source: f64,
     active: Option<usize>,
     frozen_weapons: bool,
+    // The vehicle (generation * 65536 + id) whose prediction last failed, logged once.
+    failed: f64,
     water:Option<bfe_sim::units::water::WaterState>,last_water:f64,
 }
 impl Fleet {
@@ -165,7 +167,11 @@ impl Fleet {
         for hull in &mut hulls {for(body,collider)in bodies.colliders(){hull.owner.bind_native_collider(body,collider);}
             hull.owner.prepare_native_collision(&mut collision.state);
         }
-        Ok(Self {
+        Ok(Self::with(world, bodies, hulls, classes, water))
+    }
+    fn with(world: u32, bodies: super::collision::Bodies, hulls: Vec<Hull>, classes: Vec<Option<usize>>,
+        water: Option<bfe_sim::units::water::WaterState>) -> Self {
+        Self {
             world,bodies,
             hulls,
             classes,
@@ -185,8 +191,9 @@ impl Fleet {
             alpha: 1.,
             active: None,
             frozen_weapons: false,
+            failed: -1.,
             water, last_water: 0.,
-        })
+        }
     }
     pub fn weapons(&self) -> impl Iterator<Item = bfe_sim::gen::Weapon> + '_ {
         let owner = self
@@ -213,11 +220,40 @@ impl Fleet {
     fn active_owner(&self) -> Option<&ClientPrediction> {
         self.active.map(|i| &self.hulls[i].owner)
     }
+    /// Predicts the vehicle the player pilots. Prediction only runs ahead of the
+    /// server: when it cannot run for this vehicle, the player sees and drives
+    /// the vehicle where the server has it, and the reason is logged once.
+    pub fn frame(&mut self, receiver: &Receiver, sender: &Sender, words: &mut Vec<f64>, collision: &mut CollisionOwner) {
+        let Err(reason) = self.predict(receiver, sender, words, collision) else { return };
+        self.state = None;
+        self.identity = None;
+        self.continued = false;
+        self.frozen_weapons = false;
+        self.active = None;
+        if let Some(index) = self.piloted(receiver).and_then(|(_, index)| index) {
+            self.hulls[index].owner.reset();
+        }
+        let source = receiver.own.vehicle_generation * 65536. + receiver.own.vehicle;
+        if self.failed != source {
+            self.failed = source;
+            eprintln!("vehicle prediction off for vehicle {} (generation {}): {reason}; showing the server's state",
+                receiver.own.vehicle, receiver.own.vehicle_generation);
+        }
+    }
+    /// The hull record the player pilots, and its private prediction hull when its class has one.
+    fn piloted<'a>(&self, receiver: &'a Receiver) -> Option<(&'a [f64; bfe_presentation::network_layout::net_record::STRIDE], Option<usize>)> {
+        use bfe_presentation::network_layout::{net_kind as k, net_record as r};
+        if receiver.own.vehicle == 0. || ![7, 10].contains(&receiver.own.body_schema) {
+            return None;
+        }
+        let row = receiver.record(k::VEHICLE, receiver.own.vehicle, receiver.own.vehicle_generation)?;
+        Some((row, self.classes.get(row[r::CLASS_ID] as usize).copied().flatten()))
+    }
     // ClientPrediction replays the acknowledged command tail from the exact
     // own body checkpoint. Datagram receipt ACKs are deliberately insufficient:
     // the server can have received an input it has not yet applied.
     // The displayed remote hull and private movement result remain distinct.
-    pub fn frame(
+    fn predict(
         &mut self,
         receiver: &Receiver,
         sender: &Sender,
@@ -235,20 +271,14 @@ impl Fleet {
         // old continuation would replay the commands of the other seat.
         let was = self.active.take();
         self.frozen_weapons = false;
-        let piloted = (receiver.own.vehicle != 0. && [7, 10].contains(&receiver.own.body_schema))
-            .then(|| receiver.active().find(|row| {
-                row[bfe_presentation::network_layout::net_record::ID] == receiver.own.vehicle
-                    && row[bfe_presentation::network_layout::net_record::GENERATION] == receiver.own.vehicle_generation
-            }))
-            .flatten();
-        let index = piloted.map(|row| self.classes.get(row[bfe_presentation::network_layout::net_record::CLASS_ID] as usize).copied().flatten());
-        if let Some(was) = was.filter(|was| index != Some(Some(*was))) {
+        let piloted = self.piloted(receiver);
+        if let Some(was) = was.filter(|was| piloted.is_none_or(|(_, index)| index != Some(*was))) {
             self.hulls[was].owner.reset();
         }
-        let Some(row) = piloted else {
+        let Some((row, index)) = piloted else {
             return Ok(());
         };
-        let Some(index) = index.flatten() else {
+        let Some(index) = index else {
             return Err("missing private hull class");
         };
         let Hull { owner, arsenal, .. } = &mut self.hulls[index];
@@ -352,5 +382,36 @@ impl Fleet {
         self.active = Some(index);
         self.ticks += result.ticks as u64;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bfe_presentation::network_layout::{net_kind as k, net_record as r};
+
+    #[test]
+    fn piloting_a_class_without_a_prediction_hull_shows_the_server_hull() {
+        let mut collision = CollisionOwner::new();
+        let world = collision.world_new(0, -1, -1);
+        let bodies = super::super::collision::Bodies::new(&mut collision, world, &[], 0);
+        let mut fleet = Fleet::with(world, bodies, Vec::new(), vec![None; 16], None);
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        receiver.own.vehicle = 2.;
+        receiver.own.vehicle_generation = 1.;
+        receiver.own.body_schema = 10;
+        let mut row = [0.; r::STRIDE];
+        row[r::KIND] = k::VEHICLE as f64;
+        row[r::ID] = 2.;
+        row[r::GENERATION] = 1.;
+        row[r::CLASS_ID] = 12.;
+        receiver.insert_fact(k::VEHICLE, row);
+        let sender = Sender::default();
+        let mut words = Vec::new();
+        for _ in 0..2 {
+            fleet.frame(&receiver, &sender, &mut words, &mut collision);
+            assert!(fleet.state.is_none() && fleet.identity.is_none());
+            assert_eq!(fleet.failed, 65536. + 2.);
+        }
     }
 }

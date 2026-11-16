@@ -189,7 +189,7 @@ pub struct PerformancePreset {
     pub sniper_effects: &'static str,
     /// Terrain sun-and-slope shading (`terrainDetail`: `"original"` or `"enhanced"`).
     pub terrain_detail: &'static str,
-    /// Near-scene full-detail view distance (`viewDistance`: `"original"`, `"far"`, `"max"`).
+    /// Near-scene full-detail view distance (`viewDistance`: `"short"`, `"original"`, `"far"`, `"max"`).
     pub view_distance: &'static str,
     /// Distant terrain triangle density (`farTerrain`: `"full"` or `"reduced"`).
     pub far_terrain: &'static str,
@@ -261,7 +261,9 @@ pub const PERFORMANCE_PRESETS: [PerformancePreset; 4] = [
         arc_caster_effects: "classic",
         sniper_effects: "classic",
         terrain_detail: "original",
-        view_distance: "original",
+        // The 2004 game's shortest view distance: the map's geometry hands over to the far scene at its short
+        // range; units, vehicles and posts still draw out to the authored range.
+        view_distance: "short",
         far_terrain: "reduced",
     },
     PerformancePreset {
