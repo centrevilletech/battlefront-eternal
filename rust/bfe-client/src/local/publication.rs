@@ -241,17 +241,21 @@ impl<'a> Publication<'a> {
 
     // A publication may contain other consumers. Select the admitted local
     // client by its pool key, not by group position or an assumed first row.
-    // Faults for client zero apply to the whole world, as SnapshotHost does.
-    pub fn fault(&self, client: u32) -> Result<(), String> {
+    // A fault for client zero applies to the whole world, as SnapshotHost
+    // does, and is an error; one for `client` alone is returned: the world is
+    // intact and only that player's update of this tick is missing.
+    pub fn fault(&self, client: u32) -> Result<Option<String>, String> {
+        let mut own = None;
         for fault in self.table(P::FAULTS, F::WORDS)?.chunks_exact(F::WORDS) {
             if fault[F::CLIENT] == 0. || fault[F::CLIENT] == client as f64 {
-                return Err(String::from_utf8_lossy(self.span(fault, F::MESSAGE)?)
-                    .chars()
-                    .take(240)
-                    .collect());
+                let message: String = String::from_utf8_lossy(self.span(fault, F::MESSAGE)?).chars().take(240).collect();
+                if fault[F::CLIENT] == 0. {
+                    return Err(message);
+                }
+                own.get_or_insert(message);
             }
         }
-        Ok(())
+        Ok(own)
     }
 
     /// The reliable outcome ids this publication returns to `client`'s life
@@ -268,6 +272,8 @@ impl<'a> Publication<'a> {
         Ok(())
     }
 
+    /// Delivers `client`'s share of this publication. A fault for this client
+    /// alone is the caller's ([`Faults`]); a fault of the whole world is an error.
     pub fn deliver(&self, client: u32, receiver: &mut Receiver, now_ms: f64) -> Result<(), String> {
         self.fault(client)?;
         for ack in self.table(P::ACKS, A::WORDS)?.chunks_exact(A::WORDS) {
@@ -352,5 +358,52 @@ impl<'a> Publication<'a> {
     pub fn acknowledgement(receiver: &Receiver) -> [f64; 2] {
         let owner = receiver.network.borrow();
         [owner.header[h::EPOCH], owner.header[h::ACK_TICK]]
+    }
+}
+
+/// Publication faults for the local player, one publication after another.
+/// A one-off fault skips that player's update of the tick and is logged once;
+/// the same player faulting for about a second (60 publications in a row) ends
+/// the battle with the reason, which returns to the menu.
+#[derive(Default)]
+pub struct Faults {
+    run: u32,
+    logged: Option<String>,
+}
+impl Faults {
+    pub const LIMIT: u32 = 60;
+    pub fn note(&mut self, fault: Option<String>) -> Result<(), String> {
+        let Some(message) = fault else {
+            self.run = 0;
+            return Ok(());
+        };
+        self.run += 1;
+        if self.run >= Self::LIMIT {
+            return Err(format!("the player's updates failed for a second: {message}"));
+        }
+        if self.logged.as_deref() != Some(message.as_str()) {
+            eprintln!("publication fault for the player, update skipped: {message}");
+            self.logged = Some(message);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Faults;
+
+    #[test]
+    fn a_player_fault_is_skipped_until_it_lasts_a_second() {
+        let mut faults = Faults::default();
+        for _ in 0..Faults::LIMIT - 1 {
+            assert!(faults.note(Some("unknown post".into())).is_ok());
+        }
+        assert!(faults.note(None).is_ok());
+        for _ in 0..Faults::LIMIT - 1 {
+            assert!(faults.note(Some("unknown post".into())).is_ok());
+        }
+        let error = faults.note(Some("unknown post".into())).unwrap_err();
+        assert!(error.ends_with("unknown post"), "{error}");
     }
 }
