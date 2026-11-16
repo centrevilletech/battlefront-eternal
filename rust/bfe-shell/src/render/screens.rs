@@ -34,6 +34,9 @@ use bfe_render::interface::{
 ///    `DISK.turn = 0.866`, with two counter-rotating `load_rotating_disk`
 ///    layers, 28 chasing LEDs at `DISK.ring = 52`, and `-14 deg` tilted
 ///    `LOADING` text (`gamefont_medium` in BF1 retail look).
+/// The `ShellTextures::by_name` key of load.lvl's simple backdrop.
+pub const LOADING_BACKDROP: &str = "load_simple_backdrop";
+
 #[allow(clippy::too_many_arguments)]
 pub fn draw_loading(
     batch: &mut Batch,
@@ -72,6 +75,14 @@ pub fn draw_loading(
     // texture (`state.stage + 1`) that grows out of the zoom target box.
     let shown = textures.loading_stages.get(state.stage).copied();
     let next = textures.loading_stages.get(state.stage + 1).copied();
+
+    // A map without pictures of its own (an add-on's) shows load.lvl's simple
+    // backdrop, the logo on the grid, for the whole screen.
+    if shown.is_none() {
+        if let Some(&backdrop) = textures.by_name.get(LOADING_BACKDROP) {
+            batch.quad(full_m, [0.0, 0.0, 1024.0, height], backdrop, UV, WHITE, 0.0, 0);
+        }
+    }
 
     // Draw the current stage picture cropped to `zoom_view` during the `Zoom`
     // phase, or full-frame `[0, 0, iw, ih]` during `Track` / `Hold`.
