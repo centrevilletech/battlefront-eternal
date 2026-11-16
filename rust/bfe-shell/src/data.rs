@@ -60,7 +60,8 @@ pub const MOVIE_SCREENS: [(&str, &[&str]); 7] = [
 /// `src/shell/data.js`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MovieClip {
-    /// Resolved content URL (e.g. `"/common/shell/movies/main.webm"`).
+    /// Resolved content URL (e.g. `"/common/shell/movies/main.bik"`; content prepared by
+    /// earlier versions names `main.webm`, which plays the same movie).
     pub url: String,
     /// Fade-in duration in seconds (`fadeIn` in `src/shell/data.js`).
     pub fade_in: f64,
@@ -92,9 +93,7 @@ impl ScreenMovie {
     }
 }
 
-/// Maps a movie path (`"/common/shell/movies/atat_screen.webm"`) to the
-/// corresponding poster still texture key in `common.json`.
-/// Maps a movie path (`"/common/shell/movies/atat_screen.webm"`) to the
+/// Maps a movie path (`"/common/shell/movies/atat_screen.bik"`, any extension) to the
 /// corresponding poster still texture key in `common.json` (`"main"`,
 /// `"atat_screen"`, `"coreship_screen"`, `"atte_screen"`, `"hoth_screen"`,
 /// `"generic2_screen"`, `"generic3_screen"`, `"gc_screen"`, or `"map_<id>"`
@@ -104,7 +103,8 @@ pub fn poster_still_for_movie(url: &str) -> Option<&'static str> {
         .rsplit('/')
         .next()
         .unwrap_or(url)
-        .strip_suffix(".webm")
+        .split('.')
+        .next()
         .unwrap_or(url);
     match stem {
         "main" | "main_trans" | "start_screen" => Some("main"),

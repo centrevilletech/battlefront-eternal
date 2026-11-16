@@ -38,7 +38,7 @@ impl PageBackdrop {
             side.clips = names
                 .iter()
                 .map(|name| MovieClip {
-                    url: format!("/common/shell/movies/{name}.webm"),
+                    url: format!("/common/shell/movies/{name}.bik"),
                     fade_in: CROSS,
                     fade_out: CROSS,
                 })
