@@ -75,8 +75,7 @@ pub struct Sender {
     last_ack: f64,
     turns: Vec<(f64, [f64; 2])>,
     // Instant Action's lead: one tick above the local world's next tick,
-    // raised a tick when the world takes a command late (Electron's local
-    // InputLead keeps the same feedback).
+    // raised a tick when the world takes a command late.
     local: bool,
     extra: f64,
     cooldown: u32,
