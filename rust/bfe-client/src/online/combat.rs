@@ -434,7 +434,7 @@ impl Combat {
         bridge.fx_reserve(particles.words as u32);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
-        let destruction = super::destruction::Destructions::new(content, bridge, textures, collision.clone(), world, particles.words)?;
+        let destruction = super::destruction::Destructions::new(content, bridge, textures, collision.clone(), world, particles.words).await?;
         particles.words = destruction.end();
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();

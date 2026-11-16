@@ -149,7 +149,7 @@ pub struct Hulls {
     water: Option<bfe_sim::units::water::WaterState>,
 }
 impl Hulls {
-    pub fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], collision: Collision, world: u32) -> Result<Self, String> {
+    pub async fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], collision: Collision, world: u32) -> Result<Self, String> {
         let shadow_cascades = bridge.shadow_cascades();
         let defs = content.defs()?;
         let mut owner = Box::new(Vehicles::new());
@@ -162,7 +162,11 @@ impl Hulls {
         // as the page. Their records preserve authored bone and muzzle order.
         // Native admission creates GPU resources from those completed records;
         // it does not rebuild an independent vehicle rig or animator.
+        let mut budget = crate::loading_work::Budget::new();
         for class in &defs.vehicles {
+            if budget.tick().await {
+                bridge.r.core.state.reset();
+            }
             let (Some(id), Some(template)) = (class.registry_id, class.template) else {
                 continue;
             };
