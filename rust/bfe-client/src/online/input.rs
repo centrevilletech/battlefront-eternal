@@ -39,6 +39,7 @@ pub struct Sender {
     pub fire_aim: Option<[f64;2]>,
     // BFE_HUD_TRACE: the unit the camera ray last held, logged when it changes.
     aim_target: Option<u32>,
+    trace: bool,
     pub history: Box<super::replay::History>,
     owner: Box<Outbound>,
     life: [f64; 2],
@@ -98,6 +99,7 @@ impl Default for Sender {
             aim_scene: None,
             fire_aim: None,
             aim_target: None,
+            trace: std::env::var_os("BFE_HUD_TRACE").is_some(),
             history: Box::new(Default::default()),
             owner: Box::new(Outbound::default()),
             life: [0.; 2],
@@ -365,14 +367,19 @@ impl Sender {
         }
         self.preview(receiver);
         self.fire_aim = Some([self.yaw,self.pitch]);
-        if let Some(scene)=&self.aim_scene {
+        // The camera ray's aim is read only by what fires: a trigger edge this
+        // tick, or a trigger held (each predicted round and the walker's
+        // repeater take it). Nothing else looks at it.
+        const TRIGGERS: u32 = 1 << 6 | 1 << 7;
+        let firing = fc > 0 || c.held & TRIGGERS != 0;
+        if let (true, Some(scene)) = (firing || self.trace, &self.aim_scene) {
             let (aim,reach,target)=scene.borrow().sample(&receiver.own,self.yaw,self.pitch,self.first_person);
             self.fire_aim=Some([aim.yaw,aim.pitch]);
-            if target != self.aim_target && std::env::var_os("BFE_HUD_TRACE").is_some() {
+            if target != self.aim_target && self.trace {
                 eprintln!("[combat-aim] {{\"tick\":{},\"target\":{}}}", receiver.latest, target.map_or(-1, i64::from));
             }
             self.aim_target = target;
-            if fires[..fc].iter().any(|fire|fire.pressed && !fire.held) && std::env::var_os("BFE_HUD_TRACE").is_some() {
+            if fires[..fc].iter().any(|fire|fire.pressed && !fire.held) && self.trace {
                 use bfe_presentation::network_layout::net_record as record;
                 let velocity=target.and_then(|id|receiver.active().find(|row|row[record::ID]==id as f64).map(|row|[row[record::VELOCITY],row[record::VELOCITY+1],row[record::VELOCITY+2]]));
                 let team=target.and_then(|id|receiver.active().find(|row|row[record::ID]==id as f64).map(|row|row[record::TEAM]));
