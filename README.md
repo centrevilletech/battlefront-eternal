@@ -103,9 +103,9 @@ Measured on an old machine, with the preset the app picked by itself:
 | --- | --- | --- |
 | Intel HD Graphics 2000 (2011 desktop integrated graphics) | full screen 1920x1080, Minimum | Theed about 65 fps, Hoth about 62, Kashyyyk Docks about 52, Mos Eisley about 49, Endor about 40 |
 
-Busy maps (Endor, Mos Eisley, Geonosis) are the hardest. Minimum draws full
-detail only as far as the 2004 game's SHORT view distance; on a weak chip a
-lower RENDER SCALE helps most after that.
+Busy maps (Endor, Mos Eisley, Geonosis) are the hardest. Minimum draws the
+scenery out to the 2004 game's SHORT view distance; past that, a lower
+RENDER SCALE helps most on a weak chip.
 
 ## Classic and Enhanced
 
