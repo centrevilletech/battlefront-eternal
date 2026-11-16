@@ -198,8 +198,7 @@ pub fn lan_info(info: &Value) -> Value {
 }
 
 /// Dual-stack `BFE-LAN/1` UDP discovery responder (`export async function startLanDiscovery`).
-/// Dual-stack LAN discovery responder porting `startLanResponder(port, infoFn)` from
-/// `packages/bfe-server/src/lan.js`.
+/// Dual-stack LAN discovery responder porting `startLanResponder(port, infoFn)`.
 pub struct LanDiscoveryResponder {
     stop: Arc<AtomicBool>,
     threads: Vec<JoinHandle<()>>,

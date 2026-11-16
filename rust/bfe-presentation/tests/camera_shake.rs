@@ -1,5 +1,4 @@
-//! Synthetic camera shake and soldier chase camera tests ported from
-//! `tests/camera-shake.test.js` and `tests/camera.test.js`.
+//! Synthetic camera shake and soldier chase camera tests.
 //!
 //! These cases exercise `bfe_presentation::cameras::Phase` and
 //! `bfe_presentation::cameras::shake::Shake` over synthetic camera commands,

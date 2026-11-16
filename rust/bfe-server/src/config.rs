@@ -72,8 +72,7 @@ pub fn default_rotation() -> Vec<String> {
 /// the interactive menu (`save()`) never strips operator-added fields.
 #[derive(Clone, Debug, PartialEq)]
 /// Resolved dedicated-server configuration matching the normalized runtime shape produced by
-/// `loadConfig(dir)` in `packages/bfe-server/src/config.js` and consumed by
-/// `packages/bfe-server/src/main.js` and `packages/bfe-server/src/local-server.js`.
+/// `loadConfig(dir)` in `packages/bfe-server/src/config.js` and consumed by.
 pub struct ServerConfig {
     /// Server display name shown in `/info`, LAN discovery, and the online browser (`defaults.name`).
     pub name: String,
@@ -137,8 +136,7 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     /// Returns the default configuration (`const defaults = { ... }`), reading
     /// `BFE_ENGINE_DIR` and `BFE_DATA_DIR` from the process environment when present.
-    /// Returns default dedicated-server settings matching `DEFAULT_CONFIG` in
-    /// `packages/bfe-server/src/config.js`:
+    /// Returns default dedicated-server settings matching `DEFAULT_CONFIG`:
     /// - `name`: `"BfE Server"`
     /// - `port`: `19420` (default UDP game and LAN discovery port)
     /// - `operator_port`: `19421` (loopback HTTP admin & `/healthz` port)
@@ -663,8 +661,7 @@ pub struct CheckedContent {
 /// Validates the prepared content directory and rotation, and computes the first mission's
 /// `bfe-content-sha256-...` digest (`contentHash(workerData.query)`).
 /// Verifies that the content directory contains `version.json`, all required maps referenced by
-/// `rotation`, and valid mode/bot descriptors, porting `checkContent(data, rotation, ai)` from
-/// `packages/bfe-server/src/config.js`.
+/// `rotation`, and valid mode/bot descriptors, porting `checkContent(data, rotation, ai)`.
 pub fn check_content(data: &str, rotation: &[String], ai: &str) -> Result<CheckedContent, String> {
     let resolved = resolve_content_root(data)?;
     if rotation.is_empty() {

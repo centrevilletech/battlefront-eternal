@@ -1,7 +1,6 @@
 //! Shell screens (`MAIN MENU`, `SINGLEPLAYER`, `INSTANT ACTION`, `OPTIONS`,
 //! `PROFILE MANAGEMENT`, `MULTIPLAYER`, `EXIT TO WINDOWS`) and integration with
-//! [`bfe_online::browser::ServerBrowserService`] (`src/shell/screens.js`,
-//! `src/shell/index.js`).
+//! [`bfe_online::browser::ServerBrowserService`].
 
 use crate::{
     data::ShellData,

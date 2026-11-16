@@ -1,6 +1,5 @@
 //! What the AI's perception and combat code reads of the battle and asks of
-//! it (src/ai/classic/perception.js, combat.js, aim.js, weapons-ai.js,
-//! src/ai/enhanced/aim.js).
+//! it.
 
 use crate::ai::{owned::scratch::List,control::world::SharedRows};
 use std::rc::Rc;

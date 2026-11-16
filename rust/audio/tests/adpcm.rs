@@ -1,5 +1,4 @@
-//! Xbox IMA ADPCM and signed 16-bit PCM bank normalization tests ported from
-//! `tests/audio-units.test.js` and `tests/audio-light.test.js`.
+//! Xbox IMA ADPCM and signed 16-bit PCM bank normalization tests.
 
 use audio::adpcm::Decoder;
 use std::f64::consts::PI;

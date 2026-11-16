@@ -120,8 +120,7 @@ pub fn content_tables_from_registry(
     }
     // A class's or a hull's explosion: the object its content definition
     // holds (`unit.classDef.explosion`,
-    // `vehicle.def.explosion` and `finalExplosion || explosion` in
-    // src/sim/wasm/f3-hulls.js).
+    // `vehicle.def.explosion` and `finalExplosion || explosion`).
     // LiveObjects.buildings: the props instances whose model
     // the props name, in order, that are traps, power-up stations, armed
     // buildings or command posts; a building's explosion is its instance's.

@@ -1,6 +1,4 @@
-//! Control tabs, default bindings, key label formatting, and exclusive rebinding
-//! (`src/menus/hotkeys.js`, `src/input.js`, `src/flight/controls.js`,
-//! `src/runtime/network-entity-input.js`).
+//! Control tabs, default bindings, key label formatting, and exclusive rebinding.
 
 use crate::options::say;
 use std::collections::{BTreeMap, HashMap};

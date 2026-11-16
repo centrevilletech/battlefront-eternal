@@ -1,5 +1,4 @@
-//! Classic spawn screen view (`src/spawn-screen/classic/view.js`,
-//! `src/spawn-screen/classic/preview.js`).
+//! Classic spawn screen view.
 
 use std::f64::consts::PI;
 
@@ -175,8 +174,7 @@ pub struct SpawnLogoPlacement {
 }
 
 /// 3D placement of the `shell_cube` room, team logos, and standing soldier
-/// preview body for the current frame (`renderRoom` and `renderModels` in
-/// `src/spawn-screen/classic/view.js`).
+/// preview body for the current frame (`renderRoom` and `renderModels`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Spawn3dPlacement {
     /// World-space center of the `shell_cube` background grid room.

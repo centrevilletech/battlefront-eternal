@@ -1,5 +1,4 @@
-//! Front-end shell audio and output render-phase tests ported from
-//! `tests/audio-frontend.test.js` and `tests/audio-light.test.js`.
+//! Front-end shell audio and output render-phase tests.
 
 use audio::commands::*;
 use audio::frontend::Frontend;

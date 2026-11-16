@@ -265,8 +265,7 @@ pub(super) fn draw_str(
 
 
 
-/// Layout parameters for [`draw_rows`], mirroring the `Rows` widget layout in
-/// `src/menus/themes/classic/index.js` and `src/shell/screens.js`.
+/// Layout parameters for [`draw_rows`], mirroring the `Rows` widget layout.
 #[derive(Clone, Copy)]
 struct RowsLayout<'a> {
     /// Safe-area anchor `[ax, ay]` (default `[0.5, 0.5]`).

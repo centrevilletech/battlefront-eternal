@@ -1,5 +1,4 @@
-//! Synthetic jetpack exhaust volume and detached wake tests ported from
-//! `tests/jetpack-effects.test.js` and `tests/jetpack-wake.test.js`.
+//! Synthetic jetpack exhaust volume and detached wake tests.
 //!
 //! These cases exercise `bfe_presentation::unit_effects::jetpack::{Definition,
 //! Jetpack, Wake}` across ribcage/authored/mesh nozzle outlets, ignition and

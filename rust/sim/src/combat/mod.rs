@@ -1,5 +1,4 @@
 //! A soldier's side of the fight (src/combat.js, src/weapons.js,
-//! src/weapon-targeting.js, src/combat-weapon-input.js, src/combat-input.js,
 //! src/runtime/network-shot-aim.js and src/heroes.js's swing and
 //! regeneration):
 

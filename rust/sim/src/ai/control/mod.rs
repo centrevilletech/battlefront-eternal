@@ -4357,7 +4357,7 @@ impl Core {
 }
 
 impl Core {
-    // -- objectives (goals.js ClassicObjectives) -------
+    // -- objectives (ClassicObjectives) -------
 
     /// Return effects from a foreign service at its call site. Preconditions
     /// fail closed so a returned write cannot conceal a native state error.

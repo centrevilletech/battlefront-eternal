@@ -935,8 +935,7 @@ impl Settings {
     }
 
     /// Loads [`Settings`] from a `localStorage`-style string map (`bfe_setting_<key>` -> JSON)
-    /// and an optional desktop `{ complete, values }` snapshot, matching `Settings.load()` in
-    /// `src/settings.js`.
+    /// and an optional desktop `{ complete, values }` snapshot, matching `Settings.load()`.
     pub fn from_storage_and_desktop(
         storage: &BTreeMap<String, String>,
         desktop: Option<&DesktopSettingsSnapshot>,

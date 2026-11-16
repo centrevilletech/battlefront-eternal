@@ -273,8 +273,7 @@ pub fn resolve_server_join(
         .unwrap_or(rot_mode)
         .to_string();
 
-    // Only `ONLINE` sessions apply `relayPolicy === "always"` (`joinServer` in
-    // `src/shell/screens.js`).
+    // Only `ONLINE` sessions apply `relayPolicy === "always"` (`joinServer`).
     let relay_always =
         kind != MultiplayerKind::Lan && server.relay_policy.as_deref() == Some("always");
     // `LAN` joins use the server's `address` and `port` (defaulting to

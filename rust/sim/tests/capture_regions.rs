@@ -1,5 +1,4 @@
-//! World capture, control, and death region geometry tests ported from
-//! `tests/capture-regions.test.js`.
+//! World capture, control, and death region geometry tests.
 
 use bfe_sim::battle::regions::{build_region, in_region, region_desc, DeathRegions};
 use bfe_sim::gen::RegionType;

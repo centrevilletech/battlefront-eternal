@@ -491,8 +491,6 @@ mod tests {
 
     // ------------------------------------------------------------------------
     // Scoreboard and battle stats tests
-    // (ports `tests/scoreboard-model.test.js`, `scoreboard-input.test.js`,
-    //  `scoreboard-port.test.js`, `scoreboard-index.test.js`)
     // ------------------------------------------------------------------------
     /// Builds a 3-character scoreboard fixture (`Alpha` local human on Team 1,
     /// `Droid-1` AI bot on Team 2, `Bravo` remote human on Team 1) with headshots,

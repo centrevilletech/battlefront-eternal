@@ -295,8 +295,7 @@ fn server_identity_persists_ed25519_spki_and_pkcs8_pem() {
 /// (`defaults`, `config`, and `save()`).
 #[test]
 /// Verifies `ServerConfig` JSON serialization, default fallbacks, playlist rotation query parsing,
-/// `check_state_budget` (`512..=1200` B), and content directory verification (`config.rs`, porting
-/// `packages/bfe-server/src/config.js`).
+/// `check_state_budget` (`512..=1200` B), and content directory verification (`config.rs`, porting).
 fn config_round_trip_and_state_budget_validation() {
     let dir = temp_dir("config");
     let cfg = ServerConfig::load_checked(&dir).unwrap();
@@ -1817,8 +1816,7 @@ fn sixteen_concurrent_clients_join_and_exchange_state_with_local_dedicated_serve
 /// and `matchProbe` -> `matchReady`), and graceful unregistration (`DELETE /v1/servers/:id`).
 #[test]
 /// End-to-end test for `OnlineServer` (`online_server.rs`, porting
-/// `packages/bfe-server/src/online-server.js`) and `MasterClient` (`master_client.rs`, porting
-/// `packages/bfe-server/src/master-client.js`):
+/// `packages/bfe-server/src/online-server.js`) and `MasterClient` (`master_client.rs`, porting):
 /// - Spawns a mock master HTTP + WebSocket server + STUN responder.
 /// - Verifies Ed25519-signed `POST /api/servers/heartbeat`, `GET /api/bans` TOFU verification,
 ///   STUN `srflx` discovery, WebSocket ticket upgrade (`/api/servers/ws-ticket`), and bidirectional

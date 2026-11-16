@@ -2,8 +2,7 @@
 // cadence, battle query sanitization, compatibility checking, and GAME INFO
 // inspector formatting.
 //
-// Ports `src/shell/server-browser.js`, `src/shell/server-browser-view.js`, and
-// `src/runtime/battle-query.js`.
+// Ports `src/shell/server-browser.js`, `src/shell/server-browser-view.js`.
 
 use std::cmp::Ordering;
 // `BTreeMap` is imported inside `mod tests` for deterministic query maps.
@@ -662,8 +661,7 @@ pub struct SponsorInfo {
 }
 
 // Complete `GAME INFO` inspector view model returned by `describe_server` /
-// `ServerBrowserService::describe` (`ServersView.describe` in
-// `src/shell/server-browser-view.js`).
+// `ServerBrowserService::describe` (`ServersView.describe`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GameInfo {
     // Active map slug (`"nab2"`, `"hot1"`, ...) for `MapPreview` lookup.
@@ -721,8 +719,7 @@ pub trait ServerBrowserService {
 mod info;
 pub use info::*;
 
-// Stateful server browser model porting `class ServerList` in
-// `src/shell/server-browser.js`.
+// Stateful server browser model porting `class ServerList`.
 //
 // Owns:
 // - `source`: active directory (`Internet` master list vs `Lan` UDP broadcast).
@@ -903,8 +900,7 @@ impl ServerBrowser {
         true
     }
 
-    // Ports the six-clause filter predicate in `ServerList.rows()` in
-    // `src/shell/server-browser.js`:
+    // Ports the six-clause filter predicate in `ServerList.rows()`:
     // 1. `name`: case-insensitive substring match against `server.name`,
     //    `server.battle.map_name`, or `server.location`.
     // 2. `map`: exact match on `server.battle.map` unless `"all"`.

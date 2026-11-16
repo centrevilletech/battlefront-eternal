@@ -19,8 +19,7 @@ struct Bucket {
 
 /// Per-session and endpoint network metrics collector.
 #[derive(Clone)]
-/// Sliding-window transport telemetry accumulator porting `createNetMetrics()` from
-/// `packages/bfe-server/src/net-metrics.js`.
+/// Sliding-window transport telemetry accumulator porting `createNetMetrics()`.
 ///
 /// Tracks 60 one-second ring-buffer buckets (`WINDOW_SECONDS = 60`) of inbound/outbound bytes and
 /// packets partitioned by lane (`events`, `input`, `state`), plus RTT and packet-loss samples,

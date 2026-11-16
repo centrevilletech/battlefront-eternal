@@ -244,8 +244,7 @@ impl<F: FnMut(&str) -> bool> ServerSink for PollSink<'_, F> {
 }
 
 /// Authoritative UDP game port server (`export async function startUdpServer`).
-/// Authoritative UDP game server porting `createUdpServer(options)` from
-/// `packages/bfe-server/src/udp-server.js`.
+/// Authoritative UDP game server porting `createUdpServer(options)`.
 pub struct UdpGameServer {
     /// Non-blocking dual-stack UDP socket bound to the game port (`18451`).
     socket: UdpSocket,
@@ -460,8 +459,7 @@ impl UdpGameServer {
 
     /// Drains pending UDP datagrams from the non-blocking socket, advances `ServerEndpoint`
     /// handshakes and sessions, runs `GameSessionState` input/control/liveness logic, and returns
-    /// [`WorldPeerEvent`] items for the world tick thread (`startUdpServer` + `WorldRouter` in
-    /// `src/udp-server.js` and `src/game-session.js`).
+    /// [`WorldPeerEvent`] items for the world tick thread (`startUdpServer` + `WorldRouter`).
     /// Drains all available UDP datagrams from the socket, advances the `bfe_transport::Server`
     /// handshake/session state machine, enforces per-peer rate limits and idle timeouts, and
     /// returns the ordered list of `WorldPeerEvent`s for `NativeWorldHost`, porting the socket

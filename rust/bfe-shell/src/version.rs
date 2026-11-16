@@ -162,8 +162,7 @@ impl Generations {
 }
 
 /// Build and content-generation metadata passed to [`version_line`].
-/// Mirrors the `about` object (`{ version, wanted, prepared }`) in
-/// `src/shell/version.js`.
+/// Mirrors the `about` object (`{ version, wanted, prepared }`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct AboutInfo {
     /// Desktop or build version string (e.g. `"0.1.0-preview.4"` or `"0.2.0"`).
@@ -230,8 +229,7 @@ fn parse_preview_number(version: &str) -> Option<&str> {
 }
 
 /// Extracts the trailing ASCII digit run from a simulation contract identifier
-/// (e.g. `"bfe-sim-28"` -> `Some("28")`), matching `/(\d+)$/` in
-/// `src/shell/version.js`.
+/// (e.g. `"bfe-sim-28"` -> `Some("28")`), matching `/(\d+)$/`.
 fn trailing_digits(s: &str) -> Option<&str> {
     let start = s
         .as_bytes()
@@ -248,7 +246,7 @@ fn trailing_digits(s: &str) -> Option<&str> {
 }
 
 /// Formats the main menu's bottom-right version line:
-/// - Build identifier (`PREVIEW <N>`, `VERSION <VER>`, or `WEB BUILD`),
+/// - Build identifier (`PREVIEW <N>`, `VERSION <VER>`, or `DEVELOPMENT BUILD`),
 /// - Simulation contract (`SIMULATION <N>`),
 /// - Prepared game-data generations (`GAME DATA M<maps> S<sides> C<common>`,
 ///   with `(NEEDS M<maps> S<sides> C<common>)` when `prepared.current == Some(false)`,
@@ -256,14 +254,14 @@ fn trailing_digits(s: &str) -> Option<&str> {
 ///   joined by three spaces (`"   "`).
 pub fn version_line(about: Option<&AboutInfo>, simulation: Option<&str>) -> String {
     let mut parts = Vec::with_capacity(3);
-    // 1. Build segment: `PREVIEW <N>`, `VERSION <VER>`, or `WEB BUILD`.
+    // 1. Build segment: `PREVIEW <N>`, `VERSION <VER>`, or `DEVELOPMENT BUILD`.
     let ver = about.and_then(|a| a.version.as_deref()).unwrap_or("");
     if let Some(preview_num) = parse_preview_number(ver) {
         parts.push(format!("PREVIEW {preview_num}"));
     } else if !ver.is_empty() {
         parts.push(format!("VERSION {}", ver.to_ascii_uppercase()));
     } else {
-        parts.push("WEB BUILD".to_string());
+        parts.push("DEVELOPMENT BUILD".to_string());
     }
 
     // 2. Simulation contract segment: `SIMULATION <digits>` or uppercase name.
@@ -316,14 +314,14 @@ mod tests {
         assert_eq!(strict, relaxed);
         assert_eq!(strict.current, Some(true));
         let about = AboutInfo { prepared: Some(strict), wanted: Some(wanted), version: None };
-        assert_eq!(version_line(Some(&about), None), "WEB BUILD   SIMULATION 28   GAME DATA M16 S3 C2");
+        assert_eq!(version_line(Some(&about), None), "DEVELOPMENT BUILD   SIMULATION 28   GAME DATA M16 S3 C2");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
     fn formats_version_line_matching_js_exactly() {
         // Web build without desktop `about` metadata.
-        assert_eq!(version_line(None, None), "WEB BUILD   SIMULATION 28");
+        assert_eq!(version_line(None, None), "DEVELOPMENT BUILD   SIMULATION 28");
 
         // Preview build with current prepared content generations.
         let preview = AboutInfo {

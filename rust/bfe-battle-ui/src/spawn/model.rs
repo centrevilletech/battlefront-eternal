@@ -15,8 +15,7 @@ pub const HUMAN_COMMAND_LIMIT: usize = 16;
 /// (`NAME_LIMIT = 64`).
 pub const NAME_LIMIT: usize = 64;
 
-/// World commands emitted by the spawn screen and pause menu (`command.human` in
-/// `src/runtime/commands.js`).
+/// World commands emitted by the spawn screen and pause menu (`command.human`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HumanCommand {
     /// Switch to team `1..=7` while unspawned or awaiting spawn.
@@ -279,8 +278,7 @@ pub trait SpawnPort {
     fn set_view_shot(&mut self, shot: Option<CameraShot>);
 }
 
-/// Default front-line post selection algorithm (`FakeSpawnPort.choosePost` and
-/// `game.js`):
+/// Default front-line post selection algorithm (`FakeSpawnPort.choosePost`):
 /// 1. Keep `previous` if it is still eligible for `team`.
 /// 2. If `previous` exists in the post list (lost to the enemy), pick the
 ///    eligible post nearest `previous` in world space.

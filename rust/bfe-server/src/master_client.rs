@@ -264,8 +264,7 @@ impl MasterClient {
     /// Requests a single-use signal ticket via `POST /v1/signal-ticket` and opens the `/v1/signal`
     /// WebSocket (`async connect()`).
     /// Opens the persistent signaling WebSocket to the master server using a single-use ticket
-    /// from `POST /api/servers/ws-ticket`, porting `MasterClient.connect()` in
-    /// `packages/bfe-server/src/master-client.js`.
+    /// from `POST /api/servers/ws-ticket`, porting `MasterClient.connect()`.
     pub fn connect(&self, events_tx: Sender<MasterEvent>) -> Result<(), String> {
         let ticket_resp = self
             .request("/v1/signal-ticket", "POST", Some(&serde_json::json!({})), 0)
@@ -331,8 +330,7 @@ impl MasterClient {
     /// Requests short-lived TURN relay credentials via `POST /v1/relay-credentials`
     /// (`async credentials(serverId, peerId)`).
     /// Fetches ephemeral TURN relay credentials (`POST /api/turn/credentials`) and caches them
-    /// until `ttl / 2` before expiry, porting `MasterClient.credentials()` in
-    /// `packages/bfe-server/src/master-client.js`.
+    /// until `ttl / 2` before expiry, porting `MasterClient.credentials()`.
     pub fn credentials(
         &self,
         server_id: &str,

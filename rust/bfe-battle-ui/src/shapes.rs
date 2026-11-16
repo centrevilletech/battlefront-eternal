@@ -1,6 +1,5 @@
 //! Classic interface geometry, 9-slice containers, tilted plane projection,
 //! word wrapping, flashy title bar intro, and `GameFamily` selector (`src/interface/shapes.js`,
-//! `src/interface/space.js`, `src/interface/surface.js`, `src/interface/flashy.js`,
 //! `src/menus/themes/classic/draw.js`, `MULTIPLAYER.md`).
 
 use std::fmt;

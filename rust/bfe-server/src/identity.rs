@@ -125,8 +125,7 @@ pub fn verify(public_key_b64: &str, text: &str, signature_b64: &str) -> bool {
     verify_spki_base64(public_key_b64, text.as_bytes(), signature_b64)
 }
 
-/// Writes `bytes` to `path` with owner-only `0600` permissions (`mode: 0o600`,
-/// `src/bans.js`, and `src/operator.js`).
+/// Writes `bytes` to `path` with owner-only `0600` permissions (`mode: 0o600`).
 pub(crate) fn write_mode_600(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let mut opts = OpenOptions::new();
     opts.write(true).create(true).truncate(true);

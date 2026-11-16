@@ -11,7 +11,7 @@ use super::{ControlHost, Nav};
 use crate::ai::random::Random;
 
 /// A resolved follow/leader target: its identity token and the fields
-/// the helpers read (goto.js:722 `resolve`).
+/// the helpers read (`resolve`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Resolved {
     pub id: u64,

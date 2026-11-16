@@ -1,7 +1,5 @@
 //! Server compatibility, battle query sanitization, country/flag resolution,
-//! sponsor sanitization, and `GAME INFO` panel description
-//! (`src/shell/server-browser.js`, `src/shell/server-browser-view.js`,
-//! `src/runtime/battle-query.js`).
+//! sponsor sanitization, and `GAME INFO` panel description.
 
 use std::collections::BTreeMap;
 

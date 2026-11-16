@@ -48,8 +48,7 @@ impl MissionSpec {
     }
 }
 
-/// Immediate auto-spawn choice when the spawn screen is bypassed (`auto` in
-/// `src/spawn-screen/policy.js`).
+/// Immediate auto-spawn choice when the spawn screen is bypassed (`auto`).
 ///
 /// When present on [`SpawnPolicy`], the world confirms this team, class, and
 /// command post automatically at map load and after every death.

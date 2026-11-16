@@ -1,8 +1,7 @@
 // LAN server discovery over IPv4 broadcast and IPv6 link-local multicast
 // (`BFE-LAN/1` UDP protocol on port 18452).
 //
-// Ports the desktop host, the desktop host, and
-// `battlefront-eternal-server/src/lan.js`.
+// Ports the desktop host, the desktop host.
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6, UdpSocket};

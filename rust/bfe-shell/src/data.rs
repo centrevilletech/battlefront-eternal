@@ -56,8 +56,7 @@ pub const MOVIE_SCREENS: [(&str, &[&str]); 7] = [
 ];
 
 /// One movie clip `{ url, fade_in, fade_out }` returned by [`read_clip`].
-/// Mirrors the `{ url, fadeIn, fadeOut }` object returned by `readClip` in
-/// `src/shell/data.js`.
+/// Mirrors the `{ url, fadeIn, fadeOut }` object returned by `readClip`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MovieClip {
     /// Resolved content URL (e.g. `"/common/shell/movies/main.webm"`).
@@ -137,8 +136,7 @@ pub fn poster_still_for_movie(url: &str) -> Option<&'static str> {
 }
 
 /// One stage image and optional target rectangle `[x, y, w, h]` on a map's
-/// loading screen. Mirrors the `{ url, target }` entries in `readMapLoad` in
-/// `src/shell/data.js`.
+/// loading screen. Mirrors the `{ url, target }` entries in `readMapLoad`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LoadStage {
     /// Resolved content URL of the stage picture (`"/common/shell/load/..."`).
@@ -359,8 +357,7 @@ impl TextureFiles {
 }
 
 /// Normalized shell data returned by [`read_shell_data`].
-/// Mirrors the object returned by `readShellData(shell, common, raster)` in
-/// `src/shell/data.js`.
+/// Mirrors the object returned by `readShellData(shell, common, raster)`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ShellData {
     /// `true` when `shell.json` was absent or `null`.
@@ -475,8 +472,7 @@ pub fn read_clip(
     })
 }
 
-/// Returns per-screen `(intro_fades, loop_fades)` overrides from `OWN_FADES` in
-/// `src/shell/data.js`:
+/// Returns per-screen `(intro_fades, loop_fades)` overrides from `OWN_FADES`:
 /// - `"main"`: intro cuts straight into loop (`[0, 0]`), loop fades `[0, 0.5]`.
 /// - `"briefing"` and `"meta"`: intro fades both ways over 1 second (`[1, 1]`).
 fn own_screen_fades(id: &str) -> (Option<[f64; 2]>, Option<[f64; 2]>) {

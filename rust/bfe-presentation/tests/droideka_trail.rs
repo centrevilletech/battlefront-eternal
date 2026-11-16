@@ -1,5 +1,4 @@
-//! Synthetic droideka rolling dust trail tests ported from
-//! `tests/droideka-trail.test.js`.
+//! Synthetic droideka rolling dust trail tests.
 //!
 //! These cases exercise `bfe_presentation::unit_effects::trail::Trail`
 //! across outdoor paved vs. terrain opacity, cached floor/roof probes,
@@ -18,8 +17,7 @@
 use bfe_presentation::unit_effects::trail::Trail;
 use bfe_presentation::visual_effects_layout::{trail_frame as f, trail_particle as p};
 
-/// Synthetic environment and soldier state matching `fixture()` in
-/// `tests/droideka-trail.test.js`.
+/// Synthetic environment and soldier state matching `fixture()`.
 struct Fixture {
     trail: Trail,
     roof: bool,

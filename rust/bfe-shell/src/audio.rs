@@ -815,8 +815,7 @@ impl ShellAudioMixer {
     /// Schedules a loading screen sound plan (`LoadingTimeline::sounds()`) onto
     /// the `Frontend` DSP clock starting at `start_sec` on the mixer clock.
     ///
-    /// Mirrors `LoadingSound.schedule` and `LoadingSound.apply` in
-    /// `src/shell/loading-audio.js`.
+    /// Mirrors `LoadingSound.schedule` and `LoadingSound.apply`.
     pub fn schedule_loading_plan(&mut self, plan: &[PlannedSound], start_sec: f64) -> usize {
         // Ensure all four loading screen cues (`load_ytracking`, `load_xtracking`,
         // `load_zoom`, `load_transition`) have been resolved from `CoreSounds`
@@ -841,8 +840,7 @@ impl ShellAudioMixer {
             // Looping pulse (`load_ytracking` or `load_xtracking`): if joining
             // late (`now > at`), compute the phase offset within the loop cycle
             // `((begin - at) * pitch) % duration` and schedule a `STOP` (`0.01s`)
-            // fade-out ending at `end`, matching `LoadingSound.play` in
-            // `src/shell/loading-audio.js`.
+            // fade-out ending at `end`, matching `LoadingSound.play`.
             if let Some(end) = until {
                 if end <= now {
                     continue;

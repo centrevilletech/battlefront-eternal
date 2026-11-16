@@ -1,5 +1,4 @@
-//! Synthetic unit-foot plant and cold cycle-height tests ported from
-//! `tests/visual-feet.test.js`.
+//! Synthetic unit-foot plant and cold cycle-height tests.
 //!
 //! These cases exercise `bfe_presentation::feet::{heights, Content, Feet}`
 //! directly over synthetic JSON descriptors without requiring game assets.

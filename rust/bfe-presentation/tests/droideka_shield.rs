@@ -1,5 +1,4 @@
-//! Synthetic droideka shield bubble presentation tests ported from
-//! `tests/droideka-shield.test.js`.
+//! Synthetic droideka shield bubble presentation tests.
 //!
 //! These cases exercise `bfe_presentation::unit_effects::shield::Shield`
 //! across Classic activation growth, Enhanced interrupted pop transitions,

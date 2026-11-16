@@ -48,8 +48,7 @@ pub enum DirectConnectError {
 }
 
 impl DirectConnectError {
-    // Uppercase UI status text matching `parseDirectTarget` in
-    // `src/shell/direct-connect.js`.
+    // Uppercase UI status text matching `parseDirectTarget`.
     pub fn ui_text(self) -> &'static str {
         match self {
             Self::EmptyAddress => "ENTER AN IP ADDRESS",

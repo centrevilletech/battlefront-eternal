@@ -1,6 +1,5 @@
 //! Synthetic vehicle thrust, damage, destruction, dying-walker, and death-pose
-//! presentation tests ported from `tests/vehicle-effects.test.js` and
-//! `tests/walker-dying.test.js`.
+//! presentation tests.
 //!
 //! These cases exercise `bfe_presentation::vehicle_effects::Vehicles` and
 //! `bfe_presentation::vehicles::Vehicles` over synthetic descriptors and rigs
