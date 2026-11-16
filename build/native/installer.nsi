@@ -53,12 +53,13 @@ Section "Install" SecInstall
   SetShellVarContext current
   ; Preview 331 and older (the Electron builds) installed into this folder too, with an
   ; uninstaller of the same name and an uninstall entry of their own. Run that uninstaller
-  ; first, silently and in place: it removes the Electron files, its shortcuts and its entry.
+  ; first, silently and in place, as the per-user install it is (its uninstall entry passes
+  ; /currentuser): it removes the Electron files, its shortcuts and its entry.
   ; /updated keeps the update folder; the player's settings and game data in %APPDATA% are
   ; never touched by it.
   IfFileExists "$INSTDIR\Battlefront Eternal.exe" 0 no_electron
   IfFileExists "$INSTDIR\${UNINSTALLER_NAME}" 0 no_electron
-    ExecWait '"$INSTDIR\${UNINSTALLER_NAME}" /S /updated _?=$INSTDIR'
+    ExecWait '"$INSTDIR\${UNINSTALLER_NAME}" /S /currentuser /updated _?=$INSTDIR'
     Delete "$INSTDIR\${UNINSTALLER_NAME}"
   no_electron:
   SetOutPath "$INSTDIR"
