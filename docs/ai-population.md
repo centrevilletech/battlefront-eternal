@@ -295,7 +295,7 @@ Teams 3 to 7 are the locals: a mission names one (`SetTeamName(3,
 gives it classes and a unit count, and sets how it stands with the armies
 (`SetTeamAsFriend` / `SetTeamAsEnemy`; without a call two teams are
 enemies). The battle fields them through the same modules in single player,
-in a world worker, on a server and on a hosting desktop:
+on the client's local world thread, on a server and on a hosting desktop:
 
 - **Who fights whom:** `missionTeams` (`rust/sim`, over the
   native `ai_mission_teams`, `rust/sim/src/ai/owned/entry.rs`) gives each

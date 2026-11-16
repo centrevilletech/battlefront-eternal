@@ -142,7 +142,7 @@ camera. Engine coverage (`rust/sim` (`vehicles`), `rust/sim` (`seats`), `docs/fo
 | Riders in the open struck and killed by rounds, their seat let go (hash `2b60e217`) | implemented | `rust/bfe-pose/src/rig/rider.rs`, `rust/bfe-presentation (unit_collision.rs)`, `rust/sim` (`units::registry`) and `rust/sim` (`seats::boarding`) `leaveKilled`; placed turrets' gunners too, blasts included (`Turret.exposedSeat`, `SeatLease.blastable`) |
 | Aimers, barrels taking turns, fire points, beams per barrel | implemented | `muzzleOf`, `aimSeats` |
 | Flight model (take-off, landing, MinSpeed/MidSpeed, StrafeSpeed, ceilings) | implemented | `docs/vehicles.md` |
-| Hover and walker movement, the droideka ball | implemented | `rust/bfe-pose` (`rig::droideka`), walker code in `vehicles.js` |
+| Hover and walker movement, the droideka ball | implemented | `rust/bfe-pose` (`rig::droideka`), walker code in `rust/sim` (`vehicles`) |
 | Tow cable | implemented | docs/vehicles.md |
 | Cockpit models (`FirstPerson`) | missing | hull hidden instead |
 | Damage smoke stages | implemented | #9 |

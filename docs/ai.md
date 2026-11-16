@@ -3,7 +3,7 @@
 This file is the working contract for the **Classic** AI in this repository,
 the 2004 game's bot behavior written in our own code: the runtime objects the
 AI reads and writes, the tick order, and the extracted data. Enhanced AI
-(`?ai=enhanced`) is a separate mode built on the same native machinery; see
+is a separate mode built on the same native machinery; see
 [ai-enhanced.md](ai-enhanced.md).
 
 Rules that apply to every change:
@@ -177,13 +177,11 @@ owner (`rust/sim`, `rust/sim/src/ai/owned/entry.rs` and `load.rs`),
 builds the initial roster, and returns an object whose `prepare(dt, tick)`
 writes the AI's inputs for the next tick (for `enhanced` the native owner runs
 the Enhanced pieces, [ai-enhanced.md](ai-enhanced.md)). Each simulation step,
-`Game.step` (`rust/sim` (`game`)) calls `ai.prepare` and then the native world tick
+The world tick calls `ai.prepare` and then the native world tick
 (`world_step_run`, `rust/sim/src/world/step.rs`), which runs the AI phase
 before the unit phase. `update(dt, tick)` runs the AI phase alone, for tools
 and tests. The mode,
-difficulty and heroes are Options settings; URL parameters override them:
-`?ai=classic|enhanced|off`, `?tier=easy|medium|hard`, `?seed=`,
-`?heroes=1`.
+difficulty and heroes are Options settings.
 
 Character fields in use: `index, team, human, className, unit, controller,
 objective, kills, deaths, diedAt`. At death the Character drops its unit at
@@ -383,7 +381,7 @@ At ease, F2 Follow, F3 Move out and F4 Hold. The default battle AI is Off.
 Play-testing found large groups of bots that stopped moving, offline and on
 hosted servers. Headless measurements reproduced it before the AI moved
 to Rust (it does not run against the native AI): whole Classic
-battles in the native simulation runner (the world worker's and the dedicated server's code,
+battles in the native simulation runner (the local world thread's and the dedicated server's code,
 faster than real time), every bot sampled once a game second. A bot is
 stuck when it has lived a whole 10 s window without leaving a 1 m ball and
 was not holding still on purpose: in a turret or passenger seat, at a snipe
@@ -394,8 +392,8 @@ bot-seconds per minute, the most stuck at once, and the stuck bots grouped
 by AI state with examples (goal, queue, agent and helper states, path
 executor, planner slot, target, job, posture, contacts):
 
-What kept bots standing, all in the shared runtime that single player (page
-or world worker) and the server both run (the flyers' pads are tested in
+What kept bots standing, all in the shared runtime that single player (the
+client's local world thread) and the server both run (the flyers' pads are tested in
 `cargo test --locked --workspace`), details in the area docs (paths under
 `rust/sim/src/ai/` unless given in full):
 
@@ -468,8 +466,8 @@ original game. Per-area documents retain the known/unknown distinctions and
 remaining approximations. In particular:
 
 - Full match comparisons against the original game and coupled-clock
-  equivalence remain to be measured. Synthetic numerical fixtures and browser
-  smoke tests prove their stated scope only.
+  equivalence remain to be measured. Synthetic numerical fixtures and smoke
+  tests prove their stated scope only.
 - The original's entity-grid visiting order is approximated for capped
   broadphase queries. Class-job, melee and radar geometry use available
   runtime bounds.

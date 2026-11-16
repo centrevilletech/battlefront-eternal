@@ -126,7 +126,7 @@ its own in `world.spawnScreen` (`rust/content` (`mission`)), where the screen re
   Soldiers face +z instead, which is why the player camera adds π of yaw
   (`rust/bfe-presentation` (`cameras`)). A shot needs no such turn.
 - Checked by placing the game's camera at all 18 shots of the six extracted
-  maps (headless SwiftShader). Every one frames a deliberate view: the Theed
+  maps (headless). Every one frames a deliberate view: the Theed
   plaza, Echo Base's hangar, the Geonosis war room. Turning by π, or
   mirroring z, points them at walls and sky.
 

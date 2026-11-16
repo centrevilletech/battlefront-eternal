@@ -38,7 +38,7 @@ and its scheduler calling the combat services (`CombatAi`,
      controller `alert_controllers(target)` finds: the unit's own, a seated
      soldier's seat control, and every AI crew control of a vehicle or a
      turret, as in the original game). A turret's damage reaches the journal
-     through `Turret.onDamaged` (game.js), a round's with its damage, factors
+     through the turret's damage hook, a round's with its damage, factors
      and the 30 m back-projection, so a gunner hears his turret being hit.
    - At a scheduler cycle wrap: `broadcast_acoustic(humanUnit, world)` for
      every human, and `rebuild_protected()` (protected humans).
@@ -474,7 +474,7 @@ pace.
   rate with NaN) and restarts on non-finite input. Safe-port divergence.
 - Mounted aim is filtered before the seat input batch; on-foot aim runs after
   soldier movement and before firing. Full parity with the original's
-  coupled clock is not claimed by the browser battle checks.
+  coupled clock is not claimed by the battle checks.
 - `weapons_ai.rs weapon_utility` tests the weapon's category mask only for a
   soldier's soldier target; other targets go by the damage rules alone, as
   in the original. A wider mask test would leave the Hoth turrets' gunners

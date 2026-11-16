@@ -365,8 +365,7 @@ and each add-on's `Movies/*.mvs`) with its own decoder, so the preparation
 only lists them in `common/shell/movies/manifest.json`, in about a second.
 The client finds the game folder through the one the player chose, the
 preparation records, or `BFE_GAME_DIR`; when none holds the movies, the
-menus play without them. (The Electron build's preparation still converts
-them to WebM, the `movies` step, with ffmpeg built with Bink, VP9 and Opus.)
+menus play without them.
 
 Steps run as soon as what they are after is done and the cores allow: the
 sides and maps several at once (one process each, as many as memory

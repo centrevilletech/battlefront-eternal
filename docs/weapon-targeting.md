@@ -137,11 +137,9 @@ infantry launcher schedules when local extracts exist. The synthetic frozen
 weapon corpus checks 3,880 native timer, charge, lock-reset, salvo, spread and
 shot checkpoints against recorded results.
 Native acquisition and crew-team changes are exercised by
-`cargo test --locked --workspace` and `cargo test --locked --workspace`; page scope alignment
-uses the published basis in `cargo test --locked --workspace`.
-`cargo test --locked --workspace` runs with the world in its
-worker and 144 Hz presentation: the displayed aim stays aligned in both views
-while authoritative packets are pending.
+`cargo test --locked --workspace`; the client's scope alignment uses the
+published basis, and the displayed aim stays aligned in both views while
+authoritative packets are pending.
 
 Vehicle targeting still uses the port's existing collision-bounds aim
 point. The original game's per-vehicle subtarget selection is not yet

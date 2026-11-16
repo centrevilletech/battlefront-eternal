@@ -14,12 +14,10 @@ ignored `public/common/raster-hud/`. Without Pillow or generated atlases, the
 game retains native raster art. Existing traced SVG files are ignored at runtime.
 The fixed 4× size avoids repeated atlas reallocations when resizing the window.
 
-Validation: `python -m unittest discover -s tests -p test_raster_hud.py` and,
-with the native client running, `cargo test --locked --workspace` 
-Playwright is installed outside the repo).
+Validation: `python -m unittest discover -s tests -p test_raster_hud.py`.
 
 The following documents the older optional tracing experiment, retained for
-reference. The unused browser atlas loader and its browser check have been removed.
+reference. Nothing at runtime loads the traced atlases.
 
 `tools/vectorize_hud.py` is an optional post-extraction step. It traces the
 original HUD art into SVG paths and bitmap font glyphs into SVG outlines and

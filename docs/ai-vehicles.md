@@ -857,9 +857,7 @@ historical headless measurements, docs/ai.md "Stuck bots"; paths under
 or passes an AT-AT) measures the tow-cable run.
 
 `cargo test` in `rust/sim`: `rust/sim/src/ai/owned/tests/phase.rs` covers support keys and selection.
-`cargo test --locked --workspace`, `cargo test --locked --workspace`,
-`cargo test --locked --workspace` and `cargo test --locked --workspace` (with
-`PLAYWRIGHT_MODULE` set) cover the player's paths.
+`cargo test --locked --workspace` covers the player's paths.
 
 Regressions cover seeded turret projectile spread, lease-scoped beams, human
 takeover of AI weapon settings, and destruction/rebuild target generations.

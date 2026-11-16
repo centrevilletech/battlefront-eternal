@@ -158,18 +158,9 @@ raster submission.
   rebuilt every frame; the chest point itself is kept for the frame. The
   channel's displacement and a line's joint normals are written as plain
   arithmetic in the same order as `rust/three`'s vector methods (the same bits).
-- Where the SwiftShader time goes, measured: the fragments that reach the
-  output. Fragments rasterized and let go (about 70% of a capsule's quad:
-  the joint planes and the brightness cut) cost next to nothing there, and
-  the kept ones are the visible glow, 6 to 7 deep where children, branches
-  and flares overlap. No change that keeps the look moves that much under
-  software GL; on a hardware GPU 190k blended fragments are well under a
-  millisecond, and the frame's CPU time is what matters. Tightening the quad to
-  the glow's reach or clipping joints in image space (tried) cut rasterized
-  fragments 25 to 50% but moved single-pixel seams at the joints (the
-  rasterizer snaps corners to a sub-pixel grid; the seams exist today and
-  move when corners move), so they are not pixel-identical and were left
-  for a measurement on a real GPU.
+- Tightening the quad to the glow's reach or clipping joints in image space
+  (tried) cut rasterized fragments 25 to 50% but moved single-pixel seams
+  at the joints, so they were left out.
 
 A failure inside the Enhanced look is reported once (in the log) and the
 look starts clean; it never stops the battle.

@@ -22,7 +22,7 @@ units/vehicles/recon/separation, live objects, ordnance, items, the battle tail
 and grenade dangers, returning a generated `WorldTickOutput`.
 
 `rust/sim/src/world/owner.rs` owns the canonical store, collision, movement,
-pose, AI, fleet, unit, combat, ordnance, battle, input, wire and page services.
+pose, AI, fleet, unit, combat, ordnance, battle, input and wire services.
 Internal calls borrow those owners. Damage, death, boarding and shot callbacks
 keep their original observation order. Completed publication commits changed
 rows against the host's consumed baseline.

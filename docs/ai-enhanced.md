@@ -14,7 +14,7 @@ post, and aim that differs by team. This is its first slice, not the whole
 of the planned design (see "Not yet").
 
 Choose it in Options, Game, BATTLE AI (OFF, CLASSIC, ENHANCED; it applies on
-Restart battle), or with `?ai=enhanced`. DIFFICULTY's EASY, NORMAL and ELITE
+Restart battle). DIFFICULTY's EASY, NORMAL and ELITE
 are Enhanced's Easy, Normal and Hard.
 
 Classic is unchanged. Enhanced is a flag on the same native core: it
