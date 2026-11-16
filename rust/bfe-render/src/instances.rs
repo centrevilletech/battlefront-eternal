@@ -201,13 +201,15 @@ impl<C: HasContext> InstancePass<C> {
             row[shader::ROW_COUNTS * 4 + 1] = bone_cursor as f32;
             if skinned {
                 let at = rec[REC_BONE_AT] as usize * 16;
-                // The bind inverse goes into each bone row here; the vertex stage takes it as the identity
-                // (shader.rs INSTANCE_VERTEX_LOAD). In f32 inputs, as the shader multiplied them.
+                // The bind inverse and bind matrices go into each bone row here (bindInverse * bone * bind);
+                // the vertex stage takes both as the identity (shader.rs INSTANCE_VERTEX_LOAD). In f32 inputs,
+                // as the shader multiplied them.
                 let inverse: [f64; 16] = std::array::from_fn(|k| rec[REC_BIND_INVERSE + k] as f32 as f64);
+                let bind: [f64; 16] = std::array::from_fn(|k| rec[REC_BIND + k] as f32 as f64);
                 for b in 0..bone_count {
                     let from = &bones[at + b * 16..at + (b + 1) * 16];
                     let bone: [f64; 16] = std::array::from_fn(|k| from[k] as f64);
-                    let folded = math::mul(&inverse, &bone);
+                    let folded = math::mul(&math::mul(&inverse, &bone), &bind);
                     for k in 0..16 {
                         self.bone_upload[(bone_cursor + b) * 16 + k] = folded[k] as f32;
                     }
