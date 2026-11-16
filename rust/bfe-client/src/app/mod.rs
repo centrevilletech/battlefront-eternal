@@ -1690,15 +1690,11 @@ impl StandaloneWindowApp {
             }
             ShellTransition::StartOnline(launch) => {
                 // Configure the planet loading screen for the selected online server and transition.
-                // A direct join does not know the battle until the server answers: the neutral
+                // Which battle runs is known once the server itself answers (a direct join has no
+                // battle, and the list's may be a minute behind a battle change): the neutral
                 // backdrop until then (the loading worker names the map).
                 if let Some(shell) = &mut self.shell {
-                    let map_id = if launch.map.is_empty() || launch.server_id.starts_with("direct-") {
-                        ""
-                    } else {
-                        launch.map.as_str()
-                    };
-                    shell.prepare_map_loading(map_id, &self.audio_router);
+                    shell.prepare_map_loading("", &self.audio_router);
                 }
                 self.state = AppState::BattleLoading {
                     target: BattleLoadTarget::Online { launch },

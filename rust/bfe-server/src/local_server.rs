@@ -166,12 +166,13 @@ impl LocalDedicatedServer {
             )
         };
         let (udp, info_listener) = if let Some(port) = port {
-            // The previous battle's port: the same sockets, set for this battle.
+            // The previous battle's port: the same sockets, set for this battle. Its announcement
+            // of this battle (pending_match) is cleared by the caller once the online
+            // registration names this battle.
             {
                 let mut u = port.udp.lock().unwrap();
                 u.content = content_id.clone();
                 u.fingerprint = fp.clone();
-                u.pending_match = None;
             }
             (port.udp, port.info)
         } else if game_port == 0 {
