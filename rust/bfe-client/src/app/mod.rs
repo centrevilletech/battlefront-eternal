@@ -223,9 +223,6 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         eprintln!("update available: {version} ({kind})");
     }
 
-    // Linked shader programs between runs, where the driver offers them.
-    bfe_render::program_cache::set_dir(settings.paths.user_data.join("program-cache"));
-
     // 3. Resolve prepared content or start a background `PrepareSession`.
     let startup_content = StartupContentState::begin(opts.content_dir.as_deref(), &settings);
 

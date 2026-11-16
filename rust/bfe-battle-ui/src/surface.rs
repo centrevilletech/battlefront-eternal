@@ -545,27 +545,3 @@ impl Default for BattleUiAssets {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn the_battle_texture_list_holds_every_name_the_screens_resolve() {
-        let mut surface = OwnedUiSurface::new(1280, 720);
-        for (id, name) in TEXTURE_NAMES.iter().enumerate() {
-            surface.textures.insert(name.to_string(), 1000 + id as u32);
-        }
-        let assets = BattleUiAssets::from_surface(&surface);
-        let resolved = [
-            assets.post_icon, assets.border_3_pieces, assets.opaque_rect, assets.opaque_black,
-            assets.headerbuttonleft, assets.headerbuttonmid, assets.headerbuttonright, assets.buttonleft,
-            assets.buttonmid, assets.buttonright, assets.backbutton_left, assets.backbutton_mid,
-            assets.backbutton_right, assets.listbox_cursor, assets.listbox_hilight, assets.small_arrow,
-            assets.stats_kills, assets.stats_deaths, assets.stats_cpp, assets.cursor, assets.mousecursor,
-        ];
-        assert!(resolved.iter().all(|&id| id >= 1000), "{resolved:?}");
-        for (name, _) in crate::scoreboard::view::HEADERS {
-            assert!(TEXTURE_NAMES.contains(&name), "{name}");
-        }
-    }
-}

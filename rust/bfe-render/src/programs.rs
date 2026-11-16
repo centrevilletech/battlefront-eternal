@@ -103,9 +103,7 @@ impl<G: HasContext, M: MultiDraw> Core<G, M> {
         self.programs[id as usize].depth_clamp = clamp;
         let gl = &self.gl;
         let program = self.programs[id as usize].program;
-        // A program from the cache was checked when it was first linked from this source.
-        let cached = self.last_cached.as_ref().is_some_and(|(hit, _)| *hit);
-        let validation = if cached { Ok(()) } else { (|| unsafe {
+        let validation = (|| unsafe {
             // glow's per-uniform block-index query is unsupported on WebGL.
             // Enumerate each block's member indices through the portable API.
             let count = gl.get_active_uniforms(program);
@@ -157,11 +155,8 @@ impl<G: HasContext, M: MultiDraw> Core<G, M> {
                 }
             }
             Ok(())
-        })() };
+        })();
         if let Err(error) = validation {
-            if let Some((_, entry)) = &self.last_cached {
-                crate::program_cache::forget(entry);
-            }
             self.programs.pop();
             unsafe { gl.delete_program(program); }
             return Err(error);
