@@ -1181,37 +1181,54 @@ impl BattleController {
             });
         }
 
-        // Probe `/info` and prepare the authenticated endpoint (`online::info::prepare`),
-        // trying each target until one answers. The first error from a server
-        // that answered explains more than an unreachable address does.
+        // Probe `/info` and prepare the authenticated endpoint (`online::info::prepare`), trying
+        // each target in turn. A server changing battle or restarting may not answer for a moment:
+        // while every target fails that way, try again for up to ten seconds. The first error from
+        // a server that answered explains more than an unreachable address does.
         let id_path = crate::online::info::default_identity()?;
+        let started = std::time::Instant::now();
         let mut failure: Option<(bool, String)> = None;
         let mut admitted = None;
-        for target in &targets {
-            match crate::online::info::prepare(
-                target,
-                content_dir,
-                &id_path,
-                &settings.player.profile_name,
-                launch.listed_identity(),
-            ) {
-                Ok(ready) => {
-                    eprintln!("online join: {target} answered");
-                    admitted = Some((target.clone(), ready));
-                    break;
-                }
-                Err(error) => {
-                    eprintln!("online join: {target}: {error}");
-                    let answered = !crate::online::info::unreachable(&error);
-                    if failure.as_ref().is_none_or(|(had, _)| answered && !had) {
-                        failure = Some((answered, error));
+        'rounds: loop {
+            let mut retry = true;
+            for target in &targets {
+                match crate::online::info::prepare(
+                    target,
+                    content_dir,
+                    &id_path,
+                    &settings.player.profile_name,
+                    launch.listed_identity(),
+                ) {
+                    Ok(ready) => {
+                        eprintln!("online join: {target} answered");
+                        admitted = Some((target.clone(), ready));
+                        break 'rounds;
+                    }
+                    Err(error) => {
+                        eprintln!("online join: {target}: {error}");
+                        retry &= crate::online::info::transient(&error);
+                        let answered = !crate::online::info::unreachable(&error);
+                        if failure.as_ref().is_none_or(|(had, _)| answered && !had) {
+                            failure = Some((answered, error));
+                        }
                     }
                 }
             }
+            if !retry || started.elapsed() >= std::time::Duration::from_secs(10) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
         }
         let (target, (server_info, endpoint)) = match admitted {
             Some(ready) => ready,
-            None => return Err(failure.map(|(_, e)| e).unwrap_or_default()),
+            None => {
+                let error = failure.map(|(_, e)| e).unwrap_or_default();
+                return Err(if crate::online::info::transient(&error) {
+                    "The server did not answer: it may be changing battle or restarting. Try again in a moment.".to_string()
+                } else {
+                    error
+                });
+            }
         };
 
         let graphics = Scene::prepare_online(content_dir, &server_info.query,textures)?;

@@ -392,6 +392,7 @@ fn launch_match(
     control: &Arc<ServiceControl>,
     started_at: u64,
     match_token: Option<&str>,
+    port: Option<bfe_server::local_server::GamePort>,
 ) -> Result<(), String> {
     *control.status.write().unwrap() = "loading".to_string();
     let identity = ServerIdentity::load(directory)?;
@@ -430,6 +431,7 @@ fn launch_match(
         is_banned,
         on_score,
         match_token,
+        port,
     ) {
         Ok(local) => {
             let query = local.query.clone();
@@ -557,7 +559,7 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
         *control.error.write().unwrap() = Some(why.clone());
         eprintln!("bfeserver: not hosting a match: {why}");
     } else if let Err(err) =
-        launch_match(directory, &config, &operator, &control, started_at, None)
+        launch_match(directory, &config, &operator, &control, started_at, None, None)
     {
         *control.status.write().unwrap() = "fault".to_string();
         *control.error.write().unwrap() = Some(err.clone());
@@ -603,10 +605,8 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
             if let Some(online) = online {
                 online.close();
             }
-            let local = control.local.lock().unwrap().take();
-            if let Some(mut local) = local {
-                local.close();
-            }
+            // The game port outlives the battle: the next battle takes it over.
+            let port = control.local.lock().unwrap().take().map(LocalDedicatedServer::hand_over);
             match launch_match(
                 directory,
                 &next.config,
@@ -614,6 +614,7 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
                 &control,
                 started_at,
                 Some(&next.token),
+                port,
             ) {
                 Ok(()) => eprintln!("battle rotation ready: query={}", next.query),
                 Err(err) => {
