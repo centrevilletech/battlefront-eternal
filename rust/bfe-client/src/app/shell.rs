@@ -548,7 +548,11 @@ pub struct ShellHost {
     pub loading_peak_ms: f64,
     pub(super) loading_overlay: Option<(String, String)>,
     battle_loading_started: Instant,
-    loading_stage_maps: HashMap<String, Vec<StageTexture>>,
+    // The map whose loading pictures are in `textures.loading_stages`, and
+    // their GL textures: one map's at a time (four 1024-pixel images).
+    stage_map: Option<(String, Vec<glow::Texture>)>,
+    // The current menu theme's full-window pattern (`page.patterns`).
+    pattern: Option<glow::Texture>,
     // GL textures the loaded content made, deleted when other content replaces it.
     content_textures: Vec<glow::Texture>,
     content_fonts: Vec<glow::Texture>,
@@ -672,7 +676,8 @@ impl ShellHost {
             loading_peak_ms: 0.,
             loading_overlay: None,
             battle_loading_started: Instant::now(),
-            loading_stage_maps: HashMap::new(),
+            stage_map: None,
+            pattern: None,
             content_textures: Vec::new(),
             content_fonts: Vec::new(),
             content_dir: None,
@@ -695,8 +700,8 @@ impl ShellHost {
             include_bytes!("../../assets/fonts/saira-600.ttf").as_slice(),
             include_bytes!("../../assets/fonts/saira-500.ttf").as_slice(),
         ] {
-            let (rgba, mut font) = super::page_font::atlas(bytes)?;
-            let texture = Self::upload_page_font(&self.core.gl, &rgba)?;
+            let (alpha, mut font) = super::page_font::atlas(bytes)?;
+            let texture = Self::upload_page_font(&self.core.gl, &alpha)?;
             let handle = self.core.add_texture(texture);
             for glyph in font.glyphs.values_mut() {
                 glyph.page = handle;
@@ -726,8 +731,8 @@ impl ShellHost {
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         let mono: Option<std::path::PathBuf> = None;
         if let Some(bytes) = mono.and_then(|p| std::fs::read(p).ok()) {
-            if let Ok((rgba, mut font)) = super::page_font::atlas(&bytes) {
-                let texture = Self::upload_page_font(&self.core.gl, &rgba)?;
+            if let Ok((alpha, mut font)) = super::page_font::atlas(&bytes) {
+                let texture = Self::upload_page_font(&self.core.gl, &alpha)?;
                 let handle = self.core.add_texture(texture);
                 for glyph in font.glyphs.values_mut() {
                     glyph.page = handle;
@@ -740,13 +745,6 @@ impl ShellHost {
             .max(28.) as usize;
         let button_h = (self.layout_size[1] as f64 * 0.056).clamp(38., 56.).round() as usize;
         self.page.button_source = [button_w as f64, button_h as f64];
-        for look in 0..3 {
-            let w = (self.layout_size[0] as f64).round() as usize;
-            let h = (self.layout_size[1] as f64).round() as usize;
-            let rgba = super::page_surfaces::pattern(w, h, look);
-            let texture = Self::upload_rgba(&self.core.gl, w as i32, h as i32, &rgba)?;
-            self.page.patterns[look] = self.core.add_texture(texture);
-        }
         for look in 0..3 {
             for selected in [false, true] {
                 let rgba = super::page_surfaces::button(button_w, button_h, look, selected);
@@ -769,8 +767,8 @@ impl ShellHost {
         settings: &AppSettingsStore,
         audio_router: &SharedAudioRouter,
     ) -> Result<(), String> {
-        self.loading_stage_maps.clear();
         let mut retired = std::mem::take(&mut self.content_textures);
+        retired.extend(self.stage_map.take().into_iter().flat_map(|(_, made)| made));
         let made = std::cell::RefCell::new(Vec::new());
         let data = load_shell_data_from_dir(content_dir);
         let mut lib = Library::new(content_dir, false, 4096, 0)?;
@@ -852,28 +850,12 @@ impl ShellHost {
             .iter()
             .find(|m| m.id == "nab2")
             .or_else(|| data.maps.first());
-        let mut stage_targets = Vec::new();
         if let Some(map) = load_map {
-            if let Some(load_meta) = &map.load {
-                let total = load_meta.stages.len();
-                for (i, stage) in load_meta.stages.iter().enumerate() {
-                    if let Some((handle, w, h)) = upload_path(&stage.url) {
-                        let wf = w.max(1) as f64;
-                        let hf = h.max(1) as f64;
-                        let target = if i + 1 < total { stage.target } else { None };
-                        textures.loading_stages.push(StageTexture {
-                            texture: handle,
-                            width: wf,
-                            height: hf,
-                            target,
-                        });
-                        stage_targets.push(target.map(|t| {
-                            [t[0] / wf, t[1] / hf, (t[0] + t[2]) / wf, (t[1] + t[3]) / hf]
-                        }));
-                    }
-                }
-            }
+            let (stages, made) = Self::upload_stages(&mut self.core, &mut lib, map);
+            textures.loading_stages = stages;
+            self.stage_map = Some((map.id.clone(), made));
         }
+        let mut stage_targets = Self::stage_targets(&textures.loading_stages);
         if stage_targets.is_empty() {
             stage_targets = vec![
                 Some([0.2, 0.3, 0.25, 0.35]),
@@ -1317,61 +1299,84 @@ impl ShellHost {
         self.movies_suspended = true;
     }
 
+    /// Only the menu theme on screen keeps its full-window pattern; another
+    /// theme's is made when the player picks it.
+    fn ensure_theme_pattern(&mut self) {
+        let look = bfe_shell::page::look_index(&self.app.settings.menu_theme);
+        if self.page.patterns[look] != 0 {
+            return;
+        }
+        if let Some(old) = self.pattern.take() {
+            unsafe { self.core.gl.delete_texture(old) };
+        }
+        self.page.patterns = [0; 3];
+        let w = self.layout_size[0].max(1) as usize;
+        let h = self.layout_size[1].max(1) as usize;
+        let rgba = super::page_surfaces::pattern(w, h, look);
+        if let Ok(texture) = Self::upload_rgba(&self.core.gl, w as i32, h as i32, &rgba) {
+            self.pattern = Some(texture);
+            self.page.patterns[look] = self.core.add_texture(texture);
+        }
+    }
+
+    /// Decodes and uploads one map's loading pictures; the last stage zooms nowhere.
+    fn upload_stages(
+        core: &mut Core<glow::Context, Ranges>,
+        images: &mut Library,
+        map: &bfe_shell::data::ShellMap,
+    ) -> (Vec<StageTexture>, Vec<glow::Texture>) {
+        let (mut stages, mut made) = (Vec::new(), Vec::new());
+        let Some(metadata) = &map.load else { return (stages, made) };
+        for (index, stage) in metadata.stages.iter().enumerate() {
+            let Ok(id) = images.load(stage.url.trim_start_matches('/')) else { continue };
+            let image = &images.images[id];
+            let Ok(texture) = Self::upload_rgba(&core.gl, image.width as i32, image.height as i32, &image.data) else { continue };
+            made.push(texture);
+            stages.push(StageTexture {
+                texture: core.add_texture(texture),
+                width: image.width.max(1) as f64,
+                height: image.height.max(1) as f64,
+                target: if index + 1 < metadata.stages.len() { stage.target } else { None },
+            });
+        }
+        (stages, made)
+    }
+
+    /// Each stage's zoom target as a fraction of its picture.
+    fn stage_targets(stages: &[StageTexture]) -> Vec<Option<[f64; 4]>> {
+        stages
+            .iter()
+            .map(|stage| {
+                stage.target.map(|rect| {
+                    [
+                        rect[0] / stage.width,
+                        rect[1] / stage.height,
+                        (rect[0] + rect[2]) / stage.width,
+                        (rect[1] + rect[3]) / stage.height,
+                    ]
+                })
+            })
+            .collect()
+    }
+
     pub fn prepare_map_loading(&mut self, map_id: &str, audio_router: &SharedAudioRouter) {
         self.suspend_movies();
         if let Some(map) = self.app.data.maps.iter().find(|m| m.id == map_id) {
             self.loading_planet = planet_name(&map.id, &self.app.data.strings, map.load.as_ref());
-            if !self.loading_stage_maps.contains_key(map_id) {
-                let mut stages = Vec::new();
-                if let (Some(root), Some(metadata)) = (&self.content_dir, &map.load) {
+            if self.stage_map.as_ref().is_none_or(|(id, _)| id != map_id) {
+                for texture in self.stage_map.take().into_iter().flat_map(|(_, made)| made) {
+                    unsafe { self.core.gl.delete_texture(texture) };
+                }
+                self.textures.loading_stages.clear();
+                if let Some(root) = &self.content_dir {
                     if let Ok(mut images) = Library::new(root, false, 4096, 0) {
-                        for (index, stage) in metadata.stages.iter().enumerate() {
-                            if let Ok(id) = images.load(stage.url.trim_start_matches('/')) {
-                                let image = &images.images[id];
-                                if let Ok(texture) = Self::upload_rgba(
-                                    &self.core.gl,
-                                    image.width as i32,
-                                    image.height as i32,
-                                    &image.data,
-                                ) {
-                                    self.content_textures.push(texture);
-                                    stages.push(StageTexture {
-                                        texture: self.core.add_texture(texture),
-                                        width: image.width as f64,
-                                        height: image.height as f64,
-                                        target: if index + 1 < metadata.stages.len() {
-                                            stage.target
-                                        } else {
-                                            None
-                                        },
-                                    });
-                                }
-                            }
-                        }
+                        let (stages, made) = Self::upload_stages(&mut self.core, &mut images, map);
+                        self.textures.loading_stages = stages;
+                        self.stage_map = Some((map_id.to_string(), made));
                     }
                 }
-                self.loading_stage_maps.insert(map_id.into(), stages);
             }
-            self.textures.loading_stages = self
-                .loading_stage_maps
-                .get(map_id)
-                .cloned()
-                .unwrap_or_default();
-            let targets = self
-                .textures
-                .loading_stages
-                .iter()
-                .map(|stage| {
-                    stage.target.map(|rect| {
-                        [
-                            rect[0] / stage.width,
-                            rect[1] / stage.height,
-                            (rect[0] + rect[2]) / stage.width,
-                            (rect[1] + rect[3]) / stage.height,
-                        ]
-                    })
-                })
-                .collect();
+            let targets = Self::stage_targets(&self.textures.loading_stages);
             self.loading_timeline = LoadingTimeline::new(
                 self.app.data.load.track,
                 self.app.data.load.zoom,
@@ -1582,6 +1587,7 @@ impl ShellHost {
         {
             self.page.discord_asked = true;
         }
+        self.ensure_theme_pattern();
         if self.page_active() {
             self.page.draw(
                 &mut self.batch,
@@ -2462,21 +2468,47 @@ impl ShellHost {
     }
 
     /// Creates a linear-filtered `CLAMP_TO_EDGE` 2D OpenGL texture from raw RGBA8 bytes.
+    /// A page font's coverage as one channel (a quarter of RGBA's memory),
+    /// sampled as white with that alpha; mip levels for its smaller sizes.
     pub(super) fn upload_page_font(
         gl: &glow::Context,
-        rgba: &[u8],
+        alpha: &[u8],
     ) -> Result<glow::Texture, String> {
-        let texture = Self::upload_rgba(gl, 1024, 1024, rgba)?;
         unsafe {
+            let texture = gl.create_texture().map_err(|e| e.to_string())?;
             gl.bind_texture(glow::TEXTURE_2D, Some(texture));
-            gl.generate_mipmap(glow::TEXTURE_2D);
-            gl.tex_parameter_i32(
+            gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
+            gl.tex_image_2d(
                 glow::TEXTURE_2D,
-                glow::TEXTURE_MIN_FILTER,
-                glow::LINEAR_MIPMAP_LINEAR as i32,
+                0,
+                glow::R8 as i32,
+                1024,
+                1024,
+                0,
+                glow::RED,
+                glow::UNSIGNED_BYTE,
+                glow::PixelUnpackData::Slice(Some(alpha)),
             );
+            for (channel, source) in [
+                (glow::TEXTURE_SWIZZLE_R, glow::ONE),
+                (glow::TEXTURE_SWIZZLE_G, glow::ONE),
+                (glow::TEXTURE_SWIZZLE_B, glow::ONE),
+                (glow::TEXTURE_SWIZZLE_A, glow::RED),
+            ] {
+                gl.tex_parameter_i32(glow::TEXTURE_2D, channel, source as i32);
+            }
+            for (name, value) in [
+                (glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE),
+                (glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE),
+                (glow::TEXTURE_MIN_FILTER, glow::LINEAR_MIPMAP_LINEAR),
+                (glow::TEXTURE_MAG_FILTER, glow::LINEAR),
+            ] {
+                gl.tex_parameter_i32(glow::TEXTURE_2D, name, value as i32);
+            }
+            gl.generate_mipmap(glow::TEXTURE_2D);
+            gl.bind_texture(glow::TEXTURE_2D, None);
+            Ok(texture)
         }
-        Ok(texture)
     }
 
     pub(super) fn upload_rgba(

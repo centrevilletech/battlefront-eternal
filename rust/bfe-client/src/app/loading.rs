@@ -39,6 +39,8 @@ pub struct Work {
     pub ready: Option<Box<BattleController>>,
     handover: u8,
     display_ms: f64,
+    /// When loading began, to say how long before the screen's end it was ready.
+    began: Option<std::time::Instant>,
 }
 impl Work {
     pub fn advance(
@@ -53,6 +55,7 @@ impl Work {
     ) -> Result<(), String> {
         if !self.started {
             let started = std::time::Instant::now();
+            self.began = Some(started);
             super::page_battle::PageBattle::prefetch();
             let (tx, rx) = mpsc::sync_channel(2);
             let content_root = root.to_path_buf();
@@ -174,8 +177,9 @@ impl Work {
                 self.ready = Some(Box::new(result?));
                 self.opening = None;
                 eprintln!(
-                    "battle loading: display admission complete ({:.0} ms of display steps)",
-                    self.display_ms
+                    "battle loading: display admission complete ({:.0} ms of display steps); ready {:.2} s after loading began",
+                    self.display_ms,
+                    self.began.map_or(0., |began| began.elapsed().as_secs_f64())
                 );
             }
         }

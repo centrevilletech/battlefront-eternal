@@ -397,6 +397,33 @@ impl BattleUiSurface for OwnedUiSurface {
     }
 }
 
+/// Every common texture the battle UI looks up by name through
+/// [`BattleUiSurface::texture`]. The battle loads these and no other common
+/// interface art, so a new lookup by name must be listed here.
+pub const TEXTURE_NAMES: [&str; 21] = [
+    "hud_flag_icon",
+    "border_3_pieces",
+    "opaque_rect",
+    "opaque_black",
+    "headerbuttonleft",
+    "headerbuttonmid",
+    "headerbuttonright",
+    "buttonleft",
+    "buttonmid",
+    "buttonright",
+    "backbutton_left",
+    "backbutton_mid",
+    "backbutton_right",
+    "listbox_cursor",
+    "listbox_hilight",
+    "small_arrow",
+    "stats_kills",
+    "stats_deaths",
+    "stats_cpp",
+    "cursor",
+    "mousecursor",
+];
+
 /// Asset IDs used by the Classic battle UI screens (spawn screen, scoreboard,
 /// pause menu). Maps to built-in `HudArt` slots (`SOLID`, `HUD_FLAG_ICON`, `STATS_*`)
 /// plus custom interface textures appended to `HudModel::assets` (or `0` when a
