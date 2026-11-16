@@ -144,10 +144,12 @@ only introduces players to servers; battles run on the servers themselves.
   your PC; players on your network find it under LAN.
 - **Dedicated server:** `bfeserver` runs headless on a Linux machine (x64
   or ARM64, no GPU). Run `bfeserver` with no arguments for its setup menu,
-  `bfeserver --serve` to serve, and `bfeserver --help` for the options. The
-  server archive from each release installs as a systemd service that updates
-  itself and prepares its own data from a copy of the game you put on the
-  server ([server updates](docs/server-updates.md),
+  `bfeserver --serve` to serve, and `bfeserver --help` for the options. It
+  runs as a systemd service and prepares its own game data from a copy of the
+  game you put on the server. A server set up with the updater follows the
+  release channel by itself; otherwise the server archive's
+  `install-server.sh` installs or updates it with one command
+  ([server updates](docs/server-updates.md),
   [dedicated server](docs/native-server.md)). The game port (UDP and TCP
   18451 by default) must be open to players.
 
