@@ -72,6 +72,22 @@ def ensure_appimagetool(explicit: Path | None = None) -> Path:
     return cached
 
 
+# The one-line summary in the package and the desktop entries.
+SUMMARY = 'Fan-made engine for Star Wars: Battlefront (2004)'
+
+# Preview 331 and older (the Electron builds) registered /usr/bin/battlefront-eternal
+# with update-alternatives. Their removal script runs while this package is
+# upgraded over them, after this package's files are unpacked, and deletes that
+# link, which this package also ships. Put it back, so the command the installer
+# told players to use keeps working.
+POSTINST = """#!/bin/sh
+set -e
+if [ "$1" = configure ] && [ ! -e /usr/bin/battlefront-eternal ] && [ ! -L /usr/bin/battlefront-eternal ]; then
+    ln -s '/opt/Battlefront Eternal/bfe-client' /usr/bin/battlefront-eternal
+fi
+"""
+
+
 def build_deb(staged_dir: Path, platform: str, version: str, out_dir: Path, repo_root: Path = REPO_ROOT) -> Path:
     arch_info = ARCH_MAP[platform]
     deb_arch = arch_info['deb_arch']
@@ -111,17 +127,19 @@ def build_deb(staged_dir: Path, platform: str, version: str, out_dir: Path, repo
             'Priority: optional',
             f'Architecture: {deb_arch}',
             f'Installed-Size: {installed_kib}',
-            'Depends: libc6, libstdc++6, libgcc-s1, libfontconfig1, libasound2t64 | libasound2, libxkbcommon-x11-0, libxkbcommon0, libwayland-client0, libwayland-cursor0, libwayland-egl1, libegl1, libgl1, libgtk-3-0t64 | libgtk-3-0, ca-certificates',
+            'Depends: libc6 (>= 2.35), libstdc++6, libgcc-s1, libfontconfig1, libasound2t64 | libasound2, libxkbcommon-x11-0, libxkbcommon0, libwayland-client0, libwayland-cursor0, libwayland-egl1, libegl1, libgl1, libgtk-3-0t64 | libgtk-3-0, ca-certificates',
             'Recommends: libvulkan1, libx11-6',
             'Maintainer: Battlefront Eternal Contributors <contact@battlefronteternal.com>',
             'Homepage: https://battlefronteternal.com',
-            'Description: Star Wars Battlefront II (2005) preservation and remaster runtime',
-            ' Battlefront Eternal is a native client and dedicated server runtime for',
-            ' Star Wars Battlefront II (2005).',
+            f'Description: {SUMMARY}',
+            ' Battlefront Eternal plays Star Wars: Battlefront (2004) from your own Steam',
+            ' or GOG copy of the game, and includes its dedicated server (bfeserver).',
             '',
         ]
         control_file = debian_dir / 'control'
         control_file.write_text('\n'.join(control_lines), encoding='utf-8')
+        (debian_dir / 'postinst').write_text(POSTINST, encoding='utf-8')
+        (debian_dir / 'postinst').chmod(0o755)
         normalize_permissions(root)
 
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -160,7 +178,7 @@ def build_appimage(
         appimage_desktop = '\n'.join([
             '[Desktop Entry]',
             'Name=Battlefront Eternal',
-            'Comment=Star Wars Battlefront II (2005) preservation and remaster runtime',
+            f'Comment={SUMMARY}',
             'Exec=bfe-client %U',
             'Icon=battlefront-eternal',
             'Terminal=false',

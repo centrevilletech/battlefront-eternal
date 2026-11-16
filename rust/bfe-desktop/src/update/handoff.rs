@@ -430,57 +430,12 @@ where
     }
 }
 
-/// Starts a newly installed version in the current process's place and waits for its
-/// readiness token (`BFE_LAUNCH_DIR/BFE_LAUNCH_TOKEN`).
-///
-/// Mirrors `updater.launch(installed)` in the desktop host.
-pub fn launch_installed(ctx: &UpdaterContext, version: &str) -> bool {
-    let Some(resolved) = ctx.resolve_active() else {
-        return false;
-    };
-    let Some(candidate) = installed_versions(&resolved.root, Some(resolved.plat))
-        .into_iter()
-        .find(|v| v.version == version)
-    else {
-        return false;
-    };
-
-    let result = launch_version(&LaunchOptions {
-        target: LaunchTarget {
-            version: candidate.version.clone(),
-            dir: candidate.dir.clone(),
-            executable: candidate.executable.clone(),
-        },
-        args: passed_arguments(&ctx.argv, ctx.is_packaged),
-        env: ctx.env.clone(),
-        bootstrap_dir: Some(resolved.bootstrap_dir),
-        bootstrap_version: Some(resolved.bootstrap_version),
-        root: resolved.root.clone(),
-        timeout_ms: ctx.launch_timeout_ms,
-    });
-
-    if !result.ok {
-        let _ = record_attempt(&resolved.root, &candidate.version);
-        let detail = result
-            .detail
-            .as_deref()
-            .map(|d| format!(": {d}"))
-            .unwrap_or_default();
-        append_update_log(
-            &resolved.root,
-            Some(&resolved.own_version),
-            &format!("{} did not start ({}{})", candidate.version, result.reason, detail),
-        );
-    }
-    result.ok
-}
-
 /// Schedules [`check_and_install`] on a background thread after [`DEFAULT_CHECK_DELAY_MS`]
-/// (5 seconds, or `BFE_CHECK_DELAY_MS` if set in the environment), and restarts into the
-/// newly installed version once its window signals readiness.
+/// (5 seconds, or `BFE_CHECK_DELAY_MS` if set in the environment).
 ///
-/// Mirrors `bootUpdate` (`updater.check` -> `updater.install` -> `updater.launch`) in
-/// the desktop host.
+/// The new version is only installed here; the next start hands off to it ([`hand_off`]).
+/// The player may be in a battle by the time the download finishes, and an update never
+/// ends a running game.
 pub fn schedule_background_check() {
     let delay_ms = env::var("BFE_CHECK_DELAY_MS")
         .ok()
@@ -494,8 +449,8 @@ pub fn schedule_background_check() {
             if let CheckOutcome::Installed { version, .. } =
                 check_and_install::<fn(InstallProgress)>(&ctx, None)
             {
-                if launch_installed(&ctx, &version) {
-                    std::process::exit(0);
+                if let Some(root) = ctx.resolve_active().map(|r| r.root) {
+                    append_update_log(&root, None, &format!("{version} starts at the next launch"));
                 }
             }
         });

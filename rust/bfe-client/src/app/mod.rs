@@ -222,6 +222,11 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
     {
         eprintln!("update available: {version} ({kind})");
     }
+    // A player coming from the Electron build keeps their player ID and consent.
+    let adopted = bfe_online::adopt_desktop_profile(&settings.paths.user_data);
+    if !adopted.is_empty() {
+        eprintln!("adopted from the previous build: {}", adopted.join(", "));
+    }
 
     // 3. Resolve prepared content or start a background `PrepareSession`.
     let startup_content = StartupContentState::begin(opts.content_dir.as_deref(), &settings);

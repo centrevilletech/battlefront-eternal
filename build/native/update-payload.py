@@ -63,11 +63,17 @@ def build_update_payload(
 
     content_path = staged_dir / 'resources' / 'tools' / 'content-version.json'
     content_raw = json.loads(content_path.read_text(encoding='utf-8'))
-    content = {
-        'state': content_raw['state'],
-        'maps': len(content_raw['maps']) if isinstance(content_raw.get('maps'), list) else content_raw['maps'],
-        'sides': len(content_raw['sides']) if isinstance(content_raw.get('sides'), list) else content_raw['sides'],
-    }
+    # Every generation (state, maps, sides, common): an installed client compares
+    # all of them with its own, and one left out reads as changed, so the player
+    # is told the game data will be refreshed when it will not.
+    content = {}
+    for key, value in content_raw.items():
+        value = len(value) if isinstance(value, list) else value
+        if isinstance(value, int) and not isinstance(value, bool):
+            content[key] = value
+    for key in ('state', 'maps', 'sides'):
+        if key not in content:
+            raise ValueError(f'{content_path} has no {key} generation')
 
     known = load_known_blobs(known_blobs_path)
 
