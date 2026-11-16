@@ -643,6 +643,8 @@ impl Replicas {
         let trails_at = fountains.as_ref().map_or(fountains_at, |f| f.end());
         let trails = Box::new(super::trails::Trails::new(content, bridge, resources.collision.clone(), resources.world, trails_at)?);
         combat.map_effects.jets = fountains.is_some();
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         bridge.r.core.state.reset();
         // Weapon actions resolve their clips once, per body and bank.
         let sets = content.content.battle.anim_meta.get("sets");

@@ -1099,6 +1099,8 @@ impl Scene {
             }
             admitted += 1;
         }
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         // Graphics.farTarget and NearPass.writeImage retain separate images:
         // the shared schedule clears near depth/color before the far image's
         // depth-tested composite. A canvas alias cannot preserve that order.
@@ -1179,8 +1181,12 @@ impl Scene {
         let storm = if sea_water && rain.is_object() && !rain["Type"][0].as_str().unwrap_or("").eq_ignore_ascii_case("quads") {
             Some(crate::storm_host::StormHost::new(&mut bridge, &mut resources, &content.world, &textures, water_data, &mut far_slot)?)
         } else { None };
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         let flyers = crate::sky_host::SkyHost::new(&mut bridge, &mut resources, &content, &textures, &mut far_slot)?;
         bridge.r.far.prepare_frame_capacity();
+        crate::loading_work::frame().await;
+        bridge.r.core.state.reset();
         bridge.r.foliage.prepare_frame_caches();
         if admitted == 0 {
             return Err("map contains no inspectable static world".into());
