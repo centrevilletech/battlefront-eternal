@@ -4,10 +4,56 @@
 use crate::timeline_layout::{timeline_frame as f, timeline_record as r, timeline_output as o, timeline_limits as lim, VERSION};
 use three::Quaternion;
 
+// A soldier's step from one record to the next that his speed does not
+// explain is drawn as a slide. The world does this on purpose, as the 2004
+// game does: a soldier who spawns on the spot where another still stands is
+// pushed half a body aside in one tick with him, a vehicle shoves a soldier
+// out of its way, a soldier is lifted onto a ledge. Drawn as it is that is a
+// pop. The part of the step beyond the unit's speed is held back as an offset
+// beside the sampled position (the way smoothing.rs keeps a correction apart
+// from the collided position) and eased out over SLIDE_TICKS from the step's
+// start. Teleports and seat changes (marked by the server), new lives, the
+// dead and hulls are never slid, nor is any step of SLIDE_UNDER or more.
+const SLIDE_TICKS:f64=8.0;
+const SLIDE_OVER:f64=0.2;
+const SLIDE_UNDER:f64=1.5;
+// A unit that is carried along, step after step beyond its speed, is drawn
+// where it is sampled: only a step that follows explained ones slides.
+// `gap` is the newest snapshot between the two poses that came without the
+// unit: a unit at rest stayed where it was until then. Returns the step's
+// start and the part of it the unit's speed does not explain, if any.
+fn unexplained(older:&[f64],from:f64,gap:Option<f64>,newer:&[f64],to:f64,hz:f64)->Option<(f64,[f64;3],f64)> {
+    if newer[r::KIND]==1.0 || newer[r::DISC]!=0.0 {return None;}
+    let speed=|p:&[f64]|p[r::VELOCITY]*p[r::VELOCITY]+p[r::VELOCITY+1]*p[r::VELOCITY+1]+p[r::VELOCITY+2]*p[r::VELOCITY+2];
+    let (was,is)=(speed(older),speed(newer));
+    let start=if was<1e-4 {gap.unwrap_or(from)} else {from};
+    if to<=start {return None;}
+    let seconds=(to-start)/hz;
+    let step:[f64;3]=std::array::from_fn(|k|newer[r::POSITION+k]-older[r::POSITION+k]);
+    let length=(step[0]*step[0]+step[1]*step[1]+step[2]*step[2]).sqrt();
+    if length-was.max(is).sqrt()*seconds<=SLIDE_OVER {return None;}
+    let living=|p:&[f64]|p[r::HEALTH]>0.0 && p[r::DEAD]==0.0 && (p[r::KIND]!=0.0 || p[r::STATE]!=7.0 && p[r::STATE]!=8.0);
+    if !living(older) || !living(newer) {return None;}
+    Some((start,std::array::from_fn(|k|step[k]-(older[r::VELOCITY+k]+newer[r::VELOCITY+k])*0.5*seconds),length))
+}
+// What of such a step is still held back at `tick`. The sample has drawn
+// `done` of the whole step; of the part held back only `ease` is shown yet
+// (no speed at either end of the slide).
+fn held(step:Option<(f64,[f64;3],f64)>,to:f64,tick:f64)->Option<[f64;3]> {
+    let (start,excess,length)=step?;
+    if length>=SLIDE_UNDER || tick<=start || tick-start>=SLIDE_TICKS {return Some([0.0;3]);}
+    let x=(tick-start)/SLIDE_TICKS;let ease=x*x*(3.0-2.0*x);let done=((tick-start)/(to-start)).min(1.0);
+    Some(excess.map(|part|part*(ease-done)))
+}
+
 // Stable entity slots make a sparse history lookup constant time. A packet
 // can arrive in any order without making sampling quadratic in population.
 struct Snapshot { tick: f64, records: Vec<f64> }
-struct Entity { id: f64, generation: f64, fire_tick: f64, raw: f64, total: f64 }
+struct Entity { id: f64, generation: f64, fire_tick: f64, raw: f64, total: f64,
+    // The newest pose as it arrived (its life, tick, place and squared speed)
+    // and the tick of the newest step from one pose to the next that may be
+    // beyond the unit's speed: only then are older poses read for a slide.
+    life: f64, seen: f64, at: [f64; 3], speed: f64, odd: f64 }
 pub struct Timeline {
     pub input: Vec<f64>,
     pub output: Vec<f64>,
@@ -102,6 +148,7 @@ impl Timeline {
             self.order.insert(at,slot);slot
         };
         let count=(self.input[f::COUNT] as usize).min(lim::ENTITIES);
+        let hz=if self.input[f::HZ]>0.0 {self.input[f::HZ]} else {60.0};
         for row in 0..count {
             let at=f::STRIDE+row*r::STRIDE;
             self.input[at+r::SLOT] = -1.0;
@@ -112,7 +159,7 @@ impl Timeline {
             // packet order changes when entities enter or leave interest.
             let bucket=self.bucket(id);
             let entity=if self.buckets[bucket]!=usize::MAX {self.buckets[bucket]} else {
-                let fresh=Entity{id,generation:-1.0,fire_tick:f64::NEG_INFINITY,raw:0.0,total:0.0};
+                let fresh=Entity{id,generation:-1.0,fire_tick:f64::NEG_INFINITY,raw:0.0,total:0.0,life:-1.0,seen:f64::NEG_INFINITY,at:[0.0;3],speed:0.0,odd:f64::NEG_INFINITY};
                 let index=if let Some(index)=self.free.pop(){self.entities[index]=fresh;self.rest[index*r::STRIDE+r::VALID]=0.0;index}else{
                     if self.entities.len()==lim::ENTITIES {self.refused+=1;continue;}
                     self.entities.push(fresh);self.entities.len()-1
@@ -126,6 +173,21 @@ impl Timeline {
             let target=entity;
             let out=&mut snapshot.records[target*r::STRIDE..][..r::STRIDE];
             out.copy_from_slice(&self.input[at..at+r::STRIDE]);out[r::VALID]=1.0;out[r::SLOT]=entity as f64;
+            // Never misses a step `unexplained` would find: a unit at rest may
+            // have stood until one tick before this pose.
+            if out[r::KIND]!=1.0 {
+                let place=[out[r::POSITION],out[r::POSITION+1],out[r::POSITION+2]];
+                let speed=out[r::VELOCITY]*out[r::VELOCITY]+out[r::VELOCITY+1]*out[r::VELOCITY+1]+out[r::VELOCITY+2]*out[r::VELOCITY+2];
+                if e.life!=generation {e.life=generation;e.seen=f64::NEG_INFINITY;e.odd=f64::NEG_INFINITY;}
+                if tick>e.seen && e.seen.is_finite() {
+                    let far=(0..3).map(|k|(place[k]-e.at[k])*(place[k]-e.at[k])).sum::<f64>();
+                    if far>SLIDE_OVER*SLIDE_OVER {
+                        let reach=e.speed.max(speed).sqrt()*(if e.speed<1e-4 {1.0} else {tick-e.seen})/hz+SLIDE_OVER;
+                        if far>reach*reach {e.odd=e.odd.max(tick);}
+                    }
+                } else if tick<e.seen {e.odd=e.odd.max(e.seen);}
+                if tick>=e.seen {e.seen=tick;e.at=place;e.speed=speed;}
+            }
             self.input[at+r::SLOT]=entity as f64;
             // Fire counters unwrap per life in arrival order. Stale snapshot
             // parts retain their own raw value, matching the original ring.
@@ -163,22 +225,46 @@ impl Timeline {
             // later records of a unit that has not moved since: with no
             // change of place there is nothing to cut.)
             let mut life=None;let mut hole=None;let mut cut=None;let mut newer:Option<(&[f64],f64)>=None;
+            // `gap` is `hole` for the pose in `newer`. Poses older than the
+            // bracket are read only while a step between them still slides.
+            let mut gap=None;let mut offset=[0.0;3];let mut searching=true;
+            // The slide of the pair newer than the one in hand, and whether the
+            // unit rested before it: kept unless the older step is unexplained too.
+            let mut slide:Option<[f64;3]>=None;let mut alone=false;let watch=tick-e.odd<SLIDE_TICKS;
             let cuts=|older:&[f64],newer:Option<(&[f64],f64)>|newer.is_some_and(|(pose,at)|at>tick && pose[r::DISC]!=0.0 && (0..3).any(|k|older[r::POSITION+k]!=pose[r::POSITION+k]));
             for &slot in self.order.iter().rev() {
                 let snapshot=&self.snapshots[slot];
                 let pose=&snapshot.records[entity*r::STRIDE..][..r::STRIDE];
-                if pose[r::VALID]==0.0 || pose[r::ID]!=e.id {if b.is_some()&&hole.is_none() {hole=Some(snapshot.tick);}continue;}
+                if pose[r::VALID]==0.0 || pose[r::ID]!=e.id {if newer.is_some()&&gap.is_none() {gap=Some(snapshot.tick);}continue;}
                 let key=(pose[r::GENERATION],pose[r::KIND]);
-                if *life.get_or_insert(key)!=key {break;}
+                if *life.get_or_insert(key)!=key {searching=false;break;}
                 if cut.is_none() && cuts(pose,newer) {cut=newer;}
+                if let Some((next,at))=newer.filter(|_|watch) {
+                    let step=held(unexplained(pose,snapshot.tick,gap,next,at,hz),at,tick);
+                    if let Some(part)=slide.filter(|_|alone || step.is_none()) {for k in 0..3 {offset[k]+=part[k];}}
+                    slide=step;alone=gap.is_some();
+                    // Behind a teleport or seat change nothing older is drawn.
+                    if at<=tick && next[r::DISC]!=0.0 && (0..3).any(|k|pose[r::POSITION+k]!=next[r::POSITION+k]) {searching=false;break;}
+                }
                 newer=Some((pose,snapshot.tick));
-                if snapshot.tick>tick {b=Some(pose);btick=snapshot.tick;hole=None;continue;}
-                a=Some(pose);atick=snapshot.tick;break;
+                if snapshot.tick>tick {b=Some(pose);btick=snapshot.tick;gap=None;continue;}
+                if a.is_none() {a=Some(pose);atick=snapshot.tick;hole=gap;}
+                gap=None;
+                if !watch || snapshot.tick+SLIDE_TICKS<=tick {searching=false;break;}
             }
-            if a.is_none() {
+            if searching {
                 let kept=&self.rest[entity*r::STRIDE..][..r::STRIDE];
-                if kept[r::VALID]!=0.0 && kept[r::ID]==e.id && life.is_none_or(|key|key==(kept[r::GENERATION],kept[r::KIND])) {if cut.is_none() && cuts(kept,newer) {cut=newer;}a=Some(kept);atick=self.rest_tick[entity];}
+                if kept[r::VALID]!=0.0 && kept[r::ID]==e.id && life.is_none_or(|key|key==(kept[r::GENERATION],kept[r::KIND])) {
+                    if let Some((next,at))=newer.filter(|_|watch) {
+                        let step=held(unexplained(kept,self.rest_tick[entity],gap,next,at,hz),at,tick);
+                        if let Some(part)=slide.filter(|_|alone || step.is_none()) {for k in 0..3 {offset[k]+=part[k];}}
+                        slide=step;
+                    }
+                    if a.is_none() {if cut.is_none() && cuts(kept,newer) {cut=newer;}a=Some(kept);atick=self.rest_tick[entity];hole=gap;}
+                }
             }
+            if let Some(part)=slide {for k in 0..3 {offset[k]+=part[k];}}
+            if cut.is_some() {offset=[0.0;3];}
             // A life whose first pose is still ahead of the clock, and a
             // teleport or a seat change ahead of it, are shown at that pose
             // at once and held: the body is where it will next be seen, not
@@ -203,7 +289,7 @@ impl Timeline {
             out[o::FROM_TICK]=atick;out[o::TO_TICK]=btick;out[o::EXTRAPOLATED_TICKS]=extra*hz;
             for k in 0..3 {
                 out[o::VELOCITY+k]=a[r::VELOCITY+k]+(b[r::VELOCITY+k]-a[r::VELOCITY+k])*blend;
-                out[o::POSITION+k]=a[r::POSITION+k]+(b[r::POSITION+k]-a[r::POSITION+k])*blend+a[r::VELOCITY+k]*extra;
+                out[o::POSITION+k]=a[r::POSITION+k]+(b[r::POSITION+k]-a[r::POSITION+k])*blend+a[r::VELOCITY+k]*extra+offset[k];
                 out[o::PATH_VELOCITY+k]=if btick>start {if tick>=start {(b[r::POSITION+k]-a[r::POSITION+k])*hz/(btick-start)} else {0.0}} else if extra>0.0 && tick-atick<extrapolate {a[r::VELOCITY+k]} else {0.0};
                 out[o::COAST_ORIGIN+k]=a[r::POSITION+k];
             }
