@@ -798,17 +798,37 @@ impl OnlineServer {
         });
     }
 
-    /// Releases every relay allocation.
+    /// Releases the relay allocations of players who are not playing. A playing player's
+    /// allocation stays with the game socket, which the next battle keeps: that battle's
+    /// controller adopts it (`adopt_relays`) and releases it once the player has left.
     fn close_relays(&self) {
         let Ok(mut relays) = self.relays.lock() else {
             return;
         };
         if let Some(Ok(mut udp)) = self.udp.as_ref().map(|u| u.lock()) {
-            for id in relays.keys() {
+            let playing: HashSet<String> = udp.players().into_iter().collect();
+            for id in relays.keys().filter(|id| !playing.contains(*id)) {
                 udp.close_relay(id);
             }
         }
         relays.clear();
+    }
+
+    /// Takes over the allocations a previous battle left open on this game socket.
+    fn adopt_relays(&self) {
+        let Some(Ok(udp)) = self.udp.as_ref().map(|u| u.lock()) else {
+            return;
+        };
+        let Ok(mut relays) = self.relays.lock() else {
+            return;
+        };
+        for (id, relayed) in udp.relayed_players() {
+            relays.entry(id).or_insert_with(|| RelayEntry {
+                created: Instant::now(),
+                nonce: String::new(),
+                relayed,
+            });
+        }
     }
 
     /// Registers the server with the master (`POST /v1/servers`), connects the `/v1/signal`
@@ -816,6 +836,7 @@ impl OnlineServer {
     /// (`async start()`: 20 s heartbeats, 120 s global ban refresh + kick,
     /// 60 s STUN re-discovery, and 3 s reconnect backoff).
     pub fn start(self: &Arc<Self>) -> Result<(), String> {
+        self.adopt_relays();
         if self.config.honor_global_bans {
             if let Ok(mut bans) = self.bans.lock() {
                 bans.refresh()?;
