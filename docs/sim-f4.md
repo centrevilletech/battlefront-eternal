@@ -37,14 +37,14 @@ Unit lifecycle flags publish before the spawned AI hook, including heroes.
 commands by Character lifetime. Eligibility and realized bodies read the same
 native posts, transport exits and unit store as the tail. Network mailboxes and
 control mapping remain outside the phase. `Game.step` writes the tick's inputs
-and makes one native call, `world_step_run` (`rust/sim/rust/world/step.rs`),
+and makes one native call, `world_step_run` (`rust/sim/src/world/step.rs`),
 which runs the AI, unit, battle, ordnance, item and tail phases in order.
 
 The old battle switch, callback worlds and per-method adapters are removed.
 JavaScript retains construction and read facades. A page poses animated props,
 log traps and the bodies a creature holds in one batched presentation frame
 (`rust/bfe-presentation (props.rs)`), from the same prop clocks the world
-steps (`rust/sim/rust/battle/animated.rs`). That frame cannot seize, swallow,
+steps (`rust/sim/src/battle/animated.rs`). That frame cannot seize, swallow,
 damage or remove an authoritative body. Debris remains in the page frame loop.
 Remote pages derive mobile-post presentation and announcements from replicated
 hulls because their post summaries contain only placed posts.

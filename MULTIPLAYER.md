@@ -163,7 +163,7 @@ lot once servers and saved playlists exist.
    could get Enhanced options too. Views are picked by family *and* style.
 4. **The interface sits behind ports.** The scoreboard, spawn screen and HUD
    read the simulation's published HUD and scoreboard views (`rust/bfe-client (ui.rs)`
-   and `rust/bfe-render/rust/hud/`). A family supplies views and the ports stay.
+   and `rust/bfe-render/src/hud/`). A family supplies views and the ports stay.
 5. **A family module supplies** its extractor profile; mission loading; its
    rules (movement and stances, where BF2 adds sprint and the dodge roll and
    drops prone; classes, heroes, awards, modes, capture, bleed); its interface
@@ -543,7 +543,7 @@ do not establish perceived fairness.
 ### Bots
 
 - The Classic AI throttles bots away from the camera: "within 45 m of camera
-  0, or inside any camera's frustum" (`rust/sim/rust/ai/control/scheduler.rs`). On a
+  0, or inside any camera's frustum" (`rust/sim/src/ai/control/scheduler.rs`). On a
   server, every human's view has to count. The server works each view out
   from the player's soldier and viewpoint setting, rather than trusting the
   client. Offline keeps the original first-camera radius; online the 45 m

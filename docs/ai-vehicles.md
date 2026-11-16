@@ -1,18 +1,18 @@
 # Classic AI: vehicles, turrets and seats
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-runs in `rust/sim/rust/ai/` (ported from JavaScript). Function names are the
+runs in `rust/sim/src/ai/` (ported from JavaScript). Function names are the
 Rust names where the port keeps one, usually the JavaScript name in
 snake_case; object-shaped examples document the behavioral contract.
 
 
 Vehicles, turrets and seats for the Classic AI (`docs/ai.md`). Two layers:
 
-- **Seats** (gameplay, `rust/sim/rust/seats/` with the page's `rust/sim` (`seats`),
+- **Seats** (gameplay, `rust/sim/src/seats/` with the page's `rust/sim` (`seats`),
   `rust/sim` (`vehicles`), `rust/sim` (`gunner`), turret parts of `rust/sim` (`props`)): who sits in which vehicle seat or turret,
   the player and bots alike; how a seated bot's intent drives its seat; exits;
   destruction; the vehicles and turrets as perception targets.
-- **Classic vehicle AI** (`rust/sim/rust/ai/vehicles/`): boarding and leaving,
+- **Classic vehicle AI** (`rust/sim/src/ai/vehicles/`): boarding and leaving,
   the vehicle notifier, the mounted controllers and their agents, the vehicle
   families' AI input conversion, vehicle attack patterns, flyer objectives and
   landing, unattended-vehicle decay.
@@ -109,7 +109,7 @@ bot seats fire; tethers; bot bodies placed at their seats.
   therefore does not inherit the AI's difficulty curves or random stream.
 - **Presentation**: a bot's body sits at the seat's rider node and takes the
   seat's pilot pose, visible only on a seat with a pilot animation (an exposed
-  rider), exactly as the player's (`rust/sim/rust/vehicles/module/f2/riders.rs`).
+  rider), exactly as the player's (`rust/sim/src/vehicles/module/f2/riders.rs`).
   On a page the presentation body batch (`rust/bfe-presentation (units.rs)`)
   places shown riders at their node's place and turn (or the saddle, on an
   animal), the player's included. It keeps the body
@@ -166,7 +166,7 @@ the same way (`TurretSeats.destroyed`). `Vehicle.damage(amount, attacker)` and
 
 ### Turrets
 
-The turret crews (`rust/sim/rust/seats/turrets.rs`, with the page facade
+The turret crews (`rust/sim/src/seats/turrets.rs`, with the page facade
 `TurretSeats` in `rust/sim` (`seats`)) man the turrets with bots; the player
 keeps the `Gunner` adapter. `man(unit, turret)`, `leave(unit, ...)`,
 `request_exit(unit, ...)`, `update`, `drive`, `seat_of(unit)`,
@@ -176,7 +176,7 @@ the drum at `MaxTurnSpeed` (as the mouse rates do), the gun follows what lies
 under the bot's aim at the gun's own rates, and the trigger fires the turret's
 weapon from its fire point along the gun, owned by the bot. Exits use the
 Classic placement in the drum's frame. A gunner killed at the gun leaves it
-at once (`leave_killed` in `rust/sim/rust/seats/boarding.rs`, the crews'
+at once (`leave_killed` in `rust/sim/src/seats/boarding.rs`, the crews'
 `vacate` with reason `killed`), his body falling from the seat; a shown one meets rounds and
 blasts there (docs/live-objects.md "Turret gunners").
 
@@ -208,7 +208,7 @@ target references cannot resolve to the new turret life.
 
 The world owns the drum's `yaw`, `pitch`, `yawVel`, `pitchVel` and the gun's
 `gunYaw`/`gunPitch` (the turret's `steer` and `pose`,
-`rust/sim/rust/seats/turrets.rs`). A page showing another world's battle (a world worker's, or
+`rust/sim/src/seats/turrets.rs`). A page showing another world's battle (a world worker's, or
 a server's) never steps them: they arrive with the turret's state, and the
 page's seat adapter sets `gunner.turret` (`EntitySeats.setGunner`,
 `rust/sim` (`wire`)) without `enter()`. The page draws from that
@@ -284,7 +284,7 @@ that control as a unit (docs/ai.md interface), for a bot's controller to drive:
 
 A bot moved to another seat gets a new one.
 
-## Classic vehicle AI (`rust/sim/rust/ai/vehicles/`)
+## Classic vehicle AI (`rust/sim/src/ai/vehicles/`)
 
 | module | contents |
 | --- | --- |
@@ -412,7 +412,7 @@ that path as laid.
   the nonlinear hover yaw and pitch (g = 4.5 − clamp(TurnRate, 1, 3), t²
   with sign; pitch g = 5 − clamp(PitchRate, 1, 3)), the MovingTurnOnly
   moving-turn floor, and the reverse-and-turn stuck recovery.
-- **Flyer**: `rust/sim/rust/flight/ai.rs` converts destination and tactical requests into
+- **Flyer**: `rust/sim/src/flight/ai.rs` converts destination and tactical requests into
   local virtual-stick, throttle, roll, boost, trick and target-lock inputs.
   Terrain and obstacles: the original game's altitude stage
   (`raise_over_terrain`) raises the steering point, never lowers it, onto the
@@ -478,8 +478,8 @@ AT-AT tow-cable run (below; target kept 10 s). **Pattern 2's sidestep**
 ### Pattern 15: the tow-cable run
 
 How the 2004 game flies a snowspeeder round an AT-AT
-(`rust/sim/rust/ai/vehicles/orbit.rs`, flown by `steering.rs` and
-`rust/sim/rust/flight/ai.rs`):
+(`rust/sim/src/ai/vehicles/orbit.rs`, flown by `steering.rs` and
+`rust/sim/src/flight/ai.rs`):
 
 - **The request**: the tracker's target, fresh or not, a signed radius ±25 and
   a factor, and an offset in the target's frame. Before the craft's cable
@@ -535,7 +535,7 @@ Port changes for the run, each beside the original game's rule it changes:
 - **The harpoon's reach** (`combat/weapons_ai.rs` `harpoon_reach`): a bot fires the
   tow gun only with its target within the harpoon's cast (LockOnRange 70,
   at least 20). The port casts the harpoon (`launch_tow`,
-  `rust/sim/rust/vehicles/module/f2/firing/live.rs`); the original game's flies as a round, and the AI's
+  `rust/sim/src/vehicles/module/f2/firing/live.rs`); the original game's flies as a round, and the AI's
   range for the gun is its MaxRange, 300 m, so bots fired harpoons that
   could not reach, each costing the gun its 3 s ShotDelay.
 - **The rear gunner's rest** (`Vehicles.board`): a bot takes a seat at its
@@ -735,7 +735,7 @@ Reads the vehicle AI's `dispatch`, `enter_pattern`, `tick_pattern`,
 
 Port changes against vehicles and boarders that stopped moving (found with
 historical headless measurements, docs/ai.md "Stuck bots"; paths under
-`rust/sim/rust/ai/vehicles/`):
+`rust/sim/src/ai/vehicles/`):
 
 - `steering.rs`: the facing choice's "already arrived" is the slowdown's own
   condition, inside the near radius with no path left. Read as "inside the
@@ -796,8 +796,8 @@ historical headless measurements, docs/ai.md "Stuck bots"; paths under
   than its own (the exclude flag with the current post, as the original game
   does); asking with no exclusion drew the same post again.
 - **Posts out of a hull's reach** (`support.rs`; the Trooper approach in
-  `rust/sim/rust/ai/control/mod.rs`, `service.rs` `support_point` and
-  `patrol_mounted`; tests in `rust/sim/rust/ai/owned/tests/phase.rs`, support keys and
+  `rust/sim/src/ai/control/mod.rs`, `service.rs` `support_point` and
+  `patrol_mounted`; tests in `rust/sim/src/ai/owned/tests/phase.rs`, support keys and
   selection).
   On Kashyyyk: Docks every post the defenders start with (cp3, cp4, cp5)
   stands on a pier under planning barriers of every vehicle size
@@ -860,7 +860,7 @@ historical headless measurements, docs/ai.md "Stuck bots"; paths under
 `rust/sim` (`ai::vehicles`) (a bot rear gunner while the player circles
 or passes an AT-AT) measures the tow-cable run.
 
-`cargo test` in `rust/sim`: `rust/sim/rust/ai/owned/tests/phase.rs` covers support keys and selection.
+`cargo test` in `rust/sim`: `rust/sim/src/ai/owned/tests/phase.rs` covers support keys and selection.
 `cargo test --locked --workspace`, `cargo test --locked --workspace`,
 `cargo test --locked --workspace` and `cargo test --locked --workspace` (with
 `PLAYWRIGHT_MODULE` set) cover the player's paths.

@@ -165,7 +165,7 @@ shows a retryable error on failure. A failed save never enables online access.
 ## First launch: finding and preparing the game
 
 Retail data is never packaged. On launch the app shows its loader
-and decides, in order (`rust/bfe-desktop/rust/discovery/`):
+and decides, in order (`rust/bfe-desktop/src/discover.rs`):
 
 1. `--content-dir=<folder>` or `BFE_CONTENT_DIR`, or a data folder the player
    chose: used as it is.
@@ -208,7 +208,7 @@ and decides, in order (`rust/bfe-desktop/rust/discovery/`):
 
 ### Asking first
 
-Discovery collects every copy it can find, each once (`rust/bfe-desktop/rust/discovery/`),
+Discovery collects every copy it can find, each once (`rust/bfe-desktop/src/discover.rs`),
 in the order the confirm screen offers them: the folder the player chose,
 Steam's own copy (the one its app manifest names) in any library, then GOG's
 (where GOG's records say), and only then folders that merely look like the
@@ -412,7 +412,7 @@ being prepared once the catalog is in. The log is in the app's user data
 folder, `logs/prepare.log`.
 
 The bar and the time left are by expected time, not step count
-(`rust/bfe-desktop/rust/prepare/`): each step kind has a measured duration
+(`rust/bfe-desktop/src/prepare/`): each step kind has a measured duration
 (a side 1 to 17 s, common 10 to 35 s, a map 3 to 30 s with six running side
 by side, a sub-level's sound enhancement 25 to 60 s with four jobs, the
 textures a few seconds (the extraction steps compress their own as they
@@ -436,7 +436,7 @@ BFE_GAME_DIR="$HOME/.local/share/Steam/steamapps/common/Star Wars Battlefront (C
 
 The loader is drawn in the look the player chose for the front end: Eternal,
 Battlefront (2004) or Battlefront II (2005), the `menuTheme` setting in
-`player-settings.json` (`rust/bfe-desktop/rust/settings/` and `rust/bfe-shell`).
+`player-settings.json` (`rust/bfe-desktop/src/settings/` and `rust/bfe-shell`).
 Without settings, as on a first run, the look is Eternal. A look changed in the
 menus applies the next time the loader opens.
 

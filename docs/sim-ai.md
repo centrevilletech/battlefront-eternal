@@ -15,7 +15,7 @@ persist across battles live in the owner's process state.
 Before each tick the host writes one generated phase header, current camera
 facts and new journal records into the AI exchange (`ai.prepare`, which calls
 `AiWorld.prepare` in `rust/sim`). The native world tick
-(`world_step_run`, `rust/sim/rust/world/step.rs`) then runs the AI phase
+(`world_step_run`, `rust/sim/src/world/step.rs`) then runs the AI phase
 (`ai_world_phase`) after squad commands and before the unit phase.
 Rust runs `Core::decide` followed by `Core::execute` and
 writes held intent into the canonical unit or seat owner. The host does not
@@ -133,8 +133,8 @@ again before accepting an omitted request, so a stale page cannot turn missing
 input into authority. Boundary counters count the words actually written.
 
 `cargo test --locked --workspace` exercises the actual native owner with synthetic
-content. The native fixtures in `rust/sim/rust/ai/owned/tests/phase.rs`,
-`rust/sim/rust/ai/owned/tests/native_phase.rs` and the policy tests under
+content. The native fixtures in `rust/sim/src/ai/owned/tests/phase.rs`,
+`rust/sim/src/ai/owned/tests/native_phase.rs` and the policy tests under
 `rust/sim/tests/` cover missing services, lifecycle ordering, control,
 vehicle and combat behavior. External
 capture replays and world hashes supplement these fixtures; retail content

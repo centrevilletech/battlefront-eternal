@@ -1,7 +1,7 @@
 # Classic AI: population, spawning, difficulty and objectives
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-runs in `rust/sim/rust/ai/` (ported from JavaScript). Function names are the
+runs in `rust/sim/src/ai/` (ported from JavaScript). Function names are the
 Rust names where the port keeps one, usually the JavaScript name in
 snake_case; object-shaped examples document the behavioral contract.
 
@@ -17,17 +17,17 @@ ownership. Further rules found while implementing are listed under
 | File | What |
 | --- | --- |
 | `tools/zero_ai_mission.py` | Writes `public/maps/<map>/ai-mission.json` (gitignored) |
-| `rust/sim/rust/ai/control/difficulty.rs` | `Difficulty`: tiers, skills, curves, mission setters, scheduler numbers, grenade danger delay |
-| `rust/sim/rust/battle/spawning.rs` | the roster (Characters), spawn manager clocks, class choice, post queues, spawn-post selection, spawning |
-| `rust/sim/rust/ai/control/goals.rs`, `control/mod.rs` | objective selection and publication (`Objectives`, `Core::objectives_*`), reassignment events, recapture, objective destinations, mission controls |
-| `rust/sim/rust/ai/owned/population.rs` | objective requests over the canonical Characters, hull crews and command posts |
+| `rust/sim/src/ai/control/difficulty.rs` | `Difficulty`: tiers, skills, curves, mission setters, scheduler numbers, grenade danger delay |
+| `rust/sim/src/battle/spawning.rs` | the roster (Characters), spawn manager clocks, class choice, post queues, spawn-post selection, spawning |
+| `rust/sim/src/ai/control/goals.rs`, `control/mod.rs` | objective selection and publication (`Objectives`, `Core::objectives_*`), reassignment events, recapture, objective destinations, mission controls |
+| `rust/sim/src/ai/owned/population.rs` | objective requests over the canonical Characters, hull crews and command posts |
 | `rust/sim` (`post-data`), `rust/sim` | `attachPostAI` (post AI properties by name), the page's mission team table |
-| `rust/sim/rust/ai/owned/tests/phase.rs` | Rust tests |
+| `rust/sim/src/ai/owned/tests/phase.rs` | Rust tests |
 | `tests/test_ai_mission_export.py` | `python3 -m unittest tests/test_ai_mission_export.py` |
 | `cargo test --locked --workspace` | the native roster through the page boundary |
 
 Every random draw goes through the AI's generator A
-(`rust/sim/rust/ai/random.rs`) in the original game's order.
+(`rust/sim/src/ai/random.rs`) in the original game's order.
 
 ## `ai-mission.json`
 
@@ -277,7 +277,7 @@ The core reads the difficulty through `Core::curves_for(team)` and
 - `crew(character)` returns null on foot or `{ vehicle, isDriver, driver,
   occupants }` (Characters); `vehicleMask(vehicle)` the vehicle class's
   traversal mask. The world provides both (`crew`,
-  `objective_vehicle_mask`; `rust/sim/rust/ai/owned/crew.rs`).
+  `objective_vehicle_mask`; `rust/sim/src/ai/owned/crew.rs`).
 - Ownership change: for each team 1..7 whose relation to the owner crosses
   between positive and not, its bots sent there draw again; a team whose
   friendly post went neutral also recruits: the registry's units within 60 m
@@ -299,7 +299,7 @@ enemies). The battle fields them through the same modules in single player,
 in a world worker, on a server and on a hosting desktop:
 
 - **Who fights whom:** `missionTeams` (`rust/sim`, over the
-  native `ai_mission_teams`, `rust/sim/rust/ai/owned/entry.rs`) gives each
+  native `ai_mission_teams`, `rust/sim/src/ai/owned/entry.rs`) gives each
   team's relations, faction and capture team; `rust/sim` (`game`) hands the table
   to the unit registry (`units.setTeams`), so
   combat, the AI's perception, kill credit, mines and the HUD all read the

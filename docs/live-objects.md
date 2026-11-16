@@ -112,7 +112,7 @@ at `TurretSeats` (`rust/sim` (`seats`)).
   facing away from the gun; instead the gun points out over the rail and he
   stands on the deck behind it.
 - Drawn the same on every page: bots and other people by `Crews::pose`
-  (`rust/sim/rust/seats/turrets.rs`) in the world, and on a page from the
+  (`rust/sim/src/seats/turrets.rs`) in the world, and on a page from the
   turret's record, whose turn speed is the yaw's change between records
   (`Turret.aimFrom`); the player by the same seat pose in the world and on his
   own page by the presentation body batch (`rider_sample`,
@@ -120,7 +120,7 @@ at `TurretSeats` (`rust/sim` (`seats`)).
   gunner's pose the world strikes him in.
 - Struck (`Turret.exposedSeat`, `Unit.hitShapes`, `SeatLease.exposed`):
   his posed body at the seat, in the seat node's frame
-  (`rust/bfe-pose/rust/rig/rider.rs`, published through
+  (`rust/bfe-pose/src/rig/rider.rs`, published through
   `rust/bfe-presentation`): head, torso, thighs, shins and both arms to the
   middle of the hand. The turret's own collision is the nearest hit where it
   lies in front of him: the gun turret's tub covers him to the waist (its
@@ -232,7 +232,7 @@ and TurretCamera, `rust/sim` (`seats`) TurretSeats).
   needs only the gun's angles, so the server, a bot's seat
   (`TurretSeats.drive`) and the page's predicted rounds
   (`rust/sim` (`wire`)) agree. The AI's own reach test
-  (`rust/sim/rust/ai/vehicles`) reads the view's `PitchLimits` up positive and is
+  (`rust/sim/src/ai/vehicles`) reads the view's `PitchLimits` up positive and is
   kept as the original has it.
 
 | Turret | Eye (aim frame) | Chase camera: pivot, offset, tilt | View pitch | Yaw | Gun pitch (widened), gun yaw |
@@ -514,7 +514,7 @@ How the port runs it:
   (`padOnGround`); the hologram is the build hologram, shown to soldiers
   carrying a repair weapon, as a turret pad's.
 - The traps are in `live.buildings`: repair locks, BuildingBuild ticks,
-  blasts and the Classic AI's repair jobs (`rust/sim/rust/ai/owned/services.rs`) find them
+  blasts and the Classic AI's repair jobs (`rust/sim/src/ai/owned/services.rs`) find them
   as any building. Their state, health and team travel as schema 7; their
   phase and its start tick as world schema 10 (identity 500000 + index,
   `rust/sim` (`wire`)), taken at once when it changes. A page

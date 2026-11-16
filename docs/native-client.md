@@ -45,7 +45,7 @@ USAGE:
 
 ## Application state machine and host services
 
-`rust/bfe-client/rust/app/` owns the top-level state machine:
+`rust/bfe-client/src/app/` owns the top-level state machine:
 
 1. **`Startup` / `StartupLoader`**: Initializes platform directories, loads
    the 59-key gameplay/audio/video/controls schema via `bfe_interface::Settings`
@@ -76,7 +76,7 @@ USAGE:
      for `/admin` and `/info`, and then joins the local player through the
      normal online path (`BattleController::start_online`).
 4. **`InstantAction` and `Online` (`BattleController`)**: Both battle modes run
-   through the same `BattleController` (`rust/bfe-client/rust/app/battle.rs`),
+   through the same `BattleController` (`rust/bfe-client/src/app/battle.rs`),
    `Scene` (`bfe-render` + `bfe-presentation`), and `bfe-battle-ui` overlays
    (loading screen, classic spawn screen, 3-page Tab scoreboard, Esc pause menu
    with live options and player list, and `T`/`Y` chat).

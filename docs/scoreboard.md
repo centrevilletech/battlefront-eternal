@@ -7,7 +7,7 @@ popup in play. It has two sides here:
 
 - **The board** (`rust/bfe-battle-ui` (`scoreboard`)): what is drawn and how input moves it.
   It reads the world only through the scoreboard port.
-- **The world side** (`rust/sim/rust/battle/rules.rs` and `stats.rs`, with
+- **The world side** (`rust/sim/src/battle/rules.rs` and `stats.rs`, with
   the page's facades `rust/sim` (`battle`), `rust/sim` (`battle-stats`) and
   `rust/sim` (`bot-names`)): who is credited with what, when the scores stop,
   the bots' names. The world keeps all of it, so a worker or a replay
@@ -71,13 +71,13 @@ mission's armies, and the roster drops them
 | `rust/bfe-battle-ui` (`scoreboard`) | Pure: where everything sits for an interface height |
 | `rust/bfe-battle-ui` (`scoreboard`) | The page view: the board in the front end's look, as elements over the battle (see [The page view](#the-page-view)) |
 | `rust/bfe-battle-ui` (`scoreboard`) | The board on demand over the running game |
-| `rust/sim/rust/battle/rules.rs` | The scores and when they stop: `credit()`, `point()`, `postDestroyed()`, `headshot()`, `vehicleDestroyed()`, `finished` |
+| `rust/sim/src/battle/rules.rs` | The scores and when they stop: `credit()`, `point()`, `postDestroyed()`, `headshot()`, `vehicleDestroyed()`, `finished` |
 | `rust/sim` (`battle`) | The page's scoreboard objects over the native battle: `gameOver`, `nameBots()` |
-| `rust/sim/rust/battle/stats.rs`, `rust/sim` (`battle-stats`) | Each Character's record for DETAILS and AWARDS (tallied natively), and the page's formatting of the reports |
+| `rust/sim/src/battle/stats.rs`, `rust/sim` (`battle-stats`) | Each Character's record for DETAILS and AWARDS (tallied natively), and the page's formatting of the reports |
 | `rust/sim` (`bot-names`) | Bot names, each team from its own generator |
 | `rust/sim` (`wire`), `rust/sim` (`wire`) | The scores and records on their way to the page, a world worker's or a server's (see [The page's numbers](#the-pages-numbers)) |
-| `rust/sim` (`hud`), `rust/bfe-render/rust/hud_model/panels.rs` | The stat popup (`drawStats`, drawn by the Rust HUD model), the dead player's HUD, `watch()`, a layer's `teams: false` |
-| `rust/sim` (`hud`), `rust/bfe-render/rust/hud_model/` | The message feed names the player by his Character's name, "Player 1" |
+| `rust/sim` (`hud`), `rust/bfe-render/src/hud_model/panels.rs` | The stat popup (`drawStats`, drawn by the Rust HUD model), the dead player's HUD, `watch()`, a layer's `teams: false` |
+| `rust/sim` (`hud`), `rust/bfe-render/src/hud_model/` | The message feed names the player by his Character's name, "Player 1" |
 | `rust/audio-control` | The `busFade` event; `interface` plays a sound by its own name too |
 
 ## Tab
@@ -434,7 +434,7 @@ team's relation colour.
 
 ## The stat popup
 
-The original's stat popup (`drawStats`, `rust/bfe-render/rust/hud_model/panels.rs`):
+The original's stat popup (`drawStats`, `rust/bfe-render/src/hud_model/panels.rs`):
 
 - **Where:** from the safe area's left middle, three rows 32 apart, for
   KILLS, DEATHS and CP POINTS. Each row is drawn at 0.75 from 36 units in:
@@ -477,7 +477,7 @@ over.
 (`ObjectivePost` in `rust/sim` (`props`), [objectives.md](objectives.md)) and for
 the command vehicles' posts (`rust/sim` (`mobile-posts`)).
 
-**The record** (`rust/sim/rust/battle/stats.rs`) keeps, per Character and per team
+**The record** (`rust/sim/src/battle/stats.rs`) keeps, per Character and per team
 slot, what DETAILS and AWARDS need:
 
 - **On each kill:**

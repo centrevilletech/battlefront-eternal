@@ -23,23 +23,23 @@ Rules that apply to every change:
 ## Area documents
 
 The [native ownership contract](sim-ai.md) describes the current implementation
-in `rust/sim/rust/ai/` and its generated host boundary. Each area below records
+in `rust/sim/src/ai/` and its generated host boundary. Each area below records
 the behavioral contract; the Code column names the Rust modules that own it.
 The bot code was ported from JavaScript; object-shaped API examples in these
 documents describe the data each operation reads and writes.
 
 | Area | Document | Code |
 | --- | --- | --- |
-| Multi-actor foundation: units, registry, battle, simulation events, the AI entry point, the shared random numbers | this file | `rust/sim` (`units`), `rust/sim` (`registry`), `rust/sim` (`battle`), `rust/sim` (`sim-events`), `rust/sim`, `rust/sim/rust/ai/owned/`, `rust/sim/rust/ai/random.rs` |
-| Navigation data and runtime | [ai-nav.md](ai-nav.md) | `rust/sim/rust/ai/nav/`, `tools/zero_ai.py` |
-| Perception, aim, firing, attack patterns, weapon AI, class and weapon AI extraction | [ai-combat.md](ai-combat.md) | `rust/sim/rust/ai/combat/` (`perception.rs`, `aim.rs`, `agent.rs`, `weapons_ai.rs`), `tools/zero_ai_classes.py` |
-| Difficulty, spawning, class choice, objectives (command post selection), mission and command post extraction | [ai-population.md](ai-population.md) | `rust/sim/rust/ai/control/difficulty.rs`, `rust/sim/rust/battle/spawning.rs`, `rust/sim/rust/ai/control/goals.rs`, `tools/zero_ai_mission.py` |
-| Vehicles and turrets: seats, boarding, vehicles as targets, Classic vehicle AI | [ai-vehicles.md](ai-vehicles.md) | `rust/sim/rust/ai/vehicles/`, `rust/sim` (`vehicles`), `rust/sim` (`gunner`), `rust/sim` (`seats`) |
-| Class jobs: sniping, mines, pilot repair and resupply, scouts, jet hints | [ai-classes.md](ai-classes.md) | `rust/sim/rust/ai/control/classes.rs`, `rust/sim/rust/ai/nav/jet_hints.rs` |
-| HUD toward other units: radar icons, reticle colour, hit ring, kill messages, enemy health, stats | [ai-hud.md](ai-hud.md) | `rust/bfe-render/rust/hud_model/`, `rust/sim` (`hud`) |
-| Controller FSM, scheduler, source goals, interrupts, agents, patrol, squads, the Classic entry point | [ai-controller.md](ai-controller.md) | `rust/sim/rust/ai/control/` (`mod.rs`, `controller.rs`, `scheduler.rs`, `policy.rs`, `agents.rs`, `patrol.rs`, `squads.rs`) |
+| Multi-actor foundation: units, registry, battle, simulation events, the AI entry point, the shared random numbers | this file | `rust/sim` (`units`), `rust/sim` (`registry`), `rust/sim` (`battle`), `rust/sim` (`sim-events`), `rust/sim`, `rust/sim/src/ai/owned/`, `rust/sim/src/ai/random.rs` |
+| Navigation data and runtime | [ai-nav.md](ai-nav.md) | `rust/sim/src/ai/nav/`, `tools/zero_ai.py` |
+| Perception, aim, firing, attack patterns, weapon AI, class and weapon AI extraction | [ai-combat.md](ai-combat.md) | `rust/sim/src/ai/combat/` (`perception.rs`, `aim.rs`, `agent.rs`, `weapons_ai.rs`), `tools/zero_ai_classes.py` |
+| Difficulty, spawning, class choice, objectives (command post selection), mission and command post extraction | [ai-population.md](ai-population.md) | `rust/sim/src/ai/control/difficulty.rs`, `rust/sim/src/battle/spawning.rs`, `rust/sim/src/ai/control/goals.rs`, `tools/zero_ai_mission.py` |
+| Vehicles and turrets: seats, boarding, vehicles as targets, Classic vehicle AI | [ai-vehicles.md](ai-vehicles.md) | `rust/sim/src/ai/vehicles/`, `rust/sim` (`vehicles`), `rust/sim` (`gunner`), `rust/sim` (`seats`) |
+| Class jobs: sniping, mines, pilot repair and resupply, scouts, jet hints | [ai-classes.md](ai-classes.md) | `rust/sim/src/ai/control/classes.rs`, `rust/sim/src/ai/nav/jet_hints.rs` |
+| HUD toward other units: radar icons, reticle colour, hit ring, kill messages, enemy health, stats | [ai-hud.md](ai-hud.md) | `rust/bfe-render/src/hud_model/`, `rust/sim` (`hud`) |
+| Controller FSM, scheduler, source goals, interrupts, agents, patrol, squads, the Classic entry point | [ai-controller.md](ai-controller.md) | `rust/sim/src/ai/control/` (`mod.rs`, `controller.rs`, `scheduler.rs`, `policy.rs`, `agents.rs`, `patrol.rs`, `squads.rs`) |
 | Heroes and melee | [ai-heroes.md](ai-heroes.md) | `rust/sim` (`heroes`) |
-| Enhanced AI | [ai-enhanced.md](ai-enhanced.md) | `rust/sim/rust/ai/combat/enhanced.rs`, `rust/sim/rust/ai/control/difficulty.rs`, `rust/sim/rust/ai/control/goals.rs` |
+| Enhanced AI | [ai-enhanced.md](ai-enhanced.md) | `rust/sim/src/ai/combat/enhanced.rs`, `rust/sim/src/ai/control/difficulty.rs`, `rust/sim/src/ai/control/goals.rs` |
 
 ## Runtime model
 
@@ -49,12 +49,12 @@ The original keeps a fixed set of **Characters** per team (team slots, from
 `SetUnitCount`); each Character spawns **entities** of a chosen class. The
 port mirrors that split:
 
-- `Character` (canonical battle rows in `rust/sim/rust/battle/`, with a
+- `Character` (canonical battle rows in `rust/sim/src/battle/`, with a
   `rust/sim` (`battle`) observer facade): `{ index, team, human, classIndex, unit,
   controller, spawn: { wave: S, ordinal: J, post }, kills, deaths, teamKills, captures }`. Persists for
   the match. `human` is true for the local player's Character. `unit` is the
   current living entity or `null`.
-- `Unit` (canonical rows in `rust/sim/rust/units/`, with a `rust/sim` (`units`)
+- `Unit` (canonical rows in `rust/sim/src/units/`, with a `rust/sim` (`units`)
   observer facade): one living or dying entity. Rust owns its physics, combat
   and gameplay rig; displayed poses belong to the presentation owner. Units are pooled per class and
   reused across spawns; `generation` increments on every spawn so stale
@@ -174,12 +174,12 @@ world.classesFor(team)    // the team's [[className, count], ...] that a loaded 
 `createNativeAI(mode, world, options)` (`rust/sim`) loads
 `ai-nav.json`, `ai-mission.json` and each side's `ai.json` (`rust/sim` (`ai-data`)
 `loadAIData`), hands that cold content and the mission calls to the native
-owner (`rust/sim`, `rust/sim/rust/ai/owned/entry.rs` and `load.rs`),
+owner (`rust/sim`, `rust/sim/src/ai/owned/entry.rs` and `load.rs`),
 builds the initial roster, and returns an object whose `prepare(dt, tick)`
 writes the AI's inputs for the next tick (for `enhanced` the native owner runs
 the Enhanced pieces, [ai-enhanced.md](ai-enhanced.md)). Each simulation step,
 `Game.step` (`rust/sim` (`game`)) calls `ai.prepare` and then the native world tick
-(`world_step_run`, `rust/sim/rust/world/step.rs`), which runs the AI phase
+(`world_step_run`, `rust/sim/src/world/step.rs`), which runs the AI phase
 before the unit phase. `update(dt, tick)` runs the AI phase alone, for tools
 and tests. The mode,
 difficulty and heroes are Options settings; URL parameters override them:
@@ -210,7 +210,7 @@ snapshots (positions copied):
 
 ### Tick order
 
-Inside the native `world_step_run` coordinator (`rust/sim/rust/world/step.rs`), after the host has written the tick's facts:
+Inside the native `world_step_run` coordinator (`rust/sim/src/world/step.rs`), after the host has written the tick's facts:
 
 1. The AI phase (`ai_world_phase`): the Classic scheduler ([ai-controller.md](ai-controller.md))
    runs the budgeted subset of UnitControllers: phase 0, perception (scan,
@@ -226,11 +226,11 @@ Inside the native `world_step_run` coordinator (`rust/sim/rust/world/step.rs`), 
 The human keeps the per-frame input path; the scheduler does not run a
 controller for the human Character.
 
-The native owner keeps navigation (`Nav`, `rust/sim/rust/ai/nav/mod.rs`),
-difficulty (`rust/sim/rust/ai/control/difficulty.rs`), spawning (whose
-Characters become `battle.characters`, `rust/sim/rust/battle/spawning.rs`),
+The native owner keeps navigation (`Nav`, `rust/sim/src/ai/nav/mod.rs`),
+difficulty (`rust/sim/src/ai/control/difficulty.rs`), spawning (whose
+Characters become `battle.characters`, `rust/sim/src/battle/spawning.rs`),
 the mission controls, the deferred line-of-sight queue
-(`rust/sim/rust/ai/combat/perception.rs`) and each side's class data itself;
+(`rust/sim/src/ai/combat/perception.rs`) and each side's class data itself;
 the page's AI object exposes only the spawning view and the navigation
 boundary. VO is written to
 `world.events` as `kind: "vo"` records. Soldier and Droideka physics carry
@@ -309,9 +309,9 @@ MovementRequest = {             // the steering target the helper builds each ti
 ```
 
 Request-to-analog conversion (the controller's request becomes the real
-analog input) is `Nav::navigation_input` (`rust/sim/rust/ai/nav/goto.rs`:
+analog input) is `Nav::navigation_input` (`rust/sim/src/ai/nav/goto.rs`:
 the executor step, analogs, jet, posture; `analogs` in
-`rust/sim/rust/ai/nav/analogs.rs` does the conversion alone). The class coefficients are MaxSpeed, MaxStrafeSpeed,
+`rust/sim/src/ai/nav/analogs.rs` does the conversion alone). The class coefficients are MaxSpeed, MaxStrafeSpeed,
 MaxTurnSpeed and MaxPitchSpeed, with no sign flips into the port's analogs.
 Combat supplies the aim point for aimState 0 (target plus lead).
 `controller.navControl` (NavControl) holds a unit's path state and its
@@ -320,7 +320,7 @@ Combat supplies the aim point for aimState 0 (target plus lead).
 ### Perception, aim and firing (Combat)
 
 - `CombatAi::scan`, the deferred-LOS service `CombatAi::service_los`
-  (`rust/sim/rust/ai/combat/binding.rs`), and acoustic/danger/targeted-fire
+  (`rust/sim/src/ai/combat/binding.rs`), and acoustic/danger/targeted-fire
   alert intake; called by the Controller's scheduler in tick order.
 - `Aimer`: the direction filter (curves A/D from difficulty, halved for
   non-cannon weapons; hero exemption) producing `intent.aim`.
@@ -360,9 +360,9 @@ extraction (`tools/extract.py`) writes them too.
 - `cargo test --locked --workspace`: the host boundary and native owner
   with synthetic fixtures (tracked); checks against optional local reference
   data skip when it is absent.
-- `cargo test` in `rust/sim`: the AI's native tests (`rust/sim/rust/ai/owned/tests/phase.rs`,
-  `rust/sim/rust/ai/owned/tests/native_phase.rs`, `ai_combat_control.rs` and
-  `rust/sim/rust/ai/nav/tests.rs`).
+- `cargo test` in `rust/sim`: the AI's native tests (`rust/sim/src/ai/owned/tests/phase.rs`,
+  `rust/sim/src/ai/owned/tests/native_phase.rs`, `ai_combat_control.rs` and
+  `rust/sim/src/ai/nav/tests.rs`).
 - The historical headless measurements quoted below predate the native AI.
   Current checks use the native world tick and its canonical publications.
 
@@ -398,7 +398,7 @@ executor, planner slot, target, job, posture, contacts):
 What kept bots standing, all in the shared runtime that single player (page
 or world worker) and the server both run (the flyers' pads are tested in
 `cargo test --locked --workspace`), details in the area docs (paths under
-`rust/sim/rust/ai/` unless given in full):
+`rust/sim/src/ai/` unless given in full):
 
 | Where | Cause | Change |
 | --- | --- | --- |
@@ -414,7 +414,7 @@ or world worker) and the server both run (the flyers' pads are tested in
 | `control/agents.rs` recovery | A soldier in a hollow of steep slopes slid back from every random direction recovery tried | a timed retry that got nowhere jumps as it sets off |
 | `combat/weapons_ai.rs` | A weapon whose masks reject the target (launcher vs turret) was chosen and never fired; a burst of exactly 1.0 heat never started: bots aimed in pattern 2 for as long as the target was in view | validation by the controllable's target, as the original; a burst that fills the gauge counts as 0.99 (port) ([ai-combat.md](ai-combat.md)) |
 | `combat/agent.rs` patterns | Leaving cover (pattern 9) skipped the cover helper's exit, so the target stayed frozen in the tracker: a bot then in pattern 2 kept facing where an unseen target had been, for as long as it lived | the cover helper's exit runs first ([ai-combat.md](ai-combat.md)) |
-| `rust/sim/rust/flight/ai.rs`, `rust/sim` (`flight`), `vehicles/agents.rs` | A Bespin gunship's takeoff was blocked by pad structure reaching into a corner of the box its parked hull fills; its AI pilot held the key, and a takeoff is tried only on a fresh press, so it never tried again; 3 s later the stranded-flyer check blew it up on its pad with its crew, and it came back there to do it again | the pilot presses again every second; the takeoff and lift look past what the parked hull overlaps; a craft still on its pad is left by its crew, not destroyed ([ai-vehicles.md](ai-vehicles.md), [vehicles.md](vehicles.md)) |
+| `rust/sim/src/flight/ai.rs`, `rust/sim` (`flight`), `vehicles/agents.rs` | A Bespin gunship's takeoff was blocked by pad structure reaching into a corner of the box its parked hull fills; its AI pilot held the key, and a takeoff is tried only on a fresh press, so it never tried again; 3 s later the stranded-flyer check blew it up on its pad with its crew, and it came back there to do it again | the pilot presses again every second; the takeoff and lift look past what the parked hull overlaps; a craft still on its pad is left by its crew, not destroyed ([ai-vehicles.md](ai-vehicles.md), [vehicles.md](vehicles.md)) |
 
 Results, before and after these changes (5 minute battles at the medium
 tier; the same historical measurements, seeds 1 to 3 in single player and 1 and 2 on the

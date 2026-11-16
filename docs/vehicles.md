@@ -27,14 +27,14 @@ The page's flight modules are under `rust/sim` (`flight`); a craft's tick runs i
 | --- | --- |
 | `config.js` | Four class configurations; shared live tuning |
 | `debug.js` | First-built telemetry, axes/path/cone/ray/camera gizmos, tuning panel |
-| `model.js` | Cold replica construction; the step itself (quaternion dynamics, states, tricks, swept contacts and boundaries) is `rust/sim/rust/flight/model.rs` |
+| `model.js` | Cold replica construction; the step itself (quaternion dynamics, states, tricks, swept contacts and boundaries) is `rust/sim/src/flight/model.rs` |
 | `controls.js` | Independent starfighter bindings, gamepad and rebind capture |
 | `camera.js` | Rolling chase/cockpit cameras, clearance and view blend |
-| `targeting.js` | The ordnance world's seeker service; lock, assists and missile navigation are `rust/sim/rust/flight/targeting.rs` |
-| `rust/sim/rust/flight/ai.rs` | A bot pilot's stick and altitude stage, through the same model |
+| `targeting.js` | The ordnance world's seeker service; lock, assists and missile navigation are `rust/sim/src/flight/targeting.rs` |
+| `rust/sim/src/flight/ai.rs` | A bot pilot's stick and altitude stage, through the same model |
 | `gear.js` | Landing gear, gear doors and S-foils from each craft's takeoff clip |
 | `spawn.js` | Friendly landed attack transport spawn points |
-| `rust/sim/rust/flight/pilotless.rs` | A craft in flight that nobody flies |
+| `rust/sim/src/flight/pilotless.rs` | A craft in flight that nobody flies |
 
 `Vehicles` owns the fixed-step model and weapon/seat integration. `game.js`
 connects input, profile settings, debug and transport spawn selection. The
@@ -395,7 +395,7 @@ through `Vehicles.board` and his seat lease) and the bots (the Classic AI's
   `81bce0f9` to 0, which no retail class does, so nobody is flung. The hull
   stays for anyone: a hover with nobody at the controls slows to a stop at its
   Deceleration, as when its driver lets go of the keys.
-- A craft nobody flies (`rust/sim/rust/flight/pilotless.rs`): with anyone still aboard
+- A craft nobody flies (`rust/sim/src/flight/pilotless.rs`): with anyone still aboard
   it holds its course with the stick let go. Empty, it comes down, its speed
   carried on and gravity bending its path, nose along the path, and is
   destroyed where it strikes the ground, a building, the water or a death
@@ -429,7 +429,7 @@ stands on top of the droid starfighter on Bespin: Platforms).
 - What is struck (`Vehicle.exposedSeat`, `SeatLease.exposed`,
   `Unit.updateSpheres`): his body as his seat poses it, from the same clip
   and point in it that his seat draws (`riderSample`), carried down his
-  own skeleton at the tick (`rust/bfe-pose/rust/rig/rider.rs`): the head as a sphere (three
+  own skeleton at the tick (`rust/bfe-pose/src/rig/rider.rs`): the head as a sphere (three
   times the damage, as on foot), the torso from the pelvis up to the neck,
   each thigh and shin, and each upper arm and forearm to the middle of the
   hand as capsules (a gunner's arms reach out to the grips well clear of his
@@ -504,7 +504,7 @@ leaves that track out.
   tick does (rust/sim `flight/gear.rs`) before the aimers turn and
   the fire points are read, and so does the render pass that `Vehicles.update`
   runs on every host after it. The gear is the craft's flight state there and
-  in the pilot's own replay (`rust/sim/rust/client/hulls.rs`) and
+  in the pilot's own replay (`rust/sim/src/client/hulls.rs`) and
   correction. A page has every other craft only from its records, which
   carry its flight state but not its gear: the gear follows that state by the
   world's own rule (the same ray down for the lift, 1/`TakeoffTime` stowing,
@@ -975,7 +975,7 @@ The walk cycle is drawn on the page by the native hull phase
 (`rust/bfe-presentation`, `rust/bfe-presentation (vehicles.rs)`),
 which `Vehicle.present` queues every hull for (the walk cycle, the manned
 seats, the gear), the one he drives included: nothing on the page runs `aimTick`, and no record poses his own
-hull. His hull's prediction (`rust/sim/rust/client/hulls.rs`) advances
+hull. His hull's prediction (`rust/sim/src/client/hulls.rs`) advances
 its walk cycle with its ticks, as the world's `aimTick` does, and is drawn
 between its last two ticks, legs and hull alike. The page also keeps the
 hull's `age`, the clock of the idle clip, the repulsor's bob and a rider's
@@ -1023,7 +1023,7 @@ Docks (the spider walker, the AT-ST) and Yavin 4: Temple (the AT-ST);
 droidekas in the Clone Wars battles of all six.
 The world applies the damage (`Vehicle.tick`, `rust/sim` (`game`) for every
 droideka); hull and soldier health travel as for any damage, and a client's
-own predicted walker never deals itself damage (`rust/sim/rust/client/hulls.rs`).
+own predicted walker never deals itself damage (`rust/sim/src/client/hulls.rs`).
 `cargo test --locked --workspace` covers the clock, the depths and an AT-ST
 wading in and being worn down.
 

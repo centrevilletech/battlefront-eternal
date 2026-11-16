@@ -53,7 +53,7 @@ so true/false are zero.
 
 Stock heroes consequently take normal projectile and melee damage; their
 large finite health and regeneration make ordinary weapons ineffective.
-The melee strike's block test (`block` in `rust/sim/rust/units/f3_sensors.rs`)
+The melee strike's block test (`block` in `rust/sim/src/units/f3_sensors.rs`)
 supports an explicitly enabled melee block with no facing or swing-state
 gate. Generic projectile reflection and the block pose/sounds
 are not implemented; custom CanDeflect=1 classes therefore have only melee

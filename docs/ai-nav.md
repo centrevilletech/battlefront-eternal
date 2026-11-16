@@ -1,14 +1,14 @@
 # Classic AI: navigation
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-runs in `rust/sim/rust/ai/` (ported from JavaScript). Function names are the
+runs in `rust/sim/src/ai/` (ported from JavaScript). Function names are the
 Rust names where the port keeps one, usually the JavaScript name in
 snake_case; object-shaped examples document the behavioral contract.
 
 
 Navigation for the Classic AI (`docs/ai.md`): the extracted planning data
 (`tools/zero_ai.py` → `public/maps/<map>/ai-nav.json` + `ai-nav.bin`) and the
-runtime under `rust/sim/rust/ai/nav/`. Behavior follows the 2004 game's route
+runtime under `rust/sim/src/ai/nav/`. Behavior follows the 2004 game's route
 planning and movement; this file records the schema, the module APIs, what is
 provisional, and findings made while implementing.
 
@@ -228,7 +228,7 @@ routeCapability occurrences are the ten listed above; the other warnings found
 are nab2/nab2_h barrier 341's basis (X·Z = −0.0039) and yav2/yav2_h's two
 paths named "Jungle1".
 
-## Runtime modules (`rust/sim/rust/ai/nav/`)
+## Runtime modules (`rust/sim/src/ai/nav/`)
 
 | File | What |
 | --- | --- |
@@ -378,13 +378,13 @@ drive a kinematic soldier with the port's axes to its goal.
   `classDef.bounds` ([[min], [max]], the model's INFO box; half for Hover),
   else 0.476.
 
-## Integration (outside `rust/sim/rust/ai/nav/`)
+## Integration (outside `rust/sim/src/ai/nav/`)
 
 1. `tools/extract.py`, end of `extract_map` (after `map.json`):
    `from zero_ai import export_map` and `export_map(name)`. A `ValueError`
    means malformed planning data; report it rather than abort the map.
-2. Soldier contact avoidance (`rust/sim/rust/movement/soldier.rs`, and the
-   same in `rust/sim/rust/units/droideka.rs`): where a polygon contact is
+2. Soldier contact avoidance (`rust/sim/src/movement/soldier.rs`, and the
+   same in `rust/sim/src/units/droideka.rs`): where a polygon contact is
    resolved and its normal's |y| is under 0.3, the contact normal (pointing
    from the geometry toward the soldier, unweighted) is added to
    `avoidance`. Terrain contacts (category 64) do not count; soldiers are
@@ -403,7 +403,7 @@ drive a kinematic soldier with the port's axes to its goal.
 
 ## Tests
 
-- `cargo test` in `rust/sim`: `rust/sim/rust/ai/nav/tests.rs` checks the AI
+- `cargo test` in `rust/sim`: `rust/sim/src/ai/nav/tests.rs` checks the AI
   generator's draws, open-heap ties, a barrier search and graph attach and
   selection against the reference answers on the same inputs.
 - `python3 -m unittest tests.test_ai_nav_export`: synthetic chunk archives for
