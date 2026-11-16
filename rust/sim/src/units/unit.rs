@@ -1,7 +1,7 @@
 //! A unit (src/units.js Unit): one body of one class on the field, its
 //! life, the intent its controller writes, the controls that latch it, the
 //! hit shapes made from its body, and its tick. The unit is the store's
-//! (`crate::gen::Unit`, rust/sim/schema/units.mjs); its id is its slot.
+//! (`crate::gen::Unit`, rust/sim/schema/units.json); its id is its slot.
 
 use super::damage::take_impacts;
 use super::droideka::{self, DroidekaParts};

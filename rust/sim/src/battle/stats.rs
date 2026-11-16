@@ -5,7 +5,7 @@
 //! everyone, and time tables of 5 classes, 10 weapons and 5 vehicles a slot
 //! where a new entry takes the place of the one with the least time.
 //!
-//! The state is the store's (rust/sim/schema/battle.mjs): the battle's
+//! The state is the store's (rust/sim/schema/battle.json): the battle's
 //! `BattleStats` and each Character's `Record`.
 
 use crate::gen::{Anchor, BattleStats, Character, Record, StatSlot, TimeEntry};

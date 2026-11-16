@@ -1,7 +1,7 @@
 //! The rounds on the module: the exports JavaScript drives them through once
 //! a battle's world hands them over (src/ordnance-sim.js), and the world
 //! their Rust reaches the battle through there: the imports of
-//! rust/sim/schema/ordnance.mjs, which src/ordnance-sim.js serves with the
+//! rust/sim/schema/ordnance.json, which src/ordnance-sim.js serves with the
 //! same OrdnanceWorld (src/ordnance-world.js) the JavaScript rounds call.
 
 use super::defs::{Defs, ExplosionDef, Field, OrdnanceDef, SCALE_FIELDS};

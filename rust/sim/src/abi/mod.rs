@@ -157,7 +157,7 @@ pub fn command_available(code: u32) -> bool {
     code != crate::gen::COMMAND_RELAY
 }
 
-/// The store's own command (rust/sim/schema/store.mjs), for its tests and
+/// The store's own command (rust/sim/schema/store.json), for its tests and
 /// benchmarks: its arguments back, `value` one more, after emitting
 /// `events` echoed events.
 pub fn echo(sim: &mut Sim, args: Echo) -> Echo {

@@ -3,7 +3,7 @@
 //! and kick, its trigger's timers, salvos, throws and charges, the spread
 //! each round draws, a launcher's lock, and a soldier's two channels. The
 //! same code serves a soldier's weapons, a seat's and a turret's: a weapon
-//! is the store's record (`gen::Weapon`, rust/sim/schema/combat.mjs) held by
+//! is the store's record (`gen::Weapon`, rust/sim/schema/combat.json) held by
 //! value by its owner, named by its place among its owner's weapons.
 
 use super::defs::{WeaponBase, Js, Level, WeaponClass, WeaponDefs, K};

@@ -4,7 +4,7 @@
 //! Teams 1 and 2 are the armies; 3 to 7 the locals, who neither bleed nor
 //! count down.
 //!
-//! The state is the store's (rust/sim/schema/battle.mjs): the `battle`
+//! The state is the store's (rust/sim/schema/battle.json): the `battle`
 //! singleton and its Characters, by reference.
 
 use super::posts;

@@ -1,4 +1,4 @@
-//! What flight keeps of a hull (rust/sim/schema/flight.mjs): the numbers
+//! What flight keeps of a hull (rust/sim/schema/flight.json): the numbers
 //! every hull carries for it (its flight state, null on the ground) and
 //! what initFlight gives a craft as it spawns. Field names are the
 //! JavaScript's in snake case, less their `flight` prefix where they have

@@ -1,7 +1,7 @@
 //! A seat's lease (src/seats.js SeatLease) and the intent its seat freezes
 //! once a batch (SeatInput: latch, take, takeReload).
 //!
-//! The lease is the store's (`gen::SeatLease`, rust/sim/schema/seats.mjs);
+//! The lease is the store's (`gen::SeatLease`, rust/sim/schema/seats.json);
 //! the intent it plays is its unit's (`gen::Intent`, the units' schema) or,
 //! once the AI drives the seat, the seat's own (`SeatIntent`: SeatUnit's,
 //! seats.js blankSeatIntent).
