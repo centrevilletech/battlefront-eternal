@@ -47,7 +47,7 @@ over bright ground.
   white flash and a coloured glow, a dozen sparks thrown back against the
   round's way, six embers that fall and cool, and a 0.4 s light. A round that
   runs out of life in the air has none.
-- **A head shot** (the world's `headshot` effect, or the page's own round
+- **A head shot** (the world's `headshot` effect, or the client's own round
   striking a head as it draws him) adds a gold star, 26 sparks, ten embers and
   a brighter light, once per hit, when the drawn bolt gets there.
 - **The shooter's own view.** A shot whose muzzle is within 2.5 m of the
@@ -67,7 +67,7 @@ that covers what is behind it; the rest adds light.
 - Both draws' programs are compiled while the battle loads: the trace is
   made by `Ordnance.prepare()`, before `graphics.warmupPaced()`. Made at the
   first sniper shot, as before, they stalled that frame on compiling (two
-  programs, about 100 ms of the page's time under software GL). For its
+  programs, about 100 ms of the frame under software GL). For its
   first 90 frames each empty batch also draws one dark instance (zero
   brightness, let go by its fragment shader): the driver builds a program's
   pipeline at its first real draw, and with no instance three issues none,
@@ -104,7 +104,7 @@ before the drawn bolt reaches a target 60 m away.
 
 ## Feedback
 
-A sniper round's hit marker shows as the page's own round strikes the soldier
+A sniper round's hit marker shows as the client's own round strikes the soldier
 it draws, not a round trip later (docs/semantic-combat.md "Sniper rounds
 online"). The authority still decides the damage.
 
