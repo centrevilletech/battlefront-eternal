@@ -194,7 +194,10 @@ with the Python tools, the command-line options, the generated code
 - `tools/`: the Python tools that read the original game's files and prepare
   them ([formats](docs/formats.md)).
 - `build/`: packaging (Windows installer, AppImage, Debian package, server
-  archive, update payload) and CI scripts.
+  archive, update payload) and CI scripts. `build/native/host-runtime/` is
+  the dedicated server's updater, a small Node.js program the Linux releases
+  carry so servers set up with it keep updating
+  ([server updates](docs/server-updates.md)).
 - `docs/`: design and behaviour notes, starting with the
   [architecture overview](docs/architecture.md).
 

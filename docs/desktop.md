@@ -347,8 +347,8 @@ Preparation runs `tools/prepare.py` with the bundled toolchain, into the app's
 off) the whole run takes about 9 minutes and the game is playable after about
 5; the longest steps are a map (80 to 130 s each, several at once), what every
 side shares (about 130 s) and the interface (about 115 s). Movies are only
-listed, never converted (the earlier build's movie encodes took that PC 48
-minutes in all).
+listed, never converted: with the earlier build's movie conversion the same
+PC took 48 minutes.
 
 | Step (key) | Tool | After | Needs |
 | --- | --- | --- | --- |
