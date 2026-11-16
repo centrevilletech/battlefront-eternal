@@ -285,27 +285,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         .map(|map| GateDriver::new(map, opts.shots_dir.clone()));
 
     // 7. Create the `winit` event loop in continuous `Poll` mode for 60 Hz rendering.
-    //    winit loads libxkbcommon (and libxkbcommon-x11 on X11) when the loop is made and
-    //    panics if it is missing: every desktop has it, a bare window manager may not. Name
-    //    what is missing and fail like any other start error, so whatever started the game
-    //    (the previous version handing off) carries on.
-    let previous_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
-    let created = std::panic::catch_unwind(EventLoop::new);
-    std::panic::set_hook(previous_hook);
-    let event_loop = match created {
-        Ok(made) => made.map_err(|e| e.to_string())?,
-        Err(panic) => {
-            let detail = panic
-                .downcast_ref::<String>()
-                .cloned()
-                .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
-                .unwrap_or_default();
-            return Err(format!(
-                "cannot open a window: {detail} (Debian and Ubuntu: sudo apt install libxkbcommon0 libxkbcommon-x11-0)"
-            ));
-        }
-    };
+    let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let platform_smoke = (opts.script.as_deref() == Some("platform-smoke"))
