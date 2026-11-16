@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -522,17 +522,28 @@ fn ws_loop(
     events_tx: Sender<MasterEvent>,
     stop: Arc<AtomicBool>,
 ) {
+    // The master pings every 30 s: a socket silent for 75 s is dead (a NAT rebinding leaves
+    // the master holding the old one), so reconnect instead of waiting for offers that never come.
+    const SILENT: Duration = Duration::from_secs(75);
+    let mut heard = Instant::now();
+    let closed = |why: &str| eprintln!("Online signalling: closed ({why}); reconnecting");
     while !stop.load(Ordering::Relaxed) {
         while let Ok(wire) = out_rx.try_recv() {
-            if socket.send(Message::Text(wire.into())).is_err() {
+            if let Err(error) = socket.send(Message::Text(wire.into())) {
+                closed(&format!("send: {error}"));
                 let _ = events_tx.send(MasterEvent::Disconnected);
                 return;
             }
         }
-        match socket.read() {
+        let read = socket.read();
+        if read.is_ok() {
+            heard = Instant::now();
+        }
+        match read {
             Ok(Message::Text(text)) => {
                 // Reject WebSocket frames exceeding `maxPayload: 32768`.
                 if text.len() > 32768 {
+                    closed("oversized frame");
                     let _ = socket.close(None);
                     let _ = events_tx.send(MasterEvent::Disconnected);
                     return;
@@ -542,6 +553,7 @@ fn ws_loop(
                         let _ = events_tx.send(MasterEvent::Signal(sig));
                     }
                     Err(_) => {
+                        closed("unreadable frame");
                         let _ = socket.close(None);
                         let _ = events_tx.send(MasterEvent::Disconnected);
                         return;
@@ -550,6 +562,7 @@ fn ws_loop(
             }
             Ok(Message::Binary(bin)) => {
                 if bin.len() > 32768 {
+                    closed("oversized frame");
                     let _ = socket.close(None);
                     let _ = events_tx.send(MasterEvent::Disconnected);
                     return;
@@ -559,21 +572,31 @@ fn ws_loop(
                         let _ = events_tx.send(MasterEvent::Signal(sig));
                     }
                     Err(_) => {
+                        closed("unreadable frame");
                         let _ = socket.close(None);
                         let _ = events_tx.send(MasterEvent::Disconnected);
                         return;
                     }
                 }
             }
-            Ok(Message::Close(_)) => {
+            Ok(Message::Close(frame)) => {
+                closed(&format!("by the master: {frame:?}"));
                 let _ = events_tx.send(MasterEvent::Disconnected);
                 return;
             }
             Ok(_) => {}
             Err(tungstenite::Error::Io(ref err))
                 if err.kind() == std::io::ErrorKind::WouldBlock
-                    || err.kind() == std::io::ErrorKind::TimedOut => {}
-            Err(_) => {
+                    || err.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                if heard.elapsed() >= SILENT {
+                    closed("nothing heard for 75 s");
+                    let _ = events_tx.send(MasterEvent::Disconnected);
+                    return;
+                }
+            }
+            Err(error) => {
+                closed(&format!("read: {error}"));
                 let _ = events_tx.send(MasterEvent::Disconnected);
                 return;
             }
