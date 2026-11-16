@@ -449,8 +449,12 @@ pub fn schedule_background_check() {
             if let CheckOutcome::Installed { version, .. } =
                 check_and_install::<fn(InstallProgress)>(&ctx, None)
             {
-                if let Some(root) = ctx.resolve_active().map(|r| r.root) {
-                    append_update_log(&root, None, &format!("{version} starts at the next launch"));
+                if let Some(active) = ctx.resolve_active() {
+                    append_update_log(
+                        &active.root,
+                        Some(&active.own_version),
+                        &format!("{version} starts at the next launch"),
+                    );
                 }
             }
         });
