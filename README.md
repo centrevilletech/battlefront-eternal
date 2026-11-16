@@ -39,8 +39,10 @@ ARM64), and update themselves.
 - **Sound.** Original (2004) and Enhanced (2026) modes, with 3D audio on
   headphones and speaker layouts up to 7.1.4, and a light stereo mix of the
   original for slow PCs.
-- **Movies.** The game's own intro and menu movies play from your game folder,
-  decoded by this project's [Bink decoder](https://github.com/centrevilletech/bink-decoder).
+- **Movies.** The game's own menu movies and map flyovers play straight from
+  your game folder, decoded by this project's
+  [Bink decoder](https://github.com/centrevilletech/bink-decoder); nothing is
+  converted when the game is prepared.
 - **Multiplayer.** Server-authoritative battles at 60 Hz over an encrypted
   UDP transport, up to 32 versus 32 with bots filling empty slots. An online
   server browser with measured ping, LAN games, direct connect, and hosting
