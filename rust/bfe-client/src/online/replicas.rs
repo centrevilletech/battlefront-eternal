@@ -232,7 +232,7 @@ impl Replicas {
             bump: None,
             record: serde_json::Value::Null,
         };
-        let key = crate::static_scene::actor_key(&material, shadow_cascades)?;
+        let key = crate::static_scene::actor_key(&material, shadow_cascades, true)?;
         let program = bridge.add_owned_program(&key)?;
         let preview_skin = unsafe {
             use glow::HasContext;

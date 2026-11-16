@@ -85,7 +85,7 @@ fn geometry(positions: &[f32], normals: &[f32], uv: &[f32], index: &[u32]) -> Ge
         groups: vec![],
     }
 }
-pub(crate) fn actor_key(material: &bfe_content_native::loader::Material, cascades: usize) -> Result<String, String> {
+pub(crate) fn actor_key(material: &bfe_content_native::loader::Material, cascades: usize, skinned: bool) -> Result<String, String> {
     // actorProgram's closed identity comes from the same source manifest.
     // The caller supplies cascades for world actors; view models use none.
     let mut defines = vec![
@@ -112,7 +112,11 @@ pub(crate) fn actor_key(material: &bfe_content_native::loader::Material, cascade
     // The selector includes draw kind as well as material defines. A rigid
     // look and a skinned bind-pose look are different programs even when
     // they cover the same triangles at admission.
-    let wanted = json!({"defines":defines,"skin":true,"cascades":cascades,"mode":"skinned","lamps":false});
+    let wanted = if skinned {
+        json!({"defines":defines,"skin":true,"cascades":cascades,"mode":"skinned","lamps":false})
+    } else {
+        json!({"defines":defines,"skin":false,"cascades":cascades,"mode":"rigid","lamps":false})
+    };
     static MANIFEST: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
     let manifest = MANIFEST.get_or_init(|| {
         serde_json::from_str(include_str!(
@@ -129,12 +133,49 @@ pub(crate) fn actor_key(material: &bfe_content_native::loader::Material, cascade
         .map(str::to_owned)
         .ok_or_else(|| format!("unowned static prop material {wanted}"))
 }
+// A placed prop's pose never changes after admission, so its parts are skinned once here, as the four-bone
+// shader would skin them every vertex of every frame (bind matrix identity: transformed = bindInverse *
+// sum(weight * bone) * position, the normal through the same matrix), and drawn as rigid meshes: no bone
+// rows, no skin attributes, the rigid program. Returns the baked positions and normals.
+fn bake_pose(part: &bfe_content_native::placed::Part) -> (Vec<f32>, Vec<f32>) {
+    let bone = |i: usize| -> [f64; 16] { std::array::from_fn(|k| part.bones.get(i * 16 + k).copied().unwrap_or(0.) as f64) };
+    let bind_inverse: [f64; 16] = std::array::from_fn(|k| part.bind_inverse[k] as f32 as f64);
+    let mut positions = Vec::with_capacity(part.positions.len());
+    let mut normals = Vec::with_capacity(part.normals.len());
+    for (v, p) in part.positions.chunks_exact(3).enumerate() {
+        let mut skin = [0.; 16];
+        for j in 0..4 {
+            let w = part.weights.get(v * 4 + j).copied().unwrap_or(0.) as f64;
+            if w != 0. {
+                let b = bone(part.joints.get(v * 4 + j).copied().unwrap_or(0) as usize);
+                for k in 0..16 {
+                    skin[k] += w * b[k];
+                }
+            }
+        }
+        let m = mul(&bind_inverse, &skin);
+        let at = |x: f64, y: f64, z: f64, w: f64, r: usize| m[r] * x + m[4 + r] * y + m[8 + r] * z + m[12 + r] * w;
+        let (x, y, z) = (p[0] as f64, p[1] as f64, p[2] as f64);
+        positions.extend((0..3).map(|r| at(x, y, z, 1., r) as f32));
+        let n = part.normals.get(v * 3..v * 3 + 3).map_or([0., 1., 0.], |n| [n[0] as f64, n[1] as f64, n[2] as f64]);
+        normals.extend((0..3).map(|r| at(n[0], n[1], n[2], 0., r) as f32));
+    }
+    (positions, normals)
+}
+// Column-major 4x4 product a * b.
+fn mul(a: &[f64; 16], b: &[f64; 16]) -> [f64; 16] {
+    std::array::from_fn(|i| {
+        let (c, r) = (i / 4, i % 4);
+        (0..4).map(|k| a[k * 4 + r] * b[c * 4 + k]).sum()
+    })
+}
 pub fn props(
     bridge: &mut Bridge,
     content: &BattleContent,
     textures: &[u32],
     placed: bfe_content_native::placed::Placements,
     cascades: usize,
+    bake: bool,
 ) -> Result<Admission, String> {
     let mut a = Admission {
         records: vec![],
@@ -160,44 +201,30 @@ pub fn props(
             .find(|m| m.name == format!("{}/{}", part.model, part.source))
             .ok_or("missing placed model resource")?;
         let material = &mesh.material;
-        let key = actor_key(material, cascades)?;
+        // Only the map's own props are baked: hosts that admit their models here (vehicles, turrets, animated
+        // props) pose the bones afterwards, every frame.
+        let key = actor_key(material, cascades, !bake)?;
         let program = bridge.add_owned_program(&key)?;
+        let (positions, normals) = if bake { bake_pose(&part) } else { (part.positions.clone(), part.normals.clone()) };
         // The batch builder's representative source part fixes its material.
         // Texture names alone are not enough to share batches: flags, scroll
         // values and bind-frame transforms can differ on a single model.
-        let resource = part.geometry_key.clone();
+        // Copies share one baked mesh only when their poses are the same too.
+        let pose = if bake { part.bones.iter().copied().chain(part.bind_inverse.iter().map(|v| *v as f32)).map(f32::to_bits).collect::<Vec<_>>() } else { vec![] };
+        let resource = (part.geometry_key.clone(), pose);
         let g = if let Some(g) = geometries.get(&resource) {
             *g
         } else {
-            let mut geometry = geometry(&part.positions, &part.normals, &part.uv, &part.index);
-            for (name, size, scalar, bytes) in [
-                (
-                    "skinIndex",
-                    4,
-                    Scalar::U16,
-                    part.joints
-                        .iter()
-                        .flat_map(|v| v.to_le_bytes())
-                        .collect::<Vec<_>>(),
-                ),
-                (
-                    "skinWeight",
-                    4,
-                    Scalar::Float,
-                    part.weights.iter().flat_map(|v| v.to_le_bytes()).collect(),
-                ),
-            ] {
-                let buffer = geometry.buffers.len();
-                geometry.buffers.push(bytes);
-                geometry.attributes.push(Attribute {
-                    name: name.into(),
-                    buffer,
-                    size,
-                    scalar,
-                    normalized: false,
-                    stride: 0,
-                    offset: 0,
-                });
+            let mut geometry = geometry(&positions, &normals, &part.uv, &part.index);
+            if !bake {
+                for (name, size, scalar, bytes) in [
+                    ("skinIndex", 4, Scalar::U16, part.joints.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<_>>()),
+                    ("skinWeight", 4, Scalar::Float, part.weights.iter().flat_map(|v| v.to_le_bytes()).collect()),
+                ] {
+                    let buffer = geometry.buffers.len();
+                    geometry.buffers.push(bytes);
+                    geometry.attributes.push(Attribute { name: name.into(), buffer, size, scalar, normalized: false, stride: 0, offset: 0 });
+                }
             }
             let g = geometry.register(&mut bridge.r, &key)?;
             geometries.insert(resource, g);
@@ -207,24 +234,28 @@ pub fn props(
         // and bones use attached-mode skinning exactly as the browser rigs do,
         // including its recomposed bind inverses and final Float32 bone rows.
         let mut row = [0.; I::REC_STRIDE];
-        row[I::REC_KIND] = 1.;
-        row[I::REC_BONES] = (part.bones.len() / 16) as f64;
-        row[I::REC_BONE_AT] = (a.bones.len() / 16) as f64;
-        a.bones.extend_from_slice(&part.bones);
         row[I::REC_BIND..I::REC_BIND + 16].copy_from_slice(&Matrix4::default().elements);
-        row[I::REC_BIND_INVERSE..I::REC_BIND_INVERSE + 16].copy_from_slice(&part.bind_inverse);
+        if bake {
+            row[I::REC_KIND] = 2.;
+            row[I::REC_BIND_INVERSE..I::REC_BIND_INVERSE + 16].copy_from_slice(&Matrix4::default().elements);
+        } else {
+            row[I::REC_KIND] = 1.;
+            row[I::REC_BONES] = (part.bones.len() / 16) as f64;
+            row[I::REC_BONE_AT] = (a.bones.len() / 16) as f64;
+            a.bones.extend_from_slice(&part.bones);
+            row[I::REC_BIND_INVERSE..I::REC_BIND_INVERSE + 16].copy_from_slice(&part.bind_inverse);
+        }
         row[I::REC_PROGRAM] = program as f64;
         row[I::REC_GEOMETRY] = g as f64;
         row[I::REC_TEXTURES] = material.texture.map_or(-1., |t| textures[t] as f64);
         row[I::REC_WORLD..I::REC_WORLD + 16].copy_from_slice(&part.matrix);
-        row[I::REC_SPHERE..I::REC_SPHERE + 3].copy_from_slice(&part.center);
-        row[I::REC_SPHERE + 3] = part.radius;
+
         // The object-space box feeds the rigid light-mask path; the sphere
         // feeds visibility for both draw kinds. Keep source bounds rather
         // than expanding them from an already placed world-space mesh.
         let mut lo = [f64::INFINITY; 3];
         let mut hi = [f64::NEG_INFINITY; 3];
-        for p in part.positions.chunks_exact(3) {
+        for p in positions.chunks_exact(3) {
             for k in 0..3 {
                 lo[k] = lo[k].min(p[k] as f64);
                 hi[k] = hi[k].max(p[k] as f64);
@@ -232,6 +263,16 @@ pub fn props(
         }
         row[I::REC_BOX..I::REC_BOX + 3].copy_from_slice(&lo);
         row[I::REC_BOX + 3..I::REC_BOX + 6].copy_from_slice(&hi);
+        if bake {
+            // The sphere bounds the baked mesh (the visibility test of both draw kinds).
+            let center: [f64; 3] = std::array::from_fn(|k| if lo[k] <= hi[k] { (lo[k] + hi[k]) / 2. } else { 0. });
+            let radius = positions.chunks_exact(3).map(|p| (0..3).map(|k| (p[k] as f64 - center[k]).powi(2)).sum::<f64>().sqrt()).fold(0., f64::max);
+            row[I::REC_SPHERE..I::REC_SPHERE + 3].copy_from_slice(&center);
+            row[I::REC_SPHERE + 3] = radius;
+        } else {
+            row[I::REC_SPHERE..I::REC_SPHERE + 3].copy_from_slice(&part.center);
+            row[I::REC_SPHERE + 3] = part.radius;
+        }
         row[I::REC_LOOK] = 1.;
         row[I::REC_LOOK + 3] = 1.;
         row[I::REC_FLAGS] = (if material.double_sided { 2 } else { 0 }
@@ -272,7 +313,7 @@ pub fn props(
                 glow::LEQUAL,
                 &[program, if material.double_sided { 2 } else { 0 }],
             );
-            row[I::REC_KIND] = I::KIND_BLENDED;
+            row[I::REC_KIND] = if bake { I::KIND_BLENDED_RIGID } else { I::KIND_BLENDED };
             row[I::REC_BLEND] = id as f64;
             row[I::REC_BLEND + 3] = a.records.len() as f64;
         }
@@ -557,3 +598,42 @@ mod tests {
 
 // Static ocean admission leaves shoreline quality at zero. Its shared surface
 // owner computes camera-grid placement with zero elapsed time and no contacts.
+
+#[cfg(test)]
+mod bake_tests {
+    use super::*;
+    #[test]
+    fn a_baked_prop_matches_what_the_skinning_shader_draws() {
+        // Two bones: a translation by (1, 2, 3) and a quarter turn about y; the bind inverse moves by -1 in x.
+        let mut translate = Matrix4::default().elements.map(|v| v as f32);
+        translate[12] = 1.;
+        translate[13] = 2.;
+        translate[14] = 3.;
+        let turn: [f32; 16] = [0., 0., -1., 0., 0., 1., 0., 0., 1., 0., 0., 0., 0., 0., 0., 1.];
+        let mut bind_inverse = Matrix4::default().elements;
+        bind_inverse[12] = -1.;
+        let part = bfe_content_native::placed::Part {
+            instance: 0,
+            attachment: None,
+            model: String::new(),
+            source: 0,
+            geometry_key: String::new(),
+            matrix: Matrix4::default().elements,
+            positions: vec![1., 0., 0.],
+            normals: vec![1., 0., 0.],
+            uv: vec![0., 0.],
+            index: vec![0, 0, 0],
+            joints: vec![0, 1, 0, 0],
+            weights: vec![0.5, 0.5, 0., 0.],
+            bones: translate.iter().chain(turn.iter()).copied().collect(),
+            bind_inverse,
+            center: [0.; 3],
+            radius: 1.,
+        };
+        let (p, n) = bake_pose(&part);
+        // 0.5 * (2, 2, 3) + 0.5 * (0, 0, -1) = (1, 1, 1), then x - 1.
+        assert_eq!(p, vec![0., 1., 1.]);
+        // Normal: 0.5 * (1, 0, 0) + 0.5 * (0, 0, -1); the bind inverse's translation does not move it.
+        assert_eq!(n, vec![0.5, 0., -0.5]);
+    }
+}
