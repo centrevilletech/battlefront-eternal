@@ -1,9 +1,8 @@
 # Classic AI: perception, aim, firing and combat
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-runs in `rust/sim/src/ai/` (ported from JavaScript). Function names are the
-Rust names where the port keeps one, usually the JavaScript name in
-snake_case; object-shaped examples document the behavioral contract.
+runs in `rust/sim/src/ai/`. Function names are the Rust names;
+object-shaped examples document the behavioral contract.
 
 
 Combat part of the Classic AI (`docs/ai.md`). It covers perception, targets,
@@ -273,7 +272,7 @@ All additive; a player's weapons behave as before.
 y.json` for one archive). Reads `SIDE/<side>.lvl` plus the shared
 `common.lvl` and `core.lvl`; every `entc`/`wpnc` class the side defines.
 
-```js
+```text
 {
   schema: 1, generator: "tools/zero_ai_classes.py 1", side,
   source: { path, bytes, sha256 }, shared: [{ path, bytes, sha256 }],

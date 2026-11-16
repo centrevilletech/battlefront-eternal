@@ -1,9 +1,8 @@
 # Classic AI: population, spawning, difficulty and objectives
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-runs in `rust/sim/src/ai/` (ported from JavaScript). Function names are the
-Rust names where the port keeps one, usually the JavaScript name in
-snake_case; object-shaped examples document the behavioral contract.
+runs in `rust/sim/src/ai/`. Function names are the Rust names;
+object-shaped examples document the behavioral contract.
 
 
 Population of the Classic AI (`docs/ai.md`). Behavior follows the 2004 game:
@@ -35,7 +34,7 @@ Every random draw goes through the AI's generator A
 map's world archive, `Common/ENG/common.lvl`, `core.lvl` and the side archives
 the map's scripts load. It writes only `public/maps/<map>/ai-mission.json`.
 
-```js
+```text
 {
   schema: 1,
   generator: "zero_ai_mission.py 1",
@@ -166,7 +165,7 @@ Character prepares).
 
 Each Character gets these fields:
 
-```js
+```text
 character.slot, managerIndex, playerId (-1 for bots), name
 character.classIndex          // index into teams[team].classes, null before activation
 character.className, hero     // from the class

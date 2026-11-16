@@ -1,9 +1,8 @@
 # Enhanced AI
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-runs in `rust/sim/src/ai/` (ported from JavaScript). Function names are the
-Rust names where the port keeps one, usually the JavaScript name in
-snake_case; object-shaped examples document the behavioral contract.
+runs in `rust/sim/src/ai/`. Function names are the Rust names;
+object-shaped examples document the behavioral contract.
 
 
 Enhanced is the second battle AI, next to Classic. Classic ([ai.md](ai.md))

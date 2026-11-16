@@ -1,9 +1,8 @@
 # Classic AI: vehicles, turrets and seats
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-runs in `rust/sim/src/ai/` (ported from JavaScript). Function names are the
-Rust names where the port keeps one, usually the JavaScript name in
-snake_case; object-shaped examples document the behavioral contract.
+runs in `rust/sim/src/ai/`. Function names are the Rust names;
+object-shaped examples document the behavioral contract.
 
 
 Vehicles, turrets and seats for the Classic AI (`docs/ai.md`). Two layers:
@@ -27,7 +26,7 @@ implementing.
 Every vehicle seat (`vehicle.seats[i]`) and every turret holds at most one
 **lease** (`SeatLease`, `rust/sim` (`seats`)):
 
-```js
+```text
 lease = {
   unit,          // the occupant: a Unit, or the player's unit (null in bare tests)
   generation,    // unit.generation when the lease was granted

@@ -1,8 +1,8 @@
 # Classic AI class jobs
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-runs in `rust/sim/src/ai/` (ported from JavaScript); API examples below
-document its behavioral contract.
+runs in `rust/sim/src/ai/`; API examples below document its behavioral
+contract.
 
 
 `rust/sim/src/ai/control/classes.rs` holds the class jobs' data and pure

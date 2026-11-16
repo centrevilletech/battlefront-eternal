@@ -135,7 +135,7 @@ Aircraft retain their existing flight targeting system.
 `cargo test --locked --workspace` checks projectile guidance and all four
 infantry launcher schedules when local extracts exist. The synthetic frozen
 weapon corpus checks 3,880 native timer, charge, lock-reset, salvo, spread and
-shot checkpoints against the removed JavaScript controller.
+shot checkpoints against recorded results.
 Native acquisition and crew-team changes are exercised by
 `cargo test --locked --workspace` and `cargo test --locked --workspace`; page scope alignment
 uses the published basis in `cargo test --locked --workspace`.

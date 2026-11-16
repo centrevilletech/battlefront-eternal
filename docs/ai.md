@@ -25,8 +25,8 @@ Rules that apply to every change:
 The [native ownership contract](sim-ai.md) describes the current implementation
 in `rust/sim/src/ai/` and its generated host boundary. Each area below records
 the behavioral contract; the Code column names the Rust modules that own it.
-The bot code was ported from JavaScript; object-shaped API examples in these
-documents describe the data each operation reads and writes.
+Object-shaped API examples in these documents describe the data each
+operation reads and writes.
 
 | Area | Document | Code |
 | --- | --- | --- |
@@ -61,11 +61,10 @@ port mirrors that split:
   references can be detected.
 
 The following object-shaped examples describe the behavioral data contract.
-Native AI resolves canonical rows through borrowed services; these are not
-JavaScript callbacks used to make each bot decision. Host facade vectors remain
-shared and must not be mutated by observers:
+Native AI resolves canonical rows through borrowed services; these describe
+the data, not calls made for each bot decision:
 
-```js
+```text
 unit.id            // stable integer for the pooled unit
 unit.generation    // increments on every spawn; refs store {unit, generation}
 unit.team          // 1, 2 (mission teams); 0 neutral; locals may use 3+
@@ -101,7 +100,7 @@ extractor writes positions unchanged). Yaw is about +Y with forward
 
 `world.units` (`rust/sim` (`units::registry`)):
 
-```js
+```text
 units.all()                         // every pooled unit (alive or not)
 units.living()                      // alive units
 units.byId(id)
@@ -115,7 +114,7 @@ relation(teamA, teamB)              // 1 friend, 0 neutral, -1 enemy (mission re
 What a controller writes for its unit each tick. The unit applies it in its
 own tick, then clears the edge fields.
 
-```js
+```text
 intent = {
   forward: 0, right: 0,     // movement analogs, [-1, 1] (strafe right positive)
   turn: 0,                  // yaw analog: rate = turn * class MaxTurnSpeed (rad/s);
@@ -142,7 +141,7 @@ set world position to follow a path.
 
 `ClassicAI` receives one `world` object:
 
-```js
+```text
 world.time                // simulation seconds since the match started
 world.random              // ClassicRandom: generator A, the AI's decisions (route picks,
                           //   roulettes, timers)
@@ -200,7 +199,7 @@ Gameplay emits once; AI and any other consumer read it. Audio keeps its own
 `emitSound` hook; AI never replaces that listener. Records are immutable value
 snapshots (positions copied):
 
-```js
+```text
 { seq, time, kind, source: {unit, generation} | null, team, position: [x,y,z], ...fields }
 // kinds: "shot" (weapon fired: weapon, direction, target ref when known),
 //        "damage" (target, amount, attacker), "death" (unit, attacker),
@@ -247,7 +246,7 @@ One per AI Character. Holds the FSM (current/pending state, multi-transition
 drain), the CommandFsm source-goal queue (five records), the current agent,
 and the fields other areas read or write:
 
-```js
+```text
 controller.unit                 // the unit it drives (null between lives)
 controller.state                // 1..11
 controller.agent                // current Agent
@@ -268,7 +267,7 @@ controller.difficulty           // side curves (from world.difficulty, Populatio
 Created on state entry, owns a movement helper (GroundGotoHelper, or
 FlyGotoHelper for flyers).
 
-```js
+```text
 class Agent {
   constructor(controller, goal)   // goal: the source-goal record that started it
   tick(dt, phase)                 // per-state work, then helper.tick(dt)
@@ -291,7 +290,7 @@ policies to the helper, so every helper implements them too.
 
 ### Movement helper and request (Nav)
 
-```js
+```text
 helper.goto(point, options)     // plan a route to point (graph route + local barrier path);
                                 //   options.mode: "route" | "direct" | "straight". It replans
                                 //   and stops the unit until the path arrives: call it only
