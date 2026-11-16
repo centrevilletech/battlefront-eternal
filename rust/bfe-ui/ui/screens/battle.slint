@@ -47,7 +47,6 @@ export {
 export struct BattleChatLine { text: string, color: color }
 
 export global BattleModel {
-    in-out property <string> stats-line;
     in-out property <[BattleChatLine]> chat-lines: [];
     in-out property <bool> chat-open: false;
     in-out property <string> chat-prompt;
@@ -790,24 +789,6 @@ export component BattleScreen inherits Rectangle {
     }
 
     background: transparent;
-
-    if BattleModel.stats-line != "": Rectangle {
-        x: 16px;
-        y: parent.height - 6px - self.height;
-        width: parent.width - 32px;
-        height: 16.8px;
-        for offset in [1px, 0px]: Text {
-            y: offset - 1px;
-            width: parent.width;
-            height: parent.height;
-            text: BattleModel.stats-line;
-            font-family: Theme.monospace-font-family;
-            font-size: 12px;
-            font-weight: 400;
-            color: offset > 0px ? #000000 : #f2efe6;
-            vertical-alignment: center;
-        }
-    }
 
     if BattleModel.chat-open || BattleModel.chat-lines.length > 0: BattleChat {
         x: parent.width * 0.03;
