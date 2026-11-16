@@ -35,8 +35,8 @@ impl Source {
     pub const ALL: [Source; 2] = [Source::Internet, Source::Lan];
 
     // Canonical lowercase wire/config identifier (`"internet"` or `"lan"`).
-    // Option value string (`"any"`, `"50"`, `"100"`, `"150"`) matching `PINGS` in JS.
-    // Column identifier used in CSS class `.c-{id}` and `COLUMNS[i].id` in JS.
+    // Option value string (`"any"`, `"50"`, `"100"`, `"150"`) matching `PINGS`.
+    // Column identifier used in CSS class `.c-{id}` and `COLUMNS[i].id`.
     pub fn id(self) -> &'static str {
         match self {
             Self::Internet => "internet",
@@ -56,7 +56,7 @@ impl Source {
     }
 
     // Parses a source identifier from a UI control or CLI flag, returning `None`
-    // for unknown strings (`!SOURCES.some(([id]) => id === source)` in JS).
+    // for unknown strings (`!SOURCES.some(([id]) => id === source)`).
     // Parses a toolbar `<select>` option value back into a `PingFilter`.
     // Resolves a column identifier string into its `SortColumn` variant.
     pub fn from_id(id: &str) -> Option<Self> {

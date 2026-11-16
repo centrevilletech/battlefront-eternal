@@ -738,7 +738,7 @@ pub(crate) fn emitter_local_in(world_ctx: &mut crate::world::owner::World, sourc
     let mut inverse = emitter_matrix_in(world_ctx, e); inverse.invert();
     let mut p = vec(&origin); p.apply_matrix4(&inverse); Some(v3(&p))
 }
-/// OrdnanceWorld.beamPose reads the retained rig directly, without a JS detour.
+/// OrdnanceWorld.beamPose reads the retained rig directly.
 // Ordnance.updateBeam reads the original emitter, not the current seat owner.
 // This native intercept and the stationary lease intercept must both remain:
 // their lifetime and fallback frame contracts are intentionally distinct.

@@ -567,7 +567,7 @@ pub fn bindings_look_for_tab(surface_height: f64, flying: bool) -> ListLook {
         box_y: cw.list_box[1],
         box_w: cw.list_box[2],
         box_h: cw.list_box[3],
-        // Compact font (`gamefont_tiny`) and `22.6` row pitch matching `bindingsLook` in JS.
+        // Compact font (`gamefont_tiny`) and `22.6` row pitch matching `bindingsLook`.
         font: FONT_TINY,
         pitch: 22.6,
         // Vertical frame inset and horizontal column padding (`inset: 14, padLeft: 16, padRight: 20`).

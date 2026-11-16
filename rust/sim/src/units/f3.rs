@@ -2043,7 +2043,7 @@ let count=count.max(s.categories.len());
     s.foreign.resize_with(count.max(s.foreign.len()),F3PropFact::default);
     s.items.reserve_unit(count);s.pushers.reserve(count);
     super::f3_hulls::reserve_members_in(&mut world_ctx.units, count);
-    // Prepared future births may become flight targets without a JS registry add.
+    // Prepared future births may become flight targets.
     crate::vehicles::module::f2::reserve_registry_in(world_ctx, count);
     prepare_bounds_in(world_ctx, count);
 }

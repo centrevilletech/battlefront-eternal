@@ -680,7 +680,7 @@ impl Ordnance {
         }
         if version_ok {
             // Commands first: a sample received this frame belongs to the
-            // present that follows, as `receive` ran before `present` in JS.
+            // present that follows, as `receive` ran before `present`.
             self.net_flush(clamp_count(self.input[fr::NET_COMMANDS], lim::NET_COMMANDS));
             let enhanced = self.input[fr::ENHANCED_BOLTS] != 0.0;
             let sniper = self.input[fr::ENHANCED_SNIPER] != 0.0;

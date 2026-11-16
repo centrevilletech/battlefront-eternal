@@ -1,11 +1,9 @@
-//! A battle's collision world in the collision kernel's state, as
-//! src/ray-kernel.js makes it from a CollisionWorld (src/collision.js
-//! 160-165): the terrain's grid, the buildings' tree and the terrain's tree
-//! over the content's corners (one copy of each corner array), the world,
-//! and the buildings as its fixed set for gathers. The trees are the
-//! JavaScript's (three-mesh-bvh's packed nodes and indirect buffers),
-//! handed over as built: tools/collision-trees.mjs writes them for a host
-//! without JavaScript, and `read_trees` reads that file.
+//! A battle's collision world in the collision kernel's state: the
+//! terrain's grid, the buildings' tree and the terrain's tree over the
+//! content's corners (one copy of each corner array), the world, and the
+//! buildings as its fixed set for gathers. The trees keep three-mesh-bvh's
+//! layout (packed nodes and indirect buffers); `read_trees` reads them from a
+//! trees file (`BFEC`, version 1).
 
 use crate::collision::{MapCollision, TriangleGrid};
 

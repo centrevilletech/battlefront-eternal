@@ -186,8 +186,8 @@ pub fn connections(character_count: usize) -> Result<u32, AdmitError> { Ok(setup
 /// caller retaining a callback can supply its generated F4RosterNames state
 /// directly on BoundRows instead of reconstructing a generator.
 pub fn roster(options: &Options, factions: &[f64], local: Option<Ref<Character>>, army_size: Option<f64>, intern: &mut impl FnMut(&str) -> StrId) -> Result<F4RosterSetup, AdmitError> {
-    // createNativeAI publishes a SpawningMirror without JS callback or
-    // names properties. F4Roster therefore transports empty fallback lists.
+    // The AI's spawning roster names no properties, so the roster carries
+    // empty fallback lists.
     let mut row = roster_from_names(None, factions, local, army_size, intern)?;
     row.classic = options.bots.fielded;
     row.has_ai = options.bots.fielded;

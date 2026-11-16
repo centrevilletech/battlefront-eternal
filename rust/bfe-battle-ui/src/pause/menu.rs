@@ -212,7 +212,7 @@ pub enum PauseScreenState {
 }
 
 impl PauseScreenState {
-    /// Screen identifier matching `MenuScreen.id` in JS.
+    /// Screen identifier matching `MenuScreen.id`.
     pub fn id(&self) -> &'static str {
         match self {
             PauseScreenState::Main => "pause",

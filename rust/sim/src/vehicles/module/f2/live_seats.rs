@@ -1541,7 +1541,7 @@ fn beam_turret<'a>(st: &'a mut State, store: &Store, r: Ref<SeatLease>) -> Optio
     let turret = store.seat_lease.get(r)?.turret?;
     st.owner.crews.turrets.iter_mut().find(|t| t.turret == turret)
 }
-/// SeatLease.emitter.matrix, using the retained gun frame without a JS rig call.
+/// SeatLease.emitter.matrix, using the retained gun frame.
 pub(crate) fn beam_local_in(world_ctx: &mut crate::world::owner::World, r: Ref<SeatLease>, origin: [f64; 3]) -> Option<[f64; 3]> {
     let t = beam_turret(seats_state(&mut world_ctx.fleet.seats), &world_ctx.sim.store, r)?; let node = t.rig.gun.unwrap_or(t.rig.root);
     t.rig.tree.update_matrix_world(t.rig.root, true);
