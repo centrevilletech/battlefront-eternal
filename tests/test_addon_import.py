@@ -201,14 +201,14 @@ class DiscoveryTests(unittest.TestCase):
         table = [{"mapluafile": "GEO1", "showstr": "planets.geonosis.mapname1", "side_r": 1.0}]
         table = catalog_table(table, zero_addon.listed_maps(self.game) + [{"mapluafile": "geo1", "showstr": "again"}])
         maps = map_catalog(table, zero_addon.missions(self.game), zero_addon.localization(self.game), {"abc1": "abc1r"},
-                           {"abc1fly": {"file": "abc1fly.webm"}}, {})
+                           {"abc1fly": {"file": "abc1fly.bik"}}, {})
         self.assertEqual([m["id"] for m in maps], ["geo1", "abc1"], "each map once, the add-on's last")
         abc1 = maps[1]
         self.assertEqual(abc1["name"], "ABC: TEST", "not a localization key: shown as written, as the shell does")
         self.assertTrue(abc1["extracted"])
         self.assertEqual(abc1["eras"]["cw"], {"teams": ["rep", "cis"], "attacker": 1, "mission": "abc1r", "extracted": True})
         self.assertEqual(abc1["eras"]["gcw"]["mission"], "abc1i")
-        self.assertEqual(abc1["fly"], "movies/abc1fly.webm")
+        self.assertEqual(abc1["fly"], "movies/abc1fly.bik")
         self.assertIsNone(abc1["load"])
 
     def test_the_plan_finds_the_add_ons_armies_and_sound(self):
@@ -323,14 +323,14 @@ class PreparedStateTests(unittest.TestCase):
     def test_add_ons_installed_since_run_what_lists_them_again(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / ".prepare.json"
-            done = ["catalog", "side:rep", "common", "shell", "hud", "movies", "map:geo1", "audio:geo1cw", "catalog-update",
+            done = ["catalog", "side:rep", "common", "shell", "hud", "map:geo1", "audio:geo1cw", "catalog-update",
                     "environment", "textures"]
             path.write_text(json.dumps({"version": prepare.STATE_VERSION, "game": str(prepare.GAME), "done": done,
                                         "mapImportVersion": prepare.MAP_IMPORT_VERSION, "muzzleVersion": prepare.SIDE_EXPORT_VERSION, "commonVersion": prepare.COMMON_VERSION, "complete": True}))
             state = prepare.State(path, installed=["tat3"])
             self.assertEqual(state.data["done"], ["side:rep", "shell", "hud", "map:geo1", "audio:geo1cw", "environment", "textures"])
             self.assertEqual(state.data["addOns"], ["tat3"])
-            for key in ("catalog", "common", "movies", "catalog-update"):
+            for key in ("catalog", "common", "catalog-update"):
                 state.mark(key)
             again = prepare.State(path, installed=["tat3"])
             self.assertTrue(all(again.done(key) for key in done), "the same add-ons: nothing runs again")

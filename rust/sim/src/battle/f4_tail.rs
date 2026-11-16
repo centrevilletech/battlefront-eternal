@@ -25,6 +25,10 @@ fn state(battle: &mut BattleOwner) -> &mut State {
             .expect("native battle tail initialized")
     }
 }
+#[cfg(test)]
+pub(crate) fn human_choices(battle: &BattleOwner) -> &Choices {
+    &battle.tail.as_ref().expect("native battle tail initialized").human.human.choices
+}
 pub(crate) fn reset(battle: &mut BattleOwner) {
     {
         battle.tail = None;
@@ -174,12 +178,11 @@ pub fn f4_tail_hull_class_in(w: &mut Root) {
         hull: h.hull,
         label: h.label,
     });
-    let name = w.sim
-        .store
-        .vehicle
-        .get(h.hull)
-        .expect("prepared human hull")
-        .name;
+    // A landed transport is offered as the post named after its pad,
+    // transport-<pad>, the name the entity registry and the spawn screen use
+    // (flight/spawn.js transportPosts), not after the hull's class.
+    let slot = w.sim.store.vehicle.get(h.hull).expect("prepared human hull").slot_index;
+    let name = w.sim.strings.intern_str(&format!("transport-{}", jsrt::numfmt::number_to_string(slot)));
     state(&mut w.battle).human.human.choices.hull(h.hull, name);
 }
 pub fn f4_tail_post_in(w: &mut Root) {
