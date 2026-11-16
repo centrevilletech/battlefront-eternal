@@ -310,10 +310,8 @@ UP...).
   | QUIT | `ifs.pause.warn_host_quit` | the front end's main menu |
   | EXIT TO WINDOWS | `ifs.main.askquit` | closes the game |
 
-- **RESUME** (the row, BACK or Esc) captures the mouse again. When the
-  window cannot take it back at once, the HUD comes back with CLICK TO
-  RESUME and the next click captures it and plays on; Esc there opens the
-  menu again. Esc on a nested options page goes back one page.
+- **RESUME** (the row, BACK or Esc) captures the mouse again and plays on.
+  Esc on a nested options page goes back one page.
 - RESPAWN is listed always, as in the original; its YES does nothing to a
   soldier who isn't alive.
 
